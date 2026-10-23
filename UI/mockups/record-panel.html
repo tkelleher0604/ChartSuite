@@ -4,164 +4,651 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rboreal Record Panel</title>
-<link rel="stylesheet" href="../vendor/tabler-core/tabler.min.css">
+<script>
+  // Apply a chosen theme before first paint; "system" leaves it to the OS setting.
+  try {
+    const theme = JSON.parse(localStorage.getItem('rboreal.record-panel.prefs'))?.theme;
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  } catch {}
+</script>
 <style>
-  body { background: var(--tblr-bg-surface-secondary, #f6f8fb); }
-  .wrap { max-width: 820px; margin: 2rem auto; padding: 0 1rem; }
-  .brand { font-weight: 600; margin-bottom: .75rem; color: var(--tblr-secondary, #667382); }
-  .card-header { gap: .75rem; }
-  .breadcrumb { margin: 0; font-size: 1rem; flex-wrap: wrap; align-items: center; }
-  .breadcrumb-item { display: inline-flex; align-items: center; gap: .35rem; }
-  .breadcrumb-item + .breadcrumb-item::before { content: "›"; }
-  .entry { display: flex; align-items: center; gap: .5rem; padding: .4rem 1rem; min-height: 2.6rem; border-top: 1px solid var(--tblr-border-color, #e6e7e9); }
-  .entry:hover { background: var(--tblr-bg-surface-secondary, #f6f8fb); }
-  .toggle { width: 1.25rem; height: 1.25rem; padding: 0; border: 0; background: none; color: var(--tblr-secondary, #667382); display: inline-flex; align-items: center; justify-content: center; flex: none; cursor: pointer; }
-  .toggle svg { transition: transform .15s; }
-  .toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
-  .toggle-spacer { width: 1.25rem; flex: none; }
-  .entry-label { min-width: 9rem; font-weight: 500; color: inherit; }
-  a.entry-label:hover { color: var(--tblr-primary, #066fd1); }
-  .empty { padding: 1rem; color: var(--tblr-secondary, #667382); border-top: 1px solid var(--tblr-border-color, #e6e7e9); }
-  .icon { width: 18px; height: 18px; }
-  .plain-btn { border: 0; background: none; padding: 0 .15rem; color: var(--tblr-primary, #066fd1); cursor: pointer; }
+  @font-face {
+    font-family: "Inter";
+    src: url("../vendor/inter/inter-latin-wght-normal.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+  }
 
-  /* Row actions appear on hover or keyboard focus. */
-  .actions { margin-left: auto; display: flex; gap: .15rem; opacity: 0; }
-  .entry:hover .actions, .entry:focus-within .actions, .actions:has(.dropdown-menu) { opacity: 1; }
-  @media (hover: none) { .actions { opacity: 1; } }
-  .icon-btn { width: 1.9rem; height: 1.9rem; border: 0; border-radius: 4px; background: none; color: var(--tblr-secondary, #667382); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-  .icon-btn:hover:not(:disabled) { background: var(--tblr-border-color, #e6e7e9); color: var(--tblr-body-color, #182433); }
-  .icon-btn:disabled { opacity: .35; cursor: default; }
-  .header-add { margin-left: auto; }
+  :root {
+    color-scheme: light;
+    --bg: #f4f4f5;
+    --surface: #ffffff;
+    --hover: #f4f4f5;
+    --pressed: #e9e9ec;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --text: #18181b;
+    --text-2: #52525b;
+    --text-3: #a1a1aa;
+    --accent: #2b59c3;
+    --accent-hover: #234ba8;
+    --accent-soft: #eef2fb;
+    --on-accent: #ffffff;
+    --ring: rgb(43 89 195 / .25);
+    --yes: #1f9d55;
+    --no: #d63b3b;
+    --warn: #a15c07;
+    --danger: #c0352b;
+    --shadow-panel: 0 1px 2px rgb(24 24 27 / .04), 0 4px 12px -4px rgb(24 24 27 / .06);
+    --shadow-pop: 0 16px 36px -12px rgb(24 24 27 / .22), 0 2px 6px rgb(24 24 27 / .06);
+    --label-col: 14rem;
+    --indent: 20px;
+  }
+  /* The dark theme follows the OS setting unless Light or Dark is picked in the top bar. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0e0e10;
+      --surface: #18181b;
+      --hover: #222226;
+      --pressed: #2b2b30;
+      --border: #2a2a30;
+      --border-strong: #3c3c44;
+      --text: #f4f4f5;
+      --text-2: #b4b4bd;
+      --text-3: #75757f;
+      --accent: #7f9cf5;
+      --accent-hover: #9bb1f8;
+      --accent-soft: rgb(127 156 245 / .12);
+      --on-accent: #0e0e10;
+      --ring: rgb(127 156 245 / .35);
+      --yes: #34b46a;
+      --no: #e5534b;
+      --warn: #f0b45a;
+      --danger: #ff8b80;
+      --shadow-panel: 0 1px 2px rgb(0 0 0 / .4);
+      --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / .7);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0e0e10;
+    --surface: #18181b;
+    --hover: #222226;
+    --pressed: #2b2b30;
+    --border: #2a2a30;
+    --border-strong: #3c3c44;
+    --text: #f4f4f5;
+    --text-2: #b4b4bd;
+    --text-3: #75757f;
+    --accent: #7f9cf5;
+    --accent-hover: #9bb1f8;
+    --accent-soft: rgb(127 156 245 / .12);
+    --on-accent: #0e0e10;
+    --ring: rgb(127 156 245 / .35);
+    --yes: #34b46a;
+    --no: #e5534b;
+    --warn: #f0b45a;
+    --danger: #ff8b80;
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / .4);
+    --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / .7);
+  }
 
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/20px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  a { color: inherit; text-decoration: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .icon { width: 16px; height: 16px; flex: none; }
+
+  .page { max-width: 760px; margin: 0 auto; padding: 24px 20px 48px; }
+  .topbar { display: flex; align-items: center; gap: 8px; margin: 0 0 14px 2px; }
+  .brand { font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+  .brand-sub { color: var(--text-3); font-size: 13px; font-weight: 500; }
+  .prefs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 14px; margin-left: auto; font-size: 12px; color: var(--text-3); }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-panel); }
+
+  /* Segmented control for the theme. */
+  .seg-wrap { display: inline-flex; align-items: center; gap: 8px; }
+  .seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  .seg button { height: 24px; padding: 0 9px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font-size: 12px; font-weight: 500; }
+  .seg button:hover { color: var(--text); }
+  .seg button[aria-pressed="true"] { background: var(--pressed); color: var(--text); }
+
+  /* Header: path, then the current record. */
+  .panel-head { padding: 14px 16px 16px 28px; border-bottom: 1px solid var(--border); }
+  .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-height: 24px; margin: 0 0 6px -6px; font-size: 12.5px; color: var(--text-3); }
+  .crumbs a, .crumb-more { display: inline-flex; align-items: center; height: 24px; padding: 0 6px; border-radius: 6px; color: var(--text-2); }
+  .crumb-more { border: 0; background: none; color: var(--text-3); }
+  .crumbs a:hover, .crumb-more:hover { background: var(--hover); color: var(--text); }
+  .crumb-sep { width: 13px; height: 13px; }
+  .title-row { display: flex; align-items: center; gap: 12px; }
+  .title-block { flex: 1; min-width: 0; }
+  h1 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.014em; }
+  h1 .box { width: 18px; height: 18px; }
+  .title-output { color: var(--text-2); font-weight: 400; }
+  .subtitle { font-size: 13px; color: var(--text-3); }
+  .head-actions { flex: none; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgb(24 24 27 / .05); white-space: nowrap; }
+  .btn:hover, .btn[aria-expanded="true"] { background: var(--hover); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .icon-btn { width: 28px; height: 28px; flex: none; border: 0; border-radius: 6px; background: none; color: var(--text-3); display: inline-grid; place-items: center; }
+  .icon-btn:hover:not(:disabled), .icon-btn[aria-expanded="true"] { background: var(--pressed); color: var(--text); }
+  .icon-btn:disabled { opacity: .4; cursor: default; }
+  .icon-btn.is-primary { color: var(--accent); }
+  .icon-btn.is-small { width: 24px; height: 24px; margin: -2px 0; }
+  .icon-btn.is-small .icon { width: 14px; height: 14px; }
+  .link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: 13px; }
+  .link-btn:hover:not(:disabled) { color: var(--text); }
+  .link-btn:disabled { opacity: .45; cursor: default; }
+  kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); color: var(--text-3); font: 500 11px/15px "Inter", sans-serif; text-align: center; }
+
+  /* Entry rows: a label column and a value column that stay aligned at every depth.
+     Record views leave a gutter on the left for drag handles. */
+  .rows { padding: 6px; }
+  .rows.is-tree { padding-left: 24px; }
+  .entry { position: relative; }
+  .entry.is-dragging { opacity: .4; }
+  .entry.drop-before::before, .entry.drop-after::after { content: ""; position: absolute; z-index: 5; left: calc(var(--depth) * var(--indent)); right: 0; height: 2px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+  .entry.drop-before::before { top: -1px; }
+  .entry.drop-after::after { bottom: -1px; }
+  .row { position: relative; display: grid; grid-template-columns: var(--label-col) minmax(0, 1fr) auto; align-items: start; min-height: 36px; border-radius: 8px; }
+  .row:hover { background: var(--hover); }
+  .guides { position: absolute; top: 0; bottom: 0; left: 4px; width: calc(var(--depth) * var(--indent)); pointer-events: none;
+    background: repeating-linear-gradient(90deg, transparent 0 9.5px, var(--border-strong) 9.5px 10.5px, transparent 10.5px var(--indent)); }
+  .cell-label { display: flex; align-items: flex-start; gap: 6px; min-width: 0; min-height: 36px; padding-left: calc(var(--depth) * var(--indent) + 4px); color: var(--text-2); }
+  .cell-label > .twisty { margin-top: 8px; }
+  .cell-value { min-width: 0; padding: 8px 10px; overflow-wrap: anywhere; }
+  .cell-actions { display: flex; align-self: center; gap: 2px; padding-right: 4px; opacity: 0; transition: opacity .12s; }
+  .row:hover .cell-actions, .row:focus-within .cell-actions, .cell-actions:has(.pop) { opacity: 1; }
+  @media (hover: none) and (min-width: 601px) { .cell-actions { opacity: 1; } }
+  .grip { position: absolute; top: 8px; left: -22px; width: 18px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-3); display: grid; place-items: center; cursor: grab; opacity: 0; }
+  .grip .icon { width: 14px; height: 14px; }
+  .row:hover .grip, .grip:focus-visible { opacity: 1; }
+  .grip:hover { background: var(--pressed); color: var(--text); }
+  .twisty { width: 20px; height: 20px; flex: none; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-3); display: inline-grid; place-items: center; }
+  button.twisty:hover { background: var(--pressed); color: var(--text); }
+  .twisty .icon { width: 14px; height: 14px; transition: transform .15s; }
+  .twisty[aria-expanded="true"] .icon { transform: rotate(90deg); }
+  .label-text { min-width: 0; padding: 8px 0; overflow-wrap: break-word; }
+  a.label-text:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+  .value-btn { display: block; width: 100%; padding: 0; border: 0; border-radius: 4px; background: none; text-align: left; cursor: text; overflow-wrap: anywhere; }
+  .empty { padding: 18px 14px; color: var(--text-3); }
+
+  /* Choices: the option, with a chevron that opens the list of options. */
+  .select { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 16px); margin: -3px -8px; padding: 2px 7px; border: 1px solid transparent; border-radius: 6px; background: none; text-align: left; }
+  .select-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .select .icon { width: 14px; height: 14px; color: var(--text-3); }
+  .select:hover { border-color: var(--border-strong); background: var(--surface); }
+  .select:hover .icon { color: var(--text-2); }
+
+  /* Tags: a checkbox, green and checked when attested, red and crossed out when ruled out.
+     Hovering it previews the other state, which a click switches to. */
+  .check { width: 20px; height: 20px; flex: none; padding: 0; border: 0; border-radius: 5px; background: none; display: inline-grid; place-items: center; }
+  .cell-value > .check { display: grid; }
+  .check > span { display: grid; }
+  .check > .check-next { display: none; }
+  .check:hover > .check-now, .check:focus-visible > .check-now { display: none; }
+  .check:hover > .check-next, .check:focus-visible > .check-next { display: grid; opacity: .6; }
+  .box { width: 16px; height: 16px; }
+  .box rect { fill: currentColor; }
+  .box path { fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .box-yes { color: var(--yes); }
+  .box-no { color: var(--no); }
+
+  /* Choice dropdowns in the header path and title */
+  .crumb-choice { display: inline-flex; align-items: center; gap: 2px; }
+  .crumbs .select.in-crumbs { margin: 0; height: 24px; padding: 0 5px; font-size: 12.5px; color: var(--text-2); }
+  h1 .select.in-title { margin: 0 -8px 0 -4px; padding: 0 6px; font-weight: 400; color: var(--text-2); }
+  h1 .select.in-title .icon { width: 16px; height: 16px; }
+
+  /* Locations shown as values: the object's name, then any path segments below it. */
+  .loc { min-width: 0; overflow-wrap: anywhere; }
+  .loc a { color: var(--text); }
+  .loc a.path-seg { color: var(--text-2); }
+  .loc a:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+  .path-sep { margin: 0 5px; color: var(--text-3); }
+  .path-more { padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--text-3); letter-spacing: .05em; }
+  .path-more:hover { background: var(--pressed); color: var(--text); }
+
+  /* Two-argument relations: one row, listing the other side of each relation with its output. */
+  /* An item's output keeps to the right and drops below the name when the line runs out. Its actions take
+     no room until the item is hovered, and then sit after the name, so the output doesn't move. */
+  .rel-items { display: grid; gap: 6px; }
+  .rel-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 20px; }
+  .rel-item > .loc { flex: 0 1 auto; min-width: min(8rem, 100%); }
+  .rel-output { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .rel-item-actions { display: none; }
+  .rel-item:hover .rel-item-actions, .rel-item:focus-within .rel-item-actions { display: flex; }
+  .rel-acts { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); display: flex; padding-left: 6px; border-radius: 6px; background: var(--hover); opacity: 0; }
+  .rel-row:hover .rel-acts, .rel-row:focus-within .rel-acts { opacity: 1; }
+  @media (hover: none) { .rel-item-actions { display: flex; } .rel-acts { opacity: 1; } }
+  .rel-value { padding: 0; border: 0; background: none; cursor: text; font-variant-numeric: tabular-nums; }
+  .input.rel-input { width: 9rem; height: 24px; margin: -2px 0; }
+  .rel-output:has(.rel-error) { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .rel-error { font-size: 12px; line-height: 16px; color: var(--danger); white-space: normal; }
+
+  /* Relations with more arguments: a table on the same grid as rows, one column per other argument. */
+  .rel-table { position: relative; margin: 10px 0 2px; }
+  .rel-row { position: relative; display: grid; grid-template-columns: var(--label-col) repeat(var(--cols), minmax(0, 1fr)); align-items: start; border-radius: 8px; }
+  .rel-row:not(.is-head):hover { background: var(--hover); }
+  .rel-c0 { display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 6px 0 6px calc(var(--depth) * var(--indent) + 4px); }
+  .rel-c { min-width: 0; padding: 6px 10px; }
+  .rel-c0 > .loc, .rel-c0 > .menu-anchor { padding-top: 0; }
+  .rel-row.is-head { padding-top: 2px; }
+  .rel-row.is-head .menu-anchor { min-width: 0; max-width: 100%; }
+  .col-filter { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 12px); margin: -2px -6px; padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text-2); font-size: 13px; font-weight: 500; text-align: left; }
+  .col-filter-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .col-filter .icon { width: 14px; height: 14px; color: var(--text-3); }
+  .col-filter:hover, .col-filter[aria-expanded="true"] { border-color: var(--border-strong); background: var(--surface); }
+  .col-filter.is-active { color: var(--accent); }
+  .col-picked { font-weight: 400; }
+
+  /* A change that would move entries along with it waits for a yes. */
+  .pending { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 6px 6px 8px 30px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
+  .pending-text { flex: 1 1 16rem; }
+  .pending .btn { height: 28px; }
+  .rel-note { padding: 2px 0 6px calc(var(--depth) * var(--indent) + 30px); font-size: 12px; color: var(--text-3); }
+  .rel-note .link-btn { font-size: 12px; color: var(--accent); }
+
+  /* A relation's arguments, in its own panel's header. */
+  .args { display: grid; grid-template-columns: calc(var(--label-col) - 4px) minmax(0, 1fr); row-gap: 6px; margin-top: 14px; font-size: 13.5px; }
+  .arg-label { color: var(--text-2); }
+  .arg-value { padding-left: 10px; }
+
+  /* Menus and listboxes */
   .menu-anchor { position: relative; display: inline-flex; }
-  .menu-anchor .dropdown-menu { top: 100%; right: 0; left: auto; margin-top: .25rem; }
+  .pop { position: absolute; z-index: 30; top: calc(100% + 6px); max-width: calc(100vw - 24px); padding: 4px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); box-shadow: var(--shadow-pop); color: var(--text); font-size: 13.5px; font-weight: 400; line-height: 20px; white-space: normal; }
+  .menu { right: 0; width: 304px; }
+  .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px; background: none; color: var(--text); font-size: 13.5px; text-align: left; }
+  .menu-item:hover, .menu-item:focus-visible { background: var(--hover); outline: none; }
+  .menu-left { left: 0; right: auto; width: max-content; min-width: 200px; max-width: min(340px, calc(100vw - 24px)); }
+  .menu-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .menu-title { font-weight: 500; }
+  .menu-desc { font-size: 12px; line-height: 16px; color: var(--text-3); }
+  .menu-note { font-size: 12px; color: var(--text-3); }
+  .menu-item .icon { width: 14px; height: 14px; color: var(--text-2); }
+  .menu-sep { height: 1px; margin: 4px -4px; background: var(--border); }
+  .menu-head { padding: 6px 10px 2px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+  .pop.menu { max-height: min(420px, 70vh); overflow-y: auto; }
+  .combo { position: relative; flex: 1; min-width: 0; }
+  .combo-field { position: relative; display: block; }
+  .combo-chevron { position: absolute; top: 7px; right: 8px; width: 14px; height: 14px; color: var(--text-3); pointer-events: none; }
+  .combo-field:has(.combo-chevron) .input { padding-right: 28px; }
+  .listbox { left: 0; top: calc(100% + 4px); width: max(100%, 290px); max-height: 300px; overflow-y: auto; }
+  .listbox-head { padding: 6px 8px 4px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+  .listbox-foot { padding: 6px 8px; font-size: 12px; color: var(--text-3); }
+  .listbox-sep { height: 1px; margin: 4px -4px; background: var(--border); }
+  .option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; cursor: pointer; }
+  .option[aria-selected="true"] { background: var(--hover); }
+  .option[aria-disabled="true"] { color: var(--text-3); cursor: default; }
+  .option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .option-meta { margin-left: auto; padding-left: 12px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  .option-create { color: var(--accent); }
+  .option-create strong { font-weight: 600; }
 
-  .entry-form { flex-wrap: wrap; background: var(--tblr-bg-surface-secondary, #f6f8fb); }
-  .entry-form .form-control, .entry-form .form-select { width: auto; min-width: 0; flex: 1 1 8rem; }
-  .entry-form .btn { flex: none; }
-  .form-kind { min-width: 4.5rem; font-size: .8rem; font-weight: 600; text-transform: uppercase; color: var(--tblr-secondary, #667382); }
-  .form-error { flex-basis: 100%; color: var(--tblr-danger, #d63939); font-size: .85rem; padding-left: 6.75rem; }
+  /* Forms: the row being added or edited, with a note line under it. */
+  .form-block { margin: 2px 0; border-radius: 8px; background: var(--accent-soft); }
+  .form-block .row, .form-block .cell-label { align-items: center; }
+  .form-block .cell-label > .twisty { margin-top: 0; }
+  .form-block .row:hover { background: none; }
+  .form-block .cell-actions { opacity: 1; }
+  .form-block:has(.listbox:not([hidden])) .form-note-inner { visibility: hidden; }
+  .input { width: 100%; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); outline: none; }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+  .input::placeholder { color: var(--text-3); }
+  .ghost { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); }
+  .ghost .icon { width: 14px; height: 14px; }
+  .form-note { display: grid; grid-template-columns: var(--label-col) minmax(0, 1fr); padding: 0 12px 8px 0; }
+  .form-note-inner { grid-column: 2; display: flex; align-items: flex-start; gap: 12px; padding: 0 10px; font-size: 12px; line-height: 18px; color: var(--text-2); }
+  .form-note.is-plain { display: block; padding: 0 12px 8px 12px; }
+  .form-note.is-plain .form-note-inner { padding: 0; }
+  .note-text { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .note-text .icon { width: 14px; height: 14px; }
+  .note-text.is-warn { color: var(--warn); }
+  .note-text.is-error { color: var(--danger); }
+  .form-keys { display: inline-flex; gap: 12px; margin-left: auto; color: var(--text-3); white-space: nowrap; }
 
-  .panel-footer { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-top: .75rem; font-size: .85rem; color: var(--tblr-secondary, #667382); }
-  .panel-footer .plain-btn:disabled { color: var(--tblr-secondary, #667382); opacity: .5; cursor: default; }
+  /* Lists of kinds and objects */
+  .list-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 10px 8px 22px; border-radius: 8px; }
+  a.list-row:hover { background: var(--hover); }
+  /* The name keeps its full width; only the summary beside it gives way. */
+  .list-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .list-meta { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--text-3); font-size: 13px; }
+  .list-chevron { width: 14px; height: 14px; color: var(--text-3); }
+  .list-row .input { flex: 1; }
+
+  .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 12px; padding: 0 4px; font-size: 12.5px; color: var(--text-3); }
+  .foot-hint { margin-left: auto; }
+  .foot-hint.is-error { color: var(--danger); }
+
+  /* Narrow screens: a tighter indent, row actions float over the value instead of taking a column,
+     and listboxes span the row instead of hanging off its right edge. */
+  @media (max-width: 600px) {
+    :root { --label-col: 44%; --indent: 14px; }
+    .page { padding: 16px 12px 32px; }
+    .panel-head { padding: 12px 12px 14px 24px; }
+    .rows.is-tree { padding-left: 20px; }
+    .grip { left: -18px; }
+    .row { grid-template-columns: var(--label-col) minmax(0, 1fr); }
+    .cell-actions { position: absolute; top: 4px; right: 4px; padding-left: 6px; border-radius: 6px; background: var(--hover); }
+    .form-block .row { grid-template-columns: var(--label-col) minmax(0, 1fr) auto; }
+    .form-block .cell-actions { position: static; background: none; }
+    .combo { position: static; }
+    .listbox { left: 6px; right: 6px; width: auto; max-width: none; }
+    .form-keys { display: none; }
+    .list-title { white-space: normal; }
+    .list-meta { display: none; }
+    .list-chevron { margin-left: auto; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="brand">Rboreal</div>
-  <div class="card">
-    <div class="card-header" id="header"></div>
-    <div id="body"></div>
-  </div>
-  <div class="panel-footer" id="footer"></div>
+<div class="page">
+  <header class="topbar">
+    <span class="brand">Rboreal</span><span class="brand-sub">Record panel</span>
+    <span class="prefs" id="prefs"></span>
+  </header>
+  <main class="panel" id="panel"></main>
+  <div class="foot" id="foot"></div>
 </div>
 
 <script>
 // Sample state, path case only: every non-object record has exactly one location.
 // `at` is the id of that location and `edge` labels the edge to it.
 // The root is one of: an object (kind), a field (datatype + value), a choice (text) or a tag (Boolean).
+// Labels, choices and kinds are matched without regard to case, but shown as written.
 const SAMPLE = {
-  acme:          { kind: 'entity' },
-  acme_name:     { at: 'acme', edge: 'name', field: 'text', value: 'Acme Holdings, LLC' },
-  acme_formed:   { at: 'acme', edge: 'formed', field: 'date', value: '2019-03-04' },
-  acme_ein:      { at: 'acme', edge: 'EIN', field: 'text', value: '84-1234567' },
-  acme_good:     { at: 'acme', edge: 'good standing', tag: true },
-  acme_juris:    { at: 'acme', edge: 'jurisdiction', choice: 'Delaware' },
-  acme_file:     { at: 'acme_juris', edge: 'file number', field: 'text', value: '7351234' },
-  acme_agent:    { at: 'acme_juris', edge: 'registered agent', field: 'text', value: 'CT Corporation' },
-  acme_type:     { at: 'acme', edge: 'entity type', choice: 'LLC' },
-  acme_managed:  { at: 'acme_type', edge: 'manager-managed', tag: true },
-  acme_tax:      { at: 'acme_type', edge: 'tax classification', choice: 'partnership' },
+  fund:            { kind: 'Entity' },
+  fund_name:       { at: 'fund', edge: 'Name', field: 'text', value: 'Calder Ridge Capital Partners III, L.P.' },
+  fund_formed:     { at: 'fund', edge: 'Formation Date', field: 'date', value: '2023-02-14' },
+  fund_ein:        { at: 'fund', edge: 'EIN', field: 'text', value: '92-4810337' },
+  fund_fye:        { at: 'fund', edge: 'Fiscal Year End', field: 'text', value: 'December 31' },
+  fund_target:     { at: 'fund', edge: 'Target Commitments', field: 'number', value: '$750,000,000' },
+  fund_good:       { at: 'fund', edge: 'Good Standing', tag: true },
+  fund_erisa:      { at: 'fund', edge: 'ERISA Plan Assets', tag: false },
+  fund_vehicle:    { at: 'fund', edge: 'Vehicle Type', choice: 'Main Fund' },
+  fund_juris:      { at: 'fund', edge: 'Jurisdiction', choice: 'Delaware' },
+  fund_file:       { at: 'fund_juris', edge: 'File Number', field: 'text', value: '7351234' },
+  fund_agent:      { at: 'fund_juris', edge: 'Registered Agent', field: 'text', value: 'The Corporation Trust Company' },
+  fund_type:       { at: 'fund', edge: 'Entity Type', choice: 'Limited Partnership' },
+  fund_tax:        { at: 'fund_type', edge: 'Tax Classification', choice: 'Partnership' },
 
-  opco:          { kind: 'entity' },
-  opco_name:     { at: 'opco', edge: 'name', field: 'text', value: 'Acme Operating Co.' },
-  opco_formed:   { at: 'opco', edge: 'formed', field: 'date', value: '2019-05-20' },
-  opco_good:     { at: 'opco', edge: 'good standing', tag: false },
-  opco_juris:    { at: 'opco', edge: 'jurisdiction', choice: 'Texas' },
-  opco_file:     { at: 'opco_juris', edge: 'file number', field: 'text', value: '0803456789' },
-  opco_type:     { at: 'opco', edge: 'entity type', choice: 'corporation' },
-  opco_shares:   { at: 'opco_type', edge: 'authorized shares', field: 'number', value: 10000000 },
+  feeder:          { kind: 'Entity' },
+  feeder_name:     { at: 'feeder', edge: 'Name', field: 'text', value: 'Calder Ridge Capital Partners III (Cayman), L.P.' },
+  feeder_formed:   { at: 'feeder', edge: 'Formation Date', field: 'date', value: '2023-03-01' },
+  feeder_good:     { at: 'feeder', edge: 'Good Standing', tag: true },
+  feeder_vehicle:  { at: 'feeder', edge: 'Vehicle Type', choice: 'Feeder Fund' },
+  feeder_juris:    { at: 'feeder', edge: 'Jurisdiction', choice: 'Cayman Islands' },
+  feeder_reg:      { at: 'feeder_juris', edge: 'Registration Number', field: 'text', value: 'OG-104582' },
+  feeder_office:   { at: 'feeder_juris', edge: 'Registered Office', field: 'text', value: 'PO Box 1200, George Town, Grand Cayman KY1-1102' },
+  feeder_type:     { at: 'feeder', edge: 'Entity Type', choice: 'Exempted Limited Partnership' },
 
-  lee:           { kind: 'person' },
-  lee_name:      { at: 'lee', edge: 'name', field: 'text', value: 'Jordan Lee' },
-  lee_email:     { at: 'lee', edge: 'email', field: 'text', value: 'jordan.lee@example.com' },
+  gp:              { kind: 'Entity' },
+  gp_name:         { at: 'gp', edge: 'Name', field: 'text', value: 'Calder Ridge Capital GP III, LLC' },
+  gp_formed:       { at: 'gp', edge: 'Formation Date', field: 'date', value: '2023-02-10' },
+  gp_ein:          { at: 'gp', edge: 'EIN', field: 'text', value: '92-4810115' },
+  gp_good:         { at: 'gp', edge: 'Good Standing', tag: true },
+  gp_vehicle:      { at: 'gp', edge: 'Vehicle Type', choice: 'General Partner' },
+  gp_juris:        { at: 'gp', edge: 'Jurisdiction', choice: 'Delaware' },
+  gp_file:         { at: 'gp_juris', edge: 'File Number', field: 'text', value: '7349876' },
+  gp_agent:        { at: 'gp_juris', edge: 'Registered Agent', field: 'text', value: 'The Corporation Trust Company' },
+  gp_type:         { at: 'gp', edge: 'Entity Type', choice: 'Limited Liability Company' },
+  gp_tax:          { at: 'gp_type', edge: 'Tax Classification', choice: 'Partnership' },
+
+  mgmt:            { kind: 'Entity' },
+  mgmt_name:       { at: 'mgmt', edge: 'Name', field: 'text', value: 'Calder Ridge Capital Management, LLC' },
+  mgmt_formed:     { at: 'mgmt', edge: 'Formation Date', field: 'date', value: '2018-06-05' },
+  mgmt_ein:        { at: 'mgmt', edge: 'EIN', field: 'text', value: '83-0915524' },
+  mgmt_good:       { at: 'mgmt', edge: 'Good Standing', tag: true },
+  mgmt_ria:        { at: 'mgmt', edge: 'Registered Investment Adviser', tag: true },
+  mgmt_sec:        { at: 'mgmt_ria', edge: 'SEC File Number', field: 'text', value: '801-123456' },
+  mgmt_crd:        { at: 'mgmt_ria', edge: 'CRD Number', field: 'text', value: '312345' },
+  mgmt_vehicle:    { at: 'mgmt', edge: 'Vehicle Type', choice: 'Management Company' },
+  mgmt_juris:      { at: 'mgmt', edge: 'Jurisdiction', choice: 'Delaware' },
+  mgmt_file:       { at: 'mgmt_juris', edge: 'File Number', field: 'text', value: '6894512' },
+  mgmt_type:       { at: 'mgmt', edge: 'Entity Type', choice: 'Limited Liability Company' },
+  mgmt_managed:    { at: 'mgmt_type', edge: 'Manager-Managed', tag: true },
+  mgmt_tax:        { at: 'mgmt_type', edge: 'Tax Classification', choice: 'Partnership' },
+
+  blocker:         { kind: 'Entity' },
+  blocker_name:    { at: 'blocker', edge: 'Name', field: 'text', value: 'Calder Ridge III Blocker, Inc.' },
+  blocker_formed:  { at: 'blocker', edge: 'Formation Date', field: 'date', value: '2023-05-22' },
+  blocker_vehicle: { at: 'blocker', edge: 'Vehicle Type', choice: 'Blocker' },
+  blocker_juris:   { at: 'blocker', edge: 'Jurisdiction', choice: 'Delaware' },
+  blocker_file:    { at: 'blocker_juris', edge: 'File Number', field: 'text', value: '7412203' },
+  blocker_type:    { at: 'blocker', edge: 'Entity Type', choice: 'Corporation' },
+  blocker_shares:  { at: 'blocker_type', edge: 'Authorized Shares', field: 'number', value: '1,000' },
+  blocker_tax:     { at: 'blocker_type', edge: 'Tax Classification', choice: 'C Corporation' },
+
+  chen:            { kind: 'Individual' },
+  chen_name:       { at: 'chen', edge: 'Name', field: 'text', value: 'Margaret A. Chen' },
+  chen_email:      { at: 'chen', edge: 'Email', field: 'text', value: 'mchen@example.com' },
+  chen_us:         { at: 'chen', edge: 'U.S. Person', tag: true },
+
+  okafor:          { kind: 'Individual' },
+  okafor_name:     { at: 'okafor', edge: 'Name', field: 'text', value: 'David R. Okafor' },
+  okafor_email:    { at: 'okafor', edge: 'Email', field: 'text', value: 'dokafor@example.com' },
+  okafor_us:       { at: 'okafor', edge: 'U.S. Person', tag: true },
+
+  // Relations: entries with more than one location. Each argument is an edge label and a location id,
+  // listed in a fixed order that the panels follow when they lay arguments out side by side.
+
+  // A tag relating a GP to the fund it manages. The fund's side sits at its Entity Type, not at the entity.
+  gp_of_fund:      { args: [{ edge: 'GP', at: 'gp' }, { edge: 'Fund Owned', at: 'fund_type' }], tag: true },
+  gp_of_feeder:    { args: [{ edge: 'GP', at: 'gp' }, { edge: 'Fund Owned', at: 'feeder_type' }], tag: true },
+  gp_admitted:     { at: 'gp_of_fund', edge: 'Admission Date', field: 'date', value: '2023-02-14' },
+
+  // Ownership percentages: a number field relating owner and holding.
+  own_fund_blkr:   { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Holding', at: 'blocker' }], field: 'number', value: '100%' },
+  own_fdr_fund:    { args: [{ edge: 'Owner', at: 'feeder' }, { edge: 'Holding', at: 'fund' }], field: 'number', value: '28.4%' },
+  own_chen_mgmt:   { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Holding', at: 'mgmt' }], field: 'number', value: '60%' },
+  own_okfr_mgmt:   { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Holding', at: 'mgmt' }], field: 'number', value: '40%' },
+  own_chen_gp:     { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Holding', at: 'gp' }], field: 'number', value: '50%' },
+  own_okfr_gp:     { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Holding', at: 'gp' }], field: 'number', value: '50%' },
+
+  // LLC membership: a choice relating a member to an LLC, by way of its Entity Type.
+  mem_chen_gp:     { args: [{ edge: 'Member', at: 'chen' }, { edge: 'LLC', at: 'gp_type' }], choice: 'Managing Member' },
+  mem_okfr_gp:     { args: [{ edge: 'Member', at: 'okafor' }, { edge: 'LLC', at: 'gp_type' }], choice: 'Member' },
+  mem_chen_mgmt:   { args: [{ edge: 'Member', at: 'chen' }, { edge: 'LLC', at: 'mgmt_type' }], choice: 'Managing Member' },
+  mem_okfr_mgmt:   { args: [{ edge: 'Member', at: 'okafor' }, { edge: 'LLC', at: 'mgmt_type' }], choice: 'Member' },
+
+  // Signing authority, with three arguments: who signs, through which entity, for which entity.
+  // Signing for the management company directly makes "Via" and "On Behalf Of" the same location.
+  sign_chen_fund:  { args: [{ edge: 'Signatory', at: 'chen' }, { edge: 'Via', at: 'gp' }, { edge: 'On Behalf Of', at: 'fund' }], tag: true },
+  sign_okfr_fund:  { args: [{ edge: 'Signatory', at: 'okafor' }, { edge: 'Via', at: 'gp' }, { edge: 'On Behalf Of', at: 'fund' }], tag: true },
+  sign_chen_fdr:   { args: [{ edge: 'Signatory', at: 'chen' }, { edge: 'Via', at: 'gp' }, { edge: 'On Behalf Of', at: 'feeder' }], tag: true },
+  sign_chen_mgmt:  { args: [{ edge: 'Signatory', at: 'chen' }, { edge: 'Via', at: 'mgmt' }, { edge: 'On Behalf Of', at: 'mgmt' }], tag: true },
+  sign_okfr_mgmt:  { args: [{ edge: 'Signatory', at: 'okafor' }, { edge: 'Via', at: 'mgmt' }, { edge: 'On Behalf Of', at: 'mgmt' }], tag: false },
 };
 
-const STORAGE_KEY = 'rboreal.record-panel.v1';
+const STORAGE_KEY = 'rboreal.record-panel.v4';
+const PREFS_KEY = 'rboreal.record-panel.prefs';
 
-function loadRecords() {
+// The state is the records plus the order their entries are shown in. Order is presentation only (the
+// data model's trees are unordered) and is kept per location specification (see specKey), so that, say,
+// every Entity lists its entries in the same order, the way a spreadsheet's rows share its columns.
+function loadState() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (saved?.records) return { order: {}, ...saved };
   } catch {}
-  return structuredClone(SAMPLE);
+  return { records: structuredClone(SAMPLE), order: {} };
 }
-function saveRecords() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch {}
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, order })); } catch {}
 }
 
-// Records are never mutated in place, so earlier states can be kept for undo.
-let records = loadRecords();
+// Per-viewer settings: just the theme so far.
+function loadPrefs() {
+  const prefs = { theme: 'system' };
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS_KEY))); } catch {}
+  return prefs;
+}
+function savePrefs() {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+}
+
+// States are never mutated in place, so earlier ones can be kept for undo.
+let { records, order } = loadState();
 const undoStack = [];
+const prefs = loadPrefs();
 
 const ui = {
   expanded: new Set(),
   showRoot: false,  // whether the "All › Kind" start of the path is revealed
-  menu: null,       // id of the location whose add menu is open
-  draft: null,      // { type, at, kind, values } for a new entry being added
-  editing: null,    // { id, values } for an entry being edited
-  error: null,
+  menu: null,       // the open menu: 'add:<id>', 'opt:<id>' (a choice's options) or 'col:<table>:<column>'
+  form: null,       // the entry being added or edited; see startForm
+  focus: null,      // which box of the form gets focus: 'name', 'other' or 'output'
+  error: null,      // why the form couldn't be saved
+  notice: null,     // why some other change couldn't be made
+  drag: null,       // { id, at, target, after } while an entry is dragged
+  focusGrip: null,  // id of the entry whose drag handle gets focus after a keyboard move
+  fullPaths: false, // whether locations show every segment below their object, not just the distinguishing ones
+  filters: {},      // per relation table, the location picked in each column's dropdown
+  relEdit: null,    // id of the relation whose value is being typed over
 };
 
 // Inner markup of the Tabler outline icons in ../vendor/tabler-icons/outline/.
 const ICONS = {
+  'alert-triangle': '<path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" />',
+  'arrow-right': '<path d="M5 12l14 0" /><path d="M13 18l6 -6" /><path d="M13 6l6 6" />',
+  'check': '<path d="M5 12l5 5l10 -10" />',
+  'chevron-down': '<path d="M6 9l6 6l6 -6" />',
   'chevron-right': '<path d="M9 6l6 6l-6 6" />',
-  'plus': '<path d="M12 5l0 14" /><path d="M5 12l14 0" />',
+  'dots': '<path d="M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />',
+  'grip-vertical': '<path d="M8 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M14 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />',
   'pencil': '<path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M13.5 6.5l4 4" />',
+  'plus': '<path d="M12 5l0 14" /><path d="M5 12l14 0" />',
   'trash': '<path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />',
+  'x': '<path d="M18 6l-12 12" /><path d="M6 6l12 12" />',
 };
-const icon = name =>
-  `<svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+const icon = (name, cls = '') =>
+  `<svg class="icon ${cls}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
+// A tag's state as a filled checkbox: checked when attested, crossed out when ruled out.
+const BOX_MARKS = { true: '<path d="M4.6 8.2l2.3 2.3l4.6 -4.9" />', false: '<path d="M5.4 5.4l5.2 5.2" /><path d="M10.6 5.4l-5.2 5.2" />' };
+const box = yes => `<svg class="box box-${yes ? 'yes' : 'no'}" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="14" height="14" rx="4" />${BOX_MARKS[yes]}</svg>`;
+// The clickable version, which shows the other state on hover.
+const checkbox = (yes, attrs) =>
+  `<button class="check" ${attrs} aria-label="${yes ? 'Attested; rule it out' : 'Ruled out; attest it'}" title="${yes ? 'Click to rule it out' : 'Click to attest it'}">
+    <span class="check-now">${box(yes)}</span><span class="check-next">${box(!yes)}</span></button>`;
+
 const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 
 const isObject = r => 'kind' in r;
 const isField = r => 'field' in r;
 const isTag = r => 'tag' in r;
 const isChoice = r => 'choice' in r;
+const isRelation = r => 'args' in r;
 const typeOf = r => isField(r) ? 'field' : isTag(r) ? 'tag' : 'choice';
+// An entry's arguments: a path entry's single location, or a relation's several.
+const argsOf = r => r.args ?? (r.at ? [{ edge: r.edge, at: r.at }] : []);
+const relationLabel = r => r.args.map(a => a.edge).join(' · ');
+const labelOf = r => isRelation(r) ? relationLabel(r) : r.edge;
 
-const TYPE_NAMES = { choice: 'Option', tag: 'Tag', field: 'Field' };
-const DATATYPES = ['text', 'number', 'date'];
-const INPUT_TYPES = { text: 'text', number: 'number', date: 'date' };
-const DEFAULT_VALUES = {
-  field: { edge: '', datatype: 'text', value: '' },
-  tag: { edge: '', tag: 'true' },
-  choice: { edge: '', option: '' },
-  object: { name: '' },
-};
+const TYPE_NAMES = { field: 'Field', tag: 'Tag', choice: 'Choice' };
+const DATATYPE_NAMES = { text: 'Text', number: 'Number', date: 'Date' };
 
-const kindLabel = k => k[0].toUpperCase() + k.slice(1);
+const clean = s => String(s ?? '').trim().replace(/\s+/g, ' ');
+const norm = s => clean(s).toLowerCase();
+const same = (a, b) => norm(a) === norm(b);
+const byLabel = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+const plural = word => /[^aeiou]y$/i.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`;
+const count = (n, word) => `${n} ${n === 1 ? word : plural(word)}`;
+
 let idCounter = 0;
 const newId = () => `r${Date.now().toString(36)}${(idCounter++).toString(36)}`;
 
+// ---- Field values ----
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function monthNumber(word) {
+  const w = word.toLowerCase().replace(/\.$/, '');
+  return MONTHS.findIndex(m => m.toLowerCase() === w || m.slice(0, 3).toLowerCase() === w || (w === 'sept' && m === 'September')) + 1;
+}
+
+// Reads 2019-03-04, 3/4/2019, March 4, 2019, Mar. 4, 2019 or 4 March 2019 as an ISO date, or returns null.
+function parseDate(s) {
+  let m, y, mo, d;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) [, y, mo, d] = m;
+  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) [, mo, d, y] = m;
+  else if ((m = s.match(/^([A-Za-z]+\.?) (\d{1,2}),? (\d{4})$/))) [y, mo, d] = [m[3], monthNumber(m[1]), m[2]];
+  else if ((m = s.match(/^(\d{1,2}) ([A-Za-z]+\.?),? (\d{4})$/))) [y, mo, d] = [m[3], monthNumber(m[2]), m[1]];
+  else return null;
+  [y, mo, d] = [y, mo, d].map(Number);
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  if (!mo || date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+const formatDate = iso => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${MONTHS[m - 1]} ${d}, ${y}`;
+};
+
+// Amounts like 1,000, $750,000,000 or 12.5%. A leading zero (0803456789) marks an identifier, which stays text.
+const NUMBER = /^[-+]?\$?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?%?$/;
+const isNumber = s => NUMBER.test(s) && !/^[-+]?\$?0\d/.test(s);
+
+const classify = s => parseDate(s) ? 'date' : isNumber(s) ? 'number' : 'text';
+const asPhrase = datatype => datatype === 'text' ? 'text' : `a ${datatype}`;
+
+// Dates are stored as ISO strings. Numbers and text keep the form they were typed in,
+// so an identifier that happens to be all digits still shows as typed.
+function parseValue(datatype, raw) {
+  const s = clean(raw);
+  if (!s) return undefined;
+  if (datatype === 'date') return parseDate(s) ?? undefined;
+  if (datatype === 'number') return isNumber(s) ? s : undefined;
+  return s;
+}
+const displayValue = r => r.field === 'date' ? formatDate(r.value) : r.value;
+
 // ---- Reading the state ----
 
-// Fields first, then tags, then choices; alphabetical by edge label within each group.
-const groupOrder = r => isField(r) ? 0 : isTag(r) ? 1 : 2;
+const isObjectName = (id, recs = records) => isField(recs[id]) && same(recs[id].edge, 'name') && isObject(recs[recs[id].at]);
+
+// Compares { type, label } items: labels in the order they've been dragged into come first, in that order;
+// the rest follow as fields, tags, then choices, alphabetical within each.
+const TYPE_RANK = { field: 0, tag: 1, choice: 2 };
+function orderedBy(placed) {
+  const rank = label => { const i = placed.indexOf(norm(label)); return i < 0 ? Infinity : i; };
+  return (a, b) => rank(a.label) - rank(b.label) || TYPE_RANK[a.type] - TYPE_RANK[b.type] || byLabel(a.label, b.label);
+}
+
+// Name first, then the order shared by locations with the same specification.
 function entriesOf(id, recs = records) {
-  return Object.keys(recs)
-    .filter(k => recs[k].at === id)
-    .sort((a, b) => groupOrder(recs[a]) - groupOrder(recs[b]) || recs[a].edge.localeCompare(recs[b].edge));
+  const ids = Object.keys(recs).filter(k => recs[k].at === id);
+  if (ids.length < 2) return ids;
+  const compare = orderedBy(order[specKey(recs, id)] ?? []);
+  const item = k => ({ type: typeOf(recs[k]), label: recs[k].edge });
+  return ids.sort((a, b) => isObjectName(b, recs) - isObjectName(a, recs) || compare(item(a), item(b)));
 }
 
-function objectName(id) {
-  const nameId = entriesOf(id).find(k => records[k].edge === 'name');
-  return nameId ? records[nameId].value : `${records[id].kind} ${id}`;
+function objectName(id, recs = records) {
+  const nameId = entriesOf(id, recs).find(k => isObjectName(k, recs));
+  return nameId ? recs[nameId].value : `${recs[id].kind} ${id}`;
 }
 
-const objectsOfKind = kind => Object.keys(records).filter(k => records[k].kind === kind);
-const isObjectName = id => records[id].edge === 'name' && isObject(records[records[id].at]);
+const objectsOfKind = kind => Object.keys(records)
+  .filter(k => isObject(records[k]) && same(records[k].kind, kind))
+  .sort((a, b) => byLabel(objectName(a), objectName(b)));
 
 // Locations up to the object, ordered object-first like a file path.
 function pathTo(id) {
@@ -170,31 +657,117 @@ function pathTo(id) {
   return path;
 }
 
-// The record's underlying specification with its root label removed, serialized:
-// its edge, then each location's label and edge, ending at the kind.
-function parameterization(recs, id) {
-  const parts = [recs[id].edge];
-  for (let cur = recs[id].at; cur; cur = recs[cur].at) {
-    const r = recs[cur];
-    if (isObject(r)) { parts.push(`kind:${r.kind}`); break; }
-    parts.push(isTag(r) ? `tag:${r.tag}` : `choice:${r.choice}`, r.edge);
+// A record's underlying specification, serialized: an object's kind, or an entry's root label followed by
+// each argument's edge and its location's specification, sorted, since the tree is unordered.
+// States are never mutated, so each one's keys are worked out once.
+const specCache = new WeakMap();
+function specKey(recs, id) {
+  if (!specCache.has(recs)) specCache.set(recs, new Map());
+  const cache = specCache.get(recs);
+  if (!cache.has(id)) {
+    const r = recs[id];
+    cache.set(id, isObject(r) ? `kind:${norm(r.kind)}` : JSON.stringify([rootLabel(r), ...argSpecs(recs, r)]));
   }
-  return JSON.stringify(parts);
+  return cache.get(id);
 }
+const rootLabel = r => isTag(r) ? `tag:${r.tag}` : isChoice(r) ? `choice:${norm(r.choice)}` : `field:${r.field}`;
+const argSpecs = (recs, r) => argsOf(r).map(a => JSON.stringify([norm(a.edge), specKey(recs, a.at)])).sort();
+
+// The record's underlying specification with its root label removed.
+const parameterization = (recs, id) => JSON.stringify(argSpecs(recs, recs[id]));
+
+// Relations with an argument at `id`.
+const relationsAt = (id, recs = records) =>
+  Object.keys(recs).filter(k => isRelation(recs[k]) && recs[k].args.some(a => a.at === id));
+const hasEntries = id => entriesOf(id).length > 0 || relationsAt(id).length > 0;
+
+// How a record reads as one segment of a path.
+function segmentText(id) {
+  const r = records[id];
+  if (isObject(r)) return objectName(id);
+  if (isRelation(r)) return relationLabel(r);
+  if (isTag(r)) return `${r.tag ? '' : 'Not '}${r.edge}`;
+  return isChoice(r) ? `${r.edge}: ${r.choice}` : r.edge;
+}
+
+// The options a choice's parameterization has across the state, for its dropdown.
+function outputsOf(id) {
+  const p = parameterization(records, id);
+  const outputs = [];
+  for (const [k, r] of Object.entries(records))
+    if (isChoice(r) && parameterization(records, k) === p && !outputs.some(o => same(o, r.choice))) outputs.push(r.choice);
+  return outputs.sort(byLabel);
+}
+
+// The relations at a location, grouped into the rows that show them there: one per output type and
+// split of the relation's edges into this location's own and the others'. A row is labeled with the
+// other edges, in the order the relation lists its arguments.
+function relationGroups(at) {
+  const groups = new Map();
+  for (const id of relationsAt(at)) {
+    const r = records[id];
+    const own = r.args.filter(a => a.at === at).map(a => a.edge);
+    const others = r.args.filter(a => a.at !== at).map(a => a.edge);
+    const key = JSON.stringify([typeOf(r), own.map(norm).sort(), others.map(norm).sort()]);
+    if (!groups.has(key)) groups.set(key, { key, type: typeOf(r), own, others, ids: [] });
+    groups.get(key).ids.push(id);
+  }
+  return [...groups.values()].sort((a, b) => byLabel(a.others.join(' '), b.others.join(' ')));
+}
+
+// The two-argument relations that a location like `at` could take part in, from those already in the state:
+// one per output type and pair of edges, with every specification seen on the other side.
+function relationTypesAt(at) {
+  const spec = specKey(records, at);
+  const types = new Map();
+  for (const r of Object.values(records)) {
+    if (!isRelation(r) || r.args.length !== 2) continue;
+    r.args.forEach((own, i) => {
+      if (specKey(records, own.at) !== spec) return;
+      const other = r.args[1 - i];
+      const key = JSON.stringify([typeOf(r), [norm(own.edge)], [norm(other.edge)]]);
+      if (!types.has(key)) types.set(key, { key, type: typeOf(r), own: own.edge, other: other.edge, ownFirst: i === 0, otherSpecs: new Set(), datatype: r.field, outputs: [] });
+      const t = types.get(key);
+      t.otherSpecs.add(specKey(records, other.at));
+      if (isChoice(r) && !t.outputs.some(o => same(o, r.choice))) t.outputs.push(r.choice);
+    });
+  }
+  return [...types.values()].sort((a, b) => byLabel(a.other, b.other));
+}
+
+// The parameterizations the records imply for entries of locations like `at` (same underlying specification),
+// one per type and label, with each field's datatype and each choice's outputs.
+function schemaAt(at, exceptId) {
+  const key = specKey(records, at);
+  const params = new Map();
+  for (const [id, r] of Object.entries(records)) {
+    if (!r.at || id === exceptId || specKey(records, r.at) !== key) continue;
+    const k = `${typeOf(r)}:${norm(r.edge)}`;
+    if (!params.has(k)) params.set(k, { type: typeOf(r), label: r.edge, datatype: r.field, outputs: [] });
+    const p = params.get(k);
+    if (isChoice(r) && !p.outputs.some(o => same(o, r.choice))) p.outputs.push(r.choice);
+  }
+  return [...params.values()];
+}
+
+// The datatype other fields with this label already have at locations like `at`, if any.
+const fieldDatatype = (at, label, exceptId) =>
+  schemaAt(at, exceptId).find(p => p.type === 'field' && same(p.label, label))?.datatype;
 
 // Returns a message for the first way `recs` fails to be a state, or null if it is one.
 function validate(recs) {
-  // Two path entries of one location with the same edge label would share an argumentation.
+  // Two entries with the same edges to the same locations would share an argumentation.
   const seen = new Set();
   for (const r of Object.values(recs)) {
-    if (!r.at) continue;
-    const key = `${r.at}\u0000${r.edge}`;
-    if (seen.has(key)) return `There's already an entry labeled "${r.edge}" here.`;
+    if (isObject(r)) continue;
+    if (argsOf(r).some(a => !recs[a.at])) return 'Something it’s located at no longer exists.';
+    const key = JSON.stringify(argsOf(r).map(a => JSON.stringify([norm(a.edge), a.at])).sort());
+    if (seen.has(key)) return isRelation(r) ? 'That relation is already recorded.' : `There’s already an entry called ${r.edge} here.`;
     seen.add(key);
   }
   for (const [id, r] of Object.entries(recs)) {
-    if (isObject(r) && !entriesOf(id, recs).some(e => recs[e].edge === 'name' && isField(recs[e])))
-      return 'Every object needs a name field.';
+    if (isObject(r) && !entriesOf(id, recs).some(e => isObjectName(e, recs)))
+      return `Every ${r.kind.toLowerCase()} needs a Name.`;
   }
   // Schema conditions on the specifications the records imply.
   const byParameterization = new Map();
@@ -205,12 +778,12 @@ function validate(recs) {
     byParameterization.get(p).push(recs[id]);
   }
   for (const rs of byParameterization.values()) {
-    const edge = rs[0].edge;
+    const edge = labelOf(rs[0]);
     const datatypes = [...new Set(rs.filter(isField).map(r => r.field))];
     if (datatypes.length > 1)
-      return `Schema conflict: a ${datatypes[0]} field and a ${datatypes[1]} field labeled "${edge}" would share a parameterization.`;
+      return `${edge} can’t be both a ${datatypes[0]} field and a ${datatypes[1]} field.`;
     if (rs.some(isChoice) && rs.some(r => isTag(r) || isField(r)))
-      return `Schema conflict: an option and a ${rs.some(isTag) ? 'tag' : 'field'} labeled "${edge}" would share a parameterization.`;
+      return `${edge} can’t be both a choice and a ${rs.some(isTag) ? 'tag' : 'field'}.`;
   }
   return null;
 }
@@ -220,180 +793,755 @@ function validate(recs) {
 function commit(next) {
   const error = validate(next);
   if (error) return error;
-  undoStack.push(records);
+  undoStack.push({ records, order });
   records = next;
-  saveRecords();
+  saveState();
   return null;
 }
 
-function parseValue(datatype, raw) {
-  const s = raw.trim();
-  if (datatype === 'number') return s !== '' && Number.isFinite(Number(s)) ? Number(s) : undefined;
-  if (datatype === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
-  return s;
+// Moves an entry to just before or after a sibling. Every location with the same specification follows suit.
+function moveEntry(id, targetId, after) {
+  const at = records[id].at;
+  const key = specKey(records, at);
+  // Every label used at locations like this one, as currently shown, so labels this record lacks keep their places.
+  const list = [...new Set(schemaAt(at).sort(orderedBy(order[key] ?? [])).map(p => norm(p.label)))];
+  const moved = norm(records[id].edge);
+  list.splice(list.indexOf(moved), 1);
+  const to = isObjectName(targetId) ? 0 : list.indexOf(norm(records[targetId].edge)) + (after ? 1 : 0);
+  list.splice(to, 0, moved);
+  undoStack.push({ records, order });
+  order = { ...order, [key]: list };
+  saveState();
 }
 
-// Builds an entry's own properties from form values, or returns a message saying what's missing.
-function buildEntry(type, v) {
-  const edge = (v.edge || '').trim();
-  if (!edge) return 'Give it a label.';
-  if (type === 'tag') return { edge, tag: v.tag === 'true' };
-  if (type === 'choice') {
-    const choice = (v.option || '').trim();
-    return choice ? { edge, choice } : 'Give the option a value.';
+// Moves an entry one place up (-1) or down (1) among its siblings, from the keyboard.
+function nudgeEntry(id, step) {
+  const siblings = entriesOf(records[id].at).filter(e => !isObjectName(e));
+  const target = siblings[siblings.indexOf(id) + step];
+  if (target) moveEntry(id, target, step > 0);
+  ui.focusGrip = id;
+}
+
+// Builds the entry's own properties from the form, or returns a message saying what's missing.
+// A label or option that matches an existing one, ignoring case, takes the existing one's capitalization.
+function buildEntry(f) {
+  const typed = clean(f.name);
+  if (!typed) return 'Give it a name.';
+  const match = schemaAt(f.at).find(p => p.type === f.type && same(p.label, typed));
+  const edge = match ? match.label : typed;
+  if (f.type === 'tag') return { edge, tag: !f.not };
+  if (f.type === 'choice') {
+    const output = clean(f.output);
+    if (!output) return 'Choose or create an option.';
+    return { edge, choice: match?.outputs.find(o => same(o, output)) ?? output };
   }
-  if (!(v.value || '').trim()) return 'Give it a value.';
-  const value = parseValue(v.datatype, v.value);
-  return value === undefined ? `That isn't a valid ${v.datatype}.` : { edge, field: v.datatype, value };
+  const { datatype, value, raw } = fieldReading({ ...f, name: edge });
+  if (!raw) return 'Give it a value.';
+  if (value === undefined) return `${edge} takes ${asPhrase(datatype)} here${datatype === 'date' ? ', like March 4, 2019' : ''}.`;
+  return { edge, field: datatype, value };
 }
 
-function saveDraft(values) {
-  const { type, at, kind } = ui.draft;
-  if (type === 'object') {
-    const name = (values.name || '').trim();
+// Builds a two-argument relation from the form, with its arguments in the order the existing ones use.
+function buildRelation(f) {
+  const t = f.rel;
+  if (!f.otherId) return `Choose the ${t.other}.`;
+  const own = { edge: t.own, at: f.at }, other = { edge: t.other, at: f.otherId };
+  const args = t.ownFirst ? [own, other] : [other, own];
+  if (t.type === 'tag') return { args, tag: !f.not };
+  if (t.type === 'choice') {
+    const output = clean(f.output);
+    if (!output) return 'Choose or create an option.';
+    return { args, choice: t.outputs.find(o => same(o, output)) ?? output };
+  }
+  const { datatype, value, raw } = fieldReading(f);
+  if (!raw) return 'Give it a value.';
+  if (value === undefined) return `${t.other} takes ${asPhrase(datatype)} here.`;
+  return { args, field: datatype, value };
+}
+
+function saveForm() {
+  const f = ui.form;
+  if (f.type === 'object') {
+    const name = clean(f.name);
     if (!name) return 'Give it a name.';
     const id = newId();
-    return commit({ ...records, [id]: { kind }, [newId()]: { at: id, edge: 'name', field: 'text', value: name } });
+    return commit({ ...records, [id]: { kind: f.kind }, [newId()]: { at: id, edge: 'Name', field: 'text', value: name } });
   }
-  const entry = buildEntry(type, values);
+  if (f.type === 'relation') {
+    const relation = buildRelation(f);
+    return typeof relation === 'string' ? relation : commit({ ...records, [newId()]: relation });
+  }
+  const entry = buildEntry(f);
   if (typeof entry === 'string') return entry;
-  return commit({ ...records, [newId()]: { at, ...entry } });
+  const oldLabel = f.id && records[f.id].edge;
+  const error = commit({ ...records, [f.id ?? newId()]: { at: f.at, ...entry } });
+  if (!error && oldLabel) keepPlace(f.at, oldLabel, entry.edge);
+  return error;
 }
 
-function saveEdit(values) {
-  const { id } = ui.editing;
-  const entry = buildEntry(typeOf(records[id]), values);
-  if (typeof entry === 'string') return entry;
-  return commit({ ...records, [id]: { at: records[id].at, ...entry } });
+// A renamed entry keeps its place: its new label goes right after its old one in the shared order,
+// which stays put for the other locations that still use it.
+function keepPlace(at, oldLabel, newLabel) {
+  const key = specKey(records, at);
+  const list = order[key];
+  if (!list || list.includes(norm(newLabel)) || !list.includes(norm(oldLabel))) return;
+  const next = [...list];
+  next.splice(next.indexOf(norm(oldLabel)) + 1, 0, norm(newLabel));
+  order = { ...order, [key]: next };
+  saveState();
 }
 
 function deleteEntry(id) {
   const next = { ...records };
   delete next[id];
-  commit(next);
+  ui.notice = commit(next);
+}
+
+function flipTag(id) {
+  ui.notice = commit({ ...records, [id]: { ...records[id], tag: !records[id].tag } });
+}
+
+function setChoice(id, choice) {
+  confirmMove(id, choice, () => { ui.notice = commit({ ...records, [id]: { ...records[id], choice } }); });
+}
+
+// Changing a choice's option changes the specification of everything located at it, which then moves to
+// the new option. That's easy to do by accident from a dropdown, so it waits for a yes in `ui.pending`.
+function confirmMove(id, choice, apply) {
+  const n = entriesOf(id).length, m = relationsAt(id).length;
+  if (same(choice, records[id].choice) || !n && !m) return apply();
+  const what = [n && count(n, 'entry'), m && count(m, 'relation')].filter(Boolean).join(' and ');
+  ui.pending = { message: `Changing ${labelOf(records[id])} to ${choice} takes its ${what} with it.`, apply };
+}
+
+// Saves a relation's value typed in place. Like a field's, its datatype is the one other relations with
+// its parameterization have, or else a guess from the value.
+function saveRelationValue(id, raw, label) {
+  const r = records[id];
+  const p = parameterization(records, id);
+  const fixed = Object.keys(records).find(k => k !== id && isField(records[k]) && parameterization(records, k) === p);
+  const datatype = fixed ? records[fixed].field : classify(clean(raw));
+  const value = parseValue(datatype, raw);
+  if (value === undefined) return `${label} takes ${asPhrase(datatype)} here.`;
+  return commit({ ...records, [id]: { ...r, field: datatype, value } });
 }
 
 function undo() {
   if (!undoStack.length) return;
-  records = undoStack.pop();
-  saveRecords();
+  ({ records, order } = undoStack.pop());
+  saveState();
   clearForms();
 }
 
 function resetSample() {
-  undoStack.push(records);
+  undoStack.push({ records, order });
   records = structuredClone(SAMPLE);
-  saveRecords();
+  order = {};
+  saveState();
   clearForms();
 }
 
 function clearForms() {
-  ui.draft = ui.editing = ui.error = ui.menu = null;
+  ui.form = ui.focus = ui.error = ui.menu = ui.relEdit = ui.pending = null;
 }
 
-function startDraft(type, at, kind) {
+// ui.form is { mode: 'add' | 'edit', type, at, id, name, output, not, step, typed, cell }.
+// `name` and `output` hold what's in the name box and in the value or option box, `not` rules a tag out,
+// and `step` stays 'name' until a name is chosen. `typed` marks the boxes typed in since they were filled,
+// whose lists are filtered by what's in them. `cell` means only the value or option is being edited.
+function startForm(mode, type, at, id, { focus = 'name', cell = false } = {}) {
   clearForms();
-  ui.draft = { type, at, kind, values: { ...DEFAULT_VALUES[type] } };
+  const r = id ? records[id] : null;
+  ui.form = {
+    mode, type, at, id, cell,
+    name: r?.edge ?? '',
+    output: !r ? '' : isField(r) ? displayValue(r) : isChoice(r) ? r.choice : '',
+    not: !!r && isTag(r) && !r.tag,
+    step: mode === 'edit' ? 'output' : 'name',
+    typed: {},
+  };
+  ui.focus = focus;
   if (at) ui.expanded.add(at);
 }
 
-function startEdit(id) {
+// Adding to a two-argument relation from one side: `other` is what's typed in the box that picks the
+// other side, `otherId` what was picked, and `output` the option or value once it's picked.
+function startRelationForm(at, key) {
   clearForms();
-  const r = records[id];
-  const values = isField(r) ? { edge: r.edge, datatype: r.field, value: String(r.value) }
-    : isTag(r) ? { edge: r.edge, tag: String(r.tag) }
-    : { edge: r.edge, option: r.choice };
-  ui.editing = { id, values };
+  const rel = relationTypesAt(at).find(t => t.key === key);
+  ui.form = { mode: 'add', type: 'relation', at, rel, name: rel.other, other: '', otherId: null, output: '', not: false, step: 'other', typed: {} };
+  ui.focus = 'other';
+  ui.expanded.add(at);
+}
+
+// A tag relation is added as soon as its other side is picked; others move on to their option or value.
+function chooseOther(id) {
+  const f = ui.form;
+  Object.assign(f, { otherId: id, other: locationText(id) });
+  f.typed.other = false;
+  ui.error = null;
+  if (f.rel.type === 'tag') return submitForm();
+  f.step = 'output';
+  ui.focus = 'output';
+  render();
+}
+
+function startObjectForm(kind) {
+  clearForms();
+  ui.form = { mode: 'add', type: 'object', kind, name: '' };
+  ui.focus = 'name';
+}
+
+function submitForm() {
+  const f = ui.form;
+  const save = () => {
+    ui.error = saveForm();
+    if (!ui.error) clearForms();
+  };
+  if (f.mode === 'edit' && f.type === 'choice') confirmMove(f.id, clean(f.output), save);
+  else save();
+  render();
+}
+
+// A tag is added as soon as its name is chosen; a field or choice moves on to its value or option.
+function chooseName(value) {
+  const f = ui.form;
+  f.name = value;
+  f.typed.name = false;
+  ui.error = null;
+  if (f.type === 'tag') return submitForm();
+  f.step = 'output';
+  ui.focus = 'output';
+  render();
+}
+
+function chooseOutput(value) {
+  ui.form.output = value;
+  submitForm();
+}
+
+// ---- Name and option boxes ----
+
+// Where entries like these sit, for listbox headings: "on Entities", "under Jurisdiction: Delaware".
+const where = r => isObject(r) ? `on ${plural(r.kind)}` : `under ${isRelation(r) ? relationLabel(r) : `${isTag(r) && !r.tag ? 'Not ' : ''}${r.edge}${isChoice(r) ? `: ${r.choice}` : ''}`}`;
+
+// Labels of this type already used at locations like this one (only those containing `text`, if `filter`),
+// then Create. A label taken here can't be reused, and a choice can't share a label with a tag or field.
+function nameOptions(f, text, filter) {
+  const q = norm(text);
+  const here = new Map(entriesOf(f.at).filter(id => id !== f.id).map(id => [norm(records[id].edge), records[id]]));
+  const schema = schemaAt(f.at);
+  const blocked = label => {
+    const r = here.get(norm(label));
+    if (r && isTag(r) && f.type === 'tag') return r.tag ? 'Already tagged' : 'Ruled out here';
+    if (r) return `Already a ${typeOf(r)} here`;
+    const other = schema.find(p => same(p.label, label) && (p.type === 'choice') !== (f.type === 'choice'));
+    return other ? `A ${other.type} elsewhere` : '';
+  };
+  const meta = p => p.type === 'field' ? DATATYPE_NAMES[p.datatype] : p.type === 'choice' ? count(p.outputs.length, 'option') : '';
+  const prefix = o => filter && !norm(o.value).startsWith(q) ? 1 : 0;
+  const options = schema
+    .filter(p => p.type === f.type && (!filter || norm(p.label).includes(q)))
+    .map(p => ({ value: p.label, meta: meta(p), note: blocked(p.label) }))
+    .sort((a, b) => !!a.note - !!b.note || prefix(a) - prefix(b) || byLabel(a.value, b.value));
+  if (q && !schema.some(p => p.type === f.type && norm(p.label) === q))
+    options.push({ value: clean(text), create: true, note: blocked(text) });
+  return options;
+}
+
+// The outputs of the chosen choice's parameterization (filtered as above), then Create.
+function outputOptions(f, text, filter) {
+  const q = norm(text);
+  const outputs = f.type === 'relation' ? f.rel.outputs
+    : schemaAt(f.at).find(p => p.type === 'choice' && same(p.label, f.name))?.outputs ?? [];
+  const prefix = o => filter && !norm(o).startsWith(q) ? 1 : 0;
+  const options = outputs
+    .filter(o => !filter || norm(o).includes(q))
+    .sort((a, b) => prefix(a) - prefix(b) || byLabel(a, b))
+    .map(o => ({ value: o }));
+  if (q && !outputs.some(o => norm(o) === q)) options.push({ value: clean(text), create: true });
+  return options;
+}
+
+// Locations that could be the other side of the relation being added: every record with a specification
+// seen there before. Those already related to this location this way can't be picked again.
+function otherOptions(f, text, filter) {
+  const q = norm(text);
+  const related = new Set(relationGroups(f.at).find(g => g.key === f.rel.key)?.ids
+    .map(id => records[id].args.find(a => a.at !== f.at)?.at));
+  return Object.keys(records)
+    .filter(id => f.rel.otherSpecs.has(specKey(records, id)))
+    .map(id => ({ value: locationText(id), id, note: related.has(id) ? 'Already related' : '' }))
+    .filter(o => !filter || norm(o.value).includes(q))
+    .sort((a, b) => !!a.note - !!b.note || byLabel(a.value, b.value));
+}
+
+// What the other side's listbox is headed with: the kinds of location it lists, e.g. "Entities, by way of
+// Entity Type: Limited Partnership".
+function otherHeading(f) {
+  return [...f.rel.otherSpecs].map(spec => {
+    const sample = Object.keys(records).find(id => specKey(records, id) === spec);
+    const [head, ...tail] = pathTo(sample);
+    const kinds = isObject(records[head]) ? plural(records[head].kind) : segmentText(head);
+    return tail.length ? `${kinds}, by way of ${tail.map(segmentText).join(' › ')}` : kinds;
+  }).join(' or ');
+}
+
+const OPTION_SOURCES = { name: nameOptions, other: otherOptions, output: outputOptions };
+
+// The listbox that's open, its options, and the one Enter picks.
+const listbox = { input: null, options: [], active: -1 };
+const selectable = () => listbox.options.map((o, i) => o.note ? -1 : i).filter(i => i >= 0);
+
+// Enter picks an exact match if there is one. Otherwise, once typed in, it picks the first match,
+// or Create when nothing matches; but not Create beside a match that's taken, to avoid near-duplicates.
+// A box that's only been filled, not typed in, lists everything and picks what's in it.
+function openListbox(input) {
+  const role = input.dataset.input;
+  const typed = !!ui.form.typed[role];
+  const options = OPTION_SOURCES[role](ui.form, input.value, typed);
+  Object.assign(listbox, { input, options });
+  const ids = selectable();
+  const exact = ids.find(i => !options[i].create && same(options[i].value, input.value));
+  const create = ids.find(i => options[i].create);
+  const takenMatch = options.some(o => o.note && !o.create);
+  listbox.active = exact ?? (typed ? ids.find(i => !options[i].create) ?? (takenMatch ? undefined : create) : create) ?? -1;
+  drawListbox();
+}
+
+function drawListbox() {
+  const { input, options, active } = listbox;
+  const box = document.getElementById(input.getAttribute('aria-controls'));
+  const f = ui.form;
+  const role = input.dataset.input;
+  const isName = role === 'name';
+  const existing = options.filter(o => !o.create);
+  const empty = role !== 'other' && (!clean(input.value) || !f.typed[role]);
+  const heading = isName ? `${plural(TYPE_NAMES[f.type])} ${where(records[f.at])}`
+    : role === 'other' ? otherHeading(f) : `Options for ${clean(f.name)}`;
+  let html = existing.length ? `<div class="listbox-head">${esc(heading)}</div>` : '';
+  html += options.map((o, i) => {
+    const sep = o.create && existing.length ? '<div class="listbox-sep" role="presentation"></div>' : '';
+    const label = o.create
+      ? `${icon('plus')}<span class="option-label">Create <strong>${esc(o.value)}</strong></span>`
+      : `<span class="option-label">${esc(o.value)}</span>`;
+    const meta = o.note || o.meta;
+    return `${sep}<div class="option${o.create ? ' option-create' : ''}" id="${box.id}-${i}" role="option" data-index="${i}" aria-selected="${i === active}"${o.note ? ' aria-disabled="true"' : ''}>${label}${meta ? `<span class="option-meta">${esc(meta)}</span>` : ''}</div>`;
+  }).join('');
+  if (empty) html += `<div class="listbox-foot">${existing.length
+    ? `Or type a new ${isName ? 'name' : 'option'} to create it`
+    : isName ? `No ${plural(TYPE_NAMES[f.type]).toLowerCase()} ${where(records[f.at])} yet. Type a name to create one.` : 'No options yet. Type one to create it.'}</div>`;
+  box.innerHTML = html;
+  box.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+  if (active >= 0) {
+    input.setAttribute('aria-activedescendant', `${box.id}-${active}`);
+    document.getElementById(`${box.id}-${active}`).scrollIntoView({ block: 'nearest' });
+  } else {
+    input.removeAttribute('aria-activedescendant');
+  }
+}
+
+function closeListbox() {
+  const { input } = listbox;
+  if (!input) return;
+  const box = document.getElementById(input.getAttribute('aria-controls'));
+  if (box) box.hidden = true;
+  input.setAttribute('aria-expanded', 'false');
+  input.removeAttribute('aria-activedescendant');
+  listbox.input = null;
+}
+
+function moveActive(step) {
+  const ids = selectable();
+  if (!ids.length) return;
+  const at = ids.indexOf(listbox.active);
+  listbox.active = at < 0 ? ids[step > 0 ? 0 : ids.length - 1] : ids[(at + step + ids.length) % ids.length];
+  drawListbox();
+}
+
+function pick(index) {
+  const o = listbox.options[index];
+  if (!o || o.note) return;
+  const role = listbox.input.dataset.input;
+  closeListbox();
+  if (role === 'name') chooseName(o.value);
+  else if (role === 'other') chooseOther(o.id);
+  else chooseOutput(o.value);
+}
+
+// What a field's value will be read as: the datatype fields with this label (or relations of this kind)
+// already have here, or a guess from the value.
+function fieldReading(f) {
+  const fixed = f.type === 'relation' ? f.rel.datatype : fieldDatatype(f.at, f.name, f.id);
+  const raw = clean(f.output);
+  const datatype = fixed ?? (raw ? classify(raw) : 'text');
+  return { fixed: !!fixed, datatype, raw, value: raw ? parseValue(datatype, raw) : undefined };
+}
+
+function fieldHint(f) {
+  const { fixed, datatype, raw, value } = fieldReading(f);
+  const name = clean(f.name);
+  if (raw && value === undefined)
+    return { cls: 'is-warn', text: `${name} takes ${asPhrase(datatype)} here${datatype === 'date' ? ', like March 4, 2019' : ''}` };
+  if (!raw) return { text: fixed ? `${name} takes ${asPhrase(datatype)} here` : 'Its datatype is detected as you type' };
+  // Show how a date was read only when it was typed some other way.
+  const shown = datatype === 'date' && formatDate(value) !== raw ? `: ${formatDate(value)}` : '';
+  const others = f.type === 'relation' ? `in other ${name} relations` : `on other ${name} fields`;
+  return { text: `${fixed ? `${DATATYPE_NAMES[datatype]}, as ${others}` : `Reads as ${asPhrase(datatype)}`}${shown}` };
 }
 
 // ---- Rendering ----
 
-function tagBadge(r, href) {
-  const cls = r.tag ? 'bg-green-lt' : 'bg-red-lt';
-  return `<a class="badge ${cls}" href="${href}" title="${r.tag}">${esc(r.edge)}</a>`;
+const row = (depth, label, value, actions) =>
+  `<div class="row" style="--depth:${depth}">${depth ? '<span class="guides"></span>' : ''}
+    <div class="cell-label">${label}</div><div class="cell-value">${value}</div><div class="cell-actions">${actions}</div></div>`;
+
+function twisty(id) {
+  if (!hasEntries(id)) return '<span class="twisty"></span>';
+  const open = ui.expanded.has(id);
+  return `<button class="twisty" data-action="toggle" data-id="${id}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${esc(records[id].edge)}">${icon('chevron-right')}</button>`;
 }
 
-function crumb(inner, isCurrent) {
-  return `<li class="breadcrumb-item${isCurrent ? ' active' : ''}">${inner}</li>`;
+const grip = id => isObjectName(id) ? ''
+  : `<button class="grip" data-grip="${id}" aria-label="Move ${esc(records[id].edge)} (Alt+Up or Alt+Down)" title="Drag to reorder">${icon('grip-vertical')}</button>`;
+
+const ADD_TYPES = [
+  ['field', 'A value, like a date, an amount or a name'],
+  ['tag', 'Something that’s true of it, or ruled out'],
+  ['choice', 'One option from a list'],
+];
+
+// The Add menu: path entries, then the two-argument relations a location like this one already takes part in.
+function addMenu(at, compact = false) {
+  const key = `add:${at}`;
+  const open = ui.menu === key;
+  const trigger = compact
+    ? `<button class="icon-btn" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}" aria-label="Add inside ${esc(labelOf(records[at]))}" title="Add inside">${icon('plus')}</button>`
+    : `<button class="btn" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}Add</button>`;
+  if (!open) return `<span class="menu-anchor">${trigger}</span>`;
+  const items = ADD_TYPES.map(([type, desc]) =>
+    `<button class="menu-item" role="menuitem" data-action="add" data-type="${type}" data-id="${at}">
+      <span class="menu-text"><span class="menu-title">${TYPE_NAMES[type]}</span><span class="menu-desc">${desc}</span></span><kbd>${TYPE_NAMES[type][0]}</kbd></button>`).join('');
+  const relations = relationTypesAt(at).map(t =>
+    `<button class="menu-item" role="menuitem" data-action="add-relation" data-id="${at}" data-key="${esc(t.key)}">
+      <span class="menu-text"><span class="menu-title">${esc(t.other)}</span><span class="menu-desc">${TYPE_NAMES[t.type]} relation, with this as ${esc(t.own)}</span></span></button>`).join('');
+  return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu">${items}${relations
+    ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Relations</div>${relations}` : ''}</div></span>`;
 }
 
-function recordCrumb(id, isCurrent) {
+function deleteButton(id, small = false) {
   const r = records[id];
-  const href = `#${id}`;
-  if (isObject(r)) return crumb(`<a href="${href}">${esc(objectName(id))}</a>`, isCurrent);
-  if (isTag(r)) return crumb(tagBadge(r, href), isCurrent);
-  return crumb(`<a href="${href}">${esc(r.edge)}</a><span class="badge bg-azure-lt">${esc(r.choice)}</span>`, isCurrent);
-}
-
-function addMenu(at) {
-  const open = ui.menu === at;
-  const items = ['choice', 'tag', 'field'].map(t =>
-    `<button class="dropdown-item" data-action="add" data-type="${t}" data-id="${at}">Add ${TYPE_NAMES[t].toLowerCase()}</button>`).join('');
-  return `<span class="menu-anchor">
-      <button class="icon-btn" data-action="menu" data-id="${at}" aria-label="Add entry" aria-expanded="${open}">${icon('plus')}</button>
-      ${open ? `<div class="dropdown-menu show">${items}</div>` : ''}
-    </span>`;
-}
-
-function deleteButton(id) {
-  const reason = entriesOf(id).length ? 'Remove its entries first'
-    : isObjectName(id) ? 'Objects need a name' : '';
+  const reason = hasEntries(id) ? 'Remove its entries first'
+    : isObjectName(id) ? `Every ${records[r.at].kind.toLowerCase()} needs a Name` : '';
+  const cls = small ? 'icon-btn is-small' : 'icon-btn';
   return reason
-    ? `<span title="${reason}"><button class="icon-btn" disabled aria-label="Delete">${icon('trash')}</button></span>`
-    : `<button class="icon-btn" data-action="delete" data-id="${id}" aria-label="Delete" title="Delete">${icon('trash')}</button>`;
+    ? `<span title="${esc(reason)}"><button class="${cls}" disabled aria-label="Delete">${icon('trash')}</button></span>`
+    : `<button class="${cls}" data-action="delete" data-id="${id}" aria-label="Delete ${esc(labelOf(r))}" title="Delete">${icon('trash')}</button>`;
 }
 
-const pad = depth => `style="padding-left:${1 + depth * 1.5}rem"`;
+// A choice's option with a chevron that opens the other options of its parameterization, wherever it's shown.
+function choiceSelect(id, cls = '') {
+  const r = records[id];
+  const key = `opt:${id}`;
+  const open = ui.menu === key;
+  const items = open ? outputsOf(id).map(o =>
+    `<button class="menu-item" role="menuitemradio" aria-checked="${same(o, r.choice)}" data-action="set-choice" data-id="${id}" data-value="${esc(o)}">
+      <span class="menu-text">${esc(o)}</span>${same(o, r.choice) ? icon('check') : ''}</button>`).join('') : '';
+  return `<span class="menu-anchor"><button class="select ${cls}" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}">
+      <span class="select-text">${esc(r.choice)}</span>${icon('chevron-down')}</button>${open ? `<div class="pop menu menu-left" role="menu">${items}</div>` : ''}</span>`;
+}
 
-function formRow(type, values, depth, mode) {
-  const input = (name, attrs = '') =>
-    `<input class="form-control form-control-sm" name="${name}" value="${esc(values[name] ?? '')}" ${attrs}>`;
-  const select = (name, options) =>
-    `<select class="form-select form-select-sm" name="${name}">${options.map(o =>
-      `<option${String(values[name]) === o ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
-  let kindName = TYPE_NAMES[type];
-  let inputs;
-  if (type === 'object') {
-    kindName = `New ${ui.draft.kind}`;
-    inputs = input('name', 'placeholder="name" data-autofocus');
-  } else {
-    inputs = input('edge', 'placeholder="label" data-autofocus');
-    if (type === 'field') inputs += select('datatype', DATATYPES) + input('value', `type="${INPUT_TYPES[values.datatype]}" step="any" placeholder="value"`);
-    if (type === 'tag') inputs += select('tag', ['true', 'false']);
-    if (type === 'choice') inputs += input('option', 'placeholder="option"');
+// A location as its object's name, then the segments below the object: all of them if full paths are on,
+// otherwise just the last `keep`. In a relation's header, a "…" marks the hidden ones; in rows, where the
+// row's parameter already implies them, the object's name alone stands in, with the full path on hover.
+function locationHtml(id, keep = 0, marked = false) {
+  const [head, ...tail] = pathTo(id);
+  const shown = ui.fullPaths ? tail : tail.slice(tail.length - keep);
+  const full = esc([head, ...tail].map(segmentText).join(' › '));
+  const parts = [`<a href="#${head}" title="${full}">${esc(segmentText(head))}</a>`];
+  if (marked && shown.length < tail.length)
+    parts.push(`<button class="path-more" data-action="full-paths" aria-label="Show full paths" title="${full}">…</button>`);
+  parts.push(...shown.map(p => `<a class="path-seg" href="#${p}">${esc(segmentText(p))}</a>`));
+  return `<span class="loc">${parts.join('<span class="path-sep">›</span>')}</span>`;
+}
+const locationText = id => segmentText(pathTo(id)[0]);
+
+// A relation's value, typed over in place; `label` names it in an error, as the row it's in does.
+function relationValue(id, label) {
+  const edit = ui.relEdit?.id === id ? ui.relEdit : null;
+  if (!edit) return `<button class="rel-value" data-action="rel-edit" data-id="${id}" data-label="${esc(label)}" title="Change">${esc(displayValue(records[id]))}</button>`;
+  return `<input class="input rel-input" data-rel-edit="${id}" value="${esc(edit.text)}" autocomplete="off" spellcheck="false" data-autofocus>`
+    + (edit.error ? `<span class="rel-error">${esc(edit.error)}</span>` : '');
+}
+
+// A relation's output in a row or table: a checkbox for a tag, a dropdown for a choice, a value for a field.
+const relationOutput = (id, label) => {
+  const r = records[id];
+  return isTag(r) ? checkbox(r.tag, `data-action="tag-flip" data-id="${id}"`) : isChoice(r) ? choiceSelect(id) : relationValue(id, label);
+};
+
+const openRelation = id =>
+  `<a class="icon-btn is-small" href="#${id}" aria-label="Open this relation" title="Open">${icon('arrow-right')}</a>`;
+
+// A two-argument relation at a location reads like any entry: labeled with the other side's edge, with the
+// other side's location as its value. Relations sharing that label are listed together in one row.
+function relationRow(g, at, depth) {
+  const name = g.others.join(' · ') || g.own.join(' · ');
+  const label = `<span class="twisty"></span><span class="label-text">${esc(name)}</span>`;
+  const items = g.ids.map(id => {
+    const r = records[id];
+    const other = r.args.find(a => a.at !== at) ?? r.args[0];
+    return `<div class="rel-item">${isTag(r) ? relationOutput(id) : ''}${locationHtml(other.at)}
+      <span class="rel-item-actions">${openRelation(id)}${deleteButton(id, true)}</span>
+      ${isTag(r) ? '' : `<span class="rel-output">${relationOutput(id, name)}</span>`}</div>`;
+  }).join('');
+  const canAdd = relationTypesAt(at).some(t => t.key === g.key);
+  const actions = canAdd ? `<button class="icon-btn" data-action="add-relation" data-id="${at}" data-key="${esc(g.key)}" aria-label="Add another ${esc(name)}" title="Add another">${icon('plus')}</button>` : '';
+  return row(depth, label, `<div class="rel-items">${items}</div>`, actions);
+}
+
+// A relation with more arguments shows as a table with a column per other argument, headed by its edge.
+// Each heading is a dropdown that narrows the rows to one location there, offering only the locations
+// left in rows that match the other columns, until the rows that remain show their outputs alone.
+function relationTable(g, at, depth) {
+  const table = `${at}|${g.key}`;
+  const filters = ui.filters[table] ?? {};
+  const rows = g.ids.map(id => {
+    const rest = records[id].args.filter(a => a.at !== at);
+    return { id, cells: g.others.map(edge => rest.splice(rest.findIndex(a => same(a.edge, edge)), 1)[0].at) };
+  });
+  const matches = (row, except) => Object.entries(filters).every(([c, at]) => Number(c) === except || row.cells[c] === at);
+  const shown = rows.filter(row => matches(row, -1));
+  const withValue = g.type !== 'tag';
+  const style = `--depth:${depth}; --cols:${g.others.length - 1 + (withValue ? 1 : 0)}`;
+  const heads = g.others.map((edge, c) => columnFilter(table, c, edge, rows.filter(row => matches(row, c)).map(row => row.cells[c]), filters[c]));
+  const head = `<div class="rel-row is-head"><div class="rel-c0"><span class="twisty"></span>${heads[0]}</div>
+    ${heads.slice(1).map(h => `<div class="rel-c">${h}</div>`).join('')}${withValue ? '<div class="rel-c"></div>' : ''}</div>`;
+  const body = shown.map(({ id, cells }) => `<div class="rel-row">
+      <div class="rel-c0">${g.type === 'tag' ? relationOutput(id) : '<span class="twisty"></span>'}${locationHtml(cells[0])}</div>
+      ${cells.slice(1).map(c => `<div class="rel-c">${locationHtml(c)}</div>`).join('')}
+      ${withValue ? `<div class="rel-c">${relationOutput(id, g.others.join(' · '))}</div>` : ''}
+      <div class="rel-acts">${openRelation(id)}${deleteButton(id, true)}</div></div>`).join('');
+  const note = shown.length < rows.length
+    ? `<div class="rel-note">Showing ${shown.length} of ${rows.length} · <button class="link-btn" data-action="col-clear" data-key="${esc(table)}">Show all</button></div>` : '';
+  return `<div class="rel-table" style="${style}">${depth ? '<span class="guides"></span>' : ''}${head}${body}${note}</div>`;
+}
+
+function columnFilter(table, c, edge, locations, picked) {
+  const key = `col:${table}:${c}`;
+  const open = ui.menu === key;
+  const counts = new Map();
+  for (const at of locations) counts.set(at, (counts.get(at) ?? 0) + 1);
+  const item = (value, text, n) =>
+    `<button class="menu-item" role="menuitemradio" aria-checked="${(picked ?? '') === value}" data-action="col-filter" data-key="${esc(table)}" data-col="${c}" data-value="${value}">
+      <span class="menu-text">${esc(text)}</span>${n ? `<span class="menu-note">${n}</span>` : ''}${(picked ?? '') === value ? icon('check') : ''}</button>`;
+  const items = open ? item('', 'Any', 0) + [...counts].sort((a, b) => byLabel(locationText(a[0]), locationText(b[0])))
+    .map(([at, n]) => item(at, locationText(at), n)).join('') : '';
+  return `<span class="menu-anchor"><button class="col-filter${picked ? ' is-active' : ''}" data-action="menu" data-menu="${esc(key)}" aria-haspopup="menu" aria-expanded="${open}"
+      title="${esc(picked ? `${edge}: ${locationText(picked)}` : edge)}"><span class="col-filter-text">${esc(edge)}${picked ? `<span class="col-picked">: ${esc(locationText(picked))}</span>` : ''}</span>${icon('chevron-down')}</button>
+    ${open ? `<div class="pop menu menu-left" role="menu">${items}</div>` : ''}</span>`;
+}
+
+// A relation's arguments, for its own panel's header: one row per location, labeled with the edges that
+// lead there, so arguments that meet at one location share a row. Each location shows its object and
+// just enough segments, counted back from the relation, to tell its parameter from others with the same
+// edge label; copies of one parameter can't be told apart that way and are told apart by their objects.
+function argumentRows(r) {
+  // Each segment compared as shown: an object by its kind, a path entry by its edge and root label.
+  const segment = p => { const s = records[p]; return isObject(s) || isRelation(s) ? specKey(records, p) : JSON.stringify([norm(s.edge), rootLabel(s)]); };
+  const info = r.args.map(a => ({ ...a, spec: specKey(records, a.at), segs: pathTo(a.at).map(segment) }));
+  const keep = new Map();
+  for (const x of info) {
+    const rivals = info.filter(y => y !== x && same(y.edge, x.edge) && y.spec !== x.spec);
+    const suffix = (segs, n) => JSON.stringify(segs.slice(segs.length - n));
+    let n = 0;
+    while (n < x.segs.length - 1 && rivals.some(y => suffix(y.segs, n) === suffix(x.segs, n))) n++;
+    keep.set(x.at, Math.max(keep.get(x.at) ?? 0, n));
   }
-  return `<form class="entry entry-form" data-form="${mode}" ${pad(depth)}>
-      <span class="toggle-spacer"></span>
-      <span class="form-kind">${esc(kindName)}</span>
-      ${inputs}
-      <button class="btn btn-sm btn-primary" type="submit">Save</button>
-      <button class="btn btn-sm" type="button" data-action="cancel">Cancel</button>
-      ${ui.error ? `<div class="form-error">${esc(ui.error)}</div>` : ''}
-    </form>`;
+  const byLocation = new Map();
+  for (const a of r.args) byLocation.set(a.at, [...(byLocation.get(a.at) ?? []), a.edge]);
+  return `<div class="args">${[...byLocation].map(([at, edges]) =>
+    `<div class="arg-label">${esc(edges.join(' · '))}</div><div class="arg-value">${locationHtml(at, keep.get(at), true)}</div>`).join('')}</div>`;
+}
+
+// A box with a listbox of existing names or options; a chevron marks an option box.
+function combo(role, value, placeholder, chevron = false) {
+  return `<span class="combo"><span class="combo-field">
+      <input class="input combo-input" data-input="${role}" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="listbox-${role}"
+        value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false"${ui.focus === role ? ' data-autofocus' : ''}>
+      ${chevron ? icon('chevron-down', 'combo-chevron') : ''}</span>
+    <div class="pop listbox" id="listbox-${role}" role="listbox" hidden></div></span>`;
+}
+
+// The line under a form: a hint or error, and the keys that save or cancel.
+function formNote(plain = false) {
+  const f = ui.form;
+  let text = '', cls = '';
+  if (ui.error) [text, cls] = [`${icon('alert-triangle')}${esc(ui.error)}`, 'is-error'];
+  else if (takesValue(f) && f.step === 'output') ({ text, cls = '' } = fieldHint(f));
+  const more = f.type === 'relation' ? f.step === 'other' && f.rel.type !== 'tag' : f.step === 'name' && f.type !== 'tag';
+  const enter = more ? 'next' : f.mode === 'add' ? 'add' : 'save';
+  return `<div class="form-note${plain ? ' is-plain' : ''}"><div class="form-note-inner">
+      <span class="note-text ${cls}" data-note>${text}</span>
+      <span class="form-keys"><span><kbd>Enter</kbd> ${enter}</span><span><kbd>Esc</kbd> cancel</span></span>
+    </div></div>`;
+}
+
+const takesValue = f => f.type === 'field' || f.rel?.type === 'field';
+
+// Refreshes a field form's hint as its boxes are typed in, without re-rendering.
+function refreshFieldHint() {
+  const f = ui.form;
+  const note = document.querySelector('[data-note]');
+  if (!note || f.step !== 'output') return;
+  const { text, cls = '' } = fieldHint(f);
+  note.className = `note-text ${cls}`;
+  note.textContent = text;
+}
+
+const saveButton = `<button class="icon-btn is-primary" data-action="save" aria-label="Save" title="Save">${icon('check')}</button>`;
+const cancelButton = `<button class="icon-btn" data-action="cancel" aria-label="Cancel" title="Cancel">${icon('x')}</button>`;
+
+function formBlock(depth) {
+  const f = ui.form;
+  const label = '<span class="twisty"></span>'
+    + (f.cell ? `<span class="label-text">${esc(f.name)}</span>` : combo('name', f.name, `${TYPE_NAMES[f.type]} name`));
+  // A new tag's checkbox starts green and can be switched to red before the tag is added.
+  const value = f.type === 'tag' ? checkbox(!f.not, 'data-action="toggle-not"')
+    : f.step === 'name' ? `<span class="ghost">${f.type === 'choice' ? `Option${icon('chevron-down')}` : 'Value'}</span>`
+    : f.type === 'choice' ? combo('output', f.output, 'Option', true)
+    : `<input class="input" data-input="output" value="${esc(f.output)}" placeholder="Value" autocomplete="off" spellcheck="false"${ui.focus === 'output' ? ' data-autofocus' : ''}>`;
+  const actions = (f.type === 'tag' || f.step === 'output' ? saveButton : '') + cancelButton;
+  return `<div class="form-block">${row(depth, label, value, actions)}${formNote()}</div>`;
+}
+
+// Adding to a two-argument relation: labeled like its row, with a box that picks the other side, then its option or value.
+function relationForm(depth) {
+  const f = ui.form;
+  const t = f.rel;
+  const box = t.type === 'tag' ? checkbox(!f.not, 'data-action="toggle-not"') : '';
+  const value = f.step === 'other' ? `<div class="rel-item">${box}${combo('other', f.other, `Choose ${t.other}`)}</div>`
+    : `<div class="rel-item">${box}${locationHtml(f.otherId)}<span class="rel-output">${t.type === 'choice' ? combo('output', f.output, 'Option', true)
+      : `<input class="input rel-input" data-input="output" value="${esc(f.output)}" placeholder="Value" autocomplete="off" spellcheck="false"${ui.focus === 'output' ? ' data-autofocus' : ''}>`}</span></div>`;
+  const actions = (t.type === 'tag' || f.step === 'output' ? saveButton : '') + cancelButton;
+  return `<div class="form-block">${row(depth, `<span class="twisty"></span><span class="label-text">${esc(t.other)}</span>`, value, actions)}${formNote()}</div>`;
 }
 
 function entryRow(id, depth) {
-  if (ui.editing?.id === id) return formRow(typeOf(records[id]), ui.editing.values, depth, 'edit');
+  const f = ui.form;
+  if (f?.mode === 'edit' && f.id === id) return formBlock(depth);
   const r = records[id];
-  const toggle = entriesOf(id).length
-    ? `<button class="toggle" data-action="toggle" data-id="${id}" aria-expanded="${ui.expanded.has(id)}" aria-label="Expand ${esc(r.edge)}">${icon('chevron-right')}</button>`
-    : '<span class="toggle-spacer"></span>';
-  const content = isField(r) ? `<span class="entry-label">${esc(r.edge)}</span><span>${esc(r.value)}</span>`
-    : isTag(r) ? tagBadge(r, `#${id}`)
-    : `<a class="entry-label" href="#${id}">${esc(r.edge)}</a><span class="badge bg-azure-lt">${esc(r.choice)}</span>`;
-  const actions = `<span class="actions">
-      ${isField(r) ? '' : addMenu(id)}
-      <button class="icon-btn" data-action="edit" data-id="${id}" aria-label="Edit" title="Edit">${icon('pencil')}</button>
-      ${deleteButton(id)}
-    </span>`;
-  return `<div class="entry" ${pad(depth)}>${toggle}${content}${actions}</div>`;
+  let label = grip(id) + twisty(id), value;
+  if (isField(r)) {
+    label += `<span class="label-text" title="${esc(r.edge)}">${esc(r.edge)}</span>`;
+    value = `<button class="value-btn" data-action="edit-cell" data-id="${id}">${esc(displayValue(r))}</button>`;
+  } else if (isChoice(r)) {
+    label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
+    value = `<button class="select" data-action="edit-cell" data-id="${id}" aria-haspopup="listbox" title="Change ${esc(r.edge)}">
+      <span class="select-text">${esc(r.choice)}</span>${icon('chevron-down')}</button>`;
+  } else {
+    label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
+    value = checkbox(r.tag, `data-action="tag-flip" data-id="${id}"`);
+  }
+  const actions = (isField(r) ? '' : addMenu(id, true))
+    + `<button class="icon-btn" data-action="edit" data-id="${id}" aria-label="${isTag(r) ? 'Rename' : 'Edit'} ${esc(r.edge)}" title="${isTag(r) ? 'Rename' : 'Edit'}">${icon('pencil')}</button>${deleteButton(id)}`;
+  return row(depth, label, value, actions);
 }
 
-function entryRows(id, depth) {
-  const draft = ui.draft?.at === id ? formRow(ui.draft.type, ui.draft.values, depth, 'add') : '';
-  return draft + entriesOf(id)
-    .map(e => entryRow(e, depth) + (ui.expanded.has(e) ? entryRows(e, depth + 1) : ''))
-    .join('');
+// Each entry is wrapped with its expanded entries, so it can be dragged among its siblings as a unit.
+// The relations at the location follow, grouped into rows (two arguments) or tables (more).
+function entryRows(at, depth) {
+  const f = ui.form;
+  let html = f?.mode === 'add' && f.at === at && f.type !== 'relation' ? formBlock(depth) : '';
+  for (const id of entriesOf(at)) {
+    const children = ui.expanded.has(id) ? entryRows(id, depth + 1) : '';
+    html += `<div class="entry" data-entry="${id}" data-at="${at}"${isObjectName(id) ? ' data-pinned' : ''} style="--depth:${depth}">${entryRow(id, depth)}${children}</div>`;
+  }
+  // A relation being added appears under the row it'll join, or after the rest if it starts a new one.
+  const adding = f?.type === 'relation' && f.at === at;
+  for (const g of relationGroups(at)) {
+    html += g.others.length > 1 ? relationTable(g, at, depth) : relationRow(g, at, depth);
+    if (adding && g.key === f.rel.key) html += relationForm(depth);
+  }
+  if (adding && !relationGroups(at).some(g => g.key === f.rel.key)) html += relationForm(depth);
+  return html;
+}
+
+const panelHead = ({ crumbs = '', title, sub, actions = '', extra = '' }) => `
+  <div class="panel-head">
+    ${crumbs ? `<nav class="crumbs" aria-label="Path">${crumbs}</nav>` : ''}
+    <div class="title-row">
+      <div class="title-block"><h1>${title}</h1><div class="subtitle">${sub}</div></div>
+      <div class="head-actions">${actions}</div>
+    </div>
+    ${extra}
+  </div>`;
+
+const listRow = (href, title, meta) =>
+  `<a class="list-row" href="${href}"><span class="list-title">${esc(title)}</span><span class="list-meta">${esc(meta)}</span>${icon('chevron-right', 'list-chevron')}</a>`;
+
+const kindHref = kind => `#kind:${encodeURIComponent(kind)}`;
+
+// A segment of the header path. A choice's option opens a dropdown there too, as it does in its row.
+// A relation's segment names its edges, with its arguments on hover.
+const crumb = id => {
+  const r = records[id];
+  if (isChoice(r) && !isRelation(r))
+    return `<span class="crumb-choice"><a href="#${id}">${esc(r.edge)}</a>${choiceSelect(id, 'in-crumbs')}</span>`;
+  const title = isRelation(r) ? ` title="${esc(r.args.map(a => `${a.edge}: ${locationText(a.at)}`).join('; '))}"` : '';
+  return `<a href="#${id}"${title}>${esc(segmentText(id))}</a>`;
+};
+
+function recordView(id) {
+  const r = records[id];
+  if (isRelation(r)) return relationView(id);
+  const path = pathTo(id);
+  const head = records[path[0]];
+  const start = !isObject(head) ? []
+    : ui.showRoot ? ['<a href="#">All</a>', `<a href="${kindHref(head.kind)}">${esc(plural(head.kind))}</a>`]
+    : [`<button class="crumb-more" data-action="reveal" aria-label="Show full path" title="Show full path">${icon('dots')}</button>`];
+  const crumbs = [...start, ...path.slice(0, -1).map(crumb)].join(icon('chevron-right', 'crumb-sep'));
+  const title = isObject(r) ? { title: esc(objectName(id)), sub: esc(r.kind) }
+    : isTag(r) ? { title: `${box(r.tag)}<span>${esc(r.edge)}</span>`, sub: r.tag ? 'Tag' : 'Tag, ruled out so it can’t be added' }
+    : isChoice(r) ? { title: `<span>${esc(r.edge)}</span>${choiceSelect(id, 'in-title')}`, sub: 'Choice' }
+    : { title: esc(r.edge), sub: `${DATATYPE_NAMES[r.field]} field: ${esc(displayValue(r))}` };
+  const rows = isField(r) ? '' : entryRows(id, 0);
+  const body = rows || `<div class="empty">${isField(r) ? 'A field holds a value and has no entries.' : 'Nothing recorded here yet.'}</div>`;
+  return [panelHead({ ...title, crumbs, actions: isField(r) ? '' : addMenu(id) }), body];
+}
+
+// A relation's own panel: its edges and output as the title, its arguments in place of a path, and below,
+// any entries located at it.
+function relationView(id) {
+  const r = records[id];
+  const title = (isTag(r) ? relationOutput(id) : '') + `<span>${esc(relationLabel(r))}</span>`
+    + (isChoice(r) ? choiceSelect(id, 'in-title') : isField(r) ? `<span class="title-output">${relationValue(id, relationLabel(r))}</span>` : '');
+  const sub = `${TYPE_NAMES[typeOf(r)]} relation${isTag(r) && !r.tag ? ', ruled out so it can’t be added' : ''}`;
+  const rows = isField(r) ? '' : entryRows(id, 0);
+  const body = rows || `<div class="empty">${isField(r) ? 'A field relation holds a value and has no entries.' : 'Nothing recorded about this relation yet.'}</div>`;
+  return [panelHead({ title, sub, actions: isField(r) ? '' : addMenu(id), extra: argumentRows(r) }), body];
+}
+
+function kindView(kind) {
+  const ids = objectsOfKind(kind);
+  const f = ui.form;
+  const form = f?.type === 'object' ? `<div class="form-block"><div class="list-row">
+      <input class="input" data-input="name" value="${esc(f.name)}" placeholder="${esc(kind)} name" autocomplete="off" spellcheck="false" data-autofocus>
+      ${saveButton}${cancelButton}</div>${formNote(true)}</div>` : '';
+  // A one-line summary of each object: the options of its top-level choices.
+  const summary = id => entriesOf(id).filter(e => isChoice(records[e])).map(e => records[e].choice).join(' · ');
+  const head = panelHead({
+    crumbs: '<a href="#">All</a>', title: esc(plural(kind)), sub: count(ids.length, kind.toLowerCase()),
+    actions: `<button class="btn btn-primary" data-action="add" data-type="object" data-kind="${esc(kind)}">${icon('plus')}New ${esc(kind)}</button>`,
+  });
+  return [head, form + ids.map(id => listRow(`#${id}`, objectName(id), summary(id))).join('')];
+}
+
+function allView() {
+  const kinds = [...new Map(Object.values(records).filter(isObject).map(r => [norm(r.kind), r.kind])).values()].sort(byLabel);
+  const head = panelHead({ title: 'All', sub: 'Browse records by kind' });
+  return [head, kinds.map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('')];
 }
 
 // The hash is empty for All, "kind:<kind>" for a kind, or a record id.
@@ -404,44 +1552,40 @@ function currentView() {
   return {};
 }
 
+const seg = (label, key, choices) =>
+  `<span class="seg-wrap">${label ? `<span>${label}</span>` : ''}<span class="seg" role="group" aria-label="${label || key}">${choices.map(([value, text]) =>
+    `<button data-action="pref" data-key="${key}" data-value="${value}" aria-pressed="${prefs[key] === value}">${text}</button>`).join('')}</span></span>`;
+
+function applyTheme() {
+  if (prefs.theme === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = prefs.theme;
+}
+
+const undoKey = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘Z' : 'Ctrl+Z';
+
 function render() {
+  listbox.input = null;
   const view = currentView();
-  const all = isCurrent => crumb(isCurrent ? 'All' : '<a href="#">All</a>', isCurrent);
-  const kindCrumb = (kind, isCurrent) => crumb(isCurrent ? esc(kindLabel(kind)) : `<a href="#kind:${esc(kind)}">${esc(kindLabel(kind))}</a>`, isCurrent);
-  let crumbs, headerAdd = '', body;
-
-  if (view.id) {
-    const path = pathTo(view.id);
-    const start = ui.showRoot
-      ? all(false) + kindCrumb(records[path[0]].kind, false)
-      : crumb('<button class="plain-btn" data-action="reveal" title="Show full path">…</button>', false);
-    crumbs = start + path.map((p, i) => recordCrumb(p, i === path.length - 1)).join('');
-    headerAdd = addMenu(view.id);
-    body = entryRows(view.id, 0) || '<div class="empty">No entries</div>';
-  } else if (view.kind) {
-    crumbs = all(false) + kindCrumb(view.kind, true);
-    headerAdd = `<button class="icon-btn" data-action="add" data-type="object" data-kind="${esc(view.kind)}" aria-label="Add ${esc(view.kind)}" title="Add ${esc(view.kind)}">${icon('plus')}</button>`;
-    const draft = ui.draft?.type === 'object' ? formRow('object', ui.draft.values, 0, 'add') : '';
-    body = draft + objectsOfKind(view.kind).map(k =>
-      `<div class="entry"><span class="toggle-spacer"></span><a class="entry-label" href="#${k}">${esc(objectName(k))}</a></div>`).join('');
-  } else {
-    crumbs = all(true);
-    const kinds = [...new Set(Object.values(records).filter(isObject).map(r => r.kind))].sort();
-    body = kinds.map(k => {
-      const n = objectsOfKind(k).length;
-      return `<div class="entry"><span class="toggle-spacer"></span><a class="entry-label" href="#kind:${esc(k)}">${esc(kindLabel(k))}</a>
-        <span class="text-secondary">${n} object${n === 1 ? '' : 's'}</span></div>`;
-    }).join('');
+  const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
+  const [head, body] = view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
+  const pending = ui.pending ? `<div class="pending" role="alertdialog"><span class="pending-text">${esc(ui.pending.message)}</span>
+    <button class="btn btn-primary" data-action="pending-yes">Change it</button><button class="btn" data-action="pending-no">Cancel</button></div>` : '';
+  document.getElementById('panel').innerHTML = `${head}<div class="rows${view.id ? ' is-tree' : ''}">${pending}${body}</div>`;
+  document.getElementById('prefs').innerHTML = seg('Theme', 'theme', [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]);
+  document.getElementById('foot').innerHTML =
+    `<button class="link-btn" data-action="undo"${undoStack.length ? '' : ' disabled'}>Undo <kbd>${undoKey}</kbd></button>
+     <button class="link-btn" data-action="reset">Reset sample data</button>
+     ${ui.fullPaths ? '<button class="link-btn" data-action="full-paths">Shorten paths</button>' : ''}
+     <span class="foot-hint${ui.notice ? ' is-error' : ''}">${esc(ui.notice ?? `${view.id ? 'Drag a row’s handle to reorder it. ' : ''}Changes are saved in this browser.`)}</span>`;
+  const auto = document.querySelector('[data-autofocus]');
+  if (auto) {
+    auto.focus();
+    auto.setSelectionRange(auto.value.length, auto.value.length);
   }
-
-  document.getElementById('header').innerHTML =
-    `<ol class="breadcrumb">${crumbs}</ol><span class="header-add">${headerAdd}</span>`;
-  document.getElementById('body').innerHTML = body;
-  document.getElementById('footer').innerHTML =
-    `<button class="plain-btn" data-action="undo"${undoStack.length ? '' : ' disabled'}>Undo</button>
-     <button class="plain-btn" data-action="reset">Reset sample data</button>
-     <span>Hover a row to add, edit or delete. Changes are saved in this browser.</span>`;
-  document.querySelector('[data-autofocus]')?.focus();
+  if (ui.focusGrip) {
+    document.querySelector(`[data-grip="${ui.focusGrip}"]`)?.focus();
+    ui.focusGrip = null;
+  }
 }
 
 // ---- Events ----
@@ -449,58 +1593,193 @@ function render() {
 const actions = {
   toggle: d => ui.expanded.has(d.id) ? ui.expanded.delete(d.id) : ui.expanded.add(d.id),
   reveal: () => { ui.showRoot = true; },
-  menu: d => { ui.menu = ui.menu === d.id ? null : d.id; },
-  add: d => startDraft(d.type, d.id, d.kind),
-  edit: d => startEdit(d.id),
+  menu: d => { ui.menu = ui.menu === d.menu ? null : d.menu; },
+  add: d => d.type === 'object' ? startObjectForm(d.kind) : startForm('add', d.type, d.id),
+  'add-relation': d => startRelationForm(d.id, d.key),
+  'set-choice': d => setChoice(d.id, d.value),
+  'rel-edit': d => { clearForms(); ui.relEdit = { id: d.id, label: d.label, text: displayValue(records[d.id]), error: null }; },
+  'pending-yes': () => { const { apply } = ui.pending; ui.pending = null; apply(); },
+  'pending-no': () => { ui.pending = null; },
+  'full-paths': () => { ui.fullPaths = !ui.fullPaths; },
+  'col-filter': d => {
+    const picked = { ...ui.filters[d.key] };
+    if (d.value) picked[d.col] = d.value; else delete picked[d.col];
+    ui.filters = { ...ui.filters, [d.key]: picked };
+  },
+  'col-clear': d => { ui.filters = { ...ui.filters, [d.key]: {} }; },
+  edit: d => startForm('edit', typeOf(records[d.id]), records[d.id].at, d.id),
+  'edit-cell': d => startForm('edit', typeOf(records[d.id]), records[d.id].at, d.id, { focus: 'output', cell: true }),
+  'toggle-not': () => { ui.form.not = !ui.form.not; ui.focus = ui.form.type === 'relation' ? 'other' : 'name'; },
+  'tag-flip': d => flipTag(d.id),
+  pref: d => { prefs[d.key] = d.value; savePrefs(); applyTheme(); },
+  save: submitForm,
   delete: d => deleteEntry(d.id),
   cancel: clearForms,
   undo,
   reset: resetSample,
 };
 
+// Keep focus in the box while an option is clicked.
+document.addEventListener('mousedown', e => {
+  if (e.target.closest('.option')) e.preventDefault();
+});
+
 document.addEventListener('click', e => {
+  const option = e.target.closest('.option');
+  if (option) return pick(Number(option.dataset.index));
   const el = e.target.closest('[data-action]');
   if (!el) {
-    if (ui.menu && !e.target.closest('.dropdown-menu')) { ui.menu = null; render(); }
+    if (ui.menu && !e.target.closest('.pop')) { ui.menu = null; render(); }
     return;
   }
   const action = el.dataset.action;
   if (action !== 'menu') ui.menu = null;
+  ui.notice = null;
   actions[action](el.dataset);
   render();
 });
 
-document.addEventListener('submit', e => {
+// Dragging starts only from an entry's handle, so the rest of the row stays clickable and selectable.
+document.addEventListener('pointerdown', e => {
+  const handle = e.target.closest('.grip');
+  if (handle) handle.closest('.entry').draggable = true;
+});
+document.addEventListener('pointerup', () => {
+  document.querySelectorAll('.entry[draggable="true"]').forEach(el => { el.draggable = false; });
+});
+
+function clearDropMark() {
+  document.querySelectorAll('.drop-before, .drop-after').forEach(el => el.classList.remove('drop-before', 'drop-after'));
+  if (ui.drag) ui.drag.target = null;
+}
+
+document.addEventListener('dragstart', e => {
+  const entry = e.target.closest?.('.entry[draggable="true"]');
+  if (!entry) return;
+  ui.drag = { id: entry.dataset.entry, at: entry.dataset.at };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', records[ui.drag.id].edge);
+  setTimeout(() => entry.classList.add('is-dragging'));
+});
+
+// An entry can be dropped before or after a sibling (never before Name), marked by a line.
+document.addEventListener('dragover', e => {
+  const d = ui.drag;
+  if (!d) return;
+  let target = e.target.closest?.('.entry');
+  while (target && target.dataset.at !== d.at) target = target.parentElement.closest('.entry');
+  if (!target || target.dataset.entry === d.id) return clearDropMark();
   e.preventDefault();
-  const values = Object.fromEntries(new FormData(e.target));
-  const error = e.target.dataset.form === 'add' ? saveDraft(values) : saveEdit(values);
-  if (error) {
-    (ui.draft || ui.editing).values = values;
-    ui.error = error;
-  } else {
-    clearForms();
-  }
+  e.dataTransfer.dropEffect = 'move';
+  const rect = target.querySelector('.row').getBoundingClientRect();
+  const after = 'pinned' in target.dataset || e.clientY > rect.top + rect.height / 2;
+  if (d.target === target.dataset.entry && d.after === after) return;
+  clearDropMark();
+  Object.assign(d, { target: target.dataset.entry, after });
+  target.classList.add(after ? 'drop-after' : 'drop-before');
+});
+
+document.addEventListener('drop', e => {
+  const d = ui.drag;
+  if (!d?.target) return;
+  e.preventDefault();
+  moveEntry(d.id, d.target, d.after);
+});
+
+document.addEventListener('dragend', () => {
+  ui.drag = null;
   render();
 });
 
-// Switching a field's datatype switches its value input to match.
-document.addEventListener('change', e => {
-  if (e.target.name === 'datatype') e.target.form.elements.value.type = INPUT_TYPES[e.target.value];
+document.addEventListener('focusin', e => {
+  if (e.target.matches('.combo-input') && !ui.error) openListbox(e.target);
+});
+document.addEventListener('focusout', e => {
+  if (e.target === listbox.input) closeListbox();
 });
 
+document.addEventListener('input', e => {
+  if (e.target.matches('[data-rel-edit]')) ui.relEdit.text = e.target.value;
+  const role = e.target.dataset.input;
+  if (!ui.form || !role) return;
+  ui.form[role] = e.target.value;
+  if (ui.form.typed) ui.form.typed[role] = true;
+  if (ui.error) {
+    ui.error = null;
+    const note = document.querySelector('[data-note]');
+    if (note) { note.className = 'note-text'; note.textContent = ''; }
+  }
+  if (e.target.matches('.combo-input')) openListbox(e.target);
+  if (takesValue(ui.form)) refreshFieldHint();
+});
+
+const leadsOn = (f, role) => role === 'name' ? f.type === 'field' || f.type === 'choice' : role === 'other' && f.rel.type !== 'tag';
+
+function onComboKey(e) {
+  const t = e.target;
+  const open = listbox.input === t;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    open ? moveActive(e.key === 'ArrowDown' ? 1 : -1) : openListbox(t);
+  } else if (e.key === 'Enter') {
+    if (!open) openListbox(t);
+    if (listbox.active >= 0) return pick(listbox.active), true;
+    // Nothing to pick: say why if what's typed only matches options that can't be used.
+    const blocked = listbox.options.find(o => o.note && same(o.value, t.value))
+      ?? (clean(t.value) && listbox.options.every(o => o.note) ? listbox.options[0] : null);
+    if (blocked) { ui.error = `Can’t use ${blocked.value}: ${blocked.note.toLowerCase()}.`; render(); }
+  } else if (e.key === 'Tab' && !e.shiftKey && open && clean(t.value) && listbox.active >= 0 && leadsOn(ui.form, t.dataset.input)) {
+    // Tab moves on to the next box, like Enter, but only from a box that has a next box.
+    pick(listbox.active);
+  } else if (e.key === 'Escape' && open) {
+    closeListbox();
+  } else {
+    return false;
+  }
+  return true;
+}
+
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && (ui.draft || ui.editing || ui.menu)) {
+  const t = e.target;
+  if (t.matches('.combo-input') && onComboKey(e)) return e.preventDefault();
+  if (e.key === 'Enter' && t.matches('input[data-input]') && !t.matches('.combo-input')) {
+    e.preventDefault();
+    return submitForm();
+  }
+  if (e.key === 'Enter' && t.matches('[data-rel-edit]')) {
+    e.preventDefault();
+    const edit = ui.relEdit;
+    edit.error = saveRelationValue(edit.id, t.value, edit.label);
+    if (!edit.error) ui.relEdit = null;
+    return render();
+  }
+  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && t.matches('.grip')) {
+    e.preventDefault();
+    nudgeEntry(t.dataset.grip, e.key === 'ArrowDown' ? 1 : -1);
+    return render();
+  }
+  if (e.key === 'Escape' && (ui.form || ui.menu || ui.relEdit || ui.pending || ui.notice)) {
     clearForms();
-    render();
-  } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.target.closest('input, select')) {
+    ui.notice = null;
+    return render();
+  }
+  if (ui.menu?.startsWith('add:') && !t.matches('input') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const type = { f: 'field', t: 'tag', c: 'choice' }[e.key.toLowerCase()];
+    if (type) {
+      e.preventDefault();
+      startForm('add', type, ui.menu.slice(4));
+      return render();
+    }
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !t.matches('input')) {
     e.preventDefault();
     undo();
     render();
   }
 });
 
-window.addEventListener('hashchange', () => { clearForms(); render(); });
-document.documentElement.dataset.bsTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+// Leaving a panel clears its forms and any table filters.
+window.addEventListener('hashchange', () => { clearForms(); ui.filters = {}; render(); });
+applyTheme();
 render();
 </script>
 </body>

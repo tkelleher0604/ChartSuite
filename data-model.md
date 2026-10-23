@@ -27,6 +27,8 @@ As with specifications, if r is a record and q is the subtree rooted at a child 
 
 The **argumentation** of r is the tree obtained from r by removing the label of its root. Similarly, the **parameterization** of a specification is the tree obtained from it by removing the label of its root.
 
+The **output** of a specification or record is the label of its root, so a specification is its parameterization together with its output, and a record is its argumentation together with its output. If p is a parameterization and S is a schema, the **outputs** of p in S are the outputs of the specifications in S whose parameterization is p.
+
 A set of records, $\Sigma$, constitutes a **state** in the schema S if every location of every record in $\Sigma$ is in $\Sigma$, and any two distinct records in $\Sigma$ with the same argumentation are objects.
 
 
