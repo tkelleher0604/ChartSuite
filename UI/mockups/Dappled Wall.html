@@ -1,0 +1,402 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Dappled Wall</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed wall rendered in WebGL; one quiet control in the corner that fades when idle */
+:root{
+  --wall:#737f94;
+  --sun:#f2cfa0;
+  --veil:rgba(30,34,44,.55);
+  --veil-line:rgba(242,207,160,.24);
+  --text:#f6ecdc;
+  --muted:rgba(246,236,220,.68);
+  --ui:"IBM Plex Sans Condensed", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{
+  background:var(--wall);color:var(--text);font-family:var(--ui);overflow:hidden;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+}
+#wall{position:fixed;inset:0;width:100%;height:100%;display:block}
+.ui{
+  position:fixed;
+  right:calc(16px + env(safe-area-inset-right, 0px));
+  bottom:calc(16px + env(safe-area-inset-bottom, 0px));
+  display:flex;flex-direction:column;align-items:flex-end;gap:8px;
+  transition:opacity .9s ease;
+}
+.ui.rest{opacity:0}
+.ui.rest:focus-within{opacity:1}
+button{font:inherit;cursor:pointer}
+.veil{
+  background:var(--veil);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border:1px solid var(--veil-line);
+}
+#toggle{
+  color:var(--text);padding:8px 14px;border-radius:999px;
+  font-size:12px;letter-spacing:.09em;text-transform:uppercase;
+  font-variant-numeric:tabular-nums;
+}
+#panel{
+  border-radius:14px;padding:14px 16px;
+  width:min(270px, calc(100vw - 32px));
+  display:grid;gap:10px;
+}
+.force{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.force b{font-weight:500;font-size:16px}
+.force span{font-size:11px;color:var(--muted);letter-spacing:.09em;text-transform:uppercase;font-variant-numeric:tabular-nums}
+#desc{margin:0;font-size:13px;line-height:1.4;color:var(--muted);min-height:2.8em}
+input[type=range]{width:100%;margin:0;accent-color:var(--sun)}
+.ends{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.row{display:flex;gap:8px}
+.row button{
+  flex:1;background:transparent;border:1px solid var(--veil-line);color:var(--text);
+  border-radius:8px;padding:8px 6px;font-size:13px;
+}
+.row button:hover,#toggle:hover{border-color:rgba(242,207,160,.5)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+.nogl{position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--text)}
+@media (prefers-reduced-motion: reduce){ .ui{transition:none} }
+</style>
+
+<canvas id="wall" aria-label="Leaf shadows moving on a sunlit wall" role="img"></canvas>
+
+<div class="ui" id="ui">
+  <div id="panel" class="veil" hidden>
+    <div class="force"><b id="fname">Gentle breeze</b><span id="fnum">Force 3</span></div>
+    <p id="desc">Leaves and small twigs in constant motion.</p>
+    <input id="wind" type="range" min="0" max="6" step="1" value="3" aria-label="Wind strength, Beaufort force">
+    <div class="ends"><span>Calm</span><span>Strong breeze</span></div>
+    <div class="row">
+      <button id="regrow" type="button">New tree</button>
+      <button id="fs" type="button">Full screen</button>
+    </div>
+  </div>
+  <button id="toggle" class="veil" type="button" aria-expanded="false" aria-controls="panel">Wind · F3</button>
+</div>
+
+<script>
+(() => {
+"use strict";
+const BEAUFORT = [
+  ["Calm", "Smoke rises straight up. The wall is still.", 0.0],
+  ["Light air", "Smoke drifts. Leaves barely stir.", 0.14],
+  ["Light breeze", "Leaves rustle. Wind felt on the face.", 0.3],
+  ["Gentle breeze", "Leaves and small twigs in constant motion.", 0.5],
+  ["Moderate breeze", "Small branches move.", 0.72],
+  ["Fresh breeze", "Small trees in leaf begin to sway.", 0.95],
+  ["Strong breeze", "Large branches in motion.", 1.2],
+];
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- noise ---------- */
+function h1(i){ i = (i|0) ^ 0x9e3779b9; i = Math.imul(i ^ (i>>>16), 0x85ebca6b); i = Math.imul(i ^ (i>>>13), 0xc2b2ae35); i ^= i>>>16; return (i>>>0)/4294967295*2-1; }
+function vn(x){ const i = Math.floor(x), f = x - i, u = f*f*(3-2*f); const a = h1(i), b = h1(i+1); return a + (b-a)*u; }
+function fbm(x){ return vn(x)*0.6 + vn(x*2.13+17.3)*0.3 + vn(x*4.31+3.1)*0.15; }
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+let WX=0, WY=0, WG=0;
+function windAt(te){
+  const g0 = vn(te*0.07+11)*0.5+0.5;
+  const gust = 0.22 + 0.78*g0*g0*(3-2*g0);
+  WX = gust*(0.6 + 0.55*fbm(te*0.45));
+  WY = gust*0.45*fbm(te*0.37+29);
+  WG = gust;
+}
+
+/* ---------- canvas + GL ---------- */
+const cv = document.getElementById("wall");
+const gl = cv.getContext("webgl", {antialias:false, alpha:false, depth:false, stencil:false, preserveDrawingBuffer:false});
+if(!gl){
+  const d = document.createElement("div"); d.className = "nogl";
+  d.textContent = "This piece needs WebGL, which this browser has turned off.";
+  document.body.appendChild(d); return;
+}
+const mask = document.createElement("canvas");
+const mx = mask.getContext("2d");
+
+const VS = "attribute vec2 p;varying vec2 vUv;void main(){vUv=p*0.5+0.5;gl_Position=vec4(p,0.,1.);}";
+const FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 vUv;
+uniform sampler2D uMask;
+uniform vec2 uPx;
+uniform vec3 uRad;
+uniform float uGrain;
+uniform vec3 uShadow;
+uniform vec3 uSun;
+float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+void main(){
+  vec2 uv = vUv;
+  float j = hash(gl_FragCoord.xy)*6.2831853;
+  float n = 0.0, f = 0.0, s = 0.0;
+  for(int i=0;i<10;i++){ float fi=float(i); float r=sqrt((fi+0.5)/10.0); float a=fi*2.3999632+j;
+    n += texture2D(uMask, uv + vec2(cos(a),sin(a))*r*uRad.x*uPx).r; }
+  for(int i=0;i<28;i++){ float fi=float(i); float r=sqrt((fi+0.5)/28.0); float a=fi*2.3999632+j;
+    f += texture2D(uMask, uv + vec2(cos(a),sin(a))*r*uRad.y*uPx).g; }
+  for(int i=0;i<12;i++){ float fi=float(i); float r=sqrt((fi+0.5)/12.0); float a=fi*2.3999632+j;
+    s += texture2D(uMask, uv + vec2(cos(a),sin(a))*r*uRad.z*uPx).b; }
+  n /= 10.0; f /= 28.0; s /= 12.0;
+  float light = (1.0-n)*(1.0-f)*(1.0-s);
+  float l = smoothstep(0.06, 0.92, light);
+  float reach = 0.9 + 0.16*(vUv.x*0.55 + vUv.y*0.45);
+  vec3 col = uShadow + (uSun - uShadow)*l*reach;
+  col += vec3(0.05,0.04,0.02)*pow(l, 5.0);
+  float d = length((vUv-0.5)*vec2(1.0,1.15));
+  col *= 1.0 - 0.16*smoothstep(0.38, 0.9, d);
+  col += (hash(gl_FragCoord.xy + uGrain) - 0.5)*0.05;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; }
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog); gl.useProgram(prog);
+const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, "p"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+const U = {};
+["uMask","uPx","uRad","uGrain","uShadow","uSun"].forEach(k => U[k] = gl.getUniformLocation(prog, k));
+gl.uniform1i(U.uMask, 0);
+gl.uniform3f(U.uShadow, 0.447, 0.498, 0.584);
+gl.uniform3f(U.uSun, 0.949, 0.812, 0.627);
+
+/* ---------- scene ---------- */
+const FAR = 0, NEAR = 1;
+const CFG = [
+  { maxD:4, flex:[0.03,0.06,0.11,0.18,0.26], leaf:0.034, thick:0.011 },
+  { maxD:4, flex:[0.025,0.05,0.09,0.15,0.22], leaf:0.03,  thick:0.010 },
+];
+let W=1, H=1, S=1, ds=2, MW=2, MH=2, m=1;
+let nodes = [], leaves = [[],[]], byDepth = [[],[]];
+let rng, seed = (Math.random()*1e9)|0;
+let T = Math.random()*1000;
+
+function grow(parent, rx, ry, rel, len, thick, depth, layer){
+  const c = CFG[layer], i = nodes.length;
+  nodes.push({ p:parent, rx, ry, rel, len, thick, depth, layer,
+    ph: rng()*100, flex: c.flex[depth]*(0.7+0.6*rng()),
+    w: 2*Math.PI*(0.45+0.5*depth)*(0.85+0.3*rng()),
+    cur:0, vel:0, ang:0, x0:rx, y0:ry, x1:rx, y1:ry, wx:0, wy:0, wg:0 });
+  byDepth[layer][depth].push(i);
+  if(depth >= c.maxD-1){
+    const n = layer===FAR ? 5+Math.floor(rng()*4) : 2+Math.floor(rng()*3);
+    for(let k=0;k<n;k++){
+      const side = k%2 ? 1 : -1;
+      leaves[layer].push({ n:i, t:0.15+0.85*rng(), rel: side*(0.45+0.7*rng()),
+        L: c.leaf*(0.75+0.5*rng()), wd: 0.36+0.14*rng(), ph: rng()*100, ph2: rng()*100 });
+    }
+    leaves[layer].push({ n:i, t:1, rel:(rng()-0.5)*0.4, L:c.leaf*(0.8+0.4*rng()), wd:0.38, ph:rng()*100, ph2:rng()*100 });
+  }
+  if(depth < c.maxD){
+    grow(i, 0, 0, (rng()-0.5)*0.35, len*(0.72+0.12*rng()), thick*0.68, depth+1, layer);
+    const sides = depth===0 ? 2 : (rng()<0.4 ? 2 : 1);
+    let sg = rng()<0.5 ? 1 : -1;
+    for(let k=0;k<sides;k++){
+      grow(i, 0, 0, sg*(0.45+0.6*rng()), len*(0.5+0.22*rng()), thick*0.55, depth+1, layer);
+      sg = -sg;
+    }
+  }
+}
+
+function build(){
+  rng = mulberry32(seed);
+  nodes = []; leaves = [[],[]];
+  byDepth = [0,1].map(l => Array.from({length:CFG[l].maxD+1}, () => []));
+  const X = W/S, Y = H/S;
+  const nFar = Math.round(6 + 6*X*Y);
+  const cols = X > Y ? 3 : 2, rows = Math.ceil(nFar/cols);
+  for(let i=0;i<nFar;i++){
+    const c = i%cols, r = Math.floor(i/cols);
+    const tx = (c+0.15+0.7*rng())/cols*X, ty = (r+0.15+0.7*rng())/rows*Y*0.95;
+    const q = rng(); let rx, ry;
+    if(q < 0.38){ rx = -0.08; ry = Math.min(Y+0.05, ty + 0.1 + rng()*0.3); }
+    else if(q < 0.62){ rx = tx + (rng()-0.5)*0.3; ry = -0.08; }
+    else if(q < 0.86){ rx = X+0.08; ry = ty + rng()*0.25; }
+    else { rx = tx - 0.1 - rng()*0.2; ry = Y+0.08; }
+    const a = Math.atan2(ty-ry, tx-rx), d = Math.hypot(tx-rx, ty-ry);
+    grow(-1, rx, ry, a, Math.max(0.12, d*0.42), CFG[FAR].thick, 0, FAR);
+  }
+  for(let i=0;i<2;i++){
+    const rx = -0.06, ry = Y*(0.5+0.32*rng());
+    const tx = X*(0.55+0.4*rng()), ty = Y*(0.2+0.45*rng());
+    const a = Math.atan2(ty-ry, tx-rx), d = Math.hypot(tx-rx, ty-ry);
+    grow(-1, rx, ry, a, d*0.45, CFG[NEAR].thick, 0, NEAR);
+  }
+  for(let k=0;k<200;k++) step(1/60);
+}
+
+let strength = 0.5, strengthTarget = 0.5;
+function step(dt){
+  const st = strength, idleAmp = 0.04 + 0.12*Math.min(1, st);
+  for(let i=0;i<nodes.length;i++){
+    const nd = nodes[i];
+    let x0, y0, pa;
+    if(nd.p < 0){ x0 = nd.rx; y0 = nd.ry; pa = 0; }
+    else { const P = nodes[nd.p]; x0 = P.x1; y0 = P.y1; pa = P.ang; }
+    nd.x0 = x0; nd.y0 = y0;
+    const base = pa + nd.rel;
+    windAt(T - x0*1.3 - y0*0.3);
+    nd.wx = WX*st; nd.wy = WY*st; nd.wg = WG*st;
+    const torque = Math.cos(base)*nd.wy - Math.sin(base)*nd.wx;
+    const turb = vn(T*(0.7+nd.depth*0.55) + nd.ph)*nd.wg;
+    const idle = vn(T*0.25 + nd.ph*1.7)*idleAmp;
+    const target = nd.flex*(torque + turb*0.9 + idle);
+    const w = nd.w;
+    nd.vel += ((target - nd.cur)*w*w - nd.vel*0.5*w)*dt;
+    nd.cur += nd.vel*dt;
+    nd.ang = base + nd.cur;
+    nd.x1 = x0 + Math.cos(nd.ang)*nd.len;
+    nd.y1 = y0 + Math.sin(nd.ang)*nd.len;
+  }
+}
+
+const HP = Math.PI/2;
+function drawLayer(layer, color){
+  mx.strokeStyle = color; mx.fillStyle = color;
+  const c = CFG[layer], bd = byDepth[layer];
+  for(let d=0; d<bd.length; d++){
+    const list = bd[d]; if(!list.length) continue;
+    mx.lineWidth = Math.max(0.7, c.thick*Math.pow(0.64, d)*m);
+    mx.beginPath();
+    for(const i of list){ const nd = nodes[i]; mx.moveTo(nd.x0*m, nd.y0*m); mx.lineTo(nd.x1*m, nd.y1*m); }
+    mx.stroke();
+  }
+  mx.beginPath();
+  const lv = leaves[layer];
+  for(let k=0;k<lv.length;k++){
+    const lf = lv[k], nd = nodes[lf.n];
+    const bx = (nd.x0 + (nd.x1-nd.x0)*lf.t)*m, by = (nd.y0 + (nd.y1-nd.y0)*lf.t)*m;
+    let a = nd.ang + lf.rel;
+    const da = Math.atan2(Math.sin(HP - a), Math.cos(HP - a)); a += da*0.28;
+    const g = nd.wg;
+    a += vn(T*(1.4+g*5) + lf.ph)*(0.12 + g*0.9) + (Math.cos(a)*nd.wy - Math.sin(a)*nd.wx)*0.45;
+    const flip = 0.4 + 0.6*Math.abs(Math.cos(lf.ph2 + vn(T*(0.7+g*3) + lf.ph2)*(0.3+g*2.6)));
+    const L = lf.L*m, hw = L*lf.wd*flip;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const tx = bx + ca*L, ty = by + sa*L, cx = bx + ca*L*0.45, cy = by + sa*L*0.45;
+    mx.moveTo(bx, by);
+    mx.quadraticCurveTo(cx - sa*hw, cy + ca*hw, tx, ty);
+    mx.quadraticCurveTo(cx + sa*hw, cy - ca*hw, bx, by);
+  }
+  mx.fill();
+}
+
+function drawMask(){
+  mx.globalCompositeOperation = "source-over";
+  mx.fillStyle = "#000"; mx.fillRect(0, 0, MW, MH);
+  mx.globalCompositeOperation = "lighter";
+  mx.lineCap = "round";
+  drawLayer(FAR, "#00ff00");
+  drawLayer(NEAR, "#ff0000");
+  // window sill: a band low on the wall, with a sliver of light under it
+  mx.fillStyle = "#0000ff";
+  mx.beginPath();
+  mx.moveTo(-4, MH*0.866); mx.lineTo(MW+4, MH*0.858); mx.lineTo(MW+4, MH*0.974); mx.lineTo(-4, MH*0.976); mx.closePath();
+  mx.moveTo(-4, MH*0.97); mx.lineTo(MW*0.3, MH*0.97); mx.lineTo(MW*0.27, MH+4); mx.lineTo(-4, MH+4); mx.closePath();
+  mx.moveTo(MW*0.8, MH*0.97); mx.lineTo(MW+4, MH*0.97); mx.lineTo(MW+4, MH+4); mx.lineTo(MW*0.83, MH+4); mx.closePath();
+  mx.fill();
+}
+
+let grainTick = 0;
+function render(){
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, mask);
+  gl.uniform2f(U.uPx, 1/MW, 1/MH);
+  gl.uniform3f(U.uRad, 0.0075*S/ds, 0.021*S/ds, 0.009*S/ds);
+  gl.uniform1f(U.uGrain, (grainTick % 97)*13.7);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+function resize(){
+  W = cv.clientWidth || innerWidth; H = cv.clientHeight || innerHeight; S = Math.max(W, H);
+  ds = Math.max(2, S/320);
+  MW = Math.max(2, Math.ceil(W/ds)); MH = Math.max(2, Math.ceil(H/ds));
+  mask.width = MW; mask.height = MH; m = S/ds;
+  const k = Math.min(window.devicePixelRatio || 1, Math.sqrt(1.4e6/(W*H)));
+  cv.width = Math.max(1, Math.round(W*k)); cv.height = Math.max(1, Math.round(H*k));
+  gl.viewport(0, 0, cv.width, cv.height);
+  build();
+}
+
+let last = performance.now(), acc = 0;
+function frame(now){
+  const dt = Math.min(1/30, Math.max(0, (now - last)/1000)); last = now;
+  T += dt;
+  strength += (strengthTarget - strength)*(1 - Math.exp(-dt*0.7));
+  step(dt);
+  acc += dt; if(acc > 1/12){ acc = 0; grainTick++; }
+  drawMask(); render();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- controls ---------- */
+const ui = document.getElementById("ui"), panel = document.getElementById("panel"), toggle = document.getElementById("toggle");
+const slider = document.getElementById("wind");
+const fname = document.getElementById("fname"), fnum = document.getElementById("fnum"), desc = document.getElementById("desc");
+function setForce(f, instant){
+  const b = BEAUFORT[f];
+  fname.textContent = b[0]; fnum.textContent = "Force " + f; desc.textContent = b[1];
+  toggle.textContent = "Wind · F" + f;
+  strengthTarget = b[2];
+  if(instant) strength = b[2];
+}
+let force = reduce ? 1 : 3;
+try { const s = localStorage.getItem("dappled-force"); if(s !== null && BEAUFORT[+s]) force = +s; } catch(e){}
+slider.value = force; setForce(force, true);
+slider.addEventListener("input", () => {
+  const f = +slider.value; setForce(f, false);
+  try { localStorage.setItem("dappled-force", String(f)); } catch(e){}
+});
+toggle.addEventListener("click", () => {
+  const open = panel.hidden; panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); wake();
+});
+document.getElementById("regrow").addEventListener("click", () => { seed = (Math.random()*1e9)|0; build(); });
+const fsBtn = document.getElementById("fs");
+if(!document.documentElement.requestFullscreen) fsBtn.hidden = true;
+fsBtn.addEventListener("click", () => {
+  const p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  if(p && p.catch) p.catch(() => {});
+});
+document.addEventListener("fullscreenchange", () => { fsBtn.textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; });
+
+let idleTimer;
+function wake(){
+  ui.classList.remove("rest"); clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if(panel.hidden) ui.classList.add("rest"); }, 3500);
+}
+["pointermove","pointerdown","keydown","touchstart"].forEach(e => addEventListener(e, wake, {passive:true}));
+wake();
+
+let lock = null;
+async function keepAwake(){
+  try { if(navigator.wakeLock && !lock){ lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } } catch(e){}
+}
+addEventListener("pointerdown", keepAwake, {passive:true});
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible"){ last = performance.now(); if(lock === null) keepAwake(); } });
+
+let rt;
+addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(resize, 150); });
+resize();
+drawMask(); render();
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>

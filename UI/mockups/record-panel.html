@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rboreal Record Panel</title>
+<link rel="stylesheet" href="../vendor/tabler-core/tabler.min.css">
+<style>
+  body { background: var(--tblr-bg-surface-secondary, #f6f8fb); }
+  .wrap { max-width: 820px; margin: 2rem auto; padding: 0 1rem; }
+  .brand { font-weight: 600; margin-bottom: .75rem; color: var(--tblr-secondary, #667382); }
+  .card-header { gap: .75rem; }
+  .breadcrumb { margin: 0; font-size: 1rem; flex-wrap: wrap; align-items: center; }
+  .breadcrumb-item { display: inline-flex; align-items: center; gap: .35rem; }
+  .breadcrumb-item + .breadcrumb-item::before { content: "›"; }
+  .entry { display: flex; align-items: center; gap: .5rem; padding: .4rem 1rem; min-height: 2.6rem; border-top: 1px solid var(--tblr-border-color, #e6e7e9); }
+  .entry:hover { background: var(--tblr-bg-surface-secondary, #f6f8fb); }
+  .toggle { width: 1.25rem; height: 1.25rem; padding: 0; border: 0; background: none; color: var(--tblr-secondary, #667382); display: inline-flex; align-items: center; justify-content: center; flex: none; cursor: pointer; }
+  .toggle svg { transition: transform .15s; }
+  .toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+  .toggle-spacer { width: 1.25rem; flex: none; }
+  .entry-label { min-width: 9rem; font-weight: 500; color: inherit; }
+  a.entry-label:hover { color: var(--tblr-primary, #066fd1); }
+  .empty { padding: 1rem; color: var(--tblr-secondary, #667382); border-top: 1px solid var(--tblr-border-color, #e6e7e9); }
+  .icon { width: 18px; height: 18px; }
+  .plain-btn { border: 0; background: none; padding: 0 .15rem; color: var(--tblr-primary, #066fd1); cursor: pointer; }
+
+  /* Row actions appear on hover or keyboard focus. */
+  .actions { margin-left: auto; display: flex; gap: .15rem; opacity: 0; }
+  .entry:hover .actions, .entry:focus-within .actions, .actions:has(.dropdown-menu) { opacity: 1; }
+  @media (hover: none) { .actions { opacity: 1; } }
+  .icon-btn { width: 1.9rem; height: 1.9rem; border: 0; border-radius: 4px; background: none; color: var(--tblr-secondary, #667382); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+  .icon-btn:hover:not(:disabled) { background: var(--tblr-border-color, #e6e7e9); color: var(--tblr-body-color, #182433); }
+  .icon-btn:disabled { opacity: .35; cursor: default; }
+  .header-add { margin-left: auto; }
+
+  .menu-anchor { position: relative; display: inline-flex; }
+  .menu-anchor .dropdown-menu { top: 100%; right: 0; left: auto; margin-top: .25rem; }
+
+  .entry-form { flex-wrap: wrap; background: var(--tblr-bg-surface-secondary, #f6f8fb); }
+  .entry-form .form-control, .entry-form .form-select { width: auto; min-width: 0; flex: 1 1 8rem; }
+  .entry-form .btn { flex: none; }
+  .form-kind { min-width: 4.5rem; font-size: .8rem; font-weight: 600; text-transform: uppercase; color: var(--tblr-secondary, #667382); }
+  .form-error { flex-basis: 100%; color: var(--tblr-danger, #d63939); font-size: .85rem; padding-left: 6.75rem; }
+
+  .panel-footer { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-top: .75rem; font-size: .85rem; color: var(--tblr-secondary, #667382); }
+  .panel-footer .plain-btn:disabled { color: var(--tblr-secondary, #667382); opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">Rboreal</div>
+  <div class="card">
+    <div class="card-header" id="header"></div>
+    <div id="body"></div>
+  </div>
+  <div class="panel-footer" id="footer"></div>
+</div>
+
+<script>
+// Sample state, path case only: every non-object record has exactly one location.
+// `at` is the id of that location and `edge` labels the edge to it.
+// The root is one of: an object (kind), a field (datatype + value), a choice (text) or a tag (Boolean).
+const SAMPLE = {
+  acme:          { kind: 'entity' },
+  acme_name:     { at: 'acme', edge: 'name', field: 'text', value: 'Acme Holdings, LLC' },
+  acme_formed:   { at: 'acme', edge: 'formed', field: 'date', value: '2019-03-04' },
+  acme_ein:      { at: 'acme', edge: 'EIN', field: 'text', value: '84-1234567' },
+  acme_good:     { at: 'acme', edge: 'good standing', tag: true },
+  acme_juris:    { at: 'acme', edge: 'jurisdiction', choice: 'Delaware' },
+  acme_file:     { at: 'acme_juris', edge: 'file number', field: 'text', value: '7351234' },
+  acme_agent:    { at: 'acme_juris', edge: 'registered agent', field: 'text', value: 'CT Corporation' },
+  acme_type:     { at: 'acme', edge: 'entity type', choice: 'LLC' },
+  acme_managed:  { at: 'acme_type', edge: 'manager-managed', tag: true },
+  acme_tax:      { at: 'acme_type', edge: 'tax classification', choice: 'partnership' },
+
+  opco:          { kind: 'entity' },
+  opco_name:     { at: 'opco', edge: 'name', field: 'text', value: 'Acme Operating Co.' },
+  opco_formed:   { at: 'opco', edge: 'formed', field: 'date', value: '2019-05-20' },
+  opco_good:     { at: 'opco', edge: 'good standing', tag: false },
+  opco_juris:    { at: 'opco', edge: 'jurisdiction', choice: 'Texas' },
+  opco_file:     { at: 'opco_juris', edge: 'file number', field: 'text', value: '0803456789' },
+  opco_type:     { at: 'opco', edge: 'entity type', choice: 'corporation' },
+  opco_shares:   { at: 'opco_type', edge: 'authorized shares', field: 'number', value: 10000000 },
+
+  lee:           { kind: 'person' },
+  lee_name:      { at: 'lee', edge: 'name', field: 'text', value: 'Jordan Lee' },
+  lee_email:     { at: 'lee', edge: 'email', field: 'text', value: 'jordan.lee@example.com' },
+};
+
+const STORAGE_KEY = 'rboreal.record-panel.v1';
+
+function loadRecords() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return structuredClone(SAMPLE);
+}
+function saveRecords() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch {}
+}
+
+// Records are never mutated in place, so earlier states can be kept for undo.
+let records = loadRecords();
+const undoStack = [];
+
+const ui = {
+  expanded: new Set(),
+  showRoot: false,  // whether the "All › Kind" start of the path is revealed
+  menu: null,       // id of the location whose add menu is open
+  draft: null,      // { type, at, kind, values } for a new entry being added
+  editing: null,    // { id, values } for an entry being edited
+  error: null,
+};
+
+// Inner markup of the Tabler outline icons in ../vendor/tabler-icons/outline/.
+const ICONS = {
+  'chevron-right': '<path d="M9 6l6 6l-6 6" />',
+  'plus': '<path d="M12 5l0 14" /><path d="M5 12l14 0" />',
+  'pencil': '<path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M13.5 6.5l4 4" />',
+  'trash': '<path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />',
+};
+const icon = name =>
+  `<svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+
+const isObject = r => 'kind' in r;
+const isField = r => 'field' in r;
+const isTag = r => 'tag' in r;
+const isChoice = r => 'choice' in r;
+const typeOf = r => isField(r) ? 'field' : isTag(r) ? 'tag' : 'choice';
+
+const TYPE_NAMES = { choice: 'Option', tag: 'Tag', field: 'Field' };
+const DATATYPES = ['text', 'number', 'date'];
+const INPUT_TYPES = { text: 'text', number: 'number', date: 'date' };
+const DEFAULT_VALUES = {
+  field: { edge: '', datatype: 'text', value: '' },
+  tag: { edge: '', tag: 'true' },
+  choice: { edge: '', option: '' },
+  object: { name: '' },
+};
+
+const kindLabel = k => k[0].toUpperCase() + k.slice(1);
+let idCounter = 0;
+const newId = () => `r${Date.now().toString(36)}${(idCounter++).toString(36)}`;
+
+// ---- Reading the state ----
+
+// Fields first, then tags, then choices; alphabetical by edge label within each group.
+const groupOrder = r => isField(r) ? 0 : isTag(r) ? 1 : 2;
+function entriesOf(id, recs = records) {
+  return Object.keys(recs)
+    .filter(k => recs[k].at === id)
+    .sort((a, b) => groupOrder(recs[a]) - groupOrder(recs[b]) || recs[a].edge.localeCompare(recs[b].edge));
+}
+
+function objectName(id) {
+  const nameId = entriesOf(id).find(k => records[k].edge === 'name');
+  return nameId ? records[nameId].value : `${records[id].kind} ${id}`;
+}
+
+const objectsOfKind = kind => Object.keys(records).filter(k => records[k].kind === kind);
+const isObjectName = id => records[id].edge === 'name' && isObject(records[records[id].at]);
+
+// Locations up to the object, ordered object-first like a file path.
+function pathTo(id) {
+  const path = [];
+  for (let cur = id; cur; cur = records[cur].at) path.unshift(cur);
+  return path;
+}
+
+// The record's underlying specification with its root label removed, serialized:
+// its edge, then each location's label and edge, ending at the kind.
+function parameterization(recs, id) {
+  const parts = [recs[id].edge];
+  for (let cur = recs[id].at; cur; cur = recs[cur].at) {
+    const r = recs[cur];
+    if (isObject(r)) { parts.push(`kind:${r.kind}`); break; }
+    parts.push(isTag(r) ? `tag:${r.tag}` : `choice:${r.choice}`, r.edge);
+  }
+  return JSON.stringify(parts);
+}
+
+// Returns a message for the first way `recs` fails to be a state, or null if it is one.
+function validate(recs) {
+  // Two path entries of one location with the same edge label would share an argumentation.
+  const seen = new Set();
+  for (const r of Object.values(recs)) {
+    if (!r.at) continue;
+    const key = `${r.at}\u0000${r.edge}`;
+    if (seen.has(key)) return `There's already an entry labeled "${r.edge}" here.`;
+    seen.add(key);
+  }
+  for (const [id, r] of Object.entries(recs)) {
+    if (isObject(r) && !entriesOf(id, recs).some(e => recs[e].edge === 'name' && isField(recs[e])))
+      return 'Every object needs a name field.';
+  }
+  // Schema conditions on the specifications the records imply.
+  const byParameterization = new Map();
+  for (const id of Object.keys(recs)) {
+    if (isObject(recs[id])) continue;
+    const p = parameterization(recs, id);
+    if (!byParameterization.has(p)) byParameterization.set(p, []);
+    byParameterization.get(p).push(recs[id]);
+  }
+  for (const rs of byParameterization.values()) {
+    const edge = rs[0].edge;
+    const datatypes = [...new Set(rs.filter(isField).map(r => r.field))];
+    if (datatypes.length > 1)
+      return `Schema conflict: a ${datatypes[0]} field and a ${datatypes[1]} field labeled "${edge}" would share a parameterization.`;
+    if (rs.some(isChoice) && rs.some(r => isTag(r) || isField(r)))
+      return `Schema conflict: an option and a ${rs.some(isTag) ? 'tag' : 'field'} labeled "${edge}" would share a parameterization.`;
+  }
+  return null;
+}
+
+// ---- Changing the state ----
+
+function commit(next) {
+  const error = validate(next);
+  if (error) return error;
+  undoStack.push(records);
+  records = next;
+  saveRecords();
+  return null;
+}
+
+function parseValue(datatype, raw) {
+  const s = raw.trim();
+  if (datatype === 'number') return s !== '' && Number.isFinite(Number(s)) ? Number(s) : undefined;
+  if (datatype === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+  return s;
+}
+
+// Builds an entry's own properties from form values, or returns a message saying what's missing.
+function buildEntry(type, v) {
+  const edge = (v.edge || '').trim();
+  if (!edge) return 'Give it a label.';
+  if (type === 'tag') return { edge, tag: v.tag === 'true' };
+  if (type === 'choice') {
+    const choice = (v.option || '').trim();
+    return choice ? { edge, choice } : 'Give the option a value.';
+  }
+  if (!(v.value || '').trim()) return 'Give it a value.';
+  const value = parseValue(v.datatype, v.value);
+  return value === undefined ? `That isn't a valid ${v.datatype}.` : { edge, field: v.datatype, value };
+}
+
+function saveDraft(values) {
+  const { type, at, kind } = ui.draft;
+  if (type === 'object') {
+    const name = (values.name || '').trim();
+    if (!name) return 'Give it a name.';
+    const id = newId();
+    return commit({ ...records, [id]: { kind }, [newId()]: { at: id, edge: 'name', field: 'text', value: name } });
+  }
+  const entry = buildEntry(type, values);
+  if (typeof entry === 'string') return entry;
+  return commit({ ...records, [newId()]: { at, ...entry } });
+}
+
+function saveEdit(values) {
+  const { id } = ui.editing;
+  const entry = buildEntry(typeOf(records[id]), values);
+  if (typeof entry === 'string') return entry;
+  return commit({ ...records, [id]: { at: records[id].at, ...entry } });
+}
+
+function deleteEntry(id) {
+  const next = { ...records };
+  delete next[id];
+  commit(next);
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  records = undoStack.pop();
+  saveRecords();
+  clearForms();
+}
+
+function resetSample() {
+  undoStack.push(records);
+  records = structuredClone(SAMPLE);
+  saveRecords();
+  clearForms();
+}
+
+function clearForms() {
+  ui.draft = ui.editing = ui.error = ui.menu = null;
+}
+
+function startDraft(type, at, kind) {
+  clearForms();
+  ui.draft = { type, at, kind, values: { ...DEFAULT_VALUES[type] } };
+  if (at) ui.expanded.add(at);
+}
+
+function startEdit(id) {
+  clearForms();
+  const r = records[id];
+  const values = isField(r) ? { edge: r.edge, datatype: r.field, value: String(r.value) }
+    : isTag(r) ? { edge: r.edge, tag: String(r.tag) }
+    : { edge: r.edge, option: r.choice };
+  ui.editing = { id, values };
+}
+
+// ---- Rendering ----
+
+function tagBadge(r, href) {
+  const cls = r.tag ? 'bg-green-lt' : 'bg-red-lt';
+  return `<a class="badge ${cls}" href="${href}" title="${r.tag}">${esc(r.edge)}</a>`;
+}
+
+function crumb(inner, isCurrent) {
+  return `<li class="breadcrumb-item${isCurrent ? ' active' : ''}">${inner}</li>`;
+}
+
+function recordCrumb(id, isCurrent) {
+  const r = records[id];
+  const href = `#${id}`;
+  if (isObject(r)) return crumb(`<a href="${href}">${esc(objectName(id))}</a>`, isCurrent);
+  if (isTag(r)) return crumb(tagBadge(r, href), isCurrent);
+  return crumb(`<a href="${href}">${esc(r.edge)}</a><span class="badge bg-azure-lt">${esc(r.choice)}</span>`, isCurrent);
+}
+
+function addMenu(at) {
+  const open = ui.menu === at;
+  const items = ['choice', 'tag', 'field'].map(t =>
+    `<button class="dropdown-item" data-action="add" data-type="${t}" data-id="${at}">Add ${TYPE_NAMES[t].toLowerCase()}</button>`).join('');
+  return `<span class="menu-anchor">
+      <button class="icon-btn" data-action="menu" data-id="${at}" aria-label="Add entry" aria-expanded="${open}">${icon('plus')}</button>
+      ${open ? `<div class="dropdown-menu show">${items}</div>` : ''}
+    </span>`;
+}
+
+function deleteButton(id) {
+  const reason = entriesOf(id).length ? 'Remove its entries first'
+    : isObjectName(id) ? 'Objects need a name' : '';
+  return reason
+    ? `<span title="${reason}"><button class="icon-btn" disabled aria-label="Delete">${icon('trash')}</button></span>`
+    : `<button class="icon-btn" data-action="delete" data-id="${id}" aria-label="Delete" title="Delete">${icon('trash')}</button>`;
+}
+
+const pad = depth => `style="padding-left:${1 + depth * 1.5}rem"`;
+
+function formRow(type, values, depth, mode) {
+  const input = (name, attrs = '') =>
+    `<input class="form-control form-control-sm" name="${name}" value="${esc(values[name] ?? '')}" ${attrs}>`;
+  const select = (name, options) =>
+    `<select class="form-select form-select-sm" name="${name}">${options.map(o =>
+      `<option${String(values[name]) === o ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+  let kindName = TYPE_NAMES[type];
+  let inputs;
+  if (type === 'object') {
+    kindName = `New ${ui.draft.kind}`;
+    inputs = input('name', 'placeholder="name" data-autofocus');
+  } else {
+    inputs = input('edge', 'placeholder="label" data-autofocus');
+    if (type === 'field') inputs += select('datatype', DATATYPES) + input('value', `type="${INPUT_TYPES[values.datatype]}" step="any" placeholder="value"`);
+    if (type === 'tag') inputs += select('tag', ['true', 'false']);
+    if (type === 'choice') inputs += input('option', 'placeholder="option"');
+  }
+  return `<form class="entry entry-form" data-form="${mode}" ${pad(depth)}>
+      <span class="toggle-spacer"></span>
+      <span class="form-kind">${esc(kindName)}</span>
+      ${inputs}
+      <button class="btn btn-sm btn-primary" type="submit">Save</button>
+      <button class="btn btn-sm" type="button" data-action="cancel">Cancel</button>
+      ${ui.error ? `<div class="form-error">${esc(ui.error)}</div>` : ''}
+    </form>`;
+}
+
+function entryRow(id, depth) {
+  if (ui.editing?.id === id) return formRow(typeOf(records[id]), ui.editing.values, depth, 'edit');
+  const r = records[id];
+  const toggle = entriesOf(id).length
+    ? `<button class="toggle" data-action="toggle" data-id="${id}" aria-expanded="${ui.expanded.has(id)}" aria-label="Expand ${esc(r.edge)}">${icon('chevron-right')}</button>`
+    : '<span class="toggle-spacer"></span>';
+  const content = isField(r) ? `<span class="entry-label">${esc(r.edge)}</span><span>${esc(r.value)}</span>`
+    : isTag(r) ? tagBadge(r, `#${id}`)
+    : `<a class="entry-label" href="#${id}">${esc(r.edge)}</a><span class="badge bg-azure-lt">${esc(r.choice)}</span>`;
+  const actions = `<span class="actions">
+      ${isField(r) ? '' : addMenu(id)}
+      <button class="icon-btn" data-action="edit" data-id="${id}" aria-label="Edit" title="Edit">${icon('pencil')}</button>
+      ${deleteButton(id)}
+    </span>`;
+  return `<div class="entry" ${pad(depth)}>${toggle}${content}${actions}</div>`;
+}
+
+function entryRows(id, depth) {
+  const draft = ui.draft?.at === id ? formRow(ui.draft.type, ui.draft.values, depth, 'add') : '';
+  return draft + entriesOf(id)
+    .map(e => entryRow(e, depth) + (ui.expanded.has(e) ? entryRows(e, depth + 1) : ''))
+    .join('');
+}
+
+// The hash is empty for All, "kind:<kind>" for a kind, or a record id.
+function currentView() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (h.startsWith('kind:')) return { kind: h.slice(5) };
+  if (records[h]) return { id: h };
+  return {};
+}
+
+function render() {
+  const view = currentView();
+  const all = isCurrent => crumb(isCurrent ? 'All' : '<a href="#">All</a>', isCurrent);
+  const kindCrumb = (kind, isCurrent) => crumb(isCurrent ? esc(kindLabel(kind)) : `<a href="#kind:${esc(kind)}">${esc(kindLabel(kind))}</a>`, isCurrent);
+  let crumbs, headerAdd = '', body;
+
+  if (view.id) {
+    const path = pathTo(view.id);
+    const start = ui.showRoot
+      ? all(false) + kindCrumb(records[path[0]].kind, false)
+      : crumb('<button class="plain-btn" data-action="reveal" title="Show full path">…</button>', false);
+    crumbs = start + path.map((p, i) => recordCrumb(p, i === path.length - 1)).join('');
+    headerAdd = addMenu(view.id);
+    body = entryRows(view.id, 0) || '<div class="empty">No entries</div>';
+  } else if (view.kind) {
+    crumbs = all(false) + kindCrumb(view.kind, true);
+    headerAdd = `<button class="icon-btn" data-action="add" data-type="object" data-kind="${esc(view.kind)}" aria-label="Add ${esc(view.kind)}" title="Add ${esc(view.kind)}">${icon('plus')}</button>`;
+    const draft = ui.draft?.type === 'object' ? formRow('object', ui.draft.values, 0, 'add') : '';
+    body = draft + objectsOfKind(view.kind).map(k =>
+      `<div class="entry"><span class="toggle-spacer"></span><a class="entry-label" href="#${k}">${esc(objectName(k))}</a></div>`).join('');
+  } else {
+    crumbs = all(true);
+    const kinds = [...new Set(Object.values(records).filter(isObject).map(r => r.kind))].sort();
+    body = kinds.map(k => {
+      const n = objectsOfKind(k).length;
+      return `<div class="entry"><span class="toggle-spacer"></span><a class="entry-label" href="#kind:${esc(k)}">${esc(kindLabel(k))}</a>
+        <span class="text-secondary">${n} object${n === 1 ? '' : 's'}</span></div>`;
+    }).join('');
+  }
+
+  document.getElementById('header').innerHTML =
+    `<ol class="breadcrumb">${crumbs}</ol><span class="header-add">${headerAdd}</span>`;
+  document.getElementById('body').innerHTML = body;
+  document.getElementById('footer').innerHTML =
+    `<button class="plain-btn" data-action="undo"${undoStack.length ? '' : ' disabled'}>Undo</button>
+     <button class="plain-btn" data-action="reset">Reset sample data</button>
+     <span>Hover a row to add, edit or delete. Changes are saved in this browser.</span>`;
+  document.querySelector('[data-autofocus]')?.focus();
+}
+
+// ---- Events ----
+
+const actions = {
+  toggle: d => ui.expanded.has(d.id) ? ui.expanded.delete(d.id) : ui.expanded.add(d.id),
+  reveal: () => { ui.showRoot = true; },
+  menu: d => { ui.menu = ui.menu === d.id ? null : d.id; },
+  add: d => startDraft(d.type, d.id, d.kind),
+  edit: d => startEdit(d.id),
+  delete: d => deleteEntry(d.id),
+  cancel: clearForms,
+  undo,
+  reset: resetSample,
+};
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-action]');
+  if (!el) {
+    if (ui.menu && !e.target.closest('.dropdown-menu')) { ui.menu = null; render(); }
+    return;
+  }
+  const action = el.dataset.action;
+  if (action !== 'menu') ui.menu = null;
+  actions[action](el.dataset);
+  render();
+});
+
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  const values = Object.fromEntries(new FormData(e.target));
+  const error = e.target.dataset.form === 'add' ? saveDraft(values) : saveEdit(values);
+  if (error) {
+    (ui.draft || ui.editing).values = values;
+    ui.error = error;
+  } else {
+    clearForms();
+  }
+  render();
+});
+
+// Switching a field's datatype switches its value input to match.
+document.addEventListener('change', e => {
+  if (e.target.name === 'datatype') e.target.form.elements.value.type = INPUT_TYPES[e.target.value];
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && (ui.draft || ui.editing || ui.menu)) {
+    clearForms();
+    render();
+  } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.target.closest('input, select')) {
+    e.preventDefault();
+    undo();
+    render();
+  }
+});
+
+window.addEventListener('hashchange', () => { clearForms(); render(); });
+document.documentElement.dataset.bsTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+render();
+</script>
+</body>
+</html>
