@@ -19,11 +19,13 @@ A **specification** is a tree, t, satisfying the following conditions:
 
 A **field** is a specification whose root is a datatype and any other specification is a **location**. A **tag** is a specification whose root is a Boolean, and a **choice** is a specification whose root is a text string. If t is a specification, and s is the subtree rooted at a child of t, we say that t is **located at s**, and we call s **a location of t**. Conversely, we refer to t as an **entry** of s. A **relation** is a specification with more than one location. A **parameter** of a specification, s, is an edged subtree of s containing a location of s.
 
-A **schema** is a set, S, of specifications, such that if a specification s is in S, then any location of s will also be in S, and no two distinct fields in S share the same parameterization, nor does any choice in S share a parameterization with any tag or field in S.
+A **schema** is a set, S, of specifications, such that if a specification s is in S, then any location of s will also be in S, and no two distinct fields in S share the same parameterization, nor does any tag in S share a parameterization with any field in S, nor does any choice in S share a parameterization with any tag or field in S.
 
 A **record**, r, in a schema S is a tree obtained by taking a specification, s, of S and replacing each leaf, k, with a k-object, and -- when s is a field -- its root, d, with a d-value.
 
 As with specifications, if r is a record and q is the subtree rooted at a child of r's root, we say r is **located at** q, and call q a **location** of r and r an **entry** of q. An **argument** of r is a location of r together with the edge connecting it to r's root. Sanity check: the underlying specification of a location of r is a location of the underlying specification of r, so every location of r is itself a record in S; likewise, the underlying parameter of an argument of r is a parameter of the underlying specification of r.
+
+If t and u are both specifications or both records, we call t a **dependency** of u, and u a **dependent** of t, if t is the subtree of u rooted at one of u's nodes; t is a **strict** dependency of u if that node isn't u's root. For example, every location of u is a strict dependency of u.
 
 The **argumentation** of r is the tree obtained from r by removing the label of its root. Similarly, the **parameterization** of a specification is the tree obtained from it by removing the label of its root.
 
