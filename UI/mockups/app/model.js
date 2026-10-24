@@ -1195,6 +1195,7 @@ function renameEdge(id, from, to, every) {
   const next = { ...records };
   for (const k of every ? relationsLike(id) : [id]) next[k] = relabel(records[k]);
   return every ? commitWithFormulas(next, definitionsWithEdge(from, to), namesWithEdge(id, from, to)) : commit(next);
+}
 
 // ---- View filter helpers ----
 
