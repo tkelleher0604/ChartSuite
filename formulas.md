@@ -436,9 +436,9 @@ Take the case of adding a 40 Act view to a chart:
 - **Adding Close Affiliate lines.** These are computed records, drawn by the view's style for Close Affiliate.
   - If Close Affiliate isn't defined yet, the user defines it from that view. The definition joins the chart, so every view has its records.
   - Its new style shows them only in the view it was defined from. Other views start with it hidden, so defining a relation in one view doesn't redraw the others.
-- **Delete versus hide.** In a view, removing a line could mean hiding it there or deleting it from the chart. A proposal:
-  - Delete keeps meaning "delete everywhere". It asks first, and says which other views show the record.
-  - Hide is its own command.
+- **Delete versus hide.** In a view, removing a line could mean hiding it there or deleting it from the chart. The prototype:
+  - Delete on an entered box or line asks: delete it from every view, or hide it in this one.
+  - Hide is also its own command, and a Hidden menu brings back what's hidden.
   - A computed line can't be deleted, so for it, Delete offers Hide, or for a tag, Rule out.
 
 Charts don't share formulas. Reusing a definition such as Affiliated Person in another chart would mean copying it, or a workbook-level library of definitions (see the questions below).
@@ -476,7 +476,12 @@ Where the prototype differs from this document:
 3. **BLANK.** Should BLANK keep Excel's habit of counting as 0? For legal analysis, a missing percentage arguably makes a sum unknown rather than smaller.
 4. **Exceptions.** Should a tag have an "unless" line that applies to all its implications, like `AND NOT [Close Affiliate](…)` on each of Remote Affiliate's? And should an implication ever be able to rule out, rather than only attest?
 5. **Rebuttals.** Should an override that rules out an implied tag ask for its basis?
-6. **Views.** Should box positions belong to each view (copied from the view it was made from)? Is the delete-versus-hide proposal right? And should a view be able to show or hide by formula, for example only the close affiliates of a given fund?
+6. **Views.** The prototype makes these choices; are they right?
+   - Box positions belong to each view, so moving a box in 40 Act leaves Structure alone.
+   - A new view ("+") starts as a copy of the current one. It could instead start from the Structure view's styles, with nothing hidden.
+   - Delete asks whether to delete everywhere or hide in this view.
+   - Should a view be able to show or hide by formula, for example only the close affiliates of a given fund? In the 40 Act view, most of the chart is a close affiliate of the BDC.
+   - Should Show and Hide also work on boxes by kind, and on a box's lines of text by entry?
 7. **Workbooks.** Should a workbook have a library of definitions (Affiliated Person, Close Affiliate) that its charts can reuse?
 8. **Cardinality hints.** Should a hint be enforced, or only warned about?
 9. **Naming a particular object.** A formula can't name one object, like "the close affiliates of Fund III". Should it? It would be needed for showing or hiding by formula in a view.
