@@ -20,6 +20,7 @@ const SAMPLE = {
   fund_agent:      { at: 'fund_juris', edge: 'Registered Agent', field: 'text', value: 'The Corporation Trust Company' },
   fund_type:       { at: 'fund', edge: 'Entity Type', choice: 'Limited Partnership' },
   fund_tax:        { at: 'fund_type', edge: 'Tax Classification', choice: 'Partnership' },
+  fund_ics:        { at: 'fund', edge: 'Investment Company Status', choice: '3(c)(7) Fund' },
 
   feeder:          { kind: 'Entity' },
   feeder_name:     { at: 'feeder', edge: 'Name', field: 'text', value: 'Calder Ridge Capital Partners III (Cayman), L.P.' },
@@ -30,6 +31,7 @@ const SAMPLE = {
   feeder_reg:      { at: 'feeder_juris', edge: 'Registration Number', field: 'text', value: 'OG-104582' },
   feeder_office:   { at: 'feeder_juris', edge: 'Registered Office', field: 'text', value: 'PO Box 1200, George Town, Grand Cayman KY1-1102' },
   feeder_type:     { at: 'feeder', edge: 'Entity Type', choice: 'Exempted Limited Partnership' },
+  feeder_ics:      { at: 'feeder', edge: 'Investment Company Status', choice: '3(c)(7) Fund' },
 
   gp:              { kind: 'Entity' },
   gp_name:         { at: 'gp', edge: 'Name', field: 'text', value: 'Calder Ridge Capital GP III, LLC' },
@@ -91,6 +93,30 @@ const SAMPLE = {
   okafor_email:    { at: 'okafor', edge: 'Email', field: 'text', value: 'dokafor@example.com' },
   okafor_us:       { at: 'okafor', edge: 'U.S. Person', tag: true },
 
+  // A business development company the manager also advises, which co-invests in Northpine, with an
+  // independent director and an outside holder: enough for the 40 Act formulas to find close and remote
+  // affiliates (see formulas.md). As a BDC it elected to be taxed as a RIC, which overrides the default
+  // tax classification the sample's formula gives a corporation.
+  bdc:             { kind: 'Entity' },
+  bdc_name:        { at: 'bdc', edge: 'Name', field: 'text', value: 'Calder Ridge Capital BDC, Inc.' },
+  bdc_formed:      { at: 'bdc', edge: 'Formation Date', field: 'date', value: '2021-09-08' },
+  bdc_good:        { at: 'bdc', edge: 'Good Standing', tag: true },
+  bdc_vehicle:     { at: 'bdc', edge: 'Vehicle Type', choice: 'Business Development Company' },
+  bdc_juris:       { at: 'bdc', edge: 'Jurisdiction', choice: 'Maryland' },
+  bdc_type:        { at: 'bdc', edge: 'Entity Type', choice: 'Corporation' },
+  bdc_tax:         { at: 'bdc_type', edge: 'Tax Classification', choice: 'Regulated Investment Company' },
+  bdc_ics:         { at: 'bdc', edge: 'Investment Company Status', choice: 'Business Development Company' },
+  bdc_file:        { at: 'bdc_ics', edge: '1940 Act File Number', field: 'text', value: '814-01523' },
+
+  pension:         { kind: 'Entity' },
+  pension_name:    { at: 'pension', edge: 'Name', field: 'text', value: 'Northstar Teachers’ Retirement System' },
+  pension_formed:  { at: 'pension', edge: 'Formation Date', field: 'date', value: '1947-07-01' },
+  pension_type:    { at: 'pension', edge: 'Entity Type', choice: 'Governmental Plan' },
+
+  raman:           { kind: 'Individual' },
+  raman_name:      { at: 'raman', edge: 'Name', field: 'text', value: 'Priya N. Raman' },
+  raman_email:     { at: 'raman', edge: 'Email', field: 'text', value: 'praman@example.com' },
+
   // A kind a user added for the chart, which starts out with the preset style.
   inv_us:          { kind: 'Investor Group' },
   inv_us_name:     { at: 'inv_us', edge: 'Name', field: 'text', value: 'U.S. Investors' },
@@ -128,6 +154,21 @@ const SAMPLE = {
   own_chen_gp_pct: { at: 'own_chen_gp', edge: 'Percentage', field: 'number', value: '50%' },
   own_okfr_gp:     { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Owned', at: 'gp' }], tag: true },
   own_okfr_gp_pct: { at: 'own_okfr_gp', edge: 'Percentage', field: 'number', value: '50%' },
+  own_bdc_npine:   { args: [{ edge: 'Owner', at: 'bdc' }, { edge: 'Owned', at: 'northpine' }], tag: true },
+  own_bdc_npine_pct: { at: 'own_bdc_npine', edge: 'Percentage', field: 'number', value: '12%' },
+  own_pens_bdc:    { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'bdc' }], tag: true },
+  own_pens_bdc_pct: { at: 'own_pens_bdc', edge: 'Percentage', field: 'number', value: '7%' },
+
+  // Advisory relationships: a tag relating an investment adviser to a client.
+  adv_fund:        { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'fund' }], tag: true },
+  adv_feeder:      { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'feeder' }], tag: true },
+  adv_bdc:         { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'bdc' }], tag: true },
+
+  // Positions: a choice relating a person to a company, whose options are the positions 57(b)(1) lists.
+  pos_chen_bdc:    { args: [{ edge: 'Holder', at: 'chen' }, { edge: 'Company', at: 'bdc' }], choice: 'Director' },
+  pos_okfr_bdc:    { args: [{ edge: 'Holder', at: 'okafor' }, { edge: 'Company', at: 'bdc' }], choice: 'Officer' },
+  pos_raman_bdc:   { args: [{ edge: 'Holder', at: 'raman' }, { edge: 'Company', at: 'bdc' }], choice: 'Director' },
+  pos_okfr_mgmt:   { args: [{ edge: 'Holder', at: 'okafor' }, { edge: 'Company', at: 'mgmt' }], choice: 'Officer' },
 
   // LLC membership: a choice relating a member to an LLC, by way of its Entity Type.
   mem_chen_gp:     { args: [{ edge: 'Member', at: 'chen' }, { edge: 'LLC', at: 'gp_type' }], choice: 'Managing Member' },
@@ -157,25 +198,38 @@ const SAMPLE_LAYOUT = {
   blocker:   { x: 240, y: 545, w: 200 },
   northpine: { x: 520, y: 545, w: 200 },
   halvard:   { x: 240, y: 690, w: 200 },
+  pension:   { x: 1330, y: 40, w: 220 },
+  raman:     { x: 1090, y: 150, w: 170 },
+  bdc:       { x: 1320, y: 350, w: 220 },
 };
 
-const STORAGE_KEY = 'rboreal.state.v7';
+const STORAGE_KEY = 'rboreal.state.v8';
 
 // The state is the records plus what goes with them:
+// - entered: the records typed in. `records` is what everything reads: the entered records together with
+//   those the chart's formulas compute (see formulas.md), worked out again after every change;
+// - definitions: the formulas, and names: the names formulas use for relations and their lists;
 // - order: the order entries are shown in, kept per location specification (see specKey), so that, say,
 //   every Entity lists its entries in the same order, the way a spreadsheet's rows share its columns;
-// - styles: the chart's styles (see styles.js), and layout: its box positions;
+// - views: the chart's views, each with its own styles (see styles.js) and box positions. The records are
+//   the same in every view. `styles` and `layout` are the current view's, written back into `views` on save;
 // - required: the entries every location like theirs should have, by parameterization, each with its
 //   label and type so a blank one can be shown and filled in;
 // - archive: deleted records, kept in batches so each can be restored with its dependents.
 // The order, styles and layout are presentation; the data model's trees are unordered and unstyled.
-let records, order, styles, layout, required, archive;
+let entered, records, definitions, names, order, views, viewId, styles, layout, required, archive;
 const undoStack = [];
 const redoStack = [];
 
 function setState(s) {
-  ({ records, order = {}, styles = null, layout = {}, required = {}, archive = [] } = s);
-  if (!styles) styles = defaultStyles(records);
+  ({ records: entered, definitions = [], names = {}, order = {}, views = null, viewId = null, required = {}, archive = [] } = s);
+  recompute();
+  // A state saved before there were views has one set of styles and box positions.
+  if (!views) views = [{ id: 'view_main', name: 'Structure', styles: s.styles ?? null, layout: s.layout ?? {} }];
+  if (!views.some(v => v.id === viewId)) viewId = views[0].id;
+  const view = views.find(v => v.id === viewId);
+  styles = view.styles ?? defaultStyles(records);
+  layout = view.layout ?? {};
 }
 
 // Called once every script has loaded, since sample styles come from styles.js.
@@ -191,13 +245,15 @@ function initState() {
 function sampleState() {
   const recs = structuredClone(SAMPLE);
   return {
-    records: recs, order: {}, styles: defaultStyles(recs), layout: structuredClone(SAMPLE_LAYOUT), archive: [],
+    records: recs, order: {}, archive: [],
+    views: [{ id: 'view_main', name: 'Structure', styles: defaultStyles(recs), layout: structuredClone(SAMPLE_LAYOUT) }],
     required: { [parameterization(recs, 'fund_formed')]: { label: 'Formation Date', type: 'field', datatype: 'date' } },
   };
 }
 
 // States are never mutated in place, so earlier ones can be kept for undo.
-const snapshot = () => ({ records, order, styles, layout, required, archive });
+const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
+const snapshot = () => ({ records: entered, definitions, names, order, views: currentViews(), viewId, required, archive });
 
 function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot())); } catch {}
@@ -224,6 +280,88 @@ function redoState() {
 function resetState() {
   pushUndo();
   setState(sampleState());
+  saveState();
+}
+
+// ---- Computed records ----
+
+// The formulas' last results (see Formulas.computeState in formulas.js), with the effective records.
+// Without formulas.js loaded, the records are just the entered ones.
+let formulaResult = { records: {}, rows: {} };
+const runFormulas = recs => typeof Formulas === 'undefined'
+  ? { records: recs, rows: {} } : Formulas.computeState(recs, definitions, names);
+function setComputed(result) {
+  formulaResult = result;
+  records = result.records;
+}
+const recompute = () => setComputed(runFormulas(entered));
+const isComputed = id => !!records[id]?.computed;
+
+// The parts of a record the data model has; a computed record carries more, for the formulas' own use.
+const MODEL_KEYS = ['kind', 'at', 'edge', 'args', 'field', 'value', 'tag', 'choice'];
+const modelPart = r => Object.fromEntries(MODEL_KEYS.filter(k => k in r).map(k => [k, r[k]]));
+
+// The entered part of records about to be committed: what isn't computed, plus any computed record that
+// an edit has changed, which is entered from now on, overriding the formula there. It keeps its id, so
+// whatever is located at it stays put. A computed record missing from `next` just comes back.
+function enteredPart(next) {
+  const out = {};
+  for (const [id, r] of Object.entries(next)) {
+    if (!r.computed) out[id] = r;
+    else if (r !== records[id]) out[id] = modelPart(r);
+  }
+  return out;
+}
+
+// ---- Views ----
+
+const viewInUse = () => views.find(v => v.id === viewId);
+
+// Switching views isn't an edit, so it isn't undone; an undo goes back to the view its edit was made in.
+function switchView(id) {
+  if (id === viewId || !views.some(v => v.id === id)) return;
+  views = currentViews();
+  viewId = id;
+  ({ styles, layout } = viewInUse());
+  saveState();
+}
+
+// A new view starts as a copy of the current one.
+function addView(name) {
+  pushUndo();
+  const view = { id: newId(), name, styles: structuredClone(styles), layout: structuredClone(layout) };
+  views = [...currentViews(), view];
+  viewId = view.id;
+  saveState();
+  return view.id;
+}
+
+function renameView(id, name) {
+  if (!clean(name)) return;
+  pushUndo();
+  views = currentViews().map(v => v.id === id ? { ...v, name: clean(name) } : v);
+  saveState();
+}
+
+// The last view can't be deleted. Deleting the current one moves to its neighbor.
+function deleteView(id) {
+  if (views.length < 2) return;
+  pushUndo();
+  const i = views.findIndex(v => v.id === id);
+  views = currentViews().filter(v => v.id !== id);
+  if (id === viewId) {
+    viewId = views[Math.min(i, views.length - 1)].id;
+    ({ styles, layout } = viewInUse());
+  }
+  saveState();
+}
+
+function moveView(id, to) {
+  pushUndo();
+  const list = currentViews();
+  const [view] = list.splice(list.findIndex(v => v.id === id), 1);
+  list.splice(to, 0, view);
+  views = list;
   saveState();
 }
 
@@ -492,13 +630,17 @@ function validate(recs) {
 // ---- Changing the state ----
 
 // Replaces the records, if the result is a state; otherwise returns why not.
+// `next` is what `records` should become; its entered part is kept, and the formulas worked out again.
 function commit(next) {
-  const error = validate(next);
+  const nextEntered = enteredPart(next);
+  const result = runFormulas(nextEntered);
+  const error = validate(result.records);
   if (error) return error;
   pushUndo();
   const before = records;
-  records = next;
-  rekey(before, next);
+  entered = nextEntered;
+  setComputed(result);
+  rekey(before, records);
   saveState();
   return null;
 }
@@ -657,17 +799,19 @@ function withDependents(ids) {
 
 // Deleting hides rather than destroys: the records and their dependents go into the archive as a batch,
 // labeled with what was deleted, and can be restored from there. Returns why it couldn't, if it couldn't.
+// Only entered records are archived: computed ones go with what they were computed from, and come back
+// with it. Box positions are kept in every view, so a restored box returns to its place in each.
 function deleteRecords(ids, label) {
   const gone = withDependents(ids);
-  const next = Object.fromEntries(Object.entries(records).filter(([k]) => !gone.has(k)));
-  const error = validate(next);
+  const nextEntered = Object.fromEntries(Object.entries(entered).filter(([k]) => !gone.has(k)));
+  const result = runFormulas(nextEntered);
+  const error = validate(result.records);
   if (error) return error;
   pushUndo();
-  const kept = Object.fromEntries([...gone].map(k => [k, records[k]]));
-  const boxes = Object.fromEntries(Object.entries(layout).filter(([k]) => gone.has(k)));
-  archive = [{ id: newId(), label, when: Date.now(), records: kept, layout: boxes }, ...archive];
-  records = next;
-  layout = Object.fromEntries(Object.entries(layout).filter(([k]) => !gone.has(k)));
+  const kept = Object.fromEntries([...gone].filter(k => entered[k]).map(k => [k, entered[k]]));
+  archive = [{ id: newId(), label, when: Date.now(), records: kept }, ...archive];
+  entered = nextEntered;
+  setComputed(result);
   saveState();
   return null;
 }
@@ -676,17 +820,20 @@ function deleteRecords(ids, label) {
 // needs restoring first.
 function restoreBatch(batchId) {
   const batch = archive.find(b => b.id === batchId);
-  const next = { ...records, ...batch.records };
-  const missing = Object.values(batch.records).flatMap(argsOf).map(a => a.at).find(at => !next[at]);
+  const nextEntered = { ...entered, ...batch.records };
+  const result = runFormulas(nextEntered);
+  const missing = Object.values(batch.records).flatMap(argsOf).map(a => a.at).find(at => !result.records[at]);
   if (missing) {
     const other = archive.find(b => b.records[missing]);
     return other ? `Restore ${other.label} first; this depends on it.` : 'Something this depends on no longer exists.';
   }
-  const error = validate(next);
+  const error = validate(result.records);
   if (error) return `Can’t restore it: ${error}`;
   pushUndo();
-  records = next;
-  layout = { ...layout, ...batch.layout };
+  entered = nextEntered;
+  setComputed(result);
+  // Batches deleted before views kept the current view's box positions.
+  if (batch.layout) layout = { ...layout, ...batch.layout };
   archive = archive.filter(b => b !== batch);
   saveState();
   return null;

@@ -58,8 +58,9 @@ function defaultStyles(recs) {
       'limited partnership': { shape: 'triangle' }, 'exempted limited partnership': { shape: 'triangle' },
       'limited liability company': { shape: 'rounded' }, corporation: { shape: 'rect' } } },
     { id: 'st_vehicle', param: p('fund_vehicle'), map: {
-      'main fund': { fill: '#e8eefb' }, 'feeder fund': { fill: '#e8eefb' }, 'portfolio company': { fill: '#f4f4f5' } } },
-    { id: 'st_jurisdiction', param: p('fund_juris'), map: { delaware: muted, 'cayman islands': muted } },
+      'main fund': { fill: '#e8eefb' }, 'feeder fund': { fill: '#e8eefb' }, 'business development company': { fill: '#e8eefb' },
+      'portfolio company': { fill: '#f4f4f5' } } },
+    { id: 'st_jurisdiction', param: p('fund_juris'), map: { delaware: muted, 'cayman islands': muted, maryland: muted } },
     { id: 'st_good_standing', param: p('fund_good'), map: { false: { stroke: '#d63b3b', strokeWidth: 2, dash: 'dashed' } } },
     { id: 'st_own_entities', param: p('own_fund_blkr'), map: owned() },
     { id: 'st_own_individuals', param: p('own_chen_gp'), map: owned() },
@@ -70,6 +71,8 @@ function defaultStyles(recs) {
     { id: 'st_gp_lp', param: p('gp_of_fund'), map: { true: { show: true, dash: 'dashed', format: 'label' } } },
     { id: 'st_gp_elp', param: p('gp_of_feeder'), map: { true: { show: false, dash: 'dashed', format: 'label' } } },
     { id: 'st_member', param: p('mem_chen_gp'), map: { 'managing member': { show: false }, member: { show: false } } },
+    { id: 'st_adviser', param: p('adv_bdc'), map: { true: { show: false, dash: 'dotted', format: 'label' } } },
+    { id: 'st_position', param: p('pos_chen_bdc'), map: { director: { show: false }, officer: { show: false } } },
   ];
 }
 
