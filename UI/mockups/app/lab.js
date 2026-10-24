@@ -211,7 +211,7 @@ function selftest() {
   const labelsOf = (res, def, a, b) => pairRow(res, def, a, b)?.labels ?? [];
 
   const times = [run(), run(), run()].map(x => x.ms);
-  check('Worked out in under 100 ms, in headless Chrome', Math.min(...times) < 100,
+  check('Worked out in under 50 ms', Math.min(...times) < 50,
     `${times.map(t => t.toFixed(1)).join(', ')} ms; steps: ${R.steps.map(s => `${s.defs.join('+')} ${s.ms.toFixed(1)}`).join(', ')}`);
   check('No definition-level errors', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
 
@@ -286,6 +286,60 @@ function selftest() {
   };
   const R4 = run(LAB_DEFINITIONS, loop);
   for (const id of ['fund', 'northpine']) check(`3(c)(1) Count loop: ${id} shows #CIRCULAR!`, entryRow(R4, 'def_3c1', id)?.error?.code === '#CIRCULAR!');
+  check('3(c)(1) Count loop: the feeder, off the loop, still works out', entryRow(R4, 'def_3c1', 'feeder')?.value === 1, String(entryRow(R4, 'def_3c1', 'feeder')?.value));
+
+  // Loops are found per record. A tag and a number that read each other's definitions, but never their own
+  // records: Widely Held reads Diversified Holders at an entity's owners, which reads Widely Held at theirs.
+  const ALL_KINDS = ['Entity', 'Individual', 'Investor Group'];
+  const mixed = [...LAB_DEFINITIONS,
+    { id: 'lab_widely', name: 'Widely Held', type: 'tag', at: ALL_KINDS, implications: [
+      { label: 'Two or more owners', formula: '← COUNT(Owners) >= 2' },
+      { label: 'Diversified owner', formula: '← SUM(Owners.[Diversified Holders]) >= 1' }] },
+    { id: 'lab_diverse', name: 'Diversified Holders', type: 'field', datatype: 'number', at: ALL_KINDS,
+      formula: '= COUNT(FILTER(Owners, @.[Widely Held]))' },
+  ];
+  const R6 = run(mixed);
+  check('Mixed loop between definitions only: no errors', !rowsOf(R6, 'lab_widely').concat(rowsOf(R6, 'lab_diverse')).some(r => r.error) && !R6.defErrors.lab_widely,
+    JSON.stringify(R6.defErrors));
+  const widely = rowsOf(R6, 'lab_widely').filter(r => r.value === true).map(r => r.at).sort();
+  check('Mixed loop: Widely Held on the fund, the GP, the management company, Northpine and Halvard',
+    widely.join() === ['fund', 'gp', 'halvard', 'mgmt', 'northpine'].sort().join(), widely.join(' '));
+  check('Mixed loop: Halvard is widely held because its owner has a widely held owner',
+    (entryRow(R6, 'lab_widely', 'halvard')?.labels ?? []).join() === 'Diversified owner');
+  check('Mixed loop: the blocker has one widely held owner', entryRow(R6, 'lab_diverse', 'blocker')?.value === 1, String(entryRow(R6, 'lab_diverse', 'blocker')?.value));
+  // A real loop: Self Ref reads Loop Tag at the same entity, and Loop Tag reads Self Ref, but only on 3(c)(7) funds.
+  const real = [...LAB_DEFINITIONS,
+    { id: 'lab_self', name: 'Self Ref', type: 'field', datatype: 'number', at: ['Entity'], formula: '= IF([Loop Tag], 1, 0)' },
+    { id: 'lab_looptag', name: 'Loop Tag', type: 'tag', at: ['Entity'], implications: [
+      { label: 'Loops', formula: '← [Investment Company Status] = "3(c)(7) Fund" AND [Self Ref] = 0' }] },
+  ];
+  const R7 = run(real);
+  for (const id of ['fund', 'feeder']) {
+    check(`Real loop: Self Ref is #CIRCULAR! on ${id}`, entryRow(R7, 'lab_self', id)?.error?.code === '#CIRCULAR!');
+    check(`Real loop: Loop Tag is #CIRCULAR! on ${id}`, entryRow(R7, 'lab_looptag', id)?.error?.code === '#CIRCULAR!');
+  }
+  check('Real loop: only on its records; Self Ref is 0 on the GP', entryRow(R7, 'lab_self', 'gp')?.value === 0, JSON.stringify(entryRow(R7, 'lab_self', 'gp')?.error ?? null));
+  check('Real loop: nothing else is circular', R7.errors.filter(e => e.error.code === '#CIRCULAR!').length === 4, String(R7.errors.length));
+  const notLoop = run([...LAB_DEFINITIONS, { id: 'lab_odd', name: 'Odd', type: 'tag', at: ['Entity'], implications: [{ label: 'Not odd', formula: '← NOT [Odd]' }] }]);
+  check('A loop through NOT is circular, and leaves no record', entryRow(notLoop, 'lab_odd', 'fund')?.error?.code === '#CIRCULAR!'
+    && !Object.values(notLoop.records).some(r => r.computed === 'lab_odd'));
+
+  // Saying why
+  const why = (res, id) => Formulas.explain(res, id);
+  const ctlId = Object.keys(R.computed).find(id => R.computed[id].def === 'def_control' && objOf(R, R.records[id].args[0].at) === 'feeder' && objOf(R, R.records[id].args[1].at) === 'fund');
+  const ctlWhy = why(R, ctlId);
+  check('explain: the feeder controls the fund because 28.4% > 25%', ctlWhy.some(e => e.label === 'More than 25%' && e.text === '28.4% > 25%'), JSON.stringify(ctlWhy));
+  const npId = Object.keys(R.computed).find(id => R.computed[id].def === 'def_close' && objOf(R, R.records[id].args[0].at) === 'northpine');
+  const npWhy = why(R, npId);
+  check('explain: Northpine is a close affiliate through Margaret A. Chen', npWhy.some(e => e.label === '(b)(1) affiliates' && e.text.startsWith('through Margaret A. Chen:')), JSON.stringify(npWhy));
+  const taxWhy = why(R, 'bdc_tax');
+  check('explain: the BDC’s election differs from a formula that says why', taxWhy.length === 1 && taxWhy[0].label === null && /Corporation/.test(taxWhy[0].text), JSON.stringify(taxWhy));
+
+  // OBJECT
+  const atFund = x => Formulas.evaluateAt(R, x, 'fund');
+  check('OBJECT finds an object by its Name, without regard to case', Formulas.formatValue(R, atFund('= OBJECT("calder ridge iii blocker, inc.")')) === 'Calder Ridge III Blocker, Inc.');
+  check('OBJECT gives BLANK for a name nothing has', atFund('= OBJECT("Nobody")') === null);
+  check('OBJECT can start a formula', Formulas.formatValue(R, atFund('= OBJECT("Calder Ridge III Blocker, Inc.").Owners')) === 'Calder Ridge Capital Partners III, L.P.');
 
   // The engine's API
   const again = run();

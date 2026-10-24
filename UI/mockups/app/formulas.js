@@ -378,19 +378,32 @@ function listHere(S, id, n) {
   const onObject = isObject(S.recs[id]);
   for (const rid of (onObject ? S.relsAtObj : S.relsAt).get(id) ?? []) {
     const r = S.recs[rid];
-    const rel = relationOf(S, r);
-    r.args.forEach((own, i) => {
-      if (onObject ? objectOf(S, own.at) !== id : own.at !== id) return;
-      r.args.forEach((other, j) => {
-        if (i === j || norm(listNameOf(rel, own.edge, other.edge)) !== n) return;
-        hit = true;
-        if (isTag(r) && r.tag !== true) return;
-        items.push(recOf(objectOf(S, other.at), rid));
-        note(S, rid);
-      });
-    });
+    for (const { own, other, list } of listsOf(S, r)) {
+      if (list !== n || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
+      hit = true;
+      if (isTag(r) && r.tag !== true) continue;
+      items.push(recOf(objectOf(S, other.at), rid));
+      note(S, rid);
+    }
   }
   return hit ? items : null;
+}
+
+// The lists of relatives a relation record makes: for each argument, seen from each other argument, the
+// list's name, normalized. And its arguments by normalized edge label. Worked out once per record.
+function listsOf(S, r) {
+  if (!S.recLists.has(r)) {
+    const rel = relationOf(S, r);
+    const out = [];
+    r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: norm(listNameOf(rel, own.edge, other.edge)) }); }));
+    S.recLists.set(r, out);
+  }
+  return S.recLists.get(r);
+}
+const argEdges = new WeakMap();
+function argByEdge(r, n) {
+  if (!argEdges.has(r)) argEdges.set(r, new Map(r.args.map(a => [norm(a.edge), a])));
+  return argEdges.get(r).get(n);
 }
 
 const ambiguous = name => err('#NAME?', `${name} could mean more than one thing here.`);
@@ -402,9 +415,9 @@ function linkLookup(S, rid, n, name) {
   const r = S.recs[rid];
   if (!r) return null;
   const found = [];
-  const arg = r.args.find(a => norm(a.edge) === n);
+  const arg = argByEdge(r, n);
   if (arg) found.push(recOf(objectOf(S, arg.at)));
-  else if (norm(relationOf(S, r)?.name ?? '') === n) found.push(recOf(rid));
+  else if (relationOf(S, r)?.n === n) found.push(recOf(rid));
   depend(S, 'entry', `${rid}|${n}`);
   const pending = forceEntry(S, rid, n);
   if (pending) return { v: pending };
@@ -429,7 +442,7 @@ function ownLookup(S, id, n, name) {
   const list = listAt(S, id, n);
   if (list) found.push(list);
   const r = S.recs[id];
-  const arg = isRelation(r) && r.args.find(a => norm(a.edge) === n);
+  const arg = isRelation(r) && argByEdge(r, n);
   if (arg) found.push(recOf(objectOf(S, arg.at)));
   if (found.length > 1) return { v: ambiguous(name) };
   return found.length ? { v: found[0] } : null;
@@ -819,6 +832,22 @@ const FUNCTIONS = {
     if (isErr(v) || !v?.id) return v?.id ? v : isErr(v) ? v : null;
     return c.S.recs[objectOf(c.S, v.id)]?.kind ?? null;
   },
+  // The object whose Name is the text, without regard to case: BLANK if there's none, an error if several.
+  OBJECT(a, c) {
+    const bad = arity('OBJECT', a, 1);
+    if (bad) return bad;
+    const name = toText(c.S, ev(a[0].x, c));
+    if (isErr(name)) return name;
+    const hits = remembered(c.S, `object|${norm(name)}`, () => Object.keys(c.S.recs).filter(id => {
+      if (!isObject(c.S.recs[id])) return false;
+      const nameId = c.S.byAtName.get(`${id}|name`);
+      if (!nameId) return false;
+      note(c.S, nameId);
+      return same(c.S.recs[nameId].value, name);
+    }));
+    if (hits.length > 1) return err('#VALUE!', `More than one thing is called ${name}.`);
+    return hits.length ? recOf(hits[0]) : null;
+  },
   // Everything reached from the start by following the named list one or more times.
   REACH(a, c) {
     const bad = arity('REACH', a, 2);
@@ -1099,7 +1128,7 @@ function registry(names, defs) {
     const lists = new Map();
     for (const [from, listed] of Object.entries(r.lists ?? {}))
       for (const [to, name] of Object.entries(listed)) lists.set(`${norm(from)}|${norm(to)}`, name);
-    const rel = { name: r.name, type: r.type, edges: r.edges, lists };
+    const rel = { name: r.name, n: norm(r.name), type: r.type, edges: r.edges, lists };
     reg.byName.set(norm(r.name), rel);
     reg.bySig.set(signature(r.type, r.edges), rel);
   }
@@ -1277,7 +1306,7 @@ function asOutput(S, d, v) {
 function stateFor(P, entered) {
   const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), relsAtObj: new Map(), relsBySig: new Map(), specs: new Map(),
     bySpec: new Map(), enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, dep: null, deps: null, reads: null, done: 0,
-    cf: new Map(), memo: new Map(), steps: [], failed: new Map() };
+    cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap() };
   for (const [id, r] of Object.entries(entered)) addRecord(S, id, r);
   for (const [id, r] of Object.entries(entered)) {
     specOf(S, id);
