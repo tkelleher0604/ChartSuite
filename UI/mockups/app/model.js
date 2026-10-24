@@ -269,9 +269,13 @@ const SAMPLE_DEFINITIONS = [
     formula: '= IF([Private Fund], SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1))), BLANK())' },
 ];
 
-const STORAGE_KEY = 'rboreal.state.v8';
+// The workbook is saved under WORKBOOK_KEY. A chart saved under STATE_KEY, before there were workbooks,
+// becomes a workbook's only chart.
+const WORKBOOK_KEY = 'rboreal.workbook.v1';
+const STATE_KEY = 'rboreal.state.v8';
+const SAMPLE_CHART_NAME = 'Calder Ridge Fund III structure';
 
-// The state is the records plus what goes with them:
+// A chart's state is the records plus what goes with them:
 // - entered: the records typed in. `records` is what everything reads: the entered records together with
 //   those the chart's formulas compute (see formulas.md), worked out again after every change;
 // - definitions: the formulas, and names: the names formulas use for relations and their lists;
@@ -301,10 +305,20 @@ function setState(s) {
 // Called once every script has loaded, since sample styles come from styles.js.
 function initState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved?.records) return setState(saved);
+    const saved = JSON.parse(localStorage.getItem(WORKBOOK_KEY));
+    if (saved?.charts?.length) {
+      workbook = { deleted: [], ...saved };
+      if (!chartInUse()) workbook.chartId = workbook.charts[0].id;
+      return setState(chartInUse().state);
+    }
+    const old = JSON.parse(localStorage.getItem(STATE_KEY));
+    if (old?.records) {
+      workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: old }], chartId: 'chart_main', deleted: [] };
+      return setState(old);
+    }
   } catch {}
-  setState(sampleState());
+  workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState() }], chartId: 'chart_main', deleted: [] };
+  setState(chartInUse().state);
 }
 
 // The sample requires a Formation Date on every Entity, which two portfolio companies lack.
@@ -322,7 +336,7 @@ const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layo
 const snapshot = () => ({ records: entered, definitions, names, order, views: currentViews(), viewId, required, archive });
 
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot())); } catch {}
+  try { localStorage.setItem(WORKBOOK_KEY, JSON.stringify({ ...workbook, charts: currentCharts() })); } catch {}
 }
 
 function pushUndo() {
@@ -343,10 +357,115 @@ function redoState() {
   saveState();
   return true;
 }
+// Puts the sample back in the current chart, as one undoable step. Other charts are left alone.
 function resetState() {
   pushUndo();
   setState(sampleState());
   saveState();
+}
+
+// ---- Workbooks ----
+// A workbook holds charts, each with a state of its own, unsynced with the others. The current chart's
+// state is the one held in the variables above; the others wait in `workbook.charts` as they were saved.
+// Each chart keeps its own undo history while the page is open. Deleted charts are kept, to be restored.
+
+let workbook = { charts: [], chartId: null, deleted: [] };
+const undoByChart = new Map();
+
+const chartInUse = () => workbook.charts.find(c => c.id === workbook.chartId);
+const currentCharts = () => workbook.charts.map(c => c.id === workbook.chartId ? { ...c, state: snapshot() } : c);
+
+// Sets the current chart's undo history aside, and brings back another's.
+function swapHistory(toId) {
+  undoByChart.set(workbook.chartId, { undo: undoStack.splice(0), redo: redoStack.splice(0) });
+  const kept = undoByChart.get(toId);
+  if (kept) { undoStack.push(...kept.undo); redoStack.push(...kept.redo); }
+}
+
+function switchChart(id) {
+  if (id === workbook.chartId || !workbook.charts.some(c => c.id === id)) return;
+  workbook.charts = currentCharts();
+  swapHistory(id);
+  workbook.chartId = id;
+  setState(chartInUse().state);
+  saveState();
+}
+
+// A chart with nothing in it yet but a Kind style, which new kinds fill in.
+const blankState = () => ({
+  records: {}, order: {}, archive: [], required: {}, definitions: [], names: { relations: [] },
+  views: [{ id: 'view_main', name: 'Structure', layout: {}, styles: [{ id: 'st_kind', param: '[]', label: 'Kind', where: 'every object', map: {} }] }],
+});
+
+// Adds a chart, blank or with the given state, after the current one, and makes it current.
+function addChart(name, state = blankState()) {
+  const charts = currentCharts();
+  const chart = { id: newId(), name: freeChartName(name), state };
+  charts.splice(charts.findIndex(c => c.id === workbook.chartId) + 1, 0, chart);
+  workbook.charts = charts;
+  swapHistory(chart.id);
+  workbook.chartId = chart.id;
+  setState(state);
+  saveState();
+  return chart.id;
+}
+
+const duplicateChart = id => {
+  const chart = currentCharts().find(c => c.id === id);
+  return addChart(`${chart.name} copy`, structuredClone(chart.state));
+};
+
+function renameChart(id, name) {
+  if (!clean(name)) return;
+  workbook.charts = currentCharts().map(c => c.id === id ? { ...c, name: clean(name) } : c);
+  saveState();
+}
+
+// Deleting a chart keeps it among the deleted, to be restored. The last chart can't be deleted.
+function deleteChart(id) {
+  if (workbook.charts.length < 2) return 'A workbook needs at least one chart.';
+  const charts = currentCharts();
+  const i = charts.findIndex(c => c.id === id);
+  workbook.deleted = [{ ...charts[i], when: Date.now() }, ...workbook.deleted];
+  workbook.charts = charts.filter(c => c.id !== id);
+  undoByChart.delete(id);
+  if (id === workbook.chartId) {
+    const next = workbook.charts[Math.min(i, workbook.charts.length - 1)];
+    const kept = undoByChart.get(next.id);
+    undoStack.length = redoStack.length = 0;
+    if (kept) { undoStack.push(...kept.undo); redoStack.push(...kept.redo); }
+    workbook.chartId = next.id;
+    setState(next.state);
+  }
+  saveState();
+  return null;
+}
+
+function restoreChart(id) {
+  const chart = workbook.deleted.find(c => c.id === id);
+  if (!chart) return;
+  workbook.deleted = workbook.deleted.filter(c => c !== chart);
+  const { when, ...rest } = chart;
+  addChart(rest.name, rest.state);
+}
+
+function freeChartName(base) {
+  const taken = new Set(workbook.charts.map(c => norm(c.name)));
+  if (!taken.has(norm(base))) return base;
+  for (let n = 2; ; n++) if (!taken.has(norm(`${base} ${n}`))) return `${base} ${n}`;
+}
+
+// Copies another chart's formulas and names into this one, as one undoable step. The two stay unsynced:
+// later changes to either don't reach the other. A definition with the same name as one here replaces it,
+// as does a relation's names.
+function copyFormulasFrom(chartId) {
+  const source = currentCharts().find(c => c.id === chartId)?.state;
+  if (!source) return 'That chart no longer exists.';
+  const incoming = structuredClone(source.definitions ?? []);
+  const kept = definitions.filter(d => !incoming.some(x => same(x.name, d.name)));
+  const relations = source.names?.relations ?? [];
+  const keptNames = (names.relations ?? []).filter(r => !relations.some(x => same(x.name, r.name)));
+  return changeFormulas([...kept, ...incoming.map(d => ({ ...d, id: newId() }))], { ...names, relations: [...keptNames, ...structuredClone(relations)] });
 }
 
 // ---- Computed records ----

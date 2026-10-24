@@ -34,6 +34,7 @@
 <div class="page">
   <header class="topbar">
     <span class="brand">Rboreal</span><span class="brand-sub">Record panel</span>
+    <span class="charts-slot" id="charts"></span>
     <a class="brand-link" href="chart.html">Chart</a>
     <span class="prefs" id="prefs"></span>
   </header>
@@ -47,9 +48,11 @@
 <script src="app/styles.js"></script>
 <script src="app/panel.js"></script>
 <script src="app/relate.js"></script>
+<script src="app/workbook.js"></script>
 <script>
 function render() {
   renderPanel();
+  document.getElementById('charts').innerHTML = chartSwitcher();
   document.getElementById('prefs').innerHTML = themeSwitch();
   document.getElementById('foot').innerHTML =
     `<button class="link-btn" data-action="undo"${undoStack.length ? '' : ' disabled'}>Undo <kbd>${undoKey}</kbd></button>
@@ -58,6 +61,7 @@ function render() {
      ${ui.fullPaths ? '<button class="link-btn" data-action="full-paths">Shorten paths</button>' : ''}
      <span class="foot-hint${ui.notice ? ' is-error' : ''}">${esc(ui.notice ?? ui.info ?? `${currentView().id ? 'Drag a row’s handle to reorder it. ' : ''}Changes are saved in this browser.`)}</span>`;
   restoreFocus();
+  focusChartRename();
 }
 
 initState();

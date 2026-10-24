@@ -18,7 +18,8 @@
 <body class="chart-app">
 <header class="appbar">
   <span class="brand">Rboreal</span>
-  <span class="doc-title">Calder Ridge Fund III structure</span>
+  <span class="doc-title"></span>
+  <span class="charts-slot" id="charts"></span>
   <a class="appbar-link" href="record-panel.html" style="margin-left:6px">Record panel</a>
   <button class="link-btn appbar-link" data-action="reset" title="Put the sample chart back as it started. Undo brings your changes back.">Reset sample</button>
   <span class="prefs" id="prefs"></span>
@@ -49,6 +50,7 @@
 <script src="app/relate.js"></script>
 <script src="app/ribbon.js"></script>
 <script src="app/chart.js"></script>
+<script src="app/workbook.js"></script>
 <script>
 panelOptions.engaged = currentEngaged;
 
@@ -61,8 +63,10 @@ function render() {
   renderPanel();
   renderRibbon();
   renderChart();
+  document.getElementById('charts').innerHTML = chartSwitcher();
   document.getElementById('prefs').innerHTML = themeSwitch();
   restoreFocus();
+  focusChartRename();
 }
 
 initState();

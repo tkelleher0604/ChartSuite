@@ -180,3 +180,12 @@ kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid 
 
 /* A text box inside a menu, for typing a new option. */
 .menu-input { display: block; margin: 4px; width: calc(100% - 8px); }
+
+/* The workbook's chart menu, in the top bar of the chart and the record panel. */
+.charts-slot { display: inline-flex; align-items: center; min-width: 0; margin-left: 4px; }
+.chart-name { display: inline-flex; align-items: center; gap: 4px; max-width: 28rem; padding: 3px 6px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 500; }
+.chart-name:hover, .chart-name[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.chart-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-name .icon { flex: none; width: 13px; height: 13px; }
+.chart-name-input { width: 22rem; max-width: 50vw; height: 28px; font-size: 13px; }
+.chart-switcher .menu { min-width: 16rem; z-index: 50; }
