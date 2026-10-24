@@ -58,6 +58,14 @@ function relateRows(a, b) {
     const row = { key, kind: k, i, j, locA, locB, existing: [] };
     if (!locA || !locB) {
       const side = !locA ? a : b, arg = !locA ? pa : pb;
+      // Rows wanting the same roles and missing something on the same side are shown as one.
+      const twin = rows.find(r => r.needs && same(r.kind.args[r.i].edge, pa.edge) && same(r.kind.args[r.j].edge, pb.edge) && r.needSide === side);
+      if (twin) {
+        twin.needPaths.push(pathBelow(arg.sample));
+        twin.needs = `Needs ${twin.needPaths.join(' or ')} on ${segmentText(objectOf(side))}`;
+        return;
+      }
+      Object.assign(row, { needSide: side, needPaths: [pathBelow(arg.sample)] });
       row.needs = `Needs ${pathBelow(arg.sample)} on ${segmentText(objectOf(side))}`;
       return rows.push(row);
     }

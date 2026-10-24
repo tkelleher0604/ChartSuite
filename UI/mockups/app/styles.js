@@ -82,14 +82,19 @@ const sampleOf = param => Object.keys(records).find(id => parameterization(recor
 const kindPath = at => pathTo(at).map((id, i) => i ? segmentText(id) : records[id].kind).join(' › ');
 
 // A style's name and what it covers, from a record with its parameterization if there still is one.
+// The last description worked out for each parameterization, for a style whose records have all gone.
+const describedParams = new Map();
+
 function describeStyle(s) {
   if (isKindStyle(s)) return { label: 'Kind', where: 'every object' };
   const id = sampleOf(s.param);
-  if (!id) return { label: s.label ?? 'Style', where: s.where ?? 'nothing in the chart now' };
+  if (!id) return describedParams.get(s.param) ?? { label: s.label ?? 'Style', where: s.where ?? 'nothing in the chart now' };
   const r = records[id];
-  if (isRelation(r)) return { label: relationLabel(r), where: r.args.map(a => kindPath(a.at)).join(' → ') };
   const loc = records[r.at];
-  return { label: r.edge, where: isObject(loc) ? `on ${plural(loc.kind)}` : `under ${kindPath(r.at)}` };
+  const d = isRelation(r) ? { label: relationLabel(r), where: r.args.map(a => kindPath(a.at)).join(' → ') }
+    : { label: r.edge, where: isObject(loc) ? `on ${plural(loc.kind)}` : `under ${kindPath(r.at)}` };
+  describedParams.set(s.param, d);
+  return d;
 }
 
 // The outputs a style can map: those its parameterization has in the state, and any it already maps,
@@ -189,7 +194,7 @@ function lineLook(id) {
 // The effective value of each property for a style's output, as the ribbon shows it: what the style sets,
 // and otherwise what the box or line would have without it.
 function effectiveProps(s, output) {
-  const own = (output === '*' ? Object.values(s.map)[0] : s.map[output]) ?? {};
+  const own = s.map[output] ?? {};
   const base = isLineStyle(s) ? LINE_DEFAULTS : { ...BOX_DEFAULTS, ...TEXT_DEFAULTS, show: false, format: 'value' };
   return { props: { ...base, ...own }, own };
 }

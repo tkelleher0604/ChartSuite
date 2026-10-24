@@ -136,16 +136,16 @@ const SAMPLE = {
 // Where each object's box sits on the chart: its top-left corner and width. Height follows from its text.
 const SAMPLE_LAYOUT = {
   inv_nonus: { x: 40, y: 40, w: 200 },
-  inv_us:    { x: 380, y: 40, w: 200 },
+  inv_us:    { x: 345, y: 40, w: 200 },
   feeder:    { x: 25, y: 150, w: 230 },
-  chen:      { x: 730, y: 150, w: 170 },
-  okafor:    { x: 960, y: 150, w: 170 },
-  fund:      { x: 365, y: 330, w: 230 },
-  gp:        { x: 715, y: 350, w: 200 },
-  mgmt:      { x: 945, y: 350, w: 200 },
-  blocker:   { x: 270, y: 545, w: 200 },
-  northpine: { x: 560, y: 545, w: 200 },
-  halvard:   { x: 270, y: 690, w: 200 },
+  chen:      { x: 650, y: 150, w: 170 },
+  okafor:    { x: 870, y: 150, w: 170 },
+  fund:      { x: 330, y: 330, w: 230 },
+  gp:        { x: 640, y: 350, w: 200 },
+  mgmt:      { x: 860, y: 350, w: 200 },
+  blocker:   { x: 240, y: 545, w: 200 },
+  northpine: { x: 520, y: 545, w: 200 },
+  halvard:   { x: 240, y: 690, w: 200 },
 };
 
 const STORAGE_KEY = 'rboreal.state.v5';

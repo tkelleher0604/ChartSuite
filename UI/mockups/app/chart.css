@@ -205,3 +205,5 @@ body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-temp
 
 /* While a relation is being added, the ribbon waits too. */
 body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
+.stage.is-locked .node, .stage.is-locked .wire-hit { pointer-events: none; }
+.stage.is-locked .handle, .stage.is-picking .handle { display: none; }

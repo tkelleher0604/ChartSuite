@@ -166,7 +166,7 @@ a.list-row:hover { background: var(--hover); }
 
 /* Relating two things (relate.js). The two sides head the first two columns; each row gives each side's
    role in a kind of relation, then the relation's output, recorded or not. */
-.relate-sides, .relate-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(7.5rem, auto); column-gap: 12px; }
+.relate-sides, .relate-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 8.5rem; column-gap: 12px; }
 .relate-sides { align-items: stretch; margin-top: 14px; }
 .relate-side { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .relate-side-name { font-size: 14px; line-height: 19px; font-weight: 600; overflow-wrap: anywhere; }
@@ -190,7 +190,7 @@ a.list-row:hover { background: var(--hover); }
 .relate-extra .select { margin: 0; }
 .relate-row.is-unavailable { color: var(--text-3); }
 .relate-row.is-unavailable .relate-role { font-weight: 400; }
-.relate-needs { font-size: 12px; line-height: 16px; }
+.relate-needs { grid-column: 1 / -1; margin-top: -2px; font-size: 12px; line-height: 16px; }
 .relate-error { grid-column: 1 / -1; padding: 2px 0 4px; font-size: 12px; color: var(--danger); }
 .relate-placeholder { color: var(--text-3); }
 .relate-new { display: grid; gap: 8px; margin-top: 6px; padding: 10px; border: 1px dashed var(--border-strong); border-radius: 10px; }

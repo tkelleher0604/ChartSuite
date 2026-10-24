@@ -180,6 +180,15 @@ function route(lines, geo) {
       const limit = Math.min(...ls.map(l => geo[l.to].y)) - 14;
       const lane = Math.max(edge + 8, Math.min(edge + 18 + 10 * j, limit));
       for (const l of ls) l.points = [[sx, edge], [sx, lane], [l.tx, lane], [l.tx, geo[l.to].y]];
+    } else if (s.shape === 'triangle') {
+      // A triangle's apex is where lines come in, so lines up from one leave by its sloping sides.
+      const y = s.y + s.h * 0.6;
+      for (const l of ls) {
+        const right = l.tx >= sx;
+        l.points = [[sideX(s, y, right), y], [l.tx + (Math.abs(l.tx - sx) < s.w / 2 ? (right ? s.w / 2 + 16 : -s.w / 2 - 16) : 0), y]];
+        const turn = l.points[1][0];
+        l.points.push([turn, geo[l.to].y + geo[l.to].h + 14], [l.tx, geo[l.to].y + geo[l.to].h + 14], [l.tx, geo[l.to].y + geo[l.to].h]);
+      }
     } else {
       const limit = Math.max(...ls.map(l => geo[l.to].y + geo[l.to].h)) + 14;
       const lane = Math.min(edge - 8, Math.max(edge - 18 - 10 * j, limit));
@@ -327,8 +336,8 @@ function renderChart() {
     chart.geometry[el.dataset.node] = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, shape };
   }
   const geo = chart.geometry;
-  const w = Math.max(1180, ...Object.values(geo).map(g => g.x + g.w + 80));
-  const h = Math.max(780, ...Object.values(geo).map(g => g.y + g.h + 80));
+  const w = Math.max(960, ...Object.values(geo).map(g => g.x + g.w + 80));
+  const h = Math.max(720, ...Object.values(geo).map(g => g.y + g.h + 80));
   const sheet = document.getElementById('sheet');
   Object.assign(sheet.style, { width: `${w}px`, height: `${h}px`, transform: `scale(${chart.zoom})` });
   sheet.classList.toggle('has-grid', prefs.grid !== false);
@@ -530,7 +539,7 @@ document.addEventListener('pointerup', () => {
     chart.move = null;
     if (m.moved) {
       moveBox(m.id, m.x, m.y);
-      return render();
+      return go(m.id);
     }
     // A click: select the box, and if it was on a line of text, engage that line's style. A click on an
     // already selected box, off its text, goes back to the style that follows the selection.
@@ -603,7 +612,7 @@ document.addEventListener('keydown', e => {
     if (sel.relate) { location.hash = sel.relate.a; return; }
   }
   if (!sel.object || e.ctrlKey || e.metaKey || e.altKey || ui.form || ui.menu) return;
-  if (e.key === 'Delete' || e.key === 'Backspace') {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !t.closest('.panel, .ribbon, button, a')) {
     e.preventDefault();
     if (sel.record !== sel.object) location.hash = sel.object;
     confirmDelete(sel.object);
@@ -653,10 +662,10 @@ document.addEventListener('pointerdown', e => {
   document.addEventListener('pointerup', onUp);
 });
 
-// On opening, a sheet wider than the stage is zoomed out to fit its width, down to 60%.
+// On opening, a sheet wider than the stage is zoomed out to fit its width, down to 70%.
 function fitWidth() {
   const stage = document.getElementById('stage');
   const sheet = document.getElementById('sheet');
   const z = Math.floor((stage.clientWidth - 56) / sheet.offsetWidth * 20) / 20;
-  if (z < 1) setZoom(Math.max(0.6, z), [0, 0]);
+  if (z < 1) setZoom(Math.max(0.7, z), [0, 0]);
 }

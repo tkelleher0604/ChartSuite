@@ -24,10 +24,15 @@ function palette(prop, current, allowNone) {
   return `<div class="palette">${swatches}</div>${none}`;
 }
 
+// The output whose values the ribbon shows. With every option in scope, that's the selection's own
+// option, or else the first; a change still goes to every option.
+const viewOutput = eng => eng.output !== '*' ? eng.output
+  : selectionOutput(eng.style) ?? styleOutputs(eng.style)[0]?.[0] ?? '*';
+
 // What each property shows as in the ribbon: the engaged style's own value where it sets one, and
 // otherwise (`inherited`) the value the selection actually has from other styles, or the default.
 function shownProps(eng) {
-  const { own } = effectiveProps(eng.style, eng.output);
+  const { own } = effectiveProps(eng.style, viewOutput(eng));
   const sel = selection();
   let base = isLineStyle(eng.style) ? LINE_DEFAULTS : { ...BOX_DEFAULTS, ...TEXT_DEFAULTS, show: false, format: 'value' };
   if (isLineStyle(eng.style) && sel.relation && styleOf(sel.relation) === eng.style) base = lineLook(sel.relation);
@@ -96,7 +101,7 @@ function styleGroup(eng) {
       + `<div class="menu-sep"></div><button class="menu-item" role="menuitemradio" aria-checked="${eng.output === '*'}" data-action="style-scope" data-output="*"><span class="menu-text">Every option</span>${eng.output === '*' ? icon('check') : ''}</button>`)
       : `<span class="rb-note"><strong>${esc(outText)}</strong></span>`;
     const n = recordsWithOutput(eng.style, eng.output).length;
-    const noun = isLineStyle(eng.style) ? 'line' : isKindStyle(eng.style) || BOX_PROPS.some(p => effectiveProps(eng.style, eng.output).own[p] !== undefined) ? 'box' : 'place';
+    const noun = isLineStyle(eng.style) ? 'line' : isKindStyle(eng.style) || BOX_PROPS.some(p => effectiveProps(eng.style, viewOutput(eng)).own[p] !== undefined) ? 'box' : 'place';
     const over = overriddenProps(eng);
     const first = Object.entries(over)[0];
     const note = first ? `<span class="rb-note is-warn">${esc(propName(first[0]))} on this box comes from <button class="link-btn" data-action="style-engage" data-style="${first[1].id}">${esc(describeStyle(first[1]).label)}</button></span>`
@@ -160,7 +165,7 @@ function shapeGroup(eng) {
 
 function showGroup(eng) {
   const fixed = !eng || isKindStyle(eng.style);
-  const { own } = eng ? effectiveProps(eng.style, eng.output) : { own: {} };
+  const { own } = eng ? effectiveProps(eng.style, viewOutput(eng)) : { own: {} };
   const line = eng && isLineStyle(eng.style);
   const shown = fixed || (line ? own.show !== false : !!own.show);
   const toggle = `<button class="rb-check" data-action="style-prop" data-prop="show" data-value="${!shown}" aria-pressed="${shown}"${fixed ? ' disabled' : ''}

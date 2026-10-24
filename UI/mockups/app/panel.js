@@ -446,15 +446,16 @@ function addMenu(at, compact = false) {
   const items = ADD_TYPES.map(([type, desc]) =>
     `<button class="menu-item" role="menuitem" data-action="add" data-type="${type}" data-id="${at}">
       <span class="menu-text"><span class="menu-title">${TYPE_NAMES[type]}</span><span class="menu-desc">${desc}</span></span><kbd>${TYPE_NAMES[type][0]}</kbd></button>`).join('');
+  // General actions first, then shortcuts for the relations a location like this one is already in.
+  const general = `<button class="menu-item" role="menuitem" data-action="open-relate" data-id="${at}">
+      <span class="menu-text"><span class="menu-title">Relation…</span><span class="menu-desc">Any kind, with anything, or a new kind</span></span><kbd>R</kbd></button>`
+    + (panelOptions.engaged ? `<button class="menu-item" role="menuitem" data-action="menu" data-menu="${styleKey}">
+      <span class="menu-text"><span class="menu-title">Style…</span><span class="menu-desc">Format the chart by an entry here</span></span><kbd>S</kbd></button>` : '');
   const relations = relationTypesAt(at).map(t =>
     `<button class="menu-item" role="menuitem" data-action="add-relation" data-id="${at}" data-key="${esc(t.key)}">
-      <span class="menu-text"><span class="menu-title">${esc(t.other)}</span><span class="menu-desc">${TYPE_NAMES[t.type]} relation, with this as ${esc(t.own)}</span></span></button>`).join('')
-    + `<button class="menu-item" role="menuitem" data-action="open-relate" data-id="${at}">
-      <span class="menu-text"><span class="menu-title">Relation…</span><span class="menu-desc">Any kind, with anything; or define a new kind</span></span><kbd>R</kbd></button>`;
-  const style = panelOptions.engaged ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Chart</div>
-    <button class="menu-item" role="menuitem" data-action="menu" data-menu="${styleKey}">
-      <span class="menu-text"><span class="menu-title">Style…</span><span class="menu-desc">Format the chart by an entry here</span></span><kbd>S</kbd></button>` : '';
-  return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu">${items}<div class="menu-sep" role="separator"></div><div class="menu-head">Relations</div>${relations}${style}</div></span>`;
+      <span class="menu-text"><span class="menu-title">${esc(t.other)}</span><span class="menu-desc">${TYPE_NAMES[t.type]} relation, with this as ${esc(t.own)}</span></span></button>`).join('');
+  return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu">${items}<div class="menu-sep" role="separator"></div>${general}${relations
+    ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Relations here</div>${relations}` : ''}</div></span>`;
 }
 
 function deleteButton(id, small = false) {
