@@ -6,20 +6,22 @@ Working area for Rboreal's frontend design.
 
 Open these directly in a browser. The chart and the record panel share their code and their saved state, so a change made on one page shows up on the other.
 
-Both pages work on a workbook of charts. The menu naming the current chart, in the top bar, switches to another chart, starts a new one (blank, or a copy of this one), renames or deletes this one, and restores a deleted one. Charts don't share records, formulas or views, and each keeps its own undo history. "Copy formulas from" in the same menu brings another chart's definitions and relation names into this one, unsynced from then on. A new blank chart starts from the record panel's Entities or Individuals, or from a double-click on the chart.
+Both pages work on a workbook of charts. The menu naming the current chart, in the top bar, switches to another chart, starts a new one (blank, or a copy of this one), renames or deletes this one, and restores a deleted one. Charts don't share records, formulas or views, and each keeps its own undo history. "Copy formulas from" in the same menu brings another chart's definitions and relation names into this one, with the specifications they need, unsynced from then on. A new blank chart starts from the record panel's Entities or Individuals, or from a double-click on the chart.
 
 - [mockups/chart.html](mockups/chart.html): the chart, with a ribbon above it and the record panel on the right.
   - Every object is a box, and every two-argument relation is a line from its first argument to its second.
   - A line's label is the relation's own text, if its style gives one, followed by whatever is located at the relation that its own style shows. Ownership is a tag (Owner, Owned) with a Percentage located at it, so its lines carry no label of their own and the Percentage labels them, just above the box a line reaches. Clicking that text selects the line and engages the Percentage's style.
   - **Styles.**
-    - A style is a parameterization together with a map from its outputs to formatting: shape, fill, outline, font, and whether the record shows as a line of text in its box (or, for a relation, as a line).
-    - Every object has the same parameterization, whose outputs are the kinds, so the Kind style gives each kind its box.
+    - A style belongs to a form, and maps the form's outputs to formatting: shape, fill, outline, font, and whether it's drawn (as a line of text in its box, or, for a relation, as a line).
+    - A form is what entries or relations like one another share: the same kind of output (tag, choice or field), the same labels on their edges, and locations of the same shape, whatever kinds and options those locations sit under. So one style covers a Jurisdiction on every kind of entity, and an Ownership whoever the owner is. Each view has at most one style per form, and the gallery and the panel name a style by its form.
+    - Every object has the same form, whose outputs are the kinds, so the Kind style gives each kind its box, and says whether boxes of that kind are drawn.
     - A new kind gets the preset: a plain rectangle and a bold Name.
     - Later styles in the list override earlier ones.
   - **The engaged style.**
     - One style is always engaged, and the ribbon's formatting controls edit it. A change therefore applies everywhere the style's entry for that output applies, never to a single box. A scope menu picks the output, or every output.
     - The engaged style is outlined in the ribbon's gallery and highlighted in the panel, on its row or on the kind under the object's name. Its text is ringed on the chart.
     - Controls showing a value that comes from another style are muted. A dot marks a value that a later style overrides on the selected box.
+    - The ribbon's first checkbox says whether the engaged style draws its output: Show boxes for the Kind style, Draw line for a relation's, Show text for an entry's.
   - Clicking a box selects it and opens its object in the panel. Clicking a line of text in a box engages that text's style. Clicking a line opens its relation.
   - **Editing a name in place.** Double-click a name, press F2, or just start typing over a selected box. The panel follows as you type. Enter saves and Esc cancels.
   - **Moving and deleting.** Drag a box to move it, or nudge it with the arrow keys.
@@ -30,10 +32,9 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
     - Switching keeps the selection, unless the new view hides it.
     - The sample has two views: Structure, and 40 Act, which hides ownership and draws the BDC's close affiliates (blue) and remote affiliates (dashed orange).
   - **Show and hide**, in the View tab, act on the current view only.
-    - The Relations menu lists the chart's relations by name, the entered ones and those worked out by formula, each with a checkbox. Turning one on or off sets whether its styles draw it, for every kind it relates; text a line shows, like an ownership's Percentage, comes and goes with it. A computed relation starts out dashed, in a color of its own.
+    - The Show menu lists what the view can draw, by form, each with a checkbox: Boxes, one per kind; Lines, the entered relations by name; Lines worked out by formula; and Text, the entries a box can show. Turning one on or off sets whether its style draws it in this view, so a relation goes for every kind it relates. Text a line shows, like an ownership's Percentage, comes and goes with the line. A computed relation starts out dashed, in a color of its own.
     - Hide hides the selected box or line in this view, and the Hidden menu shows them again.
     - Filter boxes holds a condition, worked out at each object like an entry's formula, that says which boxes the view shows; lines to hidden boxes go with them. The 40 Act view's shows the BDC and its close and remote affiliates. The menu checks the condition as it's typed and says how many boxes it would show. A box where the condition runs into an error stays shown, with a red mark.
-    - Kinds has a checkbox per kind, for hiding a kind's boxes in this view.
     - Tidy layout, offered when a view hides boxes, lays out the ones it shows in rows along ownership and control, in this view only.
     - A relation worked out by formula is drawn only where a style shows it. Adding a new kind of relation draws it in the current view and leaves it hidden in the others.
   - **Formulas tab.** Definitions opens the panel's list of formulas, and Computed relation and Computed entry start new ones (a computed relation starts from the selected box, or the two being related). Why? opens the selected computed line, or line of text, in the panel. Calculation says how many records the formulas worked out, how long it took, and how many errors there are.
@@ -54,7 +55,7 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - Adding starts with a name box whose list offers the labels already used at matching locations, plus Create.
   - A tag is added as soon as it's named. Its name sits in the label column and its output, a checkbox, in the value column: green when attested, red and crossed out when ruled out. Hovering previews the other state, and a click switches to it.
   - A choice moves on to an option box listing the outputs of its parameterization, and afterwards shows its option with a dropdown chevron.
-  - A field moves on to a value box that detects the datatype.
+  - A field moves on to a value box that detects the datatype: text, number, percent, money or date. A value is kept as what it is (a percentage as a fraction, money as a number, a date as a calendar date) and shown in its datatype's format. A bare number typed into a percent field means that many percent.
   - Entries can be dragged by their handles (or moved with Alt+Up and Alt+Down) among their siblings, with Name kept first. The order is shared by every location with the same specification.
   - An entry can move up a level, from its location to that location's own location, from its edit form or with Alt+Left on its handle. What depends on it moves with it.
   - **Required entries.**
@@ -62,8 +63,11 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
     - Wherever a required entry is blank, it shows as a row with an asterisk that can be filled in where it stands. A collapsed row with something blank below it shows an asterisk too.
     - Leaving an object with something required still blank asks first. Moving between that object's own records doesn't count as leaving.
   - **Deleting.** Deleting hides rather than destroys. The record goes to Deleted, at the end of the All list, along with everything that depends on it, and can be restored from there. If others depend on it, the panel asks first.
-  - Entry order, styles and required flags are kept by specification, and follow the records when an edit changes specifications (a relabeled edge, or a move up a level).
-  - Each change is checked against the state and schema conditions in [data-model.md](../data-model.md), matching labels and options without regard to case.
+  - **The schema.** The chart keeps its schema, every specification it has, alongside its records. A new record adds its specification. A specification stays when the last record that has it is deleted, so a restored or new record finds it as it was.
+    - What's kept for a specification follows it: entry order by location, required flags and formulas by parameterization, names and styles by form.
+    - When an edit made one record at a time leaves a specification that nothing has any more (renaming an entry here only, when it's the only one, or moving it up a level), the specification moves with the record, and what's kept for it follows. Renaming every one renames the specification itself.
+    - Each change is checked against the state conditions on the records and the schema conditions on the schema, as [data-model.md](../data-model.md) sets them out, matching labels and options without regard to case. Where an unused specification would clash with a record, the record wins and the specification goes.
+    - **The Schema view** (All › Schema) lists the schema by form, kinds first, then entries and relations, with how many specifications and records each has. Opening a form lists its specifications, with each one's output, where it sits and how many records have it. A specification nothing has can be removed there, one at a time or all at once with Remove unused.
   - A choice's option has a dropdown wherever it appears, including the header path and the title.
   - Relations show at each of their locations:
     - A two-argument relation is a row labeled with the other side's edge, listing the other side's object with the output (checkbox, option or value). Relations that share those labels share the row.
@@ -80,12 +84,13 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
     - An entry's edit form shows the formula covering every location like it, editable in place, or offers to add one. So does an entered relation's panel.
     - Typing a value that starts with `=` makes it the formula for every location like this one. A new tag can be given a `←` condition instead of being attested. Typing `<-` makes the arrow.
     - **The Formulas view** (All › Formulas, or Add › Formula…) lists the definitions, with what each covers and how many records it works out. Below them, Names edits each relation's name and the names of its lists of relatives, seen from each side. Renaming a relation or a list there, or a definition in its own view, renames it in the formulas and view filters that mention it, in the same undoable step.
-    - **A definition's view** edits its name, type, what it covers (an entry's locations, or a relation's parameters and their locations) and its formula or implications. Implications have labels and can be dragged to reorder. Problems are underlined where they are as you type, and names are offered after a dot or as you start one. Saving works everything out again, as one undoable step, and the view lists the results.
+    - **A definition's view** edits its name, type (a tag, a choice, or a field of one of the datatypes), what it covers (an entry's locations, or a relation's parameters and their locations) and its formula or implications. Implications have labels and can be dragged to reorder. Problems are underlined where they are as you type, and names are offered after a dot or as you start one. Saving works everything out again, as one undoable step, and the view lists the results.
     - The Relate view lists relations worked out by formula in a section of their own, with what the formula gives. A tag a formula doesn't imply can still be attested by hand there. Its form for a new kind of relation offers to work it out by formula instead.
-    - Renaming an entry offers to rename it here only or at every entry like it (same label, at locations like this one, whatever kinds a relation relates or options sit above it). Every one is the default, and it renames the label in formulas and names too, in one undoable step.
+    - Renaming an entry offers to rename it here only or at every entry like it, meaning every one of the same form (same label, at locations like this one, whatever kinds a relation relates or options sit above it). Every one is the default, and it renames the label in formulas and names too, in one undoable step.
   - A relation's edge labels can be renamed from its own panel's header, with the same choice. Renaming an edge here only makes the record a different relation, outside the name, formulas and styles of the one it left. A computed relation's edges belong to its definition, so there the pencil opens that.
   - The top bar switches between System, Light and Dark themes.
-  - Changes are saved in the browser's local storage, with undo and redo.
+  - Changes are saved in the browser's local storage, with undo and redo. A workbook saved before the chart kept its schema isn't read, and the pages start again from the sample.
+- [mockups/model-test.html](mockups/model-test.html): checks the model on the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, and Copy formulas must keep all of that true. Failures are listed first.
 - [mockups/formula-lab.html](mockups/formula-lab.html): the sample's formulas side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It keeps its own copy of the formulas.
 - [mockups/Dappled Wall.html](<mockups/Dappled Wall.html>): tree-branch shadows on a wall, a candidate background for the loading screen.
 
@@ -96,11 +101,11 @@ The chart and record panel mockups share the code in [mockups/app/](mockups/app/
 | File | What it does |
 | ---- | ------------ |
 | `common.js` | Text helpers, icons, checkboxes, and the theme preference |
-| `model.js` | The sample data, with its formulas and pilot names; the state (entered records, and with them the computed ones; formulas; entry order; views with their styles and box positions; required entries; deleted records) with undo and redo; reading the state; checking it against [data-model.md](../data-model.md) |
+| `model.js` | The sample data, with its formulas and pilot names; the state (the schema; entered records, and with them the computed ones; definitions and names; entry order; views with their styles and box positions; required entries; deleted records) with undo and redo; specifications, parameterizations and forms, and their keys; values and their datatypes; reading the state; checking it against [data-model.md](../data-model.md); keeping the schema and what's keyed by it in step as records change |
 | `formulas.js` | The formula engine ([formulas.md](../formulas.md)): reading formulas, working out the computed records, explaining them. It touches nothing on the page |
 | `lab.js`, `lab.css` | The formula lab |
-| `styles.js` | Styles: presets, the sample styles, and how styles combine into a box's or line's look |
-| `panel.js` | The record panel, with computed records, their explanations, and the views for writing formulas |
+| `styles.js` | Styles, one per form in each view: presets, the sample styles, what's drawn, Show and Hide, and how styles combine into a box's or line's look |
+| `panel.js` | The record panel, with computed records, their explanations, the views for writing formulas, and the Schema view |
 | `relate.js` | The Relate view, for relating two things |
 | `ribbon.js` | The chart's ribbon |
 | `chart.js` | The chart: drawing boxes, routing lines, selecting, moving, editing in place, and relating by drag |
