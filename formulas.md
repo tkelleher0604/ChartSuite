@@ -1,0 +1,436 @@
+# Formulas
+
+*A first pass, for discussion.*
+
+This extends [data-model.md](data-model.md). Some records can be worked out by formula instead of entered, the way a spreadsheet works some cells out from others.
+
+The examples use the sample chart in [UI/mockups](UI/mockups/), with one change decided on 2026-10-24: Ownership is a tag with edges Owner and Owned, and a Percentage field located at it. The examples also use the names this document pilots for relations and their lists of relatives (see [Names for relations and lists](#names-for-relations-and-lists)).
+
+## The idea
+
+A formula belongs to an entry or relation. It works out that entry's output wherever the entry could be located, the way a calculated column in an Excel table works out a value in every row.
+
+Its references are relative, but relative to the schema instead of a grid. They name:
+- the arguments of the record being worked out;
+- the other entries at its location;
+- paths from either of those.
+
+So one formula serves every Entity, or every pair of an owner and what it owns.
+
+A formula is written in one of two ways:
+
+| Starts with | Read as | Used on | What it records |
+| --- | --- | --- | --- |
+| `=` | "equals" | fields, choices and tags | The output it gives: a value, an option, or for a tag TRUE (attested) or FALSE (ruled out). Where it gives BLANK, nothing is recorded. |
+| `←` | "implied by" | tags | An attestation wherever its condition holds. Where the condition doesn't hold, nothing is recorded, so an implication never rules anything out. |
+
+Typing `<-` at the start of a formula turns it into `←`.
+
+A tag can have several implications, each with a label of its own, and it is attested wherever any of them holds. Legal definitions are written this way: "affiliated person of another person means (A) …; (B) …". A computed tag remembers which implications put it there, so it can say why it exists.
+
+Computed records are records. They show in the panel and on the chart, styles apply to them, entries can be located at them, and other formulas can read them. Two things set them apart:
+- The panel shows them as computed, and can say why each one is there.
+- An entered record always wins over a computed one with the same argumentation (see [Entered records win](#entered-records-win)). That is how a presumption gets rebutted.
+
+## Examples
+
+### Does ownership add up? A tag, with `=`
+
+A tag **Ownership Adds Up**, on Entities:
+
+`= IF(COUNT(Owners) = 0, BLANK(), SUM(Owners.Percentage) = 100%)`
+
+`Owners` is the entity's list of owners. In other words, it lists the entity's relatives in the Owner role of Ownership, seen from the Owned side. `Owners.Percentage` is the Percentage on each of those ownerships.
+
+On the sample:
+- The tag is attested on the fund (71.6% plus 28.4%), the feeder, the blocker, the GP and the management company.
+- It's ruled out on Northpine (64%) and Halvard (82%), whose other owners aren't charted.
+- Individuals and investor groups have no owners, so the formula gives BLANK for them and nothing is recorded.
+
+### Default tax classification: a choice, overridden by an election
+
+A choice **Tax Classification**, at Entity Type:
+
+`= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1, "Disregarded Entity", TRUE, "Partnership")`
+
+How the names resolve:
+- `@` reads as "this". In the formula for an entry, it means the record the entry is located at. Here that is the Entity Type record, whose output is the entity type.
+- Entity Type has no entries called Ownership Adds Up or Owners, so those names are looked up the path, on the entity.
+- Names with spaces in them go in square brackets.
+
+**What the formula covers.** It covers Tax Classification at every Entity Type that has one in the schema: Limited Partnership, Limited Liability Company and Corporation. So:
+- It fills in Northpine and Halvard, which have an Entity Type but no Tax Classification yet.
+- It leaves the Cayman feeder (an Exempted Limited Partnership) alone, unless the formula is extended to cover that too.
+
+**Overrides.** The formula gives the default classification. Take an LLC that elected to be taxed as a corporation: "C Corporation" is entered for it by hand. The entered option wins, and the panel marks it as differing from the formula, like the mark Excel puts on a calculated-column cell that has been typed over. Where an entered option agrees with the formula, as the sample's do, the panel can offer to clear it.
+
+**New options.** "Disregarded Entity" isn't an option yet. Writing it into the formula adds it.
+
+### Look-through ownership: a chain of any length
+
+A number field relation **Look-Through Ownership**, with edges Investor and Investment:
+
+`= LOOKTHROUGH(Investor, Investment, Holdings, Percentage)`
+
+How it works:
+- `Holdings` is the list of what something owns.
+- LOOKTHROUGH starts at the Investor and follows Holdings any number of times, multiplying by the Percentage at each step.
+- It adds up every path that ends at the Investment.
+- Where no path leads there, it gives BLANK. So the relation is recorded only between connected pairs.
+
+On the sample:
+- Non-U.S. Investors hold 28.4% of the fund through the feeder, and 18.18% of Northpine.
+- U.S. Investors hold 58.71% of Halvard (71.6% × 100% × 82%).
+
+If ownership loops back on itself, there are infinitely many paths. Their sum still has a limit as long as each trip around the loop multiplies to less than 100%, and LOOKTHROUGH gives that limit.
+
+### Control: implications, a presumption, and rebutting it
+
+A tag relation **Control**, with edges Controller (an Entity or Individual) and Controlled (an Entity). The Controlled side is Entities only because §2(a)(9) presumes a natural person isn't controlled. It has three implications:
+
+| Label | Implication |
+| --- | --- |
+| More than 25% | `← SUM(FILTER(Controlled.Owners, @ = Controller OR @ IN REACH(Controller, [Controlled Companies])).Percentage) > 25%` |
+| General partner | `← Controller IN Controlled.[Entity Type].[General Partners]` |
+| Managing member | `← Controller IN FILTER(Controlled.[Entity Type].Members, @.Membership = "Managing Member")` |
+
+**More than 25%** is §2(a)(9)'s presumption: "owns beneficially, either directly or through one or more controlled companies, more than 25 per centum of the voting securities".
+- FILTER keeps the owners that are the Controller itself, or that the Controller directly or indirectly controls. Inside FILTER, `@` is each owner in turn.
+- `REACH(Controller, [Controlled Companies])` is everything the Controller controls, directly or indirectly. It follows Control's list of controlled companies one or more times.
+- The formula reads its own relation, at other records, and that's allowed (see [Loops](#loops)).
+- Percentage stands in for the share of votes, which is what §2(a)(42) measures. A chart that tracks economic and voting interests separately would use a Voting Percentage at Ownership.
+
+**General partner.**
+- `[General Partners]` is the GP relation's list, seen from the fund's side.
+- That relation is located at the fund's Entity Type, hence the step through Entity Type.
+- For an entity whose type has no general partners, the list is empty.
+
+**Managing member.**
+- After a list of relatives, a dot looks first at the relation that links each one.
+- So `@.Membership` is that membership's option.
+
+**Results on the sample.**
+- Chen and Okafor control the management company (60% and 40%) and the GP (50% each).
+- The GP controls the fund and the feeder.
+- The fund controls the blocker (100%), Northpine (64%) and, through the blocker, Halvard (82%).
+- The feeder controls the fund, since it holds 28.4%: the presumption at work. Because the feeder controls the fund, it also controls everything the fund does.
+
+**Rebutting the presumption.** Click the attested Control between the feeder and the fund, and it is ruled out.
+- The entered ruling-out wins over the implication.
+- The panel marks it as overriding "More than 25%". The ruling-out is a record, so the basis can be located at it (an SEC order and its date, say).
+- Whatever was implied only through it goes away: the feeder's control of the blocker, Northpine and Halvard.
+
+This is the attestation reading at work: an implication attests, and a ruling-out by someone who knows better takes it back.
+
+### Affiliated person: implications that cite the statute
+
+The definitions below assume two relations and a tag that the sample doesn't have yet:
+- **Position**: a choice relation with edges Holder and Company, and the options Director, Officer, Employee and Advisory Board Member. From the company's side, its list is **Personnel**.
+- **Investment Adviser**: a tag relation with edges Adviser and Client. From the client's side, its list is **Advisers**.
+- **Investment Company**: a tag on Entities.
+
+A tag relation **Affiliated Person** has edges Affiliate and Person (each an Entity or Individual), and one implication per clause of §2(a)(3):
+
+| Label | Implication |
+| --- | --- |
+| (A) | `← SUM(FILTER(Person.Owners, @ = Affiliate OR @ IN REACH(Affiliate, [Controlled Companies])).Percentage) >= 5%` |
+| (B) | `← IMPLIEDBY([Affiliated Person](Person, Affiliate), "(A)")` |
+| (C) | `← Affiliate IN REACH(Person, Controllers) OR Affiliate IN REACH(Person, [Controlled Companies]) OR ANY(REACH(Person, Controllers), Affiliate IN REACH(@, [Controlled Companies]))` |
+| (D) | `← Affiliate IN FILTER(Person.Personnel, @.Position <> "Advisory Board Member") OR Affiliate IN Person.[Entity Type].[General Partners]` |
+| (E) | `← Person.[Investment Company] AND (Affiliate IN Person.Advisers OR Affiliate IN FILTER(Person.Personnel, @.Position = "Advisory Board Member"))` |
+
+Notes on the clauses:
+- **(A)** attributes holdings through controlled companies in full, the way §2(a)(9) does. Research found no SEC statement on this, so treat it as a reading.
+- **(B)** is (A) with the two sides swapped. `[Affiliated Person](Person, Affiliate)` calls the relation by name, with its arguments in order. `IMPLIEDBY` asks whether that record is attested by the implication labeled (A).
+- **(C)** is control in either direction, or a third person controlling both, "directly or indirectly".
+- **(D)** covers recorded officers, directors and employees, and general partners. SEC staff also count limited partners as partners, and as copartners of the general partner (IM Guidance Update 2014-12). Each of those would be one more `OR`.
+- **(E)** applies only when the Person is an investment company.
+- **(F)**, the depositor of an unincorporated investment company, would follow the same pattern.
+
+(A), (B) and (C) run both ways, while (D) and (E) run one way: a director is an affiliated person of the fund, but the fund isn't an affiliated person of its director. Because Affiliate and Person are separate edges, that direction comes for free.
+
+A person is never its own affiliate. A relation's formula skips candidates that use the same object twice, unless the relation is marked as able to relate a thing to itself.
+
+### Close and remote affiliates of a BDC
+
+SEC staff use "close affiliates" for the persons in §57(b), and "remote affiliates" for those in §57(e) who aren't also in §57(b) (IM Guidance Update 2014-12, notes 2 and 3).
+
+A tag relation **Close Affiliate** has edges Close Affiliate (an Entity or Individual) and BDC.
+- The BDC side is located at an Entity's Investment Company Status, at the option Business Development Company.
+- So the relation exists only for entities recorded as BDCs, the same way the GP relation reaches a fund through its Entity Type.
+- In a formula, an argument always means its object, so `BDC` is the entity.
+
+| Label | Implication |
+| --- | --- |
+| (b)(1) | `← [Close Affiliate] IN BDC.Personnel` |
+| (b)(1) affiliates | `← ANY(BDC.Personnel, IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)"))` |
+| (b)(2) | `← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[Entity Type].[General Partners]` |
+| (b)(2) | `← [Close Affiliate] IN REACH(BDC, Controllers)` |
+| (b)(2) | `← ANY(REACH(BDC, Controllers), WITHOUT(BDC, [Close Affiliate] IN REACH(@, [Controlled Companies])))` |
+| (b)(2) affiliates | `← ANY(BDC.[Close Affiliates], IMPLIEDBY([Close Affiliate](@, BDC), "(b)(2)") AND IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)", "(D)"))` |
+
+In words:
+- **(b)(1).** Directors, officers, employees and advisory board members of the BDC, and anyone who is a §2(a)(3)(C) affiliate of one of them.
+- **(b)(2), first three rows.** The BDC's adviser and general partner, anyone who controls the BDC, and anyone controlled by it or under common control with it.
+  - Promoters and principal underwriters would be two more `OR`s.
+  - Three rows share the label (b)(2), so the last row can cite them as a group.
+- **(b)(2) affiliates.** §2(a)(3)(C) or (D) affiliates of the persons in the first three (b)(2) rows.
+
+**The carve-out, in the third (b)(2) row.** §57(b)(2) excepts "any person who, if it were not directly or indirectly controlled by the business development company, would not be directly or indirectly under the control of a person who controls the business development company".
+- `WITHOUT(BDC, …)` works its second argument out as if the BDC weren't in the chart, so control that runs through the BDC drops out.
+- What's left are the controlled companies that a controller of the BDC reaches some other way.
+- So if the BDC has no controller, everything it controls is excepted.
+
+If the fund in the sample were a BDC:
+- The GP, Chen, Okafor and the feeder would be close affiliates under (b)(2), and so would the management company if it were recorded as the adviser.
+- The blocker, Northpine and Halvard would be excepted by the carve-out.
+- But "(b)(2) affiliates", read literally, brings them back. The GP is a (b)(2) person, and it controls the blocker through the fund, so the blocker is the GP's §2(a)(3)(C) affiliate.
+- If the carve-out should limit that clause too, the clause takes the same `WITHOUT(BDC, …)`.
+- These readings come from the statutory text and are for you to correct. The point here is whether the formulas can say what you mean either way.
+
+**Remote Affiliate** (edges Remote Affiliate and BDC) follows the same pattern for the clauses of §57(e). §57(d) reaches only persons who aren't close affiliates, so each of its implications ends with `AND NOT [Close Affiliate]([Remote Affiliate], BDC)`. For example, (e)(1)(A):
+
+`← IMPLIEDBY([Affiliated Person]([Remote Affiliate], BDC), "(A)") AND NOT [Close Affiliate]([Remote Affiliate], BDC)`
+
+### Counting beneficial owners under §3(c)(1): a field that reads itself elsewhere
+
+A number field **3(c)(1) Count**, on Entities:
+
+`= SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1)))`
+
+- EACH works the expression out for each owner and gives the list of results.
+- An owner counts as one, except where §3(c)(1)(A) applies. That is an entity holding 10% or more that is, or but for §3(c)(1) or §3(c)(7) would be, an investment company (here, a Private Fund tag). Such an owner counts as its own holders.
+- The formula reads 3(c)(1) Count at other entities, its owners. That's fine as long as ownership doesn't loop back. If it does, the entities on the loop show a circular-reference error, as Excel would.
+- The statute doesn't say whether the 10% test applies again at each tier. This formula applies it again, and changing that means changing one condition.
+
+## Writing formulas
+
+### Names
+
+A formula refers to things by name, matched without regard to case, as labels are elsewhere.
+
+**Brackets.** A name with spaces or punctuation goes in square brackets: `[Formation Date]`, `[U.S. Person]`, `[3(c)(1) Count]`. A one-word name can go without.
+
+**Bare names.** A name on its own means the same thing throughout a formula:
+- In a relation's formula, it means one of the relation's arguments, by its edge label: `Controller`, `Controlled`. An argument is always an object, even when its parameter sits below the object, as the GP relation's Fund Owned sits at Entity Type.
+- In an entry's formula, it means one of the location's own names, as in Excel, where a column name in a calculated column means that column in the same row. If the location doesn't have the name, the name is looked up the path: on the location's location, and so on up to the object.
+- When followed by parentheses, it means a relation, called by name (see [Calling a relation](#calling-a-relation)), or a function.
+
+**`@` means "this".** In an entry's formula, it's the location. Inside FILTER, ANY, ALL and EACH, it's the item being looked at.
+
+**Dots.** A dot looks a name up on what's before it: `Controlled.[Entity Type]`. On a record, the lookup tries these in order:
+1. If the record was reached through a list of relatives, the relation linking it. That means the relation's other arguments by edge label, its output by the relation's name, and the entries located at it. So `@.Percentage` on an owner is the Percentage on that ownership.
+2. The record's own entries, by label, and its lists of relatives, by name. A relation record also has its arguments, by edge label.
+3. The same, on up the record's path to its object.
+
+**Lists.** A dot after a list looks the name up on each item and gives a list: `Owners.Percentage`.
+
+**Missing names.**
+- A name that the schema has somewhere, but that isn't at this record, gives BLANK, or an empty list.
+- A name the schema doesn't have anywhere is an error (`#NAME?`).
+- A name that matches two things at the same step is an error too, and the formula has to say which.
+
+### Values
+
+**What a record stands for.** An object stands for itself, so `@ = Controller` asks whether they're the same object. Any other record stands for its output:
+- a field, for its value;
+- a choice, for its option;
+- a tag, for TRUE if attested and FALSE if ruled out.
+
+It still knows where it is, so a dot can go on from it: `Fund.Jurisdiction = "Delaware"`, `Fund.Jurisdiction.[File Number]`.
+
+**Literals.** Numbers are written as in Excel: `25%` is 0.25, and `$750,000,000` and `1,000` are numbers. Values the chart stores as typed (like "71.6%") read as numbers. Text goes in double quotes, TRUE and FALSE are written as they are, and a list can be written in braces, like Excel's array constants: `{"Director", "Officer"}`.
+
+**BLANK** is what a missing entry gives. As in Excel:
+- it counts as 0 in arithmetic, as empty text, and as FALSE in a condition;
+- SUM and the like skip it.
+
+So in a condition, a tag that isn't recorded reads as FALSE, just as a ruled-out one does. To tell the two apart, use `ISBLANK` and `ISRULEDOUT`.
+
+**Lists and single values.**
+- A list with one item can be used where one value is expected.
+- An empty list counts as BLANK.
+- A longer list is an error (`#VALUE!`).
+- Lists of lists flatten.
+
+### Calling a relation
+
+`Ownership(a, b)`, or `Ownership(Owner: a, Owned: b)`, refers to the Ownership record between a and b.
+- Without labels, the arguments go in the relation's own order.
+- An object passed for a parameter that sits below the object fills it through the object's record there, as the Relate view does.
+- As a value, the call is the record's output, or BLANK if there's no record, and a dot can go on from it: `Ownership(Feeder, Fund).Percentage`.
+- Like a reference to an empty cell, it still knows where the record would be, so `IMPLIEDBY` and `ISRULEDOUT` can ask about it.
+
+### Functions
+
+A first set:
+
+| Function | Gives |
+| --- | --- |
+| `IF`, `IFS`, `AND`, `OR`, `NOT` | As in Excel. `AND`, `OR` and `NOT` can also go between or before their operands: `a AND NOT b`. Comparisons bind tighter than NOT, NOT tighter than AND, and AND tighter than OR. |
+| `=`, `<>`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`, `&` | As in Excel. |
+| `x IN list` | TRUE if x is one of the list's items. |
+| `BLANK()`, `ISBLANK(x)` | BLANK, and whether x is BLANK. |
+| `ISRULEDOUT(x)` | TRUE if x is a ruled-out tag. |
+| `COUNT`, `SUM`, `MIN`, `MAX`, `AVERAGE`, `UNIQUE`, `TEXTJOIN` | As in Excel, over lists. |
+| `FILTER(list, condition)` | The items for which the condition is TRUE, with `@` as each item. |
+| `ANY(list, condition)`, `ALL(list, condition)` | Whether the condition holds for some item, or for every item. |
+| `EACH(list, expression)` | The list of the expression's values, with `@` as each item. |
+| `LET(name, value, …, expression)` | As in Excel: names a value for use in the expression. |
+| `KIND(x)` | x's kind, as text. |
+| `REACH(start, list)` | Everything reached from start by following the named list one or more times. The counterpart of the statute's "directly or indirectly". |
+| `LOOKTHROUGH(from, to, list, factor)` | The sum, over every way of getting from `from` to `to` by following the list, of the product of `factor` along the way. BLANK if there's no way. |
+| `WITHOUT(x, expression)` | The expression, worked out as if x and everything that depends on it weren't in the chart, with every computed record recomputed. For counterfactuals like §57(b)(2)'s carve-out. |
+| `IMPLIEDBY(tag, label, …)` | TRUE if the tag is attested and implied by an implication with one of the labels. |
+| `TODAY`, `DATE`, `YEAR`, `YEARFRAC`, and text functions | As in Excel, added as needed. |
+
+Some arguments name a step instead of giving a value: REACH's and LOOKTHROUGH's `list`, and LOOKTHROUGH's `factor`. They're looked up on each record along the way.
+
+### Implications
+
+- A tag with implications is attested wherever any of them holds. It remembers which ones held, and the records they read, for when someone asks why.
+- Implications only attest. A tag can have either one `=` formula or any number of implications, not both.
+- An implication's label is free text, such as "(C)", "More than 25%" or "§57(b)(2)". Several implications can share a label, and `IMPLIEDBY` then cites them as a group.
+
+### Entered records win
+
+Where an entered record and a formula give an output for the same argumentation:
+
+| Entered | Formula gives | The record is | The panel marks it as |
+| --- | --- | --- | --- |
+| a value or option | a different one | as entered | differing from the formula |
+| a value or option | the same | as entered | agreeing, and offers to clear it |
+| attested | attested | attested | also implied |
+| ruled out | attested | ruled out | overriding the implications that hold |
+| anything | nothing | as entered | (nothing) |
+
+Other formulas read the record as it ends up. So ruling out an implied tag also takes away whatever was implied only through it.
+
+### Loops
+
+A formula can read records worked out by itself or by other formulas, at the same location or others. Records are worked out in the order they depend on each other, as cells are in a spreadsheet. If working out a record needs that same record, that's a loop:
+
+- **A loop that runs only through implications,** where more attestations can only make more implications hold, settles on the fewest attestations that the implications support. That's how "directly or indirectly" definitions read, and Control is such a loop. Such a loop can run through SUM (of numbers that aren't negative), COUNT, `>`, `>=`, AND, OR, IN, FILTER, ANY, REACH and IMPLIEDBY, but not through NOT, ISBLANK, ISRULEDOUT, `<`, or a `=` formula.
+- **Any other loop** is a circular reference. The records on it show `#CIRCULAR!`.
+
+`WITHOUT` can't read the formula it's in, since that's always a loop.
+
+### Errors
+
+Errors show where the output would be, as in Excel, and pass on to whatever reads them:
+- `#NAME?` for a name the schema doesn't have;
+- `#VALUE!` for the wrong kind of value;
+- `#REF!` for something deleted (see [When what a formula refers to changes](#when-what-a-formula-refers-to-changes));
+- `#OPTION?` for a choice formula giving text that isn't an option, when that hasn't been confirmed;
+- `#DIV/0!`;
+- `#CIRCULAR!`.
+
+## Names for relations and lists
+
+These pilot the UI-only names discussed on 2026-10-24. Formulas use them, and so can the panel.
+
+- **Relation names.** A relation as a whole can have a name: Ownership, Control.
+  - A name covers every relation parameterization with the same root edge labels and type. For example, Ownership covers ownership by Entities, by Individuals and by Investor Groups.
+  - Formulas use the name to call the relation, and as the name of a linked record's output (`@.Membership`).
+  - Since it covers all the kinds at once, a relation name might also be the unit styles attach to. That would answer the open question about styles multiplying with kinds.
+- **List names.** A name for the list of relatives in one role, seen from another role. Ownership's Owners are seen from Owned, and its Holdings from Owner. Without a name, a list goes by the edge label of the role it lists (Owner), as the panel's rows do now.
+- **Cardinality hints.** For example, a fund has at most one general partner.
+  - Formulas already use a list of one as a single value, so a hint isn't needed for them to work.
+  - A hint does let the formula editor warn about a list that could have several items where one value is expected.
+  - It also lets the panel show a single row, and flag data that breaks the hint.
+
+## In terms of the data model
+
+This section restates the above in the terms of data-model.md.
+
+**Formulas.** A **formula** in a schema S **covers** a set of parameterizations of S that all have the same root edge labels, and whose specifications in S are either all fields of one datatype, all choices, or all tags.
+- It is either a **value formula** or, if what it covers are tags, a nonempty set of **implications**.
+- No parameterization is covered by two formulas.
+
+**Candidates.** If p is a parameterization and Σ is a set of records, a **candidate** for p in Σ is an argumentation obtained from p by replacing each of its locations with a record in Σ whose underlying specification is that location. Unless a formula says otherwise, it skips candidates in which two of p's parameters are filled by records belonging to the same object.
+
+**What a formula gives.** Take a candidate a for a parameterization p that a formula covers, and a set of records to read. A value formula **gives** an output of p at a, or nothing. An implication **holds** at a, or doesn't.
+- A value formula covering choices must give an output that is one of p's outputs in S.
+- Writing a new option into the formula adds a specification with that output to S.
+
+**The computed state.** A chart has a set E of **entered** records and a set F of formulas. Its **computed state** is the set Σ of records such that a record is in Σ exactly when either:
+- it is in E; or
+- all of the following hold:
+  - its argumentation a is a candidate in Σ for a parameterization covered by a formula f in F;
+  - no record in E has argumentation a;
+  - either f is a value formula that gives the record's output at a, reading Σ, or the record's output is True and one of f's implications holds at a, reading Σ.
+
+**Σ is a state.**
+- Every location of a computed record is in Σ, since candidates are built from records of Σ.
+- No two records have the same argumentation. Each argumentation takes its output from E if E has a record there, and otherwise from the one formula covering it.
+- E may contain records located at computed records. Such a record is part of Σ only while its location is. Otherwise it is kept aside, as deleted records are, and returns when its location does.
+
+**Solving for Σ.** Σ appears on both sides of its own definition. A computed record **depends** on the records its formula reads at its candidate.
+- If no record depends on itself, through any number of steps, there is exactly one Σ, worked out the way a spreadsheet works out its cells.
+- Where records depend on themselves only through implications, and only in ways where more records can only make more implications hold, Σ is the smallest set that satisfies the definition. That is, each attestation is supported by some finite chain of implications.
+- Any other record that depends on itself is left out of Σ and marked as circular.
+
+**WITHOUT.** `WITHOUT(x, e)` reads the computed state of a chart with the same formulas F, whose entered records are E without x and its dependents.
+
+**Entered records win.**
+- Wherever E has a record with argumentation a, no formula's output at a enters Σ.
+- In particular, an entered False at a candidate where an implication holds leaves the tag ruled out.
+- Computing never rules a tag out, unless the tag is covered by a value formula instead of implications.
+
+## When what a formula refers to changes
+
+- **Renames.** Formulas keep references to specifications, not text. The text you see is rebuilt from the current labels.
+  - Renaming an entry or relabeling an edge relabels every formula that refers to it, as Excel does when a table column is renamed.
+  - This uses the same re-keying that already carries entry order, styles and required flags.
+- **Deletion.**
+  - Deleting something a formula refers to turns the reference into `#REF!` wherever it's needed, and restoring it brings the reference back.
+  - Deleting a computed entry or relation deletes its formula along with it, together with any entered records located at its computed records. Restoring brings them all back.
+- **Moving up a level.** References to the moved entry keep working unchanged, because names are looked up the path. For example, `Controlled.[Entity Type].[Manager-Managed]` still finds Manager-Managed after it moves from Entity Type up to the entity, by looking up the path from Entity Type.
+- **Editing a formula.** Editing a formula, or adding or removing an implication, recomputes everything that depends on it, as one undoable step.
+- **From entered to computed.** Giving a formula to an entry or relation that already has entered records keeps them as entered.
+  - Where they agree with the formula, they're marked so, and the panel offers to clear them.
+  - Where they don't agree, they're overrides.
+- **From computed to entered.** "Keep as entered" records a computed record's current output by hand. For a whole formula at once, it works like Excel's Paste Values.
+
+## Charts, views and workbooks
+
+A workbook holds charts.
+- Each chart has its own records, schema and formulas, which aren't synced with other charts.
+- A chart has views. They share the chart's records, schema and formulas, and differ only in their styles and in what they show or hide.
+- Formulas belong to the chart, so every view has the same computed records. Each view decides whether and how they show, as it does for entered records.
+
+Take the case of adding a 40 Act view to a chart:
+- **Removing the ownership lines.** In the new view, the user hides the Ownership lines. Hiding is per view: the records stay, and other views still show them.
+- **Adding Close Affiliate lines.** These are computed records, drawn by the view's style for Close Affiliate.
+  - If Close Affiliate isn't defined yet, the user defines it from that view. The definition joins the chart, so every view has its records.
+  - Its new style shows them only in the view it was defined from. Other views start with it hidden, so defining a relation in one view doesn't redraw the others.
+- **Delete versus hide.** In a view, removing a line could mean hiding it there or deleting it from the chart. A proposal:
+  - Delete keeps meaning "delete everywhere". It asks first, and says which other views show the record.
+  - Hide is its own command.
+  - A computed line can't be deleted, so for it, Delete offers Hide, or for a tag, Rule out.
+
+Charts don't share formulas. Reusing a definition such as Affiliated Person in another chart would mean copying it, or a workbook-level library of definitions (see the questions below).
+
+## In the panel and on the chart
+
+A sketch, to be mocked up:
+
+- **Where formulas are written.** In an entry's or relation's edit form, beside Required. The Relate view's form for a new kind of relation also offers "Worked out by formula".
+  - Implications are rows, each with a label and a formula, and can be dragged to reorder.
+  - Names autocomplete from what is reachable at the point being typed.
+- **How computed records look.** Computed rows look like entered ones, with their output set apart: an italic value, or an outlined rather than filled checkbox for an implied tag.
+  - Clicking a computed output says why it's there: the formula, which implications held, and the records they read, with the path for a chain.
+  - An override gets a corner mark, like Excel's, and offers "Use formula".
+  - Errors show as text in the value column.
+- **On the chart.** Computed relations draw like any others, by their styles. A preset might draw them dashed until styled.
+
+## Open questions
+
+1. **Syntax.** Do these read well: `@`, the bracketed names, dots that look at the linking relation first, and EACH, FILTER, ANY and REACH?
+2. **What a formula covers.** One idea: the editor proposes every parameterization with the same edge labels at locations of the same kinds, and you narrow it down. That is how Tax Classification's formula covers three Entity Types. Should relation names be the unit for this, and for styles?
+3. **BLANK.** Should BLANK keep Excel's habit of counting as 0? For legal analysis, a missing percentage arguably makes a sum unknown rather than smaller.
+4. **Exceptions.** Should a tag have an "unless" line that applies to all its implications, like `AND NOT [Close Affiliate](…)` on each of Remote Affiliate's? And should an implication ever be able to rule out, rather than only attest?
+5. **Rebuttals.** Should an override that rules out an implied tag ask for its basis?
+6. **Views.** Should box positions belong to each view (copied from the view it was made from)? Is the delete-versus-hide proposal right? And should a view be able to show or hide by formula, for example only the close affiliates of a given fund?
+7. **Workbooks.** Should a workbook have a library of definitions (Affiliated Person, Close Affiliate) that its charts can reuse?
+8. **Cardinality hints.** Should a hint be enforced, or only warned about?
