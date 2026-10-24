@@ -1,0 +1,165 @@
+/* The record panel. Its host element sets its width; the panel narrows its layout below 600px. */
+
+/* Header: path, then the current record. */
+.panel-head { padding: 14px 16px 16px 28px; border-bottom: 1px solid var(--border); }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-height: 24px; margin: 0 0 6px -6px; font-size: 12.5px; color: var(--text-3); }
+.crumbs a, .crumb-more { display: inline-flex; align-items: center; height: 24px; padding: 0 6px; border-radius: 6px; color: var(--text-2); }
+.crumb-more { border: 0; background: none; color: var(--text-3); }
+.crumbs a:hover, .crumb-more:hover { background: var(--hover); color: var(--text); }
+.crumb-sep { width: 13px; height: 13px; }
+.title-row { display: flex; align-items: center; gap: 12px; }
+.title-block { flex: 1; min-width: 0; }
+h1 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.014em; }
+h1 .box { width: 18px; height: 18px; }
+.title-output { color: var(--text-2); font-weight: 400; }
+.subtitle { font-size: 13px; color: var(--text-3); }
+.head-actions { flex: none; }
+
+/* Entry rows: a label column and a value column that stay aligned at every depth.
+   Record views leave a gutter on the left for drag handles. */
+.rows { padding: 6px; }
+.rows.is-tree { padding-left: 24px; }
+.entry { position: relative; }
+.entry.is-dragging { opacity: .4; }
+.entry.drop-before::before, .entry.drop-after::after { content: ""; position: absolute; z-index: 5; left: calc(var(--depth) * var(--indent)); right: 0; height: 2px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.entry.drop-before::before { top: -1px; }
+.entry.drop-after::after { bottom: -1px; }
+.row { position: relative; display: grid; grid-template-columns: var(--label-col) minmax(0, 1fr) auto; align-items: start; min-height: 36px; border-radius: 8px; }
+.row:hover { background: var(--hover); }
+.guides { position: absolute; top: 0; bottom: 0; left: 4px; width: calc(var(--depth) * var(--indent)); pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 9.5px, var(--border-strong) 9.5px 10.5px, transparent 10.5px var(--indent)); }
+.cell-label { display: flex; align-items: flex-start; gap: 6px; min-width: 0; min-height: 36px; padding-left: calc(var(--depth) * var(--indent) + 4px); color: var(--text-2); }
+.cell-label > .twisty { margin-top: 8px; }
+.cell-value { min-width: 0; padding: 8px 10px; overflow-wrap: anywhere; }
+.cell-actions { display: flex; align-self: center; gap: 2px; padding-right: 4px; opacity: 0; transition: opacity .12s; }
+.row:hover .cell-actions, .row:focus-within .cell-actions, .cell-actions:has(.pop) { opacity: 1; }
+@media (hover: none) { @container panel (min-width: 601px) { .cell-actions { opacity: 1; } } }
+.grip { position: absolute; top: 8px; left: -22px; width: 18px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-3); display: grid; place-items: center; cursor: grab; opacity: 0; }
+.grip .icon { width: 14px; height: 14px; }
+.row:hover .grip, .grip:focus-visible { opacity: 1; }
+.grip:hover { background: var(--pressed); color: var(--text); }
+.twisty { width: 20px; height: 20px; flex: none; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-3); display: inline-grid; place-items: center; }
+button.twisty:hover { background: var(--pressed); color: var(--text); }
+.twisty .icon { width: 14px; height: 14px; transition: transform .15s; }
+.twisty[aria-expanded="true"] .icon { transform: rotate(90deg); }
+.label-text { min-width: 0; padding: 8px 0; overflow-wrap: break-word; }
+a.label-text:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.value-btn { display: block; width: 100%; padding: 0; border: 0; border-radius: 4px; background: none; text-align: left; cursor: text; overflow-wrap: anywhere; }
+.empty { padding: 18px 14px; color: var(--text-3); }
+
+/* Choices: the option, with a chevron that opens the list of options. */
+.select { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 16px); margin: -3px -8px; padding: 2px 7px; border: 1px solid transparent; border-radius: 6px; background: none; text-align: left; }
+.select-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select .icon { width: 14px; height: 14px; color: var(--text-3); }
+.select:hover { border-color: var(--border-strong); background: var(--surface); }
+.select:hover .icon { color: var(--text-2); }
+
+/* Choice dropdowns in the header path and title */
+.crumb-choice { display: inline-flex; align-items: center; gap: 2px; }
+.crumbs .select.in-crumbs { margin: 0; height: 24px; padding: 0 5px; font-size: 12.5px; color: var(--text-2); }
+h1 .select.in-title { margin: 0 -8px 0 -4px; padding: 0 6px; font-weight: 400; color: var(--text-2); }
+h1 .select.in-title .icon { width: 16px; height: 16px; }
+
+/* Locations shown as values: the object's name, then any path segments below it. */
+.loc { min-width: 0; overflow-wrap: anywhere; }
+.loc a { color: var(--text); }
+.loc a.path-seg { color: var(--text-2); }
+.loc a:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.path-sep { margin: 0 5px; color: var(--text-3); }
+.path-more { padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--text-3); letter-spacing: .05em; }
+.path-more:hover { background: var(--pressed); color: var(--text); }
+
+/* Two-argument relations: one row, listing the other side of each relation with its output. */
+/* An item's output keeps to the right and drops below the name when the line runs out. Its actions take
+   no room until the item is hovered, and then sit after the name, so the output doesn't move. */
+.rel-items { display: grid; gap: 6px; }
+.rel-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 20px; }
+.rel-item > .loc { flex: 0 1 auto; min-width: min(8rem, 100%); }
+.rel-output { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rel-item-actions { display: none; }
+.rel-item:hover .rel-item-actions, .rel-item:focus-within .rel-item-actions { display: flex; }
+.rel-acts { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); display: flex; padding-left: 6px; border-radius: 6px; background: var(--hover); opacity: 0; }
+.rel-row:hover .rel-acts, .rel-row:focus-within .rel-acts { opacity: 1; }
+@media (hover: none) { .rel-item-actions { display: flex; } .rel-acts { opacity: 1; } }
+.rel-value { padding: 0; border: 0; background: none; cursor: text; font-variant-numeric: tabular-nums; }
+.input.rel-input { width: 9rem; height: 24px; margin: -2px 0; }
+.rel-output:has(.rel-error) { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.rel-error { font-size: 12px; line-height: 16px; color: var(--danger); white-space: normal; }
+
+/* Relations with more arguments: a table on the same grid as rows, one column per other argument. */
+.rel-table { position: relative; margin: 10px 0 2px; }
+.rel-row { position: relative; display: grid; grid-template-columns: var(--label-col) repeat(var(--cols), minmax(0, 1fr)); align-items: start; border-radius: 8px; }
+.rel-row:not(.is-head):hover { background: var(--hover); }
+.rel-c0 { display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 6px 0 6px calc(var(--depth) * var(--indent) + 4px); }
+.rel-c { min-width: 0; padding: 6px 10px; }
+.rel-c0 > .loc, .rel-c0 > .menu-anchor { padding-top: 0; }
+.rel-row.is-head { padding-top: 2px; }
+.rel-row.is-head .menu-anchor { min-width: 0; max-width: 100%; }
+.col-filter { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 12px); margin: -2px -6px; padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text-2); font-size: 13px; font-weight: 500; text-align: left; }
+.col-filter-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-filter .icon { width: 14px; height: 14px; color: var(--text-3); }
+.col-filter:hover, .col-filter[aria-expanded="true"] { border-color: var(--border-strong); background: var(--surface); }
+.col-filter.is-active { color: var(--accent); }
+.col-picked { font-weight: 400; }
+
+/* A change that would move entries along with it waits for a yes. */
+.pending { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 6px 6px 8px 30px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
+.pending-text { flex: 1 1 16rem; }
+.pending .btn { height: 28px; }
+.rel-note { padding: 2px 0 6px calc(var(--depth) * var(--indent) + 30px); font-size: 12px; color: var(--text-3); }
+.rel-note .link-btn { font-size: 12px; color: var(--accent); }
+
+/* A relation's arguments, in its own panel's header. */
+.args { display: grid; grid-template-columns: calc(var(--label-col) - 4px) minmax(0, 1fr); row-gap: 6px; margin-top: 14px; font-size: 13.5px; }
+.arg-label { color: var(--text-2); }
+.arg-value { padding-left: 10px; }
+
+/* Forms: the row being added or edited, with a note line under it. */
+.form-block { margin: 2px 0; border-radius: 8px; background: var(--accent-soft); }
+.form-block .row, .form-block .cell-label { align-items: center; }
+.form-block .cell-label > .twisty { margin-top: 0; }
+.form-block .row:hover { background: none; }
+.form-block .cell-actions { opacity: 1; }
+.form-block:has(.listbox:not([hidden])) .form-note-inner { visibility: hidden; }
+
+.ghost { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); }
+.ghost .icon { width: 14px; height: 14px; }
+.form-note { display: grid; grid-template-columns: var(--label-col) minmax(0, 1fr); padding: 0 12px 8px 0; }
+.form-note-inner { grid-column: 2; display: flex; align-items: flex-start; gap: 12px; padding: 0 10px; font-size: 12px; line-height: 18px; color: var(--text-2); }
+.form-note.is-plain { display: block; padding: 0 12px 8px 12px; }
+.form-note.is-plain .form-note-inner { padding: 0; }
+.note-text { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.note-text .icon { width: 14px; height: 14px; }
+.note-text.is-warn { color: var(--warn); }
+.note-text.is-error { color: var(--danger); }
+.form-keys { display: inline-flex; gap: 12px; margin-left: auto; color: var(--text-3); white-space: nowrap; }
+
+/* Lists of kinds and objects */
+.list-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 10px 8px 22px; border-radius: 8px; }
+a.list-row:hover { background: var(--hover); }
+/* The name keeps its full width; only the summary beside it gives way. */
+.list-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.list-meta { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--text-3); font-size: 13px; }
+.list-chevron { width: 14px; height: 14px; color: var(--text-3); }
+.list-row .input { flex: 1; }
+
+/* A narrow panel: a tighter indent, row actions float over the value instead of taking a column,
+   and listboxes span the row instead of hanging off its right edge. The panel is its own container,
+   so this applies on a phone and in a side column alike. */
+.panel { container: panel / inline-size; }
+@container panel (max-width: 600px) {
+  .panel-head, .rows { --label-col: 44%; --indent: 14px; }
+  .panel-head { padding: 12px 12px 14px 24px; }
+  .rows.is-tree { padding-left: 20px; }
+  .grip { left: -18px; }
+  .row { grid-template-columns: var(--label-col) minmax(0, 1fr); }
+  .cell-actions { position: absolute; top: 4px; right: 4px; padding-left: 6px; border-radius: 6px; background: var(--hover); }
+  .form-block .row { grid-template-columns: var(--label-col) minmax(0, 1fr) auto; }
+  .form-block .cell-actions { position: static; background: none; }
+  .combo { position: static; }
+  .listbox { left: 6px; right: 6px; width: auto; max-width: none; }
+  .form-keys { display: none; }
+  .list-title { white-space: normal; }
+  .list-meta { display: none; }
+  .list-chevron { margin-left: auto; }
+}

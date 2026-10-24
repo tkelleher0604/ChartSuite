@@ -1,0 +1,179 @@
+/* Tokens and controls shared by every Rboreal page. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("../../vendor/inter/inter-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --hover: #f4f4f5;
+  --pressed: #e9e9ec;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #18181b;
+  --text-2: #52525b;
+  --text-3: #a1a1aa;
+  --accent: #2b59c3;
+  --accent-hover: #234ba8;
+  --accent-soft: #eef2fb;
+  --on-accent: #ffffff;
+  --ring: rgb(43 89 195 / .25);
+  --yes: #1f9d55;
+  --no: #d63b3b;
+  --warn: #a15c07;
+  --danger: #c0352b;
+  --shadow-panel: 0 1px 2px rgb(24 24 27 / .04), 0 4px 12px -4px rgb(24 24 27 / .06);
+  --shadow-pop: 0 16px 36px -12px rgb(24 24 27 / .22), 0 2px 6px rgb(24 24 27 / .06);
+  --label-col: 14rem;
+  --indent: 20px;
+}
+/* The dark theme follows the OS setting unless Light or Dark is picked in the top bar. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e0e10;
+    --surface: #18181b;
+    --hover: #222226;
+    --pressed: #2b2b30;
+    --border: #2a2a30;
+    --border-strong: #3c3c44;
+    --text: #f4f4f5;
+    --text-2: #b4b4bd;
+    --text-3: #75757f;
+    --accent: #7f9cf5;
+    --accent-hover: #9bb1f8;
+    --accent-soft: rgb(127 156 245 / .12);
+    --on-accent: #0e0e10;
+    --ring: rgb(127 156 245 / .35);
+    --yes: #34b46a;
+    --no: #e5534b;
+    --warn: #f0b45a;
+    --danger: #ff8b80;
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / .4);
+    --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / .7);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e0e10;
+  --surface: #18181b;
+  --hover: #222226;
+  --pressed: #2b2b30;
+  --border: #2a2a30;
+  --border-strong: #3c3c44;
+  --text: #f4f4f5;
+  --text-2: #b4b4bd;
+  --text-3: #75757f;
+  --accent: #7f9cf5;
+  --accent-hover: #9bb1f8;
+  --accent-soft: rgb(127 156 245 / .12);
+  --on-accent: #0e0e10;
+  --ring: rgb(127 156 245 / .35);
+  --yes: #34b46a;
+  --no: #e5534b;
+  --warn: #f0b45a;
+  --danger: #ff8b80;
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / .4);
+  --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / .7);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/20px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.icon { width: 16px; height: 16px; flex: none; }
+
+/* Segmented control for the theme. */
+.seg-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.seg button { height: 24px; padding: 0 9px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font-size: 12px; font-weight: 500; }
+.seg button:hover { color: var(--text); }
+.seg button[aria-pressed="true"] { background: var(--pressed); color: var(--text); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgb(24 24 27 / .05); white-space: nowrap; }
+.btn:hover, .btn[aria-expanded="true"] { background: var(--hover); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: var(--accent-hover); }
+.icon-btn { width: 28px; height: 28px; flex: none; border: 0; border-radius: 6px; background: none; color: var(--text-3); display: inline-grid; place-items: center; }
+.icon-btn:hover:not(:disabled), .icon-btn[aria-expanded="true"] { background: var(--pressed); color: var(--text); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
+.icon-btn.is-primary { color: var(--accent); }
+.icon-btn.is-small { width: 24px; height: 24px; margin: -2px 0; }
+.icon-btn.is-small .icon { width: 14px; height: 14px; }
+.link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: 13px; }
+.link-btn:hover:not(:disabled) { color: var(--text); }
+.link-btn:disabled { opacity: .45; cursor: default; }
+kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); color: var(--text-3); font: 500 11px/15px "Inter", sans-serif; text-align: center; }
+
+/* Tags: a checkbox, green and checked when attested, red and crossed out when ruled out.
+   Hovering it previews the other state, which a click switches to. */
+.check { width: 20px; height: 20px; flex: none; padding: 0; border: 0; border-radius: 5px; background: none; display: inline-grid; place-items: center; }
+.cell-value > .check { display: grid; }
+.check > span { display: grid; }
+.check > .check-next { display: none; }
+.check:hover > .check-now, .check:focus-visible > .check-now { display: none; }
+.check:hover > .check-next, .check:focus-visible > .check-next { display: grid; opacity: .6; }
+.box { width: 16px; height: 16px; }
+.box rect { fill: currentColor; }
+.box path { fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.box-yes { color: var(--yes); }
+.box-no { color: var(--no); }
+
+/* Menus and listboxes */
+.menu-anchor { position: relative; display: inline-flex; }
+.pop { position: absolute; z-index: 30; top: calc(100% + 6px); max-width: calc(100vw - 24px); padding: 4px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); box-shadow: var(--shadow-pop); color: var(--text); font-size: 13.5px; font-weight: 400; line-height: 20px; white-space: normal; }
+.menu { right: 0; width: 304px; }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px; background: none; color: var(--text); font-size: 13.5px; text-align: left; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover); outline: none; }
+.menu-left { left: 0; right: auto; width: max-content; min-width: 200px; max-width: min(340px, calc(100vw - 24px)); }
+.menu-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.menu-title { font-weight: 500; }
+.menu-desc { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.menu-note { font-size: 12px; color: var(--text-3); }
+.menu-item .icon { width: 14px; height: 14px; color: var(--text-2); }
+.menu-sep { height: 1px; margin: 4px -4px; background: var(--border); }
+.menu-head { padding: 6px 10px 2px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.pop.menu { max-height: min(420px, 70vh); overflow-y: auto; }
+.combo { position: relative; flex: 1; min-width: 0; }
+.combo-field { position: relative; display: block; }
+.combo-chevron { position: absolute; top: 7px; right: 8px; width: 14px; height: 14px; color: var(--text-3); pointer-events: none; }
+.combo-field:has(.combo-chevron) .input { padding-right: 28px; }
+.listbox { left: 0; top: calc(100% + 4px); width: max(100%, 290px); max-height: 300px; overflow-y: auto; }
+.listbox-head { padding: 6px 8px 4px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.listbox-foot { padding: 6px 8px; font-size: 12px; color: var(--text-3); }
+.listbox-sep { height: 1px; margin: 4px -4px; background: var(--border); }
+.option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; cursor: pointer; }
+.option[aria-selected="true"] { background: var(--hover); }
+.option[aria-disabled="true"] { color: var(--text-3); cursor: default; }
+.option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.option-meta { margin-left: auto; padding-left: 12px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.option-create { color: var(--accent); }
+.option-create strong { font-weight: 600; }
+
+.input { width: 100%; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); outline: none; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+.input::placeholder { color: var(--text-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+/* An unrecorded tag: an empty outline. */
+.box-none rect { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.check:hover .box-none rect { stroke: var(--text-3); }
