@@ -445,16 +445,31 @@ Charts don't share formulas. Reusing a definition such as Affiliated Person in a
 
 ## In the panel and on the chart
 
-A sketch, to be mocked up:
+As built in the prototype:
 
-- **Where formulas are written.** In an entry's or relation's edit form, beside Required. The Relate view's form for a new kind of relation also offers "Worked out by formula".
-  - Implications are rows, each with a label and a formula, and can be dragged to reorder.
-  - Names autocomplete from what is reachable at the point being typed.
-- **How computed records look.** Computed rows look like entered ones, with their output set apart: an italic value, or an outlined rather than filled checkbox for an implied tag.
-  - Clicking a computed output says why it's there: the formula, which implications held, and the records they read, with the path for a chain.
-  - An override gets a corner mark, like Excel's, and offers "Use formula".
-  - Errors show as text in the value column.
-- **On the chart.** Computed relations draw like any others, by their styles. A preset might draw them dashed until styled.
+- **Where formulas are written.**
+  - An entry's edit form, and an entered relation's own panel, show the definition that covers it, editable in place, or "Add a formula".
+  - Typing a value that starts with `=` into a field's or choice's value box makes it the formula for every location like it, as in Excel. A new tag's row has a box for `← condition` that does the same.
+  - The Formulas view, reached from All, from Add › Formula… and from the chart's Formulas tab, lists every definition. It opens each one in an editor, and has a Names section for relation names and list names.
+  - The Relate view's form for a new kind of relation offers "Worked out by formula instead…".
+  - In the editor:
+    - implications are rows, each with a label and a formula, dragged to reorder;
+    - syntax problems are underlined as you type;
+    - `<-` becomes `←`;
+    - names are offered from what's reachable at that point.
+- **How computed records look.**
+  - Computed values are italic, and an implied tag's checkbox is outlined rather than filled.
+  - An "fx" mark after each opens why it's there: the definition, the implications that held, and the records each read.
+  - Computed rows can't be deleted. They offer "Keep as entered" and "Edit formula" instead.
+  - Rows of computed relations start collapsed, with a count and the first few names.
+  - Errors show in red in place.
+- **Overrides.**
+  - An entered record that a formula also covers gets a corner mark, as in Excel: amber where it differs or overrides, grey where it agrees or is also implied. Its explanation offers "Use formula".
+  - Ruling out an implied tag asks first, naming the implications that hold.
+- **On the chart.**
+  - Computed relations are drawn only where a view's style shows them. View › Relations turns each relation on or off for the view, and gives a computed one a dashed line in its own color.
+  - Computed text and line labels are italic.
+  - The Formulas tab has Definitions, Computed relation, Computed entry and Why?, and shows how long the last working-out took and how many errors there are.
 
 ## The prototype
 
@@ -467,22 +482,42 @@ Everything above is built into the mockups in [UI/mockups](UI/mockups/), so it c
 
 Where the prototype differs from this document:
 - **Loops are found per definition, not per record.** A group of definitions that read each other and mix `=` and `←` is marked circular as a whole, even where no record actually depends on itself.
-- **Renames.** Renames and moves are carried into formulas only where the panel does it (see UI/README.md).
+- **Renames.**
+  - What a formula covers follows renames and moves, as styles do.
+  - A formula's text is relabeled only when the panel renames an entry, and only once no record keeps the old label, since renames are per record.
 
 ## Open questions
 
+### The language
+
 1. **Syntax.** Do these read well: `@`, the bracketed names, dots that look at the linking relation first, and EACH, FILTER, ANY and REACH?
-2. **What a formula covers.** One idea: the editor proposes every parameterization with the same edge labels at locations of the same kinds, and you narrow it down. That is how Tax Classification's formula covers three Entity Types. Should relation names be the unit for this, and for styles?
-3. **BLANK.** Should BLANK keep Excel's habit of counting as 0? For legal analysis, a missing percentage arguably makes a sum unknown rather than smaller.
-4. **Exceptions.** Should a tag have an "unless" line that applies to all its implications, like `AND NOT [Close Affiliate](…)` on each of Remote Affiliate's? And should an implication ever be able to rule out, rather than only attest?
-5. **Rebuttals.** Should an override that rules out an implied tag ask for its basis?
-6. **Views.** The prototype makes these choices; are they right?
-   - Box positions belong to each view, so moving a box in 40 Act leaves Structure alone.
-   - A new view ("+") starts as a copy of the current one. It could instead start from the Structure view's styles, with nothing hidden.
-   - Delete asks whether to delete everywhere or hide in this view.
-   - Should a view be able to show or hide by formula, for example only the close affiliates of a given fund? In the 40 Act view, most of the chart is a close affiliate of the BDC.
-   - Should Show and Hide also work on boxes by kind, and on a box's lines of text by entry?
-7. **Workbooks.** Should a workbook have a library of definitions (Affiliated Person, Close Affiliate) that its charts can reuse?
-8. **Cardinality hints.** Should a hint be enforced, or only warned about?
-9. **Naming a particular object.** A formula can't name one object, like "the close affiliates of Fund III". Should it? It would be needed for showing or hiding by formula in a view.
-10. **Relation names and edge labels.** Should a relation's name be allowed to equal one of its edge labels? Close Affiliate's is, which is why a dot gives the edge there.
+2. **BLANK.** Should BLANK keep Excel's habit of counting as 0? For legal analysis, a missing percentage arguably makes a sum unknown rather than smaller.
+3. **Exceptions.** Should a tag have an "unless" line that applies to all its implications, like `AND NOT [Close Affiliate](…)` on each of Remote Affiliate's? And should an implication ever be able to rule out, rather than only attest?
+4. **Naming a particular object.** A formula can't name one object, like "the close affiliates of Fund III". Should it? It would be needed for showing or hiding by formula in a view.
+5. **Relation names and edge labels.** Should a relation's name be allowed to equal one of its edge labels? Close Affiliate's is, which is why a dot gives the edge there.
+
+### What formulas cover, and names
+
+6. **What a formula covers.** One idea: the editor proposes every parameterization with the same edge labels at locations of the same kinds, and you narrow it down. That is how Tax Classification's formula covers three Entity Types. Should relation names be the unit for this, and for styles?
+7. **Cardinality hints.** Should a hint be enforced, or only warned about?
+
+### Overrides
+
+8. **Rebuttals.** Should an override that rules out an implied tag ask for its basis?
+9. **Override marks.** Is an Excel-like corner mark clear enough, or should an override say so in words?
+10. **Typing `=` over an entered value.** Should the value be kept as an override, rather than replaced by the formula's output? For now it's kept only when something is located at it.
+
+### The panel
+
+11. **Rows for relations located below an object.** The BDC's Close Affiliates sit under its Investment Company Status, where the relation is located, not with the BDC's other rows. Should a panel also show them at the object?
+12. **Computed rows.** These now start collapsed. Should each row's collapsed state be remembered instead, or should there be one "Show computed" switch?
+
+### Views and workbooks
+
+13. **Views.** The prototype makes these choices; are they right?
+    - Box positions belong to each view, so moving a box in 40 Act leaves Structure alone.
+    - A new view ("+") starts as a copy of the current one. It could instead start from the Structure view's styles, with nothing hidden.
+    - Delete asks whether to delete everywhere or hide in this view.
+    - Should a view be able to show or hide by formula, for example only the close affiliates of a given fund? In the 40 Act view, most of the chart is a close affiliate of the BDC.
+    - Should Show and Hide also work on boxes by kind, and on a box's lines of text by entry?
+14. **Workbooks.** Should a workbook have a library of definitions (Affiliated Person, Close Affiliate) that its charts can reuse?
