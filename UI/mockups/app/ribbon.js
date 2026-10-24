@@ -107,7 +107,8 @@ function styleGroup(eng) {
   let side = '<span class="rb-note">Select a box, a line of text or a line to see its styles.</span>';
   if (eng) {
     const outputs = styleOutputs(eng.style);
-    const outText = eng.output === '*' ? 'Every option' : outputs.find(([k]) => k === eng.output)?.[1] ?? eng.output;
+    // A chart with nothing in it yet has a Kind style with no kinds to format.
+    const outText = eng.output === '*' ? 'Every option' : outputs.find(([k]) => k === eng.output)?.[1] ?? eng.output ?? 'Nothing yet';
     const scope = outputs.length > 1 ? rbMenu('rb:scope', `<span class="rb-field-text">${esc(outText)}</span>`, { cls: 'rb-field is-wide', title: 'Which of the style’s outputs to format' }, () =>
       outputs.map(([k, text]) => `<button class="menu-item" role="menuitemradio" aria-checked="${k === eng.output}" data-action="style-scope" data-output="${esc(k)}"><span class="menu-text">${esc(text)}</span>${k === eng.output ? icon('check') : ''}</button>`).join('')
       + `<div class="menu-sep"></div><button class="menu-item" role="menuitemradio" aria-checked="${eng.output === '*'}" data-action="style-scope" data-output="*"><span class="menu-text">Every option</span>${eng.output === '*' ? icon('check') : ''}</button>`)
