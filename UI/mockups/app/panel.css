@@ -236,8 +236,8 @@ a.list-row:hover { background: var(--hover); }
 .value-btn.is-computed, .rel-value.is-computed, .select.is-computed .select-text { font-style: italic; }
 .is-implied { display: inline-grid; }
 .cell-value > .fx-value > .is-implied { display: grid; }
-.is-implied .box-yes rect { fill: none; stroke: var(--yes); stroke-width: 1.5; }
-.is-implied .box-yes path { stroke: var(--yes); }
+.is-implied .box-yes rect, .is-implied .box-no rect { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.is-implied .box-yes path, .is-implied .box-no path { stroke: currentColor; }
 .fx-mark { flex: none; height: 18px; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--text-3);
   font: italic 500 11.5px/18px Georgia, "Times New Roman", serif; letter-spacing: .02em; }
 .fx-mark:hover, .fx-mark[aria-expanded="true"] { background: var(--pressed); color: var(--accent); }
@@ -354,7 +354,9 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
   .fx-label-cell { padding-top: 8px; font-weight: 500; }
   .fx-editor + .fx-foot { padding-left: 22px; }
   .fx-imp { grid-template-columns: 16px minmax(0, 1fr) auto; }
-  .fx-imp .fx-field { grid-column: 2 / -1; }
+  .fx-imp > .fx-grip, .fx-imp > .fx-label { grid-row: 1; }
+  .fx-imp > .icon-btn { grid-row: 1; grid-column: 3; }
+  .fx-imp .fx-field { grid-row: 2; grid-column: 2 / -1; }
   .fx-param { grid-template-columns: minmax(0, 1fr) auto; }
   .fx-param .fx-chips { grid-column: 1 / -1; }
   .names-list { grid-template-columns: minmax(0, 1fr); gap: 2px; }

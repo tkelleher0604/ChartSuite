@@ -1396,7 +1396,7 @@ function definitionView({ id, isNew, relation, sides = [] }) {
   let where;
   if (d.args) {
     where = field('Parameters', d.args.map((a, i) => `<div class="fx-param">
-        <input class="input fx-edge" data-fx="edge" data-i="${i}" value="${esc(a.edge)}" placeholder="Edge, like Controller" autocomplete="off" spellcheck="false">
+        <input class="input fx-edge" data-fx="edge" data-i="${i}" value="${esc(a.edge)}" placeholder="Edge, like ${i ? 'Controlled' : 'Controller'}" autocomplete="off" spellcheck="false">
         ${locationPicker(a.at, i)}
         ${d.args.length > 2 ? `<button class="icon-btn is-small" data-action="fx-param-remove" data-i="${i}" aria-label="Remove this parameter" title="Remove">${icon('x')}</button>` : ''}</div>`).join('')
       + `<div class="fx-row-actions"><button class="link-btn" data-action="fx-param-add">${icon('plus')}Add a parameter</button>

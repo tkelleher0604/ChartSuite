@@ -65,6 +65,18 @@ Open these directly in a browser. The chart and the record panel share their cod
     - A relation with more arguments is a table, with one column per other argument. Each column heading is a dropdown that narrows the rows, offering only the locations left in rows that match the other columns.
   - A relation's own panel lists its arguments in the header. Arguments at one location share a line. Path segments below each object are hidden behind "…" unless they're needed to tell parameters with the same edge label apart.
   - New two-argument relations of the kinds already in the state can be added from the Add menu or a relation row's "+". Add › Relation… opens the same Relate view as the chart, for any kind of relation with anything, including a new kind.
+  - **Formulas** ([formulas.md](../formulas.md)). Records worked out by formula show in the panel like entered ones, and are set apart.
+    - Their outputs are in italics, and an implied tag's box is outlined rather than filled. An "fx" mark after each one opens an explanation under it: the definition, the implications that held, and what each one read, such as an ownership and its Percentage. A computed relation's own panel explains it in its header.
+    - A computed record has no Delete. Its explanation offers Keep as entered, which records its output by hand.
+    - Changing a computed record overrides the formula there. Ruling out an implied tag asks first, naming the implications that hold. An entered record that a formula also covers gets a corner mark, as in Excel: amber where it differs from the formula or rules out what it implies, grey where it agrees. Its explanation offers Use formula, or Clear.
+    - A formula's errors, like #CIRCULAR! or #DIV/0!, show where its output would be.
+    - Relation rows take the pilot's list names where there are some: an entity's Owners and Holdings rather than Owner and Owned. A relation's own panel is titled with its name. Rows of computed relations start collapsed, with a count and the first few names.
+    - An entry's edit form shows the formula covering every location like it, editable in place, or offers to add one. So does an entered relation's panel.
+    - Typing a value that starts with `=` makes it the formula for every location like this one. A new tag can be given a `←` condition instead of being attested. Typing `<-` makes the arrow.
+    - **The Formulas view** (All › Formulas, or Add › Formula…) lists the definitions, with what each covers and how many records it works out. Below them, Names edits each relation's name and the names of its lists of relatives, seen from each side.
+    - **A definition's view** edits its name, type, what it covers (an entry's locations, or a relation's parameters and their locations) and its formula or implications. Implications have labels and can be dragged to reorder. Problems are underlined where they are as you type, and names are offered after a dot or as you start one. Saving works everything out again, as one undoable step, and the view lists the results.
+    - The Relate view's form for a new kind of relation offers to work it out by formula instead.
+    - Renaming an entry renames it in the formulas and names too, once no record has the old label.
   - The top bar switches between System, Light and Dark themes.
   - Changes are saved in the browser's local storage, with undo and redo.
 - [mockups/Dappled Wall.html](<mockups/Dappled Wall.html>): tree-branch shadows on a wall, a candidate background for the loading screen.
@@ -78,7 +90,7 @@ The chart and record panel mockups share the code in [mockups/app/](mockups/app/
 | `common.js` | Text helpers, icons, checkboxes, and the theme preference |
 | `model.js` | The sample data; the state (records, entry order, styles, box positions, required entries, deleted records) with undo and redo; reading the state; checking it against [data-model.md](../data-model.md) |
 | `styles.js` | Styles: presets, the sample styles, and how styles combine into a box's or line's look |
-| `panel.js` | The record panel |
+| `panel.js` | The record panel, with computed records, their explanations, and the views for writing formulas |
 | `relate.js` | The Relate view, for relating two things |
 | `ribbon.js` | The chart's ribbon |
 | `chart.js` | The chart: drawing boxes, routing lines, selecting, moving, editing in place, and relating by drag |
