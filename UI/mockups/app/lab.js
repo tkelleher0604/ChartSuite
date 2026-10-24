@@ -1,109 +1,24 @@
-// The formula lab: formulas.md's examples, worked out on the sample chart by formulas.js, with their
-// definitions editable, a scratch box, and a self-test (#selftest) of the results the document claims.
-// The lab keeps its own copy of the records and saves its edits under its own key.
+// The formula lab: the sample chart's formulas (formulas.md's examples), worked out on its records by
+// formulas.js, with their definitions editable, a scratch box, and a self-test (#selftest) of the results
+// the document claims. The lab keeps its own copy of the definitions and saves its edits under its own key.
 
-const LAB_KEY = 'rboreal.formula-lab.v1';
+const LAB_KEY = 'rboreal.formula-lab.v2';
 
-// The pilot's names for relations and their lists of relatives (formulas.md, "Names for relations and lists").
-const LAB_NAMES = { relations: [
-  { name: 'Ownership', type: 'tag', edges: ['Owner', 'Owned'], lists: { Owned: { Owner: 'Owners' }, Owner: { Owned: 'Holdings' } } },
-  { name: 'General Partner', type: 'tag', edges: ['GP', 'Fund Owned'], lists: { 'Fund Owned': { GP: 'General Partners' }, GP: { 'Fund Owned': 'Funds' } } },
-  { name: 'Membership', type: 'choice', edges: ['Member', 'LLC'], lists: { LLC: { Member: 'Members' }, Member: { LLC: 'LLCs' } } },
-  { name: 'Signing Authority', type: 'tag', edges: ['Signatory', 'Via', 'On Behalf Of'], lists: {} },
-  { name: 'Position', type: 'choice', edges: ['Holder', 'Company'], lists: { Company: { Holder: 'Personnel' }, Holder: { Company: 'Positions' } } },
-  { name: 'Investment Adviser', type: 'tag', edges: ['Adviser', 'Client'], lists: { Client: { Adviser: 'Advisers' }, Adviser: { Client: 'Clients' } } },
-  { name: 'Look-Through Ownership', type: 'field', edges: ['Investor', 'Investment'], lists: {} },
-  { name: 'Control', type: 'tag', edges: ['Controller', 'Controlled'], lists: { Controlled: { Controller: 'Controllers' }, Controller: { Controlled: 'Controlled Companies' } } },
-  { name: 'Affiliated Person', type: 'tag', edges: ['Affiliate', 'Person'], lists: { Person: { Affiliate: 'Affiliates' }, Affiliate: { Person: 'Affiliated With' } } },
-  { name: 'Close Affiliate', type: 'tag', edges: ['Close Affiliate', 'BDC'], lists: { BDC: { 'Close Affiliate': 'Close Affiliates' }, 'Close Affiliate': { BDC: 'Close Affiliate Of' } } },
-  { name: 'Remote Affiliate', type: 'tag', edges: ['Remote Affiliate', 'BDC'], lists: { BDC: { 'Remote Affiliate': 'Remote Affiliates' }, 'Remote Affiliate': { BDC: 'Remote Affiliate Of' } } },
-] };
+// The sample's names and definitions (model.js), under the lab's names for them.
+const LAB_NAMES = SAMPLE_NAMES;
+const LAB_DEFINITIONS = SAMPLE_DEFINITIONS;
 
-const PEOPLE = ['Entity', 'Individual'];
-
-// Every example in formulas.md, as written there.
-const LAB_DEFINITIONS = [
-  { id: 'adds_up', name: 'Ownership Adds Up', type: 'tag', at: ['Entity', 'Individual', 'Investor Group'],
-    formula: '= IF(COUNT(Owners) = 0, BLANK(), SUM(Owners.Percentage) = 100%)' },
-  { id: 'tax', name: 'Tax Classification', type: 'choice',
-    at: ['Entity › Entity Type: Limited Partnership', 'Entity › Entity Type: Limited Liability Company', 'Entity › Entity Type: Corporation'],
-    formula: '= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1, "Disregarded Entity", TRUE, "Partnership")' },
-  { id: 'look_through', name: 'Look-Through Ownership', type: 'field', datatype: 'number', percent: true,
-    args: [{ edge: 'Investor', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Investment', at: ['Entity'] }],
-    formula: '= LOOKTHROUGH(Investor, Investment, Holdings, Percentage)' },
-  { id: 'control', name: 'Control', type: 'tag',
-    args: [{ edge: 'Controller', at: PEOPLE }, { edge: 'Controlled', at: ['Entity'] }],
-    implications: [
-      { label: 'More than 25%', formula: '← SUM(FILTER(Controlled.Owners, @ = Controller OR @ IN REACH(Controller, [Controlled Companies])).Percentage) > 25%' },
-      { label: 'General partner', formula: '← Controller IN Controlled.[Entity Type].[General Partners]' },
-      { label: 'Managing member', formula: '← Controller IN FILTER(Controlled.[Entity Type].Members, @.Membership = "Managing Member")' },
-    ] },
-  { id: 'affiliated', name: 'Affiliated Person', type: 'tag',
-    args: [{ edge: 'Affiliate', at: PEOPLE }, { edge: 'Person', at: PEOPLE }],
-    implications: [
-      { label: '(A)', formula: '← SUM(FILTER(Person.Owners, @ = Affiliate OR @ IN REACH(Affiliate, [Controlled Companies])).Percentage) >= 5%' },
-      { label: '(B)', formula: '← IMPLIEDBY([Affiliated Person](Person, Affiliate), "(A)")' },
-      { label: '(C)', formula: '← Affiliate IN REACH(Person, Controllers) OR Affiliate IN REACH(Person, [Controlled Companies]) OR ANY(REACH(Person, Controllers), Affiliate IN REACH(@, [Controlled Companies]))' },
-      { label: '(D)', formula: '← Affiliate IN FILTER(Person.Personnel, @.Position <> "Advisory Board Member") OR Affiliate IN Person.[Entity Type].[General Partners]' },
-      { label: '(E)', formula: '← Person.[Investment Company] AND (Affiliate IN Person.Advisers OR Affiliate IN FILTER(Person.Personnel, @.Position = "Advisory Board Member"))' },
-    ] },
-  { id: 'close', name: 'Close Affiliate', type: 'tag',
-    args: [{ edge: 'Close Affiliate', at: PEOPLE }, { edge: 'BDC', at: ['Entity › Investment Company Status: Business Development Company'] }],
-    implications: [
-      { label: '(b)(1)', formula: '← [Close Affiliate] IN BDC.Personnel' },
-      { label: '(b)(1) affiliates', formula: '← ANY(BDC.Personnel, IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)"))' },
-      { label: '(b)(2)', formula: '← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[Entity Type].[General Partners]' },
-      { label: '(b)(2)', formula: '← [Close Affiliate] IN REACH(BDC, Controllers)' },
-      { label: '(b)(2)', formula: '← ANY(REACH(BDC, Controllers), WITHOUT(BDC, [Close Affiliate] IN REACH(@, [Controlled Companies])))' },
-      { label: '(b)(2) affiliates', formula: '← ANY(BDC.[Close Affiliates], IMPLIEDBY([Close Affiliate](@, BDC), "(b)(2)") AND IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)", "(D)"))' },
-    ] },
-  { id: 'remote', name: 'Remote Affiliate', type: 'tag',
-    args: [{ edge: 'Remote Affiliate', at: PEOPLE }, { edge: 'BDC', at: ['Entity › Investment Company Status: Business Development Company'] }],
-    implications: [
-      { label: '(e)(1)(A)', formula: '← IMPLIEDBY([Affiliated Person]([Remote Affiliate], BDC), "(A)") AND NOT [Close Affiliate]([Remote Affiliate], BDC)' },
-    ] },
-  { id: 'count_3c1', name: '3(c)(1) Count', type: 'field', datatype: 'number', at: ['Entity'],
-    formula: '= SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1)))' },
-];
-
-// Records the examples assume that the sample doesn't have (formulas.md, "Affiliated person"). The fund is
-// made a BDC for the close and remote affiliate examples.
-const LAB_EXTRAS = {
-  x_pos_chen_mgmt: { args: [{ edge: 'Holder', at: 'chen' }, { edge: 'Company', at: 'mgmt' }], choice: 'Officer' },
-  x_pos_okfr_mgmt: { args: [{ edge: 'Holder', at: 'okafor' }, { edge: 'Company', at: 'mgmt' }], choice: 'Officer' },
-  x_pos_chen_gp:   { args: [{ edge: 'Holder', at: 'chen' }, { edge: 'Company', at: 'gp' }], choice: 'Officer' },
-  x_adv_fund:      { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'fund' }], tag: true },
-  x_adv_feeder:    { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'feeder' }], tag: true },
-  x_fund_ic:       { at: 'fund', edge: 'Investment Company', tag: true },
-  x_fund_bdc:      { at: 'fund', edge: 'Investment Company Status', choice: 'Business Development Company' },
-  x_feeder_pf:     { at: 'feeder', edge: 'Private Fund', tag: true },
-};
-
-// Ownership as decided on 2026-10-24: a tag with edges Owner and Owned, with a Percentage located at it.
-// The sample may still have it as a number field relating Owner and Holding; that's converted here.
-function ownershipAsTags(recs) {
-  const out = {};
-  for (const [id, r] of Object.entries(recs)) {
-    const old = r.args?.length === 2 && isField(r) && same(r.args[0].edge, 'Owner') && same(r.args[1].edge, 'Holding');
-    if (!old) { out[id] = r; continue; }
-    out[id] = { args: [r.args[0], { edge: 'Owned', at: r.args[1].at }], tag: true };
-    out[`${id}_pct`] = { at: id, edge: 'Percentage', field: 'number', value: r.value };
-  }
-  return out;
-}
-
-function enteredRecords({ extras, overrides }) {
-  return { ...ownershipAsTags(structuredClone(SAMPLE)), ...(extras ? LAB_EXTRAS : {}), ...overrides };
-}
+// The sample's records, with whatever the lab has ruled out or added on top.
+const enteredRecords = ({ overrides }) => ({ ...structuredClone(SAMPLE), ...overrides });
 
 // ---- The lab's own state ----
 
 let lab = freshLab();
 let result = null;
-let selected = 'control';
+let selected = 'def_control';
 let scratch = { at: 'fund', text: '= REACH(@, Controllers)' };
 
-function freshLab() { return { defs: structuredClone(LAB_DEFINITIONS), extras: true, overrides: {} }; }
+function freshLab() { return { defs: structuredClone(LAB_DEFINITIONS), overrides: {} }; }
 function loadLab() {
   try { const saved = JSON.parse(localStorage.getItem(LAB_KEY)); if (saved?.defs) lab = saved; } catch {}
 }
@@ -123,7 +38,7 @@ const TYPES = [['tag', 'Tag'], ['choice', 'Choice'], ['field:number', 'Number fi
 const typeValue = d => d.type === 'field' ? `field:${d.datatype ?? 'number'}` : d.type;
 
 function render() {
-  $('prefs').innerHTML = `<label class="lab-toggle"><input type="checkbox" data-action="extras"${lab.extras ? ' checked' : ''}> Assumed records</label>
+  $('prefs').innerHTML = `
     <button class="link-btn" data-action="reset">Reset lab</button>${themeSwitch()}`;
   renderDefs();
   renderEditor();
@@ -264,8 +179,7 @@ document.addEventListener('click', e => {
   const act = el.dataset.action;
   if (act === 'select') { selected = el.dataset.id; render(); return; }
   if (act === 'pref') { prefs[el.dataset.key] = el.dataset.value; savePrefs(); applyTheme(); render(); return; }
-  if (act === 'extras') lab.extras = el.checked;
-  else if (act === 'reset') { lab = freshLab(); selected = 'control'; }
+  if (act === 'reset') { lab = freshLab(); selected = 'def_control'; }
   else if (act === 'add') { const id = `def${Date.now().toString(36)}`; lab.defs.push({ id, name: 'New Tag', type: 'tag', at: ['Entity'], formula: '= ' }); selected = id; }
   else if (act === 'drop-def') { lab.defs = lab.defs.filter(x => x !== d); selected = lab.defs[0]?.id; }
   else if (act === 'add-imp') d.implications.push({ label: '', formula: '← ' });
@@ -287,7 +201,7 @@ document.addEventListener('click', e => {
 function selftest() {
   const out = [];
   const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail });
-  const run = (defs = LAB_DEFINITIONS, more = {}) => Formulas.computeState({ ...enteredRecords({ extras: true, overrides: {} }), ...more }, defs, LAB_NAMES);
+  const run = (defs = LAB_DEFINITIONS, more = {}) => Formulas.computeState({ ...enteredRecords({ overrides: {} }), ...more }, defs, LAB_NAMES);
   const R = run();
   const objOf = (res, id) => { let cur = id; while (res.records[cur]?.at) cur = res.records[cur].at; return cur; };
   const rowsOf = (res, def) => res.rows[def] ?? [];
@@ -302,60 +216,68 @@ function selftest() {
   check('No definition-level errors', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
 
   // Ownership Adds Up
-  for (const id of ['fund', 'feeder', 'blocker', 'gp', 'mgmt']) check(`Ownership Adds Up attested on ${id}`, entryRow(R, 'adds_up', id)?.value === true);
-  for (const id of ['northpine', 'halvard']) check(`Ownership Adds Up ruled out on ${id}`, entryRow(R, 'adds_up', id)?.value === false);
-  for (const id of ['chen', 'okafor', 'inv_us', 'inv_nonus']) check(`Ownership Adds Up records nothing on ${id}`, !entryRow(R, 'adds_up', id));
+  for (const id of ['fund', 'feeder', 'blocker', 'gp', 'mgmt']) check(`Ownership Adds Up attested on ${id}`, entryRow(R, 'def_adds_up', id)?.value === true);
+  for (const id of ['northpine', 'halvard', 'bdc']) check(`Ownership Adds Up ruled out on ${id}`, entryRow(R, 'def_adds_up', id)?.value === false);
+  for (const id of ['chen', 'okafor', 'inv_us', 'inv_nonus']) check(`Ownership Adds Up records nothing on ${id}`, !entryRow(R, 'def_adds_up', id));
 
   // Tax Classification
-  check('Tax Classification covers three Entity Types', Formulas.coversOf(LAB_DEFINITIONS[1]).length === 3);
+  check('Tax Classification covers three Entity Types', Formulas.coversOf(LAB_DEFINITIONS.find(d => d.id === 'def_tax')).length === 3);
+  check('Tax Classification differs from the BDC’s entered election', entryRow(R, 'def_tax', 'bdc_type')?.mark === 'differs');
   for (const [at, option] of [['fund_type', 'Partnership'], ['gp_type', 'Partnership'], ['mgmt_type', 'Partnership'], ['blocker_type', 'C Corporation']]) {
-    const r = entryRow(R, 'tax', at);
+    const r = entryRow(R, 'def_tax', at);
     check(`Tax Classification agrees with the entered ${option} at ${at}`, r?.mark === 'agrees' && r.formula === option, JSON.stringify(r && { mark: r.mark, formula: r.formula }));
   }
-  check('Tax Classification computes Partnership for Northpine', entryRow(R, 'tax', 'northpine_type')?.value === 'Partnership');
-  check('Tax Classification computes C Corporation for Halvard', entryRow(R, 'tax', 'halvard_type')?.value === 'C Corporation');
-  check('Tax Classification gives the feeder nothing', !entryRow(R, 'tax', 'feeder_type'));
+  check('Tax Classification computes Partnership for Northpine', entryRow(R, 'def_tax', 'northpine_type')?.value === 'Partnership');
+  check('Tax Classification computes C Corporation for Halvard', entryRow(R, 'def_tax', 'halvard_type')?.value === 'C Corporation');
+  check('Tax Classification gives the feeder nothing', !entryRow(R, 'def_tax', 'feeder_type'));
 
   // Look-through
   for (const [a, b, want] of [['inv_nonus', 'fund', 0.284], ['inv_nonus', 'northpine', 0.18176], ['inv_us', 'halvard', 0.58712]]) {
-    const got = pairRow(R, 'look_through', a, b)?.value;
+    const got = pairRow(R, 'def_look_through', a, b)?.value;
     check(`Look-through ${a} → ${b} is ${want * 100}%`, Math.abs(got - want) < 1e-9, String(got));
   }
 
   // Control, and rebutting the presumption
   const control = [['chen', 'mgmt'], ['okafor', 'mgmt'], ['chen', 'gp'], ['okafor', 'gp'], ['gp', 'fund'], ['gp', 'feeder'],
     ['fund', 'blocker'], ['fund', 'northpine'], ['fund', 'halvard'], ['feeder', 'fund'], ['feeder', 'blocker'], ['feeder', 'northpine'], ['feeder', 'halvard']];
-  for (const [a, b] of control) check(`Control: ${a} controls ${b}`, attested(R, 'control', a, b), labelsOf(R, 'control', a, b).join(', '));
+  for (const [a, b] of control) check(`Control: ${a} controls ${b}`, attested(R, 'def_control', a, b), labelsOf(R, 'def_control', a, b).join(', '));
   check('Control: Chen’s control of the management company is implied by More than 25% and Managing member',
-    ['More than 25%', 'Managing member'].every(l => labelsOf(R, 'control', 'chen', 'mgmt').includes(l)));
-  const all = rowsOf(R, 'control').filter(r => !r.error).map(r => `${objOf(R, r.args[0].at)}→${objOf(R, r.args[1].at)}`);
+    ['More than 25%', 'Managing member'].every(l => labelsOf(R, 'def_control', 'chen', 'mgmt').includes(l)));
+  const all = rowsOf(R, 'def_control').filter(r => !r.error).map(r => `${objOf(R, r.args[0].at)}→${objOf(R, r.args[1].at)}`);
   check(`Control attests ${all.length} pairs in all`, true, all.join(' '));
   const rebut = { lab_rebut: { args: [{ edge: 'Controller', at: 'feeder' }, { edge: 'Controlled', at: 'fund' }], tag: false } };
   const R2 = run(LAB_DEFINITIONS, rebut);
-  check('Rebuttal: the ruling-out overrides More than 25%', pairRow(R2, 'control', 'feeder', 'fund')?.mark === 'overrides');
-  for (const b of ['blocker', 'northpine', 'halvard']) check(`Rebuttal: the feeder no longer controls ${b}`, !attested(R2, 'control', 'feeder', b));
+  check('Rebuttal: the ruling-out overrides More than 25%', pairRow(R2, 'def_control', 'feeder', 'fund')?.mark === 'overrides');
+  for (const b of ['blocker', 'northpine', 'halvard']) check(`Rebuttal: the feeder no longer controls ${b}`, !attested(R2, 'def_control', 'feeder', b));
 
   // Affiliated Person
-  const aff = rowsOf(R, 'affiliated').filter(r => !r.error);
-  const has = (a, b, l) => labelsOf(R, 'affiliated', a, b).includes(l);
+  const aff = rowsOf(R, 'def_affiliated').filter(r => !r.error);
+  const has = (a, b, l) => labelsOf(R, 'def_affiliated', a, b).includes(l);
   const pairs = aff.map(r => [objOf(R, r.args[0].at), objOf(R, r.args[1].at)]);
   check('Affiliated Person: (B) mirrors (A)', pairs.every(([a, b]) => has(a, b, '(B)') === has(b, a, '(A)') && has(a, b, '(A)') === has(b, a, '(B)')));
   check('Affiliated Person: no one is their own affiliate', pairs.every(([a, b]) => a !== b));
   check(`Affiliated Person attests ${aff.length} pairs`, aff.length > 0);
 
-  // Close Affiliate, with the fund as a BDC and the management company as its adviser
-  for (const a of ['gp', 'chen', 'okafor', 'feeder', 'mgmt']) check(`Close Affiliate: ${a} under (b)(2)`, labelsOf(R, 'close', a, 'fund').includes('(b)(2)'), labelsOf(R, 'close', a, 'fund').join(', '));
-  for (const a of ['blocker', 'northpine', 'halvard']) check(`Close Affiliate: ${a} not under (b)(2) (the carve-out)`, !labelsOf(R, 'close', a, 'fund').includes('(b)(2)'));
-  for (const a of ['blocker', 'northpine', 'halvard']) check(`Close Affiliate: ${a} under (b)(2) affiliates, formula as in formulas.md`, labelsOf(R, 'close', a, 'fund').includes('(b)(2) affiliates'));
-  const fixed = structuredClone(LAB_DEFINITIONS);
-  const imp = fixed.find(d => d.id === 'close').implications.find(i => i.label === '(b)(2) affiliates');
-  imp.formula = imp.formula.replace('BDC.[Close Affiliates]', 'BDC.[Investment Company Status].[Close Affiliates]');
-  const R3 = run(fixed);
-  for (const a of ['blocker', 'northpine', 'halvard']) check(`Close Affiliate: ${a} under (b)(2) affiliates, with the list read at Investment Company Status`, labelsOf(R3, 'close', a, 'fund').includes('(b)(2) affiliates'));
-  check('Remote Affiliate works out without errors', !rowsOf(R, 'remote').some(r => r.error), `${rowsOf(R, 'remote').length} rows`);
+  // Close and remote affiliates of the sample's BDC
+  const closeOf = (res, bdc) => Object.fromEntries(rowsOf(res, 'def_close').filter(r => !r.error && objOf(res, r.args[1].at) === bdc)
+    .map(r => [objOf(res, r.args[0].at), r.labels ?? []]));
+  const closeBdc = closeOf(R, 'bdc');
+  const expected = { chen: '(b)(1)', raman: '(b)(1)', okafor: '(b)(1)', mgmt: '(b)(2)', gp: '(b)(1) affiliates', fund: '(b)(1) affiliates',
+    feeder: '(b)(1) affiliates', blocker: '(b)(2) affiliates', northpine: '(b)(2) affiliates', halvard: '(b)(2) affiliates' };
+  check('Close Affiliate: the BDC has ten close affiliates', Object.keys(closeBdc).length === 10, Object.keys(closeBdc).join(' '));
+  for (const [a, label] of Object.entries(expected)) check(`Close Affiliate: ${a} of the BDC under ${label}`, closeBdc[a]?.includes(label), (closeBdc[a] ?? []).join(', '));
+  const remote = rowsOf(R, 'def_remote').filter(r => !r.error).map(r => objOf(R, r.args[0].at));
+  check('Remote Affiliate: only the pension plan, under (e)(1)(A)', remote.join() === 'pension' && labelsOf(R, 'def_remote', 'pension', 'bdc').includes('(e)(1)(A)'), remote.join(' '));
+
+  // The carve-out, with the fund as a BDC instead
+  const asBdc = run(LAB_DEFINITIONS, { fund_ics: { ...SAMPLE.fund_ics, choice: 'Business Development Company' } });
+  const closeFund = closeOf(asBdc, 'fund');
+  for (const a of ['gp', 'chen', 'okafor', 'feeder', 'mgmt']) check(`Fund as BDC: ${a} under (b)(2)`, closeFund[a]?.includes('(b)(2)'), (closeFund[a] ?? []).join(', '));
+  for (const a of ['blocker', 'northpine', 'halvard']) check(`Fund as BDC: ${a} not under (b)(2) (the carve-out)`, !closeFund[a]?.includes('(b)(2)'));
+  for (const a of ['blocker', 'northpine', 'halvard']) check(`Fund as BDC: ${a} under (b)(2) affiliates, read literally`, closeFund[a]?.includes('(b)(2) affiliates'));
 
   // 3(c)(1) Count, then an ownership loop
-  check('3(c)(1) Count of the fund is 2', entryRow(R, 'count_3c1', 'fund')?.value === 2, String(entryRow(R, 'count_3c1', 'fund')?.value));
+  check('3(c)(1) Count of the fund is 2', entryRow(R, 'def_3c1', 'fund')?.value === 2, String(entryRow(R, 'def_3c1', 'fund')?.value));
   const loop = {
     lab_loop: { args: [{ edge: 'Owner', at: 'northpine' }, { edge: 'Owned', at: 'fund' }], tag: true },
     lab_loop_pct: { at: 'lab_loop', edge: 'Percentage', field: 'number', value: '20%' },
@@ -363,14 +285,14 @@ function selftest() {
     lab_fund_pf: { at: 'fund', edge: 'Private Fund', tag: true },
   };
   const R4 = run(LAB_DEFINITIONS, loop);
-  for (const id of ['fund', 'northpine']) check(`3(c)(1) Count loop: ${id} shows #CIRCULAR!`, entryRow(R4, 'count_3c1', id)?.error?.code === '#CIRCULAR!');
+  for (const id of ['fund', 'northpine']) check(`3(c)(1) Count loop: ${id} shows #CIRCULAR!`, entryRow(R4, 'def_3c1', id)?.error?.code === '#CIRCULAR!');
 
   // The engine's API
   const again = run();
   check('Computed ids stay the same from one working-out to the next', Object.keys(again.computed).join() === Object.keys(R.computed).join() && Object.keys(R.computed).length > 0);
   check('A computed record’s id comes from its argumentation', Object.keys(R.computed).every(id => id === Formulas.computedId(argsOf(R.records[id]))));
-  check('Provenance names what an implication read', (R.computed[Object.keys(R.computed).find(id => R.computed[id].def === 'control')]?.reads ?? {})['More than 25%']?.length > 0
-    || Object.values(R.computed).some(c => c.def === 'control' && Object.values(c.reads).some(r => r.length)));
+  check('Provenance names what an implication read', (R.computed[Object.keys(R.computed).find(id => R.computed[id].def === 'def_control')]?.reads ?? {})['More than 25%']?.length > 0
+    || Object.values(R.computed).some(c => c.def === 'def_control' && Object.values(c.reads).some(r => r.length)));
   check('Covered entered records are marked', R.covered.fund_tax?.mark === 'agrees');
   check('<- starts an implication', Formulas.check('<- TRUE').kind === 'implies');
   check('A syntax error has a position', Formulas.check('= SUM(1, )').error?.pos === 9, JSON.stringify(Formulas.check('= SUM(1, )').error));
@@ -383,13 +305,13 @@ function selftest() {
   check('renameName relabels a name', Formulas.renameName('= SUM(Owners.Percentage) > [Percentage]', 'Percentage', 'Voting Percentage') === '= SUM(Owners.[Voting Percentage]) > [Voting Percentage]');
   const moved = Formulas.relabel(LAB_DEFINITIONS, LAB_NAMES, 'Owned', 'Held');
   check('relabel carries an edge rename through names and formulas', moved.names.relations[0].edges[1] === 'Held' && moved.names.relations[0].lists.Held.Owner === 'Owners');
-  const R5 = Formulas.computeState(Object.fromEntries(Object.entries(enteredRecords({ extras: true, overrides: {} }))
+  const R5 = Formulas.computeState(Object.fromEntries(Object.entries(enteredRecords({ overrides: {} }))
     .map(([k, r]) => [k, r.args ? { ...r, args: r.args.map(a => same(a.edge, 'Owned') ? { ...a, edge: 'Held' } : a) } : r])), moved.definitions, moved.names);
-  check('After the rename, Control works out the same', Object.keys(R5.computed).filter(id => R5.computed[id].def === 'control').length === Object.keys(R.computed).filter(id => R.computed[id].def === 'control').length);
+  check('After the rename, Control works out the same', Object.keys(R5.computed).filter(id => R5.computed[id].def === 'def_control').length === Object.keys(R.computed).filter(id => R.computed[id].def === 'def_control').length);
   const withoutGP = '= WITHOUT(@.[Entity Type].[General Partners], REACH(@, Controllers))';
   check('WITHOUT works in the scratch box: without the GP, only the feeder controls the fund', Formulas.formatValue(R, at(withoutGP)) === 'Calder Ridge Capital Partners III (Cayman), L.P.', Formulas.formatValue(R, at(withoutGP)));
-  check('suggest offers arguments and functions on their own', ['Controller', 'REACH'].every(n => Formulas.suggest(R, 'control', '← ').some(s => s.name === n)));
-  check('suggest offers names after a dot', Formulas.suggest(R, 'control', '← Controlled.Ow').some(s => s.name === 'Owners'), JSON.stringify(Formulas.suggest(R, 'control', '← Controlled.Ow')));
+  check('suggest offers arguments and functions on their own', ['Controller', 'REACH'].every(n => Formulas.suggest(R, 'def_control', '← ').some(s => s.name === n)));
+  check('suggest offers names after a dot', Formulas.suggest(R, 'def_control', '← Controlled.Ow').some(s => s.name === 'Owners'), JSON.stringify(Formulas.suggest(R, 'def_control', '← Controlled.Ow')));
 
   const failed = out.filter(x => !x.ok).length;
   document.title = `selftest: ${out.length - failed} pass, ${failed} fail`;

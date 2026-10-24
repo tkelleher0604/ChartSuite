@@ -344,14 +344,15 @@ function listHere(S, id, n) {
 const ambiguous = name => err('#NAME?', `${name} could mean more than one thing here.`);
 
 // A name on the relation record a relative was reached through: its arguments by edge label, its output
-// by the relation's name, and the entries located at it.
+// by the relation's name, and the entries located at it. Where a relation is named like one of its edges
+// (Close Affiliate), the edge wins; a relation call still reaches its output.
 function linkLookup(S, rid, n, name) {
   const r = S.recs[rid];
   if (!r) return null;
   const found = [];
   const arg = r.args.find(a => norm(a.edge) === n);
   if (arg) found.push(recOf(objectOf(S, arg.at)));
-  if (norm(relationOf(S, r)?.name ?? '') === n) found.push(recOf(rid));
+  else if (norm(relationOf(S, r)?.name ?? '') === n) found.push(recOf(rid));
   const pending = forceEntry(S, rid, n);
   if (pending) return { v: pending };
   const entry = (S.byAt.get(rid) ?? []).find(e => norm(S.recs[e].edge) === n);

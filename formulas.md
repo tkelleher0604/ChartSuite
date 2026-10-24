@@ -4,7 +4,19 @@
 
 This extends [data-model.md](data-model.md). Some records can be worked out by formula instead of entered, the way a spreadsheet works some cells out from others.
 
-The examples use the sample chart in [UI/mockups](UI/mockups/), with one change decided on 2026-10-24: Ownership is a tag with edges Owner and Owned, and a Percentage field located at it. The examples also use the names this document pilots for relations and their lists of relatives (see [Names for relations and lists](#names-for-relations-and-lists)).
+The examples use the sample chart in [UI/mockups](UI/mockups/), where every one of them is built in and can be tried (see [The prototype](#the-prototype)). Ownership there is a tag with edges Owner and Owned, with a Percentage field located at it, as decided on 2026-10-24. The examples also use the names this document pilots for relations and their lists of relatives (see [Names for relations and lists](#names-for-relations-and-lists)).
+
+For the 40 Act examples, the sample has the following:
+- **A BDC.** Calder Ridge Capital BDC, Inc., which the management company advises. It holds 12% of Northpine.
+- **People.**
+  - Chen and an independent director, Raman, sit on the BDC's board.
+  - Okafor is an officer of the BDC and of the management company.
+  - A pension plan holds 7% of the BDC.
+- **Positions.** A choice relation with edges Holder and Company. Its options are Director, Officer, Employee and Advisory Board Member, which are §57(b)(1)'s list. From the company's side, its list is **Personnel**.
+- **Investment Adviser.** A tag relation with edges Adviser and Client. From the client's side, its list is **Advisers**.
+- **Investment Company Status.** A choice on Entities: 3(c)(7) Fund for the fund and the feeder, and Business Development Company for the BDC. Two tags are implied by it:
+  - **Private Fund**, by `← [Investment Company Status] IN {"3(c)(1) Fund", "3(c)(7) Fund"}`;
+  - **Investment Company**, by `← [Investment Company Status] = "Business Development Company"`.
 
 ## The idea
 
@@ -36,7 +48,7 @@ Computed records are records. They show in the panel and on the chart, styles ap
 
 ### Does ownership add up? A tag, with `=`
 
-A tag **Ownership Adds Up**, on Entities:
+A tag **Ownership Adds Up**, on Entities, Individuals and Investor Groups:
 
 `= IF(COUNT(Owners) = 0, BLANK(), SUM(Owners.Percentage) = 100%)`
 
@@ -44,7 +56,7 @@ A tag **Ownership Adds Up**, on Entities:
 
 On the sample:
 - The tag is attested on the fund (71.6% plus 28.4%), the feeder, the blocker, the GP and the management company.
-- It's ruled out on Northpine (64%) and Halvard (82%), whose other owners aren't charted.
+- It's ruled out on Northpine (64% plus 12%), Halvard (82%) and the BDC (7%), whose other owners aren't charted.
 - Individuals and investor groups have no owners, so the formula gives BLANK for them and nothing is recorded.
 
 ### Default tax classification: a choice, overridden by an election
@@ -62,13 +74,13 @@ How the names resolve:
 - It fills in Northpine and Halvard, which have an Entity Type but no Tax Classification yet.
 - It leaves the Cayman feeder (an Exempted Limited Partnership) alone, unless the formula is extended to cover that too.
 
-**Overrides.** The formula gives the default classification. Take an LLC that elected to be taxed as a corporation: "C Corporation" is entered for it by hand. The entered option wins, and the panel marks it as differing from the formula, like the mark Excel puts on a calculated-column cell that has been typed over. Where an entered option agrees with the formula, as the sample's do, the panel can offer to clear it.
+**Overrides.** The formula gives the default classification. The sample's BDC, a corporation, elected to be taxed as a regulated investment company, so "Regulated Investment Company" is entered for it by hand. The entered option wins, and the panel marks it as differing from the formula's "C Corporation", like the mark Excel puts on a calculated-column cell that has been typed over. Where an entered option agrees with the formula, as the other entities' do, the panel can offer to clear it.
 
 **New options.** "Disregarded Entity" isn't an option yet. Writing it into the formula adds it.
 
 ### Look-through ownership: a chain of any length
 
-A number field relation **Look-Through Ownership**, with edges Investor and Investment:
+A number field relation **Look-Through Ownership**, with edges Investor (an Entity, Individual or Investor Group) and Investment (an Entity):
 
 `= LOOKTHROUGH(Investor, Investment, Holdings, Percentage)`
 
@@ -91,8 +103,8 @@ A tag relation **Control**, with edges Controller (an Entity or Individual) and 
 | Label | Implication |
 | --- | --- |
 | More than 25% | `← SUM(FILTER(Controlled.Owners, @ = Controller OR @ IN REACH(Controller, [Controlled Companies])).Percentage) > 25%` |
-| General partner | `← Controller IN Controlled.[Entity Type].[General Partners]` |
-| Managing member | `← Controller IN FILTER(Controlled.[Entity Type].Members, @.Membership = "Managing Member")` |
+| General partner | `← Controller IN Controlled.[General Partners]` |
+| Managing member | `← Controller IN FILTER(Controlled.Members, @.Membership = "Managing Member")` |
 
 **More than 25%** is §2(a)(9)'s presumption: "owns beneficially, either directly or through one or more controlled companies, more than 25 per centum of the voting securities".
 - FILTER keeps the owners that are the Controller itself, or that the Controller directly or indirectly controls. Inside FILTER, `@` is each owner in turn.
@@ -102,18 +114,19 @@ A tag relation **Control**, with edges Controller (an Entity or Individual) and 
 
 **General partner.**
 - `[General Partners]` is the GP relation's list, seen from the fund's side.
-- That relation is located at the fund's Entity Type, hence the step through Entity Type.
+- That relation is located at the fund's Entity Type, not at the fund itself. An object still has the lists of relations located below it, the same way a relation call fills a parameter through the object's record there.
 - For an entity whose type has no general partners, the list is empty.
 
 **Managing member.**
 - After a list of relatives, a dot looks first at the relation that links each one.
 - So `@.Membership` is that membership's option.
 
-**Results on the sample.**
+**Results on the sample.** There are 25 attestations in all. Among them:
 - Chen and Okafor control the management company (60% and 40%) and the GP (50% each).
 - The GP controls the fund and the feeder.
 - The fund controls the blocker (100%), Northpine (64%) and, through the blocker, Halvard (82%).
 - The feeder controls the fund, since it holds 28.4%: the presumption at work. Because the feeder controls the fund, it also controls everything the fund does.
+- Holdings attributed through controlled companies carry control down the chain, so the GP, Chen and Okafor control the portfolio companies too.
 
 **Rebutting the presumption.** Click the attested Control between the feeder and the fund, and it is ruled out.
 - The entered ruling-out wins over the implication.
@@ -124,10 +137,7 @@ This is the attestation reading at work: an implication attests, and a ruling-ou
 
 ### Affiliated person: implications that cite the statute
 
-The definitions below assume two relations and a tag that the sample doesn't have yet:
-- **Position**: a choice relation with edges Holder and Company, and the options Director, Officer, Employee and Advisory Board Member. From the company's side, its list is **Personnel**.
-- **Investment Adviser**: a tag relation with edges Adviser and Client. From the client's side, its list is **Advisers**.
-- **Investment Company**: a tag on Entities.
+These definitions use the sample's Positions, Investment Advisers and Investment Company tag (see the start of this document).
 
 A tag relation **Affiliated Person** has edges Affiliate and Person (each an Entity or Individual), and one implication per clause of §2(a)(3):
 
@@ -136,7 +146,7 @@ A tag relation **Affiliated Person** has edges Affiliate and Person (each an Ent
 | (A) | `← SUM(FILTER(Person.Owners, @ = Affiliate OR @ IN REACH(Affiliate, [Controlled Companies])).Percentage) >= 5%` |
 | (B) | `← IMPLIEDBY([Affiliated Person](Person, Affiliate), "(A)")` |
 | (C) | `← Affiliate IN REACH(Person, Controllers) OR Affiliate IN REACH(Person, [Controlled Companies]) OR ANY(REACH(Person, Controllers), Affiliate IN REACH(@, [Controlled Companies]))` |
-| (D) | `← Affiliate IN FILTER(Person.Personnel, @.Position <> "Advisory Board Member") OR Affiliate IN Person.[Entity Type].[General Partners]` |
+| (D) | `← Affiliate IN FILTER(Person.Personnel, @.Position <> "Advisory Board Member") OR Affiliate IN Person.[General Partners]` |
 | (E) | `← Person.[Investment Company] AND (Affiliate IN Person.Advisers OR Affiliate IN FILTER(Person.Personnel, @.Position = "Advisory Board Member"))` |
 
 Notes on the clauses:
@@ -164,7 +174,7 @@ A tag relation **Close Affiliate** has edges Close Affiliate (an Entity or Indiv
 | --- | --- |
 | (b)(1) | `← [Close Affiliate] IN BDC.Personnel` |
 | (b)(1) affiliates | `← ANY(BDC.Personnel, IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)"))` |
-| (b)(2) | `← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[Entity Type].[General Partners]` |
+| (b)(2) | `← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[General Partners]` |
 | (b)(2) | `← [Close Affiliate] IN REACH(BDC, Controllers)` |
 | (b)(2) | `← ANY(REACH(BDC, Controllers), WITHOUT(BDC, [Close Affiliate] IN REACH(@, [Controlled Companies])))` |
 | (b)(2) affiliates | `← ANY(BDC.[Close Affiliates], IMPLIEDBY([Close Affiliate](@, BDC), "(b)(2)") AND IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)", "(D)"))` |
@@ -181,23 +191,40 @@ In words:
 - What's left are the controlled companies that a controller of the BDC reaches some other way.
 - So if the BDC has no controller, everything it controls is excepted.
 
-If the fund in the sample were a BDC:
-- The GP, Chen, Okafor and the feeder would be close affiliates under (b)(2), and so would the management company if it were recorded as the adviser.
-- The blocker, Northpine and Halvard would be excepted by the carve-out.
+**On the sample.** The BDC has ten close affiliates:
+- **(b)(1):** Chen and Raman, its directors, and Okafor, its officer.
+- **(b)(1) affiliates:** everything Chen and Okafor control: the management company, the GP, the fund, the feeder, the blocker, Northpine and Halvard.
+- **(b)(2):** the management company, its adviser.
+- **(b)(2) affiliates:** the management company's §2(a)(3)(C) and (D) affiliates. That is Chen and Okafor, who control it, and the companies under common control with it.
+
+Northpine is a close affiliate even though the BDC holds 12% of it, through the fund that controls it.
+
+The pension plan holds 7% of the BDC, so it is a remote affiliate under (e)(1)(A).
+
+**When the carve-out matters.** The sample's BDC controls nothing, so the carve-out doesn't come up there. The formula lab's self-test also tries the fund as a BDC:
+- The GP, Chen, Okafor and the feeder are close affiliates under (b)(2), as is the management company as adviser.
+- The carve-out excepts the blocker, Northpine and Halvard, which the fund controls.
 - But "(b)(2) affiliates", read literally, brings them back. The GP is a (b)(2) person, and it controls the blocker through the fund, so the blocker is the GP's §2(a)(3)(C) affiliate.
 - If the carve-out should limit that clause too, the clause takes the same `WITHOUT(BDC, …)`.
-- These readings come from the statutory text and are for you to correct. The point here is whether the formulas can say what you mean either way.
 
-**Remote Affiliate** (edges Remote Affiliate and BDC) follows the same pattern for the clauses of §57(e). §57(d) reaches only persons who aren't close affiliates, so each of its implications ends with `AND NOT [Close Affiliate]([Remote Affiliate], BDC)`. For example, (e)(1)(A):
+These readings come from the statutory text and are for you to correct. The point here is whether the formulas can say what you mean either way.
 
-`← IMPLIEDBY([Affiliated Person]([Remote Affiliate], BDC), "(A)") AND NOT [Close Affiliate]([Remote Affiliate], BDC)`
+**Remote Affiliate** (edges Remote Affiliate and BDC) follows the same pattern for the clauses of §57(e). §57(d) reaches only persons who aren't close affiliates, so each of its implications ends with `AND NOT [Close Affiliate]([Remote Affiliate], BDC)`. The sample has two:
+
+| Label | Implication |
+| --- | --- |
+| (e)(1)(A) | `← IMPLIEDBY([Affiliated Person]([Remote Affiliate], BDC), "(A)") AND NOT [Close Affiliate]([Remote Affiliate], BDC)` |
+| (e)(1)(C) | `← ANY(FILTER(BDC.Affiliates, IMPLIEDBY([Affiliated Person](@, BDC), "(A)")), IMPLIEDBY([Affiliated Person]([Remote Affiliate], @), "(C)")) AND NOT [Close Affiliate]([Remote Affiliate], BDC)` |
+
+(e)(1)(C) covers anyone who controls, is controlled by, or is under common control with a 5% holder.
 
 ### Counting beneficial owners under §3(c)(1): a field that reads itself elsewhere
 
 A number field **3(c)(1) Count**, on Entities:
 
-`= SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1)))`
+`= IF([Private Fund], SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1))), BLANK())`
 
+- It's worked out only for private funds. Elsewhere it gives BLANK, so nothing is recorded.
 - EACH works the expression out for each owner and gives the list of results.
 - An owner counts as one, except where §3(c)(1)(A) applies. That is an entity holding 10% or more that is, or but for §3(c)(1) or §3(c)(7) would be, an investment company (here, a Private Fund tag). Such an owner counts as its own holders.
 - The formula reads 3(c)(1) Count at other entities, its owners. That's fine as long as ownership doesn't loop back. If it does, the entities on the loop show a circular-reference error, as Excel would.
@@ -219,8 +246,10 @@ A formula refers to things by name, matched without regard to case, as labels ar
 **`@` means "this".** In an entry's formula, it's the location. Inside FILTER, ANY, ALL and EACH, it's the item being looked at.
 
 **Dots.** A dot looks a name up on what's before it: `Controlled.[Entity Type]`. On a record, the lookup tries these in order:
-1. If the record was reached through a list of relatives, the relation linking it. That means the relation's other arguments by edge label, its output by the relation's name, and the entries located at it. So `@.Percentage` on an owner is the Percentage on that ownership.
-2. The record's own entries, by label, and its lists of relatives, by name. A relation record also has its arguments, by edge label.
+1. If the record was reached through a list of relatives, the relation linking it. That means the relation's other arguments by edge label, its output by the relation's name, and the entries located at it. So `@.Percentage` on an owner is the Percentage on that ownership. If a relation is named like one of its edges, as Close Affiliate is, the edge wins; a relation call still gives its output.
+2. The record's own entries, by label, and its lists of relatives, by name.
+   - A relation record also has its arguments, by edge label.
+   - An object also has the lists of relations located below it, so a fund's General Partners can be reached as `Fund.[General Partners]`, though the relation sits at its Entity Type.
 3. The same, on up the record's path to its object.
 
 **Lists.** A dot after a list looks the name up on each item and gives a list: `Owners.Percentage`.
@@ -239,7 +268,7 @@ A formula refers to things by name, matched without regard to case, as labels ar
 
 It still knows where it is, so a dot can go on from it: `Fund.Jurisdiction = "Delaware"`, `Fund.Jurisdiction.[File Number]`.
 
-**Literals.** Numbers are written as in Excel: `25%` is 0.25, and `$750,000,000` and `1,000` are numbers. Values the chart stores as typed (like "71.6%") read as numbers. Text goes in double quotes, TRUE and FALSE are written as they are, and a list can be written in braces, like Excel's array constants: `{"Director", "Officer"}`.
+**Literals.** Numbers are written as in Excel: `25%` is 0.25. A thousands comma is allowed after `$`, as in `$750,000,000`; otherwise write `1000`, since `IF(x, 1,000)` would be ambiguous. Values the chart stores as typed (like "71.6%") read as numbers. Text goes in double quotes, TRUE and FALSE are written as they are, and a list can be written in braces, like Excel's array constants: `{"Director", "Officer"}`.
 
 **BLANK** is what a missing entry gives. As in Excel:
 - it counts as 0 in arithmetic, as empty text, and as FALSE in a condition;
@@ -252,6 +281,7 @@ So in a condition, a tag that isn't recorded reads as FALSE, just as a ruled-out
 - An empty list counts as BLANK.
 - A longer list is an error (`#VALUE!`).
 - Lists of lists flatten.
+- A dot over a list keeps BLANK items, so that `Owners.Percentage` lines up with `Owners`.
 
 ### Calling a relation
 
@@ -267,12 +297,12 @@ A first set:
 
 | Function | Gives |
 | --- | --- |
-| `IF`, `IFS`, `AND`, `OR`, `NOT` | As in Excel. `AND`, `OR` and `NOT` can also go between or before their operands: `a AND NOT b`. Comparisons bind tighter than NOT, NOT tighter than AND, and AND tighter than OR. |
+| `IF`, `IFS`, `AND`, `OR`, `NOT` | As in Excel, except that IFS with no match gives BLANK, and AND and OR stop once the answer is known, which avoids needless lookups and false loops. `AND`, `OR` and `NOT` can also go between or before their operands: `a AND NOT b`. Comparisons bind tighter than NOT, NOT tighter than AND, and AND tighter than OR. Comparing values of different kinds, like text with a number, is an error (`#VALUE!`). |
 | `=`, `<>`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`, `&` | As in Excel. |
 | `x IN list` | TRUE if x is one of the list's items. |
 | `BLANK()`, `ISBLANK(x)` | BLANK, and whether x is BLANK. |
 | `ISRULEDOUT(x)` | TRUE if x is a ruled-out tag. |
-| `COUNT`, `SUM`, `MIN`, `MAX`, `AVERAGE`, `UNIQUE`, `TEXTJOIN` | As in Excel, over lists. |
+| `COUNT`, `SUM`, `MIN`, `MAX`, `AVERAGE`, `UNIQUE`, `TEXTJOIN` | As in Excel, over lists, except that COUNT counts every item, not only numbers. |
 | `FILTER(list, condition)` | The items for which the condition is TRUE, with `@` as each item. |
 | `ANY(list, condition)`, `ALL(list, condition)` | Whether the condition holds for some item, or for every item. |
 | `EACH(list, expression)` | The list of the expression's values, with `@` as each item. |
@@ -291,6 +321,8 @@ Some arguments name a step instead of giving a value: REACH's and LOOKTHROUGH's 
 - A tag with implications is attested wherever any of them holds. It remembers which ones held, and the records they read, for when someone asks why.
 - Implications only attest. A tag can have either one `=` formula or any number of implications, not both.
 - An implication's label is free text, such as "(C)", "More than 25%" or "§57(b)(2)". Several implications can share a label, and `IMPLIEDBY` then cites them as a group.
+- An implication that runs into an error counts as not holding, and the error shows on its row.
+- A choice formula can give any option the choice already has, or any text written in the formula itself.
 
 ### Entered records win
 
@@ -424,6 +456,19 @@ A sketch, to be mocked up:
   - Errors show as text in the value column.
 - **On the chart.** Computed relations draw like any others, by their styles. A preset might draw them dashed until styled.
 
+## The prototype
+
+Everything above is built into the mockups in [UI/mockups](UI/mockups/), so it can be tried:
+- **[chart.html](UI/mockups/chart.html) and [record-panel.html](UI/mockups/record-panel.html).** The sample comes with every example in this document, worked out live as the chart changes.
+  - The chart has two views: Structure, and 40 Act, which hides ownership and draws the BDC's close and remote affiliates.
+  - See [UI/README.md](UI/README.md) for how to write and edit formulas there.
+- **[formula-lab.html](UI/mockups/formula-lab.html).** The definitions side by side with their results, and a scratch box that works out any expression at any record. Open it with `#selftest` to check the results this document claims.
+- **[formulas.js](UI/mockups/app/formulas.js).** The engine. A definition there names what it covers by locations written as paths from a kind, like `Entity › Entity Type: Limited Partnership`. Computed records get ids made from their argumentation, so they keep them from one working-out to the next.
+
+Where the prototype differs from this document:
+- **Loops are found per definition, not per record.** A group of definitions that read each other and mix `=` and `←` is marked circular as a whole, even where no record actually depends on itself.
+- **Renames.** Renames and moves are carried into formulas only where the panel does it (see UI/README.md).
+
 ## Open questions
 
 1. **Syntax.** Do these read well: `@`, the bracketed names, dots that look at the linking relation first, and EACH, FILTER, ANY and REACH?
@@ -434,3 +479,5 @@ A sketch, to be mocked up:
 6. **Views.** Should box positions belong to each view (copied from the view it was made from)? Is the delete-versus-hide proposal right? And should a view be able to show or hide by formula, for example only the close affiliates of a given fund?
 7. **Workbooks.** Should a workbook have a library of definitions (Affiliated Person, Close Affiliate) that its charts can reuse?
 8. **Cardinality hints.** Should a hint be enforced, or only warned about?
+9. **Naming a particular object.** A formula can't name one object, like "the close affiliates of Fund III". Should it? It would be needed for showing or hiding by formula in a view.
+10. **Relation names and edge labels.** Should a relation's name be allowed to equal one of its edge labels? Close Affiliate's is, which is why a dot gives the edge there.
