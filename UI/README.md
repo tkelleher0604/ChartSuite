@@ -7,7 +7,8 @@ Working area for Rboreal's frontend design.
 Open these directly in a browser. The chart and the record panel share their code and their saved state, so a change made on one page shows up on the other.
 
 - [mockups/chart.html](mockups/chart.html): the chart, with a ribbon above it and the record panel on the right.
-  - Every object is a box, and every two-argument relation is a line from its first argument to its second. Percentages sit just above the box a line reaches.
+  - Every object is a box, and every two-argument relation is a line from its first argument to its second.
+  - A line's label is the relation's own text, if its style gives one, followed by whatever is located at the relation that its own style shows. Ownership is a tag (Owner, Owned) with a Percentage located at it, so its lines carry no label of their own and the Percentage labels them, just above the box a line reaches. Clicking that text selects the line and engages the Percentage's style.
   - **Styles.**
     - A style is a parameterization together with a map from its outputs to formatting: shape, fill, outline, font, and whether the record shows as a line of text in its box (or, for a relation, as a line).
     - Every object has the same parameterization, whose outputs are the kinds, so the Kind style gives each kind its box.
@@ -48,6 +49,7 @@ Open these directly in a browser. The chart and the record panel share their cod
   - A choice's option has a dropdown wherever it appears, including the header path and the title.
   - Relations show at each of their locations:
     - A two-argument relation is a row labeled with the other side's edge, listing the other side's object with the output (checkbox, option or value). Relations that share those labels share the row.
+    - Fields located at a relation, like an ownership's Percentage, follow its output a shade lighter, and can be changed in place. Where relations with the same edges have a field that this one lacks, it shows as a blank to fill in. The Relate view shows them the same way, so a Percentage can be typed in right after an ownership is ticked.
     - A relation with more arguments is a table, with one column per other argument. Each column heading is a dropdown that narrows the rows, offering only the locations left in rows that match the other columns.
   - A relation's own panel lists its arguments in the header. Arguments at one location share a line. Path segments below each object are hidden behind "…" unless they're needed to tell parameters with the same edge label apart.
   - New two-argument relations of the kinds already in the state can be added from the Add menu or a relation row's "+". Add › Relation… opens the same Relate view as the chart, for any kind of relation with anything, including a new kind.
