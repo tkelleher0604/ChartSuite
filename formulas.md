@@ -523,6 +523,8 @@ Where the prototype differs from this document:
     - Box positions belong to each view, so moving a box in 40 Act leaves Structure alone.
     - A new view ("+") starts as a copy of the current one. It could instead start from the Structure view's styles, with nothing hidden.
     - Delete asks whether to delete everywhere or hide in this view.
-    - Should a view be able to show or hide by formula, for example only the close affiliates of a given fund? In the 40 Act view, most of the chart is a close affiliate of the BDC.
-    - Should Show and Hide also work on boxes by kind, and on a box's lines of text by entry?
+    - A view can show boxes by formula: View › Filter boxes holds a condition worked out at each object. The 40 Act view's, `← [Investment Company] OR COUNT([Close Affiliate Of]) + COUNT([Remote Affiliate Of]) > 0`, shows the BDC and its affiliates. A box where the condition runs into an error stays shown, with a mark. Should it be hidden instead?
+    - A view can hide boxes by kind (View › Kinds). Should it also hide a box's lines of text by entry, and lines by a condition on the relation?
+    - A box a filter leaves out is simply not drawn, along with its lines. Should the view say that more lines exist?
+    - "Tidy layout" lays the visible boxes out in rows along ownership and control. For 40 Act, would a layout around the BDC be better?
 16. **Workbooks.** Charts in the prototype reuse formulas by copying them. Should a workbook instead have a library of definitions (Affiliated Person, Close Affiliate) that its charts follow, so a fix to one reaches them all?
