@@ -537,7 +537,7 @@ function parseValue(datatype, raw) {
   return s;
 }
 // A computed number is a number rather than text as typed, shown as a percentage if its definition says so.
-const displayValue = r => r.field === 'date' ? formatDate(r.value)
+const displayValue = r => r.field === 'date' ? formatDate(r.value?.iso ?? r.value)
   : typeof r.value === 'number' ? formatNumber(r.value, definitions.find(d => d.id === r.computed)?.percent) : r.value;
 function formatNumber(n, percent) {
   const digits = v => v.toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -757,7 +757,7 @@ function commit(next) {
   const before = records;
   entered = nextEntered;
   setComputed(result);
-  rekey(before, records);
+  if (rekey(before, records)) recompute();
   saveState();
   return null;
 }
@@ -781,10 +781,27 @@ function rekey(before, after) {
   const moves = (map, live) => [...map].filter(([from]) => !live.has(from));
   for (const [from, to] of moves(specs, liveSpecs))
     if (order[from] && !order[to]) { const { [from]: list, ...rest } = order; order = { ...rest, [to]: list }; }
-  for (const [from, to] of moves(params, liveParams)) {
-    if (!styles.some(s => s.param === to)) styles = styles.map(s => s.param === from ? { ...s, param: to } : s);
+  const paramMoves = moves(params, liveParams);
+  // Every view's styles follow, not just the current view's.
+  const restyle = list => paramMoves.reduce((acc, [from, to]) =>
+    acc.some(s => s.param === to) ? acc : acc.map(s => s.param === from ? { ...s, param: to } : s), list);
+  views = currentViews().map(v => ({ ...v, styles: restyle(v.styles) }));
+  styles = viewInUse().styles;
+  for (const [from, to] of paramMoves)
     if (required[from] && !required[to]) { const { [from]: req, ...rest } = required; required = { ...rest, [to]: req }; }
-  }
+  // So do the parameterizations formulas cover. A definition written with locations is rewritten with the
+  // keys it covers, keeping a relation's edges in their order, so it can follow.
+  const moved = new Map(paramMoves);
+  let changed = false;
+  definitions = definitions.map(d => {
+    let keys;
+    try { keys = Formulas.coversOf(d); } catch { return d; }
+    if (!keys.some(k => moved.has(k))) return d;
+    changed = true;
+    const { at, args, ...rest } = d;
+    return { ...rest, covers: keys.map(k => moved.get(k) ?? k), ...(args ? { args: args.map(a => ({ edge: a.edge })) } : {}) };
+  });
+  return changed;
 }
 
 // Moves an entry to just before or after a sibling. Every location with the same specification follows suit.
@@ -1005,7 +1022,7 @@ function commitWithFormulas(next, nextDefinitions, nextNames = names) {
   definitions = nextDefinitions;
   names = nextNames;
   setComputed(result);
-  rekey(before, records);
+  if (rekey(before, records)) recompute();
   saveState();
   return null;
 }
