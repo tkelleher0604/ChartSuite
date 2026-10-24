@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Rboreal Model</title>
+<link rel="stylesheet" href="UI/vendor/katex/katex.min.css">
+<script>
+  // The theme, before the page draws: the reader's choice if they made one here, else the system's.
+  try { const t = localStorage.getItem('rboreal.model.theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+<style>
+@font-face { font-family: "Inter"; src: url("UI/vendor/inter/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+:root {
+  --bg: #fbfaf7; --surface: #ffffff; --text: #1d1d1f; --text-2: #4a4a50; --text-3: #8a8a93;
+  --rule: #e6e3dc; --rule-strong: #d3cfc6; --accent: #2b59c3; --accent-soft: #eef2fb;
+  --mark: #fff4d6; --node: #ffffff; --node-stroke: #3f3f46; --edge: #71717a;
+  --kind: #2b59c3; --link: #7c3aed; --out: #1f9d55; --erased: #b4b4bb; --warn: #a15c07;
+  --code-bg: #f3f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141416; --surface: #1c1c1f; --text: #ececee; --text-2: #b8b8bf; --text-3: #7d7d86;
+    --rule: #2c2c31; --rule-strong: #3a3a40; --accent: #7ea2f0; --accent-soft: #1d2638;
+    --mark: #3a3020; --node: #1c1c1f; --node-stroke: #c9c9cf; --edge: #8b8b93;
+    --kind: #7ea2f0; --link: #b49cf5; --out: #5cc88a; --erased: #5a5a62; --warn: #e0a54a;
+    --code-bg: #232327;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141416; --surface: #1c1c1f; --text: #ececee; --text-2: #b8b8bf; --text-3: #7d7d86;
+  --rule: #2c2c31; --rule-strong: #3a3a40; --accent: #7ea2f0; --accent-soft: #1d2638;
+  --mark: #3a3020; --node: #1c1c1f; --node-stroke: #c9c9cf; --edge: #8b8b93;
+  --kind: #7ea2f0; --link: #b49cf5; --out: #5cc88a; --erased: #5a5a62; --warn: #e0a54a;
+  --code-bg: #232327;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif; }
+.page { display: grid; grid-template-columns: minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 0 16px 96px; }
+@media (min-width: 1040px) { .page { grid-template-columns: 220px minmax(0, 760px); gap: 56px; padding: 0 32px 120px; } }
+
+nav.toc { display: none; }
+@media (min-width: 1040px) {
+  nav.toc { display: block; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow: auto; padding: 56px 0 24px; font: 13px/1.5 Inter, system-ui, sans-serif; }
+  nav.toc a { display: block; padding: 3px 0; color: var(--text-2); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .toc-title { font-weight: 650; color: var(--text); margin-bottom: 8px; }
+}
+
+header.top { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 0 0; font: 12px Inter, system-ui, sans-serif; color: var(--text-3); grid-column: 1 / -1; }
+.theme button { font: inherit; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--text-2); padding: 3px 9px; border-radius: 6px; cursor: pointer; }
+.theme button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+main { min-width: 0; }
+h1, h2, h3 { font-family: Inter, system-ui, sans-serif; letter-spacing: -.012em; line-height: 1.25; }
+h1 { font-size: 34px; font-weight: 700; margin: 40px 0 6px; }
+.lede { color: var(--text-2); font-size: 18px; margin: 0 0 28px; }
+h2 { font-size: 22px; font-weight: 650; margin: 56px 0 10px; padding-top: 18px; border-top: 1px solid var(--rule); }
+h2 .num, h3 .num { color: var(--text-3); font-weight: 500; margin-right: 8px; }
+h3 { font-size: 16.5px; font-weight: 650; margin: 28px 0 6px; }
+p { margin: 0 0 14px; }
+a { color: var(--accent); }
+strong.def { font-weight: 700; }
+.para { position: relative; }
+.para > .pn { position: absolute; left: -46px; top: 2px; width: 38px; text-align: right; font: 12px Inter, system-ui, sans-serif; color: var(--text-3); }
+@media (max-width: 1039px) { .para > .pn { position: static; display: inline; margin-right: 6px; } }
+code { font: 13.5px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; word-break: break-word; }
+.note { color: var(--text-2); font-size: 15.5px; }
+.katex { font-size: 1.04em; }
+.katex-display { margin: 14px 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+ul, ol { padding-left: 1.3em; margin: 0 0 14px; }
+li { margin: 3px 0; }
+
+table.tbl { border-collapse: collapse; width: 100%; margin: 10px 0 18px; font: 14px/1.45 Inter, system-ui, sans-serif; }
+table.tbl th, table.tbl td { border-bottom: 1px solid var(--rule); padding: 7px 8px; text-align: left; vertical-align: top; }
+table.tbl th { color: var(--text-3); font-weight: 550; font-size: 12.5px; }
+.tbl-wrap { overflow-x: auto; }
+
+figure { margin: 22px 0 26px; padding: 16px 16px 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; font: 14px/1.5 Inter, system-ui, sans-serif; }
+figure .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 10px; color: var(--text-2); font-size: 13px; }
+figure select, figure button.chip { font: 13px Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); border: 1px solid var(--rule-strong); border-radius: 7px; padding: 4px 8px; max-width: 100%; }
+figure button.chip { cursor: pointer; }
+figure button.chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+figcaption { margin-top: 10px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+figcaption b { color: var(--text); font-weight: 600; }
+.fig-body { overflow-x: auto; }
+.svg-tree text { font: 12px Inter, system-ui, sans-serif; fill: var(--text); }
+.svg-tree .edge-label { fill: var(--text-2); font-size: 11.5px; }
+.keys { margin-top: 8px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 12.5px; }
+.keys dt { color: var(--text-3); }
+.keys dd { margin: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; color: var(--text-2); }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--code-bg); font-size: 12px; color: var(--text-2); margin: 1px 2px; }
+.yes { color: var(--out); } .no { color: var(--warn); }
+.muted { color: var(--text-3); }
+.diagram { width: 100%; height: auto; display: block; }
+.diagram text { font: 13px Inter, system-ui, sans-serif; fill: var(--text); }
+.diagram .sub { fill: var(--text-3); font-size: 11.5px; }
+.diagram rect.box { fill: var(--surface); stroke: var(--rule-strong); }
+.diagram rect.box.accent { fill: var(--accent-soft); stroke: transparent; }
+.diagram path, .diagram line { stroke: var(--edge); fill: none; }
+.revision { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; margin: 14px 0; }
+.revision h4 { margin: 0 0 4px; font: 600 15px Inter, system-ui, sans-serif; }
+.revision p { margin: 0 0 6px; font-size: 15.5px; }
+</style>
+</head>
+<body>
+<div class="page">
+<header class="top"><span>Theme</span><span class="theme" id="theme"></span></header>
+
+<nav class="toc" aria-label="Contents">
+  <div class="toc-title">The Rboreal Model</div>
+  <a href="#glance">At a glance</a>
+  <a href="#trees">1 Trees, recalled</a>
+  <a href="#forms">2 Forms</a>
+  <a href="#charts">3 Charts</a>
+  <a href="#formulas">4 Formulas</a>
+  <a href="#views">5 Views</a>
+  <a href="#workbooks">6 Workbooks</a>
+  <a href="#edits">7 Edits</a>
+  <a href="#representation">8 Representation</a>
+  <a href="#revisions">9 Revisions</a>
+  <a href="#notation">10 Notation</a>
+</nav>
+
+<main>
+<h1>The Rboreal Model</h1>
+<p class="lede">The whole of what the prototype stores and computes, built up from the trees of <a href="data-model.md">data-model.md</a>: forms, formulas, names, styles, views, charts and workbooks.</p>
+
+<p><a href="data-model.md">data-model.md</a> defines records as labeled trees and states as sets of them. This document carries that theory up through everything else the app keeps. It describes the app as built: each definition here has a counterpart in <code>UI/mockups/app</code>, and the figures are worked out, live, by the app's own code from the sample chart. Where writing the model down showed part of the app to be unprincipled, the app was changed to fit; §9 lists the changes. Formulas are only summarized here; <a href="formulas.md">formulas.md</a> has them in full.</p>
+
+<section id="glance">
+<h2>At a glance</h2>
+<p>A workbook is a nonempty sequence of charts, which share nothing. A chart holds a schema, the records entered in it, the definitions whose formulas compute more records, and several lesser structures; its views, of which there is at least one, each draw the same records their own way.</p>
+$$\begin{aligned} \mathsf{Workbook} &= \mathsf{Chart}^{+}, & \mathsf{Chart} &= (S,\ E,\ F,\ R,\ N,\ O,\ A,\ V),\\ V &\in \mathsf{View}^{+}, & \mathsf{View} &= (Y,\ \lambda,\ H,\ \varphi). \end{aligned}$$
+<figure>
+<svg class="diagram" viewBox="0 0 720 300" role="img" aria-label="A workbook holds charts. A chart's entered records E and formulas F determine its computed state, which each of its views draws through its styles, layout, hidden set and filter.">
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--edge);stroke:none"/></marker></defs>
+  <rect class="box" x="8" y="8" width="704" height="284" rx="12" style="fill:none"/>
+  <text x="24" y="32" style="font-weight:600">Workbook</text><text class="sub" x="96" y="32">charts C₁ … Cₙ, and deleted charts</text>
+  <rect class="box" x="24" y="46" width="672" height="232" rx="10"/>
+  <text x="40" y="70" style="font-weight:600">Chart</text>
+  <rect class="box accent" x="40" y="84" width="128" height="52" rx="8"/><text x="54" y="106">Schema S</text><text class="sub" x="54" y="124">specifications</text>
+  <rect class="box accent" x="40" y="146" width="128" height="52" rx="8"/><text x="54" y="168">Entered E</text><text class="sub" x="54" y="186">records in S</text>
+  <rect class="box accent" x="40" y="208" width="128" height="52" rx="8"/><text x="54" y="230">Definitions F</text><text class="sub" x="54" y="248">scope, rule</text>
+  <rect class="box" x="214" y="146" width="150" height="52" rx="8"/><text x="228" y="168">Computed state Σ</text><text class="sub" x="228" y="186">E with what F gives</text>
+  <path d="M168 172 H210" marker-end="url(#arr)"/><path d="M168 234 C190 234 192 190 210 182" marker-end="url(#arr)"/>
+  <rect class="box" x="214" y="84" width="170" height="52" rx="8"/><text x="228" y="106">R, N, O, A</text><text class="sub" x="228" y="124">required, names, order, archive</text>
+  <rect class="box" x="410" y="84" width="270" height="176" rx="8"/><text x="424" y="106" style="font-weight:600">Views  V₁ … Vₘ</text>
+  <text x="424" y="132">Styles Y</text><text class="sub" x="508" y="132">form ↦ (output ↦ formatting)</text>
+  <text x="424" y="156">Layout λ</text><text class="sub" x="508" y="156">object ↦ position</text>
+  <text x="424" y="180">Hidden H</text><text class="sub" x="508" y="180">records hidden one by one</text>
+  <text x="424" y="204">Filter φ</text><text class="sub" x="508" y="204">which boxes, by formula</text>
+  <text x="424" y="238" style="font-weight:600">→ the drawing</text><text class="sub" x="530" y="238">boxes, text, lines</text>
+  <path d="M364 172 H406" marker-end="url(#arr)"/>
+</svg>
+<figcaption><b>The layers.</b> Everything to the left of the views is data, shared by every view of the chart; everything inside a view is presentation. The computed state is not stored: it is worked out from E and F whenever either changes.</figcaption>
+</figure>
+</section>
+
+<section id="trees">
+<h2><span class="num">1</span>Trees, recalled</h2>
+<p>We use the terms of data-model.md throughout: kinds \(\mathcal K\) and their objects, datatypes \(\mathcal D\) and their values, linkages, specifications, fields, tags, choices, locations, parameters, relations, schemas, records, arguments, argumentations, outputs, parameterizations, dependencies and states. For a specification or record \(t\) we write \(\operatorname{out}(t)\) for its output, \(\operatorname{par}(t)\) for its parameterization (for a record, the parameterization of its specification), and \(\operatorname{Loc}(t)\) for its set of locations. For a record \(r\), \(\operatorname{spec}(r)\) is its underlying specification. For a schema \(S\), \(\operatorname{Par}(S)\) is the set of parameterizations of its specifications.</p>
+<p class="para"><span class="pn">1.1</span><strong class="def">Labels.</strong> Text labels (kinds, edge labels, options) are compared without regard to case: trees that differ only in the case of text labels are the same tree. A label is displayed as it was first written.</p>
+<p class="para"><span class="pn">1.2</span><strong class="def">Datatypes.</strong> \(\mathcal D = \{\mathsf{text}, \mathsf{number}, \mathsf{percent}, \mathsf{money}, \mathsf{date}\}\), with \(T(\mathsf{text})\) the strings, \(T(\mathsf{number}) = T(\mathsf{percent}) = T(\mathsf{money}) = \mathbb R\), and \(T(\mathsf{date})\) the calendar dates. Datatypes with the same values differ only in how values are written and read: \(\mathsf{percent}\) writes \(0.716\) as 71.6%, and \(\mathsf{money}\) writes \(7.5 \times 10^{8}\) as $750,000,000.</p>
+<p class="para"><span class="pn">1.3</span><strong class="def">Identity.</strong> A state may contain distinct records with the same tree only if they are objects, which are told apart by identity alone. The app gives every record an <em>id</em>, and a record's tree refers to its locations by their ids.</p>
+<figure id="fig-anatomy" aria-live="polite">
+  <div class="controls" id="anatomy-controls"></div>
+  <div class="fig-body" id="anatomy-body"><p class="muted">Loading the sample chart…</p></div>
+  <figcaption><b>Figure 1. Anatomy of a record.</b> Pick a record of the sample chart to see its tree, then strip it down: its specification replaces objects by their kinds and a field's value by its datatype; its parameterization removes the root's label; its form (§2) erases every label but the edges'. Below the tree are the keys the app identifies each by (§8).</figcaption>
+</figure>
+</section>
+
+<section id="forms">
+<h2><span class="num">2</span>Forms</h2>
+<p>A parameterization says exactly which kinds an entry relates, and under which options. Much of what the app does wants something coarser: one style for every ownership whatever kind the owner is, one name for Tax Classification under every Entity Type. That coarser thing is the form.</p>
+<p class="para"><span class="pn">2.1</span>The <strong class="def">shape</strong> of a tree \(t\), \(\operatorname{sh}(t)\), is the tree obtained from \(t\) by removing the labels of all of its nodes. Its edges keep their labels.</p>
+<p class="para"><span class="pn">2.2</span>The <strong class="def">sort</strong> of a specification \(s\) is \(\operatorname{so}(s) = d\) if \(s\) is a field with datatype \(d\); \(\mathsf{choice}\) or \(\mathsf{tag}\) if it is a choice or tag; and \(\mathsf{object}\) if it is a lone kind, whose records are objects.</p>
+<p class="para"><span class="pn">2.3</span>The <strong class="def">form</strong> of \(s\) is \(\operatorname{fm}(s) = (\operatorname{sh}(s), \operatorname{so}(s))\).</p>
+<p class="para"><span class="pn">2.4</span><em>In a schema, specifications with the same parameterization have the same form.</em> They have the same shape, since a shape doesn't see the root's label; and by the schema conditions they are all fields, which then coincide, or all tags, or all choices, so they have the same sort. We may therefore speak of the form \(\operatorname{fm}(p)\) of a parameterization \(p \in \operatorname{Par}(S)\), and of the parameterizations \(\operatorname{Par}_S(f)\) and outputs \(\operatorname{Out}_S(f) = \{\operatorname{out}(s) : s \in S,\ \operatorname{fm}(s) = f\}\) of a form \(f\).</p>
+<p class="para"><span class="pn">2.5</span>Forms partition \(\operatorname{Par}(S)\) more coarsely than identity. A form forgets two things: which kinds sit at the leaves, and which options or attestations lie on the paths between the root and the leaves. So the three parameterizations of Ownership (an Entity, an Individual or an Investor Group as owner) share a form; so do Tax Classification under each of three Entity Types, and Name on every kind. A form keeps its edge labels, its sort, and how deep each location sits: an entry located at an object and one located at a choice under that object have different forms.</p>
+<p class="para"><span class="pn">2.6</span><strong class="def">The keying principle.</strong> What a record <em>means</em> is keyed by its parameterization; what it <em>looks like</em> and what it <em>is called</em>, by its form; where it <em>sits</em>, by its location. Accordingly, formulas and required entries attach to parameterizations (§3–4), styles and names to forms (§3, §5), and entry order and box positions to locations (§3, §5).</p>
+<figure id="fig-forms">
+  <div class="controls" id="forms-controls"></div>
+  <div class="fig-body" id="forms-body"><p class="muted">Loading…</p></div>
+  <figcaption><b>Figure 2. The sample's schema by form.</b> Each row is a form; beside it are the parameterizations it gathers, the outputs it has, and how many records of the sample have each. Forms with several parameterizations are where per-parameterization keying would multiply: the sample's ownership once needed six styles, and now needs two.</figcaption>
+</figure>
+</section>
+
+<section id="charts">
+<h2><span class="num">3</span>Charts</h2>
+<p class="para"><span class="pn">3.1</span>A <strong class="def">chart</strong> is a tuple \(C = (S, E, F, R, N, O, A, V)\) of</p>
+<ul>
+  <li>a schema \(S\), held explicitly (3.2);</li>
+  <li>a finite set \(E\) of records in \(S\), the <strong class="def">entered</strong> records;</li>
+  <li>a finite set \(F\) of definitions (§4), from which with \(E\) comes the chart's <strong class="def">computed state</strong> \(\Sigma = \Sigma(E, F)\), a state in \(S\);</li>
+  <li>a set \(R \subseteq \operatorname{Par}(S)\) of <strong class="def">required</strong> parameterizations (3.4);</li>
+  <li><strong class="def">names</strong> \(N\) for relation forms and their lists (3.5);</li>
+  <li>an <strong class="def">order</strong> \(O\) on entries (3.6);</li>
+  <li>an <strong class="def">archive</strong> \(A\) of deleted records (3.7);</li>
+  <li>and a nonempty sequence \(V\) of <strong class="def">views</strong> (§5).</li>
+</ul>
+<p>\(E\) need not be a state by itself, since an entered record may be located at a computed one; it is \(\Sigma\) that must be.</p>
+<p class="para"><span class="pn">3.2</span><strong class="def">The schema grows.</strong> Entering a record adds its specification to \(S\). Nothing removes a specification except removing it deliberately, which is allowed only for one that is <em>unused</em>: no record of \(\Sigma\) has it, no definition's scope or \(R\) includes its parameterization, and nothing in \(O\) is keyed by it. So \(S\) is the vocabulary the chart has used, not merely what its records use now, and a choice keeps its options when no record has them.</p>
+<p class="para"><span class="pn">3.3</span>Because \(S\) is explicit, every question about the schema (what entries a location may have, which options a choice offers, which relations two objects may enter, what a style or formula is about) is answered from \(S\), not by looking for a record that happens to have the answer.</p>
+<p class="para"><span class="pn">3.4</span><strong class="def">Required entries.</strong> For \(p \in R\) whose single parameter has location specification \(\ell\), a record \(x \in \Sigma\) with \(\operatorname{spec}(x) = \ell\) <strong class="def">lacks</strong> \(p\) if no record of \(\Sigma\) located at \(x\) has parameterization \(p\). A tag counts as present whether attested or ruled out. Lacked entries are drawn as blanks to fill in; leaving an object that lacks one asks first.</p>
+<p class="para"><span class="pn">3.5</span><strong class="def">Names.</strong> A <strong class="def">relation form</strong> is a form whose root has more than one child. \(N\) assigns to some relation forms \(f\) a <em>name</em> together with an order on \(f\)'s root edge labels, the order in which a call to the relation takes its arguments. It also assigns to some triples \((f, e, e')\), with \(e \ne e'\) root edge labels of \(f\), a <strong class="def">list name</strong>: the name, seen from an argument in role \(e\), of its relatives in role \(e'\). A list without a name goes by \(e'\); one with a name answers to \(e'\) as well.</p>
+<p class="para"><span class="pn">3.6</span><strong class="def">Order.</strong> \(O\) assigns to some location specifications \(\ell\) a finite sequence of labels. The entries of a record with specification \(\ell\) are listed with Name first, then those whose labels occur in \(O(\ell)\), in that order, then the rest by type (fields, tags, choices) and alphabetically.</p>
+<p class="para"><span class="pn">3.7</span><strong class="def">Archive.</strong> \(A\) is a sequence of <em>batches</em>, each a label, a time, and a set of entered records deleted together with their dependents (7.2).</p>
+</section>
+
+<section id="formulas">
+<h2><span class="num">4</span>Formulas</h2>
+<p>Formulas are set out in full in <a href="formulas.md">formulas.md</a>; this section restates what the rest of the model needs.</p>
+<p class="para"><span class="pn">4.1</span>A <strong class="def">definition</strong> is a pair \(\phi = (P_\phi, \rho_\phi)\) of a nonempty <strong class="def">scope</strong> \(P_\phi \subseteq \operatorname{Par}(S)\), all of one form, and a <strong class="def">rule</strong> \(\rho_\phi\): a value formula, or, if the scope's sort is \(\mathsf{tag}\), a nonempty finite sequence of labeled implications. The scopes of distinct definitions are disjoint. A definition may be marked <em>reflexive</em>, letting one object fill two of its parameters.</p>
+<p class="para"><span class="pn">4.2</span>A definition's <strong class="def">name</strong> is its form's name in \(N\) if that is a relation form, and otherwise the label of its form's only root edge. Its sort, datatype and options are read from \(S\). The definition stores none of these: it is only a scope and a rule. Its rule is written in the formula language of formulas.md.</p>
+<p class="para"><span class="pn">4.3</span>For a parameterization \(p\) and a set of records \(\Sigma\), a <strong class="def">candidate</strong> for \(p\) in \(\Sigma\) is an argumentation obtained from \(p\) by replacing each of its locations with a record of \(\Sigma\) whose specification is that location, using no object twice unless the definition is reflexive. At a candidate, a value formula <em>gives</em> an output or nothing; an implication <em>holds</em> or doesn't.</p>
+<p class="para"><span class="pn">4.4</span><strong class="def">The computed state.</strong> \(\Sigma(E, F)\) is the set of records \(r\) such that either \(r \in E\), or \(r\)'s argumentation \(a\) is a candidate in \(\Sigma\) for a parameterization in the scope of some \(\phi \in F\), no record of \(E\) has argumentation \(a\), and either \(\phi\) gives \(\operatorname{out}(r)\) at \(a\) or \(\operatorname{out}(r) = \mathsf{True}\) and one of \(\phi\)'s implications holds at \(a\), reading \(\Sigma\) throughout. The records of \(\Sigma \setminus E\) are <strong class="def">computed</strong>.</p>
+$$\Sigma \;=\; E \;\cup\; \bigl\{\, (a, o) \;:\; a \in \operatorname{Cand}_\Sigma(P_\phi),\ \phi \in F,\ a \notin \operatorname{arg}(E),\ \phi \text{ gives } o \text{ at } a \text{ reading } \Sigma \,\bigr\}$$
+<p>\(\Sigma\) appears on both sides. Records are worked out in the order they depend on each other; where some depend on themselves through implications alone, and monotonely, \(\Sigma\) is the least solution; any other record that depends on itself is left out and marked circular (formulas.md, "Loops").</p>
+<p class="para"><span class="pn">4.5</span><strong class="def">Entered records win.</strong> Where \(E\) has a record with argumentation \(a\), no formula's output at \(a\) enters \(\Sigma\). An entered ruling-out of a tag that an implication holds for is how a presumption is rebutted.</p>
+<p class="para"><span class="pn">4.6</span><strong class="def">Identity of computed records.</strong> A computed record's id is made from its argumentation, so it is the same each time \(\Sigma\) is worked out, and records entered at it (a note on a computed Control, say) stay put. Changing a computed record enters it under the same id, as an override.</p>
+<figure id="fig-override">
+  <div class="controls" id="override-controls"></div>
+  <div class="fig-body" id="override-body"><p class="muted">Loading…</p></div>
+  <figcaption><b>Figure 3. Entered records win.</b> The sample's Control is implied, among others, by "More than 25%". The feeder holds 28.4% of the fund, so it is presumed to control the fund, and through it the blocker, Northpine and Halvard. Enter a ruling-out of the feeder's control of the fund, and watch what was implied only through it leave \(\Sigma\).</figcaption>
+</figure>
+</section>
+
+<section id="views">
+<h2><span class="num">5</span>Views</h2>
+<p class="para"><span class="pn">5.1</span>A <strong class="def">view</strong> is a tuple \(v = (Y_v, \lambda_v, H_v, \varphi_v)\) of a sequence of styles, a layout, a set of hidden records, and an optional filter. Every view of a chart draws the same computed state \(\Sigma\).</p>
+<p class="para"><span class="pn">5.2</span>A <strong class="def">formatting</strong> is a partial function from the properties \(\mathcal P = \mathcal P_{\mathrm{box}} \cup \mathcal P_{\mathrm{text}} \cup \{\mathsf{show}, \mathsf{format}\}\) to values, where \(\mathcal P_{\mathrm{box}}\) = {shape, fill, outline, outline weight, dash} and \(\mathcal P_{\mathrm{text}}\) = {font, size, bold, italic, color}. A line uses the outline properties of \(\mathcal P_{\mathrm{box}}\).</p>
+<p class="para"><span class="pn">5.3</span>A <strong class="def">style</strong> is a pair \(y = (f_y, m_y)\) of a form and a partial function \(m_y : \operatorname{Out}_S(f_y) \rightharpoonup \mathrm{Fmt}\) from its outputs to formattings. \(Y_v\) is a finite sequence of styles on distinct forms. The style on the form of a lone kind is the <strong class="def">Kind style</strong>; its outputs are the kinds.</p>
+<p class="para"><span class="pn">5.4</span><strong class="def">Effective formatting.</strong> For \(r \in \Sigma\), let \(y\) be the style of \(Y_v\) on \(\operatorname{fm}(\operatorname{spec}(r))\), if there is one. Then</p>
+$$p_v(r) \;=\; D(r) \;\oplus\; m_y\bigl(\operatorname{out}(r)\bigr),$$
+<p>where \(\oplus\) is union favoring its right side and \(D(r)\) is the default: \(\mathsf{show} = \mathsf{True}\) for an object, \(\mathsf{False}\) for an entry, and for a relation \(\mathsf{True}\) unless a definition's scope includes a parameterization of its form, or \(r\) is a ruled-out tag. So <em>\(\mathsf{show}\) says whether a record is drawn</em>, whatever the record: an object as a box, an entry as a line of text, a relation as a line.</p>
+<p class="para"><span class="pn">5.5</span><strong class="def">What a view draws.</strong> Write \(\mathsf{show}_v(r)\) for \(p_v(r)(\mathsf{show})\). The view \(v\) draws</p>
+<ul>
+  <li>the <em>box</em> of an object \(x\) iff \(\mathsf{show}_v(x)\), \(x \notin H_v\), and \(\varphi_v\) is absent or holds at \(x\);</li>
+  <li>the <em>line</em> of a two-argument relation \(r\) iff \(\mathsf{show}_v(r)\), \(r \notin H_v\), and \(v\) draws the boxes of both its arguments' objects;</li>
+  <li>an entry \(e\) under an object \(x\) as a <em>line of text</em> in \(x\)'s box iff \(\mathsf{show}_v(e)\) and \(v\) draws the box;</li>
+  <li>an entry \(e\) under a relation \(r\) as <em>part of \(r\)'s label</em> iff \(\mathsf{show}_v(e)\) and \(v\) draws the line (an ownership's Percentage).</li>
+</ul>
+<p class="para"><span class="pn">5.6</span><strong class="def">How a box looks.</strong> Let \(\Sigma_x\) be the records under the object \(x\): \(x\) and its entries, depth first, in the order \(O\) lists them. The box properties of \(x\)'s box are</p>
+$$\operatorname{box}_v(x) \;=\; B_0 \;\oplus \bigoplus_{y \in Y_v}\; \bigoplus_{\substack{r \in \Sigma_x\\ \operatorname{fm}(r) = f_y}} m_y\bigl(\operatorname{out}(r)\bigr)\big|_{\mathcal P_{\mathrm{box}}},$$
+<p>folding left to right, so a later style overrides an earlier one, and within a style a later record an earlier one. Text properties fold the same way over the records <em>not</em> drawn as lines of text, applying to the whole box; a record drawn as a line of text adds its own text properties to its line. Order in \(Y_v\) matters only where two styles set one property of one box, as the Kind style's fill and Vehicle Type's fill do.</p>
+<p class="para"><span class="pn">5.7</span><strong class="def">Layout.</strong> \(\lambda_v\) maps some objects to a position and width. Objects it doesn't place are placed automatically, below the rest.</p>
+<p class="para"><span class="pn">5.8</span><strong class="def">Filter.</strong> \(\varphi_v\) is an expression in the formula language, worked out at each object as an entry's formula at that object would be. It holds where its value is TRUE. A filter that runs into an error at an object leaves its box drawn, marked.</p>
+<figure id="fig-view">
+  <div class="controls" id="view-controls"></div>
+  <div class="fig-body" id="view-body"><p class="muted">Loading…</p></div>
+  <figcaption><b>Figure 4. How a view draws a box.</b> Pick a view and an object. The table folds the view's styles over the object's records in order (5.6): each row is a style that reaches the box, the record it reaches it through, and the properties it sets; struck-out values are overridden later. The verdict says whether the view draws the box at all (5.5).</figcaption>
+</figure>
+</section>
+
+<section id="workbooks">
+<h2><span class="num">6</span>Workbooks</h2>
+<p class="para"><span class="pn">6.1</span>A <strong class="def">workbook</strong> is a nonempty sequence of charts \(W = (C_1, \dots, C_n)\), together with a sequence of deleted charts that can be restored. Charts share nothing: no records, schema, formulas, names or views.</p>
+<p class="para"><span class="pn">6.2</span><strong class="def">Copying formulas.</strong> Definitions move between charts only by copying. Copying from \(C'\) into \(C\) replaces \(C\)'s formulas and names by those of \(C'\) where their names agree, and adds the rest; their specifications join \(S\). The charts stay unsynced: a later change to either doesn't reach the other.</p>
+<p class="para"><span class="pn">6.3</span>Which chart and which view are current, and each chart's undo history, are not part of the model. They belong to the session.</p>
+</section>
+
+<section id="edits">
+<h2><span class="num">7</span>Edits</h2>
+<p>Every edit is a transition \(C \to C'\), taken as one undoable step; \(\Sigma\) is worked out again from \(E'\) and \(F'\). Undo puts back the chart as it was, \(S\) included.</p>
+<p class="para"><span class="pn">7.1</span><strong class="def">Entering.</strong> An edit to records replaces \(E\) by \(E'\), and \(S' = S \cup \{\operatorname{spec}(r) : r \in E'\}\). Changing a computed record enters it, under its id, as an override (4.6). The result must be a state in a schema: otherwise the edit is refused, with the reason.</p>
+<p class="para"><span class="pn">7.2</span><strong class="def">Deleting.</strong> Deleting records \(X\) removes them with their dependents: \(E' = E \setminus \operatorname{dep}(X)\), where \(\operatorname{dep}(X)\) is the least set containing \(X\) and every record located at a member of it. The entered records removed join \(A\) as a batch; restoring the batch puts them back, once what they depend on is back.</p>
+<p class="para"><span class="pn">7.3</span><strong class="def">Key maps.</strong> An edit that changes specifications is described by a map \(\mu : S \to S'\). Because parameterizations and forms are functions of specifications, \(\mu\) induces maps on them, and these carry everything keyed by them: \(O\) by location specification; \(R\) and formula scopes by parameterization; names and styles by form. Formula texts and filters that mention a renamed label are relabeled with it.</p>
+<p class="para"><span class="pn">7.4</span><strong class="def">Renaming every one like it.</strong> Renaming a label on a record \(r\) <em>every one like it</em> relabels that edge in every specification of \(S\) with \(r\)'s form, and in their dependents; \(\mu\) is that relabeling, and every record of those specifications is relabeled with it.</p>
+<p class="para"><span class="pn">7.5</span><strong class="def">The abandonment law.</strong> An edit to individual records (renaming <em>here only</em>, or moving an entry up a level) moves each edited record from a specification \(s\) to another, \(s'\). Then \(\mu(s) = s'\) for each such \(s\) that no record of \(E'\) has any more, and \(\mu\) is the identity elsewhere: <em>a specification abandoned by an edit moves with the records that abandoned it</em>. \(S' = \mu(S) \cup \{\operatorname{spec}(r) : r \in E'\}\).</p>
+<p class="para"><span class="pn">7.6</span><strong class="def">Definitions, names and views</strong> are edited directly: a definition's scope or rule, a name, a style's formatting, a box's position, the hidden set, the filter. Creating a definition adds to \(S\) the specifications its scope and sort require.</p>
+</section>
+
+<section id="representation">
+<h2><span class="num">8</span>Representation</h2>
+<p>The app stores each part of the model as plain data, and identifies trees by canonical strings.</p>
+<p class="para"><span class="pn">8.1</span><strong class="def">Keys.</strong> Let \(\nu\) fold a label's case. The key of a specification is</p>
+$$\kappa(s) = \begin{cases} \texttt{kind:}\,\nu(k) & \text{if } s \text{ is a lone kind } k,\\[2pt] \bigl[\,\operatorname{out}(s),\ \operatorname{sort}\bigl\{[\nu(e), \kappa(\ell)] : s \xrightarrow{\,e\,} \ell\bigr\}\,\bigr] & \text{otherwise,}\end{cases}$$
+<p>written as JSON, the children sorted because the tree is unordered. A parameterization's key is the sorted list of its children's pairs without the output; a form's key is built the same way with \(\operatorname{so}(s)\) for the output and the shape of each location in place of its key, a kind becoming • and a linkage ∘.</p>
+<div class="tbl-wrap"><table class="tbl">
+  <thead><tr><th>Model</th><th>In the app</th></tr></thead>
+  <tbody id="repr-rows">
+    <tr><td>Workbook \(W\)</td><td><code>workbook</code>: <code>charts</code>, each <code>{ id, name, state }</code>, and <code>deleted</code></td></tr>
+    <tr><td>Chart \(C\)</td><td>a chart's <code>state</code></td></tr>
+    <tr><td>Schema \(S\)</td><td><code>schema</code>: spec key ↦ specification tree, labels as written</td></tr>
+    <tr><td>Entered records \(E\)</td><td><code>records</code> in the state (<code>entered</code> in memory): id ↦ record</td></tr>
+    <tr><td>Computed state \(\Sigma\)</td><td><code>records</code> in memory, worked out by <code>Formulas.computeState</code>; computed ones carry <code>computed</code></td></tr>
+    <tr><td>Definitions \(F\)</td><td><code>definitions</code>: <code>{ id, scope, formula }</code> or <code>{ id, scope, implications }</code></td></tr>
+    <tr><td>Required \(R\)</td><td><code>required</code>: parameterization keys</td></tr>
+    <tr><td>Names \(N\)</td><td><code>names</code>: form key ↦ <code>{ name, edges, lists }</code></td></tr>
+    <tr><td>Order \(O\)</td><td><code>order</code>: location spec key ↦ labels</td></tr>
+    <tr><td>Archive \(A\)</td><td><code>archive</code>: batches <code>{ id, label, when, records }</code></td></tr>
+    <tr><td>View \(v\)</td><td><code>{ id, name, styles, layout, hidden, filter }</code></td></tr>
+    <tr><td>Style \(y\)</td><td><code>{ id, form, map }</code>, <code>map</code>: output key ↦ formatting</td></tr>
+  </tbody>
+</table></div>
+<p class="para"><span class="pn">8.2</span><strong class="def">Records.</strong> An object is <code>{ kind }</code>. An entry with one location is <code>{ at, edge, … }</code> and one with several is <code>{ args: [{ edge, at }, …], … }</code>, where <code>at</code> is a location's id, and the output is one of <code>field</code> and <code>value</code>, <code>tag</code>, or <code>choice</code>. The two shapes of entry are one notion, an entry with its arguments; the first is the second with a single argument, written shorter.</p>
+</section>
+
+<section id="revisions">
+<h2><span class="num">9</span>Revisions</h2>
+<p>Writing the model down showed where the app had grown its own notions instead of the model's. Each of these was changed to fit the model above.</p>
+<div class="revision"><h4>An explicit schema</h4><p>The app kept no schema; it read one off its records, and where no record survived it kept scraps of schema elsewhere: required entries stored their label and type, styles cached their names and descriptions, formulas stored their type and datatype, and a choice lost its options with its last record. Now \(S\) is stored (3.2–3.3), and all of these read it.</p></div>
+<div class="revision"><h4>Forms, and the keying principle</h4><p>Styles were keyed by parameterization, so the sample needed three Name styles and six for ownership, and Show/Hide, renaming and relation names each grouped parameterizations their own way. Now one notion, the form (§2), serves all of them, and 2.6 says what is keyed by what.</p></div>
+<div class="revision"><h4>One kind of value</h4><p>Entered numbers were kept as the text typed ("71.6%") and computed ones as numbers, so the two compared unequal and formulas carried a flag to show theirs as percentages. Now values are values of their datatype's type (1.2), with percent and money as datatypes, and how a value is written follows from its datatype.</p></div>
+<div class="revision"><h4>Definitions as scope and rule</h4><p>A definition said what it covers in one of two ways (locations written as text, or parameterization keys) and carried a name, type and datatype that had to be kept in step with the names and the records. Now a definition is a scope and a rule (4.1–4.2); the rest is read from \(S\) and \(N\).</p></div>
+<div class="revision"><h4>One meaning of show</h4><p>A view could hide a record four ways: a style's <code>show</code>, the hidden set, the filter, and a separate list of hidden kinds. The last was a style in disguise: hiding a kind is now its Kind-style entry's \(\mathsf{show}\), and \(\mathsf{show}\) means one thing for every record (5.4).</p></div>
+<div class="revision"><h4>The abandonment law</h4><p>What followed a record through a rename or a move was inferred after the fact, and only for keys some record still had. Now an edit describes its map on specifications (7.3), and 7.4–7.5 say exactly what moves.</p></div>
+</section>
+
+<section id="notation">
+<h2><span class="num">10</span>Notation</h2>
+<div class="tbl-wrap"><table class="tbl">
+  <thead><tr><th>Symbol</th><th>Meaning</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><td>\(\mathcal K,\ \mathcal D,\ T(d)\)</td><td>kinds; datatypes; the values of datatype \(d\)</td><td>1.2</td></tr>
+    <tr><td>\(\operatorname{out}(t),\ \operatorname{par}(t),\ \operatorname{Loc}(t)\)</td><td>output; parameterization; locations</td><td>§1</td></tr>
+    <tr><td>\(\operatorname{spec}(r)\)</td><td>a record's specification</td><td>§1</td></tr>
+    <tr><td>\(\operatorname{sh}(t),\ \operatorname{so}(s),\ \operatorname{fm}(s)\)</td><td>shape; sort; form</td><td>2.1–2.3</td></tr>
+    <tr><td>\(\operatorname{Par}_S(f),\ \operatorname{Out}_S(f)\)</td><td>parameterizations and outputs of a form</td><td>2.4</td></tr>
+    <tr><td>\(C = (S, E, F, R, N, O, A, V)\)</td><td>a chart</td><td>3.1</td></tr>
+    <tr><td>\(\Sigma = \Sigma(E, F)\)</td><td>the computed state</td><td>4.4</td></tr>
+    <tr><td>\(\phi = (P_\phi, \rho_\phi)\)</td><td>a definition: scope and rule</td><td>4.1</td></tr>
+    <tr><td>\(v = (Y_v, \lambda_v, H_v, \varphi_v)\)</td><td>a view: styles, layout, hidden, filter</td><td>5.1</td></tr>
+    <tr><td>\(y = (f_y, m_y)\)</td><td>a style: form and map</td><td>5.3</td></tr>
+    <tr><td>\(p_v(r),\ D(r)\)</td><td>effective and default formatting</td><td>5.4</td></tr>
+    <tr><td>\(\mu\)</td><td>an edit's map on specifications</td><td>7.3</td></tr>
+    <tr><td>\(\kappa(s)\)</td><td>a specification's key</td><td>8.1</td></tr>
+  </tbody>
+</table></div>
+</section>
+</main>
+</div>
+
+<script src="UI/vendor/katex/katex.min.js"></script>
+<script src="UI/vendor/katex/contrib/auto-render.min.js"></script>
+<script>
+// Typesets \( \) and $$ $$. A single $ is left alone, so amounts like $750,000,000 stay text.
+renderMathInElement(document.body, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }], throwOnError: false });
+
+// The theme switch: System follows the reader's system; Light and Dark override it.
+function drawTheme() {
+  const now = document.documentElement.dataset.theme ?? 'system';
+  document.getElementById('theme').innerHTML = ['system', 'light', 'dark'].map(t =>
+    `<button data-theme-pick="${t}" aria-pressed="${now === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join(' ');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-theme-pick]');
+  if (!b) return;
+  const t = b.dataset.themePick;
+  if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { t === 'system' ? localStorage.removeItem('rboreal.model.theme') : localStorage.setItem('rboreal.model.theme', t); } catch {}
+  drawTheme();
+});
+drawTheme();
+</script>
+</body>
+</html>
