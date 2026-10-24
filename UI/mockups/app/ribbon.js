@@ -106,7 +106,8 @@ function styleGroup(eng) {
     const first = Object.entries(over)[0];
     const note = first ? `<span class="rb-note is-warn">${esc(propName(first[0]))} on this box comes from <button class="link-btn" data-action="style-engage" data-style="${first[1].id}">${esc(describeStyle(first[1]).label)}</button></span>`
       : `<span class="rb-note">Changes apply to ${count(n, noun)}</span>`;
-    side = `<div style="display:flex;flex-direction:column;gap:4px;justify-content:center">${scope}${note}</div>`;
+    const remove = isKindStyle(eng.style) ? '' : `<button class="link-btn rb-remove" data-action="style-remove" title="Remove this style; undo brings it back">Remove</button>`;
+    side = `<div style="display:flex;flex-direction:column;gap:4px;justify-content:center">${scope}<span class="rb-row" style="gap:8px">${note}${remove}</span></div>`;
   }
   return rbGroup(eng ? `Style: ${esc(describeStyle(eng.style).label)} <span style="opacity:.75">${esc(describeStyle(eng.style).where)}</span>` : 'Style',
     `<div class="rb-row" style="gap:10px"><div class="gallery">${tiles}</div>${add}${side}</div>`, 'is-style');
@@ -208,6 +209,11 @@ function renderRibbon() {
     `<button class="ribbon-tab" role="tab" aria-selected="${chart.tab === key}" data-action="rb-tab" data-tab="${key}">${name}</button>`).join('');
   const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'view' ? viewTab() : homeTab();
   document.getElementById('ribbon').innerHTML = `<div class="ribbon-tabs" role="tablist">${tabs}</div><div class="ribbon-body">${body}</div>`;
+  // Keep the engaged style's tile in view when the gallery is too narrow to show every tile.
+  const gallery = document.querySelector('.gallery');
+  const tile = gallery?.querySelector('.tile[aria-pressed="true"]');
+  if (tile && (tile.offsetLeft + tile.offsetWidth > gallery.scrollLeft + gallery.clientWidth || tile.offsetLeft < gallery.scrollLeft))
+    gallery.scrollLeft = tile.offsetLeft - (gallery.clientWidth - tile.offsetWidth) / 2;
 }
 
 const PROP_TYPES = { size: Number, strokeWidth: Number, bold: v => v === 'true', italic: v => v === 'true', show: v => v === 'true' };
@@ -223,6 +229,7 @@ Object.assign(actions, {
   'style-engage': d => engage(d.style, d.output || undefined),
   'style-scope': d => { const eng = currentEngaged(); if (eng) chart.engaged = { styleId: eng.style.id, output: d.output }; },
   'style-new': d => { const s = addStyle(d.id); engage(s.id, outputKey(records[d.id])); },
+  'style-remove': () => { const eng = currentEngaged(); if (eng && !isKindStyle(eng.style)) { removeStyle(eng.style.id); chart.engaged = null; } },
   'insert-object': d => {
     const [x, y] = visibleCenter();
     chart.quick = d.kind ? { x, y, kind: d.kind, name: '' } : { x, y };
