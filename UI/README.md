@@ -20,7 +20,19 @@ Open these directly in a browser. The chart and the record panel share their cod
     - Controls showing a value that comes from another style are muted. A dot marks a value that a later style overrides on the selected box.
   - Clicking a box selects it and opens its object in the panel. Clicking a line of text in a box engages that text's style. Clicking a line opens its relation.
   - **Editing a name in place.** Double-click a name, press F2, or just start typing over a selected box. The panel follows as you type. Enter saves and Esc cancels.
-  - **Moving and deleting.** Drag a box to move it, or nudge it with the arrow keys. Delete asks before removing an object along with everything that depends on it. Deleted objects can be restored (see the record panel's Deleted list).
+  - **Moving and deleting.** Drag a box to move it, or nudge it with the arrow keys.
+    - Delete, on a selected box or line, asks whether to delete it from the chart (with everything that depends on it, in every view) or only hide it in this view. Deleted records can be restored from the record panel's Deleted list.
+    - A line a formula works out can't be deleted, since the formula would put it back. Delete offers to hide it in this view, or, for a tag, to rule it out, which is entered and overrides the formula there (see [formulas.md](../formulas.md)).
+  - **Views.** Tabs along the bottom, like a workbook's sheet tabs, switch between the chart's views. Views share the records and formulas, and each has its own styles, box positions and hidden things.
+    - "+" adds a view that starts as a copy of the current one. Double-click a tab to rename it, drag tabs to reorder them, and use the current tab's menu (or right-click a tab) to rename, duplicate or delete a view. The last view can't be deleted.
+    - Switching keeps the selection, unless the new view hides it.
+    - The sample has two views: Structure, and 40 Act, which hides ownership and draws the BDC's close affiliates (blue) and remote affiliates (dashed orange).
+  - **Show and hide**, in the View tab, act on the current view only.
+    - The Relations menu lists the chart's relations by name, the entered ones and those worked out by formula, each with a checkbox. Turning one on or off sets whether its styles draw it, for every kind it relates; text a line shows, like an ownership's Percentage, comes and goes with it. A computed relation starts out dashed, in a color of its own.
+    - Hide hides the selected box or line in this view, and the Hidden menu shows them again.
+    - A relation worked out by formula is drawn only where a style shows it. Adding a new kind of relation draws it in the current view and leaves it hidden in the others.
+  - **Formulas tab.** Definitions opens the panel's list of formulas, and Computed relation and Computed entry start new ones (a computed relation starts from the selected box, or the two being related). Why? opens the selected computed line, or line of text, in the panel. Calculation says how many records the formulas worked out, how long it took, and how many errors there are.
+  - Text a formula works out is set in italics on the chart. Lines that would pass behind other boxes go under them and come up into the box they reach.
   - A box with a required entry left blank has a red asterisk at its corner.
   - **Creating boxes.** Double-click the sheet to add a box of any kind there, or of a new kind. The Insert tab does the same at the middle of the view.
   - **Relating two boxes.** Drag from a box's edge handle to another box.
