@@ -441,7 +441,7 @@ Take the case of adding a 40 Act view to a chart:
   - Hide is also its own command, and a Hidden menu brings back what's hidden.
   - A computed line can't be deleted, so for it, Delete offers Hide, or for a tag, Rule out.
 
-Charts don't share formulas. Reusing a definition such as Affiliated Person in another chart would mean copying it, or a workbook-level library of definitions (see the questions below).
+Charts don't share formulas. The prototype reuses a definition such as Affiliated Person by copying it: the chart menu's "Copy formulas from" brings another chart's definitions and relation names into this one, and the two are unsynced from then on. A workbook-level library that charts follow is the alternative (see the questions below).
 
 ## In the panel and on the chart
 
@@ -476,6 +476,7 @@ As built in the prototype:
 Everything above is built into the mockups in [UI/mockups](UI/mockups/), so it can be tried:
 - **[chart.html](UI/mockups/chart.html) and [record-panel.html](UI/mockups/record-panel.html).** The sample comes with every example in this document, worked out live as the chart changes.
   - The chart has two views: Structure, and 40 Act, which hides ownership and draws the BDC's close and remote affiliates.
+  - The workbook can hold more charts, each with its own records and formulas, from the chart menu in the top bar.
   - See [UI/README.md](UI/README.md) for how to write and edit formulas there.
 - **[formula-lab.html](UI/mockups/formula-lab.html).** The definitions side by side with their results, and a scratch box that works out any expression at any record. Open it with `#selftest` to check the results this document claims.
 - **[formulas.js](UI/mockups/app/formulas.js).** The engine. A definition there names what it covers by locations written as paths from a kind, like `Entity › Entity Type: Limited Partnership`. Computed records get ids made from their argumentation, so they keep them from one working-out to the next.
@@ -520,4 +521,4 @@ Where the prototype differs from this document:
     - Delete asks whether to delete everywhere or hide in this view.
     - Should a view be able to show or hide by formula, for example only the close affiliates of a given fund? In the 40 Act view, most of the chart is a close affiliate of the BDC.
     - Should Show and Hide also work on boxes by kind, and on a box's lines of text by entry?
-14. **Workbooks.** Should a workbook have a library of definitions (Affiliated Person, Close Affiliate) that its charts can reuse?
+14. **Workbooks.** Charts in the prototype reuse formulas by copying them. Should a workbook instead have a library of definitions (Affiliated Person, Close Affiliate) that its charts follow, so a fix to one reaches them all?

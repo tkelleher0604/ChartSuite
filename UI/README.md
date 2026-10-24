@@ -6,6 +6,8 @@ Working area for Rboreal's frontend design.
 
 Open these directly in a browser. The chart and the record panel share their code and their saved state, so a change made on one page shows up on the other.
 
+Both pages work on a workbook of charts. The menu naming the current chart, in the top bar, switches to another chart, starts a new one (blank, or a copy of this one), renames or deletes this one, and restores a deleted one. Charts don't share records, formulas or views, and each keeps its own undo history. "Copy formulas from" in the same menu brings another chart's definitions and relation names into this one, unsynced from then on.
+
 - [mockups/chart.html](mockups/chart.html): the chart, with a ribbon above it and the record panel on the right.
   - Every object is a box, and every two-argument relation is a line from its first argument to its second.
   - A line's label is the relation's own text, if its style gives one, followed by whatever is located at the relation that its own style shows. Ownership is a tag (Owner, Owned) with a Percentage located at it, so its lines carry no label of their own and the Percentage labels them, just above the box a line reaches. Clicking that text selects the line and engages the Percentage's style.
