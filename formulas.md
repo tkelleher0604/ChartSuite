@@ -308,6 +308,7 @@ A first set:
 | `EACH(list, expression)` | The list of the expression's values, with `@` as each item. |
 | `LET(name, value, …, expression)` | As in Excel: names a value for use in the expression. |
 | `KIND(x)` | x's kind, as text. |
+| `OBJECT(name)` | The object whose Name is the text, without regard to case. BLANK if there's none, `#VALUE!` if there are several. |
 | `REACH(start, list)` | Everything reached from start by following the named list one or more times. The counterpart of the statute's "directly or indirectly". |
 | `LOOKTHROUGH(from, to, list, factor)` | The sum, over every way of getting from `from` to `to` by following the list, of the product of `factor` along the way. BLANK if there's no way. |
 | `WITHOUT(x, expression)` | The expression, worked out as if x and everything that depends on it weren't in the chart, with every computed record recomputed. For counterfactuals like §57(b)(2)'s carve-out. |
@@ -482,7 +483,7 @@ Everything above is built into the mockups in [UI/mockups](UI/mockups/), so it c
 - **[formulas.js](UI/mockups/app/formulas.js).** The engine. A definition there names what it covers by locations written as paths from a kind, like `Entity › Entity Type: Limited Partnership`. Computed records get ids made from their argumentation, so they keep them from one working-out to the next.
 
 Where the prototype differs from this document:
-- **Loops are found per definition, not per record.** A group of definitions that read each other and mix `=` and `←` is marked circular as a whole, even where no record actually depends on itself.
+- **Loops through NOT and the like.** The prototype catches one when it leaves an attestation that no longer holds. One that happens to settle isn’t flagged yet.
 - **Renames.**
   - What a formula covers follows renames and moves, as styles do.
   - Renaming an entry, or a relation's edge, offers "here only" or "every one like it", defaulting to every one.
@@ -496,7 +497,7 @@ Where the prototype differs from this document:
 1. **Syntax.** Do these read well: `@`, the bracketed names, dots that look at the linking relation first, and EACH, FILTER, ANY and REACH?
 2. **BLANK.** Should BLANK keep Excel's habit of counting as 0? For legal analysis, a missing percentage arguably makes a sum unknown rather than smaller.
 3. **Exceptions.** Should a tag have an "unless" line that applies to all its implications, like `AND NOT [Close Affiliate](…)` on each of Remote Affiliate's? And should an implication ever be able to rule out, rather than only attest?
-4. **Naming a particular object.** A formula can't name one object, like "the close affiliates of Fund III". Should it? It would be needed for showing or hiding by formula in a view.
+4. **Naming a particular object.** Should a formula be able to name one object, as in "the close affiliates of Fund III"? The prototype has `OBJECT("Fund III")` as a first answer, which finds an object by its Name. A name can change, though, so a reference that follows the object would be sturdier.
 5. **Relation names and edge labels.** Should a relation's name be allowed to equal one of its edge labels? Close Affiliate's is, which is why a dot gives the edge there.
 
 ### What formulas cover, and names
