@@ -25,7 +25,7 @@ function relationKinds() {
     if (!isRelation(r)) continue;
     const param = parameterization(records, id);
     if (!kinds.has(param)) kinds.set(param, {
-      param, type: typeOf(r), datatype: r.field, outputs: [],
+      param, type: typeOf(r), datatype: r.field, outputs: [], def: definitionCovering(param),
       args: r.args.map(a => ({ edge: a.edge, spec: specKey(records, a.at), kind: records[objectOf(a.at)].kind, sample: a.at })),
     });
     const k = kinds.get(param);
@@ -56,6 +56,8 @@ function relateRows(a, b) {
     const locA = sideLocations(a, pa.spec)[0], locB = sideLocations(b, pb.spec)[0];
     const key = `${n}:${i}:${j}`;
     const row = { key, kind: k, i, j, locA, locB, existing: [] };
+    // A kind worked out by formula isn't something to set up the sides for, as a BDC's status would be.
+    if ((!locA || !locB) && k.def) return;
     if (!locA || !locB) {
       const side = !locA ? a : b, arg = !locA ? pa : pb;
       // Rows wanting the same roles and missing something on the same side are shown as one.
@@ -111,9 +113,13 @@ function extraArgs(row, recorded) {
   return `<div class="relate-extras">${parts}</div>`;
 }
 
-// The output cell of a row with nothing recorded: an empty checkbox, a value box, or an option menu.
+// The output cell of a row with nothing recorded: an empty checkbox, a value box, or an option menu. For a
+// kind worked out by formula, the formula gives nothing here: a tag can still be attested by hand (control
+// in fact, say), but a value is left to the formula.
 function newOutput(row) {
   const k = row.kind;
+  if (k.def && k.type !== 'tag') return `<span class="relate-hint">${esc(k.def.name)} gives nothing here</span>`;
+  if (k.def) return `${checkbox(null, `data-action="relate-add" data-key="${row.key}" title="Attest it by hand"`)}<span class="relate-hint">Not implied by ${esc(k.def.name)}</span>`;
   if (k.type === 'tag') return checkbox(null, `data-action="relate-add" data-key="${row.key}"`);
   if (k.type === 'field')
     return `<input class="input rel-input" data-relate-value="${row.key}" placeholder="${k.datatype === 'number' ? 'Amount' : k.datatype === 'date' ? 'Date' : 'Value'}" autocomplete="off" spellcheck="false">`;
@@ -203,11 +209,13 @@ function relateView({ a, b }) {
   </div>`;
   if (!b) return [head, ''];
   relate.rows = relateRows(a, b);
-  const possible = relate.rows.filter(r => !r.needs);
+  const possible = relate.rows.filter(r => !r.needs && !r.kind.def);
+  const computed = relate.rows.filter(r => r.kind.def);
   const unavailable = relate.rows.filter(r => r.needs);
   const section = (title, html) => html ? `<div class="relate-section">${title}</div>${html}` : '';
   const body = (possible.length ? section('Kinds of relation they can be in', possible.map(r => relateRow(r, a, b)).join(''))
       : '<div class="empty">No kind of relation in the schema relates these two yet. Define one below.</div>')
+    + section('Worked out by formula', computed.map(r => relateRow(r, a, b)).join(''))
     + section('Missing something first', unavailable.map(r => relateRow(r, a, b)).join(''))
     + section('New kind of relation', newKindForm(a, b));
   return [head, `<div class="relate-body">${body}</div>`];
