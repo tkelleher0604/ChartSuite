@@ -122,6 +122,17 @@ h1 .select.in-title .icon { width: 16px; height: 16px; }
 .args { display: grid; grid-template-columns: calc(var(--label-col) - 4px) minmax(0, 1fr); row-gap: 6px; margin-top: 14px; font-size: 13.5px; }
 .arg-label { color: var(--text-2); }
 .arg-value { padding-left: 10px; }
+.arg-edge { display: inline-flex; align-items: center; gap: 2px; }
+.arg-sep { margin: 0 5px; color: var(--text-3); }
+.edge-rename { opacity: 0; transition: opacity .12s; }
+.arg-label:hover .edge-rename, .edge-rename:focus-visible { opacity: 1; }
+.edge-input { width: 100%; height: 28px; margin: -3px 0; }
+/* Renaming an edge: where it reaches, then save or cancel, across the header under its row. */
+.edge-edit { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 2px 0 2px; }
+.edge-edit-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
+.rename-scope { flex: none; }
+.form-scope { align-items: center; padding-top: 6px; }
+.scope-label { color: var(--text-3); }
 
 /* Forms: the row being added or edited, with a note line under it. */
 .form-block { margin: 2px 0; border-radius: 8px; background: var(--accent-soft); }

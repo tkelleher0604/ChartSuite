@@ -1147,3 +1147,52 @@ function commitWithFormulas(next, nextDefinitions, nextNames = names) {
   saveState();
   return null;
 }
+
+// ---- Rename helpers ----
+
+// What a record is like, for a rename that covers every one like it: an object, its kind; a relation, its
+// output type and edge labels, whatever kinds it relates; an entry, its type and label under what its
+// location is like, whatever option or attestation that location has. So every ownership is like every
+// other, and every Tax Classification under an Entity's Entity Type is like every other.
+function likeKey(id) {
+  const r = records[id];
+  if (isObject(r)) return `kind:${norm(r.kind)}`;
+  if (isRelation(r)) return `rel:${typeOf(r)}:${r.args.map(a => norm(a.edge)).sort().join('|')}`;
+  return `${likeKey(r.at)} › ${typeOf(r)}:${norm(r.edge)}`;
+}
+
+// The entered entries like an entry, and the entered relations like a relation, itself included. Computed
+// ones follow their definition instead.
+const entriesLike = id => Object.keys(records).filter(k => !isObject(records[k]) && !isRelation(records[k]) && !isComputed(k) && likeKey(k) === likeKey(id));
+const relationsLike = id => Object.keys(records).filter(k => isRelation(records[k]) && !isComputed(k) && likeKey(k) === likeKey(id));
+
+// A relation's edge relabeled in the pilot names: the relation's own edges and the keys of its lists, for
+// the names whose relation is like `id`. The list names themselves stay as they are.
+function namesWithEdge(id, from, to) {
+  const swap = s => same(s, from) ? to : s;
+  const key = likeKey(id);
+  const relations = (names.relations ?? []).map(n => `rel:${n.type}:${n.edges.map(norm).sort().join('|')}` !== key ? n : {
+    ...n, edges: n.edges.map(swap),
+    lists: Object.fromEntries(Object.entries(n.lists ?? {}).map(([k, v]) => [swap(k), Object.fromEntries(Object.entries(v).map(([k2, l]) => [swap(k2), l]))])),
+  });
+  return { ...names, relations };
+}
+
+// A relation's edge relabeled in the formulas that mention it: as a name after a dot (a linked record's
+// argument), in a labeled relation call, or as a list that goes by the edge for want of a pilot name.
+// A computed relation's formulas are left alone where the label is one of its own arguments.
+const definitionsWithEdge = (from, to) => definitions.map(d => d.args?.some(a => same(a.edge, from)) ? d : {
+  ...d,
+  ...(d.formula !== undefined && { formula: Formulas.renameName(d.formula, from, to) }),
+  ...(d.implications && { implications: d.implications.map(i => ({ ...i, formula: Formulas.renameName(i.formula, from, to) })) }),
+});
+
+// Relabels an edge on a relation, here only or on every relation like it. Every one carries the new label
+// through the pilot names and the formulas too, in the same undoable step. Returns why it couldn't, if it
+// couldn't.
+function renameEdge(id, from, to, every) {
+  const relabel = r => ({ ...r, args: r.args.map(a => same(a.edge, from) ? { ...a, edge: to } : a) });
+  const next = { ...records };
+  for (const k of every ? relationsLike(id) : [id]) next[k] = relabel(records[k]);
+  return every ? commitWithFormulas(next, definitionsWithEdge(from, to), namesWithEdge(id, from, to)) : commit(next);
+}

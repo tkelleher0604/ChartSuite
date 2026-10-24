@@ -17,6 +17,7 @@ const ui = {
   info: null,       // what a change just did, when it's worth saying
   why: null,        // id of the record whose formula is explained under it
   fx: null,         // the definition being edited: { key, draft, error }; see "Formulas" below
+  edgeEdit: null,   // a relation's edge being relabeled: { id, edge, text, scope, error }; see argumentRows
 };
 
 // ---- Changes made from the panel ----
@@ -93,12 +94,19 @@ function saveForm() {
   if (f.id && isComputed(f.id) && same(records[f.id].edge, entry.edge) && sameOutput(records[f.id], entry)) return null;
   const oldLabel = f.id && records[f.id].edge;
   const next = { ...records, [f.id ?? newId()]: { at: f.at, ...entry } };
-  // A relabeled entry relabels the formulas and names that mention it, once nothing has the old label.
-  const relabeled = oldLabel && !same(oldLabel, entry.edge) && !Object.entries(next).some(([k, r]) => k !== f.id && !r.args && same(r.edge, oldLabel))
+  const renamed = oldLabel && !same(oldLabel, entry.edge);
+  // Renaming every entry like this one, the default where there are others, relabels them all in the same
+  // step. Computed ones follow their definition.
+  const others = renamed && f.scope !== 'here' ? entriesLike(f.id).filter(k => k !== f.id) : [];
+  for (const k of others) next[k] = { ...records[k], edge: entry.edge };
+  // A relabeled entry relabels the formulas and names that mention it, once nothing entered has the old label.
+  const relabeled = renamed && !Object.entries(next).some(([k, r]) => k !== f.id && !r.args && !r.computed && same(r.edge, oldLabel))
     ? Formulas.relabel(definitions, names, oldLabel, entry.edge) : null;
   const error = relabeled ? commitWithFormulas(next, relabeled.definitions, relabeled.names) : commit(next);
-  if (!error && oldLabel) keepPlace(f.at, oldLabel, entry.edge);
-  return error;
+  if (error || !oldLabel) return error;
+  for (const at of new Set([f.at, ...others.map(k => records[k].at)])) keepPlace(at, oldLabel, entry.edge);
+  if (others.length) ui.info = `Renamed ${oldLabel} to ${entry.edge} at ${count(others.length + 1, 'location')}${relabeled ? ', and in the formulas and names' : ''}.`;
+  return null;
 }
 
 // How a deleted record is listed under Deleted: an object by its name, a relation by its edges and sides,
@@ -163,14 +171,15 @@ function resetSample() {
 }
 
 function clearForms() {
-  ui.form = ui.focus = ui.error = ui.menu = ui.relEdit = ui.pending = ui.fx = null;
+  ui.form = ui.focus = ui.error = ui.menu = ui.relEdit = ui.pending = ui.fx = ui.edgeEdit = null;
   closeSuggest();
 }
 
-// ui.form is { mode: 'add' | 'edit', type, at, id, name, output, not, step, typed, cell }.
+// ui.form is { mode: 'add' | 'edit', type, at, id, name, output, not, step, typed, cell, scope }.
 // `name` and `output` hold what's in the name box and in the value or option box, `not` rules a tag out,
 // and `step` stays 'name' until a name is chosen. `typed` marks the boxes typed in since they were filled,
 // whose lists are filtered by what's in them. `cell` means only the value or option is being edited.
+// `scope` says whether a new label renames this entry only ('here') or every entry like it ('every').
 function startForm(mode, type, at, id, { focus = 'name', cell = false } = {}) {
   clearForms();
   const r = id ? records[id] : null;
@@ -182,6 +191,7 @@ function startForm(mode, type, at, id, { focus = 'name', cell = false } = {}) {
     not: !!r && isTag(r) && !r.tag,
     step: mode === 'edit' ? 'output' : 'name',
     typed: {},
+    scope: 'every',
   };
   ui.focus = focus;
   if (at) ui.expanded.add(at);
@@ -662,7 +672,9 @@ function columnFilter(table, c, edge, locations, picked) {
 // lead there, so arguments that meet at one location share a row. Each location shows its object and
 // just enough segments, counted back from the relation, to tell its parameter from others with the same
 // edge label; copies of one parameter can't be told apart that way and are told apart by their objects.
-function argumentRows(r) {
+// Each edge label can be renamed in place (see edgeLabel).
+function argumentRows(id) {
+  const r = records[id];
   // Each segment compared as shown: an object by its kind, a path entry by its edge and root label.
   const segment = p => { const s = records[p]; return isObject(s) || isRelation(s) ? specKey(records, p) : JSON.stringify([norm(s.edge), rootLabel(s)]); };
   const info = r.args.map(a => ({ ...a, spec: specKey(records, a.at), segs: pathTo(a.at).map(segment) }));
@@ -675,9 +687,51 @@ function argumentRows(r) {
     keep.set(x.at, Math.max(keep.get(x.at) ?? 0, n));
   }
   const byLocation = new Map();
-  for (const a of r.args) byLocation.set(a.at, [...(byLocation.get(a.at) ?? []), a.edge]);
+  for (const a of r.args) byLocation.set(a.at, [...new Set([...(byLocation.get(a.at) ?? []), a.edge])]);
+  const editing = ui.edgeEdit?.id === id ? ui.edgeEdit : null;
   return `<div class="args">${[...byLocation].map(([at, edges]) =>
-    `<div class="arg-label">${esc(edges.join(' · '))}</div><div class="arg-value">${locationHtml(at, keep.get(at), true)}</div>`).join('')}</div>`;
+    `<div class="arg-label">${edges.map(e => edgeLabel(id, e)).join('<span class="arg-sep">·</span>')}</div><div class="arg-value">${locationHtml(at, keep.get(at), true)}</div>`
+    + (editing && edges.some(e => same(e, editing.edge)) ? edgeEditor(id, editing) : '')).join('')}</div>`;
+}
+
+// An edge label in a relation's header, with a way to rename it: in place for an entered relation, and in
+// its definition for a computed one (or an entered one a formula covers), whose edges are the definition's.
+function edgeLabel(id, edge) {
+  const editing = ui.edgeEdit?.id === id && same(ui.edgeEdit.edge, edge);
+  if (editing) return `<input class="input edge-input" data-edge-edit value="${esc(ui.edgeEdit.text)}" aria-label="New label for ${esc(edge)}" autocomplete="off" spellcheck="false" data-autofocus>`;
+  const def = formulaInfo(id) && definitionOf(formulaInfo(id).def);
+  const rename = def
+    ? `<a class="icon-btn is-small edge-rename" href="#formula:${esc(def.id)}" aria-label="Rename ${esc(edge)} in ${esc(def.name)}" title="Its edges are ${esc(def.name)}’s: rename them in its definition">${icon('pencil')}</a>`
+    : `<button class="icon-btn is-small edge-rename" data-action="edge-edit" data-id="${id}" data-edge="${esc(edge)}" aria-label="Rename ${esc(edge)}" title="Rename ${esc(edge)}">${icon('pencil')}</button>`;
+  return `<span class="arg-edge"><span>${esc(edge)}</span>${rename}</span>`;
+}
+
+// Under the edge being renamed: here only or every relation like this one, then save or cancel.
+function edgeEditor(id, edit) {
+  const like = relationsLike(id).length;
+  const r = records[id];
+  const scope = like > 1 ? renameScope('edge-scope', edit.scope, `Every ${relationNameOf(r)?.name ?? relationLabel(r)}`, like,
+    `Rename ${edit.edge} on every relation like this one, whatever kinds it relates, and in the formulas and names that use it`) : '';
+  const error = edit.error ? `<span class="note-text is-error">${icon('alert-triangle')}${esc(edit.error)}</span>` : '';
+  return `<div class="edge-edit">${scope}<span class="edge-edit-actions">${error}
+    <button class="icon-btn is-primary" data-action="edge-save" aria-label="Save" title="Save">${icon('check')}</button>
+    <button class="icon-btn" data-action="cancel" aria-label="Cancel" title="Cancel">${icon('x')}</button></span></div>`;
+}
+
+// Relabels the edge being edited. Returns why it couldn't, if it couldn't.
+function saveEdge() {
+  const edit = ui.edgeEdit;
+  const to = clean(edit.text);
+  if (!to) return 'Give it a label.';
+  if (same(to, edit.edge) && to === edit.edge) return null;
+  if (records[edit.id].args.some(a => !same(a.edge, edit.edge) && same(a.edge, to))) return `This relation already has a ${to}.`;
+  const every = edit.scope !== 'here' && relationsLike(edit.id).length > 1;
+  const n = every ? relationsLike(edit.id).length : 1;
+  const error = renameEdge(edit.id, edit.edge, to, every);
+  if (error) return error;
+  if (!every) ensureRelationStyle(edit.id);
+  ui.info = every ? `Renamed ${edit.edge} to ${to} on ${count(n, 'relation')}, and in the formulas and names.` : `Renamed ${edit.edge} to ${to} on this relation only.`;
+  return null;
 }
 
 // A box with a listbox of existing names or options; a chevron marks an option box.
@@ -700,7 +754,17 @@ function formNote(plain = false) {
   return `<div class="form-note${plain ? ' is-plain' : ''}"><div class="form-note-inner">
       <span class="note-text ${cls}" data-note>${text}</span>${editExtras(f)}
       <span class="form-keys"><span><kbd>Enter</kbd> ${enter}</span><span><kbd>Esc</kbd> cancel</span></span>
-    </div></div>`;
+    </div>${scopeLine(f)}</div>`;
+}
+
+// Under the note, where other entries are like the one being edited: whether a new label renames this
+// one only, or every one like it (see renameScope).
+function scopeLine(f) {
+  if (f.mode !== 'edit' || f.cell || !f.id || isObjectName(f.id)) return '';
+  const like = entriesLike(f.id).length;
+  if (like < 2) return '';
+  return `<div class="form-note-inner form-scope"><span class="scope-label">A new name reaches</span>${renameScope('rename-scope', f.scope, `Every ${likeText(f.at)}`, like,
+    `Rename every ${records[f.id].edge} at a location like this one, and in the formulas and names that use it`)}</div>`;
 }
 
 // Editing an entry also offers to require it at every location like this one, and to move it up a level.
@@ -712,6 +776,22 @@ function editExtras(f) {
     ? `<button class="link-btn" data-action="move-up" data-id="${f.id}" title="Put it at ${esc(segmentText(loc.at))} instead (Alt+Left on its handle)">Move up a level</button>` : '';
   return `<span class="form-extras"><button class="link-btn" data-action="toggle-required" data-id="${f.id}" aria-pressed="${on}"
     title="Flag it wherever it’s blank">${box(on ? true : null)}Required ${esc(where(loc))}</button>${up}</span>`;
+}
+
+// Where a rename reaches: here only, or every record like this one (`count` of them, this one included).
+function renameScope(action, scope, every, count, title) {
+  return `<span class="seg rename-scope" role="group" aria-label="Rename">
+    <button data-action="${action}" data-value="here" aria-pressed="${scope === 'here'}" title="Rename only this one">Here only</button>
+    <button data-action="${action}" data-value="every" aria-pressed="${scope !== 'here'}" title="${esc(title)}">${esc(every)} (${count})</button></span>`;
+}
+
+// How the locations a rename of every one reaches read: a kind for an entry on an object, a relation's
+// name for one at a relation, and "Entity’s Entity Type" for one further down.
+function likeText(at) {
+  const r = records[at];
+  if (isObject(r)) return r.kind;
+  if (isRelation(r)) return relationNameOf(r)?.name ?? relationLabel(r);
+  return `${likeText(r.at)}’s ${r.edge}`;
 }
 
 // A required entry that's blank: its label flagged with an asterisk, and a prompt to fill it in.
@@ -904,7 +984,7 @@ function relationView(id) {
     + (style ? ` · <button class="kind-chip${engagedHere(id) ? ' is-engaged' : ''}" data-action="style-engage" data-style="${style.id}" data-output="${esc(outputKey(r))}">${styleDot(id, true)}Line style</button>` : '');
   const rows = isField(r) ? '' : entryRows(id, 0);
   const body = rows || `<div class="empty">${isField(r) ? 'A field relation holds a value and has no entries.' : 'Nothing recorded about this relation yet.'}</div>`;
-  const extra = argumentRows(r) + (formulaInfo(id) ? whyBlock(id, 0, true) : formulaSection(id));
+  const extra = argumentRows(id) + (formulaInfo(id) ? whyBlock(id, 0, true) : formulaSection(id));
   return [panelHead({ title, sub, actions: isField(r) ? '' : addMenu(id), extra }), body];
 }
 
@@ -1622,6 +1702,13 @@ const actions = {
     if (error) ui.error = error; else clearForms();
   },
   cancel: clearForms,
+  'rename-scope': d => { ui.form.scope = d.value; },
+  'edge-edit': d => { clearForms(); ui.edgeEdit = { id: d.id, edge: d.edge, text: d.edge, scope: 'every', error: null }; },
+  'edge-scope': d => { ui.edgeEdit.scope = d.value; },
+  'edge-save': () => {
+    ui.edgeEdit.error = saveEdge();
+    if (!ui.edgeEdit.error) ui.edgeEdit = null;
+  },
   undo,
   redo,
   reset: resetSample,
@@ -1818,6 +1905,7 @@ document.addEventListener('focusout', e => {
 document.addEventListener('input', e => {
   if (e.target.matches('[data-fx]')) return onFxInput(e.target);
   if (e.target.matches('[data-rel-edit]')) ui.relEdit.text = e.target.value;
+  if (e.target.matches('[data-edge-edit]')) { ui.edgeEdit.text = e.target.value; ui.edgeEdit.error = null; }
   const role = e.target.dataset.input;
   if (!ui.form || !role) return;
   // A new tag's condition: typing <- at its start makes the arrow.
@@ -1870,6 +1958,12 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     return submitForm();
   }
+  if (e.key === 'Enter' && t.matches('[data-edge-edit]')) {
+    e.preventDefault();
+    ui.notice = ui.info = null;
+    actions['edge-save']();
+    return render();
+  }
   if (e.key === 'Enter' && t.matches('[data-rel-edit]')) {
     e.preventDefault();
     const edit = ui.relEdit;
@@ -1888,7 +1982,7 @@ document.addEventListener('keydown', e => {
     ui.focusGrip = t.dataset.grip;
     return render();
   }
-  if (e.key === 'Escape' && (ui.form || ui.menu || ui.relEdit || ui.pending || ui.notice)) {
+  if (e.key === 'Escape' && (ui.form || ui.menu || ui.relEdit || ui.edgeEdit || ui.pending || ui.notice)) {
     clearForms();
     ui.notice = null;
     return render();
