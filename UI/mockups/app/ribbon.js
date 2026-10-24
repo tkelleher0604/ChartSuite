@@ -7,6 +7,7 @@ const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['formulas', 'Formu
 Object.assign(ICONS, {
   'math-function': '<path d="M3 19a2 2 0 0 0 2 2c2 0 2 -4 3 -9s1 -9 3 -9a2 2 0 0 1 2 2" /><path d="M5 12h6" /><path d="M15 12l6 6" /><path d="M15 18l6 -6" />',
   'help-circle': '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M12 16v.01" /><path d="M12 13a2 2 0 0 0 .914 -3.782a1.98 1.98 0 0 0 -2.414 .483" />',
+  filter: '<path d="M4 4h16v2.172a2 2 0 0 1 -.586 1.414l-4.414 4.414v7l-6 2v-8.5l-4.48 -4.928a2 2 0 0 1 -.52 -1.345v-2.227z" />',
   'eye-off': '<path d="M10.585 10.587a2 2 0 0 0 2.829 2.828" /><path d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 2.712 -3.678 4.32 -4.674m2.86 -1.146a9.055 9.055 0 0 1 1.82 -.18c3.6 0 6.6 2 9 6c-.666 1.11 -1.379 2.067 -2.138 2.87" /><path d="M3 3l18 18" />',
 });
 
@@ -263,6 +264,81 @@ function hiddenMenu() {
     + `<div class="menu-sep"></div><button class="menu-item" role="menuitem" data-action="unhide-all"><span class="menu-text">Show all</span></button>`;
 }
 
+// The Kinds menu: each kind of object, with whether this view shows its boxes.
+function kindsMenu() {
+  const off = new Set(hiddenKinds());
+  return `<div class="menu-head">Boxes in ${esc(viewInUse().name)}</div>` + kindsInState().map(k => {
+    const on = !off.has(norm(k));
+    const n = objectsOfKind(k).length;
+    return `<button class="menu-item" role="menuitemcheckbox" aria-checked="${on}" data-action="show-kind" data-kind="${esc(k)}">
+      ${box(on ? true : null)}<span class="menu-text"><span class="menu-title">${esc(plural(k))}</span><span class="menu-desc">${count(n, 'box')}</span></span></button>`;
+  }).join('');
+}
+
+// ---- The view's filter ----
+// A condition worked out at each object (see filterOutcome in chart.js), written in a menu like a formula
+// in the panel: checked as it's typed, with names offered, and how many boxes it would show. The text
+// being typed is a draft until it's applied.
+
+const FILTER_EXAMPLE = '← [Investment Company] OR COUNT(Owners) > 1';
+
+// Objects to offer names from: one of each kind, since names differ from kind to kind.
+const filterSamples = () => kindsInState().map(k => objectsOfKind(k)[0]).filter(Boolean);
+
+// The names that fit what's typed before the caret, from every kind's sample object: offered while a name
+// is being typed, or after a dot, shortest first, so Owners comes before Ownership Adds Up.
+function filterNames(textBefore) {
+  if (!formulaResult.state || !/(\[[^\]]*|[A-Za-z_][A-Za-z0-9_]*|\.)$/.test(textBefore)) return [];
+  const seen = new Map();
+  for (const at of filterSamples())
+    for (const s of Formulas.suggest(formulaResult, null, textBefore, at)) if (!seen.has(norm(s.name))) seen.set(norm(s.name), s);
+  return [...seen.values()].filter(s => s.kind !== 'function').sort((a, b) => a.name.length - b.name.length).slice(0, 8);
+}
+
+// What the draft would do, or what's wrong with it, under the box.
+function filterNote(text) {
+  if (!clean(Formulas.splitFormula(text).body)) return `<span class="fx-hint">No filter: every box shows. For example, ${esc(FILTER_EXAMPLE)}</span>`;
+  const o = filterOutcome(text);
+  if (o.syntax) {
+    const at = Math.min(o.syntax.pos, text.length);
+    const where = `${esc(text.slice(Math.max(0, at - 24), at))}<mark>${esc(text.slice(at, at + 1) || ' ')}</mark>${esc(text.slice(at + 1, at + 12))}`;
+    return `<span class="fx-problem">${esc(o.syntax.message)}</span> <span class="fx-where">…${where}</span>`;
+  }
+  const shown = o.total - o.hidden.size;
+  const errs = [...o.errors.values()];
+  const errNote = errs.length ? ` <span class="filter-err">${count(errs.length, 'box')} give${errs.length === 1 ? 's' : ''} ${esc(errs[0].code)}: ${esc(errs[0].msg ?? '')} They stay shown, marked.</span>` : '';
+  return `<span class="fx-hint">Would show ${shown} of ${count(o.total, 'box')}.</span>${errNote}`;
+}
+
+function filterChips(textBefore) {
+  return filterNames(textBefore).map(s => `<button class="filter-chip" data-filter-suggest="${esc(s.name)}" title="${esc(s.kind)}">${esc(s.name)}</button>`).join('');
+}
+
+function filterMenu() {
+  if (!chart.filterDraft || chart.filterDraft.view !== viewId) chart.filterDraft = { view: viewId, text: viewFilter() };
+  const text = chart.filterDraft.text;
+  return `<div class="filter-pop">
+    <div class="menu-head">Show boxes in ${esc(viewInUse().name)} where</div>
+    <textarea class="input filter-input" data-view-filter rows="3" spellcheck="false" autocomplete="off" placeholder="${esc(FILTER_EXAMPLE)}">${esc(text)}</textarea>
+    <div class="filter-chips" id="filter-chips">${filterChips(text)}</div>
+    <div class="fx-note filter-note" id="filter-note">${filterNote(text)}</div>
+    <div class="filter-foot"><button class="btn btn-primary" data-action="filter-apply">Apply</button>
+      <button class="link-btn" data-action="filter-clear"${viewFilter() ? '' : ' disabled'}>Clear</button>
+      <span class="fx-keys">Enter applies · Tab takes a name</span></div></div>`;
+}
+
+// How much of the chart this view leaves out, and a way to lay out what's left.
+function boxesNote() {
+  const hidden = hiddenHere();
+  const objects = Object.keys(records).filter(id => isObject(records[id]));
+  const shown = objects.filter(id => !hidden.has(id)).length;
+  const o = filterOutcome(viewFilter());
+  const errs = o.syntax ? 1 : o.errors.size;
+  const err = errs ? ` <button class="link-btn rb-errors" data-action="menu" data-menu="rb:filter" title="The filter can’t be worked out everywhere">${o.syntax ? 'Filter doesn’t read' : count(errs, 'error')}</button>` : '';
+  const tidy = shown < objects.length ? ` <button class="link-btn" data-action="view-tidy" title="Lay out the boxes this view shows in rows, owners and controllers above, in this view only">Tidy layout</button>` : '';
+  return `<span class="rb-note">Showing ${shown} of ${count(objects.length, 'box')}</span>${err}${tidy}`;
+}
+
 function viewTab() {
   const zoom = `<div class="rb-row"><button class="rb-btn is-tall" data-action="zoom" data-step="-1">${icon('minus')}Zoom out</button>
     <button class="rb-btn is-tall" data-action="zoom-reset"><span style="font-size:13px;font-weight:600">${Math.round(chart.zoom * 100)}%</span>Actual size</button>
@@ -271,15 +347,24 @@ function viewTab() {
   const sel = selection();
   const target = sel.object ?? sel.relation;
   const nHidden = hiddenInView().filter(id => records[id]).length;
-  const show = `<div class="rb-row">${rbMenu('rb:show', `<span class="rb-field-text">Relations</span>`, { cls: 'rb-field is-wide', title: 'Which relations this view draws as lines' }, showMenu)}</div>
+  const nKinds = hiddenKinds().filter(k => kindsInState().some(x => norm(x) === k)).length;
+  const show = `<div class="rb-row">${rbMenu('rb:show', `<span class="rb-field-text">Relations</span>`, { cls: 'rb-field is-wide', title: 'Which relations this view draws as lines' }, showMenu)}
+    ${rbMenu('rb:kinds', `<span class="rb-field-text">Kinds${nKinds ? ` (${nKinds} off)` : ''}</span>`, { cls: 'rb-field', title: 'Which kinds of object this view shows as boxes' }, kindsMenu)}</div>
     <div class="rb-row"><button class="rb-btn" data-action="hide-selection"${target ? '' : ' disabled'} title="${target ? 'Hide the selection in this view only' : 'Select a box or a line to hide it in this view'}">${icon('eye-off')}Hide</button>
     ${rbMenu('rb:hidden', `<span class="rb-field-text">Hidden${nHidden ? ` (${nHidden})` : ''}</span>`, { cls: 'rb-field', title: 'Things hidden one by one in this view', disabled: !nHidden }, hiddenMenu)}</div>`;
+  const current = viewFilter();
+  const filter = `<div class="rb-row">${rbMenu('rb:filter', `${icon('filter')}<span class="rb-field-text${current ? '' : ' is-placeholder'}">${esc(current ? Formulas.splitFormula(current).body.trim() : 'Show every box')}</span>`,
+      { cls: 'rb-field is-filter', title: current ? `Shows the boxes where ${current}` : 'Show only the boxes where a condition holds, worked out at each one' }, filterMenu)}</div>
+    <div class="rb-row">${boxesNote()}</div>`;
   const grid = `<button class="rb-check" data-action="toggle-pref" data-key="grid" aria-pressed="${prefs.grid !== false}">${box(prefs.grid !== false)}Gridlines</button>`;
   const panel = `<button class="rb-check" data-action="toggle-pref" data-key="panel" aria-pressed="${prefs.panel !== false}">${box(prefs.panel !== false)}Record panel</button>`;
-  return rbGroup(`Show and hide in ${esc(viewInUse().name)}`, show) + rbGroup('Zoom', zoom) + rbGroup('Workspace', `<div class="rb-row">${grid}</div><div class="rb-row">${panel}</div>`);
+  return rbGroup(`Show and hide in ${esc(viewInUse().name)}`, show) + rbGroup('Filter boxes', filter)
+    + rbGroup('Zoom', zoom) + rbGroup('Workspace', `<div class="rb-row">${grid}</div><div class="rb-row">${panel}</div>`);
 }
 
 function renderRibbon() {
+  // A filter being typed is dropped when its menu closes without applying it.
+  if (ui.menu !== 'rb:filter') chart.filterDraft = null;
   const tabs = RIBBON_TABS.map(([key, name]) =>
     `<button class="ribbon-tab" role="tab" aria-selected="${chart.tab === key}" data-action="rb-tab" data-tab="${key}">${name}</button>`).join('');
   const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : homeTab();
@@ -289,7 +374,91 @@ function renderRibbon() {
   const tile = gallery?.querySelector('.tile[aria-pressed="true"]');
   if (tile && (tile.offsetLeft + tile.offsetWidth > gallery.scrollLeft + gallery.clientWidth || tile.offsetLeft < gallery.scrollLeft))
     gallery.scrollLeft = tile.offsetLeft - (gallery.clientWidth - tile.offsetWidth) / 2;
+  // An open filter menu takes the keyboard, with the caret where it was left, or at the end.
+  const filter = document.querySelector('[data-view-filter]');
+  if (filter && document.activeElement !== filter) {
+    const at = chart.filterDraft?.caret ?? filter.value.length;
+    filter.focus();
+    filter.setSelectionRange(at, at);
+  }
 }
+
+// A draft that doesn't read stays open, with the place it goes wrong shown and the caret there. Anything
+// else applies, errors and all, since the boxes it can't be worked out at stay shown, marked.
+function applyFilter() {
+  const text = Formulas.tidyArrow(chart.filterDraft?.text ?? viewFilter());
+  const { syntax } = filterOutcome(text);
+  if (syntax) {
+    ui.menu = 'rb:filter';
+    if (chart.filterDraft) chart.filterDraft.caret = Math.min(syntax.pos, text.length);
+    return;
+  }
+  if (text.trim() !== viewFilter()) setViewFilter(text);
+  ui.menu = null;
+  chart.filterDraft = null;
+}
+
+// What's under the filter box follows the draft as it's typed, without redrawing, so the caret stays put.
+function refreshFilterNote(t) {
+  document.getElementById('filter-note').innerHTML = filterNote(t.value);
+  document.getElementById('filter-chips').innerHTML = filterChips(t.value.slice(0, t.selectionStart));
+}
+
+// Puts a name offered in place of the part of it typed before the caret, in brackets if it needs them.
+function takeFilterName(t, name) {
+  const pos = t.selectionStart ?? t.value.length;
+  const before = t.value.slice(0, pos);
+  const typed = /(\[[^\]]*|[A-Za-z_][A-Za-z0-9_]*)$/.exec(before)?.[0] ?? '';
+  const start = pos - typed.length;
+  const text = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `[${name}]`;
+  t.value = before.slice(0, start) + text + t.value.slice(pos).replace(/^[^\s.,()\]]*\]?/, '');
+  const caret = start + text.length;
+  t.focus();
+  t.setSelectionRange(caret, caret);
+  chart.filterDraft.text = t.value;
+  refreshFilterNote(t);
+}
+
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (!t.matches('[data-view-filter]') || !chart.filterDraft) return;
+  if (Formulas.tidyArrow(t.value) !== t.value) {
+    const pos = t.selectionStart - 1;
+    t.value = Formulas.tidyArrow(t.value);
+    t.setSelectionRange(pos, pos);
+  }
+  chart.filterDraft.text = t.value;
+  chart.filterDraft.caret = t.selectionStart;
+  refreshFilterNote(t);
+});
+
+// In the filter box, Enter applies, and Tab takes the first name offered. Escape closes it, as any menu.
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (!t.matches('[data-view-filter]')) return;
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    applyFilter();
+    render();
+  } else if (e.key === 'Tab' && !e.shiftKey) {
+    const chip = document.querySelector('[data-filter-suggest]');
+    if (chip) { e.preventDefault(); takeFilterName(t, chip.dataset.filterSuggest); }
+  }
+});
+
+// The caret moves with clicks and arrow keys too, and the names offered follow it.
+document.addEventListener('keyup', e => {
+  if (e.target.matches('[data-view-filter]') && chart.filterDraft && e.key.startsWith('Arrow')) {
+    chart.filterDraft.caret = e.target.selectionStart;
+    document.getElementById('filter-chips').innerHTML = filterChips(e.target.value.slice(0, e.target.selectionStart));
+  }
+});
+
+document.addEventListener('click', e => {
+  const chip = e.target.closest('[data-filter-suggest]');
+  const t = document.querySelector('[data-view-filter]');
+  if (chip && t) takeFilterName(t, chip.dataset.filterSuggest);
+});
 
 const PROP_TYPES = { size: Number, strokeWidth: Number, bold: v => v === 'true', italic: v => v === 'true', show: v => v === 'true' };
 
@@ -335,6 +504,15 @@ Object.assign(actions, {
     ui.menu = hiddenInView().length ? 'rb:hidden' : null;
   },
   'unhide-all': () => setHiddenInView([]),
+  'show-kind': d => {
+    const k = norm(d.kind);
+    const off = hiddenKinds();
+    setHiddenKinds(off.includes(k) ? off.filter(x => x !== k) : [...off, k]);
+    ui.menu = 'rb:kinds';
+  },
+  'filter-apply': () => applyFilter(),
+  'filter-clear': () => { setViewFilter(''); chart.filterDraft = null; },
+  'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows. Undo puts them back.`; },
   // The panel's Formulas views (#formulas, #formula:…) are opened by hash.
   'fx-open': d => { location.hash = d.hash; },
   'fx-why': () => { const id = selectedRecord(); if (id) go(id); },

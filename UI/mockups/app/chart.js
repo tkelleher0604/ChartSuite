@@ -131,7 +131,10 @@ function nodeHtml(id, place, look, state) {
   // Something required that's blank is flagged on the box, as it is in the panel.
   const missing = id === '__new' ? [] : [...new Set(missingUnder(id).map(m => m.label))];
   const flag = missing.length ? `<span class="node-flag" title="Required, but blank: ${esc(missing.join(', '))}">*</span>` : '';
-  return `<div class="${cls}" data-node="${id}" style="${vars}">${shape}<div class="node-text">${text}</div>${flag}${handles}</div>`;
+  // A box the view's filter couldn't be worked out at is shown, and marked with why.
+  const fault = id === '__new' ? null : filterOutcome(viewFilter()).errors.get(id);
+  const filterFlag = fault ? `<span class="node-flag is-filter" title="This view’s filter gives ${esc(fault.code)} here: ${esc(fault.msg ?? '')}">!</span>` : '';
+  return `<div class="${cls}" data-node="${id}" style="${vars}">${shape}<div class="node-text">${text}</div>${flag}${filterFlag}${handles}</div>`;
 }
 
 // Text a formula works out is set in italics, so it reads as computed.
@@ -281,7 +284,7 @@ function labelPart(p, covered, eng) {
 
 function wiresSvg(geo, sel, eng, covered) {
   const lines = [];
-  const hidden = new Set(hiddenInView());
+  const hidden = hiddenHere();
   for (const [id, r] of Object.entries(records)) {
     if (!isRelation(r) || r.args.length !== 2 || hidden.has(id)) continue;
     const [from, to] = r.args.map(a => objectOf(a.at));
@@ -390,7 +393,7 @@ function renderChart() {
   const covered = coveredBy(eng);
   const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : [];
   const auto = autoPlaces();
-  const hidden = new Set(hiddenInView());
+  const hidden = hiddenHere();
   const objects = Object.keys(records).filter(id => isObject(records[id]) && !hidden.has(id));
   const nodes = document.getElementById('nodes');
   nodes.innerHTML = objects.map(id => nodeHtml(id, placeOf(id, auto), boxLook(id), {
@@ -598,7 +601,108 @@ function showView(id) {
   chart.engaged = null;
   const sel = selection();
   const shownId = sel.object ?? sel.relation;
-  if (shownId && hiddenInView().includes(shownId)) location.hash = '';
+  if (shownId && hiddenHere().has(shownId)) location.hash = '';
+}
+
+// A view's filter is worked out at each object the way an entry's formula would be there: bare names are
+// the object's own, looked up its path, and @ is the object. TRUE shows the box; FALSE or BLANK hides it;
+// an error shows it, marked, so a mistake in the filter doesn't make boxes vanish. It may start with ←
+// or =, or with neither. Results are kept, by text, until the formulas are worked out again, so a filter
+// being typed can be tried without losing the one in use.
+const filterCache = { result: null, outcomes: new Map() };
+
+function filterOutcome(text) {
+  if (filterCache.result !== formulaResult) Object.assign(filterCache, { result: formulaResult, outcomes: new Map() });
+  if (!filterCache.outcomes.has(text)) filterCache.outcomes.set(text, workOutFilter(text));
+  return filterCache.outcomes.get(text);
+}
+
+function workOutFilter(text) {
+  const objects = Object.keys(records).filter(id => isObject(records[id]));
+  const outcome = { total: objects.length, hidden: new Set(), errors: new Map(), syntax: null };
+  if (clean(text) && formulaResult.state) {
+    const check = Formulas.check(text);
+    if (check.error) outcome.syntax = check.error;
+    else {
+      // IF reads its condition as TRUE or FALSE, as a tag would, so a tag or a count works as a condition.
+      const test = `= IF(${Formulas.splitFormula(text).body}, TRUE, FALSE)`;
+      for (const id of objects) {
+        const v = Formulas.evaluateAt(formulaResult, test, id);
+        if (Formulas.isError(v)) outcome.errors.set(id, v);
+        else if (v !== true) outcome.hidden.add(id);
+      }
+    }
+  }
+  return outcome;
+}
+
+// Everything this view leaves out: what's hidden one by one, the boxes its filter or its hidden kinds
+// leave out, and so the lines to them.
+function hiddenHere() {
+  const hidden = new Set(hiddenInView());
+  for (const id of filterOutcome(viewFilter()).hidden) hidden.add(id);
+  const kinds = new Set(hiddenKinds());
+  if (kinds.size) for (const [id, r] of Object.entries(records)) if (isObject(r) && kinds.has(norm(r.kind))) hidden.add(id);
+  return hidden;
+}
+
+// Lays the boxes this view shows out again, in rows by how far down the chains of ownership and control
+// each one sits: owners and controllers above what they own and control. Each row keeps the order of the
+// row above, and the rows are centered on the widest. Only this view's box positions change.
+function tidyView() {
+  const hidden = hiddenHere();
+  const ids = Object.keys(records).filter(id => isObject(records[id]) && !hidden.has(id));
+  const shown = new Set(ids);
+  const above = new Map(ids.map(id => [id, []]));
+  for (const [rid, r] of Object.entries(records)) {
+    if (!isRelation(r) || r.args.length !== 2 || !isTag(r) || r.tag !== true) continue;
+    if (!['ownership', 'control'].includes(norm(relationName(rid)))) continue;
+    const [a, b] = r.args.map(x => objectOf(x.at));
+    if (a !== b && shown.has(a) && shown.has(b)) above.get(b).push(a);
+  }
+  const depth = new Map(), visiting = new Set();
+  const depthOf = id => {
+    if (depth.has(id)) return depth.get(id);
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    const d = Math.max(-1, ...above.get(id).map(depthOf)) + 1;
+    visiting.delete(id);
+    depth.set(id, d);
+    return d;
+  };
+  ids.forEach(depthOf);
+  const geo = chart.geometry;
+  const rows = [];
+  for (const id of ids) (rows[depth.get(id)] ??= []).push(id);
+  const placed = new Map();
+  const GAP = 40, ROW_GAP = 80;
+  let y = 40;
+  rows.forEach((row, i) => {
+    const x0 = id => geo[id]?.x ?? 0;
+    const pull = id => {
+      const xs = above.get(id).filter(a => placed.has(a)).map(a => placed.get(a).x + placed.get(a).w / 2);
+      return xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : x0(id);
+    };
+    row.sort((a, b) => (i ? pull(a) - pull(b) : 0) || x0(a) - x0(b));
+    let x = 0;
+    for (const id of row) {
+      const w = layout[id]?.w ?? geo[id]?.w ?? 200;
+      placed.set(id, { x, y, w });
+      x += w + GAP;
+    }
+    row.width = x - GAP;
+    // The next row starts below this one's tallest box, as it's drawn now.
+    y = snap(y + Math.max(...row.map(id => geo[id]?.h ?? 60)) + ROW_GAP);
+  });
+  const widest = Math.max(...rows.filter(Boolean).map(r => r.width));
+  const next = { ...layout };
+  for (const row of rows.filter(Boolean)) {
+    const shift = 40 + (widest - row.width) / 2;
+    for (const id of row) { const p = placed.get(id); next[id] = { ...(layout[id] ?? {}), x: snap(p.x + shift), y: p.y, w: p.w }; }
+  }
+  pushUndo();
+  layout = next;
+  saveState();
 }
 
 function startRenaming(id) {

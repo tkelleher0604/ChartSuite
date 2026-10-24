@@ -242,6 +242,32 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .node-flag { position: absolute; top: -9px; right: -9px; z-index: 2; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%;
   background: #d63b3b; color: #fff; font: 700 13px/1 "Inter", sans-serif; padding-top: 3px; box-shadow: 0 0 0 2px #fff; }
 .shape-triangle .node-flag { top: auto; bottom: -6px; }
+/* A box the view's filter couldn't be worked out at: shown, with a mark at its other corner. */
+.node-flag.is-filter { right: auto; left: -9px; padding-top: 1px; font-size: 12px; }
+.shape-triangle .node-flag.is-filter { left: 30%; }
+
+/* The view's filter: a condition typed like a formula, in a ribbon menu. */
+.rb-field.is-filter { width: 236px; gap: 6px; justify-content: flex-start; }
+.rb-field.is-filter > .icon { width: 15px; height: 15px; flex: none; color: var(--text-3); }
+.rb-field.is-filter .rb-field-text { flex: 1; font: 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace; text-align: left; white-space: nowrap; }
+.rb-field.is-filter .rb-field-text.is-placeholder { font: inherit; color: var(--text-3); }
+.pop.rb-menu:has(> .filter-pop) { max-width: none; }
+.filter-pop { display: flex; flex-direction: column; gap: 6px; width: 380px; padding: 2px 6px 8px; }
+.filter-pop .menu-head { padding: 4px 0 0; }
+.input.filter-input { display: block; width: 100%; height: auto; min-height: 58px; padding: 6px 8px; resize: vertical; font: 12.5px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.filter-chips:empty { display: none; }
+.filter-chip { height: 22px; padding: 0 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-2); font: 11.5px/1 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.filter-chip:first-child { border-color: var(--accent); color: var(--accent); }
+.filter-chip:hover { background: var(--hover); color: var(--text); }
+.filter-note { font-size: 12px; line-height: 17px; }
+.filter-err { color: var(--danger); }
+.filter-foot { display: flex; align-items: center; gap: 12px; }
+.filter-foot .btn { height: 28px; }
+.filter-foot .link-btn { font-size: 12.5px; }
+.filter-foot .link-btn:disabled { color: var(--text-3); cursor: default; }
+.rb-row > .link-btn { font-size: 11.5px; color: var(--accent); }
+.rb-row > .link-btn.rb-errors { color: var(--danger); }
 .rb-remove { align-self: flex-start; font-size: 11.5px; color: var(--text-3); }
 .rb-remove:hover { color: var(--danger) !important; }
 .rb-row > .rb-note { max-width: none; white-space: nowrap; }

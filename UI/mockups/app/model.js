@@ -1195,4 +1195,23 @@ function renameEdge(id, from, to, every) {
   const next = { ...records };
   for (const k of every ? relationsLike(id) : [id]) next[k] = relabel(records[k]);
   return every ? commitWithFormulas(next, definitionsWithEdge(from, to), namesWithEdge(id, from, to)) : commit(next);
+
+// ---- View filter helpers ----
+
+// What a view shows besides its styles and the things hidden one by one: a filter, a condition worked
+// out at each object that shows the boxes it holds for, and the kinds whose boxes it hides. Both are kept
+// on the view, like its hidden list, so its copies and undo take them along.
+const viewFilter = () => viewInUse().filter ?? '';
+const hiddenKinds = () => viewInUse().hiddenKinds ?? [];
+
+function setViewFilter(text) {
+  pushUndo();
+  views = currentViews().map(v => v.id === viewId ? { ...v, filter: String(text ?? '').trim() } : v);
+  saveState();
+}
+
+function setHiddenKinds(kinds) {
+  pushUndo();
+  views = currentViews().map(v => v.id === viewId ? { ...v, hiddenKinds: [...new Set(kinds.map(norm))] } : v);
+  saveState();
 }

@@ -77,7 +77,10 @@ function defaultStyles(recs) {
 }
 
 // The sample's views: the structure chart, and a 40 Act view of the same records that hides ownership
-// and the GP's line, and draws the BDC's close and remote affiliates, which formulas work out.
+// and the GP's line, draws the BDC's close and remote affiliates, which formulas work out, and by its
+// filter shows only the boxes in that analysis: the BDC and its close and remote affiliates.
+const FORTY_ACT_FILTER = '← [Investment Company] OR COUNT([Close Affiliate Of]) + COUNT([Remote Affiliate Of]) > 0';
+
 function sampleViews(recs) {
   const structure = defaultStyles(recs);
   const hidden = ['st_own_entities', 'st_own_individuals', 'st_own_investors', 'st_pct_entities', 'st_pct_individuals', 'st_pct_investors', 'st_gp_lp'];
@@ -89,7 +92,8 @@ function sampleViews(recs) {
     ...lines('def_close', { show: true, format: 'none', stroke: '#2b59c3', strokeWidth: 1.5 }),
     ...lines('def_remote', { show: true, format: 'none', stroke: '#c2710c', dash: 'dashed' }),
   ];
-  return [{ id: 'view_main', name: 'Structure', styles: structure }, { id: 'view_40act', name: '40 Act', styles: fortyAct }];
+  return [{ id: 'view_main', name: 'Structure', styles: structure },
+    { id: 'view_40act', name: '40 Act', styles: fortyAct, filter: FORTY_ACT_FILTER }];
 }
 
 const styleById = id => styles.find(s => s.id === id);
