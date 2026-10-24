@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rboreal Formula Lab</title>
+<script>
+  // Apply a chosen theme before first paint; "system" leaves it to the OS setting.
+  try {
+    const theme = JSON.parse(localStorage.getItem('rboreal.record-panel.prefs'))?.theme;
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  } catch {}
+</script>
+<link rel="stylesheet" href="app/base.css">
+<link rel="stylesheet" href="app/lab.css">
+</head>
+<body>
+<div class="lab">
+  <header class="lab-top">
+    <span class="brand">Rboreal</span><span class="brand-sub">Formula lab</span>
+    <a class="brand-link" href="chart.html">Chart</a>
+    <a class="brand-link" href="record-panel.html">Record panel</a>
+    <span class="lab-prefs" id="prefs"></span>
+  </header>
+  <div class="lab-main">
+    <nav class="lab-defs" id="defs"></nav>
+    <section class="lab-detail">
+      <div class="lab-card" id="editor"></div>
+      <div class="lab-card" id="results"></div>
+    </section>
+  </div>
+  <section class="lab-card lab-scratch" id="scratch"></section>
+</div>
+
+<script src="app/common.js"></script>
+<script src="app/model.js"></script>
+<script src="app/formulas.js"></script>
+<script src="app/lab.js"></script>
+</body>
+</html>
