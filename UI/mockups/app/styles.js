@@ -1,17 +1,22 @@
-// Styles: how the chart draws records. A Style is a parameterization together with a mapping from that
-// parameterization's outputs to formatting properties (data-model.md defines both terms). Every object
-// has the same parameterization, a lone unlabeled node whose outputs are the kinds, so the style on it
-// gives each kind its look. A style on Entity Type at Entities maps each option to a look, a style on a
-// tag maps attested and ruled out, a style on a field maps its datatype, and a style on a relation's
-// parameterization sets how its lines are drawn.
+// Styles: how a view draws records. A Style is a form together with a mapping from that form's outputs to
+// formatting properties. data-model.md defines outputs; a specification's form is its shape and sort (see
+// model.js), so a style on Ownership covers ownership by every kind of owner, and a style on Name the Name
+// of everything. Every object has the form 'object', whose outputs are the kinds, so the Kind style gives
+// each kind its box. A style on Entity Type maps each option to a look, a style on a tag maps attested and
+// ruled out, a style on a field maps its datatype, and a style on a relation sets how its lines are drawn.
 //
-// A style is { id, param, label, where, map: { [output key]: properties } }, kept in `styles` in order.
-// Where two styles set the same property for one box, the later one wins.
+// A style is { id, form, map: { [output key]: properties } }, kept in `styles` in order, at most one for
+// each form in a view. Where two styles set the same property for one box, the later one wins.
+//
+// `show` says whether a record is drawn: an object as its box, an entry as a line of text in its box (or,
+// below a relation, in the relation's label), a two-argument relation as a line. Where no style says,
+// objects are drawn, entries aren't, and relations are, except those of a form a formula covers, and
+// ruled-out tags, which are drawn only where a style says so.
 
 // Box properties go to the box of the object a record belongs to. Text properties go to the line of text
 // the record shows in its box, if it shows one, and otherwise to every line in the box. On a relation's
 // style, the box properties that make sense for a line (outline, weight, dash) draw its line, and the text
-// properties its label. `show` puts a record on the chart, and `format` says how its text reads.
+// properties its label. `format` says how a record's text reads.
 const BOX_PROPS = ['shape', 'fill', 'stroke', 'strokeWidth', 'dash'];
 const TEXT_PROPS = ['font', 'size', 'bold', 'italic', 'color'];
 const LINE_PROPS = ['stroke', 'strokeWidth', 'dash'];
@@ -40,111 +45,87 @@ const COLORS = [
 // Fills a new choice style hands out to its options, in turn.
 const SOFT_FILLS = ['#e8eefb', '#e7f5ec', '#fdf0e1', '#ece9fb', '#e6f4f6', '#fdecec', '#f4f4f5'];
 
-// The sample chart's styles. Ownership has three parameterizations here (owners that are Entities,
-// Individuals and Investor Groups), so it has three line styles, and its Percentage three more. The
-// lines carry no label of their own; the Percentage at each one labels it, and a ruled-out ownership
-// isn't drawn.
+// The sample chart's styles, one for each form it styles. Ownership's lines carry no label of their own;
+// the Percentage at each one labels it, and a ruled-out ownership isn't drawn.
 function defaultStyles(recs) {
-  const p = id => parameterization(recs, id);
-  const owned = () => ({ true: { show: true, format: 'none' }, false: { show: false } });
+  const f = id => formKeyOf(id, recs);
   const muted = { show: true, format: 'paren', size: 10.5, color: '#52525b' };
   return [
-    { id: 'st_kind', param: '[]', label: 'Kind', where: 'every object',
+    { id: 'st_kind', form: 'object',
       map: { entity: KIND_PRESET, individual: { ...KIND_PRESET, shape: 'oval' }, 'investor group': { ...KIND_PRESET, fill: '#f4f4f5' } } },
-    { id: 'st_name_entity', param: p('fund_name'), map: { text: { show: true, bold: true } } },
-    { id: 'st_name_individual', param: p('chen_name'), map: { text: { show: true, bold: true } } },
-    { id: 'st_name_investors', param: p('inv_us_name'), map: { text: NAME_PRESET } },
-    { id: 'st_entity_type', param: p('fund_type'), map: {
+    { id: 'st_name', form: f('fund_name'), map: { text: NAME_PRESET } },
+    { id: 'st_entity_type', form: f('fund_type'), map: {
       'limited partnership': { shape: 'triangle' }, 'exempted limited partnership': { shape: 'triangle' },
       'limited liability company': { shape: 'rounded' }, corporation: { shape: 'rect' } } },
-    { id: 'st_vehicle', param: p('fund_vehicle'), map: {
+    { id: 'st_vehicle', form: f('fund_vehicle'), map: {
       'main fund': { fill: '#e8eefb' }, 'feeder fund': { fill: '#e8eefb' }, 'business development company': { fill: '#e8eefb' },
       'portfolio company': { fill: '#f4f4f5' } } },
-    { id: 'st_jurisdiction', param: p('fund_juris'), map: { delaware: muted, 'cayman islands': muted, maryland: muted } },
-    { id: 'st_good_standing', param: p('fund_good'), map: { false: { stroke: '#d63b3b', strokeWidth: 2, dash: 'dashed' } } },
-    { id: 'st_own_entities', param: p('own_fund_blkr'), map: owned() },
-    { id: 'st_own_individuals', param: p('own_chen_gp'), map: owned() },
-    { id: 'st_own_investors', param: p('own_us_fund'), map: owned() },
-    { id: 'st_pct_entities', param: p('own_fund_blkr_pct'), map: { number: { show: true } } },
-    { id: 'st_pct_individuals', param: p('own_chen_gp_pct'), map: { number: { show: true } } },
-    { id: 'st_pct_investors', param: p('own_us_fund_pct'), map: { number: { show: true } } },
-    { id: 'st_gp_lp', param: p('gp_of_fund'), map: { true: { show: true, dash: 'dashed', format: 'label' } } },
-    { id: 'st_gp_elp', param: p('gp_of_feeder'), map: { true: { show: false, dash: 'dashed', format: 'label' } } },
-    { id: 'st_member', param: p('mem_chen_gp'), map: { 'managing member': { show: false }, member: { show: false } } },
-    { id: 'st_adviser', param: p('adv_bdc'), map: { true: { show: false, dash: 'dotted', format: 'label' } } },
-    { id: 'st_position', param: p('pos_chen_bdc'), map: { director: { show: false }, officer: { show: false } } },
+    { id: 'st_jurisdiction', form: f('fund_juris'), map: { delaware: muted, 'cayman islands': muted, maryland: muted } },
+    { id: 'st_good_standing', form: f('fund_good'), map: { false: { stroke: '#d63b3b', strokeWidth: 2, dash: 'dashed' } } },
+    { id: 'st_ownership', form: f('own_fund_blkr'), map: { true: { show: true, format: 'none' }, false: { show: false } } },
+    { id: 'st_percentage', form: f('own_fund_blkr_pct'), map: { percent: { show: true } } },
+    { id: 'st_gp', form: f('gp_of_fund'), map: { true: { show: true, dash: 'dashed', format: 'label' } } },
+    { id: 'st_member', form: f('mem_chen_gp'), map: { 'managing member': { show: false }, member: { show: false } } },
+    { id: 'st_adviser', form: f('adv_bdc'), map: { true: { show: false, dash: 'dotted', format: 'label' } } },
+    { id: 'st_position', form: f('pos_chen_bdc'), map: { director: { show: false }, officer: { show: false } } },
   ];
 }
 
 // The sample's views: the structure chart, and a 40 Act view of the same records that hides ownership
-// and the GP's line, draws the BDC's close and remote affiliates, which formulas work out, and by its
+// and the GP's lines, draws the BDC's close and remote affiliates, which formulas work out, and by its
 // filter shows only the boxes in that analysis: the BDC and its close and remote affiliates.
 const FORTY_ACT_FILTER = '← [Investment Company] OR COUNT([Close Affiliate Of]) + COUNT([Remote Affiliate Of]) > 0';
 
-function sampleViews(recs) {
+function sampleViews(recs, S, defs) {
   const structure = defaultStyles(recs);
-  const hidden = ['st_own_entities', 'st_own_individuals', 'st_own_investors', 'st_pct_entities', 'st_pct_individuals', 'st_pct_investors', 'st_gp_lp'];
+  const hidden = ['st_ownership', 'st_percentage', 'st_gp'];
   const hide = s => ({ ...s, map: Object.fromEntries(Object.entries(s.map).map(([k, v]) => [k, { ...v, show: false }])) });
-  const lines = (defId, look) => Formulas.coversOf(SAMPLE_DEFINITIONS.find(d => d.id === defId))
-    .map(param => ({ id: newId(), param, map: { true: look } }));
+  const formOfDef = id => formOfTree(specsWithParam(defs.find(d => d.id === id).scope[0], S)[0]);
   const fortyAct = [
     ...structure.map(s => hidden.includes(s.id) ? hide(s) : s),
-    ...lines('def_close', { show: true, format: 'none', stroke: '#2b59c3', strokeWidth: 1.5 }),
-    ...lines('def_remote', { show: true, format: 'none', stroke: '#c2710c', dash: 'dashed' }),
+    { id: 'st_close', form: formOfDef('def_close'), map: { true: { show: true, format: 'none', stroke: '#2b59c3', strokeWidth: 1.5 } } },
+    { id: 'st_remote', form: formOfDef('def_remote'), map: { true: { show: true, format: 'none', stroke: '#c2710c', dash: 'dashed' } } },
   ];
   return [{ id: 'view_main', name: 'Structure', styles: structure },
     { id: 'view_40act', name: '40 Act', styles: fortyAct, filter: FORTY_ACT_FILTER }];
 }
 
 const styleById = id => styles.find(s => s.id === id);
-const styleOfParam = param => styles.find(s => s.param === param);
-const styleOf = id => styleOfParam(parameterization(records, id));
-const isKindStyle = s => s.param === '[]';
-// Whether a style draws relation lines rather than boxes and their text.
-const isLineStyle = s => { const id = sampleOf(s.param); return id ? isRelation(records[id]) : !!s.line; };
+const styleOfForm = form => styles.find(s => s.form === form);
+const styleOf = id => styleOfForm(formKeyOf(id));
+const isKindStyle = s => s.form === 'object';
 
-// A record with the parameterization, to read its labels and locations from.
-const sampleOf = param => Object.keys(records).find(id => parameterization(records, id) === param);
+// What a form is, read from its key: a relation's has more than one parameter; an entry located at a
+// relation, or below one, shows by the relation's line rather than in a box.
+const formArity = form => form === 'object' ? 0 : JSON.parse(form).length - 1;
+function shapeBelowRelation(shape) {
+  if (shape === '•') return false;
+  const [, ...args] = JSON.parse(shape);
+  return args.length > 1 || shapeBelowRelation(JSON.parse(args[0])[1]);
+}
+const isRelationForm = form => formArity(form) > 1;
+const isLineTextForm = form => formArity(form) === 1 && shapeBelowRelation(JSON.parse(JSON.parse(form)[1])[1]);
+// Whether a style draws relation lines rather than boxes and their text, and whether it's on records that
+// show by a relation's line, like the Percentage at an ownership.
+const isLineStyle = s => isRelationForm(s.form);
+const isLineTextStyle = s => isLineTextForm(s.form);
 
-// How a location reads in a style's description: an object's kind, or a relation's edges and the kinds
-// it relates, then any segments below it.
-const kindPath = at => pathTo(at).map((id, i) => i ? segmentText(id) : isRelation(records[id]) ? relationKindPath(id) : records[id].kind).join(' › ');
-const relationKindPath = id => `${relationLabel(records[id])} (${records[id].args.map(a => kindPath(a.at)).join(' → ')})`;
-
-// Whether a record sits at a relation, or below one, so that it shows by the relation's line, not in a box;
-// and whether a style is on such records, like the Percentage at an ownership.
+// Whether a record sits at a relation, or below one, so that it shows by the relation's line, not in a box.
 const onRelation = id => !isRelation(records[id]) && isRelation(records[objectOf(id)]);
-const isLineTextStyle = s => { const id = sampleOf(s.param); return !!id && onRelation(id); };
 
-// A style's name and what it covers, from a record with its parameterization if there still is one.
-// The last description worked out for each parameterization, for a style whose records have all gone.
-const describedParams = new Map();
+// A style's name and what it covers: its form's.
+const describeStyle = s => describeForm(s.form);
 
-function describeStyle(s) {
-  if (isKindStyle(s)) return { label: 'Kind', where: 'every object' };
-  const id = sampleOf(s.param);
-  if (!id) return describedParams.get(s.param) ?? { label: s.label ?? 'Style', where: s.where ?? 'nothing in the chart now' };
-  const r = records[id];
-  const loc = records[r.at];
-  const d = isRelation(r) ? { label: relationLabel(r), where: r.args.map(a => kindPath(a.at)).join(' → ') }
-    : { label: r.edge, where: isObject(loc) ? `on ${plural(loc.kind)}` : `under ${kindPath(r.at)}` };
-  describedParams.set(s.param, d);
-  return d;
-}
-
-// The outputs a style can map: those its parameterization has in the state, and any it already maps,
-// as [key, text] pairs.
+// The outputs a style can map: those its form has in the schema, and any it already maps, as [key, text].
 function styleOutputs(s) {
-  const outputs = new Map();
-  for (const [id, r] of Object.entries(records))
-    if (parameterization(records, id) === s.param && !outputs.has(outputKey(r))) outputs.set(outputKey(r), outputText(r));
+  const outputs = new Map(formOutputs(s.form));
   for (const key of Object.keys(s.map)) if (!outputs.has(key)) outputs.set(key, key === 'true' ? 'Attested' : key === 'false' ? 'Ruled out' : key);
-  return [...outputs].sort((a, b) => byLabel(a[1], b[1]));
+  return [...outputs].sort((a, b) => byLabel(String(a[1]), String(b[1])));
 }
 
-// How many records a style's entry for an output covers, for "applies to 3".
+// The records a style's entry for an output covers, for "applies to 3".
 const recordsWithOutput = (s, output) => Object.keys(records)
-  .filter(id => parameterization(records, id) === s.param && (output === '*' || outputKey(records[id]) === output));
+  .filter(id => formKeyOf(id) === s.form && (output === '*' || outputKey(records[id]) === output));
 
 // ---- Looks ----
 
@@ -195,14 +176,19 @@ function lineText(id, format) {
   return text;
 }
 
+// Whether an object's box is drawn in this view, by its Kind style: View › Show hides a kind's boxes there.
+const boxShown = obj => styles.find(isKindStyle)?.map[norm(records[obj].kind)]?.show !== false;
+
 // An object's box: its box properties, its lines of text, and the styles that apply to it (each with the
 // record it applies through), in the order they apply.
 function boxLook(obj) {
   const recs = panelOrder(obj);
+  const forms = recs.map(id => formKeyOf(id));
   const applied = [];
   for (const style of styles)
-    for (const id of recs)
-      if (parameterization(records, id) === style.param) applied.push({ style, id, output: outputKey(records[id]), props: style.map[outputKey(records[id])] ?? {} });
+    recs.forEach((id, i) => {
+      if (forms[i] === style.form) applied.push({ style, id, output: outputKey(records[id]), props: style.map[outputKey(records[id])] ?? {} });
+    });
   const box = { ...BOX_DEFAULTS };
   const text = { ...TEXT_DEFAULTS };
   for (const a of applied) {
@@ -215,27 +201,27 @@ function boxLook(obj) {
   return { box, text, lines, applied };
 }
 
-// Whether a formula covers a record's parameterization. The covered parameterizations are worked out once
-// for each working-out of the formulas, which a change to the definitions always brings.
-const coveredCache = new WeakMap();
-function coveredByFormula(id) {
-  if (!coveredCache.has(formulaResult))
-    coveredCache.set(formulaResult, new Set(definitions.flatMap(d => { try { return Formulas.coversOf(d); } catch { return []; } })));
-  return coveredCache.get(formulaResult).has(parameterization(records, id));
+// The forms the formulas cover, worked out once for each working-out of the formulas, which a change to
+// the definitions always brings.
+const coveredFormsCache = new WeakMap();
+function coveredForms() {
+  if (!coveredFormsCache.has(formulaResult))
+    coveredFormsCache.set(formulaResult, new Set(definitions.flatMap(d => d.scope.flatMap(p => specsWithParam(p).map(formOfTree)))));
+  return coveredFormsCache.get(formulaResult);
 }
+
+// Whether a relation is drawn where no style says: not if formulas cover its form (they can relate nearly
+// everything to everything: every affiliate of every entity, say), nor if it's a ruled-out tag.
+const drawnByDefault = id => !coveredForms().has(formKeyOf(id)) && !(isTag(records[id]) && !records[id].tag);
 
 // A two-argument relation's line, and its label. The label is the relation's own text, unless its style
 // says No label, followed by the text of each record located at it whose style shows it, such as an
 // ownership's Percentage. Like text in a box, each part takes the line's text properties unless its own
-// style sets them. A computed relation is drawn only where a style shows it, since formulas can relate
-// nearly everything to everything (every affiliate of every entity, say), and so is one entered where a
-// formula covers it (kept as entered, or overriding the formula), which would otherwise appear in every
-// view at once, and a ruled-out tag, which records that two things are not related.
+// style sets them.
 function lineLook(id) {
   const r = records[id];
   const style = styleOf(id);
-  const quiet = isComputed(id) || coveredByFormula(id) || (isTag(r) && !r.tag);
-  const look = { ...LINE_DEFAULTS, ...(quiet ? { show: false } : {}), ...(style?.map[outputKey(r)] ?? {}) };
+  const look = { ...LINE_DEFAULTS, show: drawnByDefault(id), ...(style?.map[outputKey(r)] ?? {}) };
   const own = look.format === 'none' ? ''
     : look.format === 'label' || isTag(r) ? r.args[0].edge
     : isField(r) ? displayValue(r) : r.choice;
@@ -253,7 +239,7 @@ function lineLook(id) {
 // and otherwise what the box or line would have without it.
 function effectiveProps(s, output) {
   const own = s.map[output] ?? {};
-  const base = isLineStyle(s) ? LINE_DEFAULTS : { ...BOX_DEFAULTS, ...TEXT_DEFAULTS, show: false, format: 'value' };
+  const base = isLineStyle(s) ? LINE_DEFAULTS : { ...BOX_DEFAULTS, ...TEXT_DEFAULTS, show: isKindStyle(s), format: 'value' };
   return { props: { ...base, ...own }, own };
 }
 
@@ -274,20 +260,24 @@ function setStyleProps(styleId, output, patch) {
   saveState();
 }
 
-// Adds a style on a record's parameterization, seeded so it shows at once: a field's or tag's text in
-// its box, a choice's options as fills, a relation's lines. Returns the style, or the one already there.
+// The map a new style on a form starts with, so it shows at once: a field's or tag's text in its box, a
+// choice's options as fills, a relation's lines.
+function presetMap(form) {
+  const outputs = formOutputs(form).map(([k]) => k);
+  const muted = { show: true, size: 10.5, color: '#52525b' };
+  if (isRelationForm(form)) return Object.fromEntries(outputs.filter(k => k !== 'false').map(k => [k, { ...RELATION_PRESET }]));
+  const sort = JSON.parse(form)[0];
+  if (sort === 'choice') return Object.fromEntries(outputs.map((k, i) => [k, { fill: SOFT_FILLS[i % SOFT_FILLS.length] }]));
+  if (sort === 'tag') return { true: muted };
+  return { [sort]: muted };
+}
+
+// Adds a style on a record's form. Returns the style, or the one already there.
 function addStyle(id) {
   const existing = styleOf(id);
   if (existing) return existing;
-  const r = records[id];
-  const param = parameterization(records, id);
-  const outputs = styleOutputs({ param, map: {} });
-  const muted = { show: true, size: 10.5, color: '#52525b' };
-  const map = isRelation(r) ? Object.fromEntries(outputs.map(([k]) => [k, { ...RELATION_PRESET }]))
-    : isChoice(r) ? Object.fromEntries(outputs.map(([k], i) => [k, { fill: SOFT_FILLS[i % SOFT_FILLS.length] }]))
-    : isTag(r) ? { true: muted }
-    : { [r.field]: muted };
-  const style = { id: newId(), param, ...describeStyle({ param, map }), map };
+  const form = formKeyOf(id);
+  const style = { id: newId(), form, map: presetMap(form) };
   pushUndo();
   styles = [...styles, style];
   saveState();
@@ -307,108 +297,97 @@ function forEveryView(change) {
   views = views.map(v => v.id === viewId || !v.styles ? v : { ...v, styles: change(v.styles, false) });
 }
 
-// Gives a new kind, and its Name, the preset styles, in every view, since its boxes show in every view.
+// Gives a new kind its box, and the Name form its style, in every view, since boxes show in every view.
 // Part of the step that created the kind's first object.
 function ensureKindStyles(kind) {
   const k = norm(kind);
   const nameId = Object.keys(records).find(id => isObjectName(id) && same(records[records[id].at].kind, kind));
-  const param = nameId && parameterization(records, nameId);
+  const nameForm = nameId && formKeyOf(nameId);
   forEveryView(list => {
     const kindStyle = list.find(isKindStyle);
-    let out = !kindStyle ? [{ id: newId(), param: '[]', label: 'Kind', where: 'every object', map: { [k]: KIND_PRESET } }, ...list]
+    let out = !kindStyle ? [{ id: newId(), form: 'object', map: { [k]: KIND_PRESET } }, ...list]
       : kindStyle.map[k] ? list : list.map(s => s === kindStyle ? { ...s, map: { ...s.map, [k]: KIND_PRESET } } : s);
-    if (param && !out.some(s => s.param === param)) out = [...out, { id: newId(), param, ...describeStyle({ param, map: {} }), map: { text: NAME_PRESET } }];
+    if (nameForm && !out.some(s => s.form === nameForm)) out = [...out, { id: newId(), form: nameForm, map: { text: NAME_PRESET } }];
     return out;
   });
 }
 
-// Gives a two-argument relation of a new parameterization a style for its lines. In each view it copies a
-// style for relations with the same edges and output type, if the view has one (ownership by a new kind
-// of owner looks like other ownership there, drawn or not), and otherwise starts from the preset: drawn in
-// the view it was added in, and hidden in the others, so relating two boxes in one view doesn't redraw
-// the others. Part of the step that added the relation.
+// Gives a two-argument relation of a new form a style for its lines: drawn in the view it was added in,
+// and hidden in the others, so relating two boxes in one view doesn't redraw the others. A relation of a
+// form that has a style already needs nothing. Part of the step that added the relation.
 function ensureRelationStyle(id) {
   const r = records[id];
   if (!isRelation(r) || r.args.length !== 2) return;
-  const param = parameterization(records, id);
-  const like = s => {
-    const sid = sampleOf(s.param);
-    return sid && sid !== id && isRelation(records[sid]) && typeOf(records[sid]) === typeOf(r) && same(relationLabel(records[sid]), relationLabel(r));
-  };
-  forEveryView((list, current) => {
-    if (list.some(s => s.param === param)) return list;
-    const preset = { ...RELATION_PRESET, ...(current ? {} : { show: false }) };
-    const sibling = list.find(like);
-    const map = sibling ? structuredClone(sibling.map) : { [outputKey(r)]: preset };
-    if (!map[outputKey(r)]) map[outputKey(r)] = preset;
-    return [...list, { id: newId(), param, ...describeStyle({ param, map }), line: true, map }];
-  });
+  const form = formKeyOf(id);
+  forEveryView((list, current) => list.some(s => s.form === form) ? list
+    : [...list, { id: newId(), form, map: { [outputKey(r)]: { ...RELATION_PRESET, show: current } } }]);
   saveState();
 }
 
-// ---- Relations by name, for Show and Hide ----
+// ---- Show and hide ----
+// What a view draws comes down to the `show` of styles on forms: a kind's boxes by the Kind style, a
+// relation's lines by its form's style, an entry's lines of text by its form's style. View › Show lists
+// them all, grouped by what they draw.
 
-// The chart's two-argument relations, grouped the way the pilot's relation names group them
-// (formulas.md): one relation for every parameterization with the same edges and output type, whatever
-// kinds it relates. Each has its name, its parameterizations, and whether formulas work it out.
-// Relations with more arguments aren't drawn as lines, so they aren't listed.
-function lineRelations() {
-  const groups = new Map();
-  const edgeKey = edges => edges.map(norm).sort().join('|');
-  const add = (type, edges, param, computed) => {
-    const key = `${type}:${edgeKey(edges)}`;
-    if (!groups.has(key)) {
-      const named = (names.relations ?? []).find(n => n.type === type && edgeKey(n.edges) === edgeKey(edges));
-      groups.set(key, { key, name: named?.name ?? edges.join(' · '), type, edges, params: new Set(), computed: false });
-    }
-    const g = groups.get(key);
-    g.params.add(param);
-    g.computed ||= computed;
-  };
-  for (const [id, r] of Object.entries(records))
-    if (isRelation(r) && r.args.length === 2) add(typeOf(r), r.args.map(a => a.edge), parameterization(records, id), isComputed(id));
-  for (const d of definitions)
-    if (d.args?.length === 2) for (const p of Formulas.coversOf(d)) add(d.type, d.args.map(a => a.edge), p, true);
-  return [...groups.values()].sort((a, b) => a.computed - b.computed || byLabel(a.name, b.name));
+// The forms a view can show or hide: kinds (as boxes), two-argument relations (as lines) and entries (as
+// lines of text, in boxes or by lines), each { key, label, kind? , form?, computed }. Relations a formula
+// covers say so.
+function showable() {
+  const kinds = kindsInState().map(kind => ({ key: `kind:${norm(kind)}`, kind, label: plural(kind) }));
+  const lines = [], text = [];
+  for (const form of formsOfSchema()) {
+    if (form === 'object') continue;
+    const d = describeForm(form);
+    if (isRelationForm(form)) { if (formArity(form) === 2) lines.push({ key: form, form, label: d.label, where: d.where, computed: coveredForms().has(form) }); }
+    else text.push({ key: form, form, label: d.label, where: d.where });
+  }
+  const byLabelOf = (a, b) => byLabel(a.label, b.label);
+  return { boxes: kinds, lines: lines.sort((a, b) => a.computed - b.computed || byLabelOf(a, b)), text: text.sort(byLabelOf) };
 }
 
-// How many of a relation's records this view draws, of how many there are.
-function relationShown(g) {
-  const ids = Object.keys(records).filter(id => isRelation(records[id]) && g.params.has(parameterization(records, id)));
+// Whether a kind's boxes, or a form's records, are drawn in this view: all of them, none, or some
+// ('mixed'), as { shown, total }.
+function shownCount(item) {
+  if (item.kind) return { shown: styles.find(isKindStyle)?.map[norm(item.kind)]?.show === false ? 0 : 1, total: 1 };
+  const ids = Object.keys(records).filter(id => formKeyOf(id) === item.form);
   const hidden = new Set(hiddenInView());
-  const shown = ids.filter(id => !hidden.has(id) && lineLook(id).show).length;
-  if (ids.length) return { shown, total: ids.length };
-  const on = [...g.params].some(p => Object.values(styleOfParam(p)?.map ?? {}).some(v => v.show));
-  return { shown: on ? 1 : 0, total: 1 };
+  const drawn = id => isRelationForm(item.form) ? lineLook(id).show : !!styleOf(id)?.map[outputKey(records[id])]?.show;
+  if (ids.length) return { shown: ids.filter(id => !hidden.has(id) && drawn(id)).length, total: ids.length };
+  return { shown: Object.values(styleOfForm(item.form)?.map ?? {}).some(v => v.show) ? 1 : 0, total: 1 };
 }
 
 // Colors a computed relation's lines start with, in turn, so that each reads apart from entered ones.
 const COMPUTED_LINE_COLORS = ['#7c3aed', '#0e7490', '#c2710c', '#2b59c3', '#1f9d55', '#d63b3b'];
 
-// Draws a relation's lines in this view, or stops drawing them, as one undoable step: every
-// parameterization it has, through its style, made from a preset where there's none yet. Text the lines
-// show, like an ownership's Percentage, comes and goes with them. A ruled-out tag stays undrawn.
-function setRelationShown(g, on) {
-  const computedKeys = lineRelations().filter(x => x.computed).map(x => x.key);
-  const color = COMPUTED_LINE_COLORS[Math.max(0, computedKeys.indexOf(g.key)) % COMPUTED_LINE_COLORS.length];
-  const preset = g.computed ? { format: 'none', stroke: color, dash: 'dashed' } : { ...RELATION_PRESET };
-  const datatype = definitions.find(d => d.args?.length === 2 && Formulas.coversOf(d).some(p => g.params.has(p)))?.datatype;
+// Shows or hides a kind's boxes, or a form's records, in this view, as one undoable step. A form without a
+// style gets one from its preset; a computed relation's starts dashed, in a color of its own. Text a
+// relation's lines show, like an ownership's Percentage, comes and goes with them. A ruled-out tag stays
+// undrawn.
+function setShown(item, on) {
   pushUndo();
-  for (const param of g.params) {
-    let outputs = styleOutputs({ param, map: {} }).map(([k]) => k);
-    if (!outputs.length) outputs = [g.type === 'tag' ? 'true' : g.type === 'field' ? datatype ?? 'number' : null].filter(Boolean);
-    const s = styleOfParam(param);
-    const map = { ...(s?.map ?? {}) };
-    for (const k of new Set([...Object.keys(map), ...outputs])) {
-      if (k === 'false' && g.type === 'tag' && on) continue;
-      map[k] = { ...(map[k] ?? preset), show: on };
-    }
-    styles = s ? styles.map(x => x === s ? { ...s, map } : x) : [...styles, { id: newId(), param, ...describeStyle({ param, map }), line: true, map }];
+  if (item.kind) {
+    const k = norm(item.kind);
+    styles = styles.map(s => isKindStyle(s) ? { ...s, map: { ...s.map, [k]: { ...(s.map[k] ?? KIND_PRESET), show: on } } } : s);
+    saveState();
+    return;
   }
-  styles = styles.map(s => {
-    const sid = sampleOf(s.param);
-    if (!sid || !onRelation(sid) || !g.params.has(parameterization(records, objectOf(sid)))) return s;
-    return { ...s, map: Object.fromEntries(Object.entries(s.map).map(([k, v]) => [k, { ...v, show: on }])) };
-  });
+  const form = item.form;
+  const computed = coveredForms().has(form);
+  const colorAt = showable().lines.filter(x => x.computed).findIndex(x => x.form === form);
+  const preset = isRelationForm(form) && computed ? { format: 'none', stroke: COMPUTED_LINE_COLORS[Math.max(0, colorAt) % COMPUTED_LINE_COLORS.length], dash: 'dashed' } : {};
+  const restyle = (f, props) => {
+    const s = styleOfForm(f);
+    const map = { ...(s?.map ?? presetMap(f)) };
+    for (const k of new Set([...Object.keys(map), ...formOutputs(f).map(([k]) => k)])) {
+      if (k === 'false' && isRelationForm(f) && on) continue;
+      map[k] = { ...props, ...(map[k] ?? {}), show: on };
+    }
+    styles = s ? styles.map(x => x === s ? { ...s, map } : x) : [...styles, { id: newId(), form: f, map }];
+  };
+  restyle(form, preset);
+  if (isRelationForm(form)) for (const f of formsAt(form)) if (styleOfForm(f)) restyle(f, {});
   saveState();
 }
+
+// The entry forms located at a relation form, like Percentage at Ownership.
+const formsAt = relForm => formsOfSchema().filter(f => formArity(f) === 1 && specsOfForm(f).some(t => t.args[0].loc.args?.length > 1 && formOfTree(t.args[0].loc) === relForm));

@@ -30,9 +30,9 @@ function nudgeEntry(id, step) {
   ui.focusGrip = id;
 }
 
-// Whether an entry built from the form shows the same output as a record: a field's value as shown (a
-// computed number is a number, not the text it shows as), a choice's option, or a tag's Boolean.
-const sameOutput = (r, e) => isField(r) ? displayValue(r) === displayValue(e) : isChoice(r) ? same(r.choice, e.choice) : r.tag === e.tag;
+// Whether an entry built from the form has the same output as a record: a field's value (values are
+// canonical, so typed and computed ones compare plainly), a choice's option, or a tag's Boolean.
+const sameOutput = (r, e) => isField(r) ? r.field === e.field && r.value === e.value : isChoice(r) ? same(r.choice, e.choice) : r.tag === e.tag;
 
 // Builds the entry's own properties from the form, or returns a message saying what's missing.
 // A label or option that matches an existing one, ignoring case, takes the existing one's capitalization.
@@ -93,20 +93,22 @@ function saveForm() {
   // A computed record saved as it was shown isn't an override.
   if (f.id && isComputed(f.id) && same(records[f.id].edge, entry.edge) && sameOutput(records[f.id], entry)) return null;
   const oldLabel = f.id && records[f.id].edge;
-  const next = { ...records, [f.id ?? newId()]: { at: f.at, ...entry } };
+  const id = f.id ?? newId();
+  const record = { at: f.at, ...entry };
   const renamed = oldLabel && !same(oldLabel, entry.edge);
-  // Renaming every entry like this one, the default where there are others, relabels them all in the same
-  // step. Computed ones follow their definition.
-  const others = renamed && f.scope !== 'here' ? entriesLike(f.id).filter(k => k !== f.id) : [];
-  for (const k of others) next[k] = { ...records[k], edge: entry.edge };
-  // A relabeled entry relabels the formulas and names that mention it, once nothing entered has the old label.
-  const relabeled = renamed && !Object.entries(next).some(([k, r]) => k !== f.id && !r.args && !r.computed && same(r.edge, oldLabel))
-    ? Formulas.relabel(definitions, names, oldLabel, entry.edge) : null;
-  const error = relabeled ? commitWithFormulas(next, relabeled.definitions, relabeled.names, [[oldLabel, entry.edge]]) : commit(next);
-  if (error || !oldLabel) return error;
-  for (const at of new Set([f.at, ...others.map(k => records[k].at)])) keepPlace(at, oldLabel, entry.edge);
-  if (others.length) ui.info = `Renamed ${oldLabel} to ${entry.edge} at ${count(others.length + 1, 'location')}${relabeled ? ', and in the formulas and names' : ''}.`;
-  return null;
+  if (!renamed) return commit({ ...records, [id]: record });
+  // Renaming every entry like this one (of its form), the default where there are others, relabels them
+  // all, and the schema, in the same step; computed ones follow their definition. Renaming here only
+  // moves this one to a new specification, and its old one with it if nothing else has it.
+  const like = likeRecords(id);
+  if (f.scope !== 'here' && like.length > 1) {
+    const error = renameEvery(id, oldLabel, entry.edge, { [id]: { ...record, edge: entry.edge } });
+    if (!error) ui.info = `Renamed ${oldLabel} to ${entry.edge} at ${count(like.length, 'location')}, and in the formulas and names that use it.`;
+    return error;
+  }
+  const error = commit({ ...records, [id]: record }, { moves: true });
+  if (!error) keepPlace(f.at, oldLabel, entry.edge);
+  return error;
 }
 
 // How a deleted record is listed under Deleted: an object by its name, a relation by its edges and sides,
@@ -462,9 +464,9 @@ function unstyledUnder(at) {
   const seen = new Set();
   return panelOrder(at).filter(id => {
     if (isObject(records[id])) return false;
-    const p = parameterization(records, id);
-    if (styleOfParam(p) || seen.has(p)) return false;
-    seen.add(p);
+    const f = formKeyOf(id);
+    if (styleOfForm(f) || seen.has(f)) return false;
+    seen.add(f);
     return true;
   });
 }
@@ -601,7 +603,7 @@ const openRelation = id =>
 // The row is labeled with the pilot's name for the list, like Owners, if the relation has one.
 // A row of computed relations only starts collapsed, with a count, since formulas can list many.
 function relationRow(g, at, depth) {
-  const name = g.others.length ? listName(relationNameOf(records[g.ids[0]]), g.own[0], g.others[0]) : g.own.join(' · ');
+  const name = g.others.length ? listName(nameEntryOf(g.ids[0]), g.own[0], g.others[0]) : g.own.join(' · ');
   const key = `rel|${at}|${g.key}`;
   const computedOnly = g.ids.every(isComputed);
   const open = !computedOnly || ui.expanded.has(key);
@@ -708,9 +710,9 @@ function edgeLabel(id, edge) {
 
 // Under the edge being renamed: here only or every relation like this one, then save or cancel.
 function edgeEditor(id, edit) {
-  const like = relationsLike(id).length;
+  const like = likeRecords(id).length;
   const r = records[id];
-  const scope = like > 1 ? renameScope('edge-scope', edit.scope, `Every ${relationNameOf(r)?.name ?? relationLabel(r)}`, like,
+  const scope = like > 1 ? renameScope('edge-scope', edit.scope, `Every ${relationNameOf(id)}`, like,
     `Rename ${edit.edge} on every relation like this one, whatever kinds it relates, and in the formulas and names that use it`) : '';
   const error = edit.error ? `<span class="note-text is-error">${icon('alert-triangle')}${esc(edit.error)}</span>` : '';
   return `<div class="edge-edit">${scope}<span class="edge-edit-actions">${error}
@@ -725,8 +727,8 @@ function saveEdge() {
   if (!to) return 'Give it a label.';
   if (same(to, edit.edge) && to === edit.edge) return null;
   if (records[edit.id].args.some(a => !same(a.edge, edit.edge) && same(a.edge, to))) return `This relation already has a ${to}.`;
-  const every = edit.scope !== 'here' && relationsLike(edit.id).length > 1;
-  const n = every ? relationsLike(edit.id).length : 1;
+  const every = edit.scope !== 'here' && likeRecords(edit.id).length > 1;
+  const n = every ? likeRecords(edit.id).length : 1;
   const error = renameEdge(edit.id, edit.edge, to, every);
   if (error) return error;
   if (!every) ensureRelationStyle(edit.id);
@@ -761,16 +763,16 @@ function formNote(plain = false) {
 // one only, or every one like it (see renameScope).
 function scopeLine(f) {
   if (f.mode !== 'edit' || f.cell || !f.id || isObjectName(f.id)) return '';
-  const like = entriesLike(f.id).length;
+  const like = likeRecords(f.id).length;
   if (like < 2) return '';
-  return `<div class="form-note-inner form-scope"><span class="scope-label">A new name reaches</span>${renameScope('rename-scope', f.scope, `Every ${likeText(f.at)}`, like,
-    `Rename every ${records[f.id].edge} at a location like this one, and in the formulas and names that use it`)}</div>`;
+  return `<div class="form-note-inner form-scope"><span class="scope-label">A new name reaches</span>${renameScope('rename-scope', f.scope, `Every ${records[f.id].edge}`, like,
+    `Rename ${records[f.id].edge} wherever it has this form (${describeForm(formKeyOf(f.id)).where}), and in the formulas and names that use it`)}</div>`;
 }
 
 // Editing an entry also offers to require it at every location like this one, and to move it up a level.
 function editExtras(f) {
   if (f.mode !== 'edit' || f.cell || !f.id || isObjectName(f.id)) return '';
-  const on = !!required[parameterization(records, f.id)];
+  const on = isRequired(parameterization(records, f.id));
   const loc = records[f.at];
   const up = !isObject(loc) && !isRelation(loc)
     ? `<button class="link-btn" data-action="move-up" data-id="${f.id}" title="Put it at ${esc(segmentText(loc.at))} instead (Alt+Left on its handle)">Move up a level</button>` : '';
@@ -783,15 +785,6 @@ function renameScope(action, scope, every, count, title) {
   return `<span class="seg rename-scope" role="group" aria-label="Rename">
     <button data-action="${action}" data-value="here" aria-pressed="${scope === 'here'}" title="Rename only this one">Here only</button>
     <button data-action="${action}" data-value="every" aria-pressed="${scope !== 'here'}" title="${esc(title)}">${esc(every)} (${count})</button></span>`;
-}
-
-// How the locations a rename of every one reaches read: a kind for an entry on an object, a relation's
-// name for one at a relation, and "Entity’s Entity Type" for one further down.
-function likeText(at) {
-  const r = records[at];
-  if (isObject(r)) return r.kind;
-  if (isRelation(r)) return relationNameOf(r)?.name ?? relationLabel(r);
-  return `${likeText(r.at)}’s ${r.edge}`;
 }
 
 // A required entry that's blank: its label flagged with an asterisk, and a prompt to fill it in.
@@ -975,7 +968,7 @@ function kindChip(id) {
 // one a formula also covers, says so under its arguments, along with the formula for relations like it.
 function relationView(id) {
   const r = records[id];
-  const named = relationNameOf(r);
+  const named = nameEntryOf(id);
   const title = (isTag(r) ? relationOutput(id) : '') + `<span>${esc(named?.name ?? relationLabel(r))}</span>`
     + (isChoice(r) ? choiceSelect(id, 'in-title') : isField(r) ? `<span class="title-output">${relationValue(id, relationLabel(r))}</span>` : '');
   const style = panelOptions.engaged && styleOf(id);
@@ -1083,12 +1076,11 @@ function restoreFocus() {
 
 const isFormulaText = text => /^\s*(=|←|<-)/.test(String(text ?? ''));
 
-// The pilot's name for a relation as a whole (`names` in model.js), matched by output type and edge labels.
-const sameEdges = (a, b) => a.length === b.length && a.map(norm).sort().join('|') === b.map(norm).sort().join('|');
-const relationNameOf = r => (names.relations ?? []).find(n => n.type === typeOf(r) && sameEdges(n.edges, r.args.map(a => a.edge)));
+// The names a relation record's form has (`names` in model.js): its name, and its lists' names.
+const nameEntryOf = id => names[formKeyOf(id)] ?? null;
 
-// The pilot's name for the list of relatives in the `listed` role, seen from the `from` role; without one,
-// the listed role's edge label, as formulas.js reads it too.
+// The name for the list of relatives in the `listed` role, seen from the `from` role; without one, the
+// listed role's edge label, as formulas.js reads it too.
 function listName(named, from, listed) {
   const lists = Object.entries(named?.lists ?? {}).find(([k]) => same(k, from))?.[1];
   return Object.entries(lists ?? {}).find(([k]) => same(k, listed))?.[1] ?? listed;
@@ -1098,7 +1090,7 @@ function listName(named, from, listed) {
 function recordTitle(id) {
   const r = records[id];
   if (!isRelation(r)) return labelOf(r);
-  return `${relationNameOf(r)?.name ?? relationLabel(r)} (${r.args.map(a => locationText(a.at)).join(' → ')})`;
+  return `${relationNameOf(id)} (${r.args.map(a => locationText(a.at)).join(' → ')})`;
 }
 
 // A record a formula read, as its explanation lists it: where it is, and what it says. A relation's
@@ -1106,7 +1098,7 @@ function recordTitle(id) {
 function readText(id, details = []) {
   const r = records[id];
   if (isObject(r)) return objectName(id);
-  if (isRelation(r)) return `${r.args.map(a => locationText(a.at)).join(' → ')} (${[relationNameOf(r)?.name ?? relationLabel(r),
+  if (isRelation(r)) return `${r.args.map(a => locationText(a.at)).join(' → ')} (${[relationNameOf(id),
     ...details.map(d => `${records[d].edge} ${displayValue(records[d])}`)].join(', ')}${isTag(r) && !r.tag ? ', ruled out' : ''})`;
   const [head, ...tail] = pathTo(id);
   const start = isRelation(records[head]) ? recordTitle(head) : objectName(head);
@@ -1129,7 +1121,7 @@ function formulaOutputText(d, v) {
   if (v === null || v === undefined) return 'nothing';
   if (Formulas.isError(v)) return v.code;
   if (typeof v === 'boolean') return v ? 'attested' : 'ruled out';
-  if (typeof v === 'number') return formatNumber(v, d?.percent);
+  if (typeof v === 'number') return showValue(d?.datatype ?? 'number', v);
   if (v?.t === 'date') return formatDate(v.iso);
   return String(v);
 }
@@ -1137,7 +1129,6 @@ function formulaOutputText(d, v) {
 const definitionType = d => d.type === 'field' ? `${DATATYPE_NAMES[d.datatype ?? 'number']} field` : TYPE_NAMES[d.type];
 const isRelationDef = d => !!d.args || (d.covers ?? []).some(k => JSON.parse(k).length > 1);
 const computedCount = defId => Object.values(formulaResult.computed ?? {}).filter(c => c.def === defId).length;
-const definitionCovering = param => definitions.find(d => Formulas.coversOf(d).includes(param));
 
 // The mark after a record's output: "fx" on a computed one, which explains it when clicked, and a corner
 // mark, as in Excel, on an entered one a formula also covers: strong where it differs from the formula
@@ -1218,9 +1209,8 @@ function locationTextOf(id) {
   })].join(' › ');
 }
 
-// Every location the records have, for the location pickers.
-const schemaLocations = () => [...new Set(Object.keys(records)
-  .filter(id => !isField(records[id]) && !isRelation(records[id])).map(locationTextOf).filter(Boolean))].sort(byLabel);
+// Every location the schema has, as a path from a kind, for the location pickers.
+const schemaLocations = () => [...new Set(Object.values(schema).map(pathText).filter(Boolean))].sort(byLabel);
 
 // What a definition covers, in words.
 function coverageText(d) {
@@ -1247,7 +1237,7 @@ function newDefinition(relation, sides) {
 // A formula for the records like `id`, which has none yet: covering exactly its parameterization.
 function draftFor(id) {
   const r = records[id];
-  const base = { id: newId(), name: isRelation(r) ? relationNameOf(r)?.name ?? relationLabel(r) : r.edge, type: typeOf(r), covers: [parameterization(records, id)] };
+  const base = { id: newId(), name: isRelation(r) ? relationNameOf(id) : r.edge, type: typeOf(r), covers: [parameterization(records, id)] };
   if (isField(r)) base.datatype = r.field;
   return isTag(r) ? { ...base, implications: [{ label: '', formula: '← ' }] } : { ...base, formula: '= ' };
 }
@@ -1333,28 +1323,16 @@ function finishedDraft(fx) {
     if (!c.kind || c.error) return `Fix the formula first: ${c.error?.message ?? 'it should start with = or ←.'}`;
   }
   if (d.type !== 'field') delete d.datatype;
-  if (!(d.type === 'field' && (d.datatype ?? 'number') === 'number')) delete d.percent;
   return d;
 }
 
-// The pilot's names, with a relation definition's name and edges kept in step with it.
-function namesFor(d, old) {
-  if (!isRelationDef(d)) return names;
-  const rels = names.relations ?? [];
-  const i = rels.findIndex(r => same(r.name, old?.name ?? d.name));
-  const edges = d.args?.map(a => a.edge);
-  if (i >= 0) return { ...names, relations: rels.map((r, k) => k === i ? { ...r, name: d.name, ...(edges && { edges }) } : r) };
-  if (!edges) return names;
-  return { ...names, relations: [...rels, { name: d.name, type: d.type === 'field' ? 'field' : d.type, edges, lists: {} }] };
-}
-
+// Saves the draft as written; the model stores it, its relation's name going to the names (see
+// canonicalFormulas), and a new name reaching the formulas and filters that mention the old one.
 function saveDraft() {
   const fx = ui.fx;
   const d = finishedDraft(fx);
   if (typeof d === 'string') { fx.error = d; return; }
-  const old = definitionOf(d.id);
-  const next = old ? definitions.map(x => x.id === d.id ? d : x) : [...definitions, d];
-  fx.error = changeFormulas(next, namesFor(d, old));
+  fx.error = saveDefinition(d);
   if (fx.error) return;
   fx.draft = structuredClone(d);
   ui.info = `Saved ${d.name}; the formulas are worked out again.`;
@@ -1405,7 +1383,7 @@ const fxCrumbs = `<a href="#">All</a>${icon('chevron-right', 'crumb-sep')}<a hre
 function formulasView() {
   const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Formulas', sub: 'Entries and relations worked out from other records',
     actions: `<span class="fx-head-actions"><a class="btn" href="#formula:new:entry">${icon('plus')}Entry</a><a class="btn" href="#formula:new:relation">${icon('plus')}Relation</a></span>` });
-  const rows = definitions.map(d => {
+  const rows = allDefinitions().map(d => {
     const errors = recordErrors(d.id).length + (definitionError(d.id) ? 1 : 0);
     const meta = `${definitionType(d)}${isRelationDef(d) ? ' relation' : ''} · ${coverageText(d)}`;
     return `<a class="list-row fx-list-row" href="#formula:${esc(d.id)}"><span class="fx-list-main"><span class="list-title">${esc(d.name)}</span>
@@ -1415,40 +1393,38 @@ function formulasView() {
   return [head, (rows || '<div class="empty">No formulas yet.</div>') + namesSection()];
 }
 
-// The pilot's names for relations and their lists, edited in place. Each saves as it's left.
+// The names of relations and of their lists, by form (see "Names" in model.js), edited in place. Each
+// saves as it's left.
 function namesSection() {
-  const rels = names.relations ?? [];
-  const blocks = rels.map((r, i) => {
+  const blocks = nameList().map(r => {
     const pairs = r.edges.flatMap(from => r.edges.filter(to => to !== from).map(to => [from, to]));
     const lists = pairs.map(([from, to]) => {
-      const value = Object.entries(Object.entries(r.lists ?? {}).find(([k]) => same(k, from))?.[1] ?? {}).find(([k]) => same(k, to))?.[1] ?? '';
+      const value = listNameIn(r, from, to);
       return `<label class="names-list"><span class="names-list-label">From ${esc(from)}, its ${esc(to)} list</span>
-        <input class="input" data-names="list" data-i="${i}" data-from="${esc(from)}" data-to="${esc(to)}" value="${esc(value)}" placeholder="${esc(to)}" autocomplete="off" spellcheck="false"></label>`;
+        <input class="input" data-names="list" data-form="${esc(r.form)}" data-from="${esc(from)}" data-to="${esc(to)}" value="${esc(value)}" placeholder="${esc(to)}" autocomplete="off" spellcheck="false"></label>`;
     }).join('');
-    return `<div class="names-rel"><div class="names-head"><input class="input names-name" data-names="name" data-i="${i}" value="${esc(r.name)}" aria-label="Relation name" autocomplete="off" spellcheck="false">
-        <span class="names-edges">${esc(TYPE_NAMES[r.type] ?? r.type)} · ${esc(r.edges.join(' · '))}</span>
-        <button class="icon-btn is-small" data-action="names-remove" data-i="${i}" aria-label="Forget this name" title="Forget this name">${icon('x')}</button></div>${lists}</div>`;
+    const where = describeForm(r.form).where;
+    return `<div class="names-rel"><div class="names-head"><input class="input names-name" data-names="name" data-form="${esc(r.form)}" value="${esc(r.name)}" aria-label="Relation name" autocomplete="off" spellcheck="false">
+        <span class="names-edges">${esc(TYPE_NAMES[r.type] ?? r.type)} · ${esc(r.edges.join(' · '))}${where ? ` · ${esc(where)}` : ''}</span>
+        <button class="icon-btn is-small" data-action="names-remove" data-form="${esc(r.form)}" aria-label="Forget this name" title="Forget this name">${icon('x')}</button></div>${lists}</div>`;
   }).join('');
-  // Relations in the records that have no name yet.
-  const unnamed = new Map();
-  for (const r of Object.values(records)) {
-    if (!isRelation(r) || relationNameOf(r)) continue;
-    const edges = r.args.map(a => a.edge);
-    unnamed.set(`${typeOf(r)}:${edges.map(norm).sort().join('|')}`, { type: typeOf(r), edges });
-  }
-  const add = unnamed.size ? `<select class="input names-add" data-names="add"><option value="">Name another relation…</option>${[...unnamed].map(([k, u]) =>
-    `<option value="${esc(k)}">${esc(u.edges.join(' · '))} (${esc(TYPE_NAMES[u.type])})</option>`).join('')}</select>` : '';
+  // Relation forms in the schema that have no name yet.
+  const unnamed = formsOfSchema().filter(f => isRelationForm(f) && !names[f]);
+  const add = unnamed.length ? `<select class="input names-add" data-names="add"><option value="">Name another relation…</option>${unnamed.map(f =>
+    `<option value="${esc(f)}">${esc(describeForm(f).label)} (${esc(TYPE_NAMES[typeOfForm(f)])})</option>`).join('')}</select>` : '';
   return `<div class="section-head">Names <span class="section-note">for relations, and for their lists of relatives seen from each side</span></div>
     <div class="names">${blocks}${add}</div>`;
 }
 
 // A relation or list given a new name takes it into the formulas and filters that mention the old one.
 // A list that had no name went by an edge label, which formulas use for other things too, so naming it
-// for the first time renames nothing.
-const changeName = (i, fn, from, to) => {
-  const rels = (names.relations ?? []).map((r, k) => k === i ? fn(structuredClone(r)) : r);
+// for the first time renames nothing. `fn` returns the form's names changed, or null to forget them.
+const changeName = (form, fn, from, to) => {
+  const changed = fn(structuredClone(names[form]));
+  const { [form]: _, ...rest } = names;
+  const next = changed ? { ...rest, [form]: changed } : rest;
   const renames = from && to ? [[from, to]] : [];
-  ui.notice = changeFormulas(renamedInFormulas(definitions, from, to), { ...names, relations: rels.filter(Boolean) }, renames);
+  ui.notice = changeFormulas(renamedInFormulas(definitions, from, to), next, renames);
 };
 
 // A list's name as the Names section shows it, or '' where it goes by its edge label.
@@ -1456,27 +1432,26 @@ const listNameIn = (r, from, to) =>
   Object.entries(Object.entries(r.lists ?? {}).find(([k]) => same(k, from))?.[1] ?? {}).find(([k]) => same(k, to))?.[1] ?? '';
 
 function onNamesChange(el) {
-  const i = Number(el.dataset.i);
+  const form = el.dataset.form;
   if (el.dataset.names === 'name') {
     if (!clean(el.value)) return;
-    changeName(i, r => ({ ...r, name: clean(el.value) }), names.relations[i]?.name, clean(el.value));
+    changeName(form, r => ({ ...r, name: clean(el.value) }), names[form]?.name, clean(el.value));
   } else if (el.dataset.names === 'list') {
-    const was = listNameIn(names.relations[i] ?? {}, el.dataset.from, el.dataset.to);
+    const was = listNameIn(names[form] ?? {}, el.dataset.from, el.dataset.to);
     const now = clean(el.value) || el.dataset.to;
-    changeName(i, r => {
-      const from = Object.keys(r.lists ?? {}).find(k => same(k, el.dataset.from)) ?? el.dataset.from;
+    changeName(form, r => {
+      const from = Object.keys(r.lists ?? {}).find(k => same(k, el.dataset.from)) ?? norm(el.dataset.from);
       const lists = { ...(r.lists ?? {}) };
       const own = { ...(lists[from] ?? {}) };
-      const to = Object.keys(own).find(k => same(k, el.dataset.to)) ?? el.dataset.to;
+      const to = Object.keys(own).find(k => same(k, el.dataset.to)) ?? norm(el.dataset.to);
       if (clean(el.value)) own[to] = clean(el.value); else delete own[to];
       lists[from] = own;
       return { ...r, lists };
     }, was, was && now);
   } else if (el.dataset.names === 'add' && el.value) {
-    const [type] = el.value.split(':');
-    const sample = Object.values(records).find(r => isRelation(r) && typeOf(r) === type && `${type}:${r.args.map(a => norm(a.edge)).sort().join('|')}` === el.value);
-    const edges = sample.args.map(a => a.edge);
-    ui.notice = saveNames({ ...names, relations: [...(names.relations ?? []), { name: edges.join(' · '), type, edges, lists: {} }] });
+    const t = specsOfForm(el.value)[0];
+    const edges = t.args.map(a => a.edge);
+    ui.notice = saveNames({ ...names, [el.value]: { name: edges.join(' · '), edges, lists: {} } });
   }
 }
 
@@ -1496,9 +1471,8 @@ function definitionView({ id, isNew, relation, sides = [] }) {
   const head = panelHead({ crumbs: fxCrumbs, title: esc(d.name || (isRel ? 'New relation' : 'New entry')), sub, actions });
   const field = (label, html, note = '') => `<div class="fx-label-cell">${label}</div><div class="fx-value-cell">${html}${note ? `<div class="fx-hint">${note}</div>` : ''}</div>`;
   const typeValue = d.type === 'field' ? `field:${d.datatype ?? 'number'}` : d.type;
-  const types = [['tag', 'Tag'], ['choice', 'Choice'], ['field:number', 'Number field'], ['field:text', 'Text field'], ['field:date', 'Date field']];
-  const typeSelect = `<select class="input fx-select" data-fx="type">${types.map(([v, t]) => `<option value="${v}"${v === typeValue ? ' selected' : ''}>${t}</option>`).join('')}</select>`
-    + (typeValue === 'field:number' ? `<label class="fx-check"><input type="checkbox" data-fx="percent"${d.percent ? ' checked' : ''}> Show as a percentage</label>` : '');
+  const types = [['tag', 'Tag'], ['choice', 'Choice'], ...Object.entries(DATATYPE_NAMES).map(([k, n]) => [`field:${k}`, `${n} field`])];
+  const typeSelect = `<select class="input fx-select" data-fx="type">${types.map(([v, t]) => `<option value="${v}"${v === typeValue ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
   let where;
   if (d.args) {
     where = field('Parameters', d.args.map((a, i) => `<div class="fx-param">
@@ -1580,7 +1554,6 @@ function onFxChange(el) {
   if (!fx) return false;
   const d = fx.draft, f = el.dataset.fx;
   if (f === 'type') setDraftType(d, el.value);
-  else if (f === 'percent') d.percent = el.checked;
   else if (f === 'self') d.self = el.checked;
   else if (f === 'add-loc' && el.value) (el.dataset.i === '' ? d.at : d.args[Number(el.dataset.i)].at).push(el.value);
   else return false;
@@ -1591,17 +1564,16 @@ function onFxChange(el) {
 
 const suggestion = { el: null, items: [], active: 0 };
 
-// Every name a dot can look up somewhere: entries' labels, and lists of relatives by their names.
+// Every name a dot can look up somewhere in the schema: entries' labels, and lists of relatives by their
+// names.
 function schemaNames() {
   const out = new Map();
-  for (const r of Object.values(records)) {
-    if (r.edge && !out.has(norm(r.edge))) out.set(norm(r.edge), { name: r.edge, kind: 'entry' });
-    if (!isRelation(r)) continue;
-    const named = relationNameOf(r);
-    for (const own of r.args) for (const other of r.args) if (own !== other) {
-      const list = listName(named, own.edge, other.edge);
-      if (!out.has(norm(list))) out.set(norm(list), { name: list, kind: 'list' });
-    }
+  const add = (name, kind) => { if (!out.has(norm(name))) out.set(norm(name), { name, kind }); };
+  for (const t of Object.values(schema)) {
+    if (!t.args) continue;
+    if (t.args.length === 1) { add(t.args[0].edge, 'entry'); continue; }
+    const named = names[formOfTree(t)];
+    for (const own of t.args) for (const other of t.args) if (own !== other) add(listName(named, own.edge, other.edge), 'list');
   }
   return [...out.values()].sort((a, b) => byLabel(a.name, b.name));
 }
@@ -1705,7 +1677,7 @@ const actions = {
   // A blank required entry is filled in where it stands: a tag is attested at once, and a field or choice
   // goes straight to its value or option.
   'fill-required': d => {
-    const req = required[d.param];
+    const req = requiredInfo(d.param);
     startForm('add', req.type, d.id, undefined, { focus: 'output', cell: true });
     Object.assign(ui.form, { name: req.label, required: d.param, step: 'output' });
     if (req.type === 'tag') submitForm();
@@ -1759,7 +1731,7 @@ const actions = {
   'fx-param-add': () => { ui.fx.draft.args.push({ edge: '', at: [] }); },
   'fx-param-remove': d => { ui.fx.draft.args.splice(Number(d.i), 1); },
   'fx-loc-remove': d => { (d.i === '' ? ui.fx.draft.at : ui.fx.draft.args[Number(d.i)].at).splice(Number(d.k), 1); },
-  'names-remove': d => changeName(Number(d.i), () => null),
+  'names-remove': d => changeName(d.form, () => null),
 };
 
 // Keep focus in the box while an option is clicked.

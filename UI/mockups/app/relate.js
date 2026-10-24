@@ -18,18 +18,22 @@ const relate = {
 
 const freshRelateForm = (a, b) => ({ roleA: '', roleB: '', locA: a, locB: b, type: 'tag', output: '' });
 
-// Every parameterization of a relation in the state, with its parameters in one record's order.
+// Every parameterization of a relation in the schema, records or no, with its parameters in its
+// specification's order. Each parameter has its edge, its location's key and kind, and the path its
+// location adds below its object, like "Entity Type: Limited Liability Company".
 function relationKinds() {
   const kinds = new Map();
-  for (const [id, r] of Object.entries(records)) {
-    if (!isRelation(r)) continue;
-    const param = parameterization(records, id);
+  const kindOf = loc => loc.kind ?? (loc.args.length === 1 ? kindOf(loc.args[0].loc) : null);
+  const below = loc => pathText(loc)?.split(' › ').slice(1).join(' › ') ?? '';
+  for (const t of Object.values(schema)) {
+    if (!(t.args?.length > 1)) continue;
+    const param = treeParam(t);
     if (!kinds.has(param)) kinds.set(param, {
-      param, type: typeOf(r), datatype: r.field, outputs: [], def: definitionCovering(param),
-      args: r.args.map(a => ({ edge: a.edge, spec: specKey(records, a.at), kind: records[objectOf(a.at)].kind, sample: a.at })),
+      param, type: typeOfTree(t), datatype: t.out.field, outputs: [], def: definitionCovering(param),
+      args: t.args.map(a => ({ edge: a.edge, spec: treeKey(a.loc), kind: kindOf(a.loc), below: below(a.loc) })),
     });
     const k = kinds.get(param);
-    if (isChoice(r) && !k.outputs.some(o => same(o, r.choice))) k.outputs.push(r.choice);
+    if ('choice' in t.out && !k.outputs.some(o => same(o, t.out.choice))) k.outputs.push(t.out.choice);
   }
   return [...kinds.values()];
 }
@@ -42,10 +46,10 @@ function sideLocations(side, spec) {
 
 // Whether a side is an input to a parameter: its object is of the parameter's leaf kind, and if the side
 // is a record below its object, it's at the parameter's location exactly.
-const isInputTo = (side, arg) => same(records[objectOf(side)].kind, arg.kind) && (isObject(records[side]) || specKey(records, side) === arg.spec);
+const isInputTo = (side, arg) => !!arg.kind && same(records[objectOf(side)].kind, arg.kind) && (isObject(records[side]) || specKey(records, side) === arg.spec);
 
-// What a parameter's location adds below its object, like "Entity Type: Limited Liability Company".
-const pathBelow = sampleAt => pathTo(sampleAt).slice(1).map(segmentText).join(' › ');
+
+
 
 function relateRows(a, b) {
   const rows = [];
@@ -63,12 +67,12 @@ function relateRows(a, b) {
       // Rows wanting the same roles and missing something on the same side are shown as one.
       const twin = rows.find(r => r.needs && same(r.kind.args[r.i].edge, pa.edge) && same(r.kind.args[r.j].edge, pb.edge) && r.needSide === side);
       if (twin) {
-        twin.needPaths.push(pathBelow(arg.sample));
+        twin.needPaths.push(arg.below);
         twin.needs = `Needs ${twin.needPaths.join(' or ')} on ${segmentText(objectOf(side))}`;
         return;
       }
-      Object.assign(row, { needSide: side, needPaths: [pathBelow(arg.sample)] });
-      row.needs = `Needs ${pathBelow(arg.sample)} on ${segmentText(objectOf(side))}`;
+      Object.assign(row, { needSide: side, needPaths: [arg.below] });
+      row.needs = `Needs ${arg.below} on ${segmentText(objectOf(side))}`;
       return rows.push(row);
     }
     // Recorded relations of this kind with the sides at these parameters, and their other arguments.
@@ -122,7 +126,7 @@ function newOutput(row) {
   if (k.def) return `${checkbox(null, `data-action="relate-add" data-key="${row.key}" title="Attest it by hand"`)}<span class="relate-hint">Not implied by ${esc(k.def.name)}</span>`;
   if (k.type === 'tag') return checkbox(null, `data-action="relate-add" data-key="${row.key}"`);
   if (k.type === 'field')
-    return `<input class="input rel-input" data-relate-value="${row.key}" placeholder="${k.datatype === 'number' ? 'Amount' : k.datatype === 'date' ? 'Date' : 'Value'}" autocomplete="off" spellcheck="false">`;
+    return `<input class="input rel-input" data-relate-value="${row.key}" placeholder="${VALUE_HINTS[k.datatype] ?? 'Value'}" autocomplete="off" spellcheck="false">`;
   const key = `relopt:${row.key}`;
   const open = ui.menu === key;
   const items = open ? k.outputs.slice().sort(byLabel).map(o => `<button class="menu-item" role="menuitem" data-action="relate-add" data-key="${row.key}" data-value="${esc(o)}"><span class="menu-text">${esc(o)}</span></button>`).join('')

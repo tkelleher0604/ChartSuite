@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rboreal model test</title>
+<style>
+  body { margin: 0; padding: 20px; background: #fafafa; color: #18181b; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .fail { color: #b42318; }
+  @media (prefers-color-scheme: dark) { body { background: #111113; color: #e4e4e7; } .fail { color: #f97066; } }
+</style>
+</head>
+<body>
+<pre id="out">Running…</pre>
+<script src="app/common.js"></script>
+<script src="app/model.js"></script>
+<script src="app/formulas.js"></script>
+<script src="app/styles.js"></script>
+<script>
+// Checks the model against what model.js and data-model.md say of it, on the sample and after scripted
+// edits: the schema holds every record's specification and is closed and consistent; styles, names,
+// required entries and definitions key into it; renames, moves, undo, deleting, copying formulas and
+// Show and Hide do what they should. Nothing is saved: the page works on its own copy of the sample.
+saveState = () => {};
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const fresh = () => {
+  workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState(), sample: true }], chartId: 'chart_main', deleted: [] };
+  undoStack.length = redoStack.length = 0;
+  setState(chartInUse().state);
+};
+const computedBy = def => Object.keys(records).filter(k => records[k].computed === def).length;
+const labels = () => new Set(Object.values(schema).filter(t => t.args).flatMap(t => t.args.map(a => norm(a.edge))));
+
+function invariants(when) {
+  const missing = Object.keys(records).filter(id => { const t = treeOf(records, id); return t && !schema[treeKey(t)]; });
+  check(`${when}: every record's specification is in S`, !missing.length, missing.slice(0, 5).join(' '));
+  const open = Object.values(schema).flatMap(locationsBelow).filter(l => !schema[treeKey(l)]);
+  check(`${when}: S is closed under locations`, !open.length, open.slice(0, 3).map(treeKey).join(' '));
+  check(`${when}: the schema conditions hold`, !schemaError(schema), schemaError(schema));
+  for (const v of currentViews()) {
+    const forms = v.styles.map(s => s.form);
+    check(`${when}: ${v.name} has at most one style for each form`, new Set(forms).size === forms.length);
+    const unknown = v.styles.filter(s => s.form !== 'object' && !specsOfForm(s.form).length);
+    check(`${when}: ${v.name}'s styles are all on forms the schema has`, !unknown.length, unknown.map(s => s.id).join(' '));
+  }
+  check(`${when}: required entries are parameterizations the schema has`, required.every(p => specsWithParam(p).length));
+  check(`${when}: every definition covers parameterizations the schema has`, definitions.every(d => d.scope.every(p => specsWithParam(p).length)));
+  check(`${when}: names are on relation forms the schema has`, Object.keys(names).every(f => specsOfForm(f).length && isRelationForm(f)));
+}
+
+function run() {
+  // The sample
+  fresh();
+  invariants('Sample');
+  check('Sample: 153 computed records, 25 Control, 10 Close Affiliate', Object.keys(records).filter(isComputed).length === 153 && computedBy('def_control') === 25 && computedBy('def_close') === 10,
+    `${Object.keys(records).filter(isComputed).length}, ${computedBy('def_control')}, ${computedBy('def_close')}`);
+  check('Definitions are stored as scope and rule only', definitions.every(d => Object.keys(d).every(k => ['id', 'scope', 'formula', 'implications', 'self'].includes(k))));
+  check('Tax Classification covers three Entity Types, written as locations', asWritten(definitions.find(d => d.id === 'def_tax')).at.length === 3);
+  const back = canonicalFormulas(allDefinitions(), names, schema).definitions;
+  check('A definition written and stored again keeps its scope', back.every((d, i) => d.scope.join() === definitions[i].scope.join()));
+  check('Names are keyed by form', Object.keys(names).length === 11 && relationNameOf('own_fund_blkr') === 'Ownership' && relationNameOf('gp_of_feeder') === 'General Partner');
+  check('One style covers Ownership by every kind of owner', styles.filter(s => s.form === formKeyOf('own_fund_blkr')).length === 1
+    && formKeyOf('own_fund_blkr') === formKeyOf('own_chen_gp') && formKeyOf('own_chen_gp') === formKeyOf('own_us_fund'));
+  check('One style covers the Name of every kind', formKeyOf('fund_name') === formKeyOf('chen_name') && formKeyOf('chen_name') === formKeyOf('inv_us_name'));
+  check('Tax Classification under every Entity Type has one form', formKeyOf('fund_tax') === formKeyOf('gp_tax') && formKeyOf('gp_tax') === formKeyOf('blocker_tax'));
+  check('A form from a parameterization key agrees with one from its tree', formOfParam(parameterization(records, 'own_fund_blkr'), 'tag') === formKeyOf('own_fund_blkr'));
+
+  // Values
+  check('Percent parses as a fraction', parseValue('percent', '71.6%') === 0.716 && parseValue('percent', '25') === 0.25);
+  check('Money and numbers parse as numbers', parseValue('money', '$750,000,000') === 750000000 && parseValue('number', '1,000') === 1000);
+  check('A leading zero is text', classify('0803456789') === 'text' && classify('71.6%') === 'percent' && classify('$5') === 'money' && classify('March 4, 2019') === 'date');
+  check('Values read by datatype', showValue('percent', 0.18176) === '18.18%' && showValue('money', 1234.5) === '$1,234.50' && showValue('money', 750000000) === '$750,000,000'
+    && showValue('number', 1000) === '1,000' && showValue('date', '2023-02-14') === 'February 14, 2023', [showValue('percent', 0.18176), showValue('money', 1234.5)].join(' '));
+  const trips = Object.entries(entered).filter(([, r]) => isField(r)).filter(([, r]) => parseValue(r.field, displayValue(r)) !== r.value);
+  check('Every sample value reads and parses back to itself', !trips.length, trips.map(([k]) => k).join(' '));
+  const lt = Object.keys(records).find(k => records[k].computed === 'def_look_through');
+  check('A computed percentage is a percent field, shown as one', records[lt].field === 'percent' && /%$/.test(displayValue(records[lt])), displayValue(records[lt]));
+
+  // Renaming every one like it
+  fresh();
+  const keys0 = Object.keys(schema).sort().join('\n');
+  const err1 = renameEvery('own_fund_blkr_pct', 'Percentage', 'Voting Percentage');
+  check('Rename every one: no error', !err1, err1);
+  check('Rename every one: every Percentage is relabeled, in records and schema', !labels().has('percentage') && Object.values(entered).filter(r => r.edge === 'Voting Percentage').length === 12);
+  check('Rename every one: the Percentage style moved with its form', styleOf('own_fund_blkr_pct')?.id === 'st_percentage');
+  check('Rename every one: the 40 Act view’s copy moved too', views.find(v => v.id === 'view_40act').styles.some(s => s.id === 'st_percentage' && s.form === formKeyOf('own_fund_blkr_pct')));
+  check('Rename every one: formulas follow, and work out the same', definitions.find(d => d.id === 'def_control').implications[0].formula.includes('[Voting Percentage]') && computedBy('def_control') === 25);
+  invariants('After renaming every Percentage');
+  undoState();
+  check('Undo restores the schema', Object.keys(schema).sort().join('\n') === keys0);
+  check('Undo restores the records and styles', entered.own_fund_blkr_pct.edge === 'Percentage' && styleOf('own_fund_blkr_pct')?.id === 'st_percentage');
+
+  fresh();
+  const err2 = renameEdge('own_fund_blkr', 'Owned', 'Held', true);
+  check('Rename an edge on every relation like it: no error', !err2, err2);
+  check('…the Ownership name and its lists follow', relationNameOf('own_fund_blkr') === 'Ownership' && names[formKeyOf('own_fund_blkr')].edges.includes('Held'));
+  check('…and the formulas work out the same', computedBy('def_control') === 25 && computedBy('def_close') === 10, `${computedBy('def_control')} ${computedBy('def_close')}`);
+  invariants('After renaming Owned to Held');
+
+  // The abandonment law
+  fresh();
+  toggleRequired('blocker_shares');
+  const oldShares = treeKey(treeOf(records, 'blocker_shares'));
+  const err3 = commit({ ...records, blocker_shares: { ...records.blocker_shares, edge: 'Shares Authorized' } }, { moves: true });
+  check('Here only, alone: the abandoned specification moves', !err3 && !schema[oldShares] && schema[treeKey(treeOf(records, 'blocker_shares'))], err3);
+  check('Here only, alone: its required flag moves with it', isRequired(parameterization(records, 'blocker_shares')) && required.length === 2);
+  invariants('After renaming Authorized Shares here only');
+  fresh();
+  const ein = treeKey(treeOf(records, 'fund_ein'));
+  commit({ ...records, fund_ein: { ...records.fund_ein, edge: 'Tax ID' } }, { moves: true });
+  check('Here only, with others: the old specification stays for them', !!schema[ein] && labels().has('tax id'));
+  fresh();
+  const s = addStyle('mgmt_managed');
+  const managed = treeKey(treeOf(records, 'mgmt_managed'));
+  const err4 = moveUp('mgmt_managed');
+  check('Move up: the abandoned specification moves, at its new location', !err4 && !schema[managed] && records.mgmt_managed.at === 'mgmt' && schema[treeKey(treeOf(records, 'mgmt_managed'))], err4);
+  check('Move up: its style moves to its new form', styleById(s.id)?.form === formKeyOf('mgmt_managed'));
+  invariants('After moving Manager-Managed up');
+
+  // Deleting and restoring
+  fresh();
+  const size = Object.keys(schema).length;
+  deleteRecords(['northpine'], 'Northpine');
+  check('Delete: the records go, the schema stays', !records.northpine && Object.keys(schema).length === size);
+  restoreBatch(archive[0].id);
+  check('Restore: the records come back, and the formulas with them', !!records.northpine && computedBy('def_close') === 10);
+  invariants('After deleting and restoring');
+
+  // A formula whose type changes sheds its old type's specifications
+  fresh();
+  const err5 = saveDefinition({ ...definitionOf('def_adds_up'), type: 'field', datatype: 'number', formula: '= COUNT(Owners)' });
+  const addsUp = definitions.find(d => d.id === 'def_adds_up').scope;
+  check('A definition changed from a tag to a field leaves no tag behind', !err5 && addsUp.every(p => specsWithParam(p).every(t => 'field' in t.out)), err5);
+  invariants('After changing a formula’s type');
+
+  // Show and hide
+  fresh();
+  const own = showable().lines.find(x => x.label === 'Ownership');
+  const count0 = styles.length;
+  setShown(own, false);
+  check('Hiding a relation flips its one style, and its labels', styles.length === count0 && Object.values(styleById('st_ownership').map).every(p => p.show === false)
+    && Object.values(styleById('st_percentage').map).every(p => p.show === false));
+  check('…so no ownership line is drawn', Object.keys(records).filter(id => formKeyOf(id) === own.form).every(id => !lineLook(id).show));
+  setShown({ kind: 'Investor Group' }, false);
+  check('Hiding a kind hides its boxes, through the Kind style', !boxShown('inv_us') && boxShown('fund') && styleById('st_kind').map['investor group'].show === false);
+  const close = showable().lines.find(x => x.label === 'Close Affiliate');
+  check('Relations a formula covers are listed as such, and start undrawn', close.computed && Object.keys(records).filter(id => formKeyOf(id) === close.form).every(id => !lineLook(id).show));
+
+  // Workbooks: a blank chart, with formulas copied from the sample
+  fresh();
+  addChart('Blank');
+  const err6 = copyFormulasFrom('chart_main');
+  check('Copy formulas: every definition and name comes along', !err6 && definitions.length === 10 && Object.keys(names).length === 11, err6);
+  const a = createObject('Entity', 'Alpha').id, b = createObject('Entity', 'Beta').id;
+  const o = newId();
+  commit({ ...records, [o]: { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }, [newId()]: { at: o, edge: 'Percentage', field: 'percent', value: 0.6 } });
+  check('Copy formulas: they work out in the new chart', computedBy(definitions.find(d => d.implications?.[0]?.label === 'More than 25%').id) === 1);
+  invariants('In a chart with copied formulas');
+
+  // Removing unused specifications
+  fresh();
+  commit({ ...records, fund_ein: { ...records.fund_ein, edge: 'Tax ID' } }, { moves: true });
+  deleteRecords(['fund_ein'], 'Tax ID');
+  const unused = unusedSpecs();
+  check('The Schema view can remove a specification nothing has', unused.length > 0 && !removeSpecs(unused) && !labels().has('tax id'));
+  invariants('After removing unused specifications');
+
+  const failed = out.filter(x => !x.ok).length;
+  document.title = `model test: ${out.length - failed} pass, ${failed} fail`;
+  document.getElementById('out').innerHTML = `${document.title}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>
+    `<span class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail && !x.ok ? `  [${esc(x.detail)}]` : ''}</span>`).join('\n');
+}
+
+try { run(); } catch (e) { document.getElementById('out').textContent = `${e.message}\n${e.stack}\n\n${out.map(x => `${x.ok ? 'PASS' : 'FAIL'}  ${x.name}`).join('\n')}`; }
+</script>
+</body>
+</html>

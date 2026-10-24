@@ -81,7 +81,7 @@ function engage(styleId, output) {
 function selectionOutput(style) {
   const sel = selection();
   if (sel.relation) {
-    const id = panelOrder(sel.relation).find(k => parameterization(records, k) === style.param);
+    const id = panelOrder(sel.relation).find(k => formKeyOf(k) === style.form);
     return id ? outputKey(records[id]) : undefined;
   }
   if (sel.object) return boxLook(sel.object).applied.find(a => a.style === style)?.output;
@@ -507,13 +507,8 @@ function deleteObject(obj) {
   location.hash = '';
 }
 
-// A relation as people would name it: by the pilot's name for relations with its edges, or by its edges.
-function relationName(id) {
-  const r = records[id];
-  const edges = r.args.map(a => norm(a.edge)).sort().join('|');
-  return (names.relations ?? []).find(n => n.type === typeOf(r) && n.edges.map(norm).sort().join('|') === edges)?.name ?? relationLabel(r);
-}
-const relationTitle = id => `${relationName(id)}: ${records[id].args.map(a => segmentText(objectOf(a.at))).join(' → ')}`;
+// A relation as people would name it: by its form's name, or by its edges, and what it relates.
+const relationTitle = id => `${relationNameOf(id)}: ${records[id].args.map(a => segmentText(objectOf(a.at))).join(' → ')}`;
 
 function deleteRelation(id) {
   const label = relationTitle(id);
@@ -636,13 +631,12 @@ function workOutFilter(text) {
   return outcome;
 }
 
-// Everything this view leaves out: what's hidden one by one, the boxes its filter or its hidden kinds
-// leave out, and so the lines to them.
+// Everything this view leaves out: what's hidden one by one, the boxes its filter leaves out or its Kind
+// style doesn't show, and so the lines to them.
 function hiddenHere() {
   const hidden = new Set(hiddenInView());
   for (const id of filterOutcome(viewFilter()).hidden) hidden.add(id);
-  const kinds = new Set(hiddenKinds());
-  if (kinds.size) for (const [id, r] of Object.entries(records)) if (isObject(r) && kinds.has(norm(r.kind))) hidden.add(id);
+  for (const [id, r] of Object.entries(records)) if (isObject(r) && !boxShown(id)) hidden.add(id);
   return hidden;
 }
 
@@ -656,7 +650,7 @@ function tidyView() {
   const above = new Map(ids.map(id => [id, []]));
   for (const [rid, r] of Object.entries(records)) {
     if (!isRelation(r) || r.args.length !== 2 || !isTag(r) || r.tag !== true) continue;
-    if (!['ownership', 'control'].includes(norm(relationName(rid)))) continue;
+    if (!['ownership', 'control'].includes(norm(relationNameOf(rid)))) continue;
     const [a, b] = r.args.map(x => objectOf(x.at));
     if (a !== b && shown.has(a) && shown.has(b)) above.get(b).push(a);
   }

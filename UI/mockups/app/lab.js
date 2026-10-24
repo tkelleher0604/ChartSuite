@@ -85,13 +85,13 @@ function outputHtml(d, row) {
   if (row.error) return `<span class="lab-bad" title="${esc(row.error.msg)}">${esc(row.error.code)}</span> <span class="lab-why">${esc(row.error.msg)}</span>`;
   const v = row.entered ? result.records[row.entered] : { value: row.value, tag: row.value, choice: row.value };
   if (d.type === 'tag') return box(row.entered ? result.records[row.entered].tag : row.value);
-  if (row.entered) return esc(Formulas.formatValue(result, { t: 'rec', id: row.entered, link: null }, { percent: d.percent }));
-  return esc(Formulas.formatValue(result, v.value, { percent: d.percent }));
+  if (row.entered) return esc(Formulas.formatValue(result, { t: 'rec', id: row.entered, link: null }, { percent: d.datatype === 'percent' }));
+  return esc(Formulas.formatValue(result, v.value, { percent: d.datatype === 'percent' }));
 }
 
 function marksHtml(d, row) {
   const bits = [];
-  if (row.entered) bits.push(`entered${row.mark ? `, ${row.mark}` : ''}${row.formula !== undefined && row.formula !== null && d.type !== 'tag' ? `; formula gives ${esc(Formulas.isError(row.formula) ? row.formula.code : Formulas.formatValue(result, row.formula, { percent: d.percent }))}` : ''}`);
+  if (row.entered) bits.push(`entered${row.mark ? `, ${row.mark}` : ''}${row.formula !== undefined && row.formula !== null && d.type !== 'tag' ? `; formula gives ${esc(Formulas.isError(row.formula) ? row.formula.code : Formulas.formatValue(result, row.formula, { percent: d.datatype === 'percent' }))}` : ''}`);
   if (row.labels?.length) bits.push(`implied by ${row.labels.map(esc).join(', ')}`);
   if (row.errors?.length) bits.push(row.errors.map(e => `<span class="lab-bad" title="${esc(e.error.msg)}">${esc(e.label)}: ${esc(e.error.code)}</span>`).join(', '));
   return bits.join('; ');

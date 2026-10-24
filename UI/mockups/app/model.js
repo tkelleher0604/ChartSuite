@@ -11,7 +11,7 @@ const SAMPLE = {
   fund_formed:     { at: 'fund', edge: 'Formation Date', field: 'date', value: '2023-02-14' },
   fund_ein:        { at: 'fund', edge: 'EIN', field: 'text', value: '92-4810337' },
   fund_fye:        { at: 'fund', edge: 'Fiscal Year End', field: 'text', value: 'December 31' },
-  fund_target:     { at: 'fund', edge: 'Target Commitments', field: 'number', value: '$750,000,000' },
+  fund_target:     { at: 'fund', edge: 'Target Commitments', field: 'money', value: 750000000 },
   fund_good:       { at: 'fund', edge: 'Good Standing', tag: true },
   fund_erisa:      { at: 'fund', edge: 'ERISA Plan Assets', tag: false },
   fund_vehicle:    { at: 'fund', edge: 'Vehicle Type', choice: 'Main Fund' },
@@ -68,7 +68,7 @@ const SAMPLE = {
   blocker_juris:   { at: 'blocker', edge: 'Jurisdiction', choice: 'Delaware' },
   blocker_file:    { at: 'blocker_juris', edge: 'File Number', field: 'text', value: '7412203' },
   blocker_type:    { at: 'blocker', edge: 'Entity Type', choice: 'Corporation' },
-  blocker_shares:  { at: 'blocker_type', edge: 'Authorized Shares', field: 'number', value: '1,000' },
+  blocker_shares:  { at: 'blocker_type', edge: 'Authorized Shares', field: 'number', value: 1000 },
   blocker_tax:     { at: 'blocker_type', edge: 'Tax Classification', choice: 'C Corporation' },
 
   northpine:       { kind: 'Entity' },
@@ -135,29 +135,29 @@ const SAMPLE = {
   // Ownership: a tag relating owner and owned, with the Percentage owned located at it, so that more can be
   // recorded about an ownership (its class of interest, say) and formulas can read it (see formulas.md).
   own_us_fund:     { args: [{ edge: 'Owner', at: 'inv_us' }, { edge: 'Owned', at: 'fund' }], tag: true },
-  own_us_fund_pct: { at: 'own_us_fund', edge: 'Percentage', field: 'number', value: '71.6%' },
+  own_us_fund_pct: { at: 'own_us_fund', edge: 'Percentage', field: 'percent', value: 0.716 },
   own_nonus_fdr:   { args: [{ edge: 'Owner', at: 'inv_nonus' }, { edge: 'Owned', at: 'feeder' }], tag: true },
-  own_nonus_fdr_pct: { at: 'own_nonus_fdr', edge: 'Percentage', field: 'number', value: '100%' },
+  own_nonus_fdr_pct: { at: 'own_nonus_fdr', edge: 'Percentage', field: 'percent', value: 1 },
   own_fund_blkr:   { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: 'blocker' }], tag: true },
-  own_fund_blkr_pct: { at: 'own_fund_blkr', edge: 'Percentage', field: 'number', value: '100%' },
+  own_fund_blkr_pct: { at: 'own_fund_blkr', edge: 'Percentage', field: 'percent', value: 1 },
   own_fund_npine:  { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: 'northpine' }], tag: true },
-  own_fund_npine_pct: { at: 'own_fund_npine', edge: 'Percentage', field: 'number', value: '64%' },
+  own_fund_npine_pct: { at: 'own_fund_npine', edge: 'Percentage', field: 'percent', value: 0.64 },
   own_blkr_hlvd:   { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Owned', at: 'halvard' }], tag: true },
-  own_blkr_hlvd_pct: { at: 'own_blkr_hlvd', edge: 'Percentage', field: 'number', value: '82%' },
+  own_blkr_hlvd_pct: { at: 'own_blkr_hlvd', edge: 'Percentage', field: 'percent', value: 0.82 },
   own_fdr_fund:    { args: [{ edge: 'Owner', at: 'feeder' }, { edge: 'Owned', at: 'fund' }], tag: true },
-  own_fdr_fund_pct: { at: 'own_fdr_fund', edge: 'Percentage', field: 'number', value: '28.4%' },
+  own_fdr_fund_pct: { at: 'own_fdr_fund', edge: 'Percentage', field: 'percent', value: 0.284 },
   own_chen_mgmt:   { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Owned', at: 'mgmt' }], tag: true },
-  own_chen_mgmt_pct: { at: 'own_chen_mgmt', edge: 'Percentage', field: 'number', value: '60%' },
+  own_chen_mgmt_pct: { at: 'own_chen_mgmt', edge: 'Percentage', field: 'percent', value: 0.6 },
   own_okfr_mgmt:   { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Owned', at: 'mgmt' }], tag: true },
-  own_okfr_mgmt_pct: { at: 'own_okfr_mgmt', edge: 'Percentage', field: 'number', value: '40%' },
+  own_okfr_mgmt_pct: { at: 'own_okfr_mgmt', edge: 'Percentage', field: 'percent', value: 0.4 },
   own_chen_gp:     { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Owned', at: 'gp' }], tag: true },
-  own_chen_gp_pct: { at: 'own_chen_gp', edge: 'Percentage', field: 'number', value: '50%' },
+  own_chen_gp_pct: { at: 'own_chen_gp', edge: 'Percentage', field: 'percent', value: 0.5 },
   own_okfr_gp:     { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Owned', at: 'gp' }], tag: true },
-  own_okfr_gp_pct: { at: 'own_okfr_gp', edge: 'Percentage', field: 'number', value: '50%' },
+  own_okfr_gp_pct: { at: 'own_okfr_gp', edge: 'Percentage', field: 'percent', value: 0.5 },
   own_bdc_npine:   { args: [{ edge: 'Owner', at: 'bdc' }, { edge: 'Owned', at: 'northpine' }], tag: true },
-  own_bdc_npine_pct: { at: 'own_bdc_npine', edge: 'Percentage', field: 'number', value: '12%' },
+  own_bdc_npine_pct: { at: 'own_bdc_npine', edge: 'Percentage', field: 'percent', value: 0.12 },
   own_pens_bdc:    { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'bdc' }], tag: true },
-  own_pens_bdc_pct: { at: 'own_pens_bdc', edge: 'Percentage', field: 'number', value: '7%' },
+  own_pens_bdc_pct: { at: 'own_pens_bdc', edge: 'Percentage', field: 'percent', value: 0.07 },
 
   // Advisory relationships: a tag relating an investment adviser to a client.
   adv_fund:        { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'fund' }], tag: true },
@@ -234,7 +234,7 @@ const SAMPLE_DEFINITIONS = [
   { id: 'def_tax', name: 'Tax Classification', type: 'choice',
     at: ['Entity › Entity Type: Limited Partnership', 'Entity › Entity Type: Limited Liability Company', 'Entity › Entity Type: Corporation'],
     formula: '= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1, "Disregarded Entity", TRUE, "Partnership")' },
-  { id: 'def_look_through', name: 'Look-Through Ownership', type: 'field', datatype: 'number', percent: true,
+  { id: 'def_look_through', name: 'Look-Through Ownership', type: 'field', datatype: 'percent',
     args: [{ edge: 'Investor', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Investment', at: ['Entity'] }],
     formula: '= LOOKTHROUGH(Investor, Investment, Holdings, Percentage)' },
   { id: 'def_control', name: 'Control', type: 'tag', args: [{ edge: 'Controller', at: PERSON_KINDS }, { edge: 'Controlled', at: ['Entity'] }],
@@ -269,36 +269,37 @@ const SAMPLE_DEFINITIONS = [
     formula: '= IF([Private Fund], SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1))), BLANK())' },
 ];
 
-// The workbook is saved under WORKBOOK_KEY. A chart saved under STATE_KEY, before there were workbooks,
-// becomes a workbook's only chart.
-const WORKBOOK_KEY = 'rboreal.workbook.v1';
-const STATE_KEY = 'rboreal.state.v8';
+// The workbook is saved under WORKBOOK_KEY.
+const WORKBOOK_KEY = 'rboreal.workbook.v2';
 const SAMPLE_CHART_NAME = 'Calder Ridge Fund III structure';
 
-// A chart's state is the records plus what goes with them:
+// A chart's state is its schema and records, plus what goes with them:
+// - schema: the chart's schema S, kept explicitly (see "The schema" below);
 // - entered: the records typed in. `records` is what everything reads: the entered records together with
 //   those the chart's formulas compute (see formulas.md), worked out again after every change;
-// - definitions: the formulas, and names: the names formulas use for relations and their lists;
-// - order: the order entries are shown in, kept per location specification (see specKey), so that, say,
-//   every Entity lists its entries in the same order, the way a spreadsheet's rows share its columns;
-// - views: the chart's views, each with its own styles (see styles.js) and box positions. The records are
-//   the same in every view. `styles` and `layout` are the current view's, written back into `views` on save;
-// - required: the entries every location like theirs should have, by parameterization, each with its
-//   label and type so a blank one can be shown and filled in;
+// - definitions: the formulas, each covering a set of parameterizations; names: the names of relations
+//   and of their lists of relatives, by form;
+// - required: the parameterizations every location like theirs should have an entry for;
+// - order: the order entries are shown in, kept per location specification, so that, say, every Entity
+//   lists its entries in the same order, the way a spreadsheet's rows share its columns;
+// - views: the chart's views, each with its own styles (see styles.js), box positions, hidden records and
+//   filter. The records are the same in every view. `styles` and `layout` are the current view's, written
+//   back into `views` on save;
 // - archive: deleted records, kept in batches so each can be restored with its dependents.
-// The order, styles and layout are presentation; the data model's trees are unordered and unstyled.
-let entered, records, definitions, names, order, views, viewId, styles, layout, required, archive;
+// Semantics is keyed by parameterization (formulas, required entries), looks and vocabulary by form (styles,
+// names), and placement by location (entry order by location specification, box positions by object).
+let schema, entered, records, definitions, names, order, views, viewId, styles, layout, required, archive;
 const undoStack = [];
 const redoStack = [];
 
 function setState(s) {
-  ({ records: entered, definitions = [], names = { relations: [] }, order = {}, views = null, viewId = null, required = {}, archive = [] } = s);
+  ({ schema = {}, records: entered, definitions = [], names = {}, order = {}, views, viewId = null, required = [], archive = [] } = s);
   recompute();
-  // A state saved before there were views has one set of styles and box positions.
-  if (!views) views = [{ id: 'view_main', name: 'Structure', styles: s.styles ?? null, layout: s.layout ?? {} }];
+  // The schema holds what the formulas compute, as well as what's entered.
+  schema = withSpecsOf(schema, records);
   if (!views.some(v => v.id === viewId)) viewId = views[0].id;
   const view = views.find(v => v.id === viewId);
-  styles = view.styles ?? defaultStyles(records);
+  styles = view.styles;
   layout = view.layout ?? {};
 }
 
@@ -311,29 +312,28 @@ function initState() {
       if (!chartInUse()) workbook.chartId = workbook.charts[0].id;
       return setState(chartInUse().state);
     }
-    const old = JSON.parse(localStorage.getItem(STATE_KEY));
-    if (old?.records) {
-      workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: old, sample: true }], chartId: 'chart_main', deleted: [] };
-      return setState(old);
-    }
   } catch {}
   workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState(), sample: true }], chartId: 'chart_main', deleted: [] };
   setState(chartInUse().state);
 }
 
-// The sample requires a Formation Date on every Entity, which two portfolio companies lack.
+// The sample: its records, its schema (theirs, and what its formulas declare), its formulas and names in
+// their stored form, and its views. It requires a Formation Date on every Entity, which two portfolio
+// companies lack.
 function sampleState() {
   const recs = structuredClone(SAMPLE);
+  const base = withSpecsOf({}, recs);
+  const { definitions: defs, names: nms, schema: S } = canonicalFormulas(SAMPLE_DEFINITIONS, SAMPLE_NAMES, base);
   return {
-    records: recs, order: {}, archive: [], definitions: structuredClone(SAMPLE_DEFINITIONS), names: structuredClone(SAMPLE_NAMES),
-    views: sampleViews(recs).map(v => ({ ...v, layout: structuredClone(SAMPLE_LAYOUT) })),
-    required: { [parameterization(recs, 'fund_formed')]: { label: 'Formation Date', type: 'field', datatype: 'date' } },
+    schema: S, records: recs, order: {}, archive: [], definitions: defs, names: nms,
+    views: sampleViews(recs, S, defs).map(v => ({ ...v, layout: structuredClone(SAMPLE_LAYOUT) })),
+    required: [parameterization(recs, 'fund_formed')],
   };
 }
 
 // States are never mutated in place, so earlier ones can be kept for undo.
 const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
-const snapshot = () => ({ records: entered, definitions, names, order, views: currentViews(), viewId, required, archive });
+const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive });
 
 function saveState() {
   try { localStorage.setItem(WORKBOOK_KEY, JSON.stringify({ ...workbook, charts: currentCharts() })); } catch {}
@@ -395,8 +395,8 @@ function switchChart(id) {
 
 // A chart with nothing in it yet but a Kind style, which new kinds fill in.
 const blankState = () => ({
-  records: {}, order: {}, archive: [], required: {}, definitions: [], names: { relations: [] },
-  views: [{ id: 'view_main', name: 'Structure', layout: {}, styles: [{ id: 'st_kind', param: '[]', label: 'Kind', where: 'every object', map: {} }] }],
+  schema: {}, records: {}, order: {}, archive: [], required: [], definitions: [], names: {},
+  views: [{ id: 'view_main', name: 'Structure', layout: {}, styles: [{ id: 'st_kind', form: 'object', map: {} }] }],
 });
 
 // Adds a chart, blank or with the given state, after the current one, and makes it current.
@@ -458,16 +458,18 @@ function freeChartName(base) {
 }
 
 // Copies another chart's formulas and names into this one, as one undoable step. The two stay unsynced:
-// later changes to either don't reach the other. A definition with the same name as one here replaces it,
-// as does a relation's names.
+// later changes to either don't reach the other. The specifications the formulas cover and the names name
+// come along into this chart's schema, with their locations. A definition covering what one here covers
+// replaces it, and so does a relation's name for the same form.
 function copyFormulasFrom(chartId) {
   const source = currentCharts().find(c => c.id === chartId)?.state;
   if (!source) return 'That chart no longer exists.';
   const incoming = structuredClone(source.definitions ?? []);
-  const kept = definitions.filter(d => !incoming.some(x => same(x.name, d.name)));
-  const relations = source.names?.relations ?? [];
-  const keptNames = (names.relations ?? []).filter(r => !relations.some(x => same(x.name, r.name)));
-  return changeFormulas([...kept, ...incoming.map(d => ({ ...d, id: newId() }))], { ...names, relations: [...keptNames, ...structuredClone(relations)] });
+  const theirs = new Set(incoming.flatMap(d => d.scope));
+  const named = new Set(Object.keys(source.names ?? {}));
+  const S = withTrees(schema, Object.values(source.schema ?? {}).filter(t => theirs.has(treeParam(t)) || named.has(formOfTree(t))));
+  const kept = definitions.filter(d => !d.scope.some(p => theirs.has(p)));
+  return change({ schema: S, definitions: [...kept, ...incoming.map(d => ({ ...d, id: newId() }))], names: { ...names, ...structuredClone(source.names ?? {}) } });
 }
 
 // ---- Computed records ----
@@ -475,8 +477,8 @@ function copyFormulasFrom(chartId) {
 // The formulas' last results (see Formulas.computeState in formulas.js), with the effective records.
 // Without formulas.js loaded, the records are just the entered ones.
 let formulaResult = { records: {}, rows: {} };
-const runFormulas = recs => typeof Formulas === 'undefined'
-  ? { records: recs, rows: {} } : Formulas.computeState(recs, definitions, names);
+const runFormulas = (recs, defs = definitions, nms = names, S = schema) => typeof Formulas === 'undefined'
+  ? { records: recs, rows: {} } : Formulas.computeState(recs, engineDefinitions(defs, nms, S), engineNames(nms));
 function setComputed(result) {
   formulaResult = result;
   records = result.records;
@@ -500,9 +502,131 @@ function enteredPart(next) {
   return out;
 }
 
-// ---- Editing formulas ----
+// ---- Formulas ----
+// A definition is stored as { id, scope, formula } or { id, scope, implications: [{ label, formula }] },
+// with `self` if its relation may relate a thing to itself. Its scope is the set of parameterizations it
+// covers; everything else about it comes from the schema (its type, a field's datatype, a choice's options)
+// and, for a relation, from the names (its name and the order of its edges). An entry's formula is named by
+// its label.
+//
+// Two other forms are worked out from it: the one formulas.js takes (engineDefinitions), and the one people
+// write and edit, which names what it covers by locations written as paths from a kind, like
+// 'Entity › Entity Type: Limited Partnership' (asWritten). canonicalFormulas turns the second back.
 
-const definitionOf = id => definitions.find(d => d.id === id);
+// A location written as a path from a kind, as a tree: 'Entity › Entity Type: Limited Partnership'.
+// A segment 'Edge: Option' is a choice; 'Edge' an attested tag, 'Not Edge' a ruled-out one.
+function locationTree(text) {
+  const [kind, ...segs] = String(text).split('›').map(s => clean(s));
+  return segs.reduce((loc, seg) => {
+    const i = seg.indexOf(':');
+    if (i > 0) return { out: { choice: clean(seg.slice(i + 1)) }, args: [{ edge: clean(seg.slice(0, i)), loc }] };
+    const not = /^not\s+/i.test(seg);
+    return { out: { tag: !not }, args: [{ edge: not ? seg.replace(/^not\s+/i, '') : seg, loc }] };
+  }, { kind });
+}
+
+// A location tree as a path from its kind; null if it isn't one (a relation, or below one).
+function pathText(t) {
+  if (t.kind !== undefined) return t.kind;
+  if (t.args.length !== 1 || 'field' in t.out) return null;
+  const up = pathText(t.args[0].loc);
+  if (up === null) return null;
+  const edge = t.args[0].edge;
+  return `${up} › ${'choice' in t.out ? `${edge}: ${t.out.choice}` : `${t.out.tag ? '' : 'Not '}${edge}`}`;
+}
+
+// A parameterization's parameters: [{ edge, key }], each edge label (normalized) with its location's key.
+const paramArgs = p => JSON.parse(p).map(a => { const [edge, key] = JSON.parse(a); return { edge, key }; });
+
+// The options written into a formula, as a choice's formula may give them.
+const writtenOptions = d => [...[d.formula ?? '', ...(d.implications ?? []).map(i => i.formula)].join(' ').matchAll(/"([^"]*)"/g)].map(m => m[1]);
+
+// A definition as people write it, from the stored one: its name, type and datatype, and what it covers as
+// locations. A relation's locations are given per edge. Where a location isn't a path from a kind (it's a
+// relation, or below one), the parameterizations are given in `covers` instead.
+function asWritten(d, S = schema, N = names) {
+  const trees = d.scope.flatMap(p => specsWithParam(p, S));
+  const t = trees[0];
+  const type = t ? typeOfTree(t) : 'tag';
+  const isRel = d.scope.some(p => paramArgs(p).length > 1);
+  const named = isRel && t ? N[formOfTree(t)] : null;
+  const rule = d.implications ? { implications: d.implications } : { formula: d.formula };
+  const base = { id: d.id, type, ...(type === 'field' ? { datatype: t.out.field } : {}), ...(d.self ? { self: true } : {}), ...rule };
+  const textOf = key => S[key] ? pathText(S[key]) : null;
+  const pairs = d.scope.flatMap(paramArgs);
+  const edges = isRel ? named?.edges ?? t?.args.map(a => a.edge) ?? [] : [];
+  const name = isRel ? named?.name ?? edges.join(' · ') : t?.args[0].edge ?? pairs[0]?.edge ?? '';
+  if (pairs.some(a => textOf(a.key) === null))
+    return { ...base, name, covers: d.scope, ...(isRel ? { args: edges.map(edge => ({ edge })) } : {}) };
+  if (!isRel) return { ...base, name, at: [...new Set(pairs.map(a => textOf(a.key)))] };
+  return { ...base, name, args: edges.map(edge => ({ edge, at: [...new Set(pairs.filter(a => same(a.edge, edge)).map(a => textOf(a.key)))] })) };
+}
+
+// The definitions as people write them, and one by id.
+const allDefinitions = () => definitions.map(d => asWritten(d));
+const definitionOf = id => { const d = definitions.find(x => x.id === id); return d ? asWritten(d) : null; };
+// The definition covering a parameterization, if one does.
+const definitionCovering = param => { const d = definitions.find(x => x.scope.includes(param)); return d ? asWritten(d) : null; };
+
+// The definitions and names as formulas.js takes them.
+function engineDefinitions(defs, N, S) {
+  return defs.map(d => {
+    const v = asWritten(d, S, N);
+    const options = v.type === 'choice' ? [...new Set(d.scope.flatMap(p => specsWithParam(p, S)).map(t => t.out.choice))] : undefined;
+    const { at, ...rest } = v;
+    return { ...rest, covers: d.scope, ...(v.args ? { args: v.args.map(a => ({ edge: a.edge })) } : {}), knownOptions: options };
+  });
+}
+const engineNames = N => ({ relations: Object.entries(N).map(([form, e]) => ({ name: e.name, type: typeOfForm(form), edges: e.edges, lists: e.lists ?? {} })) });
+
+// The trees a definition, as people write it, declares: one for each parameterization it covers, with its
+// type's output (a choice's, for each option written into it). Locations come from the schema where it has
+// them, so they keep its capitalization.
+function declaredTrees(v, S) {
+  const known = t => S[treeKey(t)] ?? t;
+  const outs = v.type === 'tag' ? [{ tag: true }] : v.type === 'choice' ? writtenOptions(v).map(choice => ({ choice })) : [{ field: v.datatype ?? 'number' }];
+  let argSets;
+  if (v.covers) {
+    const edgeOf = edge => v.args ? v.args.find(x => same(x.edge, edge))?.edge ?? edge : v.name;
+    argSets = v.covers.map(p => paramArgs(p).map(a => ({ edge: edgeOf(a.edge), loc: S[a.key] })));
+    if (argSets.some(args => args.some(a => !a.loc))) return [];
+  } else if (v.args) {
+    argSets = [[]];
+    for (const a of v.args) argSets = argSets.flatMap(set => (a.at ?? []).map(text => [...set, { edge: a.edge, loc: known(locationTree(text)) }]));
+  } else argSets = (v.at ?? []).map(text => [{ edge: v.name, loc: known(locationTree(text)) }]);
+  return argSets.flatMap(args => outs.map(out => ({ out, args })));
+}
+
+// Turns definitions and names into their stored forms, whichever form they come in, and adds to the schema
+// what the definitions declare. A definition whose type changed sheds the specifications of its old type
+// that no entered record uses (`used`, a set of specification keys). Names come keyed by form, or as a
+// list of { name, type, edges, lists }, which is matched to the relations in the schema.
+function canonicalFormulas(defs, nms, S, used = new Set()) {
+  let N = nms?.relations ? {} : { ...(nms ?? {}) };
+  const out = [];
+  for (const d of defs) {
+    if (d.scope && d.name === undefined) { out.push(d); continue; }
+    const scope = Formulas.coversOf(d);
+    const trees = declaredTrees(d, S);
+    const sorts = new Set(trees.map(sortOf));
+    const shed = Object.keys(S).filter(k => scope.includes(treeParam(S[k])) && !sorts.has(sortOf(S[k])) && !used.has(k));
+    if (shed.length) { S = { ...S }; shed.forEach(k => delete S[k]); }
+    S = withTrees(S, trees);
+    const rule = d.implications ? { implications: d.implications } : { formula: d.formula };
+    out.push({ id: d.id, scope, ...rule, ...(d.self ? { self: true } : {}) });
+    if (d.args && trees[0]) {
+      const form = formOfTree(trees[0]);
+      N = { ...N, [form]: { lists: {}, ...N[form], name: d.name, edges: d.args.map(a => a.edge) } };
+    }
+  }
+  for (const n of nms?.relations ?? []) {
+    const forms = new Set(Object.values(S).filter(t => t.args?.length > 1 && typeOfTree(t) === n.type
+      && sameEdges(t.args.map(a => a.edge), n.edges)).map(formOfTree));
+    for (const form of forms) N = { ...N, [form]: { name: n.name, edges: n.edges, lists: n.lists ?? {} } };
+  }
+  return { definitions: out, names: N, schema: S };
+}
+const sameEdges = (a, b) => a.length === b.length && a.map(norm).sort().join('|') === b.map(norm).sort().join('|');
 
 // What the formulas say about a record, or null: for a computed record, { def, labels, reads } (its
 // definition, the implications that held and what each read); for an entered record that a formula also
@@ -513,20 +637,9 @@ const formulaInfo = id => formulaResult.computed?.[id] ?? formulaResult.covered?
 const definitionError = defId => formulaResult.defErrors?.[defId] ?? null;
 const recordErrors = defId => (formulaResult.errors ?? []).filter(e => e.def === defId);
 
-// Every change to the formulas or the names they use goes through here, as one undoable step.
+// Every change to the formulas or the names they use goes through change(), as one undoable step.
 // `renames` are [from, to] pairs of names to carry into the views' filters too.
-function changeFormulas(nextDefinitions, nextNames = names, renames = []) {
-  const result = Formulas.computeState(entered, nextDefinitions, nextNames);
-  const error = validate(result.records);
-  if (error) return error;
-  pushUndo();
-  definitions = nextDefinitions;
-  names = nextNames;
-  setComputed(result);
-  renameInFilters(renames);
-  saveState();
-  return null;
-}
+const changeFormulas = (nextDefinitions, nextNames = names, renames = []) => change({ definitions: nextDefinitions, names: nextNames }, { renames });
 
 // A renamed name carried into every formula that mentions it, as Excel carries a renamed defined name into
 // its formulas: for a definition or relation renamed, or a list of relatives given a new name.
@@ -545,15 +658,14 @@ function renameInFilters(renames) {
   views = currentViews().map(v => v.filter ? { ...v, filter: pairs.reduce((t, [from, to]) => Formulas.renameName(t, from, to), v.filter) } : v);
 }
 
-// Adds a definition, or replaces the one with its id. Returns why it couldn't, if it couldn't. A definition
-// given a new name takes it into the formulas, the relation names and the filters that mention the old one.
+// Adds a definition, or replaces the one with its id; it may come as people write it. Returns why it
+// couldn't, if it couldn't. A definition given a new name takes it into the formulas and filters that
+// mention the old one.
 function saveDefinition(def) {
   const old = definitionOf(def.id);
-  if (!old) return changeFormulas([...definitions, def]);
-  const defs = definitions.map(d => d.id === def.id ? def : d);
-  if (same(old.name, def.name)) return changeFormulas(defs);
-  const relations = (names.relations ?? []).map(r => same(r.name, old.name) ? { ...r, name: def.name } : r);
-  return changeFormulas(renamedInFormulas(defs, old.name, def.name), { ...names, relations }, [[old.name, def.name]]);
+  const defs = old ? definitions.map(d => d.id === def.id ? def : d) : [...definitions, def];
+  if (!old || def.name === undefined || same(old.name, def.name)) return changeFormulas(defs);
+  return changeFormulas(renamedInFormulas(defs, old.name, def.name), names, [[old.name, def.name]]);
 }
 const deleteDefinition = id => changeFormulas(definitions.filter(d => d.id !== id));
 const saveNames = next => changeFormulas(definitions, next);
@@ -561,15 +673,25 @@ const saveNames = next => changeFormulas(definitions, next);
 // Drops an entered record that a formula covers, so the formula's output stands there again.
 function useFormula(id) {
   const { [id]: _, ...rest } = entered;
-  return commit(rest);
+  return change({ entered: rest });
 }
 
 // Records a computed record's output by hand, like Excel's Paste Values. It keeps its id.
-function keepAsEntered(id) {
-  const r = modelPart(records[id]);
-  if (typeof r.value === 'number') r.value = displayValue(records[id]);
-  return commit({ ...records, [id]: r });
+const keepAsEntered = id => commit({ ...records, [id]: modelPart(records[id]) });
+
+// ---- Names ----
+// The names of relations and of their lists of relatives, by form: { [form]: { name, edges, lists } },
+// with `edges` in the relation's own order and `lists` as { [from edge]: { [listed edge]: list name } }
+// (edges normalized). A list without a name goes by the edge label it lists.
+
+const typeOfForm = form => { const s = JSON.parse(form)[0]; return s === 'tag' || s === 'choice' ? s : 'field'; };
+// A relation record's name, from its form; failing that, its edges.
+function relationNameOf(id) {
+  const t = treeOf(records, id);
+  return (t && names[formOfTree(t)]?.name) ?? relationLabel(records[id]);
 }
+// The names as a list, with each one's form and type, for editing.
+const nameList = () => Object.entries(names).map(([form, n]) => ({ form, type: typeOfForm(form), ...n }));
 
 // ---- Views ----
 
@@ -635,7 +757,9 @@ const relationLabel = r => r.args.map(a => a.edge).join(' · ');
 const labelOf = r => isRelation(r) ? relationLabel(r) : r.edge;
 
 const TYPE_NAMES = { field: 'Field', tag: 'Tag', choice: 'Choice' };
-const DATATYPE_NAMES = { text: 'Text', number: 'Number', date: 'Date' };
+const DATATYPE_NAMES = { text: 'Text', number: 'Number', percent: 'Percent', money: 'Money', date: 'Date' };
+// What a value box for each datatype asks for.
+const VALUE_HINTS = { text: 'Value', number: 'Amount', percent: 'Percent, like 25%', money: 'Amount, like $1,000', date: 'Date' };
 
 let idCounter = 0;
 const newId = () => `r${Date.now().toString(36)}${(idCounter++).toString(36)}`;
@@ -667,29 +791,41 @@ const formatDate = iso => {
   return `${MONTHS[m - 1]} ${d}, ${y}`;
 };
 
-// Amounts like 1,000, $750,000,000 or 12.5%. A leading zero (0803456789) marks an identifier, which stays text.
+// A field's value is canonical for its datatype, whether typed or computed: text is a string; a number, a
+// percentage and an amount of money are numbers (a percentage as a fraction, 0.716 for 71.6%); a date is
+// an ISO date, 2023-02-14. How a value reads, and how typing reads, follow from its datatype.
+
+// Amounts as typed: 1,000, $750,000,000 or 12.5%. A leading zero (0803456789) marks an identifier: text.
 const NUMBER = /^[-+]?\$?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?%?$/;
 const isNumber = s => NUMBER.test(s) && !/^[-+]?\$?0\d/.test(s);
 
-const classify = s => parseDate(s) ? 'date' : isNumber(s) ? 'number' : 'text';
-const asPhrase = datatype => datatype === 'text' ? 'text' : `a ${datatype}`;
+// The datatype something typed reads as, where nothing else says.
+const classify = s => parseDate(s) ? 'date' : !isNumber(s) ? 'text' : s.endsWith('%') ? 'percent' : /^[-+]?\$/.test(s) ? 'money' : 'number';
+const asPhrase = datatype => ({ text: 'text', number: 'a number', percent: 'a percentage', money: 'an amount of money', date: 'a date' })[datatype];
 
-// Dates are stored as ISO strings. Numbers and text keep the form they were typed in,
-// so an identifier that happens to be all digits still shows as typed.
+// What's typed as a value of a datatype, or undefined if it isn't one. In a percentage, a bare number is
+// a percentage too: 25 is 25%.
 function parseValue(datatype, raw) {
   const s = clean(raw);
   if (!s) return undefined;
   if (datatype === 'date') return parseDate(s) ?? undefined;
-  if (datatype === 'number') return isNumber(s) ? s : undefined;
-  return s;
+  if (datatype === 'text') return s;
+  if (!isNumber(s) || (datatype !== 'percent' && s.endsWith('%'))) return undefined;
+  const n = Number(s.replace(/[$,%]/g, ''));
+  return datatype === 'percent' ? n / 100 : n;
 }
-// A computed number is a number rather than text as typed, shown as a percentage if its definition says so.
-const displayValue = r => r.field === 'date' ? formatDate(r.value?.iso ?? r.value)
-  : typeof r.value === 'number' ? formatNumber(r.value, definitions.find(d => d.id === r.computed)?.percent) : r.value;
-function formatNumber(n, percent) {
-  const digits = v => v.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  return percent ? `${digits(n * 100)}%` : digits(n);
+
+// How a value of a datatype reads: 71.6%, $750,000,000, 1,000, February 14, 2023.
+function showValue(datatype, v) {
+  if (v === null || v === undefined) return '';
+  if (datatype === 'date') return formatDate(v);
+  if (typeof v !== 'number') return String(v);
+  const n = (x, min = 0) => x.toLocaleString('en-US', { minimumFractionDigits: min, maximumFractionDigits: 2 });
+  if (datatype === 'percent') return `${n(v * 100)}%`;
+  if (datatype === 'money') return `${v < 0 ? '-' : ''}$${n(Math.abs(v), Number.isInteger(v) ? 0 : 2)}`;
+  return n(v);
 }
+const displayValue = r => showValue(r.field, r.value);
 
 // ---- Reading the state ----
 
@@ -722,8 +858,8 @@ const objectsOfKind = kind => Object.keys(records)
   .filter(k => isObject(records[k]) && same(records[k].kind, kind))
   .sort((a, b) => byLabel(objectName(a), objectName(b)));
 
-// The kinds in the state, each as first written.
-const kindsInState = () => [...new Map(Object.values(records).filter(isObject).map(r => [norm(r.kind), r.kind])).values()].sort(byLabel);
+// The kinds in the schema, each as first written.
+const kindsInState = () => Object.values(schema).filter(t => t.kind !== undefined).map(t => t.kind).sort(byLabel);
 
 // Locations up to the object, ordered object-first like a file path.
 function pathTo(id) {
@@ -758,18 +894,217 @@ const parameterization = (recs, id) => JSON.stringify(argSpecs(recs, recs[id]));
 const outputKey = r => isObject(r) ? norm(r.kind) : isTag(r) ? String(r.tag) : isChoice(r) ? norm(r.choice) : r.field;
 const outputText = r => isObject(r) ? r.kind : isTag(r) ? (r.tag ? 'Attested' : 'Ruled out') : isChoice(r) ? r.choice : DATATYPE_NAMES[r.field];
 
-// The fields that relations like this one have located at them, as { label, datatype }: relations with the
-// same edges and output, whatever kinds their sides are, so ownership by a new kind of owner is offered a
-// Percentage too. A ruled-out tag has none.
+// ---- The schema ----
+// A chart keeps its schema S explicitly, as data-model.md has it. `schema` maps each specification's key
+// (as specKey gives it) to the specification as a tree, capitalized as it was first written:
+//   a kind:                  { kind: 'Entity' }
+//   an entry or a relation:  { out: { field: datatype } | { choice: option } | { tag: Boolean }, args: [{ edge, loc }] }
+// each `loc` being its location's own tree. S holds the specification of every record, entered or computed,
+// and every location of every specification in it. It grows as records come in. A specification leaves it
+// only by moving (see moveAbandoned and renameEvery), by being shed when a formula's type changes, by
+// giving way to records that conflict with it while unused, or by being removed in the panel's Schema view.
+
+const outOf = r => isField(r) ? { field: r.field } : isChoice(r) ? { choice: r.choice } : { tag: r.tag };
+const outKey = out => 'field' in out ? `field:${out.field}` : 'choice' in out ? `choice:${norm(out.choice)}` : `tag:${out.tag}`;
+const typeOfTree = t => t.kind !== undefined ? 'object' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
+const argKeysOf = (t, keyOf) => t.args.map(a => JSON.stringify([norm(a.edge), keyOf(a.loc)])).sort();
+
+// A tree's key, as specKey gives it, and its parameterization's key, as parameterization gives it.
+const keyMemo = new WeakMap();
+function treeKey(t) {
+  if (!keyMemo.has(t)) keyMemo.set(t, t.kind !== undefined ? `kind:${norm(t.kind)}` : JSON.stringify([outKey(t.out), ...argKeysOf(t, treeKey)]));
+  return keyMemo.get(t);
+}
+const treeParam = t => t.kind !== undefined ? '[]' : JSON.stringify(argKeysOf(t, treeKey));
+
+// A tree's shape is the tree with every node label erased and its edge labels kept; its sort, what kind
+// of output it has: a field's datatype, 'choice', 'tag', or 'object' for a kind. A specification's form is
+// its shape with its sort. Ownership of an Entity by an Individual and by an Investor Group have one form;
+// so do Tax Classification under each Entity Type, and the Name of anything.
+const shapeMemo = new WeakMap(), formMemo = new WeakMap();
+function shapeOf(t) {
+  if (!shapeMemo.has(t)) shapeMemo.set(t, t.kind !== undefined ? '•' : JSON.stringify(['∘', ...argKeysOf(t, shapeOf)]));
+  return shapeMemo.get(t);
+}
+const sortOf = t => t.kind !== undefined ? 'object' : 'field' in t.out ? t.out.field : 'choice' in t.out ? 'choice' : 'tag';
+function formOfTree(t) {
+  if (!formMemo.has(t)) formMemo.set(t, t.kind !== undefined ? 'object' : JSON.stringify([sortOf(t), ...argKeysOf(t, shapeOf)]));
+  return formMemo.get(t);
+}
+
+// The same from keys alone, with no trees: a specification key's shape, and a parameterization's form
+// given its sort.
+function shapeOfKey(key) {
+  if (key.startsWith('kind:')) return '•';
+  const [, ...args] = JSON.parse(key);
+  return JSON.stringify(['∘', ...args.map(a => { const [e, k] = JSON.parse(a); return JSON.stringify([e, shapeOfKey(k)]); }).sort()]);
+}
+const formOfParam = (param, sort) => param === '[]' ? 'object'
+  : JSON.stringify([sort, ...JSON.parse(param).map(a => { const [e, k] = JSON.parse(a); return JSON.stringify([e, shapeOfKey(k)]); }).sort()]);
+
+// A record's specification as a tree, built from the records, or null where a location is missing.
+const treeCache = new WeakMap();
+function treeOf(recs, id) {
+  if (!treeCache.has(recs)) treeCache.set(recs, new Map());
+  const cache = treeCache.get(recs);
+  if (!cache.has(id)) {
+    const r = recs[id];
+    let t = null;
+    if (r && isObject(r)) t = { kind: r.kind };
+    else if (r) {
+      const args = argsOf(r).map(a => ({ edge: a.edge, loc: treeOf(recs, a.at) }));
+      if (args.every(a => a.loc)) t = { out: outOf(r), args };
+    }
+    cache.set(id, t);
+  }
+  return cache.get(id);
+}
+// A record's form.
+const formKeyOf = (id, recs = records) => { const t = treeOf(recs, id); return t ? formOfTree(t) : null; };
+
+// S with trees added, and their locations: those it has already keep their capitalization.
+function withTrees(S, trees) {
+  let out = S;
+  const add = t => {
+    const k = treeKey(t);
+    if (out[k]) return;
+    if (out === S) out = { ...S };
+    out[k] = t;
+    t.args?.forEach(a => add(a.loc));
+  };
+  trees.forEach(t => t && add(t));
+  return out;
+}
+const withSpecsOf = (S, recs) => withTrees(S, Object.keys(recs).map(id => treeOf(recs, id)));
+
+// What the schema says, worked out once for each schema: its specifications by parameterization and by
+// form, and the entries and relations of each location specification.
+const pushTo = (map, key, v) => { if (!map.has(key)) map.set(key, []); map.get(key).push(v); };
+const schemaIndexes = new WeakMap();
+function indexOf(S = schema) {
+  if (!schemaIndexes.has(S)) {
+    const ix = { byParam: new Map(), byForm: new Map(), entriesAt: new Map(), relationsAt: new Map(), kinds: [] };
+    for (const [k, t] of Object.entries(S)) {
+      pushTo(ix.byParam, treeParam(t), k);
+      pushTo(ix.byForm, formOfTree(t), k);
+      if (!t.args) ix.kinds.push(k);
+      else if (t.args.length === 1) pushTo(ix.entriesAt, treeKey(t.args[0].loc), k);
+      else for (const loc of new Set(t.args.map(a => treeKey(a.loc)))) pushTo(ix.relationsAt, loc, k);
+    }
+    schemaIndexes.set(S, ix);
+  }
+  return schemaIndexes.get(S);
+}
+const specsWithParam = (p, S = schema) => (indexOf(S).byParam.get(p) ?? []).map(k => S[k]);
+const specsOfForm = (f, S = schema) => (indexOf(S).byForm.get(f) ?? []).map(k => S[k]);
+const formsOfSchema = (S = schema) => [...indexOf(S).byForm.keys()];
+
+// The outputs a form has in the schema, as [key, text] pairs, keyed as outputKey keys records: kinds,
+// options, attested and ruled out, or a datatype.
+function formOutputs(f, S = schema) {
+  const out = new Map();
+  for (const t of specsOfForm(f, S)) {
+    if (t.kind !== undefined) out.set(norm(t.kind), t.kind);
+    else if ('choice' in t.out) { if (!out.has(norm(t.out.choice))) out.set(norm(t.out.choice), t.out.choice); }
+    else if ('tag' in t.out) out.set(String(t.out.tag), t.out.tag ? 'Attested' : 'Ruled out');
+    else out.set(t.out.field, DATATYPE_NAMES[t.out.field]);
+  }
+  return [...out];
+}
+
+// How many records have each specification, and which: worked out once for each set of records.
+const usageCache = new WeakMap();
+function usage(recs = records) {
+  if (!usageCache.has(recs)) {
+    const u = new Map();
+    for (const id of Object.keys(recs)) { const t = treeOf(recs, id); if (t) pushTo(u, treeKey(t), id); }
+    usageCache.set(recs, u);
+  }
+  return usageCache.get(recs);
+}
+
+// A form described for people: what it's called (an entry's label, a relation's name or edges) and where
+// it is (the kinds and paths of its locations).
+function describeForm(f, S = schema) {
+  if (f === 'object') return { label: 'Kind', where: 'every object' };
+  const trees = specsOfForm(f, S);
+  const t = trees[0];
+  if (!t) return { label: 'Nothing in the chart', where: '' };
+  const locsOf = arg => trees.map(x => x.args.find(a => same(a.edge, arg.edge))?.loc).filter(Boolean);
+  const kindsOf = arg => [...new Set(locsOf(arg).map(kindOfTree).filter(Boolean))];
+  if (t.args.length > 1) {
+    const label = names[f]?.name ?? t.args.map(a => a.edge).join(' · ');
+    return { label, where: t.args.map(a => joinList(kindsOf(a), 'or')).join(' → ') };
+  }
+  const top = t.args[0].loc.kind !== undefined;
+  const places = top ? kindsOf(t.args[0]).map(plural) : [...new Set(locsOf(t.args[0]).map(placeText))];
+  return { label: t.args[0].edge, where: top ? `on ${joinList(places)}` : `under ${joinList(places, 'or')}` };
+}
+// The kind a location belongs to: the kind at the end of its path, if it's a path.
+const kindOfTree = t => t.kind ?? (t.args.length === 1 ? kindOfTree(t.args[0].loc) : null);
+// A location as a description reads it: a kind, a path from one, or a relation and what it relates.
+function placeText(loc) {
+  if (loc.kind !== undefined) return loc.kind;
+  if (loc.args.length > 1) return names[formOfTree(loc)]?.name ?? loc.args.map(a => a.edge).join(' · ');
+  return pathText(loc) ?? `${placeText(loc.args[0].loc)} › ${loc.args[0].edge}`;
+}
+const joinList = (items, word = 'and') => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} ${word} ${items.at(-1)}`;
+
+// The first way S fails the schema conditions: no two fields, or a field and a tag, or a choice and either,
+// may share a parameterization. Null if it doesn't.
+function schemaError(S) {
+  for (const [p, keys] of indexOf(S).byParam) {
+    if (p === '[]') continue;
+    const trees = keys.map(k => S[k]);
+    const label = trees[0].args.map(a => a.edge).join(' · ');
+    const types = new Set(trees.map(typeOfTree));
+    const datatypes = [...new Set(trees.filter(t => 'field' in t.out).map(t => t.out.field))];
+    if (datatypes.length > 1) return `${label} can’t be both a ${datatypes[0]} field and a ${datatypes[1]} field.`;
+    if (types.has('choice') && types.size > 1) return `${label} can’t be both a choice and a ${types.has('tag') ? 'tag' : 'field'}.`;
+    if (types.has('tag') && types.has('field')) return `${label} can’t be both a tag and a field.`;
+  }
+  return null;
+}
+
+// S less the unused specifications that conflict with ones in use: records win over what nothing has.
+// A specification is in use if a record has it, a record sits below it, or a formula covers it.
+function settleConflicts(S, recs, defs) {
+  const used = new Set(usage(recs).keys());
+  for (const k of [...used]) for (const loc of locationsBelow(S[k])) used.add(treeKey(loc));
+  const covered = new Set(defs.flatMap(d => d.scope));
+  let out = S;
+  for (const keys of indexOf(S).byParam.values()) {
+    const trees = keys.map(k => S[k]);
+    if (trees.length < 2 || !trees.some(t => t.args)) continue;
+    const kept = keys.filter(k => used.has(k) || covered.has(treeParam(S[k])));
+    const sorts = new Set(kept.map(k => sortOf(S[k])));
+    const types = new Set(kept.map(k => typeOfTree(S[k])));
+    for (const k of keys) {
+      if (kept.includes(k) || (sorts.has(sortOf(S[k])) && types.size <= 1) || !sorts.size) continue;
+      if (out === S) out = { ...S };
+      delete out[k];
+    }
+  }
+  return out;
+}
+const locationsBelow = t => t?.args ? t.args.flatMap(a => [a.loc, ...locationsBelow(a.loc)]) : [];
+
+// ---- What the schema offers ----
+
+// The fields that relations like this one have located at them in the schema, as { label, datatype }:
+// relations of the same form and output, whatever kinds their sides are, so ownership by a new kind of
+// owner is offered a Percentage too. A ruled-out tag has none.
 function detailFieldsOf(id) {
   const r = records[id];
-  const shape = s => JSON.stringify([typeOf(s), isTag(s) && s.tag, s.args.map(a => norm(a.edge)).sort()]);
   if (isTag(r) && !r.tag) return [];
+  const t = treeOf(records, id);
+  if (!t) return [];
   const fields = new Map();
-  for (const s of Object.values(records)) {
-    const loc = s.at && records[s.at];
-    if (isField(s) && loc && isRelation(loc) && shape(loc) === shape(r) && !fields.has(norm(s.edge)))
-      fields.set(norm(s.edge), { label: s.edge, datatype: s.field });
+  for (const s of Object.values(schema)) {
+    if (s.args?.length !== 1 || !('field' in s.out)) continue;
+    const loc = s.args[0].loc;
+    if (loc.args?.length > 1 && formOfTree(loc) === formOfTree(t) && outKey(loc.out) === outKey(t.out) && !fields.has(norm(s.args[0].edge)))
+      fields.set(norm(s.args[0].edge), { label: s.args[0].edge, datatype: s.out.field });
   }
   return [...fields.values()];
 }
@@ -791,14 +1126,8 @@ function segmentText(id) {
   return isChoice(r) ? `${r.edge}: ${r.choice}` : r.edge;
 }
 
-// The options a choice's parameterization has across the state, for its dropdown.
-function outputsOf(id) {
-  const p = parameterization(records, id);
-  const outputs = [];
-  for (const [k, r] of Object.entries(records))
-    if (isChoice(r) && parameterization(records, k) === p && !outputs.some(o => same(o, r.choice))) outputs.push(r.choice);
-  return outputs.sort(byLabel);
-}
+// The options a choice has in the schema, for its dropdown: the outputs of its parameterization.
+const outputsOf = id => [...new Set(specsWithParam(parameterization(records, id)).filter(t => 'choice' in t.out).map(t => t.out.choice))].sort(byLabel);
 
 // The relations at a location, grouped into the rows that show them there: one per output type and
 // split of the relation's edges into this location's own and the others'. A row is labeled with the
@@ -816,37 +1145,44 @@ function relationGroups(at) {
   return [...groups.values()].sort((a, b) => byLabel(a.others.join(' '), b.others.join(' ')));
 }
 
-// The two-argument relations that a location like `at` could take part in, from those already in the state:
-// one per output type and pair of edges, with every specification seen on the other side.
+// The two-argument relations in the schema that a location like `at` takes part in: one per output type
+// and pair of edges, with every specification on the other side.
 function relationTypesAt(at) {
   const spec = specKey(records, at);
   const types = new Map();
-  for (const r of Object.values(records)) {
-    if (!isRelation(r) || r.args.length !== 2) continue;
-    r.args.forEach((own, i) => {
-      if (specKey(records, own.at) !== spec) return;
-      const other = r.args[1 - i];
-      const key = JSON.stringify([typeOf(r), [norm(own.edge)], [norm(other.edge)]]);
-      if (!types.has(key)) types.set(key, { key, type: typeOf(r), own: own.edge, other: other.edge, ownFirst: i === 0, otherSpecs: new Set(), datatype: r.field, outputs: [] });
-      const t = types.get(key);
-      t.otherSpecs.add(specKey(records, other.at));
-      if (isChoice(r) && !t.outputs.some(o => same(o, r.choice))) t.outputs.push(r.choice);
+  for (const k of indexOf().relationsAt.get(spec) ?? []) {
+    const t = schema[k];
+    if (t.args.length !== 2) continue;
+    t.args.forEach((own, i) => {
+      if (treeKey(own.loc) !== spec) return;
+      const other = t.args[1 - i];
+      const type = typeOfTree(t);
+      const key = JSON.stringify([type, [norm(own.edge)], [norm(other.edge)]]);
+      if (!types.has(key)) types.set(key, { key, type, own: own.edge, other: other.edge, ownFirst: i === 0, otherSpecs: new Set(), datatype: t.out.field, outputs: [] });
+      const rel = types.get(key);
+      rel.otherSpecs.add(treeKey(other.loc));
+      if (type === 'choice' && !rel.outputs.some(o => same(o, t.out.choice))) rel.outputs.push(t.out.choice);
     });
   }
   return [...types.values()].sort((a, b) => byLabel(a.other, b.other));
 }
 
-// The parameterizations the records imply for entries of locations like `at` (same underlying specification),
-// one per type and label, with each field's datatype and each choice's outputs.
+// The entries the schema has for locations like `at` (with its specification), one per type and label,
+// with each field's datatype and each choice's options. `exceptId` leaves out what only that record has, so
+// an entry being edited isn't held to its own datatype.
 function schemaAt(at, exceptId) {
-  const key = specKey(records, at);
+  const loc = specKey(records, at);
+  const used = usage();
   const params = new Map();
-  for (const [id, r] of Object.entries(records)) {
-    if (!r.at || id === exceptId || specKey(records, r.at) !== key) continue;
-    const k = `${typeOf(r)}:${norm(r.edge)}`;
-    if (!params.has(k)) params.set(k, { type: typeOf(r), label: r.edge, datatype: r.field, outputs: [] });
-    const p = params.get(k);
-    if (isChoice(r) && !p.outputs.some(o => same(o, r.choice))) p.outputs.push(r.choice);
+  for (const k of indexOf().entriesAt.get(loc) ?? []) {
+    const users = used.get(k) ?? [];
+    if (exceptId && users.length === 1 && users[0] === exceptId) continue;
+    const t = schema[k];
+    const type = typeOfTree(t);
+    const key = `${type}:${norm(t.args[0].edge)}`;
+    if (!params.has(key)) params.set(key, { type, label: t.args[0].edge, datatype: t.out.field, outputs: [] });
+    const p = params.get(key);
+    if (type === 'choice' && !p.outputs.some(o => same(o, t.out.choice))) p.outputs.push(t.out.choice);
   }
   return [...params.values()];
 }
@@ -855,7 +1191,8 @@ function schemaAt(at, exceptId) {
 const fieldDatatype = (at, label, exceptId) =>
   schemaAt(at, exceptId).find(p => p.type === 'field' && same(p.label, label))?.datatype;
 
-// Returns a message for the first way `recs` fails to be a state, or null if it is one.
+// Returns a message for the first way `recs` fails to be a state, or null if it is one. The schema
+// conditions are checked on the schema itself (schemaError).
 function validate(recs) {
   // Two entries with the same edges to the same locations would share an argumentation.
   const seen = new Set();
@@ -870,86 +1207,178 @@ function validate(recs) {
     if (isObject(r) && !entriesOf(id, recs).some(e => isObjectName(e, recs)))
       return `Every ${r.kind.toLowerCase()} needs a Name.`;
   }
-  // Schema conditions on the specifications the records imply.
-  const byParameterization = new Map();
-  for (const id of Object.keys(recs)) {
-    if (isObject(recs[id])) continue;
-    const p = parameterization(recs, id);
-    if (!byParameterization.has(p)) byParameterization.set(p, []);
-    byParameterization.get(p).push(recs[id]);
-  }
-  for (const rs of byParameterization.values()) {
-    const edge = labelOf(rs[0]);
-    const datatypes = [...new Set(rs.filter(isField).map(r => r.field))];
-    if (datatypes.length > 1)
-      return `${edge} can’t be both a ${datatypes[0]} field and a ${datatypes[1]} field.`;
-    if (rs.some(isChoice) && rs.some(r => isTag(r) || isField(r)))
-      return `${edge} can’t be both a choice and a ${rs.some(isTag) ? 'tag' : 'field'}.`;
-    if (rs.some(isTag) && rs.some(isField))
-      return `${edge} can’t be both a tag and a field.`;
-  }
   return null;
 }
 
 // ---- Changing the state ----
 
-// Replaces the records, if the result is a state; otherwise returns why not.
-// `next` is what `records` should become; its entered part is kept, and the formulas worked out again.
-function commit(next) {
-  const nextEntered = enteredPart(next);
-  const result = runFormulas(nextEntered);
-  const error = validate(result.records);
+// The one way a chart changes, as one undoable step: its entered records, formulas, names or schema
+// replaced at once (`next` gives whichever change). The formulas are worked out again, and the schema
+// takes in the specifications the records now have. Options:
+// - moves: for an edit made one record at a time (renaming here only, moving up a level), the abandonment
+//   law applies; see moveAbandoned;
+// - maps: keys already moved with the schema (renaming every one like it) carry over to what's keyed by them;
+// - renames: [from, to] pairs of names to carry into the views' filters;
+// - after: anything else to change in the same step, once the rest has.
+// Returns why not, if the result isn't a state.
+function change(next, { moves = false, maps = null, renames = [], after = null } = {}) {
+  const nextEntered = next.entered ?? entered;
+  const used = new Set(usage(nextEntered).keys());
+  let { definitions: defs, names: nms, schema: S } = canonicalFormulas(next.definitions ?? definitions, next.names ?? names, next.schema ?? schema, used);
+  if (maps) { defs = mapScopes(defs, maps); nms = mapNames(nms, maps); }
+  let result = runFormulas(nextEntered, defs, nms, S);
+  S = withSpecsOf(S, result.records);
+  let moved = null;
+  if (moves) {
+    ({ schema: S, maps: moved } = moveAbandoned(S, records, result.records));
+    if (moved) {
+      nms = mapNames(nms, moved);
+      const mapped = mapScopes(defs, moved);
+      if (mapped !== defs) {
+        defs = mapped;
+        result = runFormulas(nextEntered, defs, nms, S);
+        S = withSpecsOf(S, result.records);
+      }
+    }
+  }
+  S = settleConflicts(S, result.records, defs);
+  const error = validate(result.records) ?? schemaError(S);
   if (error) return error;
   pushUndo();
-  const before = records;
   entered = nextEntered;
+  definitions = defs;
+  names = nms;
+  schema = S;
   setComputed(result);
-  if (rekey(before, records)) recompute();
+  for (const m of [maps, moved]) if (m) remapPresentation(m);
+  renameInFilters(renames);
+  after?.();
   saveState();
   return null;
 }
 
-// What's keyed by specification follows the records it was keyed by. When an edit changes records'
-// specifications (an edge relabeled, or an entry moved up a level, which changes its dependents' too),
-// each key that no record has any more moves to the key those records have now, unless that one is taken:
-// entry order by location specification, and styles and required entries by parameterization.
-function rekey(before, after) {
-  const specs = new Map(), params = new Map();
+// Replaces the records, if the result is a state; otherwise returns why not. `next` is what `records`
+// should become; its entered part is kept, and the formulas worked out again. See change for `opts`.
+const commit = (next, opts = {}) => change({ entered: enteredPart(next) }, opts);
+
+// A schema rewritten tree by tree, from the locations up, with what it says about moved keys (keyMapsOf).
+// `subst` maps a specification's key to the tree that replaces it outright; `relabel(tree, original)`
+// relabels a tree once its locations are rewritten. A tree that lands on a key the schema has keeps that.
+function rewriteSchema(S, { subst = null, relabel = null }) {
+  const memo = new Map();
+  const rewrite = t => {
+    const k = treeKey(t);
+    if (memo.has(k)) return memo.get(k);
+    let out = subst?.get(k);
+    if (!out) {
+      const args = t.args?.map(a => ({ edge: a.edge, loc: rewrite(a.loc) }));
+      out = args && args.some((a, i) => a.loc !== t.args[i].loc) ? { ...t, args } : t;
+      if (relabel) out = relabel(out, t);
+    }
+    memo.set(k, out);
+    return out;
+  };
+  const next = {}, pairs = [];
+  for (const [k, t] of Object.entries(S)) {
+    const t1 = rewrite(t);
+    const k1 = treeKey(t1);
+    next[k1] ??= t1;
+    if (k1 !== k) pairs.push([t, t1]);
+  }
+  return { schema: next, maps: pairs.length ? keyMapsOf(pairs, next) : null };
+}
+
+// Which keys moved: for each specification replaced, its key, its parameterization's and its form's, the
+// last two only where the new schema has nothing left with the old one.
+function keyMapsOf(pairs, S) {
+  const ix = indexOf(S);
+  const specs = new Map(), params = new Map(), forms = new Map();
+  for (const [t0, t1] of pairs) {
+    specs.set(treeKey(t0), treeKey(t1));
+    const p0 = treeParam(t0), p1 = treeParam(t1);
+    if (p0 !== p1 && !ix.byParam.has(p0)) params.set(p0, p1);
+    const f0 = formOfTree(t0), f1 = formOfTree(t1);
+    if (f0 !== f1 && !ix.byForm.has(f0)) forms.set(f0, f1);
+  }
+  return { specs, params, forms };
+}
+
+// The abandonment law. After an edit made one record at a time, a specification that the edited records
+// left, and that no record has any more, moves with them: in the schema it's replaced by the one they have
+// now, along with whatever is located at it, and what was keyed by it follows (see remapPresentation).
+function moveAbandoned(S, before, after) {
+  const used = usage(after);
+  const subst = new Map();
   for (const id of Object.keys(after)) {
     if (!before[id]) continue;
-    const s0 = specKey(before, id), s1 = specKey(after, id);
-    if (s0 === s1) continue;
-    specs.set(s0, s1);
-    if (!isObject(after[id])) params.set(parameterization(before, id), parameterization(after, id));
+    const t0 = treeOf(before, id), t1 = treeOf(after, id);
+    if (!t0 || !t1) continue;
+    const k0 = treeKey(t0);
+    if (k0 !== treeKey(t1) && !used.has(k0) && S[k0]) subst.set(k0, t1);
   }
-  if (!specs.size) return;
-  const liveSpecs = new Set(Object.keys(after).map(id => specKey(after, id)));
-  const liveParams = new Set(Object.keys(after).filter(id => !isObject(after[id])).map(id => parameterization(after, id)));
-  const moves = (map, live) => [...map].filter(([from]) => !live.has(from));
-  for (const [from, to] of moves(specs, liveSpecs))
-    if (order[from] && !order[to]) { const { [from]: list, ...rest } = order; order = { ...rest, [to]: list }; }
-  const paramMoves = moves(params, liveParams);
-  // Every view's styles follow, not just the current view's.
-  const restyle = list => paramMoves.reduce((acc, [from, to]) =>
-    acc.some(s => s.param === to) ? acc : acc.map(s => s.param === from ? { ...s, param: to } : s), list);
+  return subst.size ? rewriteSchema(S, { subst }) : { schema: S, maps: null };
+}
+
+// What's keyed by a moved key follows it, unless something already has the new key: definitions' scopes
+// and required entries by parameterization; names and every view's styles by form; entry order by
+// location specification.
+const mapScopes = (defs, maps) => maps.params.size
+  ? defs.map(d => d.scope.some(p => maps.params.has(p)) ? { ...d, scope: [...new Set(d.scope.map(p => maps.params.get(p) ?? p))] } : d) : defs;
+function mapNames(N, maps) {
+  let out = N;
+  for (const [f0, f1] of maps.forms) if (out[f0] && !out[f1]) { const { [f0]: n, ...rest } = out; out = { ...rest, [f1]: n }; }
+  return out;
+}
+function remapPresentation(maps) {
+  for (const [s0, s1] of maps.specs) if (order[s0] && !order[s1]) { const { [s0]: list, ...rest } = order; order = { ...rest, [s1]: list }; }
+  required = [...new Set(required.map(p => maps.params.get(p) ?? p))];
+  const restyle = list => [...maps.forms].reduce((acc, [f0, f1]) =>
+    acc.some(s => s.form === f1) ? acc : acc.map(s => s.form === f0 ? { ...s, form: f1 } : s), list);
   views = currentViews().map(v => ({ ...v, styles: restyle(v.styles) }));
   styles = viewInUse().styles;
-  for (const [from, to] of paramMoves)
-    if (required[from] && !required[to]) { const { [from]: req, ...rest } = required; required = { ...rest, [to]: req }; }
-  // So do the parameterizations formulas cover. A definition written with locations is rewritten with the
-  // keys it covers, keeping a relation's edges in their order, so it can follow.
-  const moved = new Map(paramMoves);
-  let changed = false;
-  definitions = definitions.map(d => {
-    let keys;
-    try { keys = Formulas.coversOf(d); } catch { return d; }
-    if (!keys.some(k => moved.has(k))) return d;
-    changed = true;
-    const { at, args, ...rest } = d;
-    return { ...rest, covers: keys.map(k => moved.get(k) ?? k), ...(args ? { args: args.map(a => ({ edge: a.edge })) } : {}) };
-  });
-  return changed;
 }
+
+// ---- Renaming ----
+
+// A record, or a tree, with one of its edges relabeled: an entry's label, or one of a relation's edges.
+const relabelRecord = (r, from, to) => r.args ? { ...r, args: r.args.map(a => same(a.edge, from) ? { ...a, edge: to } : a) }
+  : same(r.edge, from) ? { ...r, edge: to } : r;
+const relabelTree = (t, from, to) => ({ ...t, args: t.args.map(a => same(a.edge, from) ? { ...a, edge: to } : a) });
+
+// The entered records like this one, itself included: those of its form, which a rename of every one like
+// it reaches. Computed ones follow their definition instead.
+const likeRecords = id => { const f = formKeyOf(id); return Object.keys(entered).filter(k => formKeyOf(k) === f); };
+
+// Renames a label on every entered record of a record's form, and on the schema's specifications of that
+// form, so the vocabulary itself changes: an entry's label, or one of a relation's edges. What's keyed by
+// the specifications follows, and so do the names and entry order that use the label, and, once no
+// entered record has the old label, the formulas and filters that mention it. `extra` are other changes to
+// records in the same step, such as the rest of an edit form. Returns why it couldn't, if it couldn't.
+function renameEvery(id, from, to, extra = {}) {
+  const form = formKeyOf(id);
+  const { schema: S, maps } = rewriteSchema(schema, { relabel: (t, orig) => formOfTree(orig) === form ? relabelTree(t, from, to) : t });
+  const next = { ...entered };
+  for (const k of likeRecords(id)) next[k] = relabelRecord(entered[k], from, to);
+  for (const [k, r] of Object.entries(extra)) next[k] = r;
+  const gone = !Object.values(next).some(r => (!r.args && same(r.edge, from)) || r.args?.some(a => same(a.edge, from)));
+  const defs = gone ? renamedInFormulas(definitions, from, to) : definitions;
+  const swap = e => same(e, from) ? to : e;
+  const swapKeys = o => Object.fromEntries(Object.entries(o ?? {}).map(([k, v]) => [same(k, from) ? norm(to) : k, v]));
+  const nms = names[form] ? { ...names, [form]: { ...names[form], edges: names[form].edges.map(swap),
+    lists: Object.fromEntries(Object.entries(swapKeys(names[form].lists)).map(([k, v]) => [k, swapKeys(v)])) } } : names;
+  const newForm = maps?.forms.get(form) ?? form;
+  const locs = new Set(specsOfForm(newForm, S).filter(t => t.args.length === 1).map(t => treeKey(t.args[0].loc)));
+  const relabelOrder = () => {
+    order = Object.fromEntries(Object.entries(order).map(([k, list]) => [k, locs.has(k) ? list.map(l => l === norm(from) ? norm(to) : l) : list]));
+  };
+  return change({ entered: next, schema: S, definitions: defs, names: nms }, { maps: maps ?? undefined, renames: gone ? [[from, to]] : [], after: relabelOrder });
+}
+
+// Relabels a relation's edge, here only or on every relation like it (renameEvery).
+const renameEdge = (id, from, to, every) => every ? renameEvery(id, from, to)
+  : commit({ ...records, [id]: relabelRecord(records[id], from, to) }, { moves: true });
+
+// ---- Arranging and editing entries ----
 
 // Moves an entry to just before or after a sibling. Every location with the same specification follows suit.
 function moveEntry(id, targetId, after) {
@@ -978,24 +1407,24 @@ function keepPlace(at, oldLabel, newLabel) {
   saveState();
 }
 
-// Saves a field's value typed in place. Its datatype is the one other fields with its parameterization
-// have, or else a guess from the value. Returns why it couldn't be saved, if it couldn't. A computed value
-// left as it was shown isn't an override: a computed number is a number, not the text it shows as.
+// Saves a field's value typed in place. Its datatype is the one the schema has for its parameterization,
+// or else a guess from what's typed. Returns why it couldn't be saved, if it couldn't. A value left as it
+// was isn't a change, so a computed one isn't overridden by it.
 function saveFieldValue(id, raw, label = labelOf(records[id])) {
   const r = records[id];
-  if (isComputed(id) && clean(raw) === displayValue(r)) return null;
-  const p = parameterization(records, id);
-  const fixed = Object.keys(records).find(k => k !== id && isField(records[k]) && parameterization(records, k) === p);
-  const datatype = fixed ? records[fixed].field : isObjectName(id) ? 'text' : classify(clean(raw));
+  const datatype = specsWithParam(parameterization(records, id)).find(t => 'field' in t.out && !onlyHas(t, id))?.out.field
+    ?? (isObjectName(id) ? 'text' : classify(clean(raw)));
   const value = parseValue(datatype, raw);
   if (value === undefined) return clean(raw) ? `${label} takes ${asPhrase(datatype)} here.` : `${label} can’t be empty.`;
   if (datatype === r.field && value === r.value) return null;
   return commit({ ...records, [id]: { ...r, field: datatype, value } });
 }
+// Whether a specification is had by this record alone, so that changing the record may change it.
+const onlyHas = (t, id) => { const users = usage().get(treeKey(t)) ?? []; return users.length === 1 && users[0] === id; };
 
 // Adds a field typed in place at a location, such as a Percentage at a new ownership. Its datatype is the
-// one other fields with its parameterization have, or else `datatype`, or else a guess from the value.
-// Nothing typed adds nothing. Returns why it couldn't be added, if it couldn't.
+// schema's for its label there, or else `datatype`, or else a guess from the value. Nothing typed adds
+// nothing. Returns why it couldn't be added, if it couldn't.
 function addFieldValue(at, label, raw, datatype) {
   if (!clean(raw)) return null;
   const type = fieldDatatype(at, label) ?? datatype ?? classify(clean(raw));
@@ -1017,42 +1446,49 @@ function createObject(kind, name, place) {
 }
 
 // Moves an entry up a level, from its location to that location's own location. Its dependents follow,
-// since they're located at it. Returns why it couldn't, if it couldn't.
+// since they're located at it, and so, by the abandonment law, does its specification if nothing else
+// has it. Returns why it couldn't, if it couldn't.
 function moveUp(id) {
   const r = records[id];
   const loc = records[r.at];
   if (!loc || isObject(loc) || isRelation(loc)) return `${r.edge} is already at the top level.`;
-  return commit({ ...records, [id]: { ...r, at: loc.at } });
+  return commit({ ...records, [id]: { ...r, at: loc.at } }, { moves: true });
 }
 
 // ---- Required entries ----
+// `required` lists the parameterizations every location like theirs should have an entry for.
 
 // The parameterization an entry labeled `label` would have at a location.
 const paramAt = (label, at) => JSON.stringify([JSON.stringify([norm(label), specKey(records, at)])]);
+const isRequired = param => required.includes(param);
+
+// A required parameterization as the panel shows it blank: its label, type and datatype, from the schema.
+function requiredInfo(param) {
+  const t = specsWithParam(param)[0];
+  return t ? { label: t.args[0].edge, type: typeOfTree(t), datatype: t.out.field } : null;
+}
 
 // Makes an entry's parameterization required at every location like its own, or stops requiring it.
 function toggleRequired(id) {
-  const r = records[id];
   const p = parameterization(records, id);
   pushUndo();
-  if (required[p]) { const { [p]: _, ...rest } = required; required = rest; }
-  else required = { ...required, [p]: { label: r.edge, type: typeOf(r), datatype: r.field } };
+  required = isRequired(p) ? required.filter(x => x !== p) : [...required, p];
   saveState();
 }
 
 function stopRequiring(param) {
   pushUndo();
-  const { [param]: _, ...rest } = required;
-  required = rest;
+  required = required.filter(x => x !== param);
   saveState();
 }
 
-// The required entries a location has no entry for, as [param, { label, type }] pairs.
+// The required entries a location has no entry for, as [param, { label, type, datatype }] pairs.
 // A tag counts as recorded whether it's attested or ruled out.
 function missingAt(at) {
   if (!records[at] || isField(records[at])) return [];
-  return Object.entries(required).filter(([p, req]) =>
-    p === paramAt(req.label, at) && !entriesOf(at).some(e => parameterization(records, e) === p));
+  const loc = specKey(records, at);
+  return required.filter(p => paramArgs(p).length === 1 && paramArgs(p)[0].key === loc && requiredInfo(p)
+    && !entriesOf(at).some(e => parameterization(records, e) === p)).map(p => [p, requiredInfo(p)]);
 }
 
 // The required entries missing anywhere in an object, or below a location: each with where it's missing.
@@ -1083,43 +1519,46 @@ function withDependents(ids) {
 // Deleting hides rather than destroys: the records and their dependents go into the archive as a batch,
 // labeled with what was deleted, and can be restored from there. Returns why it couldn't, if it couldn't.
 // Only entered records are archived: computed ones go with what they were computed from, and come back
-// with it. Box positions are kept in every view, so a restored box returns to its place in each.
+// with it. The schema keeps their specifications, and every view keeps their box positions, so a restored
+// record returns as it was.
 function deleteRecords(ids, label) {
   const gone = withDependents(ids);
-  const nextEntered = Object.fromEntries(Object.entries(entered).filter(([k]) => !gone.has(k)));
-  const result = runFormulas(nextEntered);
-  const error = validate(result.records);
-  if (error) return error;
-  pushUndo();
   const kept = Object.fromEntries([...gone].filter(k => entered[k]).map(k => [k, entered[k]]));
-  archive = [{ id: newId(), label, when: Date.now(), records: kept }, ...archive];
-  entered = nextEntered;
-  setComputed(result);
-  saveState();
-  return null;
+  const nextEntered = Object.fromEntries(Object.entries(entered).filter(([k]) => !gone.has(k)));
+  return change({ entered: nextEntered }, { after: () => { archive = [{ id: newId(), label, when: Date.now(), records: kept }, ...archive]; } });
 }
 
 // Puts a deleted batch back. Something it depends on may have been deleted since, in which case that
 // needs restoring first.
 function restoreBatch(batchId) {
   const batch = archive.find(b => b.id === batchId);
-  const nextEntered = { ...entered, ...batch.records };
-  const result = runFormulas(nextEntered);
-  const missing = Object.values(batch.records).flatMap(argsOf).map(a => a.at).find(at => !result.records[at]);
+  const there = { ...records, ...batch.records };
+  const missing = Object.values(batch.records).flatMap(argsOf).map(a => a.at).find(at => !there[at]);
   if (missing) {
     const other = archive.find(b => b.records[missing]);
     return other ? `Restore ${other.label} first; this depends on it.` : 'Something this depends on no longer exists.';
   }
-  const error = validate(result.records);
-  if (error) return `Can’t restore it: ${error}`;
-  pushUndo();
-  entered = nextEntered;
-  setComputed(result);
-  // Batches deleted before views kept the current view's box positions.
-  if (batch.layout) layout = { ...layout, ...batch.layout };
-  archive = archive.filter(b => b !== batch);
-  saveState();
-  return null;
+  const error = change({ entered: { ...entered, ...batch.records } }, { after: () => { archive = archive.filter(b => b !== batch); } });
+  return error ? `Can’t restore it: ${error}` : null;
+}
+
+// ---- Removing from the schema ----
+
+// The specifications nothing has: no record, no specification located at them, no formula's scope, no
+// required entry. They can be removed from the schema, as the panel's Schema view offers.
+function unusedSpecs() {
+  const used = new Set(usage().keys());
+  for (const k of [...used]) for (const loc of locationsBelow(schema[k])) used.add(treeKey(loc));
+  for (const t of Object.values(schema)) for (const loc of locationsBelow(t)) used.add(treeKey(loc));
+  const covered = new Set([...definitions.flatMap(d => d.scope), ...required]);
+  return Object.keys(schema).filter(k => !used.has(k) && !covered.has(treeParam(schema[k])));
+}
+
+// Removes unused specifications from the schema, as one undoable step.
+function removeSpecs(keys) {
+  const gone = new Set(keys.filter(k => unusedSpecs().includes(k)));
+  if (!gone.size) return null;
+  return change({ schema: Object.fromEntries(Object.entries(schema).filter(([k]) => !gone.has(k))) });
 }
 
 // ---- Chart helpers ----
@@ -1155,94 +1594,21 @@ function freeViewName(base) {
   for (let n = 2; ; n++) if (!taken.has(norm(`${base} ${n}`))) return `${base} ${n}`;
 }
 
-// ---- Panel helpers ----
-
 // Commits records and the formulas together, as one undoable step: for a formula typed into a value box,
-// which replaces that value with the formula's output, and for a relabeled entry, which relabels what
-// formulas say about it. `next` is what `records` should become, as for commit(). `renames` are [from, to]
-// pairs to carry into the views' filters too.
-function commitWithFormulas(next, nextDefinitions, nextNames = names, renames = []) {
-  const nextEntered = enteredPart(next);
-  const result = Formulas.computeState(nextEntered, nextDefinitions, nextNames);
-  const error = validate(result.records);
-  if (error) return error;
-  pushUndo();
-  const before = records;
-  entered = nextEntered;
-  definitions = nextDefinitions;
-  names = nextNames;
-  setComputed(result);
-  if (rekey(before, records)) recompute();
-  renameInFilters(renames);
-  saveState();
-  return null;
-}
+// which replaces that value with the formula's output. `next` is what `records` should become, as for
+// commit(). `renames` are [from, to] pairs to carry into the views' filters too.
+const commitWithFormulas = (next, nextDefinitions, nextNames = names, renames = []) =>
+  change({ entered: enteredPart(next), definitions: nextDefinitions, names: nextNames }, { renames });
 
-// ---- Rename helpers ----
+// ---- View filters ----
 
-// What a record is like, for a rename that covers every one like it: an object, its kind; a relation, its
-// output type and edge labels, whatever kinds it relates; an entry, its type and label under what its
-// location is like, whatever option or attestation that location has. So every ownership is like every
-// other, and every Tax Classification under an Entity's Entity Type is like every other.
-function likeKey(id) {
-  const r = records[id];
-  if (isObject(r)) return `kind:${norm(r.kind)}`;
-  if (isRelation(r)) return `rel:${typeOf(r)}:${r.args.map(a => norm(a.edge)).sort().join('|')}`;
-  return `${likeKey(r.at)} › ${typeOf(r)}:${norm(r.edge)}`;
-}
-
-// The entered entries like an entry, and the entered relations like a relation, itself included. Computed
-// ones follow their definition instead.
-const entriesLike = id => Object.keys(records).filter(k => !isObject(records[k]) && !isRelation(records[k]) && !isComputed(k) && likeKey(k) === likeKey(id));
-const relationsLike = id => Object.keys(records).filter(k => isRelation(records[k]) && !isComputed(k) && likeKey(k) === likeKey(id));
-
-// A relation's edge relabeled in the pilot names: the relation's own edges and the keys of its lists, for
-// the names whose relation is like `id`. The list names themselves stay as they are.
-function namesWithEdge(id, from, to) {
-  const swap = s => same(s, from) ? to : s;
-  const key = likeKey(id);
-  const relations = (names.relations ?? []).map(n => `rel:${n.type}:${n.edges.map(norm).sort().join('|')}` !== key ? n : {
-    ...n, edges: n.edges.map(swap),
-    lists: Object.fromEntries(Object.entries(n.lists ?? {}).map(([k, v]) => [swap(k), Object.fromEntries(Object.entries(v).map(([k2, l]) => [swap(k2), l]))])),
-  });
-  return { ...names, relations };
-}
-
-// A relation's edge relabeled in the formulas that mention it: as a name after a dot (a linked record's
-// argument), in a labeled relation call, or as a list that goes by the edge for want of a pilot name.
-// A computed relation's formulas are left alone where the label is one of its own arguments.
-const definitionsWithEdge = (from, to) => definitions.map(d => d.args?.some(a => same(a.edge, from)) ? d : {
-  ...d,
-  ...(d.formula !== undefined && { formula: Formulas.renameName(d.formula, from, to) }),
-  ...(d.implications && { implications: d.implications.map(i => ({ ...i, formula: Formulas.renameName(i.formula, from, to) })) }),
-});
-
-// Relabels an edge on a relation, here only or on every relation like it. Every one carries the new label
-// through the pilot names and the formulas too, in the same undoable step. Returns why it couldn't, if it
-// couldn't.
-function renameEdge(id, from, to, every) {
-  const relabel = r => ({ ...r, args: r.args.map(a => same(a.edge, from) ? { ...a, edge: to } : a) });
-  const next = { ...records };
-  for (const k of every ? relationsLike(id) : [id]) next[k] = relabel(records[k]);
-  return every ? commitWithFormulas(next, definitionsWithEdge(from, to), namesWithEdge(id, from, to), [[from, to]]) : commit(next);
-}
-
-// ---- View filter helpers ----
-
-// What a view shows besides its styles and the things hidden one by one: a filter, a condition worked
-// out at each object that shows the boxes it holds for, and the kinds whose boxes it hides. Both are kept
-// on the view, like its hidden list, so its copies and undo take them along.
+// What a view shows besides its styles and the things hidden one by one: a filter, a condition worked out
+// at each object, which shows the boxes it holds for. It's kept on the view, like its hidden list, so its
+// copies and undo take it along.
 const viewFilter = () => viewInUse().filter ?? '';
-const hiddenKinds = () => viewInUse().hiddenKinds ?? [];
 
 function setViewFilter(text) {
   pushUndo();
   views = currentViews().map(v => v.id === viewId ? { ...v, filter: String(text ?? '').trim() } : v);
-  saveState();
-}
-
-function setHiddenKinds(kinds) {
-  pushUndo();
-  views = currentViews().map(v => v.id === viewId ? { ...v, hiddenKinds: [...new Set(kinds.map(norm))] } : v);
   saveState();
 }

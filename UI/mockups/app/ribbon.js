@@ -74,9 +74,9 @@ function styleCandidates() {
   const ids = sel.object ? panelOrder(sel.object).slice(1) : sel.relation ? panelOrder(sel.relation) : [];
   const seen = new Set();
   return ids.filter(id => {
-    const p = parameterization(records, id);
-    if (styleOfParam(p) || seen.has(p)) return false;
-    seen.add(p);
+    const f = formKeyOf(id);
+    if (styleOfForm(f) || seen.has(f)) return false;
+    seen.add(f);
     return true;
   });
 }
@@ -178,16 +178,20 @@ function shapeGroup(eng) {
   return rbGroup('Shape', `<div class="rb-row">${shape}</div><div class="rb-row">${fill}${outline}${weight}${dash}</div>`);
 }
 
+// The engaged style's `show`, which says whether its records are drawn: a kind's boxes, a relation's
+// lines, an entry's line of text.
 function showGroup(eng) {
-  const fixed = !eng || isKindStyle(eng.style);
-  const { own } = eng ? effectiveProps(eng.style, viewOutput(eng)) : { own: {} };
+  const { props, own } = eng ? effectiveProps(eng.style, viewOutput(eng)) : { props: {}, own: {} };
+  const kind = eng && isKindStyle(eng.style);
   const line = eng && isLineStyle(eng.style);
-  const shown = fixed || (line ? own.show !== false : !!own.show);
-  const toggle = `<button class="rb-check" data-action="style-prop" data-prop="show" data-value="${!shown}" aria-pressed="${shown}"${fixed ? ' disabled' : ''}
-    title="${line ? 'Draw these relations as lines' : eng && isLineTextStyle(eng.style) ? 'Show this entry by its relation’s line' : 'Show this entry as a line of text in its box'}">${box(shown ? true : null)}${line ? 'Draw line' : 'Show text'}</button>`;
+  const shown = eng ? (line ? own.show !== false : !!props.show) : false;
+  const what = kind ? ['Show boxes', 'Draw boxes of this kind'] : line ? ['Draw line', 'Draw these relations as lines']
+    : eng && isLineTextStyle(eng.style) ? ['Show text', 'Show this entry by its relation’s line'] : ['Show text', 'Show this entry as a line of text in its box'];
+  const toggle = `<button class="rb-check" data-action="style-prop" data-prop="show" data-value="${!shown}" aria-pressed="${shown}"${eng ? '' : ' disabled'}
+    title="${what[1]}">${box(shown ? true : null)}${what[0]}</button>`;
   const formats = line ? LINE_FORMATS : FORMATS;
   const current = formats.find(([v]) => v === own.format)?.[1] ?? formats[0][1];
-  const format = rbMenu('rb:format', `<span class="rb-field-text">${esc(current)}</span>`, { cls: 'rb-field is-wide', title: line ? 'Label' : 'How the text reads', disabled: fixed || !shown }, () =>
+  const format = rbMenu('rb:format', `<span class="rb-field-text">${esc(current)}</span>`, { cls: 'rb-field is-wide', title: line ? 'Label' : 'How the text reads', disabled: !eng || kind || !shown }, () =>
     formats.map(([v, name]) => propItem('format', v, `<span class="menu-text">${esc(name)}</span>`, v === (own.format ?? 'value'))).join(''));
   return rbGroup('Display', `<div class="rb-row">${toggle}</div><div class="rb-row">${format}</div>`);
 }
@@ -239,20 +243,21 @@ function formulasTab() {
   return rbGroup('Definitions', defs) + rbGroup('Explain', why) + rbGroup('Calculation', status);
 }
 
-// The Show menu: each relation the chart draws as lines, with whether this view draws it.
+// The Show menu: everything this view can draw, by form (see showable in styles.js): kinds as boxes,
+// relations as lines, with those worked out by formula apart, and entries as lines of text. Each has
+// whether this view draws it.
 function showMenu() {
-  const rels = lineRelations();
-  const item = g => {
-    const { shown, total } = relationShown(g);
-    const state = shown === 0 ? null : true;
-    const note = g.computed ? 'Computed' : '';
+  const { boxes, lines, text } = showable();
+  const item = it => {
+    const { shown, total } = shownCount(it);
     const partly = shown && shown < total ? `${shown} of ${total}` : '';
-    return `<button class="menu-item" role="menuitemcheckbox" aria-checked="${shown === 0 ? 'false' : shown < total ? 'mixed' : 'true'}" data-action="show-relation" data-key="${esc(g.key)}" data-on="${shown === 0}">
-      ${box(state)}<span class="menu-text"><span class="menu-title">${esc(g.name)}</span>${note || partly ? `<span class="menu-desc">${[note, partly].filter(Boolean).join(' · ')}</span>` : ''}</span></button>`;
+    const desc = [it.kind ? count(objectsOfKind(it.kind).length, 'box') : it.where, partly].filter(Boolean).join(' · ');
+    return `<button class="menu-item" role="menuitemcheckbox" aria-checked="${shown === 0 ? 'false' : shown < total ? 'mixed' : 'true'}" data-action="show-form" data-key="${esc(it.key)}" data-on="${shown === 0}">
+      ${box(shown === 0 ? null : true)}<span class="menu-text"><span class="menu-title">${esc(it.label)}</span>${desc ? `<span class="menu-desc">${esc(desc)}</span>` : ''}</span></button>`;
   };
-  const entered = rels.filter(g => !g.computed), computed = rels.filter(g => g.computed);
-  return `<div class="menu-head">Lines in ${esc(viewInUse().name)}</div>${entered.map(item).join('')}`
-    + (computed.length ? `<div class="menu-sep"></div><div class="menu-head">Worked out by formula</div>${computed.map(item).join('')}` : '');
+  const section = (title, items) => items.length ? `<div class="menu-head">${title}</div>${items.map(item).join('')}` : '';
+  return [section(`Boxes in ${esc(viewInUse().name)}`, boxes), section('Lines', lines.filter(x => !x.computed)),
+    section('Lines worked out by formula', lines.filter(x => x.computed)), section('Text', text)].filter(Boolean).join('<div class="menu-sep"></div>');
 }
 
 // The things hidden one by one in this view, to show again.
@@ -263,17 +268,6 @@ function hiddenMenu() {
   return `<div class="menu-head">Hidden in ${esc(viewInUse().name)}</div>`
     + ids.map(id => `<button class="menu-item" role="menuitem" data-action="unhide" data-id="${id}"><span class="menu-text">${esc(label(id))}</span><span class="menu-desc">Show</span></button>`).join('')
     + `<div class="menu-sep"></div><button class="menu-item" role="menuitem" data-action="unhide-all"><span class="menu-text">Show all</span></button>`;
-}
-
-// The Kinds menu: each kind of object, with whether this view shows its boxes.
-function kindsMenu() {
-  const off = new Set(hiddenKinds());
-  return `<div class="menu-head">Boxes in ${esc(viewInUse().name)}</div>` + kindsInState().map(k => {
-    const on = !off.has(norm(k));
-    const n = objectsOfKind(k).length;
-    return `<button class="menu-item" role="menuitemcheckbox" aria-checked="${on}" data-action="show-kind" data-kind="${esc(k)}">
-      ${box(on ? true : null)}<span class="menu-text"><span class="menu-title">${esc(plural(k))}</span><span class="menu-desc">${count(n, 'box')}</span></span></button>`;
-  }).join('');
 }
 
 // ---- The view's filter ----
@@ -348,9 +342,7 @@ function viewTab() {
   const sel = selection();
   const target = sel.object ?? sel.relation;
   const nHidden = hiddenInView().filter(id => records[id]).length;
-  const nKinds = hiddenKinds().filter(k => kindsInState().some(x => norm(x) === k)).length;
-  const show = `<div class="rb-row">${rbMenu('rb:show', `<span class="rb-field-text">Relations</span>`, { cls: 'rb-field is-wide', title: 'Which relations this view draws as lines' }, showMenu)}
-    ${rbMenu('rb:kinds', `<span class="rb-field-text">Kinds${nKinds ? ` (${nKinds} off)` : ''}</span>`, { cls: 'rb-field', title: 'Which kinds of object this view shows as boxes' }, kindsMenu)}</div>
+  const show = `<div class="rb-row">${rbMenu('rb:show', `<span class="rb-field-text">Show</span>`, { cls: 'rb-field is-wide', title: 'What this view draws: boxes of each kind, lines of each relation, lines of text of each entry' }, showMenu)}</div>
     <div class="rb-row"><button class="rb-btn" data-action="hide-selection"${target ? '' : ' disabled'} title="${target ? 'Hide the selection in this view only' : 'Select a box or a line to hide it in this view'}">${icon('eye-off')}Hide</button>
     ${rbMenu('rb:hidden', `<span class="rb-field-text">Hidden${nHidden ? ` (${nHidden})` : ''}</span>`, { cls: 'rb-field', title: 'Things hidden one by one in this view', disabled: !nHidden }, hiddenMenu)}</div>`;
   const current = viewFilter();
@@ -490,9 +482,9 @@ Object.assign(actions, {
     setZoom(Math.min((stage.clientWidth - 56) / sheet.offsetWidth, (stage.clientHeight - 56) / sheet.offsetHeight));
   },
   'toggle-pref': d => { prefs[d.key] = prefs[d.key] === false; savePrefs(); },
-  'show-relation': d => {
-    const g = lineRelations().find(x => x.key === d.key);
-    if (g) setRelationShown(g, d.on === 'true');
+  'show-form': d => {
+    const item = Object.values(showable()).flat().find(x => x.key === d.key);
+    if (item) setShown(item, d.on === 'true');
     ui.menu = 'rb:show';
   },
   'hide-selection': () => {
@@ -505,12 +497,6 @@ Object.assign(actions, {
     ui.menu = hiddenInView().length ? 'rb:hidden' : null;
   },
   'unhide-all': () => setHiddenInView([]),
-  'show-kind': d => {
-    const k = norm(d.kind);
-    const off = hiddenKinds();
-    setHiddenKinds(off.includes(k) ? off.filter(x => x !== k) : [...off, k]);
-    ui.menu = 'rb:kinds';
-  },
   'filter-apply': () => applyFilter(),
   'filter-clear': () => { setViewFilter(''); chart.filterDraft = null; },
   'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows. Undo puts them back.`; },

@@ -503,9 +503,9 @@ function output(S, id) {
   if (isObject(r)) return recOf(id);
   if (isTag(r)) return r.tag;
   if (isChoice(r)) return r.choice;
-  if (r.computed) return r.value;
-  if (r.field === 'number') return readNumber(r.value) ?? r.value;
+  // Values are canonical: numbers for numbers, percentages and money, ISO strings for dates.
   if (r.field === 'date') return { t: 'date', iso: r.value };
+  if (typeof r.value === 'string' && r.field !== 'text') return readNumber(r.value) ?? r.value;
   return r.value;
 }
 
@@ -1264,15 +1264,17 @@ function makeRecord(d, cand, out) {
   const type = typeOfDef(d);
   if (type === 'tag') return { ...base, tag: out, computed: d.id };
   if (type === 'choice') return { ...base, choice: out, computed: d.id };
-  return { ...base, field: d.datatype ?? 'number', value: out, computed: d.id };
+  return { ...base, field: d.datatype ?? 'number', value: isDate(out) ? out.iso : out, computed: d.id };
 }
 
-// The options a choice's formula may give: those its entries have already, and any written into it.
+// The options a choice's formula may give: those its schema has (`knownOptions`, where the caller knows
+// them; otherwise those its entries have already), and any written into it.
 function optionsOf(S, d) {
   if (!d.options) {
     const opts = [];
     const add = o => { if (!opts.some(x => same(x, o))) opts.push(o); };
-    for (const r of Object.values(S.entered)) if (isChoice(r) && !r.args && same(r.edge, d.name)) add(r.choice);
+    if (d.knownOptions) d.knownOptions.forEach(add);
+    else for (const r of Object.values(S.entered)) if (isChoice(r) && !r.args && same(r.edge, d.name)) add(r.choice);
     const walk = n => {
       if (!n || typeof n !== 'object') return;
       if (n.k === 'lit' && typeof n.v === 'string') add(n.v);
