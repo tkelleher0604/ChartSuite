@@ -49,7 +49,12 @@ Object.assign(actions, {
     ui.notice = error ?? null;
     ui.info = error ? null : `Deleted ${name}. The chart menu can restore it.`;
   },
-  'chart-restore': d => { restoreChart(d.id); afterChartChange(); },
+  'chart-restore': d => {
+    const name = workbook.deleted.find(c => c.id === d.id)?.name;
+    restoreChart(d.id);
+    afterChartChange();
+    ui.info = name ? `Restored ${name}.` : null;
+  },
   'chart-copy-formulas': d => {
     const from = workbook.charts.find(c => c.id === d.id);
     const count = from?.state.definitions?.length ?? 0;

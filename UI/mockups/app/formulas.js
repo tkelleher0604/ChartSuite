@@ -370,7 +370,8 @@ function missing(S, name) {
 // record that links it. A ruled-out tag doesn't make a relative. Null if no relation here gives that list.
 // An object also has the lists of relations whose parameter sits below it, the way a relation call fills a
 // parameter through the object's record there: a fund's General Partners, though the relation is located
-// at its Entity Type.
+// at its Entity Type. A list answers to its name and also to the edge label it lists, so a formula written
+// before the list was named keeps working.
 const listAt = (S, id, n) => remembered(S, `list|${id}|${n}`, () => listHere(S, id, n));
 function listHere(S, id, n) {
   let hit = false;
@@ -378,8 +379,8 @@ function listHere(S, id, n) {
   const onObject = isObject(S.recs[id]);
   for (const rid of (onObject ? S.relsAtObj : S.relsAt).get(id) ?? []) {
     const r = S.recs[rid];
-    for (const { own, other, list } of listsOf(S, r)) {
-      if (list !== n || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
+    for (const { own, other, list, alias } of listsOf(S, r)) {
+      if ((list !== n && alias !== n) || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
       hit = true;
       if (isTag(r) && r.tag !== true) continue;
       items.push(recOf(objectOf(S, other.at), rid));
@@ -395,7 +396,7 @@ function listsOf(S, r) {
   if (!S.recLists.has(r)) {
     const rel = relationOf(S, r);
     const out = [];
-    r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: norm(listNameOf(rel, own.edge, other.edge)) }); }));
+    r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: norm(listNameOf(rel, own.edge, other.edge)), alias: norm(other.edge) }); }));
     S.recLists.set(r, out);
   }
   return S.recLists.get(r);
@@ -1140,7 +1141,7 @@ function knownNames(entered, defs, reg) {
   const lists = new Set(), values = new Set();
   const addRelation = (type, edges) => {
     const rel = reg.bySig.get(signature(type, edges));
-    edges.forEach((own, i) => edges.forEach((other, j) => { if (i !== j) lists.add(norm(listNameOf(rel, own, other))); }));
+    edges.forEach((own, i) => edges.forEach((other, j) => { if (i !== j) { lists.add(norm(listNameOf(rel, own, other))); lists.add(norm(other)); } }));
     edges.forEach(e => values.add(norm(e)));
     if (rel) values.add(norm(rel.name));
   };
@@ -1376,10 +1377,12 @@ function indexCandidates(S, jobs) {
     const rel = S.P.reg.byName.get(norm(d.name));
     cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
       if (i === j) return;
-      const list = norm(listNameOf(rel, own.edge, other.edge));
-      push(idx.lists, `${own.at}|${list}`, cand.key);
+      // A named list still answers to the edge label it lists, as it did before it was named.
       const obj = objectOf(S, own.at);
-      if (obj !== own.at) push(idx.lists, `${obj}|${list}`, cand.key);
+      for (const list of new Set([norm(listNameOf(rel, own.edge, other.edge)), norm(other.edge)])) {
+        push(idx.lists, `${own.at}|${list}`, cand.key);
+        if (obj !== own.at) push(idx.lists, `${obj}|${list}`, cand.key);
+      }
     }));
     push(idx.calls, callKey(S, d.name, cand.args.map(a => [a.edge, a.at])), cand.key);
   }

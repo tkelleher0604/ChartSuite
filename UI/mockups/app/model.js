@@ -313,11 +313,11 @@ function initState() {
     }
     const old = JSON.parse(localStorage.getItem(STATE_KEY));
     if (old?.records) {
-      workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: old }], chartId: 'chart_main', deleted: [] };
+      workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: old, sample: true }], chartId: 'chart_main', deleted: [] };
       return setState(old);
     }
   } catch {}
-  workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState() }], chartId: 'chart_main', deleted: [] };
+  workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState(), sample: true }], chartId: 'chart_main', deleted: [] };
   setState(chartInUse().state);
 }
 
@@ -373,6 +373,8 @@ let workbook = { charts: [], chartId: null, deleted: [] };
 const undoByChart = new Map();
 
 const chartInUse = () => workbook.charts.find(c => c.id === workbook.chartId);
+// Whether the current chart is the sample, which Reset sample puts back as it started.
+const isSampleChart = () => !!(chartInUse()?.sample ?? chartInUse()?.id === 'chart_main');
 const currentCharts = () => workbook.charts.map(c => c.id === workbook.chartId ? { ...c, state: snapshot() } : c);
 
 // Sets the current chart's undo history aside, and brings back another's.
@@ -398,9 +400,9 @@ const blankState = () => ({
 });
 
 // Adds a chart, blank or with the given state, after the current one, and makes it current.
-function addChart(name, state = blankState()) {
+function addChart(name, state = blankState(), more = {}) {
   const charts = currentCharts();
-  const chart = { id: newId(), name: freeChartName(name), state };
+  const chart = { id: newId(), name: freeChartName(name), state, ...more };
   charts.splice(charts.findIndex(c => c.id === workbook.chartId) + 1, 0, chart);
   workbook.charts = charts;
   swapHistory(chart.id);
@@ -446,7 +448,7 @@ function restoreChart(id) {
   if (!chart) return;
   workbook.deleted = workbook.deleted.filter(c => c !== chart);
   const { when, ...rest } = chart;
-  addChart(rest.name, rest.state);
+  addChart(rest.name, rest.state, rest.sample ? { sample: true } : {});
 }
 
 function freeChartName(base) {

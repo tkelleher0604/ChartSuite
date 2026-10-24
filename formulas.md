@@ -366,7 +366,7 @@ These pilot the UI-only names discussed on 2026-10-24. Formulas use them, and so
   - A name covers every relation parameterization with the same root edge labels and type. For example, Ownership covers ownership by Entities, by Individuals and by Investor Groups.
   - Formulas use the name to call the relation, and as the name of a linked record's output (`@.Membership`).
   - Since it covers all the kinds at once, a relation name might also be the unit styles attach to. That would answer the open question about styles multiplying with kinds.
-- **List names.** A name for the list of relatives in one role, seen from another role. Ownership's Owners are seen from Owned, and its Holdings from Owner. Without a name, a list goes by the edge label of the role it lists (Owner), as the panel's rows do now.
+- **List names.** A name for the list of relatives in one role, seen from another role. Ownership's Owners are seen from Owned, and its Holdings from Owner. Without a name, a list goes by the edge label of the role it lists (Owner), as the panel's rows do now. A named list still answers to that edge label too, so formulas written before it was named keep working.
 - **Cardinality hints.** For example, a fund has at most one general partner.
   - Formulas already use a list of one as a single value, so a hint isn't needed for them to work.
   - A hint does let the formula editor warn about a list that could have several items where one value is expected.
@@ -489,6 +489,7 @@ Where the prototype differs from this document:
   - Renaming an entry, or a relation's edge, offers "here only" or "every one like it", defaulting to every one.
   - Every one relabels all the entered records like it, together with the formulas and names that use the label, in one undoable step.
   - "Like" ignores the kinds a relation relates and the options above an entry, so renaming one ownership's Percentage reaches all twelve.
+  - Renames reach formulas and view filters by matching names as text, so another name spelled the same way is renamed with it.
 
 ## Open questions
 
