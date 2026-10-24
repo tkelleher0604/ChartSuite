@@ -220,7 +220,7 @@ function formulasTab() {
   const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : sel.object ? [sel.object] : [];
   const defs = `<div class="rb-row"><button class="rb-btn is-tall" data-action="fx-open" data-hash="formulas" title="Every formula in this chart">${icon('math-function')}Definitions</button>
     <button class="rb-btn is-tall" data-action="fx-open" data-hash="${esc(['formula:new:relation', ...sides].join(':'))}"
-      title="${sides.length ? `A relation worked out by formula, starting from ${esc(sides.map(objectName).join(' and '))}` : 'A relation worked out by formula'}">${icon('link')}Computed relation</button>
+      title="${sides.length ? `A relation worked out by formula, starting from ${esc(sides.map(id => objectName(id)).join(' and '))}` : 'A relation worked out by formula'}">${icon('link')}Computed relation</button>
     <button class="rb-btn is-tall" data-action="fx-open" data-hash="formula:new:entry" title="An entry worked out by formula">${icon('plus')}Computed entry</button></div>`;
   const id = selectedRecord();
   const info = id && records[id] && formulaInfo(id);

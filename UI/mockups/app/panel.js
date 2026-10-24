@@ -1138,11 +1138,11 @@ function coverageText(d) {
   }).join('; ');
 }
 
-// A new definition: an entry at a location, or a relation between two sides, if they're given.
+// A new definition: an entry at a location, or a relation between two sides, or from one, if they're given.
 function newDefinition(relation, sides) {
   const id = newId();
   if (relation) return { id, name: '', type: 'tag',
-    args: (sides.length === 2 ? sides : [null, null]).map(s => ({ edge: '', at: s && locationTextOf(s) ? [locationTextOf(s)] : [] })),
+    args: [sides[0], sides[1]].map(s => ({ edge: '', at: s && locationTextOf(s) ? [locationTextOf(s)] : [] })),
     implications: [{ label: '', formula: '← ' }] };
   const at = sides[0] && locationTextOf(sides[0]);
   return { id, name: '', type: 'field', datatype: 'number', at: at ? [at] : [], formula: '= ' };
