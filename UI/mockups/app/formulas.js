@@ -284,19 +284,50 @@ function push(map, key, value) {
   map.get(key).push(value);
 }
 
+// A relation record is also indexed by each object it relates and its signature, for relation calls.
 function addRecord(S, id, r) {
   S.memo?.clear();
   S.recs[id] = r;
   if (r.at) push(S.byAt, r.at, id);
   if (r.args) {
     for (const at of new Set(r.args.map(a => a.at))) push(S.relsAt, at, id);
-    for (const obj of new Set(r.args.map(a => objectOf(S, a.at)))) push(S.relsAtObj, obj, id);
+    const sig = signatureOf(r);
+    for (const obj of new Set(r.args.map(a => objectOf(S, a.at)))) {
+      push(S.relsAtObj, obj, id);
+      push(S.relsBySig, `${obj}|${sig}`, id);
+    }
   }
 }
 
-// A relation's pilot name and list names, from its output type and edge labels.
+// Takes a record back out, as when a step is worked out again.
+function removeRecord(S, id) {
+  const r = S.recs[id];
+  if (!r) return;
+  S.memo?.clear();
+  const pull = (map, key) => { const list = map.get(key); if (list) map.set(key, list.filter(x => x !== id)); };
+  if (r.at) pull(S.byAt, r.at);
+  if (r.args) {
+    for (const at of new Set(r.args.map(a => a.at))) pull(S.relsAt, at);
+    const sig = signatureOf(r);
+    for (const obj of new Set(r.args.map(a => objectOf(S, a.at)))) {
+      pull(S.relsAtObj, obj);
+      pull(S.relsBySig, `${obj}|${sig}`);
+    }
+  }
+  const spec = S.specs.get(id);
+  if (spec) { pull(S.bySpec, spec); S.specs.delete(id); }
+  delete S.recs[id];
+}
+
+// A relation's pilot name and list names, from its output type and edge labels. Records don't change, so
+// each one's is worked out once.
 const signature = (type, edges) => `${type}:${edges.map(norm).sort().join('|')}`;
-const relationOf = (S, r) => S.P.reg.bySig.get(signature(typeOf(r), r.args.map(a => a.edge)));
+const sigCache = new WeakMap();
+function signatureOf(r) {
+  if (!sigCache.has(r)) sigCache.set(r, signature(typeOf(r), r.args.map(a => a.edge)));
+  return sigCache.get(r);
+}
+const relationOf = (S, r) => S.P.reg.bySig.get(signatureOf(r));
 const listNameOf = (rel, from, listed) => rel?.lists.get(`${norm(from)}|${norm(listed)}`) ?? listed;
 
 // ---- Looking names up ----
@@ -304,6 +335,16 @@ const listNameOf = (rel, from, listed) => rel?.lists.get(`${norm(from)}|${norm(l
 // While a formula is worked out, the entries and relation records it reads are noted, to say why its
 // record is there.
 const note = (S, id) => { if (S.reads) S.reads.add(id); };
+
+// While a step is worked out (see settleStep), a lookup that could find one of the step's own candidates
+// notes it, found or not, among what's read, as `dep:` and its key: that's what the formula depends on.
+// `kind` is how it was looked for: 'entry' (at a location, by name), 'lists' (a list of relatives at a
+// location) or 'rels' (a relation, by an object it relates).
+const isDep = r => r.startsWith('dep:');
+function depend(S, kind, key) {
+  if (!S.dep || !S.reads) return;
+  for (const k of S.dep[kind].get(key) ?? []) S.reads.add(`dep:${k}`);
+}
 
 // What a name gives where nothing has it: an empty list for a list the schema has somewhere, BLANK for
 // any other name the schema has somewhere, and an error for a name it doesn't have at all.
@@ -353,6 +394,7 @@ function linkLookup(S, rid, n, name) {
   const arg = r.args.find(a => norm(a.edge) === n);
   if (arg) found.push(recOf(objectOf(S, arg.at)));
   else if (norm(relationOf(S, r)?.name ?? '') === n) found.push(recOf(rid));
+  depend(S, 'entry', `${rid}|${n}`);
   const pending = forceEntry(S, rid, n);
   if (pending) return { v: pending };
   const entry = (S.byAt.get(rid) ?? []).find(e => norm(S.recs[e].edge) === n);
@@ -366,6 +408,8 @@ function linkLookup(S, rid, n, name) {
 // arguments by edge label.
 function ownLookup(S, id, n, name) {
   const found = [];
+  depend(S, 'entry', `${id}|${n}`);
+  depend(S, 'lists', `${id}|${n}`);
   const pending = forceEntry(S, id, n) ?? forceLists(S, id, n);
   if (pending) return { v: pending };
   const entry = (S.byAt.get(id) ?? []).find(e => norm(S.recs[e].edge) === n);
@@ -939,11 +983,11 @@ function callRelation(c, rel, a) {
     ids.set(edge, v.id);
   }
   const first = objectOf(S, [...ids.values()][0]);
+  depend(S, 'rels', `${first}|${norm(rel.name)}`);
   const pending = forceRelation(S, first, rel.name);
   if (pending) return pending;
-  for (const rid of S.relsAtObj.get(first) ?? []) {
+  for (const rid of S.relsBySig.get(`${first}|${signature(rel.type, rel.edges)}`) ?? []) {
     const r = S.recs[rid];
-    if (signature(typeOf(r), r.args.map(x => x.edge)) !== signature(rel.type, rel.edges)) continue;
     const fits = r.args.every(x => {
       const g = ids.get(norm(x.edge));
       return isObject(S.recs[g]) ? objectOf(S, x.at) === g : x.at === g;
@@ -1209,9 +1253,9 @@ function asOutput(S, d, v) {
 // ---- Working out the state ----
 
 function stateFor(P, entered) {
-  const S = { P, entered, recs: {}, byAt: new Map(), relsAt: new Map(), relsAtObj: new Map(), specs: new Map(), bySpec: new Map(),
-    enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, reads: null, done: 0, cf: new Map(), memo: new Map(), steps: [],
-    failed: new Map() };
+  const S = { P, entered, recs: {}, byAt: new Map(), relsAt: new Map(), relsAtObj: new Map(), relsBySig: new Map(), specs: new Map(),
+    bySpec: new Map(), enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, dep: null, reads: null, done: 0,
+    cf: new Map(), memo: new Map(), steps: [], failed: new Map() };
   for (const [id, r] of Object.entries(entered)) addRecord(S, id, r);
   for (const [id, r] of Object.entries(entered)) {
     specOf(S, id);
@@ -1225,14 +1269,12 @@ function addComputed(S, id, r) {
   specOf(S, id);
 }
 
-// Works out one step: a group of definitions that read each other.
+// Works out one step: a group of definitions that read each other. Value formulas alone are worked out on
+// demand; with implications among them, the step goes in rounds (see settleStep).
 function runStep(S, i) {
   const started = now();
   const group = S.P.order[i].filter(d => !d.error);
-  const kinds = new Set(group.map(d => d.imps ? 'implies' : 'value'));
-  if (kinds.size > 1) {
-    for (const d of group) d.error = 'This loops through a = formula and implications together (#CIRCULAR!).';
-  } else if (kinds.has('implies')) settleImplications(S, group);
+  if (group.some(d => d.imps)) settleStep(S, group);
   else settleValues(S, group);
   S.steps.push({ defs: S.P.order[i].map(d => d.id), ms: now() - started });
 }
@@ -1268,36 +1310,53 @@ function safeEv(ast, c) {
   catch (e) { return err('#VALUE!', e instanceof RangeError ? 'This goes around too many times.' : String(e)); }
 }
 
+// Where a step's candidates could be found, for working them out on demand and for noting what depends on
+// them (see depend): an entry by its location and name, and a relation by the lists of relatives it makes
+// and the objects it relates. Each maps to candidate keys.
+function indexCandidates(S, jobs) {
+  const idx = { entry: new Map(), lists: new Map(), rels: new Map() };
+  for (const { d, cand } of jobs) {
+    if (!d.isRelation) { push(idx.entry, `${cand.at}|${norm(d.name)}`, cand.key); continue; }
+    const rel = S.P.reg.byName.get(norm(d.name));
+    cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
+      if (i === j) return;
+      const list = norm(listNameOf(rel, own.edge, other.edge));
+      push(idx.lists, `${own.at}|${list}`, cand.key);
+      const obj = objectOf(S, own.at);
+      if (obj !== own.at) push(idx.lists, `${obj}|${list}`, cand.key);
+    }));
+    for (const obj of new Set(cand.args.map(a => objectOf(S, a.at)))) push(idx.rels, `${obj}|${norm(d.name)}`, cand.key);
+  }
+  return idx;
+}
+
+// Value formulas' candidates, ready to be worked out on demand: all but those where an entered record stands.
+// A `blocked` one was found on a loop (see settleStep), and gives #CIRCULAR!.
+function lazyValues(S, jobs, blocked = new Set()) {
+  const todo = jobs.filter(j => !S.enteredByKey.has(j.cand.key));
+  return { cands: new Map(todo.map(j => [j.cand.key, { ...j, state: 'todo', blocked: blocked.has(j.cand.key) }])), idx: indexCandidates(S, todo) };
+}
+
 // Value formulas are worked out on demand, so a record can read the same definition's records elsewhere,
 // as a spreadsheet cell reads other cells. Asking for a record that's being worked out is a loop.
 function settleValues(S, group) {
-  S.lazy = { cands: new Map(), entry: new Map(), lists: new Map(), rels: new Map() };
-  const overlaps = [];
-  for (const d of group) for (const cand of candidatesOf(S, d)) {
-    if (S.enteredByKey.has(cand.key)) { overlaps.push({ d, cand }); continue; }
-    S.lazy.cands.set(cand.key, { d, cand, state: 'todo' });
-    if (!d.isRelation) S.lazy.entry.set(`${cand.at}|${norm(d.name)}`, cand.key);
-    else {
-      const rel = S.P.reg.byName.get(norm(d.name));
-      cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
-        if (i === j) return;
-        const list = norm(listNameOf(rel, own.edge, other.edge));
-        push(S.lazy.lists, `${own.at}|${list}`, cand.key);
-        const obj = objectOf(S, own.at);
-        if (obj !== own.at) push(S.lazy.lists, `${obj}|${list}`, cand.key);
-      }));
-      for (const obj of new Set(cand.args.map(a => objectOf(S, a.at)))) push(S.lazy.rels, `${obj}|${norm(d.name)}`, cand.key);
-    }
-  }
+  const jobs = group.flatMap(d => candidatesOf(S, d).map(cand => ({ d, cand })));
+  S.lazy = lazyValues(S, jobs);
   for (const key of S.lazy.cands.keys()) force(S, key);
-  for (const { d, cand } of overlaps) {
+  valueOverlaps(S, jobs);
+  S.lazy = null;
+}
+
+// What a value formula gives where an entered record stands, to mark it as agreeing or differing.
+function valueOverlaps(S, jobs) {
+  for (const { d, cand } of jobs) {
+    const enteredId = S.enteredByKey.get(cand.key);
+    if (!enteredId || d.imps) continue;
     const { v, reads } = reading(S, () => safeEv(d.ast, contextFor(S, d, cand)));
     const res = asOutput(S, d, v);
-    const enteredId = S.enteredByKey.get(cand.key);
     const mark = res.error || res.none ? null : equal(scalar(S, recOf(enteredId)), res.out) ? 'agrees' : 'differs';
-    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark, reads });
+    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark, reads: reads.filter(r => !isDep(r)) });
   }
-  S.lazy = null;
 }
 
 function force(S, key) {
@@ -1305,55 +1364,165 @@ function force(S, key) {
   if (!job || job.state === 'done') return null;
   if (job.state === 'busy') return circular();
   job.state = 'busy';
-  const { v, reads } = reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
+  const { v, reads } = job.blocked ? { v: circular(), reads: [] } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
   const res = asOutput(S, job.d, v);
-  job.state = 'done';
+  Object.assign(job, { state: 'done', res, deps: reads.filter(isDep).map(r => r.slice(4)), failed: [] });
+  const shown = reads.filter(r => !isDep(r));
   if (res.error) {
-    addRow(S, job.d, { ...job.cand, error: res.error, reads });
+    addRow(S, job.d, { ...job.cand, error: res.error, reads: shown });
     // Whatever reads the record reads the error instead.
-    if (!job.d.isRelation) S.failed.set(`${job.cand.at}|${norm(job.d.name)}`, res.error);
-    else for (const obj of new Set(job.cand.args.map(a => objectOf(S, a.at)))) push(S.failed, `rel|${obj}|${norm(job.d.name)}`, { args: job.cand.args, error: res.error });
+    if (!job.d.isRelation) {
+      S.failed.set(`${job.cand.at}|${norm(job.d.name)}`, res.error);
+      job.failed.push([`${job.cand.at}|${norm(job.d.name)}`]);
+    } else for (const obj of new Set(job.cand.args.map(a => objectOf(S, a.at)))) {
+      const failure = { args: job.cand.args, error: res.error };
+      push(S.failed, `rel|${obj}|${norm(job.d.name)}`, failure);
+      job.failed.push([`rel|${obj}|${norm(job.d.name)}`, failure]);
+    }
   } else if (!res.none) {
     addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out));
-    addRow(S, job.d, { ...job.cand, value: res.out, reads });
+    job.added = true;
+    addRow(S, job.d, { ...job.cand, value: res.out, reads: shown });
   }
   return null;
 }
 
-const forceEntry = (S, at, n) => S.lazy?.entry.has(`${at}|${n}`) ? force(S, S.lazy.entry.get(`${at}|${n}`)) : null;
+// Takes back what a value formula gave at a candidate, so it can be worked out again.
+function unforce(S, job) {
+  if (job.added) removeRecord(S, job.cand.id);
+  for (const [key, failure] of job.failed ?? []) {
+    if (!failure) S.failed.delete(key);
+    else S.failed.set(key, S.failed.get(key).filter(x => x !== failure));
+  }
+  Object.assign(job, { state: 'todo', added: false, failed: [], res: null, deps: [] });
+}
+
 function forceMany(S, keys) {
   for (const k of keys ?? []) { const e = force(S, k); if (e) return e; }
   return null;
 }
-const forceLists = (S, at, n) => S.lazy ? forceMany(S, S.lazy.lists.get(`${at}|${n}`)) : null;
-const forceRelation = (S, obj, name) => S.lazy ? forceMany(S, S.lazy.rels.get(`${obj}|${norm(name)}`)) : null;
+const forceEntry = (S, at, n) => S.lazy ? forceMany(S, S.lazy.idx.entry.get(`${at}|${n}`)) : null;
+const forceLists = (S, at, n) => S.lazy ? forceMany(S, S.lazy.idx.lists.get(`${at}|${n}`)) : null;
+const forceRelation = (S, obj, name) => S.lazy ? forceMany(S, S.lazy.idx.rels.get(`${obj}|${norm(name)}`)) : null;
 
-// Implications that read each other are worked out together: start with nothing attested by them, attest
-// whatever some implication holds for, and repeat until nothing more is attested. That's the fewest
-// attestations they support. Each round reads the state as the last one left it, so lookups can be kept
-// for the round. The last round, which attests nothing new, says which implications hold for each record;
-// a record none hold for any more came from a loop through something like NOT, and is marked circular.
-function settleImplications(S, group) {
-  const derived = new Set();
-  let held;
-  for (let round = 0; round < 1000; round++) {
-    held = new Map();
-    const fresh = [];
-    for (const d of group) for (const cand of candidatesOf(S, d)) {
-      const h = holding(S, d, cand);
-      held.set(cand.key, { d, cand, ...h });
-      if (h.labels.length && !S.enteredByKey.has(cand.key) && !derived.has(cand.key)) fresh.push({ d, cand });
-    }
-    if (!fresh.length) break;
-    for (const { d, cand } of fresh) {
-      derived.add(cand.key);
-      addComputed(S, cand.id, makeRecord(d, cand, true));
-    }
+// ---- Steps with implications ----
+// Implications only ever attest, so a step with implications starts with nothing attested by them, attests
+// whatever some implication holds for, and goes round again until a round changes nothing: the fewest
+// attestations they support. Any value formulas in the step are worked out afresh each round, on demand,
+// from what's attested so far.
+//
+// Within the step, every lookup notes which of the step's own candidates it could have found (see depend),
+// so a round works out again only the implications whose inputs changed. The same notes find loops per
+// record: once the step settles, a value formula's record on a loop through the step's records is circular,
+// and so are the others on that loop, and the step is worked out again with them left out, giving
+// #CIRCULAR!, so nothing is built on them. A loop through implications alone isn't circular. An
+// implication's record that some implication held for, and none does any more, came from a loop through
+// something like NOT, and is circular too.
+function settleStep(S, group) {
+  const blocked = new Set();
+  for (let attempt = 0; ; attempt++) {
+    const run = attemptStep(S, group, blocked);
+    const loops = attempt < 4 ? loopsIn(run) : [];
+    if (!loops.length) return finishStep(S, run);
+    undoStep(S, group, run);
+    loops.forEach(k => blocked.add(k));
   }
-  for (const { d, cand, labels, errors, reads } of held.values()) {
+}
+
+// The labels of the implications that hold at a tag's candidate, in the definition's order.
+const labelsOf = t => t.d.imps.reduce((out, imp, i) => t.results[i]?.v === true && !out.includes(imp.label) ? [...out, imp.label] : out, []);
+const resultKey = res => res ? JSON.stringify(res.error ? ['error', res.error.code] : res.none ? ['none'] : ['out', res.out]) : '';
+
+function attemptStep(S, group, blocked) {
+  const jobs = group.flatMap(d => candidatesOf(S, d).map(cand => ({ d, cand })));
+  S.dep = indexCandidates(S, jobs);
+  S.lazy = lazyValues(S, jobs.filter(j => !j.d.imps), blocked);
+  const values = [...S.lazy.cands.values()];
+  const tags = jobs.filter(j => j.d.imps).map(j => ({ ...j, results: j.d.imps.map(() => null), labels: [], derived: false, blocked: blocked.has(j.cand.key) }));
+  let queue = tags.filter(t => !t.blocked).flatMap(t => t.d.imps.map((_, i) => [t, i]));
+  let outputs = null, factsChanged = false;
+  for (let round = 0; round < 1000 && (queue.length || (factsChanged && values.length)); round++) {
+    for (const job of values) unforce(S, job);
+    for (const d of group) if (!d.imps) S.rows.delete(d.id);
+    const changed = new Set();
+    for (const [t, i] of queue) {
+      const { v, reads } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, contextFor(S, t.d, t.cand))));
+      t.results[i] = { v, deps: reads.filter(isDep).map(r => r.slice(4)), reads: reads.filter(r => !isDep(r)) };
+      const labels = labelsOf(t);
+      if (labels.join('\n') === t.labels.join('\n')) continue;
+      t.labels = labels;
+      S.prov.set(t.cand.key, new Set(labels.map(norm)));
+      changed.add(t.cand.key);
+    }
+    for (const job of values) force(S, job.cand.key);
+    // A value formula's output that differs from last round's changes what read it then.
+    const now = new Map(values.map(job => [job.cand.key, resultKey(job.res)]));
+    if (outputs) for (const [k, o] of now) if (outputs.get(k) !== o) changed.add(k);
+    outputs = now;
+    factsChanged = changed.size > 0;
+    for (const t of tags) if (t.labels.length && !t.derived && !t.blocked && !S.enteredByKey.has(t.cand.key)) {
+      t.derived = true;
+      addComputed(S, t.cand.id, makeRecord(t.d, t.cand, true));
+    }
+    queue = [];
+    if (changed.size) for (const t of tags) if (!t.blocked) t.results.forEach((r, i) => { if (r?.deps.some(k => changed.has(k))) queue.push([t, i]); });
+  }
+  return { jobs, tags, values };
+}
+
+// The candidates on loops through a value formula: in the graph of what depends on what among the step's
+// candidates, each strongly connected group that loops and has a value formula's candidate in it.
+function loopsIn(run) {
+  const edges = new Map(), values = new Set();
+  for (const t of run.tags) if (!t.blocked) edges.set(t.cand.key, new Set(t.results.flatMap(r => r?.deps ?? [])));
+  for (const job of run.values) if (!job.blocked) { edges.set(job.cand.key, new Set(job.deps ?? [])); values.add(job.cand.key); }
+  if (!values.size) return [];
+  const index = new Map(), low = new Map(), stack = [], onStack = new Set(), out = [];
+  let counter = 0;
+  const visit = v => {
+    index.set(v, counter); low.set(v, counter); counter++;
+    stack.push(v); onStack.add(v);
+    for (const w of edges.get(v)) {
+      if (!edges.has(w)) continue;
+      if (!index.has(w)) { visit(w); low.set(v, Math.min(low.get(v), low.get(w))); }
+      else if (onStack.has(w)) low.set(v, Math.min(low.get(v), index.get(w)));
+    }
+    if (low.get(v) !== index.get(v)) return;
+    const group = [];
+    let w;
+    do { w = stack.pop(); onStack.delete(w); group.push(w); } while (w !== v);
+    if ((group.length > 1 || edges.get(v).has(v)) && group.some(k => values.has(k))) out.push(...group);
+  };
+  for (const v of edges.keys()) if (!index.has(v)) visit(v);
+  return out;
+}
+
+// Takes back everything a step worked out, to work it out again.
+function undoStep(S, group, run) {
+  for (const job of run.values) unforce(S, job);
+  for (const t of run.tags) {
+    if (t.derived) removeRecord(S, t.cand.id);
+    S.prov.delete(t.cand.key);
+  }
+  for (const d of group) S.rows.delete(d.id);
+  S.dep = S.lazy = null;
+}
+
+// The rows a settled step leaves, for its implications and where entered records stand; its value formulas
+// left theirs as they were worked out.
+function finishStep(S, run) {
+  for (const t of run.tags) {
+    const { d, cand, labels } = t;
+    const errors = t.results.flatMap((r, i) => r && isErr(r.v) ? [{ label: d.imps[i].label, error: r.v }] : []);
+    const reads = {};
+    t.results.forEach((r, i) => { if (r?.v === true) reads[d.imps[i].label] = [...new Set([...(reads[d.imps[i].label] ?? []), ...r.reads])]; });
     const enteredId = S.enteredByKey.get(cand.key);
-    if (derived.has(cand.key) && !labels.length) addRow(S, d, { ...cand, error: circular(), errors });
-    else if (enteredId) {
+    if (t.blocked) addRow(S, d, { ...cand, error: circular() });
+    else if (t.derived && !labels.length) {
+      removeRecord(S, cand.id);
+      S.prov.delete(cand.key);
+      addRow(S, d, { ...cand, error: circular(), errors });
+    } else if (enteredId) {
       const tag = S.entered[enteredId].tag;
       if (labels.length || errors.length)
         addRow(S, d, { ...cand, entered: enteredId, formula: labels.length ? true : null, labels, errors, reads,
@@ -1361,21 +1530,8 @@ function settleImplications(S, group) {
     } else if (labels.length) addRow(S, d, { ...cand, value: true, labels, errors, reads });
     else if (errors.length) addRow(S, d, { ...cand, error: errors[0].error, errors });
   }
-}
-
-// Which of a definition's implications hold at a candidate, with what each one read.
-function holding(S, d, cand) {
-  const labels = [], errors = [], reads = {};
-  for (const imp of d.imps) {
-    const { v, reads: r } = reading(S, () => truth(S, safeEv(imp.ast, contextFor(S, d, cand))));
-    if (isErr(v)) errors.push({ label: imp.label, error: v });
-    else if (v) {
-      if (!labels.includes(imp.label)) labels.push(imp.label);
-      reads[imp.label] = [...new Set([...(reads[imp.label] ?? []), ...r])];
-    }
-  }
-  S.prov.set(cand.key, new Set(labels.map(norm)));
-  return { labels, errors, reads };
+  valueOverlaps(S, run.jobs);
+  S.dep = S.lazy = null;
 }
 
 function addRow(S, d, row) {
