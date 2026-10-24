@@ -1,7 +1,7 @@
 /* The chart page: an app bar, a ribbon, the chart's sheet, and the record panel on the right. */
 
 html, body { height: 100%; }
-body.chart-app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
+body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
 
 /* App bar */
 .appbar { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
@@ -19,8 +19,11 @@ body.chart-app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); ov
 .ribbon-tab:hover { color: var(--text); }
 .ribbon-tab[aria-selected="true"] { color: var(--text); }
 .ribbon-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
-.ribbon-body { display: flex; align-items: stretch; min-height: 86px; padding: 6px 8px 4px; overflow-x: auto; border-top: 1px solid var(--border); }
-.rb-group { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; padding: 0 10px; border-right: 1px solid var(--border); }
+.ribbon-body { display: flex; align-items: stretch; min-height: 86px; padding: 6px 8px 4px; border-top: 1px solid var(--border); }
+@media (max-width: 1180px) { .ribbon-body { flex-wrap: wrap; row-gap: 6px; } }
+.rb-group { display: flex; flex: none; flex-direction: column; justify-content: space-between; gap: 4px; padding: 0 10px; border-right: 1px solid var(--border); }
+.rb-group.is-style { flex: 0 1 auto; min-width: 280px; }
+.rb-group.is-style .rb-controls, .rb-group.is-style .rb-row { min-width: 0; }
 .rb-group:last-child { border-right: 0; }
 .rb-controls { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 1; }
 .rb-row { display: flex; align-items: center; gap: 3px; }
@@ -60,16 +63,17 @@ body.chart-app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); ov
 .glyph-line line { stroke: currentColor; }
 
 /* Style gallery: the styles that apply to the selection; the engaged one is outlined. */
-.gallery { display: flex; align-items: stretch; gap: 4px; max-width: 520px; overflow-x: auto; padding: 1px; }
+.gallery { display: flex; align-items: stretch; gap: 4px; min-width: 0; max-width: 520px; overflow-x: auto; padding: 1px; scrollbar-width: thin; }
 .tile { display: flex; flex-direction: column; justify-content: center; gap: 2px; flex: none; width: 112px; height: 50px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); text-align: left; }
 .tile:hover { border-color: var(--border-strong); background: var(--hover); }
 .tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .tile-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
 .tile-out { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-3); }
-.tile-preview { flex: none; display: inline-grid; place-items: center; width: 22px; height: 16px; }
+.tile-preview { flex: none; display: inline-grid; place-items: center; width: 26px; height: 20px; border-radius: 4px; background: #fff; box-shadow: inset 0 0 0 1px rgb(24 24 27 / .1); color: #27272a; }
 .tile-aa { font-size: 12px; line-height: 1; }
-.tile.is-add { align-items: center; justify-content: center; width: 64px; border-style: dashed; color: var(--text-2); font-size: 11.5px; }
+.tile.is-add { align-items: center; justify-content: center; gap: 3px; width: 76px; border-style: dashed; color: var(--text-2); font-size: 11.5px; }
+.tile.is-add[aria-expanded="true"] { border-color: var(--border-strong); background: var(--hover); }
 .tile.is-add .icon { width: 16px; height: 16px; }
 
 /* Ribbon menus: palettes and option lists, using the shared .pop/.menu look. */

@@ -163,7 +163,10 @@ function route(lines, geo) {
   for (const ls of groupBy(vertical, l => `${l.to}|${l.dir}`).values()) {
     const t = geo[ls[0].to];
     ls.sort((p, q) => (geo[p.from].x + geo[p.from].w / 2) - (geo[q.from].x + geo[q.from].w / 2));
-    ls.forEach((l, i) => { l.tx = t.shape === 'triangle' && l.dir === 'down' ? t.x + t.w / 2 : t.x + t.w * (i + 1) / (ls.length + 1); });
+    ls.forEach((l, i) => {
+      l.tx = t.shape === 'triangle' && l.dir === 'down' ? t.x + t.w / 2 : t.x + t.w * (i + 1) / (ls.length + 1);
+      l.stagger = ls.length > 2 || (ls.length === 2 && t.w < 260) ? i % 2 : 0;
+    });
   }
   const sources = [...groupBy(vertical, l => `${l.from}|${l.dir}`).values()];
   for (const ls of sources) {
@@ -192,15 +195,21 @@ function route(lines, geo) {
   for (const l of lines) {
     l.points = l.points.filter((p, i, ps) => i === 0 || Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) > 0.5);
     if (l.points.length === 3 && Math.abs(l.points[0][0] - l.points[2][0]) < 1) l.points = [l.points[0], l.points[2]];
-    l.label = labelSpot(l);
+    l.label = labelSpot(l, geo);
   }
 }
 
-// A label sits on the last leg if there's room, centered on it; otherwise on the longest leg.
-function labelSpot(l) {
+// A turning line's label sits on its last leg just short of the box it arrives at, as percentages do on
+// structure charts, staggered when lines arrive side by side; with no room there, or on a straight line
+// or into a triangle's apex, it sits midway along the longest leg.
+function labelSpot(l, geo) {
   const ps = l.points;
   const legs = ps.slice(1).map((p, i) => ({ a: ps[i], b: p, len: Math.hypot(p[0] - ps[i][0], p[1] - ps[i][1]) }));
   const last = legs.at(-1);
+  if (ps.length > 2 && last.len >= 30 && geo[l.to].shape !== 'triangle') {
+    const off = 12 + (l.stagger ?? 0) * 14;
+    return l.dir === 'down' ? { x: last.b[0], y: Math.max(last.a[1] + 8, last.b[1] - off) } : { x: last.b[0], y: Math.min(last.a[1] - 8, last.b[1] + off) };
+  }
   const leg = last.len >= 34 ? last : legs.reduce((m, g) => g.len > m.len ? g : m);
   const flat = Math.abs(leg.a[1] - leg.b[1]) < 1;
   return { x: (leg.a[0] + leg.b[0]) / 2, y: (leg.a[1] + leg.b[1]) / 2 - (flat ? 7 : 0) };
@@ -306,6 +315,12 @@ function renderChart() {
     target: chart.connect?.over === id,
     covered, engagedStyle: eng?.style.id,
   })).join('') + quickNodeHtml();
+  // A triangle's text sits low enough for its widest line to clear the sloping sides. The text is at most
+  // 60% as wide as the box, which takes a gap above it of one and a half times its height (with padding).
+  for (const el of nodes.querySelectorAll('.node.shape-triangle')) {
+    const text = el.querySelector('.node-text');
+    el.style.paddingTop = `${Math.max(el.offsetWidth * 0.3, 1.5 * (text.offsetHeight + 12))}px`;
+  }
   chart.geometry = {};
   for (const el of nodes.querySelectorAll('.node')) {
     const shape = [...el.classList].find(c => c.startsWith('shape-')).slice(6);

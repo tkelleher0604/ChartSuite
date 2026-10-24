@@ -3,8 +3,8 @@
 
 const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['view', 'View']];
 
-const rbGroup = (label, controls) =>
-  `<div class="rb-group"><div class="rb-controls">${controls}</div><div class="rb-label">${label}</div></div>`;
+const rbGroup = (label, controls, cls = '') =>
+  `<div class="rb-group${cls ? ` ${cls}` : ''}"><div class="rb-controls">${controls}</div><div class="rb-label">${label}</div></div>`;
 
 // A ribbon button that opens a menu; `content` is only worked out while the menu is open.
 function rbMenu(key, inner, { cls = '', title = '', disabled = false, overridden = '', inherited = false, right = false } = {}, content) {
@@ -84,8 +84,9 @@ function styleGroup(eng) {
     return `<button class="tile" aria-pressed="${pressed}" data-action="style-engage" data-style="${style.id}" data-output="${esc(output ?? '')}" title="${esc(`${label}: ${out}`)}">
       <span class="tile-top">${stylePreview(style, props)}<span class="tile-name">${esc(label)}</span></span><span class="tile-out">${esc(out)}</span></button>`;
   }).join('');
-  const add = rbMenu('rb:new-style', `${icon('plus')}`, { cls: 'tile is-add', title: 'New style' }, newStyleMenu)
-    .replace('</button>', '<span>New</span></button>');
+  const addOpen = ui.menu === 'rb:new-style';
+  const add = `<span class="rb-anchor"><button class="tile is-add" data-action="menu" data-menu="rb:new-style" aria-haspopup="menu" aria-expanded="${addOpen}"
+    title="Style the chart by another entry">${icon('plus')}<span>New style</span></button>${addOpen ? `<div class="pop menu rb-menu" role="menu">${newStyleMenu()}</div>` : ''}</span>`;
   let side = '<span class="rb-note">Select a box, a line of text or a line to see its styles.</span>';
   if (eng) {
     const outputs = styleOutputs(eng.style);
@@ -103,7 +104,7 @@ function styleGroup(eng) {
     side = `<div style="display:flex;flex-direction:column;gap:4px;justify-content:center">${scope}${note}</div>`;
   }
   return rbGroup(eng ? `Style: ${esc(describeStyle(eng.style).label)} <span style="opacity:.75">${esc(describeStyle(eng.style).where)}</span>` : 'Style',
-    `<div class="rb-row" style="gap:10px"><div class="gallery">${tiles}${add}</div>${side}</div>`);
+    `<div class="rb-row" style="gap:10px"><div class="gallery">${tiles}</div>${add}${side}</div>`, 'is-style');
 }
 
 const PROP_NAMES = { shape: 'Shape', fill: 'Fill', stroke: 'Outline', strokeWidth: 'Weight', dash: 'Dash' };
