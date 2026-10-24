@@ -19,7 +19,8 @@ Open these directly in a browser. The chart and the record panel share their cod
     - Controls showing a value that comes from another style are muted. A dot marks a value that a later style overrides on the selected box.
   - Clicking a box selects it and opens its object in the panel. Clicking a line of text in a box engages that text's style. Clicking a line opens its relation.
   - **Editing a name in place.** Double-click a name, press F2, or just start typing over a selected box. The panel follows as you type. Enter saves and Esc cancels.
-  - **Moving and deleting.** Drag a box to move it, or nudge it with the arrow keys. Delete asks before removing an object along with everything recorded about it.
+  - **Moving and deleting.** Drag a box to move it, or nudge it with the arrow keys. Delete asks before removing an object along with everything that depends on it. Deleted objects can be restored (see the record panel's Deleted list).
+  - A box with a required entry left blank has a red asterisk at its corner.
   - **Creating boxes.** Double-click the sheet to add a box of any kind there, or of a new kind. The Insert tab does the same at the middle of the view.
   - **Relating two boxes.** Drag from a box's edge handle to another box.
     - A moving dashed line joins the two boxes. The rest of the chart fades and takes no input until Done or Esc.
@@ -36,6 +37,13 @@ Open these directly in a browser. The chart and the record panel share their cod
   - A choice moves on to an option box listing the outputs of its parameterization, and afterwards shows its option with a dropdown chevron.
   - A field moves on to a value box that detects the datatype.
   - Entries can be dragged by their handles (or moved with Alt+Up and Alt+Down) among their siblings, with Name kept first. The order is shared by every location with the same specification.
+  - An entry can move up a level, from its location to that location's own location, from its edit form or with Alt+Left on its handle. What depends on it moves with it.
+  - **Required entries.**
+    - An entry's edit form can make it required at every location like this one.
+    - Wherever a required entry is blank, it shows as a row with an asterisk that can be filled in where it stands. A collapsed row with something blank below it shows an asterisk too.
+    - Leaving an object with something required still blank asks first. Moving between that object's own records doesn't count as leaving.
+  - **Deleting.** Deleting hides rather than destroys. The record goes to Deleted, at the end of the All list, along with everything that depends on it, and can be restored from there. If others depend on it, the panel asks first.
+  - Entry order, styles and required flags are kept by specification, and follow the records when an edit changes specifications (a relabeled edge, or a move up a level).
   - Each change is checked against the state and schema conditions in [data-model.md](../data-model.md), matching labels and options without regard to case.
   - A choice's option has a dropdown wherever it appears, including the header path and the title.
   - Relations show at each of their locations:
@@ -54,7 +62,7 @@ The chart and record panel mockups share the code in [mockups/app/](mockups/app/
 | File | What it does |
 | ---- | ------------ |
 | `common.js` | Text helpers, icons, checkboxes, and the theme preference |
-| `model.js` | The sample data; the state (records, entry order, styles, box positions) with undo and redo; reading the state; checking it against [data-model.md](../data-model.md) |
+| `model.js` | The sample data; the state (records, entry order, styles, box positions, required entries, deleted records) with undo and redo; reading the state; checking it against [data-model.md](../data-model.md) |
 | `styles.js` | Styles: presets, the sample styles, and how styles combine into a box's or line's look |
 | `panel.js` | The record panel |
 | `relate.js` | The Relate view, for relating two things |
