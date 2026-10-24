@@ -1510,14 +1510,42 @@ function check(text) {
 // entry, as Excel renames a table column in its formulas.
 function renameName(text, from, to) {
   const s = String(text ?? '');
+  const start = /^\s*(=|←|<-)?/.exec(s)[0].length;
   const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(to) && !KEYWORDS.has(to.toUpperCase());
+  let toks;
+  try { toks = tokenize(s.slice(start)); } catch { return s; }
   let out = '', last = 0;
-  for (const t of tokenize(s)) {
+  for (const t of toks) {
     if (t.k !== 'name' || !same(t.v, from)) continue;
-    out += s.slice(last, t.pos) + (bare ? to : `[${to}]`);
-    last = t.end;
+    out += s.slice(last, start + t.pos) + (bare ? to : `[${to}]`);
+    last = start + t.end;
   }
   return out + s.slice(last);
+}
+
+// Carries a relabeled edge or entry through the definitions and the pilot names: their formulas, an
+// entry definition's name, a relation's edges and list keys, and any locations written out. Definitions'
+// `covers` are parameterization keys, which model.js's rekey() moves as it moves styles. Returns new copies.
+function relabel(definitions, names, from, to) {
+  const swap = s => same(s, from) ? to : s;
+  const inLocation = text => String(text).split(/\s*›\s*/).map((seg, i) => {
+    if (!i) return seg;
+    const m = /^(not\s+)?(.+?)(:\s*.+)?$/i.exec(seg);
+    return `${m[1] ?? ''}${swap(m[2])}${m[3] ?? ''}`;
+  }).join(' › ');
+  const defs = definitions.map(d => ({
+    ...d,
+    name: d.args || d.covers && paramsOf(d.covers[0] ?? '[]').length > 1 ? d.name : swap(d.name),
+    ...(d.formula !== undefined && { formula: renameName(d.formula, from, to) }),
+    ...(d.implications && { implications: d.implications.map(i => ({ ...i, formula: renameName(i.formula, from, to) })) }),
+    ...(d.at && { at: d.at.map(inLocation) }),
+    ...(d.args && { args: d.args.map(a => ({ edge: swap(a.edge), at: a.at.map(inLocation) })) }),
+  }));
+  const rels = (names?.relations ?? []).map(r => ({
+    ...r, edges: r.edges.map(swap),
+    lists: Object.fromEntries(Object.entries(r.lists ?? {}).map(([k, v]) => [swap(k), Object.fromEntries(Object.entries(v).map(([k2, n]) => [swap(k2), n]))])),
+  }));
+  return { definitions: defs, names: { ...names, relations: rels } };
 }
 
 // Names that could go at the cursor, for autocomplete: after a dot, the names on what's before it, worked
@@ -1566,7 +1594,7 @@ function formatValue(computed, v, { percent = false } = {}) {
 }
 
 return {
-  computeState, evaluateAt, check, suggest, renameName, formatValue,
+  computeState, evaluateAt, check, suggest, renameName, relabel, formatValue,
   coversOf, locationKey, parameterizationKey, computedId, splitFormula, tidyArrow, argKey,
   place: (computed, id) => placeOf(computed.state, id), nameOf: (computed, id) => nameOf(computed.state, id),
   isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),

@@ -381,6 +381,14 @@ function selftest() {
   check('IN and array constants', at('= "a" IN {"A", "b"}') === true);
   check('A dot on a list maps over it', Formulas.formatValue(R, at('= Owners.Percentage'), { percent: true }) === '71.6%; 28.4%');
   check('renameName relabels a name', Formulas.renameName('= SUM(Owners.Percentage) > [Percentage]', 'Percentage', 'Voting Percentage') === '= SUM(Owners.[Voting Percentage]) > [Voting Percentage]');
+  const moved = Formulas.relabel(LAB_DEFINITIONS, LAB_NAMES, 'Owned', 'Held');
+  check('relabel carries an edge rename through names and formulas', moved.names.relations[0].edges[1] === 'Held' && moved.names.relations[0].lists.Held.Owner === 'Owners');
+  const R5 = Formulas.computeState(Object.fromEntries(Object.entries(enteredRecords({ extras: true, overrides: {} }))
+    .map(([k, r]) => [k, r.args ? { ...r, args: r.args.map(a => same(a.edge, 'Owned') ? { ...a, edge: 'Held' } : a) } : r])), moved.definitions, moved.names);
+  check('After the rename, Control works out the same', Object.keys(R5.computed).filter(id => R5.computed[id].def === 'control').length === Object.keys(R.computed).filter(id => R.computed[id].def === 'control').length);
+  const withoutGP = '= WITHOUT(@.[Entity Type].[General Partners], REACH(@, Controllers))';
+  check('WITHOUT works in the scratch box: without the GP, only the feeder controls the fund', Formulas.formatValue(R, at(withoutGP)) === 'Calder Ridge Capital Partners III (Cayman), L.P.', Formulas.formatValue(R, at(withoutGP)));
+  check('suggest offers arguments and functions on their own', ['Controller', 'REACH'].every(n => Formulas.suggest(R, 'control', '← ').some(s => s.name === n)));
   check('suggest offers names after a dot', Formulas.suggest(R, 'control', '← Controlled.Ow').some(s => s.name === 'Owners'), JSON.stringify(Formulas.suggest(R, 'control', '← Controlled.Ow')));
 
   const failed = out.filter(x => !x.ok).length;
@@ -394,6 +402,7 @@ applyTheme();
 if (location.hash === '#selftest') selftest();
 else {
   loadLab();
+  if (location.hash.startsWith('#def=')) selected = decodeURIComponent(location.hash.slice(5));
   recompute();
   render();
 }

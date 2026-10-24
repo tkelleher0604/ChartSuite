@@ -37,7 +37,7 @@ textarea.lab-formula { height: auto; min-height: 38px; padding: 6px 8px; resize:
 .lab-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .lab-table th { padding: 4px 8px; border-bottom: 1px solid var(--border); color: var(--text-3); font-weight: 500; text-align: left; }
 .lab-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.lab-out { white-space: nowrap; }
+.lab-out, .lab-table td:last-child { white-space: nowrap; }
 .lab-why { color: var(--text-2); }
 .lab-bad { color: var(--danger); font-weight: 500; }
 .lab-scratch-out { margin: 0; font: 12.5px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text); overflow-wrap: anywhere; }
