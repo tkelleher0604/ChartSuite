@@ -485,7 +485,9 @@ Where the prototype differs from this document:
 - **Loops are found per definition, not per record.** A group of definitions that read each other and mix `=` and `←` is marked circular as a whole, even where no record actually depends on itself.
 - **Renames.**
   - What a formula covers follows renames and moves, as styles do.
-  - A formula's text is relabeled only when the panel renames an entry, and only once no record keeps the old label, since renames are per record.
+  - Renaming an entry, or a relation's edge, offers "here only" or "every one like it", defaulting to every one.
+  - Every one relabels all the entered records like it, together with the formulas and names that use the label, in one undoable step.
+  - "Like" ignores the kinds a relation relates and the options above an entry, so renaming one ownership's Percentage reaches all twelve.
 
 ## Open questions
 
@@ -512,13 +514,15 @@ Where the prototype differs from this document:
 
 11. **Rows for relations located below an object.** The BDC's Close Affiliates sit under its Investment Company Status, where the relation is located, not with the BDC's other rows. Should a panel also show them at the object?
 12. **Computed rows.** These now start collapsed. Should each row's collapsed state be remembered instead, or should there be one "Show computed" switch?
+13. **What a rename reaches.** Renaming "every one like it" ignores kinds and options above the entry. Is that right? It means renaming one entity's Tax Classification would reach every Entity Type's.
+14. **Here-only renames of an edge.** These make the record a different relation, which drops out of its name, its formulas and its styles. Is that ever useful, or should an edge rename always reach every relation like it?
 
 ### Views and workbooks
 
-13. **Views.** The prototype makes these choices; are they right?
+15. **Views.** The prototype makes these choices; are they right?
     - Box positions belong to each view, so moving a box in 40 Act leaves Structure alone.
     - A new view ("+") starts as a copy of the current one. It could instead start from the Structure view's styles, with nothing hidden.
     - Delete asks whether to delete everywhere or hide in this view.
     - Should a view be able to show or hide by formula, for example only the close affiliates of a given fund? In the 40 Act view, most of the chart is a close affiliate of the BDC.
     - Should Show and Hide also work on boxes by kind, and on a box's lines of text by entry?
-14. **Workbooks.** Charts in the prototype reuse formulas by copying them. Should a workbook instead have a library of definitions (Affiliated Person, Close Affiliate) that its charts follow, so a fix to one reaches them all?
+16. **Workbooks.** Charts in the prototype reuse formulas by copying them. Should a workbook instead have a library of definitions (Affiliated Person, Close Affiliate) that its charts follow, so a fix to one reaches them all?
