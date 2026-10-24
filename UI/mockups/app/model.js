@@ -832,9 +832,11 @@ function keepPlace(at, oldLabel, newLabel) {
 }
 
 // Saves a field's value typed in place. Its datatype is the one other fields with its parameterization
-// have, or else a guess from the value. Returns why it couldn't be saved, if it couldn't.
+// have, or else a guess from the value. Returns why it couldn't be saved, if it couldn't. A computed value
+// left as it was shown isn't an override: a computed number is a number, not the text it shows as.
 function saveFieldValue(id, raw, label = labelOf(records[id])) {
   const r = records[id];
+  if (isComputed(id) && clean(raw) === displayValue(r)) return null;
   const p = parameterization(records, id);
   const fixed = Object.keys(records).find(k => k !== id && isField(records[k]) && parameterization(records, k) === p);
   const datatype = fixed ? records[fixed].field : isObjectName(id) ? 'text' : classify(clean(raw));

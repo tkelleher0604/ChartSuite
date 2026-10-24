@@ -29,6 +29,10 @@ function nudgeEntry(id, step) {
   ui.focusGrip = id;
 }
 
+// Whether an entry built from the form shows the same output as a record: a field's value as shown (a
+// computed number is a number, not the text it shows as), a choice's option, or a tag's Boolean.
+const sameOutput = (r, e) => isField(r) ? displayValue(r) === displayValue(e) : isChoice(r) ? same(r.choice, e.choice) : r.tag === e.tag;
+
 // Builds the entry's own properties from the form, or returns a message saying what's missing.
 // A label or option that matches an existing one, ignoring case, takes the existing one's capitalization.
 function buildEntry(f) {
@@ -85,6 +89,8 @@ function saveForm() {
   if (isFormulaText(f.type === 'tag' ? f.formula : f.output)) return saveFormulaFromForm(f);
   const entry = buildEntry(f);
   if (typeof entry === 'string') return entry;
+  // A computed record saved as it was shown isn't an override.
+  if (f.id && isComputed(f.id) && same(records[f.id].edge, entry.edge) && sameOutput(records[f.id], entry)) return null;
   const oldLabel = f.id && records[f.id].edge;
   const next = { ...records, [f.id ?? newId()]: { at: f.at, ...entry } };
   // A relabeled entry relabels the formulas and names that mention it, once nothing has the old label.
