@@ -203,6 +203,72 @@ const SAMPLE_LAYOUT = {
   bdc:       { x: 1320, y: 350, w: 220 },
 };
 
+// The pilot's names for relations as a whole, and for their lists of relatives seen from each side
+// (formulas.md, "Names for relations and lists"). A list without a name goes by the edge label it lists.
+const SAMPLE_NAMES = { relations: [
+  { name: 'Ownership', type: 'tag', edges: ['Owner', 'Owned'], lists: { Owned: { Owner: 'Owners' }, Owner: { Owned: 'Holdings' } } },
+  { name: 'General Partner', type: 'tag', edges: ['GP', 'Fund Owned'], lists: { 'Fund Owned': { GP: 'General Partners' }, GP: { 'Fund Owned': 'Funds' } } },
+  { name: 'Membership', type: 'choice', edges: ['Member', 'LLC'], lists: { LLC: { Member: 'Members' }, Member: { LLC: 'LLCs' } } },
+  { name: 'Signing Authority', type: 'tag', edges: ['Signatory', 'Via', 'On Behalf Of'], lists: {} },
+  { name: 'Position', type: 'choice', edges: ['Holder', 'Company'], lists: { Company: { Holder: 'Personnel' }, Holder: { Company: 'Positions' } } },
+  { name: 'Investment Adviser', type: 'tag', edges: ['Adviser', 'Client'], lists: { Client: { Adviser: 'Advisers' }, Adviser: { Client: 'Clients' } } },
+  { name: 'Look-Through Ownership', type: 'field', edges: ['Investor', 'Investment'],
+    lists: { Investment: { Investor: 'Look-Through Investors' }, Investor: { Investment: 'Look-Through Investments' } } },
+  { name: 'Control', type: 'tag', edges: ['Controller', 'Controlled'], lists: { Controlled: { Controller: 'Controllers' }, Controller: { Controlled: 'Controlled Companies' } } },
+  { name: 'Affiliated Person', type: 'tag', edges: ['Affiliate', 'Person'], lists: { Person: { Affiliate: 'Affiliates' }, Affiliate: { Person: 'Affiliated With' } } },
+  { name: 'Close Affiliate', type: 'tag', edges: ['Close Affiliate', 'BDC'], lists: { BDC: { 'Close Affiliate': 'Close Affiliates' }, 'Close Affiliate': { BDC: 'Close Affiliate Of' } } },
+  { name: 'Remote Affiliate', type: 'tag', edges: ['Remote Affiliate', 'BDC'], lists: { BDC: { 'Remote Affiliate': 'Remote Affiliates' }, 'Remote Affiliate': { BDC: 'Remote Affiliate Of' } } },
+] };
+
+// The sample's formulas: formulas.md's examples, and two tags implied by an entity's Investment Company Status.
+// Locations are written as paths from a kind (see formulas.js). A person, for the 40 Act, is an Entity or an Individual.
+const PERSON_KINDS = ['Entity', 'Individual'];
+const BDC_STATUS = 'Entity › Investment Company Status: Business Development Company';
+const SAMPLE_DEFINITIONS = [
+  { id: 'def_private_fund', name: 'Private Fund', type: 'tag', at: ['Entity'], implications: [
+    { label: '3(c)(1) or 3(c)(7)', formula: '← [Investment Company Status] IN {"3(c)(1) Fund", "3(c)(7) Fund"}' }] },
+  { id: 'def_investment_company', name: 'Investment Company', type: 'tag', at: ['Entity'], implications: [
+    { label: 'BDC', formula: '← [Investment Company Status] = "Business Development Company"' }] },
+  { id: 'def_adds_up', name: 'Ownership Adds Up', type: 'tag', at: ['Entity', 'Individual', 'Investor Group'],
+    formula: '= IF(COUNT(Owners) = 0, BLANK(), SUM(Owners.Percentage) = 100%)' },
+  { id: 'def_tax', name: 'Tax Classification', type: 'choice',
+    at: ['Entity › Entity Type: Limited Partnership', 'Entity › Entity Type: Limited Liability Company', 'Entity › Entity Type: Corporation'],
+    formula: '= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1, "Disregarded Entity", TRUE, "Partnership")' },
+  { id: 'def_look_through', name: 'Look-Through Ownership', type: 'field', datatype: 'number', percent: true,
+    args: [{ edge: 'Investor', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Investment', at: ['Entity'] }],
+    formula: '= LOOKTHROUGH(Investor, Investment, Holdings, Percentage)' },
+  { id: 'def_control', name: 'Control', type: 'tag', args: [{ edge: 'Controller', at: PERSON_KINDS }, { edge: 'Controlled', at: ['Entity'] }],
+    implications: [
+      { label: 'More than 25%', formula: '← SUM(FILTER(Controlled.Owners, @ = Controller OR @ IN REACH(Controller, [Controlled Companies])).Percentage) > 25%' },
+      { label: 'General partner', formula: '← Controller IN Controlled.[General Partners]' },
+      { label: 'Managing member', formula: '← Controller IN FILTER(Controlled.Members, @.Membership = "Managing Member")' },
+    ] },
+  { id: 'def_affiliated', name: 'Affiliated Person', type: 'tag', args: [{ edge: 'Affiliate', at: PERSON_KINDS }, { edge: 'Person', at: PERSON_KINDS }],
+    implications: [
+      { label: '(A)', formula: '← SUM(FILTER(Person.Owners, @ = Affiliate OR @ IN REACH(Affiliate, [Controlled Companies])).Percentage) >= 5%' },
+      { label: '(B)', formula: '← IMPLIEDBY([Affiliated Person](Person, Affiliate), "(A)")' },
+      { label: '(C)', formula: '← Affiliate IN REACH(Person, Controllers) OR Affiliate IN REACH(Person, [Controlled Companies]) OR ANY(REACH(Person, Controllers), Affiliate IN REACH(@, [Controlled Companies]))' },
+      { label: '(D)', formula: '← Affiliate IN FILTER(Person.Personnel, @.Position <> "Advisory Board Member") OR Affiliate IN Person.[General Partners]' },
+      { label: '(E)', formula: '← Person.[Investment Company] AND (Affiliate IN Person.Advisers OR Affiliate IN FILTER(Person.Personnel, @.Position = "Advisory Board Member"))' },
+    ] },
+  { id: 'def_close', name: 'Close Affiliate', type: 'tag', args: [{ edge: 'Close Affiliate', at: PERSON_KINDS }, { edge: 'BDC', at: [BDC_STATUS] }],
+    implications: [
+      { label: '(b)(1)', formula: '← [Close Affiliate] IN BDC.Personnel' },
+      { label: '(b)(1) affiliates', formula: '← ANY(BDC.Personnel, IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)"))' },
+      { label: '(b)(2)', formula: '← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[General Partners]' },
+      { label: '(b)(2)', formula: '← [Close Affiliate] IN REACH(BDC, Controllers)' },
+      { label: '(b)(2)', formula: '← ANY(REACH(BDC, Controllers), WITHOUT(BDC, [Close Affiliate] IN REACH(@, [Controlled Companies])))' },
+      { label: '(b)(2) affiliates', formula: '← ANY(BDC.[Close Affiliates], IMPLIEDBY([Close Affiliate](@, BDC), "(b)(2)") AND IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)", "(D)"))' },
+    ] },
+  { id: 'def_remote', name: 'Remote Affiliate', type: 'tag', args: [{ edge: 'Remote Affiliate', at: PERSON_KINDS }, { edge: 'BDC', at: [BDC_STATUS] }],
+    implications: [
+      { label: '(e)(1)(A)', formula: '← IMPLIEDBY([Affiliated Person]([Remote Affiliate], BDC), "(A)") AND NOT [Close Affiliate]([Remote Affiliate], BDC)' },
+      { label: '(e)(1)(C)', formula: '← ANY(FILTER(BDC.Affiliates, IMPLIEDBY([Affiliated Person](@, BDC), "(A)")), IMPLIEDBY([Affiliated Person]([Remote Affiliate], @), "(C)")) AND NOT [Close Affiliate]([Remote Affiliate], BDC)' },
+    ] },
+  { id: 'def_3c1', name: '3(c)(1) Count', type: 'field', datatype: 'number', at: ['Entity'],
+    formula: '= IF([Private Fund], SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1))), BLANK())' },
+];
+
 const STORAGE_KEY = 'rboreal.state.v8';
 
 // The state is the records plus what goes with them:
@@ -222,7 +288,7 @@ const undoStack = [];
 const redoStack = [];
 
 function setState(s) {
-  ({ records: entered, definitions = [], names = {}, order = {}, views = null, viewId = null, required = {}, archive = [] } = s);
+  ({ records: entered, definitions = [], names = { relations: [] }, order = {}, views = null, viewId = null, required = {}, archive = [] } = s);
   recompute();
   // A state saved before there were views has one set of styles and box positions.
   if (!views) views = [{ id: 'view_main', name: 'Structure', styles: s.styles ?? null, layout: s.layout ?? {} }];
@@ -245,8 +311,8 @@ function initState() {
 function sampleState() {
   const recs = structuredClone(SAMPLE);
   return {
-    records: recs, order: {}, archive: [],
-    views: [{ id: 'view_main', name: 'Structure', styles: defaultStyles(recs), layout: structuredClone(SAMPLE_LAYOUT) }],
+    records: recs, order: {}, archive: [], definitions: structuredClone(SAMPLE_DEFINITIONS), names: structuredClone(SAMPLE_NAMES),
+    views: sampleViews(recs).map(v => ({ ...v, layout: structuredClone(SAMPLE_LAYOUT) })),
     required: { [parameterization(recs, 'fund_formed')]: { label: 'Formation Date', type: 'field', datatype: 'date' } },
   };
 }
@@ -311,6 +377,51 @@ function enteredPart(next) {
     else if (r !== records[id]) out[id] = modelPart(r);
   }
   return out;
+}
+
+// ---- Editing formulas ----
+
+const definitionOf = id => definitions.find(d => d.id === id);
+
+// What the formulas say about a record, or null: for a computed record, { def, labels, reads } (its
+// definition, the implications that held and what each read); for an entered record that a formula also
+// covers, { def, mark, formula, labels }, where mark is 'agrees', 'differs', 'also implied' or 'overrides'.
+const formulaInfo = id => formulaResult.computed?.[id] ?? formulaResult.covered?.[id] ?? null;
+
+// Errors the formulas ran into: a definition's own (it doesn't parse, say), and its records'.
+const definitionError = defId => formulaResult.defErrors?.[defId] ?? null;
+const recordErrors = defId => (formulaResult.errors ?? []).filter(e => e.def === defId);
+
+// Every change to the formulas or the names they use goes through here, as one undoable step.
+function changeFormulas(nextDefinitions, nextNames = names) {
+  const result = Formulas.computeState(entered, nextDefinitions, nextNames);
+  const error = validate(result.records);
+  if (error) return error;
+  pushUndo();
+  definitions = nextDefinitions;
+  names = nextNames;
+  setComputed(result);
+  saveState();
+  return null;
+}
+
+// Adds a definition, or replaces the one with its id. Returns why it couldn't, if it couldn't.
+const saveDefinition = def => changeFormulas(definitionOf(def.id)
+  ? definitions.map(d => d.id === def.id ? def : d) : [...definitions, def]);
+const deleteDefinition = id => changeFormulas(definitions.filter(d => d.id !== id));
+const saveNames = next => changeFormulas(definitions, next);
+
+// Drops an entered record that a formula covers, so the formula's output stands there again.
+function useFormula(id) {
+  const { [id]: _, ...rest } = entered;
+  return commit(rest);
+}
+
+// Records a computed record's output by hand, like Excel's Paste Values. It keeps its id.
+function keepAsEntered(id) {
+  const r = modelPart(records[id]);
+  if (typeof r.value === 'number') r.value = displayValue(records[id]);
+  return commit({ ...records, [id]: r });
 }
 
 // ---- Views ----
@@ -425,7 +536,13 @@ function parseValue(datatype, raw) {
   if (datatype === 'number') return isNumber(s) ? s : undefined;
   return s;
 }
-const displayValue = r => r.field === 'date' ? formatDate(r.value) : r.value;
+// A computed number is a number rather than text as typed, shown as a percentage if its definition says so.
+const displayValue = r => r.field === 'date' ? formatDate(r.value)
+  : typeof r.value === 'number' ? formatNumber(r.value, definitions.find(d => d.id === r.computed)?.percent) : r.value;
+function formatNumber(n, percent) {
+  const digits = v => v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return percent ? `${digits(n * 100)}%` : digits(n);
+}
 
 // ---- Reading the state ----
 

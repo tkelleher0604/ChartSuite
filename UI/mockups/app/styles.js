@@ -76,6 +76,22 @@ function defaultStyles(recs) {
   ];
 }
 
+// The sample's views: the structure chart, and a 40 Act view of the same records that hides ownership
+// and the GP's line, and draws the BDC's close and remote affiliates, which formulas work out.
+function sampleViews(recs) {
+  const structure = defaultStyles(recs);
+  const hidden = ['st_own_entities', 'st_own_individuals', 'st_own_investors', 'st_pct_entities', 'st_pct_individuals', 'st_pct_investors', 'st_gp_lp'];
+  const hide = s => ({ ...s, map: Object.fromEntries(Object.entries(s.map).map(([k, v]) => [k, { ...v, show: false }])) });
+  const lines = (defId, look) => Formulas.coversOf(SAMPLE_DEFINITIONS.find(d => d.id === defId))
+    .map(param => ({ id: newId(), param, map: { true: look } }));
+  const fortyAct = [
+    ...structure.map(s => hidden.includes(s.id) ? hide(s) : s),
+    ...lines('def_close', { show: true, format: 'none', stroke: '#2b59c3', strokeWidth: 1.5 }),
+    ...lines('def_remote', { show: true, format: 'none', stroke: '#c2710c', dash: 'dashed' }),
+  ];
+  return [{ id: 'view_main', name: 'Structure', styles: structure }, { id: 'view_40act', name: '40 Act', styles: fortyAct }];
+}
+
 const styleById = id => styles.find(s => s.id === id);
 const styleOfParam = param => styles.find(s => s.param === param);
 const styleOf = id => styleOfParam(parameterization(records, id));
@@ -198,11 +214,12 @@ function boxLook(obj) {
 // A two-argument relation's line, and its label. The label is the relation's own text, unless its style
 // says No label, followed by the text of each record located at it whose style shows it, such as an
 // ownership's Percentage. Like text in a box, each part takes the line's text properties unless its own
-// style sets them.
+// style sets them. A computed relation is drawn only where a style shows it, since formulas can relate
+// nearly everything to everything (every affiliate of every entity, say).
 function lineLook(id) {
   const r = records[id];
   const style = styleOf(id);
-  const look = { ...LINE_DEFAULTS, ...(style?.map[outputKey(r)] ?? {}) };
+  const look = { ...LINE_DEFAULTS, ...(isComputed(id) ? { show: false } : {}), ...(style?.map[outputKey(r)] ?? {}) };
   const own = look.format === 'none' ? ''
     : look.format === 'label' || isTag(r) ? r.args[0].edge
     : isField(r) ? displayValue(r) : r.choice;

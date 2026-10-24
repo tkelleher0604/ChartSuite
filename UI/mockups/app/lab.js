@@ -111,7 +111,7 @@ function saveLab() {
   try { localStorage.setItem(LAB_KEY, JSON.stringify(lab)); } catch {}
 }
 
-function recompute() {
+function labRecompute() {
   result = Formulas.computeState(enteredRecords(lab), lab.defs, LAB_NAMES);
 }
 
@@ -220,7 +220,7 @@ const scratchOut = v => Formulas.isError(v) ? `<span class="lab-bad">${esc(v.cod
 let timer = null;
 function later() {
   clearTimeout(timer);
-  timer = setTimeout(() => { saveLab(); recompute(); renderDefs(); renderResults(); renderScratch(); }, 150);
+  timer = setTimeout(() => { saveLab(); labRecompute(); renderDefs(); renderResults(); renderScratch(); }, 150);
 }
 
 document.addEventListener('input', e => {
@@ -278,7 +278,7 @@ document.addEventListener('click', e => {
     else if (row) lab.overrides[`lab:${el.dataset.key}`] = { args: row.args, tag: false };
   } else return;
   saveLab();
-  recompute();
+  labRecompute();
   render();
 });
 
@@ -403,6 +403,6 @@ if (location.hash === '#selftest') selftest();
 else {
   loadLab();
   if (location.hash.startsWith('#def=')) selected = decodeURIComponent(location.hash.slice(5));
-  recompute();
+  labRecompute();
   render();
 }

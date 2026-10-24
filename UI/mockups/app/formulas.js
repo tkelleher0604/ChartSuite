@@ -316,15 +316,19 @@ function missing(S, name) {
 
 // The relatives listed under `n` at a location: the other arguments' objects, each remembering the relation
 // record that links it. A ruled-out tag doesn't make a relative. Null if no relation here gives that list.
+// An object also has the lists of relations whose parameter sits below it, the way a relation call fills a
+// parameter through the object's record there: a fund's General Partners, though the relation is located
+// at its Entity Type.
 const listAt = (S, id, n) => remembered(S, `list|${id}|${n}`, () => listHere(S, id, n));
 function listHere(S, id, n) {
   let hit = false;
   const items = [];
-  for (const rid of S.relsAt.get(id) ?? []) {
+  const onObject = isObject(S.recs[id]);
+  for (const rid of (onObject ? S.relsAtObj : S.relsAt).get(id) ?? []) {
     const r = S.recs[rid];
     const rel = relationOf(S, r);
     r.args.forEach((own, i) => {
-      if (own.at !== id) return;
+      if (onObject ? objectOf(S, own.at) !== id : own.at !== id) return;
       r.args.forEach((other, j) => {
         if (i === j || norm(listNameOf(rel, own.edge, other.edge)) !== n) return;
         hit = true;
@@ -1275,7 +1279,11 @@ function settleValues(S, group) {
     else {
       const rel = S.P.reg.byName.get(norm(d.name));
       cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
-        if (i !== j) push(S.lazy.lists, `${own.at}|${norm(listNameOf(rel, own.edge, other.edge))}`, cand.key);
+        if (i === j) return;
+        const list = norm(listNameOf(rel, own.edge, other.edge));
+        push(S.lazy.lists, `${own.at}|${list}`, cand.key);
+        const obj = objectOf(S, own.at);
+        if (obj !== own.at) push(S.lazy.lists, `${obj}|${list}`, cand.key);
       }));
       for (const obj of new Set(cand.args.map(a => objectOf(S, a.at)))) push(S.lazy.rels, `${obj}|${norm(d.name)}`, cand.key);
     }
