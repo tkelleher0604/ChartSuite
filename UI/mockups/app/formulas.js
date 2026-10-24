@@ -63,7 +63,7 @@ function tokenize(src) {
     const rest = src.slice(i);
     if (/^\s/.test(rest)) { i++; continue; }
     if ((m = /^\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?/.exec(rest)) || (m = /^(?:\d+(?:\.\d+)?|\.\d+)%?/.exec(rest))) {
-      toks.push({ k: 'num', v: readNumber(m[0]), pos: i });
+      toks.push({ k: 'num', v: readNumber(m[0]), pct: m[0].endsWith('%'), pos: i });
       i += m[0].length;
     } else if (rest[0] === '"') {
       let j = i + 1, s = '';
@@ -150,7 +150,7 @@ function parseExpression(src) {
   };
   const primary = () => {
     const t = next();
-    if (t.k === 'num' || t.k === 'str') return { k: 'lit', v: t.v };
+    if (t.k === 'num' || t.k === 'str') return { k: 'lit', v: t.v, pct: t.pct };
     if (t.k === 'kw' && (t.v === 'TRUE' || t.v === 'FALSE')) return { k: 'lit', v: t.v === 'TRUE' };
     if (t.k === 'name') return { k: 'name', name: t.v };
     if (t.k === 'op' && t.v === '@') return { k: 'at' };
@@ -1492,6 +1492,149 @@ function computeState(entered, definitions, names) {
     order: P.order.map(g => g.map(d => d.id)), steps: S.steps, ms, state: S };
 }
 
+// ---- Saying why ----
+// Why a record is there, in a few words for each implication that holds: the comparison that decided it,
+// the item ANY found, the clause IMPLIEDBY cited. That's shorter than everything the formula read, which
+// for REACH can be most of the chart.
+
+// A formula rebuilt from its parts, for quoting.
+function unparse(n) {
+  const nm = s => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : `[${s}]`;
+  const wrap = (x, inside) => x.k === 'or' && inside === 'and' ? `(${unparse(x)})` : unparse(x);
+  switch (n.k) {
+    case 'lit': return typeof n.v === 'string' ? `"${n.v}"` : typeof n.v === 'boolean' ? (n.v ? 'TRUE' : 'FALSE')
+      : n.pct ? `${tidyNumber(n.v * 100)}%` : String(tidyNumber(n.v));
+    case 'arr': return `{${n.items.map(unparse).join(', ')}}`;
+    case 'at': return '@';
+    case 'name': return nm(n.name);
+    case 'dot': return `${unparse(n.x)}.${nm(n.name)}`;
+    case 'call': return `${nm(n.name)}(${n.args.map(a => (a.label ? `${nm(a.label)}: ` : '') + unparse(a.x)).join(', ')})`;
+    case 'neg': return `${n.op}${unparse(n.x)}`;
+    case 'not': return `NOT ${unparse(n.x)}`;
+    case 'and': return `${wrap(n.a, 'and')} AND ${wrap(n.b, 'and')}`;
+    case 'or': return `${unparse(n.a)} OR ${unparse(n.b)}`;
+    case 'cmp': case 'bin': return `${unparse(n.a)} ${n.op} ${unparse(n.b)}`;
+    case 'in': return `${unparse(n.a)} IN ${unparse(n.b)}`;
+  }
+  return '';
+}
+
+// A value as an explanation shows it: an object by its name, a number as a percentage where the formula
+// wrote its other side as one.
+function shown(S, v, pct) {
+  v = scalar(S, v);
+  if (isErr(v)) return v.code;
+  if (typeof v === 'number') return pct ? `${tidyNumber(v * 100)}%` : String(tidyNumber(v));
+  return describe(S, v);
+}
+
+// An expression read as words where it names things: the relation's arguments and @ by name, and a dot as
+// a possessive, so Controlled.[General Partners] reads "Calder Ridge Capital Partners III, L.P.’s General Partners".
+function phrase(n, c) {
+  const S = c.S;
+  if (n.k === 'at') return c.at ? describe(S, c.at) : '@';
+  if (n.k === 'name') {
+    const id = c.self.args?.get(norm(n.name));
+    return id ? nameOf(S, id) : unparse(n);
+  }
+  if (n.k === 'dot') return `${phrase(n.x, c)}’s ${n.name}`;
+  if (n.k === 'call' && n.name.toUpperCase() === 'REACH' && n.args.length === 2)
+    return `${phrase(n.args[0].x, c)}’s ${unparse(n.args[1].x).replace(/^\[|\]$/g, '')}, directly or indirectly`;
+  if (n.k === 'call' && n.name.toUpperCase() === 'FILTER' && n.args.length === 2)
+    return `${phrase(n.args[0].x, c)} with ${unparse(n.args[1].x).replace(/@\./g, '')}`;
+  if (n.k === 'call' && S.P.reg.byName.has(norm(n.name)))
+    return `${n.name}: ${n.args.map(a => phrase(a.x, c)).join(' → ')}`;
+  return unparse(n);
+}
+
+// Whether an expression names one of the relation's arguments, which as a value is just its name.
+const isArgument = (n, c) => n.k === 'name' && !!c.self.args?.has(norm(n.name));
+
+// Why a condition holds, in context c. It's only asked of conditions that do hold.
+function why(n, c) {
+  const S = c.S;
+  const holds = x => truth(S, ev(x, c)) === true;
+  switch (n.k) {
+    case 'or': return holds(n.a) ? why(n.a, c) : why(n.b, c);
+    case 'and': return `${why(n.a, c)}; ${why(n.b, c)}`;
+    case 'not': return n.x.k === 'call' && S.P.reg.byName.has(norm(n.x.name))
+      ? `${phrase(n.x, c)} isn’t attested` : `not ${unparse(n.x)}`;
+    case 'in': {
+      const value = shown(S, ev(n.a, c));
+      const subject = (n.a.k === 'name' || n.a.k === 'dot') && !isArgument(n.a, c) ? `${phrase(n.a, c)} ` : '';
+      return `${subject}${value} is among ${phrase(n.b, c)}`;
+    }
+    case 'cmp': {
+      const pct = !!(n.a.pct || n.b.pct);
+      const [x, lit] = n.b.k === 'lit' ? [n.a, n.b] : n.a.k === 'lit' ? [n.b, n.a] : [null, null];
+      if (!x) return `${shown(S, ev(n.a, c), pct)} ${n.op} ${shown(S, ev(n.b, c), pct)}`;
+      const value = shown(S, ev(x, c), pct);
+      const subject = x.k === 'dot' || x.k === 'name' || x.k === 'at' ? `${phrase(x, c)} is ` : '';
+      if (n.op === '=' && subject) return `${subject}${value}`;
+      return subject ? `${subject}${value}, ${n.op} ${unparse(lit)}` : `${value} ${n.op} ${unparse(lit)}`;
+    }
+    case 'call': {
+      const f = n.name.toUpperCase(), a = n.args;
+      if (f === 'ANY' && a.length === 2) {
+        for (const item of toList(ev(a[0].x, c))) {
+          const ci = { ...c, at: item };
+          if (truth(S, ev(a[1].x, ci)) === true) return `through ${describe(S, item)}: ${why(a[1].x, ci)}`;
+        }
+        return unparse(n);
+      }
+      if (f === 'WITHOUT' && a.length === 2) {
+        const x = asRec(S, ev(a[0].x, c));
+        if (!x?.id) return why(a[1].x, c);
+        return `leaving out ${nameOf(S, x.id)}, ${why(a[1].x, { ...c, S: counterfactual(S, x.id, c.def) })}`;
+      }
+      if (f === 'IMPLIEDBY' && a.length >= 2) {
+        const v = asRec(S, ev(a[0].x, c));
+        const r = v?.id ? S.recs[v.id] : null;
+        const held = S.prov.get(argKey(argsOf(r))) ?? new Set();
+        const labels = a.slice(1).map(x => toText(S, ev(x.x, c))).filter(l => typeof l === 'string' && held.has(norm(l)));
+        return `${relationText(S, a[0].x, r)} by ${labels.join(', ')}`;
+      }
+      if (S.P.reg.byName.has(norm(n.name))) {
+        const v = asRec(S, ev(n, c));
+        return `${relationText(S, n, v?.id ? S.recs[v.id] : null)} is attested`;
+      }
+      return unparse(n);
+    }
+  }
+  return phrase(n, c);
+}
+
+// A relation record as words: its name, then its arguments' objects in order.
+function relationText(S, callNode, r) {
+  const name = callNode.k === 'call' ? callNode.name : 'Relation';
+  return r?.args ? `${name}: ${r.args.map(x => nameOf(S, objectOf(S, x.at))).join(' → ')}` : name;
+}
+
+function safeWhy(n, c) {
+  try { return why(n, c); } catch { return null; }
+}
+
+// For a computed record, or an entered one a formula covers: [{ label, text }], one for each implication
+// that holds there, or for a value formula the branch of an IF or IFS that gave its output.
+function explain(computed, id) {
+  const S = computed.state;
+  const r = S.recs[id];
+  const defId = r?.computed ?? computed.covered?.[id]?.def;
+  const d = defId && S.P.defs.find(x => x.id === defId);
+  if (!d || d.error) return [];
+  const c = contextFor(S, d, d.isRelation ? { args: r.args } : { at: r.at });
+  if (d.imps) return d.imps.filter(imp => truth(S, safeEv(imp.ast, c)) === true)
+    .map(imp => ({ label: imp.label, text: safeWhy(imp.ast, c) }));
+  const top = d.ast;
+  if (top?.k === 'call' && ['IF', 'IFS'].includes(top.name.toUpperCase())) {
+    const conds = top.name.toUpperCase() === 'IF' ? [top.args[0]] : top.args.filter((_, i) => i % 2 === 0);
+    const hit = conds.find(x => truth(S, safeEv(x.x, c)) === true);
+    if (hit) return [{ label: null, text: hit.x.k === 'lit' ? 'none of the conditions before it held' : safeWhy(hit.x, c) }];
+    if (!hit && top.name.toUpperCase() === 'IF') return [{ label: null, text: `not ${unparse(top.args[0].x)}` }];
+  }
+  return [];
+}
+
 // Works out an expression at a record, as if it were the formula of an entry located there, or of the
 // given definition at one of its candidates (`at` being the candidate's computed id or argumentation key).
 function evaluateAt(computed, text, at, defId) {
@@ -1603,7 +1746,7 @@ function formatValue(computed, v, { percent = false } = {}) {
 }
 
 return {
-  computeState, evaluateAt, check, suggest, renameName, relabel, formatValue,
+  computeState, evaluateAt, explain, check, suggest, renameName, relabel, formatValue,
   coversOf, locationKey, parameterizationKey, computedId, splitFormula, tidyArrow, argKey,
   place: (computed, id) => placeOf(computed.state, id), nameOf: (computed, id) => nameOf(computed.state, id),
   isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),

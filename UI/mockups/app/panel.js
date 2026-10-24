@@ -1087,14 +1087,20 @@ function whyBlock(id, depth = 0, inHead = false) {
       + (items.length > 5 ? `<span class="why-more"> and ${items.length - 5} more</span>` : '');
   };
   const line = (label, html) => `<div class="why-line"><span class="why-label">${esc(label)}</span><span class="why-reads">${html}</span></div>`;
+  // Why, in words, from formulas.js: what decided each implication, or which branch of an IF gave the output.
+  // Where it can't say, the records the formula read stand in.
+  const explained = new Map();
+  for (const e of Formulas.explain(formulaResult, id)) explained.set(e.label ?? '', [...(explained.get(e.label ?? '') ?? []), e.text].filter(Boolean));
+  const because = label => explained.get(label)?.length ? esc(explained.get(label).join(' · ')) : '';
   let head, lines = '', buttons;
   if (isComputed(id)) {
     if (d.implications) {
       head = `Implied by ${defLink}`;
-      lines = info.labels.map(l => line(l, readList(readsOf(l)) || 'nothing it needed to read')).join('');
+      lines = info.labels.map(l => line(l, because(l) || readList(readsOf(l)) || 'nothing it needed to read')).join('');
     } else {
       head = `Worked out by ${defLink}`;
-      lines = line('Formula', `<code class="why-formula">${esc(d.formula)}</code>`) + (readsOf('').length ? line('Read', readList(readsOf(''))) : '');
+      lines = line('Formula', `<code class="why-formula">${esc(d.formula)}</code>`)
+        + (because('') ? line('Because', because('')) : readsOf('').length ? line('Read', readList(readsOf(''))) : '');
     }
     buttons = `<button class="link-btn" data-action="keep-entered" data-id="${esc(id)}" title="Record this output by hand, so it stays whatever the formula says">Keep as entered</button>`;
   } else {
@@ -1104,7 +1110,8 @@ function whyBlock(id, depth = 0, inHead = false) {
       overrides: `Ruled out here, overriding ${defLink}, which implies it.`,
       'also implied': `Entered here, and also implied by ${defLink}.`,
     }[info.mark] ?? `${defLink} also covers this.`;
-    if (info.labels?.length) lines = line('Implied by', esc(listing(info.labels)));
+    if (info.labels?.length) lines = info.labels.map(l => line(l, because(l) || 'holds here')).join('');
+    else if (because('')) lines = line('Because', because(''));
     const strong = info.mark === 'differs' || info.mark === 'overrides';
     buttons = `<button class="link-btn" data-action="use-formula" data-id="${esc(id)}" title="Drop what’s entered here, so the formula’s output stands">${strong ? 'Use formula' : 'Clear'}</button>`;
   }
