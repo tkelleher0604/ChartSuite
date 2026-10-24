@@ -215,11 +215,13 @@ function boxLook(obj) {
 // says No label, followed by the text of each record located at it whose style shows it, such as an
 // ownership's Percentage. Like text in a box, each part takes the line's text properties unless its own
 // style sets them. A computed relation is drawn only where a style shows it, since formulas can relate
-// nearly everything to everything (every affiliate of every entity, say).
+// nearly everything to everything (every affiliate of every entity, say), and so is a ruled-out tag,
+// which records that two things are not related.
 function lineLook(id) {
   const r = records[id];
   const style = styleOf(id);
-  const look = { ...LINE_DEFAULTS, ...(isComputed(id) ? { show: false } : {}), ...(style?.map[outputKey(r)] ?? {}) };
+  const quiet = isComputed(id) || (isTag(r) && !r.tag);
+  const look = { ...LINE_DEFAULTS, ...(quiet ? { show: false } : {}), ...(style?.map[outputKey(r)] ?? {}) };
   const own = look.format === 'none' ? ''
     : look.format === 'label' || isTag(r) ? r.args[0].edge
     : isField(r) ? displayValue(r) : r.choice;
@@ -284,32 +286,115 @@ function removeStyle(styleId) {
   saveState();
 }
 
-// Gives a new kind, and its Name, the preset styles. Part of the step that created the kind's first object.
-function ensureKindStyles(kind) {
-  const k = norm(kind);
-  const kindStyle = styles.find(isKindStyle);
-  if (!kindStyle) styles = [{ id: newId(), param: '[]', label: 'Kind', where: 'every object', map: { [k]: KIND_PRESET } }, ...styles];
-  else if (!kindStyle.map[k]) styles = styles.map(s => s === kindStyle ? { ...s, map: { ...s.map, [k]: KIND_PRESET } } : s);
-  const nameId = Object.keys(records).find(id => isObjectName(id) && same(records[records[id].at].kind, kind));
-  if (nameId && !styleOf(nameId)) {
-    const param = parameterization(records, nameId);
-    styles = [...styles, { id: newId(), param, ...describeStyle({ param, map: {} }), map: { text: NAME_PRESET } }];
-  }
+// Applies a change to the styles of every view: `change(list, current)` gets each view's styles, and
+// whether that view is the one in use, and returns them changed.
+function forEveryView(change) {
+  styles = change(styles, true);
+  views = views.map(v => v.id === viewId || !v.styles ? v : { ...v, styles: change(v.styles, false) });
 }
 
-// Gives a two-argument relation of a new parameterization a style for its lines. It copies a style for
-// relations with the same edges and output type, if there is one (ownership by a new kind of owner looks
-// like other ownership), and otherwise starts from the preset. Part of the step that added the relation.
+// Gives a new kind, and its Name, the preset styles, in every view, since its boxes show in every view.
+// Part of the step that created the kind's first object.
+function ensureKindStyles(kind) {
+  const k = norm(kind);
+  const nameId = Object.keys(records).find(id => isObjectName(id) && same(records[records[id].at].kind, kind));
+  const param = nameId && parameterization(records, nameId);
+  forEveryView(list => {
+    const kindStyle = list.find(isKindStyle);
+    let out = !kindStyle ? [{ id: newId(), param: '[]', label: 'Kind', where: 'every object', map: { [k]: KIND_PRESET } }, ...list]
+      : kindStyle.map[k] ? list : list.map(s => s === kindStyle ? { ...s, map: { ...s.map, [k]: KIND_PRESET } } : s);
+    if (param && !out.some(s => s.param === param)) out = [...out, { id: newId(), param, ...describeStyle({ param, map: {} }), map: { text: NAME_PRESET } }];
+    return out;
+  });
+}
+
+// Gives a two-argument relation of a new parameterization a style for its lines. In each view it copies a
+// style for relations with the same edges and output type, if the view has one (ownership by a new kind
+// of owner looks like other ownership there, drawn or not), and otherwise starts from the preset: drawn in
+// the view it was added in, and hidden in the others, so relating two boxes in one view doesn't redraw
+// the others. Part of the step that added the relation.
 function ensureRelationStyle(id) {
   const r = records[id];
-  if (!isRelation(r) || r.args.length !== 2 || styleOf(id)) return;
+  if (!isRelation(r) || r.args.length !== 2) return;
   const param = parameterization(records, id);
-  const sibling = styles.find(s => {
+  const like = s => {
     const sid = sampleOf(s.param);
     return sid && sid !== id && isRelation(records[sid]) && typeOf(records[sid]) === typeOf(r) && same(relationLabel(records[sid]), relationLabel(r));
+  };
+  forEveryView((list, current) => {
+    if (list.some(s => s.param === param)) return list;
+    const preset = { ...RELATION_PRESET, ...(current ? {} : { show: false }) };
+    const sibling = list.find(like);
+    const map = sibling ? structuredClone(sibling.map) : { [outputKey(r)]: preset };
+    if (!map[outputKey(r)]) map[outputKey(r)] = preset;
+    return [...list, { id: newId(), param, ...describeStyle({ param, map }), line: true, map }];
   });
-  const map = sibling ? structuredClone(sibling.map) : { [outputKey(r)]: { ...RELATION_PRESET } };
-  if (!map[outputKey(r)]) map[outputKey(r)] = { ...RELATION_PRESET };
-  styles = [...styles, { id: newId(), param, ...describeStyle({ param, map }), line: true, map }];
+  saveState();
+}
+
+// ---- Relations by name, for Show and Hide ----
+
+// The chart's two-argument relations, grouped the way the pilot's relation names group them
+// (formulas.md): one relation for every parameterization with the same edges and output type, whatever
+// kinds it relates. Each has its name, its parameterizations, and whether formulas work it out.
+// Relations with more arguments aren't drawn as lines, so they aren't listed.
+function lineRelations() {
+  const groups = new Map();
+  const edgeKey = edges => edges.map(norm).sort().join('|');
+  const add = (type, edges, param, computed) => {
+    const key = `${type}:${edgeKey(edges)}`;
+    if (!groups.has(key)) {
+      const named = (names.relations ?? []).find(n => n.type === type && edgeKey(n.edges) === edgeKey(edges));
+      groups.set(key, { key, name: named?.name ?? edges.join(' · '), type, edges, params: new Set(), computed: false });
+    }
+    const g = groups.get(key);
+    g.params.add(param);
+    g.computed ||= computed;
+  };
+  for (const [id, r] of Object.entries(records))
+    if (isRelation(r) && r.args.length === 2) add(typeOf(r), r.args.map(a => a.edge), parameterization(records, id), isComputed(id));
+  for (const d of definitions)
+    if (d.args?.length === 2) for (const p of Formulas.coversOf(d)) add(d.type, d.args.map(a => a.edge), p, true);
+  return [...groups.values()].sort((a, b) => a.computed - b.computed || byLabel(a.name, b.name));
+}
+
+// How many of a relation's records this view draws, of how many there are.
+function relationShown(g) {
+  const ids = Object.keys(records).filter(id => isRelation(records[id]) && g.params.has(parameterization(records, id)));
+  const hidden = new Set(hiddenInView());
+  const shown = ids.filter(id => !hidden.has(id) && lineLook(id).show).length;
+  if (ids.length) return { shown, total: ids.length };
+  const on = [...g.params].some(p => Object.values(styleOfParam(p)?.map ?? {}).some(v => v.show));
+  return { shown: on ? 1 : 0, total: 1 };
+}
+
+// Colors a computed relation's lines start with, in turn, so that each reads apart from entered ones.
+const COMPUTED_LINE_COLORS = ['#7c3aed', '#0e7490', '#c2710c', '#2b59c3', '#1f9d55', '#d63b3b'];
+
+// Draws a relation's lines in this view, or stops drawing them, as one undoable step: every
+// parameterization it has, through its style, made from a preset where there's none yet. Text the lines
+// show, like an ownership's Percentage, comes and goes with them. A ruled-out tag stays undrawn.
+function setRelationShown(g, on) {
+  const computedKeys = lineRelations().filter(x => x.computed).map(x => x.key);
+  const color = COMPUTED_LINE_COLORS[Math.max(0, computedKeys.indexOf(g.key)) % COMPUTED_LINE_COLORS.length];
+  const preset = g.computed ? { format: 'none', stroke: color, dash: 'dashed' } : { ...RELATION_PRESET };
+  const datatype = definitions.find(d => d.args?.length === 2 && Formulas.coversOf(d).some(p => g.params.has(p)))?.datatype;
+  pushUndo();
+  for (const param of g.params) {
+    let outputs = styleOutputs({ param, map: {} }).map(([k]) => k);
+    if (!outputs.length) outputs = [g.type === 'tag' ? 'true' : g.type === 'field' ? datatype ?? 'number' : null].filter(Boolean);
+    const s = styleOfParam(param);
+    const map = { ...(s?.map ?? {}) };
+    for (const k of new Set([...Object.keys(map), ...outputs])) {
+      if (k === 'false' && g.type === 'tag' && on) continue;
+      map[k] = { ...(map[k] ?? preset), show: on };
+    }
+    styles = s ? styles.map(x => x === s ? { ...s, map } : x) : [...styles, { id: newId(), param, ...describeStyle({ param, map }), line: true, map }];
+  }
+  styles = styles.map(s => {
+    const sid = sampleOf(s.param);
+    if (!sid || !onRelation(sid) || !g.params.has(parameterization(records, objectOf(sid)))) return s;
+    return { ...s, map: Object.fromEntries(Object.entries(s.map).map(([k, v]) => [k, { ...v, show: on }])) };
+  });
   saveState();
 }

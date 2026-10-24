@@ -1,7 +1,14 @@
 // The ribbon: tabs of controls above the chart. Home's formatting controls edit the engaged style (see
 // currentEngaged in chart.js), so a change applies everywhere that style's entry applies, never to one box.
 
-const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['view', 'View']];
+const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['formulas', 'Formulas'], ['view', 'View']];
+
+// Icons only the ribbon uses (Tabler, as in common.js).
+Object.assign(ICONS, {
+  'math-function': '<path d="M3 19a2 2 0 0 0 2 2c2 0 2 -4 3 -9s1 -9 3 -9a2 2 0 0 1 2 2" /><path d="M5 12h6" /><path d="M15 12l6 6" /><path d="M15 18l6 -6" />',
+  'help-circle': '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M12 16v.01" /><path d="M12 13a2 2 0 0 0 .914 -3.782a1.98 1.98 0 0 0 -2.414 .483" />',
+  'eye-off': '<path d="M10.585 10.587a2 2 0 0 0 2.829 2.828" /><path d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 2.712 -3.678 4.32 -4.674m2.86 -1.146a9.055 9.055 0 0 1 1.82 -.18c3.6 0 6.6 2 9 6c-.666 1.11 -1.379 2.067 -2.138 2.87" /><path d="M3 3l18 18" />',
+});
 
 const rbGroup = (label, controls, cls = '') =>
   `<div class="rb-group${cls ? ` ${cls}` : ''}"><div class="rb-controls">${controls}</div><div class="rb-label">${label}</div></div>`;
@@ -199,20 +206,83 @@ function insertTab() {
     + rbGroup('Tip', '<span class="rb-note" style="max-width:260px">Double-click the sheet to add a box there. Drag from a box’s edge handle to another box to relate them.</span>');
 }
 
+// What the selection is, as something a formula might have worked out: a selected line, or a line of
+// text picked in a box.
+function selectedRecord() {
+  const sel = selection();
+  return sel.relation ? sel.record : sel.object && sel.record !== sel.object ? sel.record : null;
+}
+
+// Like Excel's Formulas tab: the chart's definitions, a new one, why the selection is there, and how the
+// last working-out went.
+function formulasTab() {
+  const sel = selection();
+  const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : sel.object ? [sel.object] : [];
+  const defs = `<div class="rb-row"><button class="rb-btn is-tall" data-action="fx-open" data-hash="formulas" title="Every formula in this chart">${icon('math-function')}Definitions</button>
+    <button class="rb-btn is-tall" data-action="fx-open" data-hash="${esc(['formula:new:relation', ...sides].join(':'))}"
+      title="${sides.length ? `A relation worked out by formula, starting from ${esc(sides.map(objectName).join(' and '))}` : 'A relation worked out by formula'}">${icon('link')}Computed relation</button>
+    <button class="rb-btn is-tall" data-action="fx-open" data-hash="formula:new:entry" title="An entry worked out by formula">${icon('plus')}Computed entry</button></div>`;
+  const id = selectedRecord();
+  const info = id && records[id] && formulaInfo(id);
+  const whyTitle = info ? (isComputed(id) ? 'Why this is here: the formula and what it read' : 'What the formula says about this entered record')
+    : 'Select something a formula works out: a line, or a line of text in a box';
+  const why = `<div class="rb-row"><button class="rb-btn is-tall" data-action="fx-why"${info ? '' : ' disabled'} title="${whyTitle}">${icon('help-circle')}Why?</button></div>`;
+  const nErrors = (formulaResult.errors ?? []).length + Object.keys(formulaResult.defErrors ?? {}).length;
+  const computed = Object.keys(records).filter(isComputed).length;
+  const ms = formulaResult.ms;
+  const errors = nErrors ? `<button class="link-btn rb-errors" data-action="fx-open" data-hash="formulas">${count(nErrors, 'error')}</button>` : '<span class="rb-note">No errors</span>';
+  const status = `<div style="display:flex;flex-direction:column;gap:4px;justify-content:center">
+    <span class="rb-note">${count(computed, 'record')} worked out by ${count(definitions.length, 'formula')}${ms !== undefined ? ` in ${Math.round(ms)} ms` : ''}</span>
+    <span class="rb-row" style="gap:10px">${errors}<button class="link-btn" data-action="fx-recalc" title="Work every formula out again now">Recalculate</button></span></div>`;
+  return rbGroup('Definitions', defs) + rbGroup('Explain', why) + rbGroup('Calculation', status);
+}
+
+// The Show menu: each relation the chart draws as lines, with whether this view draws it.
+function showMenu() {
+  const rels = lineRelations();
+  const item = g => {
+    const { shown, total } = relationShown(g);
+    const state = shown === 0 ? null : true;
+    const note = g.computed ? 'Computed' : '';
+    const partly = shown && shown < total ? `${shown} of ${total}` : '';
+    return `<button class="menu-item" role="menuitemcheckbox" aria-checked="${shown === 0 ? 'false' : shown < total ? 'mixed' : 'true'}" data-action="show-relation" data-key="${esc(g.key)}" data-on="${shown === 0}">
+      ${box(state)}<span class="menu-text"><span class="menu-title">${esc(g.name)}</span>${note || partly ? `<span class="menu-desc">${[note, partly].filter(Boolean).join(' · ')}</span>` : ''}</span></button>`;
+  };
+  const entered = rels.filter(g => !g.computed), computed = rels.filter(g => g.computed);
+  return `<div class="menu-head">Lines in ${esc(viewInUse().name)}</div>${entered.map(item).join('')}`
+    + (computed.length ? `<div class="menu-sep"></div><div class="menu-head">Worked out by formula</div>${computed.map(item).join('')}` : '');
+}
+
+// The things hidden one by one in this view, to show again.
+function hiddenMenu() {
+  const ids = hiddenInView().filter(id => records[id]);
+  if (!ids.length) return '<div class="menu-note" style="padding:8px 10px">Nothing is hidden one by one in this view.</div>';
+  const label = id => isObject(records[id]) ? objectName(id) : relationTitle(id);
+  return `<div class="menu-head">Hidden in ${esc(viewInUse().name)}</div>`
+    + ids.map(id => `<button class="menu-item" role="menuitem" data-action="unhide" data-id="${id}"><span class="menu-text">${esc(label(id))}</span><span class="menu-desc">Show</span></button>`).join('')
+    + `<div class="menu-sep"></div><button class="menu-item" role="menuitem" data-action="unhide-all"><span class="menu-text">Show all</span></button>`;
+}
+
 function viewTab() {
   const zoom = `<div class="rb-row"><button class="rb-btn is-tall" data-action="zoom" data-step="-1">${icon('minus')}Zoom out</button>
     <button class="rb-btn is-tall" data-action="zoom-reset"><span style="font-size:13px;font-weight:600">${Math.round(chart.zoom * 100)}%</span>Actual size</button>
     <button class="rb-btn is-tall" data-action="zoom" data-step="1">${icon('plus')}Zoom in</button>
     <button class="rb-btn is-tall" data-action="zoom-fit">${icon('arrows-left-right')}Fit</button></div>`;
+  const sel = selection();
+  const target = sel.object ?? sel.relation;
+  const nHidden = hiddenInView().filter(id => records[id]).length;
+  const show = `<div class="rb-row">${rbMenu('rb:show', `<span class="rb-field-text">Relations</span>`, { cls: 'rb-field is-wide', title: 'Which relations this view draws as lines' }, showMenu)}</div>
+    <div class="rb-row"><button class="rb-btn" data-action="hide-selection"${target ? '' : ' disabled'} title="${target ? 'Hide the selection in this view only' : 'Select a box or a line to hide it in this view'}">${icon('eye-off')}Hide</button>
+    ${rbMenu('rb:hidden', `<span class="rb-field-text">Hidden${nHidden ? ` (${nHidden})` : ''}</span>`, { cls: 'rb-field', title: 'Things hidden one by one in this view', disabled: !nHidden }, hiddenMenu)}</div>`;
   const grid = `<button class="rb-check" data-action="toggle-pref" data-key="grid" aria-pressed="${prefs.grid !== false}">${box(prefs.grid !== false)}Gridlines</button>`;
   const panel = `<button class="rb-check" data-action="toggle-pref" data-key="panel" aria-pressed="${prefs.panel !== false}">${box(prefs.panel !== false)}Record panel</button>`;
-  return rbGroup('Zoom', zoom) + rbGroup('Show', `<div class="rb-row">${grid}</div><div class="rb-row">${panel}</div>`);
+  return rbGroup(`Show and hide in ${esc(viewInUse().name)}`, show) + rbGroup('Zoom', zoom) + rbGroup('Workspace', `<div class="rb-row">${grid}</div><div class="rb-row">${panel}</div>`);
 }
 
 function renderRibbon() {
   const tabs = RIBBON_TABS.map(([key, name]) =>
     `<button class="ribbon-tab" role="tab" aria-selected="${chart.tab === key}" data-action="rb-tab" data-tab="${key}">${name}</button>`).join('');
-  const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'view' ? viewTab() : homeTab();
+  const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : homeTab();
   document.getElementById('ribbon').innerHTML = `<div class="ribbon-tabs" role="tablist">${tabs}</div><div class="ribbon-body">${body}</div>`;
   // Keep the engaged style's tile in view when the gallery is too narrow to show every tile.
   const gallery = document.querySelector('.gallery');
@@ -250,4 +320,26 @@ Object.assign(actions, {
     setZoom(Math.min((stage.clientWidth - 56) / sheet.offsetWidth, (stage.clientHeight - 56) / sheet.offsetHeight));
   },
   'toggle-pref': d => { prefs[d.key] = prefs[d.key] === false; savePrefs(); },
+  'show-relation': d => {
+    const g = lineRelations().find(x => x.key === d.key);
+    if (g) setRelationShown(g, d.on === 'true');
+    ui.menu = 'rb:show';
+  },
+  'hide-selection': () => {
+    const sel = selection();
+    const id = sel.object ?? sel.relation;
+    if (id) hideInView(id);
+  },
+  unhide: d => {
+    setHiddenInView(hiddenInView().filter(id => id !== d.id));
+    ui.menu = hiddenInView().length ? 'rb:hidden' : null;
+  },
+  'unhide-all': () => setHiddenInView([]),
+  // The panel's Formulas views (#formulas, #formula:…) are opened by hash.
+  'fx-open': d => { location.hash = d.hash; },
+  'fx-why': () => { const id = selectedRecord(); if (id) go(id); },
+  'fx-recalc': () => {
+    recompute();
+    setNotice(`Worked out ${count(Object.keys(records).filter(isComputed).length, 'record')} in ${Math.round(formulaResult.ms ?? 0)} ms.`);
+  },
 });

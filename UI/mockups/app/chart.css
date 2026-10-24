@@ -89,8 +89,10 @@ body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-temp
 
 /* The stage: the scrollable area holding the sheet. */
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) auto var(--panel-w, 440px); min-height: 0; }
-.stage { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--bg); }
-.sheet-sizer { position: relative; margin: 28px; }
+.stage { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; min-height: 0; overflow: auto; background: var(--bg); }
+/* The bar above the chart (relating two boxes, or a question) floats at the top of the stage and takes no room. */
+#lock { position: sticky; top: 0; left: 0; z-index: 6; align-self: stretch; height: 0; }
+.sheet-sizer { position: relative; flex: none; margin: 28px; }
 .sheet { position: absolute; top: 0; left: 0; transform-origin: 0 0; background: #ffffff; border-radius: 2px;
   box-shadow: 0 0 0 1px rgb(24 24 27 / .06), 0 8px 28px -10px rgb(24 24 27 / .25); }
 :root[data-theme="dark"] .sheet { box-shadow: 0 0 0 1px rgb(255 255 255 / .06), 0 12px 32px -8px rgb(0 0 0 / .8); }
@@ -138,7 +140,7 @@ body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-temp
 .wire-label { paint-order: stroke; stroke: #ffffff; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 .wire-text { pointer-events: auto; cursor: pointer; }
 .wire-text.is-engaged { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
-.wire.is-selected .wire-line { stroke: #2b59c3 !important; }
+.wire.is-selected .wire-line { stroke: #2b59c3 !important; filter: drop-shadow(0 0 1.5px rgb(43 89 195 / .9)); }
 .wire.is-selected .wire-text { fill: #2b59c3 !important; }
 .connect-line { stroke: #2b59c3; stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
 .relate-line { stroke: #2b59c3; stroke-width: 2; stroke-dasharray: 7 5; fill: none; animation: march .7s linear infinite; }
@@ -150,15 +152,41 @@ body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-temp
 .stage.is-locked .sheet-sizer { pointer-events: none; }
 .stage.is-locked .node:not(.is-side), .stage.is-locked .wire { opacity: .28; transition: opacity .2s; }
 .stage.is-picking .node:not(.is-side) { cursor: pointer; }
-.lock-bar { position: sticky; top: 12px; z-index: 6; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 24px); margin: 12px auto -48px; padding: 7px 8px 7px 14px;
+.lock-bar { position: relative; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 24px); margin: 12px auto 0; padding: 7px 8px 7px 14px;
   border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-pop); font-size: 13px; }
 .lock-bar .icon { width: 15px; height: 15px; color: var(--accent); }
 .lock-bar .btn { height: 28px; }
 .lock-text { min-width: 0; }
 
-/* Status bar, bottom-left of the stage */
-.status { position: sticky; left: 0; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; margin-top: -34px; padding: 0 10px; pointer-events: none; }
-.status > * { pointer-events: auto; }
+/* Status bar along the bottom of the stage: the view tabs, any notice, and zoom at the right. */
+.status { position: sticky; left: 0; bottom: 0; z-index: 7; display: flex; flex: none; align-items: center; gap: 10px; width: 100%; height: 36px; margin-top: auto; padding: 0 8px 0 0;
+  border-top: 1px solid var(--border); background: var(--surface); }
+.rb-errors { color: var(--danger) !important; font-weight: 600; }
+.status .zoom { margin-left: auto; box-shadow: none; }
+.status .notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-shadow: none; }
+
+/* View tabs, like a workbook's sheet tabs. The current one is raised and underlined. */
+.view-tabs { display: flex; align-items: stretch; flex: none; height: 100%; }
+.view-tab { position: relative; display: flex; align-items: center; border-right: 1px solid var(--border); }
+.view-tab-name { height: 100%; padding: 0 14px; border: 0; background: none; color: var(--text-2); font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.view-tab-name:hover { background: var(--hover); color: var(--text); }
+.view-tab.is-current { background: var(--bg); box-shadow: inset 0 -2px 0 var(--accent); }
+.view-tab.is-current .view-tab-name { padding-right: 4px; color: var(--text); font-weight: 600; }
+.view-tab.is-current .view-tab-name:hover { background: none; }
+.view-tab-chev { display: grid; place-items: center; width: 22px; height: 22px; margin-right: 6px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-3); }
+.view-tab-chev:hover, .view-tab-chev[aria-expanded="true"] { background: var(--pressed); color: var(--text); }
+.view-tab-chev .icon { width: 13px; height: 13px; }
+.view-tab-input { height: 24px; margin: 0 8px; padding: 0 6px; border: 1.5px solid var(--accent); border-radius: 5px; background: var(--surface); color: var(--text); font: 600 12.5px "Inter", sans-serif; outline: none; }
+.view-tab.is-dragging { opacity: .5; }
+.view-tab.is-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.view-tab.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+.view-add { align-self: center; width: 26px; height: 26px; margin-left: 4px; }
+.view-add .icon { width: 15px; height: 15px; }
+.view-menu { top: auto; bottom: calc(100% + 6px); right: auto; left: 0; width: 180px; }
+
+/* A question over the chart, like whether to delete or hide */
+.lock-bar.is-ask { max-width: min(820px, calc(100% - 24px)); }
+.lock-bar.is-ask .lock-text { margin-right: 4px; }
 .zoom { display: inline-flex; align-items: center; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-panel); }
 .zoom .icon-btn { width: 24px; height: 24px; }
 .zoom .icon { width: 14px; height: 14px; }

@@ -955,3 +955,36 @@ function restoreBatch(batchId) {
   saveState();
   return null;
 }
+
+// ---- Chart helpers ----
+
+// What a view hides one by one, beyond what its styles hide: boxes and lines, by record id. It's kept on
+// the view itself, so it goes with the view's copies and its undo history.
+const hiddenInView = () => viewInUse().hidden ?? [];
+
+function setHiddenInView(ids) {
+  pushUndo();
+  views = currentViews().map(v => v.id === viewId ? { ...v, hidden: [...new Set(ids)] } : v);
+  saveState();
+}
+
+// A copy of a view, everything in it included, placed just after it and made current.
+function duplicateView(id, name) {
+  pushUndo();
+  const list = currentViews();
+  const i = list.findIndex(v => v.id === id);
+  const copy = { ...structuredClone(list[i]), id: newId(), name };
+  list.splice(i + 1, 0, copy);
+  views = list;
+  viewId = copy.id;
+  ({ styles, layout } = copy);
+  saveState();
+  return copy.id;
+}
+
+// A view name not taken yet: the name itself, or with a number after it.
+function freeViewName(base) {
+  const taken = new Set(views.map(v => norm(v.name)));
+  if (!taken.has(norm(base))) return base;
+  for (let n = 2; ; n++) if (!taken.has(norm(`${base} ${n}`))) return `${base} ${n}`;
+}
