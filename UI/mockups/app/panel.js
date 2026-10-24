@@ -102,7 +102,7 @@ function saveForm() {
   // A relabeled entry relabels the formulas and names that mention it, once nothing entered has the old label.
   const relabeled = renamed && !Object.entries(next).some(([k, r]) => k !== f.id && !r.args && !r.computed && same(r.edge, oldLabel))
     ? Formulas.relabel(definitions, names, oldLabel, entry.edge) : null;
-  const error = relabeled ? commitWithFormulas(next, relabeled.definitions, relabeled.names) : commit(next);
+  const error = relabeled ? commitWithFormulas(next, relabeled.definitions, relabeled.names, [[oldLabel, entry.edge]]) : commit(next);
   if (error || !oldLabel) return error;
   for (const at of new Set([f.at, ...others.map(k => records[k].at)])) keepPlace(at, oldLabel, entry.edge);
   if (others.length) ui.info = `Renamed ${oldLabel} to ${entry.edge} at ${count(others.length + 1, 'location')}${relabeled ? ', and in the formulas and names' : ''}.`;
@@ -1003,11 +1003,14 @@ function kindView(kind) {
   return [head, form + ids.map(id => listRow(`#${id}`, objectName(id), summary(id))).join('')];
 }
 
+// A chart with nothing in it yet offers the usual kinds to start from, since objects are added from their
+// kind's view.
 function allView() {
-  const head = panelHead({ title: 'All', sub: 'Browse records by kind' });
+  const kinds = kindsInState();
+  const head = panelHead({ title: 'All', sub: kinds.length ? 'Browse records by kind' : 'Nothing here yet. Start with a kind.' });
   const deleted = archive.length ? listRow('#deleted', 'Deleted', String(archive.length)) : '';
   const formulas = listRow('#formulas', 'Formulas', String(definitions.length));
-  return [head, kindsInState().map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + formulas + deleted];
+  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + formulas + deleted];
 }
 
 const ago = when => {
@@ -1439,17 +1442,27 @@ function namesSection() {
     <div class="names">${blocks}${add}</div>`;
 }
 
-const changeName = (i, fn) => {
+// A relation or list given a new name takes it into the formulas and filters that mention the old one.
+// A list that had no name went by an edge label, which formulas use for other things too, so naming it
+// for the first time renames nothing.
+const changeName = (i, fn, from, to) => {
   const rels = (names.relations ?? []).map((r, k) => k === i ? fn(structuredClone(r)) : r);
-  ui.notice = saveNames({ ...names, relations: rels.filter(Boolean) });
+  const renames = from && to ? [[from, to]] : [];
+  ui.notice = changeFormulas(renamedInFormulas(definitions, from, to), { ...names, relations: rels.filter(Boolean) }, renames);
 };
+
+// A list's name as the Names section shows it, or '' where it goes by its edge label.
+const listNameIn = (r, from, to) =>
+  Object.entries(Object.entries(r.lists ?? {}).find(([k]) => same(k, from))?.[1] ?? {}).find(([k]) => same(k, to))?.[1] ?? '';
 
 function onNamesChange(el) {
   const i = Number(el.dataset.i);
   if (el.dataset.names === 'name') {
     if (!clean(el.value)) return;
-    changeName(i, r => ({ ...r, name: clean(el.value) }));
+    changeName(i, r => ({ ...r, name: clean(el.value) }), names.relations[i]?.name, clean(el.value));
   } else if (el.dataset.names === 'list') {
+    const was = listNameIn(names.relations[i] ?? {}, el.dataset.from, el.dataset.to);
+    const now = clean(el.value) || el.dataset.to;
     changeName(i, r => {
       const from = Object.keys(r.lists ?? {}).find(k => same(k, el.dataset.from)) ?? el.dataset.from;
       const lists = { ...(r.lists ?? {}) };
@@ -1458,7 +1471,7 @@ function onNamesChange(el) {
       if (clean(el.value)) own[to] = clean(el.value); else delete own[to];
       lists[from] = own;
       return { ...r, lists };
-    });
+    }, was, was && now);
   } else if (el.dataset.names === 'add' && el.value) {
     const [type] = el.value.split(':');
     const sample = Object.values(records).find(r => isRelation(r) && typeOf(r) === type && `${type}:${r.args.map(a => norm(a.edge)).sort().join('|')}` === el.value);

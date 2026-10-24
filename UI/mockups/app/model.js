@@ -512,7 +512,8 @@ const definitionError = defId => formulaResult.defErrors?.[defId] ?? null;
 const recordErrors = defId => (formulaResult.errors ?? []).filter(e => e.def === defId);
 
 // Every change to the formulas or the names they use goes through here, as one undoable step.
-function changeFormulas(nextDefinitions, nextNames = names) {
+// `renames` are [from, to] pairs of names to carry into the views' filters too.
+function changeFormulas(nextDefinitions, nextNames = names, renames = []) {
   const result = Formulas.computeState(entered, nextDefinitions, nextNames);
   const error = validate(result.records);
   if (error) return error;
@@ -520,13 +521,38 @@ function changeFormulas(nextDefinitions, nextNames = names) {
   definitions = nextDefinitions;
   names = nextNames;
   setComputed(result);
+  renameInFilters(renames);
   saveState();
   return null;
 }
 
-// Adds a definition, or replaces the one with its id. Returns why it couldn't, if it couldn't.
-const saveDefinition = def => changeFormulas(definitionOf(def.id)
-  ? definitions.map(d => d.id === def.id ? def : d) : [...definitions, def]);
+// A renamed name carried into every formula that mentions it, as Excel carries a renamed defined name into
+// its formulas: for a definition or relation renamed, or a list of relatives given a new name.
+function renamedInFormulas(defs, from, to) {
+  if (!clean(from) || !clean(to) || same(from, to)) return defs;
+  const re = text => Formulas.renameName(text, from, to);
+  return defs.map(d => ({ ...d,
+    ...(d.formula !== undefined ? { formula: re(d.formula) } : {}),
+    ...(d.implications ? { implications: d.implications.map(i => ({ ...i, formula: re(i.formula) })) } : {}) }));
+}
+
+// The same for the views' filters, as part of the change being made, so its undo takes them back too.
+function renameInFilters(renames) {
+  const pairs = renames.filter(([from, to]) => clean(from) && clean(to) && !same(from, to));
+  if (!pairs.length) return;
+  views = currentViews().map(v => v.filter ? { ...v, filter: pairs.reduce((t, [from, to]) => Formulas.renameName(t, from, to), v.filter) } : v);
+}
+
+// Adds a definition, or replaces the one with its id. Returns why it couldn't, if it couldn't. A definition
+// given a new name takes it into the formulas, the relation names and the filters that mention the old one.
+function saveDefinition(def) {
+  const old = definitionOf(def.id);
+  if (!old) return changeFormulas([...definitions, def]);
+  const defs = definitions.map(d => d.id === def.id ? def : d);
+  if (same(old.name, def.name)) return changeFormulas(defs);
+  const relations = (names.relations ?? []).map(r => same(r.name, old.name) ? { ...r, name: def.name } : r);
+  return changeFormulas(renamedInFormulas(defs, old.name, def.name), { ...names, relations }, [[old.name, def.name]]);
+}
 const deleteDefinition = id => changeFormulas(definitions.filter(d => d.id !== id));
 const saveNames = next => changeFormulas(definitions, next);
 
@@ -1131,8 +1157,9 @@ function freeViewName(base) {
 
 // Commits records and the formulas together, as one undoable step: for a formula typed into a value box,
 // which replaces that value with the formula's output, and for a relabeled entry, which relabels what
-// formulas say about it. `next` is what `records` should become, as for commit().
-function commitWithFormulas(next, nextDefinitions, nextNames = names) {
+// formulas say about it. `next` is what `records` should become, as for commit(). `renames` are [from, to]
+// pairs to carry into the views' filters too.
+function commitWithFormulas(next, nextDefinitions, nextNames = names, renames = []) {
   const nextEntered = enteredPart(next);
   const result = Formulas.computeState(nextEntered, nextDefinitions, nextNames);
   const error = validate(result.records);
@@ -1144,6 +1171,7 @@ function commitWithFormulas(next, nextDefinitions, nextNames = names) {
   names = nextNames;
   setComputed(result);
   if (rekey(before, records)) recompute();
+  renameInFilters(renames);
   saveState();
   return null;
 }
@@ -1194,7 +1222,7 @@ function renameEdge(id, from, to, every) {
   const relabel = r => ({ ...r, args: r.args.map(a => same(a.edge, from) ? { ...a, edge: to } : a) });
   const next = { ...records };
   for (const k of every ? relationsLike(id) : [id]) next[k] = relabel(records[k]);
-  return every ? commitWithFormulas(next, definitionsWithEdge(from, to), namesWithEdge(id, from, to)) : commit(next);
+  return every ? commitWithFormulas(next, definitionsWithEdge(from, to), namesWithEdge(id, from, to), [[from, to]]) : commit(next);
 }
 
 // ---- View filter helpers ----
