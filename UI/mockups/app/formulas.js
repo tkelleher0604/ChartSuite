@@ -126,7 +126,7 @@ function parseExpression(src) {
         next();
         const t = next();
         if (t.k !== 'name') throw new FormulaError('Expected a name after the dot.', t.pos);
-        x = { k: 'dot', x, name: t.v };
+        x = { k: 'dot', x, name: t.v, n: norm(t.v) };
       } else if (isOp('(') && x.k === 'name') {
         next();
         x = { k: 'call', name: x.name, args: callArgs() };
@@ -152,7 +152,7 @@ function parseExpression(src) {
     const t = next();
     if (t.k === 'num' || t.k === 'str') return { k: 'lit', v: t.v, pct: t.pct };
     if (t.k === 'kw' && (t.v === 'TRUE' || t.v === 'FALSE')) return { k: 'lit', v: t.v === 'TRUE' };
-    if (t.k === 'name') return { k: 'name', name: t.v };
+    if (t.k === 'name') return { k: 'name', name: t.v, n: norm(t.v) };
     if (t.k === 'op' && t.v === '@') return { k: 'at' };
     if (t.k === 'op' && t.v === '(') { const x = or(); expect(')'); return x; }
     if (t.k === 'op' && t.v === '{') {
@@ -278,6 +278,12 @@ function segmentOf(S, id) {
 const placeOf = (S, id) => (pathOf(S, id) ?? [id]).map((p, i) => i ? segmentOf(S, p) : nameOf(S, p)).join(' › ');
 
 const argKey = args => JSON.stringify(args.map(a => JSON.stringify([norm(a.edge), a.at])).sort());
+// A record's argumentation key, worked out once per record.
+const keyCache = new WeakMap();
+function keyOf(r) {
+  if (!keyCache.has(r)) keyCache.set(r, argKey(argsOf(r)));
+  return keyCache.get(r);
+}
 
 function push(map, key, value) {
   if (!map.has(key)) map.set(key, []);
@@ -288,7 +294,10 @@ function push(map, key, value) {
 function addRecord(S, id, r) {
   S.memo?.clear();
   S.recs[id] = r;
-  if (r.at) push(S.byAt, r.at, id);
+  if (r.at) {
+    push(S.byAt, r.at, id);
+    S.byAtName.set(`${r.at}|${norm(r.edge)}`, id);
+  }
   if (r.args) {
     for (const at of new Set(r.args.map(a => a.at))) push(S.relsAt, at, id);
     const sig = signatureOf(r);
@@ -305,7 +314,10 @@ function removeRecord(S, id) {
   if (!r) return;
   S.memo?.clear();
   const pull = (map, key) => { const list = map.get(key); if (list) map.set(key, list.filter(x => x !== id)); };
-  if (r.at) pull(S.byAt, r.at);
+  if (r.at) {
+    pull(S.byAt, r.at);
+    if (S.byAtName.get(`${r.at}|${norm(r.edge)}`) === id) S.byAtName.delete(`${r.at}|${norm(r.edge)}`);
+  }
   if (r.args) {
     for (const at of new Set(r.args.map(a => a.at))) pull(S.relsAt, at);
     const sig = signatureOf(r);
@@ -337,13 +349,12 @@ const listNameOf = (rel, from, listed) => rel?.lists.get(`${norm(from)}|${norm(l
 const note = (S, id) => { if (S.reads) S.reads.add(id); };
 
 // While a step is worked out (see settleStep), a lookup that could find one of the step's own candidates
-// notes it, found or not, among what's read, as `dep:` and its key: that's what the formula depends on.
-// `kind` is how it was looked for: 'entry' (at a location, by name), 'lists' (a list of relatives at a
-// location) or 'rels' (a relation, by an object it relates).
-const isDep = r => r.startsWith('dep:');
+// notes its key, found or not, in S.deps: that's what the formula being worked out depends on. `kind` is
+// how it was looked for: 'entry' (at a location, by name), 'lists' (a list of relatives at a location) or
+// 'calls' (a relation call, by callKey).
 function depend(S, kind, key) {
-  if (!S.dep || !S.reads) return;
-  for (const k of S.dep[kind].get(key) ?? []) S.reads.add(`dep:${k}`);
+  if (!S.deps) return;
+  for (const k of S.dep[kind].get(key) ?? []) S.deps.add(k);
 }
 
 // What a name gives where nothing has it: an empty list for a list the schema has somewhere, BLANK for
@@ -397,7 +408,7 @@ function linkLookup(S, rid, n, name) {
   depend(S, 'entry', `${rid}|${n}`);
   const pending = forceEntry(S, rid, n);
   if (pending) return { v: pending };
-  const entry = (S.byAt.get(rid) ?? []).find(e => norm(S.recs[e].edge) === n);
+  const entry = S.byAtName.get(`${rid}|${n}`);
   if (entry) { found.push(recOf(entry)); note(S, entry); }
   else if (S.failed.has(`${rid}|${n}`)) found.push(S.failed.get(`${rid}|${n}`));
   if (found.length > 1) return { v: ambiguous(name) };
@@ -412,7 +423,7 @@ function ownLookup(S, id, n, name) {
   depend(S, 'lists', `${id}|${n}`);
   const pending = forceEntry(S, id, n) ?? forceLists(S, id, n);
   if (pending) return { v: pending };
-  const entry = (S.byAt.get(id) ?? []).find(e => norm(S.recs[e].edge) === n);
+  const entry = S.byAtName.get(`${id}|${n}`);
   if (entry) { found.push(recOf(entry)); note(S, entry); }
   else if (S.failed.has(`${id}|${n}`)) found.push(S.failed.get(`${id}|${n}`));
   const list = listAt(S, id, n);
@@ -426,11 +437,11 @@ function ownLookup(S, id, n, name) {
 
 // A dot: on a list, the name on each item; on a record reached through a relation, the relation first;
 // then the record itself, and on up its path to its object.
-function lookupOn(S, v, name) {
+function lookupOn(S, v, name, n = norm(name)) {
   if (Array.isArray(v)) {
     const out = [];
     for (const x of v) {
-      const y = lookupOn(S, x, name);
+      const y = lookupOn(S, x, name, n);
       if (isErr(y)) return y;
       if (Array.isArray(y)) out.push(...y); else out.push(y);
     }
@@ -439,7 +450,6 @@ function lookupOn(S, v, name) {
   if (v === null || v === undefined || isErr(v)) return v ?? null;
   if (!isRec(v)) return err('#VALUE!', `Can’t look up ${name} on ${describe(S, v)}.`);
   if (v.id === null || !S.recs[v.id]) return null;
-  const n = norm(name);
   if (v.link) {
     const hit = linkLookup(S, v.link, n, name);
     if (hit) return hit.v;
@@ -453,11 +463,10 @@ function lookupOn(S, v, name) {
 
 // A name on its own: a LET name; in a relation's formula, one of its arguments, as an object; in an
 // entry's formula, a name on its location, looked up the path.
-function lookupBare(c, name) {
-  const n = norm(name);
+function lookupBare(c, name, n = norm(name)) {
   for (let l = c.lets; l; l = l.up) if (l.n === n) return l.v;
   if (c.self.args) return c.self.args.has(n) ? recOf(c.self.args.get(n)) : err('#NAME?', `${name} isn’t one of this relation’s arguments.`);
-  return lookupOn(c.S, recOf(c.self.loc), name);
+  return lookupOn(c.S, recOf(c.self.loc), name, n);
 }
 
 // ---- Turning values into one value ----
@@ -596,8 +605,8 @@ function ev(node, c) {
       return out;
     }
     case 'at': return c.at ?? err('#VALUE!', '@ means nothing here.');
-    case 'name': return lookupBare(c, node.name);
-    case 'dot': return lookupOn(S, ev(node.x, c), node.name);
+    case 'name': return lookupBare(c, node.name, node.n);
+    case 'dot': return lookupOn(S, ev(node.x, c), node.name, node.n);
     case 'call': return call(node, c);
     case 'neg': {
       const x = toNumber(S, ev(node.x, c));
@@ -820,10 +829,11 @@ const FUNCTIONS = {
     if (isErr(starts)) return starts;
     const queue = [];
     for (const s of starts) { const r = asRec(c.S, s); if (isErr(r)) return r; if (r?.id) queue.push(r.id); }
-    return remembered(c.S, `reach|${queue.join(',')}|${norm(step)}`, () => {
+    const stepN = a[1].x.n;
+    return remembered(c.S, `reach|${queue.join(',')}|${stepN}`, () => {
       const seen = new Set(), out = [];
       while (queue.length) {
-        const items = toList(lookupOn(c.S, recOf(queue.shift()), step));
+        const items = toList(lookupOn(c.S, recOf(queue.shift()), step, stepN));
         if (isErr(items)) return items;
         for (const item of items) {
           if (!isRec(item) || !item.id || seen.has(item.id)) continue;
@@ -842,6 +852,7 @@ const FUNCTIONS = {
     if (bad) return bad;
     const step = stepName(a[2].x), factor = stepName(a[3].x);
     if (!step || !factor) return err('#VALUE!', 'LOOKTHROUGH’s third and fourth arguments name a list and a factor, like Holdings and Percentage.');
+    const stepN = a[2].x.n, factorN = a[3].x.n;
     const from = asRec(c.S, ev(a[0].x, c)), to = asRec(c.S, ev(a[1].x, c));
     if (isErr(from)) return from;
     if (isErr(to)) return to;
@@ -849,11 +860,11 @@ const FUNCTIONS = {
     const out = new Map(), queue = [from.id], seen = new Set([from.id]);
     while (queue.length) {
       const u = queue.shift(), edges = [];
-      const items = toList(lookupOn(c.S, recOf(u), step));
+      const items = toList(lookupOn(c.S, recOf(u), step, stepN));
       if (isErr(items)) return items;
       for (const item of items) {
         if (!isRec(item) || !item.id) continue;
-        const f = toNumber(c.S, lookupOn(c.S, item, factor));
+        const f = toNumber(c.S, lookupOn(c.S, item, factor, factorN));
         if (isErr(f)) return f;
         edges.push([item.id, f]);
         if (!seen.has(item.id)) { seen.add(item.id); queue.push(item.id); }
@@ -890,7 +901,7 @@ const FUNCTIONS = {
     if (!r) return false;
     if (!isTag(r)) return err('#VALUE!', 'IMPLIEDBY asks about a tag.');
     if (r.tag !== true) return false;
-    const held = c.S.prov.get(argKey(argsOf(r))) ?? new Set();
+    const held = c.S.prov.get(keyOf(r)) ?? new Set();
     for (const x of a.slice(1)) {
       const label = toText(c.S, ev(x.x, c));
       if (isErr(label)) return label;
@@ -983,8 +994,9 @@ function callRelation(c, rel, a) {
     ids.set(edge, v.id);
   }
   const first = objectOf(S, [...ids.values()][0]);
-  depend(S, 'rels', `${first}|${norm(rel.name)}`);
-  const pending = forceRelation(S, first, rel.name);
+  const key = callKey(S, rel.name, [...ids]);
+  depend(S, 'calls', key);
+  const pending = forceRelation(S, key);
   if (pending) return pending;
   for (const rid of S.relsBySig.get(`${first}|${signature(rel.type, rel.edges)}`) ?? []) {
     const r = S.recs[rid];
@@ -1005,6 +1017,16 @@ function callRelation(c, rel, a) {
 
 const typeOfDef = d => d.type === 'field' ? 'field' : d.type === 'choice' ? 'choice' : 'tag';
 
+// Formulas parsed already, by their text: the same definitions are worked out after every edit.
+const parsedCache = new Map();
+function parseCached(body) {
+  if (!parsedCache.has(body)) {
+    if (parsedCache.size > 500) parsedCache.clear();
+    parsedCache.set(body, parseExpression(body));
+  }
+  return parsedCache.get(body);
+}
+
 // Parses a definition's formulas and what it covers. Problems are kept on it as `error`.
 function prepareDef(def, names) {
   const d = { ...def, error: null, covers: [], params: [], edges: [def.name] };
@@ -1019,13 +1041,13 @@ function prepareDef(def, names) {
       d.imps = def.implications.map(i => {
         const f = splitFormula(i.formula);
         if (f.kind !== 'implies') throw new FormulaError(`The implication “${i.label}” should start with ←.`, 0);
-        return { label: clean(i.label), ast: parseExpression(f.body) };
+        return { label: clean(i.label), ast: parseCached(f.body) };
       });
     } else {
       const f = splitFormula(def.formula);
       if (f.kind === 'implies') throw new FormulaError(d.type === 'tag' ? 'Write a tag’s implications as separate rows.' : 'Only a tag can be implied; start this formula with =.', 0);
       if (f.kind !== 'value') throw new FormulaError('A formula starts with = (or ← for a tag’s implication).', 0);
-      d.ast = parseExpression(f.body);
+      d.ast = parseCached(f.body);
     }
   } catch (e) {
     d.error = e instanceof FormulaError ? e.message : String(e);
@@ -1253,8 +1275,8 @@ function asOutput(S, d, v) {
 // ---- Working out the state ----
 
 function stateFor(P, entered) {
-  const S = { P, entered, recs: {}, byAt: new Map(), relsAt: new Map(), relsAtObj: new Map(), relsBySig: new Map(), specs: new Map(),
-    bySpec: new Map(), enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, dep: null, reads: null, done: 0,
+  const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), relsAtObj: new Map(), relsBySig: new Map(), specs: new Map(),
+    bySpec: new Map(), enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, dep: null, deps: null, reads: null, done: 0,
     cf: new Map(), memo: new Map(), steps: [], failed: new Map() };
   for (const [id, r] of Object.entries(entered)) addRecord(S, id, r);
   for (const [id, r] of Object.entries(entered)) {
@@ -1285,23 +1307,28 @@ function runUpTo(S, limit) {
 
 const now = () => typeof performance === 'object' ? performance.now() : Date.now();
 
-// Works out an expression with what it reads noted. What it reads counts as read by any expression
-// it's part of, too.
+// Works out an expression with what it reads noted, and within a step what it depends on (see depend).
+// Both count for any expression it's part of, too.
+const NONE = new Set();
 function reading(S, fn) {
-  const outer = S.reads;
+  const outer = S.reads, outerDeps = S.deps;
   S.reads = new Set();
-  try { return { v: fn(), reads: [...S.reads] }; }
+  S.deps = S.dep ? new Set() : null;
+  try { return { v: fn(), reads: S.reads, deps: S.deps ?? NONE }; }
   finally {
     if (outer) for (const id of S.reads) outer.add(id);
+    if (outerDeps && S.deps) for (const k of S.deps) outerDeps.add(k);
     S.reads = outer;
+    S.deps = outerDeps;
   }
 }
 
 // Lookups are kept until the state changes, which in a round of implications is not until its end.
 function remembered(S, key, fn) {
   if (!S.memo.has(key)) S.memo.set(key, reading(S, fn));
-  const { v, reads } = S.memo.get(key);
+  const { v, reads, deps } = S.memo.get(key);
   reads.forEach(id => note(S, id));
+  if (S.deps) deps.forEach(k => S.deps.add(k));
   return v;
 }
 
@@ -1312,9 +1339,9 @@ function safeEv(ast, c) {
 
 // Where a step's candidates could be found, for working them out on demand and for noting what depends on
 // them (see depend): an entry by its location and name, and a relation by the lists of relatives it makes
-// and the objects it relates. Each maps to candidate keys.
+// and by the call that would find it (see callKey). Each maps to candidate keys.
 function indexCandidates(S, jobs) {
-  const idx = { entry: new Map(), lists: new Map(), rels: new Map() };
+  const idx = { entry: new Map(), lists: new Map(), calls: new Map() };
   for (const { d, cand } of jobs) {
     if (!d.isRelation) { push(idx.entry, `${cand.at}|${norm(d.name)}`, cand.key); continue; }
     const rel = S.P.reg.byName.get(norm(d.name));
@@ -1325,10 +1352,13 @@ function indexCandidates(S, jobs) {
       const obj = objectOf(S, own.at);
       if (obj !== own.at) push(idx.lists, `${obj}|${list}`, cand.key);
     }));
-    for (const obj of new Set(cand.args.map(a => objectOf(S, a.at)))) push(idx.rels, `${obj}|${norm(d.name)}`, cand.key);
+    push(idx.calls, callKey(S, d.name, cand.args.map(a => [a.edge, a.at])), cand.key);
   }
   return idx;
 }
+
+// A relation call by what it would find: the relation's name, and each argument's edge with its object.
+const callKey = (S, name, pairs) => `${norm(name)}|${pairs.map(([edge, at]) => `${norm(edge)}=${objectOf(S, at)}`).sort().join('&')}`;
 
 // Value formulas' candidates, ready to be worked out on demand: all but those where an entered record stands.
 // A `blocked` one was found on a loop (see settleStep), and gives #CIRCULAR!.
@@ -1355,7 +1385,7 @@ function valueOverlaps(S, jobs) {
     const { v, reads } = reading(S, () => safeEv(d.ast, contextFor(S, d, cand)));
     const res = asOutput(S, d, v);
     const mark = res.error || res.none ? null : equal(scalar(S, recOf(enteredId)), res.out) ? 'agrees' : 'differs';
-    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark, reads: reads.filter(r => !isDep(r)) });
+    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark, reads: [...reads] });
   }
 }
 
@@ -1364,12 +1394,11 @@ function force(S, key) {
   if (!job || job.state === 'done') return null;
   if (job.state === 'busy') return circular();
   job.state = 'busy';
-  const { v, reads } = job.blocked ? { v: circular(), reads: [] } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
+  const { v, reads, deps } = job.blocked ? { v: circular(), reads: NONE, deps: NONE } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
   const res = asOutput(S, job.d, v);
-  Object.assign(job, { state: 'done', res, deps: reads.filter(isDep).map(r => r.slice(4)), failed: [] });
-  const shown = reads.filter(r => !isDep(r));
+  Object.assign(job, { state: 'done', res, deps, failed: [] });
   if (res.error) {
-    addRow(S, job.d, { ...job.cand, error: res.error, reads: shown });
+    addRow(S, job.d, { ...job.cand, error: res.error, reads: [...reads] });
     // Whatever reads the record reads the error instead.
     if (!job.d.isRelation) {
       S.failed.set(`${job.cand.at}|${norm(job.d.name)}`, res.error);
@@ -1382,7 +1411,7 @@ function force(S, key) {
   } else if (!res.none) {
     addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out));
     job.added = true;
-    addRow(S, job.d, { ...job.cand, value: res.out, reads: shown });
+    addRow(S, job.d, { ...job.cand, value: res.out, reads: [...reads] });
   }
   return null;
 }
@@ -1394,7 +1423,7 @@ function unforce(S, job) {
     if (!failure) S.failed.delete(key);
     else S.failed.set(key, S.failed.get(key).filter(x => x !== failure));
   }
-  Object.assign(job, { state: 'todo', added: false, failed: [], res: null, deps: [] });
+  Object.assign(job, { state: 'todo', added: false, failed: [], res: null, deps: NONE });
 }
 
 function forceMany(S, keys) {
@@ -1403,7 +1432,7 @@ function forceMany(S, keys) {
 }
 const forceEntry = (S, at, n) => S.lazy ? forceMany(S, S.lazy.idx.entry.get(`${at}|${n}`)) : null;
 const forceLists = (S, at, n) => S.lazy ? forceMany(S, S.lazy.idx.lists.get(`${at}|${n}`)) : null;
-const forceRelation = (S, obj, name) => S.lazy ? forceMany(S, S.lazy.idx.rels.get(`${obj}|${norm(name)}`)) : null;
+const forceRelation = (S, key) => S.lazy ? forceMany(S, S.lazy.idx.calls.get(key)) : null;
 
 // ---- Steps with implications ----
 // Implications only ever attest, so a step with implications starts with nothing attested by them, attests
@@ -1438,7 +1467,8 @@ function attemptStep(S, group, blocked) {
   S.dep = indexCandidates(S, jobs);
   S.lazy = lazyValues(S, jobs.filter(j => !j.d.imps), blocked);
   const values = [...S.lazy.cands.values()];
-  const tags = jobs.filter(j => j.d.imps).map(j => ({ ...j, results: j.d.imps.map(() => null), labels: [], derived: false, blocked: blocked.has(j.cand.key) }));
+  const tags = jobs.filter(j => j.d.imps).map(j => ({ ...j, ctx: contextFor(S, j.d, j.cand), results: j.d.imps.map(() => null),
+    labels: [], derived: false, blocked: blocked.has(j.cand.key) }));
   let queue = tags.filter(t => !t.blocked).flatMap(t => t.d.imps.map((_, i) => [t, i]));
   let outputs = null, factsChanged = false;
   for (let round = 0; round < 1000 && (queue.length || (factsChanged && values.length)); round++) {
@@ -1446,8 +1476,8 @@ function attemptStep(S, group, blocked) {
     for (const d of group) if (!d.imps) S.rows.delete(d.id);
     const changed = new Set();
     for (const [t, i] of queue) {
-      const { v, reads } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, contextFor(S, t.d, t.cand))));
-      t.results[i] = { v, deps: reads.filter(isDep).map(r => r.slice(4)), reads: reads.filter(r => !isDep(r)) };
+      const { v, reads, deps } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, t.ctx)));
+      t.results[i] = { v, deps, reads };
       const labels = labelsOf(t);
       if (labels.join('\n') === t.labels.join('\n')) continue;
       t.labels = labels;
@@ -1465,7 +1495,9 @@ function attemptStep(S, group, blocked) {
       addComputed(S, t.cand.id, makeRecord(t.d, t.cand, true));
     }
     queue = [];
-    if (changed.size) for (const t of tags) if (!t.blocked) t.results.forEach((r, i) => { if (r?.deps.some(k => changed.has(k))) queue.push([t, i]); });
+    if (changed.size) for (const t of tags) if (!t.blocked) t.results.forEach((r, i) => {
+      if (r) for (const k of r.deps) if (changed.has(k)) { queue.push([t, i]); return; }
+    });
   }
   return { jobs, tags, values };
 }
@@ -1474,8 +1506,8 @@ function attemptStep(S, group, blocked) {
 // candidates, each strongly connected group that loops and has a value formula's candidate in it.
 function loopsIn(run) {
   const edges = new Map(), values = new Set();
-  for (const t of run.tags) if (!t.blocked) edges.set(t.cand.key, new Set(t.results.flatMap(r => r?.deps ?? [])));
-  for (const job of run.values) if (!job.blocked) { edges.set(job.cand.key, new Set(job.deps ?? [])); values.add(job.cand.key); }
+  for (const t of run.tags) if (!t.blocked) edges.set(t.cand.key, new Set(t.results.flatMap(r => r ? [...r.deps] : [])));
+  for (const job of run.values) if (!job.blocked) { edges.set(job.cand.key, new Set(job.deps ?? NONE)); values.add(job.cand.key); }
   if (!values.size) return [];
   const index = new Map(), low = new Map(), stack = [], onStack = new Set(), out = [];
   let counter = 0;
@@ -1746,7 +1778,7 @@ function why(n, c) {
       if (f === 'IMPLIEDBY' && a.length >= 2) {
         const v = asRec(S, ev(a[0].x, c));
         const r = v?.id ? S.recs[v.id] : null;
-        const held = S.prov.get(argKey(argsOf(r))) ?? new Set();
+        const held = r ? S.prov.get(keyOf(r)) ?? new Set() : new Set();
         const labels = a.slice(1).map(x => toText(S, ev(x.x, c))).filter(l => typeof l === 'string' && held.has(norm(l)));
         return `${relationText(S, a[0].x, r)} by ${labels.join(', ')}`;
       }
