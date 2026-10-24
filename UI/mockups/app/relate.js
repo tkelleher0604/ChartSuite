@@ -132,7 +132,7 @@ function relateRow(row, a, b) {
   if (row.needs)
     return `<div class="relate-row is-unavailable">${roles}<div class="relate-c relate-needs" title="${esc(row.needs)}">${esc(row.needs)}</div></div>`;
   const recorded = row.existing.map(ex => `<div class="relate-row">${roles}
-      <div class="relate-out">${relationOutput(ex.id, relationLabel(records[ex.id]))}<span class="relate-acts">${openRelation(ex.id)}</span></div>
+      <div class="relate-out">${relationOutput(ex.id, relationLabel(records[ex.id]))}${relationDetails(ex.id)}<span class="relate-acts">${openRelation(ex.id)}</span></div>
       ${extraArgs(row, ex)}</div>`).join('');
   // A two-parameter relation is recorded at most once per pair; with more parameters, more can be added,
   // on a line that's just the pickers for the other parameters, beside the output.
@@ -182,7 +182,7 @@ function newKindForm(a, b) {
   return `<div class="relate-new">
     <div class="relate-grid">
       <input class="input" data-relate-field="roleA" value="${esc(f.roleA)}" placeholder="Role, like Owner" list="relate-edges" autocomplete="off" spellcheck="false">
-      <input class="input" data-relate-field="roleB" value="${esc(f.roleB)}" placeholder="Role, like Holding" list="relate-edges" autocomplete="off" spellcheck="false">
+      <input class="input" data-relate-field="roleB" value="${esc(f.roleB)}" placeholder="Role, like Owned" list="relate-edges" autocomplete="off" spellcheck="false">
       ${where('locA', a, f.locA)}${where('locB', b, f.locB)}
     </div>
     <div class="relate-new-foot"><span class="seg" role="group" aria-label="Output">${types}</span>${output}

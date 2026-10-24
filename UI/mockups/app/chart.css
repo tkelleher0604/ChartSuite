@@ -136,8 +136,10 @@ body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-temp
 .wire-hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke; cursor: pointer; }
 .wire-line { fill: none; }
 .wire-label { paint-order: stroke; stroke: #ffffff; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.wire-text { pointer-events: auto; cursor: pointer; }
+.wire-text.is-engaged { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
 .wire.is-selected .wire-line { stroke: #2b59c3 !important; }
-.wire.is-selected .wire-label { fill: #2b59c3 !important; }
+.wire.is-selected .wire-text { fill: #2b59c3 !important; }
 .connect-line { stroke: #2b59c3; stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
 .relate-line { stroke: #2b59c3; stroke-width: 2; stroke-dasharray: 7 5; fill: none; animation: march .7s linear infinite; }
 .relate-end { fill: #2b59c3; }
@@ -205,7 +207,7 @@ body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-temp
 
 /* While a relation is being added, the ribbon waits too. */
 body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
-.stage.is-locked .node, .stage.is-locked .wire-hit { pointer-events: none; }
+.stage.is-locked .node, .stage.is-locked .wire-hit, .stage.is-locked .wire-text { pointer-events: none; }
 .stage.is-locked .handle, .stage.is-picking .handle { display: none; }
 
 /* Something required is blank: an asterisk at the box's corner. It's an editing mark, not part of the chart. */

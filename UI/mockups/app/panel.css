@@ -74,7 +74,10 @@ h1 .select.in-title .icon { width: 16px; height: 16px; }
    no room until the item is hovered, and then sit after the name, so the output doesn't move. */
 .rel-items { display: grid; gap: 6px; }
 .rel-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 20px; }
-.rel-item > .loc { flex: 0 1 auto; min-width: min(8rem, 100%); }
+.rel-item > .loc, .rel-lead { flex: 0 1 auto; min-width: min(8rem, 100%); }
+/* A tag's checkbox stays beside the other side's name, which wraps beside it if it must. */
+.rel-lead { display: flex; align-items: flex-start; gap: 8px; }
+.rel-lead > .loc { min-width: 0; }
 .rel-output { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rel-item-actions { display: none; }
 .rel-item:hover .rel-item-actions, .rel-item:focus-within .rel-item-actions { display: flex; }
@@ -82,6 +85,12 @@ h1 .select.in-title .icon { width: 16px; height: 16px; }
 .rel-row:hover .rel-acts, .rel-row:focus-within .rel-acts { opacity: 1; }
 @media (hover: none) { .rel-item-actions { display: flex; } .rel-acts { opacity: 1; } }
 .rel-value { padding: 0; border: 0; background: none; cursor: text; font-variant-numeric: tabular-nums; }
+/* Fields located at a relation, like an ownership's Percentage, after its output, a shade lighter. */
+.rel-details { display: inline-flex; align-items: center; gap: 10px; }
+.rel-output > :not(.rel-details) + .rel-details { margin-left: 10px; }
+.rel-detail .rel-value { color: var(--text-2); }
+.rel-detail .rel-value.is-blank { color: var(--text-3); }
+.rel-detail .rel-value.is-blank:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .input.rel-input { width: 9rem; height: 24px; margin: -2px 0; }
 .rel-output:has(.rel-error) { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .rel-error { font-size: 12px; line-height: 16px; color: var(--danger); white-space: normal; }

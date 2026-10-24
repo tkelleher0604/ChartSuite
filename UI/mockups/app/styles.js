@@ -41,10 +41,12 @@ const COLORS = [
 const SOFT_FILLS = ['#e8eefb', '#e7f5ec', '#fdf0e1', '#ece9fb', '#e6f4f6', '#fdecec', '#f4f4f5'];
 
 // The sample chart's styles. Ownership has three parameterizations here (owners that are Entities,
-// Individuals and Investor Groups), so it has three styles.
+// Individuals and Investor Groups), so it has three line styles, and its Percentage three more. The
+// lines carry no label of their own; the Percentage at each one labels it, and a ruled-out ownership
+// isn't drawn.
 function defaultStyles(recs) {
   const p = id => parameterization(recs, id);
-  const line = { show: true, format: 'value' };
+  const owned = () => ({ true: { show: true, format: 'none' }, false: { show: false } });
   const muted = { show: true, format: 'paren', size: 10.5, color: '#52525b' };
   return [
     { id: 'st_kind', param: '[]', label: 'Kind', where: 'every object',
@@ -59,9 +61,12 @@ function defaultStyles(recs) {
       'main fund': { fill: '#e8eefb' }, 'feeder fund': { fill: '#e8eefb' }, 'portfolio company': { fill: '#f4f4f5' } } },
     { id: 'st_jurisdiction', param: p('fund_juris'), map: { delaware: muted, 'cayman islands': muted } },
     { id: 'st_good_standing', param: p('fund_good'), map: { false: { stroke: '#d63b3b', strokeWidth: 2, dash: 'dashed' } } },
-    { id: 'st_own_entities', param: p('own_fund_blkr'), map: { number: line } },
-    { id: 'st_own_individuals', param: p('own_chen_gp'), map: { number: line } },
-    { id: 'st_own_investors', param: p('own_us_fund'), map: { number: line } },
+    { id: 'st_own_entities', param: p('own_fund_blkr'), map: owned() },
+    { id: 'st_own_individuals', param: p('own_chen_gp'), map: owned() },
+    { id: 'st_own_investors', param: p('own_us_fund'), map: owned() },
+    { id: 'st_pct_entities', param: p('own_fund_blkr_pct'), map: { number: { show: true } } },
+    { id: 'st_pct_individuals', param: p('own_chen_gp_pct'), map: { number: { show: true } } },
+    { id: 'st_pct_investors', param: p('own_us_fund_pct'), map: { number: { show: true } } },
     { id: 'st_gp_lp', param: p('gp_of_fund'), map: { true: { show: true, dash: 'dashed', format: 'label' } } },
     { id: 'st_gp_elp', param: p('gp_of_feeder'), map: { true: { show: false, dash: 'dashed', format: 'label' } } },
     { id: 'st_member', param: p('mem_chen_gp'), map: { 'managing member': { show: false }, member: { show: false } } },
@@ -78,8 +83,15 @@ const isLineStyle = s => { const id = sampleOf(s.param); return id ? isRelation(
 // A record with the parameterization, to read its labels and locations from.
 const sampleOf = param => Object.keys(records).find(id => parameterization(records, id) === param);
 
-// How a location reads in a style's description: an object's kind, then any segments below it.
-const kindPath = at => pathTo(at).map((id, i) => i ? segmentText(id) : records[id].kind).join(' › ');
+// How a location reads in a style's description: an object's kind, or a relation's edges and the kinds
+// it relates, then any segments below it.
+const kindPath = at => pathTo(at).map((id, i) => i ? segmentText(id) : isRelation(records[id]) ? relationKindPath(id) : records[id].kind).join(' › ');
+const relationKindPath = id => `${relationLabel(records[id])} (${records[id].args.map(a => kindPath(a.at)).join(' → ')})`;
+
+// Whether a record sits at a relation, or below one, so that it shows by the relation's line, not in a box;
+// and whether a style is on such records, like the Percentage at an ownership.
+const onRelation = id => !isRelation(records[id]) && isRelation(records[objectOf(id)]);
+const isLineTextStyle = s => { const id = sampleOf(s.param); return !!id && onRelation(id); };
 
 // A style's name and what it covers, from a record with its parameterization if there still is one.
 // The last description worked out for each parameterization, for a style whose records have all gone.
@@ -180,15 +192,25 @@ function boxLook(obj) {
   return { box, text, lines, applied };
 }
 
-// A two-argument relation's line, and its label's text.
+// A two-argument relation's line, and its label. The label is the relation's own text, unless its style
+// says No label, followed by the text of each record located at it whose style shows it, such as an
+// ownership's Percentage. Like text in a box, each part takes the line's text properties unless its own
+// style sets them.
 function lineLook(id) {
   const r = records[id];
   const style = styleOf(id);
   const look = { ...LINE_DEFAULTS, ...(style?.map[outputKey(r)] ?? {}) };
-  const label = look.format === 'none' ? ''
+  const own = look.format === 'none' ? ''
     : look.format === 'label' || isTag(r) ? r.args[0].edge
     : isField(r) ? displayValue(r) : r.choice;
-  return { ...look, label, styleId: style?.id };
+  const text = pickProps(look, TEXT_PROPS);
+  const parts = own ? [{ id, styleId: style?.id, text: own, look: text }] : [];
+  for (const e of panelOrder(id).slice(1)) {
+    const s = styleOf(e);
+    const props = s?.map[outputKey(records[e])];
+    if (props?.show) parts.push({ id: e, styleId: s.id, text: lineText(e, props.format), look: { ...text, ...pickProps(props, TEXT_PROPS) } });
+  }
+  return { ...look, label: parts.map(p => p.text).join(' '), parts, styleId: style?.id };
 }
 
 // The effective value of each property for a style's output, as the ribbon shows it: what the style sets,

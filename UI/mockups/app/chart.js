@@ -20,14 +20,15 @@ const snap = v => Math.round(v / GRID) * GRID;
 
 // ---- Selection ----
 
-// What the hash selects: a box (an object, or a record in one), a relation's line, or the two sides of a
-// relation being added.
+// What the hash selects: a box (an object, or a record in one), a relation's line (the relation, or a
+// record located at it, like an ownership's Percentage), or the two sides of a relation being added.
 function selection() {
   const view = currentView();
   if (view.relate) return { relate: view.relate };
   if (!view.id) return {};
-  if (isRelation(records[view.id])) return { relation: view.id, record: view.id };
-  return { object: objectOf(view.id), record: view.id };
+  const head = objectOf(view.id);
+  if (isRelation(records[head])) return { relation: head, record: view.id };
+  return { object: head, record: view.id };
 }
 
 // Moves the selection, re-rendering even when the hash doesn't change.
@@ -40,7 +41,7 @@ function go(hash) {
 
 // The engaged style is the one the ribbon's formatting controls edit, and that the panel and chart point
 // out. It's the one picked, if any; otherwise it follows the selection: a selected record's own style, or
-// the last style to set the look of the selected box, or the selected line's style.
+// the last style to set the look of the selected box, or the selected line's own style.
 function currentEngaged() {
   const s = chart.engaged && styleById(chart.engaged.styleId);
   if (s) return { style: s, output: chart.engaged.output };
@@ -50,8 +51,9 @@ function currentEngaged() {
 function defaultEngaged() {
   const sel = selection();
   if (sel.relation) {
-    const s = styleOf(sel.relation);
-    return s ? { style: s, output: outputKey(records[sel.relation]) } : null;
+    const id = sel.record !== sel.relation && styleOf(sel.record) ? sel.record : sel.relation;
+    const s = styleOf(id);
+    return s ? { style: s, output: outputKey(records[id]) } : null;
   }
   if (sel.object) {
     if (sel.record !== sel.object) {
@@ -71,10 +73,14 @@ function engage(styleId, output) {
   chart.engaged = { styleId, output: output ?? selectionOutput(styleById(styleId)) ?? styleOutputs(styleById(styleId))[0]?.[0] ?? '*' };
 }
 
-// The output through which a style applies to the selection, if it does.
+// The output through which a style applies to the selection, if it does: to the selected box, or to the
+// selected line or something located at it.
 function selectionOutput(style) {
   const sel = selection();
-  if (sel.relation) return style.param === parameterization(records, sel.relation) ? outputKey(records[sel.relation]) : undefined;
+  if (sel.relation) {
+    const id = panelOrder(sel.relation).find(k => parameterization(records, k) === style.param);
+    return id ? outputKey(records[id]) : undefined;
+  }
   if (sel.object) return boxLook(sel.object).applied.find(a => a.style === style)?.output;
 }
 
@@ -91,7 +97,7 @@ function syncEngaged() {
 // The boxes, lines of text and relation lines the engaged style's entry reaches, to point them out.
 function coveredBy(eng) {
   const ids = new Set(eng ? recordsWithOutput(eng.style, eng.output) : []);
-  return { ids, objects: new Set([...ids].filter(id => !isRelation(records[id])).map(objectOf)) };
+  return { ids, objects: new Set([...ids].map(objectOf).filter(id => !isRelation(records[id]))) };
 }
 
 // ---- Drawing ----
@@ -241,7 +247,14 @@ function pathD(points, r = 6) {
   return `${d} L${end[0]},${end[1]}`;
 }
 
-function wiresSvg(geo, sel, eng) {
+// A line's label is in parts: the relation's own text, and each record at it that shows, like a
+// Percentage. Clicking a part engages its style, as clicking a line of text in a box does.
+function labelPart(p, covered, eng) {
+  const engaged = covered.ids.has(p.id) && eng?.style.id === p.styleId ? ' is-engaged' : '';
+  return `<tspan class="wire-text${engaged}" data-wire-text="${p.id}" style="${textCss(p.look)}" fill="${p.look.color}">${esc(p.text)}</tspan>`;
+}
+
+function wiresSvg(geo, sel, eng, covered) {
   const lines = [];
   for (const [id, r] of Object.entries(records)) {
     if (!isRelation(r) || r.args.length !== 2) continue;
@@ -255,7 +268,7 @@ function wiresSvg(geo, sel, eng) {
     const d = pathD(l.points);
     const { look } = l;
     const selected = sel.relation === l.id ? ' is-selected' : '';
-    const label = look.label ? `<text class="wire-label" x="${l.label.x}" y="${l.label.y}" text-anchor="middle" dominant-baseline="middle" style="${textCss(look)}" fill="${look.color}">${esc(look.label)}</text>` : '';
+    const label = look.parts.length ? `<text class="wire-label" x="${l.label.x}" y="${l.label.y}" text-anchor="middle" dominant-baseline="middle">${look.parts.map(p => labelPart(p, covered, eng)).join(' ')}</text>` : '';
     return `<g class="wire${selected}" data-wire="${l.id}"><path class="wire-hit" d="${d}" data-wire="${l.id}" />
       <path class="wire-line" d="${d}" stroke="${look.stroke}" stroke-width="${look.strokeWidth}" stroke-dasharray="${DASH_ARRAYS[look.dash]}" stroke-linecap="${look.dash === 'dotted' ? 'round' : 'butt'}" />${label}</g>`;
   }).join('');
@@ -346,7 +359,7 @@ function renderChart() {
   sheet.classList.toggle('has-grid', prefs.grid !== false);
   Object.assign(document.getElementById('sizer').style, { width: `${w * chart.zoom}px`, height: `${h * chart.zoom}px` });
   for (const svg of sheet.querySelectorAll('svg.wires, svg.overlay')) svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  document.getElementById('wires').innerHTML = wiresSvg(geo, sel, eng);
+  document.getElementById('wires').innerHTML = wiresSvg(geo, sel, eng, covered);
   document.getElementById('overlay').innerHTML = overlaySvg(geo, sel);
   document.getElementById('quick').innerHTML = quickMenuHtml();
   const stage = document.getElementById('stage');
@@ -507,7 +520,15 @@ document.addEventListener('pointerdown', e => {
     chart.move = { id, startX: x, startY: y, place: placeOf(id, autoPlaces()), x: 0, y: 0, moved: false, line };
     return;
   }
-  if (wire) return go(wire.dataset.wire);
+  if (wire) {
+    // A click on a part of the label located at the relation engages that part's style; a click elsewhere
+    // on an already selected line goes back to the style that follows the selection.
+    const part = e.target.closest('[data-wire-text]')?.dataset.wireText;
+    const style = part && part !== wire.dataset.wire && styleOf(part);
+    if (style) chart.engaged = { styleId: style.id, output: outputKey(records[part]) };
+    else if (sel.relation === wire.dataset.wire) chart.engaged = null;
+    return go(wire.dataset.wire);
+  }
   if (e.target.closest('#sheet')) go('');
 });
 

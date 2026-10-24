@@ -512,11 +512,28 @@ function locationHtml(id, keep = 0, marked = false) {
 }
 const locationText = id => segmentText(pathTo(id)[0]);
 
-// A relation's value, typed over in place; `label` names it in an error, as the row it's in does.
-function relationValue(id, label) {
+// A relation's value, or a field located at it, typed over in place; `label` names it in an error, as the
+// row it's in does.
+function relationValue(id, label, title = 'Change') {
   const edit = ui.relEdit?.id === id ? ui.relEdit : null;
-  if (!edit) return `<button class="rel-value" data-action="rel-edit" data-id="${id}" data-label="${esc(label)}" title="Change">${esc(displayValue(records[id]))}</button>`;
+  if (!edit) return `<button class="rel-value" data-action="rel-edit" data-id="${id}" data-label="${esc(label)}" title="${esc(title)}">${esc(displayValue(records[id]))}</button>`;
   return `<input class="input rel-input" data-rel-edit="${id}" value="${esc(edit.text)}" autocomplete="off" spellcheck="false" data-autofocus>`
+    + (edit.error ? `<span class="rel-error">${esc(edit.error)}</span>` : '');
+}
+
+// The fields located at a relation, such as an ownership's Percentage, read and changed at a glance after
+// its output. A field that relations like it have but it lacks shows as a blank to fill in.
+function relationDetails(id) {
+  const have = entriesOf(id).filter(e => isField(records[e]));
+  const blanks = detailFieldsOf(id).filter(d => !have.some(e => same(records[e].edge, d.label)));
+  const parts = have.map(e => relationValue(e, records[e].edge, records[e].edge)).concat(blanks.map(d => detailBlank(id, d)));
+  return parts.length ? `<span class="rel-details">${parts.map(p => `<span class="rel-detail">${p}</span>`).join('')}</span>` : '';
+}
+
+function detailBlank(at, d) {
+  const edit = !ui.relEdit?.id && ui.relEdit?.at === at && same(ui.relEdit.label, d.label) ? ui.relEdit : null;
+  if (!edit) return `<button class="rel-value is-blank" data-action="detail-add" data-id="${at}" data-label="${esc(d.label)}" data-datatype="${d.datatype}" title="Add its ${esc(d.label)}">${esc(d.label)}</button>`;
+  return `<input class="input rel-input" data-rel-edit="${at}" value="${esc(edit.text)}" placeholder="${esc(d.label)}" autocomplete="off" spellcheck="false" data-autofocus>`
     + (edit.error ? `<span class="rel-error">${esc(edit.error)}</span>` : '');
 }
 
@@ -530,16 +547,19 @@ const openRelation = id =>
   `<a class="icon-btn is-small" href="#${id}" aria-label="Open this relation" title="Open">${icon('arrow-right')}</a>`;
 
 // A two-argument relation at a location reads like any entry: labeled with the other side's edge, with the
-// other side's location as its value. Relations sharing that label are listed together in one row.
+// other side's location as its value. Relations sharing that label are listed together in one row. A tag's
+// checkbox comes first; a field's value or a choice's option, and the fields located at the relation, last.
 function relationRow(g, at, depth) {
   const name = g.others.join(' · ') || g.own.join(' · ');
   const label = `<span class="twisty"></span><span class="label-text">${esc(name)}</span>`;
   const items = g.ids.map(id => {
     const r = records[id];
     const other = r.args.find(a => a.at !== at) ?? r.args[0];
-    return `<div class="rel-item">${isTag(r) ? relationOutput(id) : ''}${locationHtml(other.at)}
+    const output = (isTag(r) ? '' : relationOutput(id, name)) + relationDetails(id);
+    const lead = isTag(r) ? `<span class="rel-lead">${relationOutput(id)}${locationHtml(other.at)}</span>` : locationHtml(other.at);
+    return `<div class="rel-item">${lead}
       <span class="rel-item-actions">${openRelation(id)}${deleteButton(id, true)}</span>
-      ${isTag(r) ? '' : `<span class="rel-output">${relationOutput(id, name)}</span>`}</div>`;
+      ${output ? `<span class="rel-output">${output}</span>` : ''}</div>`;
   }).join('');
   const canAdd = relationTypesAt(at).some(t => t.key === g.key);
   const actions = canAdd ? `<button class="icon-btn" data-action="add-relation" data-id="${at}" data-key="${esc(g.key)}" aria-label="Add another ${esc(name)}" title="Add another">${icon('plus')}</button>` : '';
@@ -896,6 +916,7 @@ const actions = {
   'add-relation': d => startRelationForm(d.id, d.key),
   'set-choice': d => setChoice(d.id, d.value),
   'rel-edit': d => { clearForms(); ui.relEdit = { id: d.id, label: d.label, text: displayValue(records[d.id]), error: null }; },
+  'detail-add': d => { clearForms(); ui.relEdit = { at: d.id, label: d.label, datatype: d.datatype, text: '', error: null }; },
   'pending-yes': () => { const { apply } = ui.pending; ui.pending = null; apply(); },
   'pending-no': () => { ui.pending = null; },
   'full-paths': () => { ui.fullPaths = !ui.fullPaths; },
@@ -1065,7 +1086,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && t.matches('[data-rel-edit]')) {
     e.preventDefault();
     const edit = ui.relEdit;
-    edit.error = saveFieldValue(edit.id, t.value, edit.label);
+    edit.error = edit.id ? saveFieldValue(edit.id, t.value, edit.label) : addFieldValue(edit.at, edit.label, t.value, edit.datatype);
     if (!edit.error) ui.relEdit = null;
     return render();
   }
@@ -1105,11 +1126,13 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// The object a hash's view is about, if any: a record's object, or the first side being related.
+// The object a hash's view is about, if any: a record's object, or the first side being related. A
+// relation, and what's located at it, belong to no one object.
 function objectOfHash(hash) {
   const h = decodeURIComponent(hash.replace(/^#/, ''));
   const id = h.startsWith('relate:') ? h.slice(7).split(':')[0] : h;
-  return records[id] && !isRelation(records[id]) ? objectOf(id) : null;
+  const obj = records[id] && objectOf(id);
+  return obj && isObject(records[obj]) ? obj : null;
 }
 
 const listing = items => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;

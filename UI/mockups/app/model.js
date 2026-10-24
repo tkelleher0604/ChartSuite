@@ -106,17 +106,28 @@ const SAMPLE = {
   gp_of_feeder:    { args: [{ edge: 'GP', at: 'gp' }, { edge: 'Fund Owned', at: 'feeder_type' }], tag: true },
   gp_admitted:     { at: 'gp_of_fund', edge: 'Admission Date', field: 'date', value: '2023-02-14' },
 
-  // Ownership percentages: a number field relating owner and holding.
-  own_us_fund:     { args: [{ edge: 'Owner', at: 'inv_us' }, { edge: 'Holding', at: 'fund' }], field: 'number', value: '71.6%' },
-  own_nonus_fdr:   { args: [{ edge: 'Owner', at: 'inv_nonus' }, { edge: 'Holding', at: 'feeder' }], field: 'number', value: '100%' },
-  own_fund_blkr:   { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Holding', at: 'blocker' }], field: 'number', value: '100%' },
-  own_fund_npine:  { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Holding', at: 'northpine' }], field: 'number', value: '64%' },
-  own_blkr_hlvd:   { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Holding', at: 'halvard' }], field: 'number', value: '82%' },
-  own_fdr_fund:    { args: [{ edge: 'Owner', at: 'feeder' }, { edge: 'Holding', at: 'fund' }], field: 'number', value: '28.4%' },
-  own_chen_mgmt:   { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Holding', at: 'mgmt' }], field: 'number', value: '60%' },
-  own_okfr_mgmt:   { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Holding', at: 'mgmt' }], field: 'number', value: '40%' },
-  own_chen_gp:     { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Holding', at: 'gp' }], field: 'number', value: '50%' },
-  own_okfr_gp:     { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Holding', at: 'gp' }], field: 'number', value: '50%' },
+  // Ownership: a tag relating owner and owned, with the Percentage owned located at it, so that more can be
+  // recorded about an ownership (its class of interest, say) and formulas can read it (see formulas.md).
+  own_us_fund:     { args: [{ edge: 'Owner', at: 'inv_us' }, { edge: 'Owned', at: 'fund' }], tag: true },
+  own_us_fund_pct: { at: 'own_us_fund', edge: 'Percentage', field: 'number', value: '71.6%' },
+  own_nonus_fdr:   { args: [{ edge: 'Owner', at: 'inv_nonus' }, { edge: 'Owned', at: 'feeder' }], tag: true },
+  own_nonus_fdr_pct: { at: 'own_nonus_fdr', edge: 'Percentage', field: 'number', value: '100%' },
+  own_fund_blkr:   { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: 'blocker' }], tag: true },
+  own_fund_blkr_pct: { at: 'own_fund_blkr', edge: 'Percentage', field: 'number', value: '100%' },
+  own_fund_npine:  { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: 'northpine' }], tag: true },
+  own_fund_npine_pct: { at: 'own_fund_npine', edge: 'Percentage', field: 'number', value: '64%' },
+  own_blkr_hlvd:   { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Owned', at: 'halvard' }], tag: true },
+  own_blkr_hlvd_pct: { at: 'own_blkr_hlvd', edge: 'Percentage', field: 'number', value: '82%' },
+  own_fdr_fund:    { args: [{ edge: 'Owner', at: 'feeder' }, { edge: 'Owned', at: 'fund' }], tag: true },
+  own_fdr_fund_pct: { at: 'own_fdr_fund', edge: 'Percentage', field: 'number', value: '28.4%' },
+  own_chen_mgmt:   { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Owned', at: 'mgmt' }], tag: true },
+  own_chen_mgmt_pct: { at: 'own_chen_mgmt', edge: 'Percentage', field: 'number', value: '60%' },
+  own_okfr_mgmt:   { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Owned', at: 'mgmt' }], tag: true },
+  own_okfr_mgmt_pct: { at: 'own_okfr_mgmt', edge: 'Percentage', field: 'number', value: '40%' },
+  own_chen_gp:     { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Owned', at: 'gp' }], tag: true },
+  own_chen_gp_pct: { at: 'own_chen_gp', edge: 'Percentage', field: 'number', value: '50%' },
+  own_okfr_gp:     { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Owned', at: 'gp' }], tag: true },
+  own_okfr_gp_pct: { at: 'own_okfr_gp', edge: 'Percentage', field: 'number', value: '50%' },
 
   // LLC membership: a choice relating a member to an LLC, by way of its Entity Type.
   mem_chen_gp:     { args: [{ edge: 'Member', at: 'chen' }, { edge: 'LLC', at: 'gp_type' }], choice: 'Managing Member' },
@@ -148,7 +159,7 @@ const SAMPLE_LAYOUT = {
   halvard:   { x: 240, y: 690, w: 200 },
 };
 
-const STORAGE_KEY = 'rboreal.state.v6';
+const STORAGE_KEY = 'rboreal.state.v7';
 
 // The state is the records plus what goes with them:
 // - order: the order entries are shown in, kept per location specification (see specKey), so that, say,
@@ -345,6 +356,22 @@ const parameterization = (recs, id) => JSON.stringify(argSpecs(recs, recs[id]));
 const outputKey = r => isObject(r) ? norm(r.kind) : isTag(r) ? String(r.tag) : isChoice(r) ? norm(r.choice) : r.field;
 const outputText = r => isObject(r) ? r.kind : isTag(r) ? (r.tag ? 'Attested' : 'Ruled out') : isChoice(r) ? r.choice : DATATYPE_NAMES[r.field];
 
+// The fields that relations like this one have located at them, as { label, datatype }: relations with the
+// same edges and output, whatever kinds their sides are, so ownership by a new kind of owner is offered a
+// Percentage too. A ruled-out tag has none.
+function detailFieldsOf(id) {
+  const r = records[id];
+  const shape = s => JSON.stringify([typeOf(s), isTag(s) && s.tag, s.args.map(a => norm(a.edge)).sort()]);
+  if (isTag(r) && !r.tag) return [];
+  const fields = new Map();
+  for (const s of Object.values(records)) {
+    const loc = s.at && records[s.at];
+    if (isField(s) && loc && isRelation(loc) && shape(loc) === shape(r) && !fields.has(norm(s.edge)))
+      fields.set(norm(s.edge), { label: s.edge, datatype: s.field });
+  }
+  return [...fields.values()];
+}
+
 // Relations with an argument at `id`.
 const relationsAt = (id, recs = records) =>
   Object.keys(recs).filter(k => isRelation(recs[k]) && recs[k].args.some(a => a.at === id));
@@ -539,6 +566,17 @@ function saveFieldValue(id, raw, label = labelOf(records[id])) {
   if (value === undefined) return clean(raw) ? `${label} takes ${asPhrase(datatype)} here.` : `${label} can’t be empty.`;
   if (datatype === r.field && value === r.value) return null;
   return commit({ ...records, [id]: { ...r, field: datatype, value } });
+}
+
+// Adds a field typed in place at a location, such as a Percentage at a new ownership. Its datatype is the
+// one other fields with its parameterization have, or else `datatype`, or else a guess from the value.
+// Nothing typed adds nothing. Returns why it couldn't be added, if it couldn't.
+function addFieldValue(at, label, raw, datatype) {
+  if (!clean(raw)) return null;
+  const type = fieldDatatype(at, label) ?? datatype ?? classify(clean(raw));
+  const value = parseValue(type, raw);
+  if (value === undefined) return `${label} takes ${asPhrase(type)} here.`;
+  return commit({ ...records, [newId()]: { at, edge: label, field: type, value } });
 }
 
 // Creates an object of a kind with its Name, returning its id, or a message saying why it couldn't.

@@ -36,7 +36,10 @@ function shownProps(eng) {
   const sel = selection();
   let base = isLineStyle(eng.style) ? LINE_DEFAULTS : { ...BOX_DEFAULTS, ...TEXT_DEFAULTS, show: false, format: 'value' };
   if (isLineStyle(eng.style) && sel.relation && styleOf(sel.relation) === eng.style) base = lineLook(sel.relation);
-  else if (sel.object && !isLineStyle(eng.style)) {
+  else if (sel.relation && selectionOutput(eng.style) !== undefined) {
+    // Text shown by a line takes the line's text properties unless its own style sets them.
+    base = { ...BOX_DEFAULTS, ...pickProps(lineLook(sel.relation), TEXT_PROPS), show: false, format: 'value' };
+  } else if (sel.object && !isLineStyle(eng.style)) {
     const look = boxLook(sel.object);
     if (look.applied.some(a => a.style === eng.style)) {
       const line = look.lines.find(l => l.styleId === eng.style.id);
@@ -48,18 +51,19 @@ function shownProps(eng) {
   return { props, own, inherited };
 }
 
-// The styles worth showing in the gallery: those applying to the selection, or all of them.
+// The styles worth showing in the gallery: those applying to the selection (a box, or a line and what's
+// located at it), or all of them.
 function galleryStyles() {
   const sel = selection();
   if (sel.object) return [...new Map(boxLook(sel.object).applied.map(a => [a.style.id, { style: a.style, output: a.output }])).values()];
-  if (sel.relation) { const s = styleOf(sel.relation); return s ? [{ style: s, output: outputKey(records[sel.relation]) }] : []; }
+  if (sel.relation) return panelOrder(sel.relation).filter(id => styleOf(id)).map(id => ({ style: styleOf(id), output: outputKey(records[id]) }));
   return styles.map(s => ({ style: s, output: null }));
 }
 
 // Records in the selection that could have a style of their own but don't yet.
 function styleCandidates() {
   const sel = selection();
-  const ids = sel.object ? panelOrder(sel.object).slice(1) : sel.relation ? [sel.relation] : [];
+  const ids = sel.object ? panelOrder(sel.object).slice(1) : sel.relation ? panelOrder(sel.relation) : [];
   const seen = new Set();
   return ids.filter(id => {
     const p = parameterization(records, id);
@@ -101,7 +105,8 @@ function styleGroup(eng) {
       + `<div class="menu-sep"></div><button class="menu-item" role="menuitemradio" aria-checked="${eng.output === '*'}" data-action="style-scope" data-output="*"><span class="menu-text">Every option</span>${eng.output === '*' ? icon('check') : ''}</button>`)
       : `<span class="rb-note"><strong>${esc(outText)}</strong></span>`;
     const n = recordsWithOutput(eng.style, eng.output).length;
-    const noun = isLineStyle(eng.style) ? 'line' : isKindStyle(eng.style) || BOX_PROPS.some(p => effectiveProps(eng.style, viewOutput(eng)).own[p] !== undefined) ? 'box' : 'place';
+    const noun = isLineStyle(eng.style) ? 'line' : isLineTextStyle(eng.style) ? 'label'
+      : isKindStyle(eng.style) || BOX_PROPS.some(p => effectiveProps(eng.style, viewOutput(eng)).own[p] !== undefined) ? 'box' : 'place';
     const over = overriddenProps(eng);
     const first = Object.entries(over)[0];
     const note = first ? `<span class="rb-note is-warn">${esc(propName(first[0]))} on this box comes from <button class="link-btn" data-action="style-engage" data-style="${first[1].id}">${esc(describeStyle(first[1]).label)}</button></span>`
@@ -170,7 +175,7 @@ function showGroup(eng) {
   const line = eng && isLineStyle(eng.style);
   const shown = fixed || (line ? own.show !== false : !!own.show);
   const toggle = `<button class="rb-check" data-action="style-prop" data-prop="show" data-value="${!shown}" aria-pressed="${shown}"${fixed ? ' disabled' : ''}
-    title="${line ? 'Draw these relations as lines' : 'Show this entry as a line of text in its box'}">${box(shown ? true : null)}${line ? 'Draw line' : 'Show text'}</button>`;
+    title="${line ? 'Draw these relations as lines' : eng && isLineTextStyle(eng.style) ? 'Show this entry by its relation’s line' : 'Show this entry as a line of text in its box'}">${box(shown ? true : null)}${line ? 'Draw line' : 'Show text'}</button>`;
   const formats = line ? LINE_FORMATS : FORMATS;
   const current = formats.find(([v]) => v === own.format)?.[1] ?? formats[0][1];
   const format = rbMenu('rb:format', `<span class="rb-field-text">${esc(current)}</span>`, { cls: 'rb-field is-wide', title: line ? 'Label' : 'How the text reads', disabled: fixed || !shown }, () =>
