@@ -211,16 +211,26 @@ function boxLook(obj) {
   return { box, text, lines, applied };
 }
 
+// Whether a formula covers a record's parameterization. The covered parameterizations are worked out once
+// for each working-out of the formulas, which a change to the definitions always brings.
+const coveredCache = new WeakMap();
+function coveredByFormula(id) {
+  if (!coveredCache.has(formulaResult))
+    coveredCache.set(formulaResult, new Set(definitions.flatMap(d => { try { return Formulas.coversOf(d); } catch { return []; } })));
+  return coveredCache.get(formulaResult).has(parameterization(records, id));
+}
+
 // A two-argument relation's line, and its label. The label is the relation's own text, unless its style
 // says No label, followed by the text of each record located at it whose style shows it, such as an
 // ownership's Percentage. Like text in a box, each part takes the line's text properties unless its own
 // style sets them. A computed relation is drawn only where a style shows it, since formulas can relate
-// nearly everything to everything (every affiliate of every entity, say), and so is a ruled-out tag,
-// which records that two things are not related.
+// nearly everything to everything (every affiliate of every entity, say), and so is one entered where a
+// formula covers it (kept as entered, or overriding the formula), which would otherwise appear in every
+// view at once, and a ruled-out tag, which records that two things are not related.
 function lineLook(id) {
   const r = records[id];
   const style = styleOf(id);
-  const quiet = isComputed(id) || (isTag(r) && !r.tag);
+  const quiet = isComputed(id) || coveredByFormula(id) || (isTag(r) && !r.tag);
   const look = { ...LINE_DEFAULTS, ...(quiet ? { show: false } : {}), ...(style?.map[outputKey(r)] ?? {}) };
   const own = look.format === 'none' ? ''
     : look.format === 'label' || isTag(r) ? r.args[0].edge

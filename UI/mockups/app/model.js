@@ -437,10 +437,10 @@ function switchView(id) {
   saveState();
 }
 
-// A new view starts as a copy of the current one.
+// A new view starts as a copy of the current one, what it hides included.
 function addView(name) {
   pushUndo();
-  const view = { id: newId(), name, styles: structuredClone(styles), layout: structuredClone(layout) };
+  const view = { id: newId(), name, styles: structuredClone(styles), layout: structuredClone(layout), hidden: [...(viewInUse().hidden ?? [])] };
   views = [...currentViews(), view];
   viewId = view.id;
   saveState();

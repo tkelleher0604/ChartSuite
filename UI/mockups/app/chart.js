@@ -437,7 +437,7 @@ function focusChartEditor() {
   const tab = document.querySelector('[data-view-rename]');
   if (tab) {
     if (document.activeElement !== tab) tab.focus();
-    if (chart.renaming.select) { tab.select(); chart.renaming.select = false; }
+    if (chart.renaming?.select) { tab.select(); chart.renaming.select = false; }
     return;
   }
   const el = document.querySelector('[data-chart-edit], [data-quick-name]');
