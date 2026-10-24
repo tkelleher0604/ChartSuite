@@ -14,6 +14,7 @@ const ui = {
   fullPaths: false, // whether locations show every segment below their object, not just the distinguishing ones
   filters: {},      // per relation table, the location picked in each column's dropdown
   relEdit: null,    // id of the relation whose value is being typed over
+  info: null,       // what a change just did, when it's worth saying
 };
 
 // ---- Changes made from the panel ----
@@ -86,10 +87,27 @@ function saveForm() {
   return error;
 }
 
+// How a deleted record is listed under Deleted: an object by its name, a relation by its edges and sides,
+// an entry by its label and the object it was in.
+function deletedLabel(id) {
+  const r = records[id];
+  if (isObject(r)) return objectName(id);
+  if (isRelation(r)) return `${relationLabel(r)}: ${r.args.map(a => locationText(a.at)).join(' and ')}`;
+  const home = records[objectOf(id)];
+  return `${r.edge} on ${isObject(home) ? objectName(objectOf(id)) : relationLabel(home)}`;
+}
+
+// Deleting puts a record and whatever depends on it under Deleted (see deleteRecords). When others
+// depend on it, it asks first.
 function deleteEntry(id) {
-  const next = { ...records };
-  delete next[id];
-  ui.notice = commit(next);
+  const label = deletedLabel(id);
+  const dependents = withDependents([id]).size - 1;
+  const run = () => {
+    ui.notice = deleteRecords([id], label);
+    if (!ui.notice) ui.info = `Deleted ${label}. Undo, or restore it from Deleted.`;
+  };
+  if (!dependents) return run();
+  ui.pending = { message: `Delete ${labelOf(records[id])}, with the ${count(dependents, 'record')} that depend on it? They can be restored from Deleted.`, yes: 'Delete', apply: run };
 }
 
 function flipTag(id) {
@@ -207,7 +225,7 @@ function chooseOutput(value) {
 const where = r => isObject(r) ? `on ${plural(r.kind)}` : `under ${isRelation(r) ? relationLabel(r) : `${isTag(r) && !r.tag ? 'Not ' : ''}${r.edge}${isChoice(r) ? `: ${r.choice}` : ''}`}`;
 
 // Labels of this type already used at locations like this one (only those containing `text`, if `filter`),
-// then Create. A label taken here can't be reused, and a choice can't share a label with a tag or field.
+// then Create. A label taken here can't be reused, and labels of different types can't be shared.
 function nameOptions(f, text, filter) {
   const q = norm(text);
   const here = new Map(entriesOf(f.at).filter(id => id !== f.id).map(id => [norm(records[id].edge), records[id]]));
@@ -216,7 +234,7 @@ function nameOptions(f, text, filter) {
     const r = here.get(norm(label));
     if (r && isTag(r) && f.type === 'tag') return r.tag ? 'Already tagged' : 'Ruled out here';
     if (r) return `Already a ${typeOf(r)} here`;
-    const other = schema.find(p => same(p.label, label) && (p.type === 'choice') !== (f.type === 'choice'));
+    const other = schema.find(p => same(p.label, label) && p.type !== f.type);
     return other ? `A ${other.type} elsewhere` : '';
   };
   const meta = p => p.type === 'field' ? DATATYPE_NAMES[p.datatype] : p.type === 'choice' ? count(p.outputs.length, 'option') : '';
@@ -419,7 +437,7 @@ function twisty(id) {
 }
 
 const grip = id => isObjectName(id) ? ''
-  : `<button class="grip" data-grip="${id}" aria-label="Move ${esc(records[id].edge)} (Alt+Up or Alt+Down)" title="Drag to reorder">${icon('grip-vertical')}</button>`;
+  : `<button class="grip" data-grip="${id}" aria-label="Move ${esc(records[id].edge)} (Alt+Up or Alt+Down; Alt+Left moves it up a level)" title="Drag to reorder">${icon('grip-vertical')}</button>`;
 
 const ADD_TYPES = [
   ['field', 'A value, like a date, an amount or a name'],
@@ -460,8 +478,7 @@ function addMenu(at, compact = false) {
 
 function deleteButton(id, small = false) {
   const r = records[id];
-  const reason = hasEntries(id) ? 'Remove its entries first'
-    : isObjectName(id) ? `Every ${records[r.at].kind.toLowerCase()} needs a Name` : '';
+  const reason = isObjectName(id) ? `Every ${records[r.at].kind.toLowerCase()} needs a Name` : '';
   const cls = small ? 'icon-btn is-small' : 'icon-btn';
   return reason
     ? `<span title="${esc(reason)}"><button class="${cls}" disabled aria-label="Delete">${icon('trash')}</button></span>`
@@ -611,9 +628,30 @@ function formNote(plain = false) {
   const more = f.type === 'relation' ? f.step === 'other' && f.rel.type !== 'tag' : f.step === 'name' && f.type !== 'tag';
   const enter = more ? 'next' : f.mode === 'add' ? 'add' : 'save';
   return `<div class="form-note${plain ? ' is-plain' : ''}"><div class="form-note-inner">
-      <span class="note-text ${cls}" data-note>${text}</span>
+      <span class="note-text ${cls}" data-note>${text}</span>${editExtras(f)}
       <span class="form-keys"><span><kbd>Enter</kbd> ${enter}</span><span><kbd>Esc</kbd> cancel</span></span>
     </div></div>`;
+}
+
+// Editing an entry also offers to require it at every location like this one, and to move it up a level.
+function editExtras(f) {
+  if (f.mode !== 'edit' || f.cell || !f.id || isObjectName(f.id)) return '';
+  const on = !!required[parameterization(records, f.id)];
+  const loc = records[f.at];
+  const up = !isObject(loc) && !isRelation(loc)
+    ? `<button class="link-btn" data-action="move-up" data-id="${f.id}" title="Put it at ${esc(segmentText(loc.at))} instead (Alt+Left on its handle)">Move up a level</button>` : '';
+  return `<span class="form-extras"><button class="link-btn" data-action="toggle-required" data-id="${f.id}" aria-pressed="${on}"
+    title="Flag it wherever it’s blank">${box(on ? true : null)}Required ${esc(where(loc))}</button>${up}</span>`;
+}
+
+// A required entry that's blank: its label flagged with an asterisk, and a prompt to fill it in.
+function requiredRow(at, param, req, depth) {
+  const label = `<span class="twisty"></span><span class="label-text">${esc(req.label)}<span class="req-mark" title="Required">*</span></span>`;
+  const data = `data-action="fill-required" data-id="${at}" data-param="${esc(param)}"`;
+  const value = req.type === 'tag' ? checkbox(null, data)
+    : `<button class="value-btn req-blank" ${data}>${req.type === 'choice' ? 'Choose an option' : req.datatype === 'date' ? 'Enter a date' : 'Enter a value'}</button>`;
+  const actions = `<button class="icon-btn" data-action="unrequire" data-param="${esc(param)}" aria-label="Stop requiring ${esc(req.label)}" title="Stop requiring it">${icon('x')}</button>`;
+  return `<div class="entry is-blank">${row(depth, label, value, actions, ' is-required')}</div>`;
 }
 
 const takesValue = f => f.type === 'field' || f.rel?.type === 'field';
@@ -672,6 +710,9 @@ function entryRow(id, depth) {
     label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
     value = checkbox(r.tag, `data-action="tag-flip" data-id="${id}"`);
   }
+  // A collapsed entry with something required blank below it says so.
+  if (!isField(r) && !ui.expanded.has(id) && missingUnder(id).length)
+    label += `<span class="req-mark is-below" title="Something required below is blank">*</span>`;
   const actions = (isField(r) ? '' : addMenu(id, true))
     + `<button class="icon-btn" data-action="edit" data-id="${id}" aria-label="${isTag(r) ? 'Rename' : 'Edit'} ${esc(r.edge)}" title="${isTag(r) ? 'Rename' : 'Edit'}">${icon('pencil')}</button>${deleteButton(id)}`;
   return row(depth, label + styleDot(id), value, actions, engagedHere(id) ? ' is-engaged' : '');
@@ -681,11 +722,14 @@ function entryRow(id, depth) {
 // The relations at the location follow, grouped into rows (two arguments) or tables (more).
 function entryRows(at, depth) {
   const f = ui.form;
-  let html = f?.mode === 'add' && f.at === at && f.type !== 'relation' ? formBlock(depth) : '';
+  let html = f?.mode === 'add' && f.at === at && f.type !== 'relation' && !f.required ? formBlock(depth) : '';
   for (const id of entriesOf(at)) {
     const children = ui.expanded.has(id) ? entryRows(id, depth + 1) : '';
     html += `<div class="entry" data-entry="${id}" data-at="${at}"${isObjectName(id) ? ' data-pinned' : ''} style="--depth:${depth}">${entryRow(id, depth)}${children}</div>`;
   }
+  // Required entries that are blank here, each filled in where it stands.
+  for (const [param, req] of missingAt(at))
+    html += f?.mode === 'add' && f.at === at && f.required === param ? formBlock(depth) : requiredRow(at, param, req, depth);
   // A relation being added appears under the row it'll join, or after the rest if it starts a new one.
   const adding = f?.type === 'relation' && f.at === at;
   for (const g of relationGroups(at)) {
@@ -782,13 +826,32 @@ function kindView(kind) {
 
 function allView() {
   const head = panelHead({ title: 'All', sub: 'Browse records by kind' });
-  return [head, kindsInState().map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('')];
+  const deleted = archive.length ? listRow('#deleted', 'Deleted', String(archive.length)) : '';
+  return [head, kindsInState().map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + deleted];
+}
+
+const ago = when => {
+  const min = Math.round((Date.now() - when) / 60000);
+  return min < 1 ? 'just now' : min < 60 ? `${min} min ago` : min < 1440 ? `${Math.round(min / 60)} h ago` : new Date(when).toLocaleDateString();
+};
+
+// Deleted records, newest first, each batch with what depended on it, to restore.
+function deletedView() {
+  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Deleted', sub: 'Restoring brings back what depended on it, too' });
+  const rows = archive.map(b => {
+    const n = Object.keys(b.records).length - 1;
+    return `<div class="list-row"><span class="list-title">${esc(b.label)}</span>
+      <span class="list-meta">${n ? `with ${count(n, 'dependent')} · ` : ''}${ago(b.when)}</span>
+      <button class="btn" data-action="restore" data-id="${b.id}">Restore</button></div>`;
+  }).join('');
+  return [head, rows || '<div class="empty">Nothing’s deleted. Deleted records show up here, and can be restored.</div>'];
 }
 
 // The hash is empty for All, "kind:<kind>" for a kind, "relate:<a>" or "relate:<a>:<b>" for relating
-// two things (see relate.js), or a record id.
+// two things (see relate.js), "deleted" for Deleted, or a record id.
 function currentView() {
   const h = decodeURIComponent(location.hash.slice(1));
+  if (h === 'deleted') return { deleted: true };
   if (h.startsWith('kind:')) return { kind: h.slice(5) };
   if (h.startsWith('relate:')) {
     const [a, b] = h.slice(7).split(':');
@@ -803,7 +866,8 @@ function renderPanel() {
   listbox.input = null;
   const view = currentView();
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
-  const [head, body] = view.relate ? relateView(view.relate) : view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
+  const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView()
+    : view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
   const pending = ui.pending ? `<div class="pending" role="alertdialog"><span class="pending-text">${esc(ui.pending.message)}</span>
     <button class="btn btn-primary" data-action="pending-yes">${esc(ui.pending.yes ?? 'Change it')}</button><button class="btn" data-action="pending-no">Cancel</button></div>` : '';
   document.getElementById('panel').innerHTML = `${head}<div class="rows${view.id ? ' is-tree' : ''}">${pending}${body}</div>`;
@@ -848,6 +912,24 @@ const actions = {
   pref: d => { prefs[d.key] = d.value; savePrefs(); applyTheme(); },
   save: submitForm,
   delete: d => deleteEntry(d.id),
+  restore: d => {
+    ui.notice = restoreBatch(d.id);
+    if (!ui.notice) ui.info = 'Restored.';
+  },
+  'toggle-required': d => toggleRequired(d.id),
+  unrequire: d => stopRequiring(d.param),
+  // A blank required entry is filled in where it stands: a tag is attested at once, and a field or choice
+  // goes straight to its value or option.
+  'fill-required': d => {
+    const req = required[d.param];
+    startForm('add', req.type, d.id, undefined, { focus: 'output', cell: true });
+    Object.assign(ui.form, { name: req.label, required: d.param, step: 'output' });
+    if (req.type === 'tag') submitForm();
+  },
+  'move-up': d => {
+    const error = moveUp(d.id);
+    if (error) ui.error = error; else clearForms();
+  },
   cancel: clearForms,
   undo,
   redo,
@@ -869,7 +951,7 @@ document.addEventListener('click', e => {
   }
   const action = el.dataset.action;
   if (action !== 'menu') ui.menu = null;
-  ui.notice = null;
+  ui.notice = ui.info = null;
   actions[action](el.dataset);
   render();
 });
@@ -992,6 +1074,12 @@ document.addEventListener('keydown', e => {
     nudgeEntry(t.dataset.grip, e.key === 'ArrowDown' ? 1 : -1);
     return render();
   }
+  if (e.altKey && e.key === 'ArrowLeft' && t.matches('.grip')) {
+    e.preventDefault();
+    ui.notice = moveUp(t.dataset.grip);
+    ui.focusGrip = t.dataset.grip;
+    return render();
+  }
   if (e.key === 'Escape' && (ui.form || ui.menu || ui.relEdit || ui.pending || ui.notice)) {
     clearForms();
     ui.notice = null;
@@ -1017,5 +1105,39 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// Leaving a panel clears its forms and any table filters.
-window.addEventListener('hashchange', () => { clearForms(); ui.filters = {}; render(); });
+// The object a hash's view is about, if any: a record's object, or the first side being related.
+function objectOfHash(hash) {
+  const h = decodeURIComponent(hash.replace(/^#/, ''));
+  const id = h.startsWith('relate:') ? h.slice(7).split(':')[0] : h;
+  return records[id] && !isRelation(records[id]) ? objectOf(id) : null;
+}
+
+const listing = items => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+
+// Leaving an object's panels while something required in it is blank asks first. The hash has already
+// changed by the time we hear of it, so it's put back while the question is open. Moving between an
+// object's own records, to fill things in, doesn't count as leaving.
+let shownHash = location.hash;
+let leaving = null;
+
+window.addEventListener('hashchange', () => {
+  const from = shownHash, to = location.hash;
+  const obj = objectOfHash(from);
+  const missing = obj && leaving !== to && objectOfHash(to) !== obj ? missingUnder(obj) : [];
+  if (missing.length) {
+    history.replaceState(null, '', from || location.pathname);
+    const labels = [...new Set(missing.map(m => m.label))];
+    ui.pending = {
+      message: `${objectName(obj)} has nothing for ${listing(labels)}, which ${labels.length > 1 ? 'are' : 'is'} required. Leave anyway?`,
+      yes: 'Leave anyway',
+      apply: () => { leaving = to; location.hash = to; },
+    };
+    return render();
+  }
+  leaving = null;
+  shownHash = to;
+  // Leaving a panel clears its forms and any table filters.
+  clearForms();
+  ui.filters = {};
+  render();
+});

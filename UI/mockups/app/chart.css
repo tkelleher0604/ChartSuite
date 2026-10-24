@@ -207,3 +207,8 @@ body.chart-app { display: grid; grid-template-columns: minmax(0, 1fr); grid-temp
 body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .stage.is-locked .node, .stage.is-locked .wire-hit { pointer-events: none; }
 .stage.is-locked .handle, .stage.is-picking .handle { display: none; }
+
+/* Something required is blank: an asterisk at the box's corner. It's an editing mark, not part of the chart. */
+.node-flag { position: absolute; top: -9px; right: -9px; z-index: 2; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%;
+  background: #d63b3b; color: #fff; font: 700 13px/1 "Inter", sans-serif; padding-top: 3px; box-shadow: 0 0 0 2px #fff; }
+.shape-triangle .node-flag { top: auto; bottom: -6px; }

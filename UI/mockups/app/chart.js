@@ -119,7 +119,10 @@ function nodeHtml(id, place, look, state) {
     <polygon points="50,0.8 99.3,99.3 0.7,99.3" fill="${box.fill}" stroke="${box.stroke}" stroke-width="${box.strokeWidth}" stroke-dasharray="${DASH_ARRAYS[box.dash]}" stroke-linejoin="round" vector-effect="non-scaling-stroke" /></svg>`;
   const text = lines.map(l => lineHtml(l, state)).join('') || '<div class="node-empty">No text shown</div>';
   const handles = ['n', 'e', 's', 'w'].map(h => `<span class="handle handle-${h}" data-handle="${id}" title="Drag to another box to relate them"></span>`).join('');
-  return `<div class="${cls}" data-node="${id}" style="${vars}">${shape}<div class="node-text">${text}</div>${handles}</div>`;
+  // Something required that's blank is flagged on the box, as it is in the panel.
+  const missing = id === '__new' ? [] : [...new Set(missingUnder(id).map(m => m.label))];
+  const flag = missing.length ? `<span class="node-flag" title="Required, but blank: ${esc(missing.join(', '))}">*</span>` : '';
+  return `<div class="${cls}" data-node="${id}" style="${vars}">${shape}<div class="node-text">${text}</div>${flag}${handles}</div>`;
 }
 
 function lineHtml(l, state) {
@@ -303,7 +306,7 @@ function lockBarHtml(sel) {
 }
 
 function statusHtml() {
-  const n = chart.notice ?? (ui.notice ? { text: ui.notice, error: true } : null);
+  const n = chart.notice ?? (ui.notice ? { text: ui.notice, error: true } : ui.info ? { text: ui.info } : null);
   return `<span class="zoom"><button class="icon-btn" data-action="zoom" data-step="-1" aria-label="Zoom out" title="Zoom out">${icon('minus')}</button>
     <button class="zoom-pct" data-action="zoom-reset" title="Zoom to 100%">${Math.round(chart.zoom * 100)}%</button>
     <button class="icon-btn" data-action="zoom" data-step="1" aria-label="Zoom in" title="Zoom in">${icon('plus')}</button></span>
@@ -412,20 +415,13 @@ function commitQuick() {
   if (id) go(id); else render();
 }
 
-// Deletes an object along with everything recorded about it: its entries, the relations it's in, and
-// anything recorded about those relations.
+// Deletes an object with everything that depends on it (its entries, the relations it's in, and what's
+// recorded about those), into Deleted, where it can be restored with them.
 function deleteObject(obj) {
-  const doomed = new Set(recordsUnder(obj));
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const [k, r] of Object.entries(records))
-      if (!doomed.has(k) && argsOf(r).some(a => doomed.has(a.at))) { doomed.add(k); grew = true; }
-  }
-  const error = commit(Object.fromEntries(Object.entries(records).filter(([k]) => !doomed.has(k))));
+  const name = objectName(obj);
+  const error = deleteRecords([obj], name);
   if (error) return setNotice(error, true);
-  const { [obj]: _, ...rest } = layout;
-  layout = rest;
-  saveState();
+  ui.info = `Deleted ${name}. Undo, or restore it from Deleted.`;
   location.hash = '';
 }
 
@@ -433,7 +429,7 @@ function confirmDelete(obj) {
   const inside = recordsUnder(obj).length - 1;
   const rels = new Set(recordsUnder(obj).flatMap(id => relationsAt(id))).size;
   const what = [inside && count(inside, 'entry'), rels && count(rels, 'relation')].filter(Boolean).join(' and ');
-  ui.pending = { message: `Delete ${objectName(obj)}${what ? `, with its ${what}` : ''}?`, yes: 'Delete', apply: () => deleteObject(obj) };
+  ui.pending = { message: `Delete ${objectName(obj)}${what ? `, with its ${what}` : ''}? It can be restored from Deleted.`, yes: 'Delete', apply: () => deleteObject(obj) };
 }
 
 function moveBox(id, x, y) {

@@ -148,40 +148,50 @@ const SAMPLE_LAYOUT = {
   halvard:   { x: 240, y: 690, w: 200 },
 };
 
-const STORAGE_KEY = 'rboreal.state.v5';
+const STORAGE_KEY = 'rboreal.state.v6';
 
-// The state is the records plus how they're presented: the order their entries are shown in, kept per
-// location specification (see specKey) so that, say, every Entity lists its entries in the same order the
-// way a spreadsheet's rows share its columns; the chart's styles (see styles.js); and its box positions.
-// None of that presentation is part of the data model, whose trees are unordered and unstyled.
-let records, order, styles, layout;
+// The state is the records plus what goes with them:
+// - order: the order entries are shown in, kept per location specification (see specKey), so that, say,
+//   every Entity lists its entries in the same order, the way a spreadsheet's rows share its columns;
+// - styles: the chart's styles (see styles.js), and layout: its box positions;
+// - required: the entries every location like theirs should have, by parameterization, each with its
+//   label and type so a blank one can be shown and filled in;
+// - archive: deleted records, kept in batches so each can be restored with its dependents.
+// The order, styles and layout are presentation; the data model's trees are unordered and unstyled.
+let records, order, styles, layout, required, archive;
 const undoStack = [];
 const redoStack = [];
+
+function setState(s) {
+  ({ records, order = {}, styles = null, layout = {}, required = {}, archive = [] } = s);
+  if (!styles) styles = defaultStyles(records);
+}
 
 // Called once every script has loaded, since sample styles come from styles.js.
 function initState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved?.records) {
-      ({ records, order = {}, styles = null, layout = {} } = saved);
-      if (!styles) styles = defaultStyles(records);
-      return;
-    }
+    if (saved?.records) return setState(saved);
   } catch {}
-  ({ records, order, styles, layout } = sampleState());
+  setState(sampleState());
 }
 
+// The sample requires a Formation Date on every Entity, which two portfolio companies lack.
 function sampleState() {
   const recs = structuredClone(SAMPLE);
-  return { records: recs, order: {}, styles: defaultStyles(recs), layout: structuredClone(SAMPLE_LAYOUT) };
-}
-
-function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, order, styles, layout })); } catch {}
+  return {
+    records: recs, order: {}, styles: defaultStyles(recs), layout: structuredClone(SAMPLE_LAYOUT), archive: [],
+    required: { [parameterization(recs, 'fund_formed')]: { label: 'Formation Date', type: 'field', datatype: 'date' } },
+  };
 }
 
 // States are never mutated in place, so earlier ones can be kept for undo.
-const snapshot = () => ({ records, order, styles, layout });
+const snapshot = () => ({ records, order, styles, layout, required, archive });
+
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot())); } catch {}
+}
+
 function pushUndo() {
   undoStack.push(snapshot());
   redoStack.length = 0;
@@ -189,20 +199,20 @@ function pushUndo() {
 function undoState() {
   if (!undoStack.length) return false;
   redoStack.push(snapshot());
-  ({ records, order, styles, layout } = undoStack.pop());
+  setState(undoStack.pop());
   saveState();
   return true;
 }
 function redoState() {
   if (!redoStack.length) return false;
   undoStack.push(snapshot());
-  ({ records, order, styles, layout } = redoStack.pop());
+  setState(redoStack.pop());
   saveState();
   return true;
 }
 function resetState() {
   pushUndo();
-  ({ records, order, styles, layout } = sampleState());
+  setState(sampleState());
   saveState();
 }
 
@@ -446,6 +456,8 @@ function validate(recs) {
       return `${edge} can’t be both a ${datatypes[0]} field and a ${datatypes[1]} field.`;
     if (rs.some(isChoice) && rs.some(r => isTag(r) || isField(r)))
       return `${edge} can’t be both a choice and a ${rs.some(isTag) ? 'tag' : 'field'}.`;
+    if (rs.some(isTag) && rs.some(isField))
+      return `${edge} can’t be both a tag and a field.`;
   }
   return null;
 }
@@ -457,9 +469,36 @@ function commit(next) {
   const error = validate(next);
   if (error) return error;
   pushUndo();
+  const before = records;
   records = next;
+  rekey(before, next);
   saveState();
   return null;
+}
+
+// What's keyed by specification follows the records it was keyed by. When an edit changes records'
+// specifications (an edge relabeled, or an entry moved up a level, which changes its dependents' too),
+// each key that no record has any more moves to the key those records have now, unless that one is taken:
+// entry order by location specification, and styles and required entries by parameterization.
+function rekey(before, after) {
+  const specs = new Map(), params = new Map();
+  for (const id of Object.keys(after)) {
+    if (!before[id]) continue;
+    const s0 = specKey(before, id), s1 = specKey(after, id);
+    if (s0 === s1) continue;
+    specs.set(s0, s1);
+    if (!isObject(after[id])) params.set(parameterization(before, id), parameterization(after, id));
+  }
+  if (!specs.size) return;
+  const liveSpecs = new Set(Object.keys(after).map(id => specKey(after, id)));
+  const liveParams = new Set(Object.keys(after).filter(id => !isObject(after[id])).map(id => parameterization(after, id)));
+  const moves = (map, live) => [...map].filter(([from]) => !live.has(from));
+  for (const [from, to] of moves(specs, liveSpecs))
+    if (order[from] && !order[to]) { const { [from]: list, ...rest } = order; order = { ...rest, [to]: list }; }
+  for (const [from, to] of moves(params, liveParams)) {
+    if (!styles.some(s => s.param === to)) styles = styles.map(s => s.param === from ? { ...s, param: to } : s);
+    if (required[from] && !required[to]) { const { [from]: req, ...rest } = required; required = { ...rest, [to]: req }; }
+  }
 }
 
 // Moves an entry to just before or after a sibling. Every location with the same specification follows suit.
@@ -512,4 +551,105 @@ function createObject(kind, name, place) {
   if (place) layout = { ...layout, [id]: place };
   saveState();
   return { id };
+}
+
+// Moves an entry up a level, from its location to that location's own location. Its dependents follow,
+// since they're located at it. Returns why it couldn't, if it couldn't.
+function moveUp(id) {
+  const r = records[id];
+  const loc = records[r.at];
+  if (!loc || isObject(loc) || isRelation(loc)) return `${r.edge} is already at the top level.`;
+  return commit({ ...records, [id]: { ...r, at: loc.at } });
+}
+
+// ---- Required entries ----
+
+// The parameterization an entry labeled `label` would have at a location.
+const paramAt = (label, at) => JSON.stringify([JSON.stringify([norm(label), specKey(records, at)])]);
+
+// Makes an entry's parameterization required at every location like its own, or stops requiring it.
+function toggleRequired(id) {
+  const r = records[id];
+  const p = parameterization(records, id);
+  pushUndo();
+  if (required[p]) { const { [p]: _, ...rest } = required; required = rest; }
+  else required = { ...required, [p]: { label: r.edge, type: typeOf(r), datatype: r.field } };
+  saveState();
+}
+
+function stopRequiring(param) {
+  pushUndo();
+  const { [param]: _, ...rest } = required;
+  required = rest;
+  saveState();
+}
+
+// The required entries a location has no entry for, as [param, { label, type }] pairs.
+// A tag counts as recorded whether it's attested or ruled out.
+function missingAt(at) {
+  if (!records[at] || isField(records[at])) return [];
+  return Object.entries(required).filter(([p, req]) =>
+    p === paramAt(req.label, at) && !entriesOf(at).some(e => parameterization(records, e) === p));
+}
+
+// The required entries missing anywhere in an object, or below a location: each with where it's missing.
+function missingUnder(id) {
+  const out = [];
+  const walk = at => {
+    for (const [param, req] of missingAt(at)) out.push({ at, param, ...req });
+    for (const e of entriesOf(at)) if (!isField(records[e])) walk(e);
+  };
+  if (records[id]) walk(id);
+  return out;
+}
+
+// ---- Deleting and restoring ----
+
+// A set of records with everything that depends on them: every entry located at one of them, at any
+// depth, and every relation one of them is an argument of, with whatever depends on those in turn.
+function withDependents(ids) {
+  const all = new Set(ids);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [k, r] of Object.entries(records))
+      if (!all.has(k) && argsOf(r).some(a => all.has(a.at))) { all.add(k); grew = true; }
+  }
+  return all;
+}
+
+// Deleting hides rather than destroys: the records and their dependents go into the archive as a batch,
+// labeled with what was deleted, and can be restored from there. Returns why it couldn't, if it couldn't.
+function deleteRecords(ids, label) {
+  const gone = withDependents(ids);
+  const next = Object.fromEntries(Object.entries(records).filter(([k]) => !gone.has(k)));
+  const error = validate(next);
+  if (error) return error;
+  pushUndo();
+  const kept = Object.fromEntries([...gone].map(k => [k, records[k]]));
+  const boxes = Object.fromEntries(Object.entries(layout).filter(([k]) => gone.has(k)));
+  archive = [{ id: newId(), label, when: Date.now(), records: kept, layout: boxes }, ...archive];
+  records = next;
+  layout = Object.fromEntries(Object.entries(layout).filter(([k]) => !gone.has(k)));
+  saveState();
+  return null;
+}
+
+// Puts a deleted batch back. Something it depends on may have been deleted since, in which case that
+// needs restoring first.
+function restoreBatch(batchId) {
+  const batch = archive.find(b => b.id === batchId);
+  const next = { ...records, ...batch.records };
+  const missing = Object.values(batch.records).flatMap(argsOf).map(a => a.at).find(at => !next[at]);
+  if (missing) {
+    const other = archive.find(b => b.records[missing]);
+    return other ? `Restore ${other.label} first; this depends on it.` : 'Something this depends on no longer exists.';
+  }
+  const error = validate(next);
+  if (error) return `Can’t restore it: ${error}`;
+  pushUndo();
+  records = next;
+  layout = { ...layout, ...batch.layout };
+  archive = archive.filter(b => b !== batch);
+  saveState();
+  return null;
 }
