@@ -373,3 +373,17 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
   .names-list { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .fx-keys { display: none; }
 }
+
+/* The Schema view: forms, each opening onto its specifications. */
+.schema-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px 8px 4px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; }
+.schema-head:hover { background: var(--hover); }
+.schema-twist { flex: none; width: 14px; height: 14px; color: var(--text-3); transition: transform .12s; }
+.schema-head[aria-expanded="true"] .schema-twist { transform: rotate(90deg); }
+.schema-desc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 13px; }
+.schema-head .list-title { flex: none; }
+.schema-head .list-meta, .schema-spec .list-meta { flex: 1 0 auto; }
+.schema-specs { padding: 0 10px 8px 28px; }
+.schema-spec { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: 13px; }
+.schema-out { flex: none; font-weight: 500; }
+.schema-where { flex: 0 1 auto; min-width: 0; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schema-spec.is-unused .schema-out, .schema-spec.is-unused .schema-where { color: var(--text-3); font-style: italic; }

@@ -1003,7 +1003,8 @@ function allView() {
   const head = panelHead({ title: 'All', sub: kinds.length ? 'Browse records by kind' : 'Nothing here yet. Start with a kind.' });
   const deleted = archive.length ? listRow('#deleted', 'Deleted', String(archive.length)) : '';
   const formulas = listRow('#formulas', 'Formulas', String(definitions.length));
-  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + formulas + deleted];
+  const schemaRow = listRow('#schema', 'Schema', String(formsOfSchema().length));
+  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + formulas + schemaRow + deleted];
 }
 
 const ago = when => {
@@ -1023,12 +1024,51 @@ function deletedView() {
   return [head, rows || '<div class="empty">Nothing’s deleted. Deleted records show up here, and can be restored.</div>'];
 }
 
+// The schema (see "The schema" in model.js): every specification the chart has, by form, kinds first,
+// then entries and relations, with how many records have each. A specification nothing has can be
+// removed; the rest stay while anything has them.
+function schemaView() {
+  const used = usage();
+  const unused = new Set(unusedSpecs());
+  const removeAll = unused.size ? `<button class="btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([...unused]))}" title="Remove every specification nothing has">Remove unused (${unused.size})</button>` : '';
+  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Schema', sub: 'Every specification the chart has, by form', actions: removeAll });
+  const users = k => (used.get(k) ?? []).length;
+  const outText = t => t.kind !== undefined ? t.kind : 'choice' in t.out ? t.out.choice : 'tag' in t.out ? (t.out.tag ? 'Attested' : 'Ruled out') : DATATYPE_NAMES[t.out.field];
+  const specRow = k => {
+    const t = schema[k];
+    const where = t.args ? t.args.map(a => (t.args.length > 1 ? `${a.edge}: ` : '') + placeText(a.loc)).join(' → ') : '';
+    const n = users(k);
+    const remove = unused.has(k) ? `<button class="link-btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([k]))}">Remove</button>` : '';
+    return `<div class="schema-spec${unused.has(k) ? ' is-unused' : ''}"><span class="schema-out">${esc(outText(t))}</span>
+      <span class="schema-where">${esc(where)}</span><span class="list-meta">${n ? count(n, 'record') : unused.has(k) ? 'Nothing has it' : 'Held by what it’s located at'}</span>${remove}</div>`;
+  };
+  const formRow = f => {
+    const keys = indexOf().byForm.get(f);
+    const d = describeForm(f);
+    const n = keys.reduce((s, k) => s + users(k), 0);
+    const key = `schema|${f}`;
+    const open = ui.expanded.has(key);
+    return `<div class="schema-form"><button class="schema-head" data-action="toggle" data-id="${esc(key)}" aria-expanded="${open}">${icon('chevron-right', 'schema-twist')}
+        <span class="list-title">${esc(d.label)}</span><span class="schema-desc">${esc(d.where)}</span>
+        <span class="list-meta">${count(keys.length, 'specification')} · ${count(n, 'record')}</span></button>
+      ${open ? `<div class="schema-specs">${keys.map(specRow).join('')}</div>` : ''}</div>`;
+  };
+  const forms = formsOfSchema();
+  const byLabelOf = (a, b) => byLabel(describeForm(a).label, describeForm(b).label);
+  const section = (title, list) => list.length ? `<div class="section-head">${title}</div>${list.sort(byLabelOf).map(formRow).join('')}` : '';
+  return [head, section('Kinds', forms.filter(f => f === 'object'))
+    + section('Entries', forms.filter(f => formArity(f) === 1)) + section('Relations', forms.filter(isRelationForm))
+    || '<div class="empty">The schema is empty. It grows as records are entered.</div>'];
+}
+
 // The hash is empty for All, "kind:<kind>" for a kind, "relate:<a>" or "relate:<a>:<b>" for relating
-// two things (see relate.js), "deleted" for Deleted, "formulas" for the formulas, "formula:<id>" for one
-// (or "formula:new:entry[:<location>]" and "formula:new:relation[:<a>:<b>]" for a new one), or a record id.
+// two things (see relate.js), "deleted" for Deleted, "schema" for the schema, "formulas" for the formulas,
+// "formula:<id>" for one (or "formula:new:entry[:<location>]" and "formula:new:relation[:<a>:<b>]" for a
+// new one), or a record id.
 function currentView() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (h === 'deleted') return { deleted: true };
+  if (h === 'schema') return { schema: true };
   if (h === 'formulas') return { formulas: true };
   if (h.startsWith('formula:new:')) {
     const [kind, ...sides] = h.slice(12).split(':');
@@ -1049,7 +1089,7 @@ function renderPanel() {
   listbox.input = null;
   const view = currentView();
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
-  const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView()
+  const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView() : view.schema ? schemaView()
     : view.formulas ? formulasView() : view.formula ? definitionView(view.formula)
     : view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
   const pending = ui.pending ? `<div class="pending" role="alertdialog"><span class="pending-text">${esc(ui.pending.message)}</span>
@@ -1668,6 +1708,10 @@ const actions = {
   pref: d => { prefs[d.key] = d.value; savePrefs(); applyTheme(); },
   save: submitForm,
   delete: d => deleteEntry(d.id),
+  'schema-remove': d => {
+    ui.notice = removeSpecs(JSON.parse(d.keys));
+    if (!ui.notice) ui.info = 'Removed from the schema. Undo puts it back.';
+  },
   restore: d => {
     ui.notice = restoreBatch(d.id);
     if (!ui.notice) ui.info = 'Restored.';
