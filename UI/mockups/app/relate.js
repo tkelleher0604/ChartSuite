@@ -187,6 +187,8 @@ function newKindForm(a, b) {
     </div>
     <div class="relate-new-foot"><span class="seg" role="group" aria-label="Output">${types}</span>${output}
       <button class="btn btn-primary" data-action="relate-new">${icon('plus')}Add</button></div>${error}
+    <div class="relate-new-foot"><a class="link-btn relate-formula" href="#formula:new:relation:${esc(a)}:${esc(b)}">Worked out by formula instead…</a>
+      <span class="relate-hint">Define it by a formula, for every pair like these</span></div>
     <datalist id="relate-edges">${edges.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>`;
 }
 

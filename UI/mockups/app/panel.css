@@ -210,6 +210,8 @@ a.list-row:hover { background: var(--hover); }
 .relate-new-foot .btn { height: 28px; margin-left: auto; }
 .relate-new .relate-error { padding: 0; }
 .relate-hint { flex: 1 1 8rem; font-size: 12px; color: var(--text-3); }
+.relate-formula { flex: none; font-size: 12.5px; color: var(--accent); }
+.relate-formula:hover { text-decoration: underline; text-underline-offset: 3px; }
 .relate-side.is-picker { grid-column: 2 / -1; align-items: flex-start; }
 .relate-colhead { align-self: end; padding: 0 0 2px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
 .relate-span { grid-column: 1 / 3; }
@@ -225,3 +227,136 @@ a.list-row:hover { background: var(--hover); }
 .form-extras .link-btn { gap: 6px; font-size: 12px; }
 .form-extras .box { width: 14px; height: 14px; }
 .list-row .btn { flex: none; height: 28px; }
+
+/* Computed records (formulas.md): their outputs set apart, italic, and an implied tag's box outlined. */
+.cell-value { position: relative; }
+.fx-value { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.fx-value > .value-btn { flex: 1; min-width: 0; }
+.fx-value > .value-btn.is-computed { flex: 0 1 auto; width: auto; }
+.value-btn.is-computed, .rel-value.is-computed, .select.is-computed .select-text { font-style: italic; }
+.is-implied { display: inline-grid; }
+.cell-value > .fx-value > .is-implied { display: grid; }
+.is-implied .box-yes rect { fill: none; stroke: var(--yes); stroke-width: 1.5; }
+.is-implied .box-yes path { stroke: var(--yes); }
+.fx-mark { flex: none; height: 18px; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--text-3);
+  font: italic 500 11.5px/18px Georgia, "Times New Roman", serif; letter-spacing: .02em; }
+.fx-mark:hover, .fx-mark[aria-expanded="true"] { background: var(--pressed); color: var(--accent); }
+.rel-item > .fx-mark { margin-left: -4px; }
+/* An entered output a formula also covers: a corner mark, as in Excel, strong where it differs. */
+.ovr-mark { position: absolute; top: 0; left: 0; width: 0; height: 0; padding: 0; border: 0; border-top: 8px solid var(--border-strong); border-right: 8px solid transparent; border-radius: 0; background: none; }
+.ovr-mark.is-strong { border-top-color: var(--warn); }
+.rel-item { position: relative; }
+.rel-item > .ovr-mark { top: -2px; left: -6px; }
+.fx-error { color: var(--danger); font-weight: 500; font-variant-numeric: tabular-nums; }
+a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* A row of computed relations, collapsed to a count and the first few names. */
+.rel-summary { padding: 0; border: 0; background: none; color: var(--text-3); font-style: italic; text-align: left; overflow-wrap: anywhere; }
+.rel-summary:hover { color: var(--text-2); }
+
+/* Why a computed record is there, under its row or in its panel's header. */
+.why { margin: 0 6px 6px calc(var(--depth) * var(--indent) + 28px); padding: 8px 12px; border-left: 2px solid var(--accent); border-radius: 0 8px 8px 0; background: var(--accent-soft); font-size: 12.5px; line-height: 18px; color: var(--text-2); }
+.rel-items .why { margin: 2px 0 4px; }
+.why.in-head { margin: 12px 0 0; }
+.why-head { color: var(--text); }
+.why-def { color: var(--accent); font-weight: 500; }
+.why-def:hover, .why-reads a:hover, .fx-result:hover { text-decoration: underline; text-underline-offset: 3px; }
+.why-line { display: grid; grid-template-columns: minmax(5rem, max-content) minmax(0, 1fr); gap: 2px 10px; margin-top: 4px; }
+.why-label { color: var(--text); font-weight: 500; }
+.why-reads { overflow-wrap: anywhere; }
+.why-reads a { color: var(--text-2); }
+.why-sep { margin: 0 6px; color: var(--text-3); }
+.why-more { color: var(--text-3); }
+.why-formula, .fx-where { font: 12px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
+.why-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.why-actions .link-btn { font-size: 12.5px; color: var(--accent); }
+
+/* Writing formulas: in an edit form, and in a definition's own view. */
+.fx-section { margin: 0 12px 10px calc(var(--label-col) + 10px); padding-top: 8px; border-top: 1px solid var(--border); }
+.panel-head .fx-section { margin: 12px 0 0; }
+.fx-section.is-quiet { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; border-top: 0; padding-top: 0; }
+.fx-section.is-quiet .link-btn { font-size: 12.5px; color: var(--accent); }
+.fx-section.is-quiet .link-btn .icon { width: 14px; height: 14px; }
+.fx-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-bottom: 6px; font-size: 12.5px; font-weight: 500; }
+.fx-section-head a { color: var(--accent); }
+.fx-hint { font-size: 12px; line-height: 17px; font-weight: 400; color: var(--text-3); }
+.fx-field { position: relative; flex: 1; min-width: 0; }
+.input.fx-input { display: block; height: auto; min-height: 30px; padding: 5px 8px; resize: vertical; field-sizing: content;
+  font: 12.5px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.fx-note { min-height: 0; font-size: 12px; line-height: 17px; }
+.fx-note:not(:empty) { margin-top: 3px; }
+.fx-problem { color: var(--warn); }
+.fx-where { color: var(--text-2); }
+.fx-where mark { background: none; color: var(--danger); border-bottom: 2px solid var(--danger); }
+.fx-suggest { width: max(60%, 260px); }
+.fx-imps { display: grid; gap: 6px; }
+.fx-imp { position: relative; display: grid; grid-template-columns: 16px minmax(6rem, 9.5rem) minmax(0, 1fr) auto; align-items: start; gap: 6px; }
+.fx-imp.drop-before::before, .fx-imp.drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; border-radius: 2px; background: var(--accent); }
+.fx-imp.drop-before::before { top: -4px; }
+.fx-imp.drop-after::after { bottom: -4px; }
+.fx-grip { width: 16px; height: 30px; padding: 0; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; cursor: grab; }
+.fx-grip .icon { width: 14px; height: 14px; }
+.fx-grip:hover { color: var(--text); }
+.input.fx-label { height: 30px; }
+.fx-imp .icon-btn { margin-top: 3px; }
+.fx-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-top: 6px; }
+.fx-row-actions .link-btn { font-size: 12.5px; }
+.fx-row-actions .link-btn .icon { width: 14px; height: 14px; }
+.fx-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 10px; }
+.fx-foot .btn { height: 28px; }
+.fx-foot .link-btn { font-size: 12.5px; }
+.fx-error-text { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--danger); }
+.fx-error-text .icon { width: 14px; height: 14px; }
+.fx-keys { margin-left: auto; font-size: 12px; color: var(--text-3); }
+.fx-tag-value { display: flex; align-items: center; gap: 10px; }
+.input.fx-inline { flex: 1; min-width: 0; height: 26px; font: 12.5px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; }
+
+/* The Formulas view: the definitions, then the names. */
+.fx-head-actions { display: inline-flex; gap: 6px; }
+.fx-list-row { align-items: center; }
+.fx-list-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fx-list-main .list-title { white-space: normal; }
+.fx-list-meta { font-size: 12px; line-height: 17px; color: var(--text-3); overflow-wrap: anywhere; }
+.fx-list-count { flex: none; font-size: 12.5px; color: var(--text-3); }
+.fx-list-count.is-error { color: var(--danger); }
+.section-head { margin: 16px 10px 4px 22px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.section-note { font-weight: 400; }
+.names { display: grid; gap: 8px; padding: 0 10px 12px 22px; }
+.names-rel { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.names-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.input.names-name { width: 14rem; font-weight: 500; }
+.names-edges { flex: 1; font-size: 12px; color: var(--text-3); }
+.names-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 12rem); align-items: center; gap: 10px; margin-top: 6px; font-size: 12.5px; color: var(--text-2); }
+.names-add { justify-self: start; width: auto; max-width: 100%; }
+
+/* A definition's own view: labeled fields on the panel's grid. */
+.fx-editor { display: grid; grid-template-columns: calc(var(--label-col) - 18px) minmax(0, 1fr); gap: 12px 10px; padding: 14px 16px 4px 22px; }
+.fx-editor + .fx-foot { padding: 0 16px 8px calc(var(--label-col) + 14px); }
+.fx-label-cell { padding-top: 5px; color: var(--text-2); }
+.fx-value-cell { min-width: 0; }
+.fx-value-cell .fx-hint { margin-top: 4px; }
+.fx-select { width: auto; max-width: 100%; height: 28px; padding: 0 6px; font-size: 13px; }
+.fx-check { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; font-size: 12.5px; color: var(--text-2); }
+.fx-row-actions .fx-check { margin-left: 0; }
+.fx-param { display: grid; grid-template-columns: minmax(6rem, 10rem) minmax(0, 1fr) auto; align-items: start; gap: 8px; margin-bottom: 8px; }
+.fx-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fx-chip { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 2px 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-size: 12.5px; }
+.fx-chip-x { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-3); display: grid; place-items: center; }
+.fx-chip-x:hover { background: var(--pressed); color: var(--text); }
+.fx-chip-x .icon { width: 12px; height: 12px; }
+.fx-add-loc { width: 11rem; }
+.fx-covers { display: inline-block; padding-top: 5px; }
+.fx-results { display: grid; gap: 2px; padding: 0 16px 14px 22px; font-size: 12.5px; }
+.fx-result { color: var(--text-2); overflow-wrap: anywhere; }
+.fx-result-line.is-error { color: var(--text-2); }
+@container panel (max-width: 600px) {
+  .fx-section { margin-left: 12px; }
+  .fx-editor { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .fx-label-cell { padding-top: 8px; font-weight: 500; }
+  .fx-editor + .fx-foot { padding-left: 22px; }
+  .fx-imp { grid-template-columns: 16px minmax(0, 1fr) auto; }
+  .fx-imp .fx-field { grid-column: 2 / -1; }
+  .fx-param { grid-template-columns: minmax(0, 1fr) auto; }
+  .fx-param .fx-chips { grid-column: 1 / -1; }
+  .names-list { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .fx-keys { display: none; }
+}

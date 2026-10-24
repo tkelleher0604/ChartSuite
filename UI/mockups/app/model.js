@@ -988,3 +988,24 @@ function freeViewName(base) {
   if (!taken.has(norm(base))) return base;
   for (let n = 2; ; n++) if (!taken.has(norm(`${base} ${n}`))) return `${base} ${n}`;
 }
+
+// ---- Panel helpers ----
+
+// Commits records and the formulas together, as one undoable step: for a formula typed into a value box,
+// which replaces that value with the formula's output, and for a relabeled entry, which relabels what
+// formulas say about it. `next` is what `records` should become, as for commit().
+function commitWithFormulas(next, nextDefinitions, nextNames = names) {
+  const nextEntered = enteredPart(next);
+  const result = Formulas.computeState(nextEntered, nextDefinitions, nextNames);
+  const error = validate(result.records);
+  if (error) return error;
+  pushUndo();
+  const before = records;
+  entered = nextEntered;
+  definitions = nextDefinitions;
+  names = nextNames;
+  setComputed(result);
+  rekey(before, records);
+  saveState();
+  return null;
+}

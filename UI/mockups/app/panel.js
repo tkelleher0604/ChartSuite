@@ -15,6 +15,8 @@ const ui = {
   filters: {},      // per relation table, the location picked in each column's dropdown
   relEdit: null,    // id of the relation whose value is being typed over
   info: null,       // what a change just did, when it's worth saying
+  why: null,        // id of the record whose formula is explained under it
+  fx: null,         // the definition being edited: { key, draft, error }; see "Formulas" below
 };
 
 // ---- Changes made from the panel ----
@@ -79,10 +81,16 @@ function saveForm() {
     if (!error) ensureRelationStyle(id);
     return error;
   }
+  // A value typed starting with = (or ← for a tag) is a formula for every location like this one.
+  if (isFormulaText(f.type === 'tag' ? f.formula : f.output)) return saveFormulaFromForm(f);
   const entry = buildEntry(f);
   if (typeof entry === 'string') return entry;
   const oldLabel = f.id && records[f.id].edge;
-  const error = commit({ ...records, [f.id ?? newId()]: { at: f.at, ...entry } });
+  const next = { ...records, [f.id ?? newId()]: { at: f.at, ...entry } };
+  // A relabeled entry relabels the formulas and names that mention it, once nothing has the old label.
+  const relabeled = oldLabel && !same(oldLabel, entry.edge) && !Object.entries(next).some(([k, r]) => k !== f.id && !r.args && same(r.edge, oldLabel))
+    ? Formulas.relabel(definitions, names, oldLabel, entry.edge) : null;
+  const error = relabeled ? commitWithFormulas(next, relabeled.definitions, relabeled.names) : commit(next);
   if (!error && oldLabel) keepPlace(f.at, oldLabel, entry.edge);
   return error;
 }
@@ -110,8 +118,16 @@ function deleteEntry(id) {
   ui.pending = { message: `Delete ${labelOf(records[id])}, with the ${count(dependents, 'record')} that depend on it? They can be restored from Deleted.`, yes: 'Delete', apply: run };
 }
 
+// Switching a computed tag overrides its formula, so it asks first, saying what implies it.
 function flipTag(id) {
-  ui.notice = commit({ ...records, [id]: { ...records[id], tag: !records[id].tag } });
+  const r = records[id];
+  const apply = () => { ui.notice = commit({ ...records, [id]: { ...r, tag: !r.tag } }); };
+  const info = isComputed(id) && formulaInfo(id);
+  if (!info) return apply();
+  const d = definitionOf(info.def);
+  const why = info.labels.length ? `implied by ${listing(info.labels)} in ${d.name}` : `worked out by ${d.name}’s formula`;
+  const to = r.tag ? 'Rule it out' : 'Attest it';
+  ui.pending = { message: `${recordTitle(id)} is ${why}. ${to} anyway? It stays that way, overriding the formula, until you use the formula again.`, yes: to, apply };
 }
 
 function setChoice(id, choice) {
@@ -141,7 +157,8 @@ function resetSample() {
 }
 
 function clearForms() {
-  ui.form = ui.focus = ui.error = ui.menu = ui.relEdit = ui.pending = null;
+  ui.form = ui.focus = ui.error = ui.menu = ui.relEdit = ui.pending = ui.fx = null;
+  closeSuggest();
 }
 
 // ui.form is { mode: 'add' | 'edit', type, at, id, name, output, not, step, typed, cell }.
@@ -155,6 +172,7 @@ function startForm(mode, type, at, id, { focus = 'name', cell = false } = {}) {
     mode, type, at, id, cell,
     name: r?.edge ?? '',
     output: !r ? '' : isField(r) ? displayValue(r) : isChoice(r) ? r.choice : '',
+    formula: '',  // a new tag's implication, typed in place of attesting it
     not: !!r && isTag(r) && !r.tag,
     step: mode === 'edit' ? 'output' : 'name',
     typed: {},
@@ -381,6 +399,11 @@ function fieldReading(f) {
 function fieldHint(f) {
   const { fixed, datatype, raw, value } = fieldReading(f);
   const name = clean(f.name);
+  if (isFormulaText(raw)) {
+    const problem = Formulas.check(raw).error;
+    return problem ? { cls: 'is-warn', text: `${problem.message} (at ${problem.pos + 1})` }
+      : { text: `A formula: ${name || 'this'} is worked out at every location like this one` };
+  }
   if (raw && value === undefined)
     return { cls: 'is-warn', text: `${name} takes ${asPhrase(datatype)} here${datatype === 'date' ? ', like March 4, 2019' : ''}` };
   if (!raw) return { text: fixed ? `${name} takes ${asPhrase(datatype)} here` : 'Its datatype is detected as you type' };
@@ -467,6 +490,8 @@ function addMenu(at, compact = false) {
   // General actions first, then shortcuts for the relations a location like this one is already in.
   const general = `<button class="menu-item" role="menuitem" data-action="open-relate" data-id="${at}">
       <span class="menu-text"><span class="menu-title">Relation…</span><span class="menu-desc">Any kind, with anything, or a new kind</span></span><kbd>R</kbd></button>`
+    + `<a class="menu-item" role="menuitem" href="#formula:new:entry:${esc(at)}">
+      <span class="menu-text"><span class="menu-title">Formula…</span><span class="menu-desc">An entry worked out at every location like this one</span></span></a>`
     + (panelOptions.engaged ? `<button class="menu-item" role="menuitem" data-action="menu" data-menu="${styleKey}">
       <span class="menu-text"><span class="menu-title">Style…</span><span class="menu-desc">Format the chart by an entry here</span></span><kbd>S</kbd></button>` : '');
   const relations = relationTypesAt(at).map(t =>
@@ -476,7 +501,9 @@ function addMenu(at, compact = false) {
     ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Relations here</div>${relations}` : ''}</div></span>`;
 }
 
+// A computed record can't be deleted, only kept as entered or overridden (see whyBlock).
 function deleteButton(id, small = false) {
+  if (isComputed(id)) return '';
   const r = records[id];
   const reason = isObjectName(id) ? `Every ${records[r.at].kind.toLowerCase()} needs a Name` : '';
   const cls = small ? 'icon-btn is-small' : 'icon-btn';
@@ -493,7 +520,7 @@ function choiceSelect(id, cls = '') {
   const items = open ? outputsOf(id).map(o =>
     `<button class="menu-item" role="menuitemradio" aria-checked="${same(o, r.choice)}" data-action="set-choice" data-id="${id}" data-value="${esc(o)}">
       <span class="menu-text">${esc(o)}</span>${same(o, r.choice) ? icon('check') : ''}</button>`).join('') : '';
-  return `<span class="menu-anchor"><button class="select ${cls}" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}">
+  return `<span class="menu-anchor"><button class="select ${cls}${isComputed(id) ? ' is-computed' : ''}" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}">
       <span class="select-text">${esc(r.choice)}</span>${icon('chevron-down')}</button>${open ? `<div class="pop menu menu-left" role="menu">${items}</div>` : ''}</span>`;
 }
 
@@ -516,7 +543,7 @@ const locationText = id => segmentText(pathTo(id)[0]);
 // row it's in does.
 function relationValue(id, label, title = 'Change') {
   const edit = ui.relEdit?.id === id ? ui.relEdit : null;
-  if (!edit) return `<button class="rel-value" data-action="rel-edit" data-id="${id}" data-label="${esc(label)}" title="${esc(title)}">${esc(displayValue(records[id]))}</button>`;
+  if (!edit) return `<button class="rel-value${isComputed(id) ? ' is-computed' : ''}" data-action="rel-edit" data-id="${id}" data-label="${esc(label)}" title="${esc(title)}">${esc(displayValue(records[id]))}</button>`;
   return `<input class="input rel-input" data-rel-edit="${id}" value="${esc(edit.text)}" autocomplete="off" spellcheck="false" data-autofocus>`
     + (edit.error ? `<span class="rel-error">${esc(edit.error)}</span>` : '');
 }
@@ -540,7 +567,13 @@ function detailBlank(at, d) {
 // A relation's output in a row or table: a checkbox for a tag, a dropdown for a choice, a value for a field.
 const relationOutput = (id, label) => {
   const r = records[id];
-  return isTag(r) ? checkbox(r.tag, `data-action="tag-flip" data-id="${id}"`) : isChoice(r) ? choiceSelect(id) : relationValue(id, label);
+  return isTag(r) ? tagBox(id) : isChoice(r) ? choiceSelect(id) : relationValue(id, label);
+};
+
+// A tag's checkbox. An implied one is outlined rather than filled.
+const tagBox = id => {
+  const box = checkbox(records[id].tag, `data-action="tag-flip" data-id="${id}"`);
+  return isComputed(id) ? `<span class="is-implied">${box}</span>` : box;
 };
 
 const openRelation = id =>
@@ -549,17 +582,28 @@ const openRelation = id =>
 // A two-argument relation at a location reads like any entry: labeled with the other side's edge, with the
 // other side's location as its value. Relations sharing that label are listed together in one row. A tag's
 // checkbox comes first; a field's value or a choice's option, and the fields located at the relation, last.
+// The row is labeled with the pilot's name for the list, like Owners, if the relation has one.
+// A row of computed relations only starts collapsed, with a count, since formulas can list many.
 function relationRow(g, at, depth) {
-  const name = g.others.join(' · ') || g.own.join(' · ');
-  const label = `<span class="twisty"></span><span class="label-text">${esc(name)}</span>`;
+  const name = g.others.length ? listName(relationNameOf(records[g.ids[0]]), g.own[0], g.others[0]) : g.own.join(' · ');
+  const key = `rel|${at}|${g.key}`;
+  const computedOnly = g.ids.every(isComputed);
+  const open = !computedOnly || ui.expanded.has(key);
+  const twist = computedOnly ? `<button class="twisty" data-action="toggle" data-id="${esc(key)}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${esc(name)}">${icon('chevron-right')}</button>` : '<span class="twisty"></span>';
+  const label = `${twist}<span class="label-text">${esc(name)}</span>`;
+  if (!open) {
+    const others = g.ids.map(id => locationText((records[id].args.find(a => a.at !== at) ?? records[id].args[0]).at));
+    const summary = `<button class="rel-summary" data-action="toggle" data-id="${esc(key)}" title="Show them">${g.ids.length} · ${esc(others.slice(0, 3).join(', '))}${others.length > 3 ? ', …' : ''}</button>`;
+    return row(depth, label, summary, '', ' is-computed-group');
+  }
   const items = g.ids.map(id => {
     const r = records[id];
     const other = r.args.find(a => a.at !== at) ?? r.args[0];
     const output = (isTag(r) ? '' : relationOutput(id, name)) + relationDetails(id);
     const lead = isTag(r) ? `<span class="rel-lead">${relationOutput(id)}${locationHtml(other.at)}</span>` : locationHtml(other.at);
-    return `<div class="rel-item">${lead}
+    return `<div class="rel-item">${lead}${formulaMark(id)}
       <span class="rel-item-actions">${openRelation(id)}${deleteButton(id, true)}</span>
-      ${output ? `<span class="rel-output">${output}</span>` : ''}</div>`;
+      ${output ? `<span class="rel-output">${output}</span>` : ''}</div>${ui.why === id ? whyBlock(id) : ''}`;
   }).join('');
   const canAdd = relationTypesAt(at).some(t => t.key === g.key);
   const actions = canAdd ? `<button class="icon-btn" data-action="add-relation" data-id="${at}" data-key="${esc(g.key)}" aria-label="Add another ${esc(name)}" title="Add another">${icon('plus')}</button>` : '';
@@ -693,13 +737,17 @@ function formBlock(depth) {
   const f = ui.form;
   const label = '<span class="twisty"></span>'
     + (f.cell ? `<span class="label-text">${esc(f.name)}</span>` : combo('name', f.name, `${TYPE_NAMES[f.type]} name`));
-  // A new tag's checkbox starts green and can be switched to red before the tag is added.
-  const value = f.type === 'tag' ? checkbox(!f.not, 'data-action="toggle-not"')
+  // A new tag's checkbox starts green and can be switched to red before the tag is added. Instead, it can
+  // be given an implication, which works it out at every location like this one.
+  const tagFormula = f.mode === 'add' && !f.required
+    ? `<input class="input fx-inline" data-input="formula" value="${esc(f.formula)}" placeholder="or ← a condition" autocomplete="off" spellcheck="false" title="Type ← (or <-) and a condition to work this tag out by formula">` : '';
+  const value = f.type === 'tag' ? `<span class="fx-tag-value">${checkbox(!f.not, 'data-action="toggle-not"')}${tagFormula}</span>`
     : f.step === 'name' ? `<span class="ghost">${f.type === 'choice' ? `Option${icon('chevron-down')}` : 'Value'}</span>`
     : f.type === 'choice' ? combo('output', f.output, 'Option', true)
-    : `<input class="input" data-input="output" value="${esc(f.output)}" placeholder="Value" autocomplete="off" spellcheck="false"${ui.focus === 'output' ? ' data-autofocus' : ''}>`;
+    : `<input class="input" data-input="output" value="${esc(f.output)}" placeholder="Value, or = a formula" autocomplete="off" spellcheck="false"${ui.focus === 'output' ? ' data-autofocus' : ''}>`;
   const actions = (f.type === 'tag' || f.step === 'output' ? saveButton : '') + cancelButton;
-  return `<div class="form-block">${row(depth, label, value, actions)}${formNote()}</div>`;
+  const formula = f.mode === 'edit' && !f.cell && f.id && !isObjectName(f.id) ? formulaSection(f.id) : '';
+  return `<div class="form-block">${row(depth, label, value, actions)}${formNote()}${formula}</div>`;
 }
 
 // Adding to a two-argument relation: labeled like its row, with a box that picks the other side, then its option or value.
@@ -718,24 +766,38 @@ function entryRow(id, depth) {
   const f = ui.form;
   if (f?.mode === 'edit' && f.id === id) return formBlock(depth);
   const r = records[id];
+  const computed = isComputed(id);
   let label = grip(id) + twisty(id), value;
   if (isField(r)) {
     label += `<span class="label-text" title="${esc(r.edge)}">${esc(r.edge)}</span>`;
-    value = `<button class="value-btn" data-action="edit-cell" data-id="${id}" data-live="${id}">${esc(displayValue(r))}</button>`;
+    value = `<button class="value-btn${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" data-live="${id}">${esc(displayValue(r))}</button>`;
   } else if (isChoice(r)) {
     label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
-    value = `<button class="select" data-action="edit-cell" data-id="${id}" aria-haspopup="listbox" title="Change ${esc(r.edge)}">
+    value = `<button class="select${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" aria-haspopup="listbox" title="Change ${esc(r.edge)}">
       <span class="select-text">${esc(r.choice)}</span>${icon('chevron-down')}</button>`;
   } else {
     label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
-    value = checkbox(r.tag, `data-action="tag-flip" data-id="${id}"`);
+    value = tagBox(id);
   }
   // A collapsed entry with something required blank below it says so.
   if (!isField(r) && !ui.expanded.has(id) && missingUnder(id).length)
     label += `<span class="req-mark is-below" title="Something required below is blank">*</span>`;
-  const actions = (isField(r) ? '' : addMenu(id, true))
-    + `<button class="icon-btn" data-action="edit" data-id="${id}" aria-label="${isTag(r) ? 'Rename' : 'Edit'} ${esc(r.edge)}" title="${isTag(r) ? 'Rename' : 'Edit'}">${icon('pencil')}</button>${deleteButton(id)}`;
-  return row(depth, label + styleDot(id), value, actions, engagedHere(id) ? ' is-engaged' : '');
+  // A computed entry isn't edited or deleted here; its formula is, from the explanation under it.
+  const actions = (isField(r) ? '' : addMenu(id, true)) + (computed ? ''
+    : `<button class="icon-btn" data-action="edit" data-id="${id}" aria-label="${isTag(r) ? 'Rename' : 'Edit'} ${esc(r.edge)}" title="${isTag(r) ? 'Rename' : 'Edit'}">${icon('pencil')}</button>${deleteButton(id)}`);
+  return row(depth, label + styleDot(id), `<span class="fx-value">${value}${formulaMark(id)}</span>`, actions, engagedHere(id) ? ' is-engaged' : '');
+}
+
+// A formula's results that are errors at a location, such as a #CIRCULAR! 3(c)(1) Count, shown where the
+// entry would be.
+function errorRows(at, depth) {
+  return (formulaResult.errors ?? []).filter(e => e.args?.length === 1 && e.args[0].at === at && !entriesOf(at).some(k => same(records[k].edge, e.args[0].edge)))
+    .map(e => {
+      const d = definitionOf(e.def);
+      const label = `<span class="twisty"></span><span class="label-text">${esc(e.args[0].edge)}</span>`;
+      const value = `<a class="fx-error" href="#formula:${esc(e.def)}" title="${esc(`${e.error.msg} (${d?.name ?? 'a formula'})`)}">${esc(e.error.code)}</a>`;
+      return `<div class="entry">${row(depth, label, value, '')}</div>`;
+    }).join('');
 }
 
 // Each entry is wrapped with its expanded entries, so it can be dragged among its siblings as a unit.
@@ -745,18 +807,23 @@ function entryRows(at, depth) {
   let html = f?.mode === 'add' && f.at === at && f.type !== 'relation' && !f.required ? formBlock(depth) : '';
   for (const id of entriesOf(at)) {
     const children = ui.expanded.has(id) ? entryRows(id, depth + 1) : '';
-    html += `<div class="entry" data-entry="${id}" data-at="${at}"${isObjectName(id) ? ' data-pinned' : ''} style="--depth:${depth}">${entryRow(id, depth)}${children}</div>`;
+    const why = ui.why === id && !(f?.mode === 'edit' && f.id === id) ? whyBlock(id, depth) : '';
+    html += `<div class="entry" data-entry="${id}" data-at="${at}"${isObjectName(id) ? ' data-pinned' : ''} style="--depth:${depth}">${entryRow(id, depth)}${why}${children}</div>`;
   }
+  html += errorRows(at, depth);
   // Required entries that are blank here, each filled in where it stands.
   for (const [param, req] of missingAt(at))
     html += f?.mode === 'add' && f.at === at && f.required === param ? formBlock(depth) : requiredRow(at, param, req, depth);
   // A relation being added appears under the row it'll join, or after the rest if it starts a new one.
+  // Rows of computed relations come after the entered ones.
   const adding = f?.type === 'relation' && f.at === at;
-  for (const g of relationGroups(at)) {
+  const groups = relationGroups(at);
+  const computedOnly = g => g.ids.every(isComputed);
+  for (const g of [...groups.filter(g => !computedOnly(g)), ...groups.filter(computedOnly)]) {
     html += g.others.length > 1 ? relationTable(g, at, depth) : relationRow(g, at, depth);
     if (adding && g.key === f.rel.key) html += relationForm(depth);
   }
-  if (adding && !relationGroups(at).some(g => g.key === f.rel.key)) html += relationForm(depth);
+  if (adding && !groups.some(g => g.key === f.rel.key)) html += relationForm(depth);
   return html;
 }
 
@@ -800,7 +867,8 @@ function recordView(id) {
     : { title: esc(r.edge), sub: `${DATATYPE_NAMES[r.field]} field: ${esc(displayValue(r))}` };
   const rows = isField(r) ? '' : entryRows(id, 0);
   const body = rows || `<div class="empty">${isField(r) ? 'A field holds a value and has no entries.' : 'Nothing recorded here yet.'}</div>`;
-  return [panelHead({ ...title, crumbs, actions: isField(r) ? '' : addMenu(id) }), body];
+  const extra = !isObject(r) && formulaInfo(id) ? whyBlock(id, 0, true) : '';
+  return [panelHead({ ...title, crumbs, actions: isField(r) ? '' : addMenu(id), extra }), body];
 }
 
 // An object's kind under its name. On a page with a chart it engages the kind's entry in the Kind style,
@@ -817,16 +885,21 @@ function kindChip(id) {
 
 // A relation's own panel: its edges and output as the title, its arguments in place of a path, and below,
 // any entries located at it.
+// A relation with a pilot name is titled with it, its edges following in the subtitle. A computed one, or
+// one a formula also covers, says so under its arguments, along with the formula for relations like it.
 function relationView(id) {
   const r = records[id];
-  const title = (isTag(r) ? relationOutput(id) : '') + `<span>${esc(relationLabel(r))}</span>`
+  const named = relationNameOf(r);
+  const title = (isTag(r) ? relationOutput(id) : '') + `<span>${esc(named?.name ?? relationLabel(r))}</span>`
     + (isChoice(r) ? choiceSelect(id, 'in-title') : isField(r) ? `<span class="title-output">${relationValue(id, relationLabel(r))}</span>` : '');
   const style = panelOptions.engaged && styleOf(id);
-  const sub = `${TYPE_NAMES[typeOf(r)]} relation${isTag(r) && !r.tag ? ', ruled out so it can’t be added' : ''}`
+  const type = isComputed(id) ? `Computed ${TYPE_NAMES[typeOf(r)].toLowerCase()}` : TYPE_NAMES[typeOf(r)];
+  const sub = `${type} relation${named ? ` · ${esc(relationLabel(r))}` : ''}${isTag(r) && !r.tag ? ', ruled out so it can’t be added' : ''}`
     + (style ? ` · <button class="kind-chip${engagedHere(id) ? ' is-engaged' : ''}" data-action="style-engage" data-style="${style.id}" data-output="${esc(outputKey(r))}">${styleDot(id, true)}Line style</button>` : '');
   const rows = isField(r) ? '' : entryRows(id, 0);
   const body = rows || `<div class="empty">${isField(r) ? 'A field relation holds a value and has no entries.' : 'Nothing recorded about this relation yet.'}</div>`;
-  return [panelHead({ title, sub, actions: isField(r) ? '' : addMenu(id), extra: argumentRows(r) }), body];
+  const extra = argumentRows(r) + (formulaInfo(id) ? whyBlock(id, 0, true) : formulaSection(id));
+  return [panelHead({ title, sub, actions: isField(r) ? '' : addMenu(id), extra }), body];
 }
 
 function kindView(kind) {
@@ -847,7 +920,8 @@ function kindView(kind) {
 function allView() {
   const head = panelHead({ title: 'All', sub: 'Browse records by kind' });
   const deleted = archive.length ? listRow('#deleted', 'Deleted', String(archive.length)) : '';
-  return [head, kindsInState().map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + deleted];
+  const formulas = listRow('#formulas', 'Formulas', String(definitions.length));
+  return [head, kindsInState().map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + formulas + deleted];
 }
 
 const ago = when => {
@@ -868,10 +942,17 @@ function deletedView() {
 }
 
 // The hash is empty for All, "kind:<kind>" for a kind, "relate:<a>" or "relate:<a>:<b>" for relating
-// two things (see relate.js), "deleted" for Deleted, or a record id.
+// two things (see relate.js), "deleted" for Deleted, "formulas" for the formulas, "formula:<id>" for one
+// (or "formula:new:entry[:<location>]" and "formula:new:relation[:<a>:<b>]" for a new one), or a record id.
 function currentView() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (h === 'deleted') return { deleted: true };
+  if (h === 'formulas') return { formulas: true };
+  if (h.startsWith('formula:new:')) {
+    const [kind, ...sides] = h.slice(12).split(':');
+    return { formula: { isNew: true, relation: kind === 'relation', sides: sides.filter(s => records[s]) } };
+  }
+  if (h.startsWith('formula:')) return { formula: { id: h.slice(8) } };
   if (h.startsWith('kind:')) return { kind: h.slice(5) };
   if (h.startsWith('relate:')) {
     const [a, b] = h.slice(7).split(':');
@@ -887,6 +968,7 @@ function renderPanel() {
   const view = currentView();
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
   const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView()
+    : view.formulas ? formulasView() : view.formula ? definitionView(view.formula)
     : view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
   const pending = ui.pending ? `<div class="pending" role="alertdialog"><span class="pending-text">${esc(ui.pending.message)}</span>
     <button class="btn btn-primary" data-action="pending-yes">${esc(ui.pending.yes ?? 'Change it')}</button><button class="btn" data-action="pending-no">Cancel</button></div>` : '';
@@ -904,6 +986,581 @@ function restoreFocus() {
     document.querySelector(`[data-grip="${ui.focusGrip}"]`)?.focus();
     ui.focusGrip = null;
   }
+}
+
+// ---- Formulas ----
+// Computed records (see formulas.md, and "Computed records" in model.js): how they're set apart in rows,
+// why each one is there, overriding them, and the views for writing formulas and naming relations.
+
+const isFormulaText = text => /^\s*(=|←|<-)/.test(String(text ?? ''));
+
+// The pilot's name for a relation as a whole (`names` in model.js), matched by output type and edge labels.
+const sameEdges = (a, b) => a.length === b.length && a.map(norm).sort().join('|') === b.map(norm).sort().join('|');
+const relationNameOf = r => (names.relations ?? []).find(n => n.type === typeOf(r) && sameEdges(n.edges, r.args.map(a => a.edge)));
+
+// The pilot's name for the list of relatives in the `listed` role, seen from the `from` role; without one,
+// the listed role's edge label, as formulas.js reads it too.
+function listName(named, from, listed) {
+  const lists = Object.entries(named?.lists ?? {}).find(([k]) => same(k, from))?.[1];
+  return Object.entries(lists ?? {}).find(([k]) => same(k, listed))?.[1] ?? listed;
+}
+
+// How a record reads in a sentence: an entry's label, or a relation's name and its sides.
+function recordTitle(id) {
+  const r = records[id];
+  if (!isRelation(r)) return labelOf(r);
+  return `${relationNameOf(r)?.name ?? relationLabel(r)} (${r.args.map(a => locationText(a.at)).join(' → ')})`;
+}
+
+// A record a formula read, as its explanation lists it: where it is, and what it says. A relation's
+// `details` are fields at it that were read too, like an ownership's Percentage.
+function readText(id, details = []) {
+  const r = records[id];
+  if (isObject(r)) return objectName(id);
+  if (isRelation(r)) return `${r.args.map(a => locationText(a.at)).join(' → ')} (${[relationNameOf(r)?.name ?? relationLabel(r),
+    ...details.map(d => `${records[d].edge} ${displayValue(records[d])}`)].join(', ')}${isTag(r) && !r.tag ? ', ruled out' : ''})`;
+  const [head, ...tail] = pathTo(id);
+  const start = isRelation(records[head]) ? recordTitle(head) : objectName(head);
+  return `${start} › ${tail.map(segmentText).join(' › ')}${isField(r) ? `: ${displayValue(r)}` : ''}`;
+}
+
+// What a formula read, for its explanation: each relation with the fields read at it folded in, those
+// with values first, since they usually decide it.
+function readItems(ids) {
+  const read = new Set(ids);
+  const folded = ids.filter(k => isField(records[k]) && isRelation(records[records[k].at] ?? {}) && read.has(records[k].at));
+  const items = ids.filter(k => !folded.includes(k))
+    .map(k => ({ id: k, details: folded.filter(f => records[f].at === k) }));
+  return items.sort((a, b) => b.details.length - a.details.length || isRelation(records[b.id]) - isRelation(records[a.id]))
+    .map(x => ({ id: x.id, text: readText(x.id, x.details) }));
+}
+
+// What a formula gives, as a cell would show it.
+function formulaOutputText(d, v) {
+  if (v === null || v === undefined) return 'nothing';
+  if (Formulas.isError(v)) return v.code;
+  if (typeof v === 'boolean') return v ? 'attested' : 'ruled out';
+  if (typeof v === 'number') return formatNumber(v, d?.percent);
+  if (v?.t === 'date') return formatDate(v.iso);
+  return String(v);
+}
+
+const definitionType = d => d.type === 'field' ? `${DATATYPE_NAMES[d.datatype ?? 'number']} field` : TYPE_NAMES[d.type];
+const isRelationDef = d => !!d.args || (d.covers ?? []).some(k => JSON.parse(k).length > 1);
+const computedCount = defId => Object.values(formulaResult.computed ?? {}).filter(c => c.def === defId).length;
+const definitionCovering = param => definitions.find(d => Formulas.coversOf(d).includes(param));
+
+// The mark after a record's output: "fx" on a computed one, which explains it when clicked, and a corner
+// mark, as in Excel, on an entered one a formula also covers: strong where it differs from the formula
+// (or rules out what it implies), quiet where it agrees.
+function formulaMark(id) {
+  const info = formulaInfo(id);
+  const d = info && definitionOf(info.def);
+  if (!d) return '';
+  const open = ui.why === id;
+  if (isComputed(id))
+    return `<button class="fx-mark" data-action="why" data-id="${esc(id)}" aria-expanded="${open}" title="Worked out by ${esc(d.name)}. Click to see why.">fx</button>`;
+  const strong = info.mark === 'differs' || info.mark === 'overrides';
+  const says = info.mark === 'overrides' ? `${d.name} implies it` : info.mark === 'also implied' ? `Also implied by ${d.name}`
+    : `${d.name} gives ${formulaOutputText(d, info.formula)}`;
+  return `<button class="ovr-mark${strong ? ' is-strong' : ''}" data-action="why" data-id="${esc(id)}" aria-expanded="${open}" aria-label="${esc(says)}" title="${esc(says)}. Click for more."></button>`;
+}
+
+// Why a computed record is there, or what a formula says about an entered one: under its row, or in its
+// panel's header (`inHead`). It names the definition, the implications that held and what each read, and
+// offers to keep a computed record as entered or to clear an override.
+function whyBlock(id, depth = 0, inHead = false) {
+  const info = formulaInfo(id);
+  const d = info && definitionOf(info.def);
+  if (!d) return '';
+  const defLink = `<a class="why-def" href="#formula:${esc(d.id)}">${esc(d.name)}</a>`;
+  const readsOf = label => (Array.isArray(info.reads) ? info.reads : info.reads?.[label] ?? []).filter(k => records[k] && k !== id);
+  const readList = ids => {
+    const items = readItems(ids);
+    return items.slice(0, 5).map(x => `<a href="#${esc(x.id)}">${esc(x.text)}</a>`).join('<span class="why-sep">·</span>')
+      + (items.length > 5 ? `<span class="why-more"> and ${items.length - 5} more</span>` : '');
+  };
+  const line = (label, html) => `<div class="why-line"><span class="why-label">${esc(label)}</span><span class="why-reads">${html}</span></div>`;
+  let head, lines = '', buttons;
+  if (isComputed(id)) {
+    if (d.implications) {
+      head = `Implied by ${defLink}`;
+      lines = info.labels.map(l => line(l, readList(readsOf(l)) || 'nothing it needed to read')).join('');
+    } else {
+      head = `Worked out by ${defLink}`;
+      lines = line('Formula', `<code class="why-formula">${esc(d.formula)}</code>`) + (readsOf('').length ? line('Read', readList(readsOf(''))) : '');
+    }
+    buttons = `<button class="link-btn" data-action="keep-entered" data-id="${esc(id)}" title="Record this output by hand, so it stays whatever the formula says">Keep as entered</button>`;
+  } else {
+    head = {
+      differs: `Entered here. ${defLink} gives ${esc(formulaOutputText(d, info.formula))}.`,
+      agrees: `Entered here, and ${defLink} gives the same.`,
+      overrides: `Ruled out here, overriding ${defLink}, which implies it.`,
+      'also implied': `Entered here, and also implied by ${defLink}.`,
+    }[info.mark] ?? `${defLink} also covers this.`;
+    if (info.labels?.length) lines = line('Implied by', esc(listing(info.labels)));
+    const strong = info.mark === 'differs' || info.mark === 'overrides';
+    buttons = `<button class="link-btn" data-action="use-formula" data-id="${esc(id)}" title="Drop what’s entered here, so the formula’s output stands">${strong ? 'Use formula' : 'Clear'}</button>`;
+  }
+  buttons += `<a class="link-btn" href="#formula:${esc(d.id)}">Edit formula</a>`;
+  return `<div class="why${inHead ? ' in-head' : ''}" style="--depth:${depth}"><div class="why-head">${head}</div>${lines}<div class="why-actions">${buttons}</div></div>`;
+}
+
+// ---- Writing formulas ----
+// ui.fx holds the definition being edited, as a draft: { key, draft, isNew, atRecord, error }. `key` says
+// where: 'inline:<record id>' in an edit form, 'def:<id>' or 'new:…' in the definition view. Typing changes
+// the draft without redrawing, so the box keeps its focus; Save hands it to saveDefinition().
+
+// A location as formulas.js writes it, a path from a kind; null for a location under a relation.
+function locationTextOf(id) {
+  const path = pathTo(id);
+  const head = records[path[0]];
+  if (!isObject(head)) return null;
+  return [head.kind, ...path.slice(1).map(p => {
+    const r = records[p];
+    return isChoice(r) ? `${r.edge}: ${r.choice}` : isTag(r) ? `${r.tag ? '' : 'Not '}${r.edge}` : r.edge;
+  })].join(' › ');
+}
+
+// Every location the records have, for the location pickers.
+const schemaLocations = () => [...new Set(Object.keys(records)
+  .filter(id => !isField(records[id]) && !isRelation(records[id])).map(locationTextOf).filter(Boolean))].sort(byLabel);
+
+// What a definition covers, in words.
+function coverageText(d) {
+  if (d.args) return d.args.map(a => `${a.edge || '?'} (${a.at.join(' or ') || '?'})`).join(' → ');
+  if (d.at) return d.at.join('; ') || 'nowhere yet';
+  return (d.covers ?? []).map(param => {
+    const id = Object.keys(records).find(k => !isObject(records[k]) && parameterization(records, k) === param);
+    if (!id) return 'locations no record has now';
+    const r = records[id];
+    return isRelation(r) ? r.args.map(a => `${a.edge} (${kindPath(a.at)})`).join(' → ') : kindPath(r.at);
+  }).join('; ');
+}
+
+// A new definition: an entry at a location, or a relation between two sides, if they're given.
+function newDefinition(relation, sides) {
+  const id = newId();
+  if (relation) return { id, name: '', type: 'tag',
+    args: (sides.length === 2 ? sides : [null, null]).map(s => ({ edge: '', at: s && locationTextOf(s) ? [locationTextOf(s)] : [] })),
+    implications: [{ label: '', formula: '← ' }] };
+  const at = sides[0] && locationTextOf(sides[0]);
+  return { id, name: '', type: 'field', datatype: 'number', at: at ? [at] : [], formula: '= ' };
+}
+
+// A formula for the records like `id`, which has none yet: covering exactly its parameterization.
+function draftFor(id) {
+  const r = records[id];
+  const base = { id: newId(), name: isRelation(r) ? relationNameOf(r)?.name ?? relationLabel(r) : r.edge, type: typeOf(r), covers: [parameterization(records, id)] };
+  if (isField(r)) base.datatype = r.field;
+  return isTag(r) ? { ...base, implications: [{ label: '', formula: '← ' }] } : { ...base, formula: '= ' };
+}
+
+// The formula section of an entry's edit form, or of a relation's panel: the definition covering records
+// like it, editable in place, or an offer to add one.
+function formulaSection(id) {
+  const key = `inline:${id}`;
+  const d = definitionCovering(parameterization(records, id));
+  if (ui.fx?.key !== key) {
+    if (!d) return `<div class="fx-section is-quiet"><button class="link-btn" data-action="fx-add" data-id="${esc(id)}">${icon('plus')}Add a formula</button>
+      <span class="fx-hint">to work out ${esc(isRelation(records[id]) ? recordTitle(id).replace(/ \(.*/, '') : records[id].edge)} at every location like this one</span></div>`;
+    ui.fx = { key, draft: structuredClone(d), error: null };
+  }
+  const fx = ui.fx;
+  const title = definitionOf(fx.draft.id) ? `Formula: <a href="#formula:${esc(fx.draft.id)}">${esc(fx.draft.name)}</a>` : 'New formula';
+  return `<div class="fx-section"><div class="fx-section-head">${title}<span class="fx-hint">${esc(coverageText(fx.draft))}</span></div>
+    ${formulaFields(fx)}${draftFoot(fx, true)}</div>`;
+}
+
+// The formula boxes for a draft: one = box, or for a tag written as implications, a row for each.
+function formulaFields(fx) {
+  const d = fx.draft;
+  if (d.type === 'tag' && d.implications) {
+    const rows = d.implications.map((imp, i) => `<div class="fx-imp" data-imp="${i}">
+        <button class="fx-grip" aria-label="Drag to reorder" title="Drag to reorder">${icon('grip-vertical')}</button>
+        <input class="input fx-label" data-fx="imp-label" data-i="${i}" value="${esc(imp.label)}" placeholder="Label, like (A)" autocomplete="off" spellcheck="false">
+        ${formulaBox(`imp:${i}`, imp.formula, '← a condition')}
+        <button class="icon-btn is-small" data-action="fx-imp-remove" data-i="${i}" aria-label="Remove this implication" title="Remove">${icon('x')}</button></div>`).join('');
+    return `<div class="fx-imps">${rows}</div><div class="fx-row-actions"><button class="link-btn" data-action="fx-imp-add">${icon('plus')}Add an implication</button>
+      <button class="link-btn" data-action="fx-tag-mode" title="Attested where it gives TRUE, ruled out where FALSE">Write as one = formula instead</button></div>`;
+  }
+  const mode = d.type === 'tag' ? `<div class="fx-row-actions"><button class="link-btn" data-action="fx-tag-mode" title="Attested wherever a condition holds; never ruled out">Write as implications (←) instead</button></div>` : '';
+  return formulaBox('formula', d.formula, '= an expression') + mode;
+}
+
+function formulaBox(field, text, placeholder) {
+  return `<div class="fx-field"><textarea class="input fx-input" rows="1" data-fx="${field}" placeholder="${esc(placeholder)}" spellcheck="false" autocomplete="off">${esc(text ?? '')}</textarea>
+    <div class="pop listbox fx-suggest" data-fx-suggest hidden></div><div class="fx-note" data-fx-note>${fxNoteHtml(text)}</div></div>`;
+}
+
+// A formula's first problem, with where it is: the text up to it, and the character it's at, marked.
+function fxNoteHtml(text) {
+  const t = String(text ?? '');
+  if (!clean(t) || /^\s*(=|←|<-)\s*$/.test(t)) return '';
+  const c = Formulas.check(t);
+  if (!c.kind) return '<span class="fx-problem">A formula starts with = (or ← for an implication).</span>';
+  if (!c.error) return '';
+  const p = c.error.pos;
+  const from = Math.max(0, p - 24);
+  return `<span class="fx-problem">${esc(c.error.message)}</span> <code class="fx-where">${from ? '…' : ''}${esc(t.slice(from, p))}<mark>${esc(t[p] ?? ' ')}</mark></code>`;
+}
+
+// Under a draft: Save, and Revert (or in an edit form, Cancel for a new formula, or a link to the whole
+// definition for one that exists).
+function draftFoot(fx, inline) {
+  const error = fx.error ? `<span class="fx-error-text">${icon('alert-triangle')}${esc(fx.error)}</span>` : '';
+  const other = !inline ? '<button class="link-btn" data-action="fx-revert">Revert</button>'
+    : definitionOf(fx.draft.id) ? `<a class="link-btn" href="#formula:${esc(fx.draft.id)}">Open the whole definition</a>`
+    : '<button class="link-btn" data-action="fx-close">Cancel</button>';
+  return `<div class="fx-foot"><button class="btn btn-primary" data-action="fx-save">Save formula</button>${other}${error}
+    <span class="fx-keys"><span><kbd>Enter</kbd> save</span></span></div>`;
+}
+
+// The draft as it would be saved: trimmed, with the arrow tidied, an unlabeled implication numbered, and
+// locations not yet picked left out. Returns a message instead if something's missing.
+function finishedDraft(fx) {
+  const d = structuredClone(fx.draft);
+  d.name = clean(d.name);
+  if (!d.name) return 'Give it a name.';
+  if (d.implications) d.implications = d.implications.map((imp, i) => ({ label: clean(imp.label) || `(${i + 1})`, formula: Formulas.tidyArrow(String(imp.formula).trim()) }));
+  else d.formula = String(d.formula ?? '').trim();
+  if (d.args) {
+    d.args = d.args.map(a => ({ edge: clean(a.edge), at: a.at }));
+    if (d.args.length < 2) return 'A relation needs at least two parameters.';
+    if (d.args.some(a => !a.edge)) return 'Give each parameter an edge label, like Controller.';
+    if (d.args.some(a => !a.at.length)) return 'Give each parameter at least one location.';
+    if (new Set(d.args.map(a => norm(a.edge))).size < d.args.length) return 'Each parameter needs its own edge label.';
+  } else if (d.at && !d.at.length && !fx.atRecord) return 'Give it at least one location.';
+  if (fx.atRecord && d.at && !d.at.length) { delete d.at; d.covers = [paramAt(d.name, fx.atRecord)]; }
+  for (const text of d.implications ? d.implications.map(i => i.formula) : [d.formula]) {
+    const c = Formulas.check(text);
+    if (!c.kind || c.error) return `Fix the formula first: ${c.error?.message ?? 'it should start with = or ←.'}`;
+  }
+  if (d.type !== 'field') delete d.datatype;
+  if (!(d.type === 'field' && (d.datatype ?? 'number') === 'number')) delete d.percent;
+  return d;
+}
+
+// The pilot's names, with a relation definition's name and edges kept in step with it.
+function namesFor(d, old) {
+  if (!isRelationDef(d)) return names;
+  const rels = names.relations ?? [];
+  const i = rels.findIndex(r => same(r.name, old?.name ?? d.name));
+  const edges = d.args?.map(a => a.edge);
+  if (i >= 0) return { ...names, relations: rels.map((r, k) => k === i ? { ...r, name: d.name, ...(edges && { edges }) } : r) };
+  if (!edges) return names;
+  return { ...names, relations: [...rels, { name: d.name, type: d.type === 'field' ? 'field' : d.type, edges, lists: {} }] };
+}
+
+function saveDraft() {
+  const fx = ui.fx;
+  const d = finishedDraft(fx);
+  if (typeof d === 'string') { fx.error = d; return; }
+  const old = definitionOf(d.id);
+  const next = old ? definitions.map(x => x.id === d.id ? d : x) : [...definitions, d];
+  fx.error = changeFormulas(next, namesFor(d, old));
+  if (fx.error) return;
+  fx.draft = structuredClone(d);
+  ui.info = `Saved ${d.name}; the formulas are worked out again.`;
+  if (fx.isNew) location.hash = `formula:${d.id}`;
+}
+
+// The Excel-like shortcut: a value typed starting with = (or a tag's ← condition) becomes the formula for
+// every location like this one, in place of the value. The entered record goes, so the formula's output
+// stands here, unless something is located at it.
+function saveFormulaFromForm(f) {
+  const text = Formulas.tidyArrow(clean(f.type === 'tag' ? f.formula : f.output));
+  const c = Formulas.check(text);
+  if (c.error) return `${c.error.message} (at character ${c.error.pos + 1})`;
+  if (c.kind === 'implies' && f.type !== 'tag') return 'Only a tag can be implied. Start a value’s formula with =.';
+  const typed = clean(f.name);
+  if (!typed) return 'Give it a name.';
+  const edge = schemaAt(f.at).find(p => same(p.label, typed))?.label ?? typed;
+  const param = paramAt(edge, f.at);
+  const old = definitionCovering(param);
+  const n = (old?.implications?.length ?? 0) + 1;
+  const formula = c.kind === 'implies'
+    ? { implications: [...(old?.implications ?? []), { label: `(${n})`, formula: text }], formula: undefined }
+    : { formula: text, implications: undefined };
+  const def = JSON.parse(JSON.stringify(old ? { ...old, ...formula }
+    : { id: newId(), name: edge, type: f.type, ...(f.type === 'field' && { datatype: guessDatatype(text, f.at) }), covers: [param], ...formula }));
+  const next = { ...records };
+  const keep = f.id && (entriesOf(f.id).length || relationsAt(f.id).length);
+  if (f.id && !keep) delete next[f.id];
+  const error = commitWithFormulas(next, old ? definitions.map(x => x.id === old.id ? def : x) : [...definitions, def]);
+  if (!error) ui.info = `${edge} is worked out by formula at every location like this one${keep ? '; what’s entered here stays, with what’s located at it' : ''}.`;
+  return error;
+}
+
+// The datatype a new field formula's values have, from what it gives here.
+function guessDatatype(text, at) {
+  const fixed = fieldDatatype(at, ui.form?.name ?? '');
+  if (fixed) return fixed;
+  let v = null;
+  try { v = Formulas.evaluateAt(formulaResult, text, at); } catch {}
+  if (Array.isArray(v) && v.length === 1) v = v[0];
+  return typeof v === 'string' ? 'text' : v?.t === 'date' ? 'date' : 'number';
+}
+
+// ---- The Formulas view and a definition's view ----
+
+const fxCrumbs = `<a href="#">All</a>${icon('chevron-right', 'crumb-sep')}<a href="#formulas">Formulas</a>`;
+
+function formulasView() {
+  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Formulas', sub: 'Entries and relations worked out from other records',
+    actions: `<span class="fx-head-actions"><a class="btn" href="#formula:new:entry">${icon('plus')}Entry</a><a class="btn" href="#formula:new:relation">${icon('plus')}Relation</a></span>` });
+  const rows = definitions.map(d => {
+    const errors = recordErrors(d.id).length + (definitionError(d.id) ? 1 : 0);
+    const meta = `${definitionType(d)}${isRelationDef(d) ? ' relation' : ''} · ${coverageText(d)}`;
+    return `<a class="list-row fx-list-row" href="#formula:${esc(d.id)}"><span class="fx-list-main"><span class="list-title">${esc(d.name)}</span>
+        <span class="fx-list-meta">${esc(meta)}</span></span>
+      <span class="fx-list-count${errors ? ' is-error' : ''}">${errors ? count(errors, 'error') : count(computedCount(d.id), 'record')}</span>${icon('chevron-right', 'list-chevron')}</a>`;
+  }).join('');
+  return [head, (rows || '<div class="empty">No formulas yet.</div>') + namesSection()];
+}
+
+// The pilot's names for relations and their lists, edited in place. Each saves as it's left.
+function namesSection() {
+  const rels = names.relations ?? [];
+  const blocks = rels.map((r, i) => {
+    const pairs = r.edges.flatMap(from => r.edges.filter(to => to !== from).map(to => [from, to]));
+    const lists = pairs.map(([from, to]) => {
+      const value = Object.entries(Object.entries(r.lists ?? {}).find(([k]) => same(k, from))?.[1] ?? {}).find(([k]) => same(k, to))?.[1] ?? '';
+      return `<label class="names-list"><span class="names-list-label">From ${esc(from)}, its ${esc(to)} list</span>
+        <input class="input" data-names="list" data-i="${i}" data-from="${esc(from)}" data-to="${esc(to)}" value="${esc(value)}" placeholder="${esc(to)}" autocomplete="off" spellcheck="false"></label>`;
+    }).join('');
+    return `<div class="names-rel"><div class="names-head"><input class="input names-name" data-names="name" data-i="${i}" value="${esc(r.name)}" aria-label="Relation name" autocomplete="off" spellcheck="false">
+        <span class="names-edges">${esc(TYPE_NAMES[r.type] ?? r.type)} · ${esc(r.edges.join(' · '))}</span>
+        <button class="icon-btn is-small" data-action="names-remove" data-i="${i}" aria-label="Forget this name" title="Forget this name">${icon('x')}</button></div>${lists}</div>`;
+  }).join('');
+  // Relations in the records that have no name yet.
+  const unnamed = new Map();
+  for (const r of Object.values(records)) {
+    if (!isRelation(r) || relationNameOf(r)) continue;
+    const edges = r.args.map(a => a.edge);
+    unnamed.set(`${typeOf(r)}:${edges.map(norm).sort().join('|')}`, { type: typeOf(r), edges });
+  }
+  const add = unnamed.size ? `<select class="input names-add" data-names="add"><option value="">Name another relation…</option>${[...unnamed].map(([k, u]) =>
+    `<option value="${esc(k)}">${esc(u.edges.join(' · '))} (${esc(TYPE_NAMES[u.type])})</option>`).join('')}</select>` : '';
+  return `<div class="section-head">Names <span class="section-note">for relations, and for their lists of relatives seen from each side</span></div>
+    <div class="names">${blocks}${add}</div>`;
+}
+
+const changeName = (i, fn) => {
+  const rels = (names.relations ?? []).map((r, k) => k === i ? fn(structuredClone(r)) : r);
+  ui.notice = saveNames({ ...names, relations: rels.filter(Boolean) });
+};
+
+function onNamesChange(el) {
+  const i = Number(el.dataset.i);
+  if (el.dataset.names === 'name') {
+    if (!clean(el.value)) return;
+    changeName(i, r => ({ ...r, name: clean(el.value) }));
+  } else if (el.dataset.names === 'list') {
+    changeName(i, r => {
+      const from = Object.keys(r.lists ?? {}).find(k => same(k, el.dataset.from)) ?? el.dataset.from;
+      const lists = { ...(r.lists ?? {}) };
+      const own = { ...(lists[from] ?? {}) };
+      const to = Object.keys(own).find(k => same(k, el.dataset.to)) ?? el.dataset.to;
+      if (clean(el.value)) own[to] = clean(el.value); else delete own[to];
+      lists[from] = own;
+      return { ...r, lists };
+    });
+  } else if (el.dataset.names === 'add' && el.value) {
+    const [type] = el.value.split(':');
+    const sample = Object.values(records).find(r => isRelation(r) && typeOf(r) === type && `${type}:${r.args.map(a => norm(a.edge)).sort().join('|')}` === el.value);
+    const edges = sample.args.map(a => a.edge);
+    ui.notice = saveNames({ ...names, relations: [...(names.relations ?? []), { name: edges.join(' · '), type, edges, lists: {} }] });
+  }
+}
+
+// A definition's own view: what it is and covers, its formula or implications, and what it works out.
+function definitionView({ id, isNew, relation, sides = [] }) {
+  const key = isNew ? `new:${relation ? 'relation' : 'entry'}:${sides.join(':')}` : `def:${id}`;
+  if (ui.fx?.key !== key) {
+    const d = isNew ? newDefinition(relation, sides) : definitionOf(id);
+    if (!d) return [panelHead({ crumbs: fxCrumbs, title: 'Formula', sub: 'Not found' }), '<div class="empty">There’s no formula here. It may have been deleted; Undo brings it back.</div>'];
+    const atRecord = isNew && !relation && sides[0] && !locationTextOf(sides[0]) ? sides[0] : null;
+    ui.fx = { key, draft: structuredClone(d), isNew, atRecord, error: null };
+  }
+  const fx = ui.fx, d = fx.draft;
+  const isRel = isRelationDef(d);
+  const sub = isNew ? `New computed ${isRel ? 'relation' : 'entry'}` : `${definitionType(d)}${isRel ? ' relation' : ''} · works out ${count(computedCount(d.id), 'record')}`;
+  const actions = isNew ? '' : `<button class="btn" data-action="fx-delete">${icon('trash')}Delete</button>`;
+  const head = panelHead({ crumbs: fxCrumbs, title: esc(d.name || (isRel ? 'New relation' : 'New entry')), sub, actions });
+  const field = (label, html, note = '') => `<div class="fx-label-cell">${label}</div><div class="fx-value-cell">${html}${note ? `<div class="fx-hint">${note}</div>` : ''}</div>`;
+  const typeValue = d.type === 'field' ? `field:${d.datatype ?? 'number'}` : d.type;
+  const types = [['tag', 'Tag'], ['choice', 'Choice'], ['field:number', 'Number field'], ['field:text', 'Text field'], ['field:date', 'Date field']];
+  const typeSelect = `<select class="input fx-select" data-fx="type">${types.map(([v, t]) => `<option value="${v}"${v === typeValue ? ' selected' : ''}>${t}</option>`).join('')}</select>`
+    + (typeValue === 'field:number' ? `<label class="fx-check"><input type="checkbox" data-fx="percent"${d.percent ? ' checked' : ''}> Show as a percentage</label>` : '');
+  let where;
+  if (d.args) {
+    where = field('Parameters', d.args.map((a, i) => `<div class="fx-param">
+        <input class="input fx-edge" data-fx="edge" data-i="${i}" value="${esc(a.edge)}" placeholder="Edge, like Controller" autocomplete="off" spellcheck="false">
+        ${locationPicker(a.at, i)}
+        ${d.args.length > 2 ? `<button class="icon-btn is-small" data-action="fx-param-remove" data-i="${i}" aria-label="Remove this parameter" title="Remove">${icon('x')}</button>` : ''}</div>`).join('')
+      + `<div class="fx-row-actions"><button class="link-btn" data-action="fx-param-add">${icon('plus')}Add a parameter</button>
+        <label class="fx-check"><input type="checkbox" data-fx="self"${d.self ? ' checked' : ''}> May relate a thing to itself</label></div>`,
+      'Each parameter is an edge label and the locations its records can be at. Bare names in the formula are these edges.');
+  } else if (d.at) {
+    where = field('Locations', locationPicker(d.at, null), fx.atRecord ? `Or, with none picked, every location like ${esc(readText(fx.atRecord))}.` : 'Where it’s worked out. Bare names in the formula are the location’s own names, looked up its path.');
+  } else {
+    where = field('Covers', `<span class="fx-covers">${esc(coverageText(d))}</span>`, 'Every location like the record it was added from.');
+  }
+  const errors = [definitionError(d.id) && `<div class="fx-result-line is-error">${esc(definitionError(d.id))}</div>`,
+    ...recordErrors(d.id).slice(0, 8).map(e => `<div class="fx-result-line is-error"><span class="fx-error">${esc(e.error.code)}</span>
+      ${e.args.map(a => `<a href="#${esc(a.at)}">${esc(locationText(a.at))}</a>`).join(' → ')}: ${esc(e.error.msg)}</div>`)].filter(Boolean).join('');
+  const results = Object.entries(formulaResult.computed ?? {}).filter(([, c]) => c.def === d.id).map(([k]) => k).filter(k => records[k]);
+  const resultList = results.slice(0, 12).map(k => `<a class="fx-result" href="#${esc(k)}">${esc(resultText(k))}</a>`).join('')
+    + (results.length > 12 ? `<span class="fx-hint">and ${results.length - 12} more</span>` : '');
+  const body = `<div class="fx-editor">
+      ${field('Name', `<input class="input" data-fx="name" value="${esc(d.name)}" placeholder="${isRel ? 'Relation name, like Control' : 'Entry name, like 3(c)(1) Count'}" autocomplete="off" spellcheck="false">`,
+        isRel ? 'The relation’s name, for calling it in formulas.' : 'The entry’s label, as its rows show it.')}
+      ${field('Type', typeSelect)}
+      ${where}
+      ${field(d.type === 'tag' && d.implications ? 'Implied by' : 'Formula', formulaFields(fx))}
+    </div>${draftFoot(fx, false)}
+    ${isNew ? '' : `<div class="section-head">Results <span class="section-note">${count(results.length, 'record')}${errors ? ', with errors' : ''}</span></div>
+      <div class="fx-results">${errors}${resultList || (errors ? '' : '<div class="fx-hint">Nothing yet.</div>')}</div>`}`;
+  return [head, body];
+}
+
+// A computed record as the results list shows it: an entry's location, or a relation's sides, and its output.
+function resultText(id) {
+  const r = records[id];
+  const out = isTag(r) ? (r.tag ? '' : ' (ruled out)') : `: ${isField(r) ? displayValue(r) : r.choice}`;
+  return isRelation(r) ? `${r.args.map(a => locationText(a.at)).join(' → ')}${out}` : `${readText(r.at)}${out}`;
+}
+
+function locationPicker(list, i) {
+  const chips = list.map((loc, k) => `<span class="fx-chip">${esc(loc)}<button class="fx-chip-x" data-action="fx-loc-remove" data-i="${i ?? ''}" data-k="${k}" aria-label="Remove ${esc(loc)}">${icon('x')}</button></span>`).join('');
+  const options = schemaLocations().filter(l => !list.some(x => same(x, l)));
+  return `<div class="fx-chips">${chips}<select class="input fx-select fx-add-loc" data-fx="add-loc" data-i="${i ?? ''}"><option value="">Add a location…</option>${options.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
+}
+
+// Changing a draft's type keeps its formula where it can: a tag can be implications or one = formula.
+function setDraftType(d, value) {
+  const [type, datatype] = value.split(':');
+  if (type === 'tag' && !d.implications) { d.implications = [{ label: '', formula: '← ' }]; delete d.formula; }
+  if (type !== 'tag' && d.implications) { d.formula = '= '; delete d.implications; }
+  d.type = type;
+  if (datatype) d.datatype = datatype; else delete d.datatype;
+}
+
+// Typing in a draft's boxes. A formula's `<-` turns into ←, its note says what's wrong, and names are offered.
+function onFxInput(el) {
+  const fx = ui.fx;
+  if (!fx) return;
+  const d = fx.draft, f = el.dataset.fx, i = Number(el.dataset.i);
+  fx.error = null;
+  if (f === 'formula' || f.startsWith('imp:')) {
+    const tidied = Formulas.tidyArrow(el.value);
+    if (tidied !== el.value) {
+      const pos = el.selectionStart - (el.value.length - tidied.length);
+      el.value = tidied;
+      el.setSelectionRange(pos, pos);
+    }
+    if (f === 'formula') d.formula = el.value; else d.implications[Number(f.slice(4))].formula = el.value;
+    const note = el.closest('.fx-field').querySelector('[data-fx-note]');
+    if (note) note.innerHTML = fxNoteHtml(el.value);
+    openSuggest(el);
+  } else if (f === 'name') d.name = el.value;
+  else if (f === 'imp-label') d.implications[i].label = el.value;
+  else if (f === 'edge') d.args[i].edge = el.value;
+}
+
+function onFxChange(el) {
+  const fx = ui.fx;
+  if (!fx) return false;
+  const d = fx.draft, f = el.dataset.fx;
+  if (f === 'type') setDraftType(d, el.value);
+  else if (f === 'percent') d.percent = el.checked;
+  else if (f === 'self') d.self = el.checked;
+  else if (f === 'add-loc' && el.value) (el.dataset.i === '' ? d.at : d.args[Number(el.dataset.i)].at).push(el.value);
+  else return false;
+  return true;
+}
+
+// ---- Names offered while typing a formula ----
+
+const suggestion = { el: null, items: [], active: 0 };
+
+// Every name a dot can look up somewhere: entries' labels, and lists of relatives by their names.
+function schemaNames() {
+  const out = new Map();
+  for (const r of Object.values(records)) {
+    if (r.edge && !out.has(norm(r.edge))) out.set(norm(r.edge), { name: r.edge, kind: 'entry' });
+    if (!isRelation(r)) continue;
+    const named = relationNameOf(r);
+    for (const own of r.args) for (const other of r.args) if (own !== other) {
+      const list = listName(named, own.edge, other.edge);
+      if (!out.has(norm(list))) out.set(norm(list), { name: list, kind: 'list' });
+    }
+  }
+  return [...out.values()].sort((a, b) => byLabel(a.name, b.name));
+}
+
+// Where a draft's formula is worked out, for names offered on its own: a record at its first location.
+function suggestAt(fx) {
+  const d = fx?.draft;
+  if (!d || d.args) return undefined;
+  if (fx.atRecord) return fx.atRecord;
+  const spec = d.at?.[0] ? Formulas.locationKey(d.at[0]) : null;
+  if (spec) return Object.keys(records).find(k => specKey(records, k) === spec);
+  const param = d.covers?.[0];
+  const sample = param && Object.keys(records).find(k => !isObject(records[k]) && parameterization(records, k) === param);
+  return sample ? records[sample].at : undefined;
+}
+
+function openSuggest(el) {
+  const before = el.value.slice(0, el.selectionStart);
+  const partial = /(\[[^\]]*|[A-Za-z_][A-Za-z0-9_]*)$/.exec(before)?.[1] ?? '';
+  const afterDot = /\.\s*$/.test(before.slice(0, before.length - partial.length));
+  if (!partial && !afterDot) return closeSuggest();
+  const fx = ui.fx;
+  const saved = fx?.draft && definitionOf(fx.draft.id) ? fx.draft.id : null;
+  let items = [];
+  try { items = Formulas.suggest(formulaResult, saved, before, suggestAt(fx)); } catch {}
+  const typed = norm(partial.replace(/^\[/, ''));
+  // A relation not saved yet: formulas.js doesn't know its arguments, which are its edges.
+  if (!saved && fx?.draft?.args && !afterDot)
+    items = [...fx.draft.args.filter(a => clean(a.edge) && norm(a.edge).startsWith(typed)).map(a => ({ name: clean(a.edge), kind: 'argument' })), ...items];
+  // formulas.js offers what's after a dot at one sample record. Names other records have follow.
+  if (afterDot) items = [...items, ...schemaNames().filter(s => norm(s.name).startsWith(typed))];
+  const seen = new Set();
+  items = items.filter(s => !seen.has(norm(s.name)) && seen.add(norm(s.name))).slice(0, 12);
+  if (!items.length) return closeSuggest();
+  Object.assign(suggestion, { el, items, active: 0, partial });
+  drawSuggest();
+}
+
+function drawSuggest() {
+  const box = suggestion.el?.closest('.fx-field')?.querySelector('[data-fx-suggest]');
+  if (!box) return;
+  box.innerHTML = suggestion.items.map((s, i) => `<div class="option" data-suggest="${i}" aria-selected="${i === suggestion.active}">
+    <span class="option-label">${esc(s.name)}</span><span class="option-meta">${esc(s.kind)}</span></div>`).join('');
+  box.hidden = false;
+}
+
+function closeSuggest() {
+  const box = suggestion.el?.closest('.fx-field')?.querySelector('[data-fx-suggest]');
+  if (box) box.hidden = true;
+  suggestion.el = null;
+}
+
+// Puts a name in place of what's been typed of it: bracketed if it needs to be, and a function with its "(".
+function acceptSuggest(i = suggestion.active) {
+  const { el, items, partial } = suggestion;
+  const s = items[i];
+  if (!el || !s) return;
+  const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(s.name);
+  const text = (bare ? s.name : `[${s.name}]`) + (s.kind === 'function' ? '(' : '');
+  const start = el.selectionStart - partial.length;
+  el.value = el.value.slice(0, start) + text + el.value.slice(el.selectionStart);
+  el.setSelectionRange(start + text.length, start + text.length);
+  closeSuggest();
+  onFxInput(el);
+  closeSuggest();
 }
 
 // ---- Events ----
@@ -955,6 +1612,41 @@ const actions = {
   undo,
   redo,
   reset: resetSample,
+  // Formulas
+  why: d => { ui.why = ui.why === d.id ? null : d.id; },
+  'keep-entered': d => {
+    ui.notice = keepAsEntered(d.id);
+    if (!ui.notice) { ui.why = null; ui.info = 'Kept as entered. It stays whatever the formula says.'; }
+  },
+  'use-formula': d => {
+    ui.notice = useFormula(d.id);
+    if (!ui.notice) { ui.why = null; ui.info = 'The formula’s output stands here again.'; }
+  },
+  'fx-add': d => { ui.fx = { key: `inline:${d.id}`, draft: draftFor(d.id), error: null }; },
+  'fx-save': saveDraft,
+  'fx-close': () => { ui.fx = null; },
+  'fx-revert': () => { ui.fx = null; },
+  'fx-delete': () => {
+    const d = ui.fx.draft;
+    const n = computedCount(d.id);
+    ui.pending = { message: `Delete ${d.name}${n ? `, and the ${count(n, 'record')} it works out` : ''}? Formulas that use it will show errors. Undo brings it back.`, yes: 'Delete',
+      apply: () => { ui.notice = deleteDefinition(d.id); if (!ui.notice) { ui.info = `Deleted ${d.name}.`; location.hash = 'formulas'; } } };
+  },
+  'fx-imp-add': () => { ui.fx.draft.implications.push({ label: '', formula: '← ' }); },
+  'fx-imp-remove': d => {
+    const imps = ui.fx.draft.implications;
+    imps.splice(Number(d.i), 1);
+    if (!imps.length) imps.push({ label: '', formula: '← ' });
+  },
+  'fx-tag-mode': () => {
+    const draft = ui.fx.draft;
+    if (draft.implications) { delete draft.implications; draft.formula = '= '; }
+    else { delete draft.formula; draft.implications = [{ label: '', formula: '← ' }]; }
+  },
+  'fx-param-add': () => { ui.fx.draft.args.push({ edge: '', at: [] }); },
+  'fx-param-remove': d => { ui.fx.draft.args.splice(Number(d.i), 1); },
+  'fx-loc-remove': d => { (d.i === '' ? ui.fx.draft.at : ui.fx.draft.args[Number(d.i)].at).splice(Number(d.k), 1); },
+  'names-remove': d => changeName(Number(d.i), () => null),
 };
 
 // Keep focus in the box while an option is clicked.
@@ -963,6 +1655,8 @@ document.addEventListener('mousedown', e => {
 });
 
 document.addEventListener('click', e => {
+  const offered = e.target.closest('[data-suggest]');
+  if (offered) return acceptSuggest(Number(offered.dataset.suggest));
   const option = e.target.closest('.option');
   if (option) return pick(Number(option.dataset.index));
   const el = e.target.closest('[data-action]');
@@ -1029,6 +1723,78 @@ document.addEventListener('dragend', () => {
   render();
 });
 
+// A draft's implications are dragged by their handles, too, to reorder them.
+let impDrag = null;
+document.addEventListener('pointerdown', e => {
+  const handle = e.target.closest('.fx-grip');
+  if (handle) handle.closest('.fx-imp').draggable = true;
+});
+document.addEventListener('dragstart', e => {
+  const imp = e.target.closest?.('.fx-imp[draggable="true"]');
+  if (!imp) return;
+  impDrag = { from: Number(imp.dataset.imp), to: null };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', 'implication');
+});
+document.addEventListener('dragover', e => {
+  if (!impDrag) return;
+  const target = e.target.closest?.('.fx-imp');
+  if (!target) return;
+  e.preventDefault();
+  const after = e.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+  document.querySelectorAll('.fx-imp').forEach(el => el.classList.remove('drop-before', 'drop-after'));
+  target.classList.add(after ? 'drop-after' : 'drop-before');
+  impDrag.to = Number(target.dataset.imp) + (after ? 1 : 0);
+});
+document.addEventListener('drop', e => {
+  if (!impDrag || impDrag.to === null || !ui.fx?.draft.implications) return;
+  e.preventDefault();
+  const imps = ui.fx.draft.implications;
+  const [moved] = imps.splice(impDrag.from, 1);
+  imps.splice(impDrag.to > impDrag.from ? impDrag.to - 1 : impDrag.to, 0, moved);
+});
+document.addEventListener('dragend', () => {
+  if (!impDrag) return;
+  impDrag = null;
+  render();
+});
+
+// A draft's type, flags and locations change as they're picked; names save as each box is left.
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.matches('[data-fx]') && onFxChange(t)) return render();
+  if (t.matches('[data-names]')) {
+    ui.notice = ui.info = null;
+    onNamesChange(t);
+    render();
+  }
+});
+
+document.addEventListener('focusout', e => {
+  if (e.target === suggestion.el) closeSuggest();
+});
+
+// In a formula box, the names offered take the arrow keys, Tab and Enter; otherwise Enter saves.
+function onFxKey(e) {
+  const open = suggestion.el === e.target;
+  const n = suggestion.items.length;
+  if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    suggestion.active = (suggestion.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+    drawSuggest();
+  } else if (open && (e.key === 'Tab' || e.key === 'Enter')) {
+    acceptSuggest();
+  } else if (open && e.key === 'Escape') {
+    closeSuggest();
+  } else if (e.key === 'Enter' && !e.shiftKey) {
+    ui.notice = ui.info = null;
+    saveDraft();
+    render();
+  } else {
+    return false;
+  }
+  return true;
+}
+
 document.addEventListener('focusin', e => {
   if (e.target.matches('.combo-input') && !ui.error) openListbox(e.target);
 });
@@ -1037,9 +1803,16 @@ document.addEventListener('focusout', e => {
 });
 
 document.addEventListener('input', e => {
+  if (e.target.matches('[data-fx]')) return onFxInput(e.target);
   if (e.target.matches('[data-rel-edit]')) ui.relEdit.text = e.target.value;
   const role = e.target.dataset.input;
   if (!ui.form || !role) return;
+  // A new tag's condition: typing <- at its start makes the arrow.
+  if (role === 'formula' && Formulas.tidyArrow(e.target.value) !== e.target.value) {
+    const pos = e.target.selectionStart - 1;
+    e.target.value = Formulas.tidyArrow(e.target.value);
+    e.target.setSelectionRange(pos, pos);
+  }
   ui.form[role] = e.target.value;
   if (ui.form.typed) ui.form.typed[role] = true;
   if (ui.error) {
@@ -1078,6 +1851,7 @@ function onComboKey(e) {
 
 document.addEventListener('keydown', e => {
   const t = e.target;
+  if (t.matches('.fx-input') && onFxKey(e)) return e.preventDefault();
   if (t.matches('.combo-input') && onComboKey(e)) return e.preventDefault();
   if (e.key === 'Enter' && t.matches('input[data-input]') && !t.matches('.combo-input')) {
     e.preventDefault();
@@ -1119,7 +1893,7 @@ document.addEventListener('keydown', e => {
     }
   }
   const key = e.key.toLowerCase();
-  if ((e.ctrlKey || e.metaKey) && (key === 'z' || key === 'y') && !t.matches('input, [contenteditable="true"]')) {
+  if ((e.ctrlKey || e.metaKey) && (key === 'z' || key === 'y') && !t.matches('input, textarea, select, [contenteditable="true"]')) {
     e.preventDefault();
     if (key === 'y' || e.shiftKey) redo(); else undo();
     render();
