@@ -68,12 +68,15 @@ function saveForm() {
   if (f.type === 'object') {
     const name = clean(f.name);
     if (!name) return 'Give it a name.';
-    const id = newId();
-    return commit({ ...records, [id]: { kind: f.kind }, [newId()]: { at: id, edge: 'Name', field: 'text', value: name } });
+    return createObject(f.kind, name).error ?? null;
   }
   if (f.type === 'relation') {
     const relation = buildRelation(f);
-    return typeof relation === 'string' ? relation : commit({ ...records, [newId()]: relation });
+    if (typeof relation === 'string') return relation;
+    const id = newId();
+    const error = commit({ ...records, [id]: relation });
+    if (!error) ensureRelationStyle(id);
+    return error;
   }
   const entry = buildEntry(f);
   if (typeof entry === 'string') return entry;
@@ -371,9 +374,43 @@ function fieldHint(f) {
 
 // ---- Rendering ----
 
-const row = (depth, label, value, actions) =>
-  `<div class="row" style="--depth:${depth}">${depth ? '<span class="guides"></span>' : ''}
+const row = (depth, label, value, actions, cls = '') =>
+  `<div class="row${cls}" style="--depth:${depth}">${depth ? '<span class="guides"></span>' : ''}
     <div class="cell-label">${label}</div><div class="cell-value">${value}</div><div class="cell-actions">${actions}</div></div>`;
+
+// A page with a chart sets `engaged` to a function giving the engaged style ({ style, output }), and the
+// panel then marks each styled entry with a swatch that engages its style, and highlights the engaged one.
+const panelOptions = { engaged: null };
+
+const engagedHere = id => {
+  const eng = panelOptions.engaged?.();
+  return !!eng && eng.style === styleOf(id) && (eng.output === '*' || eng.output === outputKey(records[id]));
+};
+
+// A small preview of what a record's style does for its output (see stylePreview). As a button, it engages
+// the style; as a span, it sits inside a button that does.
+function styleDot(id, asSpan = false) {
+  if (!panelOptions.engaged) return '';
+  const s = styleOf(id);
+  if (!s) return '';
+  const r = records[id];
+  const inner = stylePreview(s, s.map[outputKey(r)] ?? {});
+  if (asSpan) return `<span class="style-dot">${inner}</span>`;
+  return `<button class="style-dot" data-action="style-engage" data-style="${s.id}" data-output="${esc(outputKey(r))}"
+    title="Styled by ${esc(describeStyle(s).label)}. Click to format it in the ribbon.">${inner}</button>`;
+}
+
+// Records at or below a location that could have a chart style but don't yet, for Add › Style.
+function unstyledUnder(at) {
+  const seen = new Set();
+  return panelOrder(at).filter(id => {
+    if (isObject(records[id])) return false;
+    const p = parameterization(records, id);
+    if (styleOfParam(p) || seen.has(p)) return false;
+    seen.add(p);
+    return true;
+  });
+}
 
 function twisty(id) {
   if (!hasEntries(id)) return '<span class="twisty"></span>';
@@ -390,22 +427,34 @@ const ADD_TYPES = [
   ['choice', 'One option from a list'],
 ];
 
-// The Add menu: path entries, then the two-argument relations a location like this one already takes part in.
+// The Add menu: path entries, then the two-argument relations a location like this one already takes part in,
+// then any relation at all (which opens the Relate view), and on a page with a chart, a style.
 function addMenu(at, compact = false) {
   const key = `add:${at}`;
-  const open = ui.menu === key;
+  const styleKey = `add-style:${at}`;
+  const open = ui.menu === key || ui.menu === styleKey;
   const trigger = compact
     ? `<button class="icon-btn" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}" aria-label="Add inside ${esc(labelOf(records[at]))}" title="Add inside">${icon('plus')}</button>`
     : `<button class="btn" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}Add</button>`;
   if (!open) return `<span class="menu-anchor">${trigger}</span>`;
+  if (ui.menu === styleKey) {
+    const ids = unstyledUnder(at);
+    const list = ids.map(id => `<button class="menu-item" role="menuitem" data-action="style-new" data-id="${id}">
+      <span class="menu-text"><span class="menu-title">${esc(labelOf(records[id]))}</span><span class="menu-desc">${esc(records[id].at === at ? TYPE_NAMES[typeOf(records[id])] : `Under ${segmentText(records[id].at)}`)}</span></span></button>`).join('');
+    return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu"><div class="menu-head">Style the chart by</div>${list || '<div class="menu-note" style="padding:6px 10px 8px">Everything here already has a style.</div>'}</div></span>`;
+  }
   const items = ADD_TYPES.map(([type, desc]) =>
     `<button class="menu-item" role="menuitem" data-action="add" data-type="${type}" data-id="${at}">
       <span class="menu-text"><span class="menu-title">${TYPE_NAMES[type]}</span><span class="menu-desc">${desc}</span></span><kbd>${TYPE_NAMES[type][0]}</kbd></button>`).join('');
   const relations = relationTypesAt(at).map(t =>
     `<button class="menu-item" role="menuitem" data-action="add-relation" data-id="${at}" data-key="${esc(t.key)}">
-      <span class="menu-text"><span class="menu-title">${esc(t.other)}</span><span class="menu-desc">${TYPE_NAMES[t.type]} relation, with this as ${esc(t.own)}</span></span></button>`).join('');
-  return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu">${items}${relations
-    ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Relations</div>${relations}` : ''}</div></span>`;
+      <span class="menu-text"><span class="menu-title">${esc(t.other)}</span><span class="menu-desc">${TYPE_NAMES[t.type]} relation, with this as ${esc(t.own)}</span></span></button>`).join('')
+    + `<button class="menu-item" role="menuitem" data-action="open-relate" data-id="${at}">
+      <span class="menu-text"><span class="menu-title">Relation…</span><span class="menu-desc">Any kind, with anything; or define a new kind</span></span><kbd>R</kbd></button>`;
+  const style = panelOptions.engaged ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Chart</div>
+    <button class="menu-item" role="menuitem" data-action="menu" data-menu="${styleKey}">
+      <span class="menu-text"><span class="menu-title">Style…</span><span class="menu-desc">Format the chart by an entry here</span></span><kbd>S</kbd></button>` : '';
+  return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu">${items}<div class="menu-sep" role="separator"></div><div class="menu-head">Relations</div>${relations}${style}</div></span>`;
 }
 
 function deleteButton(id, small = false) {
@@ -613,7 +662,7 @@ function entryRow(id, depth) {
   let label = grip(id) + twisty(id), value;
   if (isField(r)) {
     label += `<span class="label-text" title="${esc(r.edge)}">${esc(r.edge)}</span>`;
-    value = `<button class="value-btn" data-action="edit-cell" data-id="${id}">${esc(displayValue(r))}</button>`;
+    value = `<button class="value-btn" data-action="edit-cell" data-id="${id}" data-live="${id}">${esc(displayValue(r))}</button>`;
   } else if (isChoice(r)) {
     label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
     value = `<button class="select" data-action="edit-cell" data-id="${id}" aria-haspopup="listbox" title="Change ${esc(r.edge)}">
@@ -624,7 +673,7 @@ function entryRow(id, depth) {
   }
   const actions = (isField(r) ? '' : addMenu(id, true))
     + `<button class="icon-btn" data-action="edit" data-id="${id}" aria-label="${isTag(r) ? 'Rename' : 'Edit'} ${esc(r.edge)}" title="${isTag(r) ? 'Rename' : 'Edit'}">${icon('pencil')}</button>${deleteButton(id)}`;
-  return row(depth, label, value, actions);
+  return row(depth, label + styleDot(id), value, actions, engagedHere(id) ? ' is-engaged' : '');
 }
 
 // Each entry is wrapped with its expanded entries, so it can be dragged among its siblings as a unit.
@@ -680,7 +729,7 @@ function recordView(id) {
     : ui.showRoot ? ['<a href="#">All</a>', `<a href="${kindHref(head.kind)}">${esc(plural(head.kind))}</a>`]
     : [`<button class="crumb-more" data-action="reveal" aria-label="Show full path" title="Show full path">${icon('dots')}</button>`];
   const crumbs = [...start, ...path.slice(0, -1).map(crumb)].join(icon('chevron-right', 'crumb-sep'));
-  const title = isObject(r) ? { title: esc(objectName(id)), sub: esc(r.kind) }
+  const title = isObject(r) ? { title: `<span data-live="${nameRecordOf(id) ?? ''}">${esc(objectName(id))}</span>`, sub: kindChip(id) }
     : isTag(r) ? { title: `${box(r.tag)}<span>${esc(r.edge)}</span>`, sub: r.tag ? 'Tag' : 'Tag, ruled out so it can’t be added' }
     : isChoice(r) ? { title: `<span>${esc(r.edge)}</span>${choiceSelect(id, 'in-title')}`, sub: 'Choice' }
     : { title: esc(r.edge), sub: `${DATATYPE_NAMES[r.field]} field: ${esc(displayValue(r))}` };
@@ -689,13 +738,27 @@ function recordView(id) {
   return [panelHead({ ...title, crumbs, actions: isField(r) ? '' : addMenu(id) }), body];
 }
 
+// An object's kind under its name. On a page with a chart it engages the kind's entry in the Kind style,
+// and is highlighted while that's engaged.
+function kindChip(id) {
+  const r = records[id];
+  const s = panelOptions.engaged && styles.find(isKindStyle);
+  if (!s) return esc(r.kind);
+  const eng = panelOptions.engaged();
+  const on = eng?.style === s && (eng.output === '*' || eng.output === norm(r.kind));
+  return `<button class="kind-chip${on ? ' is-engaged' : ''}" data-action="style-engage" data-style="${s.id}" data-output="${esc(norm(r.kind))}"
+    title="The Kind style gives every ${esc(r.kind.toLowerCase())} its box. Click to format it.">${styleDot(id, true)}${esc(r.kind)}</button>`;
+}
+
 // A relation's own panel: its edges and output as the title, its arguments in place of a path, and below,
 // any entries located at it.
 function relationView(id) {
   const r = records[id];
   const title = (isTag(r) ? relationOutput(id) : '') + `<span>${esc(relationLabel(r))}</span>`
     + (isChoice(r) ? choiceSelect(id, 'in-title') : isField(r) ? `<span class="title-output">${relationValue(id, relationLabel(r))}</span>` : '');
-  const sub = `${TYPE_NAMES[typeOf(r)]} relation${isTag(r) && !r.tag ? ', ruled out so it can’t be added' : ''}`;
+  const style = panelOptions.engaged && styleOf(id);
+  const sub = `${TYPE_NAMES[typeOf(r)]} relation${isTag(r) && !r.tag ? ', ruled out so it can’t be added' : ''}`
+    + (style ? ` · <button class="kind-chip${engagedHere(id) ? ' is-engaged' : ''}" data-action="style-engage" data-style="${style.id}" data-output="${esc(outputKey(r))}">${styleDot(id, true)}Line style</button>` : '');
   const rows = isField(r) ? '' : entryRows(id, 0);
   const body = rows || `<div class="empty">${isField(r) ? 'A field relation holds a value and has no entries.' : 'Nothing recorded about this relation yet.'}</div>`;
   return [panelHead({ title, sub, actions: isField(r) ? '' : addMenu(id), extra: argumentRows(r) }), body];
@@ -721,10 +784,15 @@ function allView() {
   return [head, kindsInState().map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('')];
 }
 
-// The hash is empty for All, "kind:<kind>" for a kind, or a record id.
+// The hash is empty for All, "kind:<kind>" for a kind, "relate:<a>" or "relate:<a>:<b>" for relating
+// two things (see relate.js), or a record id.
 function currentView() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (h.startsWith('kind:')) return { kind: h.slice(5) };
+  if (h.startsWith('relate:')) {
+    const [a, b] = h.slice(7).split(':');
+    if (records[a] && !isField(records[a])) return { relate: { a, b: records[b] && !isField(records[b]) && b !== a ? b : undefined } };
+  }
   if (records[h]) return { id: h };
   return {};
 }
@@ -734,7 +802,7 @@ function renderPanel() {
   listbox.input = null;
   const view = currentView();
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
-  const [head, body] = view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
+  const [head, body] = view.relate ? relateView(view.relate) : view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
   const pending = ui.pending ? `<div class="pending" role="alertdialog"><span class="pending-text">${esc(ui.pending.message)}</span>
     <button class="btn btn-primary" data-action="pending-yes">${esc(ui.pending.yes ?? 'Change it')}</button><button class="btn" data-action="pending-no">Cancel</button></div>` : '';
   document.getElementById('panel').innerHTML = `${head}<div class="rows${view.id ? ' is-tree' : ''}">${pending}${body}</div>`;
@@ -929,10 +997,14 @@ document.addEventListener('keydown', e => {
     return render();
   }
   if (ui.menu?.startsWith('add:') && !t.matches('input') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    const type = { f: 'field', t: 'tag', c: 'choice' }[e.key.toLowerCase()];
-    if (type) {
+    const at = ui.menu.slice(4);
+    const k = e.key.toLowerCase();
+    const type = { f: 'field', t: 'tag', c: 'choice' }[k];
+    if (type || k === 'r' || (k === 's' && panelOptions.engaged)) {
       e.preventDefault();
-      startForm('add', type, ui.menu.slice(4));
+      if (type) startForm('add', type, at);
+      else if (k === 'r') { ui.menu = null; location.hash = `relate:${at}`; }
+      else ui.menu = `add-style:${at}`;
       return render();
     }
   }

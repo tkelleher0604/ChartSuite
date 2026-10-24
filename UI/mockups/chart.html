@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rboreal Chart</title>
+<script>
+  // Apply a chosen theme and panel width before first paint; "system" leaves the theme to the OS setting.
+  try {
+    const prefs = JSON.parse(localStorage.getItem('rboreal.record-panel.prefs'));
+    if (prefs?.theme === 'light' || prefs?.theme === 'dark') document.documentElement.dataset.theme = prefs.theme;
+  } catch {}
+</script>
+<link rel="stylesheet" href="app/base.css">
+<link rel="stylesheet" href="app/panel.css">
+<link rel="stylesheet" href="app/chart.css">
+</head>
+<body class="chart-app">
+<header class="appbar">
+  <span class="brand">Rboreal</span>
+  <span class="doc-title">Calder Ridge Fund III structure</span>
+  <a class="appbar-link" href="record-panel.html" style="margin-left:6px">Record panel</a>
+  <span class="prefs" id="prefs"></span>
+</header>
+<nav class="ribbon" id="ribbon" aria-label="Ribbon"></nav>
+<div class="workspace">
+  <section class="stage" id="stage" aria-label="Chart">
+    <div id="lock"></div>
+    <div class="sheet-sizer" id="sizer">
+      <div class="sheet" id="sheet">
+        <svg class="wires" id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="nodes" id="nodes"></div>
+        <svg class="overlay" id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div id="quick"></div>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+  <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" aria-label="Resize the record panel" title="Drag to resize"></div>
+  <aside class="panel side-panel" id="panel" aria-label="Record panel"></aside>
+</div>
+
+<script src="app/common.js"></script>
+<script src="app/model.js"></script>
+<script src="app/styles.js"></script>
+<script src="app/panel.js"></script>
+<script src="app/relate.js"></script>
+<script src="app/ribbon.js"></script>
+<script src="app/chart.js"></script>
+<script>
+panelOptions.engaged = currentEngaged;
+
+function render() {
+  syncEngaged();
+  const workspace = document.querySelector('.workspace');
+  if (prefs.panelWidth) workspace.style.setProperty('--panel-w', `${prefs.panelWidth}px`);
+  workspace.style.gridTemplateColumns = prefs.panel === false ? 'minmax(0, 1fr) 0 0' : '';
+  document.getElementById('panel').hidden = prefs.panel === false;
+  renderPanel();
+  renderRibbon();
+  renderChart();
+  document.getElementById('prefs').innerHTML = themeSwitch();
+  restoreFocus();
+}
+
+initState();
+applyTheme();
+render();
+fitWidth();
+</script>
+</body>
+</html>

@@ -110,6 +110,34 @@ const recordsWithOutput = (s, output) => Object.keys(records)
 
 const pickProps = (props, keys) => Object.fromEntries(keys.filter(k => props[k] !== undefined).map(k => [k, props[k]]));
 
+const FONT_STACKS = { Inter: "'Inter', sans-serif", Arial: 'Arial, Helvetica, sans-serif', Calibri: "Calibri, Carlito, 'Segoe UI', sans-serif", Georgia: 'Georgia, serif', 'Times New Roman': "'Times New Roman', Times, serif" };
+const fontStack = f => FONT_STACKS[f] ?? `'${f}', sans-serif`;
+const textCss = t => `font-family:${fontStack(t.font)};font-size:${t.size}px;font-weight:${t.bold ? 600 : 400};font-style:${t.italic ? 'italic' : 'normal'};color:${t.color}`;
+const DASH_ARRAYS = { solid: 'none', dashed: '6 4', dotted: '1.5 3' };
+
+const SHAPE_GLYPHS = {
+  rect: '<rect x="1" y="2" width="20" height="12" />',
+  rounded: '<rect x="1" y="2" width="20" height="12" rx="4" />',
+  oval: '<ellipse cx="11" cy="8" rx="10" ry="6.5" />',
+  triangle: '<polygon points="11,1 21,15 1,15" />',
+  'rect-oval': '<rect x="1" y="2" width="20" height="12" /><ellipse cx="11" cy="8" rx="7.5" ry="4" />',
+};
+const shapeGlyph = (shape, fill = '#fff', stroke) =>
+  `<svg class="glyph-shape" viewBox="0 0 22 16" aria-hidden="true" style="${stroke ? `color:${stroke};` : ''}">${SHAPE_GLYPHS[shape].replace(/ \/>/g, ` style="fill:${fill === 'none' ? 'transparent' : fill}" />`)}</svg>`;
+const lineGlyph = (dash, width = 1.5) =>
+  `<svg class="glyph-line" viewBox="0 0 40 10" aria-hidden="true"><line x1="2" y1="5" x2="38" y2="5" stroke-width="${width}" stroke-dasharray="${DASH_ARRAYS[dash] ?? 'none'}" stroke-linecap="${dash === 'dotted' ? 'round' : 'butt'}" /></svg>`;
+
+// A small picture of what a style's entry for one output does: its line, its shape and colors, or its
+// text. An entry that doesn't format anything yet is a dashed square.
+function stylePreview(s, props) {
+  if (isLineStyle(s)) return `<span class="tile-preview" style="color:${props.stroke ?? LINE_DEFAULTS.stroke}">${lineGlyph(props.dash ?? 'solid', 2)}</span>`;
+  if (BOX_PROPS.some(p => props[p] !== undefined))
+    return `<span class="tile-preview">${shapeGlyph(props.shape ?? 'rect', props.fill ?? '#fff', props.stroke ?? '#27272a')}</span>`;
+  if (TEXT_PROPS.some(p => props[p] !== undefined) || props.show)
+    return `<span class="tile-preview"><span class="tile-aa" style="${textCss({ ...TEXT_DEFAULTS, ...props, size: 12 })}">Aa</span></span>`;
+  return '<span class="tile-preview"><span class="preview-empty"></span></span>';
+}
+
 // The records of an object in the order the panel lists them: the object, then its entries depth-first.
 function panelOrder(obj) {
   const out = [obj];

@@ -177,3 +177,6 @@ kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid 
 /* An unrecorded tag: an empty outline. */
 .box-none rect { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
 .check:hover .box-none rect { stroke: var(--text-3); }
+
+/* A text box inside a menu, for typing a new option. */
+.menu-input { display: block; margin: 4px; width: calc(100% - 8px); }

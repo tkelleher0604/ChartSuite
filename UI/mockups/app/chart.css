@@ -1,0 +1,203 @@
+/* The chart page: an app bar, a ribbon, the chart's sheet, and the record panel on the right. */
+
+html, body { height: 100%; }
+body.chart-app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
+
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.brand { font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+.doc-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-2); font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-title::before { content: ""; width: 1px; height: 16px; background: var(--border-strong); }
+.appbar-link { color: var(--text-2); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.appbar-link:hover { color: var(--text); }
+.prefs { display: flex; align-items: center; gap: 14px; margin-left: auto; font-size: 12px; color: var(--text-3); }
+
+/* Ribbon: tabs, then groups of controls, each labeled underneath. */
+.ribbon { border-bottom: 1px solid var(--border); background: var(--surface); }
+.ribbon-tabs { display: flex; gap: 2px; padding: 0 10px; }
+.ribbon-tab { position: relative; height: 32px; padding: 0 12px; border: 0; background: none; color: var(--text-2); font-size: 13px; font-weight: 500; }
+.ribbon-tab:hover { color: var(--text); }
+.ribbon-tab[aria-selected="true"] { color: var(--text); }
+.ribbon-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
+.ribbon-body { display: flex; align-items: stretch; min-height: 86px; padding: 6px 8px 4px; overflow-x: auto; border-top: 1px solid var(--border); }
+.rb-group { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; padding: 0 10px; border-right: 1px solid var(--border); }
+.rb-group:last-child { border-right: 0; }
+.rb-controls { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 1; }
+.rb-row { display: flex; align-items: center; gap: 3px; }
+.rb-label { padding-top: 1px; font-size: 11px; line-height: 14px; color: var(--text-3); text-align: center; white-space: nowrap; }
+.rb-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; min-width: 28px; padding: 0 7px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text); font-size: 12.5px; white-space: nowrap; }
+.rb-btn:hover:not(:disabled), .rb-btn[aria-expanded="true"] { background: var(--hover); border-color: var(--border); }
+.rb-btn[aria-pressed="true"] { background: var(--pressed); border-color: var(--border-strong); }
+.rb-btn:disabled { opacity: .4; cursor: default; }
+.rb-btn .icon { width: 16px; height: 16px; }
+.rb-btn .chev { width: 12px; height: 12px; color: var(--text-3); }
+.rb-btn.is-tall { flex-direction: column; gap: 2px; height: 54px; min-width: 52px; padding: 4px 8px; font-size: 11.5px; }
+.rb-btn.is-tall .icon { width: 20px; height: 20px; }
+.rb-field { justify-content: space-between; border-color: var(--border); background: var(--surface); }
+.rb-field.is-wide { width: 136px; }
+.rb-field.is-narrow { width: 62px; }
+.rb-field-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rb-btn.is-overridden { position: relative; }
+.rb-btn.is-overridden::after { content: ""; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.rb-check { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: none; font-size: 12.5px; white-space: nowrap; }
+.rb-check:hover:not(:disabled) { background: var(--hover); }
+.rb-check:disabled { opacity: .4; cursor: default; }
+.rb-check .box { width: 15px; height: 15px; }
+.rb-note { max-width: 210px; font-size: 11.5px; line-height: 15px; color: var(--text-3); }
+.rb-note strong { color: var(--text-2); font-weight: 500; }
+.rb-note.is-warn { color: var(--warn); }
+.rb-note .link-btn { font-size: 11.5px; color: var(--accent); }
+
+/* Glyphs drawn in the ribbon's buttons and menus */
+.glyph-letter { position: relative; display: inline-grid; place-items: center; width: 18px; height: 18px; font-weight: 600; font-size: 13px; line-height: 1; }
+.glyph-bar { position: absolute; left: 1px; right: 1px; bottom: -2px; height: 4px; border-radius: 1px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .12); }
+.glyph-swatch { position: relative; display: inline-block; width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .18); }
+.glyph-swatch.is-none { background: linear-gradient(135deg, transparent 45%, var(--no) 45%, var(--no) 55%, transparent 55%), #fff; }
+.glyph-outline { display: inline-block; width: 16px; height: 16px; border-radius: 3px; border: 2.5px solid; }
+.glyph-shape { width: 22px; height: 16px; flex: none; overflow: visible; }
+.glyph-shape * { fill: #fff; stroke: currentColor; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.glyph-line { width: 40px; height: 10px; flex: none; }
+.glyph-line line { stroke: currentColor; }
+
+/* Style gallery: the styles that apply to the selection; the engaged one is outlined. */
+.gallery { display: flex; align-items: stretch; gap: 4px; max-width: 520px; overflow-x: auto; padding: 1px; }
+.tile { display: flex; flex-direction: column; justify-content: center; gap: 2px; flex: none; width: 112px; height: 50px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); text-align: left; }
+.tile:hover { border-color: var(--border-strong); background: var(--hover); }
+.tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.tile-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
+.tile-out { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-3); }
+.tile-preview { flex: none; display: inline-grid; place-items: center; width: 22px; height: 16px; }
+.tile-aa { font-size: 12px; line-height: 1; }
+.tile.is-add { align-items: center; justify-content: center; width: 64px; border-style: dashed; color: var(--text-2); font-size: 11.5px; }
+.tile.is-add .icon { width: 16px; height: 16px; }
+
+/* Ribbon menus: palettes and option lists, using the shared .pop/.menu look. */
+.rb-anchor { position: relative; display: inline-flex; }
+.pop.rb-menu { left: 0; right: auto; width: max-content; min-width: 160px; max-width: 320px; }
+.pop.rb-menu.is-right { left: auto; right: 0; }
+.palette { display: grid; grid-template-columns: repeat(8, 22px); gap: 4px; padding: 6px; }
+.swatch { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15); }
+.swatch:hover { transform: scale(1.12); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
+.palette-foot { padding: 2px 4px 2px; }
+.menu-item.is-font { font-size: 14px; }
+
+/* The stage: the scrollable area holding the sheet. */
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) auto var(--panel-w, 440px); min-height: 0; }
+.stage { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--bg); }
+.sheet-sizer { position: relative; margin: 28px; }
+.sheet { position: absolute; top: 0; left: 0; transform-origin: 0 0; background: #ffffff; border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(24 24 27 / .06), 0 8px 28px -10px rgb(24 24 27 / .25); }
+:root[data-theme="dark"] .sheet { box-shadow: 0 0 0 1px rgb(255 255 255 / .06), 0 12px 32px -8px rgb(0 0 0 / .8); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sheet { box-shadow: 0 0 0 1px rgb(255 255 255 / .06), 0 12px 32px -8px rgb(0 0 0 / .8); } }
+.sheet.has-grid { background-image: radial-gradient(circle, #d9d9de 1px, transparent 1.2px); background-size: 20px 20px; background-position: 10px 10px; }
+.wires, .overlay { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.overlay { z-index: 3; }
+.nodes { position: absolute; inset: 0; pointer-events: none; }
+.nodes > * { pointer-events: auto; }
+
+/* Boxes. Their colors come from styles, so they're absolute: the sheet is paper in either theme. */
+.node { position: absolute; display: flex; align-items: center; justify-content: center; min-height: 50px; padding: 10px 12px;
+  background: var(--fill); border: var(--sw) var(--dash) var(--stroke); cursor: default; user-select: none; }
+.node.shape-rounded { border-radius: 14px; }
+.node.shape-oval { border-radius: 50%; min-height: 58px; padding: 12px calc(var(--w) * .13); }
+.node.shape-rect-oval { padding: 12px calc(var(--w) * .15); }
+.node.shape-rect-oval::before { content: ""; position: absolute; inset: 4px; border: var(--sw) solid var(--stroke); border-radius: 50%; pointer-events: none; }
+.node.shape-triangle { align-items: flex-end; padding: calc(var(--w) * .34) calc(var(--w) * .2) 12px; background: none; border: 0; }
+.node-shape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.node-text { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; max-width: 100%; text-align: center; overflow-wrap: break-word; }
+.node-line { max-width: 100%; line-height: 1.28; border-radius: 3px; }
+.node-line.is-editing { min-width: 3ch; outline: 2px solid #2b59c3; outline-offset: 2px; background: #fff; cursor: text; user-select: text; white-space: pre-wrap; }
+.node-line.is-engaged { box-shadow: 0 0 0 1.5px rgb(43 89 195 / .55); background: rgb(43 89 195 / .06); }
+.node-empty { color: #a1a1aa; font-size: 11px; font-style: italic; }
+.node.is-selected::after { content: ""; position: absolute; inset: -7px; border: 1.5px solid #2b59c3; border-radius: 6px; pointer-events: none; }
+.node.is-target::after { content: ""; position: absolute; inset: -7px; border: 2px dashed #2b59c3; border-radius: 6px; background: rgb(43 89 195 / .05); pointer-events: none; }
+.node.is-moving { opacity: .85; }
+
+/* Handles for drawing a relation, on each side's midpoint (on a triangle's slanted sides). */
+.handle { position: absolute; z-index: 2; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border: 1.5px solid #2b59c3; border-radius: 50%; background: #fff; cursor: crosshair; opacity: 0; transition: opacity .12s; }
+.handle::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
+.node:hover .handle, .node.is-selected .handle { opacity: 1; }
+.handle:hover { background: #2b59c3; transform: scale(1.2); }
+.handle-n { left: 50%; top: 0; }
+.handle-s { left: 50%; top: 100%; }
+.handle-w { left: 0; top: 50%; }
+.handle-e { left: 100%; top: 50%; }
+.shape-triangle .handle-w { left: 25%; }
+.shape-triangle .handle-e { left: 75%; }
+.stage.is-connecting .node, .stage.is-connecting .handle { cursor: crosshair; }
+
+/* Lines */
+.wire-hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke; cursor: pointer; }
+.wire-line { fill: none; }
+.wire-label { paint-order: stroke; stroke: #ffffff; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.wire.is-selected .wire-line { stroke: #2b59c3 !important; }
+.wire.is-selected .wire-label { fill: #2b59c3 !important; }
+.connect-line { stroke: #2b59c3; stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
+.relate-line { stroke: #2b59c3; stroke-width: 2; stroke-dasharray: 7 5; fill: none; animation: march .7s linear infinite; }
+.relate-end { fill: #2b59c3; }
+@keyframes march { to { stroke-dashoffset: -24; } }
+@media (prefers-reduced-motion: reduce) { .relate-line { animation: none; } }
+
+/* While a relation is being added, everything but its two sides fades and the chart takes no input. */
+.stage.is-locked .sheet-sizer { pointer-events: none; }
+.stage.is-locked .node:not(.is-side), .stage.is-locked .wire { opacity: .28; transition: opacity .2s; }
+.stage.is-picking .node:not(.is-side) { cursor: pointer; }
+.lock-bar { position: sticky; top: 12px; z-index: 6; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 24px); margin: 12px auto -48px; padding: 7px 8px 7px 14px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-pop); font-size: 13px; }
+.lock-bar .icon { width: 15px; height: 15px; color: var(--accent); }
+.lock-bar .btn { height: 28px; }
+.lock-text { min-width: 0; }
+
+/* Status bar, bottom-left of the stage */
+.status { position: sticky; left: 0; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; margin-top: -34px; padding: 0 10px; pointer-events: none; }
+.status > * { pointer-events: auto; }
+.zoom { display: inline-flex; align-items: center; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-panel); }
+.zoom .icon-btn { width: 24px; height: 24px; }
+.zoom .icon { width: 14px; height: 14px; }
+.zoom-pct { min-width: 46px; height: 24px; padding: 0 4px; border: 0; border-radius: 5px; background: none; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.zoom-pct:hover { background: var(--pressed); color: var(--text); }
+.notice { padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-panel); font-size: 12.5px; color: var(--text-2); }
+.notice.is-error { color: var(--danger); }
+
+/* Quick menu for a new object, opened by double-clicking the sheet */
+.quick { position: absolute; z-index: 8; }
+.quick .pop { position: static; width: 240px; }
+
+
+/* The panel on the right, with a handle to resize it */
+.resizer { width: 5px; margin: 0 -2px; z-index: 4; cursor: col-resize; background: transparent; }
+.resizer:hover, .resizer.is-active { background: var(--accent); opacity: .5; }
+.side-panel { min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); }
+.side-panel .panel-head { position: sticky; top: 0; z-index: 10; background: var(--surface); }
+
+/* The engaged style, as the panel shows it */
+.row.is-engaged { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.row.is-engaged:hover { background: var(--accent-soft); }
+.row.is-engaged .style-dot { box-shadow: 0 0 0 1.5px var(--accent); }
+.kind-chip { display: inline-flex; align-items: center; gap: 6px; margin-left: -6px; padding: 1px 6px; border: 0; border-radius: 6px; background: none; color: var(--text-3); font-size: 13px; }
+.kind-chip:hover { background: var(--hover); color: var(--text-2); }
+.kind-chip.is-engaged { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+@media (max-width: 900px) {
+  body.chart-app { overflow: auto; grid-template-rows: auto auto auto; }
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: 62vh auto; }
+  .resizer { display: none; }
+  .side-panel { border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
+  .doc-title, .appbar-link { display: none; }
+  .gallery { max-width: 300px; }
+}
+.rb-btn.is-inherited .rb-field-text, .rb-btn.is-inherited .glyph-letter { color: var(--text-3); }
+.rb-btn.is-inherited .glyph-swatch, .rb-btn.is-inherited .glyph-outline, .rb-btn.is-inherited .glyph-line, .rb-btn.is-inherited .glyph-shape { opacity: .45; }
+.rb-btn.is-inherited[aria-pressed="true"] { background: none; border-color: var(--border); border-style: dashed; }
+.rb-btn.is-inherited > .icon { opacity: .55; }
+.preview-empty { display: block; width: 14px; height: 11px; border: 1.5px dashed var(--border-strong); border-radius: 3px; }
+.style-dot { display: inline-grid; place-items: center; flex: none; width: 28px; height: 22px; margin: 7px 0 0 auto; padding: 0; border: 0; border-radius: 5px; background: none; }
+.style-dot:hover { background: var(--pressed); }
+.style-dot .glyph-shape { width: 18px; height: 13px; }
+.style-dot .tile-aa { font-size: 11px; }
+.kind-chip .style-dot { width: auto; height: auto; margin: 0; }
+
+/* While a relation is being added, the ribbon waits too. */
+body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
