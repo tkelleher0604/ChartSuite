@@ -9,6 +9,30 @@ const byLabel = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })
 const plural = word => /[^aeiou]y$/i.test(word) ? `${word.slice(0, -1)}ies` : /(s|x|ch|sh)$/i.test(word) ? `${word}es` : `${word}s`;
 const count = (n, word) => `${n} ${n === 1 ? word : plural(word)}`;
 
+// How well text matches what was typed, for search and for lists to pick from: 0 if it doesn't. Every word
+// typed has to match somewhere; the whole text exactly ranks first, then its start, a whole word, a word's
+// start, anywhere, and the initials of its words ("GP" for General Partner). Punctuation doesn't count, so
+// "coinvest" finds Co-Invest.
+function matchRank(text, query) {
+  const t = norm(text), q = norm(query);
+  if (!q) return 1;
+  if (t === q) return 1000;
+  const bare = s => s.replace(/[^a-z0-9%$§]+/g, '');
+  const words = t.split(/[^a-z0-9%$§]+/).filter(Boolean);
+  let total = 0;
+  for (const w of q.split(' ').filter(Boolean)) {
+    const s = t.startsWith(w) ? 8 : words.includes(w) ? 7 : words.some(x => x.startsWith(w)) ? 6
+      : bare(t).includes(bare(w)) ? 3 : words.map(x => x[0]).join('').startsWith(bare(w)) ? 2 : 0;
+    if (!s) return 0;
+    total += s;
+  }
+  return total;
+}
+// The items that match what was typed, best first, keeping their order among equals. `text` gives an
+// item's text to match; with nothing typed, every item, as it was.
+const rankBy = (items, query, text = x => x) => !clean(query) ? items
+  : items.map((x, i) => [x, matchRank(text(x), query), i]).filter(([, r]) => r).sort((a, b) => b[1] - a[1] || a[2] - b[2]).map(([x]) => x);
+
 // Inner markup of Tabler outline icons; most are in vendor/tabler-icons/outline/.
 const ICONS = {
   'alert-triangle': '<path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" />',

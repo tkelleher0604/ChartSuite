@@ -19,15 +19,15 @@
 
 const Shell = (() => {
   const AREAS = [
-    { id: 'home', name: 'Home', href: 'index.html', key: 'h' },
-    { id: 'chart', name: 'Chart', href: 'chart.html', key: 'c' },
-    { id: 'documents', name: 'Documents', href: 'documents.html', key: 'd' },
-    { id: 'calendar', name: 'Calendar', href: 'calendar.html', key: 'a' },
-    { id: 'history', name: 'History', href: 'history.html', key: 'y' },
+    { id: 'home', name: 'Home', href: 'index.html', key: 'h', words: 'dashboard attention missing overdue' },
+    { id: 'chart', name: 'Chart', href: 'chart.html', key: 'c', words: 'structure diagram org slide' },
+    { id: 'documents', name: 'Documents', href: 'documents.html', key: 'd', words: 'docs files sharepoint library dms agreements' },
+    { id: 'calendar', name: 'Calendar', href: 'calendar.html', key: 'a', words: 'deadlines due dates overdue filings agenda' },
+    { id: 'history', name: 'History', href: 'history.html', key: 'y', words: 'changes audit log who when' },
   ];
   const FOOT_AREAS = [
-    { id: 'schema', name: 'Schema', href: 'schema.html', key: 's' },
-    { id: 'settings', name: 'Settings', href: 'settings.html', key: ',' },
+    { id: 'schema', name: 'Schema', href: 'schema.html', key: 's', words: 'definitions formulas vocabulary fields' },
+    { id: 'settings', name: 'Settings', href: 'settings.html', key: ',', words: 'preferences storage saving sharepoint name theme' },
   ];
   // The Documents area is the table of the Document kind, with the library beside it, so the kind isn't
   // listed again under Records.
@@ -185,41 +185,33 @@ const Shell = (() => {
   const closeLayer = () => { layer.palette = null; dropMenu(); renderLayer(); };
 
   // ---- Command palette ----
-  // Matching is by word starts, then anywhere, then initials ("GP" finds General Partner); every word of
-  // the query has to match somewhere in the item's title, meta or keywords.
-  function matchScore(text, word) {
-    const t = norm(text);
-    if (!word) return 1;
-    if (t.startsWith(word)) return 4;
-    const words = t.split(/[^a-z0-9%$§]+/).filter(Boolean);
-    if (words.some(w => w.startsWith(word))) return 3;
-    if (t.includes(word)) return 2;
-    return words.map(w => w[0]).join('').startsWith(word) ? 1 : 0;
-  }
-  function score(item, query) {
-    const words = norm(query).split(' ').filter(Boolean);
-    const hay = [item.title, item.meta ?? '', item.keywords ?? ''].join(' ');
-    let total = 0;
-    for (const w of words) {
-      const s = Math.max(matchScore(item.title, w) * 2, matchScore(hay, w));
-      if (!s) return 0;
-      total += s;
-    }
-    return total || 1;
-  }
+  // Matching is common.js's matchRank: exact first, then starts, words, anywhere and initials ("GP" finds
+  // General Partner); every word of the query has to match somewhere. An item's title counts double; each of
+  // its other texts (its meta, and keywords: a record's kind and the text it holds) counts on its own, so an
+  // exact match to any of them (a Short Name) comes first, and all of them together count too.
+  const score = (item, query) => {
+    const texts = [item.meta ?? '', ...[].concat(item.keywords ?? [])];
+    return Math.max(matchRank(item.title, query) * 2, ...texts.map(t => matchRank(t, query)), matchRank([item.title, ...texts].join(' '), query));
+  };
+  // What a record holds that someone might look it up by: its kind, and the text of its entries (a Short
+  // Name, an EIN, a file number).
+  const keywordsOf = id => [records[id].kind, ...entriesOf(id).filter(k => isField(records[k]) && records[k].field === 'text').map(k => records[k].value)];
 
   function paletteGroups(query) {
-    const go = [...AREAS, ...FOOT_AREAS].map(a => ({ title: `Go to ${a.name}`, meta: `G then ${a.key.toUpperCase()}`, keywords: a.name, run: () => { location.href = a.href; } }))
-      .concat(recordKinds().map(k => ({ title: `Go to ${plural(k)}`, meta: 'Records', keywords: k, run: () => { location.href = kindHref(k); } })));
+    const go = [...AREAS, ...FOOT_AREAS].map(a => ({ title: `Go to ${a.name}`, meta: `G then ${a.key.toUpperCase()}`, keywords: `${a.name} ${a.words}`, run: () => { location.href = a.href; } }))
+      .concat(recordKinds().map(k => ({ title: `Go to ${plural(k)}`, meta: 'Records', keywords: `${k} ${same(k, 'Individual') ? 'people persons' : ''}`, run: () => { location.href = kindHref(k); } })));
     const objects = Object.keys(records).filter(id => isObject(records[id]));
-    const toItem = id => ({ title: objectName(id), meta: subtitleOf(id), keywords: records[id].kind, run: () => { visited(id); location.href = recordHref(id); } });
+    const toItem = id => ({ title: objectName(id), meta: subtitleOf(id), keywords: keywordsOf(id), run: () => { visited(id); location.href = recordHref(id); } });
     const actions = [...(value(page.commands) ?? []), ...globalCommands()];
     if (!clean(query)) {
       const rec = recent().slice(0, 5).map(toItem);
       return [['Recent', rec], ['Actions', actions.slice(0, 6)], ['Go to', go.slice(0, AREAS.length + FOOT_AREAS.length)]];
     }
     const ranked = items => items.map(i => [i, score(i, query)]).filter(([, s]) => s).sort((a, b) => b[1] - a[1]).map(([i]) => i);
-    return [['Records', ranked(objects.map(toItem)).slice(0, 8)], ['Actions', ranked(actions).slice(0, 6)], ['Go to', ranked(go).slice(0, 4)]];
+    // Documents are listed apart, after the entities and people they concern.
+    const isDoc = id => same(records[id].kind, DOCUMENT_KIND);
+    return [['Records', ranked(objects.filter(id => !isDoc(id)).map(toItem)).slice(0, 8)], ['Actions', ranked(actions).slice(0, 6)],
+      ['Go to', ranked(go).slice(0, 4)], ['Documents', ranked(objects.filter(isDoc).map(toItem)).slice(0, 5)]];
   }
 
   function globalCommands() {
@@ -371,7 +363,7 @@ const Shell = (() => {
   // ---- The record picker ----
   // Finding a record by what's typed, as the palette does: by name, kind, or what tells it apart, word starts
   // first, then anywhere, then initials.
-  const findsRecord = (id, query) => !clean(query) || score({ title: objectName(id), meta: subtitleOf(id), keywords: records[id].kind }, query) > 0;
+  const findsRecord = (id, query) => !clean(query) || score({ title: objectName(id), meta: subtitleOf(id), keywords: keywordsOf(id) }, query) > 0;
   // Shell.pickRecord(anchor, { pick, among, placeholder, id }): a menu under the anchor for finding an object:
   // a box to type in, and the objects that match, grouped by kind in the sidebar's order, each named, with
   // what tells it apart from like names below. `among` is the objects it offers, by default all; pick(id)

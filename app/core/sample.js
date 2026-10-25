@@ -322,6 +322,20 @@ function indexed(id, { name, path, type, date, status, version }, subjects) {
 const evidence = (id, doc, record) => ({ [id]: { args: [{ edge: 'Document', at: doc }, { edge: 'Evidenced', at: record }], tag: true } });
 
 const SAMPLE_COMPLEX = {
+  // What the team calls each vehicle, which the palette finds it by.
+  fund_short:      { at: 'fund', edge: 'Short Name', field: 'text', value: 'Fund III' },
+  feeder_short:    { at: 'feeder', edge: 'Short Name', field: 'text', value: 'Offshore Feeder' },
+  gp_short:        { at: 'gp', edge: 'Short Name', field: 'text', value: 'GP III' },
+  mgmt_short:      { at: 'mgmt', edge: 'Short Name', field: 'text', value: 'The Manager' },
+  blocker_short:   { at: 'blocker', edge: 'Short Name', field: 'text', value: 'Fund III Blocker' },
+  bdc_short:       { at: 'bdc', edge: 'Short Name', field: 'text', value: 'The BDC' },
+  holdco_short:    { at: 'holdco', edge: 'Short Name', field: 'text', value: 'Sponsor Holdings' },
+  caygp_short:     { at: 'caygp', edge: 'Short Name', field: 'text', value: 'Cayman GP' },
+  fund3a_short:    { at: 'fund3a', edge: 'Short Name', field: 'text', value: 'Fund III-A' },
+  aiv_short:       { at: 'aiv', edge: 'Short Name', field: 'text', value: 'AIV-1' },
+  aivblk_short:    { at: 'aivblk', edge: 'Short Name', field: 'text', value: 'AIV-1 Blocker' },
+  coinv_short:     { at: 'coinv', edge: 'Short Name', field: 'text', value: 'Co-Invest' },
+
   // The core's entities, filled out: fiscal year ends, registrations, and when each recurring filing or
   // payment was last made, which the deadlines below are worked out from.
   fund_juris_tax:  { at: 'fund_juris', edge: 'Annual Tax Paid', field: 'date', value: '2026-05-27' },
@@ -795,7 +809,7 @@ const SAMPLE_REQUIRED = ['fund_formed', 'fund_juris', 'fund_type', 'doc_colp3_li
 // this order, then the rest by type. An Entity's role (its Vehicle Type) and what it is come first, then its
 // identifiers and standing; a Document's link, the address, comes last.
 const SAMPLE_ORDER = {
-  'kind:entity': ['vehicle type', 'entity type', 'jurisdiction', 'formation date', 'fiscal year end', 'ein', 'lei registered', 'good standing'],
+  'kind:entity': ['short name', 'vehicle type', 'entity type', 'jurisdiction', 'formation date', 'fiscal year end', 'ein', 'lei registered', 'good standing'],
   'kind:individual': ['email', 'u.s. person'],
   'kind:document': ['document type', 'document date', 'status', 'version', 'link'],
 };
