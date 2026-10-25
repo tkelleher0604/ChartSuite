@@ -1,277 +1,8 @@
 // The state: records in the tree data model (see data-model.md), plus the presentation that goes with them
 // (entry order, chart styles and box positions), with undo and redo over all of it.
 
-// Sample state, path case only: every non-object record has exactly one location.
-// `at` is the id of that location and `edge` labels the edge to it.
-// The root is one of: an object (kind), a field (datatype + value), a choice (text) or a tag (Boolean).
-// Labels, choices and kinds are matched without regard to case, but shown as written.
-const SAMPLE = {
-  fund:            { kind: 'Entity' },
-  fund_name:       { at: 'fund', edge: 'Name', field: 'text', value: 'Calder Ridge Capital Partners III, L.P.' },
-  fund_formed:     { at: 'fund', edge: 'Formation Date', field: 'date', value: '2023-02-14' },
-  fund_ein:        { at: 'fund', edge: 'EIN', field: 'text', value: '92-4810337' },
-  fund_fye:        { at: 'fund', edge: 'Fiscal Year End', field: 'text', value: 'December 31' },
-  fund_target:     { at: 'fund', edge: 'Target Commitments', field: 'money', value: 750000000 },
-  fund_good:       { at: 'fund', edge: 'Good Standing', tag: true },
-  fund_erisa:      { at: 'fund', edge: 'ERISA Plan Assets', tag: false },
-  fund_vehicle:    { at: 'fund', edge: 'Vehicle Type', choice: 'Main Fund' },
-  fund_juris:      { at: 'fund', edge: 'Jurisdiction', choice: 'Delaware' },
-  fund_file:       { at: 'fund_juris', edge: 'File Number', field: 'text', value: '7351234' },
-  fund_agent:      { at: 'fund_juris', edge: 'Registered Agent', field: 'text', value: 'The Corporation Trust Company' },
-  fund_type:       { at: 'fund', edge: 'Entity Type', choice: 'Limited Partnership' },
-  fund_tax:        { at: 'fund_type', edge: 'Tax Classification', choice: 'Partnership' },
-  fund_ics:        { at: 'fund', edge: 'Investment Company Status', choice: '3(c)(7) Fund' },
-
-  feeder:          { kind: 'Entity' },
-  feeder_name:     { at: 'feeder', edge: 'Name', field: 'text', value: 'Calder Ridge Capital Partners III (Cayman), L.P.' },
-  feeder_formed:   { at: 'feeder', edge: 'Formation Date', field: 'date', value: '2023-03-01' },
-  feeder_good:     { at: 'feeder', edge: 'Good Standing', tag: true },
-  feeder_vehicle:  { at: 'feeder', edge: 'Vehicle Type', choice: 'Feeder Fund' },
-  feeder_juris:    { at: 'feeder', edge: 'Jurisdiction', choice: 'Cayman Islands' },
-  feeder_reg:      { at: 'feeder_juris', edge: 'Registration Number', field: 'text', value: 'OG-104582' },
-  feeder_office:   { at: 'feeder_juris', edge: 'Registered Office', field: 'text', value: 'PO Box 1200, George Town, Grand Cayman KY1-1102' },
-  feeder_type:     { at: 'feeder', edge: 'Entity Type', choice: 'Exempted Limited Partnership' },
-  feeder_ics:      { at: 'feeder', edge: 'Investment Company Status', choice: '3(c)(7) Fund' },
-
-  gp:              { kind: 'Entity' },
-  gp_name:         { at: 'gp', edge: 'Name', field: 'text', value: 'Calder Ridge Capital GP III, LLC' },
-  gp_formed:       { at: 'gp', edge: 'Formation Date', field: 'date', value: '2023-02-10' },
-  gp_ein:          { at: 'gp', edge: 'EIN', field: 'text', value: '92-4810115' },
-  gp_good:         { at: 'gp', edge: 'Good Standing', tag: true },
-  gp_vehicle:      { at: 'gp', edge: 'Vehicle Type', choice: 'General Partner' },
-  gp_juris:        { at: 'gp', edge: 'Jurisdiction', choice: 'Delaware' },
-  gp_file:         { at: 'gp_juris', edge: 'File Number', field: 'text', value: '7349876' },
-  gp_agent:        { at: 'gp_juris', edge: 'Registered Agent', field: 'text', value: 'The Corporation Trust Company' },
-  gp_type:         { at: 'gp', edge: 'Entity Type', choice: 'Limited Liability Company' },
-  gp_tax:          { at: 'gp_type', edge: 'Tax Classification', choice: 'Partnership' },
-
-  mgmt:            { kind: 'Entity' },
-  mgmt_name:       { at: 'mgmt', edge: 'Name', field: 'text', value: 'Calder Ridge Capital Management, LLC' },
-  mgmt_formed:     { at: 'mgmt', edge: 'Formation Date', field: 'date', value: '2018-06-05' },
-  mgmt_ein:        { at: 'mgmt', edge: 'EIN', field: 'text', value: '83-0915524' },
-  mgmt_good:       { at: 'mgmt', edge: 'Good Standing', tag: true },
-  mgmt_ria:        { at: 'mgmt', edge: 'Registered Investment Adviser', tag: true },
-  mgmt_sec:        { at: 'mgmt_ria', edge: 'SEC File Number', field: 'text', value: '801-123456' },
-  mgmt_crd:        { at: 'mgmt_ria', edge: 'CRD Number', field: 'text', value: '312345' },
-  mgmt_vehicle:    { at: 'mgmt', edge: 'Vehicle Type', choice: 'Management Company' },
-  mgmt_juris:      { at: 'mgmt', edge: 'Jurisdiction', choice: 'Delaware' },
-  mgmt_file:       { at: 'mgmt_juris', edge: 'File Number', field: 'text', value: '6894512' },
-  mgmt_type:       { at: 'mgmt', edge: 'Entity Type', choice: 'Limited Liability Company' },
-  mgmt_managed:    { at: 'mgmt_type', edge: 'Manager-Managed', tag: true },
-  mgmt_tax:        { at: 'mgmt_type', edge: 'Tax Classification', choice: 'Partnership' },
-
-  blocker:         { kind: 'Entity' },
-  blocker_name:    { at: 'blocker', edge: 'Name', field: 'text', value: 'Calder Ridge III Blocker, Inc.' },
-  blocker_formed:  { at: 'blocker', edge: 'Formation Date', field: 'date', value: '2023-05-22' },
-  blocker_good:    { at: 'blocker', edge: 'Good Standing', tag: false },
-  blocker_vehicle: { at: 'blocker', edge: 'Vehicle Type', choice: 'Blocker' },
-  blocker_juris:   { at: 'blocker', edge: 'Jurisdiction', choice: 'Delaware' },
-  blocker_file:    { at: 'blocker_juris', edge: 'File Number', field: 'text', value: '7412203' },
-  blocker_type:    { at: 'blocker', edge: 'Entity Type', choice: 'Corporation' },
-  blocker_shares:  { at: 'blocker_type', edge: 'Authorized Shares', field: 'number', value: 1000 },
-  blocker_tax:     { at: 'blocker_type', edge: 'Tax Classification', choice: 'C Corporation' },
-
-  northpine:       { kind: 'Entity' },
-  northpine_name:  { at: 'northpine', edge: 'Name', field: 'text', value: 'Northpine Software, LLC' },
-  northpine_vehicle: { at: 'northpine', edge: 'Vehicle Type', choice: 'Portfolio Company' },
-  northpine_juris: { at: 'northpine', edge: 'Jurisdiction', choice: 'Delaware' },
-  northpine_type:  { at: 'northpine', edge: 'Entity Type', choice: 'Limited Liability Company' },
-
-  halvard:         { kind: 'Entity' },
-  halvard_name:    { at: 'halvard', edge: 'Name', field: 'text', value: 'Halvard Logistics Holdings, Inc.' },
-  halvard_vehicle: { at: 'halvard', edge: 'Vehicle Type', choice: 'Portfolio Company' },
-  halvard_juris:   { at: 'halvard', edge: 'Jurisdiction', choice: 'Delaware' },
-  halvard_type:    { at: 'halvard', edge: 'Entity Type', choice: 'Corporation' },
-
-  chen:            { kind: 'Individual' },
-  chen_name:       { at: 'chen', edge: 'Name', field: 'text', value: 'Margaret A. Chen' },
-  chen_email:      { at: 'chen', edge: 'Email', field: 'text', value: 'mchen@example.com' },
-  chen_us:         { at: 'chen', edge: 'U.S. Person', tag: true },
-
-  okafor:          { kind: 'Individual' },
-  okafor_name:     { at: 'okafor', edge: 'Name', field: 'text', value: 'David R. Okafor' },
-  okafor_email:    { at: 'okafor', edge: 'Email', field: 'text', value: 'dokafor@example.com' },
-  okafor_us:       { at: 'okafor', edge: 'U.S. Person', tag: true },
-
-  // A business development company the manager also advises, which co-invests in Northpine, with an
-  // independent director and an outside holder: enough for the 40 Act formulas to find close and remote
-  // affiliates (see formulas.md). As a BDC it elected to be taxed as a RIC, which overrides the default
-  // tax classification the sample's formula gives a corporation.
-  bdc:             { kind: 'Entity' },
-  bdc_name:        { at: 'bdc', edge: 'Name', field: 'text', value: 'Calder Ridge Capital BDC, Inc.' },
-  bdc_formed:      { at: 'bdc', edge: 'Formation Date', field: 'date', value: '2021-09-08' },
-  bdc_good:        { at: 'bdc', edge: 'Good Standing', tag: true },
-  bdc_vehicle:     { at: 'bdc', edge: 'Vehicle Type', choice: 'Business Development Company' },
-  bdc_juris:       { at: 'bdc', edge: 'Jurisdiction', choice: 'Maryland' },
-  bdc_type:        { at: 'bdc', edge: 'Entity Type', choice: 'Corporation' },
-  bdc_tax:         { at: 'bdc_type', edge: 'Tax Classification', choice: 'Regulated Investment Company' },
-  bdc_ics:         { at: 'bdc', edge: 'Investment Company Status', choice: 'Business Development Company' },
-  bdc_file:        { at: 'bdc_ics', edge: '1940 Act File Number', field: 'text', value: '814-01523' },
-
-  pension:         { kind: 'Entity' },
-  pension_name:    { at: 'pension', edge: 'Name', field: 'text', value: 'Northstar Teachers’ Retirement System' },
-  pension_formed:  { at: 'pension', edge: 'Formation Date', field: 'date', value: '1947-07-01' },
-  pension_type:    { at: 'pension', edge: 'Entity Type', choice: 'Governmental Plan' },
-
-  raman:           { kind: 'Individual' },
-  raman_name:      { at: 'raman', edge: 'Name', field: 'text', value: 'Priya N. Raman' },
-  raman_email:     { at: 'raman', edge: 'Email', field: 'text', value: 'praman@example.com' },
-
-  // A kind a user added for the chart, which starts out with the preset style.
-  inv_us:          { kind: 'Investor Group' },
-  inv_us_name:     { at: 'inv_us', edge: 'Name', field: 'text', value: 'U.S. Investors' },
-  inv_nonus:       { kind: 'Investor Group' },
-  inv_nonus_name:  { at: 'inv_nonus', edge: 'Name', field: 'text', value: 'Non-U.S. and U.S. Tax-Exempt Investors' },
-
-  // Relations: entries with more than one location. Each argument is an edge label and a location id,
-  // listed in a fixed order that the panels follow when they lay arguments out side by side, and that
-  // the chart follows when it draws a line from the first argument to the second.
-
-  // A tag relating a GP to the fund it manages. The fund's side sits at its Entity Type, not at the entity.
-  gp_of_fund:      { args: [{ edge: 'GP', at: 'gp' }, { edge: 'Fund Owned', at: 'fund_type' }], tag: true },
-  gp_of_feeder:    { args: [{ edge: 'GP', at: 'gp' }, { edge: 'Fund Owned', at: 'feeder_type' }], tag: true },
-  gp_admitted:     { at: 'gp_of_fund', edge: 'Admission Date', field: 'date', value: '2023-02-14' },
-
-  // Ownership: a tag relating owner and owned, with the Percentage owned located at it, so that more can be
-  // recorded about an ownership (its class of interest, say) and formulas can read it (see formulas.md).
-  own_us_fund:     { args: [{ edge: 'Owner', at: 'inv_us' }, { edge: 'Owned', at: 'fund' }], tag: true },
-  own_us_fund_pct: { at: 'own_us_fund', edge: 'Percentage', field: 'percent', value: 0.716 },
-  own_nonus_fdr:   { args: [{ edge: 'Owner', at: 'inv_nonus' }, { edge: 'Owned', at: 'feeder' }], tag: true },
-  own_nonus_fdr_pct: { at: 'own_nonus_fdr', edge: 'Percentage', field: 'percent', value: 1 },
-  own_fund_blkr:   { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: 'blocker' }], tag: true },
-  own_fund_blkr_pct: { at: 'own_fund_blkr', edge: 'Percentage', field: 'percent', value: 1 },
-  own_fund_npine:  { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: 'northpine' }], tag: true },
-  own_fund_npine_pct: { at: 'own_fund_npine', edge: 'Percentage', field: 'percent', value: 0.64 },
-  own_blkr_hlvd:   { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Owned', at: 'halvard' }], tag: true },
-  own_blkr_hlvd_pct: { at: 'own_blkr_hlvd', edge: 'Percentage', field: 'percent', value: 0.82 },
-  own_fdr_fund:    { args: [{ edge: 'Owner', at: 'feeder' }, { edge: 'Owned', at: 'fund' }], tag: true },
-  own_fdr_fund_pct: { at: 'own_fdr_fund', edge: 'Percentage', field: 'percent', value: 0.284 },
-  own_chen_mgmt:   { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Owned', at: 'mgmt' }], tag: true },
-  own_chen_mgmt_pct: { at: 'own_chen_mgmt', edge: 'Percentage', field: 'percent', value: 0.6 },
-  own_okfr_mgmt:   { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Owned', at: 'mgmt' }], tag: true },
-  own_okfr_mgmt_pct: { at: 'own_okfr_mgmt', edge: 'Percentage', field: 'percent', value: 0.4 },
-  own_chen_gp:     { args: [{ edge: 'Owner', at: 'chen' }, { edge: 'Owned', at: 'gp' }], tag: true },
-  own_chen_gp_pct: { at: 'own_chen_gp', edge: 'Percentage', field: 'percent', value: 0.5 },
-  own_okfr_gp:     { args: [{ edge: 'Owner', at: 'okafor' }, { edge: 'Owned', at: 'gp' }], tag: true },
-  own_okfr_gp_pct: { at: 'own_okfr_gp', edge: 'Percentage', field: 'percent', value: 0.5 },
-  own_bdc_npine:   { args: [{ edge: 'Owner', at: 'bdc' }, { edge: 'Owned', at: 'northpine' }], tag: true },
-  own_bdc_npine_pct: { at: 'own_bdc_npine', edge: 'Percentage', field: 'percent', value: 0.12 },
-  own_pens_bdc:    { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'bdc' }], tag: true },
-  own_pens_bdc_pct: { at: 'own_pens_bdc', edge: 'Percentage', field: 'percent', value: 0.07 },
-
-  // Advisory relationships: a tag relating an investment adviser to a client.
-  adv_fund:        { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'fund' }], tag: true },
-  adv_feeder:      { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'feeder' }], tag: true },
-  adv_bdc:         { args: [{ edge: 'Adviser', at: 'mgmt' }, { edge: 'Client', at: 'bdc' }], tag: true },
-
-  // Positions: a choice relating a person to a company, whose options are the positions 57(b)(1) lists.
-  pos_chen_bdc:    { args: [{ edge: 'Holder', at: 'chen' }, { edge: 'Company', at: 'bdc' }], choice: 'Director' },
-  pos_okfr_bdc:    { args: [{ edge: 'Holder', at: 'okafor' }, { edge: 'Company', at: 'bdc' }], choice: 'Officer' },
-  pos_raman_bdc:   { args: [{ edge: 'Holder', at: 'raman' }, { edge: 'Company', at: 'bdc' }], choice: 'Director' },
-  pos_okfr_mgmt:   { args: [{ edge: 'Holder', at: 'okafor' }, { edge: 'Company', at: 'mgmt' }], choice: 'Officer' },
-
-  // LLC membership: a choice relating a member to an LLC, by way of its Entity Type.
-  mem_chen_gp:     { args: [{ edge: 'Member', at: 'chen' }, { edge: 'LLC', at: 'gp_type' }], choice: 'Managing Member' },
-  mem_okfr_gp:     { args: [{ edge: 'Member', at: 'okafor' }, { edge: 'LLC', at: 'gp_type' }], choice: 'Member' },
-  mem_chen_mgmt:   { args: [{ edge: 'Member', at: 'chen' }, { edge: 'LLC', at: 'mgmt_type' }], choice: 'Managing Member' },
-  mem_okfr_mgmt:   { args: [{ edge: 'Member', at: 'okafor' }, { edge: 'LLC', at: 'mgmt_type' }], choice: 'Member' },
-
-  // Signing authority, with three arguments: who signs, through which entity, for which entity.
-  // Signing for the management company directly makes "Via" and "On Behalf Of" the same location.
-  sign_chen_fund:  { args: [{ edge: 'Signatory', at: 'chen' }, { edge: 'Via', at: 'gp' }, { edge: 'On Behalf Of', at: 'fund' }], tag: true },
-  sign_okfr_fund:  { args: [{ edge: 'Signatory', at: 'okafor' }, { edge: 'Via', at: 'gp' }, { edge: 'On Behalf Of', at: 'fund' }], tag: true },
-  sign_chen_fdr:   { args: [{ edge: 'Signatory', at: 'chen' }, { edge: 'Via', at: 'gp' }, { edge: 'On Behalf Of', at: 'feeder' }], tag: true },
-  sign_chen_mgmt:  { args: [{ edge: 'Signatory', at: 'chen' }, { edge: 'Via', at: 'mgmt' }, { edge: 'On Behalf Of', at: 'mgmt' }], tag: true },
-  sign_okfr_mgmt:  { args: [{ edge: 'Signatory', at: 'okafor' }, { edge: 'Via', at: 'mgmt' }, { edge: 'On Behalf Of', at: 'mgmt' }], tag: false },
-};
-
-// Where each object's box sits on the chart: its top-left corner and width. Height follows from its text.
-const SAMPLE_LAYOUT = {
-  inv_nonus: { x: 40, y: 40, w: 200 },
-  inv_us:    { x: 345, y: 40, w: 200 },
-  feeder:    { x: 25, y: 150, w: 230 },
-  chen:      { x: 650, y: 150, w: 170 },
-  okafor:    { x: 870, y: 150, w: 170 },
-  fund:      { x: 330, y: 330, w: 230 },
-  gp:        { x: 640, y: 350, w: 200 },
-  mgmt:      { x: 860, y: 350, w: 200 },
-  blocker:   { x: 240, y: 545, w: 200 },
-  northpine: { x: 520, y: 545, w: 200 },
-  halvard:   { x: 240, y: 690, w: 200 },
-  pension:   { x: 1330, y: 40, w: 220 },
-  raman:     { x: 1090, y: 150, w: 170 },
-  bdc:       { x: 1320, y: 350, w: 220 },
-};
-
-// The pilot's names for relations as a whole, and for their lists of relatives seen from each side
-// (formulas.md, "Names for relations and lists"). A list without a name goes by the edge label it lists.
-const SAMPLE_NAMES = { relations: [
-  { name: 'Ownership', type: 'tag', edges: ['Owner', 'Owned'], lists: { Owned: { Owner: 'Owners' }, Owner: { Owned: 'Holdings' } } },
-  { name: 'General Partner', type: 'tag', edges: ['GP', 'Fund Owned'], lists: { 'Fund Owned': { GP: 'General Partners' }, GP: { 'Fund Owned': 'Funds' } } },
-  { name: 'Membership', type: 'choice', edges: ['Member', 'LLC'], lists: { LLC: { Member: 'Members' }, Member: { LLC: 'LLCs' } } },
-  { name: 'Signing Authority', type: 'tag', edges: ['Signatory', 'Via', 'On Behalf Of'], lists: {} },
-  { name: 'Position', type: 'choice', edges: ['Holder', 'Company'], lists: { Company: { Holder: 'Personnel' }, Holder: { Company: 'Positions' } } },
-  { name: 'Investment Adviser', type: 'tag', edges: ['Adviser', 'Client'], lists: { Client: { Adviser: 'Advisers' }, Adviser: { Client: 'Clients' } } },
-  { name: 'Look-Through Ownership', type: 'field', edges: ['Investor', 'Investment'],
-    lists: { Investment: { Investor: 'Look-Through Investors' }, Investor: { Investment: 'Look-Through Investments' } } },
-  { name: 'Control', type: 'tag', edges: ['Controller', 'Controlled'], lists: { Controlled: { Controller: 'Controllers' }, Controller: { Controlled: 'Controlled Companies' } } },
-  { name: 'Affiliated Person', type: 'tag', edges: ['Affiliate', 'Person'], lists: { Person: { Affiliate: 'Affiliates' }, Affiliate: { Person: 'Affiliated With' } } },
-  { name: 'Close Affiliate', type: 'tag', edges: ['Close Affiliate', 'BDC'], lists: { BDC: { 'Close Affiliate': 'Close Affiliates' }, 'Close Affiliate': { BDC: 'Close Affiliate Of' } } },
-  { name: 'Remote Affiliate', type: 'tag', edges: ['Remote Affiliate', 'BDC'], lists: { BDC: { 'Remote Affiliate': 'Remote Affiliates' }, 'Remote Affiliate': { BDC: 'Remote Affiliate Of' } } },
-] };
-
-// The sample's formulas: formulas.md's examples, and two tags implied by an entity's Investment Company Status.
-// Locations are written as paths from a kind (see formulas.js). A person, for the 40 Act, is an Entity or an Individual.
-const PERSON_KINDS = ['Entity', 'Individual'];
-const BDC_STATUS = 'Entity › Investment Company Status: Business Development Company';
-const SAMPLE_DEFINITIONS = [
-  { id: 'def_private_fund', name: 'Private Fund', type: 'tag', at: ['Entity'], implications: [
-    { label: '3(c)(1) or 3(c)(7)', formula: '← [Investment Company Status] IN {"3(c)(1) Fund", "3(c)(7) Fund"}' }] },
-  { id: 'def_investment_company', name: 'Investment Company', type: 'tag', at: ['Entity'], implications: [
-    { label: 'BDC', formula: '← [Investment Company Status] = "Business Development Company"' }] },
-  { id: 'def_adds_up', name: 'Ownership Adds Up', type: 'tag', at: ['Entity', 'Individual', 'Investor Group'],
-    formula: '= IF(COUNT(Owners) = 0, BLANK(), SUM(Owners.Percentage) = 100%)' },
-  { id: 'def_tax', name: 'Tax Classification', type: 'choice',
-    at: ['Entity › Entity Type: Limited Partnership', 'Entity › Entity Type: Limited Liability Company', 'Entity › Entity Type: Corporation'],
-    formula: '= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1, "Disregarded Entity", TRUE, "Partnership")' },
-  { id: 'def_look_through', name: 'Look-Through Ownership', type: 'field', datatype: 'percent',
-    args: [{ edge: 'Investor', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Investment', at: ['Entity'] }],
-    formula: '= LOOKTHROUGH(Investor, Investment, Holdings, Percentage)' },
-  { id: 'def_control', name: 'Control', type: 'tag', args: [{ edge: 'Controller', at: PERSON_KINDS }, { edge: 'Controlled', at: ['Entity'] }],
-    implications: [
-      { label: 'More than 25%', formula: '← SUM(FILTER(Controlled.Owners, @ = Controller OR @ IN REACH(Controller, [Controlled Companies])).Percentage) > 25%' },
-      { label: 'General partner', formula: '← Controller IN Controlled.[General Partners]' },
-      { label: 'Managing member', formula: '← Controller IN FILTER(Controlled.Members, @.Membership = "Managing Member")' },
-    ] },
-  { id: 'def_affiliated', name: 'Affiliated Person', type: 'tag', args: [{ edge: 'Affiliate', at: PERSON_KINDS }, { edge: 'Person', at: PERSON_KINDS }],
-    implications: [
-      { label: '(A)', formula: '← SUM(FILTER(Person.Owners, @ = Affiliate OR @ IN REACH(Affiliate, [Controlled Companies])).Percentage) >= 5%' },
-      { label: '(B)', formula: '← IMPLIEDBY([Affiliated Person](Person, Affiliate), "(A)")' },
-      { label: '(C)', formula: '← Affiliate IN REACH(Person, Controllers) OR Affiliate IN REACH(Person, [Controlled Companies]) OR ANY(REACH(Person, Controllers), Affiliate IN REACH(@, [Controlled Companies]))' },
-      { label: '(D)', formula: '← Affiliate IN FILTER(Person.Personnel, @.Position <> "Advisory Board Member") OR Affiliate IN Person.[General Partners]' },
-      { label: '(E)', formula: '← Person.[Investment Company] AND (Affiliate IN Person.Advisers OR Affiliate IN FILTER(Person.Personnel, @.Position = "Advisory Board Member"))' },
-    ] },
-  { id: 'def_close', name: 'Close Affiliate', type: 'tag', args: [{ edge: 'Close Affiliate', at: PERSON_KINDS }, { edge: 'BDC', at: [BDC_STATUS] }],
-    implications: [
-      { label: '(b)(1)', formula: '← [Close Affiliate] IN BDC.Personnel' },
-      { label: '(b)(1) affiliates', formula: '← ANY(BDC.Personnel, IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)"))' },
-      { label: '(b)(2)', formula: '← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[General Partners]' },
-      { label: '(b)(2)', formula: '← [Close Affiliate] IN REACH(BDC, Controllers)' },
-      { label: '(b)(2)', formula: '← ANY(REACH(BDC, Controllers), WITHOUT(BDC, [Close Affiliate] IN REACH(@, [Controlled Companies])))' },
-      { label: '(b)(2) affiliates', formula: '← ANY(BDC.[Close Affiliates], IMPLIEDBY([Close Affiliate](@, BDC), "(b)(2)") AND IMPLIEDBY([Affiliated Person]([Close Affiliate], @), "(C)", "(D)"))' },
-    ] },
-  { id: 'def_remote', name: 'Remote Affiliate', type: 'tag', args: [{ edge: 'Remote Affiliate', at: PERSON_KINDS }, { edge: 'BDC', at: [BDC_STATUS] }],
-    implications: [
-      { label: '(e)(1)(A)', formula: '← IMPLIEDBY([Affiliated Person]([Remote Affiliate], BDC), "(A)") AND NOT [Close Affiliate]([Remote Affiliate], BDC)' },
-      { label: '(e)(1)(C)', formula: '← ANY(FILTER(BDC.Affiliates, IMPLIEDBY([Affiliated Person](@, BDC), "(A)")), IMPLIEDBY([Affiliated Person]([Remote Affiliate], @), "(C)")) AND NOT [Close Affiliate]([Remote Affiliate], BDC)' },
-    ] },
-  { id: 'def_3c1', name: '3(c)(1) Count', type: 'field', datatype: 'number', at: ['Entity'],
-    formula: '= IF([Private Fund], SUM(EACH(Owners, IF(KIND(@) = "Entity" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1))), BLANK())' },
-];
-
-// The workbook is saved under WORKBOOK_KEY.
+// The workbook is saved under WORKBOOK_KEY. A new one starts from the sample chart, in sample.js.
 const WORKBOOK_KEY = 'rboreal.workbook.v2';
-const SAMPLE_CHART_NAME = 'Calder Ridge Fund III structure';
 
 // A chart's state is its schema and records, plus what goes with them:
 // - schema: the chart's schema S, kept explicitly (see "The schema" below);
@@ -291,7 +22,9 @@ const SAMPLE_CHART_NAME = 'Calder Ridge Fund III structure';
 //   and changes to them aren't recorded.
 // Semantics is keyed by parameterization (formulas, required entries), looks and vocabulary by form (styles,
 // names), and placement by location (entry order by location specification, box positions by object).
-let schema, entered, records, definitions, names, order, views, viewId, styles, layout, required, archive, historyLog;
+// Names and order start empty, so records can be read and described before a state is set, as the sample's
+// history is.
+let schema, entered, records, definitions, names = {}, order = {}, views, viewId, styles, layout, required, archive, historyLog;
 const undoStack = [];
 const redoStack = [];
 
@@ -306,7 +39,7 @@ function setState(s) {
   layout = view.layout ?? {};
 }
 
-// Called once every script has loaded, since sample styles come from styles.js.
+// Called once every script has loaded, since the sample (sample.js) uses styles.js.
 function initState() {
   try {
     const saved = JSON.parse(localStorage.getItem(WORKBOOK_KEY));
@@ -319,23 +52,6 @@ function initState() {
   workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState(), sample: true }], chartId: 'chart_main', deleted: [] };
   setState(chartInUse().state);
 }
-
-// The sample: its records, its schema (theirs, and what its formulas declare), its formulas and names in
-// their stored form, and its views. It requires a Formation Date on every Entity, which two portfolio
-// companies lack.
-function sampleState() {
-  const recs = structuredClone(SAMPLE);
-  const { definitions: defs, names: nms, schema: S } = sampleFormulas(recs);
-  return {
-    schema: S, records: recs, order: {}, archive: [], definitions: defs, names: nms,
-    views: sampleViews(recs, S, defs).map(v => ({ ...v, layout: structuredClone(SAMPLE_LAYOUT) })),
-    required: [parameterization(recs, 'fund_formed')],
-  };
-}
-
-// The sample's formulas and names in their stored form, with the schema of its records and what the
-// formulas declare. The formula lab works from these too.
-const sampleFormulas = (recs = SAMPLE) => canonicalFormulas(SAMPLE_DEFINITIONS, SAMPLE_NAMES, withSpecsOf({}, recs));
 
 // States are never mutated in place, so earlier ones can be kept for undo.
 const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
@@ -1348,39 +1064,53 @@ function changesBetween(a, b) {
 }
 
 // How a record reads in a sentence, in the records it belongs to: an object by its kind and name, an
-// entry by its object and path, a relation by its name and the objects it relates.
-function recordPhrase(recs, id) {
+// entry by its object and path, a relation by its name (in N) and the objects it relates.
+function recordPhrase(recs, id, N = names) {
   const r = recs[id];
   if (!r) return 'a record';
   if (isObject(r)) return `${r.kind} “${objectName(id, recs)}”`;
-  const objName = at => { let cur = at; while (recs[cur] && !isObject(recs[cur]) && !isRelation(recs[cur])) cur = recs[cur].at; return recs[cur] && isObject(recs[cur]) ? objectName(cur, recs) : recordPhrase(recs, cur); };
+  const objName = at => { let cur = at; while (recs[cur] && !isObject(recs[cur]) && !isRelation(recs[cur])) cur = recs[cur].at; return recs[cur] && isObject(recs[cur]) ? objectName(cur, recs) : recordPhrase(recs, cur, N); };
   if (isRelation(r)) {
     const t = treeOf(recs, id);
-    const name = (t && names[formOfTree(t)]?.name) ?? r.args.map(a => a.edge).join(' · ');
+    const name = (t && N[formOfTree(t)]?.name) ?? r.args.map(a => a.edge).join(' · ');
     return `${name}: ${r.args.map(a => objName(a.at)).join(' → ')}`;
   }
   return `${objName(r.at)} › ${r.edge}`;
 }
 const outputPhrase = r => isObject(r) ? r.kind : isField(r) ? showValue(r.field, r.value) : isChoice(r) ? r.choice : r.tag ? 'attested' : 'ruled out';
 
-// A change in a sentence: one record added, deleted or changed is named; several are counted, naming an
-// object added with its entries. Changes to the definitions, names or required entries are named after.
-function changeSummary(changes, before, after, extra = []) {
+// A change in a sentence: one record added, deleted or changed is named; several are counted, naming the
+// one the rest depend on where there is one, such as an object added with its entries or a relation
+// deleted with what was recorded at it. Changes to the definitions, names or required entries are named
+// after. Relations are named by N.
+function changeSummary(changes, before, after, extra = [], N = names) {
   const parts = [];
   if (changes.length === 1) {
     const { id, before: b, after: a } = changes[0];
-    if (!b) parts.push(`Added ${recordPhrase(after, id)}${isField(a) ? `: ${outputPhrase(a)}` : ''}`);
-    else if (!a) parts.push(`Deleted ${recordPhrase(before, id)}`);
-    else if (outputPhrase(b) !== outputPhrase(a)) parts.push(`Changed ${recordPhrase(after, id)} from ${outputPhrase(b)} to ${outputPhrase(a)}`);
-    else parts.push(`Changed ${recordPhrase(before, id)} to ${recordPhrase(after, id)}`);
+    if (!b) parts.push(`Added ${recordPhrase(after, id, N)}${isField(a) ? `: ${outputPhrase(a)}` : ''}`);
+    else if (!a) parts.push(`Deleted ${recordPhrase(before, id, N)}`);
+    else if (outputPhrase(b) !== outputPhrase(a)) parts.push(`Changed ${recordPhrase(after, id, N)} from ${outputPhrase(b)} to ${outputPhrase(a)}`);
+    else parts.push(`Changed ${recordPhrase(before, id, N)} to ${recordPhrase(after, id, N)}`);
   } else if (changes.length) {
     const added = changes.filter(c => !c.before), removed = changes.filter(c => !c.after);
-    const object = changes.find(c => c.after && isObject(c.after) && !c.before) ?? changes.find(c => c.before && isObject(c.before) && !c.after);
-    if (added.length === changes.length) parts.push(object ? `Added ${recordPhrase(after, object.id)} with ${count(changes.length - 1, 'entry')}` : `Added ${count(changes.length, 'record')}`);
-    else if (removed.length === changes.length) parts.push(object ? `Deleted ${recordPhrase(before, object.id)} and ${count(changes.length - 1, 'record')} depending on it` : `Deleted ${count(changes.length, 'record')}`);
-    else parts.push(`Changed ${count(changes.length, 'record')}`);
+    if (added.length === changes.length) {
+      const root = rootOfChange(added, after);
+      parts.push(root ? `Added ${recordPhrase(after, root.id, N)} with ${count(changes.length - 1, 'entry')}` : `Added ${count(changes.length, 'record')}`);
+    } else if (removed.length === changes.length) {
+      const root = rootOfChange(removed, before);
+      parts.push(root ? `Deleted ${recordPhrase(before, root.id, N)} and ${count(changes.length - 1, 'record')} depending on it` : `Deleted ${count(changes.length, 'record')}`);
+    } else parts.push(`Changed ${count(changes.length, 'record')}`);
   }
   return [...parts, ...extra].join('; ') || 'Changed the schema';
+}
+
+// The record that every other record of a change depends on, in the records they're in, if one does.
+function rootOfChange(list, recs) {
+  const ids = new Set(list.map(c => c.id));
+  const tops = list.filter(c => !argsOf(recs[c.id]).some(a => ids.has(a.at)));
+  if (tops.length !== 1) return null;
+  const below = withDependents([tops[0].id], recs);
+  return list.every(c => below.has(c.id)) ? tops[0] : null;
 }
 
 // Records a change to the chart's data at the head of the history. `source` says how it was made, when not
@@ -1457,14 +1187,15 @@ function change(next, { moves = false, maps = null, renames = [], after = null, 
   return null;
 }
 
-// The definitions added, deleted or changed, each named in a sentence.
-function definitionChanges(before, after, S0, N0) {
+// The definitions added, deleted or changed, each named in a sentence: those before by the schema and
+// names they had then, those after by these.
+function definitionChanges(before, after, S0, N0, S1 = schema, N1 = names) {
   const name = (d, S, N) => { try { return asWritten(d, S, N).name; } catch { return 'a definition'; } };
   const out = [];
   for (const d of after) {
     const old = before.find(x => x.id === d.id);
-    if (!old) out.push(`Added the definition of ${name(d, schema, names)}`);
-    else if (JSON.stringify(old) !== JSON.stringify(d)) out.push(`Changed the definition of ${name(d, schema, names)}`);
+    if (!old) out.push(`Added the definition of ${name(d, S1, N1)}`);
+    else if (JSON.stringify(old) !== JSON.stringify(d)) out.push(`Changed the definition of ${name(d, S1, N1)}`);
   }
   for (const d of before) if (!after.some(x => x.id === d.id)) out.push(`Deleted the definition of ${name(d, S0, N0)}`);
   return out;
@@ -1721,11 +1452,11 @@ function missingUnder(id) {
 
 // A set of records with everything that depends on them: every entry located at one of them, at any
 // depth, and every relation one of them is an argument of, with whatever depends on those in turn.
-function withDependents(ids) {
+function withDependents(ids, recs = records) {
   const all = new Set(ids);
   for (let grew = true; grew;) {
     grew = false;
-    for (const [k, r] of Object.entries(records))
+    for (const [k, r] of Object.entries(recs))
       if (!all.has(k) && argsOf(r).some(a => all.has(a.at))) { all.add(k); grew = true; }
   }
   return all;

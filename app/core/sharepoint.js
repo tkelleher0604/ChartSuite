@@ -400,7 +400,8 @@ function createMsalAuth(config, msalImpl) {
 
 // ---- Demo: a mocked tenant ----
 // Contoso's "Fund Legal" site and its Documents library, with plausible documents for the sample chart's
-// funds. Same API as live, with the same item shape, so the app can be built, shown and tested offline.
+// funds, which the sample's Documents link to; three of them it doesn't index, as a real library would have
+// some. Same API as live, with the same item shape, so the app can be built, shown and tested offline.
 // What's saved in demo mode is kept in the browser.
 
 const DEMO_HOST = 'contoso.sharepoint.com';
@@ -440,6 +441,30 @@ const DEMO_DOCS = [
   ['Calder Ridge Capital Management/Compliance', 'Code of Ethics - Calder Ridge Capital Management, LLC.pdf', 188, '2025-12-15', 'Priya N. Raman', '3.0', 'Policy', 'Calder Ridge Capital Management, LLC', '2025-12-15'],
   ['Calder Ridge Capital Management/Compliance', 'Officer Appointment Email - D. Okafor.msg', 22, '2024-04-02', 'Margaret A. Chen', '1.0', 'Correspondence', 'Calder Ridge Capital Management, LLC', '2024-04-02'],
   ['Calder Ridge Capital Management/Compliance', 'Investor Presentation - Fund III Annual Meeting 2026.pptx', 5120, '2026-05-06', 'David R. Okafor', '2.0', 'Presentation', 'Calder Ridge Capital Management, LLC', '2026-05-06'],
+  // The rest of the sample's fund complex (sample.js): the Cayman GP, the parallel fund, the AIV and its
+  // blocker, the co-invest vehicle, and the filings that keep them current.
+  ['Calder Ridge Fund III/Governing Documents', 'Amended and Restated Exempted Limited Partnership Agreement - Calder Ridge Capital Partners III (Cayman), L.P.pdf', 1902, '2024-07-01', 'Jonathan S. Ferraro', '1.0', 'Limited Partnership Agreement', 'Calder Ridge Capital Partners III (Cayman), L.P.', '2024-07-01'],
+  ['Calder Ridge Fund III/Governing Documents', 'Memorandum and Articles of Association - Calder Ridge Capital GP III (Cayman), Ltd.pdf', 412, '2024-06-20', 'Jordan Alvarez', '1.0', 'Memorandum and Articles', 'Calder Ridge Capital GP III (Cayman), Ltd.', '2024-06-20'],
+  ['Calder Ridge Fund III/Governing Documents', 'Certificate of Formation - Calder Ridge Capital GP III, LLC.pdf', 140, '2023-02-10', 'Jordan Alvarez', '1.0', 'Certificate of Formation', 'Calder Ridge Capital GP III, LLC', '2023-02-10'],
+  ['Calder Ridge Fund III/Governing Documents', 'Bylaws - Calder Ridge III Blocker, Inc.pdf', 210, '2023-05-22', 'Jordan Alvarez', '1.0', 'Bylaws', 'Calder Ridge III Blocker, Inc.', '2023-05-22'],
+  ['Calder Ridge Capital Management/Governing Documents', 'Certificate of Formation - Calder Ridge Capital Management, LLC.pdf', 132, '2018-06-05', 'Margaret A. Chen', '1.0', 'Certificate of Formation', 'Calder Ridge Capital Management, LLC', '2018-06-05'],
+  ['Calder Ridge Capital Management/Governing Documents', 'Amended and Restated Limited Liability Company Agreement - Calder Ridge Capital Management, LLC.pdf', 486, '2021-01-01', 'Margaret A. Chen', '2.0', 'Operating Agreement', 'Calder Ridge Capital Management, LLC', '2021-01-01'],
+  ['Calder Ridge Capital BDC/Governing Documents', 'Bylaws - Calder Ridge Capital BDC, Inc.pdf', 264, '2021-09-08', 'Margaret A. Chen', '1.0', 'Bylaws', 'Calder Ridge Capital BDC, Inc.', '2021-09-08'],
+  ['Calder Ridge Fund III/Governing Documents', 'Incumbency Certificate - Calder Ridge Capital GP III, LLC.pdf', 92, '2026-06-10', 'Jonathan S. Ferraro', '1.0', 'Incumbency Certificate', 'Calder Ridge Capital GP III, LLC', '2026-06-10'],
+  ['Calder Ridge Fund III/Regulatory', 'Notice of Change of General Partner - Calder Ridge Capital Partners III (Cayman), L.P.pdf', 64, '2024-07-09', 'Jordan Alvarez', '1.0', 'Regulatory Filing', 'Calder Ridge Capital Partners III (Cayman), L.P.', '2024-07-09'],
+  ['Calder Ridge Fund III/Regulatory', 'CFTC 4.13(a)(3) Affirmation 2026 - Fund III Pools.pdf', 38, '2026-02-27', 'Rebecca A. Moretti', '1.0', 'Regulatory Filing', 'Calder Ridge Capital Partners III, L.P.', '2026-02-27'],
+  ['Calder Ridge Fund III/Board Consents', 'Cayman GP Board Resolutions - Appointment of F. MacAllister.pdf', 58, '2025-06-27', 'Jonathan S. Ferraro', '1.0', 'Resolution', 'Calder Ridge Capital GP III (Cayman), Ltd.', '2025-06-27'],
+  ['Calder Ridge Fund III/Tax', 'Delaware Franchise Tax Report 2026 - Calder Ridge III Blocker, Inc.pdf', 68, '2026-02-24', 'Jordan Alvarez', '1.0', 'Tax Document', 'Calder Ridge III Blocker, Inc.', '2026-02-24'],
+  ['Calder Ridge Fund III-A/Governing Documents', 'Limited Partnership Agreement - Calder Ridge Capital Partners III-A, L.P.pdf', 1984, '2024-11-15', 'Jonathan S. Ferraro', '1.0', 'Limited Partnership Agreement', 'Calder Ridge Capital Partners III-A, L.P.', '2024-11-15'],
+  ['Calder Ridge Fund III AIV-1/Board Consents', 'GP Written Consent - Formation of AIV-1 and AIV-1 Blocker.pdf', 81, '2025-02-10', 'Jonathan S. Ferraro', '1.0', 'Consent', 'Calder Ridge Capital GP III, LLC', '2025-02-10'],
+  ['Calder Ridge Fund III AIV-1/Board Consents', 'AIV-1 Blocker Written Consent - Tessellate Acquisition.pdf', 70, '2025-03-14', 'Jonathan S. Ferraro', '1.0', 'Consent', 'Calder Ridge III AIV-1 Blocker, Inc.', '2025-03-14'],
+  ['Calder Ridge Fund III AIV-1/Governing Documents', 'Certificate of Incorporation - Calder Ridge III AIV-1 Blocker, Inc.pdf', 150, '2025-02-12', 'Jordan Alvarez', '1.0', 'Certificate of Formation', 'Calder Ridge III AIV-1 Blocker, Inc.', '2025-02-12'],
+  ['Calder Ridge III Co-Invest/Board Consents', 'GP Written Consent - Corvane Co-Investment.pdf', 76, '2026-06-12', 'Jonathan S. Ferraro', '1.0', 'Consent', 'Calder Ridge Capital GP III, LLC', '2026-06-12'],
+  ['Calder Ridge III Co-Invest/Governing Documents', 'Limited Partnership Agreement - Calder Ridge III Co-Invest (Corvane), L.P.pdf', 1210, '2026-06-15', 'Jonathan S. Ferraro', '1.0', 'Limited Partnership Agreement', 'Calder Ridge III Co-Invest (Corvane), L.P.', '2026-06-15'],
+  ['Calder Ridge III Co-Invest/Regulatory', 'Form D - Calder Ridge III Co-Invest (Corvane), L.P.pdf', 117, '2026-06-26', 'Jordan Alvarez', '1.0', 'Regulatory Filing', 'Calder Ridge III Co-Invest (Corvane), L.P.', '2026-06-26'],
+  ['Calder Ridge Capital Management/Compliance', 'Form ADV Part 2A 2025 - Calder Ridge Capital Management, LLC.pdf', 598, '2025-03-27', 'Rebecca A. Moretti', '1.0', 'Regulatory Filing', 'Calder Ridge Capital Management, LLC', '2025-03-27'],
+  ['Calder Ridge Capital Management/Compliance', 'Form PF Annual Update 2026 - Calder Ridge Capital Management, LLC.pdf', 220, '2026-04-24', 'Rebecca A. Moretti', '1.0', 'Regulatory Filing', 'Calder Ridge Capital Management, LLC', '2026-04-24'],
+  ['Calder Ridge Capital BDC/Regulatory', 'Form D Amendment 2025 - Calder Ridge Capital BDC, Inc.pdf', 119, '2025-11-10', 'Jordan Alvarez', '1.0', 'Regulatory Filing', 'Calder Ridge Capital BDC, Inc.', '2025-11-10'],
 ];
 
 // A short stable id from a path, so links built from the demo stay good from one session to the next.

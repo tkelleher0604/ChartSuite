@@ -14,19 +14,21 @@
 <pre id="out">Running…</pre>
 <script src="../core/common.js"></script>
 <script src="../core/model.js"></script>
+<script src="../core/sample.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/styles.js"></script>
 <script>
-// Checks the model against what model.js and data-model.md say of it, on the sample and after scripted
-// edits: the schema holds every record's specification and is closed and consistent; styles, names,
+// Checks the model against what model.js and data-model.md say of it, on the core of the sample and after
+// scripted edits: the schema holds every record's specification and is closed and consistent; styles, names,
 // required entries and definitions key into it; renames, moves, undo, deleting, copying definitions,
-// Show and Hide, naming relations and lists, and requiring entries do what they should. Nothing is saved:
-// the page works on its own copy of the sample.
+// Show and Hide, naming relations and lists, and requiring entries do what they should. Then the whole
+// sample: the same invariants, how fast it's worked out, its deadlines, its documents and its history.
+// Nothing is saved: the page works on its own copy of the sample.
 saveState = () => {};
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
-const fresh = () => {
-  workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState(), sample: true }], chartId: 'chart_main', deleted: [] };
+const fresh = (state = sampleCoreState()) => {
+  workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state, sample: true }], chartId: 'chart_main', deleted: [] };
   undoStack.length = redoStack.length = 0;
   setState(chartInUse().state);
 };
@@ -237,10 +239,160 @@ function run() {
   check('History: redo too', logged().length === 3 && logged()[0].source === 'redo' && entered.fund_formed.value === '2023-02-15');
   check('…and each entry keeps its record’s before and after', logged()[1].changes[0].before.value === '2023-02-15' && logged()[1].changes[0].after.value === '2023-02-14');
 
+  wholeSample();
+
   const failed = out.filter(x => !x.ok).length;
   document.title = `model test: ${out.length - failed} pass, ${failed} fail`;
   document.getElementById('out').innerHTML = `${document.title}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>
     `<span class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail && !x.ok ? `  [${esc(x.detail)}]` : ''}</span>`).join('\n');
+}
+
+// The whole sample, the fund complex: what the core is checked for above, then how fast it's worked out,
+// its deadlines, required entries, documents, history and views. Its deadlines are read as of the day the
+// sample is set on.
+function wholeSample() {
+  const TODAY = '2026-10-25', MONTH_ON = '2026-11-24';
+  fresh(sampleState());
+  invariants('Whole sample');
+  const kinds = {};
+  for (const r of Object.values(entered)) if (isObject(r)) kinds[r.kind] = (kinds[r.kind] ?? 0) + 1;
+  check('Whole sample: 17 entities, 7 individuals, 5 investor groups, 2 service providers and 47 documents', kinds.Entity === 17 && kinds.Individual === 7
+    && kinds['Investor Group'] === 5 && kinds['Service Provider'] === 2 && kinds.Document === 47, JSON.stringify(kinds));
+  check('Whole sample: a state, with definitions that fit the model', !validate(records) && !definitionsError(definitions, schema, names));
+  check('Whole sample: no formula gives an error', !formulaResult.errors.length && !Object.keys(formulaResult.defErrors).length,
+    JSON.stringify(formulaResult.errors.slice(0, 3).map(e => [e.def, e.error.code])));
+  const kept = Object.keys(SAMPLE_CORE).filter(id => !CORE_RETIRED.includes(id));
+  check('Whole sample: the core is in it, but for the four records its history replaced',
+    kept.every(id => JSON.stringify(entered[id]) === JSON.stringify(SAMPLE_CORE[id])) && CORE_RETIRED.length === 4 && CORE_RETIRED.every(id => !entered[id]));
+
+  // How fast: the median of seven workings-out, after one to warm up.
+  runFormulas(entered);
+  const runs = Array.from({ length: 7 }, () => runFormulas(entered).ms).sort((a, b) => a - b);
+  check(`Whole sample: worked out in under 100 ms (median ${runs[3].toFixed(1)} ms, best ${runs[0].toFixed(1)} ms, ${Object.keys(records).filter(isComputed).length} computed records)`,
+    runs[3] < 100, runs.map(t => t.toFixed(1)).join(', '));
+
+  // Deadlines, each worked out by its definition at the entity it's for.
+  const due = (obj, label) => Object.keys(records).filter(id => records[id].computed && same(records[id].edge, label) && objectOf(id) === obj).map(id => String(records[id].value));
+  const expected = [
+    ['aiv', 'Annual Tax Due', '2026-06-01', 'unpaid since it was formed: overdue'],
+    ['aiv', 'Annual Tax Amount', '300', 'for tax year 2025'],
+    ['fund3a', 'Next Renewal', '2026-09-24', 'a year after it was last renewed: overdue'],
+    ['bdc', 'Form D Due', '2026-11-10', 'a year after the last amendment, the offering being open'],
+    ['fund', 'Next Renewal', '2026-11-14', 'within 30 days'],
+    ['feeder', 'Annual Fee Due', '2027-01-15', 'CIMA, January 15'],
+    ['feeder', 'Annual Return Due', '2027-01-31', 'Cayman, January'],
+    ['caygp', 'Annual Return Due', '2027-01-31', 'Cayman, January'],
+    ['blocker', 'Franchise Tax Due', '2027-03-01', 'Delaware corporations, March 1'],
+    ['aivblk', 'Franchise Tax Due', '2027-03-01', 'Delaware corporations, March 1'],
+    ['fund', 'Affirmation Due', '2027-03-01', '60 days after the year ends'],
+    ['fund3a', 'Affirmation Due', '2027-03-01', '60 days after the year ends'],
+    ['feeder', 'Affirmation Due', '2027-03-01', '60 days after the year ends'],
+    ['mgmt', 'Next Renewal', '2027-03-10', 'a year after it was last renewed'],
+    ['mgmt', 'Form ADV Due', '2027-03-31', '90 days after December 31'],
+    ['feeder', 'Next Renewal', '2027-04-02', 'a year after it was last renewed'],
+    ['mgmt', 'Form PF Due', '2027-04-30', '120 days after December 31'],
+    ...['fund', 'gp', 'mgmt', 'holdco', 'fund3a', 'coinv'].flatMap(id => [[id, 'Annual Tax Due', '2027-06-01', 'Delaware LPs and LLCs, June 1'],
+      [id, 'Annual Tax Amount', '400', 'from tax year 2026']]),
+    ['coinv', 'Form D Due', '2027-06-28', 'the anniversary, June 26, is a Saturday'],
+  ];
+  for (const [obj, label, want, why] of expected)
+    check(`Deadline: ${objectName(obj)} › ${label} is ${want} (${why})`, due(obj, label).join() === want, due(obj, label).join() || 'none');
+  check('Deadline: none for what the team doesn’t file: portfolio companies’ Delaware tax, or a closed offering’s Form D',
+    ['northpine', 'tessellate', 'corvane', 'blocker', 'halvard'].every(id => !due(id, 'Annual Tax Due').length)
+    && ['fund', 'feeder', 'fund3a'].every(id => !due(id, 'Form D Due').length));
+  const dates = Object.values(records).filter(r => r.computed && r.field === 'date').map(r => r.value);
+  const overdue = dates.filter(d => d < TODAY), soon = dates.filter(d => d >= TODAY && d <= MONTH_ON), later = dates.filter(d => d > MONTH_ON);
+  check(`Deadline: as of ${TODAY}, 2 are overdue, 2 due within 30 days and 19 later`, overdue.length === 2 && soon.length === 2 && later.length === 19,
+    `${overdue.length} ${soon.length} ${later.length}`);
+
+  // Meeting a deadline, by entering the date it was met, moves it on.
+  const moved = (patch, read) => { const err = change({ entered: { ...entered, ...patch } }); const got = read(); undoState(); return err ?? got; };
+  check('Deadline: paying AIV-1’s Delaware tax moves it to June 1, 2027, at the new $400',
+    moved({ aiv_juris_tax: { at: 'aiv_juris', edge: 'Annual Tax Paid', field: 'date', value: '2026-10-26' } },
+      () => `${due('aiv', 'Annual Tax Due')} ${due('aiv', 'Annual Tax Amount')}`) === '2027-06-01 400');
+  check('Deadline: filing the 2027 Form ADV moves the next to March 30, 2028, 90 days on in a leap year',
+    moved({ mgmt_ria_filed: { ...entered.mgmt_ria_filed, value: '2027-03-22' } }, () => due('mgmt', 'Form ADV Due').join()) === '2028-03-30');
+  check('Deadline: an affirmation that would fall on a Sunday, March 1, 2026, is due the Monday after',
+    moved({ fund_cftc_last: { ...entered.fund_cftc_last, value: '2025-02-27' } }, () => due('fund', 'Affirmation Due').join()) === '2026-03-02');
+  check('Deadline: closing the co-invest’s offering ends its Form D amendments',
+    moved({ coinv_regd_open: { ...entered.coinv_regd_open, tag: false } }, () => due('coinv', 'Form D Due').length) === 0);
+
+  // Required entries, a few left blank on purpose.
+  fresh(sampleState());
+  const blanks = Object.keys(records).filter(id => !isComputed(id) && (isObject(records[id]) || isRelation(records[id])))
+    .flatMap(id => (isObject(records[id]) ? missingUnder(id) : missingAt(id).map(([, m]) => m)).map(m => `${segmentText(id)}: ${m.label}`)).sort();
+  check('Required: Formation Date, Jurisdiction and Entity Type on Entities, Link, type, date and status on Documents, Title and Start Date on positions',
+    required.length === 13);
+  check('Required: blank only where left so on purpose', blanks.join(' | ') === ['Halvard Logistics Holdings, Inc.: Formation Date', 'Northpine Software, LLC: Formation Date',
+    'Northstar Teachers’ Retirement System: Jurisdiction', 'Officer Appointment Email, D. Okafor: Document Date', 'Position: Start Date'].join(' | '), blanks.join(' | '));
+
+  // Documents: what each is about, and what some are evidence of.
+  const docs = Object.keys(records).filter(id => isObject(records[id]) && records[id].kind === 'Document');
+  const linkOf = id => records[entriesOf(id).find(e => same(records[e].edge, 'Link'))];
+  const concerns = id => relationsAt(id).filter(k => relationNameOf(k) === 'Concerns');
+  check('Documents: each has a Link, a document field, and concerns at least one entity', docs.every(id => linkOf(id)?.field === 'document'
+    && concerns(id).length && concerns(id).every(k => records[records[k].args.find(a => same(a.edge, 'Subject')).at].kind === 'Entity')));
+  check('Documents: an entity’s list of them is its Documents', Formulas.evaluateAt(formulaResult, '= COUNT(Documents)', 'aivblk') === 3);
+  const evid = Object.keys(records).filter(k => isRelation(records[k]) && relationNameOf(k) === 'Evidence');
+  check('Documents: evidence of positions, the appointments they made', evid.length === 4 && evid.every(k => relationNameOf(records[k].args.find(a => same(a.edge, 'Evidenced')).at) === 'Position'));
+  check('Documents: two superseded by later ones', docs.filter(id => entriesOf(id).some(e => records[e].choice === 'Superseded')).map(id => objectName(id)).sort().join(' | ')
+    === 'Exempted Limited Partnership Agreement, Cayman Feeder | Form ADV Part 2A, 2025');
+  const onFile = Object.keys(records).filter(id => records[id].computed && / on File$/.test(records[id].edge));
+  const missingDocs = onFile.filter(id => records[id].tag === false).map(id => `${objectName(objectOf(id))}: ${records[id].edge}`).sort();
+  check('Documents on file: worked out for the 12 entities the team keeps, not for portfolio companies', onFile.length === 24
+    && onFile.every(id => records[objectOf(id)].kind === 'Entity' && !entriesOf(objectOf(id)).some(e => records[e].choice === 'Portfolio Company')), onFile.length);
+  check('Documents on file: ruled out, as missing, just where the sample leaves gaps', missingDocs.join(' | ') === [
+    'Calder Ridge Capital Partners III (Cayman), L.P.: Formation Document on File', 'Calder Ridge Capital Partners III AIV-1, L.P.: Formation Document on File',
+    'Calder Ridge Capital Partners III AIV-1, L.P.: Governing Agreement on File', 'Calder Ridge Capital Partners III-A, L.P.: Formation Document on File',
+    'Calder Ridge III AIV-1 Blocker, Inc.: Governing Agreement on File', 'Calder Ridge III Co-Invest (Corvane), L.P.: Formation Document on File',
+    'Calder Ridge Partners Holdings, LLC: Formation Document on File', 'Calder Ridge Partners Holdings, LLC: Governing Agreement on File'].join(' | '), missingDocs.join(' | '));
+
+  // The history: a past for the sample, as the model records one.
+  const H = historyLog;
+  check(`History: ${H.length} entries, newest first, each with when, who, a summary and the records it changed`, H.length > 80
+    && H.every((h, i) => h.id && h.who && h.summary && Array.isArray(h.changes) && h.changes.every(c => 'before' in c && 'after' in c) && (i === 0 || h.when <= H[i - 1].when)));
+  check('History: from June 2024 to October 2026, by three of the team', H.at(-1).when.startsWith('2024-06') && H[0].when.startsWith('2026-10') && new Set(H.map(h => h.who)).size === 3);
+  check('History: every entry changed something, records or a definition', H.every(h => h.changes.length || /definition/.test(h.summary)));
+  let state = { ...entered }, broken = null;
+  for (const h of H) {
+    for (const c of h.changes) {
+      if (JSON.stringify(state[c.id] ?? null) !== JSON.stringify(c.after)) broken ??= `${h.summary}: ${c.id}`;
+      if (c.before) state[c.id] = c.before; else delete state[c.id];
+    }
+    broken ??= validate(state) && `${h.summary}: ${validate(state)}`;
+  }
+  check('History: walked back from the sample, each entry finds its records as it left them, and leaves a state', !broken, broken);
+  const start = H.at(-1).when.slice(0, 10);
+  const datesIn = recs => Object.values(recs).filter(r => r.field === 'date').map(r => r.value);
+  check('History: nothing in the sample from before it began is dated after it began', datesIn(state).every(d => d <= start), datesIn(state).filter(d => d > start).join(' '));
+  check('History: no entry records a date after the day it was made', H.every(h => h.changes.every(c => c.after?.field !== 'date' || c.after.value <= h.when.slice(0, 10))));
+  const told = re => H.some(h => re.test(h.summary));
+  check('History: the co-invest dilutes Corvane', told(/Fund III.*|Partners III, L\.P\. → Corvane .* › Percentage from 56% to 49%/) && told(/Co-Invest \(Corvane\), L\.P\. → Corvane .* › Percentage: 12\.5%/));
+  check('History: Moretti takes over as CCO from Lindqvist', told(/Lindqvist → .* › Title from Chief Compliance Officer to Partner, Head of Credit/)
+    && told(/Moretti → .* › Title from Chief Financial Officer to Chief Financial Officer and Chief Compliance Officer/));
+  check('History: MacAllister replaces Lindqvist on the Cayman GP’s board', told(/Deleted Position: Thomas K\. Lindqvist → Calder Ridge Capital GP III \(Cayman\)/) && told(/Added Individual “Fiona MacAllister”/));
+  check('History: documents linked, filings recorded, and a definition added', told(/^Added Document “/) && told(/› Last Filed from /) && told(/^Added the definition of Annual Tax Amount$/));
+  check('History: a record’s own history', historyOf('own_fund_corvane_pct').length === 2 && historyOf('mgmt_ria_filed').length === 2);
+  check('History: what it deleted is in the archive, newest first', archive.length === 5 && archive.every((b, i) => Object.keys(b.records).length && (i === 0 || b.when <= archive[i - 1].when)));
+  const agentText = Object.keys(schema).filter(k => schema[k].args?.length === 1 && 'field' in schema[k].out && same(schema[k].args[0].edge, 'Registered Agent'));
+  check('History: the schema keeps what the history deleted had, unused now', agentText.length === 1 && unusedSpecs().includes(agentText[0]));
+  check('History: a deleted record restores', !restoreBatch(archive.find(b => b.records.fund_agent).id) && entered.fund_agent?.value === 'The Corporation Trust Company');
+  invariants('After restoring a record the history deleted');
+
+  // Views: what each draws, and where.
+  fresh(sampleState());
+  const holds = (v, id) => !v.filter || Formulas.evaluateAt(formulaResult, `= IF(${v.filter.replace(/^\s*(←|<-|=)/, '')}, TRUE, FALSE)`, id) === true;
+  const drawn = v => Object.keys(records).filter(id => isObject(records[id]) && v.styles.find(s => s.form === 'object').map[norm(records[id].kind)]?.show !== false
+    && !(v.hidden ?? []).includes(id) && holds(v, id));
+  const counts = views.map(v => `${v.name} ${drawn(v).length}`).join(', ');
+  check('Views: Structure draws 24 boxes, 40 Act 23, Fund III 18, and Management and control 12', counts === 'Structure 24, 40 Act 23, Fund III 18, Management and control 12', counts);
+  check('Views: every box a view draws has its place in the view’s layout', views.every(v => drawn(v).every(id => v.layout[id])));
+  const overlaps = views.flatMap(v => {
+    const rows = new Map();
+    for (const id of drawn(v)) pushTo(rows, v.layout[id].y, v.layout[id]);
+    return [...rows.values()].flatMap(row => row.sort((a, b) => a.x - b.x).filter((p, i) => i && p.x < row[i - 1].x + row[i - 1].w + 10).map(() => v.name));
+  });
+  check('Views: boxes side by side in a row keep apart', !overlaps.length, overlaps.join(' '));
 }
 
 try { run(); } catch (e) { document.getElementById('out').textContent = `${e.message}\n${e.stack}\n\n${out.map(x => `${x.ok ? 'PASS' : 'FAIL'}  ${x.name}`).join('\n')}`; }

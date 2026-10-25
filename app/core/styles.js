@@ -48,51 +48,7 @@ const COLORS = [
 // Fills a new choice style hands out to its options, in turn.
 const SOFT_FILLS = ['#e8eefb', '#e7f5ec', '#fdf0e1', '#ece9fb', '#e6f4f6', '#fdecec', '#f4f4f5'];
 
-// The sample chart's styles, one for each form it styles. Ownership's lines carry no label of their own;
-// the Percentage at each one labels it, and a ruled-out ownership isn't drawn.
-function defaultStyles(recs) {
-  const f = id => formKeyOf(id, recs);
-  const muted = { show: true, format: 'paren', size: 10.5, color: '#52525b' };
-  return [
-    { id: 'st_kind', form: 'object',
-      map: { entity: KIND_PRESET, individual: { ...KIND_PRESET, shape: 'oval' }, 'investor group': { ...KIND_PRESET, fill: '#f4f4f5' } } },
-    { id: 'st_name', form: f('fund_name'), map: { text: NAME_PRESET } },
-    { id: 'st_entity_type', form: f('fund_type'), map: {
-      'limited partnership': { shape: 'triangle' }, 'exempted limited partnership': { shape: 'triangle' },
-      'limited liability company': { shape: 'rounded' }, corporation: { shape: 'rect' } } },
-    { id: 'st_vehicle', form: f('fund_vehicle'), map: {
-      'main fund': { fill: '#e8eefb' }, 'feeder fund': { fill: '#e8eefb' }, 'business development company': { fill: '#e8eefb' },
-      'portfolio company': { fill: '#f4f4f5' } } },
-    { id: 'st_jurisdiction', form: f('fund_juris'), map: { delaware: muted, 'cayman islands': muted, maryland: muted } },
-    { id: 'st_good_standing', form: f('fund_good'), map: { false: { stroke: '#d63b3b', strokeWidth: 2, dash: 'dashed' } } },
-    { id: 'st_ownership', form: f('own_fund_blkr'), map: { true: { show: true, format: 'none' }, false: { show: false } } },
-    { id: 'st_percentage', form: f('own_fund_blkr_pct'), map: { percent: { show: true } } },
-    { id: 'st_gp', form: f('gp_of_fund'), map: { true: { show: true, dash: 'dashed', format: 'label' } } },
-    { id: 'st_member', form: f('mem_chen_gp'), map: { 'managing member': { show: false }, member: { show: false } } },
-    { id: 'st_adviser', form: f('adv_bdc'), map: { true: { show: false, dash: 'dotted', format: 'label' } } },
-    { id: 'st_position', form: f('pos_chen_bdc'), map: { director: { show: false }, officer: { show: false } } },
-  ];
-}
-
-// The sample's views: the structure chart, and a 40 Act view of the same records that hides ownership
-// and the GP's lines, draws the BDC's close and remote affiliates, which formulas work out, and by its
-// filter shows only the boxes in that analysis: the BDC and its close and remote affiliates. Their lines
-// keep the computed look, told apart by weight and dash.
-const FORTY_ACT_FILTER = '← [Investment Company] OR COUNT([Close Affiliate Of]) + COUNT([Remote Affiliate Of]) > 0';
-
-function sampleViews(recs, S, defs) {
-  const structure = defaultStyles(recs);
-  const hidden = ['st_ownership', 'st_percentage', 'st_gp'];
-  const hide = s => ({ ...s, map: Object.fromEntries(Object.entries(s.map).map(([k, v]) => [k, { ...v, show: false }])) });
-  const formOfDef = id => formOfTree(specsWithParam(defs.find(d => d.id === id).scope[0], S)[0]);
-  const fortyAct = [
-    ...structure.map(s => hidden.includes(s.id) ? hide(s) : s),
-    { id: 'st_close', form: formOfDef('def_close'), map: { true: { show: true, format: 'none', strokeWidth: 1.5 } } },
-    { id: 'st_remote', form: formOfDef('def_remote'), map: { true: { show: true, format: 'none', dash: 'dotted' } } },
-  ];
-  return [{ id: 'view_main', name: 'Structure', styles: structure, hidden: ['gp_of_feeder'] },
-    { id: 'view_40act', name: '40 Act', styles: fortyAct, filter: FORTY_ACT_FILTER }];
-}
+// The sample's styles and views are in sample.js.
 
 const styleById = id => styles.find(s => s.id === id);
 const styleOfForm = form => styles.find(s => s.form === form);

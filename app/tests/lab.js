@@ -1,17 +1,17 @@
-// The formula lab: the sample chart's formulas (formulas.md's examples), worked out on its records by
+// The formula lab: the formulas of the sample's core (formulas.md's examples), worked out on its records by
 // formulas.js, with their definitions editable, a scratch box, and a self-test (#selftest) of the results
 // the document claims. The lab keeps its own copy of the definitions and saves its edits under its own key.
 
 const LAB_KEY = 'rboreal.formula-lab.v2';
 
-// The sample's definitions and names as the app stores them (sampleFormulas in model.js), then as people
+// The core's definitions and names as the app stores them (sampleFormulas in sample.js), then as people
 // write them and formulas.js takes them, so the lab works out what the app does.
 const LAB_SAMPLE = sampleFormulas();
 const LAB_DEFINITIONS = LAB_SAMPLE.definitions.map(d => asWritten(d, LAB_SAMPLE.schema, LAB_SAMPLE.names));
 const LAB_NAMES = engineNames(LAB_SAMPLE.names, LAB_SAMPLE.schema);
 
-// The sample's records, with whatever the lab has ruled out or added on top.
-const enteredRecords = ({ overrides }) => ({ ...structuredClone(SAMPLE), ...overrides });
+// The core's records, with whatever the lab has ruled out or added on top.
+const enteredRecords = ({ overrides }) => ({ ...structuredClone(SAMPLE_CORE), ...overrides });
 
 // ---- The lab's own state ----
 
@@ -273,7 +273,7 @@ function selftest() {
   check('Remote Affiliate: only the pension plan, under (e)(1)(A)', remote.join() === 'pension' && labelsOf(R, 'def_remote', 'pension', 'bdc').includes('(e)(1)(A)'), remote.join(' '));
 
   // The carve-out, with the fund as a BDC instead
-  const asBdc = run(LAB_DEFINITIONS, { fund_ics: { ...SAMPLE.fund_ics, choice: 'Business Development Company' } });
+  const asBdc = run(LAB_DEFINITIONS, { fund_ics: { ...SAMPLE_CORE.fund_ics, choice: 'Business Development Company' } });
   const closeFund = closeOf(asBdc, 'fund');
   for (const a of ['gp', 'chen', 'okafor', 'feeder', 'mgmt']) check(`Fund as BDC: ${a} under (b)(2)`, closeFund[a]?.includes('(b)(2)'), (closeFund[a] ?? []).join(', '));
   for (const a of ['blocker', 'northpine', 'halvard']) check(`Fund as BDC: ${a} not under (b)(2) (the carve-out)`, !closeFund[a]?.includes('(b)(2)'));

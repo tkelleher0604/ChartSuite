@@ -22,6 +22,7 @@
 <script src="../../vendor/msal/msal-browser.min.js"></script>
 <script src="../core/common.js"></script>
 <script src="../core/model.js"></script>
+<script src="../core/sample.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/styles.js"></script>
 <script src="../core/sharepoint.js"></script>
@@ -97,13 +98,14 @@ async function run() {
   const drives = await c.listDrives(SharePoint.DEMO.site);
   check('Demo: the site’s one library', drives.length === 1 && drives[0].name === 'Documents' && drives[0].webUrl === SharePoint.DEMO.library, drives);
   const top = await c.listChildren(drives[0].id);
-  check('Demo: the library’s top folders', top.map(x => x.name).join('|') === 'Calder Ridge Capital BDC|Calder Ridge Capital Management|Calder Ridge Fund III|Rboreal' && top.every(x => x.isFolder), top.map(x => x.name));
+  check('Demo: the library’s top folders', top.map(x => x.name).join('|') === 'Calder Ridge Capital BDC|Calder Ridge Capital Management|Calder Ridge Fund III|Calder Ridge Fund III AIV-1|Calder Ridge Fund III-A|Calder Ridge III Co-Invest|Rboreal'
+    && top.every(x => x.isFolder), top.map(x => x.name));
   const fund = await c.listChildren(drives[0].id, top.find(x => x.name === 'Calder Ridge Fund III').id);
   check('Demo: a fund’s folders', fund.map(x => x.name).join('|') === 'Board Consents|Governing Documents|Regulatory|Side Letters|Tax', fund.map(x => x.name));
   const letters = await c.listChildren(drives[0].id, fund.find(x => x.name === 'Side Letters').id);
   check('Demo: documents in a folder, with their metadata', letters.length === 3 && letters.every(x => !x.isFolder && x.size > 0 && x.lastModifiedBy && x.version && x.fields.DocumentType), letters);
   const docs = c.demo.documents();
-  check('Demo: 28 documents in all', docs.length === 28, docs.length);
+  check('Demo: 50 documents in all', docs.length === 50, docs.length);
   check('Demo: every document’s link reads back as its place in the library', docs.every(d => {
     const p = SharePoint.parseDocUrl(d.webUrl);
     return p.isSharePoint && p.site === 'FundLegal' && p.library === 'Shared Documents' && p.folderPath === d.path && p.fileName === d.name && p.kind === d.kind;
@@ -268,8 +270,26 @@ async function run() {
   check('Auth: no tenant, no sign-in', await rejects(SharePoint.createMsalAuth(() => ({ clientId: 'client-1' }), fakeMsal).signIn(), SharePoint.NotConfiguredError));
 
   // ---- Alongside the app ----
+  setState(sampleCoreState());
+  check('Alongside the app: the core of its sample still works out with this module loaded', Object.keys(records).filter(isComputed).length === 153);
+
+  // The sample's documents are the demo library's files: each Document's Link is one of them, and resolves
+  // to it, and every file is indexed but the three the sample leaves out on purpose.
   setState(sampleState());
-  check('Alongside the app: its sample still works out with this module loaded', Object.keys(records).filter(isComputed).length === 153);
+  const sampleDocs = Object.keys(records).filter(id => isObject(records[id]) && records[id].kind === 'Document');
+  const linkOf = id => records[entriesOf(id).find(e => same(records[e].edge, 'Link'))]?.value;
+  const inLibrary = new Map(docs.map(d => [d.webUrl, d]));
+  const strays = sampleDocs.filter(id => !inLibrary.has(linkOf(id)));
+  check('Sample: every Document has a Link to a file in the demo library', sampleDocs.length === 47 && !strays.length, strays.map(id => objectName(id)).join(' | '));
+  check('Sample: each Link is a document field that reads as its file’s name',
+    sampleDocs.every(id => { const r = records[entriesOf(id).find(e => same(records[e].edge, 'Link'))]; return r.field === 'document' && displayValue(r) === inLibrary.get(r.value)?.name; }));
+  const linked = await Promise.all(sampleDocs.map(id => c.resolveShareUrl(linkOf(id)).then(it => it.webUrl === linkOf(id), () => false)));
+  check('Sample: every Link resolves through the connector', linked.every(Boolean), linked.filter(x => !x).length);
+  const indexed = new Set(sampleDocs.map(linkOf));
+  const unindexed = docs.filter(d => !indexed.has(d.webUrl)).map(d => d.name).sort();
+  check('Sample: the library’s unindexed files are the three left out on purpose', unindexed.join(' | ') === ['Cayman GP Board Resolutions - Appointment of F. MacAllister.pdf',
+    'Investor Presentation - Fund III Annual Meeting 2026.pptx', 'MFN Election Form - Fund III.docx'].join(' | '), unindexed.join(' | '));
+  check('Sample: no two Documents link to the same file', indexed.size === sampleDocs.length);
   check('Alongside the app: no errors on the page, so no clashing globals', !window.pageErrors.length, window.pageErrors.join(' | '));
 }
 

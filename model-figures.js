@@ -1,4 +1,4 @@
-// The figures of model.html, worked out live from the app's own code (app/core) on the sample chart.
+// The figures of model.html, worked out live from the app's own code (app/core) on the core of the sample.
 // The page builds the sample in memory and never saves, so it leaves the app's saved workbook alone.
 
 // ---- Drawing trees ----
@@ -62,8 +62,9 @@ function treeSvg(tree, title) {
 }
 
 // ---- The sample, in memory ----
+// The core of the sample, which the figures' captions describe.
 
-setState(sampleState());
+setState(sampleCoreState());
 
 const $ = id => document.getElementById(id);
 const chip = (group, value, text, on) => `<button class="chip" data-fig="${group}" data-value="${escXml(value)}" aria-pressed="${on}">${escXml(text)}</button>`;
