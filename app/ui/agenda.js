@@ -34,7 +34,8 @@ const Agenda = (() => {
     // The relation the date sits at, if it does, and the path below the owners, or below the relation.
     const relation = isRelation(records[root]) ? relationNameOf(root) : null;
     const where = path.slice(1, -1).map(segmentText);
-    return { id, iso: r.value, label: r.edge, root, owners: ownersOf(id), relation, where,
+    // A relation whose output is a date goes by its name.
+    return { id, iso: r.value, label: isRelation(r) ? relationNameOf(id) : r.edge, root, owners: ownersOf(id), relation, where,
       computed: isComputed(id), deadline: isDeadline(id), days: Parts.daysUntil(r.value) };
   }
 
@@ -149,20 +150,25 @@ const Agenda = (() => {
   const whoseText = ({ owners, relation = null }) => `${relation ? `${relation}: ` : ''}${owners.map(k => objectName(k)).join(relation !== null ? ' → ' : ', ')}`;
 
   const recordHref = e => Shell.recordHref(e.root);
+  // A date's own address: its record's page, with the date shown, and why if a formula gave it.
+  const dateHref = e => Shell.recordHref(e.id);
   const longDate = iso => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   // One event as a row: the date, how far off it is, what it is, whose, and Why for a date a definition
-  // has a say in. The label opens the record the date belongs to. `compact` leaves out the actions.
-  function row(e, { compact = false } = {}) {
+  // has a say in. The label opens the date where it's recorded. `compact` leaves out the actions; `from`,
+  // an object the list is about (a record's own Dates), leaves it out of whose the date is; `plain` says
+  // whose it is in words rather than chips, for a list too narrow for them. In a narrow list, what it is
+  // comes before how far off, and whose goes below.
+  function row(e, { compact = false, from = null, plain = false } = {}) {
     const g = groupOf(e);
     const def = formulaInfo(e.id) && definitionOf(formulaInfo(e.id).def);
     const shown = open.has(e.id) && !compact;
     const dateTitle = e.computed && def ? `${longDate(e.iso)}. Worked out by ${def.name}.` : longDate(e.iso);
-    return `<div class="ev-row is-${g}${e.computed ? ' is-computed' : ''}${compact ? ' is-compact' : ''}" data-event="${esc(e.id)}" data-href="${esc(recordHref(e))}" tabindex="-1">
+    return `<div class="ev-row is-${g}${e.computed ? ' is-computed' : ''}${compact ? ' is-compact' : ''}" data-event="${esc(e.id)}" data-href="${esc(dateHref(e))}" tabindex="-1">
       <time class="ev-date tnum" datetime="${esc(e.iso)}" title="${esc(dateTitle)}">${esc(Parts.date(e.iso))}</time>
       <span class="ev-when tnum">${esc(Parts.dueText(e.iso))}</span>
-      <span class="ev-what"><a class="ev-label" href="${esc(recordHref(e))}">${esc(e.label)}</a></span>
-      ${whose(e)}
+      <span class="ev-what"><a class="ev-label" href="${esc(dateHref(e))}">${esc(e.label)}</a></span>
+      ${plain ? `<span class="ev-whose is-plain" title="${esc(whoseText(e))}">${esc(whoseText(e))}</span>` : whose(from ? { ...e, owners: e.owners.filter(k => k !== from) } : e)}
       ${compact ? '' : `<span class="ev-actions">${def ? `<button class="link-btn ev-why-btn" data-cmd="agenda.why" data-id="${esc(e.id)}" aria-expanded="${shown}" aria-controls="why-${esc(e.id)}" title="${e.computed ? 'How a definition worked this out' : 'What the definition says about this date'}">Why</button>` : ''}<a class="link-btn ev-open" href="${esc(recordHref(e))}">Open</a></span>`}
     </div>${shown ? whyHtml(e) : ''}`;
   }

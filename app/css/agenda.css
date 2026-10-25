@@ -29,6 +29,9 @@
 /* The path takes only the room the chips leave, so a chip is cut short only when it alone doesn't fit. */
 .ev-path { flex: 1 1 0; min-width: 0; margin-left: 4px; overflow: hidden; color: var(--text-3); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ev-path::before { content: "› "; }
+.ev-whose.is-plain { display: block; color: var(--text-3); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.ev-path:first-child { margin-left: 0; }
+.ev-path:first-child::before { content: none; }
 
 .ev-actions { grid-area: actions; display: flex; justify-content: flex-end; gap: 12px; }
 .ev-actions .link-btn { font-size: 12.5px; }
@@ -57,4 +60,13 @@
   .ev-row, .ev-row.is-compact { grid-template-columns: 6.5rem 6.25rem minmax(0, 1fr) auto; grid-template-areas: "date when what actions" ". . whose whose";
     gap: 2px 12px; padding-top: 7px; padding-bottom: 7px; }
   .ev-why { margin-left: calc(12.75rem + 24px + 10px); }
+}
+/* Narrower still, as beside a record or in a card, how far off it is goes last, after what it is. */
+@container ev-list (max-width: 560px) {
+  .ev-row, .ev-row.is-compact { grid-template-columns: 5.75rem minmax(0, 1fr) auto; grid-template-areas: "date what when" ". whose whose"; gap: 1px 12px; }
+  .ev-when { font-size: 12px; }
+  .ev-actions { display: none; }
+  /* Chips and the path below them share what room there is. */
+  .ev-path { flex: 0 1 auto; }
+  .ev-why { margin-left: calc(5.75rem + 12px + 10px); }
 }

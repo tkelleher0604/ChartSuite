@@ -124,15 +124,10 @@ const RecordPage = (() => {
     };
   }
 
-  // Every date in a record, entered or computed: inside it, and for an object, on the relations it's in and
-  // inside those. Upcoming ones first, soonest first, then past ones, latest first.
+  // Every date in a record, entered or computed, as the agenda has it (Agenda.events): inside it, and for an
+  // object, on the relations it's in and inside those.
   const datesOf = id => once('dates', id, findDates);
-  function findDates(id) {
-    const at = isObject(records[id]) ? relationsOf(id).flatMap(rel => [rel, ...inside(rel)]) : [];
-    return [...new Set([...inside(id), ...at])].filter(k => isField(records[k]) && records[k].field === 'date')
-      .map(k => ({ id: k, iso: records[k].value, days: Parts.daysUntil(records[k].value) }))
-      .sort((a, b) => (a.days < 0) - (b.days < 0) || (a.days < 0 ? b.days - a.days : a.days - b.days));
-  }
+  const findDates = id => Agenda.events().filter(e => e.root === id || (isRelation(records[e.root]) && e.owners.includes(id)));
 
   // The record's history (historyOf in model.js): the changes to it, to anything inside it, or for an
   // object, to a relation it's in or anything inside that. To say where each was, a record that has gone
@@ -252,34 +247,14 @@ const RecordPage = (() => {
     }).join('')}</div>`;
   }
 
-  // Where a date is, as its row says it: its label, then what it's in, below the record or on a relation.
-  function dateWhere(k, id) {
-    const path = pathTo(k);
-    const between = path.slice(1, -1).map(segmentText);
-    if (path[0] === id) return between.join(' › ');
-    const rel = path[0];
-    const others = records[rel].args.filter(a => objectOf(a.at) !== id).map(a => objectName(objectOf(a.at)));
-    return [`${relationNameOf(rel)} · ${others.join(', ')}`, ...between].join(' › ');
-  }
-
+  // The record's dates as the agenda groups them (overdue, this week, the next 30 days, later, past), each
+  // the agenda's row, without the record itself among whose it is.
   function datesTab(id) {
     const dates = datesOf(id);
     if (!dates.length) return Parts.empty({ title: 'No dates yet', desc: 'Dates entered or worked out for this record show up here.', action: { label: 'Add date', cmd: 'record.add-date' } });
-    const row = d => {
-      const r = records[d.id];
-      const label = isRelation(r) ? relationNameOf(d.id) : r.edge;
-      const where = dateWhere(d.id, id);
-      const soon = d.days >= 0 && d.days <= 30;
-      const due = d.days >= -30 ? `<span class="record-date-due${soon ? ' is-soon' : d.days < 0 ? ' is-past' : ''}">${esc(Parts.dueText(d.iso))}</span>` : '';
-      const computed = isComputed(d.id);
-      return `<a class="record-date" href="${esc(Shell.recordHref(d.id))}"${computed ? ' title="Worked out by formula"' : ''}>
-          <span class="record-date-day tnum${computed ? ' computed-text' : ''}">${esc(Parts.date(d.iso))}</span>
-          <span class="record-date-what"><span class="record-date-label${computed ? ' computed-text' : ''}">${esc(label)}</span>${where ? `<span class="record-date-where">${esc(where)}</span>` : ''}</span>
-          ${due}</a>`;
-    };
-    const upcoming = dates.filter(d => d.days >= 0), past = dates.filter(d => d.days < 0);
-    const group = (title, list) => list.length ? `<div class="record-group">${title}</div>${list.map(row).join('')}` : '';
-    return `<div class="record-dates">${group('Upcoming', upcoming)}${group('Past', past)}</div>`;
+    const groups = Agenda.grouped(dates).filter(g => g.events.length);
+    return `<div class="record-dates">${groups.map(g => `<div class="record-group${g.id === 'overdue' ? ' is-overdue' : ''}">${esc(g.name)}</div>
+      <div class="ev-list">${g.events.map(e => Agenda.row(e, { compact: true, from: id })).join('')}</div>`).join('')}</div>`;
   }
 
   // A change to a record, as History lists it: what it changed, and its output before and after.

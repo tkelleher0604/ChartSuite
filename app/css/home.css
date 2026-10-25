@@ -70,16 +70,8 @@ a.home-count:hover { background: var(--hover); }
 .home-count .tnum { color: var(--text-2); }
 .home-card-foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12.5px; }
 
-.home-next { padding: 4px 0; }
-.home-next-item { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; align-items: baseline; gap: 10px; padding: 7px 16px; font-size: 13px; }
-.home-next-item:hover { background: var(--hover); }
-.home-next-date { color: var(--text-2); }
-.home-next-item.is-computed .home-next-date { font-style: italic; }
-.home-next-text { display: flex; flex-direction: column; min-width: 0; }
-.home-next-label { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.home-next-whose { overflow: hidden; color: var(--text-3); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.home-next-when { color: var(--text-3); font-size: 12px; white-space: nowrap; }
-.home-next-item.is-week .home-next-when { color: var(--warn); font-weight: 500; }
+/* The agenda's rows (agenda.css), set in from the card's edges as its head is. */
+.home-next { padding: 4px 6px 6px; }
 
 /* Narrow: one column, the side after the work. */
 @container home (max-width: 860px) {

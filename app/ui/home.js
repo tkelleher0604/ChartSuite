@@ -204,15 +204,13 @@ function glanceHtml() {
   </section>`;
 }
 
-// The agenda's next few dates, whatever they are.
+// The agenda's next few dates, whatever they are, each the agenda's row, whose it is said in words since
+// the card is narrow.
 function comingUpHtml() {
   const next = Agenda.events().filter(e => e.days >= 0).sort((a, b) => a.iso.localeCompare(b.iso)).slice(0, 6);
   return `<section class="card home-card" aria-labelledby="home-coming">
     <div class="card-head"><h2 class="card-title" id="home-coming">Coming up</h2><a class="link-btn" href="calendar.html">Calendar</a></div>
-    ${next.length ? `<div class="home-next">${next.map(e => `<a class="home-next-item${e.days <= 6 ? ' is-week' : ''}${e.computed ? ' is-computed' : ''}" href="${esc(Shell.recordHref(e.root))}">
-        <time class="home-next-date tnum" datetime="${esc(e.iso)}" title="${esc(Agenda.longDate(e.iso))}">${esc(Parts.date(e.iso).replace(/, \d{4}$/, ''))}</time>
-        <span class="home-next-text"><span class="home-next-label">${esc(e.label)}</span><span class="home-next-whose">${esc(Agenda.whoseText(e))}</span></span>
-        <span class="home-next-when tnum">${esc(Parts.dueText(e.iso))}</span></a>`).join('')}</div>`
+    ${next.length ? `<div class="ev-list home-next">${next.map(e => Agenda.row(e, { compact: true, plain: true })).join('')}</div>`
       : '<div class="card-body faint">Nothing coming up.</div>'}
   </section>`;
 }
