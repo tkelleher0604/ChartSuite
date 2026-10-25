@@ -4,13 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rboreal Chart</title>
-<script>
-  // Apply a chosen theme and panel width before first paint; "system" leaves the theme to the OS setting.
-  try {
-    const prefs = JSON.parse(localStorage.getItem('rboreal.record-panel.prefs'));
-    if (prefs?.theme === 'light' || prefs?.theme === 'dark') document.documentElement.dataset.theme = prefs.theme;
-  } catch {}
-</script>
+<script src="ui/prepaint.js"></script>
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/panel.css">
 <link rel="stylesheet" href="css/chart.css">

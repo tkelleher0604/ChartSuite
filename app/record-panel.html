@@ -4,13 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rboreal Record Panel</title>
-<script>
-  // Apply a chosen theme before first paint; "system" leaves it to the OS setting.
-  try {
-    const theme = JSON.parse(localStorage.getItem('rboreal.record-panel.prefs'))?.theme;
-    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
-  } catch {}
-</script>
+<script src="ui/prepaint.js"></script>
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/panel.css">
 <style>
