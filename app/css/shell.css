@@ -35,6 +35,7 @@ body.app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr)
 .sb-status { display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 2px 8px; font-size: 12px; color: var(--text-3); }
 .sb-status::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--yes); }
 .sb-status.is-busy::before { background: var(--warn-solid); }
+.sb-status:hover { color: var(--text-2); }
 .sb-status.is-error { color: var(--danger); }
 .sb-status.is-error::before { background: var(--danger-solid); }
 .sb-user { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-2); font-weight: 500; text-align: left; }
@@ -154,6 +155,23 @@ button.filter-chip.is-set { padding: 0 10px; }
 .search-input { position: relative; display: inline-flex; align-items: center; }
 .search-input .icon { position: absolute; left: 9px; width: 14px; height: 14px; color: var(--text-3); pointer-events: none; }
 .search-input .input { height: 30px; padding-left: 30px; }
+
+/* ---- Small shared pieces ---- */
+/* A quieter status, for what's superseded or set aside. */
+.badge.is-faint { background: none; box-shadow: inset 0 0 0 1px var(--border); color: var(--text-3); }
+/* A column header that sorts: aria-sort on its th says which way. */
+.th-sort { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; font-weight: 500; }
+.th-sort:hover, .th-sort.is-on { color: var(--text); }
+/* Label and value pairs, for a record's details in a pane. */
+.props { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 9px 12px; margin: 0; font-size: 13px; line-height: 18px; }
+.props dt { color: var(--text-2); }
+.props dd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.props dd .chips { min-width: 0; }
+/* Static loading bars, shaped like what's coming. */
+.skeleton { display: block; height: 10px; border-radius: 5px; background: var(--pressed); }
+.skeleton-lines { display: grid; gap: 12px; padding: 4px 0; }
+/* Text for screen readers only. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* ---- The layer above the page ---- */
 #layer { display: contents; }

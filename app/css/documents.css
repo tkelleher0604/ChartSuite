@@ -30,7 +30,6 @@
 .docs-body > .table-wrap { flex: 0 1 auto; min-height: 0; }
 .docs-body.is-empty { padding-top: 16px; }
 .docs-foot { margin: 10px 0 0; font-size: 12.5px; }
-.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* ---- The table: one line a row, the name first; columns give way, least needed first, as it narrows ---- */
 .docs-table { table-layout: fixed; }
@@ -58,8 +57,6 @@
 @container docs (max-width: 480px) { .docs-table .c-date { display: none; } }
 
 /* Sorting: a header is a quiet button; the column sorted by carries an arrow. */
-.th-sort { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; font-weight: 500; }
-.th-sort:hover, .th-sort.is-on { color: var(--text); }
 .th-arrow { min-width: 8px; color: var(--text-3); font-size: 12px; }
 
 /* The file-type glyph: the one icon that earns its place. */
@@ -81,11 +78,8 @@
 .docs-flag.is-quiet::before { background: var(--border-strong); }
 
 /* A status no longer current. */
-.badge.is-faint { background: none; box-shadow: inset 0 0 0 1px var(--border); color: var(--text-3); }
 
 /* While the library is read: quiet bars, no shimmer. */
-.skeleton { display: block; height: 10px; border-radius: 5px; background: var(--pressed); }
-.skeleton-lines { display: grid; gap: 12px; padding: 4px 0; }
 .is-skeleton td { height: 38px; }
 
 /* ---- The library's own button, in the top bar ---- */
@@ -119,10 +113,6 @@
 .pane-note { margin-top: 10px; }
 .pane-empty .link-btn, .pane-note .link-btn { color: var(--accent-text); font-size: 13px; }
 .pane-more { margin-top: 10px; color: var(--accent-text); font-size: 12.5px; }
-.props { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 9px 12px; margin: 0; font-size: 13px; line-height: 18px; }
-.props dt { color: var(--text-2); }
-.props dd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
-.props dd .chips { min-width: 0; }
 .docs-address { color: var(--text-2); font-size: 12.5px; overflow-wrap: anywhere; }
 .docs-differs { font-size: 12px; font-weight: 500; color: var(--warn); }
 .notice { padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--warn-soft); color: var(--text); font-size: 13px; }

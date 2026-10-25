@@ -71,8 +71,9 @@ A page loads its scripts in this order:
 1. `ui/prepaint.js` in `<head>`;
 2. `css/base.css`, `css/shell.css` and the page's own CSS;
 3. in `<body>`, the core: `core/common.js`, `core/model.js`, `core/sample.js`, `core/formulas.js`, `core/styles.js`;
-4. `ui/shell.js` and `ui/parts.js`;
-5. the area's own script, `ui/<area>.js`, which calls `Shell.start(…)`.
+4. where the workbook is kept: `../vendor/msal/msal-browser.min.js`, `core/sharepoint.js`, `core/store.js`. Every page loads these, so a change made on any page is saved wherever the workbook lives, and the sidebar's status is true;
+5. `ui/shell.js` and `ui/parts.js`;
+6. the area's own script, `ui/<area>.js`, which calls `Shell.start(…)`.
 
 There is no build step, and no server: every page opens from a file.
 
@@ -97,10 +98,10 @@ Use these so a record reads the same everywhere:
 - `Parts.chip(id, { detail, computed })`: an object as a chip that links to its page.
 - `Parts.link(id)`: an object's name, linking to its page.
 - `Parts.output(id)` and `Parts.outputText(r)`: a record's output. A tag shows as its checkbox, a document as a link to it, and computed values in italics.
-- `Parts.date(iso)`: Jun 1, 2027.
+- `Parts.date(iso)`: Jun 1, 2027. A date read as a value, in a record's entries, a table's cell or an export, reads in full, as the model writes it (`showValue`: June 1, 2027). A list scanned by date, such as the agenda, the history or a date column used for sorting, uses this short form.
 - `Parts.dueText(iso)` and `Parts.daysUntil(iso)`: how far off a date is.
 - `Parts.when(stamp)`: a moment relative to now, with the exact time on hover.
-- `Parts.badge(text, tone)`, where tone is `''`, `'success'`, `'warn'`, `'danger'`, `'computed'` or `'accent'`.
+- `Parts.badge(text, tone)`, where tone is `''`, `'success'`, `'warn'`, `'danger'`, `'computed'`, `'accent'` or `'faint'` (superseded, set aside).
 - `Parts.empty({ title, desc, action })`.
 - `Parts.avatar(name)`.
 
@@ -119,7 +120,8 @@ Add a part when two areas need the same thing. Never draw a record two ways.
   - `.filters` holding `.filter-chip`s (`.is-set` when a filter is applied);
   - `.search-input`.
 - **Buttons:** `.btn`, with `.btn-primary`, `.btn-sm`, `.btn-ghost` or `.btn-danger`; `.icon-btn`; `.link-btn`; and `kbd`.
-- **Text:** `.muted`, `.faint`, `.tnum`, `.ident`, `.computed-text` and `.link`.
+- **Text:** `.muted`, `.faint`, `.tnum`, `.ident`, `.computed-text`, `.link` and `.visually-hidden`.
+- **Also:** `.th-sort` (a sortable column header, with `aria-sort` on its `th`), `.props` (a `dl` of labels and values, for details in a pane), `.skeleton` and `.skeleton-lines` (static loading bars shaped like what's coming).
 
 An area's own styles go in `css/<area>.css`, and may use only the tokens. A style two areas need belongs in shell.css.
 

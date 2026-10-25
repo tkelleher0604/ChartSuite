@@ -90,7 +90,7 @@ const Shell = (() => {
       </nav>
       <div class="sb-foot">
         ${FOOT_AREAS.map(a => navItem(a, page.area === a.id)).join('')}
-        <div class="sb-status ${status.tone ? `is-${status.tone}` : ''}" role="status">${esc(status.text)}</div>
+        <a class="sb-status ${status.tone ? `is-${status.tone}` : ''}" href="settings.html#workbook" role="status" title="Where the workbook is kept">${esc(status.text)}</a>
         <button class="sb-user" data-cmd="shell.user" aria-haspopup="menu" aria-expanded="${layer.menu?.id === 'user'}">
           ${Parts.avatar(currentUser())}<span class="sb-item-text">${esc(currentUser())}</span>
         </button>
@@ -147,7 +147,7 @@ const Shell = (() => {
       toastsHtml(),
     ].join('');
     if (layer.palette) { drawPaletteList(); el.querySelector('.palette-input').focus(); }
-    if (layer.dialog) (el.querySelector('.dialog-input') ?? el.querySelector('.dialog [data-default]'))?.focus();
+    if (layer.dialog) { const input = el.querySelector('.dialog-input'); if (input) { input.focus(); input.select(); } else el.querySelector('.dialog [data-default]')?.focus(); }
     if (layer.menu) placeMenu();
   }
   const closeLayer = () => { layer.palette = layer.menu = null; if (layer.dialog) finishDialog(null); renderLayer(); };
@@ -496,6 +496,7 @@ const Shell = (() => {
     if (e.key !== WORKBOOK_KEY || !page) return;
     initState();
     undoStack.length = redoStack.length = 0;
+    undoByChart.clear();
     for (const fn of chartListeners) fn();
     if (typeof window.render === 'function') window.render(); else render();
   });
