@@ -39,7 +39,8 @@ const SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 24];
 const WEIGHTS = [0.75, 1, 1.25, 1.5, 2, 3];
 const DASHES = [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']];
 const FORMATS = [['value', 'Value'], ['paren', '(Value)'], ['label', 'Label: Value']];
-const LINE_FORMATS = [['value', 'Value'], ['label', 'Label'], ['none', 'No label']];
+// What labels a line, as the ribbon's Label dropdown reads: its value, its relation's name, or nothing.
+const LINE_FORMATS = [['value', 'Value'], ['label', 'Name'], ['none', 'None']];
 // Two rows of swatches, strong then soft, as in most formatting palettes.
 const COLORS = [
   '#18181b', '#52525b', '#2b59c3', '#1f9d55', '#d63b3b', '#c2710c', '#7c3aed', '#0e7490',

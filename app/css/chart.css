@@ -193,6 +193,10 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .node.is-selected::after { content: ""; position: absolute; inset: -7px; border: 1.5px solid var(--paper-accent); border-radius: 6px; pointer-events: none; }
 .node.is-target::after { content: ""; position: absolute; inset: -7px; border: 2px dashed var(--paper-accent); border-radius: 6px; background: var(--paper-accent-wash); pointer-events: none; }
 .node.is-moving { opacity: .85; }
+/* The keyboard's focus, on paper: a ring around a box, a line drawn in the accent. */
+.node:focus-visible { outline: 2px solid var(--paper-accent); outline-offset: 10px; }
+.wire:focus-visible { outline: none; }
+.wire:focus-visible .wire-line { stroke: var(--paper-accent); filter: drop-shadow(0 0 2px var(--paper-accent-ring)); }
 
 /* A sheet with no boxes says why, over the middle of the canvas, on paper. A double-click goes through it
    to the sheet. */

@@ -178,7 +178,9 @@ function nodeHtml(id, place, look, state) {
   // A box the view's filter couldn't be worked out at is shown, and marked with why.
   const fault = id === '__new' ? null : filterOutcome(viewFilter()).errors.get(id);
   const filterFlag = fault ? `<span class="node-flag is-filter" title="This view’s filter gives ${esc(fault.code)} here: ${esc(fault.msg ?? '')}">!</span>` : '';
-  return `<div class="${cls}" data-node="${id}" style="${vars}">${shape}<div class="node-text">${text}</div>${flag}${filterFlag}${handles}</div>`;
+  // A box takes the focus, so Tab reaches it (see the keys below).
+  const focus = id === '__new' ? '' : ` tabindex="0" role="button" aria-label="${esc(objectName(id))}"`;
+  return `<div class="${cls}" data-node="${id}"${focus} style="${vars}">${shape}<div class="node-text">${text}</div>${flag}${filterFlag}${handles}</div>`;
 }
 
 // Text a formula works out is set in italics, so it reads as computed.
@@ -410,7 +412,7 @@ function wiresSvg(lines, sel, eng, covered) {
     const { look } = l;
     const selected = sel.relation === l.id ? ' is-selected' : '';
     const label = look.parts.length && l.label ? `<text class="wire-label" x="${l.label.x}" y="${l.label.y}" text-anchor="middle" dominant-baseline="middle">${look.parts.map(p => labelPart(p, covered, eng)).join(' ')}</text>` : '';
-    return `<g class="wire${selected}" data-wire="${l.id}"><path class="wire-hit" d="${d}" data-wire="${l.id}" />
+    return `<g class="wire${selected}" data-wire="${l.id}" tabindex="0" role="button" aria-label="${esc(relationTitle(l.id))}"><path class="wire-hit" d="${d}" data-wire="${l.id}" />
       <path class="wire-line" d="${d}" stroke="${look.stroke}" stroke-width="${look.strokeWidth}" stroke-dasharray="${DASH_ARRAYS[look.dash]}" stroke-linecap="${look.dash === 'dotted' ? 'round' : 'butt'}" />${label}</g>`;
   }).join('');
 }
@@ -683,6 +685,11 @@ function renderChart() {
   const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : [];
   const objects = drawnObjects();
   placeNewBoxes(objects);
+  // Boxes come in reading order, row by row, so Tab goes through them that way. A box or line with the
+  // focus keeps it as the chart is drawn again.
+  objects.sort((a, b) => layout[a].y - layout[b].y || layout[a].x - layout[b].x);
+  const focused = document.activeElement?.closest?.('#nodes [data-node], #wires [data-wire]');
+  const refocus = focused && (focused.dataset.node ? `#nodes [data-node="${focused.dataset.node}"]` : `#wires g[data-wire="${focused.dataset.wire}"]`);
   const nodes = document.getElementById('nodes');
   nodes.innerHTML = objects.map(id => nodeHtml(id, placeOf(id), boxLook(id), {
     selected: sel.object === id && !chart.quick?.kind,
@@ -722,6 +729,7 @@ function renderChart() {
   stage.classList.toggle('is-connecting', !!chart.connect);
   document.getElementById('lock').innerHTML = lockBarHtml(sel) || askHtml();
   drawCanvasBar();
+  if (refocus) document.querySelector(refocus)?.focus({ preventScroll: true });
   focusChartEditor();
 }
 
@@ -1320,6 +1328,11 @@ document.addEventListener('keydown', e => {
     if (sel.relate) { location.hash = sel.relate.a; return; }
   }
   if (e.key === 'Escape' && chart.ask) { chart.ask = null; return renderChart(); }
+  // Tab goes through the boxes, then the lines; Enter or Space selects the one with the focus, as a click
+  // would, and then the keys below work on it.
+  const focused = t.closest?.('#nodes [data-node], #wires g[data-wire]');
+  const focusedId = focused?.dataset.node ?? focused?.dataset.wire;
+  if (focusedId && (e.key === 'Enter' || e.key === ' ') && focusedId !== (sel.object ?? sel.relation)) { e.preventDefault(); return go(focusedId); }
   if (!(sel.object || sel.relation) || e.ctrlKey || e.metaKey || e.altKey || ui.form || ui.menu) return;
   if ((e.key === 'Delete' || e.key === 'Backspace') && !t.closest('.panel, .ribbon, button, a')) {
     e.preventDefault();
