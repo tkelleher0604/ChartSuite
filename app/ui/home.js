@@ -200,7 +200,9 @@ function thumbnailSvg() {
 }
 
 function glanceHtml() {
-  const kinds = kindsInState();
+  // The kinds as the sidebar has them: the record kinds, then Documents, which is an area of its own.
+  const isDocs = k => same(k, Shell.DOCUMENT_KIND);
+  const kinds = kindsInState().sort((a, b) => isDocs(a) - isDocs(b));
   const computed = Object.keys(records).filter(isComputed).length;
   const thumb = thumbnailSvg();
   return `<section class="card home-card" aria-labelledby="home-glance">
@@ -208,7 +210,7 @@ function glanceHtml() {
     ${thumb ? `<a class="home-thumb" href="chart.html" aria-label="Open the chart, ${esc(viewInUse().name)} view">${thumb}<span class="home-thumb-view">${esc(viewInUse().name)}</span></a>` : ''}
     <div class="home-counts">
       ${kinds.map(k => {
-        const href = same(k, Shell.DOCUMENT_KIND) ? 'documents.html' : Shell.kindHref(k);
+        const href = isDocs(k) ? 'documents.html' : Shell.kindHref(k);
         return `<a class="home-count" href="${esc(href)}"><span>${esc(plural(k))}</span><span class="tnum">${objectsOfKind(k).length}</span></a>`;
       }).join('') || '<div class="home-count faint">No records yet</div>'}
     </div>
