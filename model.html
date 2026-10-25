@@ -134,7 +134,7 @@ figcaption b { color: var(--text); font-weight: 600; }
 <section id="glance">
 <h2>At a glance</h2>
 <p>A workbook is a nonempty sequence of charts, which share nothing. A chart holds a schema, the records entered in it, the definitions whose formulas compute more records, and several lesser structures; its views, of which there is at least one, each draw the same records their own way.</p>
-$$\begin{aligned} \mathsf{Workbook} &= \mathsf{Chart}^{+}, & \mathsf{Chart} &= (S,\ E,\ F,\ R,\ N,\ O,\ A,\ V),\\ V &\in \mathsf{View}^{+}, & \mathsf{View} &= (Y,\ \lambda,\ H,\ \varphi). \end{aligned}$$
+$$\begin{aligned} \mathsf{Workbook} &= \mathsf{Chart}^{+}, & \mathsf{Chart} &= (S,\ E,\ F,\ R,\ N,\ D,\ O,\ A,\ L,\ V),\\ V &\in \mathsf{View}^{+}, & \mathsf{View} &= (Y,\ \lambda,\ H,\ \varphi). \end{aligned}$$
 <figure>
 <svg class="diagram" viewBox="0 0 720 300" role="img" aria-label="A workbook holds charts. A chart's entered records E and formulas F determine its computed state, which each of its views draws through its styles, layout, hidden set and filter.">
   <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--edge);stroke:none"/></marker></defs>
@@ -147,7 +147,7 @@ $$\begin{aligned} \mathsf{Workbook} &= \mathsf{Chart}^{+}, & \mathsf{Chart} &= (
   <rect class="box accent" x="40" y="208" width="128" height="52" rx="8"/><text x="54" y="230">Definitions F</text><text class="sub" x="54" y="248">scope, rule</text>
   <rect class="box" x="214" y="146" width="150" height="52" rx="8"/><text x="228" y="168">Computed state Σ</text><text class="sub" x="228" y="186">E with what F gives</text>
   <path d="M168 172 H210" marker-end="url(#arr)"/><path d="M168 234 C190 234 192 190 210 182" marker-end="url(#arr)"/>
-  <rect class="box" x="214" y="84" width="170" height="52" rx="8"/><text x="228" y="106">R, N, O, A</text><text class="sub" x="228" y="124">required, names, order, archive</text>
+  <rect class="box" x="214" y="84" width="170" height="52" rx="8"/><text x="228" y="106">R, N, D, O, A, L</text><text class="sub" x="228" y="124">required, names, descriptions, order, archive, log</text>
   <rect class="box" x="410" y="84" width="270" height="176" rx="8"/><text x="424" y="106" style="font-weight:600">Views  V₁ … Vₘ</text>
   <text x="424" y="132">Styles Y</text><text class="sub" x="508" y="132">form ↦ (output ↦ formatting)</text>
   <text x="424" y="156">Layout λ</text><text class="sub" x="508" y="156">object ↦ position</text>
@@ -191,24 +191,27 @@ $$\begin{aligned} \mathsf{Workbook} &= \mathsf{Chart}^{+}, & \mathsf{Chart} &= (
 
 <section id="charts">
 <h2><span class="num">3</span>Charts</h2>
-<p class="para"><span class="pn">3.1</span>A <strong class="def">chart</strong> is a tuple \(C = (S, E, F, R, N, O, A, V)\) of</p>
+<p class="para"><span class="pn">3.1</span>A <strong class="def">chart</strong> is a tuple \(C = (S, E, F, R, N, D, O, A, L, V)\) of</p>
 <ul>
   <li>a schema \(S\), held explicitly (3.2);</li>
   <li>a finite set \(E\) of records in \(S\), the <strong class="def">entered</strong> records;</li>
   <li>a finite set \(F\) of definitions (§4), from which with \(E\) comes the chart's <strong class="def">computed state</strong> \(\Sigma = \Sigma(E, F)\), a state in \(S\);</li>
   <li>a set \(R \subseteq \operatorname{Par}(S)\) of <strong class="def">required</strong> parameterizations (3.4);</li>
   <li><strong class="def">names</strong> \(N\) for relation forms and their lists (3.5);</li>
+  <li><strong class="def">descriptions</strong> \(D\) of forms, in words (3.5);</li>
   <li>an <strong class="def">order</strong> \(O\) on entries (3.6);</li>
   <li>an <strong class="def">archive</strong> \(A\) of deleted records (3.7);</li>
+  <li>a <strong class="def">log</strong> \(L\) of changes, the chart's history (3.8);</li>
   <li>and a nonempty sequence \(V\) of <strong class="def">views</strong> (§5).</li>
 </ul>
 <p>\(E\) need not be a state by itself, since an entered record may be located at a computed one; it is \(\Sigma\) that must be.</p>
 <p class="para"><span class="pn">3.2</span><strong class="def">The schema grows.</strong> Entering a record adds its specification to \(S\). Nothing removes a specification except removing it deliberately, which is allowed only for one that is <em>unused</em>: no record of \(\Sigma\) has it, no definition's scope or \(R\) includes its parameterization, and nothing in \(O\) is keyed by it. So \(S\) is the vocabulary the chart has used, not merely what its records use now, and a choice keeps its options when no record has them. An unused specification also gives way where keeping it would break the schema conditions: when a definition changes its sort, or a record is entered whose specification conflicts with it.</p>
 <p class="para"><span class="pn">3.3</span>Because \(S\) is explicit, every question about the schema (what entries a location may have, which options a choice offers, which relations two objects may enter, what a style or formula is about) is answered from \(S\), not by looking for a record that happens to have the answer.</p>
 <p class="para"><span class="pn">3.4</span><strong class="def">Required entries.</strong> For \(p \in R\) whose single parameter has location specification \(\ell\), a record \(x \in \Sigma\) with \(\operatorname{spec}(x) = \ell\) <strong class="def">lacks</strong> \(p\) if no record of \(\Sigma\) located at \(x\) has parameterization \(p\). A tag counts as present whether attested or ruled out. Lacked entries are drawn as blanks to fill in; leaving an object that lacks one asks first.</p>
-<p class="para"><span class="pn">3.5</span><strong class="def">Names.</strong> A <strong class="def">relation form</strong> is a form whose root has more than one child. \(N\) assigns to some relation forms \(f\) a <em>name</em> together with an order on \(f\)'s root edge labels, the order in which a call to the relation takes its arguments. It also assigns to some triples \((f, e, e')\), with \(e \ne e'\) root edge labels of \(f\), a <strong class="def">list name</strong>: the name, seen from an argument in role \(e\), of its relatives in role \(e'\). A list without a name goes by \(e'\); one with a name answers to \(e'\) as well.</p>
+<p class="para"><span class="pn">3.5</span><strong class="def">Names.</strong> A <strong class="def">relation form</strong> is a form whose root has more than one child. \(N\) assigns to some relation forms \(f\) a <em>name</em> together with an order on \(f\)'s root edge labels, the order in which a call to the relation takes its arguments. It also assigns to some triples \((f, e, e')\), with \(e \ne e'\) root edge labels of \(f\), a <strong class="def">list name</strong>: the name, seen from an argument in role \(e\), of its relatives in role \(e'\). A list without a name goes by \(e'\); one with a name answers to \(e'\) as well. <strong class="def">Descriptions</strong> \(D\) assign to some forms, of any kind, a text saying what they mean: the vocabulary explained, as \(N\) names it. Like \(N\), \(D\) is keyed by form, so it follows a form wherever its specifications are, and moves with it (7.3). A computed record's explanation begins with its form's description.</p>
 <p class="para"><span class="pn">3.6</span><strong class="def">Order.</strong> \(O\) assigns to some location specifications \(\ell\) a finite sequence of labels. The entries of a record with specification \(\ell\) are listed with Name first, then those whose labels occur in \(O(\ell)\), in that order, then the rest by type (fields, tags, choices) and alphabetically.</p>
 <p class="para"><span class="pn">3.7</span><strong class="def">Archive.</strong> \(A\) is a sequence of <em>batches</em>, each a label, a time, and a set of entered records deleted together with their dependents (7.2).</p>
+<p class="para"><span class="pn">3.8</span><strong class="def">Log.</strong> \(L\) is a sequence of <em>entries</em>, newest first, one for every edit that changes \(E\), \(F\), \(N\), \(D\), \(R\) or \(S\): its time, its author, a sentence saying what it did, and each entered record it changed, as a pair \((x_{\text{before}}, x_{\text{after}})\) with \(\bot\) for a record not there. Views are presentation, and editing them adds nothing. \(L\) only grows: an undo, a redo, a reset, an import and the taking back of an entry are edits too, each logged with its source. An entry can be <strong class="def">taken back</strong> while every record it changed is still as it left it: the records are put back as they were, as a new edit, logged in turn.</p>
 </section>
 
 <section id="formulas">
@@ -260,7 +263,7 @@ $$\operatorname{box}_v(x) \;=\; B_0 \;\oplus \bigoplus_{y \in Y_v}\; \bigoplus_{
 <h2><span class="num">6</span>Workbooks</h2>
 <p class="para"><span class="pn">6.1</span>A <strong class="def">workbook</strong> is a nonempty sequence of charts \(W = (C_1, \dots, C_n)\), together with a sequence of deleted charts that can be restored. Charts share nothing: no records, schema, formulas, names or views.</p>
 <p class="para"><span class="pn">6.2</span><strong class="def">Copying formulas.</strong> Definitions move between charts only by copying. Copying from \(C'\) into \(C\) replaces \(C\)'s formulas and names by those of \(C'\) where their names agree, and adds the rest; their specifications join \(S\). The charts stay unsynced: a later change to either doesn't reach the other.</p>
-<p class="para"><span class="pn">6.3</span>Which chart and which view are current, and each chart's undo history, are not part of the model. They belong to the session.</p>
+<p class="para"><span class="pn">6.3</span>Which chart and which view are current, and each chart's undo history, are not part of the model. They belong to the session: each browser tab has its own, so two tabs can look at different charts and views of one workbook. The undo history is a convenience of the session; the log (3.8) is the record.</p>
 </section>
 
 <section id="edits">
@@ -268,7 +271,7 @@ $$\operatorname{box}_v(x) \;=\; B_0 \;\oplus \bigoplus_{y \in Y_v}\; \bigoplus_{
 <p>Every edit is a transition \(C \to C'\), taken as one undoable step; \(\Sigma\) is worked out again from \(E'\) and \(F'\). Undo puts back the chart as it was, \(S\) included.</p>
 <p class="para"><span class="pn">7.1</span><strong class="def">Entering.</strong> An edit to records replaces \(E\) by \(E'\), and \(S' = S \cup \{\operatorname{spec}(r) : r \in E'\}\). Changing a computed record enters it, under its id, as an override (4.6). The result must be a state in a schema: otherwise the edit is refused, with the reason.</p>
 <p class="para"><span class="pn">7.2</span><strong class="def">Deleting.</strong> Deleting records \(X\) removes them with their dependents: \(E' = E \setminus \operatorname{dep}(X)\), where \(\operatorname{dep}(X)\) is the least set containing \(X\) and every record located at a member of it. The entered records removed join \(A\) as a batch; restoring the batch puts them back, once what they depend on is back.</p>
-<p class="para"><span class="pn">7.3</span><strong class="def">Key maps.</strong> An edit that changes specifications is described by a map \(\mu : S \to S'\). Because parameterizations and forms are functions of specifications, \(\mu\) induces maps on them, and these carry everything keyed by them: \(O\) by location specification; \(R\) and definition scopes by parameterization; names and styles by form. Formula texts and filters that mention a renamed label are relabeled with it.</p>
+<p class="para"><span class="pn">7.3</span><strong class="def">Key maps.</strong> An edit that changes specifications is described by a map \(\mu : S \to S'\). Because parameterizations and forms are functions of specifications, \(\mu\) induces maps on them, and these carry everything keyed by them: \(O\) by location specification; \(R\) and definition scopes by parameterization; names, descriptions and styles by form. Formula texts and filters that mention a renamed label are relabeled with it.</p>
 <p class="para"><span class="pn">7.4</span><strong class="def">Renaming every one like it.</strong> Renaming a label on a record \(r\) <em>every one like it</em> relabels that edge in every specification of \(S\) with \(r\)'s form, and in their dependents; \(\mu\) is that relabeling, and every record of those specifications is relabeled with it.</p>
 <p class="para"><span class="pn">7.5</span><strong class="def">The abandonment law.</strong> An edit to individual records (renaming <em>here only</em>, or moving an entry up a level) moves each edited record from a specification \(s\) to another, \(s'\). Then \(\mu(s) = s'\) for each such \(s\) that no record of \(E'\) has any more, and \(\mu\) is the identity elsewhere: <em>a specification abandoned by an edit moves with the records that abandoned it</em>. \(S' = \mu(S) \cup \{\operatorname{spec}(r) : r \in E'\}\).</p>
 <p class="para"><span class="pn">7.6</span><strong class="def">Definitions, names and views</strong> are edited directly: a definition's scope or rule, a name, a style's formatting, a box's position, the hidden set, the filter. Creating a definition adds to \(S\) the specifications its scope and sort require.</p>
@@ -299,8 +302,10 @@ $$\kappa(s) = \begin{cases} \texttt{kind:}\,\nu(k) & \text{if } s \text{ is a lo
     <tr><td>Definitions \(F\)</td><td><code>definitions</code>: <code>{ id, scope, formula }</code> or <code>{ id, scope, implications }</code></td></tr>
     <tr><td>Required \(R\)</td><td><code>required</code>: parameterization keys</td></tr>
     <tr><td>Names \(N\)</td><td><code>names</code>: form key ↦ <code>{ name, edges, lists }</code></td></tr>
+    <tr><td>Descriptions \(D\)</td><td><code>descriptions</code>: form key ↦ text</td></tr>
     <tr><td>Order \(O\)</td><td><code>order</code>: location spec key ↦ labels</td></tr>
     <tr><td>Archive \(A\)</td><td><code>archive</code>: batches <code>{ id, label, when, records }</code></td></tr>
+    <tr><td>Log \(L\)</td><td><code>history</code>: entries <code>{ id, when, who, summary, changes, source }</code>, each change <code>{ id, before, after }</code></td></tr>
     <tr><td>View \(v\)</td><td><code>{ id, name, styles, layout, hidden, filter }</code></td></tr>
     <tr><td>Style \(y\)</td><td><code>{ id, form, map }</code>, <code>map</code>: output key ↦ formatting</td></tr>
   </tbody>
@@ -319,6 +324,8 @@ $$\kappa(s) = \begin{cases} \texttt{kind:}\,\nu(k) & \text{if } s \text{ is a lo
 <div class="revision"><h4>Relations known by form throughout</h4><p>Names were keyed by form, but the formula engine still told relations apart by their edge labels, so two forms with the same edges could share a name the model kept apart. The engine now knows a relation, and so its name and lists, by its form too.</p></div>
 <div class="revision"><h4>Options are what a formula gives</h4><p>A choice's options were taken from every quoted text in its formula, so Tax Classification offered "Corporation", which its formula only compares against. Now a formula contributes only the texts it can give: its value, or a branch of IF or IFS.</p></div>
 <div class="revision"><h4>One place for the vocabulary</h4><p>The app showed the chart's vocabulary in four places, each its own way: a list of formulas, a names editor, a schema list and the Show menus. Now the Schema view holds it all, form by form: each form's parameterizations and whether they are required, its outputs, its relation and list names, its definitions, and on the chart its style's \(\mathsf{show}\). The Show menu is one menu over forms. Each concept has one name throughout: a <em>definition</em> is a scope and a rule, its rule is written as a <em>formula</em> (or as <em>implications</em>), and what it gives is <em>computed</em>.</p></div>
+<div class="revision"><h4>A log that only grows</h4><p>The app recorded changes in a history that undo took entries back from, as if they hadn't been made, and that recorded them under "You" when no name was given. A system of record needs better: the log \(L\) (3.8) only grows, undo and redo are logged as edits naming what they took back, an entry is taken back by a new edit rather than erased, and an author who hasn't given a name is recorded as Someone.</p></div>
+<div class="revision"><h4>Descriptions with the names</h4><p>An explanation of a computed record could only show its formula. Saying what a form means belongs with the vocabulary, keyed by form like its names, so it travels with the form; \(D\) (3.5) holds it, and an explanation begins with it.</p></div>
 <div class="revision"><h4>The abandonment law</h4><p>What followed a record through a rename or a move was inferred after the fact, and only for keys some record still had. Now an edit describes its map on specifications (7.3), and 7.4–7.5 say exactly what moves.</p></div>
 </section>
 
@@ -332,7 +339,7 @@ $$\kappa(s) = \begin{cases} \texttt{kind:}\,\nu(k) & \text{if } s \text{ is a lo
     <tr><td>\(\operatorname{spec}(r)\)</td><td>a record's specification</td><td>§1</td></tr>
     <tr><td>\(\operatorname{sh}(t),\ \operatorname{so}(s),\ \operatorname{fm}(s)\)</td><td>shape; sort; form</td><td>2.1–2.3</td></tr>
     <tr><td>\(\operatorname{Par}_S(f),\ \operatorname{Out}_S(f)\)</td><td>parameterizations and outputs of a form</td><td>2.4</td></tr>
-    <tr><td>\(C = (S, E, F, R, N, O, A, V)\)</td><td>a chart</td><td>3.1</td></tr>
+    <tr><td>\(C = (S, E, F, R, N, D, O, A, L, V)\)</td><td>a chart</td><td>3.1</td></tr>
     <tr><td>\(\Sigma = \Sigma(E, F)\)</td><td>the computed state</td><td>4.4</td></tr>
     <tr><td>\(\phi = (P_\phi, \rho_\phi)\)</td><td>a definition: scope and rule</td><td>4.1</td></tr>
     <tr><td>\(v = (Y_v, \lambda_v, H_v, \varphi_v)\)</td><td>a view: styles, layout, hidden, filter</td><td>5.1</td></tr>
