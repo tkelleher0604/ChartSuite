@@ -1,0 +1,213 @@
+/* The Documents area: the index to the document library, with a pane previewing the document selected,
+   and the dialog that links one. Tokens only; see docs/design.md. */
+
+/* ---- Layout: the list and the pane each scroll on their own, under a head that stays put ---- */
+.main:has(> .docs) { overflow: hidden; }
+.docs { display: flex; height: 100%; min-height: 0; }
+.docs-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; container: docs / inline-size; }
+.docs-head { flex: none; padding: 24px 32px 0; }
+.docs-head .page-head { margin-bottom: 12px; }
+.docs-head .tabs { gap: 4px; }
+.docs-head .tab:first-child { padding-left: 0; }
+.docs-head .tab:first-child[aria-selected="true"]::after { left: 0; }
+.tab-count.is-alert { color: var(--warn); font-weight: 500; }
+
+.docs-toolbar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 14px 32px 12px; }
+.docs-toolbar .search-input .input { width: 232px; }
+.docs-toolbar .filters { gap: 6px; }
+.docs-clear { margin-left: 4px; font-size: 12.5px; }
+.docs-count { margin-left: auto; font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.docs-body { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0 32px 24px; }
+.docs-body > .table-wrap { flex: 0 1 auto; min-height: 0; }
+.docs-body.is-empty { padding-top: 16px; }
+.docs-foot { margin: 10px 0 0; font-size: 12.5px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---- The table: one line a row, the name first; columns give way, least needed first, as it narrows ---- */
+.docs-table { table-layout: fixed; }
+.docs-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-table th { padding: 0 12px; }
+.docs-table tbody tr { cursor: default; }
+.docs-table .c-glyph { width: 44px; padding-right: 0; color: var(--text-3); }
+.docs-table .c-type { width: 184px; color: var(--text-2); }
+.docs-table .c-subjects { width: 252px; }
+.docs-table .c-date { width: 120px; }
+.docs-table .c-status { width: 112px; }
+/* A path is cut at its start, so the folder it ends in shows. */
+.docs-table .c-where { width: 176px; color: var(--text-3); direction: rtl; text-align: left; }
+.docs-table th.c-where { direction: ltr; }
+.docs-table .c-folder { width: 260px; }
+.docs-table .c-act { width: 84px; text-align: right; }
+.docs-table .c-act.is-wide { width: 128px; }
+.c-name-in { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.c-name-in > .row-link, .docs-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.docs-file-name { font-weight: 500; }
+.docs-table tbody tr[aria-selected="true"] .row-link { color: var(--text); }
+@container docs (max-width: 1080px) { .docs-table .c-where:not(.c-folder) { display: none; } }
+@container docs (max-width: 880px) { .docs-table .c-type, .docs-table .c-folder { display: none; } .docs-table .c-subjects { width: 200px; } }
+@container docs (max-width: 640px) { .docs-table .c-subjects { display: none; } }
+@container docs (max-width: 480px) { .docs-table .c-date { display: none; } }
+
+/* Sorting: a header is a quiet button; the column sorted by carries an arrow. */
+.th-sort { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; font-weight: 500; }
+.th-sort:hover, .th-sort.is-on { color: var(--text); }
+.th-arrow { min-width: 8px; color: var(--text-3); font-size: 12px; }
+
+/* The file-type glyph: the one icon that earns its place. */
+.doc-glyph { display: inline-grid; place-items: center; vertical-align: middle; color: var(--text-3); }
+.doc-glyph .doc-icon { width: 20px; height: 20px; }
+.doc-glyph.is-empty { opacity: .45; }
+.doc-glyph.is-large { flex: none; width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--bg); color: var(--text-2); }
+.doc-glyph.is-large .doc-icon { width: 22px; height: 22px; }
+
+/* Records a document concerns: chips on one line, and how many more. */
+.docs-chips { flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+.docs-chips .chip { flex: 0 1 auto; min-width: 0; }
+.docs-more { flex: none; align-self: center; padding-left: 2px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* What needs attention: a link that leads nowhere. */
+.docs-flag { display: inline-flex; flex: none; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--warn); }
+.docs-flag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn-solid); }
+.docs-flag.is-quiet { color: var(--text-3); font-weight: 400; }
+.docs-flag.is-quiet::before { background: var(--border-strong); }
+
+/* A status no longer current. */
+.badge.is-faint { background: none; box-shadow: inset 0 0 0 1px var(--border); color: var(--text-3); }
+
+/* While the library is read: quiet bars, no shimmer. */
+.skeleton { display: block; height: 10px; border-radius: 5px; background: var(--pressed); }
+.skeleton-lines { display: grid; gap: 12px; padding: 4px 0; }
+.is-skeleton td { height: 38px; }
+
+/* ---- The library's own button, in the top bar ---- */
+.docs-source { gap: 7px; color: var(--text-2); font-weight: 500; }
+.docs-source:hover { color: var(--text); }
+.docs-source-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--yes); }
+.docs-source-dot.is-demo { background: none; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.docs-source-dot.is-off { background: var(--border-strong); }
+
+/* ---- The preview pane ---- */
+.docs-pane { display: flex; flex: none; flex-direction: column; width: clamp(384px, 31vw, 440px); min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); }
+.docs-pane.is-entering { animation: docs-pane-in .2s var(--ease); }
+@keyframes docs-pane-in { from { opacity: 0; transform: translateX(8px); } }
+.pane-head { display: flex; align-items: flex-start; gap: 12px; padding: 20px 14px 14px 20px; }
+.pane-title-block { flex: 1; min-width: 0; padding-top: 1px; }
+.pane-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 21px; letter-spacing: -.008em; overflow-wrap: anywhere; }
+.pane-title a:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.pane-sub { margin-top: 3px; font-size: 13px; color: var(--text-2); }
+.pane-sub-part { white-space: nowrap; }
+.dot-sep { margin: 0 6px; color: var(--text-3); }
+.pane-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 18px; border-bottom: 1px solid var(--border); }
+.pane-section { padding: 16px 20px 18px; }
+.pane-section + .pane-section { border-top: 1px solid var(--border); }
+.pane-h { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: 13px; font-weight: 600; line-height: 18px; }
+.pane-h-note { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; font-weight: 400; color: var(--text-3); }
+.pane-h4 { margin: 16px 0 10px; font-size: 12px; font-weight: 500; color: var(--text-3); }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--yes); }
+.pane-empty, .pane-note { margin: 0; font-size: 13px; color: var(--text-3); }
+.pane-note { margin-top: 10px; }
+.pane-empty .link-btn, .pane-note .link-btn { color: var(--accent-text); font-size: 13px; }
+.pane-more { margin-top: 10px; color: var(--accent-text); font-size: 12.5px; }
+.props { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 9px 12px; margin: 0; font-size: 13px; line-height: 18px; }
+.props dt { color: var(--text-2); }
+.props dd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.props dd .chips { min-width: 0; }
+.docs-address { color: var(--text-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.docs-differs { font-size: 12px; font-weight: 500; color: var(--warn); }
+.notice { padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--warn-soft); color: var(--text); font-size: 13px; }
+.notice.is-danger { border-color: var(--danger-border); background: var(--danger-soft); }
+.notice + .props { margin-top: 14px; }
+.notice-actions { margin-top: 10px; }
+.notice .link-btn { color: var(--accent-text); }
+
+.versions { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.version { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 28px; font-size: 13px; }
+.version-id { font-weight: 500; }
+.version-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- The facet menus: they stay open while options are picked ---- */
+.docs-pop { position: fixed; z-index: 85; top: 0; left: 0; width: 340px; max-height: min(440px, 70vh); display: flex; flex-direction: column; padding: 4px; overflow: hidden; background: var(--raised); animation: shell-drop .15s var(--ease); }
+.docs-pop-search { padding: 4px 4px 6px; }
+.docs-pop-list { min-height: 0; overflow-y: auto; }
+.docs-pop .menu-item { padding: 6px 10px; font-size: 13px; }
+.docs-pop-list .menu-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-pop .menu-hint { padding-left: 10px; }
+.docs-pop .menu-hint + .menu-hint { min-width: 16px; padding-left: 8px; text-align: right; }
+
+/* The chips' parts once a filter is set: what it is, and a way to clear it. */
+.filter-chip.is-set { gap: 0; padding: 0; }
+.filter-chip-main { display: inline-flex; align-items: center; gap: 4px; max-width: 340px; height: 100%; padding: 0 4px 0 10px; border: 0; background: none; color: inherit; font: inherit; white-space: nowrap; }
+.filter-chip-value { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
+.filter-chip-more { flex: none; }
+.filter-chip-clear { display: grid; place-items: center; width: 24px; height: 100%; padding: 0 4px 0 2px; border: 0; border-radius: 0 14px 14px 0; background: none; color: inherit; opacity: .7; }
+.filter-chip-clear:hover { opacity: 1; }
+
+/* ---- The dialog: browsing the library, then the document's details ---- */
+/* Like the shell's layer, it holds only what floats over the page, and takes no room in the grid. */
+.docs-layer { display: contents; }
+.docs-layer .docs-scrim { z-index: 80; }
+.docs-dialog { z-index: 81; display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; }
+.dd-head { padding: 20px 24px 14px; }
+.dd-sub { margin: 0; font-size: 13px; color: var(--text-2); }
+.dd-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 4px; }
+.docs-dialog.is-browse .dd-body { overflow: visible; }
+.dd-actions { align-items: center; margin: 0; padding: 16px 24px 20px; }
+.dd-spacer { flex: 1; }
+.dd-error { margin: 12px 24px 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); font-size: 13px; }
+.dd-field-error { margin: 6px 0 0; font-size: 12.5px; color: var(--danger); }
+
+.dd-search { display: flex; }
+.dd-search .input { width: 100%; height: 32px; }
+.dd-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-height: 32px; margin: 8px 0 4px -6px; font-size: 12.5px; }
+.dd-crumb { height: 24px; padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-2); font-size: 12.5px; }
+button.dd-crumb:hover { background: var(--hover); color: var(--text); }
+.dd-crumb.is-here { display: inline-flex; align-items: center; color: var(--text); font-weight: 500; }
+.dd-crumb-sep { color: var(--text-3); }
+.dd-list { height: min(336px, calc(100vh - 360px)); min-height: 160px; overflow-y: auto; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); }
+.dd-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 6px 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font-size: 13px; text-align: left; }
+button.dd-item:hover, button.dd-item:focus-visible { background: var(--hover); outline: none; }
+.dd-item.is-linked { color: var(--text-3); cursor: default; }
+.dd-item-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.dd-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-item-path { overflow: hidden; font-size: 12px; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
+.dd-item-meta { flex: none; font-size: 12px; color: var(--text-3); }
+.dd-item-tag { flex: none; font-size: 12px; color: var(--text-3); }
+.dd-item-chevron { width: 14px; height: 14px; color: var(--text-3); }
+.dd-empty { padding: 40px 16px; color: var(--text-3); font-size: 13px; text-align: center; }
+.dd-loading { padding: 12px 8px; }
+.dd-paste { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.dd-paste-label { flex: none; font-size: 13px; color: var(--text-2); }
+.dd-paste .input { flex: 1; height: 28px; }
+
+.dd-file { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding: 10px 10px 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.dd-file .doc-glyph.is-large { background: var(--surface); }
+.dd-file-text { flex: 1; min-width: 0; }
+.dd-file-name { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.dd-file-where { overflow: hidden; font-size: 12px; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
+.dd-form { display: grid; grid-template-columns: 116px minmax(0, 1fr); align-items: center; gap: 10px 16px; font-size: 13px; }
+.dd-form > label { color: var(--text-2); }
+.dd-form > label:last-of-type { align-self: start; padding-top: 6px; }
+.dd-form .input { height: 32px; }
+.dd-note { margin: 14px 0 0 132px; font-size: 12.5px; color: var(--text-3); }
+.docs-select { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); text-align: left; }
+.docs-select:hover { border-color: var(--text-3); }
+.docs-select[aria-expanded="true"], .docs-select:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); outline: none; }
+.docs-select-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-select.is-empty .docs-select-text { color: var(--text-3); }
+.docs-select .icon { width: 14px; height: 14px; color: var(--text-3); }
+.dd-subjects { display: grid; gap: 8px; min-width: 0; }
+.dd-subjects .chip { padding-right: 2px; }
+.chip-x { display: grid; place-items: center; width: 18px; height: 18px; margin-left: 2px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--text-3); }
+.chip-x:hover { background: var(--border); color: var(--text); }
+.chip-x .icon { width: 12px; height: 12px; }
+.dd-listbox { z-index: 5; }
+
+@media (max-width: 760px) {
+  .docs-head { padding: 20px 16px 0; }
+  .docs-toolbar { padding: 12px 16px 10px; }
+  .docs-body { padding: 0 16px 16px; }
+  .docs-pane { position: fixed; inset: 48px 0 0 auto; z-index: 20; width: min(420px, 100vw); box-shadow: var(--shadow-dialog); }
+  .dd-form { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .dd-form > label:not(:first-child) { margin-top: 8px; }
+  .dd-note { margin-left: 0; }
+}
