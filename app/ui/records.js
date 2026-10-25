@@ -561,11 +561,11 @@
       if (!c || !isActive(f) && ui.pop?.index !== i) return '';
       const open = ui.pop?.type === 'filter' && ui.pop.index === i;
       const s = filterSummary(f, c, P);
-      return `<span class="filter-chip is-set rec-fchip" data-filter="${i}"><button class="rec-fchip-main" data-cmd="records.filter-open" data-index="${i}" aria-haspopup="dialog" aria-expanded="${open}" title="${esc(s.text)}">${s.html}</button>
-        <button class="rec-fchip-x" data-cmd="records.filter-remove" data-index="${i}" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>`;
+      return `<span class="filter-chip is-set" data-filter="${i}"><button class="filter-chip-main" data-cmd="records.filter-open" data-index="${i}" aria-haspopup="dialog" aria-expanded="${open}" title="${esc(s.text)}"><span class="rec-fchip-text">${s.html}</span></button>
+        <button class="filter-chip-x" data-cmd="records.filter-remove" data-index="${i}" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>`;
     }).join('');
-    const needs = ui.needs ? `<span class="filter-chip is-set rec-fchip is-warn"><button class="rec-fchip-main" data-cmd="records.needs">Missing a required entry</button>
-      <button class="rec-fchip-x" data-cmd="records.needs" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>` : '';
+    const needs = ui.needs ? `<span class="filter-chip is-set is-warn"><button class="filter-chip-main" data-cmd="records.needs"><span class="rec-fchip-text">Missing a required entry</span></button>
+      <button class="filter-chip-x" data-cmd="records.needs" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>` : '';
     const quick = shownCols.filter(c => c.type === 'choice' && !c.parent && c.options.length > 1 && !ui.filters.some(f => f.col === c.key))
       .map(c => [c, P.objects.filter(id => P.cell(id, c).r).length]).filter(([, n]) => n > 1)
       .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
@@ -666,7 +666,7 @@
 
   function popAnchor() {
     if (ui.pop?.type === 'view') return document.querySelector('[data-cmd="records.view"]');
-    if (ui.pop?.type === 'filter') return document.querySelector(`.rec-fchip[data-filter="${ui.pop.index}"]`);
+    if (ui.pop?.type === 'filter') return document.querySelector(`.filter-chip[data-filter="${ui.pop.index}"]`);
     if (ui.pop?.type === 'choice') return cellEl(ui.pop);
     return null;
   }

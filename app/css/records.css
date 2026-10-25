@@ -21,14 +21,16 @@
 .rec-bar-end .btn { height: 30px; }
 .rec-bar-end .btn .icon { width: 14px; height: 14px; margin-right: -3px; color: var(--text-3); }
 
-/* A set filter: what it says, and a way to remove it. */
-.rec-fchip { flex: 0 1 auto !important; gap: 0; min-width: 0; max-width: 100%; padding: 0 3px 0 0; }
-.rec-fchip button { height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
-.rec-fchip-main { min-width: 0; max-width: 300px; padding: 0 6px 0 11px !important; overflow: hidden; border-radius: 14px 0 0 14px; text-overflow: ellipsis; white-space: nowrap; }
-.rec-fchip-main b { font-weight: 600; }
-.rec-fchip-x { display: grid; place-items: center; width: 22px; height: 22px !important; border-radius: 11px; opacity: .7; }
-.rec-fchip-x:hover { background: color-mix(in srgb, currentColor 14%, transparent) !important; opacity: 1; }
-.rec-fchip-x .icon { width: 12px; height: 12px; }
+/* A set filter: what it says, which reopens it, and × to remove it. The chip's parts are shell.css's shared
+   set chip (.filter-chip-main, .filter-chip-x); its rules are repeated here, scoped, for a shell.css that
+   doesn't have them yet. What it says reads as a sentence, its value in bold. */
+.rec-filters .filter-chip.is-set { flex: 0 1 auto; gap: 2px; min-width: 0; max-width: 100%; padding: 0 4px 0 10px; }
+.rec-filters .filter-chip > button { display: inline-flex; align-items: center; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+.rec-filters .filter-chip-x { justify-content: center; width: 20px; flex: none; border-radius: 10px; opacity: .7; }
+.rec-filters .filter-chip-x:hover { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent); }
+.rec-filters .filter-chip-x .icon { width: 12px; height: 12px; }
+.rec-fchip-text { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-fchip-text b { font-weight: 600; }
 .filter-chip.is-set.is-warn { background: var(--warn-soft); color: var(--warn); }
 
 /* ---- The table ---- */
