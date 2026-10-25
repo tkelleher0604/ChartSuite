@@ -1,6 +1,7 @@
 // The pieces every area draws records with, so a record reads the same wherever it's shown: a chip for an
-// object, its output, a date or a time, a status badge, an empty state. One global, `Parts`; each part
-// returns markup. Loaded after shell.js. Styles are in shell.css.
+// object, its output, what a formula has a say in, a date or a time, a status badge, a document's file, a
+// filter chip, a table's column heading, an empty state. One global, `Parts`; each part returns markup.
+// Loaded after shell.js. Styles are in shell.css.
 
 const Parts = (() => {
   // An object, named, linking to its page, with one detail after the name (Fund III · 64%). Hovering

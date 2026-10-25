@@ -119,8 +119,14 @@ Use these so a record reads the same everywhere:
 - `Parts.filterChip({ label, value, text, cmd, clear, data, tone })`: a filter above a list. Unset, it reads "+ Label" and opens its menu (`cmd`). Set, it reads `Label: value` (or `text`, as markup, where a sentence says it better, like Jurisdiction is **Delaware**), opens its menu again, and × clears it (`clear`). Its menu is a `Shell.menu`; a filter that takes several values ticks them, and stays open.
 - `Parts.empty({ title, desc, action })`.
 - `Parts.avatar(name)`.
+- A date, in any list of dates: `Agenda.row(event, { compact, from, plain })` (`ui/agenda.js`, with `agenda.css`), as the Calendar, Home and a record's Dates show it. `from` leaves the record a list is about out of whose each date is; `plain` says whose in words, for a narrow card.
 
 Add a part when two areas need the same thing. Never draw a record two ways.
+
+What two areas read the same way is worked out once, in the core:
+- a record's history, with what's inside it and the relations it's in: `historyOf(id)` (model.js);
+- what the view in use draws: `hiddenHere()`, `drawnObjects()` and `filterOutcome(text)` (styles.js);
+- documents, and what each concerns: `Documents` (core/documents.js).
 
 ### Components (`css/shell.css`)
 
@@ -136,7 +142,8 @@ Add a part when two areas need the same thing. Never draw a record two ways.
   - `.search-input`.
 - **Buttons:** `.btn`, with `.btn-primary`, `.btn-sm`, `.btn-ghost` or `.btn-danger`; `.icon-btn`; `.link-btn`; and `kbd`.
 - **Text:** `.muted`, `.faint`, `.tnum`, `.ident`, `.computed-text`, `.link` and `.visually-hidden`.
-- **Also:** `.th-sort` and `.th-menu` (a column heading, drawn by `Parts.columnHead`), `.props` (a `dl` of labels and values, for details in a pane), `.skeleton` and `.skeleton-lines` (static loading bars shaped like what's coming).
+- **What Parts draw:** `.th-sort` and `.th-menu` (a column heading), `.is-implied`, `.ovr-mark` and `.fx-error` (what a formula has a say in), `.doc-glyph` (a file's type), `.badge-link`, and in menus `.menu-tick` and `.menu-choice`.
+- **Also:** `.props` (a `dl` of labels and values, for details in a pane), `.skeleton` and `.skeleton-lines` (static loading bars shaped like what's coming).
 
 An area's own styles go in `css/<area>.css`, and may use only the tokens. A style two areas need belongs in shell.css.
 
