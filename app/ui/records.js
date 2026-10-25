@@ -81,7 +81,7 @@
       focus: null, caret: null, scroll: { left: 0, top: 0 },
     });
     if (Shell.page) Shell.page.kind = kind;
-    if (location.hash && !same(hashText(), kind)) history.replaceState(null, '', Shell.kindHref(kind));
+    if (location.hash && !same(hashText(), kind)) history.replaceState(null, '', `#${encodeURIComponent(kind)}`);
     return true;
   }
 
@@ -90,8 +90,9 @@
   let sidebarStale = false;
   function ensureKind() {
     if (ui.kind !== null) return;
+    const drawnFor = Shell.page?.kind ?? '';
     useKind();
-    sidebarStale = !same(hashText(), ui.kind);
+    sidebarStale = !same(drawnFor, ui.kind);
   }
 
   // ---- Columns ----
