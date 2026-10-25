@@ -13,7 +13,9 @@
 // - after(): runs once the content is in place;
 // - commands: what the page adds to the palette, [{ title, hint, keywords, run }], or a function giving them;
 // - undo: false where the page handles the undo keys itself (the pages with the record panel);
-// - keys: the page's own shortcuts, [[keys, what they do]], for the ? sheet.
+// - keys: the page's own shortcuts, [[keys, what they do]], for the ? sheet: keys as pressed (Shift+1, G then A).
+// The shell's keys come after the page's: a key the page has used (preventDefault) is left to it. An
+// address with ?do=<handler> runs that handler once the page is drawn, as the palette asks from elsewhere.
 // Clicks on an element with data-cmd run the handler registered under that name with Shell.on(name, fn),
 // called with the element and the event. Everything the shell draws over the page (dialogs, the palette,
 // menus, toasts) lives in #layer, so re-rendering the page leaves it be. `render()` re-renders the page; pages with more to draw define
@@ -177,7 +179,14 @@ const Shell = (() => {
       <div id="layer"><div id="layer-dialogs"></div><div id="layer-top"></div></div>`);
     const main = document.getElementById('main');
     if (!page.render) for (const n of own) main.appendChild(n);
+    // ?do=<handler> in the address is an action asked for on another page (actionsElsewhere): it's taken out
+    // of the address, so going back or reloading doesn't do it again, and run once the page is in place,
+    // after the welcome if that's asked first.
+    const arrival = new URLSearchParams(location.search).get('do');
+    if (arrival) history.replaceState(history.state, '', location.pathname + location.hash);
     render();
+    const ready = () => setTimeout(async () => { await welcome(); if (arrival) runCommand(arrival); });
+    if (document.readyState === 'complete') ready(); else addEventListener('load', ready, { once: true });
   }
 
   // ---- The layer: dialogs, and above them the palette, a menu and toasts ----
@@ -217,7 +226,7 @@ const Shell = (() => {
       .concat(recordKinds().map(k => ({ title: `Go to ${plural(k)}`, meta: 'Records', keywords: `${k} ${same(k, 'Individual') ? 'people persons' : ''}`, run: () => { location.href = kindHref(k); } })));
     const objects = Object.keys(records).filter(id => isObject(records[id]));
     const toItem = id => ({ title: objectName(id), meta: subtitleOf(id), keywords: keywordsOf(id), run: () => { visited(id); location.href = recordHref(id); } });
-    const actions = [...pageCommands(), ...globalCommands()];
+    const actions = [...pageCommands(), ...actionsElsewhere(), ...globalCommands()];
     if (!clean(query)) {
       const rec = recent().slice(0, 5).map(toItem);
       return [['Recent', rec], ['Actions', actions.slice(0, 6)], ['Go to', go.slice(0, AREAS.length + FOOT_AREAS.length)]];
@@ -234,8 +243,27 @@ const Shell = (() => {
     const create = value(page.create);
     return [...(create && !create.disabled ? [{ title: create.label, keywords: 'new add create', run: () => runCommand(create.cmd) }] : []), ...(value(page.commands) ?? [])];
   }
+
+  // ---- What can be done from any page ----
+  // The actions people reach for wherever they are, each done on the page it belongs to, by that page's
+  // handler (`cmd`). From another page the palette goes there with ?do=<cmd> in the address, and the shell
+  // runs the handler once the page is drawn (see start); on its own page, the page offers it itself.
+  const areaOf = id => [...AREAS, ...FOOT_AREAS].find(a => a.id === id);
+  function actionsElsewhere() {
+    return [
+      { title: 'Export the chart…', area: 'chart', cmd: 'chart.export', keywords: 'pdf powerpoint pptx svg download deck print' },
+      { title: 'Present the chart', area: 'chart', cmd: 'chart.present', keywords: 'full screen slideshow meeting' },
+      { title: 'Link document', area: 'documents', cmd: 'docs.link', keywords: 'add file sharepoint library' },
+      ...recordKinds().map(k => ({ title: `New ${k.toLowerCase()}`, area: 'records', kind: k, cmd: 'records.new', keywords: `add create ${plural(k)}` })),
+      { title: 'Show overdue deadlines', area: 'calendar', cmd: 'cal.overdue', keywords: 'late past due dates deadlines filings' },
+      { title: 'Show what’s missing', area: 'home', cmd: 'home.missing', keywords: 'required blank empty attention needs' },
+    ].filter(a => !(a.area === page.area && (!a.kind || same(a.kind, value(page.kind) ?? '')))).map(a => {
+      const [file, hash] = (a.kind ? kindHref(a.kind) : areaOf(a.area).href).split('#');
+      return { title: a.title, meta: a.kind ? 'Records' : areaOf(a.area).name, keywords: a.keywords, run: () => { location.href = `${file}?do=${encodeURIComponent(a.cmd)}${hash ? `#${hash}` : ''}`; } };
+    });
+  }
   // Runs a page's handler by its name, as a click on the page's control for it would (a disabled control
-  // does nothing), or with no control where the page shows none.
+  // does nothing), or with no control where the page shows none, as for an action arriving from elsewhere.
   function runCommand(cmd) {
     const el = [...document.querySelectorAll('[data-cmd]')].find(x => x.dataset.cmd === cmd && !x.closest('#layer') && x.getClientRects().length);
     if (el) return el.disabled || el.click();
@@ -257,6 +285,25 @@ const Shell = (() => {
     ];
   }
 
+  // A title with what the query matched in it in bold: each word of the query where a word of the title
+  // starts with it, or else where it first appears. What matched elsewhere (initials, an item's other
+  // texts) isn't marked.
+  function marked(title, query) {
+    const lower = title.toLowerCase(), spans = [];
+    for (const w of clean(query).toLowerCase().split(' ').filter(Boolean)) {
+      let at = -1;
+      for (let i = lower.indexOf(w); i >= 0; i = lower.indexOf(w, i + 1)) {
+        if (spans.some(([a, b]) => i < b && i + w.length > a)) continue;
+        if (i === 0 || !/[\p{L}\p{N}]/u.test(lower[i - 1])) { at = i; break; }
+        if (at < 0) at = i;
+      }
+      if (at >= 0) spans.push([at, at + w.length]);
+    }
+    let out = '', pos = 0;
+    for (const [a, b] of spans.sort((x, y) => x[0] - y[0])) { out += `${esc(title.slice(pos, a))}<b>${esc(title.slice(a, b))}</b>`; pos = b; }
+    return out + esc(title.slice(pos));
+  }
+
   function paletteHtml() {
     return `<div class="palette" role="dialog" aria-label="Search and commands">
       <div class="palette-input-row">${icon('search')}<input class="palette-input" value="${esc(layer.palette.query)}" placeholder="Search records, go to an area, or run a command…" aria-label="Search" autocomplete="off" spellcheck="false"></div>
@@ -274,7 +321,7 @@ const Shell = (() => {
     list.innerHTML = groups.length ? groups.map(([name, items]) => `<div class="palette-group">${esc(name)}</div>` + items.map(item => {
       const n = i++;
       return `<div class="palette-item" role="option" data-cmd="shell.pick" data-index="${n}" aria-selected="${n === layer.palette.active}">
-        <span class="palette-title">${esc(item.title)}</span>${item.meta ? `<span class="palette-meta">${esc(item.meta)}</span>` : ''}</div>`;
+        <span class="palette-title">${marked(item.title, layer.palette.query)}</span>${item.meta ? `<span class="palette-meta">${esc(item.meta)}</span>` : ''}</div>`;
     }).join('')).join('') : `<div class="palette-empty">Nothing matches “${esc(layer.palette.query)}”.</div>`;
     list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }
@@ -492,9 +539,11 @@ const Shell = (() => {
     items[next].focus();
   }
 
-  // Shell.confirm({ title, body, confirm, danger }) and Shell.prompt({ title, body, value, placeholder,
-  // confirm }) ask in a dialog, and resolve with the answer: true or false, or the text (null if cancelled).
-  // `html` stands in for a body of markup.
+  // Shell.confirm({ title, body, confirm, cancel, danger }) and Shell.prompt({ title, body, value,
+  // placeholder, confirm, cancel }) ask in a dialog, and resolve with the answer: true or false, or the text
+  // (null if cancelled). `html` stands in for a body of markup; `cancel` names the button that declines.
+  // Enter answers, except where the answer destroys (`danger`): there Cancel has the focus, so Enter
+  // declines and the destructive button must be chosen.
   function ask(options) {
     return new Promise(resolve => {
       let answer = null;
@@ -505,7 +554,7 @@ const Shell = (() => {
       const d = dialog({
         title: options.title, width: options.wide ? 640 : null, render: () => askHtml(options), ok,
         onOpen: el => { const input = el.querySelector('.dialog-input'); if (input) { input.focus(); input.select(); } else focusFirst(el); },
-        keys: e => { if (e.key === 'Enter' && !e.target.matches('button')) { e.preventDefault(); ok(); } },
+        keys: e => { if (e.key === 'Enter' && !e.target.matches('button') && !options.danger) { e.preventDefault(); ok(); } },
         onClose: () => resolve(answer),
       });
     });
@@ -518,8 +567,8 @@ const Shell = (() => {
       ${body ? `<div class="dialog-body">${body}</div>` : ''}
       ${d.kind === 'prompt' ? `<input class="input dialog-input" value="${esc(d.value ?? '')}" placeholder="${esc(d.placeholder ?? '')}" aria-label="${esc(d.title)}" autocomplete="off" spellcheck="false">` : ''}
       <div class="dialog-actions">
-        ${d.kind === 'info' ? '' : '<button class="btn" data-cmd="shell.dialog-cancel">Cancel</button>'}
-        <button class="btn ${d.danger ? 'btn-danger' : 'btn-primary'}" data-cmd="shell.dialog-ok" data-default>${esc(d.confirm ?? (d.kind === 'info' ? 'Done' : 'OK'))}</button>
+        ${d.kind === 'info' ? '' : `<button class="btn" data-cmd="shell.dialog-cancel"${d.danger ? ' data-default' : ''}>${esc(d.cancel ?? 'Cancel')}</button>`}
+        <button class="btn ${d.danger ? 'btn-danger' : 'btn-primary'}" data-cmd="shell.dialog-ok"${d.danger ? '' : ' data-default'}>${esc(d.confirm ?? (d.kind === 'info' ? 'Done' : 'OK'))}</button>
       </div>`;
   }
 
@@ -595,10 +644,12 @@ const Shell = (() => {
 
   // ---- You, and the theme ----
   function setTheme(theme) { prefs.theme = theme; savePrefs(); applyTheme(); render(); }
+  // Whether you've given your name, which the history records your changes under (Someone until you do).
+  const named = () => { try { return !!localStorage.getItem(USER_KEY); } catch { return false; } };
   function userMenu(anchor) {
     menu(anchor, [
-      { head: currentUser() === 'You' ? 'Changes are recorded as yours' : `Signed in as ${currentUser()}` },
-      { label: 'Your name…', run: setName },
+      { head: named() ? `Your changes are recorded as ${authorName()}` : 'Your changes are recorded as “Someone”' },
+      { label: named() ? 'Your name…' : 'Add your name…', run: setName },
       { label: 'Settings', run: () => { location.href = 'settings.html'; } },
       { sep: true }, { head: 'Theme' },
       ...[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([t, label]) => ({ label, checked: (prefs.theme ?? 'system') === t, run: () => setTheme(t) })),
@@ -607,10 +658,21 @@ const Shell = (() => {
     ], 'user');
   }
   async function setName() {
-    const name = await prompt({ title: 'Your name', body: 'The history records each change under the name of whoever made it.', value: currentUser() === 'You' ? '' : currentUser(), placeholder: 'Your name', confirm: 'Save' });
+    const name = await prompt({ title: 'Your name', body: 'The history records each change under the name of whoever made it.', value: named() ? authorName() : '', placeholder: 'Your name', confirm: 'Save' });
     if (name === null) return;
     setCurrentUser(name);
     render();
+  }
+  // On the first launch, the shell asks your name, once, so the history can say who made each change and
+  // Home can greet you; Skip leaves it for later, under your name at the foot of the sidebar. Resolves once
+  // it's answered, or at once where it isn't asked.
+  async function welcome() {
+    if (prefs.welcomed || named()) return;
+    const name = await prompt({ title: 'Welcome to Rboreal', body: 'What should we call you? Your name goes beside the changes you make, so whoever reads the history knows who made them.',
+      placeholder: 'Your name', confirm: 'Continue', cancel: 'Skip' });
+    prefs.welcomed = true;
+    savePrefs();
+    if (name !== null && clean(name)) { setCurrentUser(name); render(); }
   }
   function toggleSidebar() {
     prefs.sidebar = document.documentElement.dataset.sidebar === 'hidden';
@@ -622,11 +684,19 @@ const Shell = (() => {
     else delete document.documentElement.dataset.sidebar;
   }
 
+  // The shortcuts: what works everywhere, the page's own (its `keys`), and one row for each area G goes to.
+  // Keys are written as they're pressed, Ctrl+K or G then A, and each key is drawn as one; words between
+  // them ("Double-click", "start typing") stay words.
+  const keysHtml = text => text.split(' then ').map(step => step.split(/\+(?=.)/)
+    .map(k => /^\S{1,9}$/.test(k) ? `<kbd>${esc(k)}</kbd>` : esc(k)).join('')).join(' <span class="faint">then</span> ');
   function showKeys() {
-    const keys = [[`${modKey}+K`, 'Search and commands'], ['G then H, C, D, A, Y, R or S', 'Go to an area'], [`${modKey}+Z`, 'Undo'],
-      [isMac ? '⇧⌘Z' : 'Ctrl+Y', 'Redo'], [`${modKey}+\\`, 'Show or hide the sidebar'], ['?', 'These shortcuts'], ['Esc', 'Close']];
-    keys.push(...(page.keys ?? []));
-    ask({ kind: 'info', title: 'Keyboard shortcuts', html: `<dl class="keys">${keys.map(([k, what]) => `<dt>${esc(what)}</dt><dd><kbd>${esc(k)}</kbd></dd>`).join('')}</dl>` });
+    const group = (head, rows) => rows.length ? `<section class="keys-group"><h3 class="keys-head">${esc(head)}</h3>
+      <dl class="keys">${rows.map(([k, what]) => `<dt>${esc(what)}</dt><dd>${keysHtml(k)}</dd>`).join('')}</dl></section>` : '';
+    const everywhere = [[`${modKey}+K`, 'Search and commands'], [`${modKey}+Z`, 'Undo'], [isMac ? '⇧+⌘+Z' : 'Ctrl+Y', 'Redo'],
+      [`${modKey}+\\`, 'Show or hide the sidebar'], ['?', 'These shortcuts'], ['Esc', 'Close']];
+    const go = [...AREAS, { name: 'Records', key: 'r' }, ...FOOT_AREAS].map(a => [`G then ${a.key.toUpperCase()}`, a.name]);
+    ask({ kind: 'info', title: 'Keyboard shortcuts', wide: true,
+      html: `<div class="keys-cols"><div>${group('Everywhere', everywhere)}${group('On this page', page.keys ?? [])}</div>${group('Go to', go)}</div>` });
   }
 
   // ---- Undo ----
@@ -714,55 +784,64 @@ const Shell = (() => {
   });
 
   // In a menu, the arrow keys move through its items and Esc closes it. With a search, the focus stays in
-  // the box as the arrows move, and Enter picks.
+  // the box as the arrows move, and Enter picks. Returns whether it used the key.
   function menuKeys(e) {
     const m = layer.menu;
     const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
-    if (e.key === 'Escape') { e.preventDefault(); closeLayer(); renderSidebar(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); closeLayer(); renderSidebar(); return true; }
     if (m.search && e.target.matches('.menu-search-input')) {
       const n = m.pickable.length;
-      if (step && n) { e.preventDefault(); m.active = (m.active + step + n) % n; redrawMenu(); }
-      if (e.key === 'Enter') { e.preventDefault(); if (n) pickFromMenu(m.pickable[m.active]); }
-      return;
+      if (step && n) { e.preventDefault(); m.active = (m.active + step + n) % n; redrawMenu(); return true; }
+      if (e.key === 'Enter') { e.preventDefault(); if (n) pickFromMenu(m.pickable[m.active]); return true; }
+      return false;
     }
     const items = [...document.querySelectorAll('#layer .float-menu .menu-item:not(:disabled)')];
     const at = items.indexOf(document.activeElement);
-    if (step) { e.preventDefault(); items[(at + step + items.length) % items.length]?.focus(); }
+    if (step) { e.preventDefault(); items[(at + step + items.length) % items.length]?.focus(); return true; }
+    return false;
+  }
+  // In the palette, the arrow keys move, Enter runs what's lit, and Esc, or Ctrl+K again, closes it.
+  function paletteKeys(e) {
+    const n = layer.palette.items.length;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); closeLayer(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      layer.palette.active = (layer.palette.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % Math.max(n, 1);
+      drawPaletteList();
+    }
+    else if (e.key === 'Enter') { e.preventDefault(); runPicked(layer.palette.active); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeLayer(); }
   }
 
-  // A dialog has the keys before anything else hears them, and they go no further: to its own handler
-  // first, then Esc closes it and Tab keeps to it. A menu opened over it has them first.
+  // What's above the page hears the keys before the page does, and what it uses goes no further. A dialog
+  // takes every key: a menu opened over it first, then its own handler, then Esc closes it and Tab keeps to
+  // it. The palette takes every key too. A menu takes the keys it uses.
   window.addEventListener('keydown', e => {
     const d = topDialog();
-    if (!d) return;
-    e.stopPropagation();
-    if (layer.menu) return menuKeys(e);
-    d.keys?.(e);
-    if (e.defaultPrevented) return;
-    if (e.key === 'Escape') { e.preventDefault(); closeDialog(d); }
-    else if (e.key === 'Tab') trapTab(e, d.el);
-  }, true);
-
-  let goPending = 0;
-  document.addEventListener('keydown', e => {
-    const mod = e.ctrlKey || e.metaKey;
-    const key = e.key.toLowerCase();
-    if (mod && key === 'k') { e.preventDefault(); return layer.palette ? closeLayer() : openPalette(); }
-    if (mod && e.key === '\\') { e.preventDefault(); return toggleSidebar(); }
-    if (layer.palette) {
-      const n = layer.palette.items.length;
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        layer.palette.active = (layer.palette.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % Math.max(n, 1);
-        drawPaletteList();
-      }
-      if (e.key === 'Enter') { e.preventDefault(); runPicked(layer.palette.active); }
-      if (e.key === 'Escape') { e.preventDefault(); closeLayer(); }
+    if (d) {
+      e.stopPropagation();
+      if (layer.menu) return menuKeys(e);
+      d.keys?.(e);
+      if (e.defaultPrevented) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeDialog(d); }
+      else if (e.key === 'Tab') trapTab(e, d.el);
       return;
     }
-    if (layer.menu) return menuKeys(e);
-    if (typing(e.target) || e.altKey) return;
-    if (mod && (key === 'z' || key === 'y') && page?.undo) { e.preventDefault(); return undoOrRedo(key === 'y' || e.shiftKey); }
+    if (layer.palette) { e.stopPropagation(); return paletteKeys(e); }
+    if (layer.menu && menuKeys(e)) e.stopPropagation();
+  }, true);
+
+  // The shell's own keys come last, once the page has heard them: a key the page has used (preventDefault)
+  // is the page's, as a letter typed over a table's cell is, G included. G then a letter goes to an area.
+  let goPending = 0;
+  window.addEventListener('keydown', e => {
+    if (e.defaultPrevented || !page) { goPending = 0; return; }
+    const mod = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    if (mod && key === 'k') { e.preventDefault(); return openPalette(); }
+    if (mod && e.key === '\\') { e.preventDefault(); return toggleSidebar(); }
+    if (layer.menu || typing(e.target) || e.altKey) return;
+    if (mod && (key === 'z' || key === 'y') && page.undo) { e.preventDefault(); return undoOrRedo(key === 'y' || e.shiftKey); }
     if (mod) return;
     if (e.key === '?') { e.preventDefault(); return showKeys(); }
     if (e.key === '/') { e.preventDefault(); return openPalette(); }
