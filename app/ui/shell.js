@@ -114,15 +114,12 @@ const Shell = (() => {
       <div class="tb-actions">${value(page.actions) ?? ''}${create ? `<button class="btn btn-sm btn-primary" data-cmd="${esc(create.cmd)}"${create.title ? ` title="${esc(create.title)}"` : ''}${create.disabled ? ' disabled' : ''}>${icon('plus')}${esc(create.label)}</button>` : ''}</div>`;
   }
 
-  // The page names itself once: its title is in the top bar only while its own heading (main's
-  // .page-title) is out of view, or for good where it has none, as the chart has.
-  let headingWatch = null;
-  function watchHeading() {
-    const bar = document.getElementById('topbar'), heading = document.querySelector('#main .page-title');
-    headingWatch?.disconnect();
-    if (!heading) return bar.classList.add('show-title');
-    headingWatch = new IntersectionObserver(([e]) => bar.classList.toggle('show-title', !e.isIntersecting), { root: document.getElementById('main') });
-    headingWatch.observe(heading);
+  // The page names itself once: its title is in the top bar only once its own heading (main's .page-title)
+  // has scrolled up out of view, or for good where it has none, as the chart has. Worked out as the page is
+  // drawn and as it scrolls.
+  function placeTitle() {
+    const main = document.getElementById('main'), heading = main?.querySelector('.page-title');
+    document.getElementById('topbar')?.classList.toggle('show-title', !heading || heading.getBoundingClientRect().bottom <= main.getBoundingClientRect().top);
   }
 
   // ---- When this browser can't keep the workbook ----
@@ -164,7 +161,7 @@ const Shell = (() => {
     const title = value(page.title);
     document.title = title && title !== 'Home' ? `${title} · Rboreal` : 'Rboreal';
     page.after?.();
-    watchHeading();
+    placeTitle();
     renderLayer();
   }
 
@@ -181,6 +178,7 @@ const Shell = (() => {
       <div id="layer"><div id="layer-dialogs"></div><div id="layer-top"></div></div>`);
     const main = document.getElementById('main');
     if (!page.render) for (const n of own) main.appendChild(n);
+    main.addEventListener('scroll', placeTitle, { passive: true });
     // ?do=<handler> in the address is an action asked for on another page (actionsElsewhere): it's taken out
     // of the address, so going back or reloading doesn't do it again, and run once the page is in place,
     // after the welcome if that's asked first.
