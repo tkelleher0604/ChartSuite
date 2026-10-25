@@ -1182,15 +1182,17 @@ document.addEventListener('pointerdown', e => {
 // ---- Presenting ----
 // Present hides everything but the chart (the sidebar, top bar, ribbon, panel and the bar along the
 // bottom), full screen where the browser allows, and fits the chart to it. The arrow keys step through
-// the views, each fitted, and Esc comes back to where things were.
+// the views, each fitted, and Esc comes back to where things were: the view presenting started from, at
+// its zoom and scroll. Full screen, the page keeps Esc for itself where the browser lets it, so one Esc
+// does one thing: with the palette open, it closes the palette, and the next one ends the presentation.
 
 function startPresenting() {
   if (chart.presenting) return;
   const stage = stageEl();
-  chart.presenting = { zoom: chart.zoom, left: stage.scrollLeft, top: stage.scrollTop };
+  chart.presenting = { view: viewId, zoom: chart.zoom, left: stage.scrollLeft, top: stage.scrollTop };
   Object.assign(chart, { editing: null, quick: null, ask: null, connect: null, move: null });
   document.documentElement.classList.add('is-presenting');
-  document.documentElement.requestFullscreen?.().catch(() => {});
+  document.documentElement.requestFullscreen?.().then(() => navigator.keyboard?.lock?.(['Escape'])).catch(() => {});
   render();
   fitToScreen();
   caption();
@@ -1201,8 +1203,10 @@ function stopPresenting() {
   if (!was) return;
   chart.presenting = null;
   document.documentElement.classList.remove('is-presenting');
+  navigator.keyboard?.unlock?.();
   if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   document.getElementById('caption').innerHTML = '';
+  showView(was.view);
   render();
   setZoom(was.zoom);
   Object.assign(stageEl(), { scrollLeft: was.left, scrollTop: was.top });

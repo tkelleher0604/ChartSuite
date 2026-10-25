@@ -208,12 +208,15 @@ function newKindForm(a, b) {
     <datalist id="relate-edges">${edges.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>`;
 }
 
+// Beside a chart, the bar over the chart names what's going on and has its Done (see lockBarHtml in
+// chart.js), so the head doesn't have one too; on a record's page, the head has it.
 function relateView({ a, b }) {
   const pair = `${a}:${b ?? ''}`;
   if (relate.pair !== pair) Object.assign(relate, { pair, extra: {}, error: null, form: freshRelateForm(a, b) });
+  const done = panelOptions.engaged ? '' : `<button class="btn${b ? ' btn-primary' : ''}" data-action="relate-done">${b ? 'Done' : 'Cancel'}</button>`;
   const head = `<div class="panel-head relate-head">
     <div class="title-row"><div class="title-block"><h1>Relate</h1><div class="subtitle">${b ? 'Every relation these two can be in' : 'Choose what to relate this to'}</div></div>
-      <div class="head-actions"><button class="btn${b ? ' btn-primary' : ''}" data-action="relate-done">${b ? 'Done' : 'Cancel'}</button></div></div>
+      <div class="head-actions">${done}</div></div>
     <div class="relate-sides">${sideHead(a)}${b ? `${sideHead(b)}<div class="relate-colhead">Recorded</div>`
       : `<div class="relate-side is-picker">${sidePicker(a)}<span class="relate-side-kind">${panelOptions.engaged ? 'or click a box on the chart' : 'any object'}</span></div>`}</div>
   </div>`;
