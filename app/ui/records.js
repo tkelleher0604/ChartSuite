@@ -773,7 +773,7 @@
       wrap.scrollLeft = ui.scroll.left;
       wrap.scrollTop = ui.toEnd ? wrap.scrollHeight : ui.scroll.top;
       ui.toEnd = false;
-      wrap.classList.toggle('is-scrolled', wrap.scrollLeft > 0);
+      edges(wrap);
       const all = wrap.querySelector('[data-check="*"]');
       if (all) all.indeterminate = !all.checked && ui.rows.some(id => ui.checked.has(id));
     }
@@ -796,6 +796,14 @@
     }
     if (ui.reveal) { ui.reveal = false; reveal(); }
     if (sidebarStale) { sidebarStale = false; Shell.render(); }
+  }
+
+  // Marks where the table is scrolled from its edges: scrolled right, so Name shows its edge, and with
+  // more to the right, so the right edge fades, saying there are columns past it.
+  function edges(wrap) {
+    wrap.classList.toggle('is-scrolled', wrap.scrollLeft > 0);
+    wrap.classList.toggle('has-more-right', wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1);
+    wrap.style.setProperty('--bar', `${wrap.offsetWidth - wrap.clientWidth}px`);
   }
 
   // Brings the active cell into view, clear of the sticky header and Name column.
@@ -1457,7 +1465,7 @@
   document.addEventListener('scroll', e => {
     if (!e.target.classList?.contains('rec-wrap')) return;
     ui.scroll = { left: e.target.scrollLeft, top: e.target.scrollTop };
-    e.target.classList.toggle('is-scrolled', e.target.scrollLeft > 0);
+    edges(e.target);
     if (ui.pop) placePop();
   }, true);
   // A resized window draws the table again once it settles, as Name's width and what fits follow it.

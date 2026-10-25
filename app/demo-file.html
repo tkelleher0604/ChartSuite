@@ -44,6 +44,7 @@
 <main class="df-main" id="main"></main>
 <script src="core/common.js"></script>
 <script src="core/sharepoint.js"></script>
+<script src="core/documents.js"></script>
 <script>
 (async () => {
   const demo = SharePoint.connector.demo;
@@ -57,7 +58,7 @@
   try { item = await demo.resolveShareUrl(link); } catch {}
   if (!item || item.isFolder) {
     bar.innerHTML = '<div class="df-names"><div class="df-name">Demo library</div></div><span class="df-demo">Contoso › Fund Legal</span>';
-    main.innerHTML = `<div class="df-empty"><strong>This file isn’t in the demo library</strong><p>It may have been linked from somewhere else, or the demo forgotten.</p><a class="btn" href="documents.html">Go to Documents</a></div>`;
+    main.innerHTML = `<div class="df-empty"><strong>This file isn’t in the demo library</strong><p>The link may lead somewhere else, or the demo library may have been cleared since.</p><a class="btn" href="documents.html">Go to Documents</a></div>`;
     return;
   }
   document.title = `${item.name} · Demo library`;
@@ -78,7 +79,7 @@
     // Otherwise, what the library says about it, as a sheet.
     const f = item.fields ?? {};
     const prop = (label, value) => value ? `<dt>${esc(label)}</dt><dd>${value}</dd>` : '';
-    const title = item.name.replace(/\.[a-z0-9]{1,5}$/i, '');
+    const title = Documents.titleOf(item.name);
     const note = url ? 'This kind of file can’t be shown in the browser. Download it to open it.'
       : item.uploaded ? 'This file was uploaded to the demo library, but this browser didn’t keep its content, only its details.'
       : 'The demo library has each file’s details, not the file itself. Connected to your SharePoint, a document opens there.';

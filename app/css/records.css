@@ -35,6 +35,8 @@
 .rec-table td { position: relative; padding: 0 12px; }
 .rec-table .is-sticky.rec-name { left: 44px; }
 .rec-wrap.is-scrolled .rec-name { box-shadow: inset -1px 0 0 var(--border); }
+/* Columns past the right edge: the edge fades, as the ribbon's does, short of the scrollbar (--bar). */
+.rec-wrap.has-more-right { mask-image: linear-gradient(to right, #000 calc(100% - var(--bar, 0px) - 40px), transparent calc(100% - var(--bar, 0px)), #000 calc(100% - var(--bar, 0px))); }
 .rec-table .rec-fill { padding: 0; }
 
 /* Headings (shell.css's): a click sorts, the chevron opens the column's menu, and a drag moves it. */
