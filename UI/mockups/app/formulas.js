@@ -964,6 +964,9 @@ const FUNCTIONS = {
   YEAR(a, c) { return datePart(a, c, 'YEAR', 0); },
   MONTH(a, c) { return datePart(a, c, 'MONTH', 1); },
   DAY(a, c) { return datePart(a, c, 'DAY', 2); },
+  // As in Excel: the date some months on, kept within the month it lands in; and the last day of that month.
+  EDATE(a, c) { return monthsOn(a, c, 'EDATE', false); },
+  EOMONTH(a, c) { return monthsOn(a, c, 'EOMONTH', true); },
   // Years between two dates, counting actual days over 365.
   YEARFRAC(a, c) {
     const bad = arity('YEARFRAC', a, 2);
@@ -997,6 +1000,21 @@ function datePart(a, c, name, i) {
   const d = scalar(c.S, ev(a[0].x, c));
   if (isErr(d) || d === null) return d;
   return isDate(d) ? Number(d.iso.split('-')[i]) : err('#VALUE!', `${name} takes a date.`);
+}
+
+// A date moved by whole months: to the same day, or the month's last day if it has fewer (EDATE), or to
+// the last day of the month it lands in (EOMONTH).
+function monthsOn(a, c, name, toEnd) {
+  const bad = arity(name, a, 2);
+  if (bad) return bad;
+  const d = scalar(c.S, ev(a[0].x, c));
+  if (isErr(d) || d === null) return d;
+  if (!isDate(d)) return err('#VALUE!', `${name} takes a date first.`);
+  const n = toNumber(c.S, ev(a[1].x, c));
+  if (isErr(n)) return n;
+  const [y, m, day] = d.iso.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m - 1 + Math.trunc(n) + 1, 0)).getUTCDate();
+  return { t: 'date', iso: isoOf(new Date(Date.UTC(y, m - 1 + Math.trunc(n), toEnd ? last : Math.min(day, last)))) };
 }
 
 function textFn(a, c, name, min, max, fn) {
@@ -1332,7 +1350,7 @@ function asOutput(S, d, v) {
     return option ? { out: option } : { error: err('#OPTION?', `“${v}” isn’t one of ${d.name}’s options.`) };
   }
   if (d.datatype === 'date') return isDate(v) ? { out: v } : wrong('a date');
-  if (d.datatype === 'text') { const t = toText(S, v); return isErr(t) ? { error: t } : { out: t }; }
+  if (d.datatype === 'text' || d.datatype === 'document') { const t = toText(S, v); return isErr(t) ? { error: t } : { out: t }; }
   return typeof v === 'number' ? { out: v } : wrong('a number');
 }
 

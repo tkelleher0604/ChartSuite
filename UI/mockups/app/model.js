@@ -285,15 +285,18 @@ const SAMPLE_CHART_NAME = 'Calder Ridge Fund III structure';
 // - views: the chart's views, each with its own styles (see styles.js), box positions, hidden records and
 //   filter. The records are the same in every view. `styles` and `layout` are the current view's, written
 //   back into `views` on save;
-// - archive: deleted records, kept in batches so each can be restored with its dependents.
+// - archive: deleted records, kept in batches so each can be restored with its dependents;
+// - history: every change to the chart's data (its records, definitions, names, required entries and
+//   schema), newest first, with when it was made and by whom; see "History" below. Views are presentation,
+//   and changes to them aren't recorded.
 // Semantics is keyed by parameterization (formulas, required entries), looks and vocabulary by form (styles,
 // names), and placement by location (entry order by location specification, box positions by object).
-let schema, entered, records, definitions, names, order, views, viewId, styles, layout, required, archive;
+let schema, entered, records, definitions, names, order, views, viewId, styles, layout, required, archive, history;
 const undoStack = [];
 const redoStack = [];
 
 function setState(s) {
-  ({ schema = {}, records: entered, definitions = [], names = {}, order = {}, views, viewId = null, required = [], archive = [] } = s);
+  ({ schema = {}, records: entered, definitions = [], names = {}, order = {}, views, viewId = null, required = [], archive = [], history = [] } = s);
   recompute();
   // The schema holds what the formulas compute, as well as what's entered.
   schema = withSpecsOf(schema, records);
@@ -336,7 +339,7 @@ const sampleFormulas = (recs = SAMPLE) => canonicalFormulas(SAMPLE_DEFINITIONS, 
 
 // States are never mutated in place, so earlier ones can be kept for undo.
 const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
-const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive });
+const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive, history });
 
 function saveState() {
   try { localStorage.setItem(WORKBOOK_KEY, JSON.stringify({ ...workbook, charts: currentCharts() })); } catch {}
@@ -364,6 +367,7 @@ function redoState() {
 function resetState() {
   pushUndo();
   setState(sampleState());
+  noteChange('Reset the chart to the sample');
   saveState();
 }
 
@@ -787,7 +791,7 @@ const relationLabel = r => r.args.map(a => a.edge).join(' · ');
 const recordLabel = id => isRelation(records[id]) ? relationNameOf(id) : records[id].edge;
 
 const TYPE_NAMES = { field: 'Field', tag: 'Tag', choice: 'Choice' };
-const DATATYPE_NAMES = { text: 'Text', number: 'Number', percent: 'Percent', money: 'Money', date: 'Date' };
+const DATATYPE_NAMES = { text: 'Text', number: 'Number', percent: 'Percent', money: 'Money', date: 'Date', document: 'Document' };
 // What a value box for each datatype asks for.
 const VALUE_HINTS = { text: 'Value', number: 'Amount', percent: 'Percent, like 25%', money: 'Amount, like $1,000', date: 'Date' };
 
@@ -829,9 +833,23 @@ const formatDate = iso => {
 const NUMBER = /^[-+]?\$?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?%?$/;
 const isNumber = s => NUMBER.test(s) && !/^[-+]?\$?0\d/.test(s);
 
+// A document is where it lives: a URL (a SharePoint or OneDrive file, a DMS link, an EDGAR filing) or a
+// network path. Its value is that address, and it reads as the file it names.
+const isAddress = s => /^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(s) || /^\\\\[^\\\s]+\\\S+/.test(s);
+
 // The datatype something typed reads as, where nothing else says.
-const classify = s => parseDate(s) ? 'date' : !isNumber(s) ? 'text' : s.endsWith('%') ? 'percent' : /^[-+]?\$/.test(s) ? 'money' : 'number';
-const asPhrase = datatype => ({ text: 'text', number: 'a number', percent: 'a percentage', money: 'an amount of money', date: 'a date' })[datatype];
+const classify = s => isAddress(s) ? 'document' : parseDate(s) ? 'date' : !isNumber(s) ? 'text'
+  : s.endsWith('%') ? 'percent' : /^[-+]?\$/.test(s) ? 'money' : 'number';
+const asPhrase = datatype => ({ text: 'text', number: 'a number', percent: 'a percentage', money: 'an amount of money',
+  date: 'a date', document: 'a link to a document' })[datatype];
+
+// The name a document goes by: its file name, from the last part of its address, or else its host.
+function documentName(address) {
+  const s = String(address);
+  const path = s.replace(/[?#].*$/, '').replace(/[\\/]+$/, '');
+  const last = path.split(/[\\/]/).pop();
+  try { return decodeURIComponent(last || s); } catch { return last || s; }
+}
 
 // What's typed as a value of a datatype, or undefined if it isn't one. In a percentage, a bare number is
 // a percentage too: 25 is 25%.
@@ -839,6 +857,7 @@ function parseValue(datatype, raw) {
   const s = clean(raw);
   if (!s) return undefined;
   if (datatype === 'date') return parseDate(s) ?? undefined;
+  if (datatype === 'document') return isAddress(s) ? s : undefined;
   if (datatype === 'text') return s;
   if (!isNumber(s) || (datatype !== 'percent' && s.endsWith('%'))) return undefined;
   const n = Number(s.replace(/[$,%]/g, ''));
@@ -849,6 +868,7 @@ function parseValue(datatype, raw) {
 function showValue(datatype, v) {
   if (v === null || v === undefined) return '';
   if (datatype === 'date') return formatDate(v);
+  if (datatype === 'document') return documentName(v);
   if (typeof v !== 'number') return String(v);
   const n = (x, min = 0) => x.toLocaleString('en-US', { minimumFractionDigits: min, maximumFractionDigits: 2 });
   if (datatype === 'percent') return `${n(v * 100)}%`;
@@ -1274,6 +1294,74 @@ function definitionsError(defs, S, N) {
   return null;
 }
 
+// ---- History ----
+// Every change to the chart's data is recorded, newest first: when it was made, by whom, what it was in a
+// sentence, and the entered records it changed, before and after, so that a record's own history can be
+// told. The history belongs to the chart, so it travels with it in the workbook; undoing a change takes
+// its entry back too, as if it hadn't been made.
+
+const USER_KEY = 'rboreal.user';
+function currentUser() {
+  try { return localStorage.getItem(USER_KEY) || 'You'; } catch { return 'You'; }
+}
+function setCurrentUser(name) {
+  try { clean(name) ? localStorage.setItem(USER_KEY, clean(name)) : localStorage.removeItem(USER_KEY); } catch {}
+}
+
+// The entered records that differ between two sets of records, each { id, before, after }, with null for
+// one that wasn't there.
+function changesBetween(a, b) {
+  const out = [];
+  for (const id of new Set([...Object.keys(a), ...Object.keys(b)]))
+    if (a[id] !== b[id] && JSON.stringify(a[id] ?? null) !== JSON.stringify(b[id] ?? null))
+      out.push({ id, before: a[id] ?? null, after: b[id] ?? null });
+  return out;
+}
+
+// How a record reads in a sentence, in the records it belongs to: an object by its kind and name, an
+// entry by its object and path, a relation by its name and the objects it relates.
+function recordPhrase(recs, id) {
+  const r = recs[id];
+  if (!r) return 'a record';
+  if (isObject(r)) return `${r.kind} “${objectName(id, recs)}”`;
+  const objName = at => { let cur = at; while (recs[cur] && !isObject(recs[cur]) && !isRelation(recs[cur])) cur = recs[cur].at; return recs[cur] && isObject(recs[cur]) ? objectName(cur, recs) : recordPhrase(recs, cur); };
+  if (isRelation(r)) {
+    const t = treeOf(recs, id);
+    const name = (t && names[formOfTree(t)]?.name) ?? r.args.map(a => a.edge).join(' · ');
+    return `${name}: ${r.args.map(a => objName(a.at)).join(' → ')}`;
+  }
+  return `${objName(r.at)} › ${r.edge}`;
+}
+const outputPhrase = r => isObject(r) ? r.kind : isField(r) ? showValue(r.field, r.value) : isChoice(r) ? r.choice : r.tag ? 'attested' : 'ruled out';
+
+// A change in a sentence: one record added, deleted or changed is named; several are counted, naming an
+// object added with its entries. Changes to the definitions, names or required entries are named after.
+function changeSummary(changes, before, after, extra = []) {
+  const parts = [];
+  if (changes.length === 1) {
+    const { id, before: b, after: a } = changes[0];
+    if (!b) parts.push(`Added ${recordPhrase(after, id)}${isField(a) ? `: ${outputPhrase(a)}` : ''}`);
+    else if (!a) parts.push(`Deleted ${recordPhrase(before, id)}`);
+    else if (outputPhrase(b) !== outputPhrase(a)) parts.push(`Changed ${recordPhrase(after, id)} from ${outputPhrase(b)} to ${outputPhrase(a)}`);
+    else parts.push(`Changed ${recordPhrase(before, id)} to ${recordPhrase(after, id)}`);
+  } else if (changes.length) {
+    const added = changes.filter(c => !c.before), removed = changes.filter(c => !c.after);
+    const object = changes.find(c => c.after && isObject(c.after) && !c.before) ?? changes.find(c => c.before && isObject(c.before) && !c.after);
+    if (added.length === changes.length) parts.push(object ? `Added ${recordPhrase(after, object.id)} with ${count(changes.length - 1, 'entry')}` : `Added ${count(changes.length, 'record')}`);
+    else if (removed.length === changes.length) parts.push(object ? `Deleted ${recordPhrase(before, object.id)} and ${count(changes.length - 1, 'record')} depending on it` : `Deleted ${count(changes.length, 'record')}`);
+    else parts.push(`Changed ${count(changes.length, 'record')}`);
+  }
+  return [...parts, ...extra].join('; ') || 'Changed the schema';
+}
+
+// Records a change to the chart's data at the head of the history.
+function noteChange(summary, changes = []) {
+  history = [{ id: newId(), when: new Date().toISOString(), who: currentUser(), summary, changes }, ...history];
+}
+
+// The history of one record: the entries whose changes touch it.
+const historyOf = id => history.filter(h => h.changes.some(c => c.id === id));
+
 // ---- Changing the state ----
 
 // The one way a chart changes, as one undoable step: its entered records, formulas, names or schema
@@ -1312,6 +1400,7 @@ function change(next, { moves = false, maps = null, renames = [], after = null }
   const error = validate(result.records) ?? schemaError(S) ?? (moved ? definitionsError(defs, S, nms) : null);
   if (error) return error;
   pushUndo();
+  const was = { entered, records, definitions, names, schema };
   entered = nextEntered;
   definitions = defs;
   names = nms;
@@ -1320,8 +1409,25 @@ function change(next, { moves = false, maps = null, renames = [], after = null }
   for (const m of [maps, moved]) if (m) remapPresentation(m);
   renameInFilters(renames);
   after?.();
+  const changes = changesBetween(was.entered, entered);
+  const extra = definitionChanges(was.definitions, definitions, was.schema, was.names);
+  if (JSON.stringify(was.names) !== JSON.stringify(names)) extra.push('Changed relation names');
+  if (changes.length || extra.length || was.schema !== schema) noteChange(changeSummary(changes, was.records, records, extra), changes);
   saveState();
   return null;
+}
+
+// The definitions added, deleted or changed, each named in a sentence.
+function definitionChanges(before, after, S0, N0) {
+  const name = (d, S, N) => { try { return asWritten(d, S, N).name; } catch { return 'a definition'; } };
+  const out = [];
+  for (const d of after) {
+    const old = before.find(x => x.id === d.id);
+    if (!old) out.push(`Added the definition of ${name(d, schema, names)}`);
+    else if (JSON.stringify(old) !== JSON.stringify(d)) out.push(`Changed the definition of ${name(d, schema, names)}`);
+  }
+  for (const d of before) if (!after.some(x => x.id === d.id)) out.push(`Deleted the definition of ${name(d, S0, N0)}`);
+  return out;
 }
 
 // Replaces the records, if the result is a state; otherwise returns why not. `next` is what `records`
@@ -1541,6 +1647,9 @@ function setRequired(param, on) {
   if (isRequired(param) === on || (on && paramArgs(param).length !== 1)) return;
   pushUndo();
   required = on ? [...required, param] : required.filter(x => x !== param);
+  const t = specsWithParam(param)[0];
+  const label = t ? `${t.args[0].edge} at ${placeText(t.args[0].loc)}` : 'an entry';
+  noteChange(on ? `Required ${label}` : `Stopped requiring ${label}`);
   saveState();
 }
 const toggleRequired = id => { const p = parameterization(records, id); setRequired(p, !isRequired(p)); };
