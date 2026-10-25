@@ -2153,3 +2153,7 @@ window.addEventListener('hashchange', () => {
   ui.filters = {};
   render();
 });
+
+// An undo or redo the shell makes (from a toast or the palette) closes the panel's forms, as the panel's own
+// undo does, since what they were editing may have changed.
+if (typeof Shell === 'object') Shell.onUndo(clearForms);

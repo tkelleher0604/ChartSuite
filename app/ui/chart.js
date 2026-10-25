@@ -1344,6 +1344,8 @@ Shell.start({
   after: drawPage,
   commands: chartCommands,
   undo: false,
+  keys: [['Double-click', 'Add a box'], ['F2, or start typing', 'Rename the selected box'], ['Arrows', 'Nudge the selected box'],
+    ['Delete', 'Delete or hide what’s selected'], ['Shift+1', 'Fit the chart'], ['Esc', 'Leave Present']],
 });
 chart.undoDepth = undoStack.length;
 lookAtChart();

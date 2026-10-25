@@ -1,7 +1,7 @@
 // The shell every page of the app shares: the sidebar, the page's top bar, the command palette, menus,
 // dialogs and toasts, and the keys that work everywhere. A page loads the core, then this, then its own
 // script, which starts the shell with what the page shows:
-//   Shell.start({ area, title, crumbs, actions, render, after, commands, undo })
+//   Shell.start({ area, title, crumbs, actions, render, after, commands, undo, keys })
 // - area: the sidebar item that's current: 'home', 'chart', 'documents', 'calendar', 'history', 'schema',
 //   'settings', or 'records' (with `kind` naming the kind);
 // - title: the page's title in the top bar; crumbs: links before it, [{ text, href }]; actions: markup
@@ -10,7 +10,8 @@
 //   leaves render out, and the shell moves the page's own markup into <main> instead;
 // - after(): runs once the content is in place;
 // - commands: what the page adds to the palette, [{ title, hint, keywords, run }], or a function giving them;
-// - undo: false where the page handles the undo keys itself (the pages with the record panel).
+// - undo: false where the page handles the undo keys itself (the pages with the record panel);
+// - keys: the page's own shortcuts, [[keys, what they do]], for the ? sheet.
 // Clicks on an element with data-cmd run the handler registered under that name with Shell.on(name, fn),
 // called with the element and the event. Everything the shell draws over the page lives in #layer, so
 // re-rendering the page leaves it be. `render()` re-renders the page; pages with more to draw define
@@ -37,7 +38,7 @@ const Shell = (() => {
 
   let page = null;
   const handlers = {};
-  const chartListeners = [];
+  const chartListeners = [], undoListeners = [];
   const layer = { palette: null, menu: null, dialog: null, toasts: [] };
   let status = { text: 'Saved in this browser', tone: '' };
 
@@ -397,12 +398,14 @@ const Shell = (() => {
   function showKeys() {
     const keys = [[`${modKey}+K`, 'Search and commands'], ['G then H, C, D, A, Y, R or S', 'Go to an area'], [`${modKey}+Z`, 'Undo'],
       [isMac ? '⇧⌘Z' : 'Ctrl+Y', 'Redo'], [`${modKey}+\\`, 'Show or hide the sidebar'], ['?', 'These shortcuts'], ['Esc', 'Close']];
+    keys.push(...(page.keys ?? []));
     dialog({ kind: 'info', title: 'Keyboard shortcuts', html: `<dl class="keys">${keys.map(([k, what]) => `<dt>${esc(what)}</dt><dd><kbd>${esc(k)}</kbd></dd>`).join('')}</dl>` });
   }
 
   // ---- Undo ----
   function undoOrRedo(redo) {
     if (!(redo ? redoState() : undoState())) return toast(redo ? 'Nothing to redo' : 'Nothing to undo');
+    for (const fn of undoListeners) fn();
     render();
     toast(redo ? 'Redone' : 'Undone', redo ? {} : { action: { label: 'Redo', run: () => undoOrRedo(true) } });
   }
@@ -510,6 +513,9 @@ const Shell = (() => {
     // Runs when the workbook switches to another chart, or another tab changes it, so a page can let go
     // of what it held about the old one.
     onChartChange(fn) { chartListeners.push(fn); },
+    // Runs after an undo or redo the shell makes (from a toast, the palette or the keys), so a page can let
+    // go of a form or selection the step made stale.
+    onUndo(fn) { undoListeners.push(fn); },
     undoOrRedo,
     get page() { return page; },
   };
