@@ -237,6 +237,9 @@ function run() {
   check('History: undo is recorded as a change, not by taking the entry back', logged().length === 2 && logged()[0].source === 'undo' && entered.fund_formed.value === '2023-02-14', logged().map(h => h.summary).join(' | '));
   redoState();
   check('History: redo too', logged().length === 3 && logged()[0].source === 'redo' && entered.fund_formed.value === '2023-02-15');
+  check('…and each names the edit it takes back or puts back', /^Undid “Changed .*Formation Date/.test(logged()[1].summary) && /^Redid “Changed .*Formation Date/.test(logged()[0].summary),
+    logged().slice(0, 2).map(h => h.summary).join(' | '));
+  check('…under the name of whoever made it, or Someone, never You', logged().every(h => h.who !== 'You'));
   check('…and each entry keeps its record’s before and after', logged()[1].changes[0].before.value === '2023-02-15' && logged()[1].changes[0].after.value === '2023-02-14');
 
   wholeSample();
@@ -319,12 +322,13 @@ function wholeSample() {
 
   // Required entries, a few left blank on purpose.
   fresh(sampleState());
-  const blanks = Object.keys(records).filter(id => !isComputed(id) && (isObject(records[id]) || isRelation(records[id])))
-    .flatMap(id => (isObject(records[id]) ? missingUnder(id) : missingAt(id).map(([, m]) => m)).map(m => `${segmentText(id)}: ${m.label}`)).sort();
+  // An object's blanks include those at the relations it's in: a position's is the holder's and the company's.
+  const blanks = Object.keys(records).filter(id => !isComputed(id) && isObject(records[id]))
+    .flatMap(id => missingUnder(id).map(m => `${segmentText(id)}: ${m.label}`)).sort();
   check('Required: Formation Date, Jurisdiction and Entity Type on Entities, Link, type, date and status on Documents, Title and Start Date on positions',
     required.length === 13);
-  check('Required: blank only where left so on purpose', blanks.join(' | ') === ['Halvard Logistics Holdings, Inc.: Formation Date', 'Northpine Software, LLC: Formation Date',
-    'Northstar Teachers’ Retirement System: Jurisdiction', 'Officer Appointment Email, D. Okafor: Document Date', 'Position: Start Date'].join(' | '), blanks.join(' | '));
+  check('Required: blank only where left so on purpose', blanks.join(' | ') === ['Calder Ridge Capital BDC, Inc.: Start Date', 'Halvard Logistics Holdings, Inc.: Formation Date', 'Northpine Software, LLC: Formation Date',
+    'Northstar Teachers’ Retirement System: Jurisdiction', 'Officer Appointment Email, D. Okafor: Document Date', 'Priya N. Raman: Start Date'].join(' | '), blanks.join(' | '));
 
   // Documents: what each is about, and what some are evidence of.
   const docs = Object.keys(records).filter(id => isObject(records[id]) && records[id].kind === 'Document');

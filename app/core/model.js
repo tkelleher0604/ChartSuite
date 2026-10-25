@@ -71,11 +71,12 @@ function pushUndo() {
 // Undo and redo step through states, but the history only grows: each is recorded as the change it makes.
 function stepState(from, to, source) {
   if (!from.length) return false;
-  const was = snapshot(), wasRecords = records, log = historyLog;
-  to.push(was);
-  setState(from.pop());
+  const was = snapshot(), wasRecords = records, log = historyLog, frame = from.pop();
+  // Each step remembers the edit it takes back or puts back, so the history can name it.
+  to.push({ ...was, summary: frame.summary });
+  setState(frame);
   historyLog = log;
-  noteChangeSince(was, wasRecords, source);
+  noteChangeSince(was, wasRecords, source, frame.summary);
   saveState();
   return true;
 }
@@ -538,7 +539,12 @@ function monthNumber(word) {
 function parseDate(s) {
   let m, y, mo, d;
   if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) [, y, mo, d] = m;
-  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) [, mo, d, y] = m;
+  // Month first, as typed in the US, with / or -, and a two-digit year read as Excel reads it: 00–29 in
+  // the 2000s, 30–99 in the 1900s.
+  else if ((m = s.match(/^(\d{1,2})([/-])(\d{1,2})\2(\d{4}|\d{2})$/))) {
+    [, mo, , d, y] = m;
+    if (y.length === 2) y = String(Number(y) < 30 ? 2000 + Number(y) : 1900 + Number(y));
+  }
   else if ((m = s.match(/^([A-Za-z]+\.?) (\d{1,2}),? (\d{4})$/))) [y, mo, d] = [m[3], monthNumber(m[1]), m[2]];
   else if ((m = s.match(/^(\d{1,2}) ([A-Za-z]+\.?),? (\d{4})$/))) [y, mo, d] = [m[3], monthNumber(m[2]), m[1]];
   else return null;
@@ -1046,8 +1052,14 @@ function definitionsError(defs, S, N) {
 // back: undo and redo are changes too, recorded with what they changed and `source` saying which.
 
 const USER_KEY = 'rboreal.user';
+// Who you are, as the app addresses you: your name, or You until you give it.
 function currentUser() {
   try { return localStorage.getItem(USER_KEY) || 'You'; } catch { return 'You'; }
+}
+// Who a change is recorded under: your name, or Someone until you give it, since the history is read by
+// others, for whom You would be wrong.
+function authorName() {
+  try { return localStorage.getItem(USER_KEY) || 'Someone'; } catch { return 'Someone'; }
 }
 function setCurrentUser(name) {
   try { clean(name) ? localStorage.setItem(USER_KEY, clean(name)) : localStorage.removeItem(USER_KEY); } catch {}
@@ -1116,16 +1128,21 @@ function rootOfChange(list, recs) {
 // Records a change to the chart's data at the head of the history. `source` says how it was made, when not
 // by an edit: 'undo', 'redo', 'reset', 'import' or 'restore'.
 function noteChange(summary, changes = [], source = null) {
-  historyLog = [{ id: newId(), when: new Date().toISOString(), who: currentUser(), summary, changes, ...(source ? { source } : {}) }, ...historyLog];
+  historyLog = [{ id: newId(), when: new Date().toISOString(), who: authorName(), summary, changes, ...(source ? { source } : {}) }, ...historyLog];
+  // An edit's undo step remembers what it undoes.
+  if (!source && undoStack.length) undoStack[undoStack.length - 1].summary = summary;
 }
 
 // Records the change from one snapshot to the current state, if its data changed; views aren't data.
-function noteChangeSince(was, wasRecords, source) {
+function noteChangeSince(was, wasRecords, source, undone = null) {
   const changes = changesBetween(was.records, entered);
   const extra = definitionChanges(was.definitions, definitions, was.schema, was.names);
   if (JSON.stringify(was.names) !== JSON.stringify(names)) extra.push('Changed relation names');
   if (JSON.stringify(was.required) !== JSON.stringify(required)) extra.push('Changed the required entries');
-  if (changes.length || extra.length) noteChange(changeSummary(changes, wasRecords, records, extra), changes, source);
+  if (!changes.length && !extra.length) return;
+  // An undo or redo names the edit it takes back or puts back, when that's known.
+  const summary = undone ? `${source === 'redo' ? 'Redid' : 'Undid'} “${undone}”` : changeSummary(changes, wasRecords, records, extra);
+  noteChange(summary, changes, source);
 }
 
 // The history of one record: the entries whose changes touch it.
@@ -1437,12 +1454,16 @@ function missingAt(at) {
     && !entriesOf(at).some(e => parameterization(records, e) === p)).map(p => [p, requiredInfo(p)]);
 }
 
-// The required entries missing anywhere in an object, or below a location: each with where it's missing.
+// The required entries missing anywhere in an object, or below a location, and at the relations it's in
+// (a position's Start Date is the person's to give, and the company's): each with where it's missing.
 function missingUnder(id) {
-  const out = [];
+  const out = [], seen = new Set();
   const walk = at => {
+    if (seen.has(at)) return;
+    seen.add(at);
     for (const [param, req] of missingAt(at)) out.push({ at, param, ...req });
     for (const e of entriesOf(at)) if (!isField(records[e])) walk(e);
+    for (const r of relationsAt(at)) walk(r);
   };
   if (records[id]) walk(id);
   return out;
