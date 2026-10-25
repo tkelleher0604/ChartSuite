@@ -90,7 +90,7 @@ a.label-text:hover { color: var(--text); text-decoration: underline; text-decora
 .rel-output > :not(.rel-details) + .rel-details { margin-left: 10px; }
 .rel-detail .rel-value { color: var(--text-2); }
 .rel-detail .rel-value.is-blank { color: var(--text-3); }
-.rel-detail .rel-value.is-blank:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.rel-detail .rel-value.is-blank:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
 .input.rel-input { width: 9rem; height: 24px; margin: -2px 0; }
 .rel-output:has(.rel-error) { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .rel-error { font-size: 12px; line-height: 16px; color: var(--danger); white-space: normal; }
@@ -108,7 +108,7 @@ a.label-text:hover { color: var(--text); text-decoration: underline; text-decora
 .col-filter-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-filter .icon { width: 14px; height: 14px; color: var(--text-3); }
 .col-filter:hover, .col-filter[aria-expanded="true"] { border-color: var(--border-strong); background: var(--surface); }
-.col-filter.is-active { color: var(--accent); }
+.col-filter.is-active { color: var(--accent-text); }
 .col-picked { font-weight: 400; }
 
 /* A change that would move entries along with it waits for a yes. */
@@ -116,7 +116,7 @@ a.label-text:hover { color: var(--text); text-decoration: underline; text-decora
 .pending-text { flex: 1 1 16rem; }
 .pending .btn { height: 28px; }
 .rel-note { padding: 2px 0 6px calc(var(--depth) * var(--indent) + 30px); font-size: 12px; color: var(--text-3); }
-.rel-note .link-btn { font-size: 12px; color: var(--accent); }
+.rel-note .link-btn { font-size: 12px; color: var(--accent-text); }
 
 /* A relation's arguments, in its own panel's header. */
 .args { display: grid; grid-template-columns: calc(var(--label-col) - 4px) minmax(0, 1fr); row-gap: 6px; margin-top: 14px; font-size: 13.5px; }
@@ -221,7 +221,7 @@ a.list-row:hover { background: var(--hover); }
 .relate-new-foot .btn { height: 28px; margin-left: auto; }
 .relate-new .relate-error { padding: 0; }
 .relate-hint { flex: 1 1 8rem; font-size: 12px; color: var(--text-3); }
-.relate-formula { flex: none; font-size: 12.5px; color: var(--accent); }
+.relate-formula { flex: none; font-size: 12.5px; color: var(--accent-text); }
 .relate-formula:hover { text-decoration: underline; text-underline-offset: 3px; }
 .relate-side.is-picker { grid-column: 2 / -1; align-items: flex-start; }
 .relate-colhead { align-self: end; padding: 0 0 2px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
@@ -232,7 +232,7 @@ a.list-row:hover { background: var(--hover); }
 .req-mark { margin-left: 3px; color: var(--danger); font-weight: 600; }
 .req-mark.is-below { margin: 8px 0 0 -2px; }
 .value-btn.req-blank { color: var(--text-3); }
-.value-btn.req-blank:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.value-btn.req-blank:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
 .row.is-required .label-text { color: var(--text); }
 .form-extras { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
 .form-extras .link-btn { gap: 6px; font-size: 12px; }
@@ -243,7 +243,8 @@ a.list-row:hover { background: var(--hover); }
 .cell-value { position: relative; }
 .fx-value { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
 .fx-value > .value-btn { flex: 1; min-width: 0; }
-.fx-value > .value-btn.is-computed { flex: 0 1 auto; width: auto; }
+.fx-value > .value-btn.is-computed, .fx-value > .value-btn:has(+ .doc-open) { flex: 0 1 auto; width: auto; }
+.doc-open .icon { color: var(--text-3); }
 .value-btn.is-computed, .rel-value.is-computed, .select.is-computed .select-text { font-style: italic; }
 .is-implied { display: inline-grid; }
 .cell-value > .fx-value > .is-implied { display: grid; }
@@ -251,7 +252,7 @@ a.list-row:hover { background: var(--hover); }
 .is-implied .box-yes path, .is-implied .box-no path { stroke: currentColor; }
 .fx-mark { flex: none; height: 18px; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--text-3);
   font: italic 500 11.5px/18px Georgia, "Times New Roman", serif; letter-spacing: .02em; }
-.fx-mark:hover, .fx-mark[aria-expanded="true"] { background: var(--pressed); color: var(--accent); }
+.fx-mark:hover, .fx-mark[aria-expanded="true"] { background: var(--pressed); color: var(--accent-text); }
 .rel-item > .fx-mark { margin-left: -4px; }
 /* An entered output a formula also covers: a corner mark, as in Excel, strong where it differs. */
 .ovr-mark { position: absolute; top: 0; left: 0; width: 0; height: 0; padding: 0; border: 0; border-top: 8px solid var(--border-strong); border-right: 8px solid transparent; border-radius: 0; background: none; }
@@ -265,11 +266,11 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
 .rel-summary:hover { color: var(--text-2); }
 
 /* Why a computed record is there, under its row or in its panel's header. */
-.why { margin: 0 6px 6px calc(var(--depth) * var(--indent) + 28px); padding: 8px 12px; border-left: 2px solid var(--accent); border-radius: 0 8px 8px 0; background: var(--accent-soft); font-size: 12.5px; line-height: 18px; color: var(--text-2); }
+.why { margin: 0 6px 6px calc(var(--depth) * var(--indent) + 28px); padding: 8px 12px; border-left: 2px solid var(--computed-border); border-radius: 0 8px 8px 0; background: var(--computed-soft); font-size: 12.5px; line-height: 18px; color: var(--text-2); }
 .rel-items .why { margin: 2px 0 4px; }
 .why.in-head { margin: 12px 0 0; }
 .why-head { color: var(--text); }
-.why-def { color: var(--accent); font-weight: 500; }
+.why-def { color: var(--accent-text); font-weight: 500; }
 .why-def:hover, .why-reads a:hover, .fx-result:hover { text-decoration: underline; text-underline-offset: 3px; }
 .why-line { display: grid; grid-template-columns: minmax(5rem, max-content) minmax(0, 1fr); gap: 2px 10px; margin-top: 4px; }
 .why-label { color: var(--text); font-weight: 500; }
@@ -279,16 +280,16 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
 .why-more { color: var(--text-3); }
 .why-formula, .fx-where { font: 12px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
 .why-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
-.why-actions .link-btn { font-size: 12.5px; color: var(--accent); }
+.why-actions .link-btn { font-size: 12.5px; color: var(--accent-text); }
 
 /* Writing formulas: in an edit form, and in a definition's own view. */
 .fx-section { margin: 0 12px 10px calc(var(--label-col) + 10px); padding-top: 8px; border-top: 1px solid var(--border); }
 .panel-head .fx-section { margin: 12px 0 0; }
 .fx-section.is-quiet { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; border-top: 0; padding-top: 0; }
-.fx-section.is-quiet .link-btn { font-size: 12.5px; color: var(--accent); }
+.fx-section.is-quiet .link-btn { font-size: 12.5px; color: var(--accent-text); }
 .fx-section.is-quiet .link-btn .icon { width: 14px; height: 14px; }
 .fx-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-bottom: 6px; font-size: 12.5px; font-weight: 500; }
-.fx-section-head a { color: var(--accent); }
+.fx-section-head a { color: var(--accent-text); }
 .fx-hint { font-size: 12px; line-height: 17px; font-weight: 400; color: var(--text-3); }
 .fx-field { position: relative; flex: 1; min-width: 0; }
 .input.fx-input { display: block; height: auto; min-height: 30px; padding: 5px 8px; resize: vertical; field-sizing: content;
@@ -369,7 +370,7 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
 .schema-head .list-meta, .schema-spec .list-meta { flex: 1 0 auto; }
 .list-meta.is-error { color: var(--danger); }
 .schema-badge { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 11px; line-height: 17px; color: var(--text-3); }
-.schema-badge.is-computed { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+.schema-badge.is-computed { border-color: transparent; background: var(--computed-soft); color: var(--computed); }
 .schema-body { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 6px 10px; padding: 2px 10px 12px 26px; font-size: 13px; }
 .schema-part-title { padding-top: 4px; font-size: 12px; color: var(--text-3); }
 .schema-part { min-width: 0; }

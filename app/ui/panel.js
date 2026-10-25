@@ -859,6 +859,8 @@ function entryRow(id, depth) {
   if (isField(r)) {
     label += `<span class="label-text" title="${esc(r.edge)}">${esc(r.edge)}</span>`;
     value = `<button class="value-btn${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" data-live="${id}">${esc(displayValue(r))}</button>`;
+    // A document is edited like any value, and opened from beside it.
+    if (r.field === 'document') value += `<a class="icon-btn is-small doc-open" href="${esc(r.value)}" target="_blank" rel="noopener" aria-label="Open ${esc(displayValue(r))}" title="Open ${esc(displayValue(r))}">${icon('external-link')}</a>`;
   } else if (isChoice(r)) {
     label += `<a class="label-text" href="${esc(panelHref(id))}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
     value = `<button class="select${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" aria-haspopup="listbox" title="Change ${esc(r.edge)}">
