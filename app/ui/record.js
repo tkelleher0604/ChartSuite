@@ -46,10 +46,32 @@ const RecordPage = (() => {
   const isDocument = id => isObject(records[id]) && same(records[id].kind, DOCUMENT);
   const titleOf = id => isObject(records[id]) ? objectName(id) : relationNameOf(id);
   const sidesText = id => records[id].args.map(a => objectName(objectOf(a.at))).join(' → ');
+  // Each record by the one it's inside (the start of its path), and each relation by the objects it
+  // relates, worked out once for each state, since a state is never changed in place.
+  const indexes = new WeakMap();
+  function index() {
+    if (!indexes.has(records)) {
+      const byHead = new Map(), byObject = new Map();
+      const add = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
+      for (const k of Object.keys(records)) {
+        add(byHead, pathTo(k)[0], k);
+        if (isRelation(records[k])) for (const o of new Set(records[k].args.map(a => objectOf(a.at)))) add(byObject, o, k);
+      }
+      indexes.set(records, { byHead, byObject });
+    }
+    return indexes.get(records);
+  }
   // Everything inside a record, at any depth.
-  const inside = id => Object.keys(records).filter(k => k !== id && pathTo(k)[0] === id);
+  const inside = id => (index().byHead.get(id) ?? []).filter(k => k !== id);
   // The relations an object is in, at itself or at something inside it.
-  const relationsOf = id => Object.keys(records).filter(k => isRelation(records[k]) && records[k].args.some(a => objectOf(a.at) === id));
+  const relationsOf = id => index().byObject.get(id) ?? [];
+  // What the tabs list, worked out once for each state of the records and the history.
+  let memo = { of: {}, lists: {} };
+  function once(name, id, fn) {
+    const of = memo.of;
+    if (of.records !== records || of.historyLog !== historyLog || of.id !== id) memo = { of: { records, historyLog, id }, lists: {} };
+    return memo.lists[name] ??= fn(id);
+  }
   // A document's address, from its first document field.
   const addressOf = id => { const k = entriesOf(id).find(e => isField(records[e]) && records[e].field === 'document'); return k ? records[k].value : null; };
 
@@ -57,10 +79,11 @@ const RecordPage = (() => {
   // Holdings), from every location in the object, as the panel's rows group them there. Lists of entered
   // relations come first, then those only formulas give. Documents have a tab of their own, so they're
   // left out here, except on a document's own page, which has none.
-  function relationLists(id) {
+  const relationLists = id => once('relations', id, findLists);
+  function findLists(id) {
     const lists = new Map();
     const shown = x => x.others.length && (isDocument(id) || !isDocument(objectOf(x.others[0].at)));
-    for (const at of recordsUnder(id)) for (const g of relationGroups(at)) {
+    for (const at of [id, ...inside(id).filter(k => !isField(records[k]))]) for (const g of relationGroups(at)) {
       const key = `${g.form}|${norm(g.list)}`;
       if (!lists.has(key)) lists.set(key, { key, list: g.list, name: formName(g.form), at: new Set(), items: [] });
       const l = lists.get(key);
@@ -82,7 +105,8 @@ const RecordPage = (() => {
 
   // The documents that concern an object: the Document objects it's related to, newest first, each with its
   // address, type, date, status and version where it has them.
-  function documentsOf(id) {
+  const documentsOf = id => once('documents', id, findDocuments);
+  function findDocuments(id) {
     const docs = new Set();
     for (const rel of relationsOf(id)) for (const a of records[rel].args) if (objectOf(a.at) !== id && isDocument(objectOf(a.at))) docs.add(objectOf(a.at));
     return [...docs].map(documentFacts).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || byLabel(objectName(a.id), objectName(b.id)));
@@ -102,7 +126,8 @@ const RecordPage = (() => {
 
   // Every date in a record, entered or computed: inside it, and for an object, on the relations it's in and
   // inside those. Upcoming ones first, soonest first, then past ones, latest first.
-  function datesOf(id) {
+  const datesOf = id => once('dates', id, findDates);
+  function findDates(id) {
     const at = isObject(records[id]) ? relationsOf(id).flatMap(rel => [rel, ...inside(rel)]) : [];
     return [...new Set([...inside(id), ...at])].filter(k => isField(records[k]) && records[k].field === 'date')
       .map(k => ({ id: k, iso: records[k].value, days: Parts.daysUntil(records[k].value) }))
@@ -112,7 +137,8 @@ const RecordPage = (() => {
   // The changes in the history that touch the record: to it, to anything inside it, or for an object, to a
   // relation it's in or anything inside that. Each keeps only its changes to the record. A change can name
   // records that have gone since, so they're looked for in the change itself, and in Deleted.
-  function historyFor(id) {
+  const historyFor = id => once('history', id, findHistory);
+  function findHistory(id) {
     const object = isObject(records[id]);
     return historyLog.map(h => {
       const own = Object.fromEntries(h.changes.map(c => [c.id, c.after ?? c.before]));
@@ -195,8 +221,9 @@ const RecordPage = (() => {
         const more = rest.map(a => `<span class="record-via">${esc(a.edge)}</span>${Parts.chip(objectOf(a.at), { computed })}`).join('');
         return `<span class="record-rel">${Parts.chip(objectOf(first.at), { detail: relationDetail(rel), computed })}${more}</span>`;
       }).join('') : (() => {
-        const names = l.items.map(x => objectName(objectOf(x.others[0].at)));
-        return `<button class="record-summary computed-text" data-cmd="record.open-list" data-key="${esc(l.key)}" title="${esc(`Worked out by formula: ${names.join('; ')}. Click to show them.`)}">${l.items.length} · ${esc(names.join(', '))}</button>`;
+        // A line has room for a few names; the rest show when it's opened.
+        const names = l.items.slice(0, 4).map(x => objectName(objectOf(x.others[0].at)));
+        return `<button class="record-summary computed-text" data-cmd="record.open-list" data-key="${esc(l.key)}" title="Worked out by formula. Click to show them all.">${l.items.length} · ${esc(names.join(', '))}${l.items.length > names.length ? ', …' : ''}</button>`;
       })();
       return `<div class="record-list">
           <div class="record-list-label"><span class="record-list-name">${esc(l.list)}</span>
@@ -294,8 +321,9 @@ const RecordPage = (() => {
         <div class="hist-summary">${esc(x.h.summary)}</div>
         <div class="hist-changes">${x.changes.slice(0, 8).map(c => changeHtml(c, x, id)).join('')}${x.changes.length > 8 ? `<div class="hist-more">and ${count(x.changes.length - 8, 'more change')}</div>` : ''}</div>
       </li>`).join('');
-    const more = list.length > shown.length ? `<button class="link-btn record-more" data-cmd="record.history-all">Show all ${list.length} changes</button>` : '';
-    return `<ol class="hist-list">${items}</ol>${more}`;
+    const more = list.length > shown.length ? `<button class="link-btn" data-cmd="record.history-all">Show all ${list.length} changes</button>` : '';
+    const all = `<a class="link-btn" href="history.html#record=${encodeURIComponent(id)}" title="The History, filtered to this record and everything in it">Open in History</a>`;
+    return `<ol class="hist-list">${items}</ol><div class="record-foot">${more}${all}</div>`;
   }
 
   const TAB_BODIES = { relations: relationsTab, documents: documentsTab, dates: datesTab, history: historyTab };
