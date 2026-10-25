@@ -605,10 +605,25 @@ const Shell = (() => {
   // The toast says what was taken back or put back, as the history records it ("Undid “Deleted …”").
   function undoOrRedo(redo) {
     const last = historyLog[0];
-    if (!(redo ? redoState() : undoState())) return toast(redo ? 'Nothing to redo' : 'Nothing to undo');
+    if (!(redo ? redoState() : undoState())) return redo ? toast('Nothing to redo') : takeBackLatest();
     for (const fn of undoListeners) fn();
     render();
-    toast(historyLog[0] !== last ? historyLog[0].summary : redo ? 'Redone' : 'Undone',redo ? {} : { action: { label: 'Redo', run: () => undoOrRedo(true) } });
+    toast(historyLog[0] !== last ? historyLog[0].summary : redo ? 'Redone' : 'Undone', redo ? {} : { action: { label: 'Redo', run: () => undoOrRedo(true) } });
+  }
+  // With nothing to undo in this page (the change was made on another, or before it opened), an undo takes
+  // back your latest change as the history has it, if it can still be taken back, the way History's Restore
+  // does; and says why not, if not.
+  function takeBackLatest() {
+    const mine = historyLog.find(h => h.who === authorName() && !['undo', 'redo', 'restore'].includes(h.source) && h.changes?.length);
+    if (!mine) return toast('Nothing to undo');
+    const toHistory = { action: { label: 'Open History', run: () => { location.href = 'history.html'; } } };
+    if (restoreBlock(mine)) return toast(`Nothing to undo here: your last change, “${mine.summary}”, has changed since.`, toHistory);
+    const error = restoreChange(mine);
+    if (error) return toast(error, { tone: 'error' });
+    for (const fn of undoListeners) fn();
+    render();
+    // Taking back is a change of its own, so putting it back again is undoing that.
+    toast(`Took back “${mine.summary}”`, { action: { label: 'Redo', run: () => undoOrRedo(false) } });
   }
 
   // ---- Events ----

@@ -160,12 +160,16 @@ function confirmMove(id, choice, apply) {
   ui.pending = { message: `Changing ${recordLabel(id)} to ${choice} takes its ${what} with it.`, apply };
 }
 
+// In the app's pages the shell undoes, so an undo says what it took back, and can take back a change
+// made on another page; its undo listeners close the forms.
 function undo() {
-  if (undoState()) clearForms();
+  if (typeof Shell === 'object') Shell.undoOrRedo(false);
+  else if (undoState()) clearForms();
 }
 
 function redo() {
-  if (redoState()) clearForms();
+  if (typeof Shell === 'object') Shell.undoOrRedo(true);
+  else if (redoState()) clearForms();
 }
 
 function resetSample() {

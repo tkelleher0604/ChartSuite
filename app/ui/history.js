@@ -348,27 +348,15 @@
 
   // ---- Restoring ----
 
-  // Records compared as data, whatever order their keys were written in.
-  const canon = v => Array.isArray(v) ? `[${v.map(canon).join()}]`
-    : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canon(v[k])}`).join()}}` : JSON.stringify(v ?? null);
-  const sameRecord = (a, b) => canon(a ?? null) === canon(b ?? null);
-
-  // Why an entry's records can't be put back as they were before it, or null if they can: each must still be
-  // as the entry left it, what it deleted needs its locations, and nothing recorded since may stand on what it
-  // added.
+  // Why an entry's records can't be put back as they were before it, or null if they can (the model's
+  // restoreBlock), in words that name the records as they were then.
   function cannotRestore(item) {
-    const changes = item.entry.changes ?? [];
-    const rowOf = c => item.rows.find(r => r.id === c.id);
-    const since = changes.find(c => !sameRecord(entered[c.id], c.after));
-    if (since) return `Can’t be restored as it was: ${trailText(rowOf(since).where)} has changed since.`;
-    const back = new Set(changes.filter(c => c.before).map(c => c.id));
-    const gone = new Set(changes.filter(c => !c.before).map(c => c.id));
-    const lost = changes.find(c => c.before && argsOf(c.before).some(a => !back.has(a.at) && (!records[a.at] || gone.has(a.at))));
-    if (lost) return `Can’t be restored: what ${trailText(rowOf(lost).where)} was located at is no longer in the chart.`;
-    const ids = new Set(changes.map(c => c.id));
-    const standing = Object.keys(entered).find(k => !ids.has(k) && argsOf(entered[k]).some(a => gone.has(a.at)));
-    if (standing) return `Can’t be restored: ${recordPhrase(records, standing)} has been recorded at what it added since.`;
-    return null;
+    const block = restoreBlock(item.entry);
+    if (!block) return null;
+    const where = trailText(item.rows.find(r => r.id === block.id)?.where ?? []);
+    if (block.reason === 'changed') return `Can’t be restored as it was: ${where} has changed since.`;
+    if (block.reason === 'lost') return `Can’t be restored: what ${where} was located at is no longer in the chart.`;
+    return `Can’t be restored: ${recordPhrase(records, block.id)} has been recorded at what it added since.`;
   }
 
   function restoreNote(item) {
@@ -377,25 +365,12 @@
     return `Puts ${item.rows.length === 1 ? 'this record back as it was' : 'these records back as they were'} before this change, as a new change you can undo.`;
   }
 
-  // Puts an entry's records back as they were before it, through the model, as one undoable step: a deletion
-  // by restoring its batch from Deleted, an addition by deleting what it added (to Deleted), anything else by
-  // entering the records as they were.
+  // Puts an entry's records back as they were before it, through the model (restoreChange), as one undoable
+  // step that the history records.
   function restore(id) {
     const item = readLog().find(x => x.entry.id === id);
     if (!item || cannotRestore(item)) return;
-    const changes = item.entry.changes;
-    const ids = changes.map(c => c.id);
-    const batch = changes.every(c => !c.after) && archive.find(b => sameRecord(Object.keys(b.records).sort(), [...ids].sort()));
-    let error;
-    if (batch) error = restoreBatch(batch.id);
-    else if (changes.every(c => !c.before)) {
-      const roots = ids.filter(k => !argsOf(entered[k]).some(a => ids.includes(a.at)));
-      error = deleteRecords(roots, roots.length === 1 ? (isObject(entered[roots[0]]) ? objectName(roots[0]) : recordPhrase(records, roots[0])) : count(roots.length, 'record'));
-    } else {
-      const next = { ...entered };
-      for (const c of changes) if (c.before) next[c.id] = c.before; else delete next[c.id];
-      error = change({ entered: next }, { source: 'restore' });
-    }
+    const error = restoreChange(item.entry);
     ui.failed = error ? { id, text: error } : null;
     render();
     if (!error) Shell.toast(`Restored. ${historyLog[0].summary}.`, { undo: true });

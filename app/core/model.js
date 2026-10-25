@@ -1224,6 +1224,50 @@ function historyOf(id) {
   return historyLog.map(h => ({ ...h, changes: (h.changes ?? []).filter((c, i) => sets.get(h.id)[i].has(id)) })).filter(h => h.changes.length);
 }
 
+// ---- Taking a change back ----
+// A change in the history can be taken back while the records it changed are still as it left them. The
+// taking back is a change of its own, which the history records in turn; nothing is rewritten.
+
+// Records compared as data, whatever order their keys were written in.
+const canonical = v => Array.isArray(v) ? `[${v.map(canonical).join()}]`
+  : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical(v[k])}`).join()}}` : JSON.stringify(v ?? null);
+const sameRecord = (a, b) => canonical(a ?? null) === canonical(b ?? null);
+
+// Why a history entry's change can't be taken back now, as { reason, id }, or null if it can:
+// - 'changed': the record `id` it changed has changed since;
+// - 'lost': what the record `id` it deleted was located at is no longer in the chart;
+// - 'standing': the record `id` has since been recorded at something the change added.
+function restoreBlock(entry) {
+  const changes = entry.changes ?? [];
+  const since = changes.find(c => !sameRecord(entered[c.id], c.after));
+  if (since) return { reason: 'changed', id: since.id };
+  const back = new Set(changes.filter(c => c.before).map(c => c.id));
+  const gone = new Set(changes.filter(c => !c.before).map(c => c.id));
+  const lost = changes.find(c => c.before && argsOf(c.before).some(a => !back.has(a.at) && (!records[a.at] || gone.has(a.at))));
+  if (lost) return { reason: 'lost', id: lost.id };
+  const ids = new Set(changes.map(c => c.id));
+  const standing = Object.keys(entered).find(k => !ids.has(k) && argsOf(entered[k]).some(a => gone.has(a.at)));
+  return standing ? { reason: 'standing', id: standing } : null;
+}
+
+// Takes a history entry's change back, through the model, as one undoable change: a deletion by restoring
+// its batch from Deleted, an addition by deleting what it added (to Deleted), anything else by entering the
+// records as they were. Returns why not, if it couldn't.
+function restoreChange(entry) {
+  if (restoreBlock(entry)) return 'It has changed since.';
+  const changes = entry.changes;
+  const ids = changes.map(c => c.id);
+  const batch = changes.every(c => !c.after) && archive.find(b => sameRecord(Object.keys(b.records).sort(), [...ids].sort()));
+  if (batch) return restoreBatch(batch.id);
+  if (changes.every(c => !c.before)) {
+    const roots = ids.filter(k => !argsOf(entered[k]).some(a => ids.includes(a.at)));
+    return deleteRecords(roots, roots.length === 1 ? (isObject(entered[roots[0]]) ? objectName(roots[0]) : recordPhrase(records, roots[0])) : count(roots.length, 'record'));
+  }
+  const next = { ...entered };
+  for (const c of changes) if (c.before) next[c.id] = c.before; else delete next[c.id];
+  return change({ entered: next }, { source: 'restore' });
+}
+
 // ---- Changing the state ----
 
 // The one way a chart changes, as one undoable step: its entered records, formulas, names or schema

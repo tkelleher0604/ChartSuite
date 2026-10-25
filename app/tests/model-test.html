@@ -241,6 +241,9 @@ function run() {
     logged().slice(0, 2).map(h => h.summary).join(' | '));
   check('…under the name of whoever made it, or Someone, never You', logged().every(h => h.who !== 'You'));
   check('…and each entry keeps its record’s before and after', logged()[1].changes[0].before.value === '2023-02-15' && logged()[1].changes[0].after.value === '2023-02-14');
+  check('History: a change can’t be taken back once its record has changed since', restoreBlock(logged()[1])?.reason === 'changed' && restoreBlock(logged()[0]) === null);
+  check('History: taking back the latest change is a change of its own, recorded as a restore',
+    !restoreChange(logged()[0]) && entered.fund_formed.value === '2023-02-14' && logged()[0].source === 'restore' && logged().length === 4);
 
   wholeSample();
 
