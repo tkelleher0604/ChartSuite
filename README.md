@@ -39,6 +39,7 @@ Ctrl+K searches everything and runs any command. ? lists the keyboard shortcuts.
   - [design.md](docs/design.md): the design system;
   - [ui-research.md](docs/ui-research.md) and [domain-research.md](docs/domain-research.md): the research behind it;
   - [sample.md](docs/sample.md): the sample;
+  - [presenting.md](docs/presenting.md): how to show it, in ten minutes;
   - [expressiveness.md](docs/expressiveness.md): what the model can and can't yet record;
   - [sharepoint-setup.md](docs/sharepoint-setup.md): connecting a real SharePoint library;
   - [qa/](docs/qa/): the reviews it was tested against.
