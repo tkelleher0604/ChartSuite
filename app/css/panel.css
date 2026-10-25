@@ -9,8 +9,8 @@
 .crumb-sep { width: 13px; height: 13px; }
 .title-row { display: flex; align-items: center; gap: 12px; }
 .title-block { flex: 1; min-width: 0; }
-h1 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.014em; }
-h1 .box { width: 18px; height: 18px; }
+.panel-head h1 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.014em; }
+.panel-head h1 .box { width: 18px; height: 18px; }
 .title-output { color: var(--text-2); font-weight: 400; }
 .subtitle { font-size: 13px; color: var(--text-3); }
 .head-actions { flex: none; }
@@ -57,8 +57,8 @@ a.label-text:hover { color: var(--text); text-decoration: underline; text-decora
 /* Choice dropdowns in the header path and title */
 .crumb-choice { display: inline-flex; align-items: center; gap: 2px; }
 .crumbs .select.in-crumbs { margin: 0; height: 24px; padding: 0 5px; font-size: 12.5px; color: var(--text-2); }
-h1 .select.in-title { margin: 0 -8px 0 -4px; padding: 0 6px; font-weight: 400; color: var(--text-2); }
-h1 .select.in-title .icon { width: 16px; height: 16px; }
+.panel-head h1 .select.in-title { margin: 0 -8px 0 -4px; padding: 0 6px; font-weight: 400; color: var(--text-2); }
+.panel-head h1 .select.in-title .icon { width: 16px; height: 16px; }
 
 /* Locations shown as values: the object's name, then any path segments below it. */
 .loc { min-width: 0; overflow-wrap: anywhere; }
@@ -321,8 +321,8 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
 .fx-tag-value { display: flex; align-items: center; gap: 10px; }
 .input.fx-inline { flex: 1; min-width: 0; height: 26px; font: 12.5px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; }
 
-.section-head { margin: 16px 10px 4px 22px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
-.section-note { font-weight: 400; }
+.panel .section-head { display: block; margin: 16px 10px 4px 22px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.panel .section-note { font-size: inherit; font-weight: 400; }
 
 /* A definition's own view: labeled fields on the panel's grid. */
 .fx-editor { display: grid; grid-template-columns: calc(var(--label-col) - 18px) minmax(0, 1fr); gap: 12px 10px; padding: 14px 16px 4px 22px; }

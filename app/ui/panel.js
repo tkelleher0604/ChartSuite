@@ -1,5 +1,7 @@
 // The record panel: views of a record, a kind or everything, with forms for adding and editing entries.
 // Pages that use it define render(), which calls renderPanel() along with whatever else the page draws.
+// It's shown beside the chart (chart.html), and as the Details of a record's own page (record.html); see
+// panelOptions for what each host sets.
 
 const ui = {
   expanded: new Set(),
@@ -433,9 +435,21 @@ const row = (depth, label, value, actions, cls = '') =>
   `<div class="row${cls}" style="--depth:${depth}">${depth ? '<span class="guides"></span>' : ''}
     <div class="cell-label">${label}</div><div class="cell-value">${value}</div><div class="cell-actions">${actions}</div></div>`;
 
-// A page with a chart sets `engaged` to a function giving the engaged style ({ style, output }), and the
-// panel then marks each styled entry with a swatch that engages its style, and highlights the engaged one.
-const panelOptions = { engaged: null };
+// What the page hosting the panel sets:
+// - engaged: on a page with a chart, a function giving the engaged style ({ style, output }); the panel then
+//   marks each styled entry with a swatch that engages its style, and highlights the engaged one;
+// - page: true on a record's own page, whose header names the record and gives its path, and which puts
+//   the panel's actions (addMenu) in a bar of its own, so the panel's head keeps only what's under its title;
+// - href: where a link to one of the panel's views goes, given its address as the hash writes it (a
+//   record's id, or kind:…, relate:…, definition:…; see currentView). By default, to that view, here;
+// - ask: how to put a question that comes from leaving, not from something done in the panel, given
+//   { title, message, yes, apply }. By default it's in the panel's own bar; a page that may have the panel
+//   out of sight asks in a dialog instead.
+const panelOptions = { engaged: null, page: false, href: hash => `#${hash}`, ask: null };
+
+// A link to one of the panel's views, by its address. Going to one goes where its link would.
+const panelHref = hash => panelOptions.href(hash);
+const panelGo = hash => { location.href = panelHref(hash); };
 
 const engagedHere = id => {
   const eng = panelOptions.engaged?.();
@@ -502,7 +516,7 @@ function addMenu(at, compact = false) {
   // General actions first, then shortcuts for the relations a location like this one is already in.
   const general = `<button class="menu-item" role="menuitem" data-action="open-relate" data-id="${at}">
       <span class="menu-text"><span class="menu-title">Relation…</span><span class="menu-desc">Any relation, with anything, or a new one</span></span><kbd>R</kbd></button>`
-    + `<a class="menu-item" role="menuitem" href="#definition:new:entry:${esc(at)}">
+    + `<a class="menu-item" role="menuitem" href="${esc(panelHref(`definition:new:entry:${at}`))}">
       <span class="menu-text"><span class="menu-title">Definition…</span><span class="menu-desc">A computed entry, worked out by formula at every location like this one</span></span></a>`
     + (panelOptions.engaged ? `<button class="menu-item" role="menuitem" data-action="menu" data-menu="${styleKey}">
       <span class="menu-text"><span class="menu-title">Style…</span><span class="menu-desc">Format the chart by an entry here</span></span><kbd>S</kbd></button>` : '');
@@ -545,10 +559,10 @@ function locationHtml(id, keep = 0, marked = false) {
   const [head, ...tail] = pathTo(id);
   const shown = ui.fullPaths ? tail : tail.slice(tail.length - keep);
   const full = esc([head, ...tail].map(segmentText).join(' › '));
-  const parts = [`<a href="#${head}" title="${full}">${esc(segmentText(head))}</a>`];
+  const parts = [`<a href="${esc(panelHref(head))}" title="${full}">${esc(segmentText(head))}</a>`];
   if (marked && shown.length < tail.length)
     parts.push(`<button class="path-more" data-action="full-paths" aria-label="Show full paths" title="${full}">…</button>`);
-  parts.push(...shown.map(p => `<a class="path-seg" href="#${p}">${esc(segmentText(p))}</a>`));
+  parts.push(...shown.map(p => `<a class="path-seg" href="${esc(panelHref(p))}">${esc(segmentText(p))}</a>`));
   return `<span class="loc">${parts.join('<span class="path-sep">›</span>')}</span>`;
 }
 
@@ -590,7 +604,7 @@ const tagBox = id => {
 };
 
 const openRelation = id =>
-  `<a class="icon-btn is-small" href="#${id}" aria-label="Open this relation" title="Open">${icon('arrow-right')}</a>`;
+  `<a class="icon-btn is-small" href="${esc(panelHref(id))}" aria-label="Open this relation" title="Open">${icon('arrow-right')}</a>`;
 
 // A two-argument relation at a location reads like any entry: labeled with the other side's edge, with the
 // other side's location as its value. Relations sharing that label are listed together in one row. A tag's
@@ -698,7 +712,7 @@ function edgeLabel(id, edge) {
   if (editing) return `<input class="input edge-input" data-edge-edit value="${esc(ui.edgeEdit.text)}" aria-label="New label for ${esc(edge)}" autocomplete="off" spellcheck="false" data-autofocus>`;
   const def = formulaInfo(id) && definitionOf(formulaInfo(id).def);
   const rename = def
-    ? `<a class="icon-btn is-small edge-rename" href="#definition:${esc(def.id)}" aria-label="Rename ${esc(edge)} in ${esc(def.name)}" title="Its edges are ${esc(def.name)}’s: rename them in its definition">${icon('pencil')}</a>`
+    ? `<a class="icon-btn is-small edge-rename" href="${esc(panelHref(`definition:${def.id}`))}" aria-label="Rename ${esc(edge)} in ${esc(def.name)}" title="Its edges are ${esc(def.name)}’s: rename them in its definition">${icon('pencil')}</a>`
     : `<button class="icon-btn is-small edge-rename" data-action="edge-edit" data-id="${id}" data-edge="${esc(edge)}" aria-label="Rename ${esc(edge)}" title="Rename ${esc(edge)}">${icon('pencil')}</button>`;
   return `<span class="arg-edge"><span>${esc(edge)}</span>${rename}</span>`;
 }
@@ -846,11 +860,11 @@ function entryRow(id, depth) {
     label += `<span class="label-text" title="${esc(r.edge)}">${esc(r.edge)}</span>`;
     value = `<button class="value-btn${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" data-live="${id}">${esc(displayValue(r))}</button>`;
   } else if (isChoice(r)) {
-    label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
+    label += `<a class="label-text" href="${esc(panelHref(id))}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
     value = `<button class="select${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" aria-haspopup="listbox" title="Change ${esc(r.edge)}">
       <span class="select-text">${esc(r.choice)}</span>${icon('chevron-down')}</button>`;
   } else {
-    label += `<a class="label-text" href="#${id}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
+    label += `<a class="label-text" href="${esc(panelHref(id))}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
     value = tagBox(id);
   }
   // A collapsed entry with something required blank below it says so.
@@ -869,7 +883,7 @@ function errorRows(at, depth) {
     .map(e => {
       const d = definitionOf(e.def);
       const label = `<span class="twisty"></span><span class="label-text">${esc(e.args[0].edge)}</span>`;
-      const value = `<a class="fx-error" href="#definition:${esc(e.def)}" title="${esc(`${e.error.msg} (${d?.name ?? 'a formula'})`)}">${esc(e.error.code)}</a>`;
+      const value = `<a class="fx-error" href="${esc(panelHref(`definition:${e.def}`))}" title="${esc(`${e.error.msg} (${d?.name ?? 'a formula'})`)}">${esc(e.error.code)}</a>`;
       return `<div class="entry">${row(depth, label, value, '')}</div>`;
     }).join('');
 }
@@ -901,7 +915,9 @@ function entryRows(at, depth) {
   return html;
 }
 
-const panelHead = ({ crumbs = '', title, sub, actions = '', extra = '' }) => `
+// On a record's own page, the page has the path, the title and the actions, so the head keeps the rest.
+const panelHead = ({ crumbs = '', title, sub, actions = '', extra = '' }) => panelOptions.page
+  ? (extra ? `<div class="panel-head is-page">${extra}</div>` : '') : `
   <div class="panel-head">
     ${crumbs ? `<nav class="crumbs" aria-label="Path">${crumbs}</nav>` : ''}
     <div class="title-row">
@@ -911,19 +927,21 @@ const panelHead = ({ crumbs = '', title, sub, actions = '', extra = '' }) => `
     ${extra}
   </div>`;
 
-const listRow = (href, title, meta) =>
-  `<a class="list-row" href="${href}"><span class="list-title">${esc(title)}</span><span class="list-meta">${esc(meta)}</span>${icon('chevron-right', 'list-chevron')}</a>`;
+// A row linking to one of the panel's views, by its address.
+const listRow = (hash, title, meta) =>
+  `<a class="list-row" href="${esc(panelHref(hash))}"><span class="list-title">${esc(title)}</span><span class="list-meta">${esc(meta)}</span>${icon('chevron-right', 'list-chevron')}</a>`;
+const allLink = () => `<a href="${esc(panelHref(''))}">All</a>`;
 
-const kindHref = kind => `#kind:${encodeURIComponent(kind)}`;
+const kindHash = kind => `kind:${encodeURIComponent(kind)}`;
 
 // A segment of the header path. A choice's option opens a dropdown there too, as it does in its row.
 // A relation's segment names its edges, with its arguments on hover.
 const crumb = id => {
   const r = records[id];
   if (isChoice(r) && !isRelation(r))
-    return `<span class="crumb-choice"><a href="#${id}">${esc(r.edge)}</a>${choiceSelect(id, 'in-crumbs')}</span>`;
+    return `<span class="crumb-choice"><a href="${esc(panelHref(id))}">${esc(r.edge)}</a>${choiceSelect(id, 'in-crumbs')}</span>`;
   const title = isRelation(r) ? ` title="${esc(r.args.map(a => `${a.edge}: ${placeName(a.at)}`).join('; '))}"` : '';
-  return `<a href="#${id}"${title}>${esc(segmentText(id))}</a>`;
+  return `<a href="${esc(panelHref(id))}"${title}>${esc(segmentText(id))}</a>`;
 };
 
 function recordView(id) {
@@ -932,7 +950,7 @@ function recordView(id) {
   const path = pathTo(id);
   const head = records[path[0]];
   const start = !isObject(head) ? []
-    : ui.showRoot ? ['<a href="#">All</a>', `<a href="${kindHref(head.kind)}">${esc(plural(head.kind))}</a>`]
+    : ui.showRoot ? [allLink(), `<a href="${esc(panelHref(kindHash(head.kind)))}">${esc(plural(head.kind))}</a>`]
     : [`<button class="crumb-more" data-action="reveal" aria-label="Show full path" title="Show full path">${icon('dots')}</button>`];
   const crumbs = [...start, ...path.slice(0, -1).map(crumb)].join(icon('chevron-right', 'crumb-sep'));
   const title = isObject(r) ? { title: `<span data-live="${nameRecordOf(id) ?? ''}">${esc(objectName(id))}</span>`, sub: kindChip(id) }
@@ -985,10 +1003,10 @@ function kindView(kind) {
   // A one-line summary of each object: the options of its top-level choices.
   const summary = id => entriesOf(id).filter(e => isChoice(records[e])).map(e => records[e].choice).join(' · ');
   const head = panelHead({
-    crumbs: '<a href="#">All</a>', title: esc(plural(kind)), sub: count(ids.length, kind.toLowerCase()),
+    crumbs: allLink(), title: esc(plural(kind)), sub: count(ids.length, kind.toLowerCase()),
     actions: `<button class="btn btn-primary" data-action="add" data-type="object" data-kind="${esc(kind)}">${icon('plus')}New ${esc(kind)}</button>`,
   });
-  return [head, form + ids.map(id => listRow(`#${id}`, objectName(id), summary(id))).join('')];
+  return [head, form + ids.map(id => listRow(id, objectName(id), summary(id))).join('')];
 }
 
 // A chart with nothing in it yet offers the usual kinds to start from, since objects are added from their
@@ -996,9 +1014,9 @@ function kindView(kind) {
 function allView() {
   const kinds = kindsInState();
   const head = panelHead({ title: 'All', sub: kinds.length ? 'Browse records by kind' : 'Nothing here yet. Start with a kind.' });
-  const deleted = archive.length ? listRow('#deleted', 'Deleted', String(archive.length)) : '';
-  const schemaRow = listRow('#schema', 'Schema', `${count(formsOfSchema().length, 'form')}${definitions.length ? ` · ${count(definitions.length, 'definition')}` : ''}`);
-  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + schemaRow + deleted];
+  const deleted = archive.length ? listRow('deleted', 'Deleted', String(archive.length)) : '';
+  const schemaRow = listRow('schema', 'Schema', `${count(formsOfSchema().length, 'form')}${definitions.length ? ` · ${count(definitions.length, 'definition')}` : ''}`);
+  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHash(k), plural(k), String(objectsOfKind(k).length))).join('') + schemaRow + deleted];
 }
 
 const ago = when => {
@@ -1008,7 +1026,7 @@ const ago = when => {
 
 // Deleted records, newest first, each batch with what depended on it, to restore.
 function deletedView() {
-  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Deleted', sub: 'Restoring brings back what depended on it, too' });
+  const head = panelHead({ crumbs: allLink(), title: 'Deleted', sub: 'Restoring brings back what depended on it, too' });
   const rows = archive.map(b => {
     const n = Object.keys(b.records).length - 1;
     return `<div class="list-row"><span class="list-title">${esc(b.label)}</span>
@@ -1066,7 +1084,7 @@ function schemaView({ filter = 'all' }) {
   const open = ui.menu === 'schema-new';
   const add = `<span class="menu-anchor"><button class="btn" data-action="menu" data-menu="schema-new" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}New definition${icon('chevron-down')}</button>
     ${open ? `<div class="pop menu" role="menu">${newDefinitionItems()}</div>` : ''}</span>`;
-  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Schema', sub: 'The chart’s vocabulary, by form: what each is, where, and how it’s computed, named and drawn',
+  const head = panelHead({ crumbs: allLink(), title: 'Schema', sub: 'The chart’s vocabulary, by form: what each is, where, and how it’s computed, named and drawn',
     actions: removeAll || add, extra: filters });
   const keep = filter === 'computed' ? f => covered.has(f) : filter === 'unused' ? f => indexOf().byForm.get(f).some(k => unused.has(k)) : () => true;
   const forms = formsOfSchema().filter(keep);
@@ -1076,7 +1094,7 @@ function schemaView({ filter = 'all' }) {
   // A definition covering nothing in the schema, as one whose locations were all removed may.
   const loose = filter === 'unused' ? [] : definitions.filter(d => !d.scope.some(p => specsWithParam(p).length)).map(d => asWritten(d));
   const looseRows = loose.length ? `<div class="section-head">Definitions <span class="section-note">covering nothing in the schema</span></div>
-    ${loose.map(d => listRow(`#definition:${d.id}`, d.name || 'Untitled', errorCount(d.id) ? count(errorCount(d.id), 'error') : 'Covers nothing')).join('')}` : '';
+    ${loose.map(d => listRow(`definition:${d.id}`, d.name || 'Untitled', errorCount(d.id) ? count(errorCount(d.id), 'error') : 'Covers nothing')).join('')}` : '';
   const body = section('Kinds', forms.filter(f => f === 'object')) + section('Entries', forms.filter(f => formArity(f) === 1))
     + section('Relations', forms.filter(isRelationForm)) + looseRows;
   const empty = filter === 'computed' ? 'Nothing’s computed yet. A definition works out an entry or a relation by formula; start one above, or from Add › Definition… on a record.'
@@ -1131,10 +1149,10 @@ function schemaFormBody(f, keys, defs, users, unused) {
   }
   // The definitions that compute it, and one to add where none covers it yet.
   const add = f !== 'object' && uncoveredParams(f).length ? `<div class="schema-spec"><span class="schema-where">${defs.length ? 'Entered at its other locations' : 'Entered, not computed'}</span>
-      <a class="link-btn" href="#definition:new:form:${esc(encodeURIComponent(f))}">${icon('plus')}Add definition</a></div>` : '';
+      <a class="link-btn" href="${esc(panelHref(`definition:new:form:${encodeURIComponent(f)}`))}">${icon('plus')}Add definition</a></div>` : '';
   const definition = defs.map(x => `<div class="schema-spec"><code class="schema-rule">${esc(ruleText(x))}</code>
       <span class="list-meta${errorCount(x.id) ? ' is-error' : ''}">${errorCount(x.id) ? count(errorCount(x.id), 'error') : `${computedCount(x.id)} computed`}</span>
-      <a class="link-btn" href="#definition:${esc(x.id)}">Edit definition</a></div>`).join('') + add;
+      <a class="link-btn" href="${esc(panelHref(`definition:${x.id}`))}">Edit definition</a></div>`).join('') + add;
   // On a page with a chart: whether the view in use shows it, and its style.
   let drawing = '';
   if (panelOptions.engaged) {
@@ -1178,10 +1196,10 @@ function currentView() {
   return {};
 }
 
-// Draws the panel into #panel. The page's render() calls this, then draws its own parts.
-function renderPanel() {
+// Draws the panel into #panel. The page's render() calls this, then draws its own parts. It draws the view
+// the hash names, or another a page gives it (a record's page always shows the record it's about).
+function renderPanel(view = currentView()) {
   listbox.input = null;
-  const view = currentView();
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
   const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView() : view.schema ? schemaView(view.schema)
     : view.formula ? definitionView(view.formula)
@@ -1280,11 +1298,11 @@ function whyBlock(id, depth = 0, inHead = false) {
   const info = formulaInfo(id);
   const d = info && definitionOf(info.def);
   if (!d) return '';
-  const defLink = `<a class="why-def" href="#definition:${esc(d.id)}">${esc(d.name)}</a>`;
+  const defLink = `<a class="why-def" href="${esc(panelHref(`definition:${d.id}`))}">${esc(d.name)}</a>`;
   const readsOf = label => (Array.isArray(info.reads) ? info.reads : info.reads?.[label] ?? []).filter(k => records[k] && k !== id);
   const readList = ids => {
     const items = readItems(ids);
-    return items.slice(0, 5).map(x => `<a href="#${esc(x.id)}">${esc(x.text)}</a>`).join('<span class="why-sep">·</span>')
+    return items.slice(0, 5).map(x => `<a href="${esc(panelHref(x.id))}">${esc(x.text)}</a>`).join('<span class="why-sep">·</span>')
       + (items.length > 5 ? `<span class="why-more"> and ${items.length - 5} more</span>` : '');
   };
   const line = (label, html) => `<div class="why-line"><span class="why-label">${esc(label)}</span><span class="why-reads">${html}</span></div>`;
@@ -1316,7 +1334,7 @@ function whyBlock(id, depth = 0, inHead = false) {
     const strong = info.mark === 'differs' || info.mark === 'overrides';
     buttons = `<button class="link-btn" data-action="use-formula" data-id="${esc(id)}" title="Drop what’s entered here, so the formula’s output stands">${strong ? 'Use formula' : 'Clear'}</button>`;
   }
-  buttons += `<a class="link-btn" href="#definition:${esc(d.id)}">Edit definition</a>`;
+  buttons += `<a class="link-btn" href="${esc(panelHref(`definition:${d.id}`))}">Edit definition</a>`;
   return `<div class="why${inHead ? ' in-head' : ''}" style="--depth:${depth}"><div class="why-head">${head}</div>${lines}<div class="why-actions">${buttons}</div></div>`;
 }
 
@@ -1377,7 +1395,7 @@ function formulaSection(id) {
     ui.fx = { key, draft: structuredClone(d), error: null };
   }
   const fx = ui.fx;
-  const title = definitionOf(fx.draft.id) ? `Definition: <a href="#definition:${esc(fx.draft.id)}">${esc(fx.draft.name)}</a>` : 'New definition';
+  const title = definitionOf(fx.draft.id) ? `Definition: <a href="${esc(panelHref(`definition:${fx.draft.id}`))}">${esc(fx.draft.name)}</a>` : 'New definition';
   return `<div class="fx-section"><div class="fx-section-head">${title}<span class="fx-hint">${esc(coverageText(fx.draft))}</span></div>
     ${formulaFields(fx)}${draftFoot(fx, true)}</div>`;
 }
@@ -1420,7 +1438,7 @@ function fxNoteHtml(text) {
 function draftFoot(fx, inline) {
   const error = fx.error ? `<span class="fx-error-text">${icon('alert-triangle')}${esc(fx.error)}</span>` : '';
   const other = !inline ? '<button class="link-btn" data-action="fx-revert">Revert</button>'
-    : definitionOf(fx.draft.id) ? `<a class="link-btn" href="#definition:${esc(fx.draft.id)}">Open the whole definition</a>`
+    : definitionOf(fx.draft.id) ? `<a class="link-btn" href="${esc(panelHref(`definition:${fx.draft.id}`))}">Open the whole definition</a>`
     : '<button class="link-btn" data-action="fx-close">Cancel</button>';
   return `<div class="fx-foot"><button class="btn btn-primary" data-action="fx-save">Save definition</button>${other}${error}
     <span class="fx-keys"><span><kbd>Enter</kbd> save</span></span></div>`;
@@ -1460,7 +1478,7 @@ function saveDraft() {
   if (fx.error) return;
   fx.draft = structuredClone(d);
   ui.info = `Saved ${d.name}; the formulas are worked out again.`;
-  if (fx.isNew) location.hash = `definition:${d.id}`;
+  if (fx.isNew) panelGo(`definition:${d.id}`);
 }
 
 // The Excel-like shortcut: a value typed starting with = (or a tag's ← condition) becomes the formula for
@@ -1542,7 +1560,7 @@ function onNamesChange(el) {
 
 // ---- A definition's view ----
 
-const fxCrumbs = `<a href="#">All</a>${icon('chevron-right', 'crumb-sep')}<a href="#schema:computed">Schema</a>`;
+const fxCrumbs = () => `${allLink()}${icon('chevron-right', 'crumb-sep')}<a href="${esc(panelHref('schema:computed'))}">Schema</a>`;
 
 // A definition's own view: what it is and covers, its formula or implications, and what it works out.
 // A new one comes blank, or from two sides or a location, or covering what a form's row in the Schema view
@@ -1553,8 +1571,8 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
     const d = form ? (formsOfSchema().includes(form) && uncoveredParams(form).length ? newDefinitionOfForm(form) : null)
       : isNew ? newDefinition(relation, sides) : definitionOf(id);
     if (!d) return form
-      ? [panelHead({ crumbs: fxCrumbs, title: 'Definition', sub: 'Nothing left to cover' }), '<div class="empty">Every location of this form already has a definition. Edit that one from the Schema view.</div>']
-      : [panelHead({ crumbs: fxCrumbs, title: 'Definition', sub: 'Not found' }), '<div class="empty">There’s no definition here. It may have been deleted; Undo brings it back.</div>'];
+      ? [panelHead({ crumbs: fxCrumbs(), title: 'Definition', sub: 'Nothing left to cover' }), '<div class="empty">Every location of this form already has a definition. Edit that one from the Schema view.</div>']
+      : [panelHead({ crumbs: fxCrumbs(), title: 'Definition', sub: 'Not found' }), '<div class="empty">There’s no definition here. It may have been deleted; Undo brings it back.</div>'];
     const atRecord = isNew && !relation && sides[0] && !pathOfRecord(sides[0]) ? sides[0] : null;
     ui.fx = { key, draft: structuredClone(d), isNew, atRecord, error: null };
   }
@@ -1562,7 +1580,7 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
   const isRel = isRelationDef(d);
   const sub = isNew ? `New definition of ${isRel ? 'a relation' : 'an entry'}` : `${definitionType(d)} · works out ${count(computedCount(d.id), 'record')}`;
   const actions = isNew ? '' : `<button class="btn" data-action="fx-delete">${icon('trash')}Delete</button>`;
-  const head = panelHead({ crumbs: fxCrumbs, title: esc(d.name || 'New definition'), sub, actions });
+  const head = panelHead({ crumbs: fxCrumbs(), title: esc(d.name || 'New definition'), sub, actions });
   const field = (label, html, note = '') => `<div class="fx-label-cell">${label}</div><div class="fx-value-cell">${html}${note ? `<div class="fx-hint">${note}</div>` : ''}</div>`;
   const typeValue = d.type === 'field' ? `field:${d.datatype ?? 'number'}` : d.type;
   const types = [['tag', sortName('tag')], ['choice', sortName('choice')], ...Object.keys(DATATYPE_NAMES).map(k => [`field:${k}`, sortName(k)])];
@@ -1583,9 +1601,9 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
   }
   const errors = [definitionError(d.id) && `<div class="fx-result-line is-error">${esc(definitionError(d.id))}</div>`,
     ...recordErrors(d.id).slice(0, 8).map(e => `<div class="fx-result-line is-error"><span class="fx-error">${esc(e.error.code)}</span>
-      ${e.args.map(a => `<a href="#${esc(a.at)}">${esc(placeName(a.at))}</a>`).join(' → ')}: ${esc(e.error.msg)}</div>`)].filter(Boolean).join('');
+      ${e.args.map(a => `<a href="${esc(panelHref(a.at))}">${esc(placeName(a.at))}</a>`).join(' → ')}: ${esc(e.error.msg)}</div>`)].filter(Boolean).join('');
   const results = Object.entries(formulaResult.computed ?? {}).filter(([, c]) => c.def === d.id).map(([k]) => k).filter(k => records[k]);
-  const resultList = results.slice(0, 12).map(k => `<a class="fx-result" href="#${esc(k)}">${esc(resultText(k))}</a>`).join('')
+  const resultList = results.slice(0, 12).map(k => `<a class="fx-result" href="${esc(panelHref(k))}">${esc(resultText(k))}</a>`).join('')
     + (results.length > 12 ? `<span class="fx-hint">and ${results.length - 12} more</span>` : '');
   const body = `<div class="fx-editor">
       ${field('Name', `<input class="input" data-fx="name" value="${esc(d.name)}" placeholder="${isRel ? 'Relation name, like Control' : 'Entry name, like 3(c)(1) Count'}" autocomplete="off" spellcheck="false">`,
@@ -1738,7 +1756,7 @@ function acceptSuggest(i = suggestion.active) {
 // ---- Events ----
 
 const actions = {
-  open: d => { location.hash = d.hash; },
+  open: d => panelGo(d.hash),
   toggle: d => ui.expanded.has(d.id) ? ui.expanded.delete(d.id) : ui.expanded.add(d.id),
   reveal: () => { ui.showRoot = true; },
   menu: d => { ui.menu = ui.menu === d.menu ? null : d.menu; },
@@ -1815,7 +1833,7 @@ const actions = {
     const d = ui.fx.draft;
     const n = computedCount(d.id);
     ui.pending = { message: `Delete ${d.name}${n ? `, and the ${count(n, 'record')} it works out` : ''}? Formulas that use it will show errors. Undo brings it back.`, yes: 'Delete',
-      apply: () => { ui.notice = deleteDefinition(d.id); if (!ui.notice) { ui.info = `Deleted ${d.name}.`; location.hash = 'schema:computed'; } } };
+      apply: () => { ui.notice = deleteDefinition(d.id); if (!ui.notice) { ui.info = `Deleted ${d.name}.`; panelGo('schema:computed'); } } };
   },
   'fx-imp-add': () => { ui.fx.draft.implications.push({ label: '', formula: '← ' }); },
   'fx-imp-remove': d => {
@@ -2079,7 +2097,7 @@ document.addEventListener('keydown', e => {
     if (type || k === 'r' || (k === 's' && panelOptions.engaged)) {
       e.preventDefault();
       if (type) startForm('add', type, at);
-      else if (k === 'r') { ui.menu = null; location.hash = `relate:${at}`; }
+      else if (k === 'r') { ui.menu = null; panelGo(`relate:${at}`); }
       else ui.menu = `add-style:${at}`;
       return render();
     }
@@ -2116,11 +2134,14 @@ window.addEventListener('hashchange', () => {
   if (missing.length) {
     history.replaceState(null, '', from || location.pathname);
     const labels = [...new Set(missing.map(m => m.label))];
-    ui.pending = {
+    const question = {
+      title: `${labels.length > 1 ? 'Required entries are' : `${labels[0]} is`} blank`,
       message: `${objectName(obj)} has nothing for ${listing(labels)}, which ${labels.length > 1 ? 'are' : 'is'} required. Leave anyway?`,
       yes: 'Leave anyway',
       apply: () => { leaving = to; location.hash = to; },
     };
+    if (panelOptions.ask) return panelOptions.ask(question);
+    ui.pending = question;
     return render();
   }
   leaving = null;

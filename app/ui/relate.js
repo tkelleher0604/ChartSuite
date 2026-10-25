@@ -175,7 +175,7 @@ function sidePicker(a) {
 function sideHead(side) {
   const obj = objectOf(side);
   const below = side === obj ? '' : ` › ${pathTo(side).slice(1).map(segmentText).join(' › ')}`;
-  return `<div class="relate-side"><a class="relate-side-name" href="#${side}">${esc(objectName(obj))}</a><span class="relate-side-kind">${esc(records[obj].kind + below)}</span></div>`;
+  return `<div class="relate-side"><a class="relate-side-name" href="${esc(panelHref(side))}">${esc(objectName(obj))}</a><span class="relate-side-kind">${esc(records[obj].kind + below)}</span></div>`;
 }
 
 // The locations a side can put a new relation at: the side, or for an object, its choices and tags.
@@ -203,7 +203,7 @@ function newKindForm(a, b) {
     </div>
     <div class="relate-new-foot"><span class="seg" role="group" aria-label="Output">${types}</span>${output}
       <button class="btn btn-primary" data-action="relate-new">${icon('plus')}Add</button></div>${error}
-    <div class="relate-new-foot"><a class="link-btn relate-formula" href="#definition:new:relation:${esc(a)}:${esc(b)}">New definition…</a>
+    <div class="relate-new-foot"><a class="link-btn relate-formula" href="${esc(panelHref(`definition:new:relation:${a}:${b}`))}">New definition…</a>
       <span class="relate-hint">Or compute it by formula, for every pair like these</span></div>
     <datalist id="relate-edges">${edges.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>`;
 }
@@ -285,9 +285,9 @@ function addNewKind(a, b) {
 const rowByKey = key => relate.rows.find(r => r.key === key);
 
 Object.assign(actions, {
-  'open-relate': d => { location.hash = `relate:${d.id}`; },
-  'relate-pick-b': d => { location.hash = `relate:${currentView().relate.a}:${d.id}`; },
-  'relate-done': d => { const r = currentView().relate; if (r) location.hash = r.a; },
+  'open-relate': d => panelGo(`relate:${d.id}`),
+  'relate-pick-b': d => panelGo(`relate:${currentView().relate.a}:${d.id}`),
+  'relate-done': () => { const r = currentView().relate; if (r) panelGo(r.a); },
   'relate-add': d => {
     const row = rowByKey(d.key);
     const error = row && addFromRow(row, d.value ?? true);
