@@ -1,0 +1,37 @@
+/* Why a formula gave what it gave (ui/why.js), wherever it's explained: what the form means, the facts that
+   decided it, and the formula with what it read, folded underneath. Its host places it; tokens only. */
+
+.why { padding: 8px 12px 9px; border-left: 2px solid var(--computed-border); border-radius: 0 var(--radius) var(--radius) 0; background: var(--computed-soft);
+  color: var(--text-2); font-size: 12.5px; line-height: 18px; }
+.why p { margin: 0; }
+.why-standing { color: var(--text); }
+.why-standing + .why-desc { margin-top: 4px; }
+.why-desc { color: var(--text); }
+.why-desc.is-none { color: var(--text-2); }
+.why-def { color: var(--accent-text); font-weight: 500; }
+.why-describe { margin-left: 4px; color: var(--text-3); }
+.why a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.why-facts { display: grid; gap: 2px; margin: 5px 0 0; padding: 0; list-style: none; color: var(--text); overflow-wrap: anywhere; }
+.why-facts li { position: relative; padding-left: 12px; }
+.why-facts li::before { content: ""; position: absolute; top: 8px; left: 2px; width: 4px; height: 4px; border-radius: 50%; background: var(--computed-border); }
+.why-facts a { color: inherit; font-weight: 500; }
+.why-clause { color: var(--text-2); font-weight: 500; }
+
+/* The working, folded. */
+.why-working { margin-top: 5px; }
+.why-working > summary { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); cursor: pointer; list-style: none; }
+.why-working > summary::-webkit-details-marker { display: none; }
+.why-working > summary::before { content: ""; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid currentColor;
+  transition: transform .12s var(--ease); }
+.why-working[open] > summary::before { transform: rotate(90deg); }
+.why-working > summary:hover { color: var(--text-2); }
+.why-working[open] > summary { margin-bottom: 2px; }
+.why-line { display: grid; grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr); gap: 2px 10px; margin-top: 3px; }
+.why-label { color: var(--text-3); }
+.why-text { min-width: 0; overflow-wrap: anywhere; }
+.why-text a { color: var(--text-2); }
+.why-formula { font: 12px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.why-sep { margin: 0 6px; color: var(--text-3); }
+.why-more-count { color: var(--text-3); }
+.why-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.why-actions .link-btn { font-size: 12.5px; color: var(--accent-text); }

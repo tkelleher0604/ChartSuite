@@ -1238,29 +1238,6 @@ function recordTitle(id) {
   return `${relationNameOf(id)} (${r.args.map(a => placeName(a.at)).join(' → ')})`;
 }
 
-// A record a formula read, as its explanation lists it: where it is, and what it says. A relation's
-// `details` are fields at it that were read too, like an ownership's Percentage.
-function readText(id, details = []) {
-  const r = records[id];
-  if (isObject(r)) return objectName(id);
-  if (isRelation(r)) return `${r.args.map(a => placeName(a.at)).join(' → ')} (${[relationNameOf(id),
-    ...details.map(d => `${records[d].edge} ${displayValue(records[d])}`)].join(', ')}${isTag(r) && !r.tag ? ', ruled out' : ''})`;
-  const [head, ...tail] = pathTo(id);
-  const start = isRelation(records[head]) ? recordTitle(head) : objectName(head);
-  return `${start} › ${tail.map(segmentText).join(' › ')}${isField(r) ? `: ${displayValue(r)}` : ''}`;
-}
-
-// What a formula read, for its explanation: each relation with the fields read at it folded in, those
-// with values first, since they usually decide it.
-function readItems(ids) {
-  const read = new Set(ids);
-  const folded = ids.filter(k => isField(records[k]) && isRelation(records[records[k].at] ?? {}) && read.has(records[k].at));
-  const items = ids.filter(k => !folded.includes(k))
-    .map(k => ({ id: k, details: folded.filter(f => records[f].at === k) }));
-  return items.sort((a, b) => b.details.length - a.details.length || isRelation(records[b.id]) - isRelation(records[a.id]))
-    .map(x => ({ id: x.id, text: readText(x.id, x.details) }));
-}
-
 // What sort of thing an entry or relation is, by its output's sort: Tag, Choice, Percent field, Tag
 // relation, ….
 const sortName = (sort, isRel) => `${DATATYPE_NAMES[sort] ? `${DATATYPE_NAMES[sort]} field` : TYPE_NAMES[sort]}${isRel ? ' relation' : ''}`;
@@ -1280,51 +1257,19 @@ function formulaMark(id) {
   return Parts.overrideMark(id, `data-action="why" data-id="${esc(id)}" aria-expanded="${open}"`);
 }
 
-// Why a computed record is there, or what a formula says about an entered one: under its row, or in its
-// panel's header (`inHead`). It names the definition, the implications that held and what each read, and
-// offers to keep a computed record as entered or to clear an override.
+// Why a computed record is there, or what a formula says about an entered one, in words (Why.html): under
+// its row, or in its panel's header (`inHead`). It offers to keep a computed record as entered, or to
+// clear an override, and to edit the definition.
 function whyBlock(id, depth = 0, inHead = false) {
   const info = formulaInfo(id);
   const d = info && definitionOf(info.def);
   if (!d) return '';
-  const defLink = `<a class="why-def" href="${esc(panelHref(`definition:${d.id}`))}">${esc(d.name)}</a>`;
-  const readsOf = label => (Array.isArray(info.reads) ? info.reads : info.reads?.[label] ?? []).filter(k => records[k] && k !== id);
-  const readList = ids => {
-    const items = readItems(ids);
-    return items.slice(0, 5).map(x => `<a href="${esc(panelHref(x.id))}">${esc(x.text)}</a>`).join('<span class="why-sep">·</span>')
-      + (items.length > 5 ? `<span class="why-more"> and ${items.length - 5} more</span>` : '');
-  };
-  const line = (label, html) => `<div class="why-line"><span class="why-label">${esc(label)}</span><span class="why-reads">${html}</span></div>`;
-  // Why, in words, from formulas.js: what decided each implication, or which branch of an IF gave the output.
-  // Where it can't say, the records the formula read stand in.
-  const explained = new Map();
-  for (const e of Formulas.explain(formulaResult, id)) explained.set(e.label ?? '', [...(explained.get(e.label ?? '') ?? []), e.text].filter(Boolean));
-  const because = label => explained.get(label)?.length ? esc(explained.get(label).join(' · ')) : '';
-  let head, lines = '', buttons;
-  if (isComputed(id)) {
-    if (d.implications) {
-      head = `Implied by ${defLink}`;
-      lines = info.labels.map(l => line(l, because(l) || readList(readsOf(l)) || 'nothing it needed to read')).join('');
-    } else {
-      head = `Worked out by ${defLink}`;
-      lines = line('Formula', `<code class="why-formula">${esc(d.formula)}</code>`)
-        + (because('') ? line('Because', because('')) : readsOf('').length ? line('Read', readList(readsOf(''))) : '');
-    }
-    buttons = `<button class="link-btn" data-action="keep-entered" data-id="${esc(id)}" title="Record this output by hand, so it stays whatever the formula says">Keep as entered</button>`;
-  } else {
-    head = {
-      differs: `Entered here. ${defLink} gives ${esc(Parts.formulaText(d, info.formula))}.`,
-      agrees: `Entered here, and ${defLink} gives the same.`,
-      overrides: `Ruled out here, overriding ${defLink}, which implies it.`,
-      'also implied': `Entered here, and also implied by ${defLink}.`,
-    }[info.mark] ?? `${defLink} also covers this.`;
-    if (info.labels?.length) lines = info.labels.map(l => line(l, because(l) || 'holds here')).join('');
-    else if (because('')) lines = line('Because', because(''));
-    const strong = info.mark === 'differs' || info.mark === 'overrides';
-    buttons = `<button class="link-btn" data-action="use-formula" data-id="${esc(id)}" title="Drop what’s entered here, so the formula’s output stands">${strong ? 'Use formula' : 'Clear'}</button>`;
-  }
-  buttons += `<a class="link-btn" href="${esc(panelHref(`definition:${d.id}`))}">Edit definition</a>`;
-  return `<div class="why${inHead ? ' in-head' : ''}" style="--depth:${depth}"><div class="why-head">${head}</div>${lines}<div class="why-actions">${buttons}</div></div>`;
+  const strong = info.mark === 'differs' || info.mark === 'overrides';
+  const actions = (isComputed(id)
+    ? `<button class="link-btn" data-action="keep-entered" data-id="${esc(id)}" title="Record this output by hand, so it stays whatever the formula says">Keep as entered</button>`
+    : `<button class="link-btn" data-action="use-formula" data-id="${esc(id)}" title="Drop what’s entered here, so the formula’s output stands">${strong ? 'Use formula' : 'Clear'}</button>`)
+    + `<a class="link-btn" href="${esc(panelHref(`definition:${d.id}`))}">Edit definition</a>`;
+  return `<div class="why-at${inHead ? ' in-head' : ''}" style="--depth:${depth}">${Why.html(id, { href: panelHref, actions })}</div>`;
 }
 
 // ---- Writing formulas ----
@@ -1584,7 +1529,7 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
         <label class="fx-check"><input type="checkbox" data-fx="self"${d.self ? ' checked' : ''}> May relate a thing to itself</label></div>`,
       'Each parameter is an edge label and the locations its records can be at. Bare names in the formula are these edges.');
   } else if (d.at) {
-    where = field('Locations', locationPicker(d.at, null), fx.atRecord ? `Or, with none picked, every location like ${esc(readText(fx.atRecord))}.` : 'Where it’s worked out. Bare names in the formula are the location’s own names, looked up its path.');
+    where = field('Locations', locationPicker(d.at, null), fx.atRecord ? `Or, with none picked, every location like ${esc(Why.readText(fx.atRecord))}.` : 'Where it’s worked out. Bare names in the formula are the location’s own names, looked up its path.');
   } else {
     where = field('Covers', `<span class="fx-covers">${esc(coverageText(d))}</span>`, 'Every location like the record it was added from.');
   }
@@ -1610,7 +1555,7 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
 function resultText(id) {
   const r = records[id];
   const out = isTag(r) ? (r.tag ? '' : ' (ruled out)') : `: ${isField(r) ? displayValue(r) : r.choice}`;
-  return isRelation(r) ? `${r.args.map(a => placeName(a.at)).join(' → ')}${out}` : `${readText(r.at)}${out}`;
+  return isRelation(r) ? `${r.args.map(a => placeName(a.at)).join(' → ')}${out}` : `${Why.readText(r.at)}${out}`;
 }
 
 function locationPicker(list, i) {

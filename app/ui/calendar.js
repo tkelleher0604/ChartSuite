@@ -61,15 +61,19 @@ function shownEvents() {
   const f = filters();
   return Agenda.events().filter(e => Agenda.matches(e, f));
 }
+// The deadlines shown that a rule couldn't work out, for its formula's error.
+const shownUnworked = () => Agenda.unworked().filter(x => Agenda.matches(x, filters()));
 
 // The object filter in words: Calder Ridge Capital Partners III, L.P., and its Holdings.
 const objectText = () => `${objectName(cal.object)}${cal.reach.length ? `, and its ${joinList(cal.reach)}` : ''}`;
 const objectChipText = () => `Object: <b>${esc(objectName(cal.object))}</b>${cal.reach.length ? esc(`, and its ${joinList(cal.reach)}`) : ''}`;
 
-// A sentence on what's pressing among what's shown.
-function summary(list) {
+// A sentence on what's pressing among what's shown: deadlines overdue or soon due, and those a rule
+// couldn't work out.
+function summary(list, unworked) {
   const n = id => list.filter(e => Agenda.groupOf(e) === id).length;
-  const parts = [n('overdue') && `${n('overdue')} overdue`, n('week') && `${n('week')} this week`, n('month') && `${n('month')} in the next 30 days`].filter(Boolean);
+  const parts = [unworked.length && `${count(unworked.length, 'deadline')} couldn’t be worked out`, n('overdue') && `${n('overdue')} overdue`,
+    n('week') && `${n('week')} due this week`, n('month') && `${n('month')} due in the next 30 days`].filter(Boolean);
   const computed = list.filter(e => e.computed).length;
   const of = `${count(list.length, 'date')}${computed ? `, ${computed} worked out by formula` : ''}`;
   return parts.length ? `${joinList(parts)}. ${of} in all.` : `Nothing overdue or due in the next 30 days. ${of} in all.`;
@@ -91,27 +95,37 @@ function barHtml(list, all) {
 }
 
 // ---- Agenda ----
-// What the groups that aren't spans of days hold, as their headings say on hover.
+// What the groups hold, as their headings say on hover.
 const GROUP_NOTES = {
+  unworked: 'Deadlines whose definition has an error where they’re worked out. Fix the definition to have their dates back.',
   overdue: 'Dates a definition gives that have passed. An entered date that has passed is history, under Past.',
+  week: 'Dates a definition gives, due in the next seven days.',
+  month: 'Dates a definition gives, due in the 30 days after this week.',
+  later: 'Dates a definition gives, due later still.',
+  ahead: 'Dates entered on records that are still to come: facts, not deadlines, since no definition gives them.',
   past: 'Entered dates that have passed. A date a definition gives that has passed is overdue instead.',
 };
-function groupHtml(g) {
+const groupHead = (g, name = `<span class="cal-group-name">${esc(g.name)}</span><span class="cal-group-count tnum">${g.events.length}</span>`) => {
   const span = Agenda.spanText(g);
-  return `<section class="cal-group is-${g.id}" aria-label="${esc(g.name)}">
-    <h2 class="cal-group-head"${GROUP_NOTES[g.id] ? ` title="${esc(GROUP_NOTES[g.id])}"` : ''}><span class="cal-group-name">${esc(g.name)}</span><span class="cal-group-count tnum">${g.events.length}</span>${span ? `<span class="cal-group-span">${esc(span)}</span>` : ''}</h2>
+  return `<h2 class="cal-group-head" title="${esc(GROUP_NOTES[g.id] ?? '')}">${name}${span ? `<span class="cal-group-span">${esc(span)}</span>` : ''}</h2>`;
+};
+function groupHtml(g) {
+  return `<section class="cal-group is-${g.id}" aria-label="${esc(g.name)}">${groupHead(g)}
     <div class="ev-list">${g.events.map(e => Agenda.row(e)).join('')}</div>
   </section>`;
 }
-function agendaHtml(list) {
+function agendaHtml(list, unworked) {
   const groups = Agenda.grouped(list);
-  const ahead = groups.filter(g => g.id !== 'past' && g.events.length);
-  const past = groups.find(g => g.id === 'past');
-  return `<div class="cal-agenda">
-    ${ahead.map(groupHtml).join('') || `<p class="cal-none">Nothing overdue or coming up${filtered() ? ' among these dates' : ''}.</p>`}
+  const due = groups.filter(g => !['ahead', 'past'].includes(g.id) && g.events.length);
+  const [ahead, past] = ['ahead', 'past'].map(id => groups.find(g => g.id === id));
+  const broken = unworked.length ? `<section class="cal-group is-unworked" aria-label="Couldn’t be worked out">
+      ${groupHead({ id: 'unworked', name: 'Couldn’t be worked out', events: unworked, note: 'A definition’s formula has an error' })}
+      <div class="ev-list">${unworked.map(x => Agenda.unworkedRow(x)).join('')}</div></section>` : '';
+  return `<div class="cal-agenda">${broken}
+    ${due.map(groupHtml).join('') || `<p class="cal-none">Nothing overdue or coming due${filtered() ? ' among these dates' : ''}.</p>`}
+    ${ahead.events.length ? groupHtml(ahead) : ''}
     ${past.events.length ? `<section class="cal-group is-past" aria-label="Past">
-      <h2 class="cal-group-head" title="${esc(GROUP_NOTES.past)}"><button class="cal-past-toggle" data-cmd="cal.past" aria-expanded="${cal.past}">${icon('chevron-right')}<span class="cal-group-name">Past</span><span class="cal-group-count tnum">${past.events.length}</span></button>
-        <span class="cal-group-span">Entered dates that have passed</span></h2>
+      ${groupHead(past, `<button class="cal-past-toggle" data-cmd="cal.past" aria-expanded="${cal.past}">${icon('chevron-right')}<span class="cal-group-name">Past</span><span class="cal-group-count tnum">${past.events.length}</span></button>`)}
       ${cal.past ? `<div class="ev-list">${past.events.map(e => Agenda.row(e)).join('')}</div>` : ''}
     </section>` : ''}
   </div>`;
@@ -147,7 +161,7 @@ function monthHtml(list) {
     cells.push(`<div class="cal-day${iso.slice(0, 7) !== first.slice(0, 7) ? ' is-out' : ''}${iso === today ? ' is-today' : ''}" role="gridcell" data-cmd="cal.day" data-day="${iso}"
         tabindex="${selected ? 0 : -1}" aria-selected="${selected}" aria-label="${esc(label)}">
       <span class="cal-num tnum">${Number(iso.slice(8))}</span>
-      ${evs.slice(0, evs.length > 3 ? 2 : 3).map(e => `<span class="cal-ev is-${Agenda.groupOf(e)}${e.computed ? ' is-computed' : ''}" title="${esc(`${e.label}. ${Agenda.whoseText(e)}`)}">${esc(e.label)}</span>`).join('')}
+      ${evs.slice(0, evs.length > 3 ? 2 : 3).map(e => `<span class="cal-ev is-${Agenda.groupOf(e)}${e.computed ? ' is-computed' : ''}" title="${esc(`${e.label}. ${Agenda.whoseText(e)}`)}">${esc(e.label)}<span class="cal-ev-whose"> · ${esc(Agenda.whoseText(e, { short: true }))}</span></span>`).join('')}
       ${evs.length > 3 ? `<span class="cal-more">${evs.length - 2} more</span>` : ''}
     </div>`);
   }
@@ -177,17 +191,22 @@ function monthHtml(list) {
 // ---- The page ----
 function renderCalendar() {
   const all = Agenda.events();
-  const list = shownEvents();
-  const body = !all.length
+  const list = shownEvents(), unworked = shownUnworked();
+  const any = all.length || Agenda.unworked().length;
+  const body = !any
     ? Parts.empty({ title: 'No dates yet', desc: 'Dates entered on records, or worked out by definitions, show here.' })
-    : !list.length && cal.view === 'agenda'
+    : !list.length && !unworked.length && cal.view === 'agenda'
       ? Parts.empty({ title: 'No dates match these filters', desc: filtered() ? 'Try another kind or object, or clear the filters.' : '', action: { label: 'Clear filters', cmd: 'cal.clear' } })
-      : cal.view === 'month' ? monthHtml(list) : agendaHtml(list);
+      : cal.view === 'month' ? monthHtml(list) : agendaHtml(list, unworked);
+  // In the month, deadlines that couldn't be worked out have no day to sit on, so they're said above it.
+  const notice = cal.view === 'month' && unworked.length ? `<p class="cal-unworked-note">${Parts.formulaError(unworked[0].error.code)}
+    ${esc(`${count(unworked.length, 'deadline')} couldn’t be worked out, so ${unworked.length === 1 ? 'it isn’t' : 'they aren’t'} on any day.`)}
+    <button class="link-btn" data-cmd="cal.view" data-view="agenda">Show in the agenda</button></p>` : '';
   return `<div class="content cal">
     <div class="page-head"><div class="page-head-text"><h2 class="page-title">Calendar</h2>
-      <p class="page-sub">${esc(all.length ? summary(list) : 'Every date in the chart, entered or worked out by formula.')}</p></div></div>
-    ${all.length ? barHtml(list, all) : ''}
-    ${body}
+      <p class="page-sub">${esc(any ? summary(list, unworked) : 'Every date in the chart, entered or worked out by formula.')}</p></div></div>
+    ${any ? barHtml(list, all) : ''}
+    ${notice}${body}
   </div>`;
 }
 
@@ -199,8 +218,10 @@ async function exportToOutlook() {
   const ahead = list.length - past.length;
   cal.exportPast = false;
   const shownAs = filtered() ? ', as the filters show them' : '';
-  const lead = ahead ? `${count(ahead, 'date')}, overdue and upcoming${shownAs}, each an all-day event named for what it is and whose, with a link back to its record.`
-    : `Nothing is overdue or upcoming${shownAs}. Past dates can go as all-day events, each named for what it is and whose, with a link back to its record.`;
+  // Each event says why in words; it links back to its record only from an address colleagues can open.
+  const each = `each an all-day event named for what it is and whose${/^https?:$/.test(location.protocol) ? ', with a link back to its record' : ''}`;
+  const lead = ahead ? `${count(ahead, 'date')}, overdue and upcoming${shownAs}, ${each}. Each deadline says why it’s due, and reminds you a week before.`
+    : `Nothing is overdue or upcoming${shownAs}. Past dates can go as all-day events, ${each}.`;
   const ok = await Shell.confirm({
     title: 'Export to Outlook',
     html: `<p class="cal-export-lead">${esc(lead)}</p>

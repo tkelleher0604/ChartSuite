@@ -15,8 +15,13 @@
 .ev-row.is-overdue .ev-when { color: var(--danger); font-weight: 500; }
 .ev-row.is-week .ev-when { color: var(--warn); font-weight: 500; }
 .ev-row.is-past .ev-date, .ev-row.is-past .ev-when { color: var(--text-3); }
-/* What a definition worked out reads in italics; its Why says how. */
+/* What a definition worked out reads in italics. A date a definition has a say in opens why it is so. */
 .ev-row.is-computed .ev-date { font-style: italic; }
+.ev-date-btn { justify-self: start; padding: 0; border: 0; border-bottom: 1px dashed transparent; border-radius: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ev-date-btn:hover, .ev-date-btn[aria-expanded="true"] { border-bottom-color: var(--computed-border); }
+/* A deadline its rule couldn't work out: its error where the date would be. */
+.ev-row.is-unworked .ev-when { color: var(--text-3); }
+.ev-row.is-unworked .ev-label { color: var(--text-2); }
 
 .ev-what { grid-area: what; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev-label { font-weight: 500; }
@@ -35,9 +40,10 @@
 
 .ev-actions { grid-area: actions; display: flex; justify-content: flex-end; gap: 12px; }
 .ev-actions .link-btn { font-size: 12.5px; }
-.ev-open { opacity: 0; transition: opacity .12s; }
-.ev-row:hover .ev-open, .ev-row:focus-within .ev-open, .ev-row:focus-visible .ev-open { opacity: 1; }
-@media (hover: none) { .ev-open { opacity: 1; } }
+/* A row's actions show on hover or focus, and Why stays while its explanation is open. */
+.ev-open, .ev-why-btn { opacity: 0; transition: opacity .12s; }
+.ev-row:hover :is(.ev-open, .ev-why-btn), .ev-row:focus-within :is(.ev-open, .ev-why-btn), .ev-row:focus-visible :is(.ev-open, .ev-why-btn), .ev-why-btn[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .ev-open, .ev-why-btn { opacity: 1; } }
 .ev-why-btn { color: var(--computed); }
 .ev-why-btn:hover:not(:disabled) { color: var(--computed); text-decoration: underline; }
 .ev-why-btn[aria-expanded="true"] { font-weight: 500; }
@@ -45,15 +51,8 @@
 /* A compact row leaves out the actions. */
 .ev-row.is-compact { grid-template-columns: 6.75rem 6.5rem minmax(10rem, .8fr) minmax(0, 1.6fr); grid-template-areas: "date when what whose"; }
 
-/* Why: under the row, lined up with its label. */
-.ev-why { margin: 0 10px 8px calc(13.25rem + 28px + 10px); padding: 8px 12px; border-left: 2px dashed var(--computed-border); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--computed-soft); color: var(--text-2); font-size: 12.5px; }
-.ev-why-head { margin-bottom: 4px; color: var(--text); }
-.ev-why-head strong { font-weight: 600; }
-.ev-why-line { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 8px; padding: 2px 0; }
-.ev-why-label { color: var(--text-3); }
-.ev-formula { font: 12px/18px ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--text); overflow-wrap: anywhere; }
-.ev-sep { margin: 0 6px; color: var(--text-3); }
+/* Why (why.css): under the row, lined up with its label. */
+.ev-why { margin: 0 10px 8px calc(13.25rem + 28px + 10px); }
 
 /* In a narrow list, whose an event is goes under what it is. */
 @container ev-list (max-width: 760px) {

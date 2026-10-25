@@ -12,7 +12,9 @@
 .cal-group-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; padding: 0 10px; font-size: 13px; font-weight: 600; line-height: 24px; }
 .cal-group-count { color: var(--text-3); font-weight: 500; }
 .cal-group-span { margin-left: auto; color: var(--text-3); font-size: 12px; font-weight: 400; }
-.cal-group.is-overdue .cal-group-name, .cal-group.is-overdue .cal-group-count { color: var(--danger); }
+.cal-group:is(.is-overdue, .is-unworked) .cal-group-name, .cal-group:is(.is-overdue, .is-unworked) .cal-group-count { color: var(--danger); }
+/* Dates entered as facts follow what's due, quieter. */
+.cal-group:is(.is-ahead, .is-past) .cal-group-name { color: var(--text-2); }
 .cal-past-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: -22px; padding: 0 6px 0 2px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; }
 .cal-past-toggle:hover { background: var(--hover); }
 .cal-past-toggle .icon { width: 14px; height: 14px; color: var(--text-3); transition: transform .15s var(--ease); }
@@ -40,8 +42,12 @@
 .cal-day.is-today .cal-num { background: var(--accent); color: var(--on-accent); }
 .cal-ev { overflow: hidden; padding: 1px 6px; border-radius: var(--radius-xs); background: var(--pressed); color: var(--text); font-size: 11.5px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
 .cal-ev.is-overdue { background: var(--danger-soft); color: var(--danger); }
-.cal-ev.is-past { background: none; color: var(--text-3); padding-left: 6px; }
+/* A date entered as a fact, not a deadline: plain text, apart from what's due. */
+.cal-ev:is(.is-past, .is-ahead) { background: none; color: var(--text-3); padding-left: 6px; }
 .cal-ev.is-computed { font-style: italic; box-shadow: inset 0 0 0 1px var(--computed-border); }
+.cal-ev-whose { color: var(--text-2); font-style: normal; }
+.cal-ev:is(.is-past, .is-ahead) .cal-ev-whose, .cal-ev.is-overdue .cal-ev-whose { color: inherit; opacity: .8; }
+.cal-unworked-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: -8px 0 16px; color: var(--text-2); font-size: 13px; }
 .cal-more { padding: 0 6px; color: var(--text-3); font-size: 11.5px; }
 .cal-dayview { margin-top: 24px; }
 
