@@ -134,22 +134,17 @@ const RecordPage = (() => {
       .sort((a, b) => (a.days < 0) - (b.days < 0) || (a.days < 0 ? b.days - a.days : a.days - b.days));
   }
 
-  // The changes in the history that touch the record: to it, to anything inside it, or for an object, to a
-  // relation it's in or anything inside that. Each keeps only its changes to the record. A change can name
-  // records that have gone since, so they're looked for in the change itself, and in Deleted.
+  // The record's history (historyOf in model.js): the changes to it, to anything inside it, or for an
+  // object, to a relation it's in or anything inside that. To say where each was, a record that has gone
+  // since is looked for in the change itself, and in Deleted.
   const historyFor = id => once('history', id, findHistory);
   function findHistory(id) {
-    const object = isObject(records[id]);
-    return historyLog.map(h => {
+    return historyOf(id).map(h => {
       const own = Object.fromEntries(h.changes.map(c => [c.id, c.after ?? c.before]));
       const get = k => records[k] ?? own[k] ?? archive.find(b => b.records[k])?.records[k];
       const head = k => { let cur = k; while (get(cur)?.at) cur = get(cur).at; return cur; };
-      const touches = c => {
-        const top = head(c.id), r = get(top);
-        return top === id || (object && !!r && isRelation(r) && r.args.some(a => head(a.at) === id));
-      };
-      return { h, get, head, changes: h.changes.filter(touches) };
-    }).filter(x => x.changes.length);
+      return { h, get, head, changes: h.changes };
+    });
   }
 
   // ---- The page's parts ----

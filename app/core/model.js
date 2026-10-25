@@ -1188,8 +1188,41 @@ function noteChangeSince(was, wasRecords, source, undone = null) {
   noteChange(summary, changes, source);
 }
 
-// The history of one record: the entries whose changes touch it.
-const historyOf = id => historyLog.filter(h => h.changes.some(c => c.id === id));
+// What each change in the history touched: the record it changed, and everything that record is located
+// at, up to the objects, in the records as they stood on either side of it. So a change to an ownership's
+// Percentage touches the ownership and both its sides. By each entry's id, a set for each of its changes;
+// worked out by walking back from the records as they are now, once for each state of the log.
+const touchedMemo = { log: null, records: null, sets: null };
+function historyTouched() {
+  if (touchedMemo.log === historyLog && touchedMemo.records === records) return touchedMemo.sets;
+  const then = new Map();  // records as they stood, where that differs from now (null where they weren't)
+  const at = id => then.has(id) ? then.get(id) : records[id] ?? null;
+  const lineage = (id, r, out, seen = new Set()) => {
+    if (!r || seen.has(id)) return out;
+    seen.add(id);
+    out.add(id);
+    for (const a of argsOf(r)) lineage(a.at, at(a.at), out, seen);
+    return out;
+  };
+  const sets = new Map();
+  for (const h of historyLog) {
+    const changes = h.changes ?? [];
+    const touched = changes.map(c => lineage(c.id, c.after, new Set()));
+    for (const c of changes) then.set(c.id, c.before);
+    changes.forEach((c, i) => lineage(c.id, c.before, touched[i]));
+    sets.set(h.id, touched);
+  }
+  Object.assign(touchedMemo, { log: historyLog, records, sets });
+  return sets;
+}
+
+// The history of a record: the entries that changed it or anything inside it, and for an object, a
+// relation it's in or anything inside that, newest first, each with only those of its changes. A record
+// no longer in the chart has its history too.
+function historyOf(id) {
+  const sets = historyTouched();
+  return historyLog.map(h => ({ ...h, changes: (h.changes ?? []).filter((c, i) => sets.get(h.id)[i].has(id)) })).filter(h => h.changes.length);
+}
 
 // ---- Changing the state ----
 

@@ -71,21 +71,9 @@
       where: c.after ? trail(after, c.id, c.after) : trail(before, c.id, c.before),
       prior: c.before && c.after ? trail(before, c.id, c.before) : null,
     })).sort((a, b) => isObject(b.now ?? b.was) - isObject(a.now ?? a.was));
-    // Everything the change touched, with what each is located at: what a record filter looks for.
-    const touched = new Set();
-    for (const c of changes) { lineage(after, c.id, c.after, touched); lineage(before, c.id, c.before, touched); }
     const words = [entry.summary, entry.who, SOURCES[entry.source] ?? '',
       ...rows.flatMap(r => [trailText(r.where), r.was ? outputPhrase(r.was) : '', r.now ? outputPhrase(r.now) : ''])];
-    return { entry, rows, touched, kinds: kindsOf(entry, changes), day: dayKey(entry.when), search: norm(words.join(' ')) };
-  }
-
-  // A record and everything it's located at, up to the objects, in one set of records.
-  function lineage(recs, id, r, out, seen = new Set()) {
-    if (!r || seen.has(id)) return out;
-    seen.add(id);
-    out.add(id);
-    for (const a of argsOf(r)) lineage(recs, a.at, recs[a.at], out, seen);
-    return out;
+    return { entry, rows, kinds: kindsOf(entry, changes), day: dayKey(entry.when), search: norm(words.join(' ')) };
   }
 
   // What a change was to: its records, and the definitions, names, required entries or schema its summary
@@ -189,9 +177,12 @@
 
   // ---- What's shown ----
 
+  // A record's filter keeps the record's history (historyOf in model.js): the changes to it, to anything in
+  // it, and for an object, to the relations it's in.
   function shownItems(f) {
     const words = norm(f.q).split(' ').filter(Boolean);
-    return readLog().filter(it => (!f.who || it.entry.who === f.who) && (!f.record || it.touched.has(f.record))
+    const ofRecord = f.record ? new Set(historyOf(f.record).map(h => h.id)) : null;
+    return readLog().filter(it => (!f.who || it.entry.who === f.who) && (!ofRecord || ofRecord.has(it.entry.id))
       && (!f.what || it.kinds.has(f.what)) && (!f.from || it.day >= f.from) && (!f.to || it.day <= f.to)
       && words.every(w => it.search.includes(w)));
   }
