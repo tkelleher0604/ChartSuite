@@ -113,7 +113,7 @@ function attentionHtml() {
 }
 
 // ---- Recent changes ----
-const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset', import: 'Import' };
+const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset', import: 'Import', restore: 'Restore' };
 // Where a change is seen best: the record it touched (the object or relation its path starts at), if it's
 // still there, or else the history.
 function changeHref(h) {
