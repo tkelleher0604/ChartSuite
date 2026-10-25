@@ -510,11 +510,12 @@ const Store = (() => {
   }
 
   // What replacing the working copy would lose: 'workbook' where this browser holds the only copy and it
-  // has been changed, 'changes' where changes haven't been saved to the place yet, or null.
+  // has been changed, 'changes' where changes haven't been saved to the place yet, or null. A chart has
+  // been changed if its history has anything in it beyond the sample's own past (sample.js).
   function atRisk() {
     rec = read();
     if (rec.place !== 'browser') return unsaved() ? 'changes' : null;
-    return [...currentCharts(), ...workbook.deleted].some(c => c.state.history?.length) ? 'workbook' : null;
+    return [...currentCharts(), ...workbook.deleted].some(c => c.state.history?.some(h => !isSamplePast(h))) ? 'workbook' : null;
   }
   // Forgets the workbook in this browser, and where it was kept; the copy there stays. The sample takes its
   // place. Your name, the theme and the SharePoint settings stay too.

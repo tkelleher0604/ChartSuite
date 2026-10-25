@@ -1090,10 +1090,9 @@ function sampleHistory(recs, defs, N, S) {
     const changes = changesBetween(before, after);
     const summary = changeSummary(changes, before, after, definitionChanges(beforeDefs, afterDefs, S, N, S, N), N);
     const at = new Date(`${when}:00Z`);
-    const n = String(i + 1).padStart(3, '0');
-    history.push({ id: `hist_${n}`, when: at.toISOString(), who, summary, changes });
+    history.push({ id: samplePastId(i), when: at.toISOString(), who, summary, changes });
     const deleted = Object.keys(was).filter(id => !after[id]);
-    if (deleted.length) archive.push({ id: `deleted_${n}`, label: recordPhrase(before, deleted[0], N), when: at.getTime(),
+    if (deleted.length) archive.push({ id: `deleted_${i + 1}`, label: recordPhrase(before, deleted[0], N), when: at.getTime(),
       records: Object.fromEntries(deleted.map(id => [id, before[id]])) });
     const changed = changes.filter(c => c.before).map(c => c.id);
     S = withTrees(S, [...withDependents(changed, before)].map(id => treeOf(before, id)));
@@ -1102,6 +1101,12 @@ function sampleHistory(recs, defs, N, S) {
   }
   return { history, archive, schema: S };
 }
+
+// The sample's past has ids of its own, the same each time it's worked out, so a chart reset to the sample
+// doesn't take it in twice, and what's in a chart's history beyond it is what was done in the workbook.
+const samplePastId = i => `hist_${String(i + 1).padStart(3, '0')}`;
+const SAMPLE_PAST = new Set(SAMPLE_HISTORY.map((_, i) => samplePastId(i)));
+const isSamplePast = entry => SAMPLE_PAST.has(entry.id);
 
 // ---- The sample's states ----
 
