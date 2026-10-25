@@ -177,10 +177,25 @@ function orderDoesNotMatter() {
   check('The plan is the same either way', results[0].order === results[1].order, results.map(r => r.order).join(' | '));
 }
 
+// A relation listed before an object it relates is on that object's lists all the same. The sample lists
+// the co-invest vehicle's holding of Corvane before the co-invest vehicle itself.
+function listedFirst() {
+  const recs = { own: { args: [{ edge: 'Owner', at: 'a' }, { edge: 'Owned', at: 'b' }], tag: true }, a: { kind: 'Entity' }, b: { kind: 'Entity' } };
+  const R = Formulas.computeState(recs, [], SAMPLE_NAMES);
+  check('A relation listed before an object it relates is on that object’s list', show(R, Formulas.evaluateAt(R, 'COUNT(Holdings)', 'a')) === '1'
+    && show(R, Formulas.evaluateAt(R, 'COUNT(Owners)', 'b')) === '1', show(R, Formulas.evaluateAt(R, 'COUNT(Holdings)', 'a')));
+  const st = sampleState();
+  const { definitions, names } = engineInputs(st.records, null, null, st);
+  const S = Formulas.computeState(st.records, definitions, names);
+  const through = S.records[Formulas.computedId([{ edge: 'Investor', at: 'coinv' }, { edge: 'Investment', at: 'corvane' }])];
+  check('…so the sample’s co-invest vehicle looks through to the 12.5% of Corvane it holds', through?.value === 0.125, JSON.stringify(through));
+}
+
 function run() {
   sameAsOracle();
   enteredAtComputed();
   orderDoesNotMatter();
+  listedFirst();
   const failed = out.filter(x => !x.ok).length;
   document.title = `engine test: ${out.length - failed} pass, ${failed} fail`;
   document.getElementById('out').innerHTML = `${esc(document.title)}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>

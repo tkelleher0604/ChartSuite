@@ -1454,6 +1454,9 @@ function stateFor(P, entered) {
   const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), relsAtObj: new Map(), relsBySig: new Map(), specs: new Map(),
     bySpec: new Map(), enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, dep: null, deps: null, reads: null, done: 0,
     cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(), forms: new WeakMap() };
+  // Every entered record is in before any is indexed, so a relation listed before a record it's located at
+  // is still indexed by that record's object.
+  Object.assign(S.recs, entered);
   for (const [id, r] of Object.entries(entered)) addRecord(S, id, r);
   for (const [id, r] of Object.entries(entered)) {
     specOf(S, id);
