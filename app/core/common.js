@@ -108,3 +108,10 @@ const themeSwitch = () => seg('Theme', 'theme', [['system', 'System'], ['light',
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const undoKey = isMac ? '⌘Z' : 'Ctrl+Z';
 const redoKey = isMac ? '⇧⌘Z' : 'Ctrl+Y';
+
+// The page's address after #, decoded; as it stands if it doesn't decode (a stray %), so a page can say it
+// doesn't know the address rather than fail.
+function readHash(hash = location.hash) {
+  const h = String(hash).replace(/^#/, '');
+  try { return decodeURIComponent(h); } catch { return h; }
+}

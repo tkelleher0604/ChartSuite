@@ -34,7 +34,7 @@ const RecordPage = (() => {
       const subject = pathTo(view.id)[0];
       return { subject, focus: view.id === subject ? null : view.id };
     }
-    const h = decodeURIComponent(location.hash.slice(1));
+    const h = readHash();
     const batch = h ? archive.find(b => b.records[h]) : null;
     let top = h;
     while (batch && (batch.records[top] ?? records[top])?.at) top = (batch.records[top] ?? records[top]).at;
@@ -496,7 +496,7 @@ const RecordPage = (() => {
   // own: a kind's table, the Schema area for definitions, and the chart's panel for the rest.
   panelOptions.page = true;
   panelOptions.href = hash => {
-    const h = decodeURIComponent(hash);
+    const h = readHash(hash);
     if (records[h]) return Shell.recordHref(h);
     if (h.startsWith('relate:')) return `#${hash}`;
     if (h.startsWith('kind:')) return Shell.kindHref(h.slice(5));

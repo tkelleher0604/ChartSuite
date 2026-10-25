@@ -1176,7 +1176,7 @@ function schemaFormBody(f, keys, defs, users, unused) {
 // "definition:new:relation[:<a>:<b>]" or "definition:new:form:<form>" for a new one), or a record id. The older
 // "formulas" and "formula:…" still lead to the same places.
 function currentView() {
-  const h = decodeURIComponent(location.hash.slice(1)).replace(/^formula:/, 'definition:');
+  const h = readHash().replace(/^formula:/, 'definition:');
   if (h === 'deleted') return { deleted: true };
   if (h === 'schema' || h === 'schema:computed' || h === 'schema:unused') return { schema: { filter: h.split(':')[1] ?? 'all' } };
   if (h === 'formulas') return { schema: { filter: 'computed' } };
@@ -2098,7 +2098,7 @@ document.addEventListener('keydown', e => {
 // The object a hash's view is about, if any: a record's object, or the first side being related. A
 // relation, and what's located at it, belong to no one object.
 function objectOfHash(hash) {
-  const h = decodeURIComponent(hash.replace(/^#/, ''));
+  const h = readHash(hash);
   const id = h.startsWith('relate:') ? h.slice(7).split(':')[0] : h;
   const obj = records[id] && objectOf(id);
   return obj && isObject(records[obj]) ? obj : null;

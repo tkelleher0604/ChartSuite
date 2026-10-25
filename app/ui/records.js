@@ -61,7 +61,7 @@
   const saveSession = () => storeFor('sessionStorage', SESSION_KEY, { filters: ui.filters, search: ui.search, needs: ui.needs });
 
   // ---- The kind ----
-  const hashText = () => { try { return decodeURIComponent(location.hash.slice(1)); } catch { return ''; } };
+  const hashText = () => readHash();
 
   // The kind the address names, or else the first kind the sidebar lists. A chart with no kinds yet starts
   // its first as an Entity.

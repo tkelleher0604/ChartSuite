@@ -40,7 +40,7 @@ function selection() {
 
 // Moves the selection, re-rendering even when the hash doesn't change.
 function go(hash) {
-  if (decodeURIComponent(location.hash.slice(1)) === hash) render();
+  if (readHash() === hash) render();
   else location.hash = hash;
 }
 

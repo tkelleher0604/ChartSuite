@@ -200,8 +200,8 @@ const ui = {
 };
 const TABS = [['linked', 'Linked'], ['unlinked', 'Not linked'], ['broken', 'Broken links']];
 
-function readHash() {
-  const h = decodeURIComponent(location.hash.slice(1));
+function useHash() {
+  const h = readHash();
   if (h === 'not-linked') ui.tab = 'unlinked';
   else if (h === 'broken') ui.tab = 'broken';
   else if (h) { ui.tab = 'linked'; ui.selected = h; }
@@ -1068,7 +1068,7 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'Enter' && ui.selected && ui.tab !== 'unlinked') { e.preventDefault(); location.href = Shell.recordHref(rowById(ui.selected).record); }
 });
-addEventListener('hashchange', () => { readHash(); render(); });
+addEventListener('hashchange', () => { useHash(); render(); });
 
 // ---- The page ----
 
@@ -1096,7 +1096,7 @@ function load() {
   versionsOf(row ? itemOf(row.link) : ui.tab === 'unlinked' && ui.selected ? fileById(ui.selected) : null);
 }
 
-readHash();
+useHash();
 Shell.onChartChange(() => { ui.selected = null; for (const s of Object.values(ui.facets)) s.clear(); });
 Shell.start({
   area: 'documents',
