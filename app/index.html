@@ -7,27 +7,18 @@
 <script src="ui/prepaint.js"></script>
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/shell.css">
+<link rel="stylesheet" href="css/agenda.css">
+<link rel="stylesheet" href="css/home.css">
 </head>
 <body>
 <script src="core/common.js"></script>
 <script src="core/model.js"></script>
+<script src="core/sample.js"></script>
 <script src="core/formulas.js"></script>
 <script src="core/styles.js"></script>
 <script src="ui/shell.js"></script>
 <script src="ui/parts.js"></script>
-<script>
-Shell.start({
-  area: 'home',
-  title: 'Home',
-  actions: () => `<a class="btn btn-sm" href="chart.html">Open the chart</a>`,
-  render: () => `<div class="content">
-    <div class="page-head"><div class="page-head-text"><h2 class="page-title">${esc(chartInUse().name)}</h2>
-      <p class="page-sub">${count(Object.keys(entered).filter(id => isObject(entered[id])).length, 'record')} entered, ${count(Object.keys(records).filter(isComputed).length, 'record')} worked out by formula.</p></div></div>
-    <div class="card"><div class="card-head"><h3 class="card-title">Records</h3></div>
-      ${kindsInState().map(k => `<a class="card-row" href="${Shell.kindHref(k)}"><span>${esc(plural(k))}</span><span class="faint" style="margin-left:auto">${objectsOfKind(k).length}</span></a>`).join('')}</div>
-  </div>`,
-  commands: [{ title: 'Open the chart', run: () => { location.href = 'chart.html'; } }],
-});
-</script>
+<script src="ui/agenda.js"></script>
+<script src="ui/home.js"></script>
 </body>
 </html>

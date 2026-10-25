@@ -1,0 +1,92 @@
+/* Home: a greeting over two columns, the work on the left and the chart at a glance on the right. The
+   rows of dates are the agenda's (agenda.css). */
+
+.home { container: home / inline-size; }
+.home-head { margin-bottom: 28px; }
+.home-greeting { margin: 0; font-size: 28px; font-weight: 600; line-height: 36px; letter-spacing: -.021em; }
+.home-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; margin: 4px 0 0; color: var(--text-2); }
+.home-chart { color: var(--text); font-weight: 500; }
+.home-dot { color: var(--text-3); }
+
+.home-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(17rem, 1fr); align-items: start; gap: 32px; }
+.home-main { display: flex; flex-direction: column; gap: 36px; min-width: 0; }
+.home-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.home-section .section-head { margin-bottom: 8px; padding: 0 10px; }
+.home-section .section-note { color: var(--text-3); }
+/* An empty section is a compact box. */
+.home-section .empty-state { padding: 18px 20px; }
+
+/* ---- Needs attention ---- */
+.home-att + .home-att { margin-top: 18px; }
+.home-att-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 2px; padding: 0 10px; font-size: 12.5px; font-weight: 500; line-height: 22px; color: var(--text-2); }
+.home-att-count { color: var(--text-3); }
+.home-att.is-overdue .home-att-head { color: var(--danger); }
+.home-att.is-overdue .home-att-count { color: var(--danger); opacity: .75; }
+.home-more { margin: 4px 10px 0; font-size: 12.5px; }
+/* A required entry left blank, or a formula's error: its mark spans the columns a date and its distance take. */
+.home-flag-mark { grid-column: 1 / 3; grid-row: 1; white-space: nowrap; font-size: 12.5px; }
+.home-flag.is-blank .home-flag-mark { color: var(--warn); font-weight: 500; }
+.home-flag.is-error .home-flag-mark { color: var(--danger); }
+.home-code { font: 500 12px/18px ui-monospace, "Cascadia Code", Consolas, monospace; }
+.home-flag-others { flex: none; margin-left: 6px; color: var(--text-3); font-size: 12.5px; white-space: nowrap; }
+button.home-flag-others:hover { color: var(--text); }
+.home-flag.is-open .ev-whose { flex-wrap: wrap; row-gap: 4px; }
+.home-clear { display: flex; align-items: flex-start; gap: 12px; padding: 12px 10px; font-size: 13px; }
+.home-clear-mark { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--success-soft); color: var(--success-text); }
+.home-clear-mark .icon { width: 14px; height: 14px; }
+.home-clear-title { font-weight: 500; }
+
+/* ---- Recent changes ---- */
+.home-list { display: flex; flex-direction: column; }
+.home-change { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; border-radius: var(--radius-sm); font-size: 13px; }
+.home-change + .home-change { box-shadow: 0 -1px 0 var(--border); }
+.home-change:hover, .home-change:hover + .home-change { box-shadow: none; }
+.home-change:hover { background: var(--hover); }
+.home-change-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-source { margin-right: 6px; padding: 1px 6px; border-radius: var(--radius-xs); background: var(--pressed); color: var(--text-2); font-size: 11.5px; font-weight: 500; }
+.home-change-meta { display: flex; flex: none; align-items: baseline; gap: 8px; font-size: 12px; }
+.home-who { color: var(--text-2); }
+
+/* ---- Recently viewed ---- */
+.home-recent { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 16px; }
+.home-recent-item { display: flex; flex-direction: column; min-width: 0; padding: 6px 10px; border-radius: var(--radius-sm); }
+.home-recent-item:hover { background: var(--hover); }
+.home-recent-name { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.home-recent-sub { overflow: hidden; color: var(--text-3); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- The side: the chart at a glance, and what's coming up ---- */
+.home-card { overflow: hidden; }
+.home-card .card-head { min-height: 42px; }
+.home-card .card-head .link-btn { margin-left: auto; font-size: 12.5px; }
+.home-thumb { position: relative; display: block; height: 168px; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.home-thumb:hover { background: var(--hover); }
+.home-thumb-svg { display: block; width: 100%; height: 100%; }
+.home-thumb-svg rect { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1; }
+.home-thumb-lines { fill: none; stroke: var(--text-3); stroke-width: 1; }
+.home-thumb-view { position: absolute; right: 10px; bottom: 8px; padding: 0 6px; border-radius: var(--radius-xs); background: var(--surface); color: var(--text-3); font-size: 11.5px; line-height: 18px; }
+.home-counts { padding: 6px 0; }
+.home-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; padding: 0 16px; font-size: 13px; }
+a.home-count:hover { background: var(--hover); }
+.home-count .tnum { color: var(--text-2); }
+.home-card-foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12.5px; }
+
+.home-next { padding: 4px 0; }
+.home-next-item { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; align-items: baseline; gap: 10px; padding: 7px 16px; font-size: 13px; }
+.home-next-item:hover { background: var(--hover); }
+.home-next-date { color: var(--text-2); }
+.home-next-item.is-computed .home-next-date { font-style: italic; }
+.home-next-text { display: flex; flex-direction: column; min-width: 0; }
+.home-next-label { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.home-next-whose { overflow: hidden; color: var(--text-3); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.home-next-when { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.home-next-item.is-week .home-next-when { color: var(--warn); font-weight: 500; }
+
+/* Narrow: one column, the side after the work. */
+@container home (max-width: 860px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+@container home (max-width: 560px) {
+  .home-side { grid-template-columns: minmax(0, 1fr); }
+  .home-recent { grid-template-columns: minmax(0, 1fr); }
+}

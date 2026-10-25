@@ -144,14 +144,17 @@ const Agenda = (() => {
   }
 
   // ---- Markup ----
-  // Whose an event is, as a sentence of the model would say it: an object's chip, then the path below it
+  // Whose something is, as a sentence of the model would say it: an object's chip, then the path below it
   // (Calder Ridge Capital Management › Registered Investment Adviser); or a relation's name, then its
   // objects' chips in its order (General Partner: Calder Ridge Capital GP III → Calder Ridge Capital
-  // Partners III), then the path below the relation.
-  const whereText = e => e.where.join(' › ');
-  const whoseHtml = e => `<span class="ev-whose">${e.relation ? `<span class="ev-rel">${esc(e.relation)}:</span>` : ''}${
-    e.owners.map(k => Parts.chip(k)).join('<span class="ev-arrow">→</span>')}${
-    e.where.length ? `<span class="ev-path" title="${esc(whereText(e))}">${esc(whereText(e))}</span>` : ''}</span>`;
+  // Partners III), then the path below the relation. Objects that aren't a relation's (relation null) are
+  // just listed; a relation named already nearby can go unsaid (relation ''). `after` follows, inside.
+  function whose({ owners, relation = null, where = [] }, after = '') {
+    const path = where.join(' › ');
+    return `<span class="ev-whose">${relation ? `<span class="ev-rel">${esc(relation)}:</span>` : ''}${
+      owners.map(k => Parts.chip(k)).join(relation !== null ? '<span class="ev-arrow">→</span>' : '')}${
+      path ? `<span class="ev-path" title="${esc(path)}">${esc(path)}</span>` : ''}${after}</span>`;
+  }
 
   const recordHref = e => Shell.recordHref(e.root);
   const longDate = iso => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -167,7 +170,7 @@ const Agenda = (() => {
       <time class="ev-date tnum" datetime="${esc(e.iso)}" title="${esc(dateTitle)}">${esc(Parts.date(e.iso))}</time>
       <span class="ev-when tnum">${esc(relative(e.iso))}</span>
       <span class="ev-what"><a class="ev-label" href="${esc(recordHref(e))}">${esc(e.label)}</a></span>
-      ${whoseHtml(e)}
+      ${whose(e)}
       ${compact ? '' : `<span class="ev-actions">${formula ? `<button class="link-btn ev-why-btn" data-cmd="agenda.why" data-id="${esc(e.id)}" aria-expanded="${shown}" aria-controls="why-${esc(e.id)}" title="${e.computed ? 'How a definition worked this out' : 'What the definition says about this date'}">Why</button>` : ''}<a class="link-btn ev-open" href="${esc(recordHref(e))}">Open</a></span>`}
     </div>${shown ? whyHtml(e) : ''}`;
   }
@@ -224,6 +227,6 @@ const Agenda = (() => {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  return { events, grouped, groupOf, spanText, relative, matches, reach, listsOf, row, whoseHtml, ownersOf, ics, download,
+  return { events, grouped, groupOf, spanText, relative, matches, reach, listsOf, row, whose, ownersOf, ics, download,
     isDeadline, isoOf, isoToday, addDays, longDate, GROUPS };
 })();

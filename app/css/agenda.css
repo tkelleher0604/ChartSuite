@@ -32,7 +32,8 @@
 .ev-whose .chip { flex: 0 1 auto; min-width: 2.5rem; }
 .ev-arrow { flex: none; color: var(--text-3); font-size: 12px; }
 .ev-rel { flex: none; margin-right: 2px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
-.ev-path { flex: 0 1000 auto; min-width: 0; margin-left: 4px; overflow: hidden; color: var(--text-3); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+/* The path takes only the room the chips leave, so a chip is cut short only when it alone doesn't fit. */
+.ev-path { flex: 1 1 0; min-width: 0; margin-left: 4px; overflow: hidden; color: var(--text-3); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ev-path::before { content: "› "; }
 
 .ev-actions { display: flex; justify-content: flex-end; gap: 12px; }
