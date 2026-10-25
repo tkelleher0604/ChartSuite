@@ -12,11 +12,13 @@
 .docs-head .tab:first-child[aria-selected="true"]::after { left: 0; }
 .tab-count.is-alert { color: var(--warn); font-weight: 500; }
 
-.docs-toolbar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 14px 32px 12px; }
+/* Search, then the filters, wrapping in a column of their own if they must, then the count. */
+.docs-toolbar { display: grid; flex: none; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 8px 12px; padding: 14px 32px 12px; }
 .docs-toolbar .search-input .input { width: 232px; }
-.docs-toolbar .filters { gap: 6px; }
-.docs-clear { margin-left: 4px; font-size: 12.5px; }
-.docs-count { margin-left: auto; font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.docs-toolbar .filters { gap: 6px; min-height: 30px; }
+.docs-clear { height: 28px; margin-left: 4px; font-size: 12.5px; }
+.docs-count { grid-column: 3; line-height: 30px; font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+@container docs (max-width: 880px) { .docs-toolbar .search-input .input { width: 184px; } }
 .docs-body { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0 32px 24px; }
 .docs-body > .table-wrap { flex: 0 1 auto; min-height: 0; }
 .docs-body.is-empty { padding-top: 16px; }
@@ -28,7 +30,7 @@
 .docs-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docs-table th { padding: 0 12px; }
 .docs-table tbody tr { cursor: default; }
-.docs-table .c-glyph { width: 44px; padding-right: 0; color: var(--text-3); }
+.docs-table .c-glyph { width: 44px; padding-right: 0; }
 .docs-table .c-type { width: 184px; color: var(--text-2); }
 .docs-table .c-subjects { width: 252px; }
 .docs-table .c-date { width: 120px; }
@@ -54,7 +56,7 @@
 .th-arrow { min-width: 8px; color: var(--text-3); font-size: 12px; }
 
 /* The file-type glyph: the one icon that earns its place. */
-.doc-glyph { display: inline-grid; place-items: center; vertical-align: middle; color: var(--text-3); }
+.doc-glyph { display: inline-grid; place-items: center; vertical-align: middle; color: var(--text-2); }
 .doc-glyph .doc-icon { width: 20px; height: 20px; }
 .doc-glyph.is-empty { opacity: .45; }
 .doc-glyph.is-large { flex: none; width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--bg); color: var(--text-2); }
@@ -152,8 +154,10 @@
 .docs-dialog { z-index: 81; display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; }
 .dd-head { padding: 20px 24px 14px; }
 .dd-sub { margin: 0; font-size: 13px; color: var(--text-2); }
-.dd-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 4px; }
-.docs-dialog.is-browse .dd-body { overflow: visible; }
+/* The body takes what it needs, so a list opened in it can spread past its edge; only on a short screen
+   does it scroll instead. */
+.dd-body { flex: 1; min-height: 0; padding: 0 24px 4px; }
+@media (max-height: 640px) { .docs-dialog:not(.is-browse) .dd-body { overflow-y: auto; } }
 .dd-actions { align-items: center; margin: 0; padding: 16px 24px 20px; }
 .dd-spacer { flex: 1; }
 .dd-error { margin: 12px 24px 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); font-size: 13px; }
@@ -203,7 +207,8 @@ button.dd-item:hover, button.dd-item:focus-visible { background: var(--hover); o
 .chip-x { display: grid; place-items: center; width: 18px; height: 18px; margin-left: 2px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--text-3); }
 .chip-x:hover { background: var(--border); color: var(--text); }
 .chip-x .icon { width: 12px; height: 12px; }
-.dd-listbox { z-index: 5; }
+.dd-listbox { z-index: 5; max-height: 232px; }
+.dd-listbox.is-up { top: auto; bottom: calc(100% + 4px); }
 
 @media (max-width: 760px) {
   .docs-head { padding: 20px 16px 0; }

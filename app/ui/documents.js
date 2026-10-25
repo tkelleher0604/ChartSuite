@@ -87,28 +87,31 @@ function holdersOf(at) {
   return isRelation(r) ? [...new Set(r.args.flatMap(a => holdersOf(a.at)))] : holdersOf(r.at);
 }
 
-// Worked out once for each set of records: the relations at each location, every document, and what
-// each object owns.
-const memo = { recs: null, names: null, rels: null, rows: null, owns: null };
+// Worked out once for each set of records (which every change replaces, schema and all): the relations
+// at each location, the relation documents' subjects are recorded by, every document, and what each
+// object owns.
+const memo = { recs: null, names: null, rels: null, concerns: null, rows: null, owns: null };
 function fresh() {
   if (memo.recs === records && memo.names === names) return memo;
   memo.recs = records; memo.names = names;
   memo.rels = new Map();
   for (const [id, r] of Object.entries(records))
     if (isRelation(r)) for (const at of new Set(r.args.map(a => a.at))) pushTo(memo.rels, at, id);
+  memo.concerns = concernsRelation();
   memo.owns = null;
   memo.rows = documentRows();
   return memo;
 }
 
-// The records a document concerns: the objects it's related to, other documents aside, in the order they
-// were related, each with the relation that relates them and whether a formula worked it out. A
-// ruled-out tag relates nothing.
+// The records a document concerns: the other side of each of its Concerns relations, in the order they
+// were related, each with the relation and whether a formula worked it out. A ruled-out tag relates
+// nothing. The document's other relations show in its pane, each under its own name.
 function subjectsOf(docId) {
   const out = new Map();
-  for (const rid of fresh().rels.get(docId) ?? []) {
+  const { rels, concerns } = fresh();
+  for (const rid of rels.get(docId) ?? []) {
     const r = records[rid];
-    if (isTag(r) && !r.tag) continue;
+    if ((isTag(r) && !r.tag) || formKeyOf(rid) !== concerns.form) continue;
     for (const a of r.args) {
       if (a.at === docId) continue;
       for (const h of holdersOf(a.at)) if (h !== docId && !isDocObject(h) && !out.has(h)) out.set(h, { id: h, rel: rid, computed: isComputed(rid) });
@@ -377,6 +380,9 @@ function passes(row, except = null) {
   return !ui.query || matches(hay(row), ui.query);
 }
 const anyFilter = () => !!clean(ui.query) || Object.values(ui.facets).some(s => s.size);
+// The documents a tab shows: on Linked, what its search and facets let through; on Broken links, which
+// has no facets, the broken ones its search does.
+const shownRows = (tab, rows) => tab === 'broken' ? rows.filter(r => isBroken(r) && (!ui.query || matches(hay(r), ui.query))) : rows.filter(r => passes(r));
 
 // Sorting keeps blanks last, whichever way it goes.
 const SORTS = {
@@ -399,7 +405,9 @@ function page() {
   const { rows } = fresh();
   const files = lib.files.state === 'ok' ? unlinkedFiles() : [];
   const broken = rows.filter(isBroken);
+  // What's been deleted, or undone, since it was chosen is let go.
   if (ui.selected && !(ui.tab === 'unlinked' ? fileById(ui.selected) : rowById(ui.selected))) ui.selected = null;
+  for (const id of ui.facets.subject) if (!records[id]) ui.facets.subject.delete(id);
   // Until the library can be read, what it holds isn't counted.
   const counts = { linked: rows.length, unlinked: !lib.signedIn ? '' : lib.files.state === 'ok' ? files.length : null, broken: lib.signedIn ? broken.length : '' };
   const body = ui.tab === 'linked' ? linkedView(rows) : ui.tab === 'unlinked' ? unlinkedView(files) : brokenView(broken);
@@ -463,7 +471,7 @@ const statusBadge = cell => !cell ? '' : `<span class="${cell.computed ? 'comput
 const cellText = (cell, cls = '') => !cell ? '' : `<span class="${cls}${cell.computed ? ' computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${esc(cell.text)}</span>`;
 
 function linkedView(rows) {
-  const shown = sorted(rows.filter(r => passes(r)), SORTS, ui.sort.linked);
+  const shown = sorted(shownRows('linked', rows), SORTS, ui.sort.linked);
   const tools = toolbar({ facets: true, shown: shown.length, total: rows.length, noun: 'documents' });
   if (!rows.length) return `<div class="docs-body is-empty">${Parts.empty({ title: 'No documents linked yet', desc: 'Link files from the library to record what they are and what they concern.', action: { label: 'Link document', cmd: 'docs.link' } })}</div>`;
   if (!shown.length) return `${tools}<div class="docs-body">${Parts.empty({ title: 'No documents match', desc: 'Nothing linked fits these filters.', action: { label: 'Clear filters', cmd: 'docs.clear' } })}</div>`;
@@ -516,7 +524,7 @@ function unlinkedView(files) {
 function brokenView(broken) {
   const notice = !lib.signedIn ? libraryNotice() : '';
   if (notice) return notice;
-  const shown = sorted(broken.filter(r => passes(r)), SORTS, ui.sort.broken);
+  const shown = sorted(shownRows('broken', broken), SORTS, ui.sort.broken);
   const tools = toolbar({ facets: false, shown: shown.length, total: broken.length, noun: 'documents' });
   const checking = fresh().rows.some(r => checkOf(r.link)?.state === 'checking');
   if (!broken.length) return `${tools}<div class="docs-body">${checking ? Parts.empty({ title: 'Checking links…', desc: 'Each SharePoint link is being looked up in the library.' })
@@ -688,9 +696,9 @@ function guess(file) {
     ?? parseDate(/\b(\d{4}-\d{2}-\d{2})\b/.exec(title)?.[1] ?? '') ?? '';
   const word = [['executed', 'Executed'], ['signed', 'Executed'], ['filed', 'Filed'], ['draft', 'Draft'], ['superseded', 'Superseded']].find(([w]) => new RegExp(`\\b${w}\\b`, 'i').test(title));
   const status = fromCol('status', ROLES.status.labels, v => pick(statusOptions, v)) ?? (word ? pick(statusOptions, word[1]) : '');
-  const named = col(['Entity', 'Entities', 'Subject', 'Concerns']);
-  if (named) from.push('subjects');
-  return { name: title, link: file.webUrl, type, date, status, version: '', subjects: subjectsNamedIn([named, title].filter(Boolean).join(' | ')), from };
+  const named = subjectsNamedIn(col(['Entity', 'Entities', 'Subject', 'Concerns']) ?? '');
+  if (named.length) from.push('subjects');
+  return { name: title, link: file.webUrl, type, date, status, version: '', subjects: [...new Set([...named, ...subjectsNamedIn(title)])], from };
 }
 // The objects whose names a text mentions, longest names first, so a feeder's name isn't also read as its
 // main fund's. Documents aside; short names are too likely to be words.
@@ -784,7 +792,7 @@ function saveDetails(row, form) {
     const value = entryRecord(row.id, { label: r.edge, type: 'field', datatype: r.field }, v).value;
     if (r.value !== value) next[id] = { ...r, value };
   }
-  const rel = concernsRelation();
+  const rel = fresh().concerns;
   const had = subjectsOf(row.id), want = new Set(form.subjects);
   drop(had.filter(s => !s.computed && !want.has(s.id) && records[s.rel] && !isComputed(s.rel)).map(s => s.rel));
   let relId = null;
@@ -1048,6 +1056,9 @@ function drawLayer(focusFirst = false) {
   const listTop = el.querySelector('.dd-list')?.scrollTop ?? 0;
   el.innerHTML = (ui.dialog ? dialogHtml() : '') + (ui.pop ? popHtml() : '');
   if (ui.pop) placePop();
+  // A list with no room below its box opens above it.
+  const listbox = el.querySelector('.dd-listbox');
+  if (listbox && listbox.getBoundingClientRect().bottom > innerHeight - 8) listbox.classList.add('is-up');
   const list = el.querySelector('.dd-list');
   if (list && !focusFirst) list.scrollTop = listTop;
   const again = key && el.querySelector(`[data-docs-input="${key}"]`);
@@ -1127,7 +1138,7 @@ function select(id) {
 function shownIds() {
   const { rows } = fresh();
   if (ui.tab === 'unlinked') return [...document.querySelectorAll('.docs-table tbody tr[data-row]')].map(tr => tr.dataset.row);
-  return sorted((ui.tab === 'broken' ? rows.filter(isBroken) : rows).filter(r => passes(r)), SORTS, ui.sort[ui.tab]).map(r => r.id);
+  return sorted(shownRows(ui.tab, rows), SORTS, ui.sort[ui.tab]).map(r => r.id);
 }
 
 Shell.on('docs.tab', el => setTab(el.dataset.tab));
