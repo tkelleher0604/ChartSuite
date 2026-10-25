@@ -353,8 +353,10 @@ function wholeSample() {
     && H.every((h, i) => h.id && h.who && h.summary && Array.isArray(h.changes) && h.changes.every(c => 'before' in c && 'after' in c) && (i === 0 || h.when <= H[i - 1].when)));
   check('History: from June 2024 to October 2026, by three of the team', H.at(-1).when.startsWith('2024-06') && H[0].when.startsWith('2026-10') && new Set(H.map(h => h.who)).size === 3);
   check('History: every entry changed something, records or a definition', H.every(h => h.changes.length || /definition/.test(h.summary)));
+  // A set of records is never changed in place (model.js indexes each once), so each step makes a new one.
   let state = { ...entered }, broken = null;
   for (const h of H) {
+    state = { ...state };
     for (const c of h.changes) {
       if (JSON.stringify(state[c.id] ?? null) !== JSON.stringify(c.after)) broken ??= `${h.summary}: ${c.id}`;
       if (c.before) state[c.id] = c.before; else delete state[c.id];

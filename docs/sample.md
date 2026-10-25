@@ -129,7 +129,7 @@ For the demo to show what's missing, after domain-research.md §5:
 | Structure | Every entity and investor group, and the two principals; hides the people who hold nothing | Investors along the top, the funds beneath them; GP III and the manager sit between Fund III and the feeder, so GP III's lines reach only its own funds; then the holdings |
 | 40 Act | The BDC and its 22 close and remote affiliates, by the core's filter | Its own: the BDC as a wide bar, its affiliates in a row above and a row below, so each line runs straight to it |
 | Fund III | The fund family alone: investor groups, funds, GPs, blockers and portfolio companies, by a filter on Vehicle Type | Structure's |
-| Management and control | The people and the sponsor's entities (manager, GPs, holding company, BDC), with ownership, positions (purple, labeled by category) and the BDC's adviser | Its own: people above where they serve |
+| Management and control | The people and the sponsor's entities (manager, GPs, holding company, BDC), with ownership, positions (labeled by category) and the BDC's adviser (dotted) | Its own: people above where they serve |
 
 No view draws boxes for documents or service providers; View › Show brings them.
 
