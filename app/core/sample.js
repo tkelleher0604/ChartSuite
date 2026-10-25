@@ -375,6 +375,8 @@ const SAMPLE_COMPLEX = {
   blocker_ein:     { at: 'blocker', edge: 'EIN', field: 'text', value: '92-5133076' },
   blocker_fye:     { at: 'blocker', edge: 'Fiscal Year End', field: 'text', value: 'December 31' },
   blocker_juris_frtax: { at: 'blocker_juris', edge: 'Franchise Tax Paid', field: 'date', value: '2026-02-24' },
+  // In good standing again once its franchise tax was paid (the core has it lapsed).
+  blocker_good:    { at: 'blocker', edge: 'Good Standing', tag: true },
 
   // The BDC's shares are sold privately, in an offering that's still open, so its Form D is amended yearly.
   bdc_fye:         { at: 'bdc', edge: 'Fiscal Year End', field: 'text', value: 'December 31' },
@@ -1059,6 +1061,7 @@ const SAMPLE_HISTORY = [
   ...renewals('feeder_juris_return', ['2024-01-18', '2025-01-21'], JORDAN, '15:30'),
   ...renewals('caygp_juris_return', [null, '2025-01-21'], JORDAN, '15:35'),
   ...renewals('blocker_juris_frtax', ['2024-02-27', '2025-02-26'], JORDAN, '15:18'),
+  { when: '2026-02-25T10:05', who: JORDAN, was: { blocker_good: SAMPLE_CORE.blocker_good } },
   ...renewals('aivblk_juris_frtax', [null], JORDAN, '15:25'),
   ...renewals('fund_cftc_last', ['2024-02-28', '2025-02-27'], MORETTI, '19:00'),
   ...renewals('feeder_cftc_last', ['2024-02-28', '2025-02-27'], MORETTI, '19:02'),

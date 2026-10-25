@@ -36,7 +36,7 @@ The full sample is the core filled out, with four core records replaced by its h
 - The feeder's GP passed from GP III to the Cayman GP (2024-07-01), so GP III's General Partner relation to the feeder was deleted, and Chen's signing authority for the feeder now goes through the Cayman GP.
 - The registered agents the core kept as text ("The Corporation Trust Company", under Jurisdiction: Delaware) were replaced by relations to a Service Provider (2025-01-15).
 
-Both edits are in the history, and their records are in the archive, as deleting puts them there.
+Both edits are in the history, and their records are in the archive, as deleting puts them there. The history also changes one more core record: the core's blocker is out of good standing, and the full sample's was put back in good standing once its franchise tax was paid (2026-02-25).
 
 ## How each kind of fact is modeled
 
@@ -151,6 +151,7 @@ They tell the stories §5 lists:
 - the CCO hand-over from Lindqvist to Moretti (January 2, 2025);
 - MacAllister replacing Lindqvist on the Cayman GP's board (June 30 and July 1, 2025);
 - the registered agents moving to Wilmington Harbor (January 15, 2025);
+- the blocker back in good standing after paying its franchise tax (February 25, 2026);
 - the co-invest diluting Corvane (June 15, 2026);
 - AIV-1 falling out of good standing (July 15, 2026);
 - the definition of Annual Tax Amount added after HB 400 (June 3, 2026);

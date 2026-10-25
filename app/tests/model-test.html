@@ -265,8 +265,11 @@ function wholeSample() {
   check('Whole sample: no formula gives an error', !formulaResult.errors.length && !Object.keys(formulaResult.defErrors).length,
     JSON.stringify(formulaResult.errors.slice(0, 3).map(e => [e.def, e.error.code])));
   const kept = Object.keys(SAMPLE_CORE).filter(id => !CORE_RETIRED.includes(id));
-  check('Whole sample: the core is in it, but for the four records its history replaced',
-    kept.every(id => JSON.stringify(entered[id]) === JSON.stringify(SAMPLE_CORE[id])) && CORE_RETIRED.length === 4 && CORE_RETIRED.every(id => !entered[id]));
+  // Its history also put the blocker back in good standing, once its franchise tax was paid.
+  const changed = ['blocker_good'];
+  check('Whole sample: the core is in it, but for the four records its history replaced and the one it changed',
+    kept.every(id => changed.includes(id) || JSON.stringify(entered[id]) === JSON.stringify(SAMPLE_CORE[id])) && CORE_RETIRED.length === 4
+    && CORE_RETIRED.every(id => !entered[id]) && entered.blocker_good.tag === true);
 
   // How fast: the median of seven workings-out, after one to warm up.
   runFormulas(entered);
