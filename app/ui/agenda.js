@@ -163,15 +163,15 @@ const Agenda = (() => {
   // has a say in. The label opens the record the date belongs to. `compact` leaves out the actions.
   function row(e, { compact = false } = {}) {
     const g = groupOf(e);
-    const formula = formulaInfo(e.id) && definitionOf(formulaInfo(e.id).def);
+    const def = formulaInfo(e.id) && definitionOf(formulaInfo(e.id).def);
     const shown = open.has(e.id) && !compact;
-    const dateTitle = e.computed && formula ? `${longDate(e.iso)}. Worked out by ${formula.name}.` : longDate(e.iso);
+    const dateTitle = e.computed && def ? `${longDate(e.iso)}. Worked out by ${def.name}.` : longDate(e.iso);
     return `<div class="ev-row is-${g}${e.computed ? ' is-computed' : ''}${compact ? ' is-compact' : ''}" data-event="${esc(e.id)}" data-href="${esc(recordHref(e))}" tabindex="-1">
       <time class="ev-date tnum" datetime="${esc(e.iso)}" title="${esc(dateTitle)}">${esc(Parts.date(e.iso))}</time>
       <span class="ev-when tnum">${esc(relative(e.iso))}</span>
       <span class="ev-what"><a class="ev-label" href="${esc(recordHref(e))}">${esc(e.label)}</a></span>
       ${whose(e)}
-      ${compact ? '' : `<span class="ev-actions">${formula ? `<button class="link-btn ev-why-btn" data-cmd="agenda.why" data-id="${esc(e.id)}" aria-expanded="${shown}" aria-controls="why-${esc(e.id)}" title="${e.computed ? 'How a definition worked this out' : 'What the definition says about this date'}">Why</button>` : ''}<a class="link-btn ev-open" href="${esc(recordHref(e))}">Open</a></span>`}
+      ${compact ? '' : `<span class="ev-actions">${def ? `<button class="link-btn ev-why-btn" data-cmd="agenda.why" data-id="${esc(e.id)}" aria-expanded="${shown}" aria-controls="why-${esc(e.id)}" title="${e.computed ? 'How a definition worked this out' : 'What the definition says about this date'}">Why</button>` : ''}<a class="link-btn ev-open" href="${esc(recordHref(e))}">Open</a></span>`}
     </div>${shown ? whyHtml(e) : ''}`;
   }
 
@@ -189,12 +189,12 @@ const Agenda = (() => {
   function ics(list, calendarName) {
     const text = s => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
     // Lines are folded at 75 octets, continuing with a space, as RFC 5545 has it.
+    const encoder = new TextEncoder();
     const fold = line => {
-      const bytes = new TextEncoder();
       const out = [];
       let cur = '';
       for (const ch of line) {
-        if (bytes.encode(cur + ch).length > (out.length ? 74 : 75)) { out.push(cur); cur = ''; }
+        if (encoder.encode(cur + ch).length > (out.length ? 74 : 75)) { out.push(cur); cur = ''; }
         cur += ch;
       }
       return [...out, cur].join('\r\n ');
@@ -228,5 +228,5 @@ const Agenda = (() => {
   }
 
   return { events, grouped, groupOf, spanText, relative, matches, reach, listsOf, row, whose, ownersOf, ics, download,
-    isDeadline, isoOf, isoToday, addDays, longDate, GROUPS };
+    isDeadline, isoOf, isoToday, addDays, longDate };
 })();

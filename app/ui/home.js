@@ -179,7 +179,8 @@ function thumbnailSvg() {
   const [x1, y1] = [Math.max(...all.map(b => b.x + b.w)) + 24, Math.max(...all.map(b => b.y + b.h)) + 24];
   // A line runs down from the bottom of the box above to the top of the one below, or, between boxes side
   // by side, across from one's side to the other's.
-  const lines = Object.keys(records).filter(id => isRelation(records[id]) && records[id].args.length === 2 && lineLook(id).show).flatMap(id => {
+  const hidden = new Set(hiddenInView());
+  const lines = Object.keys(records).filter(id => isRelation(records[id]) && records[id].args.length === 2 && !hidden.has(id) && lineLook(id).show).flatMap(id => {
     let [a, b] = records[id].args.map(x => boxes.get(objectOf(x.at)));
     if (!a || !b || a === b) return [];
     if (b.y + b.h <= a.y) [a, b] = [b, a];

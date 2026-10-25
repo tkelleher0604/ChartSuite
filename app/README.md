@@ -8,6 +8,19 @@ Open these directly in a browser. The chart and the record panel share their cod
 
 Both pages work on a workbook of charts. The menu naming the current chart, in the top bar, switches to another chart, starts a new one (blank, or a copy of this one), renames or deletes this one, and restores a deleted one. Charts don't share records, definitions or views, and each keeps its own undo history. "Copy definitions from" in the same menu brings another chart's definitions and relation names into this one, with the specifications they need, unsynced from then on. A new blank chart starts from the record panel's Entities or Individuals, or from a double-click on the chart.
 
+- [index.html](index.html): Home, the page a lawyer opens first, greeting them with the chart's name and today's date.
+  - **Needs attention:** deadlines overdue or due in the next 30 days; required entries left blank, a line per requirement with the records lacking it; and formula errors, a line per definition. Each links to where it's fixed.
+  - **Recent changes:** the latest of the history, with who and when, each linking to the record it touched. **Recently viewed:** the records the palette lists as Recent.
+  - On the right, the current view in outline, the records by kind (linking to their tables), and the agenda's next few dates.
+- [calendar.html](calendar.html): every date in the chart, entered or computed, as one agenda.
+  - Each date shows how far off it is, its label, and whose it is: its object as a chip, with the path below (a registration, a jurisdiction); or, for a date at a relation, the relation's name and its objects in order.
+  - **Deadlines and history.** A date a definition covers is a deadline: one it worked out, or one entered over its formula, like an extension. A past deadline is overdue, since its rule hasn't moved on. An entered date that no definition covers records a fact, so once past it's history. Labels decide nothing.
+  - **Agenda:** Overdue, This week (today and the six days after), Next 30 days, Later, and Past, collapsed. Up, Down, J and K move between rows; Enter opens one.
+  - **Month:** a grid of the month, and the day picked in it below. The arrow keys move a day or a week, Home and End to the week's ends, and Page Up and Page Down a month.
+  - **Filters:** by kind; by object, with what it reaches through any of its lists of relatives, directly and indirectly (a fund and its Holdings, a person and their Controlled Companies); and to computed dates. The view, day and filters are in the address, as `#view=month&day=…&kind=…&object=<id>&reach=Holdings|…&computed=1`.
+  - **Why** explains a date a definition gave, or one entered over its formula: the definition, its formula, and what it read.
+  - **Export to Outlook** saves what's shown as an .ics file of all-day events, each named for what it is and whose, with a link back to its record. Past dates are left out unless asked for.
+
 - [chart.html](chart.html): the chart, with a ribbon above it and the record panel on the right.
   - Every object is a box, and every two-argument relation is a line from its first argument to its second.
   - A line's label is the relation's own text (a tag's relation name, like General Partner, or a field's or choice's output), if its style gives one, followed by whatever is located at the relation that its own style shows. Ownership is a tag (Owner, Owned) with a Percentage located at it, so its lines carry no label of their own and the Percentage labels them, just above the box a line reaches. Clicking that text selects the line and engages the Percentage's style.
@@ -131,8 +144,11 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `ribbon.js` | The chart's ribbon |
 | `chart.js` | The chart: drawing boxes, routing lines, selecting, moving, editing in place, and relating by drag |
 | `sharepoint.js` | The document connector, with no UI, as one global, `SharePoint`: reading document links and choosing their icons; the connection settings; a Microsoft Graph client, signed in through MSAL, for browsing, search, items, sharing links and versions; loading and saving the workbook in a SharePoint library, with a conflict when someone else has saved since; and a demo tenant (Contoso's Fund Legal site) with the same API |
+| `agenda.js` | The chart's dates as events (what, whose, when, and whether a rule gives them), grouped as the agenda groups them; an event's row and its Why; whose something is, as chips; and the .ics export. Home and the Calendar share it |
+| `calendar.js`, `home.js` | The Calendar and Home |
 | `export.js` | Exports, made in the browser: the chart as a vector PDF, an editable PowerPoint deck (a slide per view, if asked) or an SVG, and an object's profile as a PDF; and the ribbon's Export tab. Each format draws one scene read off the chart, so it shows what the chart shows. Its libraries load the first time they're used |
 | `base.css`, `panel.css`, `chart.css` | Shared tokens and controls, the panel, and the chart page |
+| `agenda.css`, `calendar.css`, `home.css` | The agenda's rows, the Calendar, and Home |
 
 ## Vendored assets
 

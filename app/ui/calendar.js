@@ -139,11 +139,12 @@ function monthHtml(list) {
   const today = Agenda.isoToday();
   const byDay = new Map();
   for (const e of list) (byDay.get(e.iso) ?? byDay.set(e.iso, []).get(e.iso)).push(e);
-  const rank = { overdue: 0, week: 1, month: 1, later: 1, past: 2 };
+  // A day lists what's overdue first, then other deadlines, then the dates entered as facts.
+  const rank = e => Agenda.groupOf(e) === 'overdue' ? 0 : e.deadline ? 1 : 2;
   const cells = [];
   for (let i = 0; i < weeks * 7; i++) {
     const iso = Agenda.addDays(first, i - lead);
-    const evs = (byDay.get(iso) ?? []).sort((a, b) => rank[Agenda.groupOf(a)] - rank[Agenda.groupOf(b)] || byLabel(a.label, b.label));
+    const evs = (byDay.get(iso) ?? []).sort((a, b) => rank(a) - rank(b) || byLabel(a.label, b.label));
     const selected = iso === cal.day;
     const label = `${Agenda.longDate(iso)}${evs.length ? `, ${count(evs.length, 'date')}` : ''}`;
     cells.push(`<div class="cal-day${iso.slice(0, 7) !== first.slice(0, 7) ? ' is-out' : ''}${iso === today ? ' is-today' : ''}" role="gridcell" data-cmd="cal.day" data-day="${iso}"
@@ -154,7 +155,7 @@ function monthHtml(list) {
     </div>`);
   }
   const rows = Array.from({ length: weeks }, (_, w) => `<div class="cal-week" role="row">${cells.slice(w * 7, w * 7 + 7).join('')}</div>`).join('');
-  const dayEvents = (byDay.get(cal.day) ?? []).sort((a, b) => byLabel(a.label, b.label));
+  const dayEvents = byDay.get(cal.day) ?? [];
   return `<div class="cal-month">
     <div class="cal-month-head">
       <h2 class="cal-month-title">${esc(monthName(cal.day))}</h2>
@@ -196,6 +197,7 @@ function renderCalendar() {
 // ---- Export ----
 async function exportToOutlook() {
   const list = shownEvents();
+  if (!list.length) return Shell.toast(filtered() ? 'No dates match these filters, so there’s nothing to export.' : 'The chart has no dates to export yet.');
   const past = list.filter(e => Agenda.groupOf(e) === 'past');
   const ahead = list.length - past.length;
   cal.exportPast = false;
@@ -352,7 +354,8 @@ Shell.on('cal.today', () => moveDay(Agenda.isoToday()));
 Shell.on('cal.export', exportToOutlook);
 
 window.addEventListener('hashchange', () => { readAddress(); render(); });
-Shell.onChartChange(() => { Object.assign(cal, { kind: null, object: null, reach: [], computed: false, past: false }); closePicker(); });
+// Another chart's records are another chart's: its filters start afresh.
+Shell.onChartChange(() => { Object.assign(cal, { kind: null, object: null, reach: [], computed: false, past: false }); closePicker(); writeAddress(); });
 
 readAddress();
 Shell.start({
