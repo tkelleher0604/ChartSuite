@@ -1155,8 +1155,42 @@ function sampleState() {
   const { history, archive, schema: S } = sampleHistory(recs, defs, nms, S0);
   return {
     schema: S, records: recs, order: structuredClone(SAMPLE_ORDER), archive, definitions: defs, names: nms,
+    descriptions: sampleDescriptions(defs, S),
     views: sampleViews(recs, S, defs), required: SAMPLE_REQUIRED.map(id => parameterization(recs, id)), history,
   };
+}
+
+// What the sample's computed forms mean, in a lawyer's words, by the definition that computes each: the
+// first thing a computed record's Why says, before its formula.
+const SAMPLE_DESCRIPTIONS = {
+  def_private_fund: 'A fund that would be an investment company but for section 3(c)(1) or 3(c)(7) of the Investment Company Act.',
+  def_investment_company: 'An investment company under the Investment Company Act; here, a business development company.',
+  def_adds_up: 'Whether the ownership recorded in the chart accounts for 100% of the entity. When it doesn’t, other owners aren’t charted.',
+  def_tax: 'How the entity is taxed by default: a corporation as a C corporation; an entity with one owner (not an investor group) as disregarded; anything else as a partnership. An election entered by hand overrides it.',
+  def_look_through: 'The share of an entity an investor holds through every chain of ownership, multiplying the percentages along each chain.',
+  def_control: 'Control under section 2(a)(9) of the Investment Company Act: owning more than 25% of the voting securities, directly or through companies it controls, or being the entity’s general partner or managing member.',
+  def_affiliated: 'An affiliated person under section 2(a)(3): a 5% owner of the other, a company 5% owned by it, one under common control with it, its officer, director, partner or employee, or for an investment company, its investment adviser.',
+  def_close: 'A close affiliate of the BDC under Rule 57(b): its directors, officers, employees and investment adviser, those who control it, and their affiliates of the kinds the rule names. Transactions with them need an SEC order.',
+  def_remote: 'A remote affiliate of the BDC under section 57(e): a 5% owner of it, or a company it controls, that isn’t a close affiliate. Transactions with them need the approval of the required majority of the BDC’s board.',
+  def_3c1: 'How many beneficial owners section 3(c)(1) counts for a private fund: one per owner, looking through a fund that owns 10% or more.',
+  def_annual_tax: 'When the Delaware annual tax for a limited partnership or LLC is next due: June 1, for the year before, unless already paid.',
+  def_annual_tax_amount: 'The Delaware annual tax due: $300 through tax year 2025, $400 from tax year 2026 (HB 400).',
+  def_franchise_tax: 'When the Delaware franchise tax and annual report for a corporation are next due: March 1, for the year before.',
+  def_annual_return: 'When the Cayman annual return is next due: in January, before which there’s no penalty.',
+  def_form_adv: 'When the Form ADV annual updating amendment is next due: within 90 days after the fiscal year end.',
+  def_form_pf: 'When the annual Form PF update is next due: within 120 days after the fiscal year end.',
+  def_cima_fee: 'When the CIMA annual fee for a registered private fund is next due: January 15.',
+  def_form_d: 'When the Form D annual amendment is next due, while the offering is open: on the anniversary of the last filing, a weekend moving it to the next working day.',
+  def_cftc: 'When the CFTC Rule 4.13(a)(3) exemption must next be affirmed: within 60 days after the year end.',
+  def_lei: 'When the entity’s LEI must next be renewed: a year after its last renewal, or it lapses.',
+  def_formation_on_file: 'Whether the entity’s certificate of formation (or incorporation, or registration) is linked and filed.',
+  def_governing_on_file: 'Whether the entity’s executed governing agreement (LPA, LLC agreement or bylaws) is linked.',
+};
+function sampleDescriptions(defs, S) {
+  return Object.fromEntries(defs.flatMap(d => {
+    const t = SAMPLE_DESCRIPTIONS[d.id] && specsWithParam(d.scope[0], S)[0];
+    return t ? [[formOfTree(t), SAMPLE_DESCRIPTIONS[d.id]]] : [];
+  }));
 }
 
 const SAMPLE_CHART_NAME = 'Calder Ridge Fund III structure';

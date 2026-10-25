@@ -277,6 +277,8 @@ function wholeSample() {
   check('Whole sample: 17 entities, 7 individuals, 5 investor groups, 2 service providers and 47 documents', kinds.Entity === 17 && kinds.Individual === 7
     && kinds['Investor Group'] === 5 && kinds['Service Provider'] === 2 && kinds.Document === 47, JSON.stringify(kinds));
   check('Whole sample: a state, with definitions that fit the model', !validate(records) && !definitionsError(definitions, schema, names));
+  check('Whole sample: every computed form says what it means, keyed by a form the schema has',
+    definitions.every(d => descriptionOf(formOfDefinition(d))) && Object.keys(descriptions).every(f => specsOfForm(f).length));
   check('Whole sample: no formula gives an error', !formulaResult.errors.length && !Object.keys(formulaResult.defErrors).length,
     JSON.stringify(formulaResult.errors.slice(0, 3).map(e => [e.def, e.error.code])));
   const kept = Object.keys(SAMPLE_CORE).filter(id => !CORE_RETIRED.includes(id));

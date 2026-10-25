@@ -9,7 +9,8 @@ const WORKBOOK_KEY = 'rboreal.workbook.v2';
 // - entered: the records typed in. `records` is what everything reads: the entered records together with
 //   those the chart's formulas compute (see formulas.md), worked out again after every change;
 // - definitions: the formulas, each covering a set of parameterizations; names: the names of relations
-//   and of their lists of relatives, by form;
+//   and of their lists of relatives, by form; descriptions: what forms mean, in words, by form (the
+//   chart's vocabulary explained, as a computed record's Why and the Schema show it);
 // - required: the parameterizations every location like theirs should have an entry for;
 // - order: the order entries are shown in, kept per location specification, so that, say, every Entity
 //   lists its entries in the same order, the way a spreadsheet's rows share its columns;
@@ -17,19 +18,20 @@ const WORKBOOK_KEY = 'rboreal.workbook.v2';
 //   filter. The records are the same in every view. `styles` and `layout` are the current view's, written
 //   back into `views` on save;
 // - archive: deleted records, kept in batches so each can be restored with its dependents;
-// - history: every change to the chart's data (its records, definitions, names, required entries and
-//   schema), newest first, with when it was made and by whom; see "History" below. Views are presentation,
-//   and changes to them aren't recorded.
+// - history: every change to the chart's data (its records, definitions, names, descriptions, required
+//   entries and schema), newest first, with when it was made and by whom; see "History" below. Views are
+//   presentation, and changes to them aren't recorded.
 // Semantics is keyed by parameterization (formulas, required entries), looks and vocabulary by form (styles,
-// names), and placement by location (entry order by location specification, box positions by object).
+// names, descriptions), and placement by location (entry order by location specification, box positions by
+// object).
 // Names and order start empty, so records can be read and described before a state is set, as the sample's
 // history is.
-let schema, entered, records, definitions, names = {}, order = {}, views, viewId, styles, layout, required, archive, historyLog;
+let schema, entered, records, definitions, names = {}, descriptions = {}, order = {}, views, viewId, styles, layout, required, archive, historyLog;
 const undoStack = [];
 const redoStack = [];
 
 function setState(s) {
-  ({ schema = {}, records: entered, definitions = [], names = {}, order = {}, views, viewId = null, required = [], archive = [], history: historyLog = [] } = s);
+  ({ schema = {}, records: entered, definitions = [], names = {}, descriptions = {}, order = {}, views, viewId = null, required = [], archive = [], history: historyLog = [] } = s);
   recompute();
   // The schema holds what the formulas compute, as well as what's entered.
   schema = withSpecsOf(schema, records);
@@ -72,7 +74,7 @@ const workbookText = () => JSON.stringify({ ...workbook, charts: currentCharts()
 
 // States are never mutated in place, so earlier ones can be kept for undo.
 const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
-const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive, history: historyLog });
+const snapshot = () => ({ schema, records: entered, definitions, names, descriptions, order, views: currentViews(), viewId, required, archive, history: historyLog });
 
 function saveState() {
   let saved = storageProblem !== 'unavailable' && storageProblem !== 'unreadable-unkept';
@@ -1182,6 +1184,7 @@ function noteChangeSince(was, wasRecords, source, undone = null) {
   const extra = definitionChanges(was.definitions, definitions, was.schema, was.names);
   if (JSON.stringify(was.names) !== JSON.stringify(names)) extra.push('Changed relation names');
   if (JSON.stringify(was.required) !== JSON.stringify(required)) extra.push('Changed the required entries');
+  if (JSON.stringify(was.descriptions ?? {}) !== JSON.stringify(descriptions)) extra.push('Changed descriptions');
   if (!changes.length && !extra.length) return;
   // An undo or redo names the edit it takes back or puts back, when that's known.
   const summary = undone ? `${source === 'redo' ? 'Redid' : 'Undid'} “${undone}”` : changeSummary(changes, wasRecords, records, extra);
@@ -1411,6 +1414,7 @@ function mapNames(N, maps) {
   return out;
 }
 function remapPresentation(maps) {
+  descriptions = mapNames(descriptions, maps);
   for (const [s0, s1] of maps.specs) if (order[s0] && !order[s1]) { const { [s0]: list, ...rest } = order; order = { ...rest, [s1]: list }; }
   required = [...new Set(required.map(p => maps.params.get(p) ?? p))];
   const restyle = list => [...maps.forms].reduce((acc, [f0, f1]) =>
@@ -1563,6 +1567,22 @@ function setRequired(param, on) {
   saveState();
 }
 const toggleRequired = id => { const p = parameterization(records, id); setRequired(p, !isRequired(p)); };
+
+// Says in words what a form means, or with empty text stops saying it, as one undoable step: the chart's
+// vocabulary explained, as names name it. A computed record's Why leads with it, before the formula.
+function setDescription(form, text) {
+  const now = clean(text);
+  if ((descriptions[form] ?? '') === now) return;
+  pushUndo();
+  const { [form]: _, ...rest } = descriptions;
+  descriptions = now ? { ...rest, [form]: now } : rest;
+  noteChange(`${now ? 'Described' : 'Stopped describing'} ${describeForm(form).label}`);
+  saveState();
+}
+// What a form means, in words, if the chart says.
+const descriptionOf = form => descriptions[form] ?? '';
+// The form a definition covers: everything in its scope is of one form.
+const formOfDefinition = d => { const t = specsWithParam(d.scope[0])[0]; return t ? formOfTree(t) : null; };
 const stopRequiring = param => setRequired(param, false);
 
 // The required entries a location has no entry for, as [param, { label, type, datatype }] pairs.
