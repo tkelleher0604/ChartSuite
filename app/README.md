@@ -95,6 +95,14 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - The panel's views have addresses: `#kind:<kind>`, a record's id, `#relate:<a>:<b>`, `#deleted`, `#schema` (with `:computed` or `:unused`), and `#definition:<id>` (or `#definition:new:entry`, `#definition:new:relation`). The older `#formulas` and `#formula:…` lead to the same places.
   - The top bar switches between System, Light and Dark themes.
   - Changes are saved in the browser's local storage, with undo and redo. A workbook saved before the chart kept its schema isn't read, and the pages start again from the sample.
+- [history.html](history.html): every change to the chart's data, newest first, grouped by day.
+  - An entry says who made the change, what it was, in the history's own words with the records it names as links, and when. Undo, Redo, Reset and Import say so in a badge. A summary that only counts records is followed by the objects they're on.
+  - Opening an entry lists each record it touched, where it is as it was then, and what became of it: the old value struck through beside the new one, or Added or Deleted.
+  - A run of like changes in a row by one person (the same verb, to the same sort of thing) folds under its first, as "4 more changes like this", except while searching.
+  - Filters for the person, a record and everything below it, what changed (records, definitions, names, required entries or the schema) and a date range, and a search, are kept in the address so a filtered history can be linked to: `#record=<id>&who=<name>&what=records&from=2026-01-01&to=2026-03-31&q=<words>`.
+  - Export CSV saves the changes shown, one row for each record a change touched.
+  - Restore this, on an opened entry whose records are still as it left them, puts them back as they were before it, as an ordinary undoable change that the history records in its turn: a deletion by restoring its batch from Deleted, an addition by deleting what it added. Otherwise the entry says why it can't be restored.
+- [schema.html](schema.html): the Schema view and a definition's view from the record panel, at full width, at the same addresses (`#schema`, `#schema:computed`, `#definition:<id>`, …). Links to records and kinds go to their pages, each change is confirmed in a toast with Undo, and a rule's implications take a line each. The palette opens any definition by name.
 - [tests/model-test.html](tests/model-test.html): checks the model on the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, Copy definitions, naming relations and lists, and requiring entries must keep all of that true. Failures are listed first.
 - [tests/formula-lab.html](tests/formula-lab.html): the sample's definitions side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It starts from the definitions as the app stores them, written out as people write them, and keeps its own copy to edit.
 - [tests/sharepoint-test.html](tests/sharepoint-test.html): checks the SharePoint connector, `core/sharepoint.js`. It covers:
@@ -118,6 +126,8 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `styles.js` | Styles, one per form in each view: presets, the sample styles, what's drawn, Show and Hide, and how styles combine into a box's or line's look |
 | `panel.js` | The record panel, with computed records and their explanations, the Schema view (the chart's vocabulary, with its definitions and names), and a definition's view |
 | `relate.js` | The Relate view, for relating two things |
+| `history.js`, `history.css` | The History page: reading the history log back from the records as they are now, so each change is told in its own time's names; days, runs, filters in the address, restoring, and CSV |
+| `schema.js`, `schema.css` | The Schema page: the panel's Schema and definition views as a page of their own |
 | `ribbon.js` | The chart's ribbon |
 | `chart.js` | The chart: drawing boxes, routing lines, selecting, moving, editing in place, and relating by drag |
 | `sharepoint.js` | The document connector, with no UI, as one global, `SharePoint`: reading document links and choosing their icons; the connection settings; a Microsoft Graph client, signed in through MSAL, for browsing, search, items, sharing links and versions; loading and saving the workbook in a SharePoint library, with a conflict when someone else has saved since; and a demo tenant (Contoso's Fund Legal site) with the same API |

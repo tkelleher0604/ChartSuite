@@ -62,7 +62,7 @@ button.h-toggle:hover { background: var(--pressed); color: var(--text); }
 .h-change { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 4px 16px; padding: 7px 12px; font-size: 13px; line-height: 20px; }
 .h-change + .h-change { border-top: 1px solid var(--border); }
 .h-where { min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
-.h-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 0; min-width: 0; overflow-wrap: anywhere; }
+.h-what { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; overflow-wrap: anywhere; }
 .h-verb { margin-right: 8px; color: var(--text-3); }
 .h-was { color: var(--text-3); text-decoration-color: var(--text-3); }
 .h-arrow { margin: 0 7px; color: var(--text-3); }
