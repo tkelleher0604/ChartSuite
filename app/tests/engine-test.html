@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rboreal engine test</title>
+<style>
+  body { margin: 0; padding: 20px; background: #fafafa; color: #18181b; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .fail { color: #b42318; }
+  @media (prefers-color-scheme: dark) { body { background: #111113; color: #e4e4e7; } .fail { color: #f97066; } }
+</style>
+</head>
+<body>
+<pre id="out">Running…</pre>
+<script src="../core/common.js"></script>
+<script src="../core/model.js"></script>
+<script src="../core/sample.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/styles.js"></script>
+<script>
+// Checks of the formula engine itself (formulas.js) beyond what the formula lab's self-test checks of the
+// sample's results: cases where the engine once went wrong. Nothing is saved.
+saveState = () => {};
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const show = (R, v) => Formulas.formatValue(R, v);
+
+// A relation entered at a computed record has that record's form, so its name and list names apply in
+// formulas, even where something looked at it before the record it's located at was worked out. Here a
+// person's Assignments are counted before the deadlines are worked out, and Responsible is entered at one.
+function enteredAtComputed() {
+  const recs = {
+    q: { kind: 'Entity' }, q_name: { at: 'q', edge: 'Name', field: 'text', value: 'Quillhaven Fund I, L.P.' },
+    rule: { kind: 'Rule' }, rule_name: { at: 'rule', edge: 'Name', field: 'text', value: 'Annual Report' },
+    p: { kind: 'Individual' }, p_name: { at: 'p', edge: 'Name', field: 'text', value: 'Rebecca A. Moretti' },
+  };
+  const deadline = Formulas.computedId([{ edge: 'Entity', at: 'q' }, { edge: 'Rule', at: 'rule' }]);
+  recs.resp = { args: [{ edge: 'Deadline', at: deadline }, { edge: 'Person', at: 'p' }], tag: true };
+  const defs = [
+    { id: 'def_load', name: 'Load', type: 'field', datatype: 'number', at: ['Individual'], formula: '= COUNT(Assignments)' },
+    { id: 'def_deadline', name: 'Deadline', type: 'tag', args: [{ edge: 'Entity', at: ['Entity'] }, { edge: 'Rule', at: ['Rule'] }],
+      implications: [{ label: 'Every rule applies', formula: '← TRUE' }] },
+  ];
+  const lists = { Deadline: { Person: 'Responsible' }, Person: { Deadline: 'Assignments' } };
+  // The relation's form, as the app keys names by it: worked out once the deadline is there.
+  const first = Formulas.computeState(recs, defs, { relations: [] });
+  const form = formKeyOf('resp', first.records);
+  const names = { relations: [{ name: 'Responsible', type: 'tag', edges: ['Deadline', 'Person'], form, lists }] };
+  const R = Formulas.computeState(recs, defs, names);
+  check('A relation entered at a computed record has the form the model gives it', Formulas.formOf(R, 'resp') === form, Formulas.formOf(R, 'resp'));
+  check('…so its list name reads in a formula at that record (Responsible.Name)', show(R, Formulas.evaluateAt(R, 'Responsible.Name', deadline)) === 'Rebecca A. Moretti',
+    show(R, Formulas.evaluateAt(R, 'Responsible.Name', deadline)));
+  check('…as its edge label does (Person.Name)', show(R, Formulas.evaluateAt(R, 'Person.Name', deadline)) === 'Rebecca A. Moretti');
+  check('…and from the other side (Assignments)', show(R, Formulas.evaluateAt(R, 'COUNT(Assignments)', 'p')) === '1');
+}
+
+// The order definitions are listed in doesn't change what they compute. Percentage is located at the
+// computed Ownership relation, and Owner Count reads Ownership's list by its edge label, Owner; each is
+// listed before Ownership and after it.
+function orderDoesNotMatter() {
+  const recs = {};
+  for (const [id, name] of [['a', 'Alder Capital'], ['b', 'Birch Holdings'], ['c', 'Cedar Partners']]) {
+    recs[id] = { kind: 'Entity' };
+    recs[`${id}_name`] = { at: id, edge: 'Name', field: 'text', value: name };
+  }
+  recs.i1 = { args: [{ edge: 'Investor', at: 'a' }, { edge: 'Issuer', at: 'b' }], tag: true };
+  recs.i1_units = { at: 'i1', edge: 'Units', field: 'number', value: 60 };
+  recs.i2 = { args: [{ edge: 'Investor', at: 'c' }, { edge: 'Issuer', at: 'b' }], tag: true };
+  recs.i2_units = { at: 'i2', edge: 'Units', field: 'number', value: 40 };
+  const ownershipSpec = JSON.stringify(['tag:true', ...[JSON.stringify(['owner', 'kind:entity']), JSON.stringify(['owned', 'kind:entity'])].sort()]);
+  const ownership = { id: 'def_ownership', name: 'Ownership', type: 'tag', args: [{ edge: 'Owner', at: ['Entity'] }, { edge: 'Owned', at: ['Entity'] }],
+    implications: [{ label: 'Holds units', formula: '← Owner IN Owned.Investors' }] };
+  const percentage = { id: 'def_pct', name: 'Percentage', type: 'field', datatype: 'percent', covers: [Formulas.parameterizationKey([{ edge: 'Percentage', spec: ownershipSpec }])],
+    formula: '= SUM(FILTER(Owned.Investors, @ = Owner).Units) / SUM(Owned.Investors.Units)' };
+  const ownerCount = { id: 'def_owner_count', name: 'Owner Count', type: 'field', datatype: 'number', at: ['Entity'], formula: '= COUNT(Owner)' };
+  const names = { relations: [
+    { name: 'Ownership', type: 'tag', edges: ['Owner', 'Owned'], lists: { Owned: { Owner: 'Owners' }, Owner: { Owned: 'Holdings' } } },
+    { name: 'Interest', type: 'tag', edges: ['Investor', 'Issuer'], lists: { Issuer: { Investor: 'Investors' }, Investor: { Issuer: 'Investments' } } },
+  ] };
+  const results = [[ownership, percentage, ownerCount], [percentage, ownerCount, ownership]].map(defs => {
+    const R = Formulas.computeState(recs, defs, names);
+    const pct = Object.values(R.records).filter(r => r.computed === 'def_pct').map(r => show(R, r.value)).sort();
+    return { pct: pct.join(', '), owners: show(R, Formulas.evaluateAt(R, '[Owner Count]', 'b')), order: R.order.flat().join(' ') };
+  });
+  check('Percentage, located at a computed relation, is worked out after it whatever the order', results.every(r => r.pct === '0.4, 0.6'), results.map(r => r.pct).join(' | '));
+  check('A list read by its edge label is worked out after the relation that makes it, whatever the order', results.every(r => r.owners === '2'), results.map(r => r.owners).join(' | '));
+  check('The plan is the same either way', results[0].order === results[1].order, results.map(r => r.order).join(' | '));
+}
+
+function run() {
+  enteredAtComputed();
+  orderDoesNotMatter();
+  const failed = out.filter(x => !x.ok).length;
+  document.title = `engine test: ${out.length - failed} pass, ${failed} fail`;
+  document.getElementById('out').innerHTML = `${esc(document.title)}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>
+    `<span class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail ? `  [${esc(x.detail)}]` : ''}</span>`).join('\n');
+}
+
+try { run(); } catch (e) { document.title = 'engine test: stopped'; document.getElementById('out').textContent = `${e.message}\n${e.stack}`; }
+</script>
+</body>
+</html>

@@ -232,6 +232,17 @@ function edgesInSpec(spec, out = new Set()) {
   return out;
 }
 
+// The parameterizations of the specifications a specification key runs through, itself included: a
+// specification's key is its root label and its parameterization's pairs, sorted as a parameterization
+// key sorts them.
+function paramsInSpec(spec, out = new Set()) {
+  if (spec.startsWith('kind:')) return out;
+  const [, ...args] = JSON.parse(spec);
+  out.add(JSON.stringify(args));
+  for (const a of args) paramsInSpec(JSON.parse(a)[1], out);
+  return out;
+}
+
 // ---- The state being worked out ----
 // The records, entered and computed so far, indexed by where they're located.
 
@@ -340,18 +351,37 @@ function signatureOf(r) {
   if (!sigCache.has(r)) sigCache.set(r, signature(typeOf(r), r.args.map(a => a.edge)));
   return sigCache.get(r);
 }
-// A record's form, keyed as model.js keys forms: [sort, ...[edge, shape of its location]], sorted.
-const shapeCache = new WeakMap(), formCache = new WeakMap();
-const argShapes = (S, r) => argsOf(r).map(a => JSON.stringify([norm(a.edge), shapeOfRecord(S, a.at)])).sort();
+// A record's form, keyed as model.js keys forms: [sort, ...[edge, shape of its location]], sorted. A
+// record's shape depends on its locations' shapes, and a location can move between one working-out and the
+// next, so shapes and forms are kept per state. A record whose location isn't there yet, being a computed
+// record not yet worked out, has no form yet (null), and that isn't kept.
+const argShapes = (S, r) => {
+  const out = [];
+  for (const a of argsOf(r)) {
+    const shape = shapeOfRecord(S, a.at);
+    if (shape === null) return null;
+    out.push(JSON.stringify([norm(a.edge), shape]));
+  }
+  return out.sort();
+};
 function shapeOfRecord(S, id) {
   const r = S.recs[id];
-  if (!r) return '•';
-  if (!shapeCache.has(r)) shapeCache.set(r, isObject(r) ? '•' : JSON.stringify(['∘', ...argShapes(S, r)]));
-  return shapeCache.get(r);
+  if (!r) return null;
+  if (isObject(r)) return '•';
+  if (!S.shapes.has(r)) {
+    const args = argShapes(S, r);
+    if (!args) return null;
+    S.shapes.set(r, JSON.stringify(['∘', ...args]));
+  }
+  return S.shapes.get(r);
 }
 function formOfRecord(S, r) {
-  if (!formCache.has(r)) formCache.set(r, JSON.stringify([isField(r) ? r.field : isChoice(r) ? 'choice' : 'tag', ...argShapes(S, r)]));
-  return formCache.get(r);
+  if (!S.forms.has(r)) {
+    const args = argShapes(S, r);
+    if (!args) return null;
+    S.forms.set(r, JSON.stringify([isField(r) ? r.field : isChoice(r) ? 'choice' : 'tag', ...args]));
+  }
+  return S.forms.get(r);
 }
 const relationOf = (S, r) => S.P.reg.byForm.get(formOfRecord(S, r)) ?? S.P.reg.bySig.get(signatureOf(r));
 const listNameOf = (rel, from, listed) => rel?.lists.get(`${norm(from)}|${norm(listed)}`) ?? listed;
@@ -405,15 +435,15 @@ function listHere(S, id, n) {
 }
 
 // The lists of relatives a relation record makes: for each argument, seen from each other argument, the
-// list's name, normalized. And its arguments by normalized edge label. Worked out once per record.
+// list's name, normalized. And its arguments by normalized edge label. Worked out once per record, once
+// its form is known (see formOfRecord).
 function listsOf(S, r) {
-  if (!S.recLists.has(r)) {
-    const rel = relationOf(S, r);
-    const out = [];
-    r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: norm(listNameOf(rel, own.edge, other.edge)), alias: norm(other.edge) }); }));
-    S.recLists.set(r, out);
-  }
-  return S.recLists.get(r);
+  if (S.recLists.has(r)) return S.recLists.get(r);
+  const rel = relationOf(S, r);
+  const out = [];
+  r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: norm(listNameOf(rel, own.edge, other.edge)), alias: norm(other.edge) }); }));
+  if (formOfRecord(S, r) !== null) S.recLists.set(r, out);
+  return out;
 }
 const argEdges = new WeakMap();
 function argByEdge(r, n) {
@@ -1204,12 +1234,13 @@ function namesIn(ast, own) {
   return { refs, inWithout };
 }
 
-// What a definition provides names for: its own name, and for a relation, its lists of relatives.
+// What a definition provides names for: its own name, and for a relation, its lists of relatives, which
+// also answer to the edge labels they list.
 function namesProvided(d, reg) {
   const out = new Set([norm(d.name)]);
   if (d.isRelation) {
     const rel = reg.byName.get(norm(d.name));
-    d.edges.forEach((own, i) => d.edges.forEach((other, j) => { if (i !== j) out.add(norm(listNameOf(rel, own, other))); }));
+    d.edges.forEach((own, i) => d.edges.forEach((other, j) => { if (i !== j) out.add(norm(listNameOf(rel, own, other))).add(norm(other)); }));
   }
   return out;
 }
@@ -1252,10 +1283,13 @@ function knownNames(entered, defs, reg) {
   return { lists, values };
 }
 
-// Groups definitions that depend on each other, dependencies first (Tarjan's algorithm).
+// Groups definitions that depend on each other, dependencies first (Tarjan's algorithm), whatever order
+// they're listed in. A definition depends on those providing the names its formulas use, and on those
+// covering the specifications its locations run through, whose records it's located at.
 function plan(defs, reg) {
-  const provides = new Map();
+  const provides = new Map(), covering = new Map();
   for (const d of defs) for (const n of namesProvided(d, reg)) push(provides, n, d);
+  for (const d of defs) for (const p of d.covers) push(covering, p, d);
   const deps = new Map();
   for (const d of defs) {
     const own = new Set(d.isRelation ? d.edges.map(norm) : []);
@@ -1266,9 +1300,9 @@ function plan(defs, reg) {
       found.refs.forEach(n => refs.add(n));
       found.inWithout.forEach(n => inWithout.add(n));
     }
-    // A location that runs through another definition's records depends on them too.
-    for (const ps of d.params) for (const p of ps) edgesInSpec(p.spec).forEach(e => refs.add(e));
-    d.dependsOn = new Set([...refs].flatMap(n => provides.get(n) ?? []));
+    const located = new Set();
+    for (const ps of d.params) for (const p of ps) paramsInSpec(p.spec, located);
+    d.dependsOn = new Set([...[...refs].flatMap(n => provides.get(n) ?? []), ...[...located].flatMap(p => covering.get(p) ?? [])]);
     d.withoutReads = new Set([...inWithout].flatMap(n => provides.get(n) ?? []));
     deps.set(d, d.dependsOn);
   }
@@ -1419,7 +1453,7 @@ function asOutput(S, d, v) {
 function stateFor(P, entered) {
   const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), relsAtObj: new Map(), relsBySig: new Map(), specs: new Map(),
     bySpec: new Map(), enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, dep: null, deps: null, reads: null, done: 0,
-    cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap() };
+    cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(), forms: new WeakMap() };
   for (const [id, r] of Object.entries(entered)) addRecord(S, id, r);
   for (const [id, r] of Object.entries(entered)) {
     specOf(S, id);
