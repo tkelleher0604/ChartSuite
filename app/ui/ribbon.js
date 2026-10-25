@@ -511,7 +511,7 @@ Object.assign(actions, {
   'unhide-all': () => setHiddenInView([]),
   'filter-apply': () => applyFilter(),
   'filter-clear': () => { setViewFilter(''); chart.filterDraft = null; },
-  'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows`; },
+  'view-tidy': () => glide(() => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows`; }),
   'fx-why': () => { const id = selectedRecord(); if (id) go(id); },
   'fx-recalc': () => {
     recompute();

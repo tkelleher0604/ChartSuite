@@ -494,8 +494,8 @@ function canvasBarHtml() {
     <button class="icon-btn" data-cmd="chart.zoom" data-step="-1" aria-label="Zoom out" title="Zoom out">${icon('minus')}</button>
     <button class="zoom-pct" data-cmd="chart.zoom-menu" aria-haspopup="menu" title="Zoom">${Math.round(chart.zoom * 100)}%</button>
     <button class="icon-btn" data-cmd="chart.zoom" data-step="1" aria-label="Zoom in" title="Zoom in">${icon('plus')}</button></span>`;
-  const fit = `<button class="bar-btn" data-cmd="chart.fit" title="Fit the chart to the screen (Shift+1)">Fit</button>`;
-  return `${viewTabsHtml()}<div class="bar-end">${legend}<span class="bar-sep"></span>${zoom}${fit}</div>`;
+  const fitButton = `<button class="bar-btn" data-cmd="chart.fit" title="Fit the chart to the screen (Shift+1)">Fit</button>`;
+  return `${viewTabsHtml()}<div class="bar-end">${legend}<span class="bar-sep"></span>${zoom}${fitButton}</div>`;
 }
 
 // ---- The legend ----
@@ -924,13 +924,53 @@ function fitToScreen(most = ZOOM_MAX) {
 function zoomMenu(anchor) {
   const at = z => Math.abs(chart.zoom - z) < 0.005;
   Shell.menu(anchor, [
-    { label: 'Fit to screen', hint: 'Shift+1', run: () => fitToScreen() },
-    { label: 'Zoom in', run: () => setZoom(zoomStep(1)) },
-    { label: 'Zoom out', run: () => setZoom(zoomStep(-1)) },
+    { label: 'Fit to screen', hint: 'Shift+1', run: fit },
+    { label: 'Zoom in', run: () => zoomTo(zoomStep(1)) },
+    { label: 'Zoom out', run: () => zoomTo(zoomStep(-1)) },
     { sep: true },
-    ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: at(z), run: () => setZoom(z) })),
+    ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: at(z), run: () => zoomTo(z) })),
   ], 'chart:zoom');
 }
+
+// ---- Motion ----
+// Switching views, Tidy layout, Fit and the zoom steps move the chart, and nothing moves without an
+// animation the eye can follow: the sheet glides to its new place and size, each box glides to its new
+// place and size on it (or fades in, new to the view), and the lines, which can't be followed cheaply,
+// fade in once the boxes are nearly there. Only transforms and opacity animate, and nothing does where
+// motion is reduced. The change runs first, drawing the chart where it ends up; the animations then
+// start from where things were, once whatever the change set off has drawn.
+const GLIDE = 240;
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function glide(change) {
+  if (reducedMotion()) return change();
+  const origin = document.getElementById('sheet').getBoundingClientRect();
+  const from = { left: origin.left, top: origin.top, zoom: chart.zoom, boxes: { ...chart.geometry } };
+  change();
+  queueMicrotask(() => glideFrom(from));
+}
+function glideFrom(from) {
+  const sheet = document.getElementById('sheet');
+  const timing = { duration: GLIDE, easing: getComputedStyle(document.documentElement).getPropertyValue('--ease').trim() || 'ease-out' };
+  const now = sheet.getBoundingClientRect();
+  const dx = from.left - now.left, dy = from.top - now.top;
+  if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || Math.abs(from.zoom - chart.zoom) > 0.001)
+    sheet.animate([{ transform: `translate(${dx}px, ${dy}px) scale(${from.zoom})` }, { transform: `scale(${chart.zoom})` }], timing);
+  let moved = false;
+  for (const el of document.querySelectorAll('#nodes .node')) {
+    const was = from.boxes[el.dataset.node], g = chart.geometry[el.dataset.node];
+    if (!g) continue;
+    if (!was) { el.animate([{ opacity: 0 }, { opacity: 1 }], timing); moved = true; continue; }
+    const mx = was.x + was.w / 2 - (g.x + g.w / 2), my = was.y + was.h / 2 - (g.y + g.h / 2);
+    if (Math.abs(mx) < 0.5 && Math.abs(my) < 0.5 && Math.abs(was.w - g.w) < 1 && Math.abs(was.h - g.h) < 1) continue;
+    el.animate([{ transform: `translate(${mx}px, ${my}px) scale(${was.w / g.w}, ${was.h / g.h})` }, { transform: 'none' }], timing);
+    moved = true;
+  }
+  if (moved) document.getElementById('wires').animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], { ...timing, duration: GLIDE + 120 });
+}
+
+const fit = () => glide(() => fitToScreen());
+const zoomTo = z => glide(() => setZoom(z));
+const switchToView = id => glide(() => { showView(id); render(); });
 
 // Sheet coordinates of a pointer event.
 function sheetPoint(e) {
@@ -1015,9 +1055,11 @@ function tidyView() {
 }
 
 function tidyLayout() {
-  tidyView();
-  say(`Laid out the boxes ${viewInUse().name} shows`, { undo: true });
-  render();
+  glide(() => {
+    tidyView();
+    say(`Laid out the boxes ${viewInUse().name} shows`, { undo: true });
+    render();
+  });
 }
 
 function startRenaming(id) {
@@ -1085,13 +1127,13 @@ Shell.on('chart.ask', el => {
 // A click that ends dragging a tab doesn't also switch to it.
 Shell.on('chart.view', el => {
   if (chart.tabDrag?.done) { chart.tabDrag = null; return; }
-  if (el.dataset.view !== viewId) { showView(el.dataset.view); render(); }
+  if (el.dataset.view !== viewId) switchToView(el.dataset.view);
 });
 Shell.on('chart.view-add', addViewHere);
 Shell.on('chart.view-menu', el => viewMenu(el, el.dataset.view));
-Shell.on('chart.zoom', el => setZoom(zoomStep(Number(el.dataset.step))));
+Shell.on('chart.zoom', el => zoomTo(zoomStep(Number(el.dataset.step))));
 Shell.on('chart.zoom-menu', el => zoomMenu(el));
-Shell.on('chart.fit', () => fitToScreen());
+Shell.on('chart.fit', fit);
 Shell.on('chart.legend', toggleLegend);
 
 function toggleLegend() {
@@ -1248,7 +1290,7 @@ document.addEventListener('keydown', e => {
   if (e.defaultPrevented || shellBusy() || t.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"]')) return;
   if (chart.presenting) return presentKey(e);
   // Shift+1 fits the chart to the screen, as in Figma.
-  if (e.shiftKey && e.code === 'Digit1' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); return fitToScreen(); }
+  if (e.shiftKey && e.code === 'Digit1' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); return fit(); }
   const sel = selection();
   if (e.key === 'Escape') {
     if (chart.quick) { chart.quick = null; return renderChart(); }
@@ -1299,7 +1341,7 @@ document.addEventListener('contextmenu', e => {
   const tab = e.target.closest('[data-view-tab]');
   if (!tab) return;
   e.preventDefault();
-  if (tab.dataset.viewTab !== viewId) { showView(tab.dataset.viewTab); render(); }
+  if (tab.dataset.viewTab !== viewId) switchToView(tab.dataset.viewTab);
   viewMenu(document.querySelector(`[data-view-tab="${tab.dataset.viewTab}"]`) ?? tab, tab.dataset.viewTab);
 });
 
@@ -1427,13 +1469,15 @@ function caption() {
 function presentKey(e) {
   const step = { ArrowRight: 1, ArrowDown: 1, PageDown: 1, ' ': 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 }[e.key];
   if (e.key === 'Escape') { e.preventDefault(); return stopPresenting(); }
-  if (e.shiftKey && e.code === 'Digit1') { e.preventDefault(); return fitToScreen(); }
+  if (e.shiftKey && e.code === 'Digit1') { e.preventDefault(); return fit(); }
   if (!step || views.length < 2) return;
   e.preventDefault();
   const n = views.findIndex(v => v.id === viewId);
-  showView(views[(n + step + views.length) % views.length].id);
-  render();
-  fitToScreen();
+  glide(() => {
+    showView(views[(n + step + views.length) % views.length].id);
+    render();
+    fitToScreen();
+  });
   caption();
 }
 
@@ -1465,20 +1509,20 @@ function drawPage() {
 // What the page adds to the palette: its actions, the views to switch to, and on the sample, Reset sample.
 function chartCommands() {
   const sel = selection();
-  const others = views.filter(v => v.id !== viewId).map(v => ({ title: `Switch to ${v.name}`, meta: 'View', keywords: 'view tab', run: () => { showView(v.id); render(); } }));
+  const others = views.filter(v => v.id !== viewId).map(v => ({ title: `Switch to ${v.name}`, meta: 'View', keywords: 'view tab', run: () => switchToView(v.id) }));
   return [
     { title: 'Export…', meta: 'PDF, PowerPoint or SVG', keywords: 'export pdf powerpoint pptx svg download deck print', run: openExport },
     { title: 'Present', meta: 'Esc returns', keywords: 'present full screen slideshow', run: startPresenting },
-    { title: 'Fit to screen', meta: 'Shift+1', keywords: 'zoom fit all', run: () => fitToScreen() },
+    { title: 'Fit to screen', meta: 'Shift+1', keywords: 'zoom fit all', run: fit },
     { title: 'New view', keywords: 'view tab copy', run: addViewHere },
     { title: legendShown() ? 'Hide the legend' : 'Show the legend', keywords: 'legend key', run: toggleLegend },
     { title: 'Tidy layout', keywords: 'arrange layout rows', run: tidyLayout },
     ...others,
     { title: 'Rename this view', keywords: 'view tab', run: () => { startRenaming(viewId); render(); } },
     { title: 'Duplicate this view', keywords: 'view tab copy', run: () => duplicateViewHere(viewId) },
-    { title: 'Zoom in', run: () => setZoom(zoomStep(1)) },
-    { title: 'Zoom out', run: () => setZoom(zoomStep(-1)) },
-    { title: 'Zoom to 100%', keywords: 'actual size', run: () => setZoom(1) },
+    { title: 'Zoom in', run: () => zoomTo(zoomStep(1)) },
+    { title: 'Zoom out', run: () => zoomTo(zoomStep(-1)) },
+    { title: 'Zoom to 100%', keywords: 'actual size', run: () => zoomTo(1) },
     { title: prefs.panel === false ? 'Show the record panel' : 'Hide the record panel', keywords: 'panel side', run: () => { prefs.panel = prefs.panel === false; savePrefs(); render(); } },
     { title: prefs.grid === false ? 'Show gridlines' : 'Hide gridlines', keywords: 'grid dots', run: () => { prefs.grid = prefs.grid === false; savePrefs(); render(); } },
     ...(sel.object ? [{ title: `Export a profile of ${objectName(sel.object)}`, meta: 'PDF', keywords: 'export profile pdf record', run: () => exportProfile(sel.object) }] : []),
