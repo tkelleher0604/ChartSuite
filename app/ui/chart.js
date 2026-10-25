@@ -176,11 +176,25 @@ function sideX(g, y, right) {
   return right ? cx + half : cx - half;
 }
 
-// Lays out each line. One that goes down (or up) leaves its source's bottom (or top) middle, turns along a
-// lane just past the source, and drops onto the target, where lines arrive spread across its top (all
-// at the apex, for a triangle). Sources side by side get lanes a step apart, so their lanes don't overlap.
-// Boxes level with each other are joined side to side, unless another box is in the way; then the line
-// goes under the boxes between, on a lane of its own, and comes up into the target's bottom.
+// Where a line leaving a box at x meets its outline, on its bottom or top.
+function edgeY(g, x, bottom) {
+  if (g.shape !== 'oval') return bottom ? g.y + g.h : g.y;
+  const t = (x - (g.x + g.w / 2)) / (g.w / 2);
+  const half = g.h / 2 * Math.sqrt(Math.max(0, 1 - t * t));
+  return g.y + g.h / 2 + (bottom ? half : -half);
+}
+
+// Lays out each line. One that goes down (or up) leaves its source's bottom (or top), turns along a lane
+// just past the source, and drops onto the target, where lines arrive spread across its top (all at the
+// apex, for a triangle) in the order of where they start, so they don't cross there.
+// - Lines of one look from one box share a trunk: they leave it together and turn along one lane, as a
+//   parent's lines do on a structure chart. Trunks of different looks (ownership and positions, say)
+//   leave a box apart, spread along its edge in the order of where they go.
+// - Trunks leaving boxes level with each other turn along lanes stacked in the space below them (or above),
+//   in the order that crosses the fewest of the others' lines, as yEd's channel routing does. Trunks that
+//   don't overlap share a lane.
+// - Boxes level with each other are joined side to side, unless another box is in the way; then the line
+//   goes under the boxes between, on a lane of its own, and comes up into the target's bottom.
 function route(lines, geo) {
   const between = (l, y) => {
     const s = geo[l.from], t = geo[l.to];
@@ -197,47 +211,83 @@ function route(lines, geo) {
     }
   }
   const groupBy = (list, key) => list.reduce((m, l) => m.set(key(l), [...(m.get(key(l)) ?? []), l]), new Map());
+  const centerX = g => g.x + g.w / 2;
+  // Each box's trunks, and where each leaves it. A triangle's lines up leave by its sides (below).
+  const vertical = lines.filter(l => l.dir === 'down' || l.dir === 'up');
+  const trunks = [...groupBy(vertical, l => `${l.from}|${l.dir}|${JSON.stringify(pickProps(l.look, LINE_PROPS))}`).values()]
+    .map(ls => ({ ls, from: ls[0].from, dir: ls[0].dir }));
+  const heading = t => t.ls.reduce((sum, l) => sum + centerX(geo[l.to]), 0) / t.ls.length;
+  for (const group of groupBy(trunks, t => `${t.from}|${t.dir}`).values()) {
+    const s = geo[group[0].from];
+    const sides = s.shape === 'triangle' && group[0].dir === 'up';
+    group.sort((a, b) => heading(a) - heading(b)).forEach((t, i) => {
+      t.x = sides ? centerX(s) : s.x + s.w * (i + 1) / (group.length + 1);
+      t.y = edgeY(s, t.x, t.dir === 'down');
+      t.edge = t.dir === 'down' ? s.y + s.h : s.y;
+      for (const l of t.ls) l.sx = t.x;
+    });
+  }
   const arriving = lines.filter(l => l.dir !== 'side');
   for (const ls of groupBy(arriving, l => `${l.to}|${l.dir === 'down' ? 'top' : 'bottom'}`).values()) {
     const t = geo[ls[0].to];
-    ls.sort((p, q) => (geo[p.from].x + geo[p.from].w / 2) - (geo[q.from].x + geo[q.from].w / 2));
+    const start = l => l.sx ?? centerX(geo[l.from]);
+    ls.sort((p, q) => start(p) - start(q));
+    // Labels just above the target are staggered when lines arrive close together, on three levels for many.
+    const levels = ls.length > 4 ? 3 : 2;
     ls.forEach((l, i) => {
       l.tx = t.shape === 'triangle' && l.dir === 'down' ? t.x + t.w / 2 : t.x + t.w * (i + 1) / (ls.length + 1);
-      l.stagger = ls.length > 2 || (ls.length === 2 && t.w < 260) ? i % 2 : 0;
+      l.stagger = ls.length > 2 || (ls.length === 2 && t.w < 260) ? i % levels : 0;
     });
   }
   // Lines going under leave their source's bottom, each on its own lane below whatever is in the way.
   lines.filter(l => l.dir === 'under').forEach((l, j) => {
     const s = geo[l.from], t = geo[l.to];
     const lane = l.floor + 16 + 9 * j;
-    l.points = [[s.x + s.w / 2, s.y + s.h], [s.x + s.w / 2, lane], [l.tx, lane], [l.tx, t.y + t.h]];
+    l.points = [[centerX(s), s.y + s.h], [centerX(s), lane], [l.tx, lane], [l.tx, t.y + t.h]];
   });
-  const vertical = lines.filter(l => l.dir === 'down' || l.dir === 'up');
-  const sources = [...groupBy(vertical, l => `${l.from}|${l.dir}`).values()];
-  for (const ls of sources) {
-    const s = geo[ls[0].from], dir = ls[0].dir;
-    const edge = dir === 'down' ? s.y + s.h : s.y;
-    const near = sources.filter(o => o[0].dir === dir && Math.abs((dir === 'down' ? geo[o[0].from].y + geo[o[0].from].h : geo[o[0].from].y) - edge) < 40)
-      .map(o => geo[o[0].from].x).sort((a, b) => a - b);
-    const j = near.indexOf(s.x);
-    const sx = s.x + s.w / 2;
-    if (dir === 'down') {
-      const limit = Math.min(...ls.map(l => geo[l.to].y)) - 14;
-      const lane = Math.max(edge + 8, Math.min(edge + 18 + 10 * j, limit));
-      for (const l of ls) l.points = [[sx, edge], [sx, lane], [l.tx, lane], [l.tx, geo[l.to].y]];
+  // The lanes. A trunk placed nearer its boxes than another crosses it where the other's stem rises through
+  // its lane, and where its own drops pass the other's lane; each channel's trunks are stacked, nearest
+  // first, by picking each time the one whose place there crosses the fewest of those left.
+  for (const t of trunks) { const xs = [t.x, ...t.ls.map(l => l.tx)]; t.span = [Math.min(...xs), Math.max(...xs)]; }
+  const within = (x, [a, b]) => x > a + 0.5 && x < b - 0.5;
+  const crossings = (near, far) => within(far.x, near.span) + near.ls.filter(l => within(l.tx, far.span)).length;
+  const overlap = (a, b) => a.span[0] < b.span[1] + 6 && b.span[0] < a.span[1] + 6;
+  const channels = [];
+  for (const t of [...trunks].sort((a, b) => a.x - b.x)) {
+    const ch = channels.find(c => c.dir === t.dir && Math.abs(c.edge - t.edge) < 40);
+    if (ch) ch.trunks.push(t); else channels.push({ dir: t.dir, edge: t.edge, trunks: [t] });
+  }
+  for (const ch of channels) {
+    // A trunk that runs straight down (or up) needs no lane.
+    const left = ch.trunks.filter(t => t.span[1] - t.span[0] >= 1), placed = [];
+    for (const t of ch.trunks) t.lane = 0;
+    while (left.length) {
+      const cost = t => left.reduce((sum, o) => sum + (o === t ? 0 : crossings(t, o)), 0);
+      const next = left.reduce((best, t) => cost(t) < cost(best) ? t : best);
+      left.splice(left.indexOf(next), 1);
+      next.lane = Math.max(-1, ...placed.filter(o => overlap(o, next)).map(o => o.lane)) + 1;
+      placed.push(next);
+    }
+  }
+  for (const t of trunks) {
+    const s = geo[t.from];
+    if (t.dir === 'down') {
+      const limit = Math.min(...t.ls.map(l => geo[l.to].y)) - 14;
+      t.laneY = Math.max(t.edge + 8, Math.min(t.edge + 18 + 10 * t.lane, limit));
+      for (const l of t.ls) l.points = [[t.x, t.y], [t.x, t.laneY], [l.tx, t.laneY], [l.tx, geo[l.to].y]];
     } else if (s.shape === 'triangle') {
       // A triangle's apex is where lines come in, so lines up from one leave by its sloping sides.
       const y = s.y + s.h * 0.6;
-      for (const l of ls) {
-        const right = l.tx >= sx;
-        l.points = [[sideX(s, y, right), y], [l.tx + (Math.abs(l.tx - sx) < s.w / 2 ? (right ? s.w / 2 + 16 : -s.w / 2 - 16) : 0), y]];
+      for (const l of t.ls) {
+        const right = l.tx >= t.x;
+        l.points = [[sideX(s, y, right), y], [l.tx + (Math.abs(l.tx - t.x) < s.w / 2 ? (right ? s.w / 2 + 16 : -s.w / 2 - 16) : 0), y]];
         const turn = l.points[1][0];
         l.points.push([turn, geo[l.to].y + geo[l.to].h + 14], [l.tx, geo[l.to].y + geo[l.to].h + 14], [l.tx, geo[l.to].y + geo[l.to].h]);
       }
     } else {
-      const limit = Math.max(...ls.map(l => geo[l.to].y + geo[l.to].h)) + 14;
-      const lane = Math.min(edge - 8, Math.max(edge - 18 - 10 * j, limit));
-      for (const l of ls) l.points = [[sx, edge], [sx, lane], [l.tx, lane], [l.tx, geo[l.to].y + geo[l.to].h]];
+      const limit = Math.max(...t.ls.map(l => geo[l.to].y + geo[l.to].h)) + 14;
+      t.laneY = Math.min(t.edge - 8, Math.max(t.edge - 18 - 10 * t.lane, limit));
+      for (const l of t.ls) l.points = [[t.x, t.y], [t.x, t.laneY], [l.tx, t.laneY], [l.tx, geo[l.to].y + geo[l.to].h]];
     }
   }
   for (const l of lines.filter(l => l.dir === 'side')) {
@@ -250,6 +300,13 @@ function route(lines, geo) {
     l.points = l.points.filter((p, i, ps) => i === 0 || Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) > 0.5);
     if (l.points.length === 3 && Math.abs(l.points[0][0] - l.points[2][0]) < 1) l.points = [l.points[0], l.points[2]];
     l.label = labelSpot(l, geo);
+  }
+  // A trunk whose lines all say the same thing, like a GP's to each of its funds, says it once, on its lane.
+  // That's for a relation's name or option; an amount, like a percentage, is said on each line.
+  for (const t of trunks) {
+    const own = t.ls.every(l => l.look.parts.length === 1 && l.look.parts[0].id === l.id && !isField(records[l.id]));
+    if (t.ls.length < 2 || !own || new Set(t.ls.map(l => l.look.label)).size > 1 || t.laneY === undefined) continue;
+    t.ls.forEach((l, i) => { l.label = i ? null : { x: (t.span[0] + t.span[1]) / 2, y: t.laneY - 7 }; });
   }
 }
 

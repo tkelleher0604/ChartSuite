@@ -817,7 +817,9 @@ const SAMPLE_ORDER = {
 // ---- Views ----
 
 // The core's styles, one for each form it styles. Ownership's lines carry no label of their own; the
-// Percentage at each one labels it, and a ruled-out ownership isn't drawn.
+// Percentage at each one labels it, and a ruled-out ownership isn't drawn. Positions, where a view draws
+// them, are thin grey lines, so they read apart from ownership's.
+const POSITION_LOOK = { show: false, stroke: '#8d8d86', strokeWidth: 1, color: '#52525b' };
 function coreStyles(recs) {
   const f = id => formKeyOf(id, recs);
   const muted = { show: true, format: 'paren', size: 10.5, color: '#52525b' };
@@ -838,7 +840,7 @@ function coreStyles(recs) {
     { id: 'st_gp', form: f('gp_of_fund'), map: { true: { show: true, dash: 'dashed', format: 'label' } } },
     { id: 'st_member', form: f('mem_chen_gp'), map: { 'managing member': { show: false }, member: { show: false } } },
     { id: 'st_adviser', form: f('adv_bdc'), map: { true: { show: false, dash: 'dotted', format: 'label' } } },
-    { id: 'st_position', form: f('pos_chen_bdc'), map: { director: { show: false }, officer: { show: false } } },
+    { id: 'st_position', form: f('pos_chen_bdc'), map: { director: POSITION_LOOK, officer: POSITION_LOOK } },
   ];
 }
 
@@ -869,7 +871,7 @@ function sampleStyles(recs) {
     st_kind: { document: { ...KIND_PRESET, show: false }, 'service provider': { ...KIND_PRESET, show: false } },
     st_entity_type: { 'exempted company': { shape: 'rect' } },
     st_vehicle: { 'parallel fund': fund, aiv: fund, 'co-investment vehicle': fund },
-    st_position: { employee: { show: false } },
+    st_position: { employee: POSITION_LOOK },
   };
   return coreStyles(recs).map(s => more[s.id] ? { ...s, map: { ...s.map, ...more[s.id] } } : s);
 }
