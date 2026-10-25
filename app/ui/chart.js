@@ -15,8 +15,9 @@ const chart = {
   ask: null,       // { text, choices: [{ label, run, primary }] }: a question about what to do, over the chart
   renaming: null,  // { id, text, select }: a view tab whose name is being typed
   tabDrag: null,   // { id, x0, moved, to }: a view tab being dragged to a new place
-  presenting: null, // { zoom, left, top }: while presenting, the view to come back to
+  presenting: null, // { view, zoom, left, top }: while presenting, the view to come back to
   fitPending: false, // whether the next drawing fits the sheet to the screen, as after a chart switch
+  looked: false,   // whether the page has looked at the chart yet (see lookAtChart)
   undoDepth: 0,    // how deep the undo stack was at the last drawing, to tell whether a change was an edit
   selectionKey: '',
   tab: 'home',
@@ -109,16 +110,55 @@ function coveredBy(eng) {
 
 // ---- Drawing ----
 
-// Objects with no position yet (made in the record panel, say) line up below everything else.
-function autoPlaces() {
-  const placed = Object.keys(layout).filter(id => records[id]);
-  const bottom = Math.max(0, ...placed.map(id => layout[id].y + (chart.geometry[id]?.h ?? 60)));
-  const unplaced = Object.keys(records).filter(id => isObject(records[id]) && !layout[id]);
-  return Object.fromEntries(unplaced.map((id, i) => [id, { x: 40 + (i % 5) * 230, y: bottom + 70 + Math.floor(i / 5) * 110, w: 200 }]));
+// A box the view draws for the first time, for an object made on another page or in the panel, goes near
+// what it's related to: below the boxes it's owned or controlled by (as Tidy reads relations, the first
+// side above the second), or else above those it owns; related to nothing drawn, it goes in the middle of
+// what the chart is showing. Either way it keeps clear of the boxes there. Its place is kept in the view's
+// layout from then on, as if it had been put there by hand; where a view first puts a box isn't an edit.
+function placeNewBoxes(ids) {
+  const unplaced = ids.filter(id => !layout[id]);
+  if (!unplaced.length) return;
+  const drawn = new Set(ids);
+  const next = { ...layout };
+  const box = id => ({ ...next[id], w: next[id].w ?? 200, h: chart.geometry[id]?.h ?? 60 });
+  const clear = (p, h) => ids.filter(id => next[id]).map(box).every(b => p.x >= b.x + b.w + 20 || p.x + p.w + 20 <= b.x || p.y >= b.y + b.h + 30 || p.y + h + 30 <= b.y);
+  for (const id of unplaced) {
+    const above = [], below = [];
+    for (const [rid, r] of Object.entries(records)) {
+      if (!isRelation(r) || r.args.length !== 2 || isComputed(rid)) continue;
+      const [a, b] = r.args.map(x => objectOf(x.at));
+      if (a === id && b !== id && drawn.has(b) && next[b]) below.push(box(b));
+      if (b === id && a !== id && drawn.has(a) && next[a]) above.push(box(a));
+    }
+    const near = above.length ? above : below;
+    const middle = gs => gs.reduce((s, g) => s + g.x + g.w / 2, 0) / gs.length;
+    const [cx, cy] = near.length ? [middle(near), 0] : viewCenter(ids.filter(k => next[k]).map(box));
+    const y = Math.max(20, above.length ? Math.max(...above.map(g => g.y + g.h)) + 80
+      : below.length ? Math.min(...below.map(g => g.y)) - 140 : cy - 30);
+    // The nearest clear place in its row, trying right and left in turn, then the rows below.
+    const w = 200, steps = [0, ...Array.from({ length: 16 }, (_, i) => (i % 2 ? -1 : 1) * Math.ceil((i + 1) / 2) * (w + 40))];
+    let place = null;
+    for (let row = 0; !place && row < 6; row++)
+      for (const dx of steps) {
+        const p = { x: Math.max(20, snap(cx - w / 2 + dx)), y: snap(y + row * 110), w };
+        if (clear(p, 60)) { place = p; break; }
+      }
+    next[id] = place ?? { x: Math.max(20, snap(cx - w / 2)), y: snap(y), w };
+  }
+  layout = next;
+  saveState();
 }
 
-function placeOf(id, auto) {
-  const place = { w: 200, ...(layout[id] ?? auto[id]) };
+// The middle of what the chart is showing, once the page has looked at it; before that, of the boxes.
+function viewCenter(boxes) {
+  if (chart.looked) return visibleCenter();
+  if (!boxes.length) return [480, 300];
+  const mid = (lo, hi) => (Math.min(...lo) + Math.max(...hi)) / 2;
+  return [mid(boxes.map(g => g.x), boxes.map(g => g.x + g.w)), mid(boxes.map(g => g.y), boxes.map(g => g.y + g.h))];
+}
+
+function placeOf(id) {
+  const place = { w: 200, ...layout[id] };
   if (chart.move?.id === id && chart.move.moved) return { ...place, x: chart.move.x, y: chart.move.y };
   return place;
 }
@@ -619,10 +659,10 @@ function renderChart() {
   const eng = currentEngaged();
   const covered = coveredBy(eng);
   const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : [];
-  const auto = autoPlaces();
   const objects = drawnObjects();
+  placeNewBoxes(objects);
   const nodes = document.getElementById('nodes');
-  nodes.innerHTML = objects.map(id => nodeHtml(id, placeOf(id, auto), boxLook(id), {
+  nodes.innerHTML = objects.map(id => nodeHtml(id, placeOf(id), boxLook(id), {
     selected: sel.object === id && !chart.quick?.kind,
     side: sides.includes(id),
     target: chart.connect?.over === id,
@@ -797,9 +837,8 @@ function askRemove(sel) {
 }
 
 function moveBox(id, x, y) {
-  const auto = autoPlaces();
   pushUndo();
-  layout = { ...layout, [id]: { ...placeOf(id, auto), x: Math.max(0, snap(x)), y: Math.max(0, snap(y)) } };
+  layout = { ...layout, [id]: { ...placeOf(id), x: Math.max(0, snap(x)), y: Math.max(0, snap(y)) } };
   saveState();
 }
 
@@ -833,16 +872,36 @@ function keepViewport() {
   const at = chart.presenting ?? { zoom: chart.zoom, left: stage.scrollLeft, top: stage.scrollTop };
   try { sessionStorage.setItem(VIEWPORT_KEY, JSON.stringify({ ...keptViewports(), [workbook.chartId]: at })); } catch {}
 }
+// A box opened from elsewhere (Open on chart, chart.html#<id>) is then brought into view, at a size it reads at.
 function lookAtChart() {
   const stage = stageEl();
   const kept = keptViewports()[workbook.chartId];
   if (kept) {
     setZoom(kept.zoom);
     Object.assign(stage, { scrollLeft: kept.left, scrollTop: kept.top });
-    return;
-  }
-  fitToScreen(1);
+  } else fitToScreen(1);
+  chart.looked = true;
+  const { object } = selection();
+  if (object) reveal(object, { readable: true });
 }
+
+// Brings a box into view, scrolling it to the middle of the stage unless most of it shows already;
+// `readable` zooms in first, if need be, to a size its text can be read at.
+const READABLE = 0.75;
+function reveal(id, { readable = false } = {}) {
+  const g = chart.geometry[id];
+  if (!g) return;
+  const stage = stageEl(), sizer = document.getElementById('sizer');
+  if (readable && chart.zoom < READABLE) setZoom(READABLE);
+  const z = chart.zoom;
+  const box = { left: sizer.offsetLeft + g.x * z - stage.scrollLeft, top: sizer.offsetTop + g.y * z - stage.scrollTop, w: g.w * z, h: g.h * z };
+  const shown = Math.max(0, Math.min(box.left + box.w, stage.clientWidth) - Math.max(box.left, 0)) * Math.max(0, Math.min(box.top + box.h, stage.clientHeight) - Math.max(box.top, 0));
+  if (shown >= 0.6 * box.w * box.h) return;
+  stage.scrollTo({ left: stage.scrollLeft + box.left + box.w / 2 - stage.clientWidth / 2, top: stage.scrollTop + box.top + box.h / 2 - stage.clientHeight / 2,
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+// A box selected from the panel or the palette is brought into view too.
+window.addEventListener('hashchange', () => { const { object } = selection(); if (object) reveal(object); });
 let keepTimer = 0;
 document.addEventListener('scroll', e => {
   if (e.target.id === 'stage') { clearTimeout(keepTimer); keepTimer = setTimeout(keepViewport, 200); }
@@ -1079,7 +1138,7 @@ document.addEventListener('pointerdown', e => {
     const [x, y] = sheetPoint(e);
     const id = node.dataset.node;
     const line = e.target.closest('[data-line]')?.dataset.line;
-    chart.move = { id, startX: x, startY: y, place: placeOf(id, autoPlaces()), x: 0, y: 0, moved: false, line };
+    chart.move = { id, startX: x, startY: y, place: placeOf(id), x: 0, y: 0, moved: false, line };
     return;
   }
   if (wire) {
