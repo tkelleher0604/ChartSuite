@@ -85,7 +85,10 @@ What else the shell provides:
 - **Clicks.** Use `data-cmd="area.action"` on an element and register the handler with `Shell.on('area.action', (el, e) => …)`. Never use `data-action`, which is the record panel's. Prefix each command with the area.
 - **Re-rendering.** After a change, call `render()`.
 - **Toasts.** `Shell.toast(text, { undo: true })` after an edit, `{ action: { label, run } }` for anything else, and `{ tone: 'error' }` for a failure the person must see. Keep errors that need action inline, not in toasts.
-- **Dialogs.** `await Shell.confirm({ title, body, confirm, danger })` and `await Shell.prompt({ title, value, placeholder, confirm })`.
+- **Dialogs.** `await Shell.confirm({ title, body, confirm, danger })` and `await Shell.prompt({ title, value, placeholder, confirm })` ask a question. A dialog of the page's own (the Chart's Export, Documents' Link document) is `Shell.dialog({ title, render, width, className, onOpen, onDraw, keys, onClose })`, which returns `{ el, redraw(), close() }`:
+  - `render()` gives its markup from the page's state, using `.dialog-title`, `.dialog-body` and `.dialog-actions` or parts of its own;
+  - `redraw()` draws it again in place, without animating it in again, keeping the focus, the caret and where its lists were scrolled; `redraw({ fresh: true })` starts a new step, with the focus on its `[data-autofocus]`;
+  - while it's open it has the keyboard: `keys(e)` sees each key first, then Esc closes it and Tab keeps to it. Nothing reaches the page or the shell's shortcuts. Menus and other dialogs open over it, and closing it puts the focus back.
 - **Menus.** `Shell.menu(anchorEl, items, id)`, where items are `{ label, hint, run, checked, disabled, danger }`, `{ sep: true }` or `{ head }`.
 - **The palette.** Add a page's own actions to it through `commands`. It already finds every record and area.
 - **Links.** `Shell.recordHref(id)` and `Shell.kindHref(kind)`. Call `Shell.visited(id)` when a record is opened.

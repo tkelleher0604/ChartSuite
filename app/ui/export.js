@@ -665,7 +665,7 @@ async function exportRecordPdf(objectId, { asOf = todayIso() } = {}) {
 
 const FORMATS_OUT = [['pdf', 'PDF'], ['pptx', 'PowerPoint'], ['svg', 'SVG']];
 const exportUi = {
-  open: false,
+  dialog: null,           // the dialog, while it's open (Shell.dialog)
   format: 'pdf',
   views: 'this',          // 'this', or 'all' for a page or slide per view
   size: 'letter',         // a PDF's page
@@ -676,26 +676,25 @@ const exportUi = {
   busy: false,
   error: null,
   scenes: null,           // every view's scene, read when the dialog opens
-  back: null,             // what had focus before it opened
 };
 
 const exportLegend = () => exportUi.legend ?? legendShown();
 const exportScenes = () => exportUi.views === 'all' && exportUi.format !== 'svg' ? views.map(v => exportUi.scenes[v.id]) : [exportUi.scenes[viewId]];
 const exportSettings = () => ({ format: exportUi.format, size: exportUi.format === 'pptx' ? exportUi.slide : exportUi.size, orientation: exportUi.orientation, legend: exportLegend(), asOf: exportUi.asOf || todayIso() });
 
+// While it's open it has the keyboard (as every dialog does): Enter exports, and Esc closes it.
 function openExport() {
   if (chart.presenting) stopPresenting();
-  Object.assign(exportUi, { open: true, busy: false, error: null, asOf: exportUi.asOf || todayIso(), scenes: viewScenes(), back: document.activeElement });
-  drawExport();
-  document.querySelector('[data-export="format"]')?.focus();
+  Object.assign(exportUi, { busy: false, error: null, asOf: exportUi.asOf || todayIso(), scenes: viewScenes() });
+  exportUi.dialog = Shell.dialog({
+    title: 'Export', className: 'export-dialog', render: exportHtml,
+    onOpen: el => el.querySelector('[data-export="format"]').focus(),
+    keys: e => { if (e.key === 'Enter' && !e.target.matches('button, select')) { e.preventDefault(); runExport(); } },
+    onClose: () => Object.assign(exportUi, { dialog: null, scenes: null, error: null }),
+  });
 }
-
-function closeExport() {
-  if (!exportUi.open) return;
-  Object.assign(exportUi, { open: false, scenes: null, error: null });
-  document.getElementById('export').innerHTML = '';
-  exportUi.back?.focus?.();
-}
+const closeExport = () => exportUi.dialog?.close();
+const drawExport = () => exportUi.dialog?.redraw();
 
 const option = (value, text, current) => `<option value="${esc(value)}"${value === current ? ' selected' : ''}>${esc(text)}</option>`;
 const exportField = (label, control, note = '') => `<label class="export-field"><span class="export-label">${label}</span><span class="export-control">${control}${note ? `<span class="export-hint">${note}</span>` : ''}</span></label>`;
@@ -717,11 +716,8 @@ function exportSummary() {
   return `${what}. Made in your browser; nothing is uploaded.`;
 }
 
-function drawExport() {
-  const host = document.getElementById('export');
-  if (!exportUi.open) { host.innerHTML = ''; return; }
+function exportHtml() {
   const f = exportUi.format;
-  const scroll = host.querySelector('.export-preview')?.scrollTop ?? 0;
   const sel = selection();
   const pageSizes = f === 'pptx' ? ['wide', 'standard'] : ['letter', 'a4', 'tabloid'];
   const fields = [
@@ -734,25 +730,20 @@ function drawExport() {
     `<div class="export-field"><span class="export-label"></span><button class="export-check" data-cmd="chart.export-legend" aria-pressed="${exportLegend()}">${box(exportLegend() ? true : null)}Include the legend</button></div>`,
   ].join('');
   const profile = sel.object ? `<button class="link-btn export-profile" data-cmd="chart.export-profile" title="A PDF of its entries and relations">Profile of ${esc(objectName(sel.object))} instead…</button>` : '';
-  host.innerHTML = `<div class="scrim" data-cmd="chart.export-close"></div>
-    <div class="dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
-      <div class="export-main">
-        <div class="export-form">
-          <h2 class="dialog-title" id="export-title">Export</h2>
-          <p class="export-sub">${esc(chartTitle())}</p>
-          ${fields}
-          ${exportUi.error ? `<p class="export-error" role="alert">Couldn’t export: ${esc(exportUi.error)}</p>` : ''}
-        </div>
-        <div class="export-preview" aria-label="Preview">${exportPreview()}</div>
+  return `<div class="export-main">
+      <div class="export-form">
+        <h2 class="dialog-title">Export</h2>
+        <p class="export-sub">${esc(chartTitle())}</p>
+        ${fields}
+        ${exportUi.error ? `<p class="export-error" role="alert">Couldn’t export: ${esc(exportUi.error)}</p>` : ''}
       </div>
-      <div class="export-foot">
-        <span class="export-summary">${esc(exportSummary())}</span>${profile}
-        <span class="export-actions"><button class="btn" data-cmd="chart.export-close">Cancel</button>
-        <button class="btn btn-primary" data-cmd="chart.export-run" data-default${exportUi.busy ? ' disabled' : ''}>${exportUi.busy ? 'Exporting…' : `Export ${FORMATS_OUT.find(([v]) => v === f)[1]}`}</button></span>
-      </div>
+      <div class="export-preview" aria-label="Preview">${exportPreview()}</div>
+    </div>
+    <div class="export-foot">
+      <span class="export-summary">${esc(exportSummary())}</span>${profile}
+      <span class="export-actions"><button class="btn" data-cmd="chart.export-close">Cancel</button>
+      <button class="btn btn-primary" data-cmd="chart.export-run" data-default${exportUi.busy ? ' disabled' : ''}>${exportUi.busy ? 'Exporting…' : `Export ${FORMATS_OUT.find(([v]) => v === f)[1]}`}</button></span>
     </div>`;
-  const preview = host.querySelector('.export-preview');
-  if (preview) preview.scrollTop = scroll;
 }
 
 async function runExport() {
@@ -793,24 +784,7 @@ Shell.on('chart.export-profile', () => { const id = selection().object; if (id) 
 
 document.addEventListener('change', e => {
   const key = e.target.dataset?.export;
-  if (!key || !exportUi.open) return;
+  if (!key || !exportUi.dialog) return;
   exportUi[key] = e.target.value;
   drawExport();
-  document.querySelector(`[data-export="${key}"]`)?.focus();
 });
-
-// While the dialog is open it has the keyboard: Esc closes it, Enter exports, Tab stays inside it, and
-// nothing reaches the chart, the panel or the shell behind it.
-window.addEventListener('keydown', e => {
-  if (!exportUi.open) return;
-  e.stopPropagation();
-  if (e.key === 'Escape') { e.preventDefault(); return closeExport(); }
-  if (e.key === 'Enter' && !e.target.matches('button, select')) { e.preventDefault(); return runExport(); }
-  if (e.key === 'Tab') {
-    const items = [...document.querySelectorAll('#export .dialog :is(button, select, input):not(:disabled)')];
-    const at = items.indexOf(document.activeElement);
-    const next = e.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : (at === items.length - 1 ? 0 : at + 1);
-    e.preventDefault();
-    items[next]?.focus();
-  }
-}, true);

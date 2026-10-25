@@ -854,18 +854,26 @@ function popHtml() {
 
 const layerEl = () => document.getElementById('docs-layer');
 
+// The dialog is the shell's (Shell.dialog), drawn from ui.dialog: again as it changes, and afresh, with the
+// focus on its first box, as it moves from one step to the next.
 function openDialog(d) {
   closePop();
   ui.dialog = { error: '', cq: '', cqOpen: false, cqActive: 0, ...d };
-  ui.dialog.returnFocus = document.activeElement;
   if (ui.dialog.step === 'browse') browseTo([]);
-  drawDialog(true);
+  ui.dialog.handle = Shell.dialog({
+    title: dialogTitle, width: 680, render: dialogHtml, keys: dialogKeys,
+    className: () => `docs-dialog${ui.dialog.step === 'browse' ? ' is-browse' : ''}`,
+    // A list with no room below its box opens above it.
+    onDraw: el => { const box = el.querySelector('.dd-listbox'); if (box && box.getBoundingClientRect().bottom > innerHeight - 8) box.classList.add('is-up'); },
+    onClose: () => { ui.dialog = null; },
+  });
 }
-function closeDialog() {
-  const back = ui.dialog?.returnFocus;
-  ui.dialog = null;
-  drawDialog();
-  if (back?.isConnected) back.focus();
+const closeDialog = () => ui.dialog?.handle.close();
+// While it's drawn, the focus it gives back to the box that had it isn't the person's doing.
+let drawing = false;
+function drawDialog(fresh = false) {
+  drawing = true;
+  try { ui.dialog?.handle?.redraw({ fresh }); } finally { drawing = false; }
 }
 
 function browseTo(trail) {
@@ -926,25 +934,22 @@ async function usePasted() {
   item ? chooseFile(item) : drawDialog();
 }
 
+function dialogTitle() {
+  const d = ui.dialog;
+  return d.mode === 'edit' && d.step === 'details' ? 'Edit details' : d.mode === 'link' ? 'Link document' : d.mode === 'relink' ? `Link ${rowById(d.rowId)?.name ?? 'the document'} again` : 'Choose another file';
+}
 function dialogHtml() {
   const d = ui.dialog;
-  const title = d.mode === 'edit' && d.step === 'details' ? 'Edit details' : d.mode === 'link' ? 'Link document' : d.mode === 'relink' ? `Link ${esc(rowById(d.rowId)?.name ?? 'the document')} again` : 'Choose another file';
   const sub = d.step === 'browse' ? `Pick a file in ${esc(libraryName())}, or paste a link to one.` : d.mode === 'link' ? 'Say what it is and which records it concerns.' : '';
   const body = d.step === 'browse' ? browseHtml(d) : formHtml(d);
   const actions = d.step === 'browse'
     ? `${d.mode === 'edit' ? '<button class="btn" data-cmd="docs.dd-back">Back</button>' : ''}<span class="dd-spacer"></span><button class="btn" data-cmd="docs.dd-close">Cancel</button>`
     : `${d.mode === 'link' ? '<button class="btn" data-cmd="docs.dd-change">Back</button>' : ''}<span class="dd-spacer"></span><button class="btn" data-cmd="docs.dd-close">Cancel</button>
        <button class="btn btn-primary" data-cmd="docs.dd-save">${d.mode === 'link' ? 'Link document' : 'Save'}</button>`;
-  // The dialog animates in once; drawn again, it stays put.
-  const settled = d.drawn ? ' is-settled' : '';
-  d.drawn = true;
-  return `<div class="scrim docs-scrim${settled}" data-cmd="docs.dd-close"></div>
-    <div class="dialog docs-dialog${d.step === 'browse' ? ' is-browse' : ''}${settled}" role="dialog" aria-modal="true" aria-labelledby="docs-dialog-title">
-      <div class="dd-head"><h2 class="dialog-title" id="docs-dialog-title">${title}</h2>${sub ? `<p class="dd-sub">${sub}</p>` : ''}</div>
-      <div class="dd-body">${body}</div>
-      ${d.error ? `<div class="dd-error" role="alert">${esc(d.error)}</div>` : ''}
-      <div class="dialog-actions dd-actions">${actions}</div>
-    </div>`;
+  return `<div class="dd-head"><h2 class="dialog-title">${esc(dialogTitle())}</h2>${sub ? `<p class="dd-sub">${sub}</p>` : ''}</div>
+    <div class="dd-body">${body}</div>
+    ${d.error ? `<div class="dd-error" role="alert">${esc(d.error)}</div>` : ''}
+    <div class="dialog-actions dd-actions">${actions}</div>`;
 }
 
 function browseHtml(d) {
@@ -1048,25 +1053,16 @@ function editForm(row) {
     subjects: subjectsOf(row.id).filter(s => !s.computed).map(s => s.id) };
 }
 
-// Draws the dialog and the facet menu, keeping the focus and the caret where they were.
-function drawLayer(focusFirst = false) {
+// Draws the facet menu, keeping the focus and the caret where they were.
+function drawLayer() {
   const el = layerEl();
   if (!el) return;
   const was = document.activeElement, key = was?.dataset?.docsInput, at = key ? [was.selectionStart, was.selectionEnd] : null;
-  const listTop = el.querySelector('.dd-list')?.scrollTop ?? 0;
-  el.innerHTML = (ui.dialog ? dialogHtml() : '') + (ui.pop ? popHtml() : '');
+  el.innerHTML = ui.pop ? popHtml() : '';
   if (ui.pop) placePop();
-  // A list with no room below its box opens above it.
-  const listbox = el.querySelector('.dd-listbox');
-  if (listbox && listbox.getBoundingClientRect().bottom > innerHeight - 8) listbox.classList.add('is-up');
-  const list = el.querySelector('.dd-list');
-  if (list && !focusFirst) list.scrollTop = listTop;
   const again = key && el.querySelector(`[data-docs-input="${key}"]`);
-  const lost = !document.activeElement || document.activeElement === document.body || !document.activeElement.isConnected;
   if (again) { again.focus(); try { again.setSelectionRange(...at); } catch {} }
-  else if (focusFirst || (ui.dialog && lost)) el.querySelector('[data-autofocus]')?.focus();
 }
-const drawDialog = drawLayer;
 
 function placePop() {
   const pop = layerEl().querySelector('.docs-pop');
@@ -1229,7 +1225,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('focusin', e => {
   const d = ui.dialog;
-  if (d?.step === 'details' && e.target.dataset?.docsInput === 'cq' && !d.cqOpen) { d.cqOpen = true; drawDialog(); }
+  if (!drawing && d?.step === 'details' && e.target.dataset?.docsInput === 'cq' && !d.cqOpen) { d.cqOpen = true; drawDialog(); }
 });
 
 // Clicks: a row selects its document (its links still go where they go); the demo's files say they
@@ -1244,36 +1240,30 @@ document.addEventListener('click', e => {
   if (tr && !e.target.closest('a, button, input')) select(tr.dataset.row);
 });
 
-// Keys: the dialog's stay in it. On the page, ↑ and ↓ (or J and K) move through the documents, Enter
-// opens the one selected, Esc closes the preview.
-document.addEventListener('keydown', e => {
-  if (!e.target.closest?.('#docs-layer')) return;
-  e.stopPropagation();
+// The dialog's own keys (the shell keeps them in it, and closes it on Esc): the subjects box's list moves,
+// takes and lets go; Enter uses a pasted link, or saves the details.
+function dialogKeys(e) {
   const d = ui.dialog;
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    if (d?.cqOpen && e.target.dataset.docsInput === 'cq') { d.cqOpen = false; return drawDialog(); }
-    return d ? closeDialog() : closePop();
-  }
-  if (!d) return;
-  const key = e.target.dataset.docsInput;
+  const key = e.target.dataset?.docsInput;
   if (key === 'cq') {
     const options = subjectOptions(d.form);
+    if (e.key === 'Escape' && d.cqOpen) { e.preventDefault(); d.cqOpen = false; return drawDialog(); }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); d.cqOpen = true; d.cqActive = (d.cqActive + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % Math.max(options.length, 1); return drawDialog(); }
     if (e.key === 'Enter') { e.preventDefault(); if (d.cqOpen && options[d.cqActive]) addSubject(options[d.cqActive]); return; }
     if (e.key === 'Backspace' && !e.target.value && d.form.subjects.length) { d.form.subjects = d.form.subjects.slice(0, -1); return drawDialog(); }
   }
   if (e.key === 'Enter' && key === 'dd-paste') { e.preventDefault(); return usePasted(); }
   if (e.key === 'Enter' && d.step === 'details' && e.target.matches('input')) { e.preventDefault(); return saveDialog(); }
-  if (e.key === 'Tab') {
-    const focusable = [...layerEl().querySelectorAll('.docs-dialog button:not(:disabled), .docs-dialog input')];
-    const i = focusable.indexOf(e.target);
-    if (e.shiftKey && i === 0) { e.preventDefault(); focusable.at(-1).focus(); }
-    else if (!e.shiftKey && i === focusable.length - 1) { e.preventDefault(); focusable[0].focus(); }
-  }
+}
+// The facet menu's: Esc closes it. On the page, ↑ and ↓ (or J and K) move through the documents, Enter
+// opens the one selected, Esc closes the preview.
+document.addEventListener('keydown', e => {
+  if (!e.target.closest?.('#docs-layer')) return;
+  e.stopPropagation();
+  if (e.key === 'Escape') { e.preventDefault(); closePop(); }
 }, true);
 document.addEventListener('keydown', e => {
-  if (ui.dialog || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable="true"], #docs-layer')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable="true"], #docs-layer')) return;
   if (document.querySelector('#layer .palette, #layer .dialog, #layer .float-menu')) return;
   if (e.key === 'Escape' && ui.pop) { e.preventDefault(); return closePop(); }
   if (e.key === 'Escape' && ui.selected) { e.preventDefault(); ui.selected = null; writeHash(); return render(); }

@@ -173,8 +173,9 @@ button.filter-chip.is-set { padding: 0 10px; }
 /* Text for screen readers only. */
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* ---- The layer above the page ---- */
-#layer { display: contents; }
+/* ---- The layer above the page: dialogs, each over the last, then the palette, menus and toasts ---- */
+#layer, #layer > div { display: contents; }
+.dialog-layer { position: fixed; inset: 0; z-index: 90; }
 .scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); animation: shell-fade .15s var(--ease); }
 .palette { position: fixed; top: 12vh; left: 50%; z-index: 91; width: min(640px, calc(100vw - 32px)); overflow: hidden; translate: -50% 0; border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-dialog); animation: shell-pop .18s var(--ease); }
 .palette-input-row { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--border); color: var(--text-3); }
@@ -191,7 +192,6 @@ button.filter-chip.is-set { padding: 0 10px; }
 .palette-foot kbd { margin-right: 4px; }
 
 .dialog { position: fixed; top: 50%; left: 50%; z-index: 91; width: min(440px, calc(100vw - 32px)); padding: 20px 20px 16px; translate: -50% -50%; border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-dialog); animation: shell-pop .2s var(--ease); }
-.dialog.is-wide { width: min(640px, calc(100vw - 32px)); }
 .dialog-title { margin: 0 0 6px; font-size: 16px; font-weight: 600; line-height: 24px; }
 .dialog-body { color: var(--text-2); font-size: 13.5px; }
 .dialog-input { height: 32px; margin-top: 14px; }

@@ -13,8 +13,8 @@
 // - undo: false where the page handles the undo keys itself (the pages with the record panel);
 // - keys: the page's own shortcuts, [[keys, what they do]], for the ? sheet.
 // Clicks on an element with data-cmd run the handler registered under that name with Shell.on(name, fn),
-// called with the element and the event. Everything the shell draws over the page lives in #layer, so
-// re-rendering the page leaves it be. `render()` re-renders the page; pages with more to draw define
+// called with the element and the event. Everything the shell draws over the page (dialogs, the palette,
+// menus, toasts) lives in #layer, so re-rendering the page leaves it be. `render()` re-renders the page; pages with more to draw define
 // their own, calling Shell.render().
 
 const Shell = (() => {
@@ -39,7 +39,8 @@ const Shell = (() => {
   let page = null;
   const handlers = {};
   const chartListeners = [], undoListeners = [];
-  const layer = { palette: null, menu: null, dialog: null, toasts: [] };
+  const layer = { palette: null, menu: null, toasts: [] };
+  const dialogs = [];  // the dialogs open, the last on top
   let status = { text: 'Saved in this browser', tone: '' };
 
   const value = x => typeof x === 'function' ? x() : x;
@@ -158,30 +159,28 @@ const Shell = (() => {
     document.body.insertAdjacentHTML('afterbegin', `
       <aside class="sidebar" id="sidebar" aria-label="Sidebar"></aside>
       <div class="page"><header class="topbar" id="topbar"></header><div id="banner"></div><main class="main" id="main"></main></div>
-      <div id="layer"></div>`);
+      <div id="layer"><div id="layer-dialogs"></div><div id="layer-top"></div></div>`);
     const main = document.getElementById('main');
     if (!page.render) for (const n of own) main.appendChild(n);
     render();
   }
 
-  // ---- The layer: palette, menu, dialog and toasts ----
+  // ---- The layer: dialogs, and above them the palette, a menu and toasts ----
+  // Each dialog has a place of its own in the layer, drawn only when it asks; the rest is drawn afresh.
   function renderLayer() {
-    const el = document.getElementById('layer');
+    const el = document.getElementById('layer-top');
     if (!el) return;
     const keep = el.querySelector('.palette-input');
     if (layer.palette && keep) { drawPaletteList(); el.querySelector('.toasts').outerHTML = toastsHtml(); return; }
     el.innerHTML = [
-      layer.palette || layer.dialog ? `<div class="scrim" data-cmd="shell.dismiss"></div>` : '',
-      layer.palette ? paletteHtml() : '',
-      layer.dialog ? dialogHtml() : '',
+      layer.palette ? `<div class="scrim" data-cmd="shell.dismiss"></div>${paletteHtml()}` : '',
       layer.menu ? menuHtml() : '',
       toastsHtml(),
     ].join('');
     if (layer.palette) { drawPaletteList(); el.querySelector('.palette-input').focus(); }
-    if (layer.dialog) { const input = el.querySelector('.dialog-input'); if (input) { input.focus(); input.select(); } else el.querySelector('.dialog [data-default]')?.focus(); }
     if (layer.menu) placeMenu();
   }
-  const closeLayer = () => { layer.palette = layer.menu = null; if (layer.dialog) finishDialog(null); renderLayer(); };
+  const closeLayer = () => { layer.palette = layer.menu = null; renderLayer(); };
 
   // ---- Command palette ----
   // Matching is by word starts, then anywhere, then initials ("GP" finds General Partner); every word of
@@ -293,37 +292,115 @@ const Shell = (() => {
   }
 
   // ---- Dialogs ----
-  // Shell.confirm({ title, body, confirm, danger }) and Shell.prompt({ title, body, value, placeholder,
-  // confirm }) resolve with the answer: true or false, or the text (null if cancelled).
-  function dialog(d) {
-    if (layer.dialog) finishDialog(null);
+  // Shell.dialog({ title, render, width, className, onOpen, onDraw, keys, onClose }) opens a dialog over the
+  // page, above any already open, and returns it: { el, redraw(options), close() }.
+  // - render(): the dialog's markup, from the page's state, inside its frame: .dialog-title, .dialog-body and
+  //   .dialog-actions, or parts of its own. title names it (for screen readers); it, and className, may be
+  //   functions, worked out at each drawing. width is in pixels, within the window;
+  // - redraw() draws it again from the state, in place: it doesn't animate in again, and what had the focus
+  //   keeps it, caret and all, as its lists keep their place. redraw({ fresh: true }) starts it afresh, as for
+  //   another step: lists from the top, and the focus on its first control (see onOpen);
+  // - onOpen(el) runs once it's first drawn, to put the focus; by default the focus goes to
+  //   [data-autofocus], else [data-default], else the first control. onDraw(el) runs after every drawing;
+  // - keys(e): its own keys, before the shell's; preventDefault() keeps the shell from acting on one;
+  // - onClose() runs once it's closed, however that was: Esc, a click beside it, or close().
+  // While a dialog is open it has the keyboard: Esc closes it, Tab keeps to it, and no key reaches the page
+  // or the shell's shortcuts. A menu opened from it, or a dialog over it, has the keys in its turn. Closed,
+  // it gives the focus back to where it was.
+  const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
+  function dialog(options) {
     layer.palette = layer.menu = null;
-    return new Promise(resolve => { layer.dialog = { ...d, resolve }; renderLayer(); });
+    renderLayer();
+    const host = document.createElement('div');
+    host.className = 'dialog-layer';
+    host.innerHTML = '<div class="scrim" data-cmd="shell.dialog-dismiss"></div><div class="dialog" role="dialog" aria-modal="true"></div>';
+    const d = { ...options, host, el: host.lastElementChild, back: document.activeElement };
+    if (options.width) d.el.style.width = `min(${options.width}px, calc(100vw - 32px))`;
+    document.getElementById('layer-dialogs').appendChild(host);
+    dialogs.push(d);
+    d.handle = { el: d.el, redraw: o => drawDialog(d, o), close: () => closeDialog(d) };
+    drawDialog(d, { fresh: true, open: true });
+    return d.handle;
   }
-  const confirm = d => dialog({ ...d, kind: 'confirm' }).then(x => x === true);
-  const prompt = d => dialog({ ...d, kind: 'prompt' });
-  function dialogHtml() {
-    const d = layer.dialog;
+  const topDialog = () => dialogs.at(-1);
+  const dialogOf = el => dialogs.find(d => d.el.contains(el));
+  const focusFirst = el => (el.querySelector('[data-autofocus]') ?? el.querySelector('[data-default]') ?? el.querySelector(FOCUSABLE))?.focus();
+  // A control, or a list, as a selector, to find it again once the dialog's drawn anew: by its id, or else
+  // its data attributes, name and type; a list by its classes.
+  function controlKey(x) {
+    if (x.id) return `#${CSS.escape(x.id)}`;
+    const attrs = [...x.attributes].filter(a => a.name.startsWith('data-') || a.name === 'name' || a.name === 'type').map(a => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
+    return attrs && x.tagName.toLowerCase() + attrs;
+  }
+  const listKey = x => x.tagName.toLowerCase() + [...x.classList].map(c => `.${CSS.escape(c)}`).join('');
+  function drawDialog(d, { fresh = false, open = false } = {}) {
+    if (!dialogs.includes(d)) return;
+    const el = d.el, top = d === topDialog();
+    const was = document.activeElement;
+    const focus = !fresh && el.contains(was) ? controlKey(was) : null;
+    let caret = null;
+    try { if (focus && typeof was.selectionStart === 'number') caret = [was.selectionStart, was.selectionEnd]; } catch {}
+    const lists = fresh ? [] : [...el.querySelectorAll('div, section, ol, ul, nav')].filter(x => x.scrollTop > 0).map(x => [listKey(x), x.scrollTop]);
+    el.className = `dialog${d.className ? ` ${value(d.className)}` : ''}`;
+    el.setAttribute('aria-label', value(d.title) ?? '');
+    el.innerHTML = d.render();
+    for (const [key, y] of lists) { const x = el.querySelector(key); if (x) x.scrollTop = y; }
+    if (top) {
+      const again = focus && el.querySelector(focus);
+      if (again) { again.focus({ preventScroll: true }); if (caret) try { again.setSelectionRange(...caret); } catch {} }
+      else if (open) (d.onOpen ?? focusFirst)(el);
+      else if (fresh || !el.contains(document.activeElement)) focusFirst(el);
+    }
+    d.onDraw?.(el);
+  }
+  function closeDialog(d) {
+    const i = dialogs.indexOf(d);
+    if (i < 0) return;
+    dialogs.splice(i, 1);
+    d.host.remove();
+    if (d.back?.isConnected) d.back.focus({ preventScroll: true });
+    else if (topDialog()) focusFirst(topDialog().el);
+    d.onClose?.();
+  }
+  // Keeps Tab within the dialog on top, going round from its last control to its first.
+  function trapTab(e, el) {
+    const items = [...el.querySelectorAll(FOCUSABLE)].filter(x => x.getClientRects().length);
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement);
+    const next = e.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : (at < 0 || at === items.length - 1 ? 0 : at + 1);
+    e.preventDefault();
+    items[next].focus();
+  }
+
+  // Shell.confirm({ title, body, confirm, danger }) and Shell.prompt({ title, body, value, placeholder,
+  // confirm }) ask in a dialog, and resolve with the answer: true or false, or the text (null if cancelled).
+  // `html` stands in for a body of markup.
+  function ask(options) {
+    return new Promise(resolve => {
+      let answer = null;
+      const ok = () => {
+        answer = options.kind === 'prompt' ? d.el.querySelector('.dialog-input').value : true;
+        d.close();
+      };
+      const d = dialog({
+        title: options.title, width: options.wide ? 640 : null, render: () => askHtml(options), ok,
+        onOpen: el => { const input = el.querySelector('.dialog-input'); if (input) { input.focus(); input.select(); } else focusFirst(el); },
+        keys: e => { if (e.key === 'Enter' && !e.target.matches('button')) { e.preventDefault(); ok(); } },
+        onClose: () => resolve(answer),
+      });
+    });
+  }
+  const confirm = d => ask({ ...d, kind: 'confirm' }).then(x => x === true);
+  const prompt = d => ask({ ...d, kind: 'prompt' });
+  function askHtml(d) {
     const body = d.html ?? (d.body ? esc(d.body) : '');
-    return `<div class="dialog${d.wide ? ' is-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-      <h2 class="dialog-title" id="dialog-title">${esc(d.title)}</h2>
+    return `<h2 class="dialog-title">${esc(d.title)}</h2>
       ${body ? `<div class="dialog-body">${body}</div>` : ''}
       ${d.kind === 'prompt' ? `<input class="input dialog-input" value="${esc(d.value ?? '')}" placeholder="${esc(d.placeholder ?? '')}" aria-label="${esc(d.title)}" autocomplete="off" spellcheck="false">` : ''}
       <div class="dialog-actions">
         ${d.kind === 'info' ? '' : '<button class="btn" data-cmd="shell.dialog-cancel">Cancel</button>'}
         <button class="btn ${d.danger ? 'btn-danger' : 'btn-primary'}" data-cmd="shell.dialog-ok" data-default>${esc(d.confirm ?? (d.kind === 'info' ? 'Done' : 'OK'))}</button>
-      </div></div>`;
-  }
-  function finishDialog(answer) {
-    const d = layer.dialog;
-    if (!d) return;
-    layer.dialog = null;
-    d.resolve(d.kind === 'prompt' ? (answer === null ? null : answer) : answer);
-  }
-  function okDialog() {
-    const input = document.querySelector('#layer .dialog-input');
-    finishDialog(layer.dialog.kind === 'prompt' ? input.value : true);
-    renderLayer();
+      </div>`;
   }
 
   // ---- Toasts ----
@@ -429,7 +506,7 @@ const Shell = (() => {
     const keys = [[`${modKey}+K`, 'Search and commands'], ['G then H, C, D, A, Y, R or S', 'Go to an area'], [`${modKey}+Z`, 'Undo'],
       [isMac ? '⇧⌘Z' : 'Ctrl+Y', 'Redo'], [`${modKey}+\\`, 'Show or hide the sidebar'], ['?', 'These shortcuts'], ['Esc', 'Close']];
     keys.push(...(page.keys ?? []));
-    dialog({ kind: 'info', title: 'Keyboard shortcuts', html: `<dl class="keys">${keys.map(([k, what]) => `<dt>${esc(what)}</dt><dd><kbd>${esc(k)}</kbd></dd>`).join('')}</dl>` });
+    ask({ kind: 'info', title: 'Keyboard shortcuts', html: `<dl class="keys">${keys.map(([k, what]) => `<dt>${esc(what)}</dt><dd><kbd>${esc(k)}</kbd></dd>`).join('')}</dl>` });
   }
 
   // ---- Undo ----
@@ -451,8 +528,9 @@ const Shell = (() => {
     'shell.user': el => userMenu(el),
     'shell.sidebar': toggleSidebar,
     'shell.menu-pick': el => { const item = layer.menu.items[Number(el.dataset.index)]; layer.menu = null; renderLayer(); renderSidebar(); item.run(); },
-    'shell.dialog-ok': okDialog,
-    'shell.dialog-cancel': () => { finishDialog(null); renderLayer(); },
+    'shell.dialog-ok': el => dialogOf(el)?.ok(),
+    'shell.dialog-cancel': el => { const d = dialogOf(el); if (d) closeDialog(d); },
+    'shell.dialog-dismiss': () => closeDialog(topDialog()),
     'shell.toast-action': el => { const t = layer.toasts.find(x => x.id === Number(el.dataset.id)); dropToast(t.id); t.action.run(); },
     'shell.toast-close': el => dropToast(Number(el.dataset.id)),
   });
@@ -483,6 +561,26 @@ const Shell = (() => {
     for (const x of document.querySelectorAll('#layer .palette-item')) x.setAttribute('aria-selected', x === item);
   });
 
+  function menuKeys(e) {
+    const items = [...document.querySelectorAll('#layer .float-menu .menu-item:not(:disabled)')];
+    const at = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeLayer(); renderSidebar(); }
+  }
+
+  // A dialog has the keys before anything else hears them, and they go no further: to its own handler
+  // first, then Esc closes it and Tab keeps to it. A menu opened over it has them first.
+  window.addEventListener('keydown', e => {
+    const d = topDialog();
+    if (!d) return;
+    e.stopPropagation();
+    if (layer.menu) return menuKeys(e);
+    d.keys?.(e);
+    if (e.defaultPrevented) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeDialog(d); }
+    else if (e.key === 'Tab') trapTab(e, d.el);
+  }, true);
+
   let goPending = 0;
   document.addEventListener('keydown', e => {
     const mod = e.ctrlKey || e.metaKey;
@@ -500,18 +598,7 @@ const Shell = (() => {
       if (e.key === 'Escape') { e.preventDefault(); closeLayer(); }
       return;
     }
-    if (layer.dialog) {
-      if (e.key === 'Escape') { e.preventDefault(); finishDialog(null); renderLayer(); }
-      if (e.key === 'Enter' && !e.target.matches('button')) { e.preventDefault(); okDialog(); }
-      return;
-    }
-    if (layer.menu) {
-      const items = [...document.querySelectorAll('#layer .float-menu .menu-item:not(:disabled)')];
-      const at = items.indexOf(document.activeElement);
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); }
-      if (e.key === 'Escape') { e.preventDefault(); closeLayer(); renderSidebar(); }
-      return;
-    }
+    if (layer.menu) return menuKeys(e);
     if (typing(e.target) || e.altKey) return;
     if (mod && (key === 'z' || key === 'y') && page?.undo) { e.preventDefault(); return undoOrRedo(key === 'y' || e.shiftKey); }
     if (mod) return;
@@ -546,7 +633,7 @@ const Shell = (() => {
   applySidebar();
 
   return {
-    start, render, on, menu, confirm, prompt, toast, visited, recent, recordHref, kindHref, subtitleOf, DOCUMENT_KIND,
+    start, render, on, menu, dialog, confirm, prompt, toast, visited, recent, recordHref, kindHref, subtitleOf, DOCUMENT_KIND,
     // Says where the workbook is saved, and how that's going: tone '', 'busy' or 'error'.
     setStatus(text, tone = '') { status = { text, tone }; if (page) { renderSidebar(); renderBanner(); } },
     // Runs when the workbook switches to another chart, or another tab changes it, so a page can let go
