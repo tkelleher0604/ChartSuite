@@ -20,6 +20,7 @@ const ui = {
   why: null,        // id of the record whose formula is explained under it
   fx: null,         // the definition being edited: { key, draft, error }; see "Formulas" below
   edgeEdit: null,   // a relation's edge being relabeled: { id, edge, text, scope, error }; see argumentRows
+  describing: null, // the form whose meaning is being written; see meaningHtml
 };
 
 // ---- Changes made from the panel ----
@@ -178,7 +179,7 @@ function resetSample() {
 }
 
 function clearForms() {
-  ui.form = ui.focus = ui.error = ui.menu = ui.relEdit = ui.pending = ui.fx = ui.edgeEdit = null;
+  ui.form = ui.focus = ui.error = ui.menu = ui.relEdit = ui.pending = ui.fx = ui.edgeEdit = ui.describing = null;
   closeSuggest();
 }
 
@@ -1099,16 +1100,19 @@ function schemaView({ filter = 'all' }) {
   const used = usage();
   const unused = new Set(unusedSpecs());
   const covered = coveredForms();
-  const filters = `<div class="schema-filters"><span class="seg" role="group" aria-label="Show">${SCHEMA_FILTERS.map(([value, text]) =>
-    `<button data-action="open" data-hash="schema${value === 'all' ? '' : `:${value}`}" aria-pressed="${filter === value}">${text}</button>`).join('')}</span></div>`;
+  // The subsets of the one list, as tabs, each with how many forms it holds.
+  const keeps = { all: () => true, computed: f => covered.has(f), unused: f => indexOf().byForm.get(f).some(k => unused.has(k)) };
+  const filters = `<div class="tabs schema-filters" role="tablist" aria-label="Show">${SCHEMA_FILTERS.map(([value, text]) => {
+    const n = formsOfSchema().filter(keeps[value]).length;
+    return `<button class="tab" role="tab" data-action="open" data-hash="schema${value === 'all' ? '' : `:${value}`}" aria-selected="${filter === value}">${text}${n ? `<span class="tab-count">${n}</span>` : ''}</button>`;
+  }).join('')}</div>`;
   const removeAll = filter === 'unused' && unused.size ? `<button class="btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([...unused]))}" title="Remove every specification nothing has">Remove unused (${unused.size})</button>` : '';
   const open = ui.menu === 'schema-new';
   const add = `<span class="menu-anchor"><button class="btn" data-action="menu" data-menu="schema-new" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}New definition${icon('chevron-down')}</button>
     ${open ? `<div class="pop menu" role="menu">${newDefinitionItems()}</div>` : ''}</span>`;
-  const head = panelHead({ crumbs: allLink(), title: 'Schema', sub: 'The chart’s vocabulary, by form: what each is, where, and how it’s computed, named and drawn',
+  const head = panelHead({ crumbs: allLink(), title: 'Schema', sub: 'Every kind of entry and relation in this chart: what it means, where it’s used, and which a formula works out',
     actions: removeAll || add, extra: filters });
-  const keep = filter === 'computed' ? f => covered.has(f) : filter === 'unused' ? f => indexOf().byForm.get(f).some(k => unused.has(k)) : () => true;
-  const forms = formsOfSchema().filter(keep);
+  const forms = formsOfSchema().filter(keeps[filter] ?? keeps.all);
   const byLabelOf = (a, b) => byLabel(describeForm(a).label, describeForm(b).label);
   const row = f => schemaFormRow(f, { used, unused, covered });
   const section = (title, list) => list.length ? `<div class="section-head">${title}</div>${list.sort(byLabelOf).map(row).join('')}` : '';
@@ -1124,7 +1128,8 @@ function schemaView({ filter = 'all' }) {
   return [head, body || `<div class="empty">${empty}</div>`];
 }
 
-// A form's row: what it is, where, and its records or errors; opened, everything keyed by it.
+// A form's row: what it is, where, and its records or errors, then what it means; opened, everything
+// keyed by it. Computed is its one badge, so the purple stands out; its sort is plain text.
 function schemaFormRow(f, { used, unused, covered }) {
   const keys = indexOf().byForm.get(f);
   const users = k => (used.get(k) ?? []).length;
@@ -1134,11 +1139,20 @@ function schemaFormRow(f, { used, unused, covered }) {
   const n = keys.reduce((s, k) => s + users(k), 0);
   const key = `schema|${f}`;
   const open = ui.expanded.has(key);
-  const badges = (f === 'object' ? '' : `<span class="schema-badge">${esc(sortText(f))}</span>`) + (covered.has(f) ? '<span class="schema-badge is-computed">Computed</span>' : '');
+  const badges = (f === 'object' ? '' : `<span class="schema-sort">${esc(sortText(f))}</span>`) + (covered.has(f) ? '<span class="schema-badge is-computed">Computed</span>' : '');
   return `<div class="schema-form"><button class="schema-head" data-action="toggle" data-id="${esc(key)}" aria-expanded="${open}">${icon('chevron-right', 'schema-twist')}
       <span class="list-title">${esc(d.label)}</span>${badges}<span class="schema-desc">${esc(d.where)}</span>
       <span class="list-meta${errors ? ' is-error' : ''}">${errors ? count(errors, 'error') : count(n, 'record')}</span></button>
+    ${f === 'object' ? '' : meaningHtml(f)}
     ${open ? `<div class="schema-body">${schemaFormBody(f, keys, defs, users, unused)}</div>` : ''}</div>`;
+}
+
+// What a form means, in words (descriptionOf), as its row in the Schema and its definition show it: once
+// clicked, edited in place, saving as it's left (setDescription). Every Why leads with it.
+function meaningHtml(f, cls = 'schema-meaning') {
+  const text = descriptionOf(f);
+  if (ui.describing === f) return `<textarea class="input ${cls}-input" data-describe="${esc(f)}" rows="2" placeholder="Say what this means…" aria-label="What ${esc(describeForm(f).label)} means" spellcheck="true" data-autofocus>${esc(text)}</textarea>`;
+  return `<button class="${cls}${text ? '' : ' is-empty'}" data-action="describe" data-form="${esc(f)}" title="${text ? 'Change what it means' : 'Say in words what it means, for its Why to lead with'}">${esc(text || 'Say what this means…')}</button>`;
 }
 
 function schemaFormBody(f, keys, defs, users, unused) {
@@ -1558,9 +1572,13 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
   const results = Object.entries(formulaResult.computed ?? {}).filter(([, c]) => c.def === d.id).map(([k]) => k).filter(k => records[k]);
   const resultList = results.slice(0, 12).map(k => `<a class="fx-result" href="${esc(panelHref(k))}">${esc(resultText(k))}</a>`).join('')
     + (results.length > 12 ? `<span class="fx-hint">and ${results.length - 12} more</span>` : '');
+  // What the form it covers means, once there's a form: saved as it's left, apart from the draft.
+  const stored = !isNew && definitions.find(x => x.id === d.id);
+  const covering = stored && formOfDefinition(stored);
   const body = `<div class="fx-editor">
       ${field('Name', `<input class="input" data-fx="name" value="${esc(d.name)}" placeholder="${isRel ? 'Relation name, like Control' : 'Entry name, like 3(c)(1) Count'}" autocomplete="off" spellcheck="false">`,
         isRel ? 'The relation’s name, for calling it in formulas.' : 'The entry’s label, as its rows show it.')}
+      ${covering ? field('Meaning', meaningHtml(covering, 'fx-meaning'), 'What it means, in words a lawyer reads. Every Why leads with it.') : ''}
       ${field('Type', typeSelect)}
       ${where}
       ${field(d.type === 'tag' && d.implications ? 'Implied by' : 'Formula', formulaFields(fx))}
@@ -1803,7 +1821,17 @@ const actions = {
   'fx-param-remove': d => { ui.fx.draft.args.splice(Number(d.i), 1); },
   'fx-loc-remove': d => { (d.i === '' ? ui.fx.draft.at : ui.fx.draft.args[Number(d.i)].at).splice(Number(d.k), 1); },
   'names-remove': d => changeName(d.form, () => null),
+  describe: d => { ui.describing = d.form; },
 };
+
+// Writing what a form means: Enter (without Shift) or leaving the box saves it, Esc lets it be. Leaving it
+// for one of the panel's actions leaves the drawing to that action, so its click lands where it was aimed.
+function saveMeaning(el, next = null) {
+  if (ui.describing !== el.dataset.describe) return;
+  ui.describing = null;
+  setDescription(el.dataset.describe, el.value);
+  if (!next?.closest?.('[data-action]')) render();
+}
 
 // Keep focus in the box while an option is clicked.
 document.addEventListener('mousedown', e => {
@@ -2006,8 +2034,17 @@ function onComboKey(e) {
   return true;
 }
 
+document.addEventListener('focusout', e => {
+  if (e.target.matches?.('[data-describe]')) saveMeaning(e.target, e.relatedTarget);
+});
+
 document.addEventListener('keydown', e => {
   const t = e.target;
+  if (t.matches('[data-describe]')) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); return saveMeaning(t); }
+    if (e.key === 'Escape') { e.preventDefault(); ui.describing = null; return render(); }
+    return;
+  }
   if (t.matches('.fx-input') && onFxKey(e)) return e.preventDefault();
   if (t.matches('.combo-input') && onComboKey(e)) return e.preventDefault();
   if (e.key === 'Enter' && t.matches('input[data-input]') && !t.matches('.combo-input')) {

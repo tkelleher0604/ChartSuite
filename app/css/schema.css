@@ -8,6 +8,7 @@
 .schema-page .panel-head h1 { font-size: 24px; line-height: 32px; letter-spacing: -.019em; }
 .schema-page .subtitle { margin-top: 2px; font-size: 14px; color: var(--text-2); }
 .schema-page .schema-filters { margin-top: 14px; }
+.schema-page .panel-head:has(> .schema-filters) { padding-bottom: 0; }
 .schema-page .rows { padding: 6px 0 0; }
 .schema-page .section-head { margin: 22px 10px 6px 22px; }
 .schema-page .pending { margin: 10px 0 8px; }
