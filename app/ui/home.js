@@ -3,7 +3,7 @@
 // lately; on the right, the chart at a glance and the agenda's next few dates.
 
 const home = {
-  more: new Set(),  // the attention groups showing every item, not just the first few
+  more: new Set(),  // the attention groups, and the requirements left blank, showing everything, not just the first few
 };
 const FEW = 5;
 
@@ -147,22 +147,23 @@ function recentHtml() {
 }
 
 // ---- The chart at a glance ----
-// Whether the current view draws an object's box: its kind shown, not hidden one by one, and its filter
-// holding there (or running into an error, which leaves a box drawn).
-function drawnBoxes() {
-  const hidden = new Set(hiddenInView());
+// The objects whose boxes the current view draws: of a kind it shows, not hidden one by one, and where its
+// filter holds (or runs into an error, which leaves a box drawn), as the chart works them out.
+function drawnBoxes(hidden) {
   const filter = clean(viewFilter()) && !Formulas.check(viewFilter()).error ? `= IF(${Formulas.splitFormula(viewFilter()).body}, TRUE, FALSE)` : null;
-  return Object.keys(records).filter(id => isObject(records[id]) && boxShown(id) && !hidden.has(id) && (() => {
+  const holds = id => {
     if (!filter) return true;
     const v = Formulas.evaluateAt(formulaResult, filter, id);
     return v === true || Formulas.isError(v);
-  })());
+  };
+  return Object.keys(records).filter(id => isObject(records[id]) && boxShown(id) && !hidden.has(id) && holds(id));
 }
 
 // The view's boxes and lines in outline, as a thumbnail: each box where the view puts it, with a height
 // for its lines of text, and each two-argument relation it draws as a line between them.
 function thumbnailSvg() {
-  const ids = drawnBoxes();
+  const hidden = new Set(hiddenInView());
+  const ids = drawnBoxes(hidden);
   if (!ids.length) return '';
   const boxes = new Map();
   let bottom = 0;
@@ -179,7 +180,6 @@ function thumbnailSvg() {
   const [x1, y1] = [Math.max(...all.map(b => b.x + b.w)) + 24, Math.max(...all.map(b => b.y + b.h)) + 24];
   // A line runs down from the bottom of the box above to the top of the one below, or, between boxes side
   // by side, across from one's side to the other's.
-  const hidden = new Set(hiddenInView());
   const lines = Object.keys(records).filter(id => isRelation(records[id]) && records[id].args.length === 2 && !hidden.has(id) && lineLook(id).show).flatMap(id => {
     let [a, b] = records[id].args.map(x => boxes.get(objectOf(x.at)));
     if (!a || !b || a === b) return [];
@@ -212,7 +212,7 @@ function glanceHtml() {
         return `<a class="home-count" href="${esc(href)}"><span>${esc(plural(k))}</span><span class="tnum">${objectsOfKind(k).length}</span></a>`;
       }).join('') || '<div class="home-count faint">No records yet</div>'}
     </div>
-    ${definitions.length ? `<div class="home-card-foot faint">${esc(`${count(definitions.length, 'definition')} work out ${count(computed, 'record')}.`)}</div>` : ''}
+    ${definitions.length ? `<div class="home-card-foot faint">${esc(`${count(definitions.length, 'definition')} ${definitions.length === 1 ? 'works' : 'work'} out ${count(computed, 'record')}.`)}</div>` : ''}
   </section>`;
 }
 
@@ -223,7 +223,7 @@ function comingUpHtml() {
     <div class="card-head"><h2 class="card-title" id="home-coming">Coming up</h2><a class="link-btn" href="calendar.html">Calendar</a></div>
     ${next.length ? `<div class="home-next">${next.map(e => `<a class="home-next-item${e.days <= 6 ? ' is-week' : ''}${e.computed ? ' is-computed' : ''}" href="${esc(Shell.recordHref(e.root))}">
         <time class="home-next-date tnum" datetime="${esc(e.iso)}" title="${esc(Agenda.longDate(e.iso))}">${esc(Parts.date(e.iso).replace(/, \d{4}$/, ''))}</time>
-        <span class="home-next-text"><span class="home-next-label">${esc(e.label)}</span><span class="home-next-whose">${esc([e.relation, ...e.owners.map(k => objectName(k))].filter(Boolean).join(e.relation ? ' · ' : ' → '))}</span></span>
+        <span class="home-next-text"><span class="home-next-label">${esc(e.label)}</span><span class="home-next-whose">${esc(Agenda.whoseText(e))}</span></span>
         <span class="home-next-when tnum">${esc(Agenda.relative(e.iso))}</span></a>`).join('')}</div>`
       : '<div class="card-body faint">Nothing coming up.</div>'}
   </section>`;

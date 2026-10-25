@@ -12,9 +12,10 @@ const cal = {
   reach: [],          // the object's lists of relatives whose members count too, directly and indirectly
   computed: false,    // whether only computed dates are shown
   past: false,        // whether the Past group is open
-  picker: null,       // the object picker: { query, active, items }
+  picker: null,       // the object picker: { query, active, ids }
   exportPast: false,  // whether the export takes past dates too
 };
+const NO_FILTERS = { kind: null, object: null, reach: [], computed: false };
 
 // ---- The address ----
 // Read before the records are, so what it names is checked where it's used: an object that's gone, or a
@@ -150,7 +151,7 @@ function monthHtml(list) {
     cells.push(`<div class="cal-day${iso.slice(0, 7) !== first.slice(0, 7) ? ' is-out' : ''}${iso === today ? ' is-today' : ''}" role="gridcell" data-cmd="cal.day" data-day="${iso}"
         tabindex="${selected ? 0 : -1}" aria-selected="${selected}" aria-label="${esc(label)}">
       <span class="cal-num tnum">${Number(iso.slice(8))}</span>
-      ${evs.slice(0, evs.length > 3 ? 2 : 3).map(e => `<span class="cal-ev is-${Agenda.groupOf(e)}${e.computed ? ' is-computed' : ''}" title="${esc(`${e.label}: ${e.owners.map(k => objectName(k)).join(' → ')}`)}">${esc(e.label)}</span>`).join('')}
+      ${evs.slice(0, evs.length > 3 ? 2 : 3).map(e => `<span class="cal-ev is-${Agenda.groupOf(e)}${e.computed ? ' is-computed' : ''}" title="${esc(`${e.label}. ${Agenda.whoseText(e)}`)}">${esc(e.label)}</span>`).join('')}
       ${evs.length > 3 ? `<span class="cal-more">${evs.length - 2} more</span>` : ''}
     </div>`);
   }
@@ -201,9 +202,12 @@ async function exportToOutlook() {
   const past = list.filter(e => Agenda.groupOf(e) === 'past');
   const ahead = list.length - past.length;
   cal.exportPast = false;
+  const shownAs = filtered() ? ', as the filters show them' : '';
+  const lead = ahead ? `${count(ahead, 'date')}, overdue and upcoming${shownAs}, each an all-day event named for what it is and whose, with a link back to its record.`
+    : `Nothing is overdue or upcoming${shownAs}. Past dates can go as all-day events, each named for what it is and whose, with a link back to its record.`;
   const ok = await Shell.confirm({
     title: 'Export to Outlook',
-    html: `<p class="cal-export-lead">${esc(`${count(ahead, 'date')}${ahead ? ', overdue and upcoming' : ''}${filtered() ? ', as the filters show them' : ''}`)}, each an all-day event named for what it is and whose, with a link back to its record.</p>
+    html: `<p class="cal-export-lead">${esc(lead)}</p>
       ${past.length ? `<label class="cal-export-check"><input type="checkbox" data-cal-export-past> Include ${count(past.length, 'past date')}</label>` : ''}
       <p class="cal-export-note">Open the file to add the dates to Outlook. It’s a copy as of today, so export again after changes. To have Outlook keep up by itself, save the file where Outlook can reach it by address, and subscribe to it with <em>Add calendar › Subscribe from web</em>.</p>`,
     confirm: 'Download .ics',
@@ -338,7 +342,7 @@ document.addEventListener('keydown', e => {
 Shell.on('cal.view', el => show({ view: el.dataset.view }));
 Shell.on('cal.kind', el => Shell.menu(el, [
   { head: 'Dates of' },
-  { label: 'Any kind', checked: !cal.kind, run: () => show({ kind: null }) },
+  { label: 'Any kind', checked: !kindSet(), run: () => show({ kind: null }) },
   ...kindsInState().map(k => ({ label: plural(k), checked: same(cal.kind ?? '', k), run: () => show({ kind: k }) })),
 ], 'cal-kind'));
 Shell.on('cal.clear-kind', () => show({ kind: null }));
@@ -346,16 +350,16 @@ Shell.on('cal.object', el => objectSet() ? objectMenu(el) : (cal.picker ? closeP
 Shell.on('cal.clear-object', () => show({ object: null, reach: [] }));
 Shell.on('cal.pick', el => pick(el.dataset.id));
 Shell.on('cal.computed', () => show({ computed: !cal.computed }));
-Shell.on('cal.clear', () => show({ kind: null, object: null, reach: [], computed: false }));
+Shell.on('cal.clear', () => show(NO_FILTERS));
 Shell.on('cal.past', () => show({ past: !cal.past }));
-Shell.on('cal.day', el => { show({ day: el.dataset.day }); document.querySelector(`.cal-day[data-day="${el.dataset.day}"]`)?.focus(); });
+Shell.on('cal.day', el => moveDay(el.dataset.day));
 Shell.on('cal.month', el => moveDay(monthsOn(cal.day, Number(el.dataset.step))));
 Shell.on('cal.today', () => moveDay(Agenda.isoToday()));
 Shell.on('cal.export', exportToOutlook);
 
 window.addEventListener('hashchange', () => { readAddress(); render(); });
 // Another chart's records are another chart's: its filters start afresh.
-Shell.onChartChange(() => { Object.assign(cal, { kind: null, object: null, reach: [], computed: false, past: false }); closePicker(); writeAddress(); });
+Shell.onChartChange(() => { Object.assign(cal, NO_FILTERS, { past: false }); closePicker(); writeAddress(); });
 
 readAddress();
 Shell.start({
@@ -367,6 +371,6 @@ Shell.start({
     { title: 'Export to Outlook', keywords: 'ics calendar download', run: exportToOutlook },
     { title: cal.view === 'month' ? 'Show the agenda' : 'Show a month', keywords: 'calendar view', run: () => show({ view: cal.view === 'month' ? 'agenda' : 'month' }) },
     { title: 'Go to today', keywords: 'calendar month', run: () => show({ view: 'month', day: Agenda.isoToday() }) },
-    ...(filtered() ? [{ title: 'Clear filters', run: () => show({ kind: null, object: null, reach: [], computed: false }) }] : []),
+    ...(filtered() ? [{ title: 'Clear filters', run: () => show(NO_FILTERS) }] : []),
   ],
 });

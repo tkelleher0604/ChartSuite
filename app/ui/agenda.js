@@ -155,6 +155,8 @@ const Agenda = (() => {
       owners.map(k => Parts.chip(k)).join(relation !== null ? '<span class="ev-arrow">→</span>' : '')}${
       path ? `<span class="ev-path" title="${esc(path)}">${esc(path)}</span>` : ''}${after}</span>`;
   }
+  // The same in words, for where chips can't go: General Partner: Calder Ridge Capital GP III, LLC → ….
+  const whoseText = ({ owners, relation = null }) => `${relation ? `${relation}: ` : ''}${owners.map(k => objectName(k)).join(relation !== null ? ' → ' : ', ')}`;
 
   const recordHref = e => Shell.recordHref(e.root);
   const longDate = iso => new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -185,7 +187,8 @@ const Agenda = (() => {
   // ---- Outlook ----
   // An iCalendar file of events, each an all-day event named for what it is and whose, with a link back
   // to its record. An event's UID is its record's id, which stays put (a computed record's comes from what
-  // it's computed at), so importing a later export moves an event rather than adding it twice.
+  // it's computed at), so a calendar subscribed to the file knows an event it has, and moves it when its
+  // date moves.
   function ics(list, calendarName) {
     const text = s => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
     // Lines are folded at 75 octets, continuing with a space, as RFC 5545 has it.
@@ -204,12 +207,10 @@ const Agenda = (() => {
     const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Rboreal//Calendar//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${text(calendarName)}`];
     for (const e of list) {
       const url = new URL(recordHref(e), location.href).href;
-      const whose = e.owners.map(k => objectName(k)).join(' → ');
       const d = formulaInfo(e.id) && definitionOf(formulaInfo(e.id).def);
-      const where = [`${e.relation ? `${e.relation}: ` : ''}${whose}`, ...e.where].join(' › ');
-      const notes = [where, e.computed && d ? `Worked out by ${d.name}: ${d.formula}` : '', url].filter(Boolean).join('\n');
+      const notes = [[whoseText(e), ...e.where].join(' › '), e.computed && d ? `Worked out by ${d.name}: ${d.formula}` : '', url].filter(Boolean).join('\n');
       lines.push('BEGIN:VEVENT', `UID:${e.id}@rboreal`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${day(e.iso)}`, `DTEND;VALUE=DATE:${day(addDays(e.iso, 1))}`,
-        `SUMMARY:${text(`${e.label}: ${whose}`)}`, `DESCRIPTION:${text(notes)}`, `URL:${url}`,
+        `SUMMARY:${text(`${e.label}: ${e.owners.map(k => objectName(k)).join(' → ')}`)}`, `DESCRIPTION:${text(notes)}`, `URL:${url}`,
         'TRANSP:TRANSPARENT', 'X-MICROSOFT-CDO-ALLDAYEVENT:TRUE', 'X-MICROSOFT-CDO-BUSYSTATUS:FREE', 'END:VEVENT');
     }
     lines.push('END:VCALENDAR');
@@ -227,6 +228,6 @@ const Agenda = (() => {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  return { events, grouped, groupOf, spanText, relative, matches, reach, listsOf, row, whose, ownersOf, ics, download,
+  return { events, grouped, groupOf, spanText, relative, matches, reach, listsOf, row, whose, whoseText, ownersOf, ics, download,
     isDeadline, isoOf, isoToday, addDays, longDate };
 })();
