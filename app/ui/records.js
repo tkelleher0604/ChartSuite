@@ -937,8 +937,9 @@
 
   // ---- Copying, pasting and exporting ----
 
-  // The text a cell copies and exports as: a document as its address, everything else as it reads.
-  const cellText = (cell, c) => !c.rel && cell.r?.field === 'document' ? String(cell.r.value) : cell.text;
+  // The text a cell copies and exports as: a document as its address, a tag as Yes or No, as Excel users
+  // write them (and paste reads them), and everything else as it reads.
+  const cellText = (cell, c) => c.rel || !cell.r ? cell.text : cell.r.field === 'document' ? String(cell.r.value) : isTag(cell.r) ? (cell.r.tag ? 'Yes' : 'No') : cell.text;
   const tsvField = s => /[\t\n\r"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 
   function rowsAsTsv(ids) {
@@ -1124,16 +1125,19 @@
     render();
   }
 
-  // Saves what's shown, as it reads, in the order shown, to a CSV file that Excel opens as it is.
+  // Saves what's shown, as it reads, in the order shown, to a CSV file that Excel opens as it is. A cell
+  // Excel would take for a formula (=, +, - or @ first, and not a number) starts with an apostrophe, so it
+  // stays text: a name like =HYPERLINK(…) can't run, and -5 Corp isn't an error.
   function exportCsv() {
     const P = readPass();
     const cols = columns();
     const shownCols = cols.filter(c => isShown(c, P));
     const rows = shownRows(P, cols, shownCols);
+    const inert = s => /^[=+\-@\t\r]/.test(s) && !isNumber(s) ? `'${s}` : s;
     const field = s => /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     const lines = [shownCols.map(c => c.label), ...rows.map(id => shownCols.map(c => cellText(P.cell(id, c), c)))];
     // A byte-order mark first, so Excel reads the file as UTF-8.
-    const csv = `${String.fromCharCode(0xFEFF)}${lines.map(l => l.map(field).join(',')).join('\r\n')}\r\n`;
+    const csv = `${String.fromCharCode(0xFEFF)}${lines.map(l => l.map(s => field(inert(s))).join(',')).join('\r\n')}\r\n`;
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
