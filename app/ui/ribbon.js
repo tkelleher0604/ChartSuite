@@ -192,7 +192,7 @@ function showGroup(eng) {
 
 function homeTab() {
   const eng = currentEngaged();
-  return styleGroup(eng) + fontGroup(eng) + shapeGroup(eng) + showGroup(eng);
+  return [styleGroup(eng), fontGroup(eng), shapeGroup(eng), showGroup(eng)];
 }
 
 function insertTab() {
@@ -200,8 +200,8 @@ function insertTab() {
   const objects = `<div class="rb-row">${kinds}<button class="rb-btn" data-action="insert-object" data-kind="" title="Add a box of a kind not used yet">New kind…</button></div>`;
   const sel = selection();
   const relate = `<div class="rb-row"><button class="rb-btn" data-action="insert-relation" title="${sel.object ? `Relate ${esc(objectName(sel.object))} to another box` : 'Select a box first'}">Relate…</button></div>`;
-  return rbGroup('Boxes', objects) + rbGroup('Relations', relate)
-    + rbGroup('Tip', '<span class="rb-note is-tip">Double-click the sheet to add a box there. Drag from a box’s edge handle to another box to relate them.</span>');
+  return [rbGroup('Boxes', objects), rbGroup('Relations', relate),
+    rbGroup('Tip', '<span class="rb-note is-tip">Double-click the sheet to add a box there. Drag from a box’s edge handle to another box to relate them.</span>')];
 }
 
 // What the selection is, as something a formula might have worked out: a selected line, or a line of
@@ -230,7 +230,7 @@ function formulasTab() {
   const status = `<div class="rb-stack">
     <span class="rb-note">${count(computed, 'computed record')} from ${count(definitions.length, 'definition')}${ms !== undefined ? ` in ${Math.round(ms)} ms` : ''}</span>
     <span class="rb-row is-spaced">${errors}<button class="link-btn" data-action="fx-recalc" title="Work every formula out again now">Recalculate</button></span></div>`;
-  return rbGroup('Definitions', defs) + rbGroup('Explain', why) + rbGroup('Calculation', status);
+  return [rbGroup('Definitions', defs), rbGroup('Explain', why), rbGroup('Calculation', status)];
 }
 
 // The Show menu: everything this view can draw, by form (see showable in styles.js): kinds as boxes,
@@ -337,7 +337,17 @@ function viewTab() {
   const check = (key, label, on, title) => `<button class="rb-check" data-action="toggle-pref" data-key="${key}" aria-pressed="${on}" title="${title}">${box(on ? true : null)}${label}</button>`;
   const workspace = `<div class="rb-row">${check('grid', 'Gridlines', prefs.grid !== false, 'Dots on the sheet, to line boxes up by')}${check('legend', 'Legend', prefs.legend !== false, 'What the view’s looks mean, at the corner of the chart and in exports')}</div>
     <div class="rb-row">${check('panel', 'Record panel', prefs.panel !== false, 'The record panel on the right')}</div>`;
-  return rbGroup(`Show and hide in ${viewInUse().name}`, show) + rbGroup('Filter boxes', filter) + rbGroup('Workspace', workspace);
+  return [rbGroup(`Show and hide in ${viewInUse().name}`, show), rbGroup('Filter boxes', filter), rbGroup('Workspace', workspace)];
+}
+
+// Groups that don't fit fold, from the last, into More at the ribbon's end, as Office's simplified ribbon
+// folds them; More stays open while a menu of one of its controls is.
+function moreGroup(folded) {
+  const inner = folded.join('');
+  const open = ui.menu === 'rb:more' || inner.includes('aria-expanded="true"');
+  return `<div class="rb-group is-more"><div class="rb-controls"><span class="rb-anchor">
+    <button class="rb-btn" data-action="menu" data-menu="rb:more" aria-haspopup="menu" aria-expanded="${open}" title="More controls">More${icon('chevron-down', 'chev')}</button>
+    ${open ? `<div class="pop menu rb-menu rb-more is-right" role="menu">${inner}</div>` : ''}</span></div></div>`;
 }
 
 function renderRibbon() {
@@ -345,12 +355,18 @@ function renderRibbon() {
   if (ui.menu !== 'rb:filter') chart.filterDraft = null;
   const tabs = RIBBON_TABS.map(([key, name]) =>
     `<button class="tab" role="tab" aria-selected="${chart.tab === key}" data-action="rb-tab" data-tab="${key}">${name}</button>`).join('');
-  const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : homeTab();
+  const groups = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : homeTab();
   const ribbon = document.getElementById('ribbon');
   const scrolled = ribbon.querySelector('.ribbon-body')?.scrollLeft ?? 0;
-  ribbon.innerHTML = `<div class="tabs ribbon-tabs" role="tablist">${tabs}</div><div class="ribbon-body">${body}</div>`;
-  ribbon.querySelector('.ribbon-body').scrollLeft = scrolled;
-  markClipped(ribbon.querySelector('.ribbon-body'));
+  const draw = folded => {
+    ribbon.innerHTML = `<div class="tabs ribbon-tabs" role="tablist">${tabs}</div>
+      <div class="ribbon-body">${groups.slice(0, groups.length - folded).join('')}${folded ? moreGroup(groups.slice(-folded)) : ''}</div>`;
+    return ribbon.querySelector('.ribbon-body');
+  };
+  let folded = 0, body = draw(0);
+  while (body.scrollWidth > body.clientWidth + 1 && folded < groups.length - 1) body = draw(++folded);
+  body.scrollLeft = scrolled;
+  markClipped(body);
   placeRibbonMenus();
   // Keep the engaged style's tile in view when the gallery is too narrow to show every tile.
   const gallery = document.querySelector('.gallery');
@@ -367,14 +383,15 @@ function renderRibbon() {
   }
 }
 
-// An open ribbon menu is placed over the page, under its button, so the ribbon's sideways scrolling
-// doesn't clip it; it follows the button if the ribbon scrolls.
+// An open ribbon menu is placed over the page (see .rb-menu), under its button, so the ribbon's sideways
+// scrolling doesn't clip it; it follows the button if the ribbon scrolls. A menu in More is placed after
+// More, under its own button there.
 function placeRibbonMenus() {
   for (const menu of document.querySelectorAll('#ribbon .rb-menu')) {
     const a = menu.parentElement.getBoundingClientRect();
     const w = menu.offsetWidth;
     const left = menu.classList.contains('is-right') ? a.right - w : a.left;
-    Object.assign(menu.style, { position: 'fixed', top: `${a.bottom + 6}px`, left: `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`, right: 'auto' });
+    Object.assign(menu.style, { top: `${a.bottom + 6}px`, left: `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`, right: 'auto' });
   }
 }
 document.addEventListener('scroll', e => {
@@ -390,7 +407,8 @@ document.addEventListener('wheel', e => {
   e.preventDefault();
   strip.scrollLeft += e.deltaY;
 }, { passive: false });
-window.addEventListener('resize', () => markClipped(document.querySelector('.ribbon-body')));
+// A window resized folds the groups again, to fit.
+window.addEventListener('resize', renderRibbon);
 
 // A draft that doesn't read stays open, with the place it goes wrong shown and the caret there. Anything
 // else applies, errors and all, since the boxes it can't be worked out at stay shown, marked.

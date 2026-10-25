@@ -483,7 +483,29 @@ function viewTabsHtml() {
         title="${current ? 'Double-click to rename; drag to reorder' : `Switch to ${esc(v.name)}`}">${esc(v.name)}</button>${chev}</span>`;
   }).join('');
   return `<div class="view-tabs" role="tablist" aria-label="Views">${tabs}
+    <button class="view-more" data-cmd="chart.view-more" aria-haspopup="menu" hidden></button>
     <button class="icon-btn view-add" data-cmd="chart.view-add" aria-label="New view" title="New view, starting as a copy of this one">${icon('plus')}</button></div>`;
+}
+
+// Tabs that don't fit the bar fold, from the last, into a menu after the rest, as a workbook's do; the
+// current tab always shows.
+function drawCanvasBar() {
+  const bar = document.getElementById('status');
+  bar.innerHTML = canvasBarHtml();
+  const strip = bar.querySelector('.view-tabs'), more = strip.querySelector('.view-more');
+  const folded = [];
+  for (const tab of [...strip.querySelectorAll('.view-tab:not(.is-current)')].reverse()) {
+    if (strip.scrollWidth <= strip.clientWidth + 1) break;
+    tab.hidden = true;
+    folded.unshift(tab.dataset.viewTab);
+    Object.assign(more, { hidden: false, innerHTML: `${folded.length} more${icon('chevron-down')}`, title: `${count(folded.length, 'more view')}` });
+  }
+  more.dataset.views = folded.join(' ');
+}
+
+function moreViewsMenu(anchor) {
+  Shell.menu(anchor, anchor.dataset.views.split(' ').map(id => views.find(v => v.id === id)).filter(Boolean)
+    .map(v => ({ label: v.name, run: () => switchToView(v.id) })), 'chart:views');
 }
 
 const legendShown = () => prefs.legend !== false;
@@ -699,7 +721,7 @@ function renderChart() {
   stage.classList.toggle('is-picking', !!sel.relate && !sel.relate.b);
   stage.classList.toggle('is-connecting', !!chart.connect);
   document.getElementById('lock').innerHTML = lockBarHtml(sel) || askHtml();
-  document.getElementById('status').innerHTML = canvasBarHtml();
+  drawCanvasBar();
   focusChartEditor();
 }
 
@@ -1131,6 +1153,7 @@ Shell.on('chart.view', el => {
 });
 Shell.on('chart.view-add', addViewHere);
 Shell.on('chart.view-menu', el => viewMenu(el, el.dataset.view));
+Shell.on('chart.view-more', el => moreViewsMenu(el));
 Shell.on('chart.zoom', el => zoomTo(zoomStep(Number(el.dataset.step))));
 Shell.on('chart.zoom-menu', el => zoomMenu(el));
 Shell.on('chart.fit', fit);
@@ -1381,7 +1404,7 @@ document.addEventListener('pointermove', e => {
   const side = e.clientX < r.left + r.width / 2 ? 'before' : 'after';
   if (d.over !== over.dataset.viewTab || d.side !== side) {
     Object.assign(d, { over: over.dataset.viewTab, side });
-    document.getElementById('status').innerHTML = canvasBarHtml();
+    drawCanvasBar();
   }
 });
 
@@ -1408,7 +1431,7 @@ document.addEventListener('pointerdown', e => {
   bar.classList.add('is-active');
   const workspace = document.getElementById('workspace');
   const onMove = ev => {
-    const w = Math.min(Math.max(320, workspace.getBoundingClientRect().right - ev.clientX), workspace.clientWidth - 360);
+    const w = Math.min(Math.max(280, workspace.getBoundingClientRect().right - ev.clientX), workspace.clientWidth - 420);
     workspace.style.setProperty('--panel-w', `${w}px`);
     prefs.panelWidth = w;
   };
@@ -1483,7 +1506,8 @@ function presentKey(e) {
 
 // Leaving full screen (by Esc, which the browser keeps for itself there) ends presenting too.
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && chart.presenting) stopPresenting(); });
-window.addEventListener('resize', () => { if (chart.presenting) fitToScreen(); });
+// A window resized fits the chart again while presenting, and folds the view tabs again to fit.
+window.addEventListener('resize', () => { if (chart.presenting) fitToScreen(); else drawCanvasBar(); });
 
 // ---- The page ----
 

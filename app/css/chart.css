@@ -108,16 +108,23 @@ body:has(.chart-page) { --toasts-bottom: 52px; }
 .tile-preview .glyph-shape { width: 18px; height: 13px; }
 .tile-preview .glyph-line { width: 18px; }
 .tile-aa { font-size: 11px; line-height: 1; }
-.tile.is-add { padding: 0 10px; border-style: dashed; color: var(--text-2); }
+.tile.is-add { padding: 0 10px; border-style: dashed; color: var(--text-2); white-space: nowrap; }
+.rb-anchor:has(> .tile.is-add) { flex: none; }
 .tile.is-add[aria-expanded="true"] { border-color: var(--border-strong); background: var(--hover); }
 .preview-empty { display: block; width: 14px; height: 11px; border: 1.5px dashed var(--border-strong); border-radius: 3px; }
 
 /* Ribbon menus: palettes and option lists in the shared menu look. They float above the page (see
-   renderRibbon), so a ribbon that scrolls doesn't clip them. */
+   placeRibbonMenus), so a ribbon that scrolls doesn't clip them, nor do they make it wider. */
 .rb-anchor { position: relative; display: inline-flex; }
-.pop.rb-menu { left: 0; right: auto; width: max-content; min-width: 160px; max-width: 320px; }
+.pop.rb-menu { position: fixed; left: 0; right: auto; width: max-content; min-width: 160px; max-width: 320px; }
 .pop.rb-menu.is-right { right: 0; left: auto; }
 .pop.rb-menu:has(> .filter-pop) { max-width: none; }
+/* More: the groups that don't fit, stacked, each as it is in the ribbon. */
+.pop.rb-more { display: flex; flex-direction: column; gap: 9px; max-width: none; padding: 8px 0; }
+.rb-more .rb-group { padding: 0 10px; }
+.rb-more .rb-group + .rb-group { padding-top: 9px; }
+.rb-more .rb-group + .rb-group::before { top: 0; right: 10px; bottom: auto; left: 10px; width: auto; height: 1px; }
+.rb-more .rb-controls { align-items: flex-start; }
 .swatches { display: grid; grid-template-columns: repeat(8, 22px); gap: 4px; padding: 6px; }
 .swatch { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15), 0 0 0 1px var(--border); transition: transform .1s; }
 .swatch:hover { transform: scale(1.12); }
@@ -149,8 +156,10 @@ body:has(.chart-page) { --toasts-bottom: 52px; }
 /* While a relation is being added, the ribbon waits too. */
 body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 
-/* ---- The workspace: the canvas, the panel's resizing edge, and the panel ---- */
-.workspace { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr) auto var(--panel-w, clamp(320px, 30vw, 440px)); min-height: 0; }
+/* ---- The workspace: the canvas, the panel's resizing edge, and the panel. The canvas keeps at least 420px:
+   in a narrower window the panel gives way first, and below that the panel goes under the canvas. ---- */
+.chart-page { container: chart / inline-size; }
+.workspace { display: grid; flex: 1; grid-template-columns: minmax(420px, 1fr) auto minmax(0, var(--panel-w, clamp(300px, 30vw, 440px))); min-height: 0; }
 .workspace.is-panel-hidden { grid-template-columns: minmax(0, 1fr) 0 0; }
 .workspace.is-panel-hidden .resizer { display: none; }
 .canvas { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
@@ -269,6 +278,10 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .view-tab.is-dragging { opacity: .5; }
 .view-tab.is-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
 .view-tab.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+.view-tab[hidden], .view-more[hidden] { display: none; }
+.view-more { display: inline-flex; flex: none; align-items: center; gap: 4px; padding: 0 10px 0 14px; border: 0; background: none; color: var(--text-2); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.view-more:hover, .view-more[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.view-more .icon { width: 13px; height: 13px; }
 .view-add { align-self: center; width: 26px; height: 26px; margin-left: 4px; }
 .view-add .icon { width: 15px; height: 15px; }
 .bar-end { display: flex; flex: none; align-items: center; gap: 2px; margin-left: auto; padding-left: 12px; }
@@ -296,13 +309,14 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .vp-sub { margin: 10px 0 2px; font-size: 12px; line-height: 16px; color: var(--text-2); }
 .vp-sub:first-child { margin-top: 0; }
 .vp-gap { height: 8px; }
-.vp-item { display: flex; align-items: baseline; gap: 8px; margin: 0 -8px; padding: 5px 8px; border-radius: var(--radius-sm); color: var(--text); font-size: 13px; line-height: 18px; }
+/* What needs attention: the box's name, wrapping if it must, and what about it at the right. */
+.vp-item { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; margin: 0 -8px; padding: 5px 8px; border-radius: var(--radius-sm); color: var(--text); font-size: 13px; line-height: 18px; }
 .vp-item:hover { background: var(--hover); }
-.vp-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; transform: translateY(-1px); }
+.vp-dot { width: 7px; height: 7px; border-radius: 50%; transform: translateY(-1px); }
 .vp-dot.is-warn { background: var(--warn-solid); }
 .vp-dot.is-danger { background: var(--danger-solid); }
-.vp-item-name { min-width: 0; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.vp-item-what { flex: none; margin-left: auto; color: var(--text-2); }
+.vp-item-name { font-weight: 500; }
+.vp-item-what { color: var(--text-2); text-align: right; }
 .vp-key, .vp-check { display: flex; align-items: center; gap: 10px; min-height: 26px; font-size: 13px; line-height: 18px; }
 .vp-swatch { display: inline-grid; flex: none; place-items: center; width: 30px; height: 20px; border-radius: var(--radius-xs); background: var(--paper); box-shadow: inset 0 0 0 1px rgb(33 32 28 / .1); }
 .vp-swatch svg { width: 22px; height: 12px; overflow: visible; }
@@ -379,11 +393,14 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .export-profile:hover:not(:disabled) { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 3px; }
 .export-actions { display: flex; flex: none; gap: 8px; margin-left: auto; }
 
-@media (max-width: 900px) {
-  .main:has(> .chart-page) { overflow: auto; }
-  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: 62vh auto; }
+/* Too narrow for the canvas and the panel side by side, the panel goes under the canvas, and the two
+   scroll together. */
+@container chart (max-width: 719px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(360px, 72%) auto; overflow-y: auto; }
   .resizer { display: none; }
   .side-panel { overflow: visible; border-top: 1px solid var(--border); border-left: 0; }
+}
+@media (max-width: 900px) {
   .export-main { grid-template-columns: minmax(0, 1fr); }
   .export-preview { display: none; }
 }
