@@ -51,15 +51,6 @@
 .cal-export-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
 .cal-export-note { margin: 0; color: var(--text-2); font-size: 12.5px; }
 
-/* ---- The object picker ---- */
-.cal-picker { width: 380px; padding: 6px; }
-.cal-picker-search { display: flex; margin-bottom: 4px; }
-.cal-picker-search .input { height: 30px; }
-.cal-picker-list { max-height: min(380px, 60vh); overflow-y: auto; }
-/* An object reads by its name, with what tells like names apart below it. */
-.cal-picker-text { display: flex; flex-direction: column; min-width: 0; }
-.cal-picker-detail { overflow: hidden; color: var(--text-3); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-
 @media (max-width: 1100px) {
   .cal-day { min-height: 80px; }
   .cal-month-hint { display: none; }

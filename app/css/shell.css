@@ -149,7 +149,9 @@ a.chip:hover, button.chip:hover { background: var(--border); }
 /* A set filter: its value, which reopens it, and × to clear it. */
 button.filter-chip.is-set { padding: 0 10px; }
 .filter-chip > button { display: inline-flex; align-items: center; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
-.filter-chip-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chip-text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chip-text b { font-weight: 600; }
+.filter-chip.is-set.is-warn { background: var(--warn-soft); color: var(--warn); }
 .filter-chip-x { justify-content: center; width: 20px; flex: none; border-radius: 10px !important; opacity: .7; }
 .filter-chip-x:hover { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent) !important; }
 .search-input { position: relative; display: inline-flex; align-items: center; }
@@ -205,7 +207,26 @@ button.filter-chip.is-set { padding: 0 10px; }
 .menu-item:disabled:hover { background: none; }
 .menu-item.is-danger { color: var(--danger); }
 .menu-check { width: 14px; flex: none; }
-.menu-hint { margin-left: auto; padding-left: 16px; font-size: 12px; color: var(--text-3); }
+.menu-hint { margin-left: auto; padding-left: 16px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.float-menu .menu-note { padding: 8px 10px; }
+/* One of several that can be chosen together: a tick box, filled in the accent when chosen. */
+.menu-tick { display: grid; place-items: center; width: 16px; height: 16px; flex: none; border: 1.5px solid var(--border-strong); border-radius: var(--radius-xs); }
+.menu-item[aria-checked="true"] > .menu-tick { border-color: var(--accent); background: var(--accent); }
+.menu-item .menu-tick .icon { width: 12px; height: 12px; color: var(--on-accent); stroke-width: 3; }
+.menu-item:disabled > .menu-tick { opacity: .5; }
+/* A choice within a menu, like a filter's condition: its name, then a dropdown. */
+.menu-choice { display: flex; align-items: center; gap: 6px; padding: 4px 4px 6px 10px; font-size: 13px; font-weight: 600; }
+.menu-choice-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-select { flex: none; height: 26px; padding: 0 2px 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 500; }
+.menu-select:hover { border-color: var(--border-strong); color: var(--text); }
+/* A menu with a search: the box stays at the top as its list scrolls, and the arrow keys light an item. */
+.float-menu.has-search { display: flex; flex-direction: column; width: 360px; overflow: hidden; padding: 6px; }
+.menu-search { display: flex; flex: none; margin-bottom: 4px; }
+.menu-search .input { height: 30px; }
+.has-search .menu-list { min-height: 0; overflow-y: auto; }
+.has-search .menu-item[aria-selected="true"] { background: var(--hover); }
+.has-search .menu-text:not(:has(.menu-title)), .has-search .menu-title, .has-search .menu-desc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.has-search .menu-title { font-weight: 400; }
 
 .toasts { position: fixed; right: 16px; bottom: var(--toasts-bottom, 16px); z-index: 95; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
 .toast { display: flex; align-items: center; gap: 12px; min-width: 240px; max-width: 440px; padding: 9px 10px 9px 14px; border-radius: var(--radius); background: var(--text); color: var(--surface); box-shadow: var(--shadow-pop); font-size: 13px; pointer-events: auto; animation: shell-rise .2s var(--ease); }

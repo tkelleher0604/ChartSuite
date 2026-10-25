@@ -126,27 +126,6 @@
 .version-id { font-weight: 500; }
 .version-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ---- The facet menus: they stay open while options are picked ---- */
-.docs-pop { position: fixed; z-index: 85; top: 0; left: 0; width: 340px; max-height: min(440px, 70vh); display: flex; flex-direction: column; padding: 4px; overflow: hidden; background: var(--raised); animation: shell-drop .15s var(--ease); }
-.docs-pop-search { padding: 4px 4px 6px; }
-.docs-pop-list { min-height: 0; overflow-y: auto; }
-.docs-pop .menu-item { padding: 6px 10px; font-size: 13px; }
-.docs-pop-list .menu-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.docs-pop .menu-hint { padding-left: 10px; }
-.docs-pop .menu-hint + .menu-hint { min-width: 16px; padding-left: 8px; text-align: right; }
-
-/* The chips' parts once a filter is set: what it is, and a way to clear it. */
-.filter-chip.is-set { gap: 0; max-width: 100%; padding: 0; }
-.filter-chip-main { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; max-width: 340px; height: 100%; padding: 0 4px 0 10px; border: 0; background: none; color: inherit; font: inherit; white-space: nowrap; }
-.filter-chip-clear { flex: none; }
-.filter-chip-value { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
-.filter-chip-more { flex: none; }
-.filter-chip-clear { display: grid; place-items: center; width: 24px; height: 100%; padding: 0 4px 0 2px; border: 0; border-radius: 0 14px 14px 0; background: none; color: inherit; opacity: .7; }
-.filter-chip-clear:hover { opacity: 1; }
-
-/* Like the shell's layer, the facet menu's holds only what floats over the page, and takes no room. */
-.docs-layer { display: contents; }
-
 /* ---- The dialog: browsing the library, then the document's details ---- */
 .docs-dialog { display: flex; flex-direction: column; max-height: calc(100vh - 48px); padding: 0; }
 .dd-head { padding: 20px 24px 14px; }

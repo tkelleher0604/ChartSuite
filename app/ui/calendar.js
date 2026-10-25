@@ -12,7 +12,6 @@ const cal = {
   reach: [],          // the object's lists of relatives whose members count too, directly and indirectly
   computed: false,    // whether only computed dates are shown
   past: false,        // whether the Past group is open
-  picker: null,       // the object picker: { query, active, ids }
   exportPast: false,  // whether the export takes past dates too
 };
 const NO_FILTERS = { kind: null, object: null, reach: [], computed: false };
@@ -65,6 +64,7 @@ function shownEvents() {
 
 // The object filter in words: Calder Ridge Capital Partners III, L.P., and its Holdings.
 const objectText = () => `${objectName(cal.object)}${cal.reach.length ? `, and its ${joinList(cal.reach)}` : ''}`;
+const objectChipText = () => `Object: <b>${esc(objectName(cal.object))}</b>${cal.reach.length ? esc(`, and its ${joinList(cal.reach)}`) : ''}`;
 
 // A sentence on what's pressing among what's shown.
 function summary(list) {
@@ -76,17 +76,13 @@ function summary(list) {
 }
 
 // ---- The bar: view, filters, count ----
-function chip(cmd, label, set, clearCmd) {
-  if (!set) return `<button class="filter-chip" data-cmd="${cmd}" aria-haspopup="menu">${icon('plus')}${esc(label)}</button>`;
-  return `<span class="filter-chip is-set"><button class="filter-chip-main" data-cmd="${cmd}" aria-haspopup="menu" title="${esc(set)}">${esc(set)}</button><button class="filter-chip-x" data-cmd="${clearCmd}" aria-label="Clear ${esc(label)}">${icon('x')}</button></span>`;
-}
 function barHtml(list, all) {
   return `<div class="cal-bar">
     <span class="seg" role="group" aria-label="View">${[['agenda', 'Agenda'], ['month', 'Month']].map(([v, text]) =>
       `<button data-cmd="cal.view" data-view="${v}" aria-pressed="${cal.view === v}">${text}</button>`).join('')}</span>
     <div class="filters">
-      ${chip('cal.kind', 'Kind', kindSet() && `Kind: ${kindSet()}`, 'cal.clear-kind')}
-      ${chip('cal.object', 'Object', objectSet() && objectText(), 'cal.clear-object')}
+      ${Parts.filterChip({ label: 'Kind', value: kindSet() ?? '', cmd: 'cal.kind', clear: 'cal.clear-kind' })}
+      ${Parts.filterChip({ label: 'Object', text: objectSet() ? objectChipText() : '', title: objectSet() ? objectText() : '', cmd: 'cal.object', clear: 'cal.clear-object' })}
       <button class="filter-chip${cal.computed ? ' is-set' : ''}" data-cmd="cal.computed" aria-pressed="${cal.computed}" title="Only dates a definition worked out">Computed only</button>
       ${filtered() ? '<button class="link-btn cal-clear" data-cmd="cal.clear">Clear filters</button>' : ''}
     </div>
@@ -220,85 +216,15 @@ async function exportToOutlook() {
 }
 document.addEventListener('change', e => { if (e.target.matches?.('[data-cal-export-past]')) cal.exportPast = e.target.checked; });
 
-// ---- The object picker ----
-// A popover under the Object chip for finding an object by name: typing narrows it, the arrow keys move,
-// Enter picks and Esc closes.
-function pickerItems(query) {
-  const q = norm(query);
-  return kindsInState().map(kind => ({ kind, ids: objectsOfKind(kind).filter(id => !q || norm(objectName(id)).includes(q) || norm(Shell.subtitleOf(id)).includes(q)) }))
-    .filter(g => g.ids.length);
-}
-function openPicker(anchor) {
-  closePicker();
-  const r = anchor.getBoundingClientRect();
-  cal.picker = { query: '', active: 0, ids: [] };
-  const el = Object.assign(document.createElement('div'), { id: 'cal-float' });
-  el.innerHTML = `<div class="pop menu float-menu cal-picker" role="dialog" aria-label="Choose an object">
-    <div class="search-input cal-picker-search">${icon('search')}<input class="input cal-picker-input" placeholder="Find an object" aria-label="Find an object" autocomplete="off" spellcheck="false"></div>
-    <div class="cal-picker-list" role="listbox" aria-label="Objects"></div></div>`;
-  document.body.appendChild(el);
-  const pop = el.firstElementChild;
-  pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
-  pop.style.top = `${r.bottom + 4}px`;
-  drawPicker();
-  pop.querySelector('input').focus();
-}
-function drawPicker() {
-  const list = document.querySelector('#cal-float .cal-picker-list');
-  if (!list) return;
-  const groups = pickerItems(cal.picker.query);
-  cal.picker.ids = groups.flatMap(g => g.ids);
-  cal.picker.active = Math.min(cal.picker.active, Math.max(0, cal.picker.ids.length - 1));
-  let i = 0;
-  list.innerHTML = groups.map(g => `<div class="menu-head">${esc(plural(g.kind))}</div>` + g.ids.map(id => {
-    const n = i++;
-    const detail = Shell.subtitleOf(id).split(' · ').slice(1).join(' · ');
-    return `<div class="option" role="option" data-cmd="cal.pick" data-id="${esc(id)}" data-index="${n}" aria-selected="${n === cal.picker.active}">
-      <span class="cal-picker-text"><span class="option-label">${esc(objectName(id))}</span>${detail ? `<span class="cal-picker-detail">${esc(detail)}</span>` : ''}</span></div>`;
-  }).join('')).join('') || `<div class="listbox-foot">Nothing is called “${esc(cal.picker.query)}”.</div>`;
-  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
-}
-function closePicker() {
-  cal.picker = null;
-  document.getElementById('cal-float')?.remove();
-}
-function pick(id) {
-  closePicker();
-  show({ object: id, reach: [] });
-  document.querySelector('[data-cmd="cal.object"]')?.focus();
-}
-document.addEventListener('input', e => {
-  if (!e.target.matches?.('.cal-picker-input')) return;
-  cal.picker.query = e.target.value;
-  cal.picker.active = 0;
-  drawPicker();
-});
-document.addEventListener('keydown', e => {
-  if (!e.target.matches?.('.cal-picker-input')) return;
-  const n = cal.picker.ids.length;
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    cal.picker.active = (cal.picker.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % Math.max(n, 1);
-    drawPicker();
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    if (cal.picker.ids[cal.picker.active]) pick(cal.picker.ids[cal.picker.active]);
-  } else if (e.key === 'Escape') {
-    e.preventDefault();
-    closePicker();
-    document.querySelector('[data-cmd="cal.object"]')?.focus();
-  }
-});
-document.addEventListener('mousedown', e => {
-  if (cal.picker && !e.target.closest('#cal-float') && !e.target.closest('[data-cmd="cal.object"]')) closePicker();
-});
-
-// The menu of a chosen object: what else to take in through its lists, another object, or none.
+// ---- The object filter ----
+// Unset, the Object chip opens the record picker; set, a menu of what else to take in through the object's
+// lists of relatives (ticked as they're chosen, the menu staying open), another object, or none.
+const openPicker = anchor => Shell.pickRecord(anchor, { pick: id => show({ object: id, reach: [] }), placeholder: 'Find an object', id: 'cal-object' });
 function objectMenu(anchor) {
   const lists = Agenda.listsOf(cal.object).map(list => ({ list, n: Agenda.reach(cal.object, [list]).size - 1 }));
-  Shell.menu(anchor, [
+  Shell.menu(anchor, () => [
     ...(lists.length ? [{ head: 'Also include, directly and indirectly' }] : []),
-    ...lists.map(({ list, n }) => ({ label: list, hint: String(n), checked: cal.reach.includes(list), disabled: !n && !cal.reach.includes(list),
+    ...lists.map(({ list, n }) => ({ label: list, hint: String(n), ticked: cal.reach.includes(list), disabled: !n && !cal.reach.includes(list),
       run: () => show({ reach: cal.reach.includes(list) ? cal.reach.filter(x => x !== list) : [...cal.reach, list] }) })),
     ...(lists.length ? [{ sep: true }] : []),
     { label: 'Choose another object…', run: () => openPicker(document.querySelector('[data-cmd="cal.object"]')) },
@@ -320,7 +246,7 @@ function moveDay(iso) {
   document.querySelector(`.cal-day[data-day="${iso}"]`)?.focus();
 }
 document.addEventListener('keydown', e => {
-  if (cal.picker || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('#layer .dialog, #layer .palette, #layer .float-menu')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('#layer .dialog, #layer .palette, #layer .float-menu')) return;
   const day = e.target.closest?.('.cal-day');
   if (day) {
     const iso = day.dataset.day;
@@ -346,9 +272,8 @@ Shell.on('cal.kind', el => Shell.menu(el, [
   ...kindsInState().map(k => ({ label: plural(k), checked: same(cal.kind ?? '', k), run: () => show({ kind: k }) })),
 ], 'cal-kind'));
 Shell.on('cal.clear-kind', () => show({ kind: null }));
-Shell.on('cal.object', el => objectSet() ? objectMenu(el) : (cal.picker ? closePicker() : openPicker(el)));
+Shell.on('cal.object', el => objectSet() ? objectMenu(el) : openPicker(el));
 Shell.on('cal.clear-object', () => show({ object: null, reach: [] }));
-Shell.on('cal.pick', el => pick(el.dataset.id));
 Shell.on('cal.computed', () => show({ computed: !cal.computed }));
 Shell.on('cal.clear', () => show(NO_FILTERS));
 Shell.on('cal.past', () => show({ past: !cal.past }));
@@ -359,7 +284,7 @@ Shell.on('cal.export', exportToOutlook);
 
 window.addEventListener('hashchange', () => { readAddress(); render(); });
 // Another chart's records are another chart's: its filters start afresh.
-Shell.onChartChange(() => { Object.assign(cal, NO_FILTERS, { past: false }); closePicker(); writeAddress(); });
+Shell.onChartChange(() => { Object.assign(cal, NO_FILTERS, { past: false }); writeAddress(); });
 
 readAddress();
 Shell.start({

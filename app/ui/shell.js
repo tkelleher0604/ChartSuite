@@ -180,7 +180,7 @@ const Shell = (() => {
     if (layer.palette) { drawPaletteList(); el.querySelector('.palette-input').focus(); }
     if (layer.menu) placeMenu();
   }
-  const closeLayer = () => { layer.palette = layer.menu = null; renderLayer(); };
+  const closeLayer = () => { layer.palette = null; dropMenu(); renderLayer(); };
 
   // ---- Command palette ----
   // Matching is by word starts, then anywhere, then initials ("GP" finds General Partner); every word of
@@ -256,7 +256,7 @@ const Shell = (() => {
     }).join('')).join('') : `<div class="palette-empty">Nothing matches “${esc(layer.palette.query)}”.</div>`;
     list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }
-  function openPalette() { layer.menu = null; layer.palette = { query: '', active: 0, items: [] }; renderLayer(); }
+  function openPalette() { dropMenu(); layer.palette = { query: '', active: 0, items: [] }; renderLayer(); }
   function runPicked(index) {
     const item = layer.palette?.items[index];
     if (!item) return;
@@ -266,29 +266,125 @@ const Shell = (() => {
   }
 
   // ---- Menus ----
-  // Shell.menu(anchor, items, id): a menu under the anchor. Items are { label, hint, run, checked,
-  // disabled, danger }, { sep: true } or { head: 'text' }. Opening the same menu again closes it.
-  function menu(anchor, items, id = 'menu') {
-    layer.menu = layer.menu?.id === id ? null : { id, items, anchor: anchor.getBoundingClientRect() };
+  // Shell.menu(anchor, items, id, { search, onClose }): a menu under the anchor. Opening the same menu again
+  // closes it. Items are { label, desc, hint, run, checked, ticked, keep, disabled, danger }, { sep: true },
+  // { head: 'text' }, { note: 'text' }, or { label, select: [[value, text]], value, run(value) }:
+  // - checked marks the one chosen of several, with a check; ticked, one of several that can be chosen
+  //   together, with a tick box. desc is a line under the label; hint, a note at its end, like a count;
+  // - picking a ticked item, or one marked keep, or changing a select, leaves the menu open: it's drawn again
+  //   from `items`, which may be a function for that, given what's typed in its search. Anything else closes
+  //   it, then runs;
+  // - search: a box at its top, with this placeholder, that narrows what `items` lists as it's typed in.
+  //   The arrow keys move through the list, and Enter picks;
+  // - onClose(): runs when it closes, however it does.
+  // The menu stays with its anchor as the page is drawn again, so a filter chip can change as its menu is used.
+  function menu(anchor, items, id = 'menu', { search = null, onClose = null } = {}) {
+    const again = layer.menu?.id === id;
+    dropMenu();
+    if (!again) layer.menu = { id, items, search, onClose, query: '', active: 0, list: [], anchor: anchor.getBoundingClientRect(), anchorEl: anchor, anchorKey: controlKey(anchor) };
     renderLayer();
     renderSidebar();
   }
-  function menuHtml() {
-    const checks = layer.menu.items.some(i => 'checked' in i);
-    return `<div class="pop menu float-menu" role="menu">${layer.menu.items.map((item, n) => item.sep ? '<div class="menu-sep"></div>'
-      : item.head ? `<div class="menu-head">${esc(item.head)}</div>`
-      : `<button class="menu-item${item.danger ? ' is-danger' : ''}" role="${'checked' in item ? 'menuitemradio' : 'menuitem'}"${'checked' in item ? ` aria-checked="${!!item.checked}"` : ''} data-cmd="shell.menu-pick" data-index="${n}"${item.disabled ? ' disabled' : ''}>
-          ${checks ? `<span class="menu-check">${item.checked ? icon('check') : ''}</span>` : ''}<span class="menu-text">${esc(item.label)}</span>${item.hint ? `<span class="menu-hint">${esc(item.hint)}</span>` : ''}</button>`).join('')}</div>`;
+  // Lets go of the menu, saying so to whoever opened it.
+  function dropMenu() {
+    const m = layer.menu;
+    layer.menu = null;
+    m?.anchorEl?.removeAttribute?.('aria-expanded');
+    m?.onClose?.();
   }
+  const menuList = () => { const m = layer.menu; return (m.list = typeof m.items === 'function' ? m.items(m.query) : m.items); };
+  function menuHtml() {
+    const m = layer.menu;
+    return `<div class="pop menu float-menu${m.search ? ' has-search' : ''}" role="menu">${m.search
+      ? `<div class="search-input menu-search">${icon('search')}<input class="input menu-search-input" value="${esc(m.query)}" placeholder="${esc(m.search)}" aria-label="${esc(m.search)}" autocomplete="off" spellcheck="false"></div>` : ''}
+      <div class="menu-list">${menuItemsHtml()}</div></div>`;
+  }
+  function menuItemsHtml() {
+    const m = layer.menu, items = menuList();
+    const checks = items.some(i => 'checked' in i);
+    // What the arrow keys move through, in a menu with a search: the items that can be picked.
+    m.pickable = items.map((item, i) => item.label !== undefined && !item.select && !item.disabled ? i : -1).filter(i => i >= 0);
+    m.active = Math.max(0, Math.min(m.active, m.pickable.length - 1));
+    return items.map((item, i) => {
+      if (item.sep) return '<div class="menu-sep"></div>';
+      if (item.head) return `<div class="menu-head">${esc(item.head)}</div>`;
+      if (item.note) return `<div class="menu-note">${esc(item.note)}</div>`;
+      if (item.select) return `<label class="menu-choice"><span class="menu-choice-label">${esc(item.label)}</span><select class="menu-select" data-index="${i}" aria-label="${esc(item.label)}">${
+        item.select.map(([v, t]) => `<option value="${esc(v)}"${v === item.value ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+      const ticks = 'ticked' in item;
+      const role = ticks ? 'menuitemcheckbox' : 'checked' in item ? 'menuitemradio' : 'menuitem';
+      const state = ticks ? ` aria-checked="${!!item.ticked}"` : 'checked' in item ? ` aria-checked="${!!item.checked}"` : '';
+      const mark = ticks ? `<span class="menu-tick">${item.ticked ? icon('check') : ''}</span>` : checks ? `<span class="menu-check">${item.checked ? icon('check') : ''}</span>` : '';
+      const text = item.desc ? `<span class="menu-text"><span class="menu-title">${esc(item.label)}</span><span class="menu-desc">${esc(item.desc)}</span></span>` : `<span class="menu-text">${esc(item.label)}</span>`;
+      const active = m.search && m.pickable[m.active] === i ? ' aria-selected="true"' : '';
+      return `<button class="menu-item${item.danger ? ' is-danger' : ''}" role="${role}"${state} data-cmd="shell.menu-pick" data-index="${i}"${item.disabled ? ' disabled' : ''}${active}${item.title ? ` title="${esc(item.title)}"` : ''}>
+        ${mark}${text}${item.hint ? `<span class="menu-hint">${esc(item.hint)}</span>` : ''}</button>`;
+    }).join('');
+  }
+  // Under its anchor (a filter chip as a whole), or above it where there's no room below. An anchor drawn
+  // again since is found again, by the same attributes.
   function placeMenu() {
     const el = document.querySelector('#layer .float-menu');
-    const a = layer.menu.anchor;
+    const m = layer.menu;
+    if (!m.anchorEl?.isConnected && m.anchorKey) m.anchorEl = document.querySelector(m.anchorKey) ?? m.anchorEl;
+    if (m.anchorEl?.isConnected) { m.anchor = (m.anchorEl.closest('.filter-chip') ?? m.anchorEl).getBoundingClientRect(); m.anchorEl.setAttribute('aria-expanded', 'true'); }
+    const a = m.anchor;
     const w = el.offsetWidth, h = el.offsetHeight;
     const left = Math.max(8, Math.min(a.left, innerWidth - w - 8));
     const below = a.bottom + 4 + h <= innerHeight - 8;
     el.style.left = `${left}px`;
     el.style.top = `${below ? a.bottom + 4 : Math.max(8, a.top - h - 4)}px`;
-    el.querySelector('.menu-item:not(:disabled)')?.focus({ preventScroll: true });
+    if (!el.contains(document.activeElement)) (el.querySelector('.menu-search-input') ?? el.querySelector('.menu-item:not(:disabled)'))?.focus({ preventScroll: true });
+  }
+  // Draws the menu's list again in place, as what's typed in its search, or a pick that keeps it open,
+  // changes it; the focus stays where it was, or on the item in its place.
+  const menuFocus = () => { const a = document.activeElement; return a?.closest?.('#layer .float-menu') ? a.dataset.index ?? 'search' : null; };
+  function redrawMenu(focus = menuFocus()) {
+    const el = document.querySelector('#layer .float-menu');
+    if (!el || !layer.menu) return;
+    const list = el.querySelector('.menu-list');
+    const top = list.scrollTop;
+    list.innerHTML = menuItemsHtml();
+    list.scrollTop = top;
+    if (focus === 'search') el.querySelector('.menu-search-input')?.focus({ preventScroll: true });
+    else if (focus !== null) el.querySelector(`[data-index="${focus}"]`)?.focus({ preventScroll: true });
+    placeMenu();
+    el.querySelector('.menu-item[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }
+  function pickFromMenu(index, value) {
+    const item = layer.menu?.list[index];
+    if (!item || item.disabled) return;
+    if ('ticked' in item || item.keep || item.select) {
+      const focus = menuFocus();
+      item.run(value);
+      return redrawMenu(focus);
+    }
+    dropMenu();
+    renderLayer();
+    renderSidebar();
+    item.run();
+  }
+
+  // ---- The record picker ----
+  // Finding a record by what's typed, as the palette does: by name, kind, or what tells it apart, word starts
+  // first, then anywhere, then initials.
+  const findsRecord = (id, query) => !clean(query) || score({ title: objectName(id), meta: subtitleOf(id), keywords: records[id].kind }, query) > 0;
+  // Shell.pickRecord(anchor, { pick, among, placeholder, id }): a menu under the anchor for finding an object:
+  // a box to type in, and the objects that match, grouped by kind in the sidebar's order, each named, with
+  // what tells it apart from like names below. `among` is the objects it offers, by default all; pick(id)
+  // takes the one picked.
+  function pickRecord(anchor, { pick, among = null, placeholder = 'Find a record', id = 'pick-record' }) {
+    const detail = k => subtitleOf(k).split(' · ').slice(1).join(' · ');
+    const items = query => {
+      const ids = (among ?? Object.keys(records).filter(k => isObject(records[k]))).filter(k => records[k] && findsRecord(k, query));
+      const rank = k => clean(query) ? score({ title: objectName(k), meta: subtitleOf(k) }, query) : 0;
+      const out = [...recordKinds(), DOCUMENT_KIND].flatMap(kind => {
+        const group = ids.filter(k => same(records[k].kind, kind)).sort((a, b) => rank(b) - rank(a) || byLabel(objectName(a), objectName(b)));
+        return group.length ? [{ head: plural(kind) }, ...group.map(k => ({ label: objectName(k), desc: detail(k), title: `${objectName(k)} · ${subtitleOf(k)}`, run: () => pick(k) }))] : [];
+      });
+      return out.length ? out : [{ note: clean(query) ? `Nothing is called “${clean(query)}”.` : 'No records yet.' }];
+    };
+    menu(anchor, items, id, { search: placeholder });
   }
 
   // ---- Dialogs ----
@@ -309,7 +405,8 @@ const Shell = (() => {
   // it gives the focus back to where it was.
   const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
   function dialog(options) {
-    layer.palette = layer.menu = null;
+    layer.palette = null;
+    dropMenu();
     renderLayer();
     const host = document.createElement('div');
     host.className = 'dialog-layer';
@@ -527,7 +624,7 @@ const Shell = (() => {
     'shell.charts': el => chartsMenu(el),
     'shell.user': el => userMenu(el),
     'shell.sidebar': toggleSidebar,
-    'shell.menu-pick': el => { const item = layer.menu.items[Number(el.dataset.index)]; layer.menu = null; renderLayer(); renderSidebar(); item.run(); },
+    'shell.menu-pick': el => pickFromMenu(Number(el.dataset.index)),
     'shell.dialog-ok': el => dialogOf(el)?.ok(),
     'shell.dialog-cancel': el => { const d = dialogOf(el); if (d) closeDialog(d); },
     'shell.dialog-dismiss': () => closeDialog(topDialog()),
@@ -536,10 +633,12 @@ const Shell = (() => {
   });
   const on = (name, fn) => { handlers[name] = fn; };
 
+  // A click outside the open menu closes it, unless it's on the menu's own anchor, which toggles it.
   document.addEventListener('click', e => {
     const el = e.target.closest?.('[data-cmd]');
-    if (layer.menu && !e.target.closest?.('.float-menu') && el?.dataset.cmd !== 'shell.charts' && el?.dataset.cmd !== 'shell.user') {
-      layer.menu = null;
+    const m = layer.menu;
+    if (m && !e.target.closest?.('.float-menu') && !(el && (el === m.anchorEl || (m.anchorKey && el.matches(m.anchorKey))))) {
+      dropMenu();
       renderLayer();
       renderSidebar();
       if (!el) return;
@@ -549,10 +648,18 @@ const Shell = (() => {
     if (fn) { e.preventDefault(); fn(el, e); }
   });
   document.addEventListener('input', e => {
+    if (e.target.matches('.menu-search-input') && layer.menu) {
+      layer.menu.query = e.target.value;
+      layer.menu.active = 0;
+      return redrawMenu();
+    }
     if (!e.target.matches('.palette-input')) return;
     layer.palette.query = e.target.value;
     layer.palette.active = 0;
     drawPaletteList();
+  });
+  document.addEventListener('change', e => {
+    if (e.target.matches('#layer .menu-select')) pickFromMenu(Number(e.target.dataset.index), e.target.value);
   });
   document.addEventListener('mousemove', e => {
     const item = e.target.closest?.('.palette-item');
@@ -561,11 +668,21 @@ const Shell = (() => {
     for (const x of document.querySelectorAll('#layer .palette-item')) x.setAttribute('aria-selected', x === item);
   });
 
+  // In a menu, the arrow keys move through its items and Esc closes it. With a search, the focus stays in
+  // the box as the arrows move, and Enter picks.
   function menuKeys(e) {
+    const m = layer.menu;
+    const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (e.key === 'Escape') { e.preventDefault(); closeLayer(); renderSidebar(); return; }
+    if (m.search && e.target.matches('.menu-search-input')) {
+      const n = m.pickable.length;
+      if (step && n) { e.preventDefault(); m.active = (m.active + step + n) % n; redrawMenu(); }
+      if (e.key === 'Enter') { e.preventDefault(); if (n) pickFromMenu(m.pickable[m.active]); }
+      return;
+    }
     const items = [...document.querySelectorAll('#layer .float-menu .menu-item:not(:disabled)')];
     const at = items.indexOf(document.activeElement);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); }
-    if (e.key === 'Escape') { e.preventDefault(); closeLayer(); renderSidebar(); }
+    if (step) { e.preventDefault(); items[(at + step + items.length) % items.length]?.focus(); }
   }
 
   // A dialog has the keys before anything else hears them, and they go no further: to its own handler
@@ -633,7 +750,8 @@ const Shell = (() => {
   applySidebar();
 
   return {
-    start, render, on, menu, dialog, confirm, prompt, toast, visited, recent, recordHref, kindHref, subtitleOf, DOCUMENT_KIND,
+    start, render, on, menu, dialog, confirm, prompt, toast, pickRecord, findsRecord,
+    visited, recent, recordHref, kindHref, subtitleOf, DOCUMENT_KIND,
     // Says where the workbook is saved, and how that's going: tone '', 'busy' or 'error'.
     setStatus(text, tone = '') { status = { text, tone }; if (page) { renderSidebar(); renderBanner(); } },
     // Runs when the workbook switches to another chart, or another tab changes it, so a page can let go

@@ -339,7 +339,6 @@ const ui = {
   selected: null,             // a document's id, or on Not linked a file's
   entering: false,            // the pane has just opened, and slides in
   allVersions: false,
-  pop: null,                  // an open facet: { facet, query }
   dialog: null,               // the Link document dialog, or Edit details: see "The dialog"
   keep: { list: 0, pane: 0, focus: null },
 };
@@ -437,15 +436,13 @@ function toolbar({ facets, shown, total, noun }) {
     <span class="docs-count">${shown === total ? count(total, noun.replace(/s$/, '')) : `${shown} of ${total}`}</span>
   </div>`;
 }
+// A facet's chip: the first option chosen, and how many more.
 function facetChip(facet) {
   const chosen = [...ui.facets[facet]];
-  const open = ui.pop?.facet === facet;
-  if (!chosen.length) return `<button class="filter-chip" data-cmd="docs.facet" data-facet="${facet}" aria-haspopup="dialog" aria-expanded="${open}">${icon('plus')}${FACETS[facet]}</button>`;
-  const label = facet === 'subject' ? objectName(chosen[0]) : chosen[0] ? optionText(facet, chosen[0]) : `No ${FACETS[facet].toLowerCase()}`;
-  const more = [chosen.length > 1 ? `+${chosen.length - 1}` : '', facet === 'subject' && ui.below ? 'and below' : ''].filter(Boolean);
-  return `<span class="filter-chip is-set"><button class="filter-chip-main" data-cmd="docs.facet" data-facet="${facet}" aria-haspopup="dialog" aria-expanded="${open}">
-      ${FACETS[facet]}:<span class="filter-chip-value">${esc(label)}</span>${more.map(m => `<span class="filter-chip-more">${m}</span>`).join('')}</button>
-    <button class="filter-chip-clear" data-cmd="docs.unfacet" data-facet="${facet}" aria-label="Clear the ${FACETS[facet]} filter">${icon('x')}</button></span>`;
+  const first = !chosen.length ? '' : facet === 'subject' ? objectName(chosen[0]) : chosen[0] ? optionText(facet, chosen[0]) : `No ${FACETS[facet].toLowerCase()}`;
+  const more = [chosen.length > 1 ? ` +${chosen.length - 1}` : '', facet === 'subject' && ui.below ? ' and below' : ''].join('');
+  const text = chosen.length ? `${esc(FACETS[facet])}: <b>${esc(first)}</b>${esc(more)}` : '';
+  return Parts.filterChip({ label: FACETS[facet], text, title: chosen.length ? `${FACETS[facet]}: ${first}${more}` : '', cmd: 'docs.facet', clear: 'docs.unfacet', data: { facet } });
 }
 // An option as written, from its key.
 function optionText(facet, key) {
@@ -821,29 +818,32 @@ function linkFile(file) {
 }
 
 // ---- The facet menus ----
-// A facet's menu stays open while options are picked, and closes on a click elsewhere or Esc.
+// A facet's menu is the shell's (Shell.menu): its options are ticked as they're chosen, the menu staying
+// open, each with how many documents it would add. Concerns has a search, which finds a record as the
+// record picker does, and Include what they own.
 
-function facetOptions(facet) {
+function facetOptions(facet, query = '') {
   const rows = fresh().rows.filter(r => passes(r, facet));
   const counts = new Map();
   for (const r of rows) for (const k of facetKey(facet, r)) counts.set(k, (counts.get(k) ?? 0) + 1);
   for (const k of ui.facets[facet]) if (!counts.has(k)) counts.set(k, 0);
   const text = k => facet === 'subject' ? objectName(k) : k ? optionText(facet, k) : `No ${FACETS[facet].toLowerCase()}`;
-  let list = [...counts].map(([key, n]) => ({ key, n, text: text(key), title: facet === 'subject' && records[key] ? Shell.subtitleOf(key) : '' }));
-  if (facet === 'subject' && ui.pop?.query) list = list.filter(o => matches(norm(o.text), ui.pop.query));
+  let list = [...counts].map(([key, n]) => ({ key, n, text: text(key), title: facet === 'subject' && records[key] ? `${objectName(key)} · ${Shell.subtitleOf(key)}` : '' }));
+  if (facet === 'subject' && clean(query)) list = list.filter(o => records[o.key] && Shell.findsRecord(o.key, query));
   return list.sort((a, b) => (!a.key) - (!b.key) || byLabel(a.text, b.text));
 }
-function popHtml() {
-  const { facet } = ui.pop;
-  const options = facetOptions(facet);
-  const item = o => `<button class="menu-item" role="menuitemcheckbox" aria-checked="${ui.facets[facet].has(o.key)}" data-cmd="docs.pick" data-value="${esc(o.key)}" title="${esc(o.title || o.text)}">
-      <span class="menu-check">${ui.facets[facet].has(o.key) ? icon('check') : ''}</span><span class="menu-text">${esc(o.text)}</span><span class="menu-hint tnum">${o.n}</span></button>`;
-  return `<div class="pop docs-pop" role="dialog" aria-label="Filter by ${FACETS[facet].toLowerCase()}">
-    ${facet === 'subject' ? `<div class="docs-pop-search"><input class="input" placeholder="Find a record" value="${esc(ui.pop.query)}" data-docs-input="pop" aria-label="Find a record" autocomplete="off"></div>` : ''}
-    <div class="docs-pop-list">${options.map(item).join('') || '<div class="menu-head">Nothing to filter by</div>'}</div>
-    ${facet === 'subject' ? `<div class="menu-sep"></div><button class="menu-item" role="menuitemcheckbox" aria-checked="${ui.below}" data-cmd="docs.below">
-      <span class="menu-check">${ui.below ? icon('check') : ''}</span><span class="menu-text"><span class="menu-title">Include what they own</span><span class="menu-desc">Documents concerning anything below them by ownership</span></span></button>` : ''}
-  </div>`;
+function facetItems(facet, query) {
+  const chosen = ui.facets[facet];
+  const options = facetOptions(facet, query).map(o => ({ label: o.text, hint: String(o.n), ticked: chosen.has(o.key), title: o.title || o.text,
+    run: () => { chosen.has(o.key) ? chosen.delete(o.key) : chosen.add(o.key); render(); } }));
+  return [
+    ...(options.length ? options : [{ note: clean(query) ? `No record called “${clean(query)}” is concerned.` : 'Nothing to filter by.' }]),
+    ...(facet === 'subject' ? [{ sep: true }, { label: 'Include what they own', desc: 'Documents concerning anything below them by ownership', ticked: ui.below, run: () => { ui.below = !ui.below; render(); } }] : []),
+  ];
+}
+function openFacet(el) {
+  const facet = el.dataset.facet;
+  Shell.menu(el, query => facetItems(facet, query), `docs-facet:${facet}`, { search: facet === 'subject' ? 'Find a record' : null });
 }
 
 // ---- The dialog: linking a document, and editing one's details ----
@@ -852,12 +852,9 @@ function popHtml() {
 // Browsing keeps the folders opened (`trail`), what's in the last (`list`), a search, and a pasted link.
 // The form keeps the file and every value as typed.
 
-const layerEl = () => document.getElementById('docs-layer');
-
 // The dialog is the shell's (Shell.dialog), drawn from ui.dialog: again as it changes, and afresh, with the
 // focus on its first box, as it moves from one step to the next.
 function openDialog(d) {
-  closePop();
   ui.dialog = { error: '', cq: '', cqOpen: false, cqActive: 0, ...d };
   if (ui.dialog.step === 'browse') browseTo([]);
   ui.dialog.handle = Shell.dialog({
@@ -1021,7 +1018,7 @@ function subjectsField(f, computed) {
 function subjectOptions(f) {
   const q = ui.dialog.cq;
   const taken = new Set(f.subjects);
-  return Object.keys(records).filter(id => isObject(records[id]) && !isDocObject(id) && !taken.has(id) && (!clean(q) || matches(norm(`${objectName(id)} ${records[id].kind}`), q)))
+  return Object.keys(records).filter(id => isObject(records[id]) && !isDocObject(id) && !taken.has(id) && Shell.findsRecord(id, q))
     .sort((a, b) => byLabel(objectName(a), objectName(b))).slice(0, 8);
 }
 
@@ -1052,27 +1049,6 @@ function editForm(row) {
     type: row.type?.text ?? '', date: row.date ? Parts.date(row.date.iso) : '', status: row.status?.text ?? '', version: row.version?.text ?? '',
     subjects: subjectsOf(row.id).filter(s => !s.computed).map(s => s.id) };
 }
-
-// Draws the facet menu, keeping the focus and the caret where they were.
-function drawLayer() {
-  const el = layerEl();
-  if (!el) return;
-  const was = document.activeElement, key = was?.dataset?.docsInput, at = key ? [was.selectionStart, was.selectionEnd] : null;
-  el.innerHTML = ui.pop ? popHtml() : '';
-  if (ui.pop) placePop();
-  const again = key && el.querySelector(`[data-docs-input="${key}"]`);
-  if (again) { again.focus(); try { again.setSelectionRange(...at); } catch {} }
-}
-
-function placePop() {
-  const pop = layerEl().querySelector('.docs-pop');
-  const anchor = document.querySelector(`[data-facet="${ui.pop.facet}"]`);
-  if (!pop || !anchor) return;
-  const a = anchor.closest('.filter-chip').getBoundingClientRect();
-  pop.style.left = `${Math.max(8, Math.min(a.left, innerWidth - pop.offsetWidth - 8))}px`;
-  pop.style.top = `${a.bottom + 6}px`;
-}
-function closePop() { if (ui.pop) { ui.pop = null; drawLayer(); render(); } }
 
 // ---- The library's own menu, in the top bar ----
 
@@ -1118,7 +1094,6 @@ function setTab(tab) {
   if (ui.tab === tab) return;
   Object.assign(ui, { tab, selected: null, query: tab === ui.tab ? ui.query : '' });
   ui.keep.list = 0;
-  closePop();
   writeHash();
   render();
 }
@@ -1143,22 +1118,9 @@ Shell.on('docs.sort', el => {
   ui.sort[ui.tab] = s.key === key ? { key, dir: -s.dir } : { key, dir: key === 'date' || key === 'modified' ? -1 : 1 };
   render();
 });
-Shell.on('docs.facet', el => {
-  const facet = el.dataset.facet;
-  ui.pop = ui.pop?.facet === facet ? null : { facet, query: '' };
-  render();
-  drawLayer();
-  layerEl().querySelector('.docs-pop input, .docs-pop .menu-item')?.focus();
-});
-Shell.on('docs.unfacet', el => { ui.facets[el.dataset.facet].clear(); if (el.dataset.facet === 'subject') ui.below = false; ui.pop = null; drawLayer(); render(); });
-Shell.on('docs.pick', el => {
-  const set = ui.facets[ui.pop.facet], v = el.dataset.value;
-  set.has(v) ? set.delete(v) : set.add(v);
-  render();
-  drawLayer();
-});
-Shell.on('docs.below', () => { ui.below = !ui.below; render(); drawLayer(); });
-Shell.on('docs.clear', () => { for (const s of Object.values(ui.facets)) s.clear(); ui.below = false; ui.query = ''; ui.pop = null; drawLayer(); render(); });
+Shell.on('docs.facet', openFacet);
+Shell.on('docs.unfacet', el => { ui.facets[el.dataset.facet].clear(); if (el.dataset.facet === 'subject') ui.below = false; render(); });
+Shell.on('docs.clear', () => { for (const s of Object.values(ui.facets)) s.clear(); ui.below = false; ui.query = ''; render(); });
 Shell.on('docs.close', () => { ui.selected = null; writeHash(); render(); });
 Shell.on('docs.copy', el => copyLink(el.dataset.link));
 Shell.on('docs.versions', () => { ui.allVersions = true; render(); });
@@ -1214,7 +1176,6 @@ document.addEventListener('input', e => {
   if (!key) return;
   const v = e.target.value;
   if (key === 'query') { ui.query = v; ui.keep.list = 0; return render(); }
-  if (key === 'pop') { ui.pop.query = v; return drawLayer(); }
   const d = ui.dialog;
   if (!d) return;
   if (key === 'dd-query') return searchLibrary(v);
@@ -1229,11 +1190,10 @@ document.addEventListener('focusin', e => {
 });
 
 // Clicks: a row selects its document (its links still go where they go); the demo's files say they
-// aren't real; a click outside a facet's menu closes it, and outside the subjects box closes its list.
+// aren't real; a click outside the subjects box closes its list.
 document.addEventListener('click', e => {
   const open = e.target.closest?.('a[data-docs-open]');
   if (open) { e.preventDefault(); return openLink(open.getAttribute('href')); }
-  if (ui.pop && !e.target.closest('.docs-pop, [data-facet]')) closePop();
   const d = ui.dialog;
   if (d?.cqOpen && !e.target.closest('.dd-subjects')) { d.cqOpen = false; drawDialog(); }
   const tr = e.target.closest('.docs-table tbody tr[data-row]');
@@ -1255,17 +1215,11 @@ function dialogKeys(e) {
   if (e.key === 'Enter' && key === 'dd-paste') { e.preventDefault(); return usePasted(); }
   if (e.key === 'Enter' && d.step === 'details' && e.target.matches('input')) { e.preventDefault(); return saveDialog(); }
 }
-// The facet menu's: Esc closes it. On the page, ↑ and ↓ (or J and K) move through the documents, Enter
-// opens the one selected, Esc closes the preview.
+// On the page, ↑ and ↓ (or J and K) move through the documents, Enter opens the one selected, Esc closes
+// the preview.
 document.addEventListener('keydown', e => {
-  if (!e.target.closest?.('#docs-layer')) return;
-  e.stopPropagation();
-  if (e.key === 'Escape') { e.preventDefault(); closePop(); }
-}, true);
-document.addEventListener('keydown', e => {
-  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable="true"], #docs-layer')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
   if (document.querySelector('#layer .palette, #layer .dialog, #layer .float-menu')) return;
-  if (e.key === 'Escape' && ui.pop) { e.preventDefault(); return closePop(); }
   if (e.key === 'Escape' && ui.selected) { e.preventDefault(); ui.selected = null; writeHash(); return render(); }
   const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[e.key];
   if (step) {
@@ -1278,7 +1232,6 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'Enter' && ui.selected && ui.tab !== 'unlinked') { e.preventDefault(); location.href = Shell.recordHref(rowById(ui.selected).record); }
 });
-addEventListener('resize', () => { if (ui.pop) placePop(); });
 addEventListener('hashchange', () => { readHash(); render(); });
 
 // ---- The page ----
@@ -1314,13 +1267,12 @@ Shell.start({
   title: 'Documents',
   actions: () => `${sourceButton()}<button class="btn btn-sm" data-cmd="docs.link">Link document</button>`,
   render: () => { keep(); return page(); },
-  after: () => { restore(); load(); if (ui.pop) placePop(); },
+  after: () => { restore(); load(); },
   commands: () => [
     { title: 'Link document', keywords: 'add file sharepoint index', run: () => openDialog({ mode: 'link', step: 'browse' }) },
     { title: 'Show files not linked', keywords: 'reconcile library unlinked sharepoint', run: () => setTab('unlinked') },
     { title: 'Show broken links', keywords: 'reconcile missing moved deleted', run: () => setTab('broken') },
   ],
 });
-document.body.insertAdjacentHTML('beforeend', '<div id="docs-layer" class="docs-layer"></div>');
 startLibrary();
 })();

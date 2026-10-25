@@ -21,7 +21,7 @@
   const VERB = /^(Added|Changed|Deleted|Required|Stopped|Reset|Restored|Removed|Renamed|Moved|Imported|Copied)\b/;
 
   // What's open on the page: kept while it's open, but not in the address.
-  const ui = { open: new Set(), runs: new Set(), limit: PAGE, picker: null, dates: false, failed: null, focus: null };
+  const ui = { open: new Set(), runs: new Set(), limit: PAGE, dates: false, failed: null, focus: null };
 
   // ---- Filters, in the address ----
 
@@ -39,7 +39,7 @@
   }
   const setFilters = next => { writeFilters(next); render(); };
   const filtering = f => KEYS.some(k => f[k]);
-  function clearAll() { ui.dates = false; ui.picker = null; setFilters(Object.fromEntries(KEYS.map(k => [k, '']))); }
+  function clearAll() { ui.dates = false; setFilters(Object.fromEntries(KEYS.map(k => [k, '']))); }
 
   // ---- Reading the log ----
   // The log keeps, for each change, the entered records it changed, before and after. Worked back from the
@@ -226,19 +226,15 @@
     </div>`;
   }
 
-  // The search, then a chip for each filter: "+ Person" until it's set, then what it's set to. The record
-  // and date chips turn into their editors while they're being set.
+  // The search, then a chip for each filter: "+ Person" until it's set, then what it's set to. The date
+  // chip turns into its editor while a range is being set.
   function toolbarHtml(f) {
-    const chip = (key, label, value) => value
-      ? `<span class="filter-chip is-set"><button class="h-chip" data-cmd="history.chip" data-key="${key}" title="Change ${esc(label.toLowerCase())}">${esc(label)}: <span class="h-chip-value">${esc(value)}</span></button><button class="h-chip-x" data-cmd="history.unset" data-key="${key}" aria-label="Clear ${esc(label.toLowerCase())}" title="Clear">${icon('x')}</button></span>`
-      : `<button class="filter-chip" data-cmd="history.chip" data-key="${key}">${icon('plus')}${esc(label)}</button>`;
-    const record = ui.picker ? `<span class="h-picker"><input class="input" data-history="picker" value="${esc(ui.picker.query)}" placeholder="Find a record…" aria-label="Find a record" autocomplete="off" spellcheck="false"><div class="pop listbox h-picker-list" role="listbox"></div></span>`
-      : chip('record', 'Record', f.record && recordName(f.record));
+    const chip = (key, label, value) => Parts.filterChip({ label, value, cmd: 'history.chip', clear: 'history.unset', data: { key } });
     const date = ui.dates ? `<span class="filter-chip is-set h-dates">Date:<input type="date" data-history="from" value="${esc(f.from)}" aria-label="From">to<input type="date" data-history="to" value="${esc(f.to)}" aria-label="To"></span>`
       : chip('date', 'Date', (f.from || f.to) && rangeText(f.from, f.to));
     return `<div class="h-toolbar">
       <label class="search-input h-search">${icon('search')}<input class="input" type="search" data-history="search" value="${esc(f.q)}" placeholder="Search changes" aria-label="Search changes" autocomplete="off" spellcheck="false"></label>
-      <div class="filters">${chip('who', 'Person', f.who)}${record}${chip('what', 'What changed', WHAT.find(([k]) => k === f.what)?.[1] ?? f.what)}${date}
+      <div class="filters">${chip('who', 'Person', f.who)}${chip('record', 'Record', f.record && recordName(f.record))}${chip('what', 'What changed', WHAT.find(([k]) => k === f.what)?.[1] ?? f.what)}${date}
         <button class="link-btn h-clear" data-cmd="history.clear-all"${filtering(f) ? '' : ' hidden'}>Clear filters</button></div>
     </div>`;
   }
@@ -444,7 +440,7 @@
     Shell.toast(`Exported ${count(shown.length, 'change')} as CSV`);
   }
 
-  // ---- Filters' menus, and the record picker ----
+  // ---- Filters' menus ----
 
   function openChip(el) {
     const f = filters();
@@ -455,7 +451,7 @@
       const n = k => readLog().filter(it => it.kinds.has(k)).length;
       Shell.menu(el, [{ head: 'Changes to' }, ...WHAT.map(([k, label]) => ({ label, hint: String(n(k)), checked: f.what === k, run: () => setFilters({ what: f.what === k ? '' : k }) }))], 'history-what');
     }
-    if (key === 'record') { ui.picker = { query: '', active: 0 }; render(); }
+    if (key === 'record') Shell.pickRecord(el, { pick: id => setFilters({ record: id }), placeholder: 'Find a record', id: 'history-record' });
     if (key === 'date') {
       const now = new Date(), y = now.getFullYear(), m = now.getMonth();
       const day = (yy, mm, dd) => dayKey(new Date(yy, mm, dd));
@@ -468,27 +464,6 @@
         { sep: true }, { label: 'Between dates…', checked: false, run: () => { ui.dates = true; ui.focus = { key: 'from' }; render(); } }], 'history-date');
     }
   }
-
-  // Objects to filter by, matching what's typed: by name, kind or what tells them apart.
-  function pickerMatches(query) {
-    const words = norm(query).split(' ').filter(Boolean);
-    return Object.keys(records).filter(k => isObject(records[k]))
-      .map(k => ({ id: k, name: objectName(k), meta: Shell.subtitleOf(k) }))
-      .filter(o => words.every(w => norm(`${o.name} ${o.meta}`).includes(w)))
-      .sort((a, b) => norm(b.name).startsWith(words[0] ?? '') - norm(a.name).startsWith(words[0] ?? '') || byLabel(a.name, b.name))
-      .slice(0, 12);
-  }
-  function drawPicker() {
-    const list = document.querySelector('.h-picker-list');
-    if (!list || !ui.picker) return;
-    const items = ui.picker.items = pickerMatches(ui.picker.query);
-    ui.picker.active = Math.min(ui.picker.active, Math.max(0, items.length - 1));
-    list.innerHTML = items.length ? `<div class="listbox-head">History of a record, and everything in it</div>` + items.map((o, i) => `<div class="option" role="option" data-pick="${esc(o.id)}" aria-selected="${i === ui.picker.active}">
-        <span class="option-label">${esc(o.name)}</span><span class="option-meta">${esc(o.meta)}</span></div>`).join('')
-      : `<div class="listbox-foot">No record matches “${esc(ui.picker.query)}”.</div>`;
-    list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
-  }
-  function pick(id) { ui.picker = null; setFilters({ record: id }); }
 
   // ---- Events ----
 
@@ -522,7 +497,6 @@
       document.getElementById('history-tally').textContent = tallyHtml(f);
       document.querySelector('.h-clear').hidden = !filtering(f);
     }
-    if (key === 'picker') { ui.picker.query = e.target.value; ui.picker.active = 0; drawPicker(); }
   });
   document.addEventListener('change', e => {
     const key = e.target.dataset?.history;
@@ -531,27 +505,19 @@
   document.addEventListener('keydown', e => {
     const key = e.target.dataset?.history;
     if (key === 'search' && e.key === 'Escape' && e.target.value) { e.preventDefault(); ui.focus = { key }; setFilters({ q: '' }); }
-    if (key !== 'picker' || !ui.picker) return;
-    const n = ui.picker.items?.length ?? 0;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); ui.picker.active = (ui.picker.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % Math.max(n, 1); drawPicker(); }
-    if (e.key === 'Enter') { e.preventDefault(); const o = ui.picker.items?.[ui.picker.active]; if (o) pick(o.id); }
-    if (e.key === 'Escape') { e.preventDefault(); ui.picker = null; render(); }
   });
-  document.addEventListener('mousedown', e => { if (e.target.closest?.('.h-picker-list')) e.preventDefault(); });
-  document.addEventListener('click', e => { const o = e.target.closest?.('[data-pick]'); if (o) pick(o.dataset.pick); });
-  // Leaving the record picker or the dates closes them. It's checked a moment later, since drawing the page
-  // again moves focus to the new box.
+  // Leaving the dates closes them. It's checked a moment later, since drawing the page again moves focus to
+  // the new box.
   document.addEventListener('focusout', e => {
     const key = e.target.dataset?.history;
-    if (key !== 'picker' && key !== 'from' && key !== 'to') return;
+    if (key !== 'from' && key !== 'to') return;
     setTimeout(() => {
       const now = document.activeElement?.dataset?.history;
-      if (ui.picker && now !== 'picker') { ui.picker = null; render(); }
       if (ui.dates && now !== 'from' && now !== 'to') { ui.dates = false; render(); }
     });
   });
   window.addEventListener('hashchange', () => render());
-  Shell.onChartChange(() => { ui.open.clear(); ui.runs.clear(); ui.limit = PAGE; ui.picker = null; ui.failed = null; ui.dates = false; });
+  Shell.onChartChange(() => { ui.open.clear(); ui.runs.clear(); ui.limit = PAGE; ui.failed = null; ui.dates = false; });
 
   Shell.start({
     area: 'history',
@@ -559,12 +525,11 @@
     actions: () => readLog().length ? `<button class="btn btn-sm" data-cmd="history.export" title="Download the changes shown as a CSV file">Export CSV</button>` : '',
     render: page,
     after() {
-      if (ui.picker) drawPicker();
       const el = ui.focus && document.querySelector(`[data-history="${ui.focus.key}"]`);
       if (el) {
         el.focus();
         if (ui.focus.at !== null && ui.focus.at !== undefined && el.setSelectionRange) try { el.setSelectionRange(ui.focus.at, ui.focus.at); } catch {}
-      } else if (ui.picker) document.querySelector('[data-history="picker"]')?.focus();
+      }
       ui.focus = null;
     },
     commands: () => [

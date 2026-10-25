@@ -22,11 +22,12 @@
     active: null,       // the selected cell: { row, col }, an object's id and a column's key
     edit: null,         // the cell being typed in: { row, col, text, error }
     draft: null,        // a new row being named: { text, error }
-    pop: null,          // an open popover: { type: 'view' } | { type: 'filter', index, query } | { type: 'choice', row, col, query, active }
+    pop: null,          // a choice's options, open under its cell: { row, col, query, active }
     checked: new Set(), // rows ticked for bulk actions
     anchor: null,       // the row last ticked, where a shift-click range starts
     added: [],          // rows added on this page, kept at the end where they were typed until the rows are sorted
-    filters: [],        // [{ col, op: 'is' | 'not' | 'empty' | 'filled', values: [keys] }]
+    filters: [],        // [{ col, op: 'is' | 'not' | 'empty' | 'filled', values: [keys] }], one per column
+    filterMenu: null,   // the column whose filter's menu is open, whose chip shows even while it's unset
     search: '',
     needs: false,       // whether only rows with a required entry blank are shown
     focus: null,        // where the keyboard was: 'grid', 'edit', 'draft', 'pop' or 'search'
@@ -77,7 +78,7 @@
     const session = stored('sessionStorage', SESSION_KEY)[norm(kind)] ?? {};
     Object.assign(ui, {
       kind, chart: workbook.chartId, prefs: stored('localStorage', PREFS_KEY)[norm(kind)] ?? {},
-      active: null, edit: null, draft: null, pop: null, checked: new Set(), anchor: null, added: [],
+      active: null, edit: null, draft: null, pop: null, filterMenu: null, checked: new Set(), anchor: null, added: [],
       filters: session.filters ?? [], search: session.search ?? '', needs: !!session.needs,
       focus: null, caret: null, scroll: { left: 0, top: 0 },
     });
@@ -374,8 +375,9 @@
     const there = id => !!records[id];
     if (ui.active && !(there(ui.active.row) && keys.has(ui.active.col))) ui.active = null;
     if (ui.edit && !(there(ui.edit.row) && keys.has(ui.edit.col))) ui.edit = null;
-    if (ui.pop?.type === 'choice' && !(there(ui.pop.row) && keys.has(ui.pop.col))) ui.pop = null;
-    if (ui.pop?.type === 'filter' && !ui.filters[ui.pop.index]) ui.pop = null;
+    if (ui.pop && !(there(ui.pop.row) && keys.has(ui.pop.col))) ui.pop = null;
+    // A filter that filters nothing goes, once its menu is closed.
+    ui.filters = ui.filters.filter(f => isActive(f) || f.col === ui.filterMenu);
     for (const id of ui.checked) if (!there(id)) ui.checked.delete(id);
   }
 
@@ -557,23 +559,20 @@
   // The filters set, then, like Stripe's, a few choices offered as filters of their own, unset
   // (+ Jurisdiction): those that tell the most rows apart, as many as fit on the line (see fitFilters).
   function filtersHtml(cols, shownCols, P) {
-    const set = ui.filters.map((f, i) => {
+    const set = ui.filters.map(f => {
       const c = filterOf(f);
-      if (!c || !isActive(f) && ui.pop?.index !== i) return '';
-      const open = ui.pop?.type === 'filter' && ui.pop.index === i;
+      if (!c || !isActive(f) && ui.filterMenu !== f.col) return '';
       const s = filterSummary(f, c, P);
-      return `<span class="filter-chip is-set" data-filter="${i}"><button class="filter-chip-main" data-cmd="records.filter-open" data-index="${i}" aria-haspopup="dialog" aria-expanded="${open}" title="${esc(s.text)}"><span class="rec-fchip-text">${s.html}</span></button>
-        <button class="filter-chip-x" data-cmd="records.filter-remove" data-index="${i}" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>`;
+      return Parts.filterChip({ label: c.label, text: s.html, title: s.text, cmd: 'records.filter-open', clear: 'records.filter-remove', data: { col: c.key } });
     }).join('');
-    const needs = ui.needs ? `<span class="filter-chip is-set is-warn"><button class="filter-chip-main" data-cmd="records.needs"><span class="rec-fchip-text">Missing a required entry</span></button>
-      <button class="filter-chip-x" data-cmd="records.needs" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>` : '';
+    const needs = ui.needs ? Parts.filterChip({ label: 'Missing a required entry', text: 'Missing a required entry', cmd: 'records.needs', clear: 'records.needs', tone: 'warn' }) : '';
     const quick = shownCols.filter(c => c.type === 'choice' && !c.parent && c.options.length > 1 && !ui.filters.some(f => f.col === c.key))
       .map(c => [c, P.objects.filter(id => P.cell(id, c).r).length]).filter(([, n]) => n > 1)
       .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
     const more = cols.some(c => !c.isName && !quick.includes(c));
     return `<div class="filters rec-filters">${set}${needs}
-      ${quick.map(c => `<button class="filter-chip rec-quick" data-cmd="records.filter-add" data-col="${esc(c.key)}">${icon('plus')}${esc(c.label)}</button>`).join('')}
-      ${more ? `<button class="filter-chip" data-cmd="records.filter-pick" aria-haspopup="menu">${icon('plus')}${quick.length ? 'More filters' : 'Filter'}</button>` : ''}
+      ${quick.map(c => Parts.filterChip({ label: c.label, cmd: 'records.filter-add', data: { col: c.key } })).join('')}
+      ${more ? Parts.filterChip({ label: quick.length ? 'More filters' : 'Filter', cmd: 'records.filter-pick' }) : ''}
       ${conditions() > 1 ? '<button class="link-btn rec-clear" data-cmd="records.clear-filters">Clear filters</button>' : ''}</div>`;
   }
   // How many conditions narrow the rows: each filter set, the search, and Missing a required entry. One
@@ -586,7 +585,7 @@
     const bar = document.querySelector('.rec-filters');
     if (!bar) return () => {};
     const GAP = 6;
-    const items = [...bar.children].map(el => ({ el, quick: el.classList.contains('rec-quick'), width: el.offsetWidth + GAP }));
+    const items = [...bar.children].map(el => ({ el, quick: el.dataset.cmd === 'records.filter-add', width: el.offsetWidth + GAP }));
     const room = bar.clientWidth + GAP;
     return () => {
       let used = items.reduce((a, i) => a + i.width, 0);
@@ -598,40 +597,46 @@
     };
   }
 
-  // ---- Popovers ----
-  // Each is drawn with the page and placed by its anchor once it's in, so it survives re-rendering.
+  // ---- Menus ----
+  // The View menu and each filter's are the shell's (Shell.menu): what can be chosen together is ticked as
+  // it's chosen, and the menu stays open, its chip following along.
 
-  function viewPop(cols, P) {
-    const item = c => {
-      const on = isShown(c, P);
-      return `<button class="rec-pop-item${c.parent ? ' is-nested' : ''}${on ? ' is-on' : ''}" data-cmd="records.column" data-col="${esc(c.key)}" role="menuitemcheckbox" aria-checked="${on}"${c.isName ? ' disabled' : ''}
-          title="${esc(columnTitle(c))}"><span class="rec-tick">${on ? icon('check') : ''}</span><span class="rec-pop-text">${esc(c.label)}</span>${c.computedBy || c.computed ? '<span class="rec-fx">fx</span>' : ''}</button>`;
-    };
+  function viewItems() {
+    const P = readPass(), cols = columns();
+    const item = c => ({ label: c.parent ? c.path.join(' › ') : c.label, hint: c.computedBy || c.computed ? 'fx' : '', ticked: isShown(c, P), disabled: c.isName,
+      title: columnTitle(c), run: () => setShown(c.key, !isShown(c, readPass())) });
     const entries = cols.filter(c => !c.rel), rels = cols.filter(c => c.rel);
-    return `<div class="pop rec-pop rec-view-pop" role="menu" aria-label="Columns" tabindex="-1">
-      <div class="menu-head">Columns</div>${entries.map(item).join('')}
-      ${rels.length ? `<div class="menu-sep"></div><div class="menu-head">Relations</div>${rels.map(item).join('')}` : ''}
-      <div class="menu-sep"></div>
-      <div class="rec-pop-foot"><button class="link-btn" data-cmd="records.columns-all">Show all</button><button class="link-btn" data-cmd="records.columns-reset">Reset</button></div></div>`;
+    return [{ head: 'Columns' }, ...entries.map(item), ...(rels.length ? [{ sep: true }, { head: 'Relations' }, ...rels.map(item)] : []), { sep: true },
+      { label: 'Show all', keep: true, run: () => { setPrefs({ cols: Object.fromEntries(columns().map(c => [c.key, true])) }); draw(); } },
+      { label: 'Reset', keep: true, run: () => { setPrefs({ cols: {} }); draw(); } }];
   }
+  const openView = el => Shell.menu(el, viewItems, 'records-view');
 
-  function filterPop(P) {
-    const f = ui.filters[ui.pop.index];
-    const c = filterOf(f);
-    const values = filterValues(P, c);
-    const q = norm(ui.pop.query ?? '');
-    const list = values.filter(v => !q || norm(v.text).includes(q));
+  // A filter's menu: its condition, then the values to pick, each with how many rows have it, and a way
+  // to remove it.
+  function filterItems(col, query) {
+    const f = ui.filters.find(x => x.col === col), c = colByKey(col);
+    if (!f || !c) return [{ note: 'This filter is no longer here.' }];
+    const all = filterValues(readPass(), c);
+    const values = all.filter(v => !clean(query) || norm(v.text).includes(norm(query)));
     const picking = f.op === 'is' || f.op === 'not';
-    const value = v => {
-      const on = f.values.includes(v.key);
-      return `<button class="rec-pop-item${on ? ' is-on' : ''}" data-cmd="records.filter-value" data-value="${esc(v.key)}" role="menuitemcheckbox" aria-checked="${on}">
-        <span class="rec-tick">${on ? icon('check') : ''}</span><span class="rec-pop-text">${esc(v.text)}</span><span class="rec-pop-count">${v.n}</span></button>`;
-    };
-    return `<div class="pop rec-pop rec-filter-pop" role="dialog" aria-label="Filter by ${esc(c.label)}" tabindex="-1">
-      <div class="rec-pop-title"><span class="rec-pop-label">${esc(c.label)}</span><button class="rec-op" data-cmd="records.filter-ops" aria-haspopup="menu" aria-label="Condition: ${OPS[f.op]}">${OPS[f.op]}${icon('chevron-down')}</button></div>
-      ${picking ? `${values.length > 8 ? `<input class="input rec-pop-search" data-focus="pop" value="${esc(ui.pop.query ?? '')}" placeholder="Find a value" aria-label="Find a value" autocomplete="off" spellcheck="false">` : ''}
-        <div class="rec-values">${list.map(value).join('') || `<div class="rec-pop-note">${values.length ? 'Nothing matches.' : 'No values yet.'}</div>`}</div>` : ''}
-      <div class="rec-pop-foot"><button class="link-btn" data-cmd="records.filter-remove" data-index="${ui.pop.index}">Remove filter</button></div></div>`;
+    const toggle = key => { f.values = f.values.includes(key) ? f.values.filter(v => v !== key) : [...f.values, key]; saveSession(); draw(); };
+    return [
+      { label: c.label, select: Object.entries(OPS), value: f.op, run: op => { f.op = op; saveSession(); draw(); } },
+      ...(!picking ? [] : values.length ? values.map(v => ({ label: String(v.text), hint: String(v.n), ticked: f.values.includes(v.key), run: () => toggle(v.key) }))
+        : [{ note: all.length ? 'Nothing matches.' : 'No values yet.' }]),
+      { sep: true },
+      { label: 'Remove filter', run: () => removeFilter(col) },
+    ];
+  }
+  function openFilter(col) {
+    const anchor = document.querySelector(`[data-cmd="records.filter-open"][data-col="${CSS.escape(col)}"]`);
+    if (!anchor) return;
+    ui.filterMenu = col;
+    Shell.menu(anchor, query => filterItems(col, query), `records-filter:${col}`, {
+      search: filterValues(readPass(), colByKey(col)).length > 8 ? 'Find a value' : null,
+      onClose: () => { if (ui.filterMenu === col) ui.filterMenu = null; saveSession(); draw(); },
+    });
   }
 
   // The options a choice cell offers: those its parameterization has in the schema there, or else every
@@ -658,31 +663,16 @@
       ${cell.r ? `<div class="listbox-sep"></div><div class="option" data-cmd="records.choose-clear" role="option">Clear ${esc(c.label)}</div>` : ''}</div>`;
   }
 
-  function popHtml(P, cols) {
-    if (ui.pop?.type === 'view') return viewPop(cols, P);
-    if (ui.pop?.type === 'filter') return filterPop(P);
-    if (ui.pop?.type === 'choice') return choicePop(P);
-    return '';
-  }
-
-  function popAnchor() {
-    if (ui.pop?.type === 'view') return document.querySelector('[data-cmd="records.view"]');
-    if (ui.pop?.type === 'filter') return document.querySelector(`.filter-chip[data-filter="${ui.pop.index}"]`);
-    if (ui.pop?.type === 'choice') return cellEl(ui.pop);
-    return null;
-  }
-
-  // Under its anchor, or above it where there's no room below; the View menu lines up with its button's
-  // right edge.
+  // A choice's options are drawn with the page, and placed under the cell once it's in, or above it where
+  // there's no room below, so they survive re-rendering.
   function placePop() {
     const el = document.querySelector('.rec-pop');
-    const anchor = popAnchor();
+    const anchor = ui.pop && cellEl(ui.pop);
     if (!el || !anchor) return;
     const a = anchor.getBoundingClientRect();
-    if (ui.pop.type === 'choice') el.style.minWidth = `${Math.max(232, a.width)}px`;
+    el.style.minWidth = `${Math.max(232, a.width)}px`;
     const w = el.offsetWidth, h = el.offsetHeight;
-    const left = ui.pop.type === 'view' ? a.right - w : a.left;
-    el.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
+    el.style.left = `${Math.max(8, Math.min(a.left, innerWidth - w - 8))}px`;
     el.style.top = `${a.bottom + 4 + h <= innerHeight - 8 ? a.bottom + 4 : Math.max(8, a.top - h - 4)}px`;
   }
 
@@ -722,9 +712,9 @@
       ${n || ui.draft ? `<div class="rec-bar">
         <label class="search-input rec-search">${icon('search')}<input class="input" data-focus="search" value="${esc(ui.search)}" placeholder="Search ${esc(kindPlural().toLowerCase())}" aria-label="Search ${esc(kindPlural().toLowerCase())}" autocomplete="off" spellcheck="false"></label>
         ${filtersHtml(cols, shownCols, P)}
-        <div class="rec-bar-end"><button class="btn btn-sm" data-cmd="records.view" aria-haspopup="menu" aria-expanded="${ui.pop?.type === 'view'}">View${icon('chevron-down')}</button></div>
+        <div class="rec-bar-end"><button class="btn btn-sm" data-cmd="records.view" aria-haspopup="menu">View${icon('chevron-down')}</button></div>
       </div>` : ''}
-      ${body}${bar}${popHtml(P, cols)}</div>`;
+      ${body}${bar}${ui.pop ? choicePop(P) : ''}</div>`;
   }
 
   const cellEl = at => at && document.querySelector(`.rec-table tr[data-row="${CSS.escape(at.row)}"] td[data-col="${CSS.escape(at.col)}"]`);
@@ -850,7 +840,7 @@
   function openChoice(row, c, query = '') {
     const cell = readPass().cell(row, c);
     if (!editable(cell, c)) return;
-    Object.assign(ui, { active: { row, col: c.key }, edit: null, pop: { type: 'choice', row, col: c.key, query, active: 0, fresh: true }, focus: 'pop', caret: null });
+    Object.assign(ui, { active: { row, col: c.key }, edit: null, pop: { row, col: c.key, query, active: 0, fresh: true }, focus: 'pop', caret: null });
     draw();
   }
 
@@ -1174,24 +1164,25 @@
 
   // ---- Filters ----
 
+  // A filter of a column (one each), with its menu open under its chip. Closed with nothing picked, it goes,
+  // since it wouldn't filter anything (see tidy).
   function addFilter(key) {
-    const i = ui.filters.findIndex(f => f.col === key);
-    if (i < 0) ui.filters.push({ col: key, op: 'is', values: [] });
-    ui.pop = { type: 'filter', index: i < 0 ? ui.filters.length - 1 : i, query: '', fresh: true };
-    ui.focus = 'pop';
+    if (!ui.filters.some(f => f.col === key)) ui.filters.push({ col: key, op: 'is', values: [] });
+    ui.filterMenu = key;
+    ui.focus = null;
+    saveSession();
+    draw();
+    openFilter(key);
+  }
+  function removeFilter(key) {
+    ui.filters = ui.filters.filter(f => f.col !== key);
     saveSession();
     draw();
   }
 
-  // Closing a filter's popover with nothing picked drops the filter, which wouldn't filter anything.
+  // Closing a choice's options gives the keyboard back to the table.
   function closePop() {
-    const p = ui.pop;
     ui.pop = null;
-    if (p?.type === 'filter') {
-      const f = ui.filters[p.index];
-      if (f && !isActive(f)) ui.filters.splice(p.index, 1);
-      saveSession();
-    }
     if (ui.focus === 'pop') ui.focus = ui.active ? 'grid' : null;
   }
 
@@ -1214,35 +1205,12 @@
   Object.entries({
     'records.new': startDraft,
     'records.export': exportCsv,
-    'records.view': () => { if (ui.pop?.type === 'view') closePop(); else { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; } draw(); },
-    'records.column': el => setShown(el.dataset.col, !isShown(colByKey(el.dataset.col), readPass())),
-    'records.columns-all': () => { setPrefs({ cols: Object.fromEntries(columns().map(c => [c.key, true])) }); draw(); },
-    'records.columns-reset': () => { setPrefs({ cols: {} }); draw(); },
+    'records.view': openView,
     'records.head': el => { if (!dragged) headMenu(el); },
     'records.filter-add': el => addFilter(el.dataset.col),
     'records.filter-pick': el => filterPicker(el),
-    'records.filter-open': el => {
-      const i = Number(el.dataset.index);
-      if (ui.pop?.type === 'filter' && ui.pop.index === i) closePop();
-      else { ui.pop = { type: 'filter', index: i, query: '', fresh: true }; ui.focus = 'pop'; }
-      draw();
-    },
-    'records.filter-remove': el => {
-      ui.filters.splice(Number(el.dataset.index), 1);
-      if (ui.pop?.type === 'filter') ui.pop = null;
-      saveSession();
-      draw();
-    },
-    'records.filter-ops': el => {
-      const f = ui.filters[ui.pop.index];
-      Shell.menu(el, Object.entries(OPS).map(([op, label]) => ({ label, checked: f.op === op, run: () => { f.op = op; saveSession(); draw(); } })), 'records-filter-ops');
-    },
-    'records.filter-value': el => {
-      const f = ui.filters[ui.pop.index];
-      f.values = f.values.includes(el.dataset.value) ? f.values.filter(v => v !== el.dataset.value) : [...f.values, el.dataset.value];
-      saveSession();
-      draw();
-    },
+    'records.filter-open': el => openFilter(el.dataset.col),
+    'records.filter-remove': el => removeFilter(el.dataset.col),
     'records.clear-filters': clearFilters,
     'records.needs': () => { ui.needs = !ui.needs; saveSession(); draw(); },
     'records.choose': el => chooseOption(Number(el.dataset.index)),
@@ -1367,7 +1335,7 @@
     if (!e.target.classList?.contains('rec-wrap')) return;
     ui.scroll = { left: e.target.scrollLeft, top: e.target.scrollTop };
     e.target.classList.toggle('is-scrolled', e.target.scrollLeft > 0);
-    if (ui.pop?.type === 'choice') placePop();
+    if (ui.pop) placePop();
   }, true);
   // A resized window draws the table again once it settles, as Name's width and what fits follow it.
   let resizing = 0;
@@ -1411,7 +1379,6 @@
   function popKeys(e) {
     const p = ui.pop;
     if (e.key === 'Escape') { e.preventDefault(); closePop(); return draw(); }
-    if (p.type !== 'choice') return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const n = p.items?.length ?? 0;
@@ -1567,7 +1534,7 @@
     commands: () => [
       { title: `New ${word()}`, keywords: 'add create row record', run: startDraft },
       { title: `Export ${kindPlural().toLowerCase()} as CSV`, keywords: 'download excel spreadsheet', run: exportCsv },
-      { title: 'Show or hide columns', keywords: 'view columns fields', run: () => { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; draw(); } },
+      { title: 'Show or hide columns', keywords: 'view columns fields', run: () => openView(document.querySelector('[data-cmd="records.view"]')) },
       ...(anyFilter() ? [{ title: 'Clear filters', keywords: 'search reset', run: clearFilters }] : []),
     ],
   });

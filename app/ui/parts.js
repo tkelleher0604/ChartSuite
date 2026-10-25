@@ -65,6 +65,18 @@ const Parts = (() => {
   // A status: tone '' (neutral), 'success', 'warn', 'danger', 'computed' or 'accent'.
   const badge = (text, tone = '') => `<span class="badge${tone ? ` is-${tone}` : ''}">${esc(text)}</span>`;
 
+  // A filter above a list, as a chip. Unset, it reads "+ Label", and opens its menu (`cmd`, a Shell
+  // handler). Set, it reads what it's set to, `Label: <b>value</b>`, or `text` (markup) where a sentence
+  // says it better, and opens its menu again; × clears it (`clear`). `data` goes on both, as data
+  // attributes; `tone` 'warn' marks a filter for what needs attention.
+  function filterChip({ label, value = '', text = '', cmd, clear, data = {}, title = '', tone = '' }) {
+    const attrs = Object.entries(data).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('');
+    if (!value && !text) return `<button class="filter-chip" data-cmd="${esc(cmd)}"${attrs} aria-haspopup="menu">${icon('plus')}${esc(label)}</button>`;
+    const shown = text || `${esc(label)}: <b>${esc(value)}</b>`;
+    return `<span class="filter-chip is-set${tone ? ` is-${tone}` : ''}"><button class="filter-chip-main" data-cmd="${esc(cmd)}"${attrs} aria-haspopup="menu" title="${esc(title || (value ? `${label}: ${value}` : label))}"><span class="filter-chip-text">${shown}</span></button>`
+      + `<button class="filter-chip-x" data-cmd="${esc(clear)}"${attrs} aria-label="Clear ${esc(label)}" title="Clear">${icon('x')}</button></span>`;
+  }
+
   // What's missing, when it will appear, and the one action that adds it: { cmd } runs a Shell handler,
   // { href } goes somewhere. An empty result of a filter says so instead, with a way to clear it.
   function empty({ title, desc = '', action = null }) {
@@ -77,5 +89,5 @@ const Parts = (() => {
   // A person's initials in a circle, for who made a change.
   const avatar = name => `<span class="avatar" title="${esc(name)}">${esc(clean(name).split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?')}</span>`;
 
-  return { chip, link, output, outputText, date, daysUntil, dueText, when, badge, empty, avatar };
+  return { chip, link, output, outputText, date, daysUntil, dueText, when, badge, filterChip, empty, avatar };
 })();

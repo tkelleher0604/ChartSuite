@@ -89,7 +89,11 @@ What else the shell provides:
   - `render()` gives its markup from the page's state, using `.dialog-title`, `.dialog-body` and `.dialog-actions` or parts of its own;
   - `redraw()` draws it again in place, without animating it in again, keeping the focus, the caret and where its lists were scrolled; `redraw({ fresh: true })` starts a new step, with the focus on its `[data-autofocus]`;
   - while it's open it has the keyboard: `keys(e)` sees each key first, then Esc closes it and Tab keeps to it. Nothing reaches the page or the shell's shortcuts. Menus and other dialogs open over it, and closing it puts the focus back.
-- **Menus.** `Shell.menu(anchorEl, items, id)`, where items are `{ label, hint, run, checked, disabled, danger }`, `{ sep: true }` or `{ head }`.
+- **Menus.** `Shell.menu(anchorEl, items, id, { search, onClose })`, where items are `{ label, desc, hint, run, checked, ticked, keep, disabled, danger }`, `{ sep: true }`, `{ head }`, `{ note }` or a dropdown, `{ label, select: [[value, text]], value, run }`.
+  - `checked` marks the one chosen; `ticked` draws a tick box, for one of several chosen together.
+  - Picking a ticked item, one marked `keep`, or a dropdown's value leaves the menu open. It's drawn again from `items`, which may be a function, and follows its anchor (a filter chip as it changes). Anything else closes it.
+  - `search` puts a box at the top: `items` is then a function of what's typed, and the arrow keys and Enter pick from it.
+- **The record picker.** `Shell.pickRecord(anchorEl, { pick, among, placeholder })` finds an object as the palette does, listing the matches by kind with what tells like names apart. Use it wherever a record is chosen, as History's and the Calendar's filters do. `Shell.findsRecord(id, query)` is its matching, for a list of records of a page's own.
 - **The palette.** Add a page's own actions to it through `commands`. It already finds every record and area.
 - **Links.** `Shell.recordHref(id)` and `Shell.kindHref(kind)`. Call `Shell.visited(id)` when a record is opened.
 - **Saving.** `Shell.setStatus(text, tone)` says where the workbook is saved.
@@ -105,6 +109,7 @@ Use these so a record reads the same everywhere:
 - `Parts.dueText(iso)` and `Parts.daysUntil(iso)`: how far off a date is.
 - `Parts.when(stamp)`: a moment relative to now, with the exact time on hover.
 - `Parts.badge(text, tone)`, where tone is `''`, `'success'`, `'warn'`, `'danger'`, `'computed'`, `'accent'` or `'faint'` (superseded, set aside).
+- `Parts.filterChip({ label, value, text, cmd, clear, data, tone })`: a filter above a list. Unset, it reads "+ Label" and opens its menu (`cmd`). Set, it reads `Label: value` (or `text`, as markup, where a sentence says it better, like Jurisdiction is **Delaware**), opens its menu again, and × clears it (`clear`). Its menu is a `Shell.menu`; a filter that takes several values ticks them, and stays open.
 - `Parts.empty({ title, desc, action })`.
 - `Parts.avatar(name)`.
 
@@ -120,7 +125,7 @@ Add a part when two areas need the same thing. Never draw a record two ways.
   - `.badge`;
   - `.tabs` holding `.tab`s (`aria-selected`), each with an optional `.tab-count`;
   - `.empty-state`;
-  - `.filters` holding `.filter-chip`s (`.is-set` when a filter is applied);
+  - `.filters` holding `.filter-chip`s (`.is-set` when a filter is applied; draw them with `Parts.filterChip`);
   - `.search-input`.
 - **Buttons:** `.btn`, with `.btn-primary`, `.btn-sm`, `.btn-ghost` or `.btn-danger`; `.icon-btn`; `.link-btn`; and `kbd`.
 - **Text:** `.muted`, `.faint`, `.tnum`, `.ident`, `.computed-text`, `.link` and `.visually-hidden`.
