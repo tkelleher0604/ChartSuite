@@ -789,10 +789,13 @@ const ON_FILE_DEFINITIONS = [
 const SAMPLE_REQUIRED = ['fund_formed', 'fund_juris', 'fund_type', 'doc_colp3_link', 'doc_colp3_type', 'doc_colp3_date', 'doc_colp3_status',
   'pos_chen_bdc_title', 'pos_chen_bdc_start', 'pos_okfr_bdc_title', 'pos_okfr_bdc_start', 'pos_lind_mgmt_title', 'pos_lind_mgmt_start'];
 
-// How an Entity and a Document list their entries: after the Name, these, then the rest by type.
+// How each kind lists its entries, in the panel and the Records tables: after the Name, the key facts in
+// this order, then the rest by type. An Entity's role (its Vehicle Type) and what it is come first, then its
+// identifiers and standing; a Document's link, the address, comes last.
 const SAMPLE_ORDER = {
-  'kind:entity': ['vehicle type', 'entity type', 'jurisdiction', 'formation date', 'fiscal year end', 'ein'],
-  'kind:document': ['link', 'document type', 'document date', 'status', 'version'],
+  'kind:entity': ['vehicle type', 'entity type', 'jurisdiction', 'formation date', 'fiscal year end', 'ein', 'lei registered', 'good standing'],
+  'kind:individual': ['email', 'u.s. person'],
+  'kind:document': ['document type', 'document date', 'status', 'version', 'link'],
 };
 
 // ---- Views ----

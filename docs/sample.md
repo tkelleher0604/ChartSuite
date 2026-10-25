@@ -63,6 +63,11 @@ Required entries are where a legal team would insist:
 - on every Document, a Link, Document Type, Document Date and Status;
 - on every position, a Title and Start Date.
 
+Each kind lists its key facts first, in the panel and the Records tables, by the chart's entry order. After the Name:
+- an Entity lists its role (Vehicle Type), Entity Type, Jurisdiction, Formation Date and Fiscal Year End, then its EIN, LEI and good standing;
+- an Individual lists Email, then U.S. Person;
+- a Document lists Document Type, Document Date, Status and Version, then its Link.
+
 ## Deadlines
 
 Each deadline is a date field worked out by a definition from what's entered: when the obligation was last met (a **Last Filed**, **Last Paid**, **Last Affirmed** or **Last Renewed** date), or, until it has been, from what started it (a Formation Date, or when a registration began). Entering the date it's met on moves it to the next one. None reads today's date, so a deadline is the same whenever it's asked about; whether it's overdue is for the Calendar and Home to say.
