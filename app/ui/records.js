@@ -1,8 +1,9 @@
 // The Records area: a table for each kind, at records.html#<kind>, kept like a spreadsheet of its objects.
 // - Rows are the kind's objects. Columns are the entries the schema has at objects of the kind (fields, tags
 //   and choices), in the model's entry order with Name first and kept in view, then the entries below them
-//   (an Entity Type's Tax Classification), which start hidden, then the lists of each object's relatives by
-//   list name (Owners, General Partners), each relative a chip with its one detail.
+//   (an Entity Type's Tax Classification), then the lists of each object's relatives by list name (Owners,
+//   General Partners), each relative a chip with its one detail. A screen's worth shows at first; the View
+//   menu, grouped by where an entry sits and searchable, shows the rest.
 // - Cells are edited in place through the model's own functions, so each edit is one undoable step and lands
 //   in the History. What a formula works out is set in italics and isn't edited here, except that a computed
 //   tag can be ruled out (or attested), overriding its formula, as the panel allows.
@@ -180,14 +181,27 @@
   }
   const colByKey = key => columns().find(c => c.key === key) ?? null;
 
-  // Shown unless hidden: Name always; the entries at the object; and the lists of entered relations that
-  // some row has. Entries below entries, and lists a formula works out, start hidden.
+  // Which columns are shown is kept per kind (ui.prefs.cols), from the first time its table is drawn:
+  // a screen's worth (firstColumns). Name is always shown. A column that comes later shows if it's an entry
+  // at the object (as one a paste just added), or a list of entered relatives some row has.
   function isShown(c, P) {
     if (c.isName) return true;
     const set = ui.prefs.cols?.[c.key];
     if (set !== undefined) return set;
     if (!c.rel) return !c.parent;
     return !c.computed && P.objects.some(id => P.cell(id, c).items.length);
+  }
+
+  // A screen's worth of columns, as { [key]: shown }: after Name, the first six entries at the object, in
+  // the entry order, that some row has, and any that's required; then the two lists of entered relatives
+  // the most rows have. Entries below entries, lists a formula works out, and what no row has start hidden.
+  const FIRST_ENTRIES = 6, FIRST_LISTS = 2;
+  function firstColumns(cols, P) {
+    const has = c => P.objects.filter(id => { const cell = P.cell(id, c); return c.rel ? cell.items.length : cell.r; }).length;
+    const entries = cols.filter(c => !c.rel && !c.parent && !c.isName);
+    const lists = cols.filter(c => c.rel && !c.computed).map(c => [c, has(c)]).filter(([, n]) => n).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    const first = new Set([...entries.filter(c => !P.objects.length || has(c)).slice(0, FIRST_ENTRIES), ...entries.filter(c => c.required), ...lists.slice(0, FIRST_LISTS)]);
+    return Object.fromEntries(cols.map(c => [c.key, c.isName || first.has(c)]));
   }
 
   // ---- The records, as the table reads them ----
@@ -596,16 +610,28 @@
   // The View menu and each filter's are the shell's (Shell.menu): what can be chosen together is ticked as
   // it's chosen, and the menu stays open, its chip following along.
 
-  function viewItems() {
-    const P = readPass(), cols = columns();
-    const item = c => ({ label: c.parent ? c.path.join(' › ') : c.label, hint: c.computedBy || c.computed ? 'fx' : '', ticked: isShown(c, P), disabled: c.isName,
-      title: columnTitle(c), run: () => setShown(c.key, !isShown(c, readPass())) });
-    const entries = cols.filter(c => !c.rel), rels = cols.filter(c => c.rel);
-    return [{ head: 'Columns' }, ...entries.map(item), ...(rels.length ? [{ sep: true }, { head: 'Relations' }, ...rels.map(item)] : []), { sep: true },
-      { label: 'Show all', keep: true, run: () => { setPrefs({ cols: Object.fromEntries(columns().map(c => [c.key, true])) }); draw(); } },
-      { label: 'Reset', keep: true, run: () => { setPrefs({ cols: {} }); draw(); } }];
+  // Columns as a menu lists them: grouped by where an entry sits (on the object, or below an entry), then
+  // the lists of relatives; or, once something's typed, the columns it finds, best first, each saying where.
+  function columnItems(cols, query, item) {
+    const where = c => c.rel ? 'Relations' : c.parent ? `Below ${c.path.slice(0, -1).join(' › ')}` : `On each ${word()}`;
+    if (clean(query)) {
+      const found = rankBy(cols, query, c => c.rel ? c.label : c.path.join(' '));
+      return found.length ? found.map(c => ({ ...item(c), desc: where(c) })) : [{ note: `No column is called “${clean(query)}”.` }];
+    }
+    const groups = new Map();
+    for (const c of cols) pushTo(groups, where(c), c);
+    return [...groups].flatMap(([head, list], i) => [...(i ? [{ sep: true }] : []), { head }, ...list.map(item)]);
   }
-  const openView = el => Shell.menu(el, viewItems, 'records-view');
+
+  function viewItems(query) {
+    const P = readPass();
+    const item = c => ({ label: c.label, hint: c.computedBy || c.computed ? 'fx' : '', ticked: isShown(c, P), disabled: c.isName,
+      title: columnTitle(c), run: () => setShown(c.key, !isShown(c, readPass())) });
+    return [...columnItems(columns(), query, item), { sep: true },
+      { label: 'Show all', keep: true, run: () => { setPrefs({ cols: Object.fromEntries(columns().map(c => [c.key, true])) }); draw(); } },
+      { label: 'Reset', keep: true, run: () => { setPrefs({ cols: firstColumns(columns(), readPass()) }); draw(); } }];
+  }
+  const openView = el => Shell.menu(el, viewItems, 'records-view', { search: 'Find a column' });
 
   // A filter's menu: its condition, then the values to pick, each with how many rows have it, and a way
   // to remove it.
@@ -684,6 +710,7 @@
     if (wrap) ui.scroll = { left: wrap.scrollLeft, top: ui.toEnd ? 1e9 : wrap.scrollTop };
     const P = readPass();
     const cols = columns();
+    if (!ui.prefs.cols) setPrefs({ cols: firstColumns(cols, P) });
     const shownCols = cols.filter(c => isShown(c, P));
     tidy(shownCols);
     const rows = shownRows(P, cols, shownCols);
@@ -1229,12 +1256,10 @@
     draw();
   }
 
+  // Any column can be filtered by, shown or not, as the View menu lists them.
   function filterPicker(el) {
-    const P = readPass();
-    const cols = columns().filter(c => !c.isName);
-    const item = c => ({ label: c.parent ? c.path.join(' › ') : c.label, hint: ui.filters.some(f => f.col === c.key) ? 'In use' : '', run: () => addFilter(c.key) });
-    const shown = cols.filter(c => isShown(c, P)), hidden = cols.filter(c => !isShown(c, P));
-    Shell.menu(el, [{ head: 'Filter by' }, ...shown.map(item), ...(hidden.length ? [{ sep: true }, { head: 'Hidden columns' }, ...hidden.map(item)] : [])], 'records-filter');
+    const item = c => ({ label: c.label, hint: ui.filters.some(f => f.col === c.key) ? 'In use' : '', run: () => addFilter(c.key) });
+    Shell.menu(el, query => columnItems(columns().filter(c => !c.isName), query, item), 'records-filter', { search: 'Find a column' });
   }
 
   // ---- Events ----
