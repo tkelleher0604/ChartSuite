@@ -37,13 +37,13 @@
 .docs-table th { padding: 0 12px; }
 .docs-table tbody tr { cursor: default; }
 .docs-table .c-glyph { width: 44px; padding-right: 0; }
+/* Every file's type has its glyph, so the glyphs recede; the name leads. */
+.docs-table td.c-glyph .doc-glyph { color: var(--text-3); }
 .docs-table .c-type { width: 184px; color: var(--text-2); }
-.docs-table .c-subjects { width: 252px; }
+.docs-table .c-subjects { width: 220px; }
 .docs-table .c-date { width: 120px; }
 .docs-table .c-status { width: 112px; }
-/* A path is cut at its start, so the folder it ends in shows. */
-.docs-table .c-where { width: 176px; color: var(--text-3); direction: rtl; text-align: left; }
-.docs-table th.c-where { direction: ltr; }
+.docs-table .c-where { width: 150px; color: var(--text-3); }
 .docs-table .c-folder { width: 260px; }
 .docs-table .c-act { width: 84px; text-align: right; }
 .docs-table .c-act.is-wide { width: 128px; }
@@ -71,7 +71,9 @@
 .docs-flag.is-quiet { color: var(--text-3); font-weight: 400; }
 .docs-flag.is-quiet::before { background: var(--border-strong); }
 
-/* A status no longer current. */
+/* A status is text; a draft is a badge, and one no longer current is faint. */
+.docs-status { color: var(--text-2); }
+.docs-status.is-past { color: var(--text-3); }
 
 /* While the library is read: quiet bars, no shimmer. */
 .is-skeleton td { height: 38px; }

@@ -24,8 +24,16 @@ const DEMO_HOST = new URL(SharePoint.DEMO.site).host;
 // Read as core/documents.js reads it, for every page that lists documents.
 const { ROLES, CONCERNS, isDocField, isDocObject, entryFor, entrySpec, optionsOf, holdersOf, concernsRelation, subjectsOf,
   titleOf, fileNameOf, linkKey, documentRows, rowById } = Documents;
-// How a status reads: in force, in progress, or no longer current (Parts.docStatus).
-const statusBadge = Parts.docStatus;
+// How a status reads: as text, since most documents are in force and needn't call for the eye. Only a
+// draft, which needs doing, is marked, in amber; one no longer current (superseded, terminated, expired,
+// withdrawn) is faint. In italics where a formula gave it.
+const PAST = new Set(['superseded', 'terminated', 'expired', 'withdrawn']);
+function statusText(cell) {
+  if (!cell) return '';
+  const text = same(cell.text, 'draft') ? Parts.badge(cell.text, 'warn') : esc(cell.text);
+  const cls = ['docs-status', PAST.has(norm(cell.text)) ? 'is-past' : '', cell.computed ? 'computed-text' : ''].filter(Boolean).join(' ');
+  return `<span class="${cls}"${cell.computed ? ' title="Worked out by formula"' : ''}>${text}</span>`;
+}
 
 // What each object owns, directly or through what it owns, by the relation named Ownership, whose first
 // edge is the owner's (as the chart's Tidy layout reads ownership too). Read once for each set of records.
@@ -62,6 +70,8 @@ function whereText(p) {
   }
   return p.system === 'file' && p.folderPath ? `${systemName(p)} › ${p.folderPath.split('/').join(' › ')}` : systemName(p);
 }
+// The same, in a table's narrow column: the folder it's in, the whole path being on hover and in the pane.
+const whereShort = p => whereText(p).split(' › ').at(-1);
 const openLabel = p => !p ? 'Open' : p.system === 'sharepoint' ? 'Open in SharePoint' : p.system === 'web' && !isEdgar(p) ? 'Open link'
   : p.system === 'file' ? 'Open file' : `Open in ${systemName(p)}`;
 const glyph = Parts.file;
@@ -346,9 +356,9 @@ function linkedView(rows) {
       <td class="c-name"><div class="c-name-in"><a class="row-link" href="${Shell.recordHref(row.record)}" title="${esc(row.name)}">${esc(row.name)}</a>${flag}</div></td>
       <td class="c-type">${cellText(row.type)}</td>
       <td class="c-subjects">${subjectChips(row.subjects)}</td>
-      <td class="c-date tnum">${row.date ? `<span class="${row.date.computed ? 'computed-text' : ''}">${Parts.date(row.date.iso)}</span>` : ''}</td>
-      <td class="c-status">${statusBadge(row.status)}</td>
-      <td class="c-where" title="${esc(row.link ?? '')}"><bdi>${esc(whereText(row.url))}</bdi></td></tr>`;
+      <td class="c-date tnum">${row.date ? `<span class="${row.date.computed ? 'computed-text' : ''}" title="${esc(formatDate(row.date.iso))}${row.date.computed ? ', worked out by formula' : ''}">${Parts.date(row.date.iso)}</span>` : ''}</td>
+      <td class="c-status">${statusText(row.status)}</td>
+      <td class="c-where" title="${esc(whereText(row.url))}">${esc(whereShort(row.url))}</td></tr>`;
   }).join(''));
 }
 
@@ -377,7 +387,7 @@ function unlinkedView(files) {
       <td class="c-glyph">${glyph(f.kind)}</td>
       <td class="c-name"><div class="c-name-in"><span class="docs-file-name" title="${esc(f.name)}">${esc(titleOf(f.name))}</span></div></td>
       <td class="c-type">${esc(columnText(f.fields?.DocumentType))}</td>
-      <td class="c-where c-folder" title="${esc(f.path)}"><bdi>${esc(folderText(f.path))}</bdi></td>
+      <td class="c-where c-folder" title="${esc(folderText(f.path))}">${esc(folderText(f.path))}</td>
       <td class="c-date tnum">${f.lastModified ? Parts.date(f.lastModified.slice(0, 10)) : ''}</td>
       <td class="c-act"><button class="btn btn-sm" data-cmd="docs.link-file" data-id="${esc(f.id)}" title="Link it, with the details its name and the library’s columns give">Link</button></td></tr>`).join('')) + capped;
 }
@@ -396,7 +406,7 @@ function brokenView(broken) {
       <td class="c-glyph">${glyph(row.url?.kind ?? 'other')}</td>
       <td class="c-name"><div class="c-name-in"><a class="row-link" href="${Shell.recordHref(row.record)}" title="${esc(row.name)}">${esc(row.name)}</a></div></td>
       <td class="c-subjects">${subjectChips(row.subjects)}</td>
-      <td class="c-where" title="${esc(row.link)}"><bdi>${esc(whereText(row.url))}${row.url?.fileName ? ` › ${esc(row.url.fileName)}` : ''}</bdi></td>
+      <td class="c-where" title="${esc(row.link)}">${esc(row.url?.fileName ?? whereText(row.url))}</td>
       <td class="c-act is-wide"><button class="btn btn-sm" data-cmd="docs.relink" data-id="${esc(row.id)}">Link again…</button></td></tr>`).join(''));
 }
 
@@ -443,14 +453,15 @@ function docPane(row) {
 }
 
 // The relations a document is in, a section for each: Concerns, and any others. A relation's name reads
-// from its first argument (a document concerns its subjects), so a section is titled by its list name
-// where it has one, or else the relation's name if the document comes first, or the other side's label.
+// from its first argument (a document concerns its subjects), so a section is titled by the relation's
+// name where the document comes first, as the table, its filter and the dialog title Concerns; otherwise
+// by its list name, seen from the document.
 function relationSections(docId) {
   const groups = relationGroups(docId).filter(g => g.others.length);
   if (!groups.length) return section('Concerns', `<p class="pane-empty">No records yet. <button class="link-btn" data-cmd="docs.edit">Add the records it concerns</button></p>`);
   return groups.map(g => {
     const first = names[g.form]?.edges?.[0] ?? records[g.ids[0]].args[0].edge;
-    const title = !same(g.list, g.others[0]) ? g.list : same(first, g.own[0]) ? formName(g.form) : g.others[0];
+    const title = same(first, g.own[0]) ? formName(g.form) : g.list;
     const chips = g.ids.filter(rid => !(isTag(records[rid]) && !records[rid].tag)).flatMap(rid => records[rid].args.filter(a => a.at !== docId)
       .flatMap(a => holdersOf(a.at)).map(h => ({ id: h, computed: isComputed(rid), detail: isTag(records[rid]) ? '' : Parts.outputText(records[rid]) })));
     const body = chips.length ? `<div class="chips">${chips.map(c => Parts.chip(c.id, c)).join('')}</div>` : '<p class="pane-empty">None</p>';
@@ -468,7 +479,7 @@ function detailsSection(row) {
   const value = id => isField(records[id]) && records[id].field === 'date'
     ? `<span class="tnum${isComputed(id) ? ' computed-text' : ''}"${isComputed(id) ? ' title="Worked out by formula"' : ''}>${Parts.date(records[id].value)}</span>` : Parts.output(id);
   const out = cell => cell ? prop(records[cell.id].edge, value(cell.id)) : '';
-  const body = prop('Status', row.status && statusBadge(row.status)) + out(row.type) + out(row.date) + out(row.version)
+  const body = prop('Status', row.status && statusText(row.status)) + out(row.type) + out(row.date) + out(row.version)
     + rest.map(e => prop(records[e].edge, value(e))).join('');
   return section('Details', body ? `<dl class="props">${body}</dl>` : `<p class="pane-empty">Nothing recorded yet. <button class="link-btn" data-cmd="docs.edit">Add details</button></p>`);
 }
@@ -532,7 +543,7 @@ function filePane(file) {
     <button class="btn btn-sm" data-cmd="docs.link-details" data-id="${esc(file.id)}">Link with details…</button>${openButton(file.webUrl, p, false)}`;
   const would = `<dl class="props">${prop('Name', esc(g.name))}${prop(entrySpec('type').label, g.type ? esc(g.type) : '<span class="faint">None found</span>')}
     ${prop(entrySpec('date').label, g.date ? `<span class="tnum">${Parts.date(g.date)}</span>` : '<span class="faint">None found</span>')}
-    ${g.status ? prop('Status', statusBadge({ text: g.status })) : ''}
+    ${g.status ? prop('Status', statusText({ text: g.status })) : ''}
     ${prop('Concerns', g.subjects.length ? `<div class="chips">${g.subjects.map(id => Parts.chip(id)).join('')}</div>` : '<span class="faint">No records found</span>')}</dl>`;
   return paneFrame({ kind: file.kind, title: titleOf(file.name), sub: `<span class="faint">${esc(folderText(file.path) || 'Documents')}</span>`, actions,
     body: section('Link will record', would, 'from its name and the library’s columns') + section('In SharePoint', itemProps(file), '<span class="live-dot" aria-hidden="true"></span>Read live from the library') + versionsSection(file) });
@@ -1113,7 +1124,7 @@ Shell.onChartChange(() => { ui.selected = null; for (const s of Object.values(ui
 Shell.start({
   area: 'documents',
   title: 'Documents',
-  actions: () => `${sourceButton()}<button class="btn btn-sm" data-cmd="docs.link">Link document</button>`,
+  actions: () => `${sourceButton()}<button class="btn btn-sm btn-primary" data-cmd="docs.link">Link document</button>`,
   render: () => { keep(); return page(); },
   after: () => { restore(); load(); },
   keys: [['↑ ↓, or J K', 'Move through the documents'], ['Enter', 'Open the document’s record'], ['Esc', 'Close the preview']],
