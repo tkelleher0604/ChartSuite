@@ -96,6 +96,12 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - Changes are saved in the browser's local storage, with undo and redo. A workbook saved before the chart kept its schema isn't read, and the pages start again from the sample.
 - [tests/model-test.html](tests/model-test.html): checks the model on the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, Copy definitions, naming relations and lists, and requiring entries must keep all of that true. Failures are listed first.
 - [tests/formula-lab.html](tests/formula-lab.html): the sample's definitions side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It starts from the definitions as the app stores them, written out as people write them, and keeps its own copy to edit.
+- [tests/sharepoint-test.html](tests/sharepoint-test.html): checks the SharePoint connector, `core/sharepoint.js`. It covers:
+  - reading links of every sort (SharePoint, OneDrive, EDGAR, NetDocuments, iManage, file shares);
+  - the demo library, including browsing, search, and saving a workbook when someone else has saved since;
+  - the live Graph client, run against a stand-in for Graph.
+
+  Setup for a real tenant is in [docs/sharepoint-setup.md](../docs/sharepoint-setup.md). Failures are listed first.
 - [Dappled Wall.html](<../UI/mockups/Dappled Wall.html>): tree-branch shadows on a wall, a candidate background for the loading screen.
 
 ## Code
@@ -113,6 +119,7 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `relate.js` | The Relate view, for relating two things |
 | `ribbon.js` | The chart's ribbon |
 | `chart.js` | The chart: drawing boxes, routing lines, selecting, moving, editing in place, and relating by drag |
+| `sharepoint.js` | The document connector, with no UI, as one global, `SharePoint`: reading document links and choosing their icons; the connection settings; a Microsoft Graph client, signed in through MSAL, for browsing, search, items, sharing links and versions; loading and saving the workbook in a SharePoint library, with a conflict when someone else has saved since; and a demo tenant (Contoso's Fund Legal site) with the same API |
 | `base.css`, `panel.css`, `chart.css` | Shared tokens and controls, the panel, and the chart page |
 
 ## Vendored assets
@@ -126,5 +133,6 @@ Third-party files under [vendor/](../vendor/), at the repository root, downloade
 | `vendor/inter/` | [Inter](https://rsms.me/inter/) via [Fontsource](https://fontsource.org) | 5.1.0 | OFL 1.1 | Variable font, Latin subset (woff2) |
 | `vendor/tabler-core/` | [Tabler](https://tabler.io) UI kit | 1.7.1 | MIT | Component CSS and JS (Bootstrap-based); not used by the app |
 | `vendor/pico/` | [Pico CSS](https://picocss.com) | 2.1.1 | MIT | Classless CSS for quick mockups; not used by the app |
+| `vendor/msal/` | [MSAL for browsers](https://github.com/AzureAD/microsoft-authentication-library-for-js) (`@azure/msal-browser`) | 3.28.1 | MIT | The minified browser build (global `msal`), for signing in to Microsoft 365 from `core/sharepoint.js` |
 
 The icons are a curated subset chosen with records in mind: kinds and objects (user, box, cube), fields and datatypes (letter-case, number, calendar, toggle), tags, drag handles (grip-vertical), relations (link, hierarchy, arrows-left-right), and panel controls (edit, plus, trash, chevrons, dots). The full sets are at the links above. Tabler's example HTML pages aren't in its npm package; browse them at https://preview.tabler.io.
