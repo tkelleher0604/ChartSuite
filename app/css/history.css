@@ -1,0 +1,94 @@
+/* The History: a day-by-day list of changes, each opening onto the records it touched. Tokens only; see
+   docs/design.md. */
+
+.content.history { max-width: 960px; }
+
+/* ---- Search and filters ---- */
+.h-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 6px; }
+.h-search .input { width: 220px; height: 28px; }
+.h-search .input::-webkit-search-cancel-button { cursor: pointer; }
+.h-toolbar .filter-chip { white-space: nowrap; }
+.filter-chip.is-set { gap: 2px; padding: 0 3px 0 10px; }
+.filter-chip > button { display: inline-flex; align-items: center; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+.h-chip { gap: 4px; max-width: 22rem; }
+.h-chip-value { min-width: 0; overflow: hidden; color: var(--text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.h-chip-x { justify-content: center; width: 20px; border-radius: 10px !important; color: var(--accent-text); opacity: .7; }
+.h-chip-x:hover { background: color-mix(in srgb, currentColor 14%, transparent) !important; opacity: 1; }
+.h-chip-x .icon { width: 12px; height: 12px; }
+.h-picker { position: relative; display: inline-flex; }
+.h-picker .input { width: 240px; height: 28px; border-radius: 14px; padding: 0 12px; }
+/* Legal names are long and alike, so each is shown whole, with what tells it apart under it. */
+.h-picker-list { width: 380px; }
+.h-picker-list .option { flex-direction: column; align-items: flex-start; gap: 0; padding: 6px 10px; }
+.h-picker-list .option-label { max-width: 100%; white-space: normal; }
+.h-picker-list .option-meta { margin: 0; padding: 0; font-size: 11.5px; line-height: 16px; white-space: normal; }
+.filter-chip.h-dates { gap: 6px; padding: 0 6px 0 10px; }
+.h-dates input { height: 22px; padding: 0 2px; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text); font-family: inherit; font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.h-dates input:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+.h-clear { margin-left: 4px; font-size: 12.5px; color: var(--accent-text); }
+.h-clear:hover:not(:disabled) { color: var(--accent-hover); }
+.h-clear[hidden] { display: none; }
+.page-head .h-tally { padding-bottom: 2px; font-size: 12.5px; color: var(--text-3); }
+
+/* ---- Days ---- */
+.h-day { margin-top: 18px; }
+.h-day-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 10px 8px 6px; background: var(--surface); font-size: 13px; font-weight: 600; line-height: 20px; }
+.h-day-count { font-size: 12px; font-weight: 400; color: var(--text-3); }
+.h-list { margin: 0; padding: 0; list-style: none; }
+
+/* ---- An entry: who, what and when on one line; opened, the records it changed ---- */
+.h-entry { border-radius: var(--radius); }
+.h-entry.is-open { background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
+.h-head { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 24px; align-items: start; column-gap: 12px; padding: 8px 6px 8px 8px; border-radius: var(--radius); }
+.h-entry.opens > .h-head { cursor: pointer; }
+.h-entry:not(.is-open) > .h-head:hover { background: var(--hover); }
+.h-head > .avatar { margin-top: -1px; }
+.h-line { min-width: 0; margin: 0; font-size: 13px; line-height: 20px; color: var(--text-2); overflow-wrap: anywhere; }
+.h-who { color: var(--text); font-weight: 500; }
+.h-line .badge { height: 18px; margin-left: 2px; padding: 0 7px; font-size: 11px; vertical-align: 1px; }
+.h-ref { color: var(--text); font-weight: 500; }
+.h-ref:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.h-gone { color: var(--text); }
+.h-on { color: var(--text-3); }
+.h-when { padding-top: 1px; font-size: 12px; line-height: 18px; white-space: nowrap; }
+.h-toggle { display: grid; place-items: center; width: 24px; height: 20px; padding: 0; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text-3); }
+button.h-toggle:hover { background: var(--pressed); color: var(--text); }
+.h-toggle .icon { width: 14px; height: 14px; transition: transform .15s var(--ease); }
+.h-toggle[aria-expanded="true"] .icon { transform: rotate(90deg); }
+
+/* The records a change touched: where each is, and what became of it. */
+.h-detail { padding: 0 12px 12px 42px; }
+.h-changes { border-radius: var(--radius-sm); background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
+.h-change { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 4px 16px; padding: 7px 12px; font-size: 13px; line-height: 20px; }
+.h-change + .h-change { border-top: 1px solid var(--border); }
+.h-where { min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.h-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 0; min-width: 0; overflow-wrap: anywhere; }
+.h-verb { margin-right: 8px; color: var(--text-3); }
+.h-was { color: var(--text-3); text-decoration-color: var(--text-3); }
+.h-arrow { margin: 0 7px; color: var(--text-3); }
+.h-sep { margin: 0 5px; color: var(--text-3); }
+.h-gap { flex-basis: 100%; height: 2px; }
+.h-was-at { color: var(--text-2); }
+.h-tag { display: inline-flex; align-items: center; gap: 6px; }
+.h-tag .box { width: 14px; height: 14px; }
+.h-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding-top: 10px; }
+.h-note { font-size: 12px; line-height: 17px; color: var(--text-3); }
+.h-error { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--danger); }
+.h-error .icon { width: 14px; height: 14px; }
+
+/* A run of like changes, folded under its first. */
+.h-run { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 0 8px 8px 42px; font-size: 12.5px; }
+.h-run .link-btn { font-size: 12.5px; color: var(--text-2); }
+.h-run .link-btn:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.h-run .faint { font-size: 12px; }
+
+.h-more { display: flex; align-items: center; gap: 12px; margin: 20px 0 0 8px; font-size: 12.5px; }
+#history-body > .empty-state { margin-top: 16px; }
+
+@media (max-width: 760px) {
+  .h-search, .h-search .input { width: 100%; }
+  .h-head { grid-template-columns: 22px minmax(0, 1fr) 24px; }
+  .h-when { grid-column: 2; grid-row: 2; }
+  .h-detail { padding-left: 8px; }
+  .h-change { grid-template-columns: minmax(0, 1fr); }
+}
