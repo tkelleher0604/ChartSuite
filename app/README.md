@@ -43,7 +43,13 @@ Both pages work on a workbook of charts. The chart menu, at the top of the shell
   - **Views.** Tabs along the bottom, like a workbook's sheet tabs, switch between the chart's views. Views share the records and formulas, and each has its own styles, box positions and hidden things.
     - "+" adds a view that starts as a copy of the current one. Double-click a tab to rename it, drag tabs to reorder them, and use the current tab's menu (or right-click a tab) to rename, duplicate or delete a view. The last view can't be deleted.
     - Switching keeps the selection, unless the new view hides it.
-    - The sample has two views: Structure, which hides the feeder's General Partner line, and 40 Act, which hides ownership and draws the BDC's close affiliates (dashed) and remote affiliates (dotted), both in the computed purple.
+    - The sample ([docs/sample.md](../docs/sample.md)) has four views:
+      - Structure, which leaves out the people who hold nothing;
+      - 40 Act, laid out around the BDC, which hides ownership and draws the BDC's close affiliates (dashed) and remote affiliates (dotted), both in the computed purple;
+      - Fund III, the fund family alone: its investors, vehicles, GPs and holdings;
+      - Management and control: the people, and the sponsor's entities they own and hold positions in, with their positions drawn.
+
+      None draws boxes for its documents or service providers; View › Show brings them.
   - **Show and hide**, in the View tab, act on the current view only.
     - The Show menu lists what the view can draw, by form, each with a checkbox: Boxes, one per kind; Lines, the entered relations by name; Computed lines; and Text, the entries a box can show. Turning one on or off sets whether its style draws it in this view, so a relation goes for every kind it relates. Text a line shows, like an ownership's Percentage, comes and goes with the line. A computed relation's line is dashed and purple, as everything a formula works out is marked, unless its style says otherwise.
     - Hide hides the selected box or line in this view, and the Hidden menu shows them again.
@@ -164,12 +170,13 @@ Both pages work on a workbook of charts. The chart menu, at the top of the shell
   - **Pasting from Excel.** Tab-separated cells fill the table from the active cell, rightward and down, adding rows past the last, as one undoable step. A block whose heading row names Name is matched by heading and by name instead: unknown headings become new entries, of the datatype their values read as (yes-or-no values make a tag), and unknown names new rows.
   - **Finding and arranging.** A heading's menu sorts by its column, filters by it or hides it, and dragging a heading reorders the entries, for every object of the kind. Filter chips above the table read as sentences (Jurisdiction is Delaware), offering the choices that tell the most rows apart; a search box looks through what's shown; the View menu shows and hides columns. Columns shown and the sort are kept per kind in this browser, and filters and the search in this tab. The count under the title links to the rows with a required entry blank.
   - **Rows together.** Ticking rows (shift-click for a range) brings up a bar to copy them, as tab-separated text with headings, or delete them, with Undo. Export CSV saves what's shown. New entity, or the row at the bottom, names a new object: Enter adds it and starts another, and Tab adds it and moves on to fill it in.
-- [tests/model-test.html](tests/model-test.html): checks the model on the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, Copy definitions, naming relations and lists, and requiring entries must keep all of that true. Failures are listed first.
-- [tests/formula-lab.html](tests/formula-lab.html): the sample's definitions side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It starts from the definitions as the app stores them, written out as people write them, and keeps its own copy to edit.
+- [tests/model-test.html](tests/model-test.html): checks the model on the core of the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, Copy definitions, naming relations and lists, and requiring entries must keep all of that true. Then it checks the whole sample: the same invariants, how fast it's worked out (under 100 ms), every deadline's date and how meeting one moves it on, the required entries left blank on purpose, its documents and what's on file, its history (walked back to a state at every step), and what each view draws. Failures are listed first.
+- [tests/formula-lab.html](tests/formula-lab.html): the definitions of the sample's core side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It starts from the definitions as the app stores them, written out as people write them, and keeps its own copy to edit.
 - [tests/sharepoint-test.html](tests/sharepoint-test.html): checks the SharePoint connector, `core/sharepoint.js`. It covers:
   - reading links of every sort (SharePoint, OneDrive, EDGAR, NetDocuments, iManage, file shares);
   - the demo library, including browsing, search, and saving a workbook when someone else has saved since;
-  - the live Graph client, run against a stand-in for Graph.
+  - the live Graph client, run against a stand-in for Graph;
+  - the sample's documents: each Link a file in the demo library, and every file indexed but the three left out on purpose.
 
   Setup for a real tenant is in [docs/sharepoint-setup.md](../docs/sharepoint-setup.md). Failures are listed first.
 - [tests/store-test.html](tests/store-test.html): checks `core/store.js` against the demo library and a stand-in for a file: saving, taking a newer copy, conflicts and each way out of one, signed out and offline, export and import, and clearing. It sets the browser's saved workbook aside while it runs, and puts it back after. Failures are listed first.
@@ -182,10 +189,11 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | File | What it does |
 | ---- | ------------ |
 | `common.js` | Text helpers, icons, checkboxes, and the theme preference |
-| `model.js` | The sample data, with its formulas and pilot names; the state (the schema; entered records, and with them the computed ones; definitions and names; entry order; views with their styles and box positions; required entries; deleted records) with undo and redo; specifications, parameterizations and forms, and their keys; values and their datatypes; reading the state; checking it against [data-model.md](../data-model.md); keeping the schema and what's keyed by it in step as records change |
+| `model.js` | The state (the schema; entered records, and with them the computed ones; definitions and names; entry order; views with their styles and box positions; required entries; deleted records) with undo and redo; specifications, parameterizations and forms, and their keys; values and their datatypes; reading the state; checking it against [data-model.md](../data-model.md); keeping the schema and what's keyed by it in step as records change |
+| `sample.js` | The sample ([docs/sample.md](../docs/sample.md)): its core, which formulas.md, model.html, the formula lab and the model test are about, and the fund complex a chart starts from, with its records, box positions, relation names, definitions (the deadlines and what's on file among them), required entries, entry order, views, and the history that made it |
 | `formulas.js` | The formula engine ([formulas.md](../formulas.md)): reading formulas, working out the computed records, explaining them. It touches nothing on the page |
 | `lab.js`, `lab.css` | The formula lab |
-| `styles.js` | Styles, one per form in each view: presets, the sample styles, what's drawn, Show and Hide, and how styles combine into a box's or line's look |
+| `styles.js` | Styles, one per form in each view: presets, what's drawn, Show and Hide, and how styles combine into a box's or line's look |
 | `panel.js` | The record panel, with computed records and their explanations, the Schema view (the chart's vocabulary, with its definitions and names), and a definition's view. Its host sets `panelOptions`: whether it's a record's page, where its links go, and how it asks a question on leaving |
 | `record.js`, `record.css` | The record page: the header, the panel as Details, and the Relations, Documents, Dates and History tabs |
 | `relate.js` | The Relate view, for relating two things |

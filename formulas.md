@@ -4,7 +4,7 @@
 
 This extends [data-model.md](data-model.md). Some records can be worked out by formula instead of entered, the way a spreadsheet works some cells out from others.
 
-The examples use the sample chart in the app ([app/](app/)), where every one of them is built in and can be tried (see [The prototype](#the-prototype)). Ownership there is a tag with edges Owner and Owned, with a Percentage field located at it, as decided on 2026-10-24. The examples also use the names this document pilots for relations and their lists of relatives (see [Names for relations and lists](#names-for-relations-and-lists)).
+The examples use the sample chart in the app ([app/](app/)), where every one of them is built in and can be tried (see [The prototype](#the-prototype)). Their results and counts are of the sample's core (`SAMPLE_CORE` in [app/core/sample.js](app/core/sample.js)), which the formula lab's self-test and the model test check. The sample a chart starts from fills that core out into a fund complex ([docs/sample.md](docs/sample.md)), where the same definitions find more: more control, more affiliates, more of everything counted below. Ownership there is a tag with edges Owner and Owned, with a Percentage field located at it, as decided on 2026-10-24. The examples also use the names this document pilots for relations and their lists of relatives (see [Names for relations and lists](#names-for-relations-and-lists)).
 
 For the 40 Act examples, the sample has the following:
 - **A BDC.** Calder Ridge Capital BDC, Inc., which the management company advises. It holds 12% of Northpine.
@@ -477,11 +477,11 @@ As built in the prototype:
 ## The prototype
 
 Everything above is built into the app in [app/](app/), so it can be tried:
-- **[chart.html](app/chart.html) and [record.html](app/record.html).** The sample comes with every example in this document, worked out live as the chart changes.
-  - The chart has two views: Structure, and 40 Act, which hides ownership and draws the BDC's close and remote affiliates.
+- **[chart.html](app/chart.html) and [record.html](app/record.html).** The sample comes with every example in this document, worked out live as the chart changes, and with deadlines worked out by formula ([docs/sample.md](docs/sample.md)).
+  - The chart has four views, among them Structure, and 40 Act, which hides ownership and draws the BDC's close and remote affiliates.
   - The workbook can hold more charts, each with its own records and formulas, from the chart menu in the top bar.
   - See [app/README.md](app/README.md) for how to write and edit formulas there.
-- **[formula-lab.html](app/tests/formula-lab.html).** The definitions side by side with their results, and a scratch box that works out any expression at any record. Open it with `#selftest` to check the results this document claims.
+- **[formula-lab.html](app/tests/formula-lab.html).** The core's definitions side by side with their results, and a scratch box that works out any expression at any record. Open it with `#selftest` to check the results this document claims.
 - **[formulas.js](app/core/formulas.js).** The engine. A definition there names what it covers by locations written as paths from a kind, like `Entity › Entity Type: Limited Partnership`. Computed records get ids made from their argumentation, so they keep them from one working-out to the next.
 
 Where the prototype differs from this document:
