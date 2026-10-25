@@ -403,28 +403,38 @@ function canvasBarHtml() {
 
 // ---- The legend ----
 // What the view's looks mean, read off its styles: for each style that shapes boxes, a row for each look
-// it gives boxes drawn here (outputs that look alike share a row), then a row for each kind of line drawn.
-// Text styles aren't listed, since text reads for itself; text a formula works out gets a row saying that
-// italics mean computed. Rows are { head } or { label, box | line | text, computed }. The sheet draws them
-// under the drawing, and the exports draw the same rows (see legendBlock in export.js).
+// it gives boxes drawn here (outputs that look alike share a row), then a row for each kind of line drawn,
+// named by its relation. Text styles aren't listed, since text reads for itself; text a formula works out
+// gets a row saying that italics mean computed. It's worded for a board as much as for its author: kinds
+// need no heading, since an Entity's box says what it is, and a tag's looks read Yes and No, under no
+// heading either (Good Standing: No). Rows are { head } (which starts a group, under no heading if it's
+// empty) or { label, box | line | text, computed, n }, n being how many boxes or lines a row stands for.
+// The sheet draws them under the drawing, the panel lists them, and the exports draw the same rows (see
+// legendBlock in export.js).
 
 function legendRows(geo = chart.geometry, lines = chartLines(geo)) {
   const drawn = Object.keys(geo).filter(id => records[id]);
-  const reached = new Set(drawn.flatMap(obj => panelOrder(obj).map(id => `${formKeyOf(id)}|${outputKey(records[id])}`)));
+  const reached = new Map();
+  for (const obj of drawn) for (const id of panelOrder(obj)) pushTo(reached, `${formKeyOf(id)}|${outputKey(records[id])}`, obj);
   const rows = [];
   for (const style of styles) {
     if (isLineStyle(style) || isLineTextStyle(style)) continue;
+    const { label } = describeStyle(style);
+    const tag = !isKindStyle(style) && JSON.parse(style.form)[0] === 'tag';
     const looks = new Map();
     for (const [key, text] of styleOutputs(style)) {
       const props = pickProps(style.map[key] ?? {}, BOX_PROPS);
-      if (!Object.keys(props).length || !reached.has(`${style.form}|${key}`)) continue;
+      const boxes = reached.get(`${style.form}|${key}`);
+      if (!Object.keys(props).length || !boxes) continue;
       const look = { ...BOX_DEFAULTS, ...props };
-      const k = JSON.stringify(look);
-      looks.set(k, { box: look, labels: [...(looks.get(k)?.labels ?? []), text] });
+      const l = looks.get(JSON.stringify(look)) ?? { box: look, labels: [], boxes: new Set() };
+      l.labels.push(tag ? `${label}: ${key === 'true' ? 'Yes' : 'No'}` : text);
+      for (const b of boxes) l.boxes.add(b);
+      looks.set(JSON.stringify(look), l);
     }
     if (!looks.size) continue;
-    rows.push({ head: describeStyle(style).label });
-    for (const l of looks.values()) rows.push({ box: l.box, label: l.labels.join(', ') });
+    rows.push({ head: isKindStyle(style) || tag ? '' : label });
+    for (const l of looks.values()) rows.push({ box: l.box, label: l.labels.join(', '), n: l.boxes.size });
   }
   // A line's look is its line properties; relations of one name drawn alike share a row. Where one name
   // has rows for different outputs, each says its outputs; computed ones are set in italics.
@@ -432,8 +442,9 @@ function legendRows(geo = chart.geometry, lines = chartLines(geo)) {
   for (const l of lines) {
     const line = pickProps(l.look, LINE_PROPS);
     const key = JSON.stringify([formKeyOf(l.id), line, isComputed(l.id)]);
-    const k = kinds.get(key) ?? { line, form: formKeyOf(l.id), name: relationNameOf(l.id), outputs: new Set(), computed: isComputed(l.id) };
+    const k = kinds.get(key) ?? { line, form: formKeyOf(l.id), name: relationNameOf(l.id), outputs: new Set(), computed: isComputed(l.id), n: 0 };
     k.outputs.add(outputText(records[l.id]));
+    k.n++;
     kinds.set(key, k);
   }
   if (kinds.size) {
@@ -442,7 +453,7 @@ function legendRows(geo = chart.geometry, lines = chartLines(geo)) {
     const outputsOf = k => [...k.outputs].sort().join(', ');
     for (const k of all.sort((a, b) => a.computed - b.computed || byLabel(a.name, b.name))) {
       const split = all.some(o => o !== k && o.form === k.form && outputsOf(o) !== outputsOf(k));
-      rows.push({ line: k.line, label: split ? `${k.name}: ${outputsOf(k)}` : k.name, computed: k.computed });
+      rows.push({ line: k.line, label: split ? `${k.name}: ${outputsOf(k)}` : k.name, computed: k.computed, n: k.n });
     }
   }
   const computedText = drawn.some(obj => boxLook(obj).lines.some(l => isComputed(l.id)))
@@ -468,6 +479,82 @@ function sheetLegend(geo, lines) {
   if (!legendShown() || !gs.length) return null;
   const bottom = Math.max(...gs.map(g => g.y + g.h), ...lines.flatMap(l => l.points.map(p => p[1])));
   return legendUnder(legendRows(geo, lines), { left: Math.min(...gs.map(g => g.x)), right: Math.max(...gs.map(g => g.x + g.w)), bottom: bottom + 40 });
+}
+
+// ---- The view, in the panel ----
+// With nothing selected, the panel is about the view in use, as Figma's is about the page: its name and
+// as-of date; what in it needs attention, each a link that selects it; its legend, readable at any zoom;
+// what it shows, by kind of box, line and text, each ticked on or off; its filter; and last, the chart's
+// records by kind, as the panel lists them.
+
+// What needs attention among the boxes drawn: a required entry left blank (amber, something to do), and a
+// filter or a formula that gives an error there (red). Each is { href, name, what, tone }.
+function attentionItems(drawn = new Set(drawnObjects())) {
+  const items = [];
+  for (const id of drawn) {
+    const labels = [...new Set(missingUnder(id).map(m => m.label))];
+    if (labels.length) items.push({ href: id, name: objectName(id), what: `${joinList(labels)} blank`, tone: 'warn' });
+  }
+  for (const [id, e] of filterOutcome(viewFilter()).errors)
+    if (drawn.has(id)) items.push({ href: id, name: objectName(id), what: `The filter gives ${e.code}`, tone: 'danger' });
+  for (const e of formulaResult.errors ?? []) {
+    const objs = (e.args ?? []).map(a => objectOf(a.at));
+    if (!objs.length || !objs.every(o => drawn.has(o))) continue;
+    items.push({ href: objs.length > 1 ? `definition:${e.def}` : objs[0], name: objs.map(objectName).join(' → '),
+      what: `${definitionOf(e.def)?.name ?? 'A formula'} gives ${e.error.code}`, tone: 'danger' });
+  }
+  return items;
+}
+
+// A legend row's picture, on a scrap of paper, since the chart's colors are paper's.
+const keySwatch = r => `<span class="vp-swatch"><svg viewBox="0 0 22 12" aria-hidden="true">${legendSwatch(r, 1, 1, 20, 10)}</svg></span>`;
+
+function viewLegendHtml() {
+  return legendRows().map((r, i) => 'head' in r ? (r.head ? `<div class="vp-sub">${esc(r.head)}</div>` : i ? '<div class="vp-gap"></div>' : '')
+    : `<div class="vp-key">${keySwatch(r)}<span class="vp-key-label${r.computed ? ' is-computed' : ''}">${esc(r.label)}</span>${r.n ? `<span class="vp-count">${r.n}</span>` : ''}</div>`).join('');
+}
+
+// What the view draws, as View › Show lists it (see showable in styles.js): kinds as boxes, relations as
+// lines, and the entries shown as text, with the rest of them a search away.
+function viewShowsHtml() {
+  const { boxes, lines, text } = showable();
+  const check = it => {
+    const { shown, total } = shownCount(it);
+    const partly = shown && shown < total ? `<span class="vp-count">${shown} of ${total}</span>` : '';
+    return `<button class="vp-check" role="checkbox" aria-checked="${shown === 0 ? 'false' : shown < total ? 'mixed' : 'true'}" data-action="show-form" data-key="${esc(it.key)}" data-on="${shown === 0}"
+      title="${esc(it.where ?? `Boxes for ${it.label.toLowerCase()}`)}">${box(shown ? true : null)}<span class="vp-check-label">${esc(it.label)}</span>${partly}</button>`;
+  };
+  const group = (title, items) => items.length ? `<div class="vp-sub">${title}</div>${items.map(check).join('')}` : '';
+  const shownText = text.filter(it => shownCount(it).shown);
+  const more = text.length > shownText.length ? `<button class="link-btn vp-more" data-cmd="chart.show-text" aria-haspopup="menu">${shownText.length ? 'More text…' : 'Show text…'}</button>` : '';
+  return group('Boxes', boxes) + group('Lines', lines.filter(x => !x.computed)) + group('Computed lines', lines.filter(x => x.computed))
+    + (text.length ? `<div class="vp-sub">Text</div>${shownText.map(check).join('')}${more}` : '');
+}
+
+// Every entry this view could show as text, ticked where it does, found by what's typed.
+function showTextMenu(anchor) {
+  Shell.menu(anchor, query => {
+    const items = showable().text.filter(it => !clean(query) || matchRank(`${it.label} ${it.where}`, query) > 0);
+    return items.length ? items.map(it => {
+      const on = shownCount(it).shown > 0;
+      return { label: it.label, desc: it.where, ticked: on, run: () => { setShown(it, !on); render(); } };
+    }) : [{ note: 'No entry is called that' }];
+  }, 'chart:show-text', { search: 'Find an entry' });
+}
+
+function viewPanelHtml() {
+  const v = viewInUse();
+  const head = panelHead({ title: esc(v.name), sub: `View of ${esc(chartInUse().name)} · As of ${esc(Parts.date(todayIso()))}` });
+  const section = (title, html) => html ? `<section class="vp-section"><h2 class="vp-head">${title}</h2>${html}</section>` : '';
+  const attention = attentionItems().map(a => `<a class="vp-item" href="${esc(panelHref(a.href))}"><span class="vp-dot is-${a.tone}"></span>
+    <span class="vp-item-name">${esc(a.name)}</span><span class="vp-item-what">${esc(a.what)}</span></a>`).join('');
+  const f = viewFilter();
+  const total = Object.values(records).filter(isObject).length;
+  const filter = `<div class="vp-line">${f ? `<code class="vp-filter">${esc(Formulas.splitFormula(f).body.trim())}</code>` : '<span>Every box</span>'}
+    <button class="link-btn" data-action="view-filter">${f ? 'Change' : 'Add a condition'}</button></div>
+    ${f ? `<div class="vp-note">Shows ${drawnObjects().length} of ${count(total, 'box')}</div>` : ''}`;
+  return head + `<div class="rows view-panel">${section('Needs attention', attention)}${section('Legend', viewLegendHtml())}
+    ${section('Shows', viewShowsHtml())}${section('Filter', filter)}${section('Records', allView()[1])}</div>`;
 }
 
 function renderChart() {
@@ -679,10 +766,8 @@ function setZoom(z, anchor) {
 }
 
 // The zoom and scroll are kept for the session, for each chart, so coming back to the page finds the chart
-// as it was left. A chart not looked at yet shows whole if it's readable that way, and otherwise as much
-// of it as is readable, from the top.
+// as it was left. A chart not looked at yet shows whole, fitted to the screen, but no larger than life.
 const VIEWPORT_KEY = 'rboreal.chart.viewport';
-const READABLE = 0.4;
 function keptViewports() {
   try { return JSON.parse(sessionStorage.getItem(VIEWPORT_KEY)) ?? {}; } catch { return {}; }
 }
@@ -699,10 +784,7 @@ function lookAtChart() {
     Object.assign(stage, { scrollLeft: kept.left, scrollTop: kept.top });
     return;
   }
-  fitToScreen();
-  if (chart.zoom >= READABLE) return;
-  setZoom(READABLE);
-  Object.assign(stage, { scrollLeft: (stage.scrollWidth - stage.clientWidth) / 2, scrollTop: 0 });
+  fitToScreen(1);
 }
 let keepTimer = 0;
 document.addEventListener('scroll', e => {
@@ -713,12 +795,12 @@ window.addEventListener('pagehide', keepViewport);
 // The next zoom along the steps, in (1) or out (-1).
 const zoomStep = dir => dir > 0 ? ZOOMS.find(z => z > chart.zoom + 0.001) ?? ZOOM_MAX : ZOOMS.findLast(z => z < chart.zoom - 0.001) ?? ZOOM_MIN;
 
-// Fits the whole sheet in the stage, centered.
-function fitToScreen() {
+// Fits the whole sheet in the stage, centered, at no more than `most`.
+function fitToScreen(most = ZOOM_MAX) {
   const stage = stageEl();
   const sheet = document.getElementById('sheet');
   const pad = chart.presenting ? 24 : 32;
-  setZoom(Math.min((stage.clientWidth - 2 * pad) / sheet.offsetWidth, (stage.clientHeight - 2 * pad) / sheet.offsetHeight));
+  setZoom(Math.min(most, (stage.clientWidth - 2 * pad) / sheet.offsetWidth, (stage.clientHeight - 2 * pad) / sheet.offsetHeight));
   stage.scrollLeft = (stage.scrollWidth - stage.clientWidth) / 2;
   stage.scrollTop = (stage.scrollHeight - stage.clientHeight) / 2;
 }
@@ -726,7 +808,7 @@ function fitToScreen() {
 function zoomMenu(anchor) {
   const at = z => Math.abs(chart.zoom - z) < 0.005;
   Shell.menu(anchor, [
-    { label: 'Fit to screen', hint: 'Shift+1', run: fitToScreen },
+    { label: 'Fit to screen', hint: 'Shift+1', run: () => fitToScreen() },
     { label: 'Zoom in', run: () => setZoom(zoomStep(1)) },
     { label: 'Zoom out', run: () => setZoom(zoomStep(-1)) },
     { sep: true },
@@ -873,7 +955,10 @@ function viewMenu(anchor, id) {
 
 Object.assign(actions, {
   'quick-kind': d => { chart.quick = { ...chart.quick, kind: d.kind, name: '' }; },
+  // The view's filter is written in the ribbon's menu for it, under View.
+  'view-filter': () => { chart.tab = 'view'; ui.menu = 'rb:filter'; },
 });
+Shell.on('chart.show-text', el => showTextMenu(el));
 
 Shell.on('chart.ask', el => {
   const choice = chart.ask?.choices[Number(el.dataset.choice)];
@@ -890,7 +975,7 @@ Shell.on('chart.view-add', addViewHere);
 Shell.on('chart.view-menu', el => viewMenu(el, el.dataset.view));
 Shell.on('chart.zoom', el => setZoom(zoomStep(Number(el.dataset.step))));
 Shell.on('chart.zoom-menu', el => zoomMenu(el));
-Shell.on('chart.fit', fitToScreen);
+Shell.on('chart.fit', () => fitToScreen());
 Shell.on('chart.legend', toggleLegend);
 
 function toggleLegend() {
@@ -1251,9 +1336,11 @@ function drawPage() {
   if (prefs.panelWidth) workspace.style.setProperty('--panel-w', `${prefs.panelWidth}px`);
   workspace.classList.toggle('is-panel-hidden', prefs.panel === false);
   document.getElementById('panel').hidden = prefs.panel === false;
-  renderPanel();
   renderRibbon();
   renderChart();
+  // With nothing selected the panel is about the view, whose legend is read off the chart just drawn.
+  if (readHash()) renderPanel();
+  else document.getElementById('panel').innerHTML = viewPanelHtml();
   restoreFocus();
   announce();
   if (chart.fitPending) { chart.fitPending = false; lookAtChart(); }
@@ -1266,7 +1353,7 @@ function chartCommands() {
   return [
     { title: 'Export…', meta: 'PDF, PowerPoint or SVG', keywords: 'export pdf powerpoint pptx svg download deck print', run: openExport },
     { title: 'Present', meta: 'Esc returns', keywords: 'present full screen slideshow', run: startPresenting },
-    { title: 'Fit to screen', meta: 'Shift+1', keywords: 'zoom fit all', run: fitToScreen },
+    { title: 'Fit to screen', meta: 'Shift+1', keywords: 'zoom fit all', run: () => fitToScreen() },
     { title: 'New view', keywords: 'view tab copy', run: addViewHere },
     { title: legendShown() ? 'Hide the legend' : 'Show the legend', keywords: 'legend key', run: toggleLegend },
     { title: 'Tidy layout', keywords: 'arrange layout rows', run: tidyLayout },
@@ -1302,10 +1389,29 @@ Shell.onChartChange(() => {
   closeExport();
 });
 
+// The chart leads, so on this page the app's sidebar starts hidden. The shell's toggle (the top bar's
+// button, or Ctrl+\) shows and hides it, and this page keeps its own choice (prefs.sidebarOn.chart),
+// putting back the shell's for the other pages.
+const sidebarElsewhere = prefs.sidebar;
+const sidebarHere = () => prefs.sidebarOn?.chart === true;
+new MutationObserver(() => {
+  const shown = document.documentElement.dataset.sidebar !== 'hidden';
+  if (shown === sidebarHere()) return;
+  prefs.sidebarOn = { ...prefs.sidebarOn, chart: shown };
+  prefs.sidebar = sidebarElsewhere;
+  savePrefs();
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-sidebar'] });
+if (sidebarHere()) delete document.documentElement.dataset.sidebar;
+else document.documentElement.dataset.sidebar = 'hidden';
+
+// Undo and Redo sit in the top bar, as Office keeps them in its title bar. Undo can always try, since with
+// nothing to undo here it takes back your last change made elsewhere (see Shell.undoOrRedo).
 Shell.start({
   area: 'chart',
   title: () => chartInUse().name,
-  actions: () => `<button class="btn btn-sm" data-cmd="chart.export" title="Export the chart as PDF, PowerPoint or SVG">Export…</button>
+  actions: () => `<button class="btn btn-sm btn-ghost" data-action="undo" title="Undo (${undoKey})">Undo</button>
+    <button class="btn btn-sm btn-ghost" data-action="redo"${redoStack.length ? '' : ' disabled'} title="Redo (${redoKey})">Redo</button>
+    <button class="btn btn-sm" data-cmd="chart.export" title="Export the chart as PDF, PowerPoint or SVG">Export…</button>
     <button class="btn btn-sm" data-cmd="chart.present" title="Show only the chart, full screen. Esc returns">Present</button>`,
   after: drawPage,
   commands: chartCommands,

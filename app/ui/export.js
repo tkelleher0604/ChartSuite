@@ -264,8 +264,8 @@ function legendBlock(rows, maxH = Infinity) {
   const L = LEGEND;
   const groups = [];
   for (const r of rows) {
-    if (r.head || !groups.length) groups.push({ head: r.head ?? null, rows: [] });
-    if (!r.head) groups.at(-1).rows.push({ ...r, lines: legendLines(r.label, r.computed) });
+    if ('head' in r || !groups.length) groups.push({ head: r.head || null, rows: [] });
+    if (!('head' in r)) groups.at(-1).rows.push({ ...r, lines: legendLines(r.label, r.computed) });
   }
   for (const g of groups) {
     g.h = (g.head ? L.headRow : 0) + g.rows.reduce((s, r) => s + rowHeight(r), 0);

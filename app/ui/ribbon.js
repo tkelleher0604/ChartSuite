@@ -1,12 +1,14 @@
 // The ribbon: tabs of controls above the chart. Home's formatting controls edit the engaged style (see
 // currentEngaged in chart.js), so a change applies everywhere that style's entry applies, never to one box.
 // Its controls are labeled in words; the only pictures are of what they set (a shape, a color, a dash).
-// Exporting has a dialog of its own (export.js), and the zoom sits at the foot of the chart.
+// Its groups have no captions, as in Office's simplified ribbon: each control says what it does, on hover
+// if not in words. Undo and Redo are in the top bar, exporting has a dialog of its own (export.js), and
+// the zoom sits at the foot of the chart.
 
 const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['formulas', 'Formulas'], ['view', 'View']];
 
 const rbGroup = (label, controls, cls = '') =>
-  `<div class="rb-group${cls ? ` ${cls}` : ''}"><div class="rb-controls">${controls}</div><div class="rb-label">${label}</div></div>`;
+  `<div class="rb-group${cls ? ` ${cls}` : ''}" role="group" aria-label="${esc(label)}"><div class="rb-controls">${controls}</div></div>`;
 
 // A ribbon button that opens a menu; `content` is only worked out while the menu is open.
 function rbMenu(key, inner, { cls = '', title = '', disabled = false, overridden = '', inherited = false, right = false } = {}, content) {
@@ -84,11 +86,11 @@ function newStyleMenu() {
 
 function styleGroup(eng) {
   const tiles = galleryStyles().map(({ style, output }) => {
-    const { label } = describeStyle(style);
+    const { label, where } = describeStyle(style);
     const pressed = eng?.style === style;
     const out = output ? styleOutputs(style).find(([k]) => k === output)?.[1] ?? output : count(Object.keys(style.map).length, 'entry');
     const props = (output ? style.map[output] : Object.values(style.map)[0]) ?? {};
-    return `<button class="tile" aria-pressed="${pressed}" data-action="style-engage" data-style="${style.id}" data-output="${esc(output ?? '')}" title="${esc(`${label}: ${out}`)}">
+    return `<button class="tile" aria-pressed="${pressed}" data-action="style-engage" data-style="${style.id}" data-output="${esc(output ?? '')}" title="${esc(`The ${label} style, ${where}: ${out}`)}">
       ${stylePreview(style, props)}<span class="tile-name">${esc(label)}</span></button>`;
   }).join('');
   const addOpen = ui.menu === 'rb:new-style';
@@ -99,7 +101,7 @@ function styleGroup(eng) {
     const outputs = styleOutputs(eng.style);
     // A chart with nothing in it yet has a Kind style with no kinds to format.
     const outText = eng.output === '*' ? 'Every option' : outputs.find(([k]) => k === eng.output)?.[1] ?? eng.output ?? 'Nothing yet';
-    const scope = outputs.length > 1 ? rbMenu('rb:scope', `<span class="rb-field-text">${esc(outText)}</span>`, { cls: 'rb-field is-wide', title: 'Which of the style’s outputs to format' }, () =>
+    const scope = outputs.length > 1 ? rbMenu('rb:scope', `<span class="rb-field-text">${esc(outText)}</span>`, { cls: 'rb-field is-wide', title: `Which of the ${describeStyle(eng.style).label} style’s outputs to format` }, () =>
       outputs.map(([k, text]) => `<button class="menu-item" role="menuitemradio" aria-checked="${k === eng.output}" data-action="style-scope" data-output="${esc(k)}"><span class="menu-text">${esc(text)}</span>${k === eng.output ? icon('check') : ''}</button>`).join('')
       + `<div class="menu-sep"></div><button class="menu-item" role="menuitemradio" aria-checked="${eng.output === '*'}" data-action="style-scope" data-output="*"><span class="menu-text">Every option</span>${eng.output === '*' ? icon('check') : ''}</button>`)
       : `<span class="rb-note"><strong>${esc(outText)}</strong></span>`;
@@ -114,8 +116,7 @@ function styleGroup(eng) {
     side = `${scope}${note}${remove}`;
   }
   // The styles in a row of chips, with the engaged one's output, and what a change reaches, below.
-  return rbGroup(eng ? `Style: ${esc(describeStyle(eng.style).label)} <span class="rb-label-where">${esc(describeStyle(eng.style).where)}</span>` : 'Style',
-    `<div class="rb-row"><div class="gallery">${tiles}</div>${add}</div><div class="rb-row is-spaced">${side}</div>`, 'is-style');
+  return rbGroup('Styles', `<div class="rb-row"><div class="gallery">${tiles}</div>${add}</div><div class="rb-row is-spaced">${side}</div>`, 'is-style');
 }
 
 const PROP_NAMES = { shape: 'Shape', fill: 'Fill', stroke: 'Outline', strokeWidth: 'Weight', dash: 'Dash' };
@@ -180,18 +181,18 @@ function showGroup(eng) {
     : eng && isLineTextStyle(eng.style) ? ['Show text', 'Show this entry by its relation’s line'] : ['Show text', 'Show this entry as a line of text in its box'];
   const toggle = `<button class="rb-check" data-action="style-prop" data-prop="show" data-value="${!shown}" aria-pressed="${shown}"${eng ? '' : ' disabled'}
     title="${what[1]}">${box(shown ? true : null)}${what[0]}</button>`;
+  // The dropdown says what it sets, as a caption would: how the text reads, or what labels the line.
   const formats = line ? LINE_FORMATS : FORMATS;
   const current = formats.find(([v]) => v === own.format)?.[1] ?? formats[0][1];
-  const format = rbMenu('rb:format', `<span class="rb-field-text">${esc(current)}</span>`, { cls: 'rb-field is-wide', title: line ? 'Label' : 'How the text reads', disabled: !eng || kind || !shown }, () =>
+  const format = rbMenu('rb:format', `<span class="rb-field-text"><span class="rb-field-pre">${line ? 'Label' : 'Text'}</span> ${esc(current)}</span>`,
+    { cls: 'rb-field is-wide', title: line ? 'What labels the line' : 'How the text reads', disabled: !eng || kind || !shown }, () =>
     formats.map(([v, name]) => propItem('format', v, `<span class="menu-text">${esc(name)}</span>`, v === (own.format ?? 'value'))).join(''));
   return rbGroup('Display', `<div class="rb-row">${toggle}</div><div class="rb-row">${format}</div>`);
 }
 
 function homeTab() {
   const eng = currentEngaged();
-  const history = `<div class="rb-row"><button class="rb-btn" data-action="undo"${undoStack.length ? '' : ' disabled'} title="Undo (${undoKey})">Undo</button>
-    <button class="rb-btn" data-action="redo"${redoStack.length ? '' : ' disabled'} title="Redo (${redoKey})">Redo</button></div>`;
-  return rbGroup('History', history) + styleGroup(eng) + fontGroup(eng) + shapeGroup(eng) + showGroup(eng);
+  return styleGroup(eng) + fontGroup(eng) + shapeGroup(eng) + showGroup(eng);
 }
 
 function insertTab() {
@@ -336,7 +337,7 @@ function viewTab() {
   const check = (key, label, on, title) => `<button class="rb-check" data-action="toggle-pref" data-key="${key}" aria-pressed="${on}" title="${title}">${box(on ? true : null)}${label}</button>`;
   const workspace = `<div class="rb-row">${check('grid', 'Gridlines', prefs.grid !== false, 'Dots on the sheet, to line boxes up by')}${check('legend', 'Legend', prefs.legend !== false, 'What the view’s looks mean, at the corner of the chart and in exports')}</div>
     <div class="rb-row">${check('panel', 'Record panel', prefs.panel !== false, 'The record panel on the right')}</div>`;
-  return rbGroup(`Show and hide in ${esc(viewInUse().name)}`, show) + rbGroup('Filter boxes', filter) + rbGroup('Workspace', workspace);
+  return rbGroup(`Show and hide in ${viewInUse().name}`, show) + rbGroup('Filter boxes', filter) + rbGroup('Workspace', workspace);
 }
 
 function renderRibbon() {

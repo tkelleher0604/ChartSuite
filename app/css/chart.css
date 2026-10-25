@@ -27,16 +27,16 @@ body:has(.chart-page) { --toasts-bottom: 52px; }
 :root.is-presenting body { --toasts-bottom: 16px; }
 .chart-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 
-/* ---- The ribbon: tabs, then groups of controls, each named underneath. It keeps its height; when it's
-   too narrow, the style gallery gives way first, then the ribbon scrolls sideways. ---- */
+/* ---- The ribbon: tabs, then groups of controls, two rows high, with no captions. It keeps its height;
+   when it's too narrow, the style gallery gives way first, then the ribbon scrolls sideways. ---- */
 .ribbon { position: relative; flex: none; background: var(--surface); border-bottom: 1px solid var(--border); }
 .ribbon-tabs { padding: 0 14px; }
 .ribbon-tabs .tab { height: 34px; font-size: 13px; }
-.ribbon-body { display: flex; align-items: stretch; height: 84px; padding: 7px 2px 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.ribbon-body { display: flex; align-items: stretch; height: 66px; padding: 3px 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .ribbon-body::-webkit-scrollbar { display: none; }
 .ribbon:has(> .ribbon-body.is-clipped)::after { content: ""; position: absolute; top: 35px; right: 0; bottom: 0; width: 48px; background: linear-gradient(to right, transparent, var(--surface)); pointer-events: none; }
-.rb-group { position: relative; display: flex; flex: none; flex-direction: column; gap: 4px; padding: 0 12px; }
-.rb-group + .rb-group::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 0; width: 1px; background: var(--border); }
+.rb-group { position: relative; display: flex; flex: none; flex-direction: column; padding: 0 12px; }
+.rb-group + .rb-group::before { content: ""; position: absolute; top: 8px; bottom: 8px; left: 0; width: 1px; background: var(--border); }
 .rb-group.is-style { flex: 0 1 auto; min-width: 300px; max-width: 640px; }
 .rb-group.is-style .rb-controls, .rb-group.is-style .rb-row { min-width: 0; }
 .rb-group.is-style .rb-row { gap: 4px; }
@@ -47,8 +47,6 @@ body:has(.chart-page) { --toasts-bottom: 52px; }
 .rb-row { display: flex; align-items: center; gap: 2px; }
 .rb-row.is-spaced { gap: 10px; }
 .rb-stack { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
-.rb-label { overflow: hidden; font-size: 11px; line-height: 14px; color: var(--text-3); text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-.rb-label-where { color: var(--text-3); opacity: .8; }
 .rb-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; min-width: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--text); font-size: 12.5px; font-weight: 500; white-space: nowrap; transition: background-color .1s, border-color .1s; }
 .rb-btn:hover:not(:disabled), .rb-btn[aria-expanded="true"] { background: var(--hover); }
 .rb-btn[aria-pressed="true"] { background: var(--pressed); }
@@ -61,6 +59,7 @@ body:has(.chart-page) { --toasts-bottom: 52px; }
 .rb-field.is-wide { width: 136px; }
 .rb-field.is-narrow { width: 62px; }
 .rb-field-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rb-field-pre { margin-right: 2px; color: var(--text-3); }
 .rb-btn.is-overridden { position: relative; }
 .rb-btn.is-overridden::after { content: ""; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn-solid); }
 .rb-btn.is-inherited .rb-field-text, .rb-btn.is-inherited .glyph-letter { color: var(--text-3); }
@@ -289,6 +288,38 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .resizer:hover, .resizer.is-active { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .side-panel { min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); }
 .side-panel .panel-head { position: sticky; top: 0; z-index: 10; background: var(--surface); }
+
+/* The view, as the panel shows it with nothing selected: sections set apart by space, not rules. */
+.view-panel { padding: 2px 16px 28px 28px; }
+.vp-section { padding-top: 18px; }
+.vp-head { margin: 0 0 6px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--text-3); }
+.vp-sub { margin: 10px 0 2px; font-size: 12px; line-height: 16px; color: var(--text-2); }
+.vp-sub:first-child { margin-top: 0; }
+.vp-gap { height: 8px; }
+.vp-item { display: flex; align-items: baseline; gap: 8px; margin: 0 -8px; padding: 5px 8px; border-radius: var(--radius-sm); color: var(--text); font-size: 13px; line-height: 18px; }
+.vp-item:hover { background: var(--hover); }
+.vp-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; transform: translateY(-1px); }
+.vp-dot.is-warn { background: var(--warn-solid); }
+.vp-dot.is-danger { background: var(--danger-solid); }
+.vp-item-name { min-width: 0; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.vp-item-what { flex: none; margin-left: auto; color: var(--text-2); }
+.vp-key, .vp-check { display: flex; align-items: center; gap: 10px; min-height: 26px; font-size: 13px; line-height: 18px; }
+.vp-swatch { display: inline-grid; flex: none; place-items: center; width: 30px; height: 20px; border-radius: var(--radius-xs); background: var(--paper); box-shadow: inset 0 0 0 1px rgb(33 32 28 / .1); }
+.vp-swatch svg { width: 22px; height: 12px; overflow: visible; }
+.vp-key-label, .vp-check-label { min-width: 0; }
+.vp-key-label.is-computed { font-style: italic; }
+.vp-count { flex: none; margin-left: auto; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.vp-check { width: calc(100% + 16px); margin: 0 -8px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); text-align: left; }
+.vp-check:hover { background: var(--hover); }
+.vp-check .box { flex: none; width: 15px; height: 15px; }
+.view-panel .box-yes { color: var(--accent); }
+.vp-more { margin-top: 4px; font-size: 12.5px; color: var(--accent-text); }
+.vp-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
+.vp-line .link-btn { font-size: 13px; color: var(--accent-text); }
+.vp-filter { font: 12px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text); overflow-wrap: anywhere; }
+.vp-note { margin-top: 2px; font-size: 12px; color: var(--text-3); }
+.view-panel .list-row { min-height: 30px; margin: 0 -8px; padding: 4px 8px; font-size: 13px; }
+.view-panel .list-title { font-weight: 400; }
 
 /* The engaged style, as the panel shows it. */
 .row.is-engaged { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
