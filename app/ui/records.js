@@ -738,6 +738,7 @@
     const bar = ui.checked.size ? `<div class="rec-actionbar" role="toolbar" aria-label="Ticked rows">
         <span class="rec-actionbar-count">${count(ui.checked.size, word())} selected</span>
         <button class="btn btn-sm" data-cmd="records.copy-rows">Copy</button>
+        <button class="btn btn-sm" data-cmd="records.change-kind" aria-haspopup="menu">Change kind${icon('chevron-down')}</button>
         <button class="btn btn-sm rec-delete" data-cmd="records.delete-rows">Delete</button>
         <button class="icon-btn" data-cmd="records.uncheck" aria-label="Clear the selection" title="Clear the selection (Esc)">${icon('x')}</button></div>` : '';
     return `<div class="content is-wide rec-page">
@@ -968,7 +969,10 @@
     return { id };
   }
 
-  // ---- Deleting rows ----
+  // ---- Deleting rows, and moving them to another kind ----
+
+  // The rows ticked: those shown, in order, then any the filters hide.
+  const tickedRows = () => ui.rows.filter(id => ui.checked.has(id)).concat([...ui.checked].filter(id => !ui.rows.includes(id)));
 
   function deleteRows(ids) {
     const ix = tableIndex();
@@ -980,6 +984,40 @@
     ui.anchor = null;
     Shell.toast(`Deleted ${ids.length === 1 ? namesOf[0] : count(ids.length, word())}`, { undo: true });
     render();
+  }
+
+  // Moves objects to another kind, or a new one, as one change, with what's recorded at them and the
+  // relations they're in. The model moves a kind's specifications along with the last of its objects (the
+  // abandonment law), so moving every row fixes a kind named wrongly. Formulas and filters that name the old
+  // kind in quotes (KIND(@) = "…") aren't rewritten; for them a kind would need renaming in the model.
+  function changeKind(ids, typed) {
+    const kind = kindsInState().find(k => same(k, typed)) ?? clean(typed);
+    const fresh = !kindsInState().includes(kind);
+    const next = { ...records };
+    for (const id of ids) next[id] = { ...records[id], kind };
+    const name = ids.length === 1 ? tableIndex().nameOf(ids[0]) : count(ids.length, word());
+    const error = commit(next, { moves: true });
+    if (error) return Shell.toast(error, { tone: 'error' });
+    if (fresh) { ensureKindStyles(kind); saveState(); }
+    ui.checked.clear();
+    ui.anchor = null;
+    Shell.toast(`Moved ${name} to ${plural(kind)}`, { undo: true });
+    // With no row left here, the table to see is theirs.
+    if (!countOfKind(ui.kind)) location.hash = `#${encodeURIComponent(kind)}`;
+    else render();
+  }
+  function kindMenu(el) {
+    const ids = tickedRows();
+    const others = kindsInState().filter(k => !same(k, ui.kind) && !same(k, Shell.DOCUMENT_KIND));
+    Shell.menu(el, [
+      { head: `Move ${ids.length === 1 ? 'it' : `these ${count(ids.length, word())}`} to` },
+      ...others.map(k => ({ label: plural(k), run: () => changeKind(ids, k) })),
+      ...(others.length ? [{ sep: true }] : []),
+      { label: 'A new kind…', run: async () => {
+        const kind = clean(await Shell.prompt({ title: 'Move to a new kind', body: 'Name the kind in the singular, as Entity or Individual.', placeholder: 'Like Fund', confirm: 'Move' }) ?? '');
+        if (kind && !same(kind, ui.kind)) changeKind(ids, kind);
+      } },
+    ], 'records-kind');
   }
 
   // ---- Copying, pasting and exporting ----
@@ -1318,7 +1356,8 @@
       } }], `records-override:${cell.id}`);
     },
     'records.copy-rows': () => { copyRows = true; document.execCommand('copy'); copyRows = false; },
-    'records.delete-rows': () => deleteRows(ui.rows.filter(id => ui.checked.has(id)).concat([...ui.checked].filter(id => !ui.rows.includes(id)))),
+    'records.delete-rows': () => deleteRows(tickedRows()),
+    'records.change-kind': kindMenu,
     'records.uncheck': () => { ui.checked.clear(); ui.anchor = null; draw(); },
   }).forEach(([name, fn]) => Shell.on(name, fn));
 
