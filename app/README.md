@@ -38,6 +38,7 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
     - Tidy layout, offered when a view hides boxes, lays out the ones it shows in rows along ownership and control, in this view only.
     - A computed relation is drawn only where a style shows it. Adding a new relation draws it in the current view and leaves it hidden in the others.
   - **Formulas tab.** Definitions opens the panel's Schema view on its computed forms. New definition starts one, of an entry or of a relation (a relation starts from the selected box, or the two being related). Why? opens the selected computed line, or line of text, in the panel. Calculation says how many computed records the definitions gave, how long it took, and how many errors there are.
+  - **Export tab.** PDF saves the current view as a vector PDF fitted to the page size picked beside it (Letter, A4 or Tabloid), under a title and above a footer that names the chart and view and says when it was made. PowerPoint saves a deck of a title slide and the view as editable shapes: boxes with their text in them, lines as single paths, labels as text boxes, in the chart's colors and dashes. All views gives every view a slide. SVG saves the view as a picture. Profile, with a box selected, saves a PDF of its entries and its relations by name, computed values in italics. Everything is made in the browser.
   - Text a formula works out is set in italics on the chart. Lines that would pass behind other boxes go under them and come up into the box they reach.
   - A box with a required entry left blank has a red asterisk at its corner.
   - **Creating boxes.** Double-click the sheet to add a box of any kind there, or of a new kind. The Insert tab does the same at the middle of the view.
@@ -120,6 +121,7 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `ribbon.js` | The chart's ribbon |
 | `chart.js` | The chart: drawing boxes, routing lines, selecting, moving, editing in place, and relating by drag |
 | `sharepoint.js` | The document connector, with no UI, as one global, `SharePoint`: reading document links and choosing their icons; the connection settings; a Microsoft Graph client, signed in through MSAL, for browsing, search, items, sharing links and versions; loading and saving the workbook in a SharePoint library, with a conflict when someone else has saved since; and a demo tenant (Contoso's Fund Legal site) with the same API |
+| `export.js` | Exports, made in the browser: the chart as a vector PDF, an editable PowerPoint deck (a slide per view, if asked) or an SVG, and an object's profile as a PDF; and the ribbon's Export tab. Each format draws one scene read off the chart, so it shows what the chart shows. Its libraries load the first time they're used |
 | `base.css`, `panel.css`, `chart.css` | Shared tokens and controls, the panel, and the chart page |
 
 ## Vendored assets
@@ -134,5 +136,8 @@ Third-party files under [vendor/](../vendor/), at the repository root, downloade
 | `vendor/tabler-core/` | [Tabler](https://tabler.io) UI kit | 1.7.1 | MIT | Component CSS and JS (Bootstrap-based); not used by the app |
 | `vendor/pico/` | [Pico CSS](https://picocss.com) | 2.1.1 | MIT | Classless CSS for quick mockups; not used by the app |
 | `vendor/msal/` | [MSAL for browsers](https://github.com/AzureAD/microsoft-authentication-library-for-js) (`@azure/msal-browser`) | 3.28.1 | MIT | The minified browser build (global `msal`), for signing in to Microsoft 365 from `core/sharepoint.js` |
+| `vendor/pptxgenjs/` | [PptxGenJS](https://gitbrent.github.io/PptxGenJS/) | 3.12.0 | MIT | `pptxgen.bundle.js` (477 KB, with JSZip): PowerPoint export |
+| `vendor/jspdf/` | [jsPDF](https://github.com/parallax/jsPDF) | 2.5.1 | MIT | `jspdf.umd.min.js` (364 KB): PDF export |
+| `vendor/svg2pdf/` | [svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | 2.2.3 | MIT | `svg2pdf.umd.min.js` (85 KB): draws the chart's SVG into a PDF as vectors |
 
 The icons are a curated subset chosen with records in mind: kinds and objects (user, box, cube), fields and datatypes (letter-case, number, calendar, toggle), tags, drag handles (grip-vertical), relations (link, hierarchy, arrows-left-right), and panel controls (edit, plus, trash, chevrons, dots). The full sets are at the links above. Tabler's example HTML pages aren't in its npm package; browse them at https://preview.tabler.io.

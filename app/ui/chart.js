@@ -282,7 +282,9 @@ function labelPart(p, covered, eng) {
   return `<tspan class="wire-text${engaged}" data-wire-text="${p.id}" style="${textCss(computedLook(p.id, p.look))}" fill="${p.look.color}">${esc(p.text)}</tspan>`;
 }
 
-function wiresSvg(geo, sel, eng, covered) {
+// The lines this view draws between the boxes in `geo`, routed: each with its look, its points, and where
+// its label sits. The chart draws these, and the exports draw them again (see export.js).
+function chartLines(geo) {
   const lines = [];
   const hidden = hiddenHere();
   for (const [id, r] of Object.entries(records)) {
@@ -293,7 +295,11 @@ function wiresSvg(geo, sel, eng, covered) {
     if (look.show) lines.push({ id, from, to, look });
   }
   route(lines, geo);
-  return lines.map(l => {
+  return lines;
+}
+
+function wiresSvg(geo, sel, eng, covered) {
+  return chartLines(geo).map(l => {
     const d = pathD(l.points);
     const { look } = l;
     const selected = sel.relation === l.id ? ' is-selected' : '';

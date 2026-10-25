@@ -1,7 +1,7 @@
 // The ribbon: tabs of controls above the chart. Home's formatting controls edit the engaged style (see
 // currentEngaged in chart.js), so a change applies everywhere that style's entry applies, never to one box.
 
-const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['formulas', 'Formulas'], ['view', 'View']];
+const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['formulas', 'Formulas'], ['view', 'View'], ['export', 'Export']];
 
 // Icons only the ribbon uses (Tabler, as in common.js).
 Object.assign(ICONS, {
@@ -354,7 +354,7 @@ function renderRibbon() {
   if (ui.menu !== 'rb:filter') chart.filterDraft = null;
   const tabs = RIBBON_TABS.map(([key, name]) =>
     `<button class="ribbon-tab" role="tab" aria-selected="${chart.tab === key}" data-action="rb-tab" data-tab="${key}">${name}</button>`).join('');
-  const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : homeTab();
+  const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : chart.tab === 'export' ? exportTab() : homeTab();
   document.getElementById('ribbon').innerHTML = `<div class="ribbon-tabs" role="tablist">${tabs}</div><div class="ribbon-body">${body}</div>`;
   // Keep the engaged style's tile in view when the gallery is too narrow to show every tile.
   const gallery = document.querySelector('.gallery');
