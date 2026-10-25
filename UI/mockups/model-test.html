@@ -203,6 +203,28 @@ function run() {
   undoState();
   check('Undo requires it again', isRequired(shares));
 
+  // A choice's options from a formula are the texts it gives, not those it only compares
+  fresh();
+  const taxOptions = formOutputs(formKeyOf('fund_tax')).map(([, text]) => text);
+  check('Options: Tax Classification gives Disregarded Entity but only compares Corporation',
+    taxOptions.includes('Disregarded Entity') && !taxOptions.includes('Corporation'), taxOptions.join(', '));
+
+  // A definition covers one form, and no two definitions cover the same parameterization
+  fresh();
+  const p = id => parameterization(records, id);
+  const twoForms = saveDefinition({ id: 'def_mixed', scope: [p('fund_good'), p('fund_erisa')], formula: '= TRUE' });
+  check('Scope: a definition across two forms is refused', /different forms/.test(twoForms ?? ''), twoForms);
+  const tax = definitions.find(d => d.id === 'def_tax');
+  const overlap = saveDefinition({ id: 'def_dup', scope: [tax.scope[0]], formula: '= "Partnership"' });
+  check('Scope: a definition covering what another covers is refused', /already covers/.test(overlap ?? ''), overlap);
+  check('…and neither was saved', !definitions.some(d => d.id === 'def_mixed' || d.id === 'def_dup'));
+
+  // The engine knows a relation by its form, as the model does
+  fresh();
+  const rels = Object.keys(records).filter(id => isRelation(records[id]));
+  const differ = rels.filter(id => Formulas.formOf(formulaResult, id) !== formKeyOf(id));
+  check('Forms: the engine and the model give every relation the same form', !differ.length, differ.slice(0, 3).join(' '));
+
   const failed = out.filter(x => !x.ok).length;
   document.title = `model test: ${out.length - failed} pass, ${failed} fail`;
   document.getElementById('out').innerHTML = `${document.title}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>

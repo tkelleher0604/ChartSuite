@@ -331,15 +331,29 @@ function removeRecord(S, id) {
   delete S.recs[id];
 }
 
-// A relation's pilot name and list names, from its output type and edge labels. Records don't change, so
-// each one's is worked out once.
+// A relation's pilot name and list names belong to its form (model.html §2): its specification's shape,
+// with every node label erased, and its sort. Names given without a form fall back on the relation's
+// output type and edge labels, its signature. Records don't change, so each one's is worked out once.
 const signature = (type, edges) => `${type}:${edges.map(norm).sort().join('|')}`;
 const sigCache = new WeakMap();
 function signatureOf(r) {
   if (!sigCache.has(r)) sigCache.set(r, signature(typeOf(r), r.args.map(a => a.edge)));
   return sigCache.get(r);
 }
-const relationOf = (S, r) => S.P.reg.bySig.get(signatureOf(r));
+// A record's form, keyed as model.js keys forms: [sort, ...[edge, shape of its location]], sorted.
+const shapeCache = new WeakMap(), formCache = new WeakMap();
+const argShapes = (S, r) => argsOf(r).map(a => JSON.stringify([norm(a.edge), shapeOfRecord(S, a.at)])).sort();
+function shapeOfRecord(S, id) {
+  const r = S.recs[id];
+  if (!r) return '•';
+  if (!shapeCache.has(r)) shapeCache.set(r, isObject(r) ? '•' : JSON.stringify(['∘', ...argShapes(S, r)]));
+  return shapeCache.get(r);
+}
+function formOfRecord(S, r) {
+  if (!formCache.has(r)) formCache.set(r, JSON.stringify([isField(r) ? r.field : isChoice(r) ? 'choice' : 'tag', ...argShapes(S, r)]));
+  return formCache.get(r);
+}
+const relationOf = (S, r) => S.P.reg.byForm.get(formOfRecord(S, r)) ?? S.P.reg.bySig.get(signatureOf(r));
 const listNameOf = (rel, from, listed) => rel?.lists.get(`${norm(from)}|${norm(listed)}`) ?? listed;
 
 // ---- Looking names up ----
@@ -1030,6 +1044,8 @@ function callRelation(c, rel, a) {
   if (pending) return pending;
   for (const rid of S.relsBySig.get(`${first}|${signature(rel.type, rel.edges)}`) ?? []) {
     const r = S.recs[rid];
+    // Records with the relation's edges but of another form are another relation.
+    if (rel.form && formOfRecord(S, r) !== rel.form) continue;
     const fits = r.args.every(x => {
       const g = ids.get(norm(x.edge));
       return isObject(S.recs[g]) ? objectOf(S, x.at) === g : x.at === g;
@@ -1123,15 +1139,16 @@ function namesProvided(d, reg) {
 function registry(names, defs) {
   const rels = (names?.relations ?? []).map(r => ({ ...r }));
   for (const d of defs) if (d.isRelation && !rels.some(r => same(r.name, d.name)))
-    rels.push({ name: d.name, type: typeOfDef(d), edges: d.edges, lists: {} });
-  const reg = { byName: new Map(), bySig: new Map() };
+    rels.push({ name: d.name, type: typeOfDef(d), edges: d.edges, form: d.form, lists: {} });
+  const reg = { byName: new Map(), byForm: new Map(), bySig: new Map() };
   for (const r of rels) {
     const lists = new Map();
     for (const [from, listed] of Object.entries(r.lists ?? {}))
       for (const [to, name] of Object.entries(listed)) lists.set(`${norm(from)}|${norm(to)}`, name);
-    const rel = { name: r.name, n: norm(r.name), type: r.type, edges: r.edges, lists };
+    const rel = { name: r.name, n: norm(r.name), type: r.type, edges: r.edges, form: r.form, lists };
     reg.byName.set(norm(r.name), rel);
-    reg.bySig.set(signature(r.type, r.edges), rel);
+    if (r.form) reg.byForm.set(r.form, rel);
+    else reg.bySig.set(signature(r.type, r.edges), rel);
   }
   return reg;
 }
@@ -1139,8 +1156,7 @@ function registry(names, defs) {
 // Every name the schema has somewhere, so a name missing at one record can read as BLANK there.
 function knownNames(entered, defs, reg) {
   const lists = new Set(), values = new Set();
-  const addRelation = (type, edges) => {
-    const rel = reg.bySig.get(signature(type, edges));
+  const addRelation = (type, edges, rel = reg.bySig.get(signature(type, edges))) => {
     edges.forEach((own, i) => edges.forEach((other, j) => { if (i !== j) { lists.add(norm(listNameOf(rel, own, other))); lists.add(norm(other)); } }));
     edges.forEach(e => values.add(norm(e)));
     if (rel) values.add(norm(rel.name));
@@ -1154,7 +1170,7 @@ function knownNames(entered, defs, reg) {
     else values.add(norm(d.name));
     for (const ps of d.params) for (const p of ps) edgesInSpec(p.spec).forEach(e => values.add(e));
   }
-  for (const rel of reg.byName.values()) addRelation(rel.type, rel.edges);
+  for (const rel of reg.byName.values()) addRelation(rel.type, rel.edges, rel);
   return { lists, values };
 }
 
@@ -1267,20 +1283,36 @@ function makeRecord(d, cand, out) {
   return { ...base, field: d.datatype ?? 'number', value: isDate(out) ? out.iso : out, computed: d.id };
 }
 
+// The texts a formula can give as its value: written in a place its value comes from, which is the formula
+// itself, a branch of IF or IFS, or the end of LET. Text it only compares, like "Corporation" in
+// `@ = "Corporation"`, isn't among them.
+function givenTexts(ast) {
+  const out = [];
+  const walk = n => {
+    if (!n) return;
+    if (n.k === 'lit' && typeof n.v === 'string') return out.push(n.v);
+    if (n.k !== 'call') return;
+    const f = n.name.toUpperCase(), a = n.args.map(x => x.x);
+    if (f === 'IF') a.slice(1).forEach(walk);
+    else if (f === 'IFS') a.filter((_, i) => i % 2 === 1).forEach(walk);
+    else if (f === 'LET') walk(a.at(-1));
+  };
+  walk(ast);
+  return out;
+}
+function optionsWritten(text) {
+  try { return givenTexts(parseExpression(splitFormula(text).body)); } catch { return []; }
+}
+
 // The options a choice's formula may give: those its schema has (`knownOptions`, where the caller knows
-// them; otherwise those its entries have already), and any written into it.
+// them; otherwise those its entries have already), and any its formula gives as written.
 function optionsOf(S, d) {
   if (!d.options) {
     const opts = [];
     const add = o => { if (!opts.some(x => same(x, o))) opts.push(o); };
     if (d.knownOptions) d.knownOptions.forEach(add);
     else for (const r of Object.values(S.entered)) if (isChoice(r) && !r.args && same(r.edge, d.name)) add(r.choice);
-    const walk = n => {
-      if (!n || typeof n !== 'object') return;
-      if (n.k === 'lit' && typeof n.v === 'string') add(n.v);
-      for (const x of Object.values(n)) Array.isArray(x) ? x.forEach(y => walk(y?.x ?? y)) : walk(x);
-    };
-    walk(d.ast);
+    givenTexts(d.ast).forEach(add);
     d.options = opts;
   }
   return d.options;
@@ -1907,8 +1939,16 @@ function relabel(definitions, names, from, to) {
     const m = /^(not\s+)?(.+?)(:\s*.+)?$/i.exec(seg);
     return `${m[1] ?? ''}${swap(m[2])}${m[3] ?? ''}`;
   }).join(' › ');
+  // Keys spell edge labels too: a parameterization's pairs [edge, location key], and a form's [edge, shape].
+  const pairs = (list, inner) => list.map(s => { const [e, k] = JSON.parse(s); return JSON.stringify([e === norm(from) ? norm(to) : e, inner(k)]); }).sort();
+  const specKey = k => k.startsWith('kind:') ? k : (([head, ...rest]) => JSON.stringify([head, ...pairs(rest, specKey)]))(JSON.parse(k));
+  const paramKey = k => JSON.stringify(pairs(JSON.parse(k), specKey));
+  const shapeKey = k => k === '•' ? k : JSON.stringify(['∘', ...pairs(JSON.parse(k).slice(1), shapeKey)]);
+  const formKey = k => k === 'object' ? k : (([sort, ...rest]) => JSON.stringify([sort, ...pairs(rest, shapeKey)]))(JSON.parse(k));
   const defs = definitions.map(d => ({
     ...d,
+    ...(d.covers && { covers: d.covers.map(paramKey) }),
+    ...(d.form && { form: formKey(d.form) }),
     name: d.args || d.covers && paramsOf(d.covers[0] ?? '[]').length > 1 ? d.name : swap(d.name),
     ...(d.formula !== undefined && { formula: renameName(d.formula, from, to) }),
     ...(d.implications && { implications: d.implications.map(i => ({ ...i, formula: renameName(i.formula, from, to) })) }),
@@ -1916,7 +1956,7 @@ function relabel(definitions, names, from, to) {
     ...(d.args && { args: d.args.map(a => ({ edge: swap(a.edge), at: a.at.map(inLocation) })) }),
   }));
   const rels = (names?.relations ?? []).map(r => ({
-    ...r, edges: r.edges.map(swap),
+    ...r, edges: r.edges.map(swap), ...(r.form && { form: formKey(r.form) }),
     lists: Object.fromEntries(Object.entries(r.lists ?? {}).map(([k, v]) => [swap(k), Object.fromEntries(Object.entries(v).map(([k2, n]) => [swap(k2), n]))])),
   }));
   return { definitions: defs, names: { ...names, relations: rels } };
@@ -1968,9 +2008,10 @@ function formatValue(computed, v, { percent = false } = {}) {
 }
 
 return {
-  computeState, evaluateAt, explain, check, suggest, renameName, relabel, formatValue,
+  computeState, evaluateAt, explain, check, suggest, renameName, relabel, formatValue, optionsWritten,
   coversOf, locationKey, parameterizationKey, computedId, splitFormula, tidyArrow, argKey,
   place: (computed, id) => placeOf(computed.state, id), nameOf: (computed, id) => nameOf(computed.state, id),
+  formOf: (computed, id) => formOfRecord(computed.state, computed.state.recs[id]),
   isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
 };
 

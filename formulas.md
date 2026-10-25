@@ -442,7 +442,7 @@ Take the case of adding a 40 Act view to a chart:
   - Hide is also its own command, and a Hidden menu brings back what's hidden.
   - A computed line can't be deleted, so for it, Delete offers Hide, or for a tag, Rule out.
 
-Charts don't share formulas. The prototype reuses a definition such as Affiliated Person by copying it: the chart menu's "Copy formulas from" brings another chart's definitions and relation names into this one, and the two are unsynced from then on. A workbook-level library that charts follow is the alternative (see the questions below).
+Charts don't share formulas. The prototype reuses a definition such as Affiliated Person by copying it: the chart menu's "Copy definitions from" brings another chart's definitions and relation names into this one, and the two are unsynced from then on. A workbook-level library that charts follow is the alternative (see the questions below).
 
 ## In the panel and on the chart
 

@@ -1552,7 +1552,9 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
   if (ui.fx?.key !== key) {
     const d = form ? (formsOfSchema().includes(form) && uncoveredParams(form).length ? newDefinitionOfForm(form) : null)
       : isNew ? newDefinition(relation, sides) : definitionOf(id);
-    if (!d) return [panelHead({ crumbs: fxCrumbs, title: 'Definition', sub: 'Not found' }), '<div class="empty">There’s no definition here. It may have been deleted; Undo brings it back.</div>'];
+    if (!d) return form
+      ? [panelHead({ crumbs: fxCrumbs, title: 'Definition', sub: 'Nothing left to cover' }), '<div class="empty">Every location of this form already has a definition. Edit that one from the Schema view.</div>']
+      : [panelHead({ crumbs: fxCrumbs, title: 'Definition', sub: 'Not found' }), '<div class="empty">There’s no definition here. It may have been deleted; Undo brings it back.</div>'];
     const atRecord = isNew && !relation && sides[0] && !pathOfRecord(sides[0]) ? sides[0] : null;
     ui.fx = { key, draft: structuredClone(d), isNew, atRecord, error: null };
   }

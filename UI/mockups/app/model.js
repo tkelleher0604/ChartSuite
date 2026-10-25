@@ -542,7 +542,8 @@ function pathText(t) {
 const paramArgs = p => JSON.parse(p).map(a => { const [edge, key] = JSON.parse(a); return { edge, key }; });
 
 // The options written into a formula, as a choice's formula may give them.
-const writtenOptions = d => [...[d.formula ?? '', ...(d.implications ?? []).map(i => i.formula)].join(' ').matchAll(/"([^"]*)"/g)].map(m => m[1]);
+// The options a choice definition gives as written: texts in the places its value comes from (see formulas.js).
+const writtenOptions = d => [d.formula, ...(d.implications ?? []).map(i => i.formula)].filter(Boolean).flatMap(Formulas.optionsWritten);
 
 // A definition as people write it, from the stored one: its name, type and datatype, and what it covers as
 // locations. A relation's locations are given per edge. Where a location isn't a path from a kind (it's a
@@ -577,10 +578,12 @@ function engineDefinitions(defs, N, S) {
     const v = asWritten(d, S, N);
     const options = v.type === 'choice' ? [...new Set(d.scope.flatMap(p => specsWithParam(p, S)).map(t => t.out.choice))] : undefined;
     const { at, ...rest } = v;
-    return { ...rest, covers: d.scope, ...(v.args ? { args: v.args.map(a => ({ edge: a.edge })) } : {}), knownOptions: options };
+    // A relation's form, by which the engine knows its name and lists: its scope is all of one form.
+    const form = v.args && d.scope.length ? formOfParam(d.scope[0], v.type === 'field' ? v.datatype : v.type) : undefined;
+    return { ...rest, covers: d.scope, ...(v.args ? { args: v.args.map(a => ({ edge: a.edge })) } : {}), ...(form ? { form } : {}), knownOptions: options };
   });
 }
-const engineNames = (N, S = schema) => ({ relations: Object.entries(N).map(([form, e]) => ({ name: formName(form, S, N), type: typeOfForm(form), edges: e.edges, lists: e.lists ?? {} })) });
+const engineNames = (N, S = schema) => ({ relations: Object.entries(N).map(([form, e]) => ({ name: formName(form, S, N), type: typeOfForm(form), edges: e.edges, form, lists: e.lists ?? {} })) });
 
 // The trees a definition, as people write it, declares: one for each parameterization it covers, with its
 // type's output (a choice's, for each option written into it). Locations come from the schema where it has
@@ -1254,6 +1257,23 @@ function validate(recs) {
   return null;
 }
 
+// The first way the definitions fail the model's conditions (model.html 7.7), or null: each covers a
+// nonempty set of parameterizations, all of one form, and no two cover the same parameterization.
+function definitionsError(defs, S, N) {
+  const coveredBy = new Map();
+  for (const d of defs) {
+    const name = asWritten(d, S, N).name;
+    if (!d.scope.length) return `${name} doesn’t cover anything.`;
+    const forms = new Set(d.scope.flatMap(p => specsWithParam(p, S).map(formOfTree)));
+    if (forms.size > 1) return `${name} covers things of different forms; a definition covers one form.`;
+    for (const p of d.scope) {
+      if (coveredBy.has(p)) return `${coveredBy.get(p)} already covers part of what ${name} covers.`;
+      coveredBy.set(p, name);
+    }
+  }
+  return null;
+}
+
 // ---- Changing the state ----
 
 // The one way a chart changes, as one undoable step: its entered records, formulas, names or schema
@@ -1270,6 +1290,9 @@ function change(next, { moves = false, maps = null, renames = [], after = null }
   const used = new Set(usage(nextEntered).keys());
   let { definitions: defs, names: nms, schema: S } = canonicalFormulas(next.definitions ?? definitions, next.names ?? names, next.schema ?? schema, used);
   if (maps) { defs = mapScopes(defs, maps); nms = mapNames(nms, maps); }
+  // Definitions that don't fit the model aren't worth working out.
+  const malformed = definitionsError(defs, S, nms);
+  if (malformed) return malformed;
   let result = runFormulas(nextEntered, defs, nms, S);
   S = withSpecsOf(S, result.records);
   let moved = null;
@@ -1286,7 +1309,7 @@ function change(next, { moves = false, maps = null, renames = [], after = null }
     }
   }
   S = settleConflicts(S, result.records, defs);
-  const error = validate(result.records) ?? schemaError(S);
+  const error = validate(result.records) ?? schemaError(S) ?? (moved ? definitionsError(defs, S, nms) : null);
   if (error) return error;
   pushUndo();
   entered = nextEntered;
