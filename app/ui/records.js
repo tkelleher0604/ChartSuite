@@ -30,6 +30,7 @@
     added: [],          // rows added on this page, kept at the end where they were typed until the rows are sorted
     filters: [],        // [{ col, op: 'is' | 'not' | 'empty' | 'filled', values: [keys] }], one per column
     filterMenu: null,   // the column whose filter's menu is open, whose chip shows even while it's unset
+    quick: null,        // the columns offered as filters of their own, by key, chosen once for the table
     search: '',
     needs: false,       // whether only rows with a required entry blank are shown
     focus: null,        // where the keyboard was: 'grid', 'edit', 'draft', 'pop' or 'search'
@@ -85,7 +86,7 @@
     const session = stored('sessionStorage', SESSION_KEY)[norm(kind)] ?? {};
     Object.assign(ui, {
       kind, unknown, chart: workbook.chartId, prefs: stored('localStorage', PREFS_KEY)[norm(kind)] ?? {},
-      active: null, edit: null, draft: null, pop: null, filterMenu: null, checked: new Set(), anchor: null, added: [],
+      active: null, edit: null, draft: null, pop: null, filterMenu: null, quick: null, checked: new Set(), anchor: null, added: [],
       filters: session.filters ?? [], search: session.search ?? '', needs: !!session.needs,
       focus: null, caret: null, scroll: { left: 0, top: 0 },
     });
@@ -576,6 +577,8 @@
 
   // The filters set, then, like Stripe's, a few choices offered as filters of their own, unset
   // (+ Jurisdiction): those that tell the most rows apart, as many as fit on the line (see fitFilters).
+  // They're chosen once for the kind's table, so setting one doesn't bring another into its place under
+  // the pointer; More filters has the rest.
   function filtersHtml(cols, shownCols, P) {
     const set = ui.filters.map(f => {
       const c = filterOf(f);
@@ -584,9 +587,10 @@
       return Parts.filterChip({ label: c.label, text: s.html, title: s.text, cmd: 'records.filter-open', clear: 'records.filter-remove', data: { col: c.key } });
     }).join('');
     const needs = ui.needs ? Parts.filterChip({ label: 'Missing a required entry', text: 'Missing a required entry', cmd: 'records.needs', clear: 'records.needs', tone: 'warn' }) : '';
-    const quick = shownCols.filter(c => c.type === 'choice' && !c.parent && c.options.length > 1 && !ui.filters.some(f => f.col === c.key))
+    if (!ui.quick?.length) ui.quick = shownCols.filter(c => c.type === 'choice' && !c.parent && c.options.length > 1)
       .map(c => [c, P.objects.filter(id => P.cell(id, c).r).length]).filter(([, n]) => n > 1)
-      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
+      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c.key);
+    const quick = ui.quick.map(colByKey).filter(c => c && !ui.filters.some(f => f.col === c.key));
     const more = cols.some(c => !c.isName && !quick.includes(c));
     return `<div class="filters rec-filters">${set}${needs}
       ${quick.map(c => Parts.filterChip({ label: c.label, cmd: 'records.filter-add', data: { col: c.key } })).join('')}
