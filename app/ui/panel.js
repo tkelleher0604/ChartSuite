@@ -597,11 +597,8 @@ const relationOutput = (id, label) => {
   return isTag(r) ? tagBox(id) : isChoice(r) ? choiceSelect(id) : relationValue(id, label);
 };
 
-// A tag's checkbox. An implied one is outlined rather than filled.
-const tagBox = id => {
-  const box = checkbox(records[id].tag, `data-action="tag-flip" data-id="${id}"`);
-  return isComputed(id) ? `<span class="is-implied">${box}</span>` : box;
-};
+// A tag's checkbox (Parts.tagBox), which a click switches. An implied one is outlined rather than filled.
+const tagBox = id => Parts.tagBox(id, `data-action="tag-flip" data-id="${id}"`);
 
 const openRelation = id =>
   `<a class="icon-btn is-small" href="${esc(panelHref(id))}" aria-label="Open this relation" title="Open">${icon('arrow-right')}</a>`;
@@ -885,7 +882,7 @@ function errorRows(at, depth) {
     .map(e => {
       const d = definitionOf(e.def);
       const label = `<span class="twisty"></span><span class="label-text">${esc(e.args[0].edge)}</span>`;
-      const value = `<a class="fx-error" href="${esc(panelHref(`definition:${e.def}`))}" title="${esc(`${e.error.msg} (${d?.name ?? 'a formula'})`)}">${esc(e.error.code)}</a>`;
+      const value = Parts.formulaError(e.error.code, { href: panelHref(`definition:${e.def}`), title: `${e.error.msg} (${d?.name ?? 'a formula'})` });
       return `<div class="entry">${row(depth, label, value, '')}</div>`;
     }).join('');
 }
@@ -1260,16 +1257,6 @@ function readItems(ids) {
     .map(x => ({ id: x.id, text: readText(x.id, x.details) }));
 }
 
-// What a formula gives, as a cell would show it.
-function formulaOutputText(d, v) {
-  if (v === null || v === undefined) return 'nothing';
-  if (Formulas.isError(v)) return v.code;
-  if (typeof v === 'boolean') return v ? 'attested' : 'ruled out';
-  if (typeof v === 'number') return showValue(d?.datatype ?? 'number', v);
-  if (v?.t === 'date') return formatDate(v.iso);
-  return String(v);
-}
-
 // What sort of thing an entry or relation is, by its output's sort: Tag, Choice, Percent field, Tag
 // relation, ….
 const sortName = (sort, isRel) => `${DATATYPE_NAMES[sort] ? `${DATATYPE_NAMES[sort]} field` : TYPE_NAMES[sort]}${isRel ? ' relation' : ''}`;
@@ -1277,9 +1264,8 @@ const isRelationDef = d => !!d.args || (d.covers ?? []).some(k => JSON.parse(k).
 const definitionType = d => sortName(d.type === 'field' ? d.datatype ?? 'number' : d.type, isRelationDef(d));
 const computedCount = defId => Object.values(formulaResult.computed ?? {}).filter(c => c.def === defId).length;
 
-// The mark after a record's output: "fx" on a computed one, which explains it when clicked, and a corner
-// mark, as in Excel, on an entered one a formula also covers: strong where it differs from the formula
-// (or rules out what it implies), quiet where it agrees.
+// The mark after a record's output: "fx" on a computed one, which explains it when clicked, and the corner
+// mark (Parts.overrideMark) on an entered one a formula also covers, which explains that.
 function formulaMark(id) {
   const info = formulaInfo(id);
   const d = info && definitionOf(info.def);
@@ -1287,10 +1273,7 @@ function formulaMark(id) {
   const open = ui.why === id;
   if (isComputed(id))
     return `<button class="fx-mark" data-action="why" data-id="${esc(id)}" aria-expanded="${open}" title="Worked out by ${esc(d.name)}. Click to see why.">fx</button>`;
-  const strong = info.mark === 'differs' || info.mark === 'overrides';
-  const says = info.mark === 'overrides' ? `${d.name} implies it` : info.mark === 'also implied' ? `Also implied by ${d.name}`
-    : `${d.name} gives ${formulaOutputText(d, info.formula)}`;
-  return `<button class="ovr-mark${strong ? ' is-strong' : ''}" data-action="why" data-id="${esc(id)}" aria-expanded="${open}" aria-label="${esc(says)}" title="${esc(says)}. Click for more."></button>`;
+  return Parts.overrideMark(id, `data-action="why" data-id="${esc(id)}" aria-expanded="${open}"`);
 }
 
 // Why a computed record is there, or what a formula says about an entered one: under its row, or in its
@@ -1326,7 +1309,7 @@ function whyBlock(id, depth = 0, inHead = false) {
     buttons = `<button class="link-btn" data-action="keep-entered" data-id="${esc(id)}" title="Record this output by hand, so it stays whatever the formula says">Keep as entered</button>`;
   } else {
     head = {
-      differs: `Entered here. ${defLink} gives ${esc(formulaOutputText(d, info.formula))}.`,
+      differs: `Entered here. ${defLink} gives ${esc(Parts.formulaText(d, info.formula))}.`,
       agrees: `Entered here, and ${defLink} gives the same.`,
       overrides: `Ruled out here, overriding ${defLink}, which implies it.`,
       'also implied': `Entered here, and also implied by ${defLink}.`,
@@ -1602,7 +1585,7 @@ function definitionView({ id, isNew, relation, sides = [], form }) {
     where = field('Covers', `<span class="fx-covers">${esc(coverageText(d))}</span>`, 'Every location like the record it was added from.');
   }
   const errors = [definitionError(d.id) && `<div class="fx-result-line is-error">${esc(definitionError(d.id))}</div>`,
-    ...recordErrors(d.id).slice(0, 8).map(e => `<div class="fx-result-line is-error"><span class="fx-error">${esc(e.error.code)}</span>
+    ...recordErrors(d.id).slice(0, 8).map(e => `<div class="fx-result-line is-error">${Parts.formulaError(e.error.code)}
       ${e.args.map(a => `<a href="${esc(panelHref(a.at))}">${esc(placeName(a.at))}</a>`).join(' → ')}: ${esc(e.error.msg)}</div>`)].filter(Boolean).join('');
   const results = Object.entries(formulaResult.computed ?? {}).filter(([, c]) => c.def === d.id).map(([k]) => k).filter(k => records[k]);
   const resultList = results.slice(0, 12).map(k => `<a class="fx-result" href="${esc(panelHref(k))}">${esc(resultText(k))}</a>`).join('')

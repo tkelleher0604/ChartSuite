@@ -63,11 +63,8 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .rec-cell .link { text-decoration: none; }
 .rec-cell .link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-/* A tag's checkbox, outlined where a formula worked it out, as in the panel. */
+/* A tag's checkbox, outlined where a formula worked it out (shell.css). */
 .rec-cell .check { vertical-align: middle; margin: -2px 0 0 -2px; }
-.rec-cell .is-implied { display: inline-grid; vertical-align: middle; }
-.rec-cell .is-implied .box-yes rect, .rec-cell .is-implied .box-no rect { fill: none; stroke: currentColor; stroke-width: 1.5; }
-.rec-cell .is-implied .box-yes path, .rec-cell .is-implied .box-no path { stroke: currentColor; }
 .rec-cell .check:hover .box-none rect, .rec-cell.is-active .box-none rect { stroke: var(--text-3); }
 
 /* A choice reads as its option, with the dropdown's chevron where it can be changed. */
@@ -79,9 +76,6 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 /* What a formula worked out is in italics (shell.css); what's blank and required says so. */
 .rec-req { color: var(--danger); font-size: 12px; font-weight: 500; }
 .rec-cell .req-mark { margin-left: 5px; color: var(--danger); font-weight: 600; vertical-align: middle; }
-.rec-cell .fx-error { color: var(--danger); font-weight: 500; font-variant-numeric: tabular-nums; }
-.rec-ovr { position: absolute; top: 0; left: 0; width: 0; height: 0; padding: 0; border: 0; border-top: 8px solid var(--border-strong); border-right: 8px solid transparent; background: none; cursor: pointer; }
-.rec-ovr.is-strong { border-top-color: var(--warn-solid); }
 
 /* Relatives as chips, as many as fit, then how many more. A chip's name comes before its detail. */
 .rec-chips { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }

@@ -246,21 +246,14 @@ a.list-row:hover { background: var(--hover); }
 .fx-value > .value-btn.is-computed, .fx-value > .value-btn:has(+ .doc-open) { flex: 0 1 auto; width: auto; }
 .doc-open .icon { color: var(--text-3); }
 .value-btn.is-computed, .rel-value.is-computed, .select.is-computed .select-text { font-style: italic; }
-.is-implied { display: inline-grid; }
 .cell-value > .fx-value > .is-implied { display: grid; }
-.is-implied .box-yes rect, .is-implied .box-no rect { fill: none; stroke: currentColor; stroke-width: 1.5; }
-.is-implied .box-yes path, .is-implied .box-no path { stroke: currentColor; }
 .fx-mark { flex: none; height: 18px; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--text-3);
   font: italic 500 11.5px/18px Georgia, "Times New Roman", serif; letter-spacing: .02em; }
 .fx-mark:hover, .fx-mark[aria-expanded="true"] { background: var(--pressed); color: var(--accent-text); }
 .rel-item > .fx-mark { margin-left: -4px; }
-/* An entered output a formula also covers: a corner mark, as in Excel, strong where it differs. */
-.ovr-mark { position: absolute; top: 0; left: 0; width: 0; height: 0; padding: 0; border: 0; border-top: 8px solid var(--border-strong); border-right: 8px solid transparent; border-radius: 0; background: none; }
-.ovr-mark.is-strong { border-top-color: var(--warn); }
+/* An entered output a formula also covers has the corner mark (shell.css), at its cell's corner. */
 .rel-item { position: relative; }
 .rel-item > .ovr-mark { top: -2px; left: -6px; }
-.fx-error { color: var(--danger); font-weight: 500; font-variant-numeric: tabular-nums; }
-a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* A row of computed relations, collapsed to a line: a count and the first few names. */
 .rel-summary { display: block; max-width: 100%; padding: 0; overflow: hidden; border: 0; background: none; color: var(--text-3); font-style: italic; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .rel-summary:hover { color: var(--text-2); }

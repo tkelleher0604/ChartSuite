@@ -105,6 +105,11 @@ Use these so a record reads the same everywhere:
 - `Parts.chip(id, { detail, computed })`: an object as a chip that links to its page.
 - `Parts.link(id)`: an object's name, linking to its page.
 - `Parts.output(id)` and `Parts.outputText(r)`: a record's output. A tag shows as its checkbox, a document as a link to it, and computed values in italics.
+- What a formula has a say in, drawn the same in the panel, a record's page and a table:
+  - `Parts.tagBox(id, attrs)`: a tag's checkbox, outlined rather than filled where a formula worked it out. `attrs` say what a click does.
+  - `Parts.overrideMark(id, attrs)`: the corner mark, as in Excel, on an entered record a formula also covers, amber where they differ, saying what the formula gives on hover.
+  - `Parts.formulaError(code, { href, title })`: a formula's error where its output would be.
+  - `Parts.formulaText(definition, value)`: what a formula gives, in words.
 - `Parts.date(iso)`: Jun 1, 2027. A date read as a value, in a record's entries, a table's cell or an export, reads in full, as the model writes it (`showValue`: June 1, 2027). A list scanned by date, such as the agenda, the history or a date column used for sorting, uses this short form.
 - `Parts.dueText(iso)` and `Parts.daysUntil(iso)`: how far off a date is.
 - `Parts.when(stamp)`: a moment relative to now, with the exact time on hover.

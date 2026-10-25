@@ -26,6 +26,38 @@ const Parts = (() => {
     return isComputed(id) ? `<span class="computed-text" title="Worked out by formula">${html}</span>` : html;
   }
 
+  // ---- What a formula has a say in ----
+  // A tag's checkbox, which shows the other state on hover; `attrs` say what a click does. A tag a formula
+  // worked out is outlined rather than filled.
+  function tagBox(id, attrs = '') {
+    const box = checkbox(records[id].tag, attrs);
+    return isComputed(id) ? `<span class="is-implied">${box}</span>` : box;
+  }
+  // What a definition's formula gives, in words: attested, 4.5%, June 1, 2027, #DIV/0!, nothing.
+  function formulaText(d, v) {
+    if (v === null || v === undefined) return 'nothing';
+    if (Formulas.isError(v)) return v.code;
+    if (typeof v === 'boolean') return v ? 'attested' : 'ruled out';
+    if (typeof v === 'number') return showValue(d?.datatype ?? 'number', v);
+    if (v?.t === 'date') return formatDate(v.iso);
+    return String(v);
+  }
+  // The corner mark, as in Excel, on an entered record a formula also covers: strong (amber) where it
+  // differs from what the formula gives, or rules out what it implies; quiet where they agree. It says so
+  // on hover; `attrs` say what a click does (the panel explains it; a table offers Use formula).
+  function overrideMark(id, attrs = '') {
+    const info = formulaInfo(id);
+    const d = info && !isComputed(id) && definitionOf(info.def);
+    if (!d) return '';
+    const strong = info.mark === 'differs' || info.mark === 'overrides';
+    const says = info.mark === 'overrides' ? `${d.name} implies it` : info.mark === 'also implied' ? `Also implied by ${d.name}` : `${d.name} gives ${formulaText(d, info.formula)}`;
+    return `<button class="ovr-mark${strong ? ' is-strong' : ''}" ${attrs} aria-label="${esc(says)}" title="${esc(says)}"></button>`;
+  }
+  // A formula's error where its output would be (#CIRCULAR!, #DIV/0!), linking to its definition if `href`.
+  const formulaError = (code, { href = '', title = '' } = {}) => href
+    ? `<a class="fx-error" href="${esc(href)}"${title ? ` title="${esc(title)}"` : ''}>${esc(code)}</a>`
+    : `<span class="fx-error"${title ? ` title="${esc(title)}"` : ''}>${esc(code)}</span>`;
+
   // A calendar date (2027-06-01) as it reads: Jun 1, 2027.
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function date(iso) {
@@ -102,5 +134,5 @@ const Parts = (() => {
   // A person's initials in a circle, for who made a change.
   const avatar = name => `<span class="avatar" title="${esc(name)}">${esc(clean(name).split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?')}</span>`;
 
-  return { chip, link, output, outputText, date, daysUntil, dueText, when, badge, filterChip, columnHead, empty, avatar };
+  return { chip, link, output, outputText, tagBox, formulaText, overrideMark, formulaError, date, daysUntil, dueText, when, badge, filterChip, columnHead, empty, avatar };
 })();

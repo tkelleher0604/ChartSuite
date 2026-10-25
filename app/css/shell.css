@@ -70,6 +70,19 @@ body.app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr)
 .ident { font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: "ss02"; }
 .computed-text { font-style: italic; }
 .tag-state { display: inline-grid; vertical-align: -3px; }
+
+/* ---- What a formula has a say in (Parts.tagBox, Parts.overrideMark, Parts.formulaError) ---- */
+/* A tag a formula worked out: its box outlined rather than filled. */
+.is-implied { display: inline-grid; vertical-align: middle; }
+.is-implied .box-yes rect, .is-implied .box-no rect { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.is-implied .box-yes path, .is-implied .box-no path { stroke: currentColor; }
+/* An entered record a formula also covers: a corner mark, as in Excel, at the corner of what holds it
+   (positioned), amber where they differ. */
+.ovr-mark { position: absolute; top: 0; left: 0; width: 0; height: 0; padding: 0; border: 0; border-top: 8px solid var(--border-strong); border-right: 8px solid transparent; border-radius: 0; background: none; cursor: pointer; }
+.ovr-mark.is-strong { border-top-color: var(--warn); }
+/* A formula's error where its output would be. */
+.fx-error { color: var(--danger); font-weight: 500; font-variant-numeric: tabular-nums; }
+a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
 .link { color: var(--accent-text); }
 .link:hover { text-decoration: underline; }
 

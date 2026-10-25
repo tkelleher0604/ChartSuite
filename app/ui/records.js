@@ -457,18 +457,6 @@
     });
   }
 
-  // The corner mark, as in Excel, on an entered value a formula also covers: amber where the formula would
-  // give something else, or implies a tag this rules out; grey where it agrees.
-  function overrideMark(obj, c, cell) {
-    const info = cell.info;
-    const d = info && !cell.computed && definitionOf(info.def);
-    if (!d) return '';
-    const strong = info.mark === 'differs' || info.mark === 'overrides';
-    const says = info.mark === 'overrides' ? `Ruled out here; ${d.name} implies it` : info.mark === 'also implied' ? `Entered here, and also implied by ${d.name}`
-      : info.mark === 'agrees' ? `Entered here; ${d.name} gives the same` : `Entered here; ${d.name} gives something else`;
-    return `<button class="rec-ovr${strong ? ' is-strong' : ''}" data-cmd="records.override" data-row="${esc(obj)}" data-col="${esc(c.key)}" tabindex="-1" title="${esc(says)}" aria-label="${esc(says)}"></button>`;
-  }
-
   function cellHtml(obj, c, P) {
     const cell = P.cell(obj, c);
     const active = ui.active?.row === obj && ui.active.col === c.key;
@@ -490,7 +478,7 @@
       cls.push('is-blocked');
       title = `Needs ${c.path.at(-2)} first`;
     } else if (!cell.r) {
-      if (cell.error) { html = `<span class="fx-error">${esc(cell.error.code)}</span>`; title = `${cell.error.msg} (${c.computedBy?.name ?? 'a formula'})`; }
+      if (cell.error) { html = Parts.formulaError(cell.error.code); title = `${cell.error.msg} (${c.computedBy?.name ?? 'a formula'})`; }
       else if (cell.missing) {
         cls.push('is-missing');
         html = c.type === 'tag' ? `${checkbox(null, tagAttrs)}<span class="req-mark" aria-hidden="true">*</span>` : '<span class="rec-req">Required</span>';
@@ -499,7 +487,7 @@
       else if (cell.covered) title = 'Worked out by formula, which gives nothing here';
       else if (c.type === 'tag') html = checkbox(null, tagAttrs);
     } else if (isTag(cell.r)) {
-      html = cell.computed ? `<span class="is-implied">${checkbox(cell.r.tag, tagAttrs)}</span>` : checkbox(cell.r.tag, tagAttrs);
+      html = Parts.tagBox(cell.id, tagAttrs);
       title = cell.computed ? `${cell.r.tag ? 'Attested' : 'Ruled out'} by formula` : '';
     } else if (isChoice(cell.r)) {
       html = `<span class="rec-choice"><span class="rec-choice-text">${Parts.output(cell.id)}</span>${editable(cell, c) ? icon('chevron-down', 'rec-chev') : ''}</span>`;
@@ -510,7 +498,8 @@
       if (cell.r.field === 'document') title = cell.r.value;
     }
     if (cell.r?.computed || (!c.rel && c.computedBy && !cell.r)) cls.push('is-computed');
-    html += cell.r ? overrideMark(obj, c, cell) : '';
+    // The corner mark on an entered value a formula also covers offers Use formula.
+    html += cell.r ? Parts.overrideMark(cell.id, `data-cmd="records.override" data-row="${esc(obj)}" data-col="${esc(c.key)}" tabindex="-1"`) : '';
     return `<td class="${cls.join(' ')}" ${attrs}${title ? ` title="${esc(title)}"` : ''}>${html}</td>`;
   }
 
