@@ -232,10 +232,12 @@ const Shell = (() => {
       return [['Recent', rec], ['Actions', actions.slice(0, 6)], ['Go to', go.slice(0, AREAS.length + FOOT_AREAS.length)]];
     }
     const ranked = items => items.map(i => [i, score(i, query)]).filter(([, s]) => s).sort((a, b) => b[1] - a[1]).map(([i]) => i);
-    // Documents are listed apart, after the entities and people they concern.
+    // Documents are listed apart, after the entities and people they concern, except on the Documents page,
+    // where they're what's looked for.
     const isDoc = id => same(records[id].kind, DOCUMENT_KIND);
-    return [['Records', ranked(objects.filter(id => !isDoc(id)).map(toItem)).slice(0, 8)], ['Actions', ranked(actions).slice(0, 6)],
-      ['Go to', ranked(go).slice(0, 4)], ['Documents', ranked(objects.filter(isDoc).map(toItem)).slice(0, 5)]];
+    const docs = ['Documents', ranked(objects.filter(isDoc).map(toItem)).slice(0, page.area === 'documents' ? 8 : 5)];
+    const rest = [['Records', ranked(objects.filter(id => !isDoc(id)).map(toItem)).slice(0, 8)], ['Actions', ranked(actions).slice(0, 6)], ['Go to', ranked(go).slice(0, 4)]];
+    return page.area === 'documents' ? [docs, ...rest] : [...rest, docs];
   }
 
   // What the page offers: its create action, then its own commands.
