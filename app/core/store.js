@@ -52,12 +52,11 @@ const Store = (() => {
 
   // ---- The working copy ----
 
-  // The working copy as text. A page that hasn't changed anything yet may not have written it.
+  // The working copy as text: as saved in this browser, or as it is in the page when the browser couldn't
+  // keep it (or a page that hasn't changed anything yet hasn't written it).
   function workingText() {
-    if (!localStorage.getItem(WORKBOOK_KEY) && workbook.charts.length) saveState();
-    const text = localStorage.getItem(WORKBOOK_KEY);
-    if (!text) throw new StoreError('This browser couldn’t keep the workbook.');
-    return text;
+    if (storageProblem) return workbookText();
+    try { return localStorage.getItem(WORKBOOK_KEY) ?? workbookText(); } catch { return workbookText(); }
   }
 
   // Which chart and view are current belong to the session, not the workbook (model.html, 6.3). They're
@@ -306,8 +305,13 @@ const Store = (() => {
       : new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
   // How it stands, as the sidebar says it: { text, tone, fix }, tone '', 'busy' or 'error'.
+  // What this browser's copy can't do (model.js's storageProblem) comes first: elsewhere may be saved, but
+  // the page can't promise what it holds will still be here.
+  const BROWSER_PROBLEMS = { unavailable: 'Not kept: this browser won’t store anything', unsaved: 'Couldn’t save: this browser’s storage is full',
+    unreadable: 'Opened the sample: the saved copy couldn’t be read', 'unreadable-unkept': 'Not saved: the saved copy couldn’t be read' };
   function status() {
     rec = read();
+    if (storageProblem) return { text: BROWSER_PROBLEMS[storageProblem], tone: 'error' };
     if (rec.place === 'browser') return problem ?? { text: 'Saved in this browser', tone: '' };
     const where = whereOf(rec);
     if (rec.conflict) return { text: `Not saved: ${rec.conflict.by ? `${rec.conflict.by} saved a newer version` : `${where} changed since`}`, tone: 'error', fix: 'conflict' };
@@ -528,7 +532,7 @@ const Store = (() => {
   // ---- When it looks ----
 
   function changed(saved = true) {
-    if (!saved) { problem = { text: 'Couldn’t save: this browser’s storage is full', tone: 'error' }; return report(); }
+    if (!saved) { problem = { text: storageProblem === 'unsaved' ? 'Couldn’t save: this browser’s storage is full' : 'Not saved in this browser', tone: 'error' }; return report(); }
     if (rec.place === 'browser') { if (problem) { problem = null; report(); } return; }
     clearTimeout(timer);
     timer = setTimeout(sync, SAVE_AFTER);

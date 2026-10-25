@@ -107,11 +107,41 @@ const Shell = (() => {
       <div class="tb-actions">${value(page.actions) ?? ''}</div>`;
   }
 
+  // ---- When this browser can't keep the workbook ----
+  // A problem with keeping the workbook here (model.js's storageProblem) is said at the top of every page
+  // until it's resolved, with a way to keep a copy: a change that can't be kept mustn't look as if it was.
+  const BANNERS = {
+    unreadable: ['The workbook saved in this browser couldn’t be read, so the sample has opened in its place. The unreadable copy is kept aside; nothing has been lost.', 'Download the unreadable copy', 'unreadable'],
+    'unreadable-unkept': ['The workbook saved in this browser couldn’t be read, and there’s no room to keep it aside, so nothing is being saved over it. Download it before changing anything.', 'Download it', 'unreadable'],
+    unavailable: ['This browser isn’t letting Rboreal keep anything, so changes last only while this page is open. Keep the workbook in a file or a SharePoint library instead.', 'Download a copy', 'copy'],
+    unsaved: ['Your latest changes couldn’t be saved: this browser’s storage is full. Download a copy, then keep the workbook in a file or a SharePoint library.', 'Download a copy', 'copy'],
+  };
+  const renderBanner = () => { const el = document.getElementById('banner'); if (el) el.innerHTML = bannerHtml(); };
+  function bannerHtml() {
+    const b = typeof storageProblem === 'string' && BANNERS[storageProblem];
+    return b ? `<div class="banner is-danger" role="alert"><span class="banner-text">${esc(b[0])}</span>
+      <button class="btn btn-sm" data-cmd="shell.download" data-what="${b[2]}">${esc(b[1])}</button>
+      <a class="btn btn-sm btn-ghost" href="settings.html#workbook">Where it’s kept</a></div>` : '';
+  }
+  function downloadText(text, name) {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type: 'application/json' })), download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  handlers['shell.download'] = el => {
+    if (el.dataset.what === 'copy' && typeof Store !== 'undefined') return Store.exportWorkbook();
+    let text = null;
+    try { text = localStorage.getItem(UNREADABLE_KEY) ?? localStorage.getItem(WORKBOOK_KEY); } catch {}
+    if (text) downloadText(text, 'Unreadable workbook.rboreal.json');
+  };
+
   // ---- Rendering ----
   const renderSidebar = () => { document.getElementById('sidebar').innerHTML = sidebarHtml(); };
   function render() {
     renderSidebar();
     document.getElementById('topbar').innerHTML = topbarHtml();
+    renderBanner();
     if (page.render) document.getElementById('main').innerHTML = page.render();
     const title = value(page.title);
     document.title = title && title !== 'Home' ? `${title} · Rboreal` : 'Rboreal';
@@ -127,7 +157,7 @@ const Shell = (() => {
     document.body.classList.add('app');
     document.body.insertAdjacentHTML('afterbegin', `
       <aside class="sidebar" id="sidebar" aria-label="Sidebar"></aside>
-      <div class="page"><header class="topbar" id="topbar"></header><main class="main" id="main"></main></div>
+      <div class="page"><header class="topbar" id="topbar"></header><div id="banner"></div><main class="main" id="main"></main></div>
       <div id="layer"></div>`);
     const main = document.getElementById('main');
     if (!page.render) for (const n of own) main.appendChild(n);
@@ -509,7 +539,7 @@ const Shell = (() => {
   return {
     start, render, on, menu, confirm, prompt, toast, visited, recent, recordHref, kindHref, subtitleOf, DOCUMENT_KIND,
     // Says where the workbook is saved, and how that's going: tone '', 'busy' or 'error'.
-    setStatus(text, tone = '') { status = { text, tone }; if (page) renderSidebar(); },
+    setStatus(text, tone = '') { status = { text, tone }; if (page) { renderSidebar(); renderBanner(); } },
     // Runs when the workbook switches to another chart, or another tab changes it, so a page can let go
     // of what it held about the old one.
     onChartChange(fn) { chartListeners.push(fn); },

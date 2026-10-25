@@ -41,25 +41,43 @@ function setState(s) {
 
 // Called once every script has loaded, since the sample (sample.js) uses styles.js.
 function initState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(WORKBOOK_KEY));
-    if (saved?.charts?.length) {
-      workbook = { deleted: [], ...saved };
-      if (!chartInUse()) workbook.chartId = workbook.charts[0].id;
-      return setState(chartInUse().state);
-    }
-  } catch {}
+  let text = null;
+  try { text = localStorage.getItem(WORKBOOK_KEY); } catch { storageProblem = 'unavailable'; }
+  if (text) {
+    try {
+      const saved = JSON.parse(text);
+      if (saved?.charts?.length) {
+        workbook = { deleted: [], ...saved };
+        if (!chartInUse()) workbook.chartId = workbook.charts[0].id;
+        return setState(chartInUse().state);
+      }
+    } catch {}
+    // A copy that can't be read is set aside, never overwritten, and the sample opens in its place.
+    try { localStorage.setItem(UNREADABLE_KEY, text); storageProblem = 'unreadable'; } catch { storageProblem = 'unreadable-unkept'; }
+  }
   workbook = { charts: [{ id: 'chart_main', name: SAMPLE_CHART_NAME, state: sampleState(), sample: true }], chartId: 'chart_main', deleted: [] };
   setState(chartInUse().state);
 }
+
+// What's wrong with keeping the workbook in this browser, for the page to say plainly, or null:
+// - 'unreadable': the copy saved here couldn't be read, so the sample opened; the copy is kept aside, under
+//   UNREADABLE_KEY ('unreadable-unkept' if even that failed, and then nothing is saved over it);
+// - 'unavailable': this browser won't let the page keep anything, so changes last only while it's open;
+// - 'unsaved': the last change couldn't be saved here, as when the browser's storage is full.
+let storageProblem = null;
+const UNREADABLE_KEY = `${WORKBOOK_KEY}.unreadable`;
+// The workbook as it is in this page, as saved: every chart with its views and history.
+const workbookText = () => JSON.stringify({ ...workbook, charts: currentCharts() });
 
 // States are never mutated in place, so earlier ones can be kept for undo.
 const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
 const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive, history: historyLog });
 
 function saveState() {
-  let saved = true;
-  try { localStorage.setItem(WORKBOOK_KEY, JSON.stringify({ ...workbook, charts: currentCharts() })); } catch { saved = false; }
+  let saved = storageProblem !== 'unavailable' && storageProblem !== 'unreadable-unkept';
+  if (saved) try { localStorage.setItem(WORKBOOK_KEY, workbookText()); } catch { saved = false; }
+  if (!saved && !storageProblem) storageProblem = 'unsaved';
+  else if (saved && storageProblem === 'unsaved') storageProblem = null;
   // The store (store.js) saves this working copy wherever the workbook is kept: a file or a SharePoint library.
   if (typeof Store !== 'undefined') Store.changed(saved);
 }

@@ -44,19 +44,20 @@
   // ---- Remembered per kind ----
   const PREFS_KEY = 'rboreal.records';
   const SESSION_KEY = 'rboreal.records.session';
+  // `store` names localStorage or sessionStorage: reaching either can throw where a browser blocks storage.
   function stored(store, key) {
-    try { return JSON.parse(store.getItem(key)) ?? {}; } catch { return {}; }
+    try { return JSON.parse(window[store].getItem(key)) ?? {}; } catch { return {}; }
   }
   function storeFor(store, key, value) {
     const all = stored(store, key);
     all[norm(ui.kind)] = value;
-    try { store.setItem(key, JSON.stringify(all)); } catch {}
+    try { window[store].setItem(key, JSON.stringify(all)); } catch {}
   }
   function setPrefs(patch) {
     ui.prefs = { ...ui.prefs, ...patch };
-    storeFor(localStorage, PREFS_KEY, ui.prefs);
+    storeFor('localStorage', PREFS_KEY, ui.prefs);
   }
-  const saveSession = () => storeFor(sessionStorage, SESSION_KEY, { filters: ui.filters, search: ui.search, needs: ui.needs });
+  const saveSession = () => storeFor('sessionStorage', SESSION_KEY, { filters: ui.filters, search: ui.search, needs: ui.needs });
 
   // ---- The kind ----
   const hashText = () => { try { return decodeURIComponent(location.hash.slice(1)); } catch { return ''; } };
@@ -73,9 +74,9 @@
   function useKind() {
     const kind = kindFromHash();
     if (kind === ui.kind) return false;
-    const session = stored(sessionStorage, SESSION_KEY)[norm(kind)] ?? {};
+    const session = stored('sessionStorage', SESSION_KEY)[norm(kind)] ?? {};
     Object.assign(ui, {
-      kind, chart: workbook.chartId, prefs: stored(localStorage, PREFS_KEY)[norm(kind)] ?? {},
+      kind, chart: workbook.chartId, prefs: stored('localStorage', PREFS_KEY)[norm(kind)] ?? {},
       active: null, edit: null, draft: null, pop: null, checked: new Set(), anchor: null, added: [],
       filters: session.filters ?? [], search: session.search ?? '', needs: !!session.needs,
       focus: null, caret: null, scroll: { left: 0, top: 0 },

@@ -244,6 +244,18 @@ function run() {
 
   wholeSample();
 
+  // A saved copy that can't be read is set aside, never overwritten, and the sample opens in its place
+  try {
+    localStorage.setItem(WORKBOOK_KEY, '{not a workbook');
+    initState();
+    check('Storage: an unreadable copy is kept aside and the sample opens', storageProblem === 'unreadable'
+      && localStorage.getItem(UNREADABLE_KEY) === '{not a workbook' && workbook.charts[0].sample);
+  } finally {
+    localStorage.removeItem(WORKBOOK_KEY);
+    localStorage.removeItem(UNREADABLE_KEY);
+    storageProblem = null;
+  }
+
   const failed = out.filter(x => !x.ok).length;
   document.title = `model test: ${out.length - failed} pass, ${failed} fail`;
   document.getElementById('out').innerHTML = `${document.title}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>

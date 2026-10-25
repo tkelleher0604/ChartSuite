@@ -230,3 +230,8 @@ button.filter-chip.is-set { padding: 0 10px; }
   :root:not([data-sidebar="shown"]) .sidebar { visibility: hidden; }
   .content { padding: 20px 16px 56px; }
 }
+
+/* A problem the page must not let pass unseen, under the top bar until it's resolved. */
+.banner { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px 10px 20px; border-bottom: 1px solid var(--danger-border); background: var(--danger-soft); font-size: 13px; }
+.banner-text { flex: 1 1 24rem; }
+#banner:empty { display: none; }
