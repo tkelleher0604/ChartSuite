@@ -65,7 +65,18 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - **Adding styles.** Use Add › Style… in the panel or New style in the ribbon to style the chart by another entry.
   - Ctrl+wheel or the zoom buttons zoom. The panel's left edge drags to resize it.
   - Reset sample, in the top bar, puts the sample chart back as it started, with its views and formulas. Undo brings the changes back.
-- [record-panel.html](record-panel.html): the record panel on its own, with adding, editing, deleting and reordering entries, and relations.
+- [record.html](record.html): one record, at `record.html#<id>`, laid out like Attio's record page.
+  - **The header** has the record's name, its kind with its first choices (Entity · Limited Partnership · 3(c)(7) Fund), and its status: a purple badge for each tag a formula found true of it (Private Fund, Investment Company), which opens its explanation, and a red one for required entries left blank, which goes to the first.
+  - **The top bar** has the path (Records › Entities, or Documents for a document), and the record's actions: Open document for a document, Open on chart (which selects its box, unless the chart's view doesn't draw it), Export profile (a PDF of its entries and relations), and a menu with Copy link and Delete. Delete takes effect at once, with Undo in a toast; the record and what depends on it go to Deleted.
+  - **Details**, on the left, are the record panel's view of the record (below), edited there just as beside the chart, starting opened out. Its links to records go to their pages, and to definitions, to the Schema. Add › Relation… relates the record to something in place of its Details, until Done. What a change did is said in a toast with Undo; what it couldn't do, above the Details. Leaving a record with a required entry blank asks in a dialog.
+  - **The tabs**, on the right:
+    - Relations: the record's relatives in each list they're in from here (Owners, Holdings, General Partners), at the record or inside it, as chips with what the relation says (64%, Director). Computed ones are dashed, and a long list only formulas give is folded to a line until opened.
+    - Documents: the Document objects related to it, newest first, with their type, date, version and status, and Open.
+    - Dates: every date in it and on the relations it's in, entered or computed, upcoming ones first with how far off they are (amber within 30 days), then past ones.
+    - History: each change to it, to anything in it, or to a relation it's in: who, when, the change in a sentence, and each value before and after.
+  - The hash can name any record. An entry opens its record with the entry shown, and its explanation if a formula is behind it; a relation opens the relation's own page; a deleted record says so, with Restore; nothing at all (as after a chart switch) says so calmly, with a way back to Records.
+  - With too little room for two columns, Details become the first tab. The last tab picked is remembered.
+- **The record panel** (`ui/panel.js`): a record's Details on its page, and the side panel on the chart, with adding, editing, deleting and reordering entries, and relations. ([record-panel.html](record-panel.html), where it once stood on its own, now sends its visitor to the record's page, or to Records.)
   - Adding starts with a name box whose list offers the labels already used at matching locations, plus Create.
   - A tag is added as soon as it's named. Its name sits in the label column and its output, a checkbox, in the value column: green when attested, red and crossed out when ruled out. Hovering previews the other state, and a click switches to it.
   - A choice moves on to an option box listing the outputs of its parameterization, and afterwards shows its option with a dropdown chevron.
@@ -158,7 +169,8 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `formulas.js` | The formula engine ([formulas.md](../formulas.md)): reading formulas, working out the computed records, explaining them. It touches nothing on the page |
 | `lab.js`, `lab.css` | The formula lab |
 | `styles.js` | Styles, one per form in each view: presets, the sample styles, what's drawn, Show and Hide, and how styles combine into a box's or line's look |
-| `panel.js` | The record panel, with computed records and their explanations, the Schema view (the chart's vocabulary, with its definitions and names), and a definition's view |
+| `panel.js` | The record panel, with computed records and their explanations, the Schema view (the chart's vocabulary, with its definitions and names), and a definition's view. Its host sets `panelOptions`: whether it's a record's page, where its links go, and how it asks a question on leaving |
+| `record.js`, `record.css` | The record page: the header, the panel as Details, and the Relations, Documents, Dates and History tabs |
 | `relate.js` | The Relate view, for relating two things |
 | `history.js`, `history.css` | The History page: reading the history log back from the records as they are now, so each change is told in its own time's names; days, runs, filters in the address, restoring, and CSV |
 | `schema.js`, `schema.css` | The Schema page: the panel's Schema and definition views as a page of their own |
