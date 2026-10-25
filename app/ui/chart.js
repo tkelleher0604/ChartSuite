@@ -471,8 +471,7 @@ function renderChart() {
   const covered = coveredBy(eng);
   const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : [];
   const auto = autoPlaces();
-  const hidden = hiddenHere();
-  const objects = Object.keys(records).filter(id => isObject(records[id]) && !hidden.has(id));
+  const objects = drawnObjects();
   const nodes = document.getElementById('nodes');
   nodes.innerHTML = objects.map(id => nodeHtml(id, placeOf(id, auto), boxLook(id), {
     selected: sel.object === id && !chart.quick?.kind,
@@ -754,53 +753,11 @@ function showView(id) {
   if (shownId && hiddenHere().has(shownId)) location.hash = '';
 }
 
-// A view's filter is worked out at each object the way an entry's formula would be there: bare names are
-// the object's own, looked up its path, and @ is the object. TRUE shows the box; FALSE or BLANK hides it;
-// an error shows it, marked, so a mistake in the filter doesn't make boxes vanish. It may start with ←
-// or =, or with neither. Results are kept, by text, until the formulas are worked out again, so a filter
-// being typed can be tried without losing the one in use.
-const filterCache = { result: null, outcomes: new Map() };
-
-function filterOutcome(text) {
-  if (filterCache.result !== formulaResult) Object.assign(filterCache, { result: formulaResult, outcomes: new Map() });
-  if (!filterCache.outcomes.has(text)) filterCache.outcomes.set(text, workOutFilter(text));
-  return filterCache.outcomes.get(text);
-}
-
-function workOutFilter(text) {
-  const objects = Object.keys(records).filter(id => isObject(records[id]));
-  const outcome = { total: objects.length, hidden: new Set(), errors: new Map(), syntax: null };
-  if (clean(text) && formulaResult.state) {
-    const check = Formulas.check(text);
-    if (check.error) outcome.syntax = check.error;
-    else {
-      // IF reads its condition as TRUE or FALSE, as a tag would, so a tag or a count works as a condition.
-      const test = `= IF(${Formulas.splitFormula(text).body}, TRUE, FALSE)`;
-      for (const id of objects) {
-        const v = Formulas.evaluateAt(formulaResult, test, id);
-        if (Formulas.isError(v)) outcome.errors.set(id, v);
-        else if (v !== true) outcome.hidden.add(id);
-      }
-    }
-  }
-  return outcome;
-}
-
-// Everything this view leaves out: what's hidden one by one, the boxes its filter leaves out or its Kind
-// style doesn't show, and so the lines to them.
-function hiddenHere() {
-  const hidden = new Set(hiddenInView());
-  for (const id of filterOutcome(viewFilter()).hidden) hidden.add(id);
-  for (const [id, r] of Object.entries(records)) if (isObject(r) && !boxShown(id)) hidden.add(id);
-  return hidden;
-}
-
 // Lays the boxes this view shows out again, in rows by how far down the chains of ownership and control
 // each one sits: owners and controllers above what they own and control. Each row keeps the order of the
 // row above, and the rows are centered on the widest. Only this view's box positions change.
 function tidyView() {
-  const hidden = hiddenHere();
-  const ids = Object.keys(records).filter(id => isObject(records[id]) && !hidden.has(id));
+  const ids = drawnObjects();
   const shown = new Set(ids);
   const above = new Map(ids.map(id => [id, []]));
   for (const [rid, r] of Object.entries(records)) {

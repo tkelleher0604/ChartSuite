@@ -144,23 +144,12 @@ function recentHtml() {
 }
 
 // ---- The chart at a glance ----
-// The objects whose boxes the current view draws: of a kind it shows, not hidden one by one, and where its
-// filter holds (or runs into an error, which leaves a box drawn), as the chart works them out.
-function drawnBoxes(hidden) {
-  const filter = clean(viewFilter()) && !Formulas.check(viewFilter()).error ? `= IF(${Formulas.splitFormula(viewFilter()).body}, TRUE, FALSE)` : null;
-  const holds = id => {
-    if (!filter) return true;
-    const v = Formulas.evaluateAt(formulaResult, filter, id);
-    return v === true || Formulas.isError(v);
-  };
-  return Object.keys(records).filter(id => isObject(records[id]) && boxShown(id) && !hidden.has(id) && holds(id));
-}
-
-// The view's boxes and lines in outline, as a thumbnail: each box where the view puts it, with a height
-// for its lines of text, and each two-argument relation it draws as a line between them.
+// The view's boxes and lines in outline, as a thumbnail: each box the view draws (drawnObjects, as the
+// chart works them out) where the view puts it, with a height for its lines of text, and each
+// two-argument relation it draws as a line between them.
 function thumbnailSvg() {
-  const hidden = new Set(hiddenInView());
-  const ids = drawnBoxes(hidden);
+  const hidden = hiddenHere();
+  const ids = drawnObjects(hidden);
   if (!ids.length) return '';
   const boxes = new Map();
   let bottom = 0;

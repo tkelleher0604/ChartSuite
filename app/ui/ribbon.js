@@ -260,7 +260,7 @@ function hiddenMenu() {
 }
 
 // ---- The view's filter ----
-// A condition worked out at each object (see filterOutcome in chart.js), written in a menu like a formula
+// A condition worked out at each object (see filterOutcome in styles.js), written in a menu like a formula
 // in the panel: checked as it's typed, with names offered, and how many boxes it would show. The text
 // being typed is a draft until it's applied.
 
@@ -313,9 +313,8 @@ function filterMenu() {
 
 // How much of the chart this view leaves out, and a way to lay out what's left.
 function boxesNote() {
-  const hidden = hiddenHere();
   const objects = Object.keys(records).filter(id => isObject(records[id]));
-  const shown = objects.filter(id => !hidden.has(id)).length;
+  const shown = drawnObjects().length;
   const o = filterOutcome(viewFilter());
   const errs = o.syntax ? 1 : o.errors.size;
   const err = errs ? ` <button class="link-btn rb-errors" data-action="menu" data-menu="rb:filter" title="The filter can’t be worked out everywhere">${o.syntax ? 'Filter doesn’t read' : count(errs, 'error')}</button>` : '';

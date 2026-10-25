@@ -193,7 +193,7 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `sample.js` | The sample ([docs/sample.md](../docs/sample.md)): its core, which formulas.md, model.html, the formula lab and the model test are about, and the fund complex a chart starts from, with its records, box positions, relation names, definitions (the deadlines and what's on file among them), required entries, entry order, views, and the history that made it |
 | `formulas.js` | The formula engine ([formulas.md](../formulas.md)): reading formulas, working out the computed records, explaining them. It touches nothing on the page |
 | `lab.js`, `lab.css` | The formula lab |
-| `styles.js` | Styles, one per form in each view: presets, what's drawn, Show and Hide, and how styles combine into a box's or line's look |
+| `styles.js` | Styles, one per form in each view: presets, what's drawn, Show and Hide, how styles combine into a box's or line's look, and what the view in use draws (its filter worked out at each object, and what it hides), which the chart, its ribbon, Home's thumbnail and a record's Open on chart all go by |
 | `panel.js` | The record panel, with computed records and their explanations, the Schema view (the chart's vocabulary, with its definitions and names), and a definition's view. Its host sets `panelOptions`: whether it's a record's page, where its links go, and how it asks a question on leaving |
 | `record.js`, `record.css` | The record page: the header, the panel as Details, and the Relations, Documents, Dates and History tabs |
 | `relate.js` | The Relate view, for relating two things |

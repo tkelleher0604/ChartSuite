@@ -436,7 +436,7 @@ const RecordPage = (() => {
     const r = records[id];
     if (!r) return '';
     const address = isObject(r) && addressOf(id);
-    const shown = !isObject(r) || (boxShown(id) && !hiddenInView().includes(id));
+    const shown = !hiddenHere().has(id);
     return [
       address && `<a class="btn btn-sm btn-primary" href="${esc(address)}" target="_blank" rel="noopener" title="${esc(documentName(address))}">Open document${icon('external-link')}</a>`,
       shown ? `<a class="btn btn-sm" href="chart.html#${encodeURIComponent(id)}" title="Select it on the chart">Open on chart</a>`

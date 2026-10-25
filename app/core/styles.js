@@ -186,6 +186,51 @@ function lineLook(id) {
   return { ...look, label: parts.map(p => p.text).join(' '), parts, styleId: style?.id };
 }
 
+// ---- What a view draws ----
+
+// A view's filter is worked out at each object the way an entry's formula would be there: bare names are
+// the object's own, looked up its path, and @ is the object. TRUE shows the box; FALSE or BLANK hides it;
+// an error shows it, marked, so a mistake in the filter doesn't make boxes vanish. It may start with ←
+// or =, or with neither. Results are kept, by text, until the formulas are worked out again, so a filter
+// being typed can be tried without losing the one in use.
+const filterCache = { result: null, outcomes: new Map() };
+
+function filterOutcome(text) {
+  if (filterCache.result !== formulaResult) Object.assign(filterCache, { result: formulaResult, outcomes: new Map() });
+  if (!filterCache.outcomes.has(text)) filterCache.outcomes.set(text, workOutFilter(text));
+  return filterCache.outcomes.get(text);
+}
+
+function workOutFilter(text) {
+  const objects = Object.keys(records).filter(id => isObject(records[id]));
+  const outcome = { total: objects.length, hidden: new Set(), errors: new Map(), syntax: null };
+  if (clean(text) && formulaResult.state) {
+    const check = Formulas.check(text);
+    if (check.error) outcome.syntax = check.error;
+    else {
+      // IF reads its condition as TRUE or FALSE, as a tag would, so a tag or a count works as a condition.
+      const test = `= IF(${Formulas.splitFormula(text).body}, TRUE, FALSE)`;
+      for (const id of objects) {
+        const v = Formulas.evaluateAt(formulaResult, test, id);
+        if (Formulas.isError(v)) outcome.errors.set(id, v);
+        else if (v !== true) outcome.hidden.add(id);
+      }
+    }
+  }
+  return outcome;
+}
+
+// Everything the view in use leaves out: what's hidden one by one, the boxes its filter leaves out or its
+// Kind style doesn't show, and so the lines to them.
+function hiddenHere() {
+  const hidden = new Set(hiddenInView());
+  for (const id of filterOutcome(viewFilter()).hidden) hidden.add(id);
+  for (const [id, r] of Object.entries(records)) if (isObject(r) && !boxShown(id)) hidden.add(id);
+  return hidden;
+}
+// The objects whose boxes the view in use draws.
+const drawnObjects = (hidden = hiddenHere()) => Object.keys(records).filter(id => isObject(records[id]) && !hidden.has(id));
+
 // The effective value of each property for a style's output, as the ribbon shows it: what the style sets,
 // and otherwise what the box or line would have without it.
 function effectiveProps(s, output) {
