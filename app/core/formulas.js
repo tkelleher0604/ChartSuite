@@ -360,7 +360,7 @@ const listNameOf = (rel, from, listed) => rel?.lists.get(`${norm(from)}|${norm(l
 
 // While a formula is worked out, the entries and relation records it reads are noted, to say why its
 // record is there.
-const note = (S, id) => { if (S.reads) S.reads.add(id); };
+const note = (S, id) => { if (S.reads) S.reads.ids.add(id); };
 
 // While a step is worked out (see settleStep), a lookup that could find one of the step's own candidates
 // notes its key, found or not, in S.deps: that's what the formula being worked out depends on. `kind` is
@@ -1450,15 +1450,29 @@ function runUpTo(S, limit) {
 const now = () => typeof performance === 'object' ? performance.now() : Date.now();
 
 // Works out an expression with what it reads noted, and within a step what it depends on (see depend).
-// Both count for any expression it's part of, too.
+// Both count for any expression it's part of, too. What an expression reads is kept as the ids it read
+// itself and the reads of what it was made of, so a lookup used many times is kept once; they're spelled
+// out (readIds) only for the records that are there, since most of what a step tries comes to nothing.
 const NONE = new Set();
+const NO_READS = { ids: NONE, parts: [] };
+function readIds(reads) {
+  const out = new Set(), seen = new Set(), stack = [reads];
+  while (stack.length) {
+    const r = stack.pop();
+    if (seen.has(r)) continue;
+    seen.add(r);
+    for (const id of r.ids) out.add(id);
+    stack.push(...r.parts);
+  }
+  return [...out];
+}
 function reading(S, fn) {
   const outer = S.reads, outerDeps = S.deps;
-  S.reads = new Set();
+  S.reads = { ids: new Set(), parts: [] };
   S.deps = S.dep ? new Set() : null;
   try { return { v: fn(), reads: S.reads, deps: S.deps ?? NONE }; }
   finally {
-    if (outer) for (const id of S.reads) outer.add(id);
+    if (outer) outer.parts.push(S.reads);
     if (outerDeps && S.deps) for (const k of S.deps) outerDeps.add(k);
     S.reads = outer;
     S.deps = outerDeps;
@@ -1469,7 +1483,7 @@ function reading(S, fn) {
 function remembered(S, key, fn) {
   if (!S.memo.has(key)) S.memo.set(key, reading(S, fn));
   const { v, reads, deps } = S.memo.get(key);
-  reads.forEach(id => note(S, id));
+  if (S.reads) S.reads.parts.push(reads);
   if (S.deps) deps.forEach(k => S.deps.add(k));
   return v;
 }
@@ -1529,7 +1543,7 @@ function valueOverlaps(S, jobs) {
     const { v, reads } = reading(S, () => safeEv(d.ast, contextFor(S, d, cand)));
     const res = asOutput(S, d, v);
     const mark = res.error || res.none ? null : equal(scalar(S, recOf(enteredId)), res.out) ? 'agrees' : 'differs';
-    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark, reads: [...reads] });
+    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark, reads: readIds(reads) });
   }
 }
 
@@ -1538,11 +1552,11 @@ function force(S, key) {
   if (!job || job.state === 'done') return null;
   if (job.state === 'busy') return circular();
   job.state = 'busy';
-  const { v, reads, deps } = job.blocked ? { v: circular(), reads: NONE, deps: NONE } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
+  const { v, reads, deps } = job.blocked ? { v: circular(), reads: NO_READS, deps: NONE } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
   const res = asOutput(S, job.d, v);
   Object.assign(job, { state: 'done', res, deps, failed: [] });
   if (res.error) {
-    addRow(S, job.d, { ...job.cand, error: res.error, reads: [...reads] });
+    addRow(S, job.d, { ...job.cand, error: res.error, reads: readIds(reads) });
     // Whatever reads the record reads the error instead.
     if (!job.d.isRelation) {
       S.failed.set(`${job.cand.at}|${norm(job.d.name)}`, res.error);
@@ -1555,7 +1569,7 @@ function force(S, key) {
   } else if (!res.none) {
     addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out));
     job.added = true;
-    addRow(S, job.d, { ...job.cand, value: res.out, reads: [...reads] });
+    addRow(S, job.d, { ...job.cand, value: res.out, reads: readIds(reads) });
   }
   return null;
 }
@@ -1694,7 +1708,7 @@ function finishStep(S, run) {
     const { d, cand, labels } = t;
     const errors = t.results.flatMap((r, i) => r && isErr(r.v) ? [{ label: d.imps[i].label, error: r.v }] : []);
     const reads = {};
-    t.results.forEach((r, i) => { if (r?.v === true) reads[d.imps[i].label] = [...new Set([...(reads[d.imps[i].label] ?? []), ...r.reads])]; });
+    t.results.forEach((r, i) => { if (r?.v === true) reads[d.imps[i].label] = [...new Set([...(reads[d.imps[i].label] ?? []), ...readIds(r.reads)])]; });
     const enteredId = S.enteredByKey.get(cand.key);
     if (t.blocked) addRow(S, d, { ...cand, error: circular() });
     else if (t.derived && !labels.length) {
