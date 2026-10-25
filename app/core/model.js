@@ -342,7 +342,10 @@ const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layo
 const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive, history: historyLog });
 
 function saveState() {
-  try { localStorage.setItem(WORKBOOK_KEY, JSON.stringify({ ...workbook, charts: currentCharts() })); } catch {}
+  let saved = true;
+  try { localStorage.setItem(WORKBOOK_KEY, JSON.stringify({ ...workbook, charts: currentCharts() })); } catch { saved = false; }
+  // The store (store.js) saves this working copy wherever the workbook is kept: a file or a SharePoint library.
+  if (typeof Store !== 'undefined') Store.changed(saved);
 }
 
 function pushUndo() {
@@ -364,11 +367,18 @@ const undoState = () => stepState(undoStack, redoStack, 'undo');
 const redoState = () => stepState(redoStack, undoStack, 'redo');
 // Puts the sample back in the current chart, as one undoable step. Other charts are left alone.
 function resetState() {
+  replaceState(sampleState(), 'Reset the chart to the sample', 'reset');
+}
+// Replaces the current chart's state with another (the sample, or the chart as a workbook file has it), as
+// one undoable step, recorded in the history with its source ('reset' or 'import'). The history only grows:
+// the chart keeps every entry it had, and gains any the other state brings.
+function replaceState(state, summary, source) {
   pushUndo();
-  const was = snapshot(), log = historyLog;
-  setState(sampleState());
-  historyLog = log;
-  noteChange('Reset the chart to the sample', changesBetween(was.records, entered), 'reset');
+  const was = snapshot();
+  setState(state);
+  const had = new Set(was.history.map(h => h.id));
+  historyLog = [...was.history, ...historyLog.filter(h => !had.has(h.id))].sort((a, b) => String(b.when).localeCompare(String(a.when)));
+  noteChange(summary, changesBetween(was.records, entered), source);
   saveState();
 }
 
