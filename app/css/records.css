@@ -89,6 +89,7 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 /* What a formula worked out is in italics (shell.css); what's blank and required says so. */
 .rec-req { color: var(--danger); font-size: 12px; font-weight: 500; }
+.rec-cell .req-mark { margin-left: 5px; color: var(--danger); font-weight: 600; vertical-align: middle; }
 .rec-cell .fx-error { color: var(--danger); font-weight: 500; font-variant-numeric: tabular-nums; }
 .rec-ovr { position: absolute; top: 0; left: 0; width: 0; height: 0; padding: 0; border: 0; border-top: 8px solid var(--border-strong); border-right: 8px solid transparent; background: none; cursor: pointer; }
 .rec-ovr.is-strong { border-top-color: var(--warn-solid); }

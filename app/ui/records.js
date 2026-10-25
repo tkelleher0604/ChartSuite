@@ -488,7 +488,11 @@
       title = `Needs ${c.path.at(-2)} first`;
     } else if (!cell.r) {
       if (cell.error) { html = `<span class="fx-error">${esc(cell.error.code)}</span>`; title = `${cell.error.msg} (${c.computedBy?.name ?? 'a formula'})`; }
-      else if (cell.missing) { cls.push('is-missing'); html = c.type === 'tag' ? checkbox(null, tagAttrs) : '<span class="rec-req">Required</span>'; title = `${c.label} is required`; }
+      else if (cell.missing) {
+        cls.push('is-missing');
+        html = c.type === 'tag' ? `${checkbox(null, tagAttrs)}<span class="req-mark" aria-hidden="true">*</span>` : '<span class="rec-req">Required</span>';
+        title = `${c.label} is required`;
+      }
       else if (cell.covered) title = 'Worked out by formula, which gives nothing here';
       else if (c.type === 'tag') html = checkbox(null, tagAttrs);
     } else if (isTag(cell.r)) {
