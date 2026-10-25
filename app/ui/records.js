@@ -635,15 +635,17 @@
     return [...new Set(here.length ? here : c.options)].sort(byLabel);
   }
 
+  // What's typed lists the options that match, best first, an exact match above all (rankBy), then offers
+  // to add it. With nothing typed, the list opens on the cell's own option, so Enter, Enter leaves it be.
   function choicePop(P) {
     const p = ui.pop;
     const c = colByKey(p.col);
     const cell = P.cell(p.row, c);
     const options = choiceOptions(c, cell);
     const q = clean(p.query);
-    p.items = [...options.filter(o => !q || norm(o).includes(norm(q))).map(value => ({ value })),
-      ...(q && !options.some(o => same(o, q)) ? [{ value: q, create: true }] : [])];
-    p.active = Math.max(0, Math.min(p.active ?? 0, p.items.length - 1));
+    p.items = [...rankBy(options, q).map(value => ({ value })), ...(q && !options.some(o => same(o, q)) ? [{ value: q, create: true }] : [])];
+    if (p.active === null) p.active = p.items.findIndex(it => cell.r && same(cell.r.choice, it.value));
+    p.active = Math.max(0, Math.min(p.active, p.items.length - 1));
     const items = p.items.map((it, i) => `<div class="option${it.create ? ' option-create' : ''}" role="option" data-cmd="records.choose" data-index="${i}" aria-selected="${i === p.active}">
       ${it.create ? `<span class="option-label">Add <strong>${esc(it.value)}</strong></span>` : `<span class="option-label">${esc(it.value)}</span>${cell.r && same(cell.r.choice, it.value) ? icon('check', 'rec-opt-check') : ''}`}</div>`).join('');
     return `<div class="pop rec-pop rec-choice-pop" role="dialog" aria-label="${esc(c.label)}">
@@ -732,8 +734,12 @@
       if (all) all.indeterminate = !all.checked && ui.rows.some(id => ui.checked.has(id));
     }
     placePop();
-    // A popover eases in when it opens, but not each time it's drawn again while open.
-    if (ui.pop?.fresh) { document.querySelector('.rec-pop')?.classList.add('is-opening'); ui.pop.fresh = false; }
+    // A popover eases in when it opens, on its option in view, but not each time it's drawn again while open.
+    if (ui.pop?.fresh) {
+      document.querySelector('.rec-pop')?.classList.add('is-opening');
+      document.querySelector('.rec-choice-pop .option[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+      ui.pop.fresh = false;
+    }
     // The keyboard goes back where it was: the box being typed in, the popover, the search, or the active cell.
     const box = ui.edit ? document.querySelector('[data-focus="edit"]') : ui.draft && ui.focus === 'draft' ? document.querySelector('[data-focus="draft"]')
       : ui.pop && ui.focus === 'pop' ? document.querySelector('.rec-pop [data-focus="pop"]') ?? document.querySelector('.rec-pop')
@@ -829,7 +835,7 @@
   function openChoice(row, c, query = '') {
     const cell = readPass().cell(row, c);
     if (!editable(cell, c)) return;
-    Object.assign(ui, { active: { row, col: c.key }, edit: null, pop: { row, col: c.key, query, active: 0, fresh: true }, focus: 'pop', caret: null });
+    Object.assign(ui, { active: { row, col: c.key }, edit: null, pop: { row, col: c.key, query, active: query ? 0 : null, fresh: true }, focus: 'pop', caret: null });
     draw();
   }
 
