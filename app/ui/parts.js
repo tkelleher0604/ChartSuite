@@ -97,6 +97,20 @@ const Parts = (() => {
   // A status: tone '' (neutral), 'success', 'warn', 'danger', 'computed' or 'accent'.
   const badge = (text, tone = '') => `<span class="badge${tone ? ` is-${tone}` : ''}">${esc(text)}</span>`;
 
+  // ---- Documents ----
+  // A file's type as its glyph (SharePoint.docIcon), the one icon that earns its place: a document's link
+  // read by SharePoint.parseDocUrl, or a file in the library, has its `kind`. cls 'is-large' sets it in a
+  // tile; 'is-empty' fades it, for a document with no file yet.
+  function file(kind = 'other', cls = '') {
+    const g = SharePoint.docIcon(kind);
+    return `<span class="doc-glyph${cls ? ` ${cls}` : ''}" title="${esc(g.title)}">${g.svg}</span>`;
+  }
+  // A document's status (a cell of Documents' rows) as a badge: in force, in progress, or no longer
+  // current; in italics where a formula gave it.
+  const STATUS_TONES = { executed: 'success', filed: 'success', final: 'success', signed: 'success', effective: 'success',
+    superseded: 'faint', terminated: 'faint', expired: 'faint', withdrawn: 'faint' };
+  const docStatus = cell => !cell ? '' : `<span class="${cell.computed ? 'computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${badge(cell.text, STATUS_TONES[norm(cell.text)] ?? '')}</span>`;
+
   // A filter above a list, as a chip. Unset, it reads "+ Label", and opens its menu (`cmd`, a Shell
   // handler). Set, it reads what it's set to, `Label: <b>value</b>`, or `text` (markup) where a sentence
   // says it better, and opens its menu again; × clears it (`clear`). `data` goes on both, as data
@@ -134,5 +148,5 @@ const Parts = (() => {
   // A person's initials in a circle, for who made a change.
   const avatar = name => `<span class="avatar" title="${esc(name)}">${esc(clean(name).split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?')}</span>`;
 
-  return { chip, link, output, outputText, tagBox, formulaText, overrideMark, formulaError, date, daysUntil, dueText, when, badge, filterChip, columnHead, empty, avatar };
+  return { chip, link, output, outputText, tagBox, formulaText, overrideMark, formulaError, date, daysUntil, dueText, when, badge, file, docStatus, filterChip, columnHead, empty, avatar };
 })();

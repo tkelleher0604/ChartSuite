@@ -139,6 +139,13 @@ a.chip:hover, button.chip:hover { background: var(--border); }
 .badge.is-computed { background: var(--computed-soft); color: var(--computed); }
 .badge.is-accent { background: var(--accent-soft); color: var(--accent-text); }
 
+/* ---- A file's type (Parts.file): the one icon that earns its place ---- */
+.doc-glyph { display: inline-grid; place-items: center; vertical-align: middle; color: var(--text-2); }
+.doc-glyph .doc-icon { width: 20px; height: 20px; }
+.doc-glyph.is-empty { opacity: .45; }
+.doc-glyph.is-large { flex: none; width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--bg); color: var(--text-2); }
+.doc-glyph.is-large .doc-icon { width: 22px; height: 22px; }
+
 /* ---- Tabs ---- */
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }
 .tab { position: relative; display: inline-flex; align-items: center; height: 38px; padding: 0 10px; border: 0; background: none; color: var(--text-2); font-weight: 500; }

@@ -60,7 +60,7 @@
 
 /* ---- Documents ---- */
 .record-docs { padding-top: 4px; }
-.record-doc { display: flex; align-items: center; gap: 10px; padding: 10px 0 10px 10px; }
+.record-doc { display: flex; align-items: center; gap: 12px; padding: 10px 0 10px 10px; }
 .record-doc + .record-doc { border-top: 1px solid var(--border); }
 .record-doc-text { flex: 1; min-width: 0; }
 .record-doc-name { font-weight: 500; overflow-wrap: anywhere; }

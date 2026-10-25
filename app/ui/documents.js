@@ -17,181 +17,37 @@
 
 (() => {
 const connector = SharePoint.connector;
-const DOC_KIND = Shell.DOCUMENT_KIND;
+const DOC_KIND = Documents.KIND;
 const DEMO_HOST = new URL(SharePoint.DEMO.site).host;
 
 // ---- What a document's record holds ----
-
-// The entries a document's columns are read from, by label, in order of preference; a new document's are
-// labeled with the first, unless the schema already labels documents' entries otherwise. Each role says
-// what its entry is: a choice, or a field of a datatype.
-const ROLES = {
-  link: { labels: ['Link'], type: 'field', datatype: 'document' },
-  type: { labels: ['Document Type', 'Type'], type: 'choice' },
-  date: { labels: ['Document Date', 'Effective Date', 'Date'], type: 'field', datatype: 'date' },
-  status: { labels: ['Status'], type: 'choice' },
-  version: { labels: ['Version'], type: 'field', datatype: 'text' },
-};
-// The statuses offered before any document has one (docs/domain-research.md, §4).
-const STATUSES = ['Draft', 'Executed', 'Filed', 'Superseded'];
-// How a status reads: in force, in progress, or no longer current.
-const STATUS_TONES = { executed: 'success', filed: 'success', final: 'success', signed: 'success', superseded: 'faint', terminated: 'faint', expired: 'faint', withdrawn: 'faint' };
-// The relation a document's subjects are recorded by, when the chart has none yet, and its list's name
-// seen from a subject: an entity's Documents.
-const CONCERNS = { name: 'Concerns', doc: 'Document', subject: 'Subject', list: 'Documents' };
-
-const isDocField = r => isField(r) && r.field === 'document';
-const isDocObject = id => !!records[id] && isObject(records[id]) && same(records[id].kind, DOC_KIND);
-const docKindKey = () => `kind:${norm(DOC_KIND)}`;
-
-// The entry for a role at a record: the first of the role's labels it has. A document's link is
-// whichever document field it has, if none is labeled Link.
-function entryFor(at, role) {
-  const entries = entriesOf(at);
-  for (const label of ROLES[role].labels) {
-    const id = entries.find(e => same(records[e].edge, label));
-    if (id) return id;
-  }
-  return role === 'link' ? entries.find(e => isDocField(records[e])) ?? null : null;
-}
-
-// The entries the schema has on documents: label → { label, type, datatype, outputs }.
-function docSchema() {
-  const out = new Map();
-  for (const k of indexOf().entriesAt.get(docKindKey()) ?? []) {
-    const t = schema[k], label = t.args[0].edge, key = norm(label);
-    if (!out.has(key)) out.set(key, { label, type: typeOfTree(t), datatype: t.out.field, outputs: [] });
-    if ('choice' in t.out && !out.get(key).outputs.some(o => same(o, t.out.choice))) out.get(key).outputs.push(t.out.choice);
-  }
-  return out;
-}
-// How a role's entry is written on a new document: its label and type, the schema's where it has them.
-function entrySpec(role) {
-  const known = docSchema();
-  const label = ROLES[role].labels.find(l => known.has(norm(l))) ?? ROLES[role].labels[0];
-  const s = known.get(norm(label));
-  return { label: s?.label ?? label, type: s?.type ?? ROLES[role].type, datatype: s?.datatype ?? ROLES[role].datatype };
-}
-// The options a role's choice offers: those the schema has, or for a status, the usual ones too.
-function optionsOf(role) {
-  const have = docSchema().get(norm(entrySpec(role).label))?.outputs ?? [];
-  const extra = role === 'status' ? STATUSES.filter(s => !have.some(o => same(o, s))) : [];
-  return [...have, ...extra].sort(byLabel);
-}
-
-// The objects a record belongs to: an entry's object, or the objects a relation relates.
-function holdersOf(at) {
-  const r = records[at];
-  if (!r) return [];
-  if (isObject(r)) return [at];
-  return isRelation(r) ? [...new Set(r.args.flatMap(a => holdersOf(a.at)))] : holdersOf(r.at);
-}
-
-// Worked out once for each set of records (which every change replaces, schema and all): the relations
-// at each location, the relation documents' subjects are recorded by, every document, and what each
-// object owns.
-const memo = { recs: null, names: null, rels: null, concerns: null, rows: null, owns: null };
-function fresh() {
-  if (memo.recs === records && memo.names === names) return memo;
-  memo.recs = records; memo.names = names;
-  memo.rels = new Map();
-  for (const [id, r] of Object.entries(records))
-    if (isRelation(r)) for (const at of new Set(r.args.map(a => a.at))) pushTo(memo.rels, at, id);
-  memo.concerns = concernsRelation();
-  memo.owns = null;
-  memo.rows = documentRows();
-  return memo;
-}
-
-// The records a document concerns: the other side of each of its Concerns relations, in the order they
-// were related, each with the relation and whether a formula worked it out. A ruled-out tag relates
-// nothing. The document's other relations show in its pane, each under its own name.
-function subjectsOf(docId) {
-  const out = new Map();
-  const { rels, concerns } = fresh();
-  for (const rid of rels.get(docId) ?? []) {
-    const r = records[rid];
-    if ((isTag(r) && !r.tag) || formKeyOf(rid) !== concerns.form) continue;
-    for (const a of r.args) {
-      if (a.at === docId) continue;
-      for (const h of holdersOf(a.at)) if (h !== docId && !isDocObject(h) && !out.has(h)) out.set(h, { id: h, rel: rid, computed: isComputed(rid) });
-    }
-  }
-  return [...out.values()];
-}
-
-// A file's title: its name less its extension. A legal name's last period goes with the extension
-// (Partners III, L.P.pdf), so it comes back.
-const titleOf = name => String(name ?? '').replace(/\.[a-z0-9]{1,5}$/i, '').replace(/\b([A-Z]\.[A-Z])$/, '$1.');
-const fileNameOf = link => SharePoint.parseDocUrl(link).fileName ?? documentName(link);
-
-// A document as the table lists it:
-//   { id, record, own, name, link, linkId, url, type, date, status, version, subjects }
-// `id` is the Document object's id, or the field's for a document field elsewhere; `record` is what its
-// name opens; `own` says whether it's a Document record, whose details can be edited here. `url` is what
-// its link points at (parseDocUrl). type, status and version are { id, text, computed }, date { id, iso,
-// computed }, each null where the record has none.
-function indexRow(id) {
-  const cell = role => { const e = entryFor(id, role); return e ? { id: e, text: Parts.outputText(records[e]), computed: isComputed(e) } : null; };
-  const linkId = entryFor(id, 'link');
-  const link = linkId && isDocField(records[linkId]) ? records[linkId].value : null;
-  const dateId = entryFor(id, 'date');
-  return {
-    id, record: id, own: true, name: objectName(id), link, linkId, url: link ? SharePoint.parseDocUrl(link) : null,
-    type: cell('type'), status: cell('status'), version: cell('version'),
-    date: dateId && records[dateId].field === 'date' ? { id: dateId, iso: records[dateId].value, computed: isComputed(dateId) } : null,
-    subjects: subjectsOf(id),
-  };
-}
-function fieldRow(id) {
-  const r = records[id];
-  return {
-    id, record: pathTo(id)[0], own: false, name: titleOf(fileNameOf(r.value)), link: r.value, linkId: id, url: SharePoint.parseDocUrl(r.value),
-    type: { id, text: r.edge, computed: false }, status: null, version: null, date: null,
-    subjects: holdersOf(r.at).map(h => ({ id: h, rel: null, computed: false })),
-  };
-}
-// Every document: the Document records, then document fields elsewhere. A field linking to a file a
-// document already links to is a reference to that document, not another one; a computed field is a
-// reference too.
-function documentRows() {
-  const rows = objectsOfKind(DOC_KIND).map(indexRow);
-  const byLink = new Map(rows.filter(r => r.link).map(r => [linkKey(r.link), r]));
-  for (const [id, r] of Object.entries(records)) {
-    if (!isDocField(r) || isComputed(id) || isDocObject(pathTo(id)[0])) continue;
-    const row = fieldRow(id), seen = byLink.get(linkKey(r.value));
-    if (!seen) { byLink.set(linkKey(r.value), row); rows.push(row); }
-    else if (!seen.own) seen.subjects = [...new Map([...seen.subjects, ...row.subjects].map(s => [s.id, s])).values()];
-  }
-  return rows;
-}
-const rowById = id => fresh().rows.find(r => r.id === id) ?? null;
+// Read as core/documents.js reads it, for every page that lists documents.
+const { ROLES, CONCERNS, isDocField, isDocObject, entryFor, entrySpec, optionsOf, holdersOf, concernsRelation, subjectsOf,
+  titleOf, fileNameOf, linkKey, documentRows, rowById } = Documents;
+// How a status reads: in force, in progress, or no longer current (Parts.docStatus).
+const statusBadge = Parts.docStatus;
 
 // What each object owns, directly or through what it owns, by the relation named Ownership, whose first
-// edge is the owner's (as the chart's Tidy layout reads ownership too).
+// edge is the owner's (as the chart's Tidy layout reads ownership too). Read once for each set of records.
+const owns = { recs: null, names: null, map: null };
 function ownedBelow(ids) {
-  if (!memo.owns) {
-    memo.owns = new Map();
+  if (owns.recs !== records || owns.names !== names) {
+    Object.assign(owns, { recs: records, names, map: new Map() });
     for (const [rid, r] of Object.entries(records)) {
       if (!isRelation(r) || r.args.length !== 2 || !isTag(r) || r.tag !== true || !same(relationNameOf(rid), 'Ownership')) continue;
       const edges = names[formKeyOf(rid)]?.edges;
       const [owner, owned] = edges ? edges.map(e => r.args.find(a => same(a.edge, e))) : r.args;
-      if (owner && owned) pushTo(memo.owns, objectOf(owner.at), objectOf(owned.at));
+      if (owner && owned) pushTo(owns.map, objectOf(owner.at), objectOf(owned.at));
     }
   }
   const out = new Set(ids);
   for (const queue = [...ids]; queue.length;)
-    for (const next of memo.owns.get(queue.shift()) ?? []) if (!out.has(next)) { out.add(next); queue.push(next); }
+    for (const next of owns.map.get(queue.shift()) ?? []) if (!out.has(next)) { out.add(next); queue.push(next); }
   return out;
 }
 
 // ---- Where a document lives ----
 
-// A link as a key, so the same file's addresses compare equal: decoded, without its query, in lower case.
-function linkKey(url) {
-  const s = String(url ?? '').split(/[?#]/)[0];
-  try { return decodeURIComponent(s).toLowerCase(); } catch { return s.toLowerCase(); }
-}
 const isEdgar = p => /(^|\.)sec\.gov$/.test(p?.host ?? '');
 const SYSTEM_NAMES = { sharepoint: 'SharePoint', onedrive: 'OneDrive', netdocuments: 'NetDocuments', imanage: 'iManage', file: 'File share' };
 const systemName = p => isEdgar(p) ? 'EDGAR' : SYSTEM_NAMES[p.system] ?? p.host ?? 'the web';
@@ -208,7 +64,7 @@ function whereText(p) {
 }
 const openLabel = p => !p ? 'Open' : p.system === 'sharepoint' ? 'Open in SharePoint' : p.system === 'web' && !isEdgar(p) ? 'Open link'
   : p.system === 'file' ? 'Open file' : `Open in ${systemName(p)}`;
-const glyph = (kind, cls = '') => { const g = SharePoint.docIcon(kind); return `<span class="doc-glyph ${cls}" title="${esc(g.title)}">${g.svg}</span>`; };
+const glyph = Parts.file;
 const sizeText = n => n == null ? '' : n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 const folderText = path => String(path ?? '').split('/').filter(Boolean).join(' › ');
 // A library column's internal name as people read it: DocumentType is Document Type.
@@ -303,7 +159,7 @@ async function scanLibrary() {
 }
 // The library's files that no record links to: matched by the file a link was read as, or by address.
 function unlinkedFiles() {
-  const rows = fresh().rows;
+  const rows = documentRows();
   const ids = new Set(rows.map(r => itemOf(r.link)?.id).filter(Boolean));
   const keys = new Set(rows.filter(r => r.link).map(r => linkKey(r.link)));
   return lib.files.list.filter(f => !ids.has(f.id) && !keys.has(linkKey(f.webUrl)));
@@ -401,7 +257,7 @@ function sorted(list, keyOf, { key, dir }) {
 // ---- Drawing the page ----
 
 function page() {
-  const { rows } = fresh();
+  const rows = documentRows();
   const files = lib.files.state === 'ok' ? unlinkedFiles() : [];
   const broken = rows.filter(isBroken);
   // What's been deleted, or undone, since it was chosen is let go.
@@ -446,7 +302,7 @@ function facetChip(facet) {
 }
 // An option as written, from its key.
 function optionText(facet, key) {
-  const row = fresh().rows.find(r => norm(r[facet]?.text ?? '') === key);
+  const row = documentRows().find(r => norm(r[facet]?.text ?? '') === key);
   return row?.[facet]?.text ?? key;
 }
 
@@ -461,7 +317,6 @@ function subjectChips(subjects, max = 1) {
   return `<div class="chips docs-chips">${subjects.slice(0, max).map(s => Parts.chip(s.id, { computed: s.computed })).join('')}${more > 0
     ? `<span class="docs-more" title="${esc(subjects.slice(max).map(s => objectName(s.id)).join(', '))}">+${more}</span>` : ''}</div>`;
 }
-const statusBadge = cell => !cell ? '' : `<span class="${cell.computed ? 'computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${Parts.badge(cell.text, STATUS_TONES[norm(cell.text)] ?? '')}</span>`;
 const cellText = (cell, cls = '') => !cell ? '' : `<span class="${cls}${cell.computed ? ' computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${esc(cell.text)}</span>`;
 
 function linkedView(rows) {
@@ -520,7 +375,7 @@ function brokenView(broken) {
   if (notice) return notice;
   const shown = sorted(shownRows('broken', broken), SORTS, ui.sort.broken);
   const tools = toolbar({ facets: false, shown: shown.length, total: broken.length, noun: 'documents' });
-  const checking = fresh().rows.some(r => checkOf(r.link)?.state === 'checking');
+  const checking = documentRows().some(r => checkOf(r.link)?.state === 'checking');
   if (!broken.length) return `${tools}<div class="docs-body">${checking ? Parts.empty({ title: 'Checking links…', desc: 'Each SharePoint link is being looked up in the library.' })
     : Parts.empty({ title: 'Every link works', desc: 'Each SharePoint link leads to a file in the library.' })}</div>`;
   const head = `<th class="c-glyph"><span class="visually-hidden">File type</span></th>${sortHead('broken', 'name', 'Name', 'c-name')}${sortHead('broken', 'subjects', 'Concerns', 'c-subjects')}`
@@ -708,22 +563,6 @@ function subjectsNamedIn(text) {
 // ---- Writing to the chart ----
 // Every edit is one change through the model, so it can be undone and is recorded in the History.
 
-// The relation a document's subjects are recorded by: the chart's relation named Concerns, between a
-// document and something else, or one with Concerns' edges, or Concerns as it would be made.
-function concernsRelation() {
-  const doc = docKindKey();
-  let likely = null;
-  for (const k of indexOf().relationsAt.get(doc) ?? []) {
-    const t = schema[k];
-    if (t.args.length !== 2 || !('tag' in t.out)) continue;
-    const i = t.args.findIndex(a => treeKey(a.loc) === doc);
-    if (treeKey(t.args[1 - i].loc) === doc) continue;
-    const rel = { doc: t.args[i].edge, subject: t.args[1 - i].edge, form: formOfTree(t) };
-    if (same(formName(rel.form), CONCERNS.name)) return rel;
-    if (same(rel.doc, CONCERNS.doc) && same(rel.subject, CONCERNS.subject)) likely ??= rel;
-  }
-  return likely ?? { doc: CONCERNS.doc, subject: CONCERNS.subject, form: null };
-}
 // The names with Concerns named, if the relation just recorded (`relId`, in `next`) is of a form that has
 // no name yet, and its subjects' list named Documents.
 function namesWithConcerns(next, relId) {
@@ -786,7 +625,7 @@ function saveDetails(row, form) {
     const value = entryRecord(row.id, { label: r.edge, type: 'field', datatype: r.field }, v).value;
     if (r.value !== value) next[id] = { ...r, value };
   }
-  const rel = fresh().concerns;
+  const rel = concernsRelation();
   const had = subjectsOf(row.id), want = new Set(form.subjects);
   drop(had.filter(s => !s.computed && !want.has(s.id) && records[s.rel] && !isComputed(s.rel)).map(s => s.rel));
   let relId = null;
@@ -820,7 +659,7 @@ function linkFile(file) {
 // record picker does, and Include what they own.
 
 function facetOptions(facet, query = '') {
-  const rows = fresh().rows.filter(r => passes(r, facet));
+  const rows = documentRows().filter(r => passes(r, facet));
   const counts = new Map();
   for (const r of rows) for (const k of facetKey(facet, r)) counts.set(k, (counts.get(k) ?? 0) + 1);
   for (const k of ui.facets[facet]) if (!counts.has(k)) counts.set(k, 0);
@@ -947,8 +786,8 @@ function dialogHtml() {
 }
 
 function browseHtml(d) {
-  const linked = new Map(fresh().rows.filter(r => r.link).map(r => [linkKey(r.link), r]));
-  const linkedTo = it => linked.get(linkKey(it.webUrl)) ?? fresh().rows.find(r => itemOf(r.link)?.id === it.id);
+  const linked = new Map(documentRows().filter(r => r.link).map(r => [linkKey(r.link), r]));
+  const linkedTo = it => linked.get(linkKey(it.webUrl)) ?? documentRows().find(r => itemOf(r.link)?.id === it.id);
   const searching = !!clean(d.query);
   const list = searching ? d.results ?? { state: 'loading', items: [] } : d.list;
   const crumbs = [{ name: 'Documents' }, ...d.trail].map((f, i, all) => i === all.length - 1 && !searching
@@ -1104,7 +943,7 @@ function select(id) {
   render();
 }
 function shownIds() {
-  const { rows } = fresh();
+  const rows = documentRows();
   if (ui.tab === 'unlinked') return [...document.querySelectorAll('.docs-table tbody tr[data-row]')].map(tr => tr.dataset.row);
   return sorted(shownRows(ui.tab, rows), SORTS, ui.sort[ui.tab]).map(r => r.id);
 }
@@ -1252,7 +1091,7 @@ function restore() {
 // After each drawing: what the page shows is read from the library, if it hasn't been.
 function load() {
   if (!lib.signedIn) return;
-  for (const row of fresh().rows) check(row.link);
+  for (const row of documentRows()) check(row.link);
   const row = ui.tab !== 'unlinked' && ui.selected && rowById(ui.selected);
   versionsOf(row ? itemOf(row.link) : ui.tab === 'unlinked' && ui.selected ? fileById(ui.selected) : null);
 }

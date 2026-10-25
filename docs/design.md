@@ -71,7 +71,7 @@ A page loads its scripts in this order:
 1. `ui/prepaint.js` in `<head>`;
 2. `css/base.css`, `css/shell.css` and the page's own CSS;
 3. in `<body>`, the core: `core/common.js`, `core/model.js`, `core/sample.js`, `core/formulas.js`, `core/styles.js`;
-4. where the workbook is kept: `../vendor/msal/msal-browser.min.js`, `core/sharepoint.js`, `core/store.js`. Every page loads these, so a change made on any page is saved wherever the workbook lives, and the sidebar's status is true;
+4. where the workbook and its documents are kept: `../vendor/msal/msal-browser.min.js`, `core/sharepoint.js`, `core/documents.js` (what the chart records about documents, as the Documents area and a record's page list them), `core/store.js`. Every page loads these, so a change made on any page is saved wherever the workbook lives, and the sidebar's status is true;
 5. `ui/shell.js` and `ui/parts.js`;
 6. the area's own script, `ui/<area>.js`, which calls `Shell.start(…)`.
 
@@ -114,6 +114,7 @@ Use these so a record reads the same everywhere:
 - `Parts.dueText(iso)` and `Parts.daysUntil(iso)`: how far off a date is.
 - `Parts.when(stamp)`: a moment relative to now, with the exact time on hover.
 - `Parts.badge(text, tone)`, where tone is `''`, `'success'`, `'warn'`, `'danger'`, `'computed'`, `'accent'` or `'faint'` (superseded, set aside).
+- `Parts.file(kind, cls)`: a file's type as its glyph, from its link (`SharePoint.parseDocUrl(link).kind`), or a library file's `kind`. `Parts.docStatus(cell)`: a document's status as a badge, green in force, quiet when superseded.
 - `Parts.columnHead({ label, sort, cmd, menu, data, cls, extra, title })`: a table's column heading, which sorts by its column when clicked (`cmd`), with a chevron for the column's menu (`menu`) if the table has one.
 - `Parts.filterChip({ label, value, text, cmd, clear, data, tone })`: a filter above a list. Unset, it reads "+ Label" and opens its menu (`cmd`). Set, it reads `Label: value` (or `text`, as markup, where a sentence says it better, like Jurisdiction is **Delaware**), opens its menu again, and × clears it (`clear`). Its menu is a `Shell.menu`; a filter that takes several values ticks them, and stays open.
 - `Parts.empty({ title, desc, action })`.

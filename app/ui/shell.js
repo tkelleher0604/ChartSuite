@@ -31,7 +31,7 @@ const Shell = (() => {
   ];
   // The Documents area is the table of the Document kind, with the library beside it, so the kind isn't
   // listed again under Records.
-  const DOCUMENT_KIND = 'Document';
+  const DOCUMENT_KIND = Documents.KIND;
   const RECENT_KEY = 'rboreal.recent';
   const MARK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="1.75" width="5" height="3.5" rx="1"/><rect x="1.5" y="10.75" width="5" height="3.5" rx="1"/><rect x="9.5" y="10.75" width="5" height="3.5" rx="1"/><path d="M8 5.25v2.75M4 10.75V8h8v2.75"/></svg>';
   const modKey = isMac ? '⌘' : 'Ctrl';

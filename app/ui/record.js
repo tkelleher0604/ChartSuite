@@ -18,7 +18,7 @@ const RecordPage = (() => {
     historyAll: false,            // whether History lists every change, not just the latest
     openLists: new Set(),         // the computed lists of relations opened out, by key
   };
-  const DOCUMENT = Shell.DOCUMENT_KIND;
+  const DOCUMENT = Documents.KIND;
   const HISTORY_SHOWN = 30;
   const WIDE_FROM = 1000; // the width the page needs for two columns
 
@@ -43,28 +43,22 @@ const RecordPage = (() => {
 
   // ---- Reading the record ----
 
-  const isDocument = id => isObject(records[id]) && same(records[id].kind, DOCUMENT);
+  const isDocument = Documents.isDocObject;
   const titleOf = id => isObject(records[id]) ? objectName(id) : relationNameOf(id);
   const sidesText = id => records[id].args.map(a => objectName(objectOf(a.at))).join(' → ');
-  // Each record by the one it's inside (the start of its path), and each relation by the objects it
-  // relates, worked out once for each state, since a state is never changed in place.
+  // Each record by the one it's inside (the start of its path), worked out once for each state, since a
+  // state is never changed in place.
   const indexes = new WeakMap();
   function index() {
     if (!indexes.has(records)) {
-      const byHead = new Map(), byObject = new Map();
-      const add = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
-      for (const k of Object.keys(records)) {
-        add(byHead, pathTo(k)[0], k);
-        if (isRelation(records[k])) for (const o of new Set(records[k].args.map(a => objectOf(a.at)))) add(byObject, o, k);
-      }
-      indexes.set(records, { byHead, byObject });
+      const byHead = new Map();
+      for (const k of Object.keys(records)) pushTo(byHead, pathTo(k)[0], k);
+      indexes.set(records, { byHead });
     }
     return indexes.get(records);
   }
   // Everything inside a record, at any depth.
   const inside = id => (index().byHead.get(id) ?? []).filter(k => k !== id);
-  // The relations an object is in, at itself or at something inside it.
-  const relationsOf = id => index().byObject.get(id) ?? [];
   // What the tabs list, worked out once for each state of the records and the history.
   let memo = { of: {}, lists: {} };
   function once(name, id, fn) {
@@ -72,8 +66,8 @@ const RecordPage = (() => {
     if (of.records !== records || of.historyLog !== historyLog || of.id !== id) memo = { of: { records, historyLog, id }, lists: {} };
     return memo.lists[name] ??= fn(id);
   }
-  // A document's address, from its first document field.
-  const addressOf = id => { const k = entriesOf(id).find(e => isField(records[e]) && records[e].field === 'document'); return k ? records[k].value : null; };
+  // A document's address: its link (Documents.entryFor), or its first document field.
+  const addressOf = id => { const k = Documents.entryFor(id, 'link'); return k && Documents.isDocField(records[k]) ? records[k].value : null; };
 
   // The relations an object is in, by the list each puts the other side in, seen from here (Owners,
   // Holdings), from every location in the object, as the panel's rows group them there. Lists of entered
@@ -103,26 +97,8 @@ const RecordPage = (() => {
     return [out, ...fields.map(e => displayValue(records[e]))].filter(Boolean).slice(0, 2).join(' · ');
   }
 
-  // The documents that concern an object: the Document objects it's related to, newest first, each with its
-  // address, type, date, status and version where it has them.
-  const documentsOf = id => once('documents', id, findDocuments);
-  function findDocuments(id) {
-    const docs = new Set();
-    for (const rel of relationsOf(id)) for (const a of records[rel].args) if (objectOf(a.at) !== id && isDocument(objectOf(a.at))) docs.add(objectOf(a.at));
-    return [...docs].map(documentFacts).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || byLabel(objectName(a.id), objectName(b.id)));
-  }
-  function documentFacts(doc) {
-    const es = entriesOf(doc);
-    const pick = (test, prefer = () => true) => es.find(e => test(records[e]) && prefer(records[e])) ?? es.find(e => test(records[e]));
-    const date = pick(r => isField(r) && r.field === 'date', r => /date/i.test(r.edge));
-    return {
-      id: doc, date: date ? records[date].value : null, dateId: date,
-      type: pick(r => isChoice(r) && !/status/i.test(r.edge), r => /type/i.test(r.edge)),
-      status: pick(r => isChoice(r) && /status/i.test(r.edge)),
-      version: pick(r => isField(r) && /version/i.test(r.edge)),
-      address: addressOf(doc),
-    };
-  }
+  // The documents that concern an object, newest first, as the Documents area lists them (Documents.concerning).
+  const documentsOf = id => once('documents', id, Documents.concerning);
 
   // Every date in a record, entered or computed, as the agenda has it (Agenda.events): inside it, and for an
   // object, on the relations it's in and inside those.
@@ -233,17 +209,17 @@ const RecordPage = (() => {
       const action = documentRelation(id) ? { label: 'Link document', cmd: 'record.link-document' } : { label: 'Go to Documents', href: 'documents.html' };
       return Parts.empty({ title: 'No documents linked yet', desc: 'Documents that concern this record show up here.', action });
     }
+    // Each with its file's glyph, then its type, date and version, its status, and Open.
+    const text = (cell, cls = '') => `<span class="${cls}${cell.computed ? ' computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${esc(cell.text)}</span>`;
     return `<div class="record-docs">${docs.map(d => {
-      const status = d.status ? records[d.status].choice : '';
-      const done = /^(executed|final|signed|filed|effective)$/i.test(status);
-      const date = d.date ? `<span class="tnum${isComputed(d.dateId) ? ' computed-text' : ''}">${esc(Parts.date(d.date))}</span>` : '';
-      const meta = [d.type && Parts.output(d.type), date, d.version && `${esc(records[d.version].edge)} ${Parts.output(d.version)}`]
-        .filter(Boolean).map(m => `<span class="record-meta">${m}</span>`).join('<span class="record-sep">·</span>');
-      const open = d.address ? `<a class="btn btn-sm btn-ghost" href="${esc(d.address)}" target="_blank" rel="noopener" title="${esc(documentName(d.address))}">Open${icon('external-link')}</a>` : '';
-      return `<div class="record-doc">
-          <div class="record-doc-text"><a class="record-doc-name" href="${esc(Shell.recordHref(d.id))}">${esc(objectName(d.id))}</a>
+      const meta = [d.type && text(d.type), d.date && text({ ...d.date, text: Parts.date(d.date.iso) }, 'tnum'),
+        d.version && `${esc(records[d.version.id].edge)} ${text(d.version)}`]
+        .filter(Boolean).map(m => `<span class="record-meta">${m}</span>`).join('<wbr><span class="record-sep">·</span>');
+      const open = d.link ? `<a class="btn btn-sm btn-ghost" href="${esc(d.link)}" target="_blank" rel="noopener" title="${esc(Documents.fileNameOf(d.link))}">Open${icon('external-link')}</a>` : '';
+      return `<div class="record-doc">${Parts.file(d.url?.kind, d.link ? '' : 'is-empty')}
+          <div class="record-doc-text"><a class="record-doc-name" href="${esc(Shell.recordHref(d.record))}">${esc(d.name)}</a>
             ${meta ? `<div class="record-doc-meta">${meta}</div>` : ''}</div>
-          ${status ? Parts.badge(status, done ? 'success' : '') : ''}${open}</div>`;
+          ${Parts.docStatus(d.status)}${open}</div>`;
     }).join('')}</div>`;
   }
 
