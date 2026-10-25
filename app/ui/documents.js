@@ -1104,6 +1104,7 @@ Shell.start({
   actions: () => `${sourceButton()}<button class="btn btn-sm" data-cmd="docs.link">Link document</button>`,
   render: () => { keep(); return page(); },
   after: () => { restore(); load(); },
+  keys: [['↑ ↓, or J K', 'Move through the documents'], ['Enter', 'Open the document’s record'], ['Esc', 'Close the preview']],
   commands: () => [
     { title: 'Link document', keywords: 'add file sharepoint index', run: () => openDialog({ mode: 'link', step: 'browse' }) },
     { title: 'Show files not linked', keywords: 'reconcile library unlinked sharepoint', run: () => setTab('unlinked') },

@@ -41,6 +41,7 @@
 
   const word = () => ui.kind.toLowerCase();
   const kindPlural = () => plural(ui.kind);
+  const MOD = isMac ? '⌘' : 'Ctrl';
 
   // ---- Remembered per kind ----
   const PREFS_KEY = 'rboreal.records';
@@ -1348,8 +1349,9 @@
   });
 
   // ---- Keys ----
-  // The shell's own keys come first (Ctrl+K, G then a letter, ?, /, undo and redo), so typing over a cell
-  // starts with any other key.
+  // Every key the table acts on, it claims (preventDefault), and the shell leaves a claimed key be: typing
+  // over a cell can start with G, which would otherwise begin the shell's G then a letter. The shell keeps
+  // Ctrl+K, ?, / and undo and redo, which no value starts with.
 
   function editorKeys(e) {
     const step = { Enter: [e.shiftKey ? -1 : 1, 0], Tab: [0, e.shiftKey ? -1 : 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.key];
@@ -1418,8 +1420,8 @@
       if (error) Shell.toast(error, { tone: 'error' });
       return render();
     }
-    // Typing over a cell starts editing it with what's typed, as in a spreadsheet; G is the shell's.
-    if (e.key.length === 1 && e.key !== ' ' && !'g?/'.includes(e.key.toLowerCase()) && (c.type === 'field' || c.type === 'choice')) {
+    // Typing over a cell that can be edited starts editing it with what's typed, as in a spreadsheet.
+    if (e.key.length === 1 && !' ?/'.includes(e.key) && (c.type === 'field' || c.type === 'choice') && editable(readPass().cell(a.row, c), c)) {
       e.preventDefault();
       act(a.row, c, { text: e.key });
     }
@@ -1533,6 +1535,9 @@
       <button class="btn btn-sm btn-primary" data-cmd="records.new">${icon('plus')}New ${esc(word())}</button>`,
     render: pageHtml,
     after,
+    keys: [['Arrows, Tab', 'Move between cells'], ['Enter or F2', 'Edit the cell, or open its options'], ['A letter or digit', 'Type over the cell'],
+      ['Space', 'Attest a tag, or rule it out'], ['Delete', 'Clear the cell'], [`${MOD}+Enter`, 'Open the row’s record'],
+      [`${MOD}+C`, 'Copy the cell, or the ticked rows'], [`${MOD}+V`, 'Paste cells, as copied from Excel'], ['Esc', 'Cancel, or untick the rows']],
     commands: () => [
       { title: `New ${word()}`, keywords: 'add create row record', run: startDraft },
       { title: `Export ${kindPlural().toLowerCase()} as CSV`, keywords: 'download excel spreadsheet', run: exportCsv },
