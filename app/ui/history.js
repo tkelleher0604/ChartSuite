@@ -15,19 +15,28 @@
   const PAGE = 150;  // entries drawn before "Show older changes"
   const RUN = 3;     // like changes in a row, by one person, that fold into one line
   const KEYS = ['who', 'record', 'what', 'from', 'to', 'q'];
-  const WHAT = [['records', 'Records'], ['definitions', 'Definitions'], ['names', 'Names'], ['required', 'Required entries'], ['schema', 'Schema']];
+  const WHAT = [['records', 'Records'], ['definitions', 'Definitions'], ['descriptions', 'Descriptions'], ['names', 'Names'], ['required', 'Required entries'], ['schema', 'Schema']];
+  // How a change was made, when not by an edit. Its words say so for an undo ("Undid …"), a redo, a reset
+  // and an import, so only a restore, which reads as the change it makes, is marked.
   const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset', import: 'Import', restore: 'Restore' };
+  const SAID = { undo: /^Undid\b/, redo: /^Redid\b/, reset: /^Reset\b/, import: /^Imported\b/ };
+  const marked = entry => SOURCES[entry.source] && !SAID[entry.source]?.test(String(entry.summary)) ? SOURCES[entry.source] : '';
   // A summary starts with what was done. After a person's name it reads on: "Ann Lee changed …".
-  const VERB = /^(Added|Changed|Deleted|Required|Stopped|Reset|Restored|Removed|Renamed|Moved|Imported|Copied)\b/;
+  const VERB = /^(Added|Changed|Deleted|Required|Stopped|Reset|Restored|Removed|Renamed|Moved|Imported|Copied|Undid|Redid|Described)\b/;
 
   // What's open on the page: kept while it's open, but not in the address.
   const ui = { open: new Set(), runs: new Set(), limit: PAGE, dates: false, failed: null, focus: null };
 
   // ---- Filters, in the address ----
 
+  // The filters the address gives, a date range only as far as its dates are real days (2026-03-31), so a
+  // garbled address filters by nothing rather than by nonsense.
+  const isDay = s => { const [y, m, d] = String(s).split('-').map(Number); return /^\d{4}-\d{2}-\d{2}$/.test(s) && dayKey(new Date(y, m - 1, d)) === s; };
   function filters() {
     const p = new URLSearchParams(location.hash.slice(1));
-    return Object.fromEntries(KEYS.map(k => [k, p.get(k) ?? '']));
+    const f = Object.fromEntries(KEYS.map(k => [k, p.get(k) ?? '']));
+    for (const k of ['from', 'to']) if (!isDay(f[k])) f[k] = '';
+    return f;
   }
   function writeFilters(next) {
     const f = { ...filters(), ...next };
@@ -76,12 +85,15 @@
     return { entry, rows, kinds: kindsOf(entry, changes), day: dayKey(entry.when), search: norm(words.join(' ')) };
   }
 
-  // What a change was to: its records, and the definitions, names, required entries or schema its summary
-  // names (model.js says each of those in a sentence of its own).
+  // What a change was to: its records, and the definitions, descriptions, names, required entries or schema
+  // its summary names (model.js says each of those in a sentence of its own). An undo or redo was to what
+  // the change it names was to.
   function kindsOf(entry, changes) {
     const kinds = new Set(changes.length ? ['records'] : []);
-    for (const part of String(entry.summary ?? '').split('; ')) {
+    const summary = String(entry.summary ?? '').replace(/^(Undid|Redid) “(.*)”$/, '$2');
+    for (const part of summary.split('; ')) {
       if (/^(Added|Changed|Deleted) the definition of /.test(part)) kinds.add('definitions');
+      else if (/^(Described |Stopped describing |Changed descriptions)/.test(part)) kinds.add('descriptions');
       else if (/^Changed (the )?(relation|list) names/.test(part)) kinds.add('names');
       else if (/^(Required |Stopped requiring |Changed the required entries)/.test(part)) kinds.add('required');
       else if (/^Changed the schema/.test(part)) kinds.add('schema');
@@ -308,7 +320,7 @@
     const { entry } = item;
     const open = ui.open.has(entry.id);
     const opens = item.rows.length > 0;
-    const source = SOURCES[entry.source] ? Parts.badge(SOURCES[entry.source]) : '';
+    const source = marked(entry) ? Parts.badge(marked(entry)) : '';
     const what = VERB.test(String(entry.summary)) ? summaryHtml(item) : `<span class="faint">·</span> ${summaryHtml(item)}`;
     const toggle = opens ? `<button class="h-toggle" data-cmd="history.toggle" data-id="${esc(entry.id)}" aria-expanded="${open}"
         aria-label="${open ? 'Hide' : 'Show'} the ${count(item.rows.length, 'record')} it changed" title="${open ? 'Hide' : 'Show'} the ${count(item.rows.length, 'record')} it changed">${icon('chevron-right')}</button>` : '<span class="h-toggle"></span>';

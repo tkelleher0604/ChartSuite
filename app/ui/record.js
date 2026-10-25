@@ -259,14 +259,17 @@ const RecordPage = (() => {
     return `<div class="hist-change"><span class="hist-what">${esc(what)}</span><span class="hist-diff">${diff}</span></div>`;
   }
 
-  const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset to the sample', import: 'Import' };
+  // How a change was made, marked only where its words don't say so ("Undid …", "Imported …"): a restore.
+  const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset', import: 'Import', restore: 'Restore' };
+  const SAID = { undo: /^Undid\b/, redo: /^Redid\b/, reset: /^Reset\b/, import: /^Imported\b/ };
+  const sourceOf = h => h.source && !SAID[h.source]?.test(h.summary) ? SOURCES[h.source] ?? h.source : '';
 
   function historyTab(id) {
     const list = historyFor(id);
     if (!list.length) return Parts.empty({ title: 'No changes yet', desc: 'Changes to this record show up here, with who made them and when.' });
     const shown = page.historyAll ? list : list.slice(0, HISTORY_SHOWN);
     const items = shown.map(x => `<li class="hist">
-        <div class="hist-head">${Parts.avatar(x.h.who)}<span class="hist-who">${esc(x.h.who)}</span>${Parts.when(x.h.when)}${x.h.source ? `<span class="hist-source">${esc(SOURCES[x.h.source] ?? x.h.source)}</span>` : ''}</div>
+        <div class="hist-head">${Parts.avatar(x.h.who)}<span class="hist-who">${esc(x.h.who)}</span>${Parts.when(x.h.when)}${sourceOf(x.h) ? `<span class="hist-source">${esc(sourceOf(x.h))}</span>` : ''}</div>
         <div class="hist-summary">${esc(x.h.summary)}</div>
         <div class="hist-changes">${x.changes.slice(0, 8).map(c => changeHtml(c, x, id)).join('')}${x.changes.length > 8 ? `<div class="hist-more">and ${count(x.changes.length - 8, 'more change')}</div>` : ''}</div>
       </li>`).join('');
