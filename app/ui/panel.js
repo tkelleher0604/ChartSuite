@@ -1018,7 +1018,7 @@ function allView() {
   const head = panelHead({ title: 'All', sub: kinds.length ? 'Browse records by kind' : 'Nothing here yet. Start with a kind.' });
   const deleted = archive.length ? listRow('deleted', 'Deleted', String(archive.length)) : '';
   const schemaRow = listRow('schema', 'Schema', `${count(formsOfSchema().length, 'form')}${definitions.length ? ` · ${count(definitions.length, 'definition')}` : ''}`);
-  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHash(k), plural(k), String(objectsOfKind(k).length))).join('') + schemaRow + deleted];
+  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHash(k), plural(k), String(countOfKind(k)))).join('') + schemaRow + deleted];
 }
 
 const ago = when => {

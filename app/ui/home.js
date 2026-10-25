@@ -208,7 +208,7 @@ function glanceHtml() {
     <div class="home-counts">
       ${kinds.map(k => {
         const href = isDocs(k) ? 'documents.html' : Shell.kindHref(k);
-        return `<a class="home-count" href="${esc(href)}"><span>${esc(plural(k))}</span><span class="tnum">${objectsOfKind(k).length}</span></a>`;
+        return `<a class="home-count" href="${esc(href)}"><span>${esc(plural(k))}</span><span class="tnum">${countOfKind(k)}</span></a>`;
       }).join('') || '<div class="home-count faint">No records yet</div>'}
     </div>
     ${definitions.length ? `<div class="home-card-foot faint">${esc(`${count(definitions.length, 'definition')} ${definitions.length === 1 ? 'works' : 'work'} out ${count(computed, 'record')}.`)}</div>` : ''}

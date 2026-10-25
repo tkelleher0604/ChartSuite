@@ -660,12 +660,22 @@ function ev(node, c) {
       if (isErr(a)) return a;
       const list = toList(ev(node.b, c));
       if (isErr(list)) return list;
+      if (isRec(a)) { const ids = objectIds(S, list); if (ids) return ids.has(a.id); }
       for (const x of list) { const s = scalar(S, x); if (isErr(s)) return s; if (equal(a, s)) return true; }
       return false;
     }
     case 'bin': return arithmetic(S, node.op, ev(node.a, c), ev(node.b, c));
   }
   return err('#VALUE!', 'Unknown expression.');
+}
+
+// A long list of objects, like REACH's, as the set of their ids, for IN: worked out once per list, since a
+// lookup gives the same list until the state changes. An object is in it just when its id is.
+const listIds = new WeakMap();
+function objectIds(S, list) {
+  if (list.length < 8) return null;
+  if (!listIds.has(list)) listIds.set(list, list.every(x => isRec(x) && x.id && isObject(S.recs[x.id])) ? new Set(list.map(x => x.id)) : null);
+  return listIds.get(list);
 }
 
 function arithmetic(S, op, a, b) {
@@ -1427,9 +1437,10 @@ function addComputed(S, id, r) {
 function runStep(S, i) {
   const started = now();
   const group = S.P.order[i].filter(d => !d.error);
+  S.count = { evals: 0, rounds: 0, attempts: 0 };
   if (group.some(d => d.imps)) settleStep(S, group);
   else settleValues(S, group);
-  S.steps.push({ defs: S.P.order[i].map(d => d.id), ms: now() - started });
+  S.steps.push({ defs: S.P.order[i].map(d => d.id), ms: now() - started, ...S.count });
 }
 
 function runUpTo(S, limit) {
@@ -1583,6 +1594,7 @@ const forceRelation = (S, key) => S.lazy ? forceMany(S, S.lazy.idx.calls.get(key
 function settleStep(S, group) {
   const blocked = new Set();
   for (let attempt = 0; ; attempt++) {
+    S.count.attempts++;
     const run = attemptStep(S, group, blocked);
     const loops = attempt < 4 ? loopsIn(run) : [];
     if (!loops.length) return finishStep(S, run);
@@ -1605,6 +1617,8 @@ function attemptStep(S, group, blocked) {
   let queue = tags.filter(t => !t.blocked).flatMap(t => t.d.imps.map((_, i) => [t, i]));
   let outputs = null, factsChanged = false;
   for (let round = 0; round < 1000 && (queue.length || (factsChanged && values.length)); round++) {
+    S.count.rounds++;
+    S.count.evals += queue.length;
     for (const job of values) unforce(S, job);
     for (const d of group) if (!d.imps) S.rows.delete(d.id);
     const changed = new Set();

@@ -70,10 +70,10 @@ const Shell = (() => {
   function sidebarHtml() {
     const kind = page.area === 'records' ? page.kind : null;
     const kinds = recordKinds().map(k => {
-      const n = objectsOfKind(k).length;
+      const n = countOfKind(k);
       return navItem({ name: plural(k), href: kindHref(k), key: 'r' }, kind && same(kind, k), `<span class="sb-count">${n}</span>`);
     }).join('');
-    const docs = objectsOfKind(DOCUMENT_KIND).length;
+    const docs = countOfKind(DOCUMENT_KIND);
     return `
       <div class="sb-head">
         <button class="sb-workspace" data-cmd="shell.charts" aria-haspopup="menu" aria-expanded="${layer.menu?.id === 'charts'}" title="Charts in this workbook">

@@ -900,24 +900,43 @@ function orderedBy(placed) {
   return (a, b) => rank(a.label) - rank(b.label) || TYPE_RANK[a.type] - TYPE_RANK[b.type] || byLabel(a.label, b.label);
 }
 
+// Records are read by where they are far more often than they change, and a set of records is never changed
+// in place, so each set is indexed once, when first read: entries by their location, relations by each
+// location they relate, and objects by kind.
+const recordIndexes = new WeakMap();
+function recordIndex(recs) {
+  let ix = recordIndexes.get(recs);
+  if (!ix) {
+    ix = { at: new Map(), rels: new Map(), kinds: new Map() };
+    for (const [id, r] of Object.entries(recs)) {
+      if (r.at) pushTo(ix.at, r.at, id);
+      if (r.args) for (const at of new Set(r.args.map(a => a.at))) pushTo(ix.rels, at, id);
+      if (isObject(r)) pushTo(ix.kinds, norm(r.kind), id);
+    }
+    recordIndexes.set(recs, ix);
+  }
+  return ix;
+}
+
 // Name first, then the order shared by locations with the same specification.
 function entriesOf(id, recs = records) {
-  const ids = Object.keys(recs).filter(k => recs[k].at === id);
+  const ids = [...(recordIndex(recs).at.get(id) ?? [])];
   if (ids.length < 2) return ids;
   const compare = orderedBy(order[specKey(recs, id)] ?? []);
   const item = k => ({ type: typeOf(recs[k]), label: recs[k].edge });
   return ids.sort((a, b) => isObjectName(b, recs) - isObjectName(a, recs) || compare(item(a), item(b)));
 }
 
+// An object has one Name, so it's found without putting the entries in order.
 function objectName(id, recs = records) {
-  const nameId = entriesOf(id, recs).find(k => isObjectName(k, recs));
+  const nameId = (recordIndex(recs).at.get(id) ?? []).find(k => isObjectName(k, recs));
   return nameId ? recs[nameId].value : `${recs[id].kind} ${id}`;
 }
-const nameRecordOf = id => entriesOf(id).find(k => isObjectName(k));
+const nameRecordOf = id => (recordIndex(records).at.get(id) ?? []).find(k => isObjectName(k));
 
-const objectsOfKind = kind => Object.keys(records)
-  .filter(k => isObject(records[k]) && same(records[k].kind, kind))
+const objectsOfKind = kind => [...(recordIndex(records).kinds.get(norm(kind)) ?? [])]
   .sort((a, b) => byLabel(objectName(a), objectName(b)));
+const countOfKind = kind => recordIndex(records).kinds.get(norm(kind))?.length ?? 0;
 
 // The kinds in the schema, each as first written.
 const kindsInState = () => Object.values(schema).filter(t => t.kind !== undefined).map(t => t.kind).sort(byLabel);
@@ -1178,8 +1197,7 @@ function detailFieldsOf(id) {
 }
 
 // Relations with an argument at `id`.
-const relationsAt = (id, recs = records) =>
-  Object.keys(recs).filter(k => isRelation(recs[k]) && recs[k].args.some(a => a.at === id));
+const relationsAt = (id, recs = records) => [...(recordIndex(recs).rels.get(id) ?? [])];
 const hasEntries = id => entriesOf(id).length > 0 || relationsAt(id).length > 0;
 
 // Every record whose path starts at the object, the object included.

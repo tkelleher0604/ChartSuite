@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>perf test</title>
+<style>
+  body { margin: 24px; font: 13px/1.6 ui-monospace, Consolas, monospace; background: #fafafa; color: #222; }
+  .fail { color: #b00; font-weight: 600; }
+</style>
+</head>
+<body>
+<pre id="out">running…</pre>
+<script src="../core/common.js"></script>
+<script src="../core/model.js"></script>
+<script src="../core/sample.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/styles.js"></script>
+<script>
+// How long the formulas take to work out as a chart grows: the sample's own definitions over the sample
+// with more of a fund complex added, entities owning each other in layers, with general partners and
+// officers. `#n=40` sets how many entities are added. Nothing is saved.
+saveState = () => {};
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+
+// n entities in layers of four: each owned 60/40 by two of the layer above, with a general partner for
+// every other one, and an officer for every third; plus a person per four entities.
+function grown(base, n) {
+  const recs = structuredClone(base);
+  const ents = [], people = [];
+  for (let i = 0; i < n; i++) {
+    const id = `x_e${i}`;
+    recs[id] = { kind: 'Entity' };
+    recs[`${id}_name`] = { at: id, edge: 'Name', field: 'text', value: `Extra Entity ${i}` };
+    recs[`${id}_type`] = { at: id, edge: 'Entity Type', choice: i % 3 ? 'Limited Partnership' : 'Limited Liability Company' };
+    ents.push(id);
+    if (i % 4 === 0) {
+      const p = `x_p${i}`;
+      recs[p] = { kind: 'Individual' };
+      recs[`${p}_name`] = { at: p, edge: 'Name', field: 'text', value: `Extra Person ${i}` };
+      people.push(p);
+    }
+  }
+  const own = (a, b, pct, k) => {
+    recs[`x_own${k}`] = { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true };
+    recs[`x_own${k}_pct`] = { at: `x_own${k}`, edge: 'Percentage', field: 'percent', value: pct };
+  };
+  let k = 0;
+  ents.forEach((id, i) => {
+    if (i < 4) own('fund', id, 1, k++);
+    else { own(ents[i - 4], id, 0.6, k++); own(ents[i - 3 - (i % 2)], id, 0.4, k++); }
+    if (i % 2 && recs[`${id}_type`].choice === 'Limited Partnership')
+      recs[`x_gp${i}`] = { args: [{ edge: 'GP', at: ents[Math.max(0, i - 1)] }, { edge: 'Fund Owned', at: `${id}_type` }], tag: true };
+    if (i % 3 === 0 && people.length)
+      recs[`x_pos${i}`] = { args: [{ edge: 'Holder', at: people[i % people.length] }, { edge: 'Company', at: id }], choice: 'Officer' };
+  });
+  return recs;
+}
+
+function timeIt(recs) {
+  const { definitions: defs, names: nms, schema: S } = canonicalFormulas(SAMPLE_DEFINITIONS, SAMPLE_NAMES, withSpecsOf({}, recs));
+  const runs = [0, 1, 2].map(() => runFormulas(recs, defs, nms, S));
+  const best = runs.reduce((a, b) => a.ms < b.ms ? a : b);
+  return { ms: Math.min(...runs.map(r => r.ms)), steps: best.steps, count: Object.keys(best.records).length };
+}
+
+function run() {
+  const n = Number(new URLSearchParams(location.hash.slice(1)).get('n') ?? 40);
+  const base = typeof SAMPLE_CORE === 'object' ? SAMPLE_CORE : SAMPLE;
+  const lines = [];
+  for (const size of [0, Math.round(n / 2), n]) {
+    const t = timeIt(grown(base, size));
+    const slow = [...t.steps].sort((a, b) => b.ms - a.ms).slice(0, 4).map(s => `${s.defs.join("+")} ${s.ms.toFixed(0)}ms/${s.attempts}a/${s.rounds}r/${s.evals}e`).join(', ');
+    lines.push(`+${size} entities: ${t.ms.toFixed(0)} ms, ${t.count} records; slowest: ${slow}`);
+    if (size === n) check(`Works out ${n} more entities in under 300 ms`, t.ms < 300, `${t.ms.toFixed(0)} ms`);
+  }
+  const failed = out.filter(x => !x.ok).length;
+  document.title = `perf test: ${out.length - failed} pass, ${failed} fail`;
+  document.getElementById('out').innerHTML = `${document.title}\n\n${lines.map(esc).join('\n')}\n\n` + out.map(x =>
+    `<span class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail ? `  [${esc(x.detail)}]` : ''}</span>`).join('\n');
+}
+
+try { run(); } catch (e) { document.getElementById('out').textContent = `${e.message}\n${e.stack}`; }
+</script>
+</body>
+</html>
