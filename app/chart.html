@@ -3,72 +3,49 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rboreal Chart</title>
+<title>Chart · Rboreal</title>
 <script src="ui/prepaint.js"></script>
 <link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/shell.css">
 <link rel="stylesheet" href="css/panel.css">
 <link rel="stylesheet" href="css/chart.css">
 </head>
-<body class="chart-app">
-<header class="appbar">
-  <span class="brand">Rboreal</span>
-  <span class="doc-title"></span>
-  <span class="charts-slot" id="charts"></span>
-  <a class="appbar-link" href="record-panel.html" style="margin-left:6px">Record panel</a>
-  <button class="link-btn appbar-link" data-action="reset" title="Put the sample chart back as it started. Undo brings your changes back.">Reset sample</button>
-  <span class="prefs" id="prefs"></span>
-</header>
-<nav class="ribbon" id="ribbon" aria-label="Ribbon"></nav>
-<div class="workspace">
-  <section class="stage" id="stage" aria-label="Chart">
-    <div id="lock"></div>
-    <div class="sheet-sizer" id="sizer">
-      <div class="sheet" id="sheet">
-        <svg class="wires" id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
-        <div class="nodes" id="nodes"></div>
-        <svg class="overlay" id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
-      </div>
-      <div id="quick"></div>
+<body>
+<div class="chart-page">
+  <nav class="ribbon" id="ribbon" aria-label="Ribbon"></nav>
+  <div class="workspace" id="workspace">
+    <div class="canvas">
+      <section class="stage" id="stage" aria-label="Chart">
+        <div class="sheet-sizer" id="sizer">
+          <div class="sheet" id="sheet">
+            <svg class="wires" id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div class="nodes" id="nodes"></div>
+            <svg class="overlay" id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+          <div id="quick"></div>
+        </div>
+      </section>
+      <div class="canvas-top" id="lock"></div>
+      <div class="present-caption" id="caption" aria-live="polite"></div>
+      <footer class="canvas-bar" id="status"></footer>
     </div>
-    <div class="status" id="status"></div>
-  </section>
-  <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" aria-label="Resize the record panel" title="Drag to resize"></div>
-  <aside class="panel side-panel" id="panel" aria-label="Record panel"></aside>
+    <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" aria-label="Resize the record panel" title="Drag to resize"></div>
+    <aside class="panel side-panel" id="panel" aria-label="Record panel"></aside>
+  </div>
+  <div id="export"></div>
 </div>
 
 <script src="core/common.js"></script>
 <script src="core/model.js"></script>
+<script src="core/sample.js"></script>
 <script src="core/formulas.js"></script>
 <script src="core/styles.js"></script>
+<script src="ui/shell.js"></script>
+<script src="ui/parts.js"></script>
 <script src="ui/panel.js"></script>
 <script src="ui/relate.js"></script>
 <script src="ui/ribbon.js"></script>
-<script src="ui/chart.js"></script>
-<script src="ui/workbook.js"></script>
 <script src="ui/export.js"></script>
-<script>
-panelOptions.engaged = currentEngaged;
-
-function render() {
-  syncEngaged();
-  const workspace = document.querySelector('.workspace');
-  if (prefs.panelWidth) workspace.style.setProperty('--panel-w', `${prefs.panelWidth}px`);
-  workspace.style.gridTemplateColumns = prefs.panel === false ? 'minmax(0, 1fr) 0 0' : '';
-  document.getElementById('panel').hidden = prefs.panel === false;
-  renderPanel();
-  renderRibbon();
-  renderChart();
-  document.getElementById('charts').innerHTML = chartSwitcher();
-  document.querySelector('.appbar [data-action="reset"]').hidden = !isSampleChart();
-  document.getElementById('prefs').innerHTML = themeSwitch();
-  restoreFocus();
-  focusChartRename();
-}
-
-initState();
-applyTheme();
-render();
-fitWidth();
-</script>
+<script src="ui/chart.js"></script>
 </body>
 </html>

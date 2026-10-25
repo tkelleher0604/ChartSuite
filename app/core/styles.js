@@ -24,6 +24,9 @@ const LINE_PROPS = ['stroke', 'strokeWidth', 'dash'];
 const BOX_DEFAULTS = { shape: 'rect', fill: '#ffffff', stroke: '#27272a', strokeWidth: 1.25, dash: 'solid' };
 const TEXT_DEFAULTS = { font: 'Inter', size: 12, bold: false, italic: false, color: '#18181b' };
 const LINE_DEFAULTS = { stroke: '#3f3f46', strokeWidth: 1.25, dash: 'solid', font: 'Inter', size: 11, bold: false, italic: false, color: '#27272a', show: true, format: 'value' };
+// A computed relation's line is dashed, in the computed purple (base.css's --computed-solid, which is the
+// same in both themes, as paper needs), unless its style says otherwise: what a formula worked out looks it.
+const COMPUTED_LINE = { stroke: '#8e4ec6', dash: 'dashed' };
 
 // What a new kind, its Name, and a new relation start with.
 const KIND_PRESET = { shape: 'rect', fill: '#ffffff', stroke: '#27272a', strokeWidth: 1.25, dash: 'solid', font: 'Inter', size: 12, color: '#18181b' };
@@ -73,7 +76,8 @@ function defaultStyles(recs) {
 
 // The sample's views: the structure chart, and a 40 Act view of the same records that hides ownership
 // and the GP's lines, draws the BDC's close and remote affiliates, which formulas work out, and by its
-// filter shows only the boxes in that analysis: the BDC and its close and remote affiliates.
+// filter shows only the boxes in that analysis: the BDC and its close and remote affiliates. Their lines
+// keep the computed look, told apart by weight and dash.
 const FORTY_ACT_FILTER = '← [Investment Company] OR COUNT([Close Affiliate Of]) + COUNT([Remote Affiliate Of]) > 0';
 
 function sampleViews(recs, S, defs) {
@@ -83,8 +87,8 @@ function sampleViews(recs, S, defs) {
   const formOfDef = id => formOfTree(specsWithParam(defs.find(d => d.id === id).scope[0], S)[0]);
   const fortyAct = [
     ...structure.map(s => hidden.includes(s.id) ? hide(s) : s),
-    { id: 'st_close', form: formOfDef('def_close'), map: { true: { show: true, format: 'none', stroke: '#2b59c3', strokeWidth: 1.5 } } },
-    { id: 'st_remote', form: formOfDef('def_remote'), map: { true: { show: true, format: 'none', stroke: '#c2710c', dash: 'dashed' } } },
+    { id: 'st_close', form: formOfDef('def_close'), map: { true: { show: true, format: 'none', strokeWidth: 1.5 } } },
+    { id: 'st_remote', form: formOfDef('def_remote'), map: { true: { show: true, format: 'none', dash: 'dotted' } } },
   ];
   return [{ id: 'view_main', name: 'Structure', styles: structure, hidden: ['gp_of_feeder'] },
     { id: 'view_40act', name: '40 Act', styles: fortyAct, filter: FORTY_ACT_FILTER }];
@@ -212,7 +216,7 @@ const drawnByDefault = id => !coveredForms().has(formKeyOf(id)) && !(isTag(recor
 function lineLook(id) {
   const r = records[id];
   const style = styleOf(id);
-  const look = { ...LINE_DEFAULTS, show: drawnByDefault(id), ...(style?.map[outputKey(r)] ?? {}) };
+  const look = { ...LINE_DEFAULTS, ...(isComputed(id) ? COMPUTED_LINE : {}), show: drawnByDefault(id), ...(style?.map[outputKey(r)] ?? {}) };
   const own = look.format === 'none' ? ''
     : look.format === 'label' || isTag(r) ? relationNameOf(id)
     : isField(r) ? displayValue(r) : r.choice;
@@ -230,7 +234,7 @@ function lineLook(id) {
 // and otherwise what the box or line would have without it.
 function effectiveProps(s, output) {
   const own = s.map[output] ?? {};
-  const base = isLineStyle(s) ? LINE_DEFAULTS : { ...BOX_DEFAULTS, ...TEXT_DEFAULTS, show: isKindStyle(s), format: 'value' };
+  const base = isLineStyle(s) ? { ...LINE_DEFAULTS, ...(coveredForms().has(s.form) ? COMPUTED_LINE : {}) } : { ...BOX_DEFAULTS, ...TEXT_DEFAULTS, show: isKindStyle(s), format: 'value' };
   return { props: { ...base, ...own }, own };
 }
 
@@ -355,13 +359,10 @@ function shownCount(item) {
   return { shown: Object.values(styleOfForm(item.form)?.map ?? {}).some(v => v.show) ? 1 : 0, total: 1 };
 }
 
-// Colors a computed relation's lines start with, in turn, so that each reads apart from entered ones.
-const COMPUTED_LINE_COLORS = ['#7c3aed', '#0e7490', '#c2710c', '#2b59c3', '#1f9d55', '#d63b3b'];
-
 // Shows or hides a kind's boxes, or a form's records, in this view, as one undoable step. A form without a
-// style gets one from its preset; a computed relation's starts dashed, in a color of its own. Text a
-// relation's lines show, like an ownership's Percentage, comes and goes with them. A ruled-out tag stays
-// undrawn.
+// style gets one from its preset; a computed relation's starts with no label, its lines in the computed
+// look (see COMPUTED_LINE). Text a relation's lines show, like an ownership's Percentage, comes and goes
+// with them. A ruled-out tag stays undrawn.
 function setShown(item, on) {
   pushUndo();
   if (item.kind) {
@@ -371,9 +372,7 @@ function setShown(item, on) {
     return;
   }
   const form = item.form;
-  const computed = coveredForms().has(form);
-  const colorAt = showable().lines.filter(x => x.computed).findIndex(x => x.form === form);
-  const preset = isRelationForm(form) && computed ? { format: 'none', stroke: COMPUTED_LINE_COLORS[Math.max(0, colorAt) % COMPUTED_LINE_COLORS.length], dash: 'dashed' } : {};
+  const preset = isRelationForm(form) && coveredForms().has(form) ? { format: 'none' } : {};
   const restyle = (f, props) => {
     const s = styleOfForm(f);
     const map = { ...(s?.map ?? presetMap(f)) };

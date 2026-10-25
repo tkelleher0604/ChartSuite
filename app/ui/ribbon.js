@@ -1,15 +1,9 @@
 // The ribbon: tabs of controls above the chart. Home's formatting controls edit the engaged style (see
 // currentEngaged in chart.js), so a change applies everywhere that style's entry applies, never to one box.
+// Its controls are labeled in words; the only pictures are of what they set (a shape, a color, a dash).
+// Exporting has a dialog of its own (export.js), and the zoom sits at the foot of the chart.
 
-const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['formulas', 'Formulas'], ['view', 'View'], ['export', 'Export']];
-
-// Icons only the ribbon uses (Tabler, as in common.js).
-Object.assign(ICONS, {
-  'math-function': '<path d="M3 19a2 2 0 0 0 2 2c2 0 2 -4 3 -9s1 -9 3 -9a2 2 0 0 1 2 2" /><path d="M5 12h6" /><path d="M15 12l6 6" /><path d="M15 18l6 -6" />',
-  'help-circle': '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M12 16v.01" /><path d="M12 13a2 2 0 0 0 .914 -3.782a1.98 1.98 0 0 0 -2.414 .483" />',
-  filter: '<path d="M4 4h16v2.172a2 2 0 0 1 -.586 1.414l-4.414 4.414v7l-6 2v-8.5l-4.48 -4.928a2 2 0 0 1 -.52 -1.345v-2.227z" />',
-  'eye-off': '<path d="M10.585 10.587a2 2 0 0 0 2.829 2.828" /><path d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 2.712 -3.678 4.32 -4.674m2.86 -1.146a9.055 9.055 0 0 1 1.82 -.18c3.6 0 6.6 2 9 6c-.666 1.11 -1.379 2.067 -2.138 2.87" /><path d="M3 3l18 18" />',
-});
+const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['formulas', 'Formulas'], ['view', 'View']];
 
 const rbGroup = (label, controls, cls = '') =>
   `<div class="rb-group${cls ? ` ${cls}` : ''}"><div class="rb-controls">${controls}</div><div class="rb-label">${label}</div></div>`;
@@ -28,8 +22,8 @@ const propItem = (prop, value, inner, checked, cls = '') =>
 function palette(prop, current, allowNone) {
   const swatches = COLORS.map(c => `<button class="swatch" role="menuitemradio" aria-checked="${c === current}" aria-label="${c}" title="${c}" style="background:${c}"
     data-action="style-prop" data-prop="${prop}" data-value="${c}"></button>`).join('');
-  const none = allowNone ? `<div class="menu-sep"></div><div class="palette-foot">${propItem(prop, 'none', '<span class="glyph-swatch is-none"></span><span class="menu-text">No fill</span>', current === 'none')}</div>` : '';
-  return `<div class="palette">${swatches}</div>${none}`;
+  const none = allowNone ? `<div class="menu-sep"></div><div class="swatches-foot">${propItem(prop, 'none', '<span class="glyph-swatch is-none"></span><span class="menu-text">No fill</span>', current === 'none')}</div>` : '';
+  return `<div class="swatches">${swatches}</div>${none}`;
 }
 
 // The output whose values the ribbon shows. With every option in scope, that's the selection's own
@@ -83,8 +77,8 @@ function styleCandidates() {
 
 function newStyleMenu() {
   const ids = styleCandidates();
-  if (!selection().object && !selection().relation) return '<div class="menu-note" style="padding:8px 10px">Select a box or a line first.</div>';
-  if (!ids.length) return '<div class="menu-note" style="padding:8px 10px">Everything here already has a style.</div>';
+  if (!selection().object && !selection().relation) return '<div class="menu-note is-pad">Select a box or a line first.</div>';
+  if (!ids.length) return '<div class="menu-note is-pad">Everything here already has a style.</div>';
   return `<div class="menu-head">Style the chart by</div>` + ids.map(id => styleFormItem(formKeyOf(id), id)).join('');
 }
 
@@ -95,11 +89,11 @@ function styleGroup(eng) {
     const out = output ? styleOutputs(style).find(([k]) => k === output)?.[1] ?? output : count(Object.keys(style.map).length, 'entry');
     const props = (output ? style.map[output] : Object.values(style.map)[0]) ?? {};
     return `<button class="tile" aria-pressed="${pressed}" data-action="style-engage" data-style="${style.id}" data-output="${esc(output ?? '')}" title="${esc(`${label}: ${out}`)}">
-      <span class="tile-top">${stylePreview(style, props)}<span class="tile-name">${esc(label)}</span></span><span class="tile-out">${esc(out)}</span></button>`;
+      ${stylePreview(style, props)}<span class="tile-name">${esc(label)}</span></button>`;
   }).join('');
   const addOpen = ui.menu === 'rb:new-style';
   const add = `<span class="rb-anchor"><button class="tile is-add" data-action="menu" data-menu="rb:new-style" aria-haspopup="menu" aria-expanded="${addOpen}"
-    title="Style the chart by another entry">${icon('plus')}<span>New style</span></button>${addOpen ? `<div class="pop menu rb-menu" role="menu">${newStyleMenu()}</div>` : ''}</span>`;
+    title="Style the chart by another entry">New style…</button>${addOpen ? `<div class="pop menu rb-menu" role="menu">${newStyleMenu()}</div>` : ''}</span>`;
   let side = '<span class="rb-note">Select a box, a line of text or a line to see its styles.</span>';
   if (eng) {
     const outputs = styleOutputs(eng.style);
@@ -117,10 +111,11 @@ function styleGroup(eng) {
     const note = first ? `<span class="rb-note is-warn">${esc(propName(first[0]))} on this box comes from <button class="link-btn" data-action="style-engage" data-style="${first[1].id}">${esc(describeStyle(first[1]).label)}</button></span>`
       : `<span class="rb-note">Changes apply to ${count(n, noun)}</span>`;
     const remove = isKindStyle(eng.style) ? '' : `<button class="link-btn rb-remove" data-action="style-remove" title="Remove this style; undo brings it back">Remove</button>`;
-    side = `<div style="display:flex;flex-direction:column;gap:4px;justify-content:center">${scope}<span class="rb-row" style="gap:8px">${note}${remove}</span></div>`;
+    side = `${scope}${note}${remove}`;
   }
-  return rbGroup(eng ? `Style: ${esc(describeStyle(eng.style).label)} <span style="opacity:.75">${esc(describeStyle(eng.style).where)}</span>` : 'Style',
-    `<div class="rb-row" style="gap:10px"><div class="gallery">${tiles}</div>${add}${side}</div>`, 'is-style');
+  // The styles in a row of chips, with the engaged one's output, and what a change reaches, below.
+  return rbGroup(eng ? `Style: ${esc(describeStyle(eng.style).label)} <span class="rb-label-where">${esc(describeStyle(eng.style).where)}</span>` : 'Style',
+    `<div class="rb-row"><div class="gallery">${tiles}</div>${add}</div><div class="rb-row is-spaced">${side}</div>`, 'is-style');
 }
 
 const PROP_NAMES = { shape: 'Shape', fill: 'Fill', stroke: 'Outline', strokeWidth: 'Weight', dash: 'Dash' };
@@ -194,18 +189,18 @@ function showGroup(eng) {
 
 function homeTab() {
   const eng = currentEngaged();
-  const history = `<div class="rb-row"><button class="rb-btn is-tall" data-action="undo"${undoStack.length ? '' : ' disabled'} title="Undo (${undoKey})">${icon('arrow-back-up')}Undo</button>
-    <button class="rb-btn is-tall" data-action="redo"${redoStack.length ? '' : ' disabled'} title="Redo (${redoKey})">${icon('arrow-forward-up')}Redo</button></div>`;
+  const history = `<div class="rb-row"><button class="rb-btn" data-action="undo"${undoStack.length ? '' : ' disabled'} title="Undo (${undoKey})">Undo</button>
+    <button class="rb-btn" data-action="redo"${redoStack.length ? '' : ' disabled'} title="Redo (${redoKey})">Redo</button></div>`;
   return rbGroup('History', history) + styleGroup(eng) + fontGroup(eng) + shapeGroup(eng) + showGroup(eng);
 }
 
 function insertTab() {
-  const kinds = kindsInState().map(k => `<button class="rb-btn is-tall" data-action="insert-object" data-kind="${esc(k)}" title="Add a box for a new ${esc(k)}">${shapeGlyph(pickProps(styles.find(isKindStyle)?.map[norm(k)] ?? KIND_PRESET, BOX_PROPS).shape ?? 'rect')}${esc(k)}</button>`).join('');
-  const objects = `<div class="rb-row">${kinds}<button class="rb-btn is-tall" data-action="insert-object" data-kind="" title="Add a box of a kind not used yet">${icon('plus')}New kind</button></div>`;
+  const kinds = kindsInState().map(k => `<button class="rb-btn" data-action="insert-object" data-kind="${esc(k)}" title="Add a box for a new ${esc(k)}">${shapeGlyph(pickProps(styles.find(isKindStyle)?.map[norm(k)] ?? KIND_PRESET, BOX_PROPS).shape ?? 'rect')}${esc(k)}</button>`).join('');
+  const objects = `<div class="rb-row">${kinds}<button class="rb-btn" data-action="insert-object" data-kind="" title="Add a box of a kind not used yet">New kind…</button></div>`;
   const sel = selection();
-  const relate = `<div class="rb-row"><button class="rb-btn is-tall" data-action="insert-relation"${sel.object ? '' : ' title="Select a box first"'}>${icon('link')}Relation</button></div>`;
-  return rbGroup('Objects', objects) + rbGroup('Relations', relate)
-    + rbGroup('Tip', '<span class="rb-note" style="max-width:260px">Double-click the sheet to add a box there. Drag from a box’s edge handle to another box to relate them.</span>');
+  const relate = `<div class="rb-row"><button class="rb-btn" data-action="insert-relation" title="${sel.object ? `Relate ${esc(objectName(sel.object))} to another box` : 'Select a box first'}">Relate…</button></div>`;
+  return rbGroup('Boxes', objects) + rbGroup('Relations', relate)
+    + rbGroup('Tip', '<span class="rb-note is-tip">Double-click the sheet to add a box there. Drag from a box’s edge handle to another box to relate them.</span>');
 }
 
 // What the selection is, as something a formula might have worked out: a selected line, or a line of
@@ -220,20 +215,20 @@ function selectedRecord() {
 function formulasTab() {
   const sel = selection();
   const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : sel.object ? [sel.object] : [];
-  const newDef = rbMenu('rb:new-definition', `${icon('plus')}New definition`, { cls: 'is-tall', title: 'An entry or a relation worked out by formula' }, () => newDefinitionItems(sides));
-  const defs = `<div class="rb-row"><button class="rb-btn is-tall" data-action="open" data-hash="schema:computed" title="Every definition in this chart, in the Schema view">${icon('math-function')}Definitions</button>${newDef}</div>`;
+  const newDef = rbMenu('rb:new-definition', `<span class="rb-field-text">New definition</span>`, { title: 'An entry or a relation worked out by formula' }, () => newDefinitionItems(sides));
+  const defs = `<div class="rb-row"><button class="rb-btn" data-action="open" data-hash="schema:computed" title="Every definition in this chart, in the Schema view">Definitions</button></div><div class="rb-row">${newDef}</div>`;
   const id = selectedRecord();
   const info = id && records[id] && formulaInfo(id);
   const whyTitle = info ? (isComputed(id) ? 'Why this is here: the formula and what it read' : 'What the formula says about this entered record')
     : 'Select something a formula works out: a line, or a line of text in a box';
-  const why = `<div class="rb-row"><button class="rb-btn is-tall" data-action="fx-why"${info ? '' : ' disabled'} title="${whyTitle}">${icon('help-circle')}Why?</button></div>`;
+  const why = `<div class="rb-row"><button class="rb-btn" data-action="fx-why"${info ? '' : ' disabled'} title="${whyTitle}">Why?</button></div>`;
   const nErrors = (formulaResult.errors ?? []).length + Object.keys(formulaResult.defErrors ?? {}).length;
   const computed = Object.keys(records).filter(isComputed).length;
   const ms = formulaResult.ms;
   const errors = nErrors ? `<button class="link-btn rb-errors" data-action="open" data-hash="schema:computed">${count(nErrors, 'error')}</button>` : '<span class="rb-note">No errors</span>';
-  const status = `<div style="display:flex;flex-direction:column;gap:4px;justify-content:center">
+  const status = `<div class="rb-stack">
     <span class="rb-note">${count(computed, 'computed record')} from ${count(definitions.length, 'definition')}${ms !== undefined ? ` in ${Math.round(ms)} ms` : ''}</span>
-    <span class="rb-row" style="gap:10px">${errors}<button class="link-btn" data-action="fx-recalc" title="Work every formula out again now">Recalculate</button></span></div>`;
+    <span class="rb-row is-spaced">${errors}<button class="link-btn" data-action="fx-recalc" title="Work every formula out again now">Recalculate</button></span></div>`;
   return rbGroup('Definitions', defs) + rbGroup('Explain', why) + rbGroup('Calculation', status);
 }
 
@@ -257,7 +252,7 @@ function showMenu() {
 // The things hidden one by one in this view, to show again.
 function hiddenMenu() {
   const ids = hiddenInView().filter(id => records[id]);
-  if (!ids.length) return '<div class="menu-note" style="padding:8px 10px">Nothing is hidden one by one in this view.</div>';
+  if (!ids.length) return '<div class="menu-note is-pad">Nothing is hidden one by one in this view.</div>';
   const label = id => isObject(records[id]) ? objectName(id) : relationTitle(id);
   return `<div class="menu-head">Hidden in ${esc(viewInUse().name)}</div>`
     + ids.map(id => `<button class="menu-item" role="menuitem" data-action="unhide" data-id="${id}"><span class="menu-text">${esc(label(id))}</span><span class="menu-desc">Show</span></button>`).join('')
@@ -300,7 +295,7 @@ function filterNote(text) {
 }
 
 function filterChips(textBefore) {
-  return filterNames(textBefore).map(s => `<button class="filter-chip" data-filter-suggest="${esc(s.name)}" title="${esc(s.kind)}">${esc(s.name)}</button>`).join('');
+  return filterNames(textBefore).map(s => `<button class="filter-name" data-filter-suggest="${esc(s.name)}" title="${esc(s.kind)}">${esc(s.name)}</button>`).join('');
 }
 
 function filterMenu() {
@@ -309,7 +304,7 @@ function filterMenu() {
   return `<div class="filter-pop">
     <div class="menu-head">Show boxes in ${esc(viewInUse().name)} where</div>
     <textarea class="input filter-input" data-view-filter rows="3" spellcheck="false" autocomplete="off" placeholder="${esc(FILTER_EXAMPLE)}">${esc(text)}</textarea>
-    <div class="filter-chips" id="filter-chips">${filterChips(text)}</div>
+    <div class="filter-names" id="filter-chips">${filterChips(text)}</div>
     <div class="fx-note filter-note" id="filter-note">${filterNote(text)}</div>
     <div class="filter-foot"><button class="btn btn-primary" data-action="filter-apply">Apply</button>
       <button class="link-btn" data-action="filter-clear"${viewFilter() ? '' : ' disabled'}>Clear</button>
@@ -329,38 +324,39 @@ function boxesNote() {
 }
 
 function viewTab() {
-  const zoom = `<div class="rb-row"><button class="rb-btn is-tall" data-action="zoom" data-step="-1">${icon('minus')}Zoom out</button>
-    <button class="rb-btn is-tall" data-action="zoom-reset"><span style="font-size:13px;font-weight:600">${Math.round(chart.zoom * 100)}%</span>Actual size</button>
-    <button class="rb-btn is-tall" data-action="zoom" data-step="1">${icon('plus')}Zoom in</button>
-    <button class="rb-btn is-tall" data-action="zoom-fit">${icon('arrows-left-right')}Fit</button></div>`;
   const sel = selection();
   const target = sel.object ?? sel.relation;
   const nHidden = hiddenInView().filter(id => records[id]).length;
   const show = `<div class="rb-row">${rbMenu('rb:show', `<span class="rb-field-text">Show</span>`, { cls: 'rb-field is-wide', title: 'What this view draws: boxes of each kind, lines of each relation, lines of text of each entry' }, showMenu)}</div>
-    <div class="rb-row"><button class="rb-btn" data-action="hide-selection"${target ? '' : ' disabled'} title="${target ? 'Hide the selection in this view only' : 'Select a box or a line to hide it in this view'}">${icon('eye-off')}Hide</button>
+    <div class="rb-row"><button class="rb-btn" data-action="hide-selection"${target ? '' : ' disabled'} title="${target ? 'Hide the selection in this view only' : 'Select a box or a line to hide it in this view'}">Hide</button>
     ${rbMenu('rb:hidden', `<span class="rb-field-text">Hidden${nHidden ? ` (${nHidden})` : ''}</span>`, { cls: 'rb-field', title: 'Things hidden one by one in this view', disabled: !nHidden }, hiddenMenu)}</div>`;
   const current = viewFilter();
-  const filter = `<div class="rb-row">${rbMenu('rb:filter', `${icon('filter')}<span class="rb-field-text${current ? '' : ' is-placeholder'}">${esc(current ? Formulas.splitFormula(current).body.trim() : 'Show every box')}</span>`,
+  const filter = `<div class="rb-row">${rbMenu('rb:filter', `<span class="rb-field-text${current ? '' : ' is-placeholder'}">${esc(current ? Formulas.splitFormula(current).body.trim() : 'Show every box')}</span>`,
       { cls: 'rb-field is-filter', title: current ? `Shows the boxes where ${current}` : 'Show only the boxes where a condition holds, worked out at each one' }, filterMenu)}</div>
     <div class="rb-row">${boxesNote()}</div>`;
-  const grid = `<button class="rb-check" data-action="toggle-pref" data-key="grid" aria-pressed="${prefs.grid !== false}">${box(prefs.grid !== false)}Gridlines</button>`;
-  const panel = `<button class="rb-check" data-action="toggle-pref" data-key="panel" aria-pressed="${prefs.panel !== false}">${box(prefs.panel !== false)}Record panel</button>`;
-  return rbGroup(`Show and hide in ${esc(viewInUse().name)}`, show) + rbGroup('Filter boxes', filter)
-    + rbGroup('Zoom', zoom) + rbGroup('Workspace', `<div class="rb-row">${grid}</div><div class="rb-row">${panel}</div>`);
+  const check = (key, label, on, title) => `<button class="rb-check" data-action="toggle-pref" data-key="${key}" aria-pressed="${on}" title="${title}">${box(on ? true : null)}${label}</button>`;
+  const workspace = `<div class="rb-row">${check('grid', 'Gridlines', prefs.grid !== false, 'Dots on the sheet, to line boxes up by')}${check('legend', 'Legend', prefs.legend !== false, 'What the view’s looks mean, at the corner of the chart and in exports')}</div>
+    <div class="rb-row">${check('panel', 'Record panel', prefs.panel !== false, 'The record panel on the right')}</div>`;
+  return rbGroup(`Show and hide in ${esc(viewInUse().name)}`, show) + rbGroup('Filter boxes', filter) + rbGroup('Workspace', workspace);
 }
 
 function renderRibbon() {
   // A filter being typed is dropped when its menu closes without applying it.
   if (ui.menu !== 'rb:filter') chart.filterDraft = null;
   const tabs = RIBBON_TABS.map(([key, name]) =>
-    `<button class="ribbon-tab" role="tab" aria-selected="${chart.tab === key}" data-action="rb-tab" data-tab="${key}">${name}</button>`).join('');
-  const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : chart.tab === 'export' ? exportTab() : homeTab();
-  document.getElementById('ribbon').innerHTML = `<div class="ribbon-tabs" role="tablist">${tabs}</div><div class="ribbon-body">${body}</div>`;
+    `<button class="tab" role="tab" aria-selected="${chart.tab === key}" data-action="rb-tab" data-tab="${key}">${name}</button>`).join('');
+  const body = chart.tab === 'insert' ? insertTab() : chart.tab === 'formulas' ? formulasTab() : chart.tab === 'view' ? viewTab() : homeTab();
+  const ribbon = document.getElementById('ribbon');
+  const scrolled = ribbon.querySelector('.ribbon-body')?.scrollLeft ?? 0;
+  ribbon.innerHTML = `<div class="tabs ribbon-tabs" role="tablist">${tabs}</div><div class="ribbon-body">${body}</div>`;
+  ribbon.querySelector('.ribbon-body').scrollLeft = scrolled;
+  placeRibbonMenus();
   // Keep the engaged style's tile in view when the gallery is too narrow to show every tile.
   const gallery = document.querySelector('.gallery');
   const tile = gallery?.querySelector('.tile[aria-pressed="true"]');
   if (tile && (tile.offsetLeft + tile.offsetWidth > gallery.scrollLeft + gallery.clientWidth || tile.offsetLeft < gallery.scrollLeft))
     gallery.scrollLeft = tile.offsetLeft - (gallery.clientWidth - tile.offsetWidth) / 2;
+  markClipped(gallery);
   // An open filter menu takes the keyboard, with the caret where it was left, or at the end.
   const filter = document.querySelector('[data-view-filter]');
   if (filter && document.activeElement !== filter) {
@@ -369,6 +365,24 @@ function renderRibbon() {
     filter.setSelectionRange(at, at);
   }
 }
+
+// An open ribbon menu is placed over the page, under its button, so the ribbon's sideways scrolling
+// doesn't clip it; it follows the button if the ribbon scrolls.
+function placeRibbonMenus() {
+  for (const menu of document.querySelectorAll('#ribbon .rb-menu')) {
+    const a = menu.parentElement.getBoundingClientRect();
+    const w = menu.offsetWidth;
+    const left = menu.classList.contains('is-right') ? a.right - w : a.left;
+    Object.assign(menu.style, { position: 'fixed', top: `${a.bottom + 6}px`, left: `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`, right: 'auto' });
+  }
+}
+document.addEventListener('scroll', e => {
+  if (e.target.matches?.('.ribbon-body')) placeRibbonMenus();
+  if (e.target.matches?.('.gallery')) markClipped(e.target);
+}, true);
+
+// A gallery with more chips past its end fades there.
+const markClipped = el => el?.classList.toggle('is-clipped', el.scrollWidth > el.scrollLeft + el.clientWidth + 1);
 
 // A draft that doesn't read stays open, with the place it goes wrong shown and the caret there. Anything
 // else applies, errors and all, since the boxes it can't be worked out at stay shown, marked.
@@ -469,12 +483,7 @@ Object.assign(actions, {
   'insert-relation': () => {
     const sel = selection();
     if (sel.object) location.hash = `relate:${sel.object}`;
-    else setNotice('Select a box first, or drag from a box’s edge handle to another box.');
-  },
-  'zoom-fit': () => {
-    const stage = document.getElementById('stage');
-    const sheet = document.getElementById('sheet');
-    setZoom(Math.min((stage.clientWidth - 56) / sheet.offsetWidth, (stage.clientHeight - 56) / sheet.offsetHeight));
+    else say('Select a box first, or drag from a box’s edge handle to another box.');
   },
   'toggle-pref': d => { prefs[d.key] = prefs[d.key] === false; savePrefs(); },
   'show-form': d => {
@@ -494,10 +503,10 @@ Object.assign(actions, {
   'unhide-all': () => setHiddenInView([]),
   'filter-apply': () => applyFilter(),
   'filter-clear': () => { setViewFilter(''); chart.filterDraft = null; },
-  'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows. Undo puts them back.`; },
+  'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows.`; },
   'fx-why': () => { const id = selectedRecord(); if (id) go(id); },
   'fx-recalc': () => {
     recompute();
-    setNotice(`Worked out ${count(Object.keys(records).filter(isComputed).length, 'record')} in ${Math.round(formulaResult.ms ?? 0)} ms.`);
+    say(`Worked out ${count(Object.keys(records).filter(isComputed).length, 'record')} in ${Math.round(formulaResult.ms ?? 0)} ms.`);
   },
 });

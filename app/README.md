@@ -6,7 +6,7 @@ Rboreal's app. Open any page directly in a browser; it needs no build step or se
 
 Open these directly in a browser. The chart and the record panel share their code and their saved state, so a change made on one page shows up on the other.
 
-Both pages work on a workbook of charts. The menu naming the current chart, in the top bar, switches to another chart, starts a new one (blank, or a copy of this one), renames or deletes this one, and restores a deleted one. Charts don't share records, definitions or views, and each keeps its own undo history. "Copy definitions from" in the same menu brings another chart's definitions and relation names into this one, with the specifications they need, unsynced from then on. A new blank chart starts from the record panel's Entities or Individuals, or from a double-click on the chart.
+Both pages work on a workbook of charts. The chart menu, at the top of the shell's sidebar, switches to another chart, starts a new one (blank, or a copy of this one), renames or deletes this one, and restores a deleted one. Charts don't share records, definitions or views, and each keeps its own undo history. "Copy definitions from" in the same menu brings another chart's definitions and relation names into this one, with the specifications they need, unsynced from then on. A new blank chart starts from the record panel's Entities or Individuals, or from a double-click on the chart.
 
 - [index.html](index.html): Home, the page a lawyer opens first, greeting them with the chart's name and today's date.
   - **Needs attention:** deadlines overdue or due in the next 30 days; required entries left blank, a line per requirement with the records lacking it; and formula errors, a line per definition. Each links to where it's fixed.
@@ -21,7 +21,7 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - **Why** explains a date a definition gave, or one entered over its formula: the definition, its formula, and what it read.
   - **Export to Outlook** saves what's shown as an .ics file of all-day events, each named for what it is and whose, with a link back to its record. Past dates are left out unless asked for.
 
-- [chart.html](chart.html): the chart, with a ribbon above it and the record panel on the right.
+- [chart.html](chart.html): the chart, in the app's shell, as a full-bleed canvas: the ribbon above it, the record panel on the right, and along its foot the view tabs, the legend's switch and the zoom. The top bar names the chart, with Export… and Present on its right. The sidebar switches charts and themes.
   - Every object is a box, and every two-argument relation is a line from its first argument to its second.
   - A line's label is the relation's own text (a tag's relation name, like General Partner, or a field's or choice's output), if its style gives one, followed by whatever is located at the relation that its own style shows. Ownership is a tag (Owner, Owned) with a Percentage located at it, so its lines carry no label of their own and the Percentage labels them, just above the box a line reaches. Clicking that text selects the line and engages the Percentage's style.
   - **Styles.**
@@ -43,15 +43,24 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - **Views.** Tabs along the bottom, like a workbook's sheet tabs, switch between the chart's views. Views share the records and formulas, and each has its own styles, box positions and hidden things.
     - "+" adds a view that starts as a copy of the current one. Double-click a tab to rename it, drag tabs to reorder them, and use the current tab's menu (or right-click a tab) to rename, duplicate or delete a view. The last view can't be deleted.
     - Switching keeps the selection, unless the new view hides it.
-    - The sample has two views: Structure, which hides the feeder's General Partner line, and 40 Act, which hides ownership and draws the BDC's close affiliates (blue) and remote affiliates (dashed orange).
+    - The sample has two views: Structure, which hides the feeder's General Partner line, and 40 Act, which hides ownership and draws the BDC's close affiliates (dashed) and remote affiliates (dotted), both in the computed purple.
   - **Show and hide**, in the View tab, act on the current view only.
-    - The Show menu lists what the view can draw, by form, each with a checkbox: Boxes, one per kind; Lines, the entered relations by name; Computed lines; and Text, the entries a box can show. Turning one on or off sets whether its style draws it in this view, so a relation goes for every kind it relates. Text a line shows, like an ownership's Percentage, comes and goes with the line. A computed relation starts out dashed, in a color of its own.
+    - The Show menu lists what the view can draw, by form, each with a checkbox: Boxes, one per kind; Lines, the entered relations by name; Computed lines; and Text, the entries a box can show. Turning one on or off sets whether its style draws it in this view, so a relation goes for every kind it relates. Text a line shows, like an ownership's Percentage, comes and goes with the line. A computed relation's line is dashed and purple, as everything a formula works out is marked, unless its style says otherwise.
     - Hide hides the selected box or line in this view, and the Hidden menu shows them again.
     - Filter boxes holds a condition, worked out at each object like an entry's formula, that says which boxes the view shows; lines to hidden boxes go with them. The 40 Act view's shows the BDC and its close and remote affiliates. The menu checks the condition as it's typed and says how many boxes it would show. A box where the condition runs into an error stays shown, with a red mark.
     - Tidy layout, offered when a view hides boxes, lays out the ones it shows in rows along ownership and control, in this view only.
     - A computed relation is drawn only where a style shows it. Adding a new relation draws it in the current view and leaves it hidden in the others.
   - **Formulas tab.** Definitions opens the panel's Schema view on its computed forms. New definition starts one, of an entry or of a relation (a relation starts from the selected box, or the two being related). Why? opens the selected computed line, or line of text, in the panel. Calculation says how many computed records the definitions gave, how long it took, and how many errors there are.
-  - **Export tab.** PDF saves the current view as a vector PDF fitted to the page size picked beside it (Letter, A4 or Tabloid), under a title and above a footer that names the chart and view and says when it was made. PowerPoint saves a deck of a title slide and the view as editable shapes: boxes with their text in them, lines as single paths, labels as text boxes, in the chart's colors and dashes. All views gives every view a slide. SVG saves the view as a picture. Profile, with a box selected, saves a PDF of its entries and its relations by name, computed values in italics. Everything is made in the browser.
+  - **The legend** says what the view's looks mean: a row for each look a style gives the boxes drawn (outputs that look alike share a row), grouped by the style's form, then a row for each kind of line, computed ones in italics. Text styles aren't listed. It sits on the sheet under the drawing, and the switch at the foot of the chart (or View › Legend) hides it.
+  - **Export…**, in the top bar, opens a dialog with the choices on the left and a live preview of every page or slide on the right, drawn from the same layout the file is made from:
+    - Format: PDF (vector), PowerPoint (a title slide, then the view as editable shapes: boxes with their text in them, lines as single paths, labels as text boxes, in the chart's colors and dashes) or SVG (the view as a picture, with the legend as the sheet shows it).
+    - Views: this view, or every view, a page or slide each.
+    - Page size (Letter, A4 or Tabloid, and an orientation, by default to suit each view) or slide size (16:9 or 4:3).
+    - As of: the date printed in the footer, today by default.
+    - Include the legend, beside the chart or below it, wherever the chart comes out larger.
+    - With a box selected, Profile of it saves a PDF of its entries and its relations by name, computed values in italics. So does the palette's Export a profile.
+    Everything is made in the browser, and nothing is uploaded.
+  - **Present** hides everything but the chart (the sidebar, top bar, ribbon, panel and the bar along its foot), full screen where the browser allows, and fits the chart to the screen. The arrow keys step through the views, each fitted, and Esc comes back to where things were.
   - Text a formula works out is set in italics on the chart. Lines that would pass behind other boxes go under them and come up into the box they reach.
   - A box with a required entry left blank has a red asterisk at its corner.
   - **Creating boxes.** Double-click the sheet to add a box of any kind there, or of a new kind. The Insert tab does the same at the middle of the view.
@@ -63,8 +72,9 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
     - Relations with more than two parameters get pickers for the rest.
     - A new relation can be started at the bottom, with a role for each side and where each side's end sits.
   - **Adding styles.** Use Add › Style… in the panel or New style in the ribbon to style the chart by another entry.
-  - Ctrl+wheel or the zoom buttons zoom. The panel's left edge drags to resize it.
-  - Reset sample, in the top bar, puts the sample chart back as it started, with its views and formulas. Undo brings the changes back.
+  - **Zoom.** Ctrl+wheel, or − and + at the foot of the chart, zooms; the percentage between them opens a menu of sizes, and Fit (or Shift+1) fits the whole sheet to the screen. The chart opens as it was left in this session; a chart not looked at yet opens whole if it's readable that way, and otherwise from the top. The panel's left edge drags to resize it.
+  - What a change did is said in a toast, with Undo when it was an edit.
+  - The command palette (Ctrl+K) has the page's actions: Export…, Present, Fit to screen, the views, Tidy layout, the legend and the panel. On the sample chart, Reset sample puts it back as it started, with its views and formulas; Undo brings the changes back.
 - [record.html](record.html): one record, at `record.html#<id>`, laid out like Attio's record page.
   - **The header** has the record's name, its kind with its first choices (Entity · Limited Partnership · 3(c)(7) Fund), and its status: a purple badge for each tag a formula found true of it (Private Fund, Investment Company), which opens its explanation, and a red one for required entries left blank, which goes to the first.
   - **The top bar** has the path (Records › Entities, or Documents for a document), and the record's actions: Open document for a document, Open on chart (which selects its box, unless the chart's view doesn't draw it), Export profile (a PDF of its entries and relations), and a menu with Copy link and Delete. Delete takes effect at once, with Undo in a toast; the record and what depends on it go to Deleted.
@@ -174,14 +184,14 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `relate.js` | The Relate view, for relating two things |
 | `history.js`, `history.css` | The History page: reading the history log back from the records as they are now, so each change is told in its own time's names; days, runs, filters in the address, restoring, and CSV |
 | `schema.js`, `schema.css` | The Schema page: the panel's Schema and definition views as a page of their own |
-| `ribbon.js` | The chart's ribbon |
-| `chart.js` | The chart: drawing boxes, routing lines, selecting, moving, editing in place, and relating by drag |
+| `ribbon.js` | The chart's ribbon: Home (the engaged style's formatting), Insert, Formulas and View |
+| `chart.js` | The chart page: drawing boxes, routing lines and the legend, selecting, moving, editing in place, and relating by drag; the view tabs and zoom at the chart's foot; presenting; and starting the shell |
 | `sharepoint.js` | The document connector, with no UI, as one global, `SharePoint`: reading document links and choosing their icons; the connection settings; a Microsoft Graph client, signed in through MSAL, for browsing, search, items, sharing links and versions; loading and saving the workbook in a SharePoint library, with a conflict when someone else has saved since; and a demo tenant (Contoso's Fund Legal site) with the same API |
 | `agenda.js` | The chart's dates as events (what, whose, when, and whether a rule gives them), grouped as the agenda groups them; an event's row and its Why; whose something is, as chips; and the .ics export. Home and the Calendar share it |
 | `calendar.js`, `home.js` | The Calendar and Home |
 | `store.js` | Where the workbook is kept, with no UI, as one global, `Store`: the working copy in local storage, saved to a file or a SharePoint library by one sync model (saves that name the version they replace, a newer copy taken when nothing here is unsaved, conflicts that keep both copies); the status the sidebar shows; export and import |
 | `settings.js`, `settings.css` | The Settings page |
-| `export.js` | Exports, made in the browser: the chart as a vector PDF, an editable PowerPoint deck (a slide per view, if asked) or an SVG, and an object's profile as a PDF; and the ribbon's Export tab. Each format draws one scene read off the chart, so it shows what the chart shows. Its libraries load the first time they're used |
+| `export.js` | Exports, made in the browser: the chart as a vector PDF, an editable PowerPoint deck or an SVG, a page or slide per view if asked, and an object's profile as a PDF; and the Export dialog, with its live preview. Each format draws one scene read off the chart, laid out on one page layout (title, chart, legend, footer), so it shows what the chart shows, and the preview shows what the file will. Its libraries load the first time they're used |
 | `agenda.css`, `calendar.css`, `home.css` | The agenda's rows, the Calendar, and Home |
 | `documents.js` | The Documents area: the index of documents, read from the records; the library read live through the connector, a few requests at a time; the preview pane; linking, editing and relinking, each one change through the model; and what no record links to |
 | `base.css`, `panel.css`, `chart.css`, `documents.css` | Shared tokens and controls, the panel, the chart page, and the Documents area |
