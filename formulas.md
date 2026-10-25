@@ -63,12 +63,13 @@ On the sample:
 
 A choice **Tax Classification**, at Entity Type:
 
-`= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1, "Disregarded Entity", TRUE, "Partnership")`
+`= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1 AND KIND(Owners) <> "Investor Group", "Disregarded Entity", TRUE, "Partnership")`
 
 How the names resolve:
 - `@` reads as "this". In the formula for an entry, it means the record the entry is located at. Here that is the Entity Type record, whose output is the entity type.
 - Entity Type has no entries called Ownership Adds Up or Owners, so those names are looked up the path, on the entity.
 - Names with spaces in them go in square brackets.
+- `KIND(Owners)` is the kind of the one owner. An investor group stands for many investors, so an entity wholly owned by one isn't disregarded.
 
 **What the formula covers.** It covers Tax Classification at every Entity Type that has one in the schema: Limited Partnership, Limited Liability Company and Corporation. So:
 - It fills in Northpine and Halvard, which have an Entity Type but no Tax Classification yet.

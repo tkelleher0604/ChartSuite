@@ -243,7 +243,7 @@ const SAMPLE_DEFINITIONS = [
     formula: '= IF(COUNT(Owners) = 0, BLANK(), SUM(Owners.Percentage) = 100%)' },
   { id: 'def_tax', name: 'Tax Classification', type: 'choice',
     at: ['Entity › Entity Type: Limited Partnership', 'Entity › Entity Type: Limited Liability Company', 'Entity › Entity Type: Corporation'],
-    formula: '= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1, "Disregarded Entity", TRUE, "Partnership")' },
+    formula: '= IFS(@ = "Corporation", "C Corporation", [Ownership Adds Up] AND COUNT(Owners) = 1 AND KIND(Owners) <> "Investor Group", "Disregarded Entity", TRUE, "Partnership")' },
   { id: 'def_look_through', name: 'Look-Through Ownership', type: 'field', datatype: 'percent',
     args: [{ edge: 'Investor', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Investment', at: ['Entity'] }],
     formula: '= LOOKTHROUGH(Investor, Investment, Holdings, Percentage)' },
