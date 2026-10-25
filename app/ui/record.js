@@ -387,15 +387,24 @@ const RecordPage = (() => {
     }
   }
 
+  // The path to the record: its kind's table, and for a relation, its first side. A deleted record keeps
+  // its path, from Deleted.
   function crumbs() {
-    const r = records[addressed().subject];
-    if (!r) return [{ text: 'Records', href: 'records.html' }];
-    const obj = isObject(r) ? addressed().subject : objectOf(r.args[0].at);
-    const kind = records[obj].kind;
+    const a = addressed();
+    const r = records[a.subject];
+    const gone = a.batch?.records[a.missing];
+    const kind = r ? records[isObject(r) ? a.subject : objectOf(r.args[0].at)].kind : gone?.kind;
+    if (!kind) return [{ text: 'Records', href: 'records.html' }];
     const base = same(kind, DOCUMENT) ? [{ text: 'Documents', href: 'documents.html' }]
       : [{ text: 'Records', href: 'records.html' }, { text: plural(kind), href: Shell.kindHref(kind) }];
-    return isObject(r) ? base : [...base, { text: objectName(obj), href: Shell.recordHref(obj) }];
+    if (!r || isObject(r)) return base;
+    const obj = objectOf(r.args[0].at);
+    return [...base, { text: objectName(obj), href: Shell.recordHref(obj) }];
   }
+  const title = () => {
+    const a = addressed();
+    return records[a.subject] ? titleOf(a.subject) : a.batch?.records[a.missing] ? a.batch.label : 'Record';
+  };
 
   function actions() {
     const id = addressed().subject;
@@ -523,8 +532,7 @@ const RecordPage = (() => {
   function start() {
     Shell.start({
       ...area(), undo: false,
-      title: () => records[subject()] ? titleOf(subject()) : 'Record',
-      crumbs, actions, render: html, after,
+      title, crumbs, actions, render: html, after,
       commands: () => {
         const id = subject();
         if (!records[id]) return [];
