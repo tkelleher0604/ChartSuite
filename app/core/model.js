@@ -49,7 +49,8 @@ function initState() {
       if (saved?.charts?.length) {
         workbook = { deleted: [], ...saved };
         if (!chartInUse()) workbook.chartId = workbook.charts[0].id;
-        return setState(chartInUse().state);
+        setState(chartInUse().state);
+        return useTabPlace();
       }
     } catch {}
     // A copy that can't be read is set aside, never overwritten, and the sample opens in its place.
@@ -143,7 +144,30 @@ function switchChart(id) {
   swapHistory(id);
   workbook.chartId = id;
   setState(chartInUse().state);
+  keepTabPlace();
   saveState();
+}
+
+// Which chart and view are open belongs to the tab: two tabs can show different charts and views of one
+// workbook, and a change saved in one doesn't move the other. The workbook keeps the last ones anyone
+// opened, for a new tab to start at.
+const TAB_KEY = 'rboreal.tab';
+const tabPlace = () => { try { return JSON.parse(sessionStorage.getItem(TAB_KEY)) ?? {}; } catch { return {}; } };
+function keepTabPlace() {
+  try { sessionStorage.setItem(TAB_KEY, JSON.stringify({ chart: workbook.chartId, view: viewId })); } catch {}
+}
+// Opens the tab's chart and view, where the workbook still has them.
+function useTabPlace() {
+  const tab = tabPlace();
+  if (tab.chart && tab.chart !== workbook.chartId && workbook.charts.some(c => c.id === tab.chart)) {
+    workbook.chartId = tab.chart;
+    setState(chartInUse().state);
+  }
+  if (tab.chart === workbook.chartId && tab.view !== viewId && views.some(v => v.id === tab.view)) {
+    viewId = tab.view;
+    ({ styles } = viewInUse());
+    layout = viewInUse().layout ?? {};
+  }
 }
 
 // A chart with nothing in it yet but a Kind style, which new kinds fill in.
@@ -482,6 +506,7 @@ function switchView(id) {
   views = currentViews();
   viewId = id;
   ({ styles, layout } = viewInUse());
+  keepTabPlace();
   saveState();
 }
 

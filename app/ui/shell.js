@@ -433,11 +433,13 @@ const Shell = (() => {
   }
 
   // ---- Undo ----
+  // The toast says what was taken back or put back, as the history records it ("Undid “Deleted …”").
   function undoOrRedo(redo) {
+    const last = historyLog[0];
     if (!(redo ? redoState() : undoState())) return toast(redo ? 'Nothing to redo' : 'Nothing to undo');
     for (const fn of undoListeners) fn();
     render();
-    toast(redo ? 'Redone' : 'Undone', redo ? {} : { action: { label: 'Redo', run: () => undoOrRedo(true) } });
+    toast(historyLog[0] !== last ? historyLog[0].summary : redo ? 'Redone' : 'Undone',redo ? {} : { action: { label: 'Redo', run: () => undoOrRedo(true) } });
   }
 
   // ---- Events ----
@@ -525,14 +527,21 @@ const Shell = (() => {
   });
 
   // Another tab changed the workbook: take its state, which is now the saved one, and start undo afresh.
-  window.addEventListener('storage', e => {
-    if (e.key !== WORKBOOK_KEY || !page) return;
+  // While you're typing here, it waits until you're done, so what you're typing isn't swept away.
+  let otherTab = false;
+  function takeOtherTab() {
+    otherTab = false;
     initState();
     undoStack.length = redoStack.length = 0;
     undoByChart.clear();
     for (const fn of chartListeners) fn();
     if (typeof window.render === 'function') window.render(); else render();
+  }
+  window.addEventListener('storage', e => {
+    if (e.key !== WORKBOOK_KEY || !page) return;
+    if (typing(document.activeElement)) otherTab = true; else takeOtherTab();
   });
+  document.addEventListener('focusout', () => { if (otherTab) setTimeout(() => { if (otherTab && !typing(document.activeElement)) takeOtherTab(); }); });
 
   applySidebar();
 
