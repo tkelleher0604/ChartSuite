@@ -143,8 +143,14 @@ a.chip:hover, button.chip:hover { background: var(--border); }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .filter-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px dashed var(--border-strong); border-radius: 14px; background: none; color: var(--text-2); font-size: 12.5px; font-weight: 500; }
 .filter-chip:hover { border-color: var(--text-3); color: var(--text); }
-.filter-chip.is-set { border: 1px solid transparent; background: var(--accent-soft); color: var(--accent-text); }
+.filter-chip.is-set { max-width: 30rem; gap: 2px; padding: 0 4px 0 10px; border: 1px solid transparent; background: var(--accent-soft); color: var(--accent-text); }
 .filter-chip .icon { width: 13px; height: 13px; }
+/* A set filter: its value, which reopens it, and × to clear it. */
+button.filter-chip.is-set { padding: 0 10px; }
+.filter-chip > button { display: inline-flex; align-items: center; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+.filter-chip-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chip-x { justify-content: center; width: 20px; flex: none; border-radius: 10px !important; opacity: .7; }
+.filter-chip-x:hover { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent) !important; }
 .search-input { position: relative; display: inline-flex; align-items: center; }
 .search-input .icon { position: absolute; left: 9px; width: 14px; height: 14px; color: var(--text-3); pointer-events: none; }
 .search-input .input { height: 30px; padding-left: 30px; }

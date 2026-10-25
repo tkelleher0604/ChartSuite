@@ -7,14 +7,14 @@ const Parts = (() => {
   // says what it is, since legal names collide. A computed relation's chip is dashed.
   function chip(id, { detail = '', computed = false } = {}) {
     if (!records[id]) return '';
-    return `<a class="chip${computed ? ' is-computed' : ''}" href="${Shell.recordHref(id)}" title="${esc(Shell.subtitleOf(id))}${computed ? ' · worked out by formula' : ''}">
+    return `<a class="chip${computed ? ' is-computed' : ''}" href="${Shell.recordHref(id)}" title="${esc(objectName(id))} · ${esc(Shell.subtitleOf(id))}${computed ? ' · worked out by formula' : ''}">
       <span class="chip-text">${esc(objectName(id))}</span>${detail ? `<span class="chip-detail">${esc(detail)}</span>` : ''}</a>`;
   }
   // An object's name as a link to its page, for a table's first column.
   const link = id => records[id] ? `<a class="row-link" href="${Shell.recordHref(id)}">${esc(objectName(id))}</a>` : '';
 
   // A record's output as text: a field's value in its datatype's format, a choice's option, a tag's state.
-  const outputText = r => isField(r) ? displayValue(r) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Yes' : 'Ruled out') : r.kind;
+  const outputText = r => isField(r) ? displayValue(r) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Attested' : 'Ruled out') : r.kind;
   // The same as markup: a tag as its checkbox, a document as a link to it, and what a formula worked out
   // in italics, saying so on hover.
   function output(id) {
@@ -40,9 +40,14 @@ const Parts = (() => {
     const [y, m, d] = iso.split('-').map(Number);
     return Math.round((Date.UTC(y, m - 1, d) - t) / 864e5);
   }
-  // How far off a date is, in words: Today, Tomorrow, In 12 days, 3 days ago.
+  // How far off a date is, in words: Today, Tomorrow, In 12 days, 3 days ago; then months and years, since
+  // "In 412 days" or "28,505 days ago" reads as nothing in particular.
   function dueText(iso) {
-    const n = daysUntil(iso);
+    const n = daysUntil(iso), far = Math.abs(n);
+    if (far >= 60) {
+      const text = far < 548 ? count(Math.round(far / 30.44), 'month') : count(Math.round(far / 365.25), 'year');
+      return n > 0 ? `In ${text}` : `${text} ago`;
+    }
     return n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n === -1 ? 'Yesterday' : n > 0 ? `In ${count(n, 'day')}` : `${count(-n, 'day')} ago`;
   }
   // A moment (an ISO timestamp) relative to now, with the exact time on hover: 5 min ago, 3 h ago (today),

@@ -503,7 +503,7 @@ const Shell = (() => {
   applySidebar();
 
   return {
-    start, render, on, menu, confirm, prompt, toast, visited, recordHref, kindHref, subtitleOf, DOCUMENT_KIND,
+    start, render, on, menu, confirm, prompt, toast, visited, recent, recordHref, kindHref, subtitleOf, DOCUMENT_KIND,
     // Says where the workbook is saved, and how that's going: tone '', 'busy' or 'error'.
     setStatus(text, tone = '') { status = { text, tone }; if (page) renderSidebar(); },
     // Runs when the workbook switches to another chart, or another tab changes it, so a page can let go

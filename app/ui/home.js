@@ -133,11 +133,8 @@ function changesHtml() {
 
 // ---- Recently viewed ----
 // The records the palette lists as Recent (Shell.visited keeps them).
-function recentIds() {
-  try { return (JSON.parse(localStorage.getItem('rboreal.recent')) ?? []).filter(id => records[id] && isObject(records[id])); } catch { return []; }
-}
 function recentHtml() {
-  const ids = recentIds().slice(0, 6);
+  const ids = Shell.recent().slice(0, 6);
   return `<section class="home-section" aria-labelledby="home-recent">
     <div class="section-head"><h2 class="section-title" id="home-recent">Recently viewed</h2></div>
     ${ids.length ? `<div class="home-recent">${ids.map(id => `<a class="home-recent-item" href="${esc(Shell.recordHref(id))}">
@@ -226,7 +223,7 @@ function comingUpHtml() {
     ${next.length ? `<div class="home-next">${next.map(e => `<a class="home-next-item${e.days <= 6 ? ' is-week' : ''}${e.computed ? ' is-computed' : ''}" href="${esc(Shell.recordHref(e.root))}">
         <time class="home-next-date tnum" datetime="${esc(e.iso)}" title="${esc(Agenda.longDate(e.iso))}">${esc(Parts.date(e.iso).replace(/, \d{4}$/, ''))}</time>
         <span class="home-next-text"><span class="home-next-label">${esc(e.label)}</span><span class="home-next-whose">${esc(Agenda.whoseText(e))}</span></span>
-        <span class="home-next-when tnum">${esc(Agenda.relative(e.iso))}</span></a>`).join('')}</div>`
+        <span class="home-next-when tnum">${esc(Parts.dueText(e.iso))}</span></a>`).join('')}</div>`
       : '<div class="card-body faint">Nothing coming up.</div>'}
   </section>`;
 }

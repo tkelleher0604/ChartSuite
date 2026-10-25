@@ -172,7 +172,7 @@ function monthHtml(list) {
       ${rows}
     </div>
     <section class="cal-dayview" aria-live="polite">
-      <h2 class="cal-group-head"><span class="cal-group-name">${esc(Agenda.longDate(cal.day))}</span><span class="cal-group-span">${esc(Agenda.relative(cal.day))}</span></h2>
+      <h2 class="cal-group-head"><span class="cal-group-name">${esc(Agenda.longDate(cal.day))}</span><span class="cal-group-span">${esc(Parts.dueText(cal.day))}</span></h2>
       ${dayEvents.length ? `<div class="ev-list">${dayEvents.map(e => Agenda.row(e)).join('')}</div>` : '<p class="cal-none">Nothing on this day.</p>'}
     </section>
   </div>`;

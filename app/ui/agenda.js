@@ -80,16 +80,6 @@ const Agenda = (() => {
     return g.to === undefined ? `From ${short(start)}` : `${short(start)} – ${short(addDays(isoToday(), g.to))}`;
   }
 
-  // How far off a date is: Parts.dueText's days near at hand, then months, then years, since "In 412 days"
-  // or "28,505 days ago" reads as nothing in particular.
-  function relative(iso) {
-    const n = Parts.daysUntil(iso);
-    if (Math.abs(n) < 60) return Parts.dueText(iso);
-    const [months, years] = [Math.round(Math.abs(n) / 30.44), Math.round(Math.abs(n) / 365.25)];
-    const text = Math.abs(n) < 548 ? count(months, 'month') : count(years, 'year');
-    return n > 0 ? `In ${text}` : `${text} ago`;
-  }
-
   // ---- Filters ----
   // { kind, objects, computed }: the kind of an object an event belongs to; the objects it may belong to
   // (a Set, or null for any); and whether only computed dates are wanted.
@@ -170,7 +160,7 @@ const Agenda = (() => {
     const dateTitle = e.computed && def ? `${longDate(e.iso)}. Worked out by ${def.name}.` : longDate(e.iso);
     return `<div class="ev-row is-${g}${e.computed ? ' is-computed' : ''}${compact ? ' is-compact' : ''}" data-event="${esc(e.id)}" data-href="${esc(recordHref(e))}" tabindex="-1">
       <time class="ev-date tnum" datetime="${esc(e.iso)}" title="${esc(dateTitle)}">${esc(Parts.date(e.iso))}</time>
-      <span class="ev-when tnum">${esc(relative(e.iso))}</span>
+      <span class="ev-when tnum">${esc(Parts.dueText(e.iso))}</span>
       <span class="ev-what"><a class="ev-label" href="${esc(recordHref(e))}">${esc(e.label)}</a></span>
       ${whose(e)}
       ${compact ? '' : `<span class="ev-actions">${def ? `<button class="link-btn ev-why-btn" data-cmd="agenda.why" data-id="${esc(e.id)}" aria-expanded="${shown}" aria-controls="why-${esc(e.id)}" title="${e.computed ? 'How a definition worked this out' : 'What the definition says about this date'}">Why</button>` : ''}<a class="link-btn ev-open" href="${esc(recordHref(e))}">Open</a></span>`}
@@ -228,6 +218,6 @@ const Agenda = (() => {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  return { events, grouped, groupOf, spanText, relative, matches, reach, listsOf, row, whose, whoseText, ownersOf, ics, download,
+  return { events, grouped, groupOf, spanText, matches, reach, listsOf, row, whose, whoseText, ownersOf, ics, download,
     isDeadline, isoOf, isoToday, addDays, longDate };
 })();
