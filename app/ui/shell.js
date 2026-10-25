@@ -3,7 +3,7 @@
 // script, which starts the shell with what the page shows:
 //   Shell.start({ area, title, crumbs, actions, render, after, commands, undo, keys })
 // - area: the sidebar item that's current: 'home', 'chart', 'documents', 'calendar', 'history', 'schema',
-//   'settings', or 'records' (with `kind` naming the kind);
+//   'settings', or 'records' (with `kind` naming the kind, or a function giving it);
 // - title: the page's title in the top bar; crumbs: links before it, [{ text, href }]; actions: markup
 //   for the top bar's right. Each may be a function, worked out on every render;
 // - render(): the page's content, as markup for <main>. A page that draws its own content (the chart)
@@ -69,7 +69,7 @@ const Shell = (() => {
       <span class="sb-item-text">${esc(a.name)}</span>${count}</a>`;
 
   function sidebarHtml() {
-    const kind = page.area === 'records' ? page.kind : null;
+    const kind = page.area === 'records' ? value(page.kind) : null;
     const kinds = recordKinds().map(k => {
       const n = countOfKind(k);
       return navItem({ name: plural(k), href: kindHref(k), key: 'r' }, kind && same(kind, k), `<span class="sb-count">${n}</span>`);

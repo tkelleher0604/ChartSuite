@@ -1299,9 +1299,7 @@
   document.addEventListener('click', e => {
     if (!inPage()) return;
     const t = e.target;
-    // Opening a record remembers it, for the palette's Recent list.
     const link = t.closest?.('a[href^="record.html#"]');
-    if (link) { try { Shell.visited(decodeURIComponent(link.getAttribute('href').slice('record.html#'.length))); } catch {} }
     // A click outside an open popover closes it, unless the click is what opened it, or is in a menu the
     // popover opened.
     if (ui.pop && ui.pop === popAtClick && !clickInPop) { closePop(); draw(); }

@@ -1625,8 +1625,10 @@ function keepPlace(at, oldLabel, newLabel) {
 // was isn't a change, so a computed one isn't overridden by it.
 function saveFieldValue(id, raw, label = recordLabel(id)) {
   const r = records[id];
+  // The datatype others like it have; or, if this record alone has its field, its own datatype while what's
+  // typed reads as one (800000000 stays money), and otherwise whatever what's typed looks like.
   const datatype = specsWithParam(parameterization(records, id)).find(t => 'field' in t.out && !onlyHas(t, id))?.out.field
-    ?? (isObjectName(id) ? 'text' : classify(clean(raw)));
+    ?? (isObjectName(id) ? 'text' : parseValue(r.field, raw) !== undefined ? r.field : classify(clean(raw)));
   const value = parseValue(datatype, raw);
   if (value === undefined) return clean(raw) ? `${label} takes ${asPhrase(datatype)} here.` : `${label} can’t be empty.`;
   if (datatype === r.field && value === r.value) return null;

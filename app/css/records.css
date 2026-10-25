@@ -21,13 +21,8 @@
 .rec-bar-end .btn { height: 30px; }
 .rec-bar-end .btn .icon { width: 14px; height: 14px; margin-right: -3px; color: var(--text-3); }
 
-/* A set filter: what it says, which reopens it, and × to remove it. The chip's parts are shell.css's shared
-   set chip (.filter-chip-main, .filter-chip-x); its rules are repeated here, scoped, for a shell.css that
-   doesn't have them yet. What it says reads as a sentence, its value in bold. */
-.rec-filters .filter-chip.is-set { flex: 0 1 auto; gap: 2px; min-width: 0; max-width: 100%; padding: 0 4px 0 10px; }
-.rec-filters .filter-chip > button { display: inline-flex; align-items: center; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
-.rec-filters .filter-chip-x { justify-content: center; width: 20px; flex: none; border-radius: 10px; opacity: .7; }
-.rec-filters .filter-chip-x:hover { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent); }
+/* A set filter is shell.css's set chip, reading as a sentence with its value in bold. */
+.rec-filters .filter-chip.is-set { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .rec-filters .filter-chip-x .icon { width: 12px; height: 12px; }
 .rec-fchip-text { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-fchip-text b { font-weight: 600; }
