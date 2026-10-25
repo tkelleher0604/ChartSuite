@@ -11,9 +11,9 @@
     if (prefs?.theme === 'light' || prefs?.theme === 'dark') document.documentElement.dataset.theme = prefs.theme;
   } catch {}
 </script>
-<link rel="stylesheet" href="app/base.css">
-<link rel="stylesheet" href="app/panel.css">
-<link rel="stylesheet" href="app/chart.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/panel.css">
+<link rel="stylesheet" href="css/chart.css">
 </head>
 <body class="chart-app">
 <header class="appbar">
@@ -42,15 +42,15 @@
   <aside class="panel side-panel" id="panel" aria-label="Record panel"></aside>
 </div>
 
-<script src="app/common.js"></script>
-<script src="app/model.js"></script>
-<script src="app/formulas.js"></script>
-<script src="app/styles.js"></script>
-<script src="app/panel.js"></script>
-<script src="app/relate.js"></script>
-<script src="app/ribbon.js"></script>
-<script src="app/chart.js"></script>
-<script src="app/workbook.js"></script>
+<script src="core/common.js"></script>
+<script src="core/model.js"></script>
+<script src="core/formulas.js"></script>
+<script src="core/styles.js"></script>
+<script src="ui/panel.js"></script>
+<script src="ui/relate.js"></script>
+<script src="ui/ribbon.js"></script>
+<script src="ui/chart.js"></script>
+<script src="ui/workbook.js"></script>
 <script>
 panelOptions.engaged = currentEngaged;
 

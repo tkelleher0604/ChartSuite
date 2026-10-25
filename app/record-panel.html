@@ -11,8 +11,8 @@
     if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
   } catch {}
 </script>
-<link rel="stylesheet" href="app/base.css">
-<link rel="stylesheet" href="app/panel.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/panel.css">
 <style>
   .page { max-width: 760px; margin: 0 auto; padding: 24px 20px 48px; }
   .topbar { display: flex; align-items: center; gap: 8px; margin: 0 0 14px 2px; }
@@ -42,13 +42,13 @@
   <div class="foot" id="foot"></div>
 </div>
 
-<script src="app/common.js"></script>
-<script src="app/model.js"></script>
-<script src="app/formulas.js"></script>
-<script src="app/styles.js"></script>
-<script src="app/panel.js"></script>
-<script src="app/relate.js"></script>
-<script src="app/workbook.js"></script>
+<script src="core/common.js"></script>
+<script src="core/model.js"></script>
+<script src="core/formulas.js"></script>
+<script src="core/styles.js"></script>
+<script src="ui/panel.js"></script>
+<script src="ui/relate.js"></script>
+<script src="ui/workbook.js"></script>
 <script>
 function render() {
   renderPanel();

@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Rboreal Model</title>
-<link rel="stylesheet" href="UI/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
 <script>
   // The theme, before the page draws: the reader's choice if they made one here, else the system's.
   try { const t = localStorage.getItem('rboreal.model.theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
 </script>
 <style>
-@font-face { font-family: "Inter"; src: url("UI/vendor/inter/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("vendor/inter/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 :root {
   --bg: #fbfaf7; --surface: #ffffff; --text: #1d1d1f; --text-2: #4a4a50; --text-3: #8a8a93;
@@ -129,7 +129,7 @@ figcaption b { color: var(--text); font-weight: 600; }
 <h1>The Rboreal Model</h1>
 <p class="lede">The whole of what the prototype stores and computes, built up from the trees of <a href="data-model.md">data-model.md</a>: forms, formulas, names, styles, views, charts and workbooks.</p>
 
-<p><a href="data-model.md">data-model.md</a> defines records as labeled trees and states as sets of them. This document carries that theory up through everything else the app keeps. It describes the app as built: each definition here has a counterpart in <code>UI/mockups/app</code>, and the figures are worked out, live, by the app's own code from the sample chart. Where writing the model down showed part of the app to be unprincipled, the app was changed to fit; §9 lists the changes. Formulas are only summarized here; <a href="formulas.md">formulas.md</a> has them in full.</p>
+<p><a href="data-model.md">data-model.md</a> defines records as labeled trees and states as sets of them. This document carries that theory up through everything else the app keeps. It describes the app as built: each definition here has a counterpart in <code>app/core</code>, and the figures are worked out, live, by the app's own code from the sample chart. Where writing the model down showed part of the app to be unprincipled, the app was changed to fit; §9 lists the changes. Formulas are only summarized here; <a href="formulas.md">formulas.md</a> has them in full.</p>
 
 <section id="glance">
 <h2>At a glance</h2>
@@ -272,7 +272,7 @@ $$\operatorname{box}_v(x) \;=\; B_0 \;\oplus \bigoplus_{y \in Y_v}\; \bigoplus_{
 <p class="para"><span class="pn">7.4</span><strong class="def">Renaming every one like it.</strong> Renaming a label on a record \(r\) <em>every one like it</em> relabels that edge in every specification of \(S\) with \(r\)'s form, and in their dependents; \(\mu\) is that relabeling, and every record of those specifications is relabeled with it.</p>
 <p class="para"><span class="pn">7.5</span><strong class="def">The abandonment law.</strong> An edit to individual records (renaming <em>here only</em>, or moving an entry up a level) moves each edited record from a specification \(s\) to another, \(s'\). Then \(\mu(s) = s'\) for each such \(s\) that no record of \(E'\) has any more, and \(\mu\) is the identity elsewhere: <em>a specification abandoned by an edit moves with the records that abandoned it</em>. \(S' = \mu(S) \cup \{\operatorname{spec}(r) : r \in E'\}\).</p>
 <p class="para"><span class="pn">7.6</span><strong class="def">Definitions, names and views</strong> are edited directly: a definition's scope or rule, a name, a style's formatting, a box's position, the hidden set, the filter. Creating a definition adds to \(S\) the specifications its scope and sort require.</p>
-<p class="para"><span class="pn">7.7</span><strong class="def">Invariants.</strong> Every edit preserves the following, and an edit that would break one is refused. <a href="UI/mockups/model-test.html">model-test.html</a> checks them on the sample, and after each kind of edit.</p>
+<p class="para"><span class="pn">7.7</span><strong class="def">Invariants.</strong> Every edit preserves the following, and an edit that would break one is refused. <a href="app/tests/model-test.html">model-test.html</a> checks them on the sample, and after each kind of edit.</p>
 <ol>
   <li>\(S\) is a schema: closed under locations, and satisfying data-model.md's conditions on shared parameterizations.</li>
   <li>Every record of \(\Sigma\) is a record in \(S\), and \(\Sigma\) is a state.</li>
@@ -346,13 +346,13 @@ $$\kappa(s) = \begin{cases} \texttt{kind:}\,\nu(k) & \text{if } s \text{ is a lo
 </main>
 </div>
 
-<script src="UI/vendor/katex/katex.min.js"></script>
-<script src="UI/vendor/katex/contrib/auto-render.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="vendor/katex/contrib/auto-render.min.js"></script>
 <!-- The app's own code, for the figures: the model, the formula engine and the styles. -->
-<script src="UI/mockups/app/common.js"></script>
-<script src="UI/mockups/app/model.js"></script>
-<script src="UI/mockups/app/formulas.js"></script>
-<script src="UI/mockups/app/styles.js"></script>
+<script src="app/core/common.js"></script>
+<script src="app/core/model.js"></script>
+<script src="app/core/formulas.js"></script>
+<script src="app/core/styles.js"></script>
 <script src="model-figures.js"></script>
 <script>
 // Typesets \( \) and $$ $$. A single $ is left alone, so amounts like $750,000,000 stay text.

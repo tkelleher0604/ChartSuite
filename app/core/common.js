@@ -9,7 +9,7 @@ const byLabel = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })
 const plural = word => /[^aeiou]y$/i.test(word) ? `${word.slice(0, -1)}ies` : /(s|x|ch|sh)$/i.test(word) ? `${word}es` : `${word}s`;
 const count = (n, word) => `${n} ${n === 1 ? word : plural(word)}`;
 
-// Inner markup of Tabler outline icons; most are in ../vendor/tabler-icons/outline/.
+// Inner markup of Tabler outline icons; most are in vendor/tabler-icons/outline/.
 const ICONS = {
   'alert-triangle': '<path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" />',
   'arrow-back-up': '<path d="M9 14l-4 -4l4 -4" /><path d="M5 10h11a4 4 0 1 1 0 8h-1" />',

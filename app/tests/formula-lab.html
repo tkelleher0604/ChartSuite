@@ -11,15 +11,15 @@
     if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
   } catch {}
 </script>
-<link rel="stylesheet" href="app/base.css">
-<link rel="stylesheet" href="app/lab.css">
+<link rel="stylesheet" href="../css/base.css">
+<link rel="stylesheet" href="lab.css">
 </head>
 <body>
 <div class="lab">
   <header class="lab-top">
     <span class="brand">Rboreal</span><span class="brand-sub">Formula lab</span>
-    <a class="brand-link" href="chart.html">Chart</a>
-    <a class="brand-link" href="record-panel.html">Record panel</a>
+    <a class="brand-link" href="../chart.html">Chart</a>
+    <a class="brand-link" href="../record-panel.html">Record panel</a>
     <span class="lab-prefs" id="prefs"></span>
   </header>
   <div class="lab-main">
@@ -32,9 +32,9 @@
   <section class="lab-card lab-scratch" id="scratch"></section>
 </div>
 
-<script src="app/common.js"></script>
-<script src="app/model.js"></script>
-<script src="app/formulas.js"></script>
-<script src="app/lab.js"></script>
+<script src="../core/common.js"></script>
+<script src="../core/model.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="lab.js"></script>
 </body>
 </html>

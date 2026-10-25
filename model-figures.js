@@ -1,4 +1,4 @@
-// The figures of model.html, worked out live from the app's own code (UI/mockups/app) on the sample chart.
+// The figures of model.html, worked out live from the app's own code (app/core) on the sample chart.
 // The page builds the sample in memory and never saves, so it leaves the app's saved workbook alone.
 
 // ---- Drawing trees ----

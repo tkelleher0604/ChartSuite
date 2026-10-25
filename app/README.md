@@ -1,14 +1,14 @@
-# UI
+# The app
 
-Working area for Rboreal's frontend design.
+Rboreal's app. Open any page directly in a browser; it needs no build step or server.
 
-## Mockups
+## Pages
 
 Open these directly in a browser. The chart and the record panel share their code and their saved state, so a change made on one page shows up on the other.
 
 Both pages work on a workbook of charts. The menu naming the current chart, in the top bar, switches to another chart, starts a new one (blank, or a copy of this one), renames or deletes this one, and restores a deleted one. Charts don't share records, definitions or views, and each keeps its own undo history. "Copy definitions from" in the same menu brings another chart's definitions and relation names into this one, with the specifications they need, unsynced from then on. A new blank chart starts from the record panel's Entities or Individuals, or from a double-click on the chart.
 
-- [mockups/chart.html](mockups/chart.html): the chart, with a ribbon above it and the record panel on the right.
+- [chart.html](chart.html): the chart, with a ribbon above it and the record panel on the right.
   - Every object is a box, and every two-argument relation is a line from its first argument to its second.
   - A line's label is the relation's own text (a tag's relation name, like General Partner, or a field's or choice's output), if its style gives one, followed by whatever is located at the relation that its own style shows. Ownership is a tag (Owner, Owned) with a Percentage located at it, so its lines carry no label of their own and the Percentage labels them, just above the box a line reaches. Clicking that text selects the line and engages the Percentage's style.
   - **Styles.**
@@ -51,7 +51,7 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - **Adding styles.** Use Add › Style… in the panel or New style in the ribbon to style the chart by another entry.
   - Ctrl+wheel or the zoom buttons zoom. The panel's left edge drags to resize it.
   - Reset sample, in the top bar, puts the sample chart back as it started, with its views and formulas. Undo brings the changes back.
-- [mockups/record-panel.html](mockups/record-panel.html): the record panel on its own, with adding, editing, deleting and reordering entries, and relations.
+- [record-panel.html](record-panel.html): the record panel on its own, with adding, editing, deleting and reordering entries, and relations.
   - Adding starts with a name box whose list offers the labels already used at matching locations, plus Create.
   - A tag is added as soon as it's named. Its name sits in the label column and its output, a checkbox, in the value column: green when attested, red and crossed out when ruled out. Hovering previews the other state, and a click switches to it.
   - A choice moves on to an option box listing the outputs of its parameterization, and afterwards shows its option with a dropdown chevron.
@@ -94,13 +94,13 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - The panel's views have addresses: `#kind:<kind>`, a record's id, `#relate:<a>:<b>`, `#deleted`, `#schema` (with `:computed` or `:unused`), and `#definition:<id>` (or `#definition:new:entry`, `#definition:new:relation`). The older `#formulas` and `#formula:…` lead to the same places.
   - The top bar switches between System, Light and Dark themes.
   - Changes are saved in the browser's local storage, with undo and redo. A workbook saved before the chart kept its schema isn't read, and the pages start again from the sample.
-- [mockups/model-test.html](mockups/model-test.html): checks the model on the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, Copy definitions, naming relations and lists, and requiring entries must keep all of that true. Failures are listed first.
-- [mockups/formula-lab.html](mockups/formula-lab.html): the sample's definitions side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It starts from the definitions as the app stores them, written out as people write them, and keeps its own copy to edit.
-- [mockups/Dappled Wall.html](<mockups/Dappled Wall.html>): tree-branch shadows on a wall, a candidate background for the loading screen.
+- [tests/model-test.html](tests/model-test.html): checks the model on the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, Copy definitions, naming relations and lists, and requiring entries must keep all of that true. Failures are listed first.
+- [tests/formula-lab.html](tests/formula-lab.html): the sample's definitions side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It starts from the definitions as the app stores them, written out as people write them, and keeps its own copy to edit.
+- [Dappled Wall.html](<../UI/mockups/Dappled Wall.html>): tree-branch shadows on a wall, a candidate background for the loading screen.
 
 ## Code
 
-The chart and record panel mockups share the code in [mockups/app/](mockups/app/). These are plain scripts loaded in order, with no build step.
+The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/](css/). These are plain scripts loaded in order, with no build step.
 
 | File | What it does |
 | ---- | ------------ |
@@ -117,14 +117,14 @@ The chart and record panel mockups share the code in [mockups/app/](mockups/app/
 
 ## Vendored assets
 
-Third-party files under [vendor/](vendor/), downloaded from the jsDelivr npm CDN at pinned versions. Each folder has its project's license.
+Third-party files under [vendor/](../vendor/), at the repository root, downloaded from the jsDelivr npm CDN at pinned versions. Each folder has its project's license.
 
 | Folder | Project | Version | License | What's here |
 | ------ | ------- | ------- | ------- | ----------- |
 | `vendor/tabler-icons/` | [Tabler Icons](https://tabler.io/icons) | 3.49.0 | MIT | 62 outline SVGs |
 | `vendor/heroicons/` | [Heroicons](https://heroicons.com) | 2.2.0 | MIT | 35 outline SVGs (24px) |
 | `vendor/inter/` | [Inter](https://rsms.me/inter/) via [Fontsource](https://fontsource.org) | 5.1.0 | OFL 1.1 | Variable font, Latin subset (woff2) |
-| `vendor/tabler-core/` | [Tabler](https://tabler.io) UI kit | 1.7.1 | MIT | Component CSS and JS (Bootstrap-based); not used by the current mockups |
-| `vendor/pico/` | [Pico CSS](https://picocss.com) | 2.1.1 | MIT | Classless CSS for quick mockups; not used by the current mockups |
+| `vendor/tabler-core/` | [Tabler](https://tabler.io) UI kit | 1.7.1 | MIT | Component CSS and JS (Bootstrap-based); not used by the app |
+| `vendor/pico/` | [Pico CSS](https://picocss.com) | 2.1.1 | MIT | Classless CSS for quick mockups; not used by the app |
 
 The icons are a curated subset chosen with records in mind: kinds and objects (user, box, cube), fields and datatypes (letter-case, number, calendar, toggle), tags, drag handles (grip-vertical), relations (link, hierarchy, arrows-left-right), and panel controls (edit, plus, trash, chevrons, dots). The full sets are at the links above. Tabler's example HTML pages aren't in its npm package; browse them at https://preview.tabler.io.
