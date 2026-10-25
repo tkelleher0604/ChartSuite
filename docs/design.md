@@ -40,7 +40,7 @@ The tokens are in [app/css/base.css](../app/css/base.css). Use the variables; ne
 | Type | `--fs-caption`, `--fs-small`, `--fs-dense`, `--fs-body`, `--fs-title-sm`, `--fs-title`, `--fs-title-lg`, `--fs-display` (below) |
 | Shape | One radius for each role: `--radius-xs` (4: chips, checkboxes, kbd), `--radius-sm` (6: buttons, inputs, menu items, segmented controls), `--radius` (8: cards, menus and popovers, toasts), `--radius-lg` (12: dialogs and the palette), `--radius-full` (badges, filter chips, avatars) |
 | Shadow | `--shadow-pop` (menus), `--shadow-dialog`. In the dark theme borders do the work |
-| Motion | `--ease`: 100–120 ms for hovers, 150–200 ms for menus, 200–250 ms for dialogs. Animate only color, opacity and transform |
+| Motion | `--ease`: 100–120 ms for hovers, 150–200 ms for menus, 200–250 ms for dialogs, and an exit in three quarters of its entry. Animate only color, opacity and transform |
 
 **Type.** Inter, upright and its true italic (`vendor/inter`), in three weights: 400, 500 and 600. Eight sizes, as tokens; never write a size in pixels, and never a half pixel.
 
@@ -97,13 +97,15 @@ Every page is drawn in one frame, so moving between pages never moves what's on 
 
 ### The shell (`ui/shell.js`)
 
-`Shell.start({ area, kind, title, crumbs, actions, create, render, after, commands, undo, keys })` builds the page around its content, in the page frame (above). `render()` returns the markup for `<main>`. Wrap ordinary pages in `<div class="content">`, and use `.content.is-wide` for tables. The shell calls `render()` again after every change, so `render()` must work from the state alone. Keep transient UI state (an open row, a filter) in a page-level object, and restore focus in `after()` if a re-render would lose it.
+`Shell.start({ area, kind, title, crumbs, actions, create, render, after, commands, undo, keys, sidebar })` builds the page around its content, in the page frame (above). `keys` lists the page's own shortcuts for the ? sheet, as `[keys, what they do]`, keys written as pressed (`Shift+1`, `F2`). `sidebar: false` has a page start without the sidebar, as a canvas may, and remember its own choice from then on. `render()` returns the markup for `<main>`. Wrap ordinary pages in `<div class="content">`, and use `.content.is-wide` for tables. The shell calls `render()` again after every change, so `render()` must work from the state alone. Keep transient UI state (an open row, a filter) in a page-level object, and restore focus in `after()` if a re-render would lose it.
 
 What else the shell provides:
 - **Clicks.** Use `data-cmd="area.action"` on an element and register the handler with `Shell.on('area.action', (el, e) => …)`. Never use `data-action`, which is the record panel's. Prefix each command with the area.
 - **Re-rendering.** After a change, call `render()`.
 - **Toasts.** `Shell.toast(text, { undo: true })` after an edit, `{ action: { label, run } }` for anything else, and `{ tone: 'error' }` for a failure the person must see. Keep errors that need action inline, not in toasts.
-- **Dialogs.** `await Shell.confirm({ title, body, confirm, danger })` and `await Shell.prompt({ title, value, placeholder, confirm })` ask a question. A dialog of the page's own (the Chart's Export, Documents' Link document) is `Shell.dialog({ title, render, width, className, onOpen, onDraw, keys, onClose })`, which returns `{ el, redraw(), close() }`:
+- **Undo.** `Ctrl/⌘ Z`, the palette and a toast's Undo all go through `Shell.undoOrRedo(redo)`; a page that handles the undo keys itself (`undo: false`, the record panel's pages) calls it too, so every undo says what it undid, and in which chart once the workbook has had more than one. With nothing left in the page's own undo stack, an undo takes back your latest change still in effect, as the history has it, and a redo puts it back, from any page of the tab. Call `Shell.onUndo(fn)` to let go of a form an undo made stale.
+- **Your name.** On the first launch the shell asks your name, once, with Skip, so the History records your changes under it (Someone until you give it) and Home can greet you. It's changed from your name at the sidebar's foot.
+- **Dialogs.** `await Shell.confirm({ title, body, confirm, cancel, danger })` and `await Shell.prompt({ title, value, placeholder, confirm, cancel })` ask a question; `cancel` names the button that declines. Where the answer destroys (`danger`), Cancel has the focus, so Enter never deletes. A dialog of the page's own (the Chart's Export, Documents' Link document) is `Shell.dialog({ title, render, width, className, onOpen, onDraw, keys, onClose })`, which returns `{ el, redraw(), close() }`:
   - `render()` gives its markup from the page's state, using `.dialog-title`, `.dialog-body` and `.dialog-actions` or parts of its own;
   - `redraw()` draws it again in place, without animating it in again, keeping the focus, the caret and where its lists were scrolled; `redraw({ fresh: true })` starts a new step, with the focus on its `[data-autofocus]`;
   - while it's open it has the keyboard: `keys(e)` sees each key first, then Esc closes it and Tab keeps to it. Nothing reaches the page or the shell's shortcuts. Menus and other dialogs open over it, and closing it puts the focus back.
@@ -112,7 +114,7 @@ What else the shell provides:
   - Picking a ticked item, one marked `keep`, or a dropdown's value leaves the menu open. It's drawn again from `items`, which may be a function, and follows its anchor (a filter chip as it changes). Anything else closes it.
   - `search` puts a box at the top: `items` is then a function of what's typed, and the arrow keys and Enter pick from it.
 - **The record picker.** `Shell.pickRecord(anchorEl, { pick, among, placeholder })` finds an object as the palette does, listing the matches by kind with what tells like names apart. Use it wherever a record is chosen, as History's and the Calendar's filters do. `Shell.findsRecord(id, query)` is its matching, for a list of records of a page's own.
-- **The palette.** Add a page's own actions to it through `commands`. It already finds every record and area.
+- **The palette.** Add a page's own actions to it through `commands`; its `create` action is offered too. It already finds every record and area, and offers the everyday actions from any page: Export the chart, Present the chart, Link document, New entity (and each kind), Show overdue deadlines and Show what's missing. From another page, such an action goes to its page with `?do=<handler>` in the address, and the shell runs that handler once the page is drawn, as a click on the page's own control for it would: `chart.export`, `chart.present`, `docs.link`, `records.new`, `cal.overdue` and `home.missing`. A page registers its handler with `Shell.on`, as for any click.
 - **Links.** `Shell.recordHref(id)` and `Shell.kindHref(kind)`. Call `Shell.visited(id)` when a record is opened.
 - **Saving.** `Shell.setStatus(text, tone)` says where the workbook is saved.
 - **Chart switches.** `Shell.onChartChange(fn)`.
@@ -176,12 +178,12 @@ An area's own styles go in `css/<area>.css`, and may use only the tokens: colors
 - **Tables:** a click on a column's heading sorts by it, ascending, then descending. Where the table has a menu for its columns, a chevron shows on hovering the heading, and a right-click opens the same menu.
 - **Keys:**
   - `Ctrl/⌘ K` opens the palette;
-  - `G` then a letter goes to an area;
-  - `?` lists the shortcuts;
+  - `G` then a letter goes to an area (H Home, C Chart, D Documents, A Calendar, Y History, R Records, S Schema, `,` Settings);
+  - `?` lists the shortcuts: those that work everywhere, the page's own (its `keys`), and one row for each area;
   - `Ctrl/⌘ Z` undoes and `Ctrl/⌘ Y` redoes;
   - `Ctrl/⌘ \` hides the sidebar.
 
-  A page's own keys must not take these.
+  The shell hears a key after the page does, and leaves alone a key the page has used: a page that acts on a key calls `preventDefault()`, as a table does when typing over a cell starts with G. A dialog, the palette and an open menu hear keys before the page.
 - **Empty states** say what's missing, when it will appear, and the one action that adds it: "No documents linked yet", then "Link document". An empty result of a filter says so instead, with "Clear filters".
 - **Words.** Plain words, in sentence case. Use the model's vocabulary as the Schema view names it: *record*, *entry*, *relation*, *definition*, *formula*, *computed*, *attested*, *ruled out*. Never use jargon the user didn't choose. Buttons say what they do, as in "Link document", not "Submit".
 - **Both themes are first-class.** Check every page in light and dark.
