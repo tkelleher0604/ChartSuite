@@ -12,7 +12,8 @@
   --paper-accent: #3e63dd;
   --paper-accent-ring: rgb(62 99 221 / .5);
   --paper-accent-wash: rgb(62 99 221 / .07);
-  --paper-flag: #e5484d;
+  --paper-warn: #ab6400;
+  --paper-danger: #e5484d;
   --sheet-shadow: 0 0 0 1px rgb(33 32 28 / .07), 0 1px 2px rgb(33 32 28 / .05), 0 12px 32px -14px rgb(33 32 28 / .22);
 }
 @media (prefers-color-scheme: dark) {
@@ -174,9 +175,11 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .node.shape-rect-oval::before { content: ""; position: absolute; inset: 4px; border: var(--sw) solid var(--stroke); border-radius: 50%; pointer-events: none; }
 .node.shape-triangle { align-items: flex-end; padding: calc(var(--w) * .34) calc(var(--w) * .2) 12px; border: 0; background: none; }
 .node-shape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.node-text { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; max-width: 100%; text-align: center; overflow-wrap: break-word; }
-.node-line { max-width: 100%; border-radius: 3px; line-height: 1.28; }
-.node-line.is-editing { min-width: 3ch; outline: 2px solid var(--paper-accent); outline-offset: 2px; background: var(--paper); cursor: text; user-select: text; white-space: pre-wrap; }
+.node-text { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; max-width: 100%; text-align: center; }
+/* A line of text keeps to six lines, cut short with an ellipsis, so a long name, or one with no spaces,
+   can't stretch its box down the sheet. Its whole text is on hover, and in the panel. */
+.node-line { display: -webkit-box; max-width: 100%; overflow: hidden; border-radius: 3px; line-height: 1.28; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }
+.node-line.is-editing { display: block; min-width: 3ch; overflow: visible; outline: 2px solid var(--paper-accent); outline-offset: 2px; background: var(--paper); cursor: text; user-select: text; white-space: pre-wrap; -webkit-line-clamp: none; }
 .node-line.is-engaged { background: var(--paper-accent-wash); box-shadow: 0 0 0 1.5px var(--paper-accent-ring); }
 .node-empty { color: var(--paper-muted); font-size: 11px; font-style: italic; }
 .node.is-selected::after { content: ""; position: absolute; inset: -7px; border: 1.5px solid var(--paper-accent); border-radius: 6px; pointer-events: none; }
@@ -206,12 +209,13 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .shape-triangle .handle-e { left: 75%; }
 .stage.is-connecting .node, .stage.is-connecting .handle { cursor: crosshair; }
 
-/* Something required is blank: an asterisk at the box's corner. It's an editing mark, not part of the chart. */
+/* Something required is blank: an amber asterisk at the box's corner, something to do. It's an editing
+   mark, not part of the chart. */
 .node-flag { position: absolute; top: -9px; right: -9px; z-index: 2; display: grid; place-items: center; width: 17px; height: 17px; padding-top: 3px; border-radius: 50%;
-  background: var(--paper-flag); box-shadow: 0 0 0 2px var(--paper); color: #fff; font: 700 13px/1 "Inter", sans-serif; }
+  background: var(--paper-warn); box-shadow: 0 0 0 2px var(--paper); color: #fff; font: 700 13px/1 "Inter", sans-serif; }
 .shape-triangle .node-flag { top: auto; bottom: -6px; }
-/* A box the view's filter couldn't be worked out at: shown, with a mark at its other corner. */
-.node-flag.is-filter { right: auto; left: -9px; padding-top: 1px; font-size: 12px; }
+/* A box the view's filter couldn't be worked out at: shown, with a red mark, an error, at its other corner. */
+.node-flag.is-filter { right: auto; left: -9px; padding-top: 1px; background: var(--paper-danger); font-size: 12px; }
 .shape-triangle .node-flag.is-filter { left: 30%; }
 
 /* Lines */

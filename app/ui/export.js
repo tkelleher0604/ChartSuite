@@ -96,9 +96,14 @@ function textRows(el, toSheet) {
   el.insertBefore(probe, node);
   const base = probe.getBoundingClientRect().top;
   probe.remove();
+  // Rows past the ones a box shows (see .node-line) are left out, and the last shown ends in an ellipsis.
+  const bottom = el.getBoundingClientRect().bottom;
+  const shown = rows.filter(r => r.text.trim() && r.top < bottom - 1);
+  const cut = shown.length < rows.filter(r => r.text.trim()).length;
+  if (cut) shown.at(-1).text = `${shown.at(-1).text.trim().slice(0, -1)}…`;
   return {
-    font, text: node.data.trim(),
-    rows: rows.filter(r => r.text.trim()).map(r => {
+    font, text: cut ? shown.map(r => r.text.trim()).join(' ') : node.data.trim(),
+    rows: shown.map(r => {
       const [x, y] = toSheet((r.left + r.right) / 2, base + (r.top - rows[0].top));
       return { text: r.text.trim(), x, y, ...font };
     }),
@@ -129,7 +134,7 @@ function chartScene() {
   const routed = chartLines(geo);
   const lines = routed.map(l => ({
     id: l.id, points: l.points, stroke: l.look.stroke, strokeWidth: l.look.strokeWidth, dash: l.look.dash,
-    label: l.look.parts.length ? {
+    label: l.look.parts.length && l.label ? {
       x: l.label.x, y: l.label.y,
       parts: l.look.parts.map(p => { const f = computedLook(p.id, p.look); return { text: p.text, font: f.font, size: f.size, bold: f.bold, italic: f.italic, color: f.color }; }),
     } : null,

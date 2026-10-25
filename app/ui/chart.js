@@ -144,12 +144,16 @@ function nodeHtml(id, place, look, state) {
 // Text a formula works out is set in italics, so it reads as computed.
 const computedLook = (id, look) => isComputed(id) ? { ...look, italic: true } : look;
 
+// A line of text too long to show whole in its box (see .node-line) gives its whole text on hover.
+const LONG_LINE = 90;
+
 function lineHtml(l, state) {
   const editing = chart.editing?.id === l.id;
   const engaged = state.covered.ids.has(l.id) && state.engagedStyle === l.styleId;
   const cls = `node-line${editing ? ' is-editing' : ''}${engaged ? ' is-engaged' : ''}`;
-  const attrs = editing ? ' contenteditable="plaintext-only" spellcheck="false" data-chart-edit'
-    : isComputed(l.id) ? ' title="Worked out by a formula"' : isField(records[l.id]) ? ' title="Double-click to edit"' : '';
+  const hint = isComputed(l.id) ? 'Worked out by a formula' : isField(records[l.id]) ? 'Double-click to edit' : '';
+  const tip = [l.text.length > LONG_LINE && l.text, hint].filter(Boolean).join('\n');
+  const attrs = editing ? ' contenteditable="plaintext-only" spellcheck="false" data-chart-edit' : tip ? ` title="${esc(tip)}"` : '';
   return `<div class="${cls}" data-line="${l.id}" data-style="${l.styleId}"${attrs} style="${textCss(computedLook(l.id, l.look))}">${esc(editing ? chart.editing.text : l.text)}</div>`;
 }
 
@@ -251,9 +255,10 @@ function route(lines, geo) {
 
 // A turning line's label sits on its last leg just short of the box it arrives at, as percentages do on
 // structure charts, staggered when lines arrive side by side; with no room there, or on a straight line
-// or into a triangle's apex, it sits midway along the longest leg.
+// or into a triangle's apex, it sits midway along the longest leg. A line with no length has no label.
 function labelSpot(l, geo) {
   const ps = l.points;
+  if (ps.length < 2) return null;
   const legs = ps.slice(1).map((p, i) => ({ a: ps[i], b: p, len: Math.hypot(p[0] - ps[i][0], p[1] - ps[i][1]) }));
   const last = legs.at(-1);
   if (ps.length > 2 && last.len >= 30 && geo[l.to].shape !== 'triangle') {
@@ -307,7 +312,7 @@ function wiresSvg(lines, sel, eng, covered) {
     const d = pathD(l.points);
     const { look } = l;
     const selected = sel.relation === l.id ? ' is-selected' : '';
-    const label = look.parts.length ? `<text class="wire-label" x="${l.label.x}" y="${l.label.y}" text-anchor="middle" dominant-baseline="middle">${look.parts.map(p => labelPart(p, covered, eng)).join(' ')}</text>` : '';
+    const label = look.parts.length && l.label ? `<text class="wire-label" x="${l.label.x}" y="${l.label.y}" text-anchor="middle" dominant-baseline="middle">${look.parts.map(p => labelPart(p, covered, eng)).join(' ')}</text>` : '';
     return `<g class="wire${selected}" data-wire="${l.id}"><path class="wire-hit" d="${d}" data-wire="${l.id}" />
       <path class="wire-line" d="${d}" stroke="${look.stroke}" stroke-width="${look.strokeWidth}" stroke-dasharray="${DASH_ARRAYS[look.dash]}" stroke-linecap="${look.dash === 'dotted' ? 'round' : 'butt'}" />${label}</g>`;
   }).join('');
