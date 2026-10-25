@@ -18,7 +18,7 @@
 <script>
 // How long the formulas take to work out as a chart grows: the sample's own definitions over the sample
 // with more of a fund complex added, entities owning each other in layers, with general partners and
-// officers. `#n=40` sets how many entities are added. Nothing is saved.
+// officers. `#n=20` (the default) sets how many entities are added. Nothing is saved.
 saveState = () => {};
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
@@ -65,7 +65,7 @@ function timeIt(recs) {
 }
 
 function run() {
-  const n = Number(new URLSearchParams(location.hash.slice(1)).get('n') ?? 40);
+  const n = Number(new URLSearchParams(location.hash.slice(1)).get('n') ?? 20);
   const base = typeof SAMPLE_CORE === 'object' ? SAMPLE_CORE : SAMPLE;
   const lines = [];
   for (const size of [0, Math.round(n / 2), n]) {
