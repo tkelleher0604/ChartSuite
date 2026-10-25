@@ -35,7 +35,7 @@
 .rec-wrap { flex: 0 1 auto; min-height: 120px; scroll-padding: 34px 0 0 calc(44px + var(--name-w, 240px)); }
 .rec-table { table-layout: fixed; }
 .rec-table th, .rec-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rec-table th { padding: 0; }
+.rec-table th { padding: 0; user-select: none; }
 .rec-table td { position: relative; padding: 0 12px; }
 .rec-table .is-sticky.rec-name { left: 44px; }
 .rec-wrap.is-scrolled .rec-name { box-shadow: inset -1px 0 0 var(--border); }
@@ -124,6 +124,7 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 /* ---- Popovers: placed by their anchors once drawn ---- */
 .rec-pop.pop { position: fixed; top: 0; left: 0; z-index: 40; outline: none; }
+.rec-pop.is-opening { animation: shell-drop .15s var(--ease); }
 .rec-pop-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 5px 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font-size: 13px; text-align: left; }
 .rec-pop-item:hover:not(:disabled) { background: var(--hover); }
 .rec-pop-item:disabled { color: var(--text-3); cursor: default; }

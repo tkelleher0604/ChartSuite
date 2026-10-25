@@ -17,6 +17,7 @@
   // the table or what they're in the middle of; the records themselves are only ever read from the state.
   const ui = {
     kind: null,         // the kind whose table this is
+    chart: null,        // the chart it's in
     prefs: {},          // this kind's remembered columns ({ [key]: shown }) and sort ({ key, dir })
     active: null,       // the selected cell: { row, col }, an object's id and a column's key
     edit: null,         // the cell being typed in: { row, col, text, error }
@@ -74,7 +75,7 @@
     if (kind === ui.kind) return false;
     const session = stored(sessionStorage, SESSION_KEY)[norm(kind)] ?? {};
     Object.assign(ui, {
-      kind, prefs: stored(localStorage, PREFS_KEY)[norm(kind)] ?? {},
+      kind, chart: workbook.chartId, prefs: stored(localStorage, PREFS_KEY)[norm(kind)] ?? {},
       active: null, edit: null, draft: null, pop: null, checked: new Set(), anchor: null, added: [],
       filters: session.filters ?? [], search: session.search ?? '', needs: !!session.needs,
       focus: null, caret: null, scroll: { left: 0, top: 0 },
@@ -97,8 +98,8 @@
   // A column of entries: { key, label, path, parent, type, datatype, options, params, computedBy, required,
   // isName }. Its path is the labels down from the object (Entity Type, Tax Classification), and its
   // parameterizations are those of its specifications, one for each location like the one above it.
-  // A column of relations: { key, rel, form, own, label, computed }, one for each form of relation and role
-  // that objects of the kind (or entries below them) can take in it.
+  // A column of relations: { key, rel, form, own, arity, label, computed }, one for each form of relation
+  // and role (`own`, an edge label) that objects of the kind, or entries below them, can take in it.
 
   const relKey = (form, edge) => `r:${form}|${norm(edge)}`;
 
@@ -287,7 +288,7 @@
     const others = r.args.filter(a => a !== own).sort((a, b) => rank(a) - rank(b));
     const objs = others.map(a => ix.objectAt(a.at));
     if (!objs[0]) return null;
-    const rest = others.slice(1).map((a, i) => objs[i + 1] && `${a.edge.toLowerCase()} ${ix.nameOf(objs[i + 1])}`);
+    const rest = others.slice(1).map((a, i) => objs[i + 1] && `${a.edge.toLowerCase()} ${ix.nameOf(objs[i + 1])}`).filter(Boolean);
     const detail = [relationDetail(id, ix), ...rest].filter(Boolean).join(' · ');
     const name = ix.nameOf(objs[0]);
     return { id, target: objs[0], name, detail, sides: rest.length > 0, computed: isComputed(id), text: detail ? `${name} (${detail})` : name };
@@ -366,7 +367,7 @@
   }
 
   // Drops what points at rows or columns that are gone, after an undo, say, or a change in another tab.
-  function tidy(P, shownCols) {
+  function tidy(shownCols) {
     const keys = new Set(shownCols.map(c => c.key));
     const there = id => !!records[id];
     if (ui.active && !(there(ui.active.row) && keys.has(ui.active.col))) ui.active = null;
@@ -691,7 +692,7 @@
     const P = readPass();
     const cols = columns();
     const shownCols = cols.filter(c => isShown(c, P));
-    tidy(P, shownCols);
+    tidy(shownCols);
     const rows = shownRows(P, cols, shownCols);
     if (ui.active && !rows.includes(ui.active.row)) ui.active = null;
     ui.rows = rows;
@@ -746,6 +747,8 @@
       if (all) all.indeterminate = !all.checked && ui.rows.some(id => ui.checked.has(id));
     }
     placePop();
+    // A popover eases in when it opens, but not each time it's drawn again while open.
+    if (ui.pop?.fresh) { document.querySelector('.rec-pop')?.classList.add('is-opening'); ui.pop.fresh = false; }
     // The keyboard goes back where it was: the box being typed in, the popover, the search, or the active cell.
     const box = ui.edit ? document.querySelector('[data-focus="edit"]') : ui.draft && ui.focus === 'draft' ? document.querySelector('[data-focus="draft"]')
       : ui.pop && ui.focus === 'pop' ? document.querySelector('.rec-pop [data-focus="pop"]') ?? document.querySelector('.rec-pop')
@@ -1105,7 +1108,8 @@
     const rows = shownRows(P, cols, shownCols);
     const field = s => /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     const lines = [shownCols.map(c => c.label), ...rows.map(id => shownCols.map(c => cellText(P.cell(id, c), c)))];
-    const csv = `﻿${lines.map(l => l.map(field).join(',')).join('\r\n')}\r\n`;
+    // A byte-order mark first, so Excel reads the file as UTF-8.
+    const csv = `${String.fromCharCode(0xFEFF)}${lines.map(l => l.map(field).join(',')).join('\r\n')}\r\n`;
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
@@ -1541,7 +1545,12 @@
   // ---- Starting ----
 
   addEventListener('hashchange', () => { if (useKind()) render(); });
-  Shell.onChartChange(() => { ui.kind = null; useKind(); });
+  // Switching charts starts afresh; a change made to this chart in another tab keeps the place in the table.
+  Shell.onChartChange(() => {
+    if (ui.chart === workbook.chartId && kindsInState().includes(ui.kind)) return;
+    ui.kind = null;
+    useKind();
+  });
 
   Shell.start({
     area: 'records',
