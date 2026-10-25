@@ -56,6 +56,15 @@
 .record-summary:hover { color: var(--text-2); }
 
 /* ---- Documents ---- */
+/* What's missing among them: the checks that don't hold, amber, with the way to link a document. */
+.record-wanting { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0 6px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--warn-soft); font-size: 13px; }
+.record-wanting-text { flex: 1; min-width: 0; }
+.record-wanting p { margin: 0; color: var(--text); }
+.record-wanting p + p { margin-top: 6px; }
+.record-wanting a { font-weight: 500; }
+.record-wanting a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.record-wanting-desc { display: block; color: var(--text-2); font-size: 12.5px; }
+.record-wanting .btn { flex: none; }
 .record-docs { padding-top: 4px; }
 .record-doc { display: flex; align-items: center; gap: 12px; padding: 10px 0 10px 10px; }
 .record-doc + .record-doc { border-top: 1px solid var(--border); }

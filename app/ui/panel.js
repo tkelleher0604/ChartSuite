@@ -1291,14 +1291,17 @@ function formulaMark(id) {
 }
 
 // Why a computed record is there, or what a formula says about an entered one, in words (Why.html): under
-// its row, or in its panel's header (`inHead`). It offers to keep a computed record as entered, or to
-// clear an override, and to edit the definition.
+// its row, or in its panel's header (`inHead`). A check that doesn't hold offers to add what's missing to
+// the lists it looked at (a document to its Documents); and it offers to keep a computed record as
+// entered, or to clear an override, and to edit the definition.
 function whyBlock(id, depth = 0, inHead = false) {
   const info = formulaInfo(id);
   const d = info && definitionOf(info.def);
   if (!d) return '';
   const strong = info.mark === 'differs' || info.mark === 'overrides';
-  const actions = (isComputed(id)
+  const add = Why.fails(id) ? Why.addable(id).map(({ at, type }) =>
+    `<button class="link-btn" data-action="add-relation" data-id="${esc(at)}" data-key="${esc(type.key)}">Add to ${esc(type.list)}</button>`).join('') : '';
+  const actions = add + (isComputed(id)
     ? `<button class="link-btn" data-action="keep-entered" data-id="${esc(id)}" title="Record this output by hand, so it stays whatever the formula says">Keep as entered</button>`
     : `<button class="link-btn" data-action="use-formula" data-id="${esc(id)}" title="Drop what’s entered here, so the formula’s output stands">${strong ? 'Use formula' : 'Clear'}</button>`)
     + `<a class="link-btn" href="${esc(panelHref(`definition:${d.id}`))}">Edit definition</a>`;

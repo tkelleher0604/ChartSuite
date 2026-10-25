@@ -205,15 +205,26 @@ const RecordPage = (() => {
   // if there is one, started in the Details.
   const documentRelation = id => relationTypesAt(id).find(t => [...t.otherSpecs].some(s => s === `kind:${norm(DOCUMENT)}`));
 
+  // What's missing among a record's documents: the checks in it that don't hold (Why.fails) and would hold
+  // with another document linked, as they read in words, with the way to link one.
+  function missingDocsHtml(id) {
+    const rel = documentRelation(id);
+    const checks = rel ? [id, ...inside(id)].filter(k => Why.fails(k) && Why.addable(k).some(x => x.at === id && x.type.key === rel.key)) : [];
+    if (!checks.length) return '';
+    return `<div class="record-wanting"><div class="record-wanting-text">${checks.map(k => `<p><a href="${esc(Shell.recordHref(k))}">${esc(records[k].edge)}</a> ruled out${
+      Why.descriptionFor(k) ? `<span class="record-wanting-desc">${esc(Why.descriptionFor(k))}</span>` : ''}</p>`).join('')}</div>
+      <button class="btn btn-sm" data-cmd="record.link-document">Link document</button></div>`;
+  }
+
   function documentsTab(id) {
     const docs = documentsOf(id);
     if (!docs.length) {
       const action = documentRelation(id) ? { label: 'Link document', cmd: 'record.link-document' } : { label: 'Go to Documents', href: 'documents.html' };
-      return Parts.empty({ title: 'No documents linked yet', desc: 'Documents that concern this record show up here.', action });
+      return missingDocsHtml(id) || Parts.empty({ title: 'No documents linked yet', desc: 'Documents that concern this record show up here.', action });
     }
     // Each with its file's glyph, then its type, date and version, its status, and Open.
     const text = (cell, cls = '') => `<span class="${cls}${cell.computed ? ' computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${esc(cell.text)}</span>`;
-    return `<div class="record-docs">${docs.map(d => {
+    return `${missingDocsHtml(id)}<div class="record-docs">${docs.map(d => {
       const meta = [d.type && text(d.type), d.date && text({ ...d.date, text: Parts.date(d.date.iso) }, 'tnum'),
         d.version && `${esc(records[d.version.id].edge)} ${text(d.version)}`]
         .filter(Boolean).map(m => `<span class="record-meta">${m}</span>`).join('<wbr><span class="record-sep">·</span>');

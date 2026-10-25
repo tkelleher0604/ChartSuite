@@ -35,6 +35,13 @@ const Why = (() => {
     return [...byDef.values()].sort((a, b) => b.ids.length - a.ids.length || byLabel(a.def.name, b.def.name));
   }
 
+  // Where what a check found missing can be added: the lists its formula names that could take another
+  // relative where it's worked out (its Documents, its Owners), each as { at, type } (relationTypesAt).
+  function addable(id) {
+    const names = namesIn(definitionFor(id));
+    return pathTo(records[id].at).flatMap(at => relationTypesAt(at).filter(t => names.has(norm(t.list))).map(type => ({ at, type })));
+  }
+
   // ---- What a formula read ----
 
   // The names a formula looks up where it's worked out: bracketed or bare, but not a function's or a
@@ -215,5 +222,5 @@ const Why = (() => {
     return [descriptionFor(id), ...factsOf(id, () => '').map(strip)].filter(Boolean).join('\n');
   }
 
-  return { html, text, fails, failing, readText, readItems, definitionFor, descriptionFor };
+  return { html, text, fails, failing, addable, readText, readItems, definitionFor, descriptionFor };
 })();
