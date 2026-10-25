@@ -172,6 +172,8 @@ const Shell = (() => {
     if (!el) return;
     const keep = el.querySelector('.palette-input');
     if (layer.palette && keep) { drawPaletteList(); el.querySelector('.toasts').outerHTML = toastsHtml(); return; }
+    // An open menu is drawn again in place, keeping what's typed in its search, and its focus.
+    if (layer.menu && el.querySelector(`.float-menu[data-menu="${layer.menu.n}"]`)) { redrawMenu(); el.querySelector('.toasts').outerHTML = toastsHtml(); return; }
     el.innerHTML = [
       layer.palette ? `<div class="scrim" data-cmd="shell.dismiss"></div>${paletteHtml()}` : '',
       layer.menu ? menuHtml() : '',
@@ -278,10 +280,11 @@ const Shell = (() => {
   //   The arrow keys move through the list, and Enter picks;
   // - onClose(): runs when it closes, however it does.
   // The menu stays with its anchor as the page is drawn again, so a filter chip can change as its menu is used.
+  let menuCount = 0;  // each menu opened, numbered, so it's drawn again in place while it's open
   function menu(anchor, items, id = 'menu', { search = null, onClose = null } = {}) {
     const again = layer.menu?.id === id;
     dropMenu();
-    if (!again) layer.menu = { id, items, search, onClose, query: '', active: 0, list: [], anchor: anchor.getBoundingClientRect(), anchorEl: anchor, anchorKey: controlKey(anchor) };
+    if (!again) layer.menu = { n: ++menuCount, id, items, search, onClose, query: '', active: 0, list: [], anchor: anchor.getBoundingClientRect(), anchorEl: anchor, anchorKey: controlKey(anchor) };
     renderLayer();
     renderSidebar();
   }
@@ -295,7 +298,7 @@ const Shell = (() => {
   const menuList = () => { const m = layer.menu; return (m.list = typeof m.items === 'function' ? m.items(m.query) : m.items); };
   function menuHtml() {
     const m = layer.menu;
-    return `<div class="pop menu float-menu${m.search ? ' has-search' : ''}" role="menu">${m.search
+    return `<div class="pop menu float-menu${m.search ? ' has-search' : ''}" role="menu" data-menu="${m.n}">${m.search
       ? `<div class="search-input menu-search">${icon('search')}<input class="input menu-search-input" value="${esc(m.query)}" placeholder="${esc(m.search)}" aria-label="${esc(m.search)}" autocomplete="off" spellcheck="false"></div>` : ''}
       <div class="menu-list">${menuItemsHtml()}</div></div>`;
   }
