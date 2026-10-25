@@ -8,28 +8,28 @@
 
 /* ---- The list of sections, which stays in view ---- */
 .set-nav { position: sticky; top: 28px; display: flex; flex-direction: column; gap: 2px; }
-.set-nav a { display: flex; align-items: center; height: 32px; padding: 0 10px; border-radius: var(--radius-sm); color: var(--text-2); font-size: 13.5px; font-weight: 500; transition: background-color .1s var(--ease), color .1s var(--ease); }
+.set-nav a { display: flex; align-items: center; height: 32px; padding: 0 10px; border-radius: var(--radius-sm); color: var(--text-2); font-size: var(--fs-dense); font-weight: 500; transition: background-color .1s var(--ease), color .1s var(--ease); }
 .set-nav a:hover { background: var(--hover); color: var(--text); }
 .set-nav a[aria-current="true"] { background: var(--pressed); color: var(--text); }
 
 /* ---- Sections and cards ---- */
 .set-section { scroll-margin-top: 28px; }
 .set-section + .set-section { margin-top: 44px; }
-.set-section-title { margin: 0 0 12px; font-size: 16px; font-weight: 600; line-height: 24px; letter-spacing: -.011em; }
+.set-section-title { margin: 0 0 12px; font-size: var(--fs-title-sm); font-weight: 600; line-height: 24px; letter-spacing: -.011em; }
 .set-card { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .set-card + .set-card { margin-top: 16px; }
 .set-main { display: flex; align-items: center; gap: 24px; padding: 18px 24px; }
 .set-head { flex: 1; min-width: 0; }
-.set-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; }
-.set-desc { max-width: 62ch; margin: 3px 0 0; color: var(--text-2); font-size: 13.5px; line-height: 20px; }
+.set-title { margin: 0; font-size: var(--fs-body); font-weight: 600; line-height: 20px; }
+.set-desc { max-width: 62ch; margin: 3px 0 0; color: var(--text-2); font-size: var(--fs-dense); line-height: 20px; }
 .set-aside { display: flex; flex: none; align-items: center; gap: 8px; }
 .set-body { padding: 0 24px 20px; }
-.set-error { margin: -4px 24px 16px; color: var(--danger); font-size: 13px; }
-.set-warn { margin: 14px 0 0; padding: 8px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: 13px; }
+.set-error { margin: -4px 24px 16px; color: var(--danger); font-size: var(--fs-dense); }
+.set-warn { margin: 14px 0 0; padding: 8px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--fs-dense); }
 .set-foot { display: flex; align-items: center; gap: 16px; min-height: 52px; padding: 10px 24px; border-top: 1px solid var(--border); background: var(--sidebar); }
-.set-note { flex: 1; min-width: 0; color: var(--text-2); font-size: 13px; }
+.set-note { flex: 1; min-width: 0; color: var(--text-2); font-size: var(--fs-dense); }
 .set-foot .btn { flex: none; }
-.set-offer { color: var(--accent-text); font-size: 13px; }
+.set-offer { color: var(--accent-text); font-size: var(--fs-dense); }
 .set-offer:hover:not(:disabled) { color: var(--accent-text); text-decoration: underline; }
 
 /* A danger card says so with its border and its footer. */
@@ -44,7 +44,7 @@
 .set-row { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-top: 1px solid var(--border); }
 .set-row-text { flex: 1; min-width: 0; }
 .set-row-name { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-.set-row-desc { max-width: 60ch; margin-top: 2px; color: var(--text-2); font-size: 13px; }
+.set-row-desc { max-width: 60ch; margin-top: 2px; color: var(--text-2); font-size: var(--fs-dense); }
 .set-row-actions { display: flex; flex: none; gap: 8px; }
 .set-row-name > .btn { min-width: 164px; justify-content: center; }
 .set-card.is-alert .set-row { align-items: center; }
@@ -52,30 +52,30 @@
 .set-card.is-alert .set-row-desc { margin: 0; }
 
 /* How saving stands, with the sidebar's dot. */
-.set-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; color: var(--text-2); font-size: 12.5px; }
+.set-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; color: var(--text-2); font-size: var(--fs-small); }
 .set-status > span { display: inline-flex; align-items: center; gap: 7px; }
-.set-status > span::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--yes); }
+.set-status > span::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--text-3); }
 .set-status.is-busy > span::before { background: var(--warn-solid); }
 .set-status.is-error { color: var(--danger); }
 .set-status.is-error > span::before { background: var(--danger-solid); }
-.set-status .btn { height: 24px; padding: 0 8px; font-size: 12px; }
+.set-status .btn { height: 24px; padding: 0 8px; font-size: var(--fs-small); }
 
 /* ---- Controls ---- */
-.set-input { height: 34px; padding: 0 10px; font-size: 14px; }
+.set-input { height: 34px; padding: 0 10px; font-size: var(--fs-body); }
 .set-input.is-short { max-width: 400px; }
 .set-input:disabled { background: var(--sidebar); color: var(--text-3); cursor: not-allowed; }
 .set-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; margin-top: 14px; }
 .set-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .set-field.is-wide { grid-column: 1 / -1; }
-.set-label { color: var(--text-2); font-size: 12.5px; font-weight: 500; }
-.set-hint { margin: 10px 0 0; color: var(--text-3); font-size: 13px; }
+.set-label { color: var(--text-2); font-size: var(--fs-small); font-weight: 500; }
+.set-hint { margin: 10px 0 0; color: var(--text-3); font-size: var(--fs-dense); }
 .set-select { position: relative; display: block; }
 .set-select select { appearance: none; padding-right: 32px; cursor: pointer; }
 .set-select .icon { position: absolute; top: 50%; right: 10px; width: 14px; height: 14px; translate: 0 -50%; color: var(--text-3); pointer-events: none; }
-.set-aside .seg button { height: 28px; padding: 0 12px; font-size: 13px; }
+.set-aside .seg button { height: 28px; padding: 0 12px; font-size: var(--fs-dense); }
 
 /* The connection test's steps, as they come in. */
-.set-steps { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--sidebar); font-size: 13px; list-style: none; }
+.set-steps { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--sidebar); font-size: var(--fs-dense); list-style: none; }
 .set-steps li { display: flex; align-items: flex-start; gap: 8px; }
 .set-steps .icon { width: 15px; height: 15px; margin-top: 2px; }
 .set-steps .is-ok .icon { color: var(--yes); }
@@ -83,7 +83,7 @@
 
 /* The import dialog's list of charts. */
 .set-import { margin: 8px 0 14px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); list-style: none; }
-.set-import li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; color: var(--text); font-size: 13px; }
+.set-import li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; color: var(--text); font-size: var(--fs-dense); }
 .set-import li + li { border-top: 1px solid var(--border); }
 .dialog-body p { margin: 0; }
 .dialog-body p + p { margin-top: 8px; }

@@ -237,7 +237,15 @@ const Shell = (() => {
     // where they're what's looked for.
     const isDoc = id => same(records[id].kind, DOCUMENT_KIND);
     const docs = ['Documents', ranked(objects.filter(isDoc).map(toItem)).slice(0, page.area === 'documents' ? 8 : 5)];
-    const rest = [['Records', ranked(objects.filter(id => !isDoc(id)).map(toItem)).slice(0, 8)], ['Actions', ranked(actions).slice(0, 6)], ['Go to', ranked(go).slice(0, 4)]];
+    // What the chart works out, by name and by what its description says ("LEI" finds Next Renewal), opening
+    // its definition in the Schema.
+    const defs = definitions.map(d => {
+      let name = '';
+      try { name = asWritten(d).name; } catch {}
+      return { title: name, meta: 'Definition', keywords: descriptionOf(formOfDefinition(d)), run: () => { location.href = `schema.html#definition:${encodeURIComponent(d.id)}`; } };
+    }).filter(x => x.title);
+    const rest = [['Records', ranked(objects.filter(id => !isDoc(id)).map(toItem)).slice(0, 8)], ['Actions', ranked(actions).slice(0, 6)],
+      ['Go to', ranked(go).slice(0, 4)], ['Definitions', ranked(defs).slice(0, 4)]];
     return page.area === 'documents' ? [docs, ...rest] : [...rest, docs];
   }
 
