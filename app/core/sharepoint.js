@@ -5,9 +5,11 @@
 // - parseDocUrl(url): what a link points at (SharePoint, OneDrive, another DMS, the web), read from the
 //   URL alone, with no network;
 // - docIcon(kind): a small file-type glyph;
-// - connector: the Microsoft Graph client. It runs live, with tokens from MSAL (vendor/msal), once a
-//   tenant and an app registration are configured (docs/sharepoint-setup.md); until then, or whenever
-//   demo mode is chosen, it runs against a mocked tenant with the same API, so the app works offline.
+// - connector: the Microsoft Graph client: reading the library, uploading a file to it, and keeping the
+//   workbook in it. It runs live, with tokens from MSAL (vendor/msal), once a tenant and an app
+//   registration are configured (docs/sharepoint-setup.md); until then, or whenever demo mode is chosen,
+//   it runs against a mocked tenant with the same API, so the app works offline;
+// - openUrl(url): where a link to a file opens, which for the demo library's files is a viewer of the demo's;
 // - createGraphClient and createMsalAuth: the live client's two halves, which take their fetch and MSAL as
 //   arguments, so they can be tested without a tenant.
 //
@@ -177,6 +179,11 @@ const READ_SCOPES = ['Files.Read.All', 'Sites.Read.All', 'User.Read'];
 const WRITE_SCOPES = ['Files.ReadWrite.All', 'Sites.Read.All', 'User.Read'];
 const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
 
+// A file too big for a simple upload, which is all the app makes; SharePoint itself takes bigger ones.
+const tooLarge = file => new GraphError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB. Files over 4 MB can’t be uploaded from here: upload it in SharePoint, then link it.`, { status: 413 });
+// A file of that name is in the folder already, and an upload doesn't replace one.
+const nameTaken = (name, folder) => new GraphError(`There’s already a file called ${name} in ${folder}. Rename yours, or link that one.`, { status: 409, code: 'nameAlreadyExists' });
+
 // A share token for /shares/{token}: "u!" and the URL in unpadded base64url.
 function shareToken(url) {
   const b64 = btoa(unescape(encodeURIComponent(url)));
@@ -332,7 +339,23 @@ function createGraphClient({ fetchImpl = (...a) => fetch(...a), getToken, config
     }
   }
 
-  return { whoAmI, listDrives, listChildren, search, getItem, resolveShareUrl, listVersions, loadWorkbook, saveWorkbook, shareToken };
+  // Uploads a file (a File or Blob with a name) into a folder of the library: a folder item, or null for
+  // the library's top. A simple upload, so a file over 4 MB is refused before anything is sent; and it
+  // never replaces a file of the same name there.
+  async function uploadFile(folder, file) {
+    if (file.size > SIMPLE_UPLOAD_LIMIT) throw tooLarge(file);
+    const d = folder?.driveId ?? await libraryDrive();
+    try {
+      const it = await call(`/drives/${d}/items/${folder?.id ?? 'root'}:/${encodeURIComponent(file.name)}:/content?@microsoft.graph.conflictBehavior=fail`, {
+        method: 'PUT', scopes: WRITE_SCOPES, body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      });
+      return fromGraphItem(it, d);
+    } catch (e) {
+      throw e.status === 409 ? nameTaken(file.name, folder?.name ?? config().library ?? 'the library') : e;
+    }
+  }
+
+  return { whoAmI, listDrives, listChildren, search, getItem, resolveShareUrl, listVersions, loadWorkbook, saveWorkbook, uploadFile, shareToken };
 }
 
 // Tokens from MSAL: silently where it can, by a popup where it must, and by a redirect where the browser
@@ -402,13 +425,14 @@ function createMsalAuth(config, msalImpl) {
 // Contoso's "Fund Legal" site and its Documents library, with plausible documents for the sample chart's
 // funds, which the sample's Documents link to; three of them it doesn't index, as a real library would have
 // some. Same API as live, with the same item shape, so the app can be built, shown and tested offline.
-// What's saved in demo mode is kept in the browser.
+// What's saved or uploaded in demo mode is kept in the browser.
 
 const DEMO_HOST = 'contoso.sharepoint.com';
 const DEMO_SITE = `https://${DEMO_HOST}/sites/FundLegal`;
 const DEMO_LIBRARY_URL = `${DEMO_SITE}/Shared%20Documents`;
 const DEMO_DRIVE = 'b!demo-fundlegal-documents';
 const DEMO_STORE_KEY = 'rboreal.sharepoint.demo';
+const DEMO_FILES_KEY = 'rboreal.sharepoint.demo.files';
 
 // Each document: its folder path, name, size in KB, last modified, by whom, version, and the library's
 // columns (Document Type, Entity, Effective Date).
@@ -476,39 +500,69 @@ function hashId(s) {
 const urlPath = path => path.split('/').map(encodeURIComponent).join('/');
 const SHARE_LETTER = { word: 'w', excel: 'x', powerpoint: 'p', pdf: 'b', email: 'u', other: 'u', folder: 'f' };
 
-function buildDemoTree() {
+// An item of the demo library, added to `items` with the folders it's in, unless it's there already.
+function addDemoItem(items, path, name, isFolder, extra = {}) {
+  const full = path ? `${path}/${name}` : name;
+  const id = `D${hashId(full)}`;
+  if (items.has(id)) return items.get(id);
+  const parts = path.split('/').filter(Boolean);
+  parts.forEach((p, i) => addDemoItem(items, parts.slice(0, i).join('/'), p, true));
+  const it = {
+    id, driveId: DEMO_DRIVE, name, webUrl: `${DEMO_LIBRARY_URL}/${urlPath(full)}`, isFolder, size: isFolder ? null : 0,
+    lastModified: '2023-02-10T15:00:00Z', lastModifiedBy: 'Jordan Alvarez', createdBy: 'Jordan Alvarez', version: isFolder ? null : '1.0',
+    eTag: `"{${id}},1"`, path, kind: isFolder ? 'folder' : kindOfName(name), extension: isFolder ? null : extensionOf(name), fields: {},
+    shareUrl: `https://${DEMO_HOST}/:${SHARE_LETTER[isFolder ? 'folder' : kindOfName(name)]}:/s/FundLegal/E${id.slice(1)}${hashId(name).slice(0, 4)}`, ...extra,
+  };
+  items.set(id, it);
+  return it;
+}
+
+// The demo library: the sample's documents, then the files uploaded to it in this browser.
+function buildDemoTree(uploads) {
   const items = new Map();
-  const add = (path, name, isFolder, extra = {}) => {
-    const full = path ? `${path}/${name}` : name;
-    const id = `D${hashId(full)}`;
-    if (items.has(id)) return items.get(id);
-    const it = {
-      id, driveId: DEMO_DRIVE, name, webUrl: `${DEMO_LIBRARY_URL}/${urlPath(full)}`, isFolder, size: isFolder ? null : 0,
-      lastModified: '2023-02-10T15:00:00Z', lastModifiedBy: 'Jordan Alvarez', createdBy: 'Jordan Alvarez', version: isFolder ? null : '1.0',
-      eTag: `"{${id}},1"`, path: path ?? '', kind: isFolder ? 'folder' : kindOfName(name), extension: isFolder ? null : extensionOf(name), fields: {},
-      shareUrl: `https://${DEMO_HOST}/:${SHARE_LETTER[isFolder ? 'folder' : kindOfName(name)]}:/s/FundLegal/E${id.slice(1)}${hashId(name).slice(0, 4)}`, ...extra,
-    };
-    items.set(id, it);
-    return it;
-  };
-  const ensureFolder = path => {
-    const parts = path.split('/').filter(Boolean);
-    parts.forEach((p, i) => add(parts.slice(0, i).join('/'), p, true));
-  };
   for (const [folder, name, kb, modified, by, version, type, entity, effective] of DEMO_DOCS) {
-    ensureFolder(folder);
-    add(folder, name, false, {
+    addDemoItem(items, folder, name, false, {
       size: kb * 1024, lastModified: `${modified}T16:30:00Z`, lastModifiedBy: by, createdBy: by, version,
       eTag: `"{${'D' + hashId(`${folder}/${name}`)}},${Math.round(Number(version))}"`,
       fields: { DocumentType: type, Entity: entity, EffectiveDate: effective },
     });
   }
-  ensureFolder('Rboreal');
+  addDemoItem(items, '', 'Rboreal', true);
+  for (const up of uploads) addUploaded(items, up);
   return items;
 }
+// A file uploaded in demo mode, as kept: { path, name, size, type, lastModified, by }.
+const addUploaded = (items, up) => addDemoItem(items, up.path, up.name, false, {
+  size: up.size, lastModified: up.lastModified, lastModifiedBy: up.by, createdBy: up.by, uploaded: true, contentType: up.type });
+
+// The content of files uploaded in demo mode, by item id, in IndexedDB, where the library would keep it,
+// so the demo's viewer can show the file. Kept as well as this browser allows; where it can't be, a file
+// keeps its details and the viewer says the content wasn't kept.
+const demoContent = (() => {
+  let db = null;
+  const open = () => db ??= new Promise((resolve, reject) => {
+    const req = indexedDB.open('rboreal.sharepoint.demo', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('files');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const run = (mode, act) => open().then(d => new Promise((resolve, reject) => {
+    const tx = d.transaction('files', mode), req = act(tx.objectStore('files'));
+    tx.oncomplete = () => resolve(req.result ?? null);
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  }));
+  return {
+    put: (id, blob) => run('readwrite', s => s.put(blob, id)),
+    get: id => run('readonly', s => s.get(id)),
+    clear: () => run('readwrite', s => s.clear()),
+  };
+})();
 
 function createDemoClient() {
-  const items = buildDemoTree();
+  // Files uploaded in demo mode, kept in this browser beside the workbooks saved.
+  let uploads = [];
+  try { uploads = JSON.parse(localStorage.getItem(DEMO_FILES_KEY)) ?? []; } catch {}
+  const items = buildDemoTree(uploads);
   // Workbooks saved in demo mode: path → { json, eTag, n, lastModified, lastModifiedBy, versions }.
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(DEMO_STORE_KEY)) ?? {}; } catch {}
@@ -612,8 +666,38 @@ function createDemoClient() {
       saved[p] = { ...w, n, eTag: etagOf(p, n), lastModified: now, lastModifiedBy: by, versions: [...w.versions, { id: `${n}.0`, lastModified: now, lastModifiedBy: by, size: w.json.length }] };
       persist();
     },
-    // For the demo only: forget what was saved.
-    clear() { saved = {}; persist(); },
+    // A file uploaded into a folder (an item, or null for the top), refused as live refuses it: over 4 MB, or
+    // named as a file there already is. Its details are kept in this browser, with the workbooks saved, so
+    // every page's library has it; its content in IndexedDB (demoContent), for the viewer.
+    async uploadFile(folder, file) {
+      await latency();
+      if (file.size > SIMPLE_UPLOAD_LIMIT) throw tooLarge(file);
+      const parent = folder?.id ? items.get(folder.id) : null;
+      if (folder?.id && !parent?.isFolder) throw new NotFoundError('No such folder in demo mode.');
+      const path = parent ? `${parent.path ? `${parent.path}/` : ''}${parent.name}` : '';
+      if (childrenOf(path).some(it => it.name.toLowerCase() === String(file.name).toLowerCase())) throw nameTaken(file.name, parent?.name ?? 'Documents');
+      const up = { path, name: file.name, size: file.size, type: file.type ?? '', lastModified: new Date().toISOString(), by: user.name };
+      uploads = [...uploads, up];
+      try { localStorage.setItem(DEMO_FILES_KEY, JSON.stringify(uploads)); } catch {}
+      const it = addUploaded(items, up);
+      // The upload is done once its details are kept; the content follows, as IndexedDB allows.
+      demoContent.put(it.id, file).catch(() => {});
+      return copy(it);
+    },
+    // For the demo only: an uploaded file's content, or null if it wasn't kept (or wasn't uploaded).
+    async fileContent(itemId) {
+      if (!items.get(itemId)?.uploaded) return null;
+      try { return await demoContent.get(itemId); } catch { return null; }
+    },
+    // For the demo only: forget what was saved and uploaded.
+    clear() {
+      saved = {};
+      persist();
+      for (const it of [...items.values()].filter(x => x.uploaded)) items.delete(it.id);
+      uploads = [];
+      try { localStorage.removeItem(DEMO_FILES_KEY); } catch {}
+      demoContent.clear().catch(() => {});
+    },
     // Every document in the demo library, for a sample chart to link to.
     documents: () => [...items.values()].filter(it => !it.isFolder).map(copy),
   };
@@ -662,13 +746,19 @@ const connector = (() => {
     listVersions: delegate('listVersions'),
     loadWorkbook: delegate('loadWorkbook'),
     saveWorkbook: delegate('saveWorkbook'),
+    uploadFile: delegate('uploadFile'),
     // Where workbooks go in the library, for a chart's name.
     workbookPath: name => `${config.workbookFolder || 'Rboreal'}/${String(name).replace(/[\\/:*?"<>|#%]+/g, '-').trim() || 'Workbook'}.rboreal.json`,
   };
 })();
 
+// Where a link to a file opens: the link itself, or in demo mode, for a file in the demo library, which
+// isn't anywhere, the demo's stand-in viewer (demo-file.html, beside the app's pages), which shows the
+// file's details, and the file itself if it was uploaded.
+const openUrl = url => connector.isDemo() && parseDocUrl(url).host === DEMO_HOST ? `demo-file.html#${encodeURIComponent(url)}` : url;
+
 return {
-  parseDocUrl, docIcon, kindOfName, connector, createGraphClient, createMsalAuth, shareToken,
+  parseDocUrl, docIcon, kindOfName, connector, openUrl, createGraphClient, createMsalAuth, shareToken,
   ConflictError, AuthError, NotConfiguredError, NotFoundError, GraphError, SharePointError,
   DEMO: { site: DEMO_SITE, library: DEMO_LIBRARY_URL, drive: DEMO_DRIVE },
 };

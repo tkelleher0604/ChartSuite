@@ -13,7 +13,7 @@
   window.pageErrors = [];
   window.addEventListener('error', e => window.pageErrors.push(e.message));
   // A clean slate: the test's settings and demo saves shouldn't carry over from an earlier run.
-  try { localStorage.removeItem('rboreal.sharepoint.config'); localStorage.removeItem('rboreal.sharepoint.demo'); } catch {}
+  try { for (const k of ['rboreal.sharepoint.config', 'rboreal.sharepoint.demo', 'rboreal.sharepoint.demo.files']) localStorage.removeItem(k); } catch {}
 </script>
 </head>
 <body>
@@ -30,6 +30,17 @@
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: typeof detail === 'string' ? detail : JSON.stringify(detail) });
 const rejects = async (promise, type) => { try { await promise; return null; } catch (e) { return e instanceof type ? e : null; } };
+// IndexedDB answers in real time, which a headless run's virtual time races past, so waiting on it spends
+// a little real time (a synchronous read of a local file) between turns, up to a limit.
+async function settle(promise, turns = 400) {
+  let done = false, value;
+  promise.then(v => { done = true; value = v; }, () => { done = true; });
+  for (let i = 0; i < turns && !done; i++) {
+    try { const x = new XMLHttpRequest(); x.open('GET', '../core/common.js', false); x.send(); } catch {}
+    await new Promise(r => setTimeout(r, 0));
+  }
+  return value;
+}
 
 // ---- parseDocUrl ----
 
@@ -123,6 +134,27 @@ async function run() {
   const versions = await c.listVersions(item.driveId, item.id);
   check('Demo: a document’s versions, newest first', versions.length === 2 && versions[0].id === '2.0', versions);
 
+  // ---- Demo: uploading a file, and opening one ----
+  const coinvest = top.find(x => x.name === 'Calder Ridge III Co-Invest');
+  const cert = new File(['%PDF-1.4 a certificate'], 'Certificate of Limited Partnership - Calder Ridge III Co-Invest II, L.P.pdf', { type: 'application/pdf' });
+  const up = await c.uploadFile(coinvest, cert);
+  check('Demo: an upload lands in the folder chosen, as whoever is signed in', up.path === 'Calder Ridge III Co-Invest' && up.name === cert.name && up.kind === 'pdf'
+    && up.size === cert.size && up.lastModifiedBy === 'Demo User' && up.version === '1.0' && up.lastModified, up);
+  check('Demo: the folder lists it', (await c.listChildren(drives[0].id, coinvest.id)).some(x => x.id === up.id));
+  check('Demo: its link reads back as its place in the library', (p => p.folderPath === up.path && p.fileName === up.name && p.kind === 'pdf')(SharePoint.parseDocUrl(up.webUrl)));
+  check('Demo: its link resolves to it, as a link pasted on another page would', (await c.resolveShareUrl(up.webUrl)).id === up.id);
+  check('Demo: search finds it', (await c.search('co-invest ii certificate')).some(x => x.id === up.id));
+  check('Demo: its details are kept in the browser, for every page', JSON.parse(localStorage.getItem('rboreal.sharepoint.demo.files'))
+    .some(f => f.name === cert.name && f.path === up.path && f.size === cert.size && f.by === 'Demo User'));
+  check('Demo: its content is kept for the demo’s viewer', await (await settle(c.demo.fileContent(up.id)))?.text() === '%PDF-1.4 a certificate');
+  check('Demo: a file the sample links to has no content to show', await settle(c.demo.fileContent(minutes.id)) === null);
+  const taken = await rejects(c.uploadFile(coinvest, cert), SharePoint.GraphError);
+  check('Demo: a file of a name the folder has isn’t replaced, and that’s said', taken?.status === 409 && taken.message.includes('already a file called'), taken?.message);
+  const big = await rejects(c.uploadFile(null, { name: 'Scan.pdf', size: 5 * 1048576, type: 'application/pdf' }), SharePoint.GraphError);
+  check('Demo: a file over 4 MB is refused, as live refuses it', big?.status === 413 && /over 4 MB/.test(big.message), big?.message);
+  check('Demo: a file of the demo library opens in the demo’s viewer', SharePoint.openUrl(up.webUrl) === `demo-file.html#${encodeURIComponent(up.webUrl)}`);
+  check('Demo: any other link opens as it is', SharePoint.openUrl('https://www.sec.gov/Archives/form-d.pdf') === 'https://www.sec.gov/Archives/form-d.pdf');
+
   // ---- Demo: the workbook in the library ----
   const path = c.workbookPath('Calder Ridge Fund III structure');
   check('Demo: no workbook before the first save', await rejects(c.loadWorkbook(path), SharePoint.NotFoundError));
@@ -142,6 +174,9 @@ async function run() {
   check('Demo: the workbook’s version history', history.map(v => `${v.id} ${v.lastModifiedBy}`).join(' | ') === '3.0 Demo User | 2.0 Margaret A. Chen | 1.0 Demo User', history);
   check('Demo: the workbook’s link resolves too', (await c.resolveShareUrl(third.item.webUrl)).eTag === third.eTag);
   check('Demo: saves are kept in the browser', JSON.parse(localStorage.getItem('rboreal.sharepoint.demo'))[path].n === 3);
+  c.demo.clear();
+  check('Demo: clearing forgets what was saved and uploaded', await rejects(c.loadWorkbook(path), SharePoint.NotFoundError)
+    && await rejects(c.resolveShareUrl(up.webUrl), SharePoint.NotFoundError) && !localStorage.getItem('rboreal.sharepoint.demo.files'));
 
   // ---- Live: the requests the Graph client makes, against a stand-in for Graph ----
   const calls = [];
@@ -221,6 +256,27 @@ async function run() {
   check('Live: a stale eTag is a ConflictError that says who saved since', stale && stale.current?.lastModifiedBy === 'David R. Okafor' && /David R\. Okafor/.test(stale.message), stale?.message);
   await rejects(g.saveWorkbook(wbPath, { charts: [3] }), SharePoint.ConflictError);
   check('Live: a first save won’t overwrite a file that exists', calls.filter(x => x.method === 'PUT').at(-1).headers['If-None-Match'] === '*');
+
+  // Uploading a file: PUT into the folder chosen, by its name, never replacing a file of that name.
+  const folder = { id: 'fold-1', driveId: 'drv-1', name: 'Co-Invest' };
+  route((u, o) => o.method === 'PUT' && u.startsWith(`${G}/drives/drv-1/items/`), u => u.includes('/Taken.pdf:')
+    ? respond(409, { error: { code: 'nameAlreadyExists', message: 'Name already exists' } })
+    : respond(201, { id: 'new-1', name: 'Certificate - Co-Invest II, L.P.pdf', size: 4, webUrl: `${SP}/sites/FundLegal/Shared%20Documents/Co-Invest/Certificate%20-%20Co-Invest%20II,%20L.P.pdf`,
+      lastModifiedBy: { user: { displayName: 'Margaret A. Chen' } }, parentReference: { driveId: 'drv-1', path: '/drives/drv-1/root:/Co-Invest' } }));
+  const pdf = new File(['%PDF'], 'Certificate - Co-Invest II, L.P.pdf', { type: 'application/pdf' });
+  const added = await g.uploadFile(folder, pdf);
+  const putFile = calls.filter(x => x.method === 'PUT').at(-1);
+  check('Live: uploading PUTs the file into its folder by name, refusing to replace one, with write access', putFile.url
+    === `${G}/drives/drv-1/items/fold-1:/Certificate%20-%20Co-Invest%20II%2C%20L.P.pdf:/content?@microsoft.graph.conflictBehavior=fail`
+    && putFile.body === pdf && putFile.headers['Content-Type'] === 'application/pdf' && tokens.at(-1).scopes.includes('Files.ReadWrite.All'), putFile.url);
+  check('Live: the file uploaded comes back as an item', added.id === 'new-1' && added.path === 'Co-Invest' && added.kind === 'pdf' && added.lastModifiedBy === 'Margaret A. Chen', added);
+  await g.uploadFile(null, new File(['x'], 'Top.pdf'));
+  check('Live: with no folder, to the library’s top', calls.filter(x => x.method === 'PUT').at(-1).url.startsWith(`${G}/drives/drv-1/items/root:/Top.pdf:/content`));
+  const clash = await rejects(g.uploadFile(folder, new File(['x'], 'Taken.pdf')), SharePoint.GraphError);
+  check('Live: a name the folder has is refused, saying so', clash?.status === 409 && /already a file called Taken\.pdf in Co-Invest/.test(clash.message), clash?.message);
+  const sent = calls.length;
+  const tooBig = await rejects(g.uploadFile(folder, { name: 'Scan.pdf', size: 4 * 1048576 + 1, type: 'application/pdf' }), SharePoint.GraphError);
+  check('Live: a file over 4 MB is refused before anything is sent', tooBig?.status === 413 && /over 4 MB/.test(tooBig.message) && calls.length === sent, tooBig?.message);
 
   // ---- Live: signing in, against a stand-in for MSAL ----
   check('Auth: MSAL is loaded', typeof msal === 'object' && typeof msal.PublicClientApplication === 'function' && typeof msal.InteractionRequiredAuthError === 'function');
