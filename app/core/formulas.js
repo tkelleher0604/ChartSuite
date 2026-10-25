@@ -996,6 +996,26 @@ const FUNCTIONS = {
     const y = Number(from.iso.slice(0, 4));
     return { t: 'date', iso: at(y) >= from.iso ? at(y) : at(y + 1) };
   },
+  // As in Excel, without holidays: the date some working days (Monday to Friday) after a date, or before
+  // it for a negative count. WORKDAY(d - 1, 1) is the first working day on or after d, where a deadline
+  // that falls on a weekend moves to.
+  WORKDAY(a, c) {
+    const bad = arity('WORKDAY', a, 2);
+    if (bad) return bad;
+    const d = scalar(c.S, ev(a[0].x, c));
+    if (isErr(d) || d === null) return d;
+    if (!isDate(d)) return err('#VALUE!', 'WORKDAY takes a date first.');
+    const n = toNumber(c.S, ev(a[1].x, c));
+    if (isErr(n)) return n;
+    const step = n < 0 ? -1 : 1;
+    let day = dayOf(d);
+    for (let left = Math.abs(Math.trunc(n)); left > 0;) {
+      day += step;
+      const weekday = new Date(day * 864e5).getUTCDay();
+      if (weekday !== 0 && weekday !== 6) left--;
+    }
+    return fromDay(day);
+  },
   // Years between two dates, counting actual days over 365.
   YEARFRAC(a, c) {
     const bad = arity('YEARFRAC', a, 2);

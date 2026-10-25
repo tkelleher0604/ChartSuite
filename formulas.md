@@ -315,6 +315,7 @@ A first set:
 | `IMPLIEDBY(tag, label, …)` | TRUE if the tag is attested and implied by an implication with one of the labels. |
 | `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, `YEARFRAC`, `EDATE`, `EOMONTH`, and text functions | As in Excel, added as needed. A BLANK date compares as earlier than every date. |
 | `NEXTDATE(month, day, from)` | The next date with that month and day, on or after `from` (today if left out). February 29 falls on February 28 in other years. For annual deadlines: `NEXTDATE(3, 31)` is the next March 31. |
+| `WORKDAY(date, days)` | As in Excel, without holidays: the date that many working days (Monday to Friday) after the date, or before it if negative. `WORKDAY(d - 1, 1)` is the first working day on or after `d`, where a deadline falling on a weekend moves to. |
 
 Some arguments name a step instead of giving a value: REACH's and LOOKTHROUGH's `list`, and LOOKTHROUGH's `factor`. They're looked up on each record along the way.
 
