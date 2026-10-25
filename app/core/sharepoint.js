@@ -10,6 +10,7 @@
 //   registration are configured (docs/sharepoint-setup.md); until then, or whenever demo mode is chosen,
 //   it runs against a mocked tenant with the same API, so the app works offline;
 // - openUrl(url): where a link to a file opens, which for the demo library's files is a viewer of the demo's;
+// - uploadRefusal(file): why a file can't be uploaded from here (too big), or null;
 // - createGraphClient and createMsalAuth: the live client's two halves, which take their fetch and MSAL as
 //   arguments, so they can be tested without a tenant.
 //
@@ -179,8 +180,10 @@ const READ_SCOPES = ['Files.Read.All', 'Sites.Read.All', 'User.Read'];
 const WRITE_SCOPES = ['Files.ReadWrite.All', 'Sites.Read.All', 'User.Read'];
 const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
 
-// A file too big for a simple upload, which is all the app makes; SharePoint itself takes bigger ones.
-const tooLarge = file => new GraphError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB. Files over 4 MB can’t be uploaded from here: upload it in SharePoint, then link it.`, { status: 413 });
+// Why a file can't be uploaded from here, or null: it's too big for a simple upload, which is all the app
+// makes. SharePoint itself takes bigger ones.
+const uploadRefusal = file => file.size <= SIMPLE_UPLOAD_LIMIT ? null
+  : new GraphError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB. Files over 4 MB can’t be uploaded from here: upload it in SharePoint, then link it.`, { status: 413 });
 // A file of that name is in the folder already, and an upload doesn't replace one.
 const nameTaken = (name, folder) => new GraphError(`There’s already a file called ${name} in ${folder}. Rename yours, or link that one.`, { status: 409, code: 'nameAlreadyExists' });
 
@@ -343,7 +346,8 @@ function createGraphClient({ fetchImpl = (...a) => fetch(...a), getToken, config
   // the library's top. A simple upload, so a file over 4 MB is refused before anything is sent; and it
   // never replaces a file of the same name there.
   async function uploadFile(folder, file) {
-    if (file.size > SIMPLE_UPLOAD_LIMIT) throw tooLarge(file);
+    const refused = uploadRefusal(file);
+    if (refused) throw refused;
     const d = folder?.driveId ?? await libraryDrive();
     try {
       const it = await call(`/drives/${d}/items/${folder?.id ?? 'root'}:/${encodeURIComponent(file.name)}:/content?@microsoft.graph.conflictBehavior=fail`, {
@@ -671,7 +675,8 @@ function createDemoClient() {
     // every page's library has it; its content in IndexedDB (demoContent), for the viewer.
     async uploadFile(folder, file) {
       await latency();
-      if (file.size > SIMPLE_UPLOAD_LIMIT) throw tooLarge(file);
+      const refused = uploadRefusal(file);
+      if (refused) throw refused;
       const parent = folder?.id ? items.get(folder.id) : null;
       if (folder?.id && !parent?.isFolder) throw new NotFoundError('No such folder in demo mode.');
       const path = parent ? `${parent.path ? `${parent.path}/` : ''}${parent.name}` : '';
@@ -758,7 +763,7 @@ const connector = (() => {
 const openUrl = url => connector.isDemo() && parseDocUrl(url).host === DEMO_HOST ? `demo-file.html#${encodeURIComponent(url)}` : url;
 
 return {
-  parseDocUrl, docIcon, kindOfName, connector, openUrl, createGraphClient, createMsalAuth, shareToken,
+  parseDocUrl, docIcon, kindOfName, connector, openUrl, uploadRefusal, createGraphClient, createMsalAuth, shareToken,
   ConflictError, AuthError, NotConfiguredError, NotFoundError, GraphError, SharePointError,
   DEMO: { site: DEMO_SITE, library: DEMO_LIBRARY_URL, drive: DEMO_DRIVE },
 };

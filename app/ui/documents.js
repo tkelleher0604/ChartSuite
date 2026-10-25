@@ -13,7 +13,9 @@
 // - Linked: every document, with facets, search and sorting, and a pane previewing the one selected;
 // - Not linked: files in the library that no record links to, each linked in one click;
 // - Broken links: documents whose link no longer leads to a file, to be linked again.
-// Linking, editing details and relinking are each one undoable change, made through the model.
+// Linking, editing details and relinking are each one undoable change, made through the model. Link
+// document also takes a file from this computer: it's uploaded into the library, to a folder suggested
+// from the records it concerns, and linked, in one step.
 
 (() => {
 const connector = SharePoint.connector;
@@ -146,22 +148,23 @@ function versionsOf(item) {
     .then(v => { lib.versions.set(item.id, v); refresh(); });
 }
 
-// Every file in the library, folder by folder, leaving out the folder workbooks are saved in.
+// Every file in the library, folder by folder, leaving out the folder workbooks are saved in; and the
+// folders, for where an upload goes.
 async function scanLibrary() {
   if (lib.files.state === 'loading' || !lib.signedIn) return;
   lib.files = { state: 'loading', list: [], capped: false, message: '' };
   const skip = connector.config().workbookFolder || 'Rboreal';
-  const files = [], folders = [null];
+  const files = [], folders = [null], seen = [];
   try {
     for (let n = 0; folders.length && files.length < FILE_LIMIT && n < FOLDER_LIMIT; n++) {
       const folder = folders.shift();
       const items = await queued(() => folder ? connector.listChildren(folder.driveId, folder.id) : connector.listChildren());
       for (const it of items) {
         if (!it.isFolder) files.push(it);
-        else if (folder || !same(it.name, skip)) folders.push(it);
+        else if (folder || !same(it.name, skip)) { folders.push(it); seen.push(it); }
       }
     }
-    lib.files = { state: 'ok', list: files, capped: folders.length > 0, message: '' };
+    lib.files = { state: 'ok', list: files, folders: seen, capped: folders.length > 0, message: '' };
   } catch (e) {
     lib.files = { state: 'error', list: [], capped: false, message: failure(e).message };
   }
@@ -432,8 +435,9 @@ function paneFrame({ kind, title, href, sub, actions, body }) {
     ${body}
   </aside>`;
 }
+// A file opens where SharePoint.openUrl says: in its own system, or the demo's files in the demo's viewer.
 function openButton(link, p, primary = true) {
-  return link ? `<a class="btn btn-sm${primary ? ' btn-primary' : ''}" href="${esc(link)}" target="_blank" rel="noopener" data-docs-open>${esc(openLabel(p))} ↗</a>` : '';
+  return link ? `<a class="btn btn-sm${primary ? ' btn-primary' : ''}" href="${esc(SharePoint.openUrl(link))}" target="_blank" rel="noopener">${esc(openLabel(p))} ↗</a>` : '';
 }
 
 function docPane(row) {
@@ -709,7 +713,9 @@ function openFacet(el) {
 // ui.dialog is { mode, step, ... }: mode 'link' (a new document), 'edit' (a document's details) or
 // 'relink' (another file for a document); step 'browse' (picking a file) or 'details' (the form).
 // Browsing keeps the folders opened (`trail`), what's in the last (`list`), a search, and a pasted link.
-// The form keeps the file and every value as typed.
+// The form keeps the file and every value as typed. A file from this computer (`upload`) goes into the
+// library as the form is saved, to the folder chosen (`to`: a folder, or null for the library's top), or
+// while none is, the one suggested for the records it concerns.
 
 // The dialog is the shell's (Shell.dialog), drawn from ui.dialog: again as it changes, and afresh, with the
 // focus on its first box, as it moves from one step to the next.
@@ -768,11 +774,54 @@ function chooseFile(file) {
     render();
     return Shell.toast(`Linked ${row.name} again`, { undo: true });
   }
-  if (d.mode === 'edit') { Object.assign(d.form, { file, link: file.webUrl }); d.step = 'details'; return drawDialog(true); }
+  if (d.mode === 'edit') { Object.assign(d.form, { file, link: file.webUrl, upload: null }); d.step = 'details'; return drawDialog(true); }
   const g = guess(file);
   d.form = { file, name: g.name, link: g.link, type: g.type, date: g.date ? Parts.date(g.date) : '', status: g.status, version: '', subjects: g.subjects, from: g.from };
   d.step = 'details';
   drawDialog(true);
+}
+// A file from this computer: on to its details, guessed from its name, as a file picked in the library
+// is; it's uploaded as they're saved. One too big to upload from here is refused at once, saying why.
+function chooseUpload(file) {
+  const d = ui.dialog;
+  if (!file || !d || d.mode === 'relink') return;
+  d.uploadError = SharePoint.uploadRefusal(file)?.message ?? '';
+  if (d.uploadError) return drawDialog();
+  const local = { name: file.name, kind: SharePoint.kindOfName(file.name), size: file.size };
+  if (d.mode === 'edit') Object.assign(d.form, { file: local, link: '', upload: file, to: undefined });
+  else {
+    const g = guess({ name: file.name });
+    d.form = { file: local, upload: file, to: undefined, name: g.name, link: '', type: g.type, date: g.date ? Parts.date(g.date) : '', status: g.status, version: '', subjects: g.subjects, from: [] };
+  }
+  d.step = 'details';
+  drawDialog(true);
+}
+
+// ---- Where an upload goes ----
+
+const folderPath = f => f ? [f.path, f.name].filter(Boolean).join('/') : '';
+const pathLabel = path => ['Documents', ...String(path).split('/').filter(Boolean)].join(' › ');
+const folderLabel = f => pathLabel(folderPath(f));
+// The folder chosen, or else the one suggested.
+const uploadFolder = f => f.to !== undefined ? f.to : suggestFolder(f.subjects, f.type);
+// The folder a new file most likely belongs in, as the library is kept: where the documents concerning its
+// records are, those of its type first; or else the top folder named most like one of those records, and
+// in it the folder that documents of its type are kept in elsewhere. Null, the library's top, if nothing
+// suggests one.
+function suggestFolder(subjects, type) {
+  const folders = lib.files.folders ?? [];
+  const at = path => path ? folders.find(f => same(folderPath(f), path)) ?? null : null;
+  const mostCommon = list => { const n = new Map(); for (const x of list.filter(Boolean)) n.set(x, (n.get(x) ?? 0) + 1); return [...n].sort((a, b) => b[1] - a[1])[0]?.[0]; };
+  const folderOf = r => r.url?.isSharePoint && !r.url.isSharingLink ? r.url.folderPath : null;
+  const ofType = r => !!type && same(r.type?.text ?? '', type);
+  const theirs = documentRows().filter(r => r.subjects.some(s => subjects.includes(s.id)));
+  const near = at(mostCommon(theirs.filter(ofType).map(folderOf))) ?? at(mostCommon(theirs.map(folderOf)));
+  if (near) return near;
+  const names = subjects.filter(id => records[id]).map(id => objectName(id));
+  const top = folders.filter(f => !f.path).map(f => [f, Math.max(0, ...names.map(n => matchRank(n, f.name)))]).filter(([, s]) => s).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!top) return null;
+  const kept = mostCommon(documentRows().filter(ofType).map(r => folderOf(r)?.split('/').at(-1)));
+  return (kept && folders.find(f => same(f.path, folderPath(top)) && same(f.name, kept))) ?? top;
 }
 // A pasted link: read from SharePoint where it can be, or taken as it is (an EDGAR filing, a DMS link).
 async function usePasted() {
@@ -796,12 +845,14 @@ function dialogTitle() {
 }
 function dialogHtml() {
   const d = ui.dialog;
-  const sub = d.step === 'browse' ? `Pick a file in ${esc(libraryName())}, or paste a link to one.` : d.mode === 'link' ? 'Say what it is and which records it concerns.' : '';
+  const sub = d.step !== 'browse' ? (d.mode === 'link' ? 'Say what it is and which records it concerns.' : '')
+    : d.mode === 'relink' ? `Pick a file in ${esc(libraryName())}, or paste a link to one.` : `Pick a file in ${esc(libraryName())}, paste a link to one, or upload one.`;
   const body = d.step === 'browse' ? browseHtml(d) : formHtml(d);
+  const save = d.saving ? 'Uploading…' : d.form?.upload ? (d.mode === 'link' ? 'Upload and link' : 'Upload and save') : d.mode === 'link' ? 'Link document' : 'Save';
   const actions = d.step === 'browse'
     ? `${d.mode === 'edit' ? '<button class="btn" data-cmd="docs.dd-back">Back</button>' : ''}<span class="dd-spacer"></span><button class="btn" data-cmd="docs.dd-close">Cancel</button>`
     : `${d.mode === 'link' ? '<button class="btn" data-cmd="docs.dd-change">Back</button>' : ''}<span class="dd-spacer"></span><button class="btn" data-cmd="docs.dd-close">Cancel</button>
-       <button class="btn btn-primary" data-cmd="docs.dd-save">${d.mode === 'link' ? 'Link document' : 'Save'}</button>`;
+       <button class="btn btn-primary" data-cmd="docs.dd-save"${d.saving ? ' disabled' : ''}>${save}</button>`;
   return `<div class="dd-head"><h2 class="dialog-title">${esc(dialogTitle())}</h2>${sub ? `<p class="dd-sub">${sub}</p>` : ''}</div>
     <div class="dd-body">${body}</div>
     ${d.error ? `<div class="dd-error" role="alert">${esc(d.error)}</div>` : ''}
@@ -822,9 +873,11 @@ function browseHtml(d) {
     if (doc && d.mode !== 'relink') return `<div class="dd-item is-linked" title="Linked as ${esc(doc.name)}">${glyph(it.kind)}<span class="dd-item-text"><span class="dd-item-name">${esc(it.name)}</span>${where}</span><span class="dd-item-tag">Linked</span>${meta}</div>`;
     return `<button class="dd-item" data-cmd="${it.isFolder ? 'docs.dd-open' : 'docs.dd-file'}" data-id="${esc(it.id)}">${glyph(it.kind)}<span class="dd-item-text"><span class="dd-item-name">${esc(it.name)}</span>${where}</span>${meta}${it.isFolder ? icon('chevron-right', 'dd-item-chevron') : ''}</button>`;
   };
+  const uploads = d.mode !== 'relink';
   const items = list.state === 'loading' ? `<div class="dd-loading">${skeleton(5)}</div>`
     : list.state === 'error' ? `<div class="dd-empty">${esc(list.message)}</div>`
-    : !list.items.length ? `<div class="dd-empty">${searching ? `Nothing in the library matches “${esc(d.query)}”.` : 'This folder is empty.'}</div>`
+    : !list.items.length ? `<div class="dd-empty">${searching ? `Nothing in the library matches “${esc(d.query)}”.` : 'This folder is empty.'}${uploads
+      ? '<br><button class="link-btn" data-cmd="docs.dd-upload">Upload it from this computer</button>' : ''}</div>`
     : list.items.filter(it => !(it.isFolder && !d.trail.length && same(it.name, connector.config().workbookFolder || 'Rboreal'))).map(row).join('');
   return `<label class="search-input dd-search">${icon('search')}<input class="input" type="search" placeholder="Search the library" value="${esc(d.query ?? '')}" data-docs-input="dd-query" aria-label="Search the library" autocomplete="off" spellcheck="false" data-autofocus></label>
     <nav class="dd-crumbs" aria-label="Folder">${searching ? '<span class="dd-crumb is-here">Search results</span>' : crumbs}</nav>
@@ -834,17 +887,23 @@ function browseHtml(d) {
       <input class="input" id="dd-paste" value="${esc(d.paste ?? '')}" placeholder="https://contoso.sharepoint.com/…" data-docs-input="dd-paste" autocomplete="off" spellcheck="false">
       <button class="btn btn-sm" data-cmd="docs.dd-paste"${d.pasting ? ' disabled' : ''}>${d.pasting ? 'Reading…' : 'Use link'}</button>
     </div>
-    ${d.pasteError ? `<p class="dd-field-error">${esc(d.pasteError)}</p>` : ''}`;
+    ${d.pasteError ? `<p class="dd-field-error">${esc(d.pasteError)}</p>` : ''}
+    ${uploads ? `<div class="dd-paste"><span class="dd-paste-label">Or upload one from this computer</span>
+      <button class="btn btn-sm" data-cmd="docs.dd-upload">Choose a file…</button><input type="file" data-docs-upload hidden></div>` : ''}
+    ${d.uploadError ? `<p class="dd-field-error">${esc(d.uploadError)}</p>` : ''}`;
 }
 
 function formHtml(d) {
   const f = d.form;
   const file = f.file;
   const p = SharePoint.parseDocUrl(f.link);
-  const where = file?.path !== undefined ? folderText(file.path) : whereText(p);
+  const where = f.upload ? `${sizeText(file.size)}, from this computer` : file?.path !== undefined ? folderText(file.path) : whereText(p);
   const fileRow = `<div class="dd-file">${glyph(file?.kind ?? p.kind, 'is-large')}<div class="dd-file-text"><div class="dd-file-name">${esc(file?.name ?? fileNameOf(f.link) ?? f.link ?? 'No file')}</div>
       <div class="dd-file-where">${esc(where || systemName(p))}</div></div>
-      <button class="btn btn-sm btn-ghost" data-cmd="docs.dd-change">${f.link ? 'Change file' : 'Choose a file'}</button></div>`;
+      <button class="btn btn-sm btn-ghost" data-cmd="docs.dd-change">${f.link || f.upload ? 'Change file' : 'Choose a file'}</button></div>`;
+  // Where an upload goes: suggested from the records it concerns, as the dropdown says, until one's chosen.
+  const to = f.upload ? `<label for="dd-to">Upload to</label><button class="docs-select" data-cmd="docs.dd-to" aria-haspopup="menu" id="dd-to"
+      title="${f.to === undefined ? 'Suggested from the records it concerns' : ''}"><span class="docs-select-text">${esc(folderLabel(uploadFolder(f)))}</span>${icon('chevron-down')}</button>` : '';
   const label = role => esc(entrySpec(role).label);
   const select = role => `<button class="docs-select${f[role] ? '' : ' is-empty'}" data-cmd="docs.dd-choose" data-role="${role}" aria-haspopup="menu" id="dd-${role}">
       <span class="docs-select-text">${esc(f[role] || (role === 'type' ? 'Choose a type' : 'Choose a status'))}</span>${icon('chevron-down')}</button>`;
@@ -858,6 +917,7 @@ function formHtml(d) {
       <label for="dd-status">${label('status')}</label>${select('status')}
       <label for="dd-version">${label('version')}</label><input class="input" id="dd-version" value="${esc(f.version)}" placeholder="Like A&amp;R 2024" data-docs-input="version" autocomplete="off">
       <label for="dd-cq">Concerns</label>${subjectsField(f, computed)}
+      ${to}
     </div>${from}`;
 }
 // The records a document concerns, as chips to take away, and a box to find more. Those a formula
@@ -881,11 +941,27 @@ function subjectOptions(f) {
     .sort((a, b) => byLabel(objectName(a), objectName(b))).slice(0, 8);
 }
 
-function saveDialog() {
+async function saveDialog() {
   const d = ui.dialog, f = d.form;
+  if (d.saving) return;
   if (!clean(f.name)) { d.error = 'A document needs a name.'; return drawDialog(); }
   f.dateIso = clean(f.date) ? parseDate(clean(f.date)) : '';
   if (f.dateIso === null) { d.error = `${entrySpec('date').label} takes a date, like Jun 30, 2024.`; return drawDialog(); }
+  // A file from this computer goes into the library first, and the document links to it there. Once it's
+  // in, it stays in, whatever comes of the rest: Undo unlinks it, leaving it under Not linked.
+  let uploaded = null;
+  if (f.upload) {
+    Object.assign(d, { saving: true, error: '' });
+    drawDialog();
+    try { uploaded = await connector.uploadFile(uploadFolder(f), f.upload); } catch (e) { d.error = e?.message ?? 'The file couldn’t be uploaded.'; }
+    d.saving = false;
+    if (!uploaded) return drawDialog();
+    lib.checks.set(linkKey(uploaded.webUrl), { state: 'ok', item: uploaded });
+    if (lib.files.state === 'ok') lib.files.list.push(uploaded);
+    Object.assign(f, { file: uploaded, link: uploaded.webUrl, upload: null });
+    if (ui.dialog !== d) { render(); return Shell.toast(`Uploaded ${uploaded.name}. It’s under Not linked.`); }
+  }
+  const did = uploaded ? `Uploaded ${uploaded.name} to ${pathLabel(uploaded.path)}, and` : '';
   if (d.mode === 'link') {
     const { error, id } = linkDocument(f);
     if (error) { d.error = error; return drawDialog(); }
@@ -893,13 +969,13 @@ function saveDialog() {
     Object.assign(ui, { tab: 'linked', selected: id, entering: true });
     writeHash();
     render();
-    return Shell.toast(`Linked ${clean(f.name)}`, { undo: true });
+    return Shell.toast(uploaded ? `${did} linked it` : `Linked ${clean(f.name)}`, { undo: true });
   }
   const error = saveDetails(rowById(d.rowId), f);
   if (error) { d.error = error; return drawDialog(); }
   closeDialog();
   render();
-  Shell.toast('Saved the details', { undo: true });
+  Shell.toast(uploaded ? `${did} saved the details` : 'Saved the details', { undo: true });
 }
 
 // Edit details starts from the document as it's recorded.
@@ -915,7 +991,7 @@ function sourceMenu(el) {
   const demo = connector.isDemo();
   Shell.menu(el, [
     { head: demo ? 'A demo library, so the app works offline' : lib.signedIn ? `Signed in as ${lib.who ?? 'you'}` : 'Not signed in' },
-    { label: libraryName(), hint: '↗', run: () => openLink(demo ? SharePoint.DEMO.library : connector.config().siteUrl) },
+    { label: libraryName(), hint: '↗', run: openLibrary },
     { sep: true },
     ...(demo ? [] : [lib.signedIn ? { label: 'Sign out', run: async () => { await connector.signOut(); lib.signedIn = false; render(); } } : { label: 'Sign in', run: signIn }]),
     { label: demo ? 'Connect your SharePoint…' : 'SharePoint settings', run: () => { location.href = 'settings.html'; } },
@@ -928,11 +1004,10 @@ const sourceButton = () => {
     <span class="docs-source-dot${demo ? ' is-demo' : lib.signedIn ? '' : ' is-off'}" aria-hidden="true"></span>${demo ? 'Demo library' : esc(libraryName().split(' › ').slice(1).join(' › ') || 'SharePoint')}</button>`;
 };
 
-// A file opened in its own system. The demo's files aren't anywhere, so it says so instead.
-function openLink(url) {
-  const p = SharePoint.parseDocUrl(url);
-  if (connector.isDemo() && p.host === DEMO_HOST) return Shell.toast('The demo library has no real files to open. Connected to your SharePoint, this opens the file.');
-  window.open(url, '_blank', 'noopener');
+// The library, opened in SharePoint. The demo's is only here, so it says so instead.
+function openLibrary() {
+  if (connector.isDemo()) return Shell.toast('The demo library is only here. Connected to your SharePoint, this opens your library there.');
+  window.open(connector.config().siteUrl, '_blank', 'noopener');
 }
 async function copyLink(url) {
   let ok = false;
@@ -1005,6 +1080,17 @@ Shell.on('docs.dd-file', el => {
   if (file) chooseFile(file);
 });
 Shell.on('docs.dd-paste', usePasted);
+Shell.on('docs.dd-upload', () => ui.dialog?.handle.el.querySelector('[data-docs-upload]')?.click());
+Shell.on('docs.dd-to', el => {
+  const f = ui.dialog.form, chosen = uploadFolder(f);
+  const pick = to => { f.to = to; drawDialog(); document.getElementById('dd-to')?.focus(); };
+  const folders = [null, ...[...(lib.files.folders ?? [])].sort((a, b) => byLabel(folderPath(a), folderPath(b)))];
+  Shell.menu(el, query => {
+    const found = rankBy(folders, query, folderLabel);
+    return found.length ? found.map(x => ({ label: folderLabel(x), checked: (x?.id ?? null) === (chosen?.id ?? null), run: () => pick(x) }))
+      : [{ note: lib.files.state === 'ok' ? `No folder is called “${clean(query)}”.` : 'Reading the library’s folders…' }];
+  }, 'docs-to', { search: 'Find a folder' });
+});
 Shell.on('docs.dd-change', () => { const d = ui.dialog; d.step = 'browse'; d.error = ''; browseTo(d.trail ?? []); drawDialog(true); });
 Shell.on('docs.dd-back', () => { ui.dialog.step = 'details'; drawDialog(true); });
 Shell.on('docs.dd-save', saveDialog);
@@ -1047,12 +1133,21 @@ document.addEventListener('focusin', e => {
   const d = ui.dialog;
   if (!drawing && d?.step === 'details' && e.target.dataset?.docsInput === 'cq' && !d.cqOpen) { d.cqOpen = true; drawDialog(); }
 });
+// A file chosen from this computer, or dropped on the dialog while it's choosing one, is the one to upload.
+document.addEventListener('change', e => { if (e.target.matches?.('[data-docs-upload]')) chooseUpload(e.target.files?.[0]); });
+const takesDrop = e => ui.dialog?.step === 'browse' && ui.dialog.mode !== 'relink' && [...(e.dataTransfer?.types ?? [])].includes('Files');
+document.addEventListener('dragover', e => { if (takesDrop(e)) { e.preventDefault(); ui.dialog.handle.el.classList.add('is-dropping'); } });
+document.addEventListener('dragleave', e => { if (ui.dialog && !ui.dialog.handle.el.contains(e.relatedTarget)) ui.dialog.handle.el.classList.remove('is-dropping'); });
+document.addEventListener('drop', e => {
+  if (!takesDrop(e)) return;
+  e.preventDefault();
+  ui.dialog.handle.el.classList.remove('is-dropping');
+  chooseUpload(e.dataTransfer.files[0]);
+});
 
-// Clicks: a row selects its document (its links still go where they go); the demo's files say they
-// aren't real; a click outside the subjects box closes its list.
+// Clicks: a row selects its document (its links still go where they go); a click outside the subjects box
+// closes its list.
 document.addEventListener('click', e => {
-  const open = e.target.closest?.('a[data-docs-open]');
-  if (open) { e.preventDefault(); return openLink(open.getAttribute('href')); }
   const d = ui.dialog;
   if (d?.cqOpen && !e.target.closest('.dd-subjects')) { d.cqOpen = false; drawDialog(); }
   const tr = e.target.closest('.docs-table tbody tr[data-row]');
