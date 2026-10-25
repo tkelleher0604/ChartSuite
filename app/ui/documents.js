@@ -400,7 +400,8 @@ function page() {
   const files = lib.files.state === 'ok' ? unlinkedFiles() : [];
   const broken = rows.filter(isBroken);
   if (ui.selected && !(ui.tab === 'unlinked' ? fileById(ui.selected) : rowById(ui.selected))) ui.selected = null;
-  const counts = { linked: rows.length, unlinked: lib.files.state === 'ok' ? files.length : null, broken: broken.length };
+  // Until the library can be read, what it holds isn't counted.
+  const counts = { linked: rows.length, unlinked: !lib.signedIn ? '' : lib.files.state === 'ok' ? files.length : null, broken: lib.signedIn ? broken.length : '' };
   const body = ui.tab === 'linked' ? linkedView(rows) : ui.tab === 'unlinked' ? unlinkedView(files) : brokenView(broken);
   const pane = !ui.selected ? '' : ui.tab === 'unlinked' ? filePane(fileById(ui.selected)) : docPane(rowById(ui.selected));
   ui.entering = false;
@@ -538,15 +539,17 @@ const skeleton = n => `<div class="skeleton-lines">${Array.from({ length: n }, (
 
 function paneFrame({ kind, title, href, sub, actions, body }) {
   return `<aside class="docs-pane${ui.entering ? ' is-entering' : ''}" aria-label="Preview" data-keep="pane">
-    <div class="pane-head">
-      ${glyph(kind, 'is-large')}
-      <div class="pane-title-block">
-        <h2 class="pane-title">${href ? `<a href="${href}">${esc(title)}</a>` : esc(title)}</h2>
-        ${sub ? `<div class="pane-sub">${sub}</div>` : ''}
+    <div class="pane-top">
+      <div class="pane-head">
+        ${glyph(kind, 'is-large')}
+        <div class="pane-title-block">
+          <h2 class="pane-title">${href ? `<a href="${href}">${esc(title)}</a>` : esc(title)}</h2>
+          ${sub ? `<div class="pane-sub">${sub}</div>` : ''}
+        </div>
+        <button class="icon-btn" data-cmd="docs.close" aria-label="Close the preview" title="Close (Esc)">${icon('x')}</button>
       </div>
-      <button class="icon-btn" data-cmd="docs.close" aria-label="Close the preview" title="Close (Esc)">${icon('x')}</button>
+      <div class="pane-actions">${actions}</div>
     </div>
-    <div class="pane-actions">${actions}</div>
     ${body}
   </aside>`;
 }
@@ -618,7 +621,7 @@ function librarySection(row, check) {
 }
 function itemProps(item, row = null) {
   const differs = (label, theirs) => {
-    if (!row || !theirs) return '';
+    if (!row?.own || !theirs) return '';
     const role = ['type', 'date'].find(r => ROLES[r].labels.some(l => same(l, label)));
     const ours = role === 'type' ? row.type?.text : role === 'date' ? row.date?.iso : null;
     if (!role || !ours) return '';
@@ -648,7 +651,7 @@ function versionsSection(item) {
   return section('Versions', `<ol class="versions">${list.map((x, i) => `<li class="version">
       <span class="version-id tnum">${esc(x.id)}</span>
       <span class="version-what">${x.lastModified ? `<span class="tnum">${Parts.date(x.lastModified.slice(0, 10))}</span>` : ''}${x.lastModifiedBy ? `<span class="faint"> · ${esc(x.lastModifiedBy)}</span>` : ''}</span>
-      ${i === 0 && x === v.list[0] ? Parts.badge('Current', 'faint') : `<span class="faint tnum">${sizeText(x.size)}</span>`}</li>`).join('')}</ol>
+      ${i === 0 ? Parts.badge('Current', 'faint') : '<span></span>'}</li>`).join('')}</ol>
     ${v.list.length > list.length ? `<button class="link-btn pane-more" data-cmd="docs.versions">Show all ${v.list.length}</button>` : ''}`, v.list.length > 1 ? `${v.list.length} in SharePoint` : '');
 }
 
@@ -908,9 +911,11 @@ async function usePasted() {
   d.pasteError = '';
   d.pasting = true;
   drawDialog();
-  try { chooseFile(await connector.getItem(url)); }
-  catch (e) { d.pasteError = failure(e).message; drawDialog(); }
-  finally { d.pasting = false; }
+  let item = null;
+  try { item = await connector.resolveShareUrl(url); } catch (e) { d.pasteError = failure(e).message; }
+  d.pasting = false;
+  if (ui.dialog !== d) return;
+  item ? chooseFile(item) : drawDialog();
 }
 
 function dialogHtml() {
@@ -922,8 +927,11 @@ function dialogHtml() {
     ? `${d.mode === 'edit' ? '<button class="btn" data-cmd="docs.dd-back">Back</button>' : ''}<span class="dd-spacer"></span><button class="btn" data-cmd="docs.dd-close">Cancel</button>`
     : `${d.mode === 'link' ? '<button class="btn" data-cmd="docs.dd-change">Back</button>' : ''}<span class="dd-spacer"></span><button class="btn" data-cmd="docs.dd-close">Cancel</button>
        <button class="btn btn-primary" data-cmd="docs.dd-save">${d.mode === 'link' ? 'Link document' : 'Save'}</button>`;
-  return `<div class="scrim docs-scrim" data-cmd="docs.dd-close"></div>
-    <div class="dialog docs-dialog${d.step === 'browse' ? ' is-browse' : ''}" role="dialog" aria-modal="true" aria-labelledby="docs-dialog-title">
+  // The dialog animates in once; drawn again, it stays put.
+  const settled = d.drawn ? ' is-settled' : '';
+  d.drawn = true;
+  return `<div class="scrim docs-scrim${settled}" data-cmd="docs.dd-close"></div>
+    <div class="dialog docs-dialog${d.step === 'browse' ? ' is-browse' : ''}${settled}" role="dialog" aria-modal="true" aria-labelledby="docs-dialog-title">
       <div class="dd-head"><h2 class="dialog-title" id="docs-dialog-title">${title}</h2>${sub ? `<p class="dd-sub">${sub}</p>` : ''}</div>
       <div class="dd-body">${body}</div>
       ${d.error ? `<div class="dd-error" role="alert">${esc(d.error)}</div>` : ''}
