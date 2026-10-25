@@ -350,6 +350,7 @@ function renderRibbon() {
   const scrolled = ribbon.querySelector('.ribbon-body')?.scrollLeft ?? 0;
   ribbon.innerHTML = `<div class="tabs ribbon-tabs" role="tablist">${tabs}</div><div class="ribbon-body">${body}</div>`;
   ribbon.querySelector('.ribbon-body').scrollLeft = scrolled;
+  markClipped(ribbon.querySelector('.ribbon-body'));
   placeRibbonMenus();
   // Keep the engaged style's tile in view when the gallery is too narrow to show every tile.
   const gallery = document.querySelector('.gallery');
@@ -378,11 +379,18 @@ function placeRibbonMenus() {
 }
 document.addEventListener('scroll', e => {
   if (e.target.matches?.('.ribbon-body')) placeRibbonMenus();
-  if (e.target.matches?.('.gallery')) markClipped(e.target);
+  if (e.target.matches?.('.ribbon-body, .gallery')) markClipped(e.target);
 }, true);
 
-// A gallery with more chips past its end fades there.
+// A ribbon, or a gallery, with more past its end fades there; the wheel scrolls it sideways.
 const markClipped = el => el?.classList.toggle('is-clipped', el.scrollWidth > el.scrollLeft + el.clientWidth + 1);
+document.addEventListener('wheel', e => {
+  const strip = e.target.closest?.('.gallery, .ribbon-body');
+  if (!strip || e.ctrlKey || !e.deltaY || strip.scrollWidth <= strip.clientWidth || e.target.closest('.pop')) return;
+  e.preventDefault();
+  strip.scrollLeft += e.deltaY;
+}, { passive: false });
+window.addEventListener('resize', () => markClipped(document.querySelector('.ribbon-body')));
 
 // A draft that doesn't read stays open, with the place it goes wrong shown and the caret there. Anything
 // else applies, errors and all, since the boxes it can't be worked out at stay shown, marked.
@@ -483,7 +491,7 @@ Object.assign(actions, {
   'insert-relation': () => {
     const sel = selection();
     if (sel.object) location.hash = `relate:${sel.object}`;
-    else say('Select a box first, or drag from a box’s edge handle to another box.');
+    else say('Select a box first, or drag from a box’s edge handle to another box');
   },
   'toggle-pref': d => { prefs[d.key] = prefs[d.key] === false; savePrefs(); },
   'show-form': d => {
@@ -503,10 +511,10 @@ Object.assign(actions, {
   'unhide-all': () => setHiddenInView([]),
   'filter-apply': () => applyFilter(),
   'filter-clear': () => { setViewFilter(''); chart.filterDraft = null; },
-  'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows.`; },
+  'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows`; },
   'fx-why': () => { const id = selectedRecord(); if (id) go(id); },
   'fx-recalc': () => {
     recompute();
-    say(`Worked out ${count(Object.keys(records).filter(isComputed).length, 'record')} in ${Math.round(formulaResult.ms ?? 0)} ms.`);
+    say(`Worked out ${count(Object.keys(records).filter(isComputed).length, 'record')} in ${Math.round(formulaResult.ms ?? 0)} ms`);
   },
 });

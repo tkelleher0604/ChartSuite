@@ -769,7 +769,7 @@ async function runExport() {
     else exportSvg(scenes[0], s);
     exportUi.busy = false;
     closeExport();
-    say(`Exported ${scenes.length > 1 ? 'every view' : scenes[0].view} as ${name === 'PowerPoint' ? 'a PowerPoint deck' : name}.`);
+    say(`Exported ${scenes.length > 1 ? 'every view' : scenes[0].view} as ${name === 'PowerPoint' ? 'a PowerPoint deck' : name}`);
   } catch (e) {
     Object.assign(exportUi, { busy: false, error: e.message });
     drawExport();
@@ -780,7 +780,7 @@ async function exportProfile(id) {
   closeExport();
   try {
     await exportRecordPdf(id, { asOf: exportUi.asOf || todayIso() });
-    say(`Exported a profile of ${objectName(id)}.`);
+    say(`Exported a profile of ${objectName(id)}`);
   } catch (e) {
     sayError(`Couldn’t export the profile: ${e.message}`);
   }

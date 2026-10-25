@@ -582,7 +582,7 @@ function deleteObject(obj) {
   const name = objectName(obj);
   const error = deleteRecords([obj], name);
   if (error) return sayError(error);
-  say(`Deleted ${name}. It can be restored from Deleted, too.`, { undo: true });
+  say(`Deleted ${name}`, { undo: true });
   location.hash = '';
 }
 
@@ -593,7 +593,7 @@ function deleteRelation(id) {
   const label = relationTitle(id);
   const error = deleteRecords([id], label);
   if (error) return sayError(error);
-  say(`Deleted ${label}.`, { undo: true });
+  say(`Deleted ${label}`, { undo: true });
   location.hash = '';
 }
 
@@ -601,7 +601,7 @@ function deleteRelation(id) {
 function hideInView(id) {
   setHiddenInView([...hiddenInView(), id]);
   const label = isObject(records[id]) ? objectName(id) : relationTitle(id);
-  say(`Hid ${label} in ${viewInUse().name}. View › Hidden shows it again.`, { undo: true });
+  say(`Hid ${label} in ${viewInUse().name}; View › Hidden shows it again`, { undo: true });
   location.hash = '';
 }
 
@@ -609,7 +609,7 @@ function hideInView(id) {
 function ruleOut(id) {
   const error = commit({ ...records, [id]: { ...records[id], tag: false } });
   if (error) return sayError(error);
-  say(`Ruled out ${relationTitle(id)}. It overrides the formula here.`, { undo: true });
+  say(`Ruled out ${relationTitle(id)}, overriding the formula there`, { undo: true });
 }
 
 // Removing something from the chart asks whether to delete it, which takes it out of every view, or to
@@ -666,7 +666,7 @@ function setZoom(z, anchor) {
 // as it was left. A chart not looked at yet shows whole if it's readable that way, and otherwise as much
 // of it as is readable, from the top.
 const VIEWPORT_KEY = 'rboreal.chart.viewport';
-const READABLE = 0.5;
+const READABLE = 0.4;
 function keptViewports() {
   try { return JSON.parse(sessionStorage.getItem(VIEWPORT_KEY)) ?? {}; } catch { return {}; }
 }
@@ -844,7 +844,7 @@ function tidyView() {
 
 function tidyLayout() {
   tidyView();
-  say(`Laid out the boxes ${viewInUse().name} shows.`, { undo: true });
+  say(`Laid out the boxes ${viewInUse().name} shows`, { undo: true });
   render();
 }
 
@@ -881,7 +881,7 @@ function deleteViewHere(id) {
   if (!v || views.length < 2) return;
   deleteView(id);
   chart.engaged = null;
-  say(`Deleted the view ${v.name}.`, { undo: true });
+  say(`Deleted the view ${v.name}`, { undo: true });
   render();
 }
 
@@ -1310,7 +1310,7 @@ function resetSampleChart() {
   resetSample();
   Object.assign(chart, { engaged: null, editing: null, quick: null, ask: null, renaming: null, fitPending: true });
   history.replaceState(null, '', location.pathname + location.search);
-  say('Put the sample back as it started.', { undo: true });
+  say('Put the sample back as it started', { undo: true });
   render();
 }
 
