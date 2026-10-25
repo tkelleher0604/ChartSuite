@@ -9,6 +9,8 @@
 .rec-needs { color: var(--warn); font-size: inherit; font-weight: 500; }
 .rec-needs:hover:not(:disabled) { color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
 .rec-needs[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
+/* The address named no kind here. */
+.rec-unknown { flex: none; margin: -4px 0 14px; color: var(--text-2); font-size: 13px; }
 
 /* One line: the search, the filters (wrapping only when several are set), and the View menu at the end. */
 .rec-bar { display: flex; flex: none; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
@@ -38,7 +40,7 @@
 /* Headings (shell.css's): a click sorts, the chevron opens the column's menu, and a drag moves it. */
 .rec-head-cell.is-computed .th-text { font-style: italic; }
 .rec-fx { flex: none; font-size: 11px; font-style: italic; font-weight: 600; color: var(--computed); letter-spacing: .02em; }
-.rec-head-cell .req-mark { flex: none; margin-left: -1px; color: var(--danger); font-weight: 600; }
+.rec-head-cell .req-mark { flex: none; margin-left: -1px; color: var(--warn); font-weight: 600; }
 th.is-movable .th-sort:active { cursor: grabbing; }
 th.is-dragging .th-in { opacity: .45; }
 th.is-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
@@ -77,9 +79,10 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .rec-chev { width: 14px; height: 14px; margin-left: auto; color: var(--text-3); opacity: 0; transition: opacity .1s; }
 .rec-table tbody tr:hover .rec-chev, .rec-cell.is-active .rec-chev { opacity: 1; }
 
-/* What a formula worked out is in italics (shell.css); what's blank and required says so. */
-.rec-req { color: var(--danger); font-size: 12px; font-weight: 500; }
-.rec-cell .req-mark { margin-left: 5px; color: var(--danger); font-weight: 600; vertical-align: middle; }
+/* What a formula worked out is in italics (shell.css); what's blank and required says so, in amber, as
+   something to do. */
+.rec-req { color: var(--warn); font-size: 12px; font-weight: 500; }
+.rec-cell .req-mark { margin-left: 5px; color: var(--warn); font-weight: 600; vertical-align: middle; }
 
 /* Relatives as chips, as many as fit, then how many more. A chip's name comes before its detail. */
 .rec-chips { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
@@ -125,6 +128,8 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
   border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-dialog); font-size: 13px; animation: shell-rise .2s var(--ease); }
 .rec-actionbar-count { margin-right: 8px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rec-delete { color: var(--danger); }
+/* Toasts rise above the bar while it's up, rather than meet it. */
+body:has(.rec-actionbar) { --toasts-bottom: 84px; }
 
 .rec-page > .empty-state { margin-top: 8px; padding: 56px 24px; }
 

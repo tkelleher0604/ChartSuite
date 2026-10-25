@@ -18,6 +18,7 @@
   // the table or what they're in the middle of; the records themselves are only ever read from the state.
   const ui = {
     kind: null,         // the kind whose table this is
+    unknown: null,      // what the address named instead, if it named no kind here
     chart: null,        // the chart it's in
     prefs: {},          // this kind's remembered columns ({ [key]: shown }) and sort ({ key, dir })
     active: null,       // the selected cell: { row, col }, an object's id and a column's key
@@ -73,19 +74,22 @@
   }
 
   // Takes up the kind the address names. Moving to another kind starts afresh there, with that kind's own
-  // remembered columns, sort and filters. Returns whether the kind changed.
+  // remembered columns, sort and filters. An address naming no kind here (a kind since renamed, or a link
+  // cut short) shows the first kind's table, which says so, and the address follows. Returns whether
+  // there's something new to show.
   function useKind() {
-    const kind = kindFromHash();
-    if (kind === ui.kind) return false;
+    const kind = kindFromHash(), asked = hashText();
+    const unknown = asked && !same(asked, kind) ? asked : null;
+    if (unknown) history.replaceState(null, '', `#${encodeURIComponent(kind)}`);
+    if (kind === ui.kind) { const was = ui.unknown; ui.unknown = unknown; return was !== unknown; }
     const session = stored('sessionStorage', SESSION_KEY)[norm(kind)] ?? {};
     Object.assign(ui, {
-      kind, chart: workbook.chartId, prefs: stored('localStorage', PREFS_KEY)[norm(kind)] ?? {},
+      kind, unknown, chart: workbook.chartId, prefs: stored('localStorage', PREFS_KEY)[norm(kind)] ?? {},
       active: null, edit: null, draft: null, pop: null, filterMenu: null, checked: new Set(), anchor: null, added: [],
       filters: session.filters ?? [], search: session.search ?? '', needs: !!session.needs,
       focus: null, caret: null, scroll: { left: 0, top: 0 },
     });
     if (Shell.page) Shell.page.kind = kind;
-    if (location.hash && !same(hashText(), kind)) history.replaceState(null, '', `#${encodeURIComponent(kind)}`);
     return true;
   }
 
@@ -402,7 +406,7 @@
 
   // How wide a column starts, from its heading and the longest value it has, within bounds for its sort.
   // Name, which stays in view, takes no more than a quarter of the window.
-  const WIDTHS = { name: [220, 340], text: [120, 280], document: [150, 280], date: [128, 168], number: [96, 150], percent: [96, 130],
+  const WIDTHS = { name: [220, 340], text: [120, 280], document: [150, 280], date: [120, 150], number: [96, 150], percent: [96, 130],
     money: [112, 170], tag: [96, 176], choice: [128, 264], relation: [160, 320] };
   function widthOf(c, P) {
     const sort = c.isName ? 'name' : c.rel ? 'relation' : c.type === 'field' ? c.datatype : c.type;
@@ -413,8 +417,9 @@
     let body = 0;
     if (c.type !== 'tag') for (const id of P.objects) {
       const cell = P.cell(id, c);
+      const text = cell.r?.field === 'date' ? Parts.date(cell.r.value) : cell.text;
       body = Math.max(body, c.rel ? (cell.items.length ? 44 + 6.8 * cell.items[0].text.length + (cell.items.length > 1 ? 30 : 0) : 0)
-        : 32 + 7.5 * cell.text.length + (c.type === 'choice' ? 22 : 0));
+        : 32 + 7.5 * text.length + (c.type === 'choice' ? 22 : 0));
     }
     return Math.round(Math.min(max, Math.max(min, head, body)));
   }
@@ -513,6 +518,10 @@
       const [head, tail] = P.parts(cell.text);
       html = tail ? `<a class="row-link cut" href="${Shell.recordHref(obj)}"><span class="cut-head">${esc(head)}</span><span class="cut-tail">${esc(tail)}</span></a>`
         : `<a class="row-link" href="${Shell.recordHref(obj)}">${esc(cell.text)}</a>`;
+    } else if (cell.r.field === 'date') {
+      // A date reads short in a row, as in every list scanned by date, and in full on hover.
+      html = `<span${cell.computed ? ' class="computed-text"' : ''}>${Parts.date(cell.r.value)}</span>`;
+      if (cell.computed) title = `${cell.text}, worked out by formula`;
     } else {
       html = looksLikeId(cell.text) ? `<span class="ident">${Parts.output(cell.id)}</span>` : Parts.output(cell.id);
       if (cell.r.field === 'document') title = cell.r.value;
@@ -733,6 +742,7 @@
         <button class="icon-btn" data-cmd="records.uncheck" aria-label="Clear the selection" title="Clear the selection (Esc)">${icon('x')}</button></div>` : '';
     return `<div class="content is-wide rec-page">
       <div class="page-head rec-head"><div class="page-head-text"><h2 class="page-title">${esc(kindPlural())}</h2><p class="page-sub">${sub.join('<span class="rec-dot">·</span>')}</p></div></div>
+      ${ui.unknown ? `<p class="rec-unknown" role="status">This chart has no kind called “${esc(ui.unknown)}”, so here are its ${esc(kindPlural().toLowerCase())}.</p>` : ''}
       ${n || ui.draft ? `<div class="rec-bar">
         <label class="search-input rec-search">${icon('search')}<input class="input" data-focus="search" value="${esc(ui.search)}" placeholder="Search ${esc(kindPlural().toLowerCase())}" aria-label="Search ${esc(kindPlural().toLowerCase())}" autocomplete="off" spellcheck="false"></label>
         ${filtersHtml(cols, shownCols, P)}
@@ -850,6 +860,11 @@
     // A date can be typed many ways; the panel says so with an example, and so does the table.
     if (error) { e.error = error.replace(/a date here\.$/, 'a date here, like March 4, 2019.'); return error; }
     ui.edit = null;
+    // A percentage over 100% or below 0% is taken as typed, since the model allows it, but said, with Undo.
+    const r = records[tableIndex().entries.get(cell.at)?.get(norm(c.label))];
+    if (r?.field === 'percent' && r.value !== cell.r?.value && (r.value > 1 || r.value < 0)) {
+      Shell.toast(`${c.label} on ${tableIndex().nameOf(e.row)} is now ${displayValue(r)}, ${r.value > 1 ? 'over 100%' : 'below 0%'}`, { undo: true });
+    }
     return null;
   }
 
