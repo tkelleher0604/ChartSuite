@@ -13,7 +13,8 @@
 // - after(): runs once the content is in place;
 // - commands: what the page adds to the palette, [{ title, hint, keywords, run }], or a function giving them;
 // - undo: false where the page handles the undo keys itself (the pages with the record panel);
-// - keys: the page's own shortcuts, [[keys, what they do]], for the ? sheet: keys as pressed (Shift+1, G then A);
+// - keys: the page's own shortcuts, [[keys, what they do]] or a function giving them, for the ? sheet: keys as
+//   pressed (Shift+1, G then A);
 // - sidebar: false where the page starts without the sidebar (a canvas); its own choice is kept from then on.
 // The shell's keys come after the page's: a key the page has used (preventDefault) is left to it. An
 // address with ?do=<handler> runs that handler once the page is drawn, as the palette asks from elsewhere.
@@ -715,7 +716,7 @@ const Shell = (() => {
       [`${modKey}+\\`, 'Show or hide the sidebar'], ['?', 'These shortcuts'], ['Esc', 'Close']];
     const go = [...AREAS, { name: 'Records', key: 'r' }, ...FOOT_AREAS].map(a => [`G then ${a.key.toUpperCase()}`, a.name]);
     ask({ kind: 'info', title: 'Keyboard shortcuts', wide: true,
-      html: `<div class="keys-cols"><div>${group('Everywhere', everywhere)}${group('On this page', page.keys ?? [])}</div>${group('Go to', go)}</div>` });
+      html: `<div class="keys-cols"><div>${group('Everywhere', everywhere)}${group('On this page', value(page.keys) ?? [])}</div>${group('Go to', go)}</div>` });
   }
 
   // ---- Undo ----
