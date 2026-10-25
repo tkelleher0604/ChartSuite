@@ -31,6 +31,7 @@
     focus: null,        // where the keyboard was: 'grid', 'edit', 'draft', 'pop' or 'search'
     caret: null,        // [start, end] of the selection in the box being typed in
     scroll: { left: 0, top: 0 },
+    toEnd: false,       // whether to scroll to the last row, where a new row is named, after the next render
     reveal: false,      // whether to bring the active cell into view after the next render
     rows: [],           // the rows shown, in order, and the keys of the columns shown, for moving and pasting
     cols: [],
@@ -378,18 +379,20 @@
   // ---- Rendering ----
 
   // How wide a column starts, from its heading and the longest value it has, within bounds for its sort.
+  // Name, which stays in view, takes no more than a quarter of the window.
   const WIDTHS = { name: [220, 340], text: [120, 280], document: [150, 280], date: [128, 168], number: [96, 150], percent: [96, 130],
     money: [112, 170], tag: [96, 176], choice: [128, 264], relation: [160, 320] };
   function widthOf(c, P) {
     const sort = c.isName ? 'name' : c.rel ? 'relation' : c.type === 'field' ? c.datatype : c.type;
-    const [min, max] = WIDTHS[sort] ?? [120, 260];
+    const [min, most] = WIDTHS[sort] ?? [120, 260];
+    const max = c.isName ? Math.max(min, Math.min(most, innerWidth / 4)) : most;
     const head = 28 + 7.2 * (c.label.length + (c.computedBy || c.computed ? 3 : 0) + (c.required ? 2 : 0) + 2);
     // A choice leaves room for its chevron; a list of relatives, for its first chip and a count of the rest.
     let body = 0;
     if (c.type !== 'tag') for (const id of P.objects) {
       const cell = P.cell(id, c);
       body = Math.max(body, c.rel ? (cell.items.length ? 44 + 6.8 * cell.items[0].text.length + (cell.items.length > 1 ? 30 : 0) : 0)
-        : 28 + 7.2 * cell.text.length + (c.type === 'choice' ? 22 : 0));
+        : 32 + 7.5 * cell.text.length + (c.type === 'choice' ? 22 : 0));
     }
     return Math.round(Math.min(max, Math.max(min, head, body)));
   }
@@ -414,27 +417,39 @@
       </button></th>`;
   }
 
+  // A relative's chip, drawn by Parts once for each state, as the same relative recurs down a column.
+  const chipMemo = new WeakMap();
+  function chipHtml(i) {
+    if (!chipMemo.has(records)) chipMemo.set(records, new Map());
+    const memo = chipMemo.get(records), key = `${i.target}\u0000${i.detail}\u0000${i.computed}`;
+    if (!memo.has(key)) memo.set(key, Parts.chip(i.target, { detail: i.detail, computed: i.computed }));
+    return memo.get(key);
+  }
+
   // Relatives as chips: as many as fit the cell once it's drawn (see fitChips), then how many more.
   function chipsHtml(cell) {
     if (!cell.items.length) return '';
-    const chip = i => Parts.chip(i.target, { detail: i.detail, computed: i.computed });
-    return `<span class="rec-chips">${cell.items.map(i => i.sides ? `<span class="rec-sides">${chip(i)}</span>` : chip(i)).join('')}<span class="rec-more" hidden></span></span>`;
+    return `<span class="rec-chips">${cell.items.map(i => i.sides ? `<span class="rec-sides">${chipHtml(i)}</span>` : chipHtml(i)).join('')}<span class="rec-more" hidden></span></span>`;
   }
 
-  // Hides the chips that don't fit, from the end, behind a count. One left that still doesn't fit may shrink.
+  // Hides the chips that don't fit, from the end, behind a count; one left that still doesn't fit may
+  // shrink. Everything is measured before anything changes, so the table is laid out once for it all.
   function fitChips() {
-    for (const box of document.querySelectorAll('.rec-chips')) {
-      if (box.scrollWidth <= box.clientWidth) continue;
+    const GAP = 4, MORE = 30;
+    const boxes = [...document.querySelectorAll('.rec-chips')].map(box => {
       const chips = [...box.querySelectorAll('.chip')];
+      return { box, chips, room: box.clientWidth, widths: chips.map(c => c.offsetWidth) };
+    });
+    return () => boxes.forEach(({ box, chips, room, widths }) => {
+      let used = widths.reduce((a, w) => a + w + GAP, -GAP);
+      if (used <= room) return;
+      let keep = chips.length;
+      while (keep > 1 && used + GAP + MORE > room) used -= widths[--keep] + GAP;
+      chips.slice(keep).forEach(c => { c.style.display = 'none'; });
       const more = box.querySelector('.rec-more');
-      more.hidden = false;
-      for (let i = chips.length - 1, n = 1; i > 0 && box.scrollWidth > box.clientWidth; i--, n++) {
-        chips[i].style.display = 'none';
-        more.textContent = `+${n}`;
-      }
-      if (chips.length === 1) more.hidden = true;
-      box.classList.toggle('is-squeezed', box.scrollWidth > box.clientWidth);
-    }
+      if (keep < chips.length) { more.hidden = false; more.textContent = `+${chips.length - keep}`; }
+      if (used + (keep < chips.length ? GAP + MORE : 0) > room) box.classList.add('is-squeezed');
+    });
   }
 
   // The corner mark, as in Excel, on an entered value a formula also covers: amber where the formula would
@@ -519,33 +534,61 @@
       </table></div>`;
   }
 
-  // A filter as its chip reads: Jurisdiction is Delaware, Vehicle Type is not Blocker or Feeder Fund.
+  const OPS = { is: 'is', not: 'is not', empty: 'is empty', filled: 'is not empty' };
+
+  // A filter as its chip reads, as text and as markup: Jurisdiction is Delaware, Vehicle Type is not
+  // Blocker or Feeder Fund.
   function filterSummary(f, c, P) {
-    if (f.op === 'empty') return `${esc(c.label)} is empty`;
-    if (f.op === 'filled') return `${esc(c.label)} is not empty`;
+    if (!isActive(f)) return { text: c.label, html: esc(c.label) };
+    if (f.op === 'empty' || f.op === 'filled') return { text: `${c.label} ${OPS[f.op]}`, html: esc(`${c.label} ${OPS[f.op]}`) };
     const texts = new Map(filterValues(P, c).map(v => [v.key, v.text]));
     const vals = f.values.map(k => texts.get(k) ?? (c.rel ? 'a record no longer here' : k));
-    const shown = vals.length < 3 ? vals.map(esc).join(' or ') : `${vals.length} values`;
-    return `${esc(c.label)} ${f.op === 'not' ? 'is not' : 'is'} <b>${shown}</b>`;
+    const shown = vals.length < 3 ? vals.join(' or ') : `${vals.length} values`;
+    return { text: `${c.label} ${OPS[f.op]} ${vals.join(' or ')}`, html: `${esc(c.label)} ${OPS[f.op]} <b>${esc(shown)}</b>` };
   }
 
+  // The filters set, then, like Stripe's, a few choices offered as filters of their own, unset
+  // (+ Jurisdiction): those that tell the most rows apart, as many as fit on the line (see fitFilters).
   function filtersHtml(cols, shownCols, P) {
     const set = ui.filters.map((f, i) => {
       const c = filterOf(f);
       if (!c || !isActive(f) && ui.pop?.index !== i) return '';
       const open = ui.pop?.type === 'filter' && ui.pop.index === i;
-      return `<span class="filter-chip is-set rec-fchip" data-filter="${i}"><button class="rec-fchip-main" data-cmd="records.filter-open" data-index="${i}" aria-haspopup="dialog" aria-expanded="${open}">${isActive(f) ? filterSummary(f, c, P) : esc(c.label)}</button>
+      const s = filterSummary(f, c, P);
+      return `<span class="filter-chip is-set rec-fchip" data-filter="${i}"><button class="rec-fchip-main" data-cmd="records.filter-open" data-index="${i}" aria-haspopup="dialog" aria-expanded="${open}" title="${esc(s.text)}">${s.html}</button>
         <button class="rec-fchip-x" data-cmd="records.filter-remove" data-index="${i}" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>`;
     }).join('');
     const needs = ui.needs ? `<span class="filter-chip is-set rec-fchip is-warn"><button class="rec-fchip-main" data-cmd="records.needs">Missing a required entry</button>
       <button class="rec-fchip-x" data-cmd="records.needs" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>` : '';
-    // Like Stripe's, the first few choices shown are offered as filters of their own, unset: + Jurisdiction.
-    const quick = shownCols.filter(c => c.type === 'choice' && !c.parent && c.options.length > 1 && !ui.filters.some(f => f.col === c.key)).slice(0, 3);
+    const quick = shownCols.filter(c => c.type === 'choice' && !c.parent && c.options.length > 1 && !ui.filters.some(f => f.col === c.key))
+      .map(c => [c, P.objects.filter(id => P.cell(id, c).r).length]).filter(([, n]) => n > 1)
+      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
     const more = cols.some(c => !c.isName && !quick.includes(c));
     return `<div class="filters rec-filters">${set}${needs}
-      ${quick.map(c => `<button class="filter-chip" data-cmd="records.filter-add" data-col="${esc(c.key)}">${icon('plus')}${esc(c.label)}</button>`).join('')}
+      ${quick.map(c => `<button class="filter-chip rec-quick" data-cmd="records.filter-add" data-col="${esc(c.key)}">${icon('plus')}${esc(c.label)}</button>`).join('')}
       ${more ? `<button class="filter-chip" data-cmd="records.filter-pick" aria-haspopup="menu">${icon('plus')}${quick.length ? 'More filters' : 'Filter'}</button>` : ''}
-      ${anyFilter() ? '<button class="link-btn rec-clear" data-cmd="records.clear-filters">Clear filters</button>' : ''}</div>`;
+      ${conditions() > 1 ? '<button class="link-btn rec-clear" data-cmd="records.clear-filters">Clear filters</button>' : ''}</div>`;
+  }
+  // How many conditions narrow the rows: each filter set, the search, and Missing a required entry. One
+  // is cleared by its own ×; Clear filters appears once there are more.
+  const conditions = () => ui.filters.filter(f => filterOf(f) && isActive(f)).length + (clean(ui.search) ? 1 : 0) + (ui.needs ? 1 : 0);
+
+  // Keeps the filters to one line: the unset ones offered go, from the end, until the rest fit. Measured
+  // first and changed after, like fitChips, which it runs with.
+  function fitFilters() {
+    const bar = document.querySelector('.rec-filters');
+    if (!bar) return () => {};
+    const GAP = 6;
+    const items = [...bar.children].map(el => ({ el, quick: el.classList.contains('rec-quick'), width: el.offsetWidth + GAP }));
+    const room = bar.clientWidth + GAP;
+    return () => {
+      let used = items.reduce((a, i) => a + i.width, 0);
+      for (const i of items.filter(x => x.quick).reverse()) {
+        if (used <= room) break;
+        i.el.style.display = 'none';
+        used -= i.width;
+      }
+    };
   }
 
   // ---- Popovers ----
@@ -568,7 +611,6 @@
   function filterPop(P) {
     const f = ui.filters[ui.pop.index];
     const c = filterOf(f);
-    const ops = [['is', 'is'], ['not', 'is not'], ['empty', 'is empty'], ['filled', 'is not empty']];
     const values = filterValues(P, c);
     const q = norm(ui.pop.query ?? '');
     const list = values.filter(v => !q || norm(v.text).includes(q));
@@ -579,8 +621,7 @@
         <span class="rec-tick">${on ? icon('check') : ''}</span><span class="rec-pop-text">${esc(v.text)}</span><span class="rec-pop-count">${v.n}</span></button>`;
     };
     return `<div class="pop rec-pop rec-filter-pop" role="dialog" aria-label="Filter by ${esc(c.label)}" tabindex="-1">
-      <div class="rec-pop-title">${esc(c.label)}</div>
-      <div class="seg rec-ops" role="group" aria-label="Condition">${ops.map(([op, text]) => `<button data-cmd="records.filter-op" data-op="${op}" aria-pressed="${f.op === op}">${text}</button>`).join('')}</div>
+      <div class="rec-pop-title"><span class="rec-pop-label">${esc(c.label)}</span><button class="rec-op" data-cmd="records.filter-ops" aria-haspopup="menu" aria-label="Condition: ${OPS[f.op]}">${OPS[f.op]}${icon('chevron-down')}</button></div>
       ${picking ? `${values.length > 8 ? `<input class="input rec-pop-search" data-focus="pop" value="${esc(ui.pop.query ?? '')}" placeholder="Find a value" aria-label="Find a value" autocomplete="off" spellcheck="false">` : ''}
         <div class="rec-values">${list.map(value).join('') || `<div class="rec-pop-note">${values.length ? 'Nothing matches.' : 'No values yet.'}</div>`}</div>` : ''}
       <div class="rec-pop-foot"><button class="link-btn" data-cmd="records.filter-remove" data-index="${ui.pop.index}">Remove filter</button></div></div>`;
@@ -644,6 +685,9 @@
   function pageHtml() {
     renderQueued = false;
     ensureKind();
+    // The table about to be replaced says where it was scrolled to.
+    const wrap = document.querySelector('.rec-wrap');
+    if (wrap) ui.scroll = { left: wrap.scrollLeft, top: ui.toEnd ? 1e9 : wrap.scrollTop };
     const P = readPass();
     const cols = columns();
     const shownCols = cols.filter(c => isShown(c, P));
@@ -657,9 +701,9 @@
     const sub = [anyFilter() ? `${rows.length} of ${count(n, word())}` : count(n, word())];
     if (lackingRows) sub.push(`<button class="link-btn rec-needs" data-cmd="records.needs" aria-pressed="${ui.needs}">${lackingRows} missing a required entry</button>`);
     const body = !n && !ui.draft
-      ? Parts.empty({ title: `No ${kindPlural().toLowerCase()} yet`, desc: `${kindPlural()} you add here appear on the chart too, ready to relate.`, action: { label: `New ${word()}`, cmd: 'records.new' } })
+      ? Parts.empty({ title: `No ${kindPlural().toLowerCase()} yet`, desc: 'They’ll be listed here once added, here or on the chart.', action: { label: `New ${word()}`, cmd: 'records.new' } })
       : !rows.length && !ui.draft
-      ? Parts.empty({ title: `No ${kindPlural().toLowerCase()} match`, desc: 'Nothing shown passes the filters and the search.', action: { label: 'Clear filters', cmd: 'records.clear-filters' } })
+      ? Parts.empty({ title: `No ${kindPlural().toLowerCase()} match`, desc: 'None passes the filters and the search.', action: { label: 'Clear filters', cmd: 'records.clear-filters' } })
       : tableHtml(rows, shownCols, P);
     const bar = ui.checked.size ? `<div class="rec-actionbar" role="toolbar" aria-label="Ticked rows">
         <span class="rec-actionbar-count">${count(ui.checked.size, word())} selected</span>
@@ -678,15 +722,28 @@
 
   const cellEl = at => at && document.querySelector(`.rec-table tr[data-row="${CSS.escape(at.row)}"] td[data-col="${CSS.escape(at.col)}"]`);
 
+  // Draws the page's own content again, for a change to what it shows rather than to the records, which
+  // leaves the sidebar and the top bar as they are. A change to the records renders the whole page.
+  function draw() {
+    const main = document.getElementById('main');
+    // A click that saved an edit on its way in leaves the whole page to render.
+    if (!main || renderQueued) return render();
+    main.innerHTML = pageHtml();
+    after();
+  }
+
   function after() {
+    // Everything is measured before anything is changed, so the table is laid out as few times as can be.
+    const fits = [fitChips(), fitFilters()];
+    fits.forEach(fit => fit());
     const wrap = document.querySelector('.rec-wrap');
     if (wrap) {
       wrap.scrollLeft = ui.scroll.left;
-      wrap.scrollTop = ui.scroll.top;
+      wrap.scrollTop = ui.toEnd ? wrap.scrollHeight : ui.scroll.top;
+      ui.toEnd = false;
       wrap.classList.toggle('is-scrolled', wrap.scrollLeft > 0);
       const all = wrap.querySelector('[data-check="*"]');
       if (all) all.indeterminate = !all.checked && ui.rows.some(id => ui.checked.has(id));
-      fitChips();
     }
     placePop();
     // The keyboard goes back where it was: the box being typed in, the popover, the search, or the active cell.
@@ -712,7 +769,7 @@
   // Moves the highlight to the active cell without drawing the table again, where it's already drawn.
   function showActive() {
     const td = cellEl(ui.active);
-    if (!td) return render();
+    if (!td) return draw();
     for (const x of document.querySelectorAll('.rec-table .is-active')) { x.classList.remove('is-active'); x.tabIndex = -1; }
     td.classList.add('is-active');
     td.tabIndex = 0;
@@ -749,7 +806,7 @@
     if (!editable(cell, c)) return;
     const shown = cell.r ? (cell.r.field === 'document' ? String(cell.r.value) : displayValue(cell.r)) : '';
     Object.assign(ui, { active: { row, col: c.key }, edit: { row, col: c.key, text: text ?? shown, error: null }, focus: 'edit', caret: null, pop: null });
-    render();
+    draw();
   }
 
   // Saves what's typed in the cell being edited, read in its datatype. Emptying a cell clears its entry.
@@ -763,7 +820,8 @@
     let error = null;
     if (!clean(e.text)) error = !cell.r ? null : c.isName ? `Every ${word()} needs a Name.` : clearCell(e.row, c, cell);
     else error = cell.r ? saveFieldValue(cell.id, e.text, c.label) : addFieldValue(cell.at, c.label, e.text, c.datatype);
-    if (error) { e.error = error; return error; }
+    // A date can be typed many ways; the panel says so with an example, and so does the table.
+    if (error) { e.error = error.replace(/a date here\.$/, 'a date here, like March 4, 2019.'); return error; }
     ui.edit = null;
     return null;
   }
@@ -784,7 +842,7 @@
     const cell = readPass().cell(row, c);
     if (!editable(cell, c)) return;
     Object.assign(ui, { active: { row, col: c.key }, edit: null, pop: { type: 'choice', row, col: c.key, query, active: 0, fresh: true }, focus: 'pop', caret: null });
-    render();
+    draw();
   }
 
   // Sets a choice's option, matching one the schema has whatever its case, or adds a new one. What's located
@@ -852,8 +910,8 @@
 
   function startDraft() {
     Object.assign(ui, { draft: ui.draft ?? { text: '', error: null }, edit: null, pop: null, focus: 'draft', caret: null });
-    ui.scroll.top = 1e9;
-    render();
+    ui.toEnd = true;
+    draw();
   }
 
   // Adds the object being named, returning its id, or why it couldn't be added; nothing typed adds nothing.
@@ -1063,13 +1121,13 @@
 
   function setShown(key, on) {
     setPrefs({ cols: { ...ui.prefs.cols, [key]: on } });
-    render();
+    draw();
   }
 
   function setSort(key, dir) {
     setPrefs({ sort: key ? { key, dir } : null });
     ui.added = [];
-    render();
+    draw();
   }
 
   // How a column sorts, in its own words.
@@ -1112,7 +1170,7 @@
     ui.pop = { type: 'filter', index: i < 0 ? ui.filters.length - 1 : i, query: '', fresh: true };
     ui.focus = 'pop';
     saveSession();
-    render();
+    draw();
   }
 
   // Closing a filter's popover with nothing picked drops the filter, which wouldn't filter anything.
@@ -1130,7 +1188,7 @@
   function clearFilters() {
     Object.assign(ui, { filters: [], search: '', needs: false, pop: null });
     saveSession();
-    render();
+    draw();
   }
 
   function filterPicker(el) {
@@ -1146,10 +1204,10 @@
   Object.entries({
     'records.new': startDraft,
     'records.export': exportCsv,
-    'records.view': () => { if (ui.pop?.type === 'view') closePop(); else { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; } render(); },
+    'records.view': () => { if (ui.pop?.type === 'view') closePop(); else { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; } draw(); },
     'records.column': el => setShown(el.dataset.col, !isShown(colByKey(el.dataset.col), readPass())),
-    'records.columns-all': () => { setPrefs({ cols: Object.fromEntries(columns().map(c => [c.key, true])) }); render(); },
-    'records.columns-reset': () => { setPrefs({ cols: {} }); render(); },
+    'records.columns-all': () => { setPrefs({ cols: Object.fromEntries(columns().map(c => [c.key, true])) }); draw(); },
+    'records.columns-reset': () => { setPrefs({ cols: {} }); draw(); },
     'records.head': el => { if (!dragged) headMenu(el); },
     'records.filter-add': el => addFilter(el.dataset.col),
     'records.filter-pick': el => filterPicker(el),
@@ -1157,23 +1215,26 @@
       const i = Number(el.dataset.index);
       if (ui.pop?.type === 'filter' && ui.pop.index === i) closePop();
       else { ui.pop = { type: 'filter', index: i, query: '', fresh: true }; ui.focus = 'pop'; }
-      render();
+      draw();
     },
     'records.filter-remove': el => {
       ui.filters.splice(Number(el.dataset.index), 1);
       if (ui.pop?.type === 'filter') ui.pop = null;
       saveSession();
-      render();
+      draw();
     },
-    'records.filter-op': el => { ui.filters[ui.pop.index].op = el.dataset.op; saveSession(); render(); },
+    'records.filter-ops': el => {
+      const f = ui.filters[ui.pop.index];
+      Shell.menu(el, Object.entries(OPS).map(([op, label]) => ({ label, checked: f.op === op, run: () => { f.op = op; saveSession(); draw(); } })), 'records-filter-ops');
+    },
     'records.filter-value': el => {
       const f = ui.filters[ui.pop.index];
       f.values = f.values.includes(el.dataset.value) ? f.values.filter(v => v !== el.dataset.value) : [...f.values, el.dataset.value];
       saveSession();
-      render();
+      draw();
     },
     'records.clear-filters': clearFilters,
-    'records.needs': () => { ui.needs = !ui.needs; saveSession(); render(); },
+    'records.needs': () => { ui.needs = !ui.needs; saveSession(); draw(); },
     'records.choose': el => chooseOption(Number(el.dataset.index)),
     'records.choose-clear': () => {
       const p = ui.pop;
@@ -1197,7 +1258,7 @@
     },
     'records.copy-rows': () => { copyRows = true; document.execCommand('copy'); copyRows = false; },
     'records.delete-rows': () => deleteRows(ui.rows.filter(id => ui.checked.has(id)).concat([...ui.checked].filter(id => !ui.rows.includes(id)))),
-    'records.uncheck': () => { ui.checked.clear(); ui.anchor = null; render(); },
+    'records.uncheck': () => { ui.checked.clear(); ui.anchor = null; draw(); },
   }).forEach(([name, fn]) => Shell.on(name, fn));
 
   const inPage = () => !!document.querySelector('.rec-page');
@@ -1211,29 +1272,31 @@
     if (!inPage() || layerOpen()) return;
     const t = e.target;
     if (ui.edit && !t.closest?.('.rec-cell.is-editing')) {
-      if (commitEdit()) { e.preventDefault(); render(); return; }
+      if (commitEdit()) { e.preventDefault(); draw(); return; }
       renderQueued = true;
     }
     if (ui.draft && !t.closest?.('.rec-draft')) {
       const done = commitDraft();
-      if (done?.error) { e.preventDefault(); render(); return; }
+      if (done?.error) { e.preventDefault(); draw(); return; }
       renderQueued = true;
     }
     if (!typingIn(t) && !t.closest?.('.rec-pop, .rec-table td')) ui.focus = ui.pop ? 'pop' : null;
   }, true);
   document.addEventListener('mouseup', () => { if (renderQueued) setTimeout(() => { if (renderQueued) render(); }); });
 
-  let popAtClick = null;
-  document.addEventListener('click', () => { popAtClick = ui.pop; }, true);
+  // Where a click starts is noted before anything handles it, as handling it may draw the page again.
+  let popAtClick = null, clickInPop = false;
+  document.addEventListener('click', e => { popAtClick = ui.pop; clickInPop = !!e.target.closest?.('.rec-pop, #layer'); }, true);
   document.addEventListener('click', e => {
     if (!inPage()) return;
     const t = e.target;
     // Opening a record remembers it, for the palette's Recent list.
     const link = t.closest?.('a[href^="record.html#"]');
     if (link) { try { Shell.visited(decodeURIComponent(link.getAttribute('href').slice('record.html#'.length))); } catch {} }
-    // A click outside an open popover closes it, unless the click is what opened it.
-    if (ui.pop && ui.pop === popAtClick && !t.closest?.('.rec-pop')) { closePop(); render(); }
-    if (link || t.closest?.('[data-cmd], .rec-pop')) return;
+    // A click outside an open popover closes it, unless the click is what opened it, or is in a menu the
+    // popover opened.
+    if (ui.pop && ui.pop === popAtClick && !clickInPop) { closePop(); draw(); }
+    if (link || t.closest?.('[data-cmd], .rec-pop, .is-editing')) return;
     const check = t.closest?.('.row-check');
     if (check) return tick(check, e);
     const td = t.closest?.('.rec-table td[data-col]');
@@ -1245,9 +1308,7 @@
     // its text is the link to the record.
     if (c.type === 'tag' && !c.rel && t.closest('.check')) return toggleTag(row, c);
     if (!c.isName && c.type !== 'tag' && editable(readPass().cell(row, c), c)) return act(row, c);
-    setActive(row, c.key, { show: false });
-    ui.reveal = false;
-    render();
+    setActive(row, c.key);
   });
 
   // Double-clicking a Name, away from its link, edits it.
@@ -1265,7 +1326,7 @@
       const all = ui.rows.length && ui.rows.every(r => ui.checked.has(r));
       for (const r of ui.rows) all ? ui.checked.delete(r) : ui.checked.add(r);
       ui.anchor = null;
-      return render();
+      return draw();
     }
     const on = input.checked;
     if (e.shiftKey && ui.anchor && ui.rows.includes(ui.anchor)) {
@@ -1274,7 +1335,7 @@
     } else if (on) ui.checked.add(id);
     else ui.checked.delete(id);
     ui.anchor = id;
-    render();
+    draw();
   }
 
   document.addEventListener('input', e => {
@@ -1283,8 +1344,8 @@
     ui.caret = [t.selectionStart, t.selectionEnd];
     if (t.dataset.focus === 'edit' && ui.edit) { ui.edit.text = t.value; ui.edit.error = null; t.parentElement.querySelector('.rec-error')?.remove(); }
     else if (t.dataset.focus === 'draft' && ui.draft) { ui.draft.text = t.value; ui.draft.error = null; }
-    else if (t.dataset.focus === 'search') { ui.search = t.value; ui.focus = 'search'; saveSession(); render(); }
-    else if (t.dataset.focus === 'pop' && ui.pop) { ui.pop.query = t.value; ui.pop.active = 0; render(); }
+    else if (t.dataset.focus === 'search') { ui.search = t.value; ui.focus = 'search'; saveSession(); draw(); }
+    else if (t.dataset.focus === 'pop' && ui.pop) { ui.pop.query = t.value; ui.pop.active = 0; draw(); }
   });
   document.addEventListener('focusin', e => {
     if (!inPage()) return;
@@ -1300,7 +1361,13 @@
     e.target.classList.toggle('is-scrolled', e.target.scrollLeft > 0);
     if (ui.pop?.type === 'choice') placePop();
   }, true);
-  addEventListener('resize', () => { if (ui.pop) placePop(); });
+  // A resized window draws the table again once it settles, as Name's width and what fits follow it.
+  let resizing = 0;
+  addEventListener('resize', () => {
+    if (ui.pop) placePop();
+    clearTimeout(resizing);
+    resizing = setTimeout(() => { if (inPage() && !ui.edit && !ui.draft) draw(); }, 150);
+  });
 
   // ---- Keys ----
   // The shell's own keys come first (Ctrl+K, G then a letter, ?, /, undo and redo), so typing over a cell
@@ -1308,17 +1375,17 @@
 
   function editorKeys(e) {
     const step = { Enter: [e.shiftKey ? -1 : 1, 0], Tab: [0, e.shiftKey ? -1 : 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.key];
-    if (e.key === 'Escape') { e.preventDefault(); ui.edit = null; ui.focus = 'grid'; return render(); }
+    if (e.key === 'Escape') { e.preventDefault(); ui.edit = null; ui.focus = 'grid'; return draw(); }
     if (!step || e.altKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
-    if (commitEdit()) return render();
+    if (commitEdit()) return draw();
     move(...step, e.key === 'Tab');
     ui.focus = 'grid';
     render();
   }
 
   function draftKeys(e) {
-    if (e.key === 'Escape') { e.preventDefault(); ui.draft = null; ui.focus = ui.active ? 'grid' : null; return render(); }
+    if (e.key === 'Escape') { e.preventDefault(); ui.draft = null; ui.focus = ui.active ? 'grid' : null; return draw(); }
     if (e.key !== 'Enter' && e.key !== 'Tab') return;
     e.preventDefault();
     const done = commitDraft(e.key === 'Enter');
@@ -1329,13 +1396,13 @@
       if (next.type === 'field') { render(); return startEdit(done.id, next); }
       ui.focus = 'grid';
     } else if (!done?.error) ui.focus = ui.draft ? 'draft' : 'grid';
-    ui.scroll.top = 1e9;
+    ui.toEnd = true;
     render();
   }
 
   function popKeys(e) {
     const p = ui.pop;
-    if (e.key === 'Escape') { e.preventDefault(); closePop(); return render(); }
+    if (e.key === 'Escape') { e.preventDefault(); closePop(); return draw(); }
     if (p.type !== 'choice') return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -1346,7 +1413,7 @@
       document.querySelector('.rec-choice-pop .option[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
     }
     if (e.key === 'Enter') { e.preventDefault(); chooseOption(p.active); }
-    if (e.key === 'Tab') { e.preventDefault(); closePop(); move(0, e.shiftKey ? -1 : 1, true); render(); }
+    if (e.key === 'Tab') { e.preventDefault(); closePop(); move(0, e.shiftKey ? -1 : 1, true); draw(); }
   }
 
   function gridKeys(e) {
@@ -1388,12 +1455,12 @@
     if (t.dataset?.focus === 'draft') return draftKeys(e);
     if (ui.pop && (t.closest?.('.rec-pop') || e.key === 'Escape')) return popKeys(e);
     if (t.dataset?.focus === 'search') {
-      if (e.key === 'Escape') { e.preventDefault(); if (ui.search) { ui.search = ''; saveSession(); } else { ui.focus = null; t.blur(); } return render(); }
+      if (e.key === 'Escape') { e.preventDefault(); if (ui.search) { ui.search = ''; saveSession(); } else { ui.focus = null; t.blur(); } return draw(); }
       if (e.key === 'ArrowDown' && ui.rows.length) { e.preventDefault(); setActive(ui.rows[0], ui.active?.col ?? ui.cols[0]); }
       return;
     }
     if (typingIn(t)) return;
-    if (e.key === 'Escape' && ui.checked.size) { e.preventDefault(); ui.checked.clear(); return render(); }
+    if (e.key === 'Escape' && ui.checked.size) { e.preventDefault(); ui.checked.clear(); return draw(); }
     if (!ui.active) {
       // Arrows with nothing selected start at the first cell.
       if (/^Arrow/.test(e.key) && ui.rows.length && !e.altKey) { e.preventDefault(); setActive(ui.rows[0], ui.cols[0]); }
@@ -1468,7 +1535,7 @@
     const from = colByKey(d.key), to = d.target && colByKey(d.target);
     const id = from && standIn(from.label), target = to && standIn(to.label);
     if (id && target) moveEntry(id, target, d.after);
-    render();
+    draw();
   });
 
   // ---- Starting ----
@@ -1487,7 +1554,7 @@
     commands: () => [
       { title: `New ${word()}`, keywords: 'add create row record', run: startDraft },
       { title: `Export ${kindPlural().toLowerCase()} as CSV`, keywords: 'download excel spreadsheet', run: exportCsv },
-      { title: 'Show or hide columns', keywords: 'view columns fields', run: () => { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; render(); } },
+      { title: 'Show or hide columns', keywords: 'view columns fields', run: () => { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; draw(); } },
       ...(anyFilter() ? [{ title: 'Clear filters', keywords: 'search reset', run: clearFilters }] : []),
     ],
   });

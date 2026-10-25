@@ -10,18 +10,21 @@
 .rec-needs:hover:not(:disabled) { color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
 .rec-needs[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
 
-.rec-bar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+/* One line: the search, the filters (wrapping only when several are set), and the View menu at the end. */
+.rec-bar { display: flex; flex: none; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.rec-search { flex: none; }
 .rec-search .input { width: 224px; }
-.rec-search .input::-webkit-search-cancel-button { display: none; }
-.rec-filters { flex: 1; min-width: 0; }
-.rec-clear { margin-left: 4px; font-size: 12.5px; }
-.rec-bar-end { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
+.rec-filters { flex: 1 1 0; min-width: 0; min-height: 30px; }
+.rec-filters .filter-chip { flex: none; margin-top: 1px; }
+.rec-clear { height: 30px; margin-left: 4px; font-size: 12.5px; }
+.rec-bar-end { display: flex; flex: none; align-items: center; gap: 8px; }
+.rec-bar-end .btn { height: 30px; }
 .rec-bar-end .btn .icon { width: 14px; height: 14px; margin-right: -3px; color: var(--text-3); }
 
 /* A set filter: what it says, and a way to remove it. */
-.rec-fchip { gap: 0; padding: 0 3px 0 0; }
+.rec-fchip { flex: 0 1 auto !important; gap: 0; min-width: 0; max-width: 100%; padding: 0 3px 0 0; }
 .rec-fchip button { height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
-.rec-fchip-main { padding: 0 6px 0 11px !important; border-radius: 14px 0 0 14px; }
+.rec-fchip-main { min-width: 0; max-width: 300px; padding: 0 6px 0 11px !important; overflow: hidden; border-radius: 14px 0 0 14px; text-overflow: ellipsis; white-space: nowrap; }
 .rec-fchip-main b { font-weight: 600; }
 .rec-fchip-x { display: grid; place-items: center; width: 22px; height: 22px !important; border-radius: 11px; opacity: .7; }
 .rec-fchip-x:hover { background: color-mix(in srgb, currentColor 14%, transparent) !important; opacity: 1; }
@@ -91,7 +94,7 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 /* Relatives as chips, as many as fit, then how many more. A chip's name comes before its detail. */
 .rec-chips { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
-.rec-chips .chip { flex: none; max-width: 280px; }
+.rec-chips .chip { flex: none; max-width: 100%; }
 .rec-chips.is-squeezed .chip { flex: 0 1 auto; min-width: 0; }
 .rec-chips .chip-detail { flex: none; }
 /* A relation of more than two names its other sides after the first, which give way before the name does. */
@@ -105,7 +108,7 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .rec-input { display: block; width: 100%; height: 37px; padding: 0 10px; border: 0; border-radius: 0; background: var(--surface); box-shadow: inset 0 0 0 2px var(--focus); color: var(--text); font: inherit; outline: none; }
 .num .rec-input { text-align: right; }
 .rec-input::placeholder { color: var(--text-3); }
-.rec-error { position: absolute; top: calc(100% + 2px); left: 0; z-index: 4; max-width: 360px; padding: 5px 9px; border-radius: var(--radius-sm); background: var(--danger-solid); color: #fff; font-size: 12px; line-height: 16px; white-space: normal; box-shadow: var(--shadow-pop); }
+.rec-error { position: absolute; top: calc(100% + 2px); left: 0; z-index: 4; width: max-content; max-width: 340px; padding: 5px 9px; border-radius: var(--radius-sm); background: var(--danger-solid); color: #fff; font-size: 12px; line-height: 16px; white-space: normal; box-shadow: var(--shadow-pop); }
 
 /* The last row: a new row being named, or the way to start one. */
 .rec-table .rec-draft td { background: var(--surface); }
@@ -138,9 +141,13 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .rec-pop-search { display: block; width: calc(100% - 4px); margin: 2px 2px 6px; }
 
 .rec-view-pop { width: 288px; max-height: min(560px, calc(100vh - 140px)); overflow-y: auto; }
-.rec-filter-pop { width: 300px; padding: 10px 8px 6px; }
-.rec-ops { display: flex; margin: 0 2px 8px; }
-.rec-ops button { flex: 1; }
+.rec-filter-pop { width: 300px; padding: 8px 6px 6px; }
+.rec-filter-pop .rec-pop-title { display: flex; align-items: center; gap: 6px; padding: 0 2px 6px 8px; }
+.rec-pop-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The condition reads on from the column's name, as a dropdown: Entity Type is ▾. */
+.rec-op { display: inline-flex; flex: none; align-items: center; gap: 3px; height: 26px; padding: 0 6px 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: none; color: var(--text-2); font-size: 12.5px; font-weight: 500; }
+.rec-op:hover, .rec-op[aria-expanded="true"] { border-color: var(--border-strong); color: var(--text); }
+.rec-op .icon { width: 13px; height: 13px; color: var(--text-3); }
 .rec-values { max-height: min(280px, 50vh); overflow-y: auto; }
 .rec-choice-pop { max-width: 340px; padding: 4px; }
 .rec-options { max-height: min(280px, 50vh); overflow-y: auto; }
@@ -154,6 +161,6 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 .rec-page > .empty-state { margin-top: 8px; padding: 56px 24px; }
 
-@media (max-width: 760px) {
-  .rec-search .input { width: 168px; }
+@media (max-width: 1280px) {
+  .rec-search .input { width: 184px; }
 }
