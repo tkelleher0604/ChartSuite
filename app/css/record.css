@@ -14,9 +14,6 @@
 .record-title-value .rel-value { font: inherit; }
 .record-head .page-sub { overflow-wrap: anywhere; }
 .record-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.record-badge { display: inline-flex; padding: 0; border: 0; border-radius: 10px; background: none; }
-.record-badge .badge { transition: box-shadow .1s; }
-.record-badge:hover .badge { box-shadow: inset 0 0 0 1px currentColor; }
 
 /* ---- Details beside the tabs, or the tabs alone where there's no room for both ---- */
 .record-cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 40px; align-items: start; }

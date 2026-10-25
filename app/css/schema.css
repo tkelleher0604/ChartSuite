@@ -4,9 +4,6 @@
 
 .schema-page { max-width: 1040px; }
 
-/* panel.css sets every h1; the top bar's title is the shell's. */
-.tb-title { display: block; line-height: 20px; letter-spacing: normal; }
-
 /* The head: the page's title, what it is, and its actions. The top bar has the path. */
 .schema-page .crumbs { display: none; }
 .schema-page .panel-head { padding: 0 0 18px; }

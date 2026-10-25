@@ -138,6 +138,10 @@ a.chip:hover, button.chip:hover { background: var(--border); }
 .badge.is-danger { background: var(--danger-soft); color: var(--danger); }
 .badge.is-computed { background: var(--computed-soft); color: var(--computed); }
 .badge.is-accent { background: var(--accent-soft); color: var(--accent-text); }
+/* A badge that goes somewhere or does something: ringed on hover. */
+.badge-link { display: inline-flex; padding: 0; border: 0; border-radius: 10px; background: none; }
+.badge-link .badge { transition: box-shadow .1s; }
+.badge-link:hover .badge { box-shadow: inset 0 0 0 1px currentColor; }
 
 /* ---- A file's type (Parts.file): the one icon that earns its place ---- */
 .doc-glyph { display: inline-grid; place-items: center; vertical-align: middle; color: var(--text-2); }

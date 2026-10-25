@@ -94,8 +94,14 @@ const Parts = (() => {
     return `<time class="faint tnum" datetime="${esc(stamp)}" title="${esc(t.toLocaleString())}">${esc(text)}</time>`;
   }
 
-  // A status: tone '' (neutral), 'success', 'warn', 'danger', 'computed' or 'accent'.
-  const badge = (text, tone = '') => `<span class="badge${tone ? ` is-${tone}` : ''}">${esc(text)}</span>`;
+  // A status: tone '' (neutral), 'success', 'warn', 'danger', 'computed' or 'accent'. One that goes
+  // somewhere (`href`) or does something (`cmd`, a Shell handler) says so on hover (`title`), and is ringed.
+  function badge(text, tone = '', { href = '', cmd = '', title = '' } = {}) {
+    const html = `<span class="badge${tone ? ` is-${tone}` : ''}">${esc(text)}</span>`;
+    const hint = title ? ` title="${esc(title)}"` : '';
+    return href ? `<a class="badge-link" href="${esc(href)}"${hint}>${html}</a>`
+      : cmd ? `<button class="badge-link" data-cmd="${esc(cmd)}"${hint}>${html}</button>` : html;
+  }
 
   // ---- Documents ----
   // A file's type as its glyph (SharePoint.docIcon), the one icon that earns its place: a document's link

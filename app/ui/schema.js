@@ -27,14 +27,8 @@
     location.replace(to);
     return false;
   }
-  document.addEventListener('click', e => {
-    const a = e.target.closest?.('#panel a[href^="#"]');
-    const to = a && outward(a.getAttribute('href'));
-    if (!to) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (to.startsWith('#')) location.hash = to; else location.href = to;
-  }, true);
+  // The panel's links lead where outward says, as it draws them (panelOptions.href).
+  panelOptions.href = hash => outward(hash) ?? `#${hash}`;
 
   // ---- What the page says about a change ----
   // A change made here is confirmed in a toast, in the panel's words for it or else the history's, with

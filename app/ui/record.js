@@ -127,11 +127,12 @@ const RecordPage = (() => {
     if (isRelation(r)) return [isComputed(id) && Parts.badge('Computed', 'computed'), isTag(r) && !r.tag && Parts.badge('Ruled out', 'danger')].filter(Boolean).join('');
     const found = entriesOf(id).filter(k => isTag(records[k]) && records[k].tag && isComputed(k)).map(k => {
       const d = definitionOf(formulaInfo(k)?.def);
-      return `<a class="record-badge" href="${esc(Shell.recordHref(k))}" title="${esc(d ? `Worked out by ${d.name}. Click to see why.` : 'Worked out by formula')}">${Parts.badge(records[k].edge, 'computed')}</a>`;
+      return Parts.badge(records[k].edge, 'computed', { href: Shell.recordHref(k), title: d ? `Worked out by ${d.name}. Click to see why.` : 'Worked out by formula' });
     });
     const missing = missingUnder(id);
     const labels = [...new Set(missing.map(m => m.label))];
-    const blank = missing.length ? `<button class="record-badge" data-cmd="record.missing" title="Show ${labels.length > 1 ? 'them' : 'it'}">${Parts.badge(labels.length === 1 ? `${labels[0]} missing` : `${count(missing.length, 'required entry')} missing`, 'danger')}</button>` : '';
+    const blank = missing.length ? Parts.badge(labels.length === 1 ? `${labels[0]} missing` : `${count(missing.length, 'required entry')} missing`, 'danger',
+      { cmd: 'record.missing', title: `Show ${labels.length > 1 ? 'them' : 'it'}` }) : '';
     return found.join('') + blank;
   }
 

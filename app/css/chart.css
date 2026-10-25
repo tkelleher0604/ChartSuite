@@ -26,9 +26,6 @@ body:has(.chart-page) { --toasts-bottom: 52px; }
 :root.is-presenting body { --toasts-bottom: 16px; }
 .chart-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 
-/* panel.css styles every h1 as the panel's title; the top bar's title is the shell's. */
-.topbar .tb-title { display: block; line-height: 20px; letter-spacing: -.006em; }
-
 /* ---- The ribbon: tabs, then groups of controls, each named underneath. It keeps its height; when it's
    too narrow, the style gallery gives way first, then the ribbon scrolls sideways. ---- */
 .ribbon { position: relative; flex: none; background: var(--surface); border-bottom: 1px solid var(--border); }
