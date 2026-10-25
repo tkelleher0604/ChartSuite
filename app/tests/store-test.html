@@ -49,6 +49,8 @@ const nameHere = () => objectName(firstEntity());
 const nameIn = text => { const wb = JSON.parse(text); const s = wb.charts.find(c => c.id === workbook.chartId).state; return objectName(firstEntity(), s.records); };
 const failsWith = async (promise, pattern) => { try { await promise; return null; } catch (e) { return pattern.test(e.message) ? e : null; } };
 const remote = () => sp.loadWorkbook(Store.place().path);
+// The status with its non-breaking spaces as plain ones.
+const plain = text => text.replaceAll(String.fromCharCode(160), ' ');
 // Someone else saving the library's copy, as from their own computer, with a change of their own.
 async function colleagueSaves(name) {
   const now = await remote();
@@ -88,7 +90,7 @@ async function run() {
   await Store.signIn();
   check('Library: the demo sign-in is kept for the tab, as MSAL keeps a real one', sessionStorage.getItem('rboreal.sharepoint.demoSession') === '1');
   check('Library: saving it there', await Store.saveLibraryAs('Test workbook') === 'Test workbook' && Store.place().place === 'sharepoint' && Store.place().path === 'Rboreal/Test workbook.rboreal.json');
-  check('Library: the status says where, and when', Store.status().text.replace(/ /g, ' ') === 'Saved to Fund Legal › Rboreal · just now' && Store.status().tone === '', Store.status());
+  check('Library: the status says where, and when', plain(Store.status().text) === 'Saved to Fund Legal › Rboreal · just now' && Store.status().tone === '', Store.status());
   let there = await remote();
   check('Library: the library has the working copy, without the session', nameIn(there.json) === nameHere() && !('chartId' in JSON.parse(there.json))
     && JSON.parse(there.json).charts.every(c => !('viewId' in c.state)));
@@ -178,7 +180,7 @@ async function run() {
   window.showSaveFilePicker = async () => file;
   window.showOpenFilePicker = async () => [file];
   check('File: saving it to a file', await Store.saveFileAs() === 'Fund.rboreal.json' && Store.place().place === 'file' && nameIn(file.content) === nameHere());
-  check('File: the status names the file', Store.status().text.replace(/ /g, ' ') === 'Saved to Fund.rboreal.json · just now', Store.status());
+  check('File: the status names the file', plain(Store.status().text) === 'Saved to Fund.rboreal.json · just now', Store.status());
   rename('Saved to the file');
   await Store.sync();
   check('File: a change is saved to it', nameIn(file.content) === 'Saved to the file' && !Store.unsaved());

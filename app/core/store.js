@@ -20,7 +20,7 @@ const Store = (() => {
   const KEY = 'rboreal.store';
   // The demo has no MSAL to remember who signed in, so it's remembered here, for the tab, as MSAL would.
   const DEMO_SESSION = 'rboreal.sharepoint.demoSession';
-  const TOLD_SIGN_IN = 'rboreal.store.toldSignIn';
+  const TOLD = 'rboreal.store.told';
   const SAVE_AFTER = 1200;          // ms of quiet after a change before it's saved
   const SHOW_SAVING_AFTER = 600;    // a save shows as under way only if it takes longer than this
   const LOOK_AFTER = 10000;         // a page looks at the copy elsewhere if no page has for this long
@@ -156,7 +156,7 @@ const Store = (() => {
     if (!handle) throw new StoreError(`This browser no longer knows where ${rec.name} is. Open it again.`, 'open');
     const mode = { mode: 'readwrite' };
     if (await handle.queryPermission(mode) !== 'granted' && !(ask && await handle.requestPermission(mode) === 'granted'))
-      throw new StoreError(`Allow access to ${rec.name} to save it there`, 'allow');
+      throw new StoreError(`Allow access to ${rec.name} to save it there.`, 'allow');
     return handle;
   }
   const iso = ms => new Date(ms).toISOString();
@@ -272,21 +272,26 @@ const Store = (() => {
     if (e instanceof Conflict) {
       update({ conflict: e.theirs });
       problem = null;
-      const who = e.theirs.by ? `${e.theirs.by} saved ${whereOf(rec)} since` : `${whereOf(rec)} changed since`;
+      const who = e.theirs.by ? `${e.theirs.by} saved ${rec.name} after you last did` : `${rec.name} changed elsewhere`;
       if (typeof Shell !== 'undefined' && Shell.page?.area !== 'settings')
         Shell.toast(`Not saved: ${who}. Both copies are kept until you choose.`, { tone: 'error', action: { label: 'Review', run: () => { location.href = 'settings.html#workbook'; } } });
       return;
     }
     problem = describe(e);
-    if (problem.fix === 'sign-in' && typeof Shell !== 'undefined' && Shell.page?.area !== 'settings' && !sessionStorage.getItem(TOLD_SIGN_IN)) {
-      sessionStorage.setItem(TOLD_SIGN_IN, '1');
-      Shell.toast('Signed out of SharePoint. Changes are kept in this browser until you sign in.', { action: { label: 'Sign in', run: () => signIn().catch(() => {}) } });
+    // Away from Settings, what puts it right is offered once a tab, on a toast, since it needs a click.
+    const offer = {
+      'sign-in': ['Signed out of SharePoint. Changes are kept in this browser until you sign in.', 'Sign in', signIn],
+      allow: [`No access to ${rec.name}. Changes are kept in this browser until you allow it.`, 'Allow', allowFile],
+    }[problem.fix];
+    if (offer && typeof Shell !== 'undefined' && Shell.page?.area !== 'settings' && !sessionStorage.getItem(`${TOLD}.${problem.fix}`)) {
+      sessionStorage.setItem(`${TOLD}.${problem.fix}`, '1');
+      Shell.toast(offer[0], { action: { label: offer[1], run: () => offer[2]().catch(() => {}) } });
     }
   }
   function describe(e) {
     const where = whereOf(rec);
     if (e instanceof SharePoint.AuthError && e.interactive !== false) return { text: 'Signed out of SharePoint: changes are kept in this browser', tone: 'busy', fix: 'sign-in' };
-    if (e.fix === 'allow' || e.name === 'NotAllowedError') return { text: `Kept in this browser: allow access to ${rec.name} to save there`, tone: 'busy', fix: 'allow' };
+    if (e.fix === 'allow' || e.name === 'NotAllowedError') return { text: 'No access to the file: changes are kept in this browser', tone: 'busy', fix: 'allow' };
     if (e.fix === 'open') return { text: e.message, tone: 'error', fix: 'open' };
     if (e instanceof TypeError && /fetch|network|offline/i.test(e.message)) return { text: 'Offline: changes are kept in this browser', tone: 'busy' };
     if (e instanceof SharePoint.NotFoundError || e.name === 'NotFoundError') return { text: `Couldn’t find the workbook in ${where}`, tone: 'error', fix: 'open' };
@@ -309,8 +314,9 @@ const Store = (() => {
     if (problem) return problem;
     if (showSaving) return { text: `Saving to ${where}…`, tone: 'busy' };
     // Kept together where the sidebar wraps it: "Saved to Fund Legal ›" over "Rboreal · 2 min ago".
-    return { text: `Saved to ${where} · ${ago(rec.at).replace(/ /g, ' ')}`, tone: '' };
+    return { text: `Saved to ${where}${NBSP}·${NBSP}${ago(rec.at).replaceAll(' ', NBSP)}`, tone: '' };
   }
+  const NBSP = String.fromCharCode(160);   // a space that a line doesn't break at
   const listeners = [];
   function report() {
     const s = status();
