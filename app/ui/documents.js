@@ -450,10 +450,7 @@ function optionText(facet, key) {
   return row?.[facet]?.text ?? key;
 }
 
-const sortHead = (tab, key, label, cls) => {
-  const s = ui.sort[tab], on = s.key === key;
-  return `<th class="${cls}"${on ? ` aria-sort="${s.dir > 0 ? 'ascending' : 'descending'}"` : ''}><button class="th-sort${on ? ' is-on' : ''}" data-cmd="docs.sort" data-key="${key}">${label}<span class="th-arrow" aria-hidden="true">${on ? (s.dir > 0 ? '↑' : '↓') : ''}</span></button></th>`;
-};
+const sortHead = (tab, key, label, cls) => Parts.columnHead({ label, sort: ui.sort[tab].key === key ? ui.sort[tab].dir : 0, cmd: 'docs.sort', data: { key }, cls });
 const tableWrap = (head, body) => `<div class="docs-body"><div class="table-wrap docs-scroll" data-keep="list"><table class="table docs-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
 
 // The records a document concerns, as chips: in a table's cell the first, and how many more, since
@@ -1115,7 +1112,7 @@ function shownIds() {
 Shell.on('docs.tab', el => setTab(el.dataset.tab));
 Shell.on('docs.sort', el => {
   const s = ui.sort[ui.tab], key = el.dataset.key;
-  ui.sort[ui.tab] = s.key === key ? { key, dir: -s.dir } : { key, dir: key === 'date' || key === 'modified' ? -1 : 1 };
+  ui.sort[ui.tab] = { key, dir: s.key === key && s.dir > 0 ? -1 : 1 };
   render();
 });
 Shell.on('docs.facet', openFacet);

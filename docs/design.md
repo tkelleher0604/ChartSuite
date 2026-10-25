@@ -109,6 +109,7 @@ Use these so a record reads the same everywhere:
 - `Parts.dueText(iso)` and `Parts.daysUntil(iso)`: how far off a date is.
 - `Parts.when(stamp)`: a moment relative to now, with the exact time on hover.
 - `Parts.badge(text, tone)`, where tone is `''`, `'success'`, `'warn'`, `'danger'`, `'computed'`, `'accent'` or `'faint'` (superseded, set aside).
+- `Parts.columnHead({ label, sort, cmd, menu, data, cls, extra, title })`: a table's column heading, which sorts by its column when clicked (`cmd`), with a chevron for the column's menu (`menu`) if the table has one.
 - `Parts.filterChip({ label, value, text, cmd, clear, data, tone })`: a filter above a list. Unset, it reads "+ Label" and opens its menu (`cmd`). Set, it reads `Label: value` (or `text`, as markup, where a sentence says it better, like Jurisdiction is **Delaware**), opens its menu again, and × clears it (`clear`). Its menu is a `Shell.menu`; a filter that takes several values ticks them, and stays open.
 - `Parts.empty({ title, desc, action })`.
 - `Parts.avatar(name)`.
@@ -129,7 +130,7 @@ Add a part when two areas need the same thing. Never draw a record two ways.
   - `.search-input`.
 - **Buttons:** `.btn`, with `.btn-primary`, `.btn-sm`, `.btn-ghost` or `.btn-danger`; `.icon-btn`; `.link-btn`; and `kbd`.
 - **Text:** `.muted`, `.faint`, `.tnum`, `.ident`, `.computed-text`, `.link` and `.visually-hidden`.
-- **Also:** `.th-sort` (a sortable column header, with `aria-sort` on its `th`), `.props` (a `dl` of labels and values, for details in a pane), `.skeleton` and `.skeleton-lines` (static loading bars shaped like what's coming).
+- **Also:** `.th-sort` and `.th-menu` (a column heading, drawn by `Parts.columnHead`), `.props` (a `dl` of labels and values, for details in a pane), `.skeleton` and `.skeleton-lines` (static loading bars shaped like what's coming).
 
 An area's own styles go in `css/<area>.css`, and may use only the tokens. A style two areas need belongs in shell.css.
 
@@ -137,7 +138,8 @@ An area's own styles go in `css/<area>.css`, and may use only the tokens. A styl
 
 - **Every edit goes through the model.** Use `change()` or the model's functions that call it. Each edit is undoable and lands in the History. Nothing writes the state directly.
 - **Tags are checkboxes:** green and checked when attested, red and crossed out when ruled out (`box()` and `checkbox()` in common.js). **Choices are dropdowns.** Fields are edited in place.
-- **Editing in place:** Enter or a double-click edits, Enter saves, Esc cancels, and Tab moves to the next cell.
+- **Editing in place,** as in Excel: a click selects a cell; Enter, a double-click or typing over it edits it; Enter saves, Esc cancels, and Tab moves to the next cell. A control in a cell (a tag's checkbox, a choice's chevron, Name's link) does what it does at once.
+- **Tables:** a click on a column's heading sorts by it, ascending, then descending. Where the table has a menu for its columns, a chevron shows on hovering the heading, and a right-click opens the same menu.
 - **Keys:**
   - `Ctrl/⌘ K` opens the palette;
   - `G` then a letter goes to an area;

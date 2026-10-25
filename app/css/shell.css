@@ -161,9 +161,24 @@ button.filter-chip.is-set { padding: 0 10px; }
 /* ---- Small shared pieces ---- */
 /* A quieter status, for what's superseded or set aside. */
 .badge.is-faint { background: none; box-shadow: inset 0 0 0 1px var(--border); color: var(--text-3); }
-/* A column header that sorts: aria-sort on its th says which way. */
-.th-sort { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; font-weight: 500; }
+/* A column heading (Parts.columnHead): a click sorts, aria-sort on its th saying which way, and a chevron
+   that shows on hover opens the column's menu. */
+.th-in { display: flex; align-items: center; gap: 2px; min-width: 0; height: 100%; }
+.table th:has(> .th-in) { transition: background-color .1s; }
+.table th:has(> .th-in):hover { background: var(--hover); }
+.th-sort { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; max-width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 500; text-align: left; }
 .th-sort:hover, .th-sort.is-on { color: var(--text); }
+.th-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.th-arrow { flex: none; min-width: 8px; color: var(--text-3); font-size: 12px; }
+.th-sort.is-on .th-arrow { color: var(--text-2); }
+.th-menu { display: grid; flex: none; place-items: center; width: 20px; height: 20px; margin-left: auto; padding: 0; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text-3); opacity: 0; transition: opacity .1s; }
+.th-menu .icon { width: 14px; height: 14px; }
+.th-menu:hover, .th-menu[aria-expanded="true"] { background: var(--pressed); color: var(--text); }
+th:hover .th-menu, .th-menu:focus-visible, .th-menu[aria-expanded="true"] { opacity: 1; }
+.num .th-in { justify-content: flex-end; }
+.num .th-sort { margin-left: auto; }
+.num .th-menu { margin-left: 0; }
+@media (hover: none) { .th-menu { opacity: 1; } }
 /* Label and value pairs, for a record's details in a pane. */
 .props { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 9px 12px; margin: 0; font-size: 13px; line-height: 18px; }
 .props dt { color: var(--text-2); }

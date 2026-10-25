@@ -321,13 +321,13 @@ const Shell = (() => {
         ${mark}${text}${item.hint ? `<span class="menu-hint">${esc(item.hint)}</span>` : ''}</button>`;
     }).join('');
   }
-  // Under its anchor (a filter chip as a whole), or above it where there's no room below. An anchor drawn
-  // again since is found again, by the same attributes.
+  // Under its anchor (a filter chip, or a column's heading, as a whole), or above it where there's no room
+  // below. An anchor drawn again since is found again, by the same attributes.
   function placeMenu() {
     const el = document.querySelector('#layer .float-menu');
     const m = layer.menu;
     if (!m.anchorEl?.isConnected && m.anchorKey) m.anchorEl = document.querySelector(m.anchorKey) ?? m.anchorEl;
-    if (m.anchorEl?.isConnected) { m.anchor = (m.anchorEl.closest('.filter-chip') ?? m.anchorEl).getBoundingClientRect(); m.anchorEl.setAttribute('aria-expanded', 'true'); }
+    if (m.anchorEl?.isConnected) { m.anchor = (m.anchorEl.closest('.filter-chip, th') ?? m.anchorEl).getBoundingClientRect(); m.anchorEl.setAttribute('aria-expanded', 'true'); }
     const a = m.anchor;
     const w = el.offsetWidth, h = el.offsetHeight;
     const left = Math.max(8, Math.min(a.left, innerWidth - w - 8));
@@ -660,6 +660,13 @@ const Shell = (() => {
   });
   document.addEventListener('change', e => {
     if (e.target.matches('#layer .menu-select')) pickFromMenu(Number(e.target.dataset.index), e.target.value);
+  });
+  // A right-click on a table's column heading opens its menu, where it has one (Parts.columnHead).
+  document.addEventListener('contextmenu', e => {
+    const button = e.target.closest?.('th')?.querySelector('.th-menu');
+    if (!button) return;
+    e.preventDefault();
+    button.click();
   });
   document.addEventListener('mousemove', e => {
     const item = e.target.closest?.('.palette-item');

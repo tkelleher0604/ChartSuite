@@ -77,6 +77,19 @@ const Parts = (() => {
       + `<button class="filter-chip-x" data-cmd="${esc(clear)}"${attrs} aria-label="Clear ${esc(label)}" title="Clear">${icon('x')}</button></span>`;
   }
 
+  // A table's column heading. A click sorts by the column (`cmd`, a Shell handler), ascending, then
+  // descending; `sort` says how it's sorted now (1, -1 or 0), as aria-sort on the th. Where the table has a
+  // menu for its columns (`menu`, a handler), a chevron that shows on hover opens it, and so does a
+  // right-click on the heading. `data` goes on the th and both buttons; `extra` is markup after the label,
+  // like a required mark; `cls` the th's classes.
+  function columnHead({ label, sort = 0, cmd, menu = '', data = {}, cls = '', extra = '', title = '' }) {
+    const attrs = Object.entries(data).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('');
+    const arrow = sort ? (sort > 0 ? '↑' : '↓') : '';
+    return `<th class="${esc(cls)}"${attrs} aria-sort="${sort > 0 ? 'ascending' : sort < 0 ? 'descending' : 'none'}"><div class="th-in">
+      <button class="th-sort${sort ? ' is-on' : ''}" data-cmd="${esc(cmd)}"${attrs}${title ? ` title="${esc(title)}"` : ''}><span class="th-text">${esc(label)}</span>${extra}<span class="th-arrow" aria-hidden="true">${arrow}</span></button>
+      ${menu ? `<button class="th-menu" data-cmd="${esc(menu)}"${attrs} aria-haspopup="menu" aria-label="${esc(label)}: sort, filter and more" title="Sort, filter and more">${icon('chevron-down')}</button>` : ''}</div></th>`;
+  }
+
   // What's missing, when it will appear, and the one action that adds it: { cmd } runs a Shell handler,
   // { href } goes somewhere. An empty result of a filter says so instead, with a way to clear it.
   function empty({ title, desc = '', action = null }) {
@@ -89,5 +102,5 @@ const Parts = (() => {
   // A person's initials in a circle, for who made a change.
   const avatar = name => `<span class="avatar" title="${esc(name)}">${esc(clean(name).split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?')}</span>`;
 
-  return { chip, link, output, outputText, date, daysUntil, dueText, when, badge, filterChip, empty, avatar };
+  return { chip, link, output, outputText, date, daysUntil, dueText, when, badge, filterChip, columnHead, empty, avatar };
 })();

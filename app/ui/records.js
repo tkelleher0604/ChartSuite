@@ -412,14 +412,14 @@
     return lines.join('\n');
   }
 
+  // A heading sorts by its column when clicked, and its chevron (or a right-click) opens the column's menu;
+  // dragging it reorders the entries.
   function headHtml(c) {
     const sort = ui.prefs.sort?.key === c.key ? ui.prefs.sort.dir : 0;
     const cls = ['rec-head-cell', c.isName ? 'is-sticky rec-name' : '', isNumeric(c) ? 'num' : '', c.computedBy || c.computed ? 'is-computed' : '',
       !c.isName && !c.rel && !c.parent ? 'is-movable' : ''].filter(Boolean).join(' ');
-    return `<th class="${cls}" data-col="${esc(c.key)}" aria-sort="${sort > 0 ? 'ascending' : sort < 0 ? 'descending' : 'none'}">
-      <button class="rec-th" data-cmd="records.head" data-col="${esc(c.key)}" title="${esc(columnTitle(c))}" aria-haspopup="menu">
-        <span class="rec-th-text">${esc(c.label)}</span>${c.required ? '<span class="req-mark" aria-hidden="true">*</span>' : ''}${c.computedBy || c.computed ? '<span class="rec-fx" aria-hidden="true">fx</span>' : ''}${sort ? `<span class="rec-sort" aria-hidden="true">${sort > 0 ? '↑' : '↓'}</span>` : ''}
-      </button></th>`;
+    const extra = `${c.required ? '<span class="req-mark" aria-hidden="true">*</span>' : ''}${c.computedBy || c.computed ? '<span class="rec-fx" aria-hidden="true">fx</span>' : ''}`;
+    return Parts.columnHead({ label: c.label, sort, cmd: 'records.sort', menu: 'records.head', data: { col: c.key }, cls, extra, title: columnTitle(c) });
   }
 
   // A relative's chip, drawn by Parts once for each state, as the same relative recurs down a column.
@@ -1207,6 +1207,12 @@
     'records.export': exportCsv,
     'records.view': openView,
     'records.head': el => { if (!dragged) headMenu(el); },
+    // A heading's click sorts by its column: ascending, then descending.
+    'records.sort': el => {
+      if (dragged) return;
+      const s = ui.prefs.sort;
+      setSort(el.dataset.col, s?.key === el.dataset.col && s.dir > 0 ? -1 : 1);
+    },
     'records.filter-add': el => addFilter(el.dataset.col),
     'records.filter-pick': el => filterPicker(el),
     'records.filter-open': el => openFilter(el.dataset.col),
@@ -1244,7 +1250,7 @@
   const typingIn = el => !!el?.closest?.('input:not([type="checkbox"]), textarea, select, [contenteditable="true"]');
 
   // A click elsewhere saves the cell being typed in, before the click does what it does: a click on
-  // another cell edits that one. Where the value can't be saved, the cell stays open and says why. The
+  // another cell selects that one. Where the value can't be saved, the cell stays open and says why. The
   // page is drawn again once the click is done, so the click lands on what it was aimed at.
   document.addEventListener('mousedown', e => {
     if (!inPage() || layerOpen()) return;
@@ -1280,19 +1286,20 @@
     if (!row) return;
     const c = colByKey(td.dataset.col);
     if (!c) return;
-    // A tag's checkbox ticks; any other cell that can be edited opens for editing, but Name only selects, as
-    // its text is the link to the record.
+    // As in Excel, a click selects a cell. A tag's checkbox is a control of its own, and ticks; a choice's
+    // chevron opens its options, as a dropdown's does. Name's text is the link to the record.
     if (c.type === 'tag' && !c.rel && t.closest('.check')) return toggleTag(row, c);
-    if (!c.isName && c.type !== 'tag' && editable(readPass().cell(row, c), c)) return act(row, c);
+    if (t.closest('.rec-chev')) return act(row, c);
     setActive(row, c.key);
   });
 
-  // Double-clicking a Name, away from its link, edits it.
+  // A double-click edits a cell, as Enter or typing over it does: Name too, away from its link.
   document.addEventListener('dblclick', e => {
-    if (!inPage() || e.target.closest?.('a, input')) return;
-    const td = e.target.closest?.('.rec-table td.rec-name[data-col]');
+    if (!inPage() || e.target.closest?.('a, input, .check, [data-cmd]')) return;
+    const td = e.target.closest?.('.rec-table td[data-col]');
     const row = td?.closest('tr')?.dataset.row;
-    if (row) startEdit(row, colByKey(td.dataset.col));
+    const c = row && colByKey(td.dataset.col);
+    if (c && !c.rel) act(row, c, { viaKey: true });
   });
 
   // Ticking a row's box selects it; shift-ticking selects the rows between it and the last one ticked.

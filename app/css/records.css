@@ -29,23 +29,18 @@
 .rec-wrap { flex: 0 1 auto; min-height: 120px; scroll-padding: 34px 0 0 calc(44px + var(--name-w, 240px)); }
 .rec-table { table-layout: fixed; }
 .rec-table th, .rec-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rec-table th { padding: 0; user-select: none; }
+.rec-table th { padding: 0 6px 0 12px; user-select: none; }
 .rec-table td { position: relative; padding: 0 12px; }
 .rec-table .is-sticky.rec-name { left: 44px; }
 .rec-wrap.is-scrolled .rec-name { box-shadow: inset -1px 0 0 var(--border); }
 .rec-table .rec-fill { padding: 0; }
 
-/* Headings: a button that opens the column's menu, and drags it to another place. */
-.rec-th { display: flex; align-items: center; gap: 4px; width: 100%; height: 34px; padding: 0 12px; border: 0; background: none; color: inherit; font: inherit; font-weight: 500; text-align: left; transition: background-color .1s, color .1s; }
-.rec-th:hover, .rec-th[aria-expanded="true"] { background: var(--hover); color: var(--text); }
-.rec-th-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.num .rec-th { justify-content: flex-end; }
-.rec-head-cell.is-computed .rec-th-text { font-style: italic; }
+/* Headings (shell.css's): a click sorts, the chevron opens the column's menu, and a drag moves it. */
+.rec-head-cell.is-computed .th-text { font-style: italic; }
 .rec-fx { flex: none; font-size: 11px; font-style: italic; font-weight: 600; color: var(--computed); letter-spacing: .02em; }
-.rec-sort { flex: none; color: var(--text-2); font-size: 12px; }
-.rec-th .req-mark { flex: none; margin-left: -1px; color: var(--danger); font-weight: 600; }
-th.is-movable .rec-th:active { cursor: grabbing; }
-th.is-dragging .rec-th { opacity: .45; }
+.rec-head-cell .req-mark { flex: none; margin-left: -1px; color: var(--danger); font-weight: 600; }
+th.is-movable .th-sort:active { cursor: grabbing; }
+th.is-dragging .th-in { opacity: .45; }
 th.is-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
 th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
