@@ -2,7 +2,10 @@
    dialogs, toasts), and the components the areas are built from. Tokens are in base.css; docs/design.md
    says how they're used. */
 
-:root { --sidebar-w: 240px; }
+/* The page frame: every page's content starts at one left edge, the gutter in from the sidebar, under the
+   same top margin, so moving between pages never moves the title. A page that's read is at most
+   --page-width wide (.content); a table, or a record's columns, takes the width (.content.is-wide). */
+:root { --sidebar-w: 240px; --page-gutter: 32px; --page-top: 28px; --page-width: 1120px; }
 :root[data-sidebar="hidden"] { --sidebar-w: 0px; }
 
 body.app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); height: 100vh; overflow: hidden; background: var(--surface); }
@@ -51,9 +54,13 @@ body.app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr)
 .tb-crumbs a:hover { color: var(--text); }
 .tb-crumbs .icon { width: 13px; height: 13px; }
 .tb-title { min-width: 0; margin: 0; overflow: hidden; font-size: var(--fs-body); font-weight: 600; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+/* A page names itself once: the title shows in the bar only when the page's own heading has scrolled out
+   of view (show-title, which the shell sets), or where the page has none (the chart). The crumbs stay. */
+.tb-title, .tb-crumbs > .icon:last-child { opacity: 0; transition: opacity .15s var(--ease); }
+.topbar.show-title .tb-title, .topbar.show-title .tb-crumbs > .icon:last-child { opacity: 1; }
 .tb-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
 .main { flex: 1; min-height: 0; overflow: auto; }
-.content { max-width: 1120px; margin: 0 auto; padding: 28px 32px 72px; }
+.content { max-width: var(--page-width); margin: 0; padding: var(--page-top) var(--page-gutter) 72px; }
 .content.is-wide { max-width: none; }
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; margin-bottom: 20px; }
 .page-head-text { flex: 1; min-width: 16rem; }
@@ -296,7 +303,8 @@ th:hover .th-menu, .th-menu:focus-visible, .th-menu[aria-expanded="true"] { opac
 @media (max-width: 760px) {
   :root:not([data-sidebar="shown"]) { --sidebar-w: 0px; }
   :root:not([data-sidebar="shown"]) .sidebar { visibility: hidden; }
-  .content { padding: 20px 16px 56px; }
+  :root { --page-gutter: 16px; --page-top: 20px; }
+  .content { padding-bottom: 56px; }
 }
 
 /* A problem the page must not let pass unseen, under the top bar until it's resolved. */

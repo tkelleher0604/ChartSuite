@@ -2,8 +2,6 @@
    Only what changes with the width is here: the panel's head reads as a page's, its path moves to the top
    bar, and with room to spare, rules are read whole and formulas set a little larger. Tokens only. */
 
-.schema-page { max-width: 1040px; }
-
 /* The head: the page's title, what it is, and its actions. The top bar has the path. */
 .schema-page .crumbs { display: none; }
 .schema-page .panel-head { padding: 0 0 18px; }

@@ -1,7 +1,7 @@
 /* A record's own page (record.html): its name and status, its Details (the record panel, panel.css) and its
    tabs. Tokens only; docs/design.md says how they're used. */
 
-.record { max-width: 1280px; margin: 0 auto; padding: 28px 32px 72px; }
+.record { margin: 0; padding: var(--page-top) var(--page-gutter) 72px; }
 
 /* ---- The record's name, kind and status ---- */
 .record-head { margin-bottom: 28px; }
@@ -96,6 +96,3 @@
 /* ---- Nothing here ---- */
 .record-missing { max-width: 560px; padding-top: 72px; }
 
-@media (max-width: 760px) {
-  .record { padding: 20px 16px 56px; }
-}

@@ -1,11 +1,13 @@
 // The shell every page of the app shares: the sidebar, the page's top bar, the command palette, menus,
 // dialogs and toasts, and the keys that work everywhere. A page loads the core, then this, then its own
 // script, which starts the shell with what the page shows:
-//   Shell.start({ area, title, crumbs, actions, render, after, commands, undo, keys })
+//   Shell.start({ area, title, crumbs, actions, create, render, after, commands, undo, keys })
 // - area: the sidebar item that's current: 'home', 'chart', 'documents', 'calendar', 'history', 'schema',
 //   'settings', or 'records' (with `kind` naming the kind, or a function giving it);
-// - title: the page's title in the top bar; crumbs: links before it, [{ text, href }]; actions: markup
-//   for the top bar's right. Each may be a function, worked out on every render;
+// - title: the page's title in the top bar, shown there once the page's own heading (its .page-title) has
+//   scrolled away; crumbs: links before it, [{ text, href }]; actions: markup for the top bar's right;
+//   create: the page's create action, { label, cmd, title, disabled }, drawn last there as the primary
+//   button and offered in the palette. Each may be a function, worked out on every render;
 // - render(): the page's content, as markup for <main>. A page that draws its own content (the chart)
 //   leaves render out, and the shell moves the page's own markup into <main> instead;
 // - after(): runs once the content is in place;
@@ -101,11 +103,23 @@ const Shell = (() => {
 
   function topbarHtml() {
     const crumbs = value(page.crumbs) ?? [];
+    const create = value(page.create);
     return `
       <button class="icon-btn" data-cmd="shell.sidebar" aria-label="Show or hide the sidebar" title="Show or hide the sidebar (${modKey}+\\)">${icon('layout-sidebar')}</button>
       <div class="tb-crumbs">${crumbs.map(c => `<a href="${esc(c.href)}">${esc(c.text)}</a>${icon('chevron-right')}`).join('')}</div>
       <h1 class="tb-title">${esc(value(page.title) ?? '')}</h1>
-      <div class="tb-actions">${value(page.actions) ?? ''}</div>`;
+      <div class="tb-actions">${value(page.actions) ?? ''}${create ? `<button class="btn btn-sm btn-primary" data-cmd="${esc(create.cmd)}"${create.title ? ` title="${esc(create.title)}"` : ''}${create.disabled ? ' disabled' : ''}>${icon('plus')}${esc(create.label)}</button>` : ''}</div>`;
+  }
+
+  // The page names itself once: its title is in the top bar only while its own heading (main's
+  // .page-title) is out of view, or for good where it has none, as the chart has.
+  let headingWatch = null;
+  function watchHeading() {
+    const bar = document.getElementById('topbar'), heading = document.querySelector('#main .page-title');
+    headingWatch?.disconnect();
+    if (!heading) return bar.classList.add('show-title');
+    headingWatch = new IntersectionObserver(([e]) => bar.classList.toggle('show-title', !e.isIntersecting), { root: document.getElementById('main') });
+    headingWatch.observe(heading);
   }
 
   // ---- When this browser can't keep the workbook ----
@@ -147,6 +161,7 @@ const Shell = (() => {
     const title = value(page.title);
     document.title = title && title !== 'Home' ? `${title} · Rboreal` : 'Rboreal';
     page.after?.();
+    watchHeading();
     renderLayer();
   }
 
@@ -202,7 +217,7 @@ const Shell = (() => {
       .concat(recordKinds().map(k => ({ title: `Go to ${plural(k)}`, meta: 'Records', keywords: `${k} ${same(k, 'Individual') ? 'people persons' : ''}`, run: () => { location.href = kindHref(k); } })));
     const objects = Object.keys(records).filter(id => isObject(records[id]));
     const toItem = id => ({ title: objectName(id), meta: subtitleOf(id), keywords: keywordsOf(id), run: () => { visited(id); location.href = recordHref(id); } });
-    const actions = [...(value(page.commands) ?? []), ...globalCommands()];
+    const actions = [...pageCommands(), ...globalCommands()];
     if (!clean(query)) {
       const rec = recent().slice(0, 5).map(toItem);
       return [['Recent', rec], ['Actions', actions.slice(0, 6)], ['Go to', go.slice(0, AREAS.length + FOOT_AREAS.length)]];
@@ -212,6 +227,19 @@ const Shell = (() => {
     const isDoc = id => same(records[id].kind, DOCUMENT_KIND);
     return [['Records', ranked(objects.filter(id => !isDoc(id)).map(toItem)).slice(0, 8)], ['Actions', ranked(actions).slice(0, 6)],
       ['Go to', ranked(go).slice(0, 4)], ['Documents', ranked(objects.filter(isDoc).map(toItem)).slice(0, 5)]];
+  }
+
+  // What the page offers: its create action, then its own commands.
+  function pageCommands() {
+    const create = value(page.create);
+    return [...(create && !create.disabled ? [{ title: create.label, keywords: 'new add create', run: () => runCommand(create.cmd) }] : []), ...(value(page.commands) ?? [])];
+  }
+  // Runs a page's handler by its name, as a click on the page's control for it would (a disabled control
+  // does nothing), or with no control where the page shows none.
+  function runCommand(cmd) {
+    const el = [...document.querySelectorAll('[data-cmd]')].find(x => x.dataset.cmd === cmd && !x.closest('#layer') && x.getClientRects().length);
+    if (el) return el.disabled || el.click();
+    handlers[cmd]?.(null, null);
   }
 
   function globalCommands() {

@@ -87,9 +87,17 @@ A page loads its scripts in this order:
 
 There is no build step, and no server: every page opens from a file.
 
+### The page frame
+
+Every page is drawn in one frame, so moving between pages never moves what's on them:
+- **One left edge.** A page's content starts the gutter (`--page-gutter`, 32 px) in from the sidebar, under one top margin (`--page-top`), and is never centered. A page that's read (Home, Calendar, History, Schema, Settings) is at most `--page-width` (1120 px) wide: `.content`. A table, or a record's columns, takes the whole width: `.content.is-wide` (Records, Documents, a record). An area that draws a frame of its own (Settings' `.settings`, a record's `.record`, Documents' head and toolbar) uses the same tokens. The chart, a canvas, is full-bleed.
+- **The title, once.** A page's own heading is its `.page-title`, Home's greeting and the Schema's heading included. The top bar shows the title only once that heading has scrolled out of view; the crumbs stay. A page with no heading of its own, like the chart, keeps its title in the bar.
+- **The create action** is the top bar's last button, primary, with a plus: pass `create: { label, cmd }` to `Shell.start`, which draws it and offers it in the palette. Records' New entity, Documents' Link document and the Schema's New definition are each a page's create action. Other actions, like an export or Present, are ordinary buttons before it.
+- **Subsets and modes.** Tabs with counts (`Parts.tabs`) switch between subsets of one list: Documents' Linked, Not linked and Broken links, or the Schema's All, Computed and Unused. A segmented control (`.seg`) switches between modes of one view, like the Calendar's Agenda and Month.
+
 ### The shell (`ui/shell.js`)
 
-`Shell.start({ area, kind, title, crumbs, actions, render, after, commands, undo })` builds the page around its content. `render()` returns the markup for `<main>`. Wrap ordinary pages in `<div class="content">`, and use `.content.is-wide` for tables. The shell calls `render()` again after every change, so `render()` must work from the state alone. Keep transient UI state (an open row, a filter) in a page-level object, and restore focus in `after()` if a re-render would lose it.
+`Shell.start({ area, kind, title, crumbs, actions, create, render, after, commands, undo, keys })` builds the page around its content, in the page frame (above). `render()` returns the markup for `<main>`. Wrap ordinary pages in `<div class="content">`, and use `.content.is-wide` for tables. The shell calls `render()` again after every change, so `render()` must work from the state alone. Keep transient UI state (an open row, a filter) in a page-level object, and restore focus in `after()` if a re-render would lose it.
 
 What else the shell provides:
 - **Clicks.** Use `data-cmd="area.action"` on an element and register the handler with `Shell.on('area.action', (el, e) => …)`. Never use `data-action`, which is the record panel's. Prefix each command with the area.

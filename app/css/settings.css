@@ -2,7 +2,7 @@
    docs/ui-research.md). A card has a title, a line on what it's for, its control, and a footer holding the
    card's Save where a change is consequential. Tokens only (docs/design.md). */
 
-.settings { container-type: inline-size; max-width: 1008px; margin: 0 auto; padding: 28px 32px 96px; }
+.settings { container-type: inline-size; max-width: var(--page-width); margin: 0; padding: var(--page-top) var(--page-gutter) 96px; }
 .settings > .page-head { margin-bottom: 28px; }
 .set-layout { display: grid; grid-template-columns: 168px minmax(0, 720px); gap: 40px; align-items: start; }
 

@@ -1,8 +1,6 @@
 /* The History: a day-by-day list of changes, each opening onto the records it touched. Tokens only; see
    docs/design.md. */
 
-.content.history { max-width: 960px; }
-
 /* ---- Search and filters ---- */
 .h-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 6px; }
 .h-search .input { width: 220px; height: 28px; }
