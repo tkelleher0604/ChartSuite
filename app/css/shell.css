@@ -296,11 +296,14 @@ th:hover .th-menu, .th-menu:focus-visible, .th-menu[aria-expanded="true"] { opac
 .toast-close:hover { opacity: 1; }
 .toast-close .icon { width: 14px; height: 14px; }
 .toast.is-error { background: var(--danger-solid); color: #fff; }
+/* A toast leaves as it came, in three quarters of the time. */
+.toast.is-leaving { animation: shell-sink .15s var(--ease) forwards; pointer-events: none; }
 
 @keyframes shell-fade { from { opacity: 0; } }
 @keyframes shell-pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
 @keyframes shell-drop { from { opacity: 0; transform: translateY(-4px); } }
 @keyframes shell-rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes shell-sink { to { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; }
 }

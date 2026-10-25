@@ -590,9 +590,19 @@ const Shell = (() => {
       dropToast(t.id);
     }, ms);
   }
-  const dropToast = id => { layer.toasts = layer.toasts.filter(x => x.id !== id); renderLayer(); };
+  // A toast leaves as it came, a little quicker, then goes.
+  function dropToast(id) {
+    const t = layer.toasts.find(x => x.id === id);
+    if (!t || t.leaving) return;
+    clearTimeout(t.timer);
+    const gone = () => { layer.toasts = layer.toasts.filter(x => x !== t); renderLayer(); };
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return gone();
+    t.leaving = true;
+    document.querySelector(`#layer .toast[data-id="${id}"]`)?.classList.add('is-leaving');
+    setTimeout(gone, 150);
+  }
   const toastsHtml = () => `<div class="toasts" aria-live="polite">${layer.toasts.map(t => `
-    <div class="toast${t.tone ? ` is-${t.tone}` : ''}" data-id="${t.id}"><span class="toast-text">${esc(t.text)}</span>
+    <div class="toast${t.tone ? ` is-${t.tone}` : ''}${t.leaving ? ' is-leaving' : ''}" data-id="${t.id}"><span class="toast-text">${esc(t.text)}</span>
       ${t.action ? `<button class="toast-action" data-cmd="shell.toast-action" data-id="${t.id}">${esc(t.action.label)}</button>` : ''}
       <button class="toast-close" data-cmd="shell.toast-close" data-id="${t.id}" aria-label="Dismiss">${icon('x')}</button></div>`).join('')}</div>`;
 
