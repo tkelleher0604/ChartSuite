@@ -25,7 +25,7 @@ const BOX_DEFAULTS = { shape: 'rect', fill: '#ffffff', stroke: '#27272a', stroke
 const TEXT_DEFAULTS = { font: 'Inter', size: 12, bold: false, italic: false, color: '#18181b' };
 const LINE_DEFAULTS = { stroke: '#3f3f46', strokeWidth: 1.25, dash: 'solid', font: 'Inter', size: 11, bold: false, italic: false, color: '#27272a', show: true, format: 'value' };
 
-// What a new kind, its Name, and a new kind of relation start with.
+// What a new kind, its Name, and a new relation start with.
 const KIND_PRESET = { shape: 'rect', fill: '#ffffff', stroke: '#27272a', strokeWidth: 1.25, dash: 'solid', font: 'Inter', size: 12, color: '#18181b' };
 const NAME_PRESET = { show: true, bold: true };
 const RELATION_PRESET = { show: true, format: 'value' };
@@ -86,7 +86,7 @@ function sampleViews(recs, S, defs) {
     { id: 'st_close', form: formOfDef('def_close'), map: { true: { show: true, format: 'none', stroke: '#2b59c3', strokeWidth: 1.5 } } },
     { id: 'st_remote', form: formOfDef('def_remote'), map: { true: { show: true, format: 'none', stroke: '#c2710c', dash: 'dashed' } } },
   ];
-  return [{ id: 'view_main', name: 'Structure', styles: structure },
+  return [{ id: 'view_main', name: 'Structure', styles: structure, hidden: ['gp_of_feeder'] },
     { id: 'view_40act', name: '40 Act', styles: fortyAct, filter: FORTY_ACT_FILTER }];
 }
 
@@ -201,15 +201,6 @@ function boxLook(obj) {
   return { box, text, lines, applied };
 }
 
-// The forms the formulas cover, worked out once for each working-out of the formulas, which a change to
-// the definitions always brings.
-const coveredFormsCache = new WeakMap();
-function coveredForms() {
-  if (!coveredFormsCache.has(formulaResult))
-    coveredFormsCache.set(formulaResult, new Set(definitions.flatMap(d => d.scope.flatMap(p => specsWithParam(p).map(formOfTree)))));
-  return coveredFormsCache.get(formulaResult);
-}
-
 // Whether a relation is drawn where no style says: not if formulas cover its form (they can relate nearly
 // everything to everything: every affiliate of every entity, say), nor if it's a ruled-out tag.
 const drawnByDefault = id => !coveredForms().has(formKeyOf(id)) && !(isTag(records[id]) && !records[id].tag);
@@ -223,7 +214,7 @@ function lineLook(id) {
   const style = styleOf(id);
   const look = { ...LINE_DEFAULTS, show: drawnByDefault(id), ...(style?.map[outputKey(r)] ?? {}) };
   const own = look.format === 'none' ? ''
-    : look.format === 'label' || isTag(r) ? r.args[0].edge
+    : look.format === 'label' || isTag(r) ? relationNameOf(id)
     : isField(r) ? displayValue(r) : r.choice;
   const text = pickProps(look, TEXT_PROPS);
   const parts = own ? [{ id, styleId: style?.id, text: own, look: text }] : [];
@@ -272,11 +263,19 @@ function presetMap(form) {
   return { [sort]: muted };
 }
 
-// Adds a style on a record's form. Returns the style, or the one already there.
-function addStyle(id) {
-  const existing = styleOf(id);
+// A menu item that adds a style on a form, from one of its records (Add › Style… in the panel, New style
+// in the ribbon): named as the form is, by its label and where it is.
+function styleFormItem(form, id) {
+  const d = describeForm(form);
+  return `<button class="menu-item" role="menuitem" data-action="style-new" data-id="${esc(id)}">
+    <span class="menu-text"><span class="menu-title">${esc(d.label)}</span><span class="menu-desc">${esc(d.where)}</span></span></button>`;
+}
+
+// Adds a style on a form, or on a record's. Returns the style, or the one already there.
+const addStyle = id => addStyleOnForm(formKeyOf(id));
+function addStyleOnForm(form) {
+  const existing = styleOfForm(form);
   if (existing) return existing;
-  const form = formKeyOf(id);
   const style = { id: newId(), form, map: presetMap(form) };
   pushUndo();
   styles = [...styles, style];

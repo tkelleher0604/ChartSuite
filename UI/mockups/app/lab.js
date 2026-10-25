@@ -4,9 +4,11 @@
 
 const LAB_KEY = 'rboreal.formula-lab.v2';
 
-// The sample's names and definitions (model.js), under the lab's names for them.
-const LAB_NAMES = SAMPLE_NAMES;
-const LAB_DEFINITIONS = SAMPLE_DEFINITIONS;
+// The sample's definitions and names as the app stores them (sampleFormulas in model.js), then as people
+// write them and formulas.js takes them, so the lab works out what the app does.
+const LAB_SAMPLE = sampleFormulas();
+const LAB_DEFINITIONS = LAB_SAMPLE.definitions.map(d => asWritten(d, LAB_SAMPLE.schema, LAB_SAMPLE.names));
+const LAB_NAMES = engineNames(LAB_SAMPLE.names, LAB_SAMPLE.schema);
 
 // The sample's records, with whatever the lab has ruled out or added on top.
 const enteredRecords = ({ overrides }) => ({ ...structuredClone(SAMPLE), ...overrides });
@@ -201,6 +203,7 @@ document.addEventListener('click', e => {
 function selftest() {
   const out = [];
   const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail });
+  const pct = x => `${+(x * 100).toFixed(2)}%`;
   const run = (defs = LAB_DEFINITIONS, more = {}) => Formulas.computeState({ ...enteredRecords({ overrides: {} }), ...more }, defs, LAB_NAMES);
   const R = run();
   const objOf = (res, id) => { let cur = id; while (res.records[cur]?.at) cur = res.records[cur].at; return cur; };
@@ -234,7 +237,7 @@ function selftest() {
   // Look-through
   for (const [a, b, want] of [['inv_nonus', 'fund', 0.284], ['inv_nonus', 'northpine', 0.18176], ['inv_us', 'halvard', 0.58712]]) {
     const got = pairRow(R, 'def_look_through', a, b)?.value;
-    check(`Look-through ${a} → ${b} is ${want * 100}%`, Math.abs(got - want) < 1e-9, String(got));
+    check(`Look-through ${a} → ${b} is ${pct(want)}`, Math.abs(got - want) < 1e-9, typeof got === 'number' ? pct(got) : String(got));
   }
 
   // Control, and rebutting the presumption
@@ -358,7 +361,8 @@ function selftest() {
   check('A dot on a list maps over it', Formulas.formatValue(R, at('= Owners.Percentage'), { percent: true }) === '71.6%; 28.4%');
   check('renameName relabels a name', Formulas.renameName('= SUM(Owners.Percentage) > [Percentage]', 'Percentage', 'Voting Percentage') === '= SUM(Owners.[Voting Percentage]) > [Voting Percentage]');
   const moved = Formulas.relabel(LAB_DEFINITIONS, LAB_NAMES, 'Owned', 'Held');
-  check('relabel carries an edge rename through names and formulas', moved.names.relations[0].edges[1] === 'Held' && moved.names.relations[0].lists.Held.Owner === 'Owners');
+  const movedOwnership = moved.names.relations.find(r => r.name === 'Ownership');
+  check('relabel carries an edge rename through names and formulas', movedOwnership?.edges[1] === 'Held' && movedOwnership.lists.Held?.Owner === 'Owners', JSON.stringify(movedOwnership));
   const R5 = Formulas.computeState(Object.fromEntries(Object.entries(enteredRecords({ overrides: {} }))
     .map(([k, r]) => [k, r.args ? { ...r, args: r.args.map(a => same(a.edge, 'Owned') ? { ...a, edge: 'Held' } : a) } : r])), moved.definitions, moved.names);
   check('After the rename, Control works out the same', Object.keys(R5.computed).filter(id => R5.computed[id].def === 'def_control').length === Object.keys(R.computed).filter(id => R.computed[id].def === 'def_control').length);

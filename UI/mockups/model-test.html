@@ -19,8 +19,9 @@
 <script>
 // Checks the model against what model.js and data-model.md say of it, on the sample and after scripted
 // edits: the schema holds every record's specification and is closed and consistent; styles, names,
-// required entries and definitions key into it; renames, moves, undo, deleting, copying formulas and
-// Show and Hide do what they should. Nothing is saved: the page works on its own copy of the sample.
+// required entries and definitions key into it; renames, moves, undo, deleting, copying definitions,
+// Show and Hide, naming relations and lists, and requiring entries do what they should. Nothing is saved:
+// the page works on its own copy of the sample.
 saveState = () => {};
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
@@ -150,12 +151,12 @@ function run() {
   // Workbooks: a blank chart, with formulas copied from the sample
   fresh();
   addChart('Blank');
-  const err6 = copyFormulasFrom('chart_main');
-  check('Copy formulas: every definition and name comes along', !err6 && definitions.length === 10 && Object.keys(names).length === 11, err6);
+  const err6 = copyDefinitionsFrom('chart_main');
+  check('Copy definitions: every definition and name comes along', !err6 && definitions.length === 10 && Object.keys(names).length === 11, err6);
   const a = createObject('Entity', 'Alpha').id, b = createObject('Entity', 'Beta').id;
   const o = newId();
   commit({ ...records, [o]: { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }, [newId()]: { at: o, edge: 'Percentage', field: 'percent', value: 0.6 } });
-  check('Copy formulas: they work out in the new chart', computedBy(definitions.find(d => d.implications?.[0]?.label === 'More than 25%').id) === 1);
+  check('Copy definitions: they work out in the new chart', computedBy(definitions.find(d => d.implications?.[0]?.label === 'More than 25%').id) === 1);
   invariants('In a chart with copied formulas');
 
   // Removing unused specifications
@@ -165,6 +166,42 @@ function run() {
   const unused = unusedSpecs();
   check('The Schema view can remove a specification nothing has', unused.length > 0 && !removeSpecs(unused) && !labels().has('tax id'));
   invariants('After removing unused specifications');
+
+  // One vocabulary: relations named by form, list names from each side, places described one way
+  fresh();
+  const at = relationTypesAt('bdc').map(t => t.list);
+  check('Relations here at the BDC: one row for each list, none twice', new Set(at).size === at.length, at.join(', '));
+  const closeOf = relationTypesAt('bdc').find(t => t.list === 'Close Affiliate Of');
+  check('…titled by list name, with the relation’s name and computed forms marked', closeOf?.name === 'Close Affiliate' && closeOf.own === 'Close Affiliate' && closeOf.computed
+    && relationTypesAt('bdc').some(t => t.list === 'Remote Affiliate Of' && t.computed), JSON.stringify(closeOf));
+  check('…and an entered relation’s from this side, at the fund', relationTypesAt('fund').some(t => t.list === 'Owners' && t.name === 'Ownership' && t.own === 'Owned' && !t.computed));
+  const groups = relationGroups('fund');
+  check('Relations at a record are grouped by form, under their list names', groups.some(g => g.list === 'Owners' && g.form === formKeyOf('own_us_fund'))
+    && new Set(groups.map(g => g.key)).size === groups.length, groups.map(g => g.list).join(', '));
+  const memForm = formKeyOf('mem_chen_gp');
+  saveNames(Object.fromEntries(Object.entries(names).filter(([f]) => f !== memForm)));
+  check('A relation without a name goes by its edge labels', formName(memForm) === 'Member · LLC' && relationNameOf('mem_chen_gp') === 'Member · LLC', formName(memForm));
+  check('…and the formulas get a name for every relation', engineNames(names).relations.every(r => r.name));
+  undoState();
+  check('Undo gives the name back', relationNameOf('mem_chen_gp') === 'Membership');
+  check('Places: entries at an object are on its kind, at an entry under it, and a record is under its object',
+    whereAt('fund') === 'on Entities' && whereAt('fund_type') === `under ${placeText(treeOf(records, 'fund_type'))}` && placeName('fund_tax') === objectName('fund'),
+    `${whereAt('fund')} / ${whereAt('fund_type')} / ${placeName('fund_tax')}`);
+  check('A form’s outputs read as its records’ do', formOutputs(formKeyOf('fund_type')).every(([k, text]) => Object.values(records).some(r => isChoice(r) && outputKey(r) === k && outputText(r) === text)));
+
+  // Required, from the Schema view
+  fresh();
+  const shares = parameterization(records, 'blocker_shares');
+  setRequired(shares, true);
+  check('Required: a parameterization can be required', isRequired(shares) && required.length === 2);
+  setRequired(shares, true);
+  check('…once', required.length === 2);
+  setRequired(parameterization(records, 'own_fund_blkr'), true);
+  check('…but not a relation’s', required.length === 2);
+  setRequired(shares, false);
+  check('…and no longer', !isRequired(shares) && required.length === 1);
+  undoState();
+  check('Undo requires it again', isRequired(shares));
 
   const failed = out.filter(x => !x.ok).length;
   document.title = `model test: ${out.length - failed} pass, ${failed} fail`;

@@ -111,14 +111,13 @@ function saveForm() {
   return error;
 }
 
-// How a deleted record is listed under Deleted: an object by its name, a relation by its edges and sides,
-// an entry by its label and the object it was in.
+// How a deleted record is listed under Deleted: an object by its name, a relation by its name and sides,
+// an entry by its label and what it was in.
 function deletedLabel(id) {
   const r = records[id];
   if (isObject(r)) return objectName(id);
-  if (isRelation(r)) return `${relationLabel(r)}: ${r.args.map(a => locationText(a.at)).join(' and ')}`;
-  const home = records[objectOf(id)];
-  return `${r.edge} on ${isObject(home) ? objectName(objectOf(id)) : relationLabel(home)}`;
+  if (isRelation(r)) return `${relationNameOf(id)}: ${r.args.map(a => placeName(a.at)).join(' and ')}`;
+  return `${r.edge} on ${placeName(id)}`;
 }
 
 // Deleting puts a record and whatever depends on it under Deleted (see deleteRecords). When others
@@ -131,7 +130,7 @@ function deleteEntry(id) {
     if (!ui.notice) ui.info = `Deleted ${label}. Undo, or restore it from Deleted.`;
   };
   if (!dependents) return run();
-  ui.pending = { message: `Delete ${labelOf(records[id])}, with the ${count(dependents, 'record')} that depend on it? They can be restored from Deleted.`, yes: 'Delete', apply: run };
+  ui.pending = { message: `Delete ${recordLabel(id)}, with the ${count(dependents, 'record')} that depend on it? They can be restored from Deleted.`, yes: 'Delete', apply: run };
 }
 
 // Switching a computed tag overrides its formula, so it asks first, saying what implies it.
@@ -156,7 +155,7 @@ function confirmMove(id, choice, apply) {
   const n = entriesOf(id).length, m = relationsAt(id).length;
   if (same(choice, records[id].choice) || !n && !m) return apply();
   const what = [n && count(n, 'entry'), m && count(m, 'relation')].filter(Boolean).join(' and ');
-  ui.pending = { message: `Changing ${labelOf(records[id])} to ${choice} takes its ${what} with it.`, apply };
+  ui.pending = { message: `Changing ${recordLabel(id)} to ${choice} takes its ${what} with it.`, apply };
 }
 
 function undo() {
@@ -212,7 +211,7 @@ function startRelationForm(at, key) {
 // A tag relation is added as soon as its other side is picked; others move on to their option or value.
 function chooseOther(id) {
   const f = ui.form;
-  Object.assign(f, { otherId: id, other: locationText(id) });
+  Object.assign(f, { otherId: id, other: placeName(id) });
   f.typed.other = false;
   ui.error = null;
   if (f.rel.type === 'tag') return submitForm();
@@ -256,9 +255,6 @@ function chooseOutput(value) {
 }
 
 // ---- Name and option boxes ----
-
-// Where entries like these sit, for listbox headings: "on Entities", "under Jurisdiction: Delaware".
-const where = r => isObject(r) ? `on ${plural(r.kind)}` : `under ${isRelation(r) ? relationLabel(r) : `${isTag(r) && !r.tag ? 'Not ' : ''}${r.edge}${isChoice(r) ? `: ${r.choice}` : ''}`}`;
 
 // Labels of this type already used at locations like this one (only those containing `text`, if `filter`),
 // then Create. A label taken here can't be reused, and labels of different types can't be shared.
@@ -306,7 +302,7 @@ function otherOptions(f, text, filter) {
     .map(id => records[id].args.find(a => a.at !== f.at)?.at));
   return Object.keys(records)
     .filter(id => f.rel.otherSpecs.has(specKey(records, id)))
-    .map(id => ({ value: locationText(id), id, note: related.has(id) ? 'Already related' : '' }))
+    .map(id => ({ value: placeName(id), id, note: related.has(id) ? 'Already related' : '' }))
     .filter(o => !filter || norm(o.value).includes(q))
     .sort((a, b) => !!a.note - !!b.note || byLabel(a.value, b.value));
 }
@@ -352,7 +348,7 @@ function drawListbox() {
   const isName = role === 'name';
   const existing = options.filter(o => !o.create);
   const empty = role !== 'other' && (!clean(input.value) || !f.typed[role]);
-  const heading = isName ? `${plural(TYPE_NAMES[f.type])} ${where(records[f.at])}`
+  const heading = isName ? `${plural(TYPE_NAMES[f.type])} ${whereAt(f.at)}`
     : role === 'other' ? otherHeading(f) : `Options for ${clean(f.name)}`;
   let html = existing.length ? `<div class="listbox-head">${esc(heading)}</div>` : '';
   html += options.map((o, i) => {
@@ -365,7 +361,7 @@ function drawListbox() {
   }).join('');
   if (empty) html += `<div class="listbox-foot">${existing.length
     ? `Or type a new ${isName ? 'name' : 'option'} to create it`
-    : isName ? `No ${plural(TYPE_NAMES[f.type]).toLowerCase()} ${where(records[f.at])} yet. Type a name to create one.` : 'No options yet. Type one to create it.'}</div>`;
+    : isName ? `No ${plural(TYPE_NAMES[f.type]).toLowerCase()} ${whereAt(f.at)} yet. Type a name to create one.` : 'No options yet. Type one to create it.'}</div>`;
   box.innerHTML = html;
   box.hidden = false;
   input.setAttribute('aria-expanded', 'true');
@@ -493,13 +489,11 @@ function addMenu(at, compact = false) {
   const styleKey = `add-style:${at}`;
   const open = ui.menu === key || ui.menu === styleKey;
   const trigger = compact
-    ? `<button class="icon-btn" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}" aria-label="Add inside ${esc(labelOf(records[at]))}" title="Add inside">${icon('plus')}</button>`
+    ? `<button class="icon-btn" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}" aria-label="Add inside ${esc(recordLabel(at))}" title="Add inside">${icon('plus')}</button>`
     : `<button class="btn" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}Add</button>`;
   if (!open) return `<span class="menu-anchor">${trigger}</span>`;
   if (ui.menu === styleKey) {
-    const ids = unstyledUnder(at);
-    const list = ids.map(id => `<button class="menu-item" role="menuitem" data-action="style-new" data-id="${id}">
-      <span class="menu-text"><span class="menu-title">${esc(labelOf(records[id]))}</span><span class="menu-desc">${esc(records[id].at === at ? TYPE_NAMES[typeOf(records[id])] : `Under ${segmentText(records[id].at)}`)}</span></span></button>`).join('');
+    const list = unstyledUnder(at).map(id => styleFormItem(formKeyOf(id), id)).join('');
     return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu"><div class="menu-head">Style the chart by</div>${list || '<div class="menu-note" style="padding:6px 10px 8px">Everything here already has a style.</div>'}</div></span>`;
   }
   const items = ADD_TYPES.map(([type, desc]) =>
@@ -507,14 +501,16 @@ function addMenu(at, compact = false) {
       <span class="menu-text"><span class="menu-title">${TYPE_NAMES[type]}</span><span class="menu-desc">${desc}</span></span><kbd>${TYPE_NAMES[type][0]}</kbd></button>`).join('');
   // General actions first, then shortcuts for the relations a location like this one is already in.
   const general = `<button class="menu-item" role="menuitem" data-action="open-relate" data-id="${at}">
-      <span class="menu-text"><span class="menu-title">Relation…</span><span class="menu-desc">Any kind, with anything, or a new kind</span></span><kbd>R</kbd></button>`
-    + `<a class="menu-item" role="menuitem" href="#formula:new:entry:${esc(at)}">
-      <span class="menu-text"><span class="menu-title">Formula…</span><span class="menu-desc">An entry worked out at every location like this one</span></span></a>`
+      <span class="menu-text"><span class="menu-title">Relation…</span><span class="menu-desc">Any relation, with anything, or a new one</span></span><kbd>R</kbd></button>`
+    + `<a class="menu-item" role="menuitem" href="#definition:new:entry:${esc(at)}">
+      <span class="menu-text"><span class="menu-title">Definition…</span><span class="menu-desc">A computed entry, worked out by formula at every location like this one</span></span></a>`
     + (panelOptions.engaged ? `<button class="menu-item" role="menuitem" data-action="menu" data-menu="${styleKey}">
       <span class="menu-text"><span class="menu-title">Style…</span><span class="menu-desc">Format the chart by an entry here</span></span><kbd>S</kbd></button>` : '');
+  // Each relation by the list it adds to here, then its name and this record's role in it. A computed
+  // one can still be attested by hand, overriding its definition.
   const relations = relationTypesAt(at).map(t =>
     `<button class="menu-item" role="menuitem" data-action="add-relation" data-id="${at}" data-key="${esc(t.key)}">
-      <span class="menu-text"><span class="menu-title">${esc(t.other)}</span><span class="menu-desc">${TYPE_NAMES[t.type]} relation, with this as ${esc(t.own)}</span></span></button>`).join('');
+      <span class="menu-text"><span class="menu-title">${esc(t.list)}</span><span class="menu-desc">${esc(t.name)} · this as ${esc(t.own)}${t.computed ? ' · Computed · attest by hand' : ''}</span></span></button>`).join('');
   return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu">${items}<div class="menu-sep" role="separator"></div>${general}${relations
     ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Relations here</div>${relations}` : ''}</div></span>`;
 }
@@ -527,7 +523,7 @@ function deleteButton(id, small = false) {
   const cls = small ? 'icon-btn is-small' : 'icon-btn';
   return reason
     ? `<span title="${esc(reason)}"><button class="${cls}" disabled aria-label="Delete">${icon('trash')}</button></span>`
-    : `<button class="${cls}" data-action="delete" data-id="${id}" aria-label="Delete ${esc(labelOf(r))}" title="Delete">${icon('trash')}</button>`;
+    : `<button class="${cls}" data-action="delete" data-id="${id}" aria-label="Delete ${esc(recordLabel(id))}" title="Delete">${icon('trash')}</button>`;
 }
 
 // A choice's option with a chevron that opens the other options of its parameterization, wherever it's shown.
@@ -555,7 +551,6 @@ function locationHtml(id, keep = 0, marked = false) {
   parts.push(...shown.map(p => `<a class="path-seg" href="#${p}">${esc(segmentText(p))}</a>`));
   return `<span class="loc">${parts.join('<span class="path-sep">›</span>')}</span>`;
 }
-const locationText = id => segmentText(pathTo(id)[0]);
 
 // A relation's value, or a field located at it, typed over in place; `label` names it in an error, as the
 // row it's in does.
@@ -603,14 +598,14 @@ const openRelation = id =>
 // The row is labeled with the pilot's name for the list, like Owners, if the relation has one.
 // A row of computed relations only starts collapsed, with a count, since formulas can list many.
 function relationRow(g, at, depth) {
-  const name = g.others.length ? listName(nameEntryOf(g.ids[0]), g.own[0], g.others[0]) : g.own.join(' · ');
+  const name = g.list;
   const key = `rel|${at}|${g.key}`;
   const computedOnly = g.ids.every(isComputed);
   const open = !computedOnly || ui.expanded.has(key);
   const twist = computedOnly ? `<button class="twisty" data-action="toggle" data-id="${esc(key)}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${esc(name)}">${icon('chevron-right')}</button>` : '<span class="twisty"></span>';
   const label = `${twist}<span class="label-text">${esc(name)}</span>`;
   if (!open) {
-    const others = g.ids.map(id => locationText((records[id].args.find(a => a.at !== at) ?? records[id].args[0]).at));
+    const others = g.ids.map(id => placeName((records[id].args.find(a => a.at !== at) ?? records[id].args[0]).at));
     const summary = `<button class="rel-summary" data-action="toggle" data-id="${esc(key)}" title="Show them">${g.ids.length} · ${esc(others.slice(0, 3).join(', '))}${others.length > 3 ? ', …' : ''}</button>`;
     return row(depth, label, summary, '', ' is-computed-group');
   }
@@ -648,7 +643,7 @@ function relationTable(g, at, depth) {
   const body = shown.map(({ id, cells }) => `<div class="rel-row">
       <div class="rel-c0">${g.type === 'tag' ? relationOutput(id) : '<span class="twisty"></span>'}${locationHtml(cells[0])}</div>
       ${cells.slice(1).map(c => `<div class="rel-c">${locationHtml(c)}</div>`).join('')}
-      ${withValue ? `<div class="rel-c">${relationOutput(id, g.others.join(' · '))}</div>` : ''}
+      ${withValue ? `<div class="rel-c">${relationOutput(id, relationNameOf(id))}</div>` : ''}
       <div class="rel-acts">${openRelation(id)}${deleteButton(id, true)}</div></div>`).join('');
   const note = shown.length < rows.length
     ? `<div class="rel-note">Showing ${shown.length} of ${rows.length} · <button class="link-btn" data-action="col-clear" data-key="${esc(table)}">Show all</button></div>` : '';
@@ -663,10 +658,10 @@ function columnFilter(table, c, edge, locations, picked) {
   const item = (value, text, n) =>
     `<button class="menu-item" role="menuitemradio" aria-checked="${(picked ?? '') === value}" data-action="col-filter" data-key="${esc(table)}" data-col="${c}" data-value="${value}">
       <span class="menu-text">${esc(text)}</span>${n ? `<span class="menu-note">${n}</span>` : ''}${(picked ?? '') === value ? icon('check') : ''}</button>`;
-  const items = open ? item('', 'Any', 0) + [...counts].sort((a, b) => byLabel(locationText(a[0]), locationText(b[0])))
-    .map(([at, n]) => item(at, locationText(at), n)).join('') : '';
+  const items = open ? item('', 'Any', 0) + [...counts].sort((a, b) => byLabel(placeName(a[0]), placeName(b[0])))
+    .map(([at, n]) => item(at, placeName(at), n)).join('') : '';
   return `<span class="menu-anchor"><button class="col-filter${picked ? ' is-active' : ''}" data-action="menu" data-menu="${esc(key)}" aria-haspopup="menu" aria-expanded="${open}"
-      title="${esc(picked ? `${edge}: ${locationText(picked)}` : edge)}"><span class="col-filter-text">${esc(edge)}${picked ? `<span class="col-picked">: ${esc(locationText(picked))}</span>` : ''}</span>${icon('chevron-down')}</button>
+      title="${esc(picked ? `${edge}: ${placeName(picked)}` : edge)}"><span class="col-filter-text">${esc(edge)}${picked ? `<span class="col-picked">: ${esc(placeName(picked))}</span>` : ''}</span>${icon('chevron-down')}</button>
     ${open ? `<div class="pop menu menu-left" role="menu">${items}</div>` : ''}</span>`;
 }
 
@@ -703,7 +698,7 @@ function edgeLabel(id, edge) {
   if (editing) return `<input class="input edge-input" data-edge-edit value="${esc(ui.edgeEdit.text)}" aria-label="New label for ${esc(edge)}" autocomplete="off" spellcheck="false" data-autofocus>`;
   const def = formulaInfo(id) && definitionOf(formulaInfo(id).def);
   const rename = def
-    ? `<a class="icon-btn is-small edge-rename" href="#formula:${esc(def.id)}" aria-label="Rename ${esc(edge)} in ${esc(def.name)}" title="Its edges are ${esc(def.name)}’s: rename them in its definition">${icon('pencil')}</a>`
+    ? `<a class="icon-btn is-small edge-rename" href="#definition:${esc(def.id)}" aria-label="Rename ${esc(edge)} in ${esc(def.name)}" title="Its edges are ${esc(def.name)}’s: rename them in its definition">${icon('pencil')}</a>`
     : `<button class="icon-btn is-small edge-rename" data-action="edge-edit" data-id="${id}" data-edge="${esc(edge)}" aria-label="Rename ${esc(edge)}" title="Rename ${esc(edge)}">${icon('pencil')}</button>`;
   return `<span class="arg-edge"><span>${esc(edge)}</span>${rename}</span>`;
 }
@@ -777,7 +772,7 @@ function editExtras(f) {
   const up = !isObject(loc) && !isRelation(loc)
     ? `<button class="link-btn" data-action="move-up" data-id="${f.id}" title="Put it at ${esc(segmentText(loc.at))} instead (Alt+Left on its handle)">Move up a level</button>` : '';
   return `<span class="form-extras"><button class="link-btn" data-action="toggle-required" data-id="${f.id}" aria-pressed="${on}"
-    title="Flag it wherever it’s blank">${box(on ? true : null)}Required ${esc(where(loc))}</button>${up}</span>`;
+    title="Flag it wherever it’s blank">${box(on ? true : null)}Required ${esc(whereAt(f.at))}</button>${up}</span>`;
 }
 
 // Where a rename reaches: here only, or every record like this one (`count` of them, this one included).
@@ -838,7 +833,7 @@ function relationForm(depth) {
     : `<div class="rel-item">${box}${locationHtml(f.otherId)}<span class="rel-output">${t.type === 'choice' ? combo('output', f.output, 'Option', true)
       : `<input class="input rel-input" data-input="output" value="${esc(f.output)}" placeholder="Value" autocomplete="off" spellcheck="false"${ui.focus === 'output' ? ' data-autofocus' : ''}>`}</span></div>`;
   const actions = (t.type === 'tag' || f.step === 'output' ? saveButton : '') + cancelButton;
-  return `<div class="form-block">${row(depth, `<span class="twisty"></span><span class="label-text">${esc(t.other)}</span>`, value, actions)}${formNote()}</div>`;
+  return `<div class="form-block">${row(depth, `<span class="twisty"></span><span class="label-text">${esc(t.list)}</span>`, value, actions)}${formNote()}</div>`;
 }
 
 function entryRow(id, depth) {
@@ -874,7 +869,7 @@ function errorRows(at, depth) {
     .map(e => {
       const d = definitionOf(e.def);
       const label = `<span class="twisty"></span><span class="label-text">${esc(e.args[0].edge)}</span>`;
-      const value = `<a class="fx-error" href="#formula:${esc(e.def)}" title="${esc(`${e.error.msg} (${d?.name ?? 'a formula'})`)}">${esc(e.error.code)}</a>`;
+      const value = `<a class="fx-error" href="#definition:${esc(e.def)}" title="${esc(`${e.error.msg} (${d?.name ?? 'a formula'})`)}">${esc(e.error.code)}</a>`;
       return `<div class="entry">${row(depth, label, value, '')}</div>`;
     }).join('');
 }
@@ -927,7 +922,7 @@ const crumb = id => {
   const r = records[id];
   if (isChoice(r) && !isRelation(r))
     return `<span class="crumb-choice"><a href="#${id}">${esc(r.edge)}</a>${choiceSelect(id, 'in-crumbs')}</span>`;
-  const title = isRelation(r) ? ` title="${esc(r.args.map(a => `${a.edge}: ${locationText(a.at)}`).join('; '))}"` : '';
+  const title = isRelation(r) ? ` title="${esc(r.args.map(a => `${a.edge}: ${placeName(a.at)}`).join('; '))}"` : '';
   return `<a href="#${id}"${title}>${esc(segmentText(id))}</a>`;
 };
 
@@ -941,7 +936,7 @@ function recordView(id) {
     : [`<button class="crumb-more" data-action="reveal" aria-label="Show full path" title="Show full path">${icon('dots')}</button>`];
   const crumbs = [...start, ...path.slice(0, -1).map(crumb)].join(icon('chevron-right', 'crumb-sep'));
   const title = isObject(r) ? { title: `<span data-live="${nameRecordOf(id) ?? ''}">${esc(objectName(id))}</span>`, sub: kindChip(id) }
-    : isTag(r) ? { title: `${box(r.tag)}<span>${esc(r.edge)}</span>`, sub: r.tag ? 'Tag' : 'Tag, ruled out so it can’t be added' }
+    : isTag(r) ? { title: `${box(r.tag)}<span>${esc(r.edge)}</span>`, sub: r.tag ? 'Tag' : 'Tag · ruled out' }
     : isChoice(r) ? { title: `<span>${esc(r.edge)}</span>${choiceSelect(id, 'in-title')}`, sub: 'Choice' }
     : { title: esc(r.edge), sub: `${DATATYPE_NAMES[r.field]} field: ${esc(displayValue(r))}` };
   const rows = isField(r) ? '' : entryRows(id, 0);
@@ -964,16 +959,16 @@ function kindChip(id) {
 
 // A relation's own panel: its edges and output as the title, its arguments in place of a path, and below,
 // any entries located at it.
-// A relation with a pilot name is titled with it, its edges following in the subtitle. A computed one, or
-// one a formula also covers, says so under its arguments, along with the formula for relations like it.
+// It's titled with its relation's name (see formName); its roles follow in the subtitle. A computed one, or
+// one a definition also covers, says so under its arguments, along with the definition for relations like it.
 function relationView(id) {
   const r = records[id];
-  const named = nameEntryOf(id);
-  const title = (isTag(r) ? relationOutput(id) : '') + `<span>${esc(named?.name ?? relationLabel(r))}</span>`
-    + (isChoice(r) ? choiceSelect(id, 'in-title') : isField(r) ? `<span class="title-output">${relationValue(id, relationLabel(r))}</span>` : '');
+  const name = relationNameOf(id);
+  const title = (isTag(r) ? relationOutput(id) : '') + `<span>${esc(name)}</span>`
+    + (isChoice(r) ? choiceSelect(id, 'in-title') : isField(r) ? `<span class="title-output">${relationValue(id, name)}</span>` : '');
   const style = panelOptions.engaged && styleOf(id);
   const type = isComputed(id) ? `Computed ${TYPE_NAMES[typeOf(r)].toLowerCase()}` : TYPE_NAMES[typeOf(r)];
-  const sub = `${type} relation${named ? ` · ${esc(relationLabel(r))}` : ''}${isTag(r) && !r.tag ? ', ruled out so it can’t be added' : ''}`
+  const sub = `${type} relation · ${esc(joinList(r.args.map(a => a.edge)))}${isTag(r) && !r.tag ? ' · ruled out' : ''}`
     + (style ? ` · <button class="kind-chip${engagedHere(id) ? ' is-engaged' : ''}" data-action="style-engage" data-style="${style.id}" data-output="${esc(outputKey(r))}">${styleDot(id, true)}Line style</button>` : '');
   const rows = isField(r) ? '' : entryRows(id, 0);
   const body = rows || `<div class="empty">${isField(r) ? 'A field relation holds a value and has no entries.' : 'Nothing recorded about this relation yet.'}</div>`;
@@ -1002,9 +997,8 @@ function allView() {
   const kinds = kindsInState();
   const head = panelHead({ title: 'All', sub: kinds.length ? 'Browse records by kind' : 'Nothing here yet. Start with a kind.' });
   const deleted = archive.length ? listRow('#deleted', 'Deleted', String(archive.length)) : '';
-  const formulas = listRow('#formulas', 'Formulas', String(definitions.length));
-  const schemaRow = listRow('#schema', 'Schema', String(formsOfSchema().length));
-  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + formulas + schemaRow + deleted];
+  const schemaRow = listRow('#schema', 'Schema', `${count(formsOfSchema().length, 'form')}${definitions.length ? ` · ${count(definitions.length, 'definition')}` : ''}`);
+  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHref(k), plural(k), String(objectsOfKind(k).length))).join('') + schemaRow + deleted];
 }
 
 const ago = when => {
@@ -1024,57 +1018,157 @@ function deletedView() {
   return [head, rows || '<div class="empty">Nothing’s deleted. Deleted records show up here, and can be restored.</div>'];
 }
 
-// The schema (see "The schema" in model.js): every specification the chart has, by form, kinds first,
-// then entries and relations, with how many records have each. A specification nothing has can be
-// removed; the rest stay while anything has them.
-function schemaView() {
+// ---- The Schema view ----
+// The chart's vocabulary, a row for each form (see "The schema" and "Forms" in model.js): kinds, entries
+// and relations. A form's row opens onto everything keyed by it or by its parameterizations: where its
+// records are and whether they're required, its outputs, a relation's name, roles and list names, the
+// definitions that compute it and, on a page with a chart, whether this view shows it and its style. The
+// filters narrow it to computed forms, or to forms with specifications nothing has, which can be removed.
+
+const SCHEMA_FILTERS = [['all', 'All'], ['computed', 'Computed'], ['unused', 'Unused']];
+
+// What sort of thing a form is, as its badge says (see sortName), a kind's being Kind.
+const sortText = form => form === 'object' ? 'Kind' : sortName(JSON.parse(form)[0], isRelationForm(form));
+
+// Where a parameterization's records are: an entry's location, or each of a relation's edges with its
+// location. '' if the schema no longer has it.
+function paramWhere(param) {
+  const t = specsWithParam(param)[0];
+  if (!t) return '';
+  if (t.kind !== undefined) return 'Anywhere';
+  return t.args.length > 1 ? t.args.map(a => `${a.edge} (${placeText(a.loc)})`).join(' → ') : placeText(t.args[0].loc);
+}
+
+// A relation form's names to edit: its own, or none yet, with its edges in the schema's order.
+const namesOfForm = form => names[form] ?? { name: '', edges: specsOfForm(form)[0]?.args.map(a => a.edge) ?? [], lists: {} };
+
+// The New definition menu's items, here and in the ribbon: an entry, or a relation, from the given sides
+// if there are any.
+function newDefinitionItems(sides = []) {
+  const from = sides.length ? `, starting from ${sides.map(id => objectName(id)).join(' and ')}` : '';
+  const item = (hash, title, desc) => `<button class="menu-item" role="menuitem" data-action="open" data-hash="${esc(hash)}">
+    <span class="menu-text"><span class="menu-title">${title}</span><span class="menu-desc">${esc(desc)}</span></span></button>`;
+  return item('definition:new:entry', 'Entry', 'A field, choice or tag, computed at every location like one')
+    + item(['definition:new:relation', ...sides].join(':'), 'Relation', `Computed between objects${from}`);
+}
+
+// A definition's rule, in short: its formula, or its implications'.
+const ruleText = d => d.implications ? d.implications.map(i => i.formula).join('   ') : d.formula;
+const errorCount = defId => recordErrors(defId).length + (definitionError(defId) ? 1 : 0);
+
+function schemaView({ filter = 'all' }) {
   const used = usage();
   const unused = new Set(unusedSpecs());
-  const removeAll = unused.size ? `<button class="btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([...unused]))}" title="Remove every specification nothing has">Remove unused (${unused.size})</button>` : '';
-  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Schema', sub: 'Every specification the chart has, by form', actions: removeAll });
-  const users = k => (used.get(k) ?? []).length;
-  const outText = t => t.kind !== undefined ? t.kind : 'choice' in t.out ? t.out.choice : 'tag' in t.out ? (t.out.tag ? 'Attested' : 'Ruled out') : DATATYPE_NAMES[t.out.field];
-  const specRow = k => {
-    const t = schema[k];
-    const where = t.args ? t.args.map(a => (t.args.length > 1 ? `${a.edge}: ` : '') + placeText(a.loc)).join(' → ') : '';
-    const n = users(k);
-    const remove = unused.has(k) ? `<button class="link-btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([k]))}">Remove</button>` : '';
-    return `<div class="schema-spec${unused.has(k) ? ' is-unused' : ''}"><span class="schema-out">${esc(outText(t))}</span>
-      <span class="schema-where">${esc(where)}</span><span class="list-meta">${n ? count(n, 'record') : unused.has(k) ? 'Nothing has it' : 'Held by what it’s located at'}</span>${remove}</div>`;
-  };
-  const formRow = f => {
-    const keys = indexOf().byForm.get(f);
-    const d = describeForm(f);
-    const n = keys.reduce((s, k) => s + users(k), 0);
-    const key = `schema|${f}`;
-    const open = ui.expanded.has(key);
-    return `<div class="schema-form"><button class="schema-head" data-action="toggle" data-id="${esc(key)}" aria-expanded="${open}">${icon('chevron-right', 'schema-twist')}
-        <span class="list-title">${esc(d.label)}</span><span class="schema-desc">${esc(d.where)}</span>
-        <span class="list-meta">${count(keys.length, 'specification')} · ${count(n, 'record')}</span></button>
-      ${open ? `<div class="schema-specs">${keys.map(specRow).join('')}</div>` : ''}</div>`;
-  };
-  const forms = formsOfSchema();
+  const covered = coveredForms();
+  const filters = `<div class="schema-filters"><span class="seg" role="group" aria-label="Show">${SCHEMA_FILTERS.map(([value, text]) =>
+    `<button data-action="open" data-hash="schema${value === 'all' ? '' : `:${value}`}" aria-pressed="${filter === value}">${text}</button>`).join('')}</span></div>`;
+  const removeAll = filter === 'unused' && unused.size ? `<button class="btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([...unused]))}" title="Remove every specification nothing has">Remove unused (${unused.size})</button>` : '';
+  const open = ui.menu === 'schema-new';
+  const add = `<span class="menu-anchor"><button class="btn" data-action="menu" data-menu="schema-new" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}New definition${icon('chevron-down')}</button>
+    ${open ? `<div class="pop menu" role="menu">${newDefinitionItems()}</div>` : ''}</span>`;
+  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Schema', sub: 'The chart’s vocabulary, by form: what each is, where, and how it’s computed, named and drawn',
+    actions: removeAll || add, extra: filters });
+  const keep = filter === 'computed' ? f => covered.has(f) : filter === 'unused' ? f => indexOf().byForm.get(f).some(k => unused.has(k)) : () => true;
+  const forms = formsOfSchema().filter(keep);
   const byLabelOf = (a, b) => byLabel(describeForm(a).label, describeForm(b).label);
-  const section = (title, list) => list.length ? `<div class="section-head">${title}</div>${list.sort(byLabelOf).map(formRow).join('')}` : '';
-  return [head, section('Kinds', forms.filter(f => f === 'object'))
-    + section('Entries', forms.filter(f => formArity(f) === 1)) + section('Relations', forms.filter(isRelationForm))
-    || '<div class="empty">The schema is empty. It grows as records are entered.</div>'];
+  const row = f => schemaFormRow(f, { used, unused, covered });
+  const section = (title, list) => list.length ? `<div class="section-head">${title}</div>${list.sort(byLabelOf).map(row).join('')}` : '';
+  // A definition covering nothing in the schema, as one whose locations were all removed may.
+  const loose = filter === 'unused' ? [] : definitions.filter(d => !d.scope.some(p => specsWithParam(p).length)).map(d => asWritten(d));
+  const looseRows = loose.length ? `<div class="section-head">Definitions <span class="section-note">covering nothing in the schema</span></div>
+    ${loose.map(d => listRow(`#definition:${d.id}`, d.name || 'Untitled', errorCount(d.id) ? count(errorCount(d.id), 'error') : 'Covers nothing')).join('')}` : '';
+  const body = section('Kinds', forms.filter(f => f === 'object')) + section('Entries', forms.filter(f => formArity(f) === 1))
+    + section('Relations', forms.filter(isRelationForm)) + looseRows;
+  const empty = filter === 'computed' ? 'Nothing’s computed yet. A definition works out an entry or a relation by formula; start one above, or from Add › Definition… on a record.'
+    : filter === 'unused' ? 'Nothing’s unused. Every specification here has records, or something located at it.'
+    : 'The schema is empty. It grows as records are entered.';
+  return [head, body || `<div class="empty">${empty}</div>`];
+}
+
+// A form's row: what it is, where, and its records or errors; opened, everything keyed by it.
+function schemaFormRow(f, { used, unused, covered }) {
+  const keys = indexOf().byForm.get(f);
+  const users = k => (used.get(k) ?? []).length;
+  const d = describeForm(f);
+  const defs = f === 'object' ? [] : definitionsOfForm(f);
+  const errors = defs.reduce((s, x) => s + errorCount(x.id), 0);
+  const n = keys.reduce((s, k) => s + users(k), 0);
+  const key = `schema|${f}`;
+  const open = ui.expanded.has(key);
+  const badges = (f === 'object' ? '' : `<span class="schema-badge">${esc(sortText(f))}</span>`) + (covered.has(f) ? '<span class="schema-badge is-computed">Computed</span>' : '');
+  return `<div class="schema-form"><button class="schema-head" data-action="toggle" data-id="${esc(key)}" aria-expanded="${open}">${icon('chevron-right', 'schema-twist')}
+      <span class="list-title">${esc(d.label)}</span>${badges}<span class="schema-desc">${esc(d.where)}</span>
+      <span class="list-meta${errors ? ' is-error' : ''}">${errors ? count(errors, 'error') : count(n, 'record')}</span></button>
+    ${open ? `<div class="schema-body">${schemaFormBody(f, keys, defs, users, unused)}</div>` : ''}</div>`;
+}
+
+function schemaFormBody(f, keys, defs, users, unused) {
+  const part = (title, html) => html ? `<div class="schema-part-title">${title}</div><div class="schema-part">${html}</div>` : '';
+  const isRel = isRelationForm(f);
+  // Where its records are, by parameterization, and whether an entry's are required.
+  const params = [...new Set(keys.map(k => treeParam(schema[k])))];
+  const where = params.map(p => {
+    const n = keys.filter(k => treeParam(schema[k]) === p).reduce((s, k) => s + users(k), 0);
+    const on = isRequired(p);
+    const req = formArity(f) === 1 ? `<button class="link-btn" data-action="schema-required" data-param="${esc(p)}" aria-pressed="${on}"
+      title="Flag it wherever it’s blank">${box(on ? true : null)}Required</button>` : '';
+    return `<div class="schema-spec"><span class="schema-where">${esc(paramWhere(p))}</span><span class="list-meta">${count(n, 'record')}</span>${req}</div>`;
+  }).join('');
+  // Its outputs, and its specifications nothing has, to remove.
+  const outputs = formOutputs(f).map(([, text]) => `<span class="schema-output">${esc(String(text))}</span>`).join('');
+  const gone = keys.filter(k => unused.has(k)).map(k => `<div class="schema-spec is-unused">
+      <span class="schema-where">${esc(treeOutput(schema[k])[1])} · ${esc(paramWhere(treeParam(schema[k])))}</span><span class="list-meta">Nothing has it</span>
+      <button class="link-btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([k]))}">Remove</button></div>`).join('');
+  // A relation's name and roles, and its list names from each side. Each saves as it's left.
+  let naming = '';
+  if (isRel) {
+    const r = namesOfForm(f);
+    const lists = r.edges.flatMap(from => r.edges.filter(to => to !== from).map(to => `<label class="names-list"><span class="names-list-label">From ${esc(from)}, its ${esc(to)} list</span>
+      <input class="input" data-names="list" data-form="${esc(f)}" data-from="${esc(from)}" data-to="${esc(to)}" value="${esc(listNameIn(r, from, to))}" placeholder="${esc(to)}" autocomplete="off" spellcheck="false"></label>`)).join('');
+    naming = `<div class="names-head"><input class="input names-name" data-names="name" data-form="${esc(f)}" value="${esc(r.name)}" placeholder="${esc(formName(f))}" aria-label="Relation name" autocomplete="off" spellcheck="false">
+        <span class="names-edges">Roles, as a formula calls it: ${esc(r.edges.join(', '))}</span>
+        ${names[f] ? `<button class="icon-btn is-small" data-action="names-remove" data-form="${esc(f)}" aria-label="Forget its names" title="Forget its name and list names, so it goes by its edge labels">${icon('x')}</button>` : ''}</div>${lists}`;
+  }
+  // The definitions that compute it, and one to add where none covers it yet.
+  const add = f !== 'object' && uncoveredParams(f).length ? `<div class="schema-spec"><span class="schema-where">${defs.length ? 'Entered at its other locations' : 'Entered, not computed'}</span>
+      <a class="link-btn" href="#definition:new:form:${esc(encodeURIComponent(f))}">${icon('plus')}Add definition</a></div>` : '';
+  const definition = defs.map(x => `<div class="schema-spec"><code class="schema-rule">${esc(ruleText(x))}</code>
+      <span class="list-meta${errorCount(x.id) ? ' is-error' : ''}">${errorCount(x.id) ? count(errorCount(x.id), 'error') : `${computedCount(x.id)} computed`}</span>
+      <a class="link-btn" href="#definition:${esc(x.id)}">Edit definition</a></div>`).join('') + add;
+  // On a page with a chart: whether the view in use shows it, and its style.
+  let drawing = '';
+  if (panelOptions.engaged) {
+    const items = Object.values(showable()).flat().filter(x => f === 'object' ? x.kind : x.form === f);
+    const shows = items.map(it => {
+      const { shown, total } = shownCount(it);
+      const label = f === 'object' ? it.label : 'Shown';
+      return `<button class="link-btn" data-action="show-form" data-key="${esc(it.key)}" data-on="${shown === 0}" aria-pressed="${shown > 0}">${box(shown === 0 ? null : true)}${esc(label)}${shown && shown < total ? ` (${shown} of ${total})` : ''}</button>`;
+    }).join('');
+    const s = styleOfForm(f);
+    const style = s ? `<button class="link-btn" data-action="style-engage" data-style="${s.id}" title="Format it in the ribbon">Style</button>`
+      : `<button class="link-btn" data-action="style-form" data-form="${esc(f)}" title="Give it a style, and format it in the ribbon">${icon('plus')}Style</button>`;
+    drawing = `<div class="schema-spec schema-drawing">${shows}${style}</div>`;
+  }
+  return part('Where', where) + part('Outputs', `<div class="schema-outputs">${outputs}</div>`) + (isRel ? part('Names', naming) : '')
+    + part('Definition', definition) + part(`In ${esc(viewInUse()?.name ?? 'this view')}`, drawing) + part('Unused', gone);
 }
 
 // The hash is empty for All, "kind:<kind>" for a kind, "relate:<a>" or "relate:<a>:<b>" for relating
-// two things (see relate.js), "deleted" for Deleted, "schema" for the schema, "formulas" for the formulas,
-// "formula:<id>" for one (or "formula:new:entry[:<location>]" and "formula:new:relation[:<a>:<b>]" for a
-// new one), or a record id.
+// two things (see relate.js), "deleted" for Deleted, "schema", "schema:computed" or "schema:unused" for the
+// schema, "definition:<id>" for a definition (or "definition:new:entry[:<location>]",
+// "definition:new:relation[:<a>:<b>]" or "definition:new:form:<form>" for a new one), or a record id. The older
+// "formulas" and "formula:…" still lead to the same places.
 function currentView() {
-  const h = decodeURIComponent(location.hash.slice(1));
+  const h = decodeURIComponent(location.hash.slice(1)).replace(/^formula:/, 'definition:');
   if (h === 'deleted') return { deleted: true };
-  if (h === 'schema') return { schema: true };
-  if (h === 'formulas') return { formulas: true };
-  if (h.startsWith('formula:new:')) {
-    const [kind, ...sides] = h.slice(12).split(':');
+  if (h === 'schema' || h === 'schema:computed' || h === 'schema:unused') return { schema: { filter: h.split(':')[1] ?? 'all' } };
+  if (h === 'formulas') return { schema: { filter: 'computed' } };
+  if (h.startsWith('definition:new:form:')) return { formula: { isNew: true, form: h.slice(20) } };
+  if (h.startsWith('definition:new:')) {
+    const [kind, ...sides] = h.slice(15).split(':');
     return { formula: { isNew: true, relation: kind === 'relation', sides: sides.filter(s => records[s]) } };
   }
-  if (h.startsWith('formula:')) return { formula: { id: h.slice(8) } };
+  if (h.startsWith('definition:')) return { formula: { id: h.slice(11) } };
   if (h.startsWith('kind:')) return { kind: h.slice(5) };
   if (h.startsWith('relate:')) {
     const [a, b] = h.slice(7).split(':');
@@ -1089,8 +1183,8 @@ function renderPanel() {
   listbox.input = null;
   const view = currentView();
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
-  const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView() : view.schema ? schemaView()
-    : view.formulas ? formulasView() : view.formula ? definitionView(view.formula)
+  const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView() : view.schema ? schemaView(view.schema)
+    : view.formula ? definitionView(view.formula)
     : view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
   const pending = ui.pending ? `<div class="pending" role="alertdialog"><span class="pending-text">${esc(ui.pending.message)}</span>
     <button class="btn btn-primary" data-action="pending-yes">${esc(ui.pending.yes ?? 'Change it')}</button><button class="btn" data-action="pending-no">Cancel</button></div>` : '';
@@ -1110,27 +1204,17 @@ function restoreFocus() {
   }
 }
 
-// ---- Formulas ----
+// ---- Definitions ----
 // Computed records (see formulas.md, and "Computed records" in model.js): how they're set apart in rows,
-// why each one is there, overriding them, and the views for writing formulas and naming relations.
+// why each one is there, overriding them, and the views for writing definitions.
 
 const isFormulaText = text => /^\s*(=|←|<-)/.test(String(text ?? ''));
-
-// The names a relation record's form has (`names` in model.js): its name, and its lists' names.
-const nameEntryOf = id => names[formKeyOf(id)] ?? null;
-
-// The name for the list of relatives in the `listed` role, seen from the `from` role; without one, the
-// listed role's edge label, as formulas.js reads it too.
-function listName(named, from, listed) {
-  const lists = Object.entries(named?.lists ?? {}).find(([k]) => same(k, from))?.[1];
-  return Object.entries(lists ?? {}).find(([k]) => same(k, listed))?.[1] ?? listed;
-}
 
 // How a record reads in a sentence: an entry's label, or a relation's name and its sides.
 function recordTitle(id) {
   const r = records[id];
-  if (!isRelation(r)) return labelOf(r);
-  return `${relationNameOf(id)} (${r.args.map(a => locationText(a.at)).join(' → ')})`;
+  if (!isRelation(r)) return r.edge;
+  return `${relationNameOf(id)} (${r.args.map(a => placeName(a.at)).join(' → ')})`;
 }
 
 // A record a formula read, as its explanation lists it: where it is, and what it says. A relation's
@@ -1138,7 +1222,7 @@ function recordTitle(id) {
 function readText(id, details = []) {
   const r = records[id];
   if (isObject(r)) return objectName(id);
-  if (isRelation(r)) return `${r.args.map(a => locationText(a.at)).join(' → ')} (${[relationNameOf(id),
+  if (isRelation(r)) return `${r.args.map(a => placeName(a.at)).join(' → ')} (${[relationNameOf(id),
     ...details.map(d => `${records[d].edge} ${displayValue(records[d])}`)].join(', ')}${isTag(r) && !r.tag ? ', ruled out' : ''})`;
   const [head, ...tail] = pathTo(id);
   const start = isRelation(records[head]) ? recordTitle(head) : objectName(head);
@@ -1166,8 +1250,11 @@ function formulaOutputText(d, v) {
   return String(v);
 }
 
-const definitionType = d => d.type === 'field' ? `${DATATYPE_NAMES[d.datatype ?? 'number']} field` : TYPE_NAMES[d.type];
+// What sort of thing an entry or relation is, by its output's sort: Tag, Choice, Percent field, Tag
+// relation, ….
+const sortName = (sort, isRel) => `${DATATYPE_NAMES[sort] ? `${DATATYPE_NAMES[sort]} field` : TYPE_NAMES[sort]}${isRel ? ' relation' : ''}`;
 const isRelationDef = d => !!d.args || (d.covers ?? []).some(k => JSON.parse(k).length > 1);
+const definitionType = d => sortName(d.type === 'field' ? d.datatype ?? 'number' : d.type, isRelationDef(d));
 const computedCount = defId => Object.values(formulaResult.computed ?? {}).filter(c => c.def === defId).length;
 
 // The mark after a record's output: "fx" on a computed one, which explains it when clicked, and a corner
@@ -1193,7 +1280,7 @@ function whyBlock(id, depth = 0, inHead = false) {
   const info = formulaInfo(id);
   const d = info && definitionOf(info.def);
   if (!d) return '';
-  const defLink = `<a class="why-def" href="#formula:${esc(d.id)}">${esc(d.name)}</a>`;
+  const defLink = `<a class="why-def" href="#definition:${esc(d.id)}">${esc(d.name)}</a>`;
   const readsOf = label => (Array.isArray(info.reads) ? info.reads : info.reads?.[label] ?? []).filter(k => records[k] && k !== id);
   const readList = ids => {
     const items = readItems(ids);
@@ -1229,7 +1316,7 @@ function whyBlock(id, depth = 0, inHead = false) {
     const strong = info.mark === 'differs' || info.mark === 'overrides';
     buttons = `<button class="link-btn" data-action="use-formula" data-id="${esc(id)}" title="Drop what’s entered here, so the formula’s output stands">${strong ? 'Use formula' : 'Clear'}</button>`;
   }
-  buttons += `<a class="link-btn" href="#formula:${esc(d.id)}">Edit formula</a>`;
+  buttons += `<a class="link-btn" href="#definition:${esc(d.id)}">Edit definition</a>`;
   return `<div class="why${inHead ? ' in-head' : ''}" style="--depth:${depth}"><div class="why-head">${head}</div>${lines}<div class="why-actions">${buttons}</div></div>`;
 }
 
@@ -1238,40 +1325,37 @@ function whyBlock(id, depth = 0, inHead = false) {
 // where: 'inline:<record id>' in an edit form, 'def:<id>' or 'new:…' in the definition view. Typing changes
 // the draft without redrawing, so the box keeps its focus; Save hands it to saveDefinition().
 
-// A location as formulas.js writes it, a path from a kind; null for a location under a relation.
-function locationTextOf(id) {
-  const path = pathTo(id);
-  const head = records[path[0]];
-  if (!isObject(head)) return null;
-  return [head.kind, ...path.slice(1).map(p => {
-    const r = records[p];
-    return isChoice(r) ? `${r.edge}: ${r.choice}` : isTag(r) ? `${r.tag ? '' : 'Not '}${r.edge}` : r.edge;
-  })].join(' › ');
-}
+// A record's location as a definition writes it, a path from a kind (see pathText); null under a relation.
+const pathOfRecord = id => { const t = treeOf(records, id); return t ? pathText(t) : null; };
 
 // Every location the schema has, as a path from a kind, for the location pickers.
 const schemaLocations = () => [...new Set(Object.values(schema).map(pathText).filter(Boolean))].sort(byLabel);
 
-// What a definition covers, in words.
+// What a definition covers, in words, read from the schema.
 function coverageText(d) {
-  if (d.args) return d.args.map(a => `${a.edge || '?'} (${a.at.join(' or ') || '?'})`).join(' → ');
+  if (d.args && d.args.every(a => a.at)) return d.args.map(a => `${a.edge || '?'} (${a.at.join(' or ') || '?'})`).join(' → ');
   if (d.at) return d.at.join('; ') || 'nowhere yet';
-  return (d.covers ?? []).map(param => {
-    const id = Object.keys(records).find(k => !isObject(records[k]) && parameterization(records, k) === param);
-    if (!id) return 'locations no record has now';
-    const r = records[id];
-    return isRelation(r) ? r.args.map(a => `${a.edge} (${kindPath(a.at)})`).join(' → ') : kindPath(r.at);
-  }).join('; ');
+  return [...new Set((d.covers ?? []).map(param => paramWhere(param) || 'locations the schema no longer has'))].join('; ');
 }
 
 // A new definition: an entry at a location, or a relation between two sides, or from one, if they're given.
 function newDefinition(relation, sides) {
   const id = newId();
   if (relation) return { id, name: '', type: 'tag',
-    args: [sides[0], sides[1]].map(s => ({ edge: '', at: s && locationTextOf(s) ? [locationTextOf(s)] : [] })),
+    args: [sides[0], sides[1]].map(s => ({ edge: '', at: s && pathOfRecord(s) ? [pathOfRecord(s)] : [] })),
     implications: [{ label: '', formula: '← ' }] };
-  const at = sides[0] && locationTextOf(sides[0]);
+  const at = sides[0] && pathOfRecord(sides[0]);
   return { id, name: '', type: 'field', datatype: 'number', at: at ? [at] : [], formula: '= ' };
+}
+
+// The parameterizations of a form that no definition covers yet.
+const uncoveredParams = form => [...new Set(specsOfForm(form).map(treeParam))].filter(p => !definitionCovering(p));
+
+// A new definition covering a form's parameterizations that none covers yet, from the Schema view, as
+// people write it.
+function newDefinitionOfForm(form) {
+  const tag = JSON.parse(form)[0] === 'tag';
+  return asWritten({ id: newId(), scope: uncoveredParams(form), ...(tag ? { implications: [{ label: '', formula: '← ' }] } : { formula: '= ' }) });
 }
 
 // A formula for the records like `id`, which has none yet: covering exactly its parameterization.
@@ -1288,12 +1372,12 @@ function formulaSection(id) {
   const key = `inline:${id}`;
   const d = definitionCovering(parameterization(records, id));
   if (ui.fx?.key !== key) {
-    if (!d) return `<div class="fx-section is-quiet"><button class="link-btn" data-action="fx-add" data-id="${esc(id)}">${icon('plus')}Add a formula</button>
+    if (!d) return `<div class="fx-section is-quiet"><button class="link-btn" data-action="fx-add" data-id="${esc(id)}">${icon('plus')}Add a definition</button>
       <span class="fx-hint">to work out ${esc(isRelation(records[id]) ? recordTitle(id).replace(/ \(.*/, '') : records[id].edge)} at every location like this one</span></div>`;
     ui.fx = { key, draft: structuredClone(d), error: null };
   }
   const fx = ui.fx;
-  const title = definitionOf(fx.draft.id) ? `Formula: <a href="#formula:${esc(fx.draft.id)}">${esc(fx.draft.name)}</a>` : 'New formula';
+  const title = definitionOf(fx.draft.id) ? `Definition: <a href="#definition:${esc(fx.draft.id)}">${esc(fx.draft.name)}</a>` : 'New definition';
   return `<div class="fx-section"><div class="fx-section-head">${title}<span class="fx-hint">${esc(coverageText(fx.draft))}</span></div>
     ${formulaFields(fx)}${draftFoot(fx, true)}</div>`;
 }
@@ -1336,9 +1420,9 @@ function fxNoteHtml(text) {
 function draftFoot(fx, inline) {
   const error = fx.error ? `<span class="fx-error-text">${icon('alert-triangle')}${esc(fx.error)}</span>` : '';
   const other = !inline ? '<button class="link-btn" data-action="fx-revert">Revert</button>'
-    : definitionOf(fx.draft.id) ? `<a class="link-btn" href="#formula:${esc(fx.draft.id)}">Open the whole definition</a>`
+    : definitionOf(fx.draft.id) ? `<a class="link-btn" href="#definition:${esc(fx.draft.id)}">Open the whole definition</a>`
     : '<button class="link-btn" data-action="fx-close">Cancel</button>';
-  return `<div class="fx-foot"><button class="btn btn-primary" data-action="fx-save">Save formula</button>${other}${error}
+  return `<div class="fx-foot"><button class="btn btn-primary" data-action="fx-save">Save definition</button>${other}${error}
     <span class="fx-keys"><span><kbd>Enter</kbd> save</span></span></div>`;
 }
 
@@ -1376,7 +1460,7 @@ function saveDraft() {
   if (fx.error) return;
   fx.draft = structuredClone(d);
   ui.info = `Saved ${d.name}; the formulas are worked out again.`;
-  if (fx.isNew) location.hash = `formula:${d.id}`;
+  if (fx.isNew) location.hash = `definition:${d.id}`;
 }
 
 // The Excel-like shortcut: a value typed starting with = (or a tag's ← condition) becomes the formula for
@@ -1416,68 +1500,33 @@ function guessDatatype(text, at) {
   return typeof v === 'string' ? 'text' : v?.t === 'date' ? 'date' : 'number';
 }
 
-// ---- The Formulas view and a definition's view ----
-
-const fxCrumbs = `<a href="#">All</a>${icon('chevron-right', 'crumb-sep')}<a href="#formulas">Formulas</a>`;
-
-function formulasView() {
-  const head = panelHead({ crumbs: '<a href="#">All</a>', title: 'Formulas', sub: 'Entries and relations worked out from other records',
-    actions: `<span class="fx-head-actions"><a class="btn" href="#formula:new:entry">${icon('plus')}Entry</a><a class="btn" href="#formula:new:relation">${icon('plus')}Relation</a></span>` });
-  const rows = allDefinitions().map(d => {
-    const errors = recordErrors(d.id).length + (definitionError(d.id) ? 1 : 0);
-    const meta = `${definitionType(d)}${isRelationDef(d) ? ' relation' : ''} · ${coverageText(d)}`;
-    return `<a class="list-row fx-list-row" href="#formula:${esc(d.id)}"><span class="fx-list-main"><span class="list-title">${esc(d.name)}</span>
-        <span class="fx-list-meta">${esc(meta)}</span></span>
-      <span class="fx-list-count${errors ? ' is-error' : ''}">${errors ? count(errors, 'error') : count(computedCount(d.id), 'record')}</span>${icon('chevron-right', 'list-chevron')}</a>`;
-  }).join('');
-  return [head, (rows || '<div class="empty">No formulas yet.</div>') + namesSection()];
-}
-
-// The names of relations and of their lists, by form (see "Names" in model.js), edited in place. Each
-// saves as it's left.
-function namesSection() {
-  const blocks = nameList().map(r => {
-    const pairs = r.edges.flatMap(from => r.edges.filter(to => to !== from).map(to => [from, to]));
-    const lists = pairs.map(([from, to]) => {
-      const value = listNameIn(r, from, to);
-      return `<label class="names-list"><span class="names-list-label">From ${esc(from)}, its ${esc(to)} list</span>
-        <input class="input" data-names="list" data-form="${esc(r.form)}" data-from="${esc(from)}" data-to="${esc(to)}" value="${esc(value)}" placeholder="${esc(to)}" autocomplete="off" spellcheck="false"></label>`;
-    }).join('');
-    const where = describeForm(r.form).where;
-    return `<div class="names-rel"><div class="names-head"><input class="input names-name" data-names="name" data-form="${esc(r.form)}" value="${esc(r.name)}" aria-label="Relation name" autocomplete="off" spellcheck="false">
-        <span class="names-edges">${esc(TYPE_NAMES[r.type] ?? r.type)} · ${esc(r.edges.join(' · '))}${where ? ` · ${esc(where)}` : ''}</span>
-        <button class="icon-btn is-small" data-action="names-remove" data-form="${esc(r.form)}" aria-label="Forget this name" title="Forget this name">${icon('x')}</button></div>${lists}</div>`;
-  }).join('');
-  // Relation forms in the schema that have no name yet.
-  const unnamed = formsOfSchema().filter(f => isRelationForm(f) && !names[f]);
-  const add = unnamed.length ? `<select class="input names-add" data-names="add"><option value="">Name another relation…</option>${unnamed.map(f =>
-    `<option value="${esc(f)}">${esc(describeForm(f).label)} (${esc(TYPE_NAMES[typeOfForm(f)])})</option>`).join('')}</select>` : '';
-  return `<div class="section-head">Names <span class="section-note">for relations, and for their lists of relatives seen from each side</span></div>
-    <div class="names">${blocks}${add}</div>`;
-}
+// ---- Names, as the Schema view edits them ----
 
 // A relation or list given a new name takes it into the formulas and filters that mention the old one.
 // A list that had no name went by an edge label, which formulas use for other things too, so naming it
-// for the first time renames nothing. `fn` returns the form's names changed, or null to forget them.
+// for the first time renames nothing; nor does naming a relation that went by its edge labels. `fn`
+// returns the form's names changed, or null to forget them.
 const changeName = (form, fn, from, to) => {
-  const changed = fn(structuredClone(names[form]));
+  const changed = fn(structuredClone(namesOfForm(form)));
   const { [form]: _, ...rest } = names;
   const next = changed ? { ...rest, [form]: changed } : rest;
   const renames = from && to ? [[from, to]] : [];
   ui.notice = changeFormulas(renamedInFormulas(definitions, from, to), next, renames);
 };
 
-// A list's name as the Names section shows it, or '' where it goes by its edge label.
+// A list's own name, or '' where it goes by its edge label.
 const listNameIn = (r, from, to) =>
   Object.entries(Object.entries(r.lists ?? {}).find(([k]) => same(k, from))?.[1] ?? {}).find(([k]) => same(k, to))?.[1] ?? '';
 
 function onNamesChange(el) {
   const form = el.dataset.form;
   if (el.dataset.names === 'name') {
-    if (!clean(el.value)) return;
+    if (!clean(el.value) || clean(el.value) === formName(form)) return;
+    if (Object.keys(names).some(f => f !== form && same(formName(f), el.value))) { ui.notice = `Another relation is called ${clean(el.value)}. Give this one a name of its own.`; return; }
     changeName(form, r => ({ ...r, name: clean(el.value) }), names[form]?.name, clean(el.value));
   } else if (el.dataset.names === 'list') {
-    const was = listNameIn(names[form] ?? {}, el.dataset.from, el.dataset.to);
+    const was = listNameIn(namesOfForm(form), el.dataset.from, el.dataset.to);
+    if (clean(el.value) === was) return;
     const now = clean(el.value) || el.dataset.to;
     changeName(form, r => {
       const from = Object.keys(r.lists ?? {}).find(k => same(k, el.dataset.from)) ?? norm(el.dataset.from);
@@ -1488,30 +1537,33 @@ function onNamesChange(el) {
       lists[from] = own;
       return { ...r, lists };
     }, was, was && now);
-  } else if (el.dataset.names === 'add' && el.value) {
-    const t = specsOfForm(el.value)[0];
-    const edges = t.args.map(a => a.edge);
-    ui.notice = saveNames({ ...names, [el.value]: { name: edges.join(' · '), edges, lists: {} } });
   }
 }
 
+// ---- A definition's view ----
+
+const fxCrumbs = `<a href="#">All</a>${icon('chevron-right', 'crumb-sep')}<a href="#schema:computed">Schema</a>`;
+
 // A definition's own view: what it is and covers, its formula or implications, and what it works out.
-function definitionView({ id, isNew, relation, sides = [] }) {
-  const key = isNew ? `new:${relation ? 'relation' : 'entry'}:${sides.join(':')}` : `def:${id}`;
+// A new one comes blank, or from two sides or a location, or covering what a form's row in the Schema view
+// has uncovered.
+function definitionView({ id, isNew, relation, sides = [], form }) {
+  const key = form ? `new:form:${form}` : isNew ? `new:${relation ? 'relation' : 'entry'}:${sides.join(':')}` : `def:${id}`;
   if (ui.fx?.key !== key) {
-    const d = isNew ? newDefinition(relation, sides) : definitionOf(id);
-    if (!d) return [panelHead({ crumbs: fxCrumbs, title: 'Formula', sub: 'Not found' }), '<div class="empty">There’s no formula here. It may have been deleted; Undo brings it back.</div>'];
-    const atRecord = isNew && !relation && sides[0] && !locationTextOf(sides[0]) ? sides[0] : null;
+    const d = form ? (formsOfSchema().includes(form) && uncoveredParams(form).length ? newDefinitionOfForm(form) : null)
+      : isNew ? newDefinition(relation, sides) : definitionOf(id);
+    if (!d) return [panelHead({ crumbs: fxCrumbs, title: 'Definition', sub: 'Not found' }), '<div class="empty">There’s no definition here. It may have been deleted; Undo brings it back.</div>'];
+    const atRecord = isNew && !relation && sides[0] && !pathOfRecord(sides[0]) ? sides[0] : null;
     ui.fx = { key, draft: structuredClone(d), isNew, atRecord, error: null };
   }
   const fx = ui.fx, d = fx.draft;
   const isRel = isRelationDef(d);
-  const sub = isNew ? `New computed ${isRel ? 'relation' : 'entry'}` : `${definitionType(d)}${isRel ? ' relation' : ''} · works out ${count(computedCount(d.id), 'record')}`;
+  const sub = isNew ? `New definition of ${isRel ? 'a relation' : 'an entry'}` : `${definitionType(d)} · works out ${count(computedCount(d.id), 'record')}`;
   const actions = isNew ? '' : `<button class="btn" data-action="fx-delete">${icon('trash')}Delete</button>`;
-  const head = panelHead({ crumbs: fxCrumbs, title: esc(d.name || (isRel ? 'New relation' : 'New entry')), sub, actions });
+  const head = panelHead({ crumbs: fxCrumbs, title: esc(d.name || 'New definition'), sub, actions });
   const field = (label, html, note = '') => `<div class="fx-label-cell">${label}</div><div class="fx-value-cell">${html}${note ? `<div class="fx-hint">${note}</div>` : ''}</div>`;
   const typeValue = d.type === 'field' ? `field:${d.datatype ?? 'number'}` : d.type;
-  const types = [['tag', 'Tag'], ['choice', 'Choice'], ...Object.entries(DATATYPE_NAMES).map(([k, n]) => [`field:${k}`, `${n} field`])];
+  const types = [['tag', sortName('tag')], ['choice', sortName('choice')], ...Object.keys(DATATYPE_NAMES).map(k => [`field:${k}`, sortName(k)])];
   const typeSelect = `<select class="input fx-select" data-fx="type">${types.map(([v, t]) => `<option value="${v}"${v === typeValue ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
   let where;
   if (d.args) {
@@ -1529,7 +1581,7 @@ function definitionView({ id, isNew, relation, sides = [] }) {
   }
   const errors = [definitionError(d.id) && `<div class="fx-result-line is-error">${esc(definitionError(d.id))}</div>`,
     ...recordErrors(d.id).slice(0, 8).map(e => `<div class="fx-result-line is-error"><span class="fx-error">${esc(e.error.code)}</span>
-      ${e.args.map(a => `<a href="#${esc(a.at)}">${esc(locationText(a.at))}</a>`).join(' → ')}: ${esc(e.error.msg)}</div>`)].filter(Boolean).join('');
+      ${e.args.map(a => `<a href="#${esc(a.at)}">${esc(placeName(a.at))}</a>`).join(' → ')}: ${esc(e.error.msg)}</div>`)].filter(Boolean).join('');
   const results = Object.entries(formulaResult.computed ?? {}).filter(([, c]) => c.def === d.id).map(([k]) => k).filter(k => records[k]);
   const resultList = results.slice(0, 12).map(k => `<a class="fx-result" href="#${esc(k)}">${esc(resultText(k))}</a>`).join('')
     + (results.length > 12 ? `<span class="fx-hint">and ${results.length - 12} more</span>` : '');
@@ -1549,7 +1601,7 @@ function definitionView({ id, isNew, relation, sides = [] }) {
 function resultText(id) {
   const r = records[id];
   const out = isTag(r) ? (r.tag ? '' : ' (ruled out)') : `: ${isField(r) ? displayValue(r) : r.choice}`;
-  return isRelation(r) ? `${r.args.map(a => locationText(a.at)).join(' → ')}${out}` : `${readText(r.at)}${out}`;
+  return isRelation(r) ? `${r.args.map(a => placeName(a.at)).join(' → ')}${out}` : `${readText(r.at)}${out}`;
 }
 
 function locationPicker(list, i) {
@@ -1612,8 +1664,8 @@ function schemaNames() {
   for (const t of Object.values(schema)) {
     if (!t.args) continue;
     if (t.args.length === 1) { add(t.args[0].edge, 'entry'); continue; }
-    const named = names[formOfTree(t)];
-    for (const own of t.args) for (const other of t.args) if (own !== other) add(listName(named, own.edge, other.edge), 'list');
+    const form = formOfTree(t);
+    for (const own of t.args) for (const other of t.args) if (own !== other) add(listName(form, own.edge, other.edge), 'list');
   }
   return [...out.values()].sort((a, b) => byLabel(a.name, b.name));
 }
@@ -1684,6 +1736,7 @@ function acceptSuggest(i = suggestion.active) {
 // ---- Events ----
 
 const actions = {
+  open: d => { location.hash = d.hash; },
   toggle: d => ui.expanded.has(d.id) ? ui.expanded.delete(d.id) : ui.expanded.add(d.id),
   reveal: () => { ui.showRoot = true; },
   menu: d => { ui.menu = ui.menu === d.menu ? null : d.menu; },
@@ -1717,6 +1770,7 @@ const actions = {
     if (!ui.notice) ui.info = 'Restored.';
   },
   'toggle-required': d => toggleRequired(d.id),
+  'schema-required': d => setRequired(d.param, !isRequired(d.param)),
   unrequire: d => stopRequiring(d.param),
   // A blank required entry is filled in where it stands: a tag is attested at once, and a field or choice
   // goes straight to its value or option.
@@ -1759,7 +1813,7 @@ const actions = {
     const d = ui.fx.draft;
     const n = computedCount(d.id);
     ui.pending = { message: `Delete ${d.name}${n ? `, and the ${count(n, 'record')} it works out` : ''}? Formulas that use it will show errors. Undo brings it back.`, yes: 'Delete',
-      apply: () => { ui.notice = deleteDefinition(d.id); if (!ui.notice) { ui.info = `Deleted ${d.name}.`; location.hash = 'formulas'; } } };
+      apply: () => { ui.notice = deleteDefinition(d.id); if (!ui.notice) { ui.info = `Deleted ${d.name}.`; location.hash = 'schema:computed'; } } };
   },
   'fx-imp-add': () => { ui.fx.draft.implications.push({ label: '', formula: '← ' }); },
   'fx-imp-remove': d => {

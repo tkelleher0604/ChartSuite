@@ -57,7 +57,7 @@ function render() {
   document.getElementById('foot').innerHTML =
     `<button class="link-btn" data-action="undo"${undoStack.length ? '' : ' disabled'}>Undo <kbd>${undoKey}</kbd></button>
      <button class="link-btn" data-action="redo"${redoStack.length ? '' : ' disabled'}>Redo <kbd>${redoKey}</kbd></button>
-     ${isSampleChart() ? '<button class="link-btn" data-action="reset">Reset sample data</button>' : ''}
+     ${isSampleChart() ? '<button class="link-btn" data-action="reset" title="Put the sample chart back as it started. Undo brings your changes back.">Reset sample</button>' : ''}
      ${ui.fullPaths ? '<button class="link-btn" data-action="full-paths">Shorten paths</button>' : ''}
      <span class="foot-hint${ui.notice ? ' is-error' : ''}">${esc(ui.notice ?? ui.info ?? `${currentView().id ? 'Drag a row’s handle to reorder it. ' : ''}Changes are saved in this browser.`)}</span>`;
   restoreFocus();

@@ -321,23 +321,8 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
 .fx-tag-value { display: flex; align-items: center; gap: 10px; }
 .input.fx-inline { flex: 1; min-width: 0; height: 26px; font: 12.5px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; }
 
-/* The Formulas view: the definitions, then the names. */
-.fx-head-actions { display: inline-flex; gap: 6px; }
-.fx-list-row { align-items: center; }
-.fx-list-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.fx-list-main .list-title { white-space: normal; }
-.fx-list-meta { font-size: 12px; line-height: 17px; color: var(--text-3); overflow-wrap: anywhere; }
-.fx-list-count { flex: none; font-size: 12.5px; color: var(--text-3); }
-.fx-list-count.is-error { color: var(--danger); }
 .section-head { margin: 16px 10px 4px 22px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
 .section-note { font-weight: 400; }
-.names { display: grid; gap: 8px; padding: 0 10px 12px 22px; }
-.names-rel { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
-.names-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
-.input.names-name { width: 14rem; font-weight: 500; }
-.names-edges { flex: 1; font-size: 12px; color: var(--text-3); }
-.names-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 12rem); align-items: center; gap: 10px; margin-top: 6px; font-size: 12.5px; color: var(--text-2); }
-.names-add { justify-self: start; width: auto; max-width: 100%; }
 
 /* A definition's own view: labeled fields on the panel's grid. */
 .fx-editor { display: grid; grid-template-columns: calc(var(--label-col) - 18px) minmax(0, 1fr); gap: 12px 10px; padding: 14px 16px 4px 22px; }
@@ -370,20 +355,41 @@ a.fx-error:hover { text-decoration: underline; text-underline-offset: 3px; }
   .fx-imp .fx-field { grid-row: 2; grid-column: 2 / -1; }
   .fx-param { grid-template-columns: minmax(0, 1fr) auto; }
   .fx-param .fx-chips { grid-column: 1 / -1; }
-  .names-list { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .fx-keys { display: none; }
 }
 
-/* The Schema view: forms, each opening onto its specifications. */
-.schema-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px 8px 4px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; }
+/* The Schema view: a row for each form, opening onto everything keyed by it. */
+.schema-filters { margin-top: 10px; }
+.schema-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px 8px 4px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; }
 .schema-head:hover { background: var(--hover); }
 .schema-twist { flex: none; width: 14px; height: 14px; color: var(--text-3); transition: transform .12s; }
 .schema-head[aria-expanded="true"] .schema-twist { transform: rotate(90deg); }
 .schema-desc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 13px; }
 .schema-head .list-title { flex: none; }
 .schema-head .list-meta, .schema-spec .list-meta { flex: 1 0 auto; }
-.schema-specs { padding: 0 10px 8px 28px; }
-.schema-spec { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: 13px; }
-.schema-out { flex: none; font-weight: 500; }
+.list-meta.is-error { color: var(--danger); }
+.schema-badge { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 11px; line-height: 17px; color: var(--text-3); }
+.schema-badge.is-computed { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+.schema-body { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 6px 10px; padding: 2px 10px 12px 26px; font-size: 13px; }
+.schema-part-title { padding-top: 4px; font-size: 12px; color: var(--text-3); }
+.schema-part { min-width: 0; }
+.schema-spec { display: flex; align-items: baseline; gap: 10px; min-height: 24px; padding: 2px 0; }
+.schema-spec .link-btn { flex: none; }
 .schema-where { flex: 0 1 auto; min-width: 0; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.schema-spec.is-unused .schema-out, .schema-spec.is-unused .schema-where { color: var(--text-3); font-style: italic; }
+.schema-spec.is-unused .schema-where { color: var(--text-3); font-style: italic; }
+.schema-outputs { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 2px; }
+.schema-output { padding: 0 7px; border-radius: 5px; background: var(--hover); font-size: 12px; line-height: 20px; color: var(--text-2); }
+.schema-rule { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text-2); }
+.schema-drawing { flex-wrap: wrap; gap: 4px 14px; }
+.names-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.input.names-name { width: 14rem; font-weight: 500; }
+.names-edges { flex: 1; font-size: 12px; color: var(--text-3); }
+.names-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 12rem); align-items: center; gap: 10px; margin-top: 6px; font-size: 12.5px; color: var(--text-2); }
+@container panel (max-width: 600px) {
+  .schema-body { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .schema-part-title { padding-top: 8px; }
+  .names-list { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* The Relate view's rows, under each relation's name. */
+.relate-group { margin-top: 8px; padding: 4px 0 2px; font-weight: 500; font-size: 13px; }

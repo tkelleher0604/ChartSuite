@@ -322,14 +322,17 @@ function initState() {
 // companies lack.
 function sampleState() {
   const recs = structuredClone(SAMPLE);
-  const base = withSpecsOf({}, recs);
-  const { definitions: defs, names: nms, schema: S } = canonicalFormulas(SAMPLE_DEFINITIONS, SAMPLE_NAMES, base);
+  const { definitions: defs, names: nms, schema: S } = sampleFormulas(recs);
   return {
     schema: S, records: recs, order: {}, archive: [], definitions: defs, names: nms,
     views: sampleViews(recs, S, defs).map(v => ({ ...v, layout: structuredClone(SAMPLE_LAYOUT) })),
     required: [parameterization(recs, 'fund_formed')],
   };
 }
+
+// The sample's formulas and names in their stored form, with the schema of its records and what the
+// formulas declare. The formula lab works from these too.
+const sampleFormulas = (recs = SAMPLE) => canonicalFormulas(SAMPLE_DEFINITIONS, SAMPLE_NAMES, withSpecsOf({}, recs));
 
 // States are never mutated in place, so earlier ones can be kept for undo.
 const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
@@ -457,11 +460,11 @@ function freeChartName(base) {
   for (let n = 2; ; n++) if (!taken.has(norm(`${base} ${n}`))) return `${base} ${n}`;
 }
 
-// Copies another chart's formulas and names into this one, as one undoable step. The two stay unsynced:
-// later changes to either don't reach the other. The specifications the formulas cover and the names name
+// Copies another chart's definitions and names into this one, as one undoable step. The two stay unsynced:
+// later changes to either don't reach the other. The specifications the definitions cover and the names name
 // come along into this chart's schema, with their locations. A definition covering what one here covers
 // replaces it, and so does a relation's name for the same form.
-function copyFormulasFrom(chartId) {
+function copyDefinitionsFrom(chartId) {
   const source = currentCharts().find(c => c.id === chartId)?.state;
   if (!source) return 'That chart no longer exists.';
   const incoming = structuredClone(source.definitions ?? []);
@@ -478,7 +481,7 @@ function copyFormulasFrom(chartId) {
 // Without formulas.js loaded, the records are just the entered ones.
 let formulaResult = { records: {}, rows: {} };
 const runFormulas = (recs, defs = definitions, nms = names, S = schema) => typeof Formulas === 'undefined'
-  ? { records: recs, rows: {} } : Formulas.computeState(recs, engineDefinitions(defs, nms, S), engineNames(nms));
+  ? { records: recs, rows: {} } : Formulas.computeState(recs, engineDefinitions(defs, nms, S), engineNames(nms, S));
 function setComputed(result) {
   formulaResult = result;
   records = result.records;
@@ -549,13 +552,13 @@ function asWritten(d, S = schema, N = names) {
   const t = trees[0];
   const type = t ? typeOfTree(t) : 'tag';
   const isRel = d.scope.some(p => paramArgs(p).length > 1);
-  const named = isRel && t ? N[formOfTree(t)] : null;
+  const form = isRel && t ? formOfTree(t) : null;
   const rule = d.implications ? { implications: d.implications } : { formula: d.formula };
   const base = { id: d.id, type, ...(type === 'field' ? { datatype: t.out.field } : {}), ...(d.self ? { self: true } : {}), ...rule };
   const textOf = key => S[key] ? pathText(S[key]) : null;
   const pairs = d.scope.flatMap(paramArgs);
-  const edges = isRel ? named?.edges ?? t?.args.map(a => a.edge) ?? [] : [];
-  const name = isRel ? named?.name ?? edges.join(' · ') : t?.args[0].edge ?? pairs[0]?.edge ?? '';
+  const edges = isRel ? (form && N[form]?.edges) ?? t?.args.map(a => a.edge) ?? [] : [];
+  const name = isRel ? (form ? formName(form, S, N) : edges.join(' · ')) : t?.args[0].edge ?? pairs[0]?.edge ?? '';
   if (pairs.some(a => textOf(a.key) === null))
     return { ...base, name, covers: d.scope, ...(isRel ? { args: edges.map(edge => ({ edge })) } : {}) };
   if (!isRel) return { ...base, name, at: [...new Set(pairs.map(a => textOf(a.key)))] };
@@ -577,7 +580,7 @@ function engineDefinitions(defs, N, S) {
     return { ...rest, covers: d.scope, ...(v.args ? { args: v.args.map(a => ({ edge: a.edge })) } : {}), knownOptions: options };
   });
 }
-const engineNames = N => ({ relations: Object.entries(N).map(([form, e]) => ({ name: e.name, type: typeOfForm(form), edges: e.edges, lists: e.lists ?? {} })) });
+const engineNames = (N, S = schema) => ({ relations: Object.entries(N).map(([form, e]) => ({ name: formName(form, S, N), type: typeOfForm(form), edges: e.edges, lists: e.lists ?? {} })) });
 
 // The trees a definition, as people write it, declares: one for each parameterization it covers, with its
 // type's output (a choice's, for each option written into it). Locations come from the schema where it has
@@ -627,6 +630,17 @@ function canonicalFormulas(defs, nms, S, used = new Set()) {
   return { definitions: out, names: N, schema: S };
 }
 const sameEdges = (a, b) => a.length === b.length && a.map(norm).sort().join('|') === b.map(norm).sort().join('|');
+
+// The forms the definitions cover, worked out once for each working-out of the formulas, which a change to
+// the definitions always brings. A relation of a covered form is computed, though one may be entered too.
+const coveredFormsCache = new WeakMap();
+function coveredForms() {
+  if (!coveredFormsCache.has(formulaResult))
+    coveredFormsCache.set(formulaResult, new Set(definitions.flatMap(d => d.scope.flatMap(p => specsWithParam(p).map(formOfTree)))));
+  return coveredFormsCache.get(formulaResult);
+}
+// The definitions covering a form's parameterizations, as people write them.
+const definitionsOfForm = form => definitions.filter(d => d.scope.some(p => specsWithParam(p).some(t => formOfTree(t) === form))).map(d => asWritten(d));
 
 // What the formulas say about a record, or null: for a computed record, { def, labels, reads } (its
 // definition, the implications that held and what each read); for an entered record that a formula also
@@ -685,13 +699,25 @@ const keepAsEntered = id => commit({ ...records, [id]: modelPart(records[id]) })
 // (edges normalized). A list without a name goes by the edge label it lists.
 
 const typeOfForm = form => { const s = JSON.parse(form)[0]; return s === 'tag' || s === 'choice' ? s : 'field'; };
-// A relation record's name, from its form; failing that, its edges.
+
+// A relation form's name: the one in the names, or for want of one, its edge labels in order. This is the
+// one way a relation is named, wherever it's shown.
+function formName(form, S = schema, N = names) {
+  if (N[form]?.name) return N[form].name;
+  return (N[form]?.edges ?? specsOfForm(form, S)[0]?.args.map(a => a.edge) ?? []).join(' · ');
+}
+// A relation record's name, from its form.
 function relationNameOf(id) {
   const t = treeOf(records, id);
-  return (t && names[formOfTree(t)]?.name) ?? relationLabel(records[id]);
+  return t ? formName(formOfTree(t)) : relationLabel(records[id]);
 }
-// The names as a list, with each one's form and type, for editing.
-const nameList = () => Object.entries(names).map(([form, n]) => ({ form, type: typeOfForm(form), ...n }));
+
+// The name of the list of relatives in the `listed` role, seen from the `from` role, for a relation form:
+// its list name, or for want of one, the listed role's edge label, as formulas.js reads it too.
+function listName(form, from, listed, N = names) {
+  const lists = Object.entries(N[form]?.lists ?? {}).find(([k]) => same(k, from))?.[1];
+  return Object.entries(lists ?? {}).find(([k]) => same(k, listed))?.[1] ?? listed;
+}
 
 // ---- Views ----
 
@@ -754,7 +780,8 @@ const typeOf = r => isField(r) ? 'field' : isTag(r) ? 'tag' : 'choice';
 // An entry's arguments: a path entry's single location, or a relation's several.
 const argsOf = r => r.args ?? (r.at ? [{ edge: r.edge, at: r.at }] : []);
 const relationLabel = r => r.args.map(a => a.edge).join(' · ');
-const labelOf = r => isRelation(r) ? relationLabel(r) : r.edge;
+// How a record is named in UI text: an entry by its label, a relation by its name (see formName).
+const recordLabel = id => isRelation(records[id]) ? relationNameOf(id) : records[id].edge;
 
 const TYPE_NAMES = { field: 'Field', tag: 'Tag', choice: 'Choice' };
 const DATATYPE_NAMES = { text: 'Text', number: 'Number', percent: 'Percent', money: 'Money', date: 'Date' };
@@ -1004,13 +1031,14 @@ const formsOfSchema = (S = schema) => [...indexOf(S).byForm.keys()];
 function formOutputs(f, S = schema) {
   const out = new Map();
   for (const t of specsOfForm(f, S)) {
-    if (t.kind !== undefined) out.set(norm(t.kind), t.kind);
-    else if ('choice' in t.out) { if (!out.has(norm(t.out.choice))) out.set(norm(t.out.choice), t.out.choice); }
-    else if ('tag' in t.out) out.set(String(t.out.tag), t.out.tag ? 'Attested' : 'Ruled out');
-    else out.set(t.out.field, DATATYPE_NAMES[t.out.field]);
+    const [key, text] = treeOutput(t);
+    if (!out.has(key)) out.set(key, text);
   }
   return [...out];
 }
+// A specification's output, as [key, text]: the key as outputKey gives a record's, the text as outputText.
+const treeOutput = t => t.kind !== undefined ? [norm(t.kind), t.kind] : 'choice' in t.out ? [norm(t.out.choice), t.out.choice]
+  : 'tag' in t.out ? [String(t.out.tag), t.out.tag ? 'Attested' : 'Ruled out'] : [t.out.field, DATATYPE_NAMES[t.out.field]];
 
 // How many records have each specification, and which: worked out once for each set of records.
 const usageCache = new WeakMap();
@@ -1032,10 +1060,7 @@ function describeForm(f, S = schema) {
   if (!t) return { label: 'Nothing in the chart', where: '' };
   const locsOf = arg => trees.map(x => x.args.find(a => same(a.edge, arg.edge))?.loc).filter(Boolean);
   const kindsOf = arg => [...new Set(locsOf(arg).map(kindOfTree).filter(Boolean))];
-  if (t.args.length > 1) {
-    const label = names[f]?.name ?? t.args.map(a => a.edge).join(' · ');
-    return { label, where: t.args.map(a => joinList(kindsOf(a), 'or')).join(' → ') };
-  }
+  if (t.args.length > 1) return { label: formName(f, S), where: t.args.map(a => joinList(kindsOf(a), 'or')).join(' → ') };
   const top = t.args[0].loc.kind !== undefined;
   const places = top ? kindsOf(t.args[0]).map(plural) : [...new Set(locsOf(t.args[0]).map(placeText))];
   return { label: t.args[0].edge, where: top ? `on ${joinList(places)}` : `under ${joinList(places, 'or')}` };
@@ -1045,9 +1070,18 @@ const kindOfTree = t => t.kind ?? (t.args.length === 1 ? kindOfTree(t.args[0].lo
 // A location as a description reads it: a kind, a path from one, or a relation and what it relates.
 function placeText(loc) {
   if (loc.kind !== undefined) return loc.kind;
-  if (loc.args.length > 1) return names[formOfTree(loc)]?.name ?? loc.args.map(a => a.edge).join(' · ');
+  if (loc.args.length > 1) return formName(formOfTree(loc));
   return pathText(loc) ?? `${placeText(loc.args[0].loc)} › ${loc.args[0].edge}`;
 }
+// Where a record's entries sit, as headings say it: "on Entities", or "under Entity › Jurisdiction:
+// Delaware", "under Ownership".
+function whereAt(id) {
+  const t = treeOf(records, id);
+  if (!t) return '';
+  return t.kind !== undefined ? `on ${plural(t.kind)}` : `under ${placeText(t)}`;
+}
+// The name of what a record belongs to: its object's name, or the relation it's located at (or below).
+const placeName = id => segmentText(pathTo(id)[0]);
 const joinList = (items, word = 'and') => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} ${word} ${items.at(-1)}`;
 
 // The first way S fails the schema conditions: no two fields, or a field and a tag, or a choice and either,
@@ -1117,11 +1151,11 @@ const hasEntries = id => entriesOf(id).length > 0 || relationsAt(id).length > 0;
 // Every record whose path starts at the object, the object included.
 const recordsUnder = obj => Object.keys(records).filter(k => !isRelation(records[k]) && objectOf(k) === obj);
 
-// How a record reads as one segment of a path.
+// How a record reads as one segment of a path. A relation reads as its name.
 function segmentText(id) {
   const r = records[id];
   if (isObject(r)) return objectName(id);
-  if (isRelation(r)) return relationLabel(r);
+  if (isRelation(r)) return relationNameOf(id);
   if (isTag(r)) return `${r.tag ? '' : 'Not '}${r.edge}`;
   return isChoice(r) ? `${r.edge}: ${r.choice}` : r.edge;
 }
@@ -1129,42 +1163,52 @@ function segmentText(id) {
 // The options a choice has in the schema, for its dropdown: the outputs of its parameterization.
 const outputsOf = id => [...new Set(specsWithParam(parameterization(records, id)).filter(t => 'choice' in t.out).map(t => t.out.choice))].sort(byLabel);
 
-// The relations at a location, grouped into the rows that show them there: one per output type and
-// split of the relation's edges into this location's own and the others'. A row is labeled with the
-// other edges, in the order the relation lists its arguments.
+// A relation seen from a location, as the panel groups it: its form, and the split of its edges into the
+// location's own and the others'. Relations of one form, seen from the same role, share a row there, and
+// adding another to the row starts from the same key.
+const relationRowKey = (form, own, others) => JSON.stringify([form, own.map(norm).sort(), others.map(norm).sort()]);
+
+// The relations at a location, grouped into the rows that show them there, by form and role. A row is
+// labeled with its list name: the list of relatives in the other role, seen from this one (Owners).
 function relationGroups(at) {
   const groups = new Map();
   for (const id of relationsAt(at)) {
     const r = records[id];
+    const form = formKeyOf(id);
     const own = r.args.filter(a => a.at === at).map(a => a.edge);
     const others = r.args.filter(a => a.at !== at).map(a => a.edge);
-    const key = JSON.stringify([typeOf(r), own.map(norm).sort(), others.map(norm).sort()]);
-    if (!groups.has(key)) groups.set(key, { key, type: typeOf(r), own, others, ids: [] });
+    const key = relationRowKey(form, own, others);
+    if (!groups.has(key)) groups.set(key, { key, form, type: typeOf(r), own, others, ids: [],
+      list: others.length ? listName(form, own[0], others[0]) : own.join(' · ') });
     groups.get(key).ids.push(id);
   }
-  return [...groups.values()].sort((a, b) => byLabel(a.others.join(' '), b.others.join(' ')));
+  return [...groups.values()].sort((a, b) => byLabel(a.list, b.list));
 }
 
-// The two-argument relations in the schema that a location like `at` takes part in: one per output type
-// and pair of edges, with every specification on the other side.
+// The two-argument relations in the schema that a location like `at` takes part in: one per form and role
+// this location would have, with every specification on the other side. Each carries its relation's name,
+// the list it adds to here (Owners), and whether a definition covers its form, in which case adding one
+// attests it by hand.
 function relationTypesAt(at) {
   const spec = specKey(records, at);
   const types = new Map();
   for (const k of indexOf().relationsAt.get(spec) ?? []) {
     const t = schema[k];
     if (t.args.length !== 2) continue;
+    const form = formOfTree(t);
     t.args.forEach((own, i) => {
       if (treeKey(own.loc) !== spec) return;
       const other = t.args[1 - i];
       const type = typeOfTree(t);
-      const key = JSON.stringify([type, [norm(own.edge)], [norm(other.edge)]]);
-      if (!types.has(key)) types.set(key, { key, type, own: own.edge, other: other.edge, ownFirst: i === 0, otherSpecs: new Set(), datatype: t.out.field, outputs: [] });
+      const key = relationRowKey(form, [own.edge], [other.edge]);
+      if (!types.has(key)) types.set(key, { key, form, type, own: own.edge, other: other.edge, ownFirst: i === 0, otherSpecs: new Set(),
+        datatype: t.out.field, outputs: [], name: formName(form), list: listName(form, own.edge, other.edge), computed: coveredForms().has(form) });
       const rel = types.get(key);
       rel.otherSpecs.add(treeKey(other.loc));
       if (type === 'choice' && !rel.outputs.some(o => same(o, t.out.choice))) rel.outputs.push(t.out.choice);
     });
   }
-  return [...types.values()].sort((a, b) => byLabel(a.other, b.other));
+  return [...types.values()].sort((a, b) => a.computed - b.computed || byLabel(a.list, b.list));
 }
 
 // The entries the schema has for locations like `at` (with its specification), one per type and label,
@@ -1410,7 +1454,7 @@ function keepPlace(at, oldLabel, newLabel) {
 // Saves a field's value typed in place. Its datatype is the one the schema has for its parameterization,
 // or else a guess from what's typed. Returns why it couldn't be saved, if it couldn't. A value left as it
 // was isn't a change, so a computed one isn't overridden by it.
-function saveFieldValue(id, raw, label = labelOf(records[id])) {
+function saveFieldValue(id, raw, label = recordLabel(id)) {
   const r = records[id];
   const datatype = specsWithParam(parameterization(records, id)).find(t => 'field' in t.out && !onlyHas(t, id))?.out.field
     ?? (isObjectName(id) ? 'text' : classify(clean(raw)));
@@ -1468,19 +1512,16 @@ function requiredInfo(param) {
   return t ? { label: t.args[0].edge, type: typeOfTree(t), datatype: t.out.field } : null;
 }
 
-// Makes an entry's parameterization required at every location like its own, or stops requiring it.
-function toggleRequired(id) {
-  const p = parameterization(records, id);
+// Requires a parameterization at every location like its own, or stops requiring it, as one undoable step.
+// Only an entry's parameterization, with one location, can be required.
+function setRequired(param, on) {
+  if (isRequired(param) === on || (on && paramArgs(param).length !== 1)) return;
   pushUndo();
-  required = isRequired(p) ? required.filter(x => x !== p) : [...required, p];
+  required = on ? [...required, param] : required.filter(x => x !== param);
   saveState();
 }
-
-function stopRequiring(param) {
-  pushUndo();
-  required = required.filter(x => x !== param);
-  saveState();
-}
+const toggleRequired = id => { const p = parameterization(records, id); setRequired(p, !isRequired(p)); };
+const stopRequiring = param => setRequired(param, false);
 
 // The required entries a location has no entry for, as [param, { label, type, datatype }] pairs.
 // A tag counts as recorded whether it's attested or ruled out.

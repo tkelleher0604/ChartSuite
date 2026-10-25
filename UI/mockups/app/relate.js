@@ -1,8 +1,9 @@
 // Relating two things: the panel view behind dragging between two boxes on the chart, and behind the
-// panel's Add › Relation. The header shows the two sides. The rows list every kind of relation in the
-// schema (every parameterization of a relation in the state) that the two sides are inputs to: one row
-// for each way of placing the sides among the relation's parameters, with its output if it's recorded
-// and a way to record it if not. A kind of relation that doesn't exist yet can be defined at the bottom.
+// panel's Add › Relation. The header shows the two sides. The rows list every relation parameterization in
+// the schema that the two sides are inputs to: one row for each way of placing the sides among its
+// parameters, with its output if it's recorded and a way to record it if not. Rows are grouped by form,
+// under the relation's name (see formName in model.js), each row giving the roles the sides take. A
+// relation that isn't in the schema yet can be started at the bottom.
 //
 // A side can be an object, which fills a parameter through whichever of its records matches the
 // parameter's location (itself, or say its Entity Type: Limited Liability Company), or a record that's a
@@ -12,14 +13,14 @@ const relate = {
   pair: '',      // the hash the state below belongs to
   rows: [],      // the rows as last drawn, for actions to look up by key
   extra: {},     // per row, the location picked for each parameter beyond the two sides
-  error: null,   // { key, text }: why a row's relation, or the new kind (key 'new'), couldn't be added
-  form: null,    // the new kind of relation: { roleA, roleB, locA, locB, type, output }
+  error: null,   // { key, text }: why a row's relation, or the new one (key 'new'), couldn't be added
+  form: null,    // the new relation: { roleA, roleB, locA, locB, type, output }
 };
 
 const freshRelateForm = (a, b) => ({ roleA: '', roleB: '', locA: a, locB: b, type: 'tag', output: '' });
 
-// Every parameterization of a relation in the schema, records or no, with its parameters in its
-// specification's order. Each parameter has its edge, its location's key and kind, and the path its
+// Every parameterization of a relation in the schema, records or no, with its form and its parameters in
+// its specification's order. Each parameter has its edge, its location's key and kind, and the path its
 // location adds below its object, like "Entity Type: Limited Liability Company".
 function relationKinds() {
   const kinds = new Map();
@@ -29,7 +30,7 @@ function relationKinds() {
     if (!(t.args?.length > 1)) continue;
     const param = treeParam(t);
     if (!kinds.has(param)) kinds.set(param, {
-      param, type: typeOfTree(t), datatype: t.out.field, outputs: [], def: definitionCovering(param),
+      param, form: formOfTree(t), type: typeOfTree(t), datatype: t.out.field, outputs: [], def: definitionCovering(param),
       args: t.args.map(a => ({ edge: a.edge, spec: treeKey(a.loc), kind: kindOf(a.loc), below: below(a.loc) })),
     });
     const k = kinds.get(param);
@@ -48,9 +49,8 @@ function sideLocations(side, spec) {
 // is a record below its object, it's at the parameter's location exactly.
 const isInputTo = (side, arg) => !!arg.kind && same(records[objectOf(side)].kind, arg.kind) && (isObject(records[side]) || specKey(records, side) === arg.spec);
 
-
-
-
+// The rows for two sides, by relation name, so each relation's rows come together, recorded ones first;
+// those missing something come last.
 function relateRows(a, b) {
   const rows = [];
   relationKinds().forEach((k, n) => k.args.forEach((pa, i) => k.args.forEach((pb, j) => {
@@ -60,12 +60,12 @@ function relateRows(a, b) {
     const locA = sideLocations(a, pa.spec)[0], locB = sideLocations(b, pb.spec)[0];
     const key = `${n}:${i}:${j}`;
     const row = { key, kind: k, i, j, locA, locB, existing: [] };
-    // A kind worked out by formula isn't something to set up the sides for, as a BDC's status would be.
+    // A computed relation isn't something to set up the sides for, as a BDC's status would be.
     if ((!locA || !locB) && k.def) return;
     if (!locA || !locB) {
       const side = !locA ? a : b, arg = !locA ? pa : pb;
       // Rows wanting the same roles and missing something on the same side are shown as one.
-      const twin = rows.find(r => r.needs && same(r.kind.args[r.i].edge, pa.edge) && same(r.kind.args[r.j].edge, pb.edge) && r.needSide === side);
+      const twin = rows.find(r => r.needs && r.kind.form === k.form && same(r.kind.args[r.i].edge, pa.edge) && same(r.kind.args[r.j].edge, pb.edge) && r.needSide === side);
       if (twin) {
         twin.needPaths.push(arg.below);
         twin.needs = `Needs ${twin.needPaths.join(' or ')} on ${segmentText(objectOf(side))}`;
@@ -75,7 +75,8 @@ function relateRows(a, b) {
       row.needs = `Needs ${arg.below} on ${segmentText(objectOf(side))}`;
       return rows.push(row);
     }
-    // Recorded relations of this kind with the sides at these parameters, and their other arguments.
+    // Recorded relations of this parameterization with the sides at these parameters, and their other
+    // arguments.
     for (const [id, r] of Object.entries(records)) {
       if (!isRelation(r) || parameterization(records, id) !== k.param) continue;
       const ia = r.args.findIndex(x => same(x.edge, pa.edge) && x.at === locA);
@@ -84,8 +85,13 @@ function relateRows(a, b) {
     }
     rows.push(row);
   })));
-  const rank = r => r.needs ? 2 : r.existing.length ? 0 : 1;
-  return rows.sort((p, q) => rank(p) - rank(q) || byLabel(p.kind.args.map(x => x.edge).join(' '), q.kind.args.map(x => x.edge).join(' ')));
+  // A relation's sides missing something for one parameterization needn't say so where another, of the
+  // same form, takes them in the same roles already.
+  const roles = r => `${r.kind.args[r.i].edge} ${r.kind.args[r.j].edge}`;
+  const taken = new Set(rows.filter(r => !r.needs).map(r => `${r.kind.form}|${norm(roles(r))}`));
+  return rows.filter(r => !r.needs || !taken.has(`${r.kind.form}|${norm(roles(r))}`))
+    .sort((p, q) => !!p.needs - !!q.needs || byLabel(formName(p.kind.form), formName(q.kind.form))
+      || !p.existing.length - !q.existing.length || byLabel(roles(p), roles(q)));
 }
 
 // A side's role in a row: its parameter's edge, and the record it fills it through if not the side itself.
@@ -106,19 +112,19 @@ function extraArgs(row, recorded) {
     const key = `relx:${row.key}:${n}`;
     const open = ui.menu === key;
     const choices = open ? Object.keys(records).filter(x => specKey(records, x) === arg.spec)
-      .sort((p, q) => byLabel(locationText(p), locationText(q)))
+      .sort((p, q) => byLabel(placeName(p), placeName(q)))
       .map(x => `<button class="menu-item" role="menuitemradio" aria-checked="${x === picked}" data-action="relate-extra" data-key="${row.key}" data-n="${n}" data-value="${x}">
-        <span class="menu-text">${esc(locationText(x))}</span>${x === picked ? icon('check') : ''}</button>`).join('') : '';
+        <span class="menu-text">${esc(placeName(x))}</span>${x === picked ? icon('check') : ''}</button>`).join('') : '';
     return `<span class="relate-extra"><span class="relate-role">${esc(arg.edge)}</span>
       <span class="menu-anchor"><button class="select" data-action="menu" data-menu="${key}" aria-haspopup="menu" aria-expanded="${open}">
-        <span class="select-text">${picked ? esc(locationText(picked)) : 'Choose'}</span>${icon('chevron-down')}</button>
+        <span class="select-text">${picked ? esc(placeName(picked)) : 'Choose'}</span>${icon('chevron-down')}</button>
       ${open ? `<div class="pop menu menu-left" role="menu">${choices || '<div class="menu-note" style="padding:6px 10px">Nothing fits here yet</div>'}</div>` : ''}</span></span>`;
   }).join('');
   return `<div class="relate-extras">${parts}</div>`;
 }
 
 // The output cell of a row with nothing recorded: an empty checkbox, a value box, or an option menu. For a
-// kind worked out by formula, the formula gives nothing here: a tag can still be attested by hand (control
+// computed relation, its definition gives nothing here: a tag can still be attested by hand (control
 // in fact, say), but a value is left to the formula.
 function newOutput(row) {
   const k = row.kind;
@@ -142,7 +148,7 @@ function relateRow(row, a, b) {
   if (row.needs)
     return `<div class="relate-row is-unavailable">${roles}<div class="relate-c relate-needs" title="${esc(row.needs)}">${esc(row.needs)}</div></div>`;
   const recorded = row.existing.map(ex => `<div class="relate-row">${roles}
-      <div class="relate-out">${relationOutput(ex.id, relationLabel(records[ex.id]))}${relationDetails(ex.id)}<span class="relate-acts">${openRelation(ex.id)}</span></div>
+      <div class="relate-out">${relationOutput(ex.id, relationNameOf(ex.id))}${relationDetails(ex.id)}<span class="relate-acts">${openRelation(ex.id)}</span></div>
       ${extraArgs(row, ex)}</div>`).join('');
   // A two-parameter relation is recorded at most once per pair; with more parameters, more can be added,
   // on a line that's just the pickers for the other parameters, beside the output.
@@ -172,7 +178,7 @@ function sideHead(side) {
   return `<div class="relate-side"><a class="relate-side-name" href="#${side}">${esc(objectName(obj))}</a><span class="relate-side-kind">${esc(records[obj].kind + below)}</span></div>`;
 }
 
-// The locations a side can put a new kind of relation at: the side, or for an object, its choices and tags.
+// The locations a side can put a new relation at: the side, or for an object, its choices and tags.
 const formLocations = side => isObject(records[side]) ? recordsUnder(side).filter(id => !isField(records[id])) : [side];
 
 function newKindForm(a, b) {
@@ -197,8 +203,8 @@ function newKindForm(a, b) {
     </div>
     <div class="relate-new-foot"><span class="seg" role="group" aria-label="Output">${types}</span>${output}
       <button class="btn btn-primary" data-action="relate-new">${icon('plus')}Add</button></div>${error}
-    <div class="relate-new-foot"><a class="link-btn relate-formula" href="#formula:new:relation:${esc(a)}:${esc(b)}">Worked out by formula instead…</a>
-      <span class="relate-hint">Define it by a formula, for every pair like these</span></div>
+    <div class="relate-new-foot"><a class="link-btn relate-formula" href="#definition:new:relation:${esc(a)}:${esc(b)}">New definition…</a>
+      <span class="relate-hint">Or compute it by formula, for every pair like these</span></div>
     <datalist id="relate-edges">${edges.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>`;
 }
 
@@ -206,7 +212,7 @@ function relateView({ a, b }) {
   const pair = `${a}:${b ?? ''}`;
   if (relate.pair !== pair) Object.assign(relate, { pair, extra: {}, error: null, form: freshRelateForm(a, b) });
   const head = `<div class="panel-head relate-head">
-    <div class="title-row"><div class="title-block"><h1>Relate</h1><div class="subtitle">${b ? 'Every kind of relation these two can be in' : 'Choose what to relate this to'}</div></div>
+    <div class="title-row"><div class="title-block"><h1>Relate</h1><div class="subtitle">${b ? 'Every relation these two can be in' : 'Choose what to relate this to'}</div></div>
       <div class="head-actions"><button class="btn${b ? ' btn-primary' : ''}" data-action="relate-done">${b ? 'Done' : 'Cancel'}</button></div></div>
     <div class="relate-sides">${sideHead(a)}${b ? `${sideHead(b)}<div class="relate-colhead">Recorded</div>`
       : `<div class="relate-side is-picker">${sidePicker(a)}<span class="relate-side-kind">${panelOptions.engaged ? 'or click a box on the chart' : 'any object'}</span></div>`}</div>
@@ -217,11 +223,14 @@ function relateView({ a, b }) {
   const computed = relate.rows.filter(r => r.kind.def);
   const unavailable = relate.rows.filter(r => r.needs);
   const section = (title, html) => html ? `<div class="relate-section">${title}</div>${html}` : '';
-  const body = (possible.length ? section('Kinds of relation they can be in', possible.map(r => relateRow(r, a, b)).join(''))
-      : '<div class="empty">No kind of relation in the schema relates these two yet. Define one below.</div>')
-    + section('Worked out by formula', computed.map(r => relateRow(r, a, b)).join(''))
-    + section('Missing something first', unavailable.map(r => relateRow(r, a, b)).join(''))
-    + section('New kind of relation', newKindForm(a, b));
+  // Each relation's rows under its name, in the order relateRows gives.
+  const grouped = rows => rows.map((r, n) => (n && rows[n - 1].kind.form === r.kind.form ? ''
+    : `<div class="relate-group">${esc(formName(r.kind.form))}</div>`) + relateRow(r, a, b)).join('');
+  const body = (possible.length ? section('Relations they can be in', grouped(possible))
+      : '<div class="empty">No relation in the schema relates these two yet. Start one below.</div>')
+    + section('Computed', grouped(computed))
+    + section('Needs something first', grouped(unavailable))
+    + section('New relation', newKindForm(a, b));
   return [head, `<div class="relate-body">${body}</div>`];
 }
 

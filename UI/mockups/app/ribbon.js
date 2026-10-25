@@ -85,11 +85,7 @@ function newStyleMenu() {
   const ids = styleCandidates();
   if (!selection().object && !selection().relation) return '<div class="menu-note" style="padding:8px 10px">Select a box or a line first.</div>';
   if (!ids.length) return '<div class="menu-note" style="padding:8px 10px">Everything here already has a style.</div>';
-  return `<div class="menu-head">Style the chart by</div>` + ids.map(id => {
-    const r = records[id];
-    const where = isRelation(r) ? 'This relation' : r.at === selection().object ? TYPE_NAMES[typeOf(r)] : `Under ${segmentText(r.at)}`;
-    return `<button class="menu-item" role="menuitem" data-action="style-new" data-id="${id}"><span class="menu-text"><span class="menu-title">${esc(labelOf(r))}</span><span class="menu-desc">${esc(where)}</span></span></button>`;
-  }).join('');
+  return `<div class="menu-head">Style the chart by</div>` + ids.map(id => styleFormItem(formKeyOf(id), id)).join('');
 }
 
 function styleGroup(eng) {
@@ -219,15 +215,13 @@ function selectedRecord() {
   return sel.relation ? sel.record : sel.object && sel.record !== sel.object ? sel.record : null;
 }
 
-// Like Excel's Formulas tab: the chart's definitions, a new one, why the selection is there, and how the
-// last working-out went.
+// Like Excel's Formulas tab: the chart's definitions (the Schema view's computed forms), a new one, why
+// the selection is there, and how the last working-out went.
 function formulasTab() {
   const sel = selection();
   const sides = sel.relate ? [sel.relate.a, sel.relate.b].filter(Boolean).map(objectOf) : sel.object ? [sel.object] : [];
-  const defs = `<div class="rb-row"><button class="rb-btn is-tall" data-action="fx-open" data-hash="formulas" title="Every formula in this chart">${icon('math-function')}Definitions</button>
-    <button class="rb-btn is-tall" data-action="fx-open" data-hash="${esc(['formula:new:relation', ...sides].join(':'))}"
-      title="${sides.length ? `A relation worked out by formula, starting from ${esc(sides.map(id => objectName(id)).join(' and '))}` : 'A relation worked out by formula'}">${icon('link')}Computed relation</button>
-    <button class="rb-btn is-tall" data-action="fx-open" data-hash="formula:new:entry" title="An entry worked out by formula">${icon('plus')}Computed entry</button></div>`;
+  const newDef = rbMenu('rb:new-definition', `${icon('plus')}New definition`, { cls: 'is-tall', title: 'An entry or a relation worked out by formula' }, () => newDefinitionItems(sides));
+  const defs = `<div class="rb-row"><button class="rb-btn is-tall" data-action="open" data-hash="schema:computed" title="Every definition in this chart, in the Schema view">${icon('math-function')}Definitions</button>${newDef}</div>`;
   const id = selectedRecord();
   const info = id && records[id] && formulaInfo(id);
   const whyTitle = info ? (isComputed(id) ? 'Why this is here: the formula and what it read' : 'What the formula says about this entered record')
@@ -236,15 +230,15 @@ function formulasTab() {
   const nErrors = (formulaResult.errors ?? []).length + Object.keys(formulaResult.defErrors ?? {}).length;
   const computed = Object.keys(records).filter(isComputed).length;
   const ms = formulaResult.ms;
-  const errors = nErrors ? `<button class="link-btn rb-errors" data-action="fx-open" data-hash="formulas">${count(nErrors, 'error')}</button>` : '<span class="rb-note">No errors</span>';
+  const errors = nErrors ? `<button class="link-btn rb-errors" data-action="open" data-hash="schema:computed">${count(nErrors, 'error')}</button>` : '<span class="rb-note">No errors</span>';
   const status = `<div style="display:flex;flex-direction:column;gap:4px;justify-content:center">
-    <span class="rb-note">${count(computed, 'record')} worked out by ${count(definitions.length, 'formula')}${ms !== undefined ? ` in ${Math.round(ms)} ms` : ''}</span>
+    <span class="rb-note">${count(computed, 'computed record')} from ${count(definitions.length, 'definition')}${ms !== undefined ? ` in ${Math.round(ms)} ms` : ''}</span>
     <span class="rb-row" style="gap:10px">${errors}<button class="link-btn" data-action="fx-recalc" title="Work every formula out again now">Recalculate</button></span></div>`;
   return rbGroup('Definitions', defs) + rbGroup('Explain', why) + rbGroup('Calculation', status);
 }
 
 // The Show menu: everything this view can draw, by form (see showable in styles.js): kinds as boxes,
-// relations as lines, with those worked out by formula apart, and entries as lines of text. Each has
+// relations as lines, with computed ones apart, and entries as lines of text. Each has
 // whether this view draws it.
 function showMenu() {
   const { boxes, lines, text } = showable();
@@ -252,12 +246,12 @@ function showMenu() {
     const { shown, total } = shownCount(it);
     const partly = shown && shown < total ? `${shown} of ${total}` : '';
     const desc = [it.kind ? count(objectsOfKind(it.kind).length, 'box') : it.where, partly].filter(Boolean).join(' · ');
-    return `<button class="menu-item" role="menuitemcheckbox" aria-checked="${shown === 0 ? 'false' : shown < total ? 'mixed' : 'true'}" data-action="show-form" data-key="${esc(it.key)}" data-on="${shown === 0}">
+    return `<button class="menu-item" role="menuitemcheckbox" aria-checked="${shown === 0 ? 'false' : shown < total ? 'mixed' : 'true'}" data-action="show-form" data-key="${esc(it.key)}" data-on="${shown === 0}" data-menu="rb:show">
       ${box(shown === 0 ? null : true)}<span class="menu-text"><span class="menu-title">${esc(it.label)}</span>${desc ? `<span class="menu-desc">${esc(desc)}</span>` : ''}</span></button>`;
   };
   const section = (title, items) => items.length ? `<div class="menu-head">${title}</div>${items.map(item).join('')}` : '';
   return [section(`Boxes in ${esc(viewInUse().name)}`, boxes), section('Lines', lines.filter(x => !x.computed)),
-    section('Lines worked out by formula', lines.filter(x => x.computed)), section('Text', text)].filter(Boolean).join('<div class="menu-sep"></div>');
+    section('Computed lines', lines.filter(x => x.computed)), section('Text', text)].filter(Boolean).join('<div class="menu-sep"></div>');
 }
 
 // The things hidden one by one in this view, to show again.
@@ -466,6 +460,7 @@ Object.assign(actions, {
   'style-engage': d => engage(d.style, d.output || undefined),
   'style-scope': d => { const eng = currentEngaged(); if (eng) chart.engaged = { styleId: eng.style.id, output: d.output }; },
   'style-new': d => { const s = addStyle(d.id); engage(s.id, outputKey(records[d.id])); },
+  'style-form': d => engage(addStyleOnForm(d.form).id),
   'style-remove': () => { const eng = currentEngaged(); if (eng && !isKindStyle(eng.style)) { removeStyle(eng.style.id); chart.engaged = null; } },
   'insert-object': d => {
     const [x, y] = visibleCenter();
@@ -485,7 +480,7 @@ Object.assign(actions, {
   'show-form': d => {
     const item = Object.values(showable()).flat().find(x => x.key === d.key);
     if (item) setShown(item, d.on === 'true');
-    ui.menu = 'rb:show';
+    if (d.menu) ui.menu = d.menu;
   },
   'hide-selection': () => {
     const sel = selection();
@@ -500,8 +495,6 @@ Object.assign(actions, {
   'filter-apply': () => applyFilter(),
   'filter-clear': () => { setViewFilter(''); chart.filterDraft = null; },
   'view-tidy': () => { tidyView(); ui.info = `Laid out the boxes ${viewInUse().name} shows. Undo puts them back.`; },
-  // The panel's Formulas views (#formulas, #formula:…) are opened by hash.
-  'fx-open': d => { location.hash = d.hash; },
   'fx-why': () => { const id = selectedRecord(); if (id) go(id); },
   'fx-recalc': () => {
     recompute();
