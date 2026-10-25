@@ -17,13 +17,103 @@
 <script src="../core/sample.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/styles.js"></script>
+<script src="engine-reference.js"></script>
+<script src="grown.js"></script>
 <script>
 // Checks of the formula engine itself (formulas.js) beyond what the formula lab's self-test checks of the
-// sample's results: cases where the engine once went wrong. Nothing is saved.
+// sample's results. First, that it gives exactly what the engine gave before it was made to scale
+// (engine-reference.js, the oracle), on grown charts and on definitions chosen to reach every way it works
+// a step out. Then cases where the engine once went wrong. Nothing is saved.
 saveState = () => {};
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const show = (R, v) => Formulas.formatValue(R, v);
+
+// ---- The same as the oracle ----
+
+// Everything a working-out gives, spelled out for comparing: the records in the order they come, each
+// record, what the formulas say of each (with what each implication read), the rows per definition, the
+// errors, the plan, and why each computed or covered record is there, in the engine's own words.
+function spelled(E, R) {
+  const each = (obj, fn = x => x) => Object.fromEntries(Object.keys(obj).map(k => [k, JSON.stringify(fn(obj[k]))]));
+  const said = [...Object.keys(R.computed), ...Object.keys(R.covered)];
+  return {
+    'record order': { all: Object.keys(R.records).join(' ') },
+    records: each(R.records),
+    'what the formulas say': each(R.computed),
+    'entered records a formula covers': each(R.covered),
+    rows: each(R.rows),
+    errors: { all: JSON.stringify(R.errors) },
+    'definition errors': { all: JSON.stringify(R.defErrors) },
+    'kept aside': { all: JSON.stringify(R.keptAside) },
+    plan: { all: JSON.stringify(R.order) },
+    explanations: Object.fromEntries(said.map(id => [id, JSON.stringify(E.explain(R, id))])),
+  };
+}
+
+// Where two spelled-out workings-out differ: a count per part, and the first few differences.
+function differences(a, b) {
+  const found = [];
+  for (const part of Object.keys(a)) {
+    const keys = new Set([...Object.keys(a[part]), ...Object.keys(b[part])]);
+    const differ = [...keys].filter(k => a[part][k] !== b[part][k]);
+    if (differ.length) found.push(`${part}: ${differ.length} differ, as ${differ.slice(0, 2).map(k => `${k}: ${String(a[part][k]).slice(0, 160)} ≠ ${String(b[part][k]).slice(0, 160)}`).join('; ')}`);
+  }
+  return found;
+}
+
+// Definitions that reach the ways a step can be worked out that the sample's don't: an implication whose
+// form doesn't say where it can hold; NOT; a list that errs; three arguments; a look-through whose factor
+// isn't a number; a holding read from the other side; a value formula and an implication on one loop,
+// which is circular; and a relation that reads itself through NOT.
+const EDGE_DEFINITIONS = [
+  { id: 'def_sibling', name: 'Sibling', type: 'tag', args: [{ edge: 'Elder', at: ['Entity'] }, { edge: 'Younger', at: ['Entity'] }],
+    implications: [{ label: 'A shared owner', formula: '← ANY(Younger.Owners, @ IN Elder.Owners)' }] },
+  { id: 'def_passive', name: 'Passive Holder', type: 'tag', args: [{ edge: 'Holder', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Company', at: ['Entity'] }],
+    implications: [{ label: 'Holds without control', formula: '← Holder IN Company.Owners AND NOT Control(Holder, Company)' }] },
+  { id: 'def_bogus', name: 'Bogus', type: 'tag', args: [{ edge: 'From', at: ['Entity'] }, { edge: 'To', at: ['Entity'] }],
+    implications: [{ label: 'A step that isn’t there', formula: '← To IN REACH(From, Nowhere)' }, { label: 'Owned', formula: '← From IN To.Owners' }] },
+  { id: 'def_signing', name: 'Signing Path', type: 'tag', args: [{ edge: 'Signatory', at: ['Individual'] }, { edge: 'Via', at: ['Entity'] }, { edge: 'On Behalf Of', at: ['Entity'] }],
+    implications: [{ label: 'An officer of the general partner', formula: '← Via IN [On Behalf Of].[General Partners] AND Signatory IN Via.Personnel' }] },
+  { id: 'def_name_product', name: 'Name Product', type: 'field', datatype: 'number', args: [{ edge: 'Top', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Bottom', at: ['Entity'] }],
+    formula: '= LOOKTHROUGH(Top, Bottom, Holdings, Name)' },
+  { id: 'def_half', name: 'Half Owner', type: 'tag', args: [{ edge: 'Holder', at: ['Entity', 'Individual'] }, { edge: 'Company', at: ['Entity'] }],
+    implications: [{ label: 'Half or more', formula: '← SUM(FILTER(Company.Owners, @ = Holder OR @ IN REACH(Holder, Holdings)).Percentage) >= 50%' }] },
+  { id: 'def_control_count', name: 'Control Count', type: 'field', datatype: 'number', at: ['Entity'], formula: '= COUNT(Controllers) + IF([Widely Held], 1, 0)' },
+  { id: 'def_widely_held', name: 'Widely Held', type: 'tag', at: ['Entity'], implications: [{ label: 'Many controllers', formula: '← [Control Count] > 3' }] },
+  { id: 'def_contrary', name: 'Contrary', type: 'tag', args: [{ edge: 'P', at: ['Entity'] }, { edge: 'Q', at: ['Entity'] }],
+    implications: [{ label: 'Owned, unless the other way', formula: '← Q IN P.Owners AND NOT Contrary(Q, P)' }] },
+];
+
+// The charts: the sample a chart starts from, grown; the feeder's control of the fund ruled out; the core
+// with the fund as a BDC, so the carve-out comes up; and the core with the definitions above, once with an
+// entry named Owners on the blocker, which makes the blocker's Owners ambiguous.
+function oracleCharts() {
+  const st = sampleState();
+  const sample = n => engineInputs(grown(st.records, n), null, null, st);
+  const core = (n, edit = () => {}, defs = SAMPLE_DEFINITIONS) => { const recs = grown(SAMPLE_CORE, n); edit(recs); return engineInputs(recs, defs, SAMPLE_NAMES); };
+  const rebutted = engineInputs({ ...grown(st.records, 24), x_rebut: { args: [{ edge: 'Controller', at: 'feeder' }, { edge: 'Controlled', at: 'fund' }], tag: false } }, null, null, st);
+  return [
+    ['The sample', sample(0)],
+    ['The sample with 12 more entities', sample(12)],
+    ['The sample with 24 more entities and the feeder’s control of the fund ruled out', rebutted],
+    ['The core with the fund as a BDC and 20 more entities', core(20, recs => { recs.fund_ics.choice = 'Business Development Company'; })],
+    ['The core with 10 more entities and the edge definitions', core(10, () => {}, [...SAMPLE_DEFINITIONS, ...EDGE_DEFINITIONS])],
+    ['…with an entry named Owners on the blocker', core(10, recs => { recs.x_owners = { at: 'blocker', edge: 'Owners', field: 'text', value: 'See the register' }; }, [...SAMPLE_DEFINITIONS, ...EDGE_DEFINITIONS])],
+  ];
+}
+
+function sameAsOracle() {
+  for (const [name, { recs, definitions, names }] of oracleCharts()) {
+    const was = FormulasReference.computeState(recs, definitions, names);
+    const now = Formulas.computeState(recs, definitions, names);
+    const found = differences(spelled(FormulasReference, was), spelled(Formulas, now));
+    check(`${name}: the same as the oracle, record by record and explanation by explanation (${Object.keys(now.computed).length} computed, ${now.errors.length} errors; ${was.ms.toFixed(0)} ms before, ${now.ms.toFixed(0)} ms now)`,
+      !found.length, found.join(' | '));
+  }
+}
+
+// ---- Cases where the engine once went wrong ----
 
 // A relation entered at a computed record has that record's form, so its name and list names apply in
 // formulas, even where something looked at it before the record it's located at was worked out. Here a
@@ -88,6 +178,7 @@ function orderDoesNotMatter() {
 }
 
 function run() {
+  sameAsOracle();
   enteredAtComputed();
   orderDoesNotMatter();
   const failed = out.filter(x => !x.ok).length;
