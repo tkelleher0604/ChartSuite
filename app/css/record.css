@@ -34,7 +34,7 @@
 .record-panel .panel-head.is-page .args { margin-top: 0; }
 .record-panel .relate-head { padding: 14px 0 12px 10px; }
 .record-panel .relate-body { padding: 0 0 14px; }
-.record-panel .row.is-revealed { animation: record-reveal 2s var(--ease); }
+.record-panel :is(.row, .rel-value).is-revealed { animation: record-reveal 2s var(--ease); }
 @keyframes record-reveal { 0%, 45% { background: var(--selected); } 100% { background: transparent; } }
 .record-notice { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 2px; padding: 8px 12px; border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: 13px; }
 .record-notice .icon { width: 15px; height: 15px; margin-top: 2px; }
@@ -62,7 +62,7 @@
 .record-doc-text { flex: 1; min-width: 0; }
 .record-doc-name { font-weight: 500; overflow-wrap: anywhere; }
 .record-doc-name:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
-.record-doc-meta { margin-top: 1px; color: var(--text-2); font-size: 12.5px; }
+.record-doc-meta { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: 1px; color: var(--text-2); font-size: 12.5px; }
 .record-doc .btn { flex: none; }
 .record-doc .btn .icon { width: 14px; height: 14px; color: var(--text-3); }
 .record-sep { margin: 0 6px; color: var(--text-3); }

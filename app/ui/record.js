@@ -120,20 +120,21 @@ const RecordPage = (() => {
 
   // ---- The page's parts ----
 
-  // The status worth showing beside the name: what formulas found true of the record at its top (Private
-  // Fund, Investment Company), and what's required but blank.
+  // The status worth showing beside the name: what implications found true of the record at its top
+  // (Private Fund, Investment Company); then what's missing, each the same way: a check that doesn't hold
+  // anywhere in it (Why.fails), and what's required but blank. A check that holds says nothing.
   function badgesHtml(id) {
     const r = records[id];
     if (isRelation(r)) return [isComputed(id) && Parts.badge('Computed', 'computed'), isTag(r) && !r.tag && Parts.badge('Ruled out', 'danger')].filter(Boolean).join('');
-    const found = entriesOf(id).filter(k => isTag(records[k]) && records[k].tag && isComputed(k)).map(k => {
-      const d = definitionOf(formulaInfo(k)?.def);
-      return Parts.badge(records[k].edge, 'computed', { href: Shell.recordHref(k), title: d ? `Worked out by ${d.name}. Click to see why.` : 'Worked out by formula' });
-    });
+    const found = entriesOf(id).filter(k => isTag(records[k]) && records[k].tag && isComputed(k) && Why.definitionFor(k)?.implications).map(k =>
+      Parts.badge(records[k].edge, 'computed', { href: Shell.recordHref(k), title: `Implied by ${Why.definitionFor(k).name}. Click to see why.` }));
+    const failed = [id, ...inside(id)].filter(Why.fails).map(k =>
+      Parts.badge(`${records[k].edge} ruled out`, 'warn', { href: Shell.recordHref(k), title: Why.text(k) || 'A check that doesn’t hold. Click to see why.' }));
     const missing = missingUnder(id);
     const labels = [...new Set(missing.map(m => m.label))];
-    const blank = missing.length ? Parts.badge(labels.length === 1 ? `${labels[0]} missing` : `${count(missing.length, 'required entry')} missing`, 'danger',
-      { cmd: 'record.missing', title: `Show ${labels.length > 1 ? 'them' : 'it'}` }) : '';
-    return found.join('') + blank;
+    const blank = missing.length ? Parts.badge(labels.length === 1 ? `${labels[0]} missing` : `${count(missing.length, 'required entry')} missing`, 'warn',
+      { cmd: 'record.missing', title: `Required, and blank. Show ${missing.length > 1 ? 'them' : 'it'}.` }) : '';
+    return found.join('') + failed.join('') + blank;
   }
 
   function headHtml(id) {
@@ -321,13 +322,13 @@ const RecordPage = (() => {
   // Brings what the hash names into view, once: an entry, with a flash, or the first required entry left blank.
   function reveal() {
     if (!page.reveal) return;
-    const target = page.reveal === 'required' ? document.querySelector('#panel .row.is-required')
+    const target = page.reveal === 'required' ? document.querySelector('#panel .row.is-required, #panel .rel-value.is-required')
       : document.querySelector(`#panel [data-entry="${CSS.escape(page.reveal)}"] > .row`);
     page.reveal = null;
     if (!target) return;
     target.scrollIntoView({ block: 'nearest' });
     target.classList.add('is-revealed');
-    target.querySelector('[data-action="fill-required"]')?.focus({ preventScroll: true });
+    (target.matches('[data-action]') ? target : target.querySelector('[data-action="fill-required"]'))?.focus({ preventScroll: true });
   }
 
   // Where the sidebar puts the page: under the record's kind, or Documents for a document.

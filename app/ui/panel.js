@@ -211,7 +211,7 @@ function startRelationForm(at, key) {
   const rel = relationTypesAt(at).find(t => t.key === key);
   ui.form = { mode: 'add', type: 'relation', at, rel, name: rel.other, other: '', otherId: null, output: '', not: false, step: 'other', typed: {} };
   ui.focus = 'other';
-  ui.expanded.add(at);
+  for (const k of pathTo(at)) ui.expanded.add(k);
 }
 
 // A tag relation is added as soon as its other side is picked; others move on to their option or value.
@@ -262,7 +262,17 @@ function chooseOutput(value) {
 
 // ---- Name and option boxes ----
 
-// Labels of this type already used at locations like this one (only those containing `text`, if `filter`),
+// The options of a box, in alphabetical order, or once it's typed in (`filter`), only those matching what's
+// typed, as rankBy ranks them: an exact match first, then the start, whole words, and so on. `texts` gives
+// what an option can be known by (an object by its Short Name too), its best match counting. Those that
+// can't be picked (with a note) go last.
+function ranked(options, text, filter, texts = o => [o.value]) {
+  const sorted = [...options].sort((a, b) => byLabel(a.value, b.value));
+  const kept = !filter ? sorted : [...new Set(rankBy(sorted.flatMap(o => texts(o).map(t => [o, t])), text, ([, t]) => t).map(([o]) => o))];
+  return kept.sort((a, b) => !!a.note - !!b.note);
+}
+
+// Labels of this type already used at locations like this one (only those matching `text`, if `filter`),
 // then Create. A label taken here can't be reused, and labels of different types can't be shared.
 function nameOptions(f, text, filter) {
   const q = norm(text);
@@ -276,41 +286,31 @@ function nameOptions(f, text, filter) {
     return other ? `A ${other.type} elsewhere` : '';
   };
   const meta = p => p.type === 'field' ? DATATYPE_NAMES[p.datatype] : p.type === 'choice' ? count(p.outputs.length, 'option') : '';
-  const prefix = o => filter && !norm(o.value).startsWith(q) ? 1 : 0;
-  const options = schema
-    .filter(p => p.type === f.type && (!filter || norm(p.label).includes(q)))
-    .map(p => ({ value: p.label, meta: meta(p), note: blocked(p.label) }))
-    .sort((a, b) => !!a.note - !!b.note || prefix(a) - prefix(b) || byLabel(a.value, b.value));
+  const options = ranked(schema.filter(p => p.type === f.type).map(p => ({ value: p.label, meta: meta(p), note: blocked(p.label) })), text, filter);
   if (q && !schema.some(p => p.type === f.type && norm(p.label) === q))
     options.push({ value: clean(text), create: true, note: blocked(text) });
   return options;
 }
 
-// The outputs of the chosen choice's parameterization (filtered as above), then Create.
+// The outputs of the chosen choice's parameterization (ranked as above), then Create.
 function outputOptions(f, text, filter) {
   const q = norm(text);
   const outputs = f.type === 'relation' ? f.rel.outputs
     : schemaAt(f.at).find(p => p.type === 'choice' && same(p.label, f.name))?.outputs ?? [];
-  const prefix = o => filter && !norm(o).startsWith(q) ? 1 : 0;
-  const options = outputs
-    .filter(o => !filter || norm(o).includes(q))
-    .sort((a, b) => prefix(a) - prefix(b) || byLabel(a, b))
-    .map(o => ({ value: o }));
+  const options = ranked(outputs.map(o => ({ value: o })), text, filter);
   if (q && !outputs.some(o => norm(o) === q)) options.push({ value: clean(text), create: true });
   return options;
 }
 
 // Locations that could be the other side of the relation being added: every record with a specification
-// seen there before. Those already related to this location this way can't be picked again.
+// seen there before, known by its object's name or any text of the object's own, like its Short Name.
+// Those already related to this location this way can't be picked again.
 function otherOptions(f, text, filter) {
-  const q = norm(text);
   const related = new Set(relationGroups(f.at).find(g => g.key === f.rel.key)?.ids
     .map(id => records[id].args.find(a => a.at !== f.at)?.at));
-  return Object.keys(records)
-    .filter(id => f.rel.otherSpecs.has(specKey(records, id)))
-    .map(id => ({ value: placeName(id), id, note: related.has(id) ? 'Already related' : '' }))
-    .filter(o => !filter || norm(o.value).includes(q))
-    .sort((a, b) => !!a.note - !!b.note || byLabel(a.value, b.value));
+  const texts = o => [o.value, ...entriesOf(objectOf(o.id)).filter(k => isField(records[k]) && records[k].field === 'text').map(k => records[k].value)];
+  return ranked(Object.keys(records).filter(id => f.rel.otherSpecs.has(specKey(records, id)))
+    .map(id => ({ value: placeName(id), id, note: related.has(id) ? 'Already related' : '' })), text, filter, texts);
 }
 
 // What the other side's listbox is headed with: the kinds of location it lists, e.g. "Entities, by way of
@@ -500,6 +500,15 @@ const ADD_TYPES = [
   ['choice', 'One option from a list'],
 ];
 
+// The two-argument relations a location like this one takes part in (relationTypesAt), and those the
+// entries inside it take part in, each with where it's added: a fund's General Partners are the fund's own
+// to add, though the relation's fund side sits at its Entity Type. [{ t, loc }], computed relations last.
+function relationsHere(at) {
+  const inside = id => entriesOf(id).filter(k => !isField(records[k])).flatMap(k => [k, ...inside(k)]);
+  return [at, ...inside(at)].flatMap(loc => relationTypesAt(loc).map(t => ({ t, loc })))
+    .sort((a, b) => a.t.computed - b.t.computed || byLabel(a.t.list, b.t.list));
+}
+
 // The Add menu: path entries, then the two-argument relations a location like this one already takes part in,
 // then any relation at all (which opens the Relate view), and on a page with a chart, a style.
 function addMenu(at, compact = false) {
@@ -524,11 +533,12 @@ function addMenu(at, compact = false) {
       <span class="menu-text"><span class="menu-title">Definition…</span><span class="menu-desc">A computed entry, worked out by formula at every location like this one</span></span></a>`
     + (panelOptions.engaged ? `<button class="menu-item" role="menuitem" data-action="menu" data-menu="${styleKey}">
       <span class="menu-text"><span class="menu-title">Style…</span><span class="menu-desc">Format the chart by an entry here</span></span><kbd>S</kbd></button>` : '');
-  // Each relation by the list it adds to here, then its name and this record's role in it. A computed
-  // one can still be attested by hand, overriding its definition.
-  const relations = relationTypesAt(at).map(t =>
-    `<button class="menu-item" role="menuitem" data-action="add-relation" data-id="${at}" data-key="${esc(t.key)}">
-      <span class="menu-text"><span class="menu-title">${esc(t.list)}</span><span class="menu-desc">${esc(t.name)} · this as ${esc(t.own)}${t.computed ? ' · Computed · attest by hand' : ''}</span></span></button>`).join('');
+  // Each relation by the list it adds to here, then its name and which side this record is on, so a list
+  // and its inverse (a fund's General Partners, and the Funds a GP is general partner of) can't be taken
+  // for each other. A computed one can still be attested by hand, overriding its definition.
+  const relations = relationsHere(at).map(({ t, loc }) =>
+    `<button class="menu-item" role="menuitem" data-action="add-relation" data-id="${loc}" data-key="${esc(t.key)}">
+      <span class="menu-text"><span class="menu-title">${esc(t.list)}</span><span class="menu-desc">${esc(t.name)}, with this as the ${esc(t.own)}${t.computed ? ' · Computed · attest by hand' : ''}</span></span></button>`).join('');
   return `<span class="menu-anchor">${trigger}<div class="pop menu" role="menu">${items}<div class="menu-sep" role="separator"></div>${general}${relations
     ? `<div class="menu-sep" role="separator"></div><div class="menu-head">Relations here</div>${relations}` : ''}</div></span>`;
 }
@@ -580,17 +590,22 @@ function relationValue(id, label, title = 'Change') {
 }
 
 // The fields located at a relation, such as an ownership's Percentage, read and changed at a glance after
-// its output. A field that relations like it have but it lacks shows as a blank to fill in.
+// its output. A date says what it is (Admission Date February 11, 2025), since a date alone could mean
+// anything, where a percentage or a title reads for itself. A field that relations like it have, or that's
+// required at it, but it lacks shows as a blank to fill in, flagged if it's required.
 function relationDetails(id) {
   const have = entriesOf(id).filter(e => isField(records[e]));
-  const blanks = detailFieldsOf(id).filter(d => !have.some(e => same(records[e].edge, d.label)));
-  const parts = have.map(e => relationValue(e, records[e].edge, records[e].edge)).concat(blanks.map(d => detailBlank(id, d)));
+  const required = missingAt(id).filter(([, req]) => req.type === 'field').map(([, req]) => ({ label: req.label, datatype: req.datatype, required: true }));
+  const blanks = [...required, ...detailFieldsOf(id).filter(d => !required.some(x => same(x.label, d.label)))].filter(d => !have.some(e => same(records[e].edge, d.label)));
+  const value = e => (records[e].field === 'date' ? `<span class="rel-detail-label">${esc(records[e].edge)}</span>` : '') + relationValue(e, records[e].edge, records[e].edge);
+  const parts = have.map(value).concat(blanks.map(d => detailBlank(id, d)));
   return parts.length ? `<span class="rel-details">${parts.map(p => `<span class="rel-detail">${p}</span>`).join('')}</span>` : '';
 }
 
 function detailBlank(at, d) {
   const edit = !ui.relEdit?.id && ui.relEdit?.at === at && same(ui.relEdit.label, d.label) ? ui.relEdit : null;
-  if (!edit) return `<button class="rel-value is-blank" data-action="detail-add" data-id="${at}" data-label="${esc(d.label)}" data-datatype="${d.datatype}" title="Add its ${esc(d.label)}">${esc(d.label)}</button>`;
+  if (!edit) return `<button class="rel-value is-blank${d.required ? ' is-required' : ''}" data-action="detail-add" data-id="${at}" data-label="${esc(d.label)}" data-datatype="${d.datatype}"
+    title="${d.required ? `${esc(d.label)} is required. Add it` : `Add its ${esc(d.label)}`}">${esc(d.label)}${d.required ? '<span class="req-mark" title="Required">*</span>' : ''}</button>`;
   return `<input class="input rel-input" data-rel-edit="${at}" value="${esc(edit.text)}" placeholder="${esc(d.label)}" autocomplete="off" spellcheck="false" data-autofocus>`
     + (edit.error ? `<span class="rel-error">${esc(edit.error)}</span>` : '');
 }
@@ -629,8 +644,8 @@ function relationRow(g, at, depth) {
     const other = r.args.find(a => a.at !== at) ?? r.args[0];
     const output = (isTag(r) ? '' : relationOutput(id, name)) + relationDetails(id);
     const lead = isTag(r) ? `<span class="rel-lead">${relationOutput(id)}${locationHtml(other.at)}</span>` : locationHtml(other.at);
-    return `<div class="rel-item">${lead}${formulaMark(id)}
-      <span class="rel-item-actions">${openRelation(id)}${deleteButton(id, true)}</span>
+    return `<div class="rel-item"><span class="rel-head">${lead}${formulaMark(id)}
+      <span class="rel-item-actions">${openRelation(id)}${deleteButton(id, true)}</span></span>
       ${output ? `<span class="rel-output">${output}</span>` : ''}</div>${ui.why === id ? whyBlock(id) : ''}`;
   }).join('');
   const canAdd = relationTypesAt(at).some(t => t.key === g.key);
@@ -638,9 +653,10 @@ function relationRow(g, at, depth) {
   return row(depth, label, `<div class="rel-items">${items}</div>`, actions);
 }
 
-// A relation with more arguments shows as a table with a column per other argument, headed by its edge.
-// Each heading is a dropdown that narrows the rows to one location there, offering only the locations
-// left in rows that match the other columns, until the rows that remain show their outputs alone.
+// A relation with more arguments shows as a table under its name (Signing Authority), with a column per
+// other argument, headed by its edge. Each heading is a dropdown that narrows the rows to one location
+// there, offering only the locations left in rows that match the other columns, until the rows that remain
+// show their outputs alone.
 function relationTable(g, at, depth) {
   const table = `${at}|${g.key}`;
   const filters = ui.filters[table] ?? {};
@@ -662,7 +678,8 @@ function relationTable(g, at, depth) {
       <div class="rel-acts">${openRelation(id)}${deleteButton(id, true)}</div></div>`).join('');
   const note = shown.length < rows.length
     ? `<div class="rel-note">Showing ${shown.length} of ${rows.length} · <button class="link-btn" data-action="col-clear" data-key="${esc(table)}">Show all</button></div>` : '';
-  return `<div class="rel-table" style="${style}">${depth ? '<span class="guides"></span>' : ''}${head}${body}${note}</div>`;
+  const title = `<div class="rel-title"><span class="twisty"></span><span class="label-text">${esc(formName(g.form))}</span></div>`;
+  return `<div class="rel-table" style="${style}">${depth ? '<span class="guides"></span>' : ''}${title}${head}${body}${note}</div>`;
 }
 
 function columnFilter(table, c, edge, locations, picked) {
@@ -991,8 +1008,9 @@ function relationView(id) {
   const type = isComputed(id) ? `Computed ${TYPE_NAMES[typeOf(r)].toLowerCase()}` : TYPE_NAMES[typeOf(r)];
   const sub = `${type} relation · ${esc(joinList(r.args.map(a => a.edge)))}${isTag(r) && !r.tag ? ' · ruled out' : ''}`
     + (style ? ` · <button class="kind-chip${engagedHere(id) ? ' is-engaged' : ''}" data-action="style-engage" data-style="${style.id}" data-output="${esc(outputKey(r))}">${styleDot(id, true)}Line style</button>` : '');
+  // A computed relation is all its explanation says; one that's entered may have more recorded about it.
   const rows = isField(r) ? '' : entryRows(id, 0);
-  const body = rows || `<div class="empty">${isField(r) ? 'A field relation holds a value and has no entries.' : 'Nothing recorded about this relation yet.'}</div>`;
+  const body = rows || (isComputed(id) ? '' : `<div class="empty">${isField(r) ? 'A field relation holds a value and has no entries.' : 'Nothing recorded about this relation yet.'}</div>`);
   const extra = argumentRows(id) + (formulaInfo(id) ? whyBlock(id, 0, true) : formulaSection(id));
   return [panelHead({ title, sub, actions: isField(r) ? '' : addMenu(id), extra }), body];
 }
@@ -1203,6 +1221,7 @@ function currentView() {
 // the hash names, or another a page gives it (a record's page always shows the record it's about).
 function renderPanel(view = currentView()) {
   listbox.input = null;
+  startVisit(shownHash);
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
   const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView() : view.schema ? schemaView(view.schema)
     : view.formula ? definitionView(view.formula)
@@ -2055,16 +2074,35 @@ function objectOfHash(hash) {
 
 const listing = items => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 
-// Leaving an object's panels while something required in it is blank asks first. The hash has already
-// changed by the time we hear of it, so it's put back while the question is open. Moving between an
-// object's own records, to fill things in, doesn't count as leaving.
+// Leaving an object's panels while something required in it is blank asks first, if this visit changed
+// the object: something was entered, edited or deleted in it, or it was just added. A visit that only
+// looked doesn't ask; the asterisks say what's blank. The hash has already changed by the time we hear of
+// it, so it's put back while the question is open. Moving between an object's own records, to fill things
+// in, doesn't count as leaving.
 let shownHash = location.hash;
 let leaving = null;
+// The object being visited, and the newest change in the history before the visit began: the one before
+// it was added, if it was just added.
+let visit = null;
+function startVisit(hash) {
+  const obj = objectOfHash(hash);
+  if (!obj || visit?.obj === obj) return;
+  // Just added: the newest change added it.
+  const added = historyLog[0]?.changes?.some(c => c.id === obj && !c.before);
+  visit = { obj, since: historyLog[added ? 1 : 0]?.id ?? null };
+}
+// Whether the history has a change to the object since the visit began.
+function changedThisVisit(obj) {
+  const since = visit?.obj === obj ? visit.since : historyLog[0]?.id;
+  const changed = new Set(historyOf(obj).map(h => h.id));
+  for (const h of historyLog) { if (h.id === since) return false; if (changed.has(h.id)) return true; }
+  return false;
+}
 
 window.addEventListener('hashchange', () => {
   const from = shownHash, to = location.hash;
   const obj = objectOfHash(from);
-  const missing = obj && leaving !== to && objectOfHash(to) !== obj ? missingUnder(obj) : [];
+  const missing = obj && leaving !== to && objectOfHash(to) !== obj && changedThisVisit(obj) ? missingUnder(obj) : [];
   if (missing.length) {
     history.replaceState(null, '', from || location.pathname);
     const labels = [...new Set(missing.map(m => m.label))];
@@ -2080,6 +2118,8 @@ window.addEventListener('hashchange', () => {
   }
   leaving = null;
   shownHash = to;
+  if (objectOfHash(to) !== visit?.obj) visit = null;
+  startVisit(to);
   // Leaving a panel clears its forms and any table filters.
   clearForms();
   ui.filters = {};

@@ -42,7 +42,7 @@
 button.twisty:hover { background: var(--pressed); color: var(--text); }
 .twisty .icon { width: 14px; height: 14px; transition: transform .15s; }
 .twisty[aria-expanded="true"] .icon { transform: rotate(90deg); }
-.label-text { min-width: 0; padding: 8px 0; overflow-wrap: break-word; }
+.label-text { min-width: 0; padding: 8px 0; overflow-wrap: normal; hyphens: auto; }
 a.label-text:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 .value-btn { display: block; width: 100%; padding: 0; border: 0; border-radius: 4px; background: none; text-align: left; cursor: text; overflow-wrap: anywhere; }
 .empty { padding: 18px 14px; color: var(--text-3); }
@@ -70,15 +70,19 @@ a.label-text:hover { color: var(--text); text-decoration: underline; text-decora
 .path-more:hover { background: var(--pressed); color: var(--text); }
 
 /* Two-argument relations: one row, listing the other side of each relation with its output. */
-/* An item's output keeps to the right and drops below the name when the line runs out. Its actions take
-   no room until the item is hovered, and then sit after the name, so the output doesn't move. */
+/* An item's output keeps to the right of the name, and when the line runs out, drops below it, starting
+   where the name does rather than floating at the right. Its actions take no room until the item is
+   hovered, and then sit after the name, so the output doesn't move. */
 .rel-items { display: grid; gap: 6px; }
-.rel-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 20px; }
-.rel-item > .loc, .rel-lead { flex: 0 1 auto; min-width: min(8rem, 100%); }
+.rel-item { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; min-height: 20px; }
+.rel-head { display: flex; flex: 0 1 auto; align-items: center; gap: 4px 8px; min-width: min(8rem, 100%); }
+.rel-head > .loc, .rel-lead { flex: 0 1 auto; min-width: 0; }
 /* A tag's checkbox stays beside the other side's name, which wraps beside it if it must. */
 .rel-lead { display: flex; align-items: flex-start; gap: 8px; }
 .rel-lead > .loc { min-width: 0; }
-.rel-output { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rel-output { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-variant-numeric: tabular-nums; }
+.rel-output > *, .rel-detail { white-space: nowrap; }
+.rel-detail-label { margin-right: 6px; color: var(--text-3); font-size: 12px; }
 .rel-item-actions { display: none; }
 .rel-item:hover .rel-item-actions, .rel-item:focus-within .rel-item-actions { display: flex; }
 .rel-acts { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); display: flex; padding-left: 6px; border-radius: 6px; background: var(--hover); opacity: 0; }
@@ -86,25 +90,28 @@ a.label-text:hover { color: var(--text); text-decoration: underline; text-decora
 @media (hover: none) { .rel-item-actions { display: flex; } .rel-acts { opacity: 1; } }
 .rel-value { padding: 0; border: 0; background: none; cursor: text; font-variant-numeric: tabular-nums; }
 /* Fields located at a relation, like an ownership's Percentage, after its output, a shade lighter. */
-.rel-details { display: inline-flex; align-items: center; gap: 10px; }
-.rel-output > :not(.rel-details) + .rel-details { margin-left: 10px; }
+.rel-details { display: contents; }
 .rel-detail .rel-value { color: var(--text-2); }
 .rel-detail .rel-value.is-blank { color: var(--text-3); }
 .rel-detail .rel-value.is-blank:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
+.rel-detail .rel-value.is-required { color: var(--text-2); }
 .input.rel-input { width: 9rem; height: 24px; margin: -2px 0; }
-.rel-output:has(.rel-error) { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.rel-output:has(.rel-error) { flex-direction: column; align-items: flex-start; gap: 4px; }
 .rel-error { font-size: 12px; line-height: 16px; color: var(--danger); white-space: normal; }
 
-/* Relations with more arguments: a table on the same grid as rows, one column per other argument. */
-.rel-table { position: relative; margin: 10px 0 2px; }
+/* Relations with more arguments: a table under the relation's name, on the same grid as rows, one column
+   per other argument, headed as a table's columns are. */
+.rel-table { position: relative; margin: 4px 0 2px; }
+.rel-title { display: flex; align-items: flex-start; gap: 6px; padding-left: calc(var(--depth) * var(--indent) + 4px); color: var(--text-2); }
 .rel-row { position: relative; display: grid; grid-template-columns: var(--label-col) repeat(var(--cols), minmax(0, 1fr)); align-items: start; border-radius: 8px; }
 .rel-row:not(.is-head):hover { background: var(--hover); }
 .rel-c0 { display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 6px 0 6px calc(var(--depth) * var(--indent) + 4px); }
 .rel-c { min-width: 0; padding: 6px 10px; }
 .rel-c0 > .loc, .rel-c0 > .menu-anchor { padding-top: 0; }
-.rel-row.is-head { padding-top: 2px; }
+.rel-row.is-head { padding-top: 0; border-radius: 0; box-shadow: inset 0 -1px 0 var(--border); }
+.rel-row.is-head .rel-c0, .rel-row.is-head .rel-c { padding-top: 2px; padding-bottom: 4px; }
 .rel-row.is-head .menu-anchor { min-width: 0; max-width: 100%; }
-.col-filter { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 12px); margin: -2px -6px; padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text-2); font-size: 13px; font-weight: 500; text-align: left; }
+.col-filter { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 12px); margin: -2px -6px; padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text-2); font-size: 12px; font-weight: 500; text-align: left; }
 .col-filter-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-filter .icon { width: 14px; height: 14px; color: var(--text-3); }
 .col-filter:hover, .col-filter[aria-expanded="true"] { border-color: var(--border-strong); background: var(--surface); }
@@ -183,6 +190,18 @@ a.list-row:hover { background: var(--hover); }
   .list-meta { display: none; }
   .list-chevron { margin-left: auto; }
 }
+/* Narrower still, as beside the chart on a small screen: a label goes above its value, so neither breaks
+   a word to fit. */
+@container panel (max-width: 360px) {
+  .row, .form-block .row { grid-template-columns: minmax(0, 1fr); }
+  .cell-label { min-height: 0; }
+  .cell-label > .label-text { padding-bottom: 0; }
+  .cell-value { padding-top: 2px; padding-left: calc(var(--depth) * var(--indent) + 30px); }
+  .form-block .cell-actions { position: absolute; top: 4px; right: 4px; }
+  .form-note { grid-template-columns: minmax(0, 1fr); }
+  .form-note-inner { grid-column: 1; padding-left: calc(var(--depth, 0) * var(--indent) + 30px); }
+  .rel-row { grid-template-columns: repeat(calc(var(--cols) + 1), minmax(0, 1fr)); }
+}
 
 /* Relating two things (relate.js). The two sides head the first two columns; each row gives each side's
    role in a kind of relation, then the relation's output, recorded or not. */
@@ -229,7 +248,7 @@ a.list-row:hover { background: var(--hover); }
 .relate-extras.is-inline { padding: 0; }
 
 /* Required entries: a blank one is flagged with an asterisk and offers to be filled in. */
-.req-mark { margin-left: 3px; color: var(--danger); font-weight: 600; }
+.req-mark { margin-left: 3px; color: var(--warn); font-weight: 600; }
 .req-mark.is-below { margin: 8px 0 0 -2px; }
 .value-btn.req-blank { color: var(--text-3); }
 .value-btn.req-blank:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
