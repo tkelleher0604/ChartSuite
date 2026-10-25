@@ -219,7 +219,8 @@ const RecordPage = (() => {
         const computed = isComputed(rel);
         const [first, ...rest] = others;
         const more = rest.map(a => `<span class="record-via">${esc(a.edge)}</span>${Parts.chip(objectOf(a.at), { computed })}`).join('');
-        return `<span class="record-rel">${Parts.chip(objectOf(first.at), { detail: relationDetail(rel), computed })}${more}</span>`;
+        const whole = rest.length ? ` title="${esc([objectName(objectOf(first.at)), ...rest.map(a => `${a.edge} ${objectName(objectOf(a.at))}`)].join(', '))}"` : '';
+        return `<span class="record-rel"${whole}>${Parts.chip(objectOf(first.at), { detail: relationDetail(rel), computed })}${more}</span>`;
       }).join('') : (() => {
         // A line has room for a few names; the rest show when it's opened.
         const names = l.items.slice(0, 4).map(x => objectName(objectOf(x.others[0].at)));
@@ -410,8 +411,9 @@ const RecordPage = (() => {
         for (const k of pathTo(a.focus).slice(1, -1)) ui.expanded.add(k);
         if (formulaInfo(a.focus)) ui.why = a.focus;
         page.reveal = a.focus;
-        if (!isWide()) page.tab = 'details';
       }
+      // What the hash names in the Details, or relating, brings them forward where they're a tab.
+      if ((a.focus || a.relate) && !isWide()) page.tab = 'details';
     }
   }
 

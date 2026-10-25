@@ -51,7 +51,9 @@
 .record-list .chips { min-width: 0; }
 .record-rel { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; max-width: 100%; min-width: 0; }
 .record-rel > .chip { min-width: 0; }
-.record-rel:has(.record-via) { flex-basis: 100%; }
+/* A relation with more sides keeps to a line of its own, its names giving way before it wraps. */
+.record-rel:has(.record-via) { flex-basis: 100%; flex-wrap: nowrap; }
+.record-rel:has(.record-via) > .chip { flex: 0 1 auto; }
 .record-via { flex: none; color: var(--text-3); font-size: 12px; }
 .record-summary { max-width: 100%; padding: 1px 0; overflow: hidden; border: 0; background: none; color: var(--text-3); font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .record-summary:hover { color: var(--text-2); }
