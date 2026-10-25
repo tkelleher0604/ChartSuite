@@ -308,7 +308,8 @@ const Store = (() => {
     if (rec.conflict) return { text: `Not saved: ${rec.conflict.by ? `${rec.conflict.by} saved a newer version` : `${where} changed since`}`, tone: 'error', fix: 'conflict' };
     if (problem) return problem;
     if (showSaving) return { text: `Saving to ${where}…`, tone: 'busy' };
-    return { text: `Saved to ${where} · ${ago(rec.at)}`, tone: '' };
+    // Kept together where the sidebar wraps it: "Saved to Fund Legal ›" over "Rboreal · 2 min ago".
+    return { text: `Saved to ${where} · ${ago(rec.at).replace(/ /g, ' ')}`, tone: '' };
   }
   const listeners = [];
   function report() {

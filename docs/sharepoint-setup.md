@@ -42,18 +42,9 @@ The connector needs the following settings:
 | Workbook folder | `Rboreal` | A folder in that library for workbooks. It's created on the first save. |
 | Redirect URI | *(blank)* | Leave it blank to use the page's own address. Set it only if you registered a different one. |
 
-These go in **Settings › SharePoint**. Until that screen is built, open the browser's console on the app's page and run:
+These go in **Settings › SharePoint**: choose *Live*, enter them, and save. *Test connection* then signs in and finds the site, the library and the workbook folder, saying which step failed if one does.
 
-```js
-SharePoint.connector.configure({
-  mode: 'live',
-  tenantId: '…', clientId: '…',
-  siteUrl: 'https://contoso.sharepoint.com/sites/FundLegal',
-  library: 'Documents',
-});
-```
-
-The app stays in demo mode until the tenant ID, client ID and site URL are all entered and the mode is *live*. To go back to the demo, use `configure({ mode: 'demo' })`. This keeps the other settings.
+The app stays in demo mode until the tenant ID, client ID and site URL are all entered and the mode is *Live*. Choosing *Demo* again keeps the other settings. Pointing the app at another library keeps the workbook in the browser until it's opened or saved in that library, from **Settings › Workbook**.
 
 ## 3. What's kept where
 

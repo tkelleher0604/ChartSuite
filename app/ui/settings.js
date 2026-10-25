@@ -204,8 +204,8 @@ function demoCard() {
   const there = Store.place().place === 'sharepoint';
   return card({
     title: 'Two people at once',
-    desc: `In the demo, ${COLLEAGUE} can save the library’s copy as if from her own computer. Change something here afterwards, and your save meets hers.`,
-    aside: button('settings.colleague', `Have ${COLLEAGUE.split(' ')[0]} save it`, { disabled: !there, title: there ? '' : 'Save the workbook to the library first' }),
+    desc: `In the demo, ${COLLEAGUE} can save the library’s copy as if from her own computer. Change something here afterwards, and your save meets hers.${there ? '' : ' Save the workbook to the library first.'}`,
+    aside: button('settings.colleague', `Have ${COLLEAGUE.split(' ')[0]} save it`, { disabled: !there }),
   });
 }
 
@@ -350,16 +350,20 @@ function pickFile(accept) {
   });
 }
 
+// The library's actions sign in as part of them, on the click that confirmed the name.
+const signedIn = async () => { if (!(await Store.isSignedIn())) await Store.signIn(); };
 const openLibrary = () => act('where', async () => {
   const name = await ask('prompt', { title: 'Open from the library', body: `The name of a workbook in ${Store.libraryName()}.`,
     value: Store.place().place === 'sharepoint' ? Store.place().name : '', placeholder: 'Workbook name', confirm: 'Open' });
   if (!clean(name ?? '')) return;
+  await signedIn();
   const opened = await Store.openLibrary(name, { confirm: confirmReplace });
   if (opened) { await refreshAccount(); Shell.toast(`Opened ${opened} from ${Store.libraryName()}`); }
 });
 const saveLibrary = (title = 'Save to the library', value = Store.workbookName()) => act(Store.place().conflict ? 'conflict' : 'where', async () => {
   const name = await ask('prompt', { title, body: `Saves the workbook in ${Store.libraryName()}, and keeps it there from then on.`, value, placeholder: 'Workbook name', confirm: 'Save' });
   if (!clean(name ?? '')) return;
+  await signedIn();
   const saved = await Store.saveLibraryAs(name);
   if (saved) { await refreshAccount(); Shell.toast(`Saved to ${Store.libraryName()} as ${saved}`); }
 });
@@ -370,7 +374,9 @@ function exportNow() {
 
 async function importNow() {
   const file = await pickFile('.json,application/json');
-  if (!file) return;
+  if (file) await importFile(file);
+}
+async function importFile(file) {
   let found;
   try { found = await Store.readFile(file); } catch (e) { settings.errors.copies = e.message; return rerender(); }
   const wb = found.workbook, here = new Set(workbook.charts.map(c => c.id));
@@ -380,7 +386,8 @@ async function importNow() {
     <ul class="set-import">${wb.charts.map(c => `<li><span>${esc(c.name)}</span><span class="faint">${here.has(c.id) ? 'Here too' : 'New'}</span></li>`).join('')}</ul>
     ${shared ? `<label class="set-field"><span class="set-label">${shared === wb.charts.length ? 'These charts are here too' : 'The charts that are here too'}</span><span class="set-select"><select class="input set-input" data-import-mode>
         <option value="replace">Replace them: one change each, which Undo takes back</option>
-        <option value="add">Add them again, as new charts</option></select>${icon('chevron-down')}</span></label>`
+        <option value="add">Add them again, as new charts</option></select>${icon('chevron-down')}</span></label>
+      ${shared < wb.charts.length ? '<p class="set-hint">The new ones are added, each with its own history.</p>' : ''}`
       : '<p>Each is added as a new chart, with its own history.</p>'}`;
   if (!await ask('confirm', { title: `Import ${found.name}?`, html, confirm: 'Import', wide: true })) return;
   const { replaced, added } = Store.importWorkbook(wb, { source: found.name, asNew: settings.importMode === 'add' });
@@ -510,7 +517,7 @@ Object.entries({
     renameChart(workbook.chartId, draft('chart', chartInUse().name));
     delete settings.drafts.chart;
     rerender();
-    Shell.toast(`Renamed the chart ${chartInUse().name}`);
+    Shell.toast(`Renamed the chart to ${chartInUse().name}`);
   },
   'settings.reset': resetChart,
   'settings.clear': clearCopy,

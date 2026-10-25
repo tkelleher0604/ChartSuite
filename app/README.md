@@ -116,6 +116,17 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - Export CSV saves the changes shown, one row for each record a change touched.
   - Restore this, on an opened entry whose records are still as it left them, puts them back as they were before it, as an ordinary undoable change that the history records in its turn: a deletion by restoring its batch from Deleted, an addition by deleting what it added. Otherwise the entry says why it can't be restored.
 - [schema.html](schema.html): the Schema view and a definition's view from the record panel, at full width, at the same addresses (`#schema`, `#schema:computed`, `#definition:<id>`, …). Links to records and kinds go to their pages, each change is confirmed in a toast with Undo, and a rule's implications take a line each. The palette opens any definition by name.
+- [settings.html](settings.html): Settings, its sections listed on the left and its cards in one column.
+  - **You:** your name, which the History records changes under (with SharePoint signed in, it offers the account's name), and the theme, which applies at once.
+  - **Workbook:** where it's kept, and export and import.
+    - The workbook is one JSON document. This browser always holds the working copy, so pages open at once and tabs stay in step, and it's kept in one of three places: this browser alone; a file (Open… and Save as…, through the File System Access API, in a folder OneDrive or SharePoint syncs if you like; where the API is missing, Open… and Download); or a SharePoint library (Open… and Save as…, by the workbook's name in the library's Rboreal folder).
+    - A change is saved there a moment after it's made, and the sidebar says how that stands: "Saved to Fund Legal › Rboreal · 2 min ago", "Saving…", or what's wrong. Offline or signed out, changes are kept in the browser until they can be saved. A page that opens with nothing unsaved takes the copy there if someone has saved it since.
+    - Which chart and view are open aren't saved there, so switching them changes nothing.
+    - If someone saved there while this browser had changes too, both copies are kept, and a card says who saved and when, with three choices: keep mine (save it over theirs, which stays in SharePoint's version history), take theirs, or save mine as a copy under a new name.
+    - Export downloads the workbook as JSON. Import reads one: a chart that's here too (the same chart, by its id) is replaced, as one change of that chart that Undo takes back and the History records, with both histories kept; or, if you choose, every chart is added as a new one. Charts the file lacks are left alone.
+  - **SharePoint:** the connection (demo, or live with the tenant ID, client ID, site, library, workbook folder and redirect URI from [docs/sharepoint-setup.md](../docs/sharepoint-setup.md)), who's signed in, and a test that finds the site, the library and the workbook folder. In the demo, a colleague can save the library's copy, to show what two people saving at once looks like.
+  - **This chart:** its name, and Reset to the sample, which Undo takes back and the History records.
+  - **Danger zone:** clearing this browser's copy, after saying what would be lost and what stays.
 - [tests/model-test.html](tests/model-test.html): checks the model on the sample. Every record's specification must be in the schema and the schema conditions must hold; styles, names, definitions and required entries must point into it; and renames, moves, deletes, type changes, Show and Hide, Copy definitions, naming relations and lists, and requiring entries must keep all of that true. Failures are listed first.
 - [tests/formula-lab.html](tests/formula-lab.html): the sample's definitions side by side with their results, a scratch box that works out any expression at any record, and `#selftest`, which checks the results [formulas.md](../formulas.md) claims. It starts from the definitions as the app stores them, written out as people write them, and keeps its own copy to edit.
 - [tests/sharepoint-test.html](tests/sharepoint-test.html): checks the SharePoint connector, `core/sharepoint.js`. It covers:
@@ -124,6 +135,7 @@ Both pages work on a workbook of charts. The menu naming the current chart, in t
   - the live Graph client, run against a stand-in for Graph.
 
   Setup for a real tenant is in [docs/sharepoint-setup.md](../docs/sharepoint-setup.md). Failures are listed first.
+- [tests/store-test.html](tests/store-test.html): checks `core/store.js` against the demo library and a stand-in for a file: saving, taking a newer copy, conflicts and each way out of one, signed out and offline, export and import, and clearing. It sets the browser's saved workbook aside while it runs, and puts it back after. Failures are listed first.
 - [Dappled Wall.html](<../UI/mockups/Dappled Wall.html>): tree-branch shadows on a wall, a candidate background for the loading screen.
 
 ## Code
@@ -146,6 +158,8 @@ The pages share the code in [core/](core/) (no page code), [ui/](ui/) and [css/]
 | `sharepoint.js` | The document connector, with no UI, as one global, `SharePoint`: reading document links and choosing their icons; the connection settings; a Microsoft Graph client, signed in through MSAL, for browsing, search, items, sharing links and versions; loading and saving the workbook in a SharePoint library, with a conflict when someone else has saved since; and a demo tenant (Contoso's Fund Legal site) with the same API |
 | `agenda.js` | The chart's dates as events (what, whose, when, and whether a rule gives them), grouped as the agenda groups them; an event's row and its Why; whose something is, as chips; and the .ics export. Home and the Calendar share it |
 | `calendar.js`, `home.js` | The Calendar and Home |
+| `store.js` | Where the workbook is kept, with no UI, as one global, `Store`: the working copy in local storage, saved to a file or a SharePoint library by one sync model (saves that name the version they replace, a newer copy taken when nothing here is unsaved, conflicts that keep both copies); the status the sidebar shows; export and import |
+| `settings.js`, `settings.css` | The Settings page |
 | `export.js` | Exports, made in the browser: the chart as a vector PDF, an editable PowerPoint deck (a slide per view, if asked) or an SVG, and an object's profile as a PDF; and the ribbon's Export tab. Each format draws one scene read off the chart, so it shows what the chart shows. Its libraries load the first time they're used |
 | `base.css`, `panel.css`, `chart.css` | Shared tokens and controls, the panel, and the chart page |
 | `agenda.css`, `calendar.css`, `home.css` | The agenda's rows, the Calendar, and Home |
