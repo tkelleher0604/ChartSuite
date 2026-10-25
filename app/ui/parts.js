@@ -1,6 +1,7 @@
 // The pieces every area draws records with, so a record reads the same wherever it's shown: a chip for an
-// object, its output, what a formula has a say in, a date or a time, a status badge, a document's file, a
-// filter chip, a table's column heading, an empty state. One global, `Parts`; each part returns markup.
+// object, its output, what a formula has a say in, what's required, a date or a time, a status badge, a
+// document's file and its status, tabs, a filter chip, a table's column heading, an empty state. One global,
+// `Parts`; each part returns markup.
 // Loaded after shell.js. Styles are in shell.css.
 
 const Parts = (() => {
@@ -59,15 +60,28 @@ const Parts = (() => {
     ? `<a class="fx-error" href="${esc(href)}"${title ? ` title="${esc(title)}"` : ''}>${esc(code)}</a>`
     : `<span class="fx-error"${title ? ` title="${esc(title)}"` : ''}>${esc(code)}</span>`;
 
-  // A calendar date (2027-06-01) as it reads: Jun 1, 2027.
+  // ---- Dates ----
+  // One rule: a date in a row, whether a table's cell, the agenda or the history, is short (Jun 1, 2027),
+  // with the full date on hover (dateCell); a date read as a value, in a record's Details or an export,
+  // reads in full, as the model writes it (June 1, 2027). Anything that isn't a calendar date reads as
+  // nothing, so a bad address can't print "undefined NaN".
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const isDay = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) && !!parseDate(iso);
+  // A calendar date (2027-06-01) as text, short: Jun 1, 2027.
   function date(iso) {
-    if (!iso) return '';
+    if (!isDay(iso)) return '';
     const [y, m, d] = iso.split('-').map(Number);
     return `${MONTHS[m - 1]} ${d}, ${y}`;
   }
-  // Days from today to a calendar date: negative if it's past.
+  // The same as markup, for a row: short, in tabular figures, the full date on hover; in italics where a
+  // formula worked it out.
+  function dateCell(iso, { computed = false } = {}) {
+    if (!isDay(iso)) return '';
+    return `<time class="tnum${computed ? ' computed-text' : ''}" datetime="${esc(iso)}" title="${esc(formatDate(iso))}${computed ? ' · worked out by formula' : ''}">${date(iso)}</time>`;
+  }
+  // Days from today to a calendar date: negative if it's past (NaN if it isn't a date).
   function daysUntil(iso) {
+    if (!isDay(iso)) return NaN;
     const today = new Date();
     const t = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
     const [y, m, d] = iso.split('-').map(Number);
@@ -76,6 +90,7 @@ const Parts = (() => {
   // How far off a date is, in words: Today, Tomorrow, In 12 days, 3 days ago; then months and years, since
   // "In 412 days" or "28,505 days ago" reads as nothing in particular.
   function dueText(iso) {
+    if (!isDay(iso)) return '';
     const n = daysUntil(iso), far = Math.abs(n);
     if (far >= 60) {
       const text = far < 548 ? count(Math.round(far / 30.44), 'month') : count(Math.round(far / 365.25), 'year');
@@ -95,7 +110,8 @@ const Parts = (() => {
     return `<time class="faint tnum" datetime="${esc(stamp)}" title="${esc(t.toLocaleString())}">${esc(text)}</time>`;
   }
 
-  // A status: tone '' (neutral), 'success', 'warn', 'danger', 'computed' or 'accent'. One that goes
+  // A status that needs attention: tone '' (neutral), 'success', 'warn', 'danger', 'computed', 'accent' or
+  // 'faint' (superseded, set aside); a normal state is plain text, not a badge. One that goes
   // somewhere (`href`) or does something (`cmd`, a Shell handler) says so on hover (`title`), and is ringed.
   function badge(text, tone = '', { href = '', cmd = '', title = '' } = {}) {
     const html = `<span class="badge${tone ? ` is-${tone}` : ''}">${esc(text)}</span>`;
@@ -112,11 +128,16 @@ const Parts = (() => {
     const g = SharePoint.docIcon(kind);
     return `<span class="doc-glyph${cls ? ` ${cls}` : ''}" title="${esc(g.title)}">${g.svg}</span>`;
   }
-  // A document's status (a cell of Documents' rows) as a badge: in force, in progress, or no longer
-  // current; in italics where a formula gave it.
-  const STATUS_TONES = { executed: 'success', filed: 'success', final: 'success', signed: 'success', effective: 'success',
+  // A document's status (a cell of Documents' rows). In force (Executed, Filed, Final) is the normal state,
+  // so it's plain text; only what needs a lawyer's eye is marked: still in progress (a Draft) in amber, no
+  // longer current (Superseded) faint. In italics where a formula gave it.
+  const STATUS_TONES = { draft: 'warn', pending: 'warn', unsigned: 'warn', 'in review': 'warn',
     superseded: 'faint', terminated: 'faint', expired: 'faint', withdrawn: 'faint' };
-  const docStatus = cell => !cell ? '' : `<span class="${cell.computed ? 'computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${badge(cell.text, STATUS_TONES[norm(cell.text)] ?? '')}</span>`;
+  function docStatus(cell) {
+    if (!cell) return '';
+    const tone = STATUS_TONES[norm(cell.text)];
+    return `<span class="doc-status${cell.computed ? ' computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${tone ? badge(cell.text, tone) : esc(cell.text)}</span>`;
+  }
 
   // A filter above a list, as a chip. Unset, it reads "+ Label", and opens its menu (`cmd`, a Shell
   // handler). Set, it reads what it's set to, `Label: <b>value</b>`, or `text` (markup) where a sentence
@@ -143,6 +164,21 @@ const Parts = (() => {
       ${menu ? `<button class="th-menu" data-cmd="${esc(menu)}"${attrs} aria-haspopup="menu" aria-label="${esc(label)}: sort, filter and more" title="Sort, filter and more">${icon('chevron-down')}</button>` : ''}</div></th>`;
   }
 
+  // The mark on what's required (a column's heading, an entry's label): an asterisk, in amber, since a
+  // required entry left blank is something to do. `title` says more on hover.
+  const required = (title = 'Required') => `<span class="req-mark" title="${esc(title)}">*</span>`;
+
+  // Tabs for subsets of one list, each with its count: [{ id, label, count, alert }], the one shown
+  // `current`. A click runs `cmd` (a Shell handler) with data-tab set to the tab's id. A count of null shows
+  // as …, while it's being worked out; `alert` marks one that needs attention (Broken links) in amber.
+  // Modes of one view (Agenda and Month) are a segmented control (.seg) instead.
+  function tabs(list, { current, cmd, label = '' }) {
+    return `<div class="tabs" role="tablist"${label ? ` aria-label="${esc(label)}"` : ''}>${list.map(t => {
+      const n = t.count === undefined ? '' : `<span class="tab-count${t.alert && t.count ? ' is-alert' : ''}">${t.count === null ? '…' : esc(String(t.count))}</span>`;
+      return `<button class="tab" role="tab" aria-selected="${t.id === current}" data-cmd="${esc(cmd)}" data-tab="${esc(t.id)}">${esc(t.label)}${n}</button>`;
+    }).join('')}</div>`;
+  }
+
   // What's missing, when it will appear, and the one action that adds it: { cmd } runs a Shell handler,
   // { href } goes somewhere. An empty result of a filter says so instead, with a way to clear it.
   function empty({ title, desc = '', action = null }) {
@@ -155,5 +191,6 @@ const Parts = (() => {
   // A person's initials in a circle, for who made a change.
   const avatar = name => `<span class="avatar" title="${esc(name)}">${esc(clean(name).split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?')}</span>`;
 
-  return { chip, link, output, outputText, tagBox, formulaText, overrideMark, formulaError, date, daysUntil, dueText, when, badge, file, docStatus, filterChip, columnHead, empty, avatar };
+  return { chip, link, output, outputText, tagBox, formulaText, overrideMark, formulaError, date, dateCell, daysUntil, dueText, when, badge, file, docStatus,
+    required, tabs, filterChip, columnHead, empty, avatar };
 })();

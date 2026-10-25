@@ -7,12 +7,17 @@ How Rboreal looks and behaves, and how its pages are built. [ui-research.md](ui-
 1. **The work is the loudest thing on screen.** The sidebar and top bar are quiet. Content leads.
 2. **Structure is felt, not seen.** Use few borders, low-contrast dividers and generous spacing. There is no zebra striping, and no box around everything.
 3. **Dense, with hierarchy.** Legal teams want many rows on screen. Keep them, and give the eye a place to land: the name, the date, the status.
-4. **Color carries meaning, so it's scarce.**
-   - The accent (indigo) marks what can be acted on.
-   - Green and red mark attested and ruled-out tags.
-   - Purple marks what a formula worked out.
-   - Amber marks what needs attention.
-   - Color is never decoration.
+4. **Color carries meaning, so it's scarce.** Each color has one meaning, everywhere:
+
+   | Color | Means | For example |
+   | --- | --- | --- |
+   | Indigo (the accent) | What can be acted on, and what's selected | links, the primary button, a selected row or style |
+   | Purple | What a formula worked out | a computed chip, Why, fx |
+   | Green | Attested, and a success | an attested tag |
+   | Red | Ruled out, overdue, or failed | a ruled-out tag, an overdue date, a formula's error, a save that failed, the one button that deletes |
+   | Amber | Something to do | a required entry left blank (its asterisk, "Required", "… missing"), due soon, a Draft, an entered value that differs from its formula |
+
+   A normal state is plain text, never a colored badge: a document that's Executed, Filed or Final, or "Saved in this browser". Color is never decoration.
 5. **Labels beat icons.** An icon appears only where it is the clearest label. Examples are search, close, a file's type and the sidebar toggle.
 6. **Show where every value came from.**
    - A computed value is set in italics. Its chip or line is dashed, and hovering it says a formula worked it out.
@@ -32,22 +37,27 @@ The tokens are in [app/css/base.css](../app/css/base.css). Use the variables; ne
 | Text | `--text`, `--text-2` (secondary), `--text-3` (placeholder and faint) |
 | Accent | `--accent`, `--accent-hover`, `--accent-text` (links), `--accent-soft`, `--focus` |
 | Meaning | `--yes` and `--no` (tags); `--success-*`, `--warn-*`, `--danger-*`, `--computed-*`, each with `-soft`, `-border` and a solid or text color |
-| Shape | `--radius-xs` (4, chips), `--radius-sm` (6, buttons and inputs), `--radius` (8, cards and popovers), `--radius-lg` (12, dialogs) |
+| Type | `--fs-caption`, `--fs-small`, `--fs-dense`, `--fs-body`, `--fs-title-sm`, `--fs-title`, `--fs-title-lg`, `--fs-display` (below) |
+| Shape | One radius for each role: `--radius-xs` (4: chips, checkboxes, kbd), `--radius-sm` (6: buttons, inputs, menu items, segmented controls), `--radius` (8: cards, menus and popovers, toasts), `--radius-lg` (12: dialogs and the palette), `--radius-full` (badges, filter chips, avatars) |
 | Shadow | `--shadow-pop` (menus), `--shadow-dialog`. In the dark theme borders do the work |
 | Motion | `--ease`: 100–120 ms for hovers, 150–200 ms for menus, 200–250 ms for dialogs. Animate only color, opacity and transform |
 
-**Type.** Inter, in three weights: 400, 500 and 600.
+**Type.** Inter, upright and its true italic (`vendor/inter`), in three weights: 400, 500 and 600. Eight sizes, as tokens; never write a size in pixels, and never a half pixel.
 
-| Use | Size / line height |
-| --- | --- |
-| Metadata | 11–12 / 16 |
-| Tables and lists | 13 / 20 |
-| Body | 14 / 20 |
-| Section titles | 16 / 24 |
-| Top bar title | 14 / 600 |
-| Page titles | 24 / 32 |
+| Token | Size / line height | Use |
+| --- | --- | --- |
+| `--fs-caption` | 11 / 16 | kbd, avatars' initials, the smallest metadata |
+| `--fs-small` | 12 / 16 | badges, chips, counts, menu and group headings, notes under a control |
+| `--fs-dense` | 13 / 20 | tables, lists, menus, buttons, filter chips, toasts, the sidebar |
+| `--fs-body` | 14 / 20 | body text, dialogs' text, the top bar's title, card titles |
+| `--fs-title-sm` | 16 / 24 | section and dialog titles, the palette's input |
+| `--fs-title` | 20 / 28 | the record panel's title |
+| `--fs-title-lg` | 24 / 32 | page titles |
+| `--fs-display` | 28 / 36 | Home's greeting |
 
 Numbers, dates and percentages use tabular figures (`.tnum`, `.num`). Identifiers such as EIN, LEI and file numbers use `.ident`. Labels are never set in all caps.
+
+**Dates.** One rule. A date in a row, whether a table's cell, the agenda or the history, is short, with the full date on hover: `Parts.dateCell(iso)` (Jun 1, 2027). A date read as a value, in a record's Details, the panel or an export, reads in full, as the model writes it: June 1, 2027.
 
 **Spacing.** A 4 px grid. The top bar is 48 px, the sidebar 240 px, and table rows 38 px. The page gutter is 32 px, or 16 px on narrow screens.
 
@@ -110,11 +120,13 @@ Use these so a record reads the same everywhere:
   - `Parts.overrideMark(id, attrs)`: the corner mark, as in Excel, on an entered record a formula also covers, amber where they differ, saying what the formula gives on hover.
   - `Parts.formulaError(code, { href, title })`: a formula's error where its output would be.
   - `Parts.formulaText(definition, value)`: what a formula gives, in words.
-- `Parts.date(iso)`: Jun 1, 2027. A date read as a value, in a record's entries, a table's cell or an export, reads in full, as the model writes it (`showValue`: June 1, 2027). A list scanned by date, such as the agenda, the history or a date column used for sorting, uses this short form.
+- `Parts.dateCell(iso, { computed })`: a date in a row, short (Jun 1, 2027), with the full date on hover, in italics where a formula worked it out. `Parts.date(iso)` is the same as text, for a title or a sentence. Each reads as nothing for what isn't a calendar date. A date in a record's Details or an export reads in full, as the model writes it (`showValue`: June 1, 2027). See Dates, above.
 - `Parts.dueText(iso)` and `Parts.daysUntil(iso)`: how far off a date is.
 - `Parts.when(stamp)`: a moment relative to now, with the exact time on hover.
-- `Parts.badge(text, tone, { href, cmd, title })`, where tone is `''`, `'success'`, `'warn'`, `'danger'`, `'computed'`, `'accent'` or `'faint'` (superseded, set aside). With `href` or `cmd` it goes somewhere or does something, as a record's status badges do, and is ringed on hover.
-- `Parts.file(kind, cls)`: a file's type as its glyph, from its link (`SharePoint.parseDocUrl(link).kind`), or a library file's `kind`. `Parts.docStatus(cell)`: a document's status as a badge, green in force, quiet when superseded.
+- `Parts.badge(text, tone, { href, cmd, title })`, for a state that needs attention, where tone is `''`, `'success'`, `'warn'`, `'danger'`, `'computed'`, `'accent'` or `'faint'` (superseded, set aside). A normal state is plain text. With `href` or `cmd` it goes somewhere or does something, as a record's status badges do, and is ringed on hover. A required entry's "… missing" is `'warn'`.
+- `Parts.required(title)`: the asterisk on what's required (a column's heading, an entry's label), in amber.
+- `Parts.file(kind, cls)`: a file's type as its glyph, from its link (`SharePoint.parseDocUrl(link).kind`), or a library file's `kind`. `Parts.docStatus(cell)`: a document's status, as plain text when it's in force (Executed, Filed, Final); a Draft is an amber badge and Superseded a faint one.
+- `Parts.tabs(list, { current, cmd, label })`: tabs for subsets of one list, each `{ id, label, count, alert }` with its count, as Documents' Linked, Not linked and Broken links. Modes of one view, like Agenda and Month, are a segmented control (`.seg`) instead.
 - `Parts.columnHead({ label, sort, cmd, menu, data, cls, extra, title })`: a table's column heading, which sorts by its column when clicked (`cmd`), with a chevron for the column's menu (`menu`) if the table has one.
 - `Parts.filterChip({ label, value, text, cmd, clear, data, tone })`: a filter above a list. Unset, it reads "+ Label" and opens its menu (`cmd`). Set, it reads `Label: value` (or `text`, as markup, where a sentence says it better, like Jurisdiction is **Delaware**), opens its menu again, and × clears it (`clear`). Its menu is a `Shell.menu`; a filter that takes several values ticks them, and stays open.
 - `Parts.empty({ title, desc, action })`.
@@ -134,18 +146,19 @@ What two areas read the same way is worked out once, in the core:
 - **Cards:** `.card`, with `.card-head`, `.card-title`, `.card-body`, `.card-list` and `.card-row`.
 - **Tables:** `.table-wrap` holding a `.table`. Cells take `.num`, `.is-sticky` and `.is-computed`, and the first column's link is `.row-link`.
 - **Small parts:**
-  - `.chips` holding `.chip`s;
+  - `.chips` holding `.chip`s, outlined so the row they sit in leads;
   - `.badge`;
-  - `.tabs` holding `.tab`s (`aria-selected`), each with an optional `.tab-count`;
+  - `.tabs` holding `.tab`s (`aria-selected`), each with an optional `.tab-count`, for subsets of one list (draw them with `Parts.tabs`); `.seg` (base.css), a segmented control, for modes of one view;
   - `.empty-state`;
   - `.filters` holding `.filter-chip`s (`.is-set` when a filter is applied; draw them with `Parts.filterChip`);
   - `.search-input`.
 - **Buttons:** `.btn`, with `.btn-primary`, `.btn-sm`, `.btn-ghost` or `.btn-danger`; `.icon-btn`; `.link-btn`; and `kbd`.
+- **Controls (base.css):** `.input`; a dropdown is a `select.input`, drawn as the app's control with its own chevron, never the operating system's.
 - **Text:** `.muted`, `.faint`, `.tnum`, `.ident`, `.computed-text`, `.link` and `.visually-hidden`.
-- **What Parts draw:** `.th-sort` and `.th-menu` (a column heading), `.is-implied`, `.ovr-mark` and `.fx-error` (what a formula has a say in), `.doc-glyph` (a file's type), `.badge-link`, and in menus `.menu-tick` and `.menu-choice`.
+- **What Parts draw:** `.th-sort` and `.th-menu` (a column heading), `.is-implied`, `.ovr-mark` and `.fx-error` (what a formula has a say in), `.req-mark` (what's required), `.doc-glyph` (a file's type) and `.doc-status`, `.badge-link`, and in menus `.menu-tick` and `.menu-choice`.
 - **Also:** `.props` (a `dl` of labels and values, for details in a pane), `.skeleton` and `.skeleton-lines` (static loading bars shaped like what's coming).
 
-An area's own styles go in `css/<area>.css`, and may use only the tokens. A style two areas need belongs in shell.css.
+An area's own styles go in `css/<area>.css`, and may use only the tokens: colors, font sizes and radii alike. A style two areas need belongs in shell.css.
 
 ## Interaction
 

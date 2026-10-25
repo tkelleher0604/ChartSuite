@@ -223,7 +223,7 @@ Third-party files under [vendor/](../vendor/), at the repository root, downloade
 | ------ | ------- | ------- | ------- | ----------- |
 | `vendor/tabler-icons/` | [Tabler Icons](https://tabler.io/icons) | 3.49.0 | MIT | 62 outline SVGs |
 | `vendor/heroicons/` | [Heroicons](https://heroicons.com) | 2.2.0 | MIT | 35 outline SVGs (24px) |
-| `vendor/inter/` | [Inter](https://rsms.me/inter/) via [Fontsource](https://fontsource.org) | 5.1.0 | OFL 1.1 | Variable font, Latin subset (woff2) |
+| `vendor/inter/` | [Inter](https://rsms.me/inter/) via [Fontsource](https://fontsource.org) (`@fontsource-variable/inter`) | 5.1.0 | OFL 1.1 | Variable font, Latin subset (woff2), upright and its true italic |
 | `vendor/tabler-core/` | [Tabler](https://tabler.io) UI kit | 1.7.1 | MIT | Component CSS and JS (Bootstrap-based); not used by the app |
 | `vendor/pico/` | [Pico CSS](https://picocss.com) | 2.1.1 | MIT | Classless CSS for quick mockups; not used by the app |
 | `vendor/msal/` | [MSAL for browsers](https://github.com/AzureAD/microsoft-authentication-library-for-js) (`@azure/msal-browser`) | 3.28.1 | MIT | The minified browser build (global `msal`), for signing in to Microsoft 365 from `core/sharepoint.js` |

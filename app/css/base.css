@@ -1,16 +1,25 @@
 /* Tokens and controls shared by every Rboreal page. */
 
+/* Inter, upright and its true italic, which computed values are set in. */
 @font-face {
   font-family: "Inter";
   src: url("../../vendor/inter/inter-latin-wght-normal.woff2") format("woff2");
   font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("../../vendor/inter/inter-latin-wght-italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
   font-display: swap;
 }
 
 /* Tokens. Neutrals are Radix Sand, a warm gray; the accent is Radix Indigo; what a formula works out is
-   marked in purple, apart from the accent. Color is scarce, so it carries meaning: the accent for what can
-   be acted on, green and red for attested and ruled-out tags, purple for computed, amber for what needs
-   attention. See docs/design.md. */
+   marked in purple, apart from the accent. Color is scarce, so each color has one meaning: indigo for what
+   can be acted on or is selected, purple for computed, green for attested (and a success), red for ruled
+   out, overdue or failed, amber for what's to do. See docs/design.md. */
 :root {
   color-scheme: light;
   --bg: #f9f9f8;
@@ -42,10 +51,22 @@
   --shadow-pop: 0 0 0 1px rgb(33 32 28 / .06), 0 4px 12px -2px rgb(33 32 28 / .10);
   --shadow-dialog: 0 0 0 1px rgb(33 32 28 / .06), 0 16px 40px -8px rgb(33 32 28 / .18);
   --scrim: rgb(33 32 28 / .28);
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius: 8px;
-  --radius-lg: 12px;
+  /* Type: eight sizes (ui-research.md §3), each with its line height: caption 11/16, small 12/16,
+     dense 13/20, body 14/20, title-sm 16/24, title 20/28, title-lg 24/32, display 28/36. */
+  --fs-caption: 11px;
+  --fs-small: 12px;
+  --fs-dense: 13px;
+  --fs-body: 14px;
+  --fs-title-sm: 16px;
+  --fs-title: 20px;
+  --fs-title-lg: 24px;
+  --fs-display: 28px;
+  /* Shape: one radius for each role. */
+  --radius-xs: 4px;    /* chips, checkboxes, kbd */
+  --radius-sm: 6px;    /* buttons, inputs, menu items */
+  --radius: 8px;       /* cards, menus and popovers, toasts */
+  --radius-lg: 12px;   /* dialogs and the palette */
+  --radius-full: 999px; /* badges, filter chips, avatars */
   --ease: cubic-bezier(.23, 1, .32, 1);
   --label-col: 14rem;
   --indent: 20px;
@@ -79,8 +100,8 @@
     --computed-soft: #301c3b; --computed-border: #54346b; --computed-solid: #8e4ec6; --computed: #d19dff;
     --shadow-panel: none;
     --shadow-pop: 0 0 0 1px rgb(255 255 255 / .08), 0 8px 24px rgb(0 0 0 / .5);
-    --shadow-dialog: 0 0 0 1px rgb(255 255 255 / .08), 0 24px 56px rgb(0 0 0 / .6);
-    --scrim: rgb(0 0 0 / .5);
+    --shadow-dialog: 0 0 0 1px #494844, 0 24px 56px rgb(0 0 0 / .6);
+    --scrim: rgb(0 0 0 / .6);
   }
 }
 :root[data-theme="dark"] {
@@ -110,8 +131,8 @@
   --computed-soft: #301c3b; --computed-border: #54346b; --computed-solid: #8e4ec6; --computed: #d19dff;
   --shadow-panel: none;
   --shadow-pop: 0 0 0 1px rgb(255 255 255 / .08), 0 8px 24px rgb(0 0 0 / .5);
-  --shadow-dialog: 0 0 0 1px rgb(255 255 255 / .08), 0 24px 56px rgb(0 0 0 / .6);
-  --scrim: rgb(0 0 0 / .5);
+  --shadow-dialog: 0 0 0 1px #494844, 0 24px 56px rgb(0 0 0 / .6);
+  --scrim: rgb(0 0 0 / .6);
 }
 
 * { box-sizing: border-box; }
@@ -119,7 +140,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/20px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  font: var(--fs-body)/20px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -129,32 +150,33 @@ a { color: inherit; text-decoration: none; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .icon { width: 16px; height: 16px; flex: none; }
 
-/* Segmented control for the theme. */
+/* A segmented control, for modes of one view (the theme; Agenda and Month), never for subsets of a list,
+   which are tabs (shell.css). */
 .seg-wrap { display: inline-flex; align-items: center; gap: 8px; }
-.seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.seg button { height: 24px; padding: 0 9px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font-size: 12px; font-weight: 500; }
+.seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.seg button { height: 24px; padding: 0 9px; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text-2); font-size: var(--fs-small); font-weight: 500; }
 .seg button:hover { color: var(--text); }
 .seg button[aria-pressed="true"] { background: var(--pressed); color: var(--text); }
 
 /* Buttons */
-.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgb(24 24 27 / .05); white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-size: var(--fs-dense); font-weight: 500; box-shadow: 0 1px 2px rgb(24 24 27 / .05); white-space: nowrap; }
 .btn:hover, .btn[aria-expanded="true"] { background: var(--hover); }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn-primary:hover { background: var(--accent-hover); }
-.icon-btn { width: 28px; height: 28px; flex: none; border: 0; border-radius: 6px; background: none; color: var(--text-3); display: inline-grid; place-items: center; }
+.icon-btn { width: 28px; height: 28px; flex: none; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-3); display: inline-grid; place-items: center; }
 .icon-btn:hover:not(:disabled), .icon-btn[aria-expanded="true"] { background: var(--pressed); color: var(--text); }
 .icon-btn:disabled { opacity: .4; cursor: default; }
 .icon-btn.is-primary { color: var(--accent); }
 .icon-btn.is-small { width: 24px; height: 24px; margin: -2px 0; }
 .icon-btn.is-small .icon { width: 14px; height: 14px; }
-.link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: 13px; }
+.link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: var(--fs-dense); }
 .link-btn:hover:not(:disabled) { color: var(--text); }
 .link-btn:disabled { opacity: .45; cursor: default; }
-kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); color: var(--text-3); font: 500 11px/15px "Inter", sans-serif; text-align: center; }
+kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: var(--radius-xs); background: var(--surface); color: var(--text-3); font: 500 var(--fs-caption)/15px "Inter", sans-serif; text-align: center; }
 
 /* Tags: a checkbox, green and checked when attested, red and crossed out when ruled out.
    Hovering it previews the other state, which a click switches to. */
-.check { width: 20px; height: 20px; flex: none; padding: 0; border: 0; border-radius: 5px; background: none; display: inline-grid; place-items: center; }
+.check { width: 20px; height: 20px; flex: none; padding: 0; border: 0; border-radius: var(--radius-xs); background: none; display: inline-grid; place-items: center; }
 .cell-value > .check { display: grid; }
 .check > span { display: grid; }
 .check > .check-next { display: none; }
@@ -168,39 +190,44 @@ kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid 
 
 /* Menus and listboxes */
 .menu-anchor { position: relative; display: inline-flex; }
-.pop { position: absolute; z-index: 30; top: calc(100% + 6px); max-width: calc(100vw - 24px); padding: 4px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--surface); box-shadow: var(--shadow-pop); color: var(--text); font-size: 13.5px; font-weight: 400; line-height: 20px; white-space: normal; }
+.pop { position: absolute; z-index: 30; top: calc(100% + 6px); max-width: calc(100vw - 24px); padding: 4px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); box-shadow: var(--shadow-pop); color: var(--text); font-size: var(--fs-dense); font-weight: 400; line-height: 20px; white-space: normal; }
 .menu { right: 0; width: 304px; }
-.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px; background: none; color: var(--text); font-size: 13.5px; text-align: left; }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font-size: var(--fs-dense); text-align: left; }
 .menu-item:hover, .menu-item:focus-visible { background: var(--hover); outline: none; }
 .menu-left { left: 0; right: auto; width: max-content; min-width: 200px; max-width: min(340px, calc(100vw - 24px)); }
 .menu-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .menu-title { font-weight: 500; }
-.menu-desc { font-size: 12px; line-height: 16px; color: var(--text-3); }
-.menu-note { font-size: 12px; color: var(--text-3); }
+.menu-desc { font-size: var(--fs-small); line-height: 16px; color: var(--text-3); }
+.menu-note { font-size: var(--fs-small); color: var(--text-3); }
 .menu-item .icon { width: 14px; height: 14px; color: var(--text-2); }
 .menu-sep { height: 1px; margin: 4px -4px; background: var(--border); }
-.menu-head { padding: 6px 10px 2px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.menu-head { padding: 6px 10px 2px; font-size: var(--fs-small); font-weight: 500; color: var(--text-3); }
 .pop.menu { max-height: min(560px, 78vh); overflow-y: auto; }
 .combo { position: relative; flex: 1; min-width: 0; }
 .combo-field { position: relative; display: block; }
 .combo-chevron { position: absolute; top: 7px; right: 8px; width: 14px; height: 14px; color: var(--text-3); pointer-events: none; }
 .combo-field:has(.combo-chevron) .input { padding-right: 28px; }
 .listbox { left: 0; top: calc(100% + 4px); width: max(100%, 290px); max-height: 300px; overflow-y: auto; }
-.listbox-head { padding: 6px 8px 4px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
-.listbox-foot { padding: 6px 8px; font-size: 12px; color: var(--text-3); }
+.listbox-head { padding: 6px 8px 4px; font-size: var(--fs-small); font-weight: 500; color: var(--text-3); }
+.listbox-foot { padding: 6px 8px; font-size: var(--fs-small); color: var(--text-3); }
 .listbox-sep { height: 1px; margin: 4px -4px; background: var(--border); }
-.option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; cursor: pointer; }
+.option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); font-size: var(--fs-dense); cursor: pointer; }
 .option[aria-selected="true"] { background: var(--hover); }
 .option[aria-disabled="true"] { color: var(--text-3); cursor: default; }
 .option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.option-meta { margin-left: auto; padding-left: 12px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.option-meta { margin-left: auto; padding-left: 12px; font-size: var(--fs-small); color: var(--text-3); white-space: nowrap; }
 .option-create { color: var(--accent); }
 .option-create strong { font-weight: 600; }
 
-.input { width: 100%; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); outline: none; }
+.input { width: 100%; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); outline: none; }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
 .input::placeholder { color: var(--text-3); }
+/* A dropdown: a select drawn as the app's control, with the chevron-down icon's chevron, unless its markup
+   puts the icon after it. */
+select.input { appearance: none; padding-right: 28px; text-overflow: ellipsis; cursor: pointer; }
+select.input:not(:has(+ .icon)) { background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238d8d86' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6l6 -6'/%3E%3C/svg%3E") no-repeat right 8px center / 14px; }
+select.input:disabled { opacity: .5; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
@@ -215,9 +242,9 @@ kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid 
 
 /* The workbook's chart menu, in the top bar of the chart and the record panel. */
 .charts-slot { display: inline-flex; align-items: center; min-width: 0; margin-left: 4px; }
-.chart-name { display: inline-flex; align-items: center; gap: 4px; max-width: 28rem; padding: 3px 6px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 500; }
+.chart-name { display: inline-flex; align-items: center; gap: 4px; max-width: 28rem; padding: 3px 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-2); font: inherit; font-size: var(--fs-dense); font-weight: 500; }
 .chart-name:hover, .chart-name[aria-expanded="true"] { background: var(--hover); color: var(--text); }
 .chart-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chart-name .icon { flex: none; width: 13px; height: 13px; }
-.chart-name-input { width: 22rem; max-width: 50vw; height: 28px; font-size: 13px; }
+.chart-name-input { width: 22rem; max-width: 50vw; height: 28px; font-size: var(--fs-dense); }
 .chart-switcher .menu { min-width: 16rem; z-index: 50; }
