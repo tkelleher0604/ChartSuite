@@ -477,7 +477,7 @@ As built in the prototype:
 ## The prototype
 
 Everything above is built into the app in [app/](app/), so it can be tried:
-- **[chart.html](app/chart.html) and [record-panel.html](app/record-panel.html).** The sample comes with every example in this document, worked out live as the chart changes.
+- **[chart.html](app/chart.html) and [record.html](app/record.html).** The sample comes with every example in this document, worked out live as the chart changes.
   - The chart has two views: Structure, and 40 Act, which hides ownership and draws the BDC's close and remote affiliates.
   - The workbook can hold more charts, each with its own records and formulas, from the chart menu in the top bar.
   - See [app/README.md](app/README.md) for how to write and edit formulas there.

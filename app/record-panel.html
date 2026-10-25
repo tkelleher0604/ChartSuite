@@ -3,64 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rboreal Record Panel</title>
-<script src="ui/prepaint.js"></script>
-<link rel="stylesheet" href="css/base.css">
-<link rel="stylesheet" href="css/panel.css">
-<style>
-  .page { max-width: 760px; margin: 0 auto; padding: 24px 20px 48px; }
-  .topbar { display: flex; align-items: center; gap: 8px; margin: 0 0 14px 2px; }
-  .brand { font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
-  .brand-sub { color: var(--text-3); font-size: 13px; font-weight: 500; }
-  .brand-link { margin-left: 10px; color: var(--accent); font-size: 13px; font-weight: 500; }
-  .brand-link:hover { text-decoration: underline; text-underline-offset: 3px; }
-  .prefs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 14px; margin-left: auto; font-size: 12px; color: var(--text-3); }
-  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-panel); }
-  .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 12px; padding: 0 4px; font-size: 12.5px; color: var(--text-3); }
-  .foot-hint { margin-left: auto; }
-  .foot-hint.is-error { color: var(--danger); }
-  @media (max-width: 600px) {
-    .page { padding: 16px 12px 32px; }
-  }
-</style>
+<title>Rboreal</title>
+<script>
+// The record panel on its own has given way to the app's pages. Its addresses go where they live now: a
+// record to its page, a kind to its table, the schema and definitions to the Schema, Deleted to the
+// chart's panel, and everything else to Records.
+(() => {
+  const hash = location.hash.slice(1);
+  let h = hash;
+  try { h = decodeURIComponent(hash); } catch {}
+  const to = !h ? 'records.html'
+    : h.startsWith('kind:') ? `records.html#${encodeURIComponent(h.slice(5))}`
+    : /^(schema|formulas|definition:|formula:)/.test(h) ? `schema.html#${hash}`
+    : h === 'deleted' ? 'chart.html#deleted'
+    : `record.html#${hash}`;
+  location.replace(to);
+})();
+</script>
 </head>
 <body>
-<div class="page">
-  <header class="topbar">
-    <span class="brand">Rboreal</span><span class="brand-sub">Record panel</span>
-    <span class="charts-slot" id="charts"></span>
-    <a class="brand-link" href="chart.html">Chart</a>
-    <span class="prefs" id="prefs"></span>
-  </header>
-  <main class="panel" id="panel"></main>
-  <div class="foot" id="foot"></div>
-</div>
-
-<script src="core/common.js"></script>
-<script src="core/model.js"></script>
-<script src="core/formulas.js"></script>
-<script src="core/styles.js"></script>
-<script src="ui/panel.js"></script>
-<script src="ui/relate.js"></script>
-<script src="ui/workbook.js"></script>
-<script>
-function render() {
-  renderPanel();
-  document.getElementById('charts').innerHTML = chartSwitcher();
-  document.getElementById('prefs').innerHTML = themeSwitch();
-  document.getElementById('foot').innerHTML =
-    `<button class="link-btn" data-action="undo"${undoStack.length ? '' : ' disabled'}>Undo <kbd>${undoKey}</kbd></button>
-     <button class="link-btn" data-action="redo"${redoStack.length ? '' : ' disabled'}>Redo <kbd>${redoKey}</kbd></button>
-     ${isSampleChart() ? '<button class="link-btn" data-action="reset" title="Put the sample chart back as it started. Undo brings your changes back.">Reset sample</button>' : ''}
-     ${ui.fullPaths ? '<button class="link-btn" data-action="full-paths">Shorten paths</button>' : ''}
-     <span class="foot-hint${ui.notice ? ' is-error' : ''}">${esc(ui.notice ?? ui.info ?? `${currentView().id ? 'Drag a row’s handle to reorder it. ' : ''}Changes are saved in this browser.`)}</span>`;
-  restoreFocus();
-  focusChartRename();
-}
-
-initState();
-applyTheme();
-render();
-</script>
+<p>The record panel is now part of each record's page. <a href="records.html">Go to Records</a>.</p>
 </body>
 </html>
