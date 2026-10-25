@@ -1,0 +1,73 @@
+/* The Calendar: a bar of view and filters over the agenda's groups, or over a month's grid and the day
+   picked in it. An event's row is in agenda.css. */
+
+/* ---- The bar ---- */
+.cal-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 20px; }
+.cal-bar .filters { flex: 1; min-width: 0; }
+.cal-count { margin-left: auto; font-size: 12.5px; color: var(--text-3); white-space: nowrap; }
+.cal-clear { margin-left: 4px; font-size: 12.5px; }
+/* A set filter: its value, which reopens it, and × to clear it. */
+.filter-chip.is-set { max-width: 30rem; padding: 0 4px 0 10px; gap: 2px; }
+.filter-chip > button { display: inline-flex; align-items: center; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+.filter-chip-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chip-x { justify-content: center; width: 20px; flex: none; border-radius: 10px !important; opacity: .7; }
+.filter-chip-x:hover { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent) !important; }
+button.filter-chip.is-set { padding: 0 10px; }
+
+/* ---- Agenda groups ---- */
+.cal-group + .cal-group { margin-top: 28px; }
+.cal-group-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; padding: 0 10px; font-size: 13px; font-weight: 600; line-height: 24px; }
+.cal-group-count { color: var(--text-3); font-weight: 500; }
+.cal-group-span { margin-left: auto; color: var(--text-3); font-size: 12px; font-weight: 400; }
+.cal-group.is-overdue .cal-group-name, .cal-group.is-overdue .cal-group-count { color: var(--danger); }
+.cal-past-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: -22px; padding: 0 6px 0 2px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; }
+.cal-past-toggle:hover { background: var(--hover); }
+.cal-past-toggle .icon { width: 14px; height: 14px; color: var(--text-3); transition: transform .15s var(--ease); }
+.cal-past-toggle[aria-expanded="true"] .icon { transform: rotate(90deg); }
+.cal-none { margin: 0; padding: 10px; color: var(--text-3); font-size: 13px; }
+
+/* ---- Month ---- */
+.cal-month-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.cal-month-title { min-width: 10.5rem; margin: 0; font-size: 16px; font-weight: 600; line-height: 24px; letter-spacing: -.011em; }
+.cal-month-nav { display: flex; align-items: center; gap: 4px; }
+.cal-prev .icon { transform: scaleX(-1); }
+.cal-month-hint { margin-left: auto; font-size: 12px; }
+.cal-grid { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); }
+.cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.cal-week + .cal-week { border-top: 1px solid var(--border); }
+.cal-weekdays span { padding: 6px 10px; background: var(--sidebar); color: var(--text-3); font-size: 12px; font-weight: 500; }
+.cal-day { display: flex; flex-direction: column; gap: 2px; min-width: 0; min-height: 92px; padding: 6px 6px 8px; cursor: pointer; outline: none; transition: background-color .1s; }
+.cal-day + .cal-day { border-left: 1px solid var(--border); }
+.cal-day:hover { background: var(--hover); }
+.cal-day.is-out { background: var(--sidebar); }
+.cal-day.is-out .cal-num { color: var(--text-3); }
+.cal-day[aria-selected="true"] { background: var(--selected); }
+.cal-day:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.cal-num { display: grid; place-items: center; align-self: flex-start; min-width: 22px; height: 22px; margin-bottom: 2px; padding: 0 4px; border-radius: 11px; color: var(--text-2); font-size: 12px; font-weight: 500; }
+.cal-day.is-today .cal-num { background: var(--accent); color: var(--on-accent); }
+.cal-ev { overflow: hidden; padding: 1px 6px; border-radius: var(--radius-xs); background: var(--pressed); color: var(--text); font-size: 11.5px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.cal-ev.is-overdue { background: var(--danger-soft); color: var(--danger); }
+.cal-ev.is-past { background: none; color: var(--text-3); padding-left: 6px; }
+.cal-ev.is-computed { font-style: italic; box-shadow: inset 0 0 0 1px var(--computed-border); }
+.cal-more { padding: 0 6px; color: var(--text-3); font-size: 11.5px; }
+.cal-dayview { margin-top: 24px; }
+
+/* ---- Export ---- */
+.cal-export-lead { margin: 0 0 10px; color: var(--text); }
+.cal-export-check { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--text); }
+.cal-export-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.cal-export-note { margin: 0; color: var(--text-2); font-size: 12.5px; }
+
+/* ---- The object picker ---- */
+.cal-picker { width: 380px; padding: 6px; }
+.cal-picker-search { display: flex; margin-bottom: 4px; }
+.cal-picker-search .input { height: 30px; }
+.cal-picker-list { max-height: min(380px, 60vh); overflow-y: auto; }
+/* An object reads by its name, with what tells like names apart below it. */
+.cal-picker-text { display: flex; flex-direction: column; min-width: 0; }
+.cal-picker-detail { overflow: hidden; color: var(--text-3); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1100px) {
+  .cal-day { min-height: 80px; }
+  .cal-month-hint { display: none; }
+}

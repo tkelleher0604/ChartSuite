@@ -1,0 +1,369 @@
+// The Calendar: every date in the chart, entered or computed, as one agenda (overdue, this week, the next
+// 30 days, later, and the past) or a month at a time, filtered by kind, by object (with what it reaches
+// through its lists, such as its Holdings) or to what's computed, and exported to Outlook as an .ics file.
+// What's shown is in the address, so it can be linked to:
+//   calendar.html#view=month&day=2026-11-03&kind=Entity&object=<id>&reach=Holdings|Controlled Companies&computed=1
+
+const cal = {
+  view: 'agenda',     // 'agenda' or 'month'
+  day: Agenda.isoToday(), // the day the month view has selected, which picks its month
+  kind: null,         // the kind an event's object must be
+  object: null,       // the object an event must belong to, with `reach`
+  reach: [],          // the object's lists of relatives whose members count too, directly and indirectly
+  computed: false,    // whether only computed dates are shown
+  past: false,        // whether the Past group is open
+  picker: null,       // the object picker: { query, active, items }
+  exportPast: false,  // whether the export takes past dates too
+};
+
+// ---- The address ----
+// Read before the records are, so what it names is checked where it's used: an object that's gone, or a
+// kind the chart doesn't have, filters nothing.
+function readAddress() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const day = p.get('day');
+  Object.assign(cal, {
+    view: p.get('view') === 'month' ? 'month' : 'agenda',
+    day: /^\d{4}-\d{2}-\d{2}$/.test(day ?? '') ? day : Agenda.isoToday(),
+    kind: clean(p.get('kind')) || null,
+    object: p.get('object') || null,
+    reach: p.get('object') ? (p.get('reach') ?? '').split('|').map(clean).filter(Boolean) : [],
+    computed: p.get('computed') === '1',
+    past: p.get('past') === '1',
+  });
+}
+function writeAddress() {
+  const p = new URLSearchParams();
+  if (cal.view === 'month') p.set('view', 'month');
+  if (cal.view === 'month' && cal.day !== Agenda.isoToday()) p.set('day', cal.day);
+  if (cal.kind) p.set('kind', cal.kind);
+  if (cal.object) p.set('object', cal.object);
+  if (cal.object && cal.reach.length) p.set('reach', cal.reach.join('|'));
+  if (cal.computed) p.set('computed', '1');
+  if (cal.past) p.set('past', '1');
+  const hash = p.toString().replace(/\+/g, '%20');
+  history.replaceState(null, '', location.pathname + location.search + (hash ? `#${hash}` : ''));
+}
+// Every change to what's shown goes through here: the address follows, then the page.
+function show(patch) {
+  Object.assign(cal, patch);
+  writeAddress();
+  render();
+}
+
+// ---- What's shown ----
+// The filters the address names, as far as the chart has what they name.
+const kindSet = () => kindsInState().find(k => same(k, cal.kind ?? '')) ?? null;
+const objectSet = () => cal.object && records[cal.object] && isObject(records[cal.object]) ? cal.object : null;
+const filtered = () => !!(kindSet() || objectSet() || cal.computed);
+const filters = () => ({ kind: kindSet(), computed: cal.computed, objects: objectSet() ? Agenda.reach(cal.object, cal.reach) : null });
+function shownEvents() {
+  const f = filters();
+  return Agenda.events().filter(e => Agenda.matches(e, f));
+}
+
+// The object filter in words: Calder Ridge Capital Partners III, L.P., and its Holdings.
+const objectText = () => `${objectName(cal.object)}${cal.reach.length ? `, and its ${joinList(cal.reach)}` : ''}`;
+
+// A sentence on what's pressing among what's shown.
+function summary(list) {
+  const n = id => list.filter(e => Agenda.groupOf(e) === id).length;
+  const parts = [n('overdue') && `${n('overdue')} overdue`, n('week') && `${n('week')} this week`, n('month') && `${n('month')} in the next 30 days`].filter(Boolean);
+  const computed = list.filter(e => e.computed).length;
+  const of = `${count(list.length, 'date')}${computed ? `, ${computed} worked out by formula` : ''}`;
+  return parts.length ? `${joinList(parts)}. ${of} in all.` : `Nothing overdue or due in the next 30 days. ${of} in all.`;
+}
+
+// ---- The bar: view, filters, count ----
+function chip(cmd, label, set, clearCmd) {
+  if (!set) return `<button class="filter-chip" data-cmd="${cmd}" aria-haspopup="menu">${icon('plus')}${esc(label)}</button>`;
+  return `<span class="filter-chip is-set"><button class="filter-chip-main" data-cmd="${cmd}" aria-haspopup="menu" title="${esc(set)}">${esc(set)}</button><button class="filter-chip-x" data-cmd="${clearCmd}" aria-label="Clear ${esc(label)}">${icon('x')}</button></span>`;
+}
+function barHtml(list, all) {
+  return `<div class="cal-bar">
+    <span class="seg" role="group" aria-label="View">${[['agenda', 'Agenda'], ['month', 'Month']].map(([v, text]) =>
+      `<button data-cmd="cal.view" data-view="${v}" aria-pressed="${cal.view === v}">${text}</button>`).join('')}</span>
+    <div class="filters">
+      ${chip('cal.kind', 'Kind', kindSet() && `Kind: ${kindSet()}`, 'cal.clear-kind')}
+      ${chip('cal.object', 'Object', objectSet() && objectText(), 'cal.clear-object')}
+      <button class="filter-chip${cal.computed ? ' is-set' : ''}" data-cmd="cal.computed" aria-pressed="${cal.computed}" title="Only dates a definition worked out">Computed only</button>
+      ${filtered() ? '<button class="link-btn cal-clear" data-cmd="cal.clear">Clear filters</button>' : ''}
+    </div>
+    <span class="cal-count tnum">${filtered() ? `${list.length} of ${count(all.length, 'date')}` : count(all.length, 'date')}</span>
+  </div>`;
+}
+
+// ---- Agenda ----
+// What the groups that aren't spans of days hold, as their headings say on hover.
+const GROUP_NOTES = {
+  overdue: 'Dates a definition gives that have passed. An entered date that has passed is history, under Past.',
+  past: 'Entered dates that have passed. A date a definition gives that has passed is overdue instead.',
+};
+function groupHtml(g) {
+  const span = Agenda.spanText(g);
+  return `<section class="cal-group is-${g.id}" aria-label="${esc(g.name)}">
+    <h2 class="cal-group-head"${GROUP_NOTES[g.id] ? ` title="${esc(GROUP_NOTES[g.id])}"` : ''}><span class="cal-group-name">${esc(g.name)}</span><span class="cal-group-count tnum">${g.events.length}</span>${span ? `<span class="cal-group-span">${esc(span)}</span>` : ''}</h2>
+    <div class="ev-list">${g.events.map(e => Agenda.row(e)).join('')}</div>
+  </section>`;
+}
+function agendaHtml(list) {
+  const groups = Agenda.grouped(list);
+  const ahead = groups.filter(g => g.id !== 'past' && g.events.length);
+  const past = groups.find(g => g.id === 'past');
+  return `<div class="cal-agenda">
+    ${ahead.map(groupHtml).join('') || `<p class="cal-none">Nothing overdue or coming up${filtered() ? ' among these dates' : ''}.</p>`}
+    ${past.events.length ? `<section class="cal-group is-past" aria-label="Past">
+      <h2 class="cal-group-head" title="${esc(GROUP_NOTES.past)}"><button class="cal-past-toggle" data-cmd="cal.past" aria-expanded="${cal.past}">${icon('chevron-right')}<span class="cal-group-name">Past</span><span class="cal-group-count tnum">${past.events.length}</span></button>
+        <span class="cal-group-span">Entered dates that have passed</span></h2>
+      ${cal.past ? `<div class="ev-list">${past.events.map(e => Agenda.row(e)).join('')}</div>` : ''}
+    </section>` : ''}
+  </div>`;
+}
+
+// ---- Month ----
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const monthName = iso => new Date(`${iso.slice(0, 7)}-01T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+// The same day some months on, or the month's last day if it has fewer.
+function monthsOn(iso, n) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const start = new Date(y, m - 1 + n, 1);
+  const last = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+  return Agenda.isoOf(new Date(start.getFullYear(), start.getMonth(), Math.min(d, last)));
+}
+
+function monthHtml(list) {
+  const first = `${cal.day.slice(0, 7)}-01`;
+  const lead = new Date(`${first}T12:00:00`).getDay();
+  const length = new Date(Number(first.slice(0, 4)), Number(first.slice(5, 7)), 0).getDate();
+  const weeks = Math.ceil((lead + length) / 7);
+  const today = Agenda.isoToday();
+  const byDay = new Map();
+  for (const e of list) (byDay.get(e.iso) ?? byDay.set(e.iso, []).get(e.iso)).push(e);
+  const rank = { overdue: 0, week: 1, month: 1, later: 1, past: 2 };
+  const cells = [];
+  for (let i = 0; i < weeks * 7; i++) {
+    const iso = Agenda.addDays(first, i - lead);
+    const evs = (byDay.get(iso) ?? []).sort((a, b) => rank[Agenda.groupOf(a)] - rank[Agenda.groupOf(b)] || byLabel(a.label, b.label));
+    const selected = iso === cal.day;
+    const label = `${Agenda.longDate(iso)}${evs.length ? `, ${count(evs.length, 'date')}` : ''}`;
+    cells.push(`<div class="cal-day${iso.slice(0, 7) !== first.slice(0, 7) ? ' is-out' : ''}${iso === today ? ' is-today' : ''}" role="gridcell" data-cmd="cal.day" data-day="${iso}"
+        tabindex="${selected ? 0 : -1}" aria-selected="${selected}" aria-label="${esc(label)}">
+      <span class="cal-num tnum">${Number(iso.slice(8))}</span>
+      ${evs.slice(0, evs.length > 3 ? 2 : 3).map(e => `<span class="cal-ev is-${Agenda.groupOf(e)}${e.computed ? ' is-computed' : ''}" title="${esc(`${e.label}: ${e.owners.map(k => objectName(k)).join(' → ')}`)}">${esc(e.label)}</span>`).join('')}
+      ${evs.length > 3 ? `<span class="cal-more">${evs.length - 2} more</span>` : ''}
+    </div>`);
+  }
+  const rows = Array.from({ length: weeks }, (_, w) => `<div class="cal-week" role="row">${cells.slice(w * 7, w * 7 + 7).join('')}</div>`).join('');
+  const dayEvents = (byDay.get(cal.day) ?? []).sort((a, b) => byLabel(a.label, b.label));
+  return `<div class="cal-month">
+    <div class="cal-month-head">
+      <h2 class="cal-month-title">${esc(monthName(cal.day))}</h2>
+      <div class="cal-month-nav">
+        <button class="icon-btn cal-prev" data-cmd="cal.month" data-step="-1" aria-label="Previous month" title="Previous month (Page Up)">${icon('chevron-right')}</button>
+        <button class="btn btn-sm" data-cmd="cal.today"${cal.day === today ? ' disabled' : ''}>Today</button>
+        <button class="icon-btn" data-cmd="cal.month" data-step="1" aria-label="Next month" title="Next month (Page Down)">${icon('chevron-right')}</button>
+      </div>
+      <span class="cal-month-hint faint">Arrow keys move between days</span>
+    </div>
+    <div class="cal-grid" role="grid" aria-label="${esc(monthName(cal.day))}">
+      <div class="cal-week cal-weekdays" role="row">${WEEKDAYS.map(d => `<span role="columnheader">${d}</span>`).join('')}</div>
+      ${rows}
+    </div>
+    <section class="cal-dayview" aria-live="polite">
+      <h2 class="cal-group-head"><span class="cal-group-name">${esc(Agenda.longDate(cal.day))}</span><span class="cal-group-span">${esc(Agenda.relative(cal.day))}</span></h2>
+      ${dayEvents.length ? `<div class="ev-list">${dayEvents.map(e => Agenda.row(e)).join('')}</div>` : '<p class="cal-none">Nothing on this day.</p>'}
+    </section>
+  </div>`;
+}
+
+// ---- The page ----
+function renderCalendar() {
+  const all = Agenda.events();
+  const list = shownEvents();
+  const body = !all.length
+    ? Parts.empty({ title: 'No dates yet', desc: 'Dates entered on records, or worked out by definitions, show here.' })
+    : !list.length && cal.view === 'agenda'
+      ? Parts.empty({ title: 'No dates match these filters', desc: filtered() ? 'Try another kind or object, or clear the filters.' : '', action: { label: 'Clear filters', cmd: 'cal.clear' } })
+      : cal.view === 'month' ? monthHtml(list) : agendaHtml(list);
+  return `<div class="content cal">
+    <div class="page-head"><div class="page-head-text"><h2 class="page-title">Calendar</h2>
+      <p class="page-sub">${esc(all.length ? summary(list) : 'Every date in the chart, entered or worked out by formula.')}</p></div></div>
+    ${all.length ? barHtml(list, all) : ''}
+    ${body}
+  </div>`;
+}
+
+// ---- Export ----
+async function exportToOutlook() {
+  const list = shownEvents();
+  const past = list.filter(e => Agenda.groupOf(e) === 'past');
+  const ahead = list.length - past.length;
+  cal.exportPast = false;
+  const ok = await Shell.confirm({
+    title: 'Export to Outlook',
+    html: `<p class="cal-export-lead">${esc(`${count(ahead, 'date')}${ahead ? ', overdue and upcoming' : ''}${filtered() ? ', as the filters show them' : ''}`)}, each an all-day event named for what it is and whose, with a link back to its record.</p>
+      ${past.length ? `<label class="cal-export-check"><input type="checkbox" data-cal-export-past> Include ${count(past.length, 'past date')}</label>` : ''}
+      <p class="cal-export-note">Open the file to add the dates to Outlook. It’s a copy as of today, so export again after changes. To have Outlook keep up by itself, save the file where Outlook can reach it by address, and subscribe to it with <em>Add calendar › Subscribe from web</em>.</p>`,
+    confirm: 'Download .ics',
+  });
+  if (!ok) return;
+  const chosen = cal.exportPast ? list : list.filter(e => Agenda.groupOf(e) !== 'past');
+  if (!chosen.length) return Shell.toast('There are no dates to export.');
+  Agenda.download(chosen);
+  Shell.toast(`Exported ${count(chosen.length, 'date')} for Outlook`);
+}
+document.addEventListener('change', e => { if (e.target.matches?.('[data-cal-export-past]')) cal.exportPast = e.target.checked; });
+
+// ---- The object picker ----
+// A popover under the Object chip for finding an object by name: typing narrows it, the arrow keys move,
+// Enter picks and Esc closes.
+function pickerItems(query) {
+  const q = norm(query);
+  return kindsInState().map(kind => ({ kind, ids: objectsOfKind(kind).filter(id => !q || norm(objectName(id)).includes(q) || norm(Shell.subtitleOf(id)).includes(q)) }))
+    .filter(g => g.ids.length);
+}
+function openPicker(anchor) {
+  closePicker();
+  const r = anchor.getBoundingClientRect();
+  cal.picker = { query: '', active: 0, ids: [] };
+  const el = Object.assign(document.createElement('div'), { id: 'cal-float' });
+  el.innerHTML = `<div class="pop menu float-menu cal-picker" role="dialog" aria-label="Choose an object">
+    <div class="search-input cal-picker-search">${icon('search')}<input class="input cal-picker-input" placeholder="Find an object" aria-label="Find an object" autocomplete="off" spellcheck="false"></div>
+    <div class="cal-picker-list" role="listbox" aria-label="Objects"></div></div>`;
+  document.body.appendChild(el);
+  const pop = el.firstElementChild;
+  pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
+  pop.style.top = `${r.bottom + 4}px`;
+  drawPicker();
+  pop.querySelector('input').focus();
+}
+function drawPicker() {
+  const list = document.querySelector('#cal-float .cal-picker-list');
+  if (!list) return;
+  const groups = pickerItems(cal.picker.query);
+  cal.picker.ids = groups.flatMap(g => g.ids);
+  cal.picker.active = Math.min(cal.picker.active, Math.max(0, cal.picker.ids.length - 1));
+  let i = 0;
+  list.innerHTML = groups.map(g => `<div class="menu-head">${esc(plural(g.kind))}</div>` + g.ids.map(id => {
+    const n = i++;
+    const detail = Shell.subtitleOf(id).split(' · ').slice(1).join(' · ');
+    return `<div class="option" role="option" data-cmd="cal.pick" data-id="${esc(id)}" data-index="${n}" aria-selected="${n === cal.picker.active}">
+      <span class="cal-picker-text"><span class="option-label">${esc(objectName(id))}</span>${detail ? `<span class="cal-picker-detail">${esc(detail)}</span>` : ''}</span></div>`;
+  }).join('')).join('') || `<div class="listbox-foot">Nothing is called “${esc(cal.picker.query)}”.</div>`;
+  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+}
+function closePicker() {
+  cal.picker = null;
+  document.getElementById('cal-float')?.remove();
+}
+function pick(id) {
+  closePicker();
+  show({ object: id, reach: [] });
+  document.querySelector('[data-cmd="cal.object"]')?.focus();
+}
+document.addEventListener('input', e => {
+  if (!e.target.matches?.('.cal-picker-input')) return;
+  cal.picker.query = e.target.value;
+  cal.picker.active = 0;
+  drawPicker();
+});
+document.addEventListener('keydown', e => {
+  if (!e.target.matches?.('.cal-picker-input')) return;
+  const n = cal.picker.ids.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    cal.picker.active = (cal.picker.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % Math.max(n, 1);
+    drawPicker();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (cal.picker.ids[cal.picker.active]) pick(cal.picker.ids[cal.picker.active]);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closePicker();
+    document.querySelector('[data-cmd="cal.object"]')?.focus();
+  }
+});
+document.addEventListener('mousedown', e => {
+  if (cal.picker && !e.target.closest('#cal-float') && !e.target.closest('[data-cmd="cal.object"]')) closePicker();
+});
+
+// The menu of a chosen object: what else to take in through its lists, another object, or none.
+function objectMenu(anchor) {
+  const lists = Agenda.listsOf(cal.object).map(list => ({ list, n: Agenda.reach(cal.object, [list]).size - 1 }));
+  Shell.menu(anchor, [
+    ...(lists.length ? [{ head: 'Also include, directly and indirectly' }] : []),
+    ...lists.map(({ list, n }) => ({ label: list, hint: String(n), checked: cal.reach.includes(list), disabled: !n && !cal.reach.includes(list),
+      run: () => show({ reach: cal.reach.includes(list) ? cal.reach.filter(x => x !== list) : [...cal.reach, list] }) })),
+    ...(lists.length ? [{ sep: true }] : []),
+    { label: 'Choose another object…', run: () => openPicker(document.querySelector('[data-cmd="cal.object"]')) },
+    { label: 'Clear', run: () => show({ object: null, reach: [] }) },
+  ], 'cal-object');
+}
+
+// ---- Keys ----
+// In the agenda, the arrow keys (or J and K) move between rows and Enter opens one. In the month, the
+// arrow keys move a day or a week, Home and End to the week's ends, and Page Up and Page Down a month.
+function moveRow(step) {
+  const rows = [...document.querySelectorAll('.cal .ev-row')];
+  if (!rows.length) return;
+  const at = rows.indexOf(document.activeElement?.closest?.('.ev-row'));
+  rows[at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + step))].focus();
+}
+function moveDay(iso) {
+  show({ day: iso });
+  document.querySelector(`.cal-day[data-day="${iso}"]`)?.focus();
+}
+document.addEventListener('keydown', e => {
+  if (cal.picker || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('#layer .dialog, #layer .palette, #layer .float-menu')) return;
+  const day = e.target.closest?.('.cal-day');
+  if (day) {
+    const iso = day.dataset.day;
+    const weekday = new Date(`${iso}T12:00:00`).getDay();
+    const to = { ArrowLeft: Agenda.addDays(iso, -1), ArrowRight: Agenda.addDays(iso, 1), ArrowUp: Agenda.addDays(iso, -7), ArrowDown: Agenda.addDays(iso, 7),
+      Home: Agenda.addDays(iso, -weekday), End: Agenda.addDays(iso, 6 - weekday), PageUp: monthsOn(iso, -1), PageDown: monthsOn(iso, 1) }[e.key];
+    if (to) { e.preventDefault(); moveDay(to); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.querySelector('.cal-dayview .ev-row')?.focus(); }
+    return;
+  }
+  if (e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+  const inRow = e.target.closest?.('.ev-row');
+  if (e.key === 'ArrowDown' || e.key === 'j') { if (inRow || e.key === 'j') { e.preventDefault(); moveRow(1); } }
+  else if (e.key === 'ArrowUp' || e.key === 'k') { if (inRow || e.key === 'k') { e.preventDefault(); moveRow(-1); } }
+  else if (e.key === 'Enter' && e.target === inRow) { e.preventDefault(); location.href = inRow.dataset.href; }
+});
+
+// ---- Commands ----
+Shell.on('cal.view', el => show({ view: el.dataset.view }));
+Shell.on('cal.kind', el => Shell.menu(el, [
+  { head: 'Dates of' },
+  { label: 'Any kind', checked: !cal.kind, run: () => show({ kind: null }) },
+  ...kindsInState().map(k => ({ label: plural(k), checked: same(cal.kind ?? '', k), run: () => show({ kind: k }) })),
+], 'cal-kind'));
+Shell.on('cal.clear-kind', () => show({ kind: null }));
+Shell.on('cal.object', el => objectSet() ? objectMenu(el) : (cal.picker ? closePicker() : openPicker(el)));
+Shell.on('cal.clear-object', () => show({ object: null, reach: [] }));
+Shell.on('cal.pick', el => pick(el.dataset.id));
+Shell.on('cal.computed', () => show({ computed: !cal.computed }));
+Shell.on('cal.clear', () => show({ kind: null, object: null, reach: [], computed: false }));
+Shell.on('cal.past', () => show({ past: !cal.past }));
+Shell.on('cal.day', el => { show({ day: el.dataset.day }); document.querySelector(`.cal-day[data-day="${el.dataset.day}"]`)?.focus(); });
+Shell.on('cal.month', el => moveDay(monthsOn(cal.day, Number(el.dataset.step))));
+Shell.on('cal.today', () => moveDay(Agenda.isoToday()));
+Shell.on('cal.export', exportToOutlook);
+
+window.addEventListener('hashchange', () => { readAddress(); render(); });
+Shell.onChartChange(() => { Object.assign(cal, { kind: null, object: null, reach: [], computed: false, past: false }); closePicker(); });
+
+readAddress();
+Shell.start({
+  area: 'calendar',
+  title: 'Calendar',
+  actions: () => `<button class="btn btn-sm" data-cmd="cal.export"${Agenda.events().length ? '' : ' disabled'} title="Save the dates shown as an .ics file for Outlook">Export to Outlook</button>`,
+  render: renderCalendar,
+  commands: () => [
+    { title: 'Export to Outlook', keywords: 'ics calendar download', run: exportToOutlook },
+    { title: cal.view === 'month' ? 'Show the agenda' : 'Show a month', keywords: 'calendar view', run: () => show({ view: cal.view === 'month' ? 'agenda' : 'month' }) },
+    { title: 'Go to today', keywords: 'calendar month', run: () => show({ view: 'month', day: Agenda.isoToday() }) },
+    ...(filtered() ? [{ title: 'Clear filters', run: () => show({ kind: null, object: null, reach: [], computed: false }) }] : []),
+  ],
+});

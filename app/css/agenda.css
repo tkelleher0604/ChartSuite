@@ -1,0 +1,64 @@
+/* The agenda's parts, for the Calendar and Home: an event's row, whose it is, and why a definition gave it.
+   A row is a grid, so dates, labels and owners line up down a list. */
+
+.ev-list { display: flex; flex-direction: column; container: ev-list / inline-size; }
+.ev-row { display: grid; grid-template-columns: 6.75rem 6.5rem minmax(10rem, .8fr) minmax(0, 1.6fr) 5.5rem; grid-template-areas: "date when what whose actions";
+  align-items: center; gap: 0 14px; min-height: 40px; padding: 4px 10px; border-radius: var(--radius-sm); font-size: 13px; outline: none; }
+.ev-date { grid-area: date; }
+.ev-when { grid-area: when; }
+.ev-what { grid-area: what; }
+.ev-whose { grid-area: whose; }
+.ev-actions { grid-area: actions; }
+.ev-row:hover { background: var(--hover); }
+/* Rows are divided by a hairline, which gives way to a hovered or focused row's own shape. */
+.ev-row + .ev-row, .ev-why + .ev-row { box-shadow: 0 -1px 0 var(--border); }
+.ev-row:hover, .ev-row:hover + .ev-row, .ev-row:focus-visible + .ev-row { box-shadow: none; }
+.ev-row:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+
+.ev-date { color: var(--text); white-space: nowrap; }
+.ev-when { color: var(--text-2); white-space: nowrap; }
+.ev-row.is-overdue .ev-when { color: var(--danger); font-weight: 500; }
+.ev-row.is-week .ev-when { color: var(--warn); font-weight: 500; }
+.ev-row.is-past .ev-date, .ev-row.is-past .ev-when { color: var(--text-3); }
+
+/* What a definition worked out reads in italics; its Why says how. */
+.ev-row.is-computed .ev-date { font-style: italic; }
+
+.ev-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-label { font-weight: 500; }
+.ev-label:hover { text-decoration: underline; }
+
+.ev-whose { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.ev-whose .chip { flex: 0 1 auto; min-width: 2.5rem; }
+.ev-arrow { flex: none; color: var(--text-3); font-size: 12px; }
+.ev-rel { flex: none; margin-right: 2px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
+.ev-path { flex: 0 1000 auto; min-width: 0; margin-left: 4px; overflow: hidden; color: var(--text-3); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ev-path::before { content: "› "; }
+
+.ev-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.ev-actions .link-btn { font-size: 12.5px; }
+.ev-open { opacity: 0; transition: opacity .12s; }
+.ev-row:hover .ev-open, .ev-row:focus-within .ev-open, .ev-row:focus-visible .ev-open { opacity: 1; }
+@media (hover: none) { .ev-open { opacity: 1; } }
+.ev-why-btn { color: var(--computed); }
+.ev-why-btn:hover:not(:disabled) { color: var(--computed); text-decoration: underline; }
+.ev-why-btn[aria-expanded="true"] { font-weight: 500; }
+
+/* A compact row leaves out the actions. */
+.ev-row.is-compact { grid-template-columns: 6.75rem 6.5rem minmax(10rem, .8fr) minmax(0, 1.6fr); grid-template-areas: "date when what whose"; }
+
+/* Why: under the row, lined up with its label. */
+.ev-why { margin: 0 10px 8px calc(13.25rem + 28px + 10px); padding: 8px 12px; border-left: 2px dashed var(--computed-border); background: var(--computed-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 12.5px; color: var(--text-2); }
+.ev-why-head { margin-bottom: 4px; color: var(--text); }
+.ev-why-head strong { font-weight: 600; }
+.ev-why-line { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 8px; padding: 2px 0; }
+.ev-why-label { color: var(--text-3); }
+.ev-formula { font: 12px/18px ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--text); overflow-wrap: anywhere; }
+.ev-sep { margin: 0 6px; color: var(--text-3); }
+
+/* In a narrow list, whose an event is goes under what it is. */
+@container ev-list (max-width: 760px) {
+  .ev-row, .ev-row.is-compact { grid-template-columns: 6.5rem 6.25rem minmax(0, 1fr) auto; grid-template-areas: "date when what actions" ". . whose whose";
+    gap: 2px 12px; padding-top: 7px; padding-bottom: 7px; }
+  .ev-why { margin-left: calc(12.75rem + 24px + 10px); }
+}
