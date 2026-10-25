@@ -291,12 +291,12 @@ const SAMPLE_CHART_NAME = 'Calder Ridge Fund III structure';
 //   and changes to them aren't recorded.
 // Semantics is keyed by parameterization (formulas, required entries), looks and vocabulary by form (styles,
 // names), and placement by location (entry order by location specification, box positions by object).
-let schema, entered, records, definitions, names, order, views, viewId, styles, layout, required, archive, history;
+let schema, entered, records, definitions, names, order, views, viewId, styles, layout, required, archive, historyLog;
 const undoStack = [];
 const redoStack = [];
 
 function setState(s) {
-  ({ schema = {}, records: entered, definitions = [], names = {}, order = {}, views, viewId = null, required = [], archive = [], history = [] } = s);
+  ({ schema = {}, records: entered, definitions = [], names = {}, order = {}, views, viewId = null, required = [], archive = [], history: historyLog = [] } = s);
   recompute();
   // The schema holds what the formulas compute, as well as what's entered.
   schema = withSpecsOf(schema, records);
@@ -339,7 +339,7 @@ const sampleFormulas = (recs = SAMPLE) => canonicalFormulas(SAMPLE_DEFINITIONS, 
 
 // States are never mutated in place, so earlier ones can be kept for undo.
 const currentViews = () => views.map(v => v.id === viewId ? { ...v, styles, layout } : v);
-const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive, history });
+const snapshot = () => ({ schema, records: entered, definitions, names, order, views: currentViews(), viewId, required, archive, history: historyLog });
 
 function saveState() {
   try { localStorage.setItem(WORKBOOK_KEY, JSON.stringify({ ...workbook, charts: currentCharts() })); } catch {}
@@ -349,25 +349,26 @@ function pushUndo() {
   undoStack.push(snapshot());
   redoStack.length = 0;
 }
-function undoState() {
-  if (!undoStack.length) return false;
-  redoStack.push(snapshot());
-  setState(undoStack.pop());
+// Undo and redo step through states, but the history only grows: each is recorded as the change it makes.
+function stepState(from, to, source) {
+  if (!from.length) return false;
+  const was = snapshot(), wasRecords = records, log = historyLog;
+  to.push(was);
+  setState(from.pop());
+  historyLog = log;
+  noteChangeSince(was, wasRecords, source);
   saveState();
   return true;
 }
-function redoState() {
-  if (!redoStack.length) return false;
-  undoStack.push(snapshot());
-  setState(redoStack.pop());
-  saveState();
-  return true;
-}
+const undoState = () => stepState(undoStack, redoStack, 'undo');
+const redoState = () => stepState(redoStack, undoStack, 'redo');
 // Puts the sample back in the current chart, as one undoable step. Other charts are left alone.
 function resetState() {
   pushUndo();
+  const was = snapshot(), log = historyLog;
   setState(sampleState());
-  noteChange('Reset the chart to the sample');
+  historyLog = log;
+  noteChange('Reset the chart to the sample', changesBetween(was.records, entered), 'reset');
   saveState();
 }
 
@@ -1297,8 +1298,8 @@ function definitionsError(defs, S, N) {
 // ---- History ----
 // Every change to the chart's data is recorded, newest first: when it was made, by whom, what it was in a
 // sentence, and the entered records it changed, before and after, so that a record's own history can be
-// told. The history belongs to the chart, so it travels with it in the workbook; undoing a change takes
-// its entry back too, as if it hadn't been made.
+// told. The history belongs to the chart, so it travels with it in the workbook. Nothing takes an entry
+// back: undo and redo are changes too, recorded with what they changed and `source` saying which.
 
 const USER_KEY = 'rboreal.user';
 function currentUser() {
@@ -1354,13 +1355,23 @@ function changeSummary(changes, before, after, extra = []) {
   return [...parts, ...extra].join('; ') || 'Changed the schema';
 }
 
-// Records a change to the chart's data at the head of the history.
-function noteChange(summary, changes = []) {
-  history = [{ id: newId(), when: new Date().toISOString(), who: currentUser(), summary, changes }, ...history];
+// Records a change to the chart's data at the head of the history. `source` says how it was made, when not
+// by an edit: 'undo', 'redo', 'reset' or 'import'.
+function noteChange(summary, changes = [], source = null) {
+  historyLog = [{ id: newId(), when: new Date().toISOString(), who: currentUser(), summary, changes, ...(source ? { source } : {}) }, ...historyLog];
+}
+
+// Records the change from one snapshot to the current state, if its data changed; views aren't data.
+function noteChangeSince(was, wasRecords, source) {
+  const changes = changesBetween(was.records, entered);
+  const extra = definitionChanges(was.definitions, definitions, was.schema, was.names);
+  if (JSON.stringify(was.names) !== JSON.stringify(names)) extra.push('Changed relation names');
+  if (JSON.stringify(was.required) !== JSON.stringify(required)) extra.push('Changed the required entries');
+  if (changes.length || extra.length) noteChange(changeSummary(changes, wasRecords, records, extra), changes, source);
 }
 
 // The history of one record: the entries whose changes touch it.
-const historyOf = id => history.filter(h => h.changes.some(c => c.id === id));
+const historyOf = id => historyLog.filter(h => h.changes.some(c => c.id === id));
 
 // ---- Changing the state ----
 

@@ -225,6 +225,18 @@ function run() {
   const differ = rels.filter(id => Formulas.formOf(formulaResult, id) !== formKeyOf(id));
   check('Forms: the engine and the model give every relation the same form', !differ.length, differ.slice(0, 3).join(' '));
 
+  // The history only grows: an edit, its undo and its redo are three entries, each saying what it changed
+  fresh();
+  const logged = () => snapshot().history;
+  const edit = change({ entered: { ...entered, fund_formed: { ...entered.fund_formed, value: '2023-02-15' } } });
+  check('History: an edit is recorded, naming what changed', !edit && logged().length === 1 && /Formation Date from .* to /.test(logged()[0].summary), logged()[0]?.summary);
+  check('…and the record’s history has it', historyOf('fund_formed').length === 1);
+  undoState();
+  check('History: undo is recorded as a change, not by taking the entry back', logged().length === 2 && logged()[0].source === 'undo' && entered.fund_formed.value === '2023-02-14', logged().map(h => h.summary).join(' | '));
+  redoState();
+  check('History: redo too', logged().length === 3 && logged()[0].source === 'redo' && entered.fund_formed.value === '2023-02-15');
+  check('…and each entry keeps its record’s before and after', logged()[1].changes[0].before.value === '2023-02-15' && logged()[1].changes[0].after.value === '2023-02-14');
+
   const failed = out.filter(x => !x.ok).length;
   document.title = `model test: ${out.length - failed} pass, ${failed} fail`;
   document.getElementById('out').innerHTML = `${document.title}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>
