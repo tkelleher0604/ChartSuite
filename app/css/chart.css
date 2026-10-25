@@ -186,6 +186,16 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .node.is-target::after { content: ""; position: absolute; inset: -7px; border: 2px dashed var(--paper-accent); border-radius: 6px; background: var(--paper-accent-wash); pointer-events: none; }
 .node.is-moving { opacity: .85; }
 
+/* A sheet with no boxes says why, over the middle of the canvas, on paper. A double-click goes through it
+   to the sheet. */
+.canvas-empty { position: absolute; inset: 0 0 37px; z-index: 4; display: grid; place-items: center; pointer-events: none; }
+.canvas-empty:empty { display: none; }
+.sheet-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; width: min(360px, calc(100% - 32px)); padding: 24px; border: 1px dashed var(--paper-frame); border-radius: var(--radius);
+  background: var(--paper); color: var(--paper-ink); text-align: center; }
+.sheet-empty-title { font-size: 15px; font-weight: 600; }
+.sheet-empty-desc { color: var(--paper-muted); font-size: 13px; }
+.sheet-empty .btn { margin-top: 10px; border-color: var(--paper-frame); background: var(--paper); color: var(--paper-ink); pointer-events: auto; }
+
 /* Handles for drawing a relation, on each side's midpoint (on a triangle's slanted sides). */
 .handle { position: absolute; z-index: 2; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border: 1.5px solid var(--paper-accent); border-radius: 50%; background: var(--paper); cursor: crosshair; opacity: 0; transition: opacity .12s, transform .12s; }
 .handle::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }

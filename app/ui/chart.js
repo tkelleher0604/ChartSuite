@@ -446,6 +446,17 @@ function legendRows(geo = chart.geometry, lines = chartLines(geo)) {
   return rows;
 }
 
+// A sheet with no boxes says why, and how to add one: the chart has none yet, or this view shows none.
+// It's over the middle of the canvas, at its own size, whatever the zoom.
+function emptySheetHtml(shown) {
+  if (shown || chart.quick) return '';
+  const any = Object.values(records).some(isObject);
+  const [title, desc, action] = !any ? ['No boxes yet', 'Double-click the sheet to add the first one, of any kind.', '']
+    : viewFilter() ? [`${viewInUse().name} shows no boxes`, 'Its filter holds at none of them.', '<button class="btn btn-sm" data-action="filter-clear">Clear filter</button>']
+    : [`${viewInUse().name} shows no boxes`, 'View › Show and Hidden say what it leaves out.', ''];
+  return `<div class="sheet-empty"><div class="sheet-empty-title">${esc(title)}</div><div class="sheet-empty-desc">${esc(desc)}</div>${action}</div>`;
+}
+
 // Where the sheet's legend goes: under everything drawn, right-aligned with it.
 function sheetLegend(geo, lines) {
   const gs = Object.entries(geo).filter(([id]) => records[id]).map(([, g]) => g);
@@ -469,6 +480,7 @@ function renderChart() {
     target: chart.connect?.over === id,
     covered, engagedStyle: eng?.style.id,
   })).join('') + quickNodeHtml();
+  document.getElementById('empty').innerHTML = emptySheetHtml(objects.length);
   // A triangle's text sits low enough for its widest line to clear the sloping sides. The text is at most
   // 60% as wide as the box, which takes a gap above it of one and a half times its height (with padding).
   for (const el of nodes.querySelectorAll('.node.shape-triangle')) {
