@@ -1,0 +1,1494 @@
+// The Records area: a table for each kind, at records.html#<kind>, kept like a spreadsheet of its objects.
+// - Rows are the kind's objects. Columns are the entries the schema has at objects of the kind (fields, tags
+//   and choices), in the model's entry order with Name first and kept in view, then the entries below them
+//   (an Entity Type's Tax Classification), which start hidden, then the lists of each object's relatives by
+//   list name (Owners, General Partners), each relative a chip with its one detail.
+// - Cells are edited in place through the model's own functions, so each edit is one undoable step and lands
+//   in the History. What a formula works out is set in italics and isn't edited here, except that a computed
+//   tag can be ruled out (or attested), overriding its formula, as the panel allows.
+// - Tab-separated text pasted from Excel fills cells and adds rows, as one step.
+// - Rows can be sorted, filtered with chips, searched, ticked and deleted together, and what's shown
+//   exported as CSV. Which columns are shown, and the sort, are kept per kind in this browser; the filters
+//   and the search, in this tab.
+
+(() => {
+  // ---- What the page holds between renders ----
+  // The shell renders the page again after every change, so everything here is either the user's place in
+  // the table or what they're in the middle of; the records themselves are only ever read from the state.
+  const ui = {
+    kind: null,         // the kind whose table this is
+    prefs: {},          // this kind's remembered columns ({ [key]: shown }) and sort ({ key, dir })
+    active: null,       // the selected cell: { row, col }, an object's id and a column's key
+    edit: null,         // the cell being typed in: { row, col, text, error }
+    draft: null,        // a new row being named: { text, error }
+    pop: null,          // an open popover: { type: 'view' } | { type: 'filter', index, query } | { type: 'choice', row, col, query, active }
+    checked: new Set(), // rows ticked for bulk actions
+    anchor: null,       // the row last ticked, where a shift-click range starts
+    added: [],          // rows added on this page, kept at the end where they were typed until the rows are sorted
+    filters: [],        // [{ col, op: 'is' | 'not' | 'empty' | 'filled', values: [keys] }]
+    search: '',
+    needs: false,       // whether only rows with a required entry blank are shown
+    focus: null,        // where the keyboard was: 'grid', 'edit', 'draft', 'pop' or 'search'
+    caret: null,        // [start, end] of the selection in the box being typed in
+    scroll: { left: 0, top: 0 },
+    reveal: false,      // whether to bring the active cell into view after the next render
+    rows: [],           // the rows shown, in order, and the keys of the columns shown, for moving and pasting
+    cols: [],
+  };
+
+  const word = () => ui.kind.toLowerCase();
+  const kindPlural = () => plural(ui.kind);
+
+  // ---- Remembered per kind ----
+  const PREFS_KEY = 'rboreal.records';
+  const SESSION_KEY = 'rboreal.records.session';
+  function stored(store, key) {
+    try { return JSON.parse(store.getItem(key)) ?? {}; } catch { return {}; }
+  }
+  function storeFor(store, key, value) {
+    const all = stored(store, key);
+    all[norm(ui.kind)] = value;
+    try { store.setItem(key, JSON.stringify(all)); } catch {}
+  }
+  function setPrefs(patch) {
+    ui.prefs = { ...ui.prefs, ...patch };
+    storeFor(localStorage, PREFS_KEY, ui.prefs);
+  }
+  const saveSession = () => storeFor(sessionStorage, SESSION_KEY, { filters: ui.filters, search: ui.search, needs: ui.needs });
+
+  // ---- The kind ----
+  const hashText = () => { try { return decodeURIComponent(location.hash.slice(1)); } catch { return ''; } };
+
+  // The kind the address names, or else the first kind the sidebar lists. A chart with no kinds yet starts
+  // its first as an Entity.
+  function kindFromHash() {
+    const kinds = kindsInState();
+    return kinds.find(k => same(k, hashText())) ?? kinds.find(k => !same(k, Shell.DOCUMENT_KIND)) ?? kinds[0] ?? 'Entity';
+  }
+
+  // Takes up the kind the address names. Moving to another kind starts afresh there, with that kind's own
+  // remembered columns, sort and filters. Returns whether the kind changed.
+  function useKind() {
+    const kind = kindFromHash();
+    if (kind === ui.kind) return false;
+    const session = stored(sessionStorage, SESSION_KEY)[norm(kind)] ?? {};
+    Object.assign(ui, {
+      kind, prefs: stored(localStorage, PREFS_KEY)[norm(kind)] ?? {},
+      active: null, edit: null, draft: null, pop: null, checked: new Set(), anchor: null, added: [],
+      filters: session.filters ?? [], search: session.search ?? '', needs: !!session.needs,
+      focus: null, caret: null, scroll: { left: 0, top: 0 },
+    });
+    if (Shell.page) Shell.page.kind = kind;
+    if (location.hash && !same(hashText(), kind)) history.replaceState(null, '', Shell.kindHref(kind));
+    return true;
+  }
+
+  // The shell draws the sidebar and the top bar before the page, so the first of them to need the kind
+  // takes it up. Where the address didn't name it, the sidebar is drawn again once it's known.
+  let sidebarStale = false;
+  function ensureKind() {
+    if (ui.kind !== null) return;
+    useKind();
+    sidebarStale = !same(hashText(), ui.kind);
+  }
+
+  // ---- Columns ----
+  // A column of entries: { key, label, path, parent, type, datatype, options, params, computedBy, required,
+  // isName }. Its path is the labels down from the object (Entity Type, Tax Classification), and its
+  // parameterizations are those of its specifications, one for each location like the one above it.
+  // A column of relations: { key, rel, form, own, label, computed }, one for each form of relation and role
+  // that objects of the kind (or entries below them) can take in it.
+
+  const relKey = (form, edge) => `r:${form}|${norm(edge)}`;
+
+  // A location tree that's a path down from an object of the kind: the kind itself, or tags and choices below it.
+  const isPathOf = (loc, kind) => loc.kind !== undefined ? same(loc.kind, kind)
+    : loc.args.length === 1 && !('field' in loc.out) && isPathOf(loc.args[0].loc, kind);
+
+  let coveredMemo = { defs: null, params: null };
+  function coveredParams() {
+    if (coveredMemo.defs !== definitions) coveredMemo = { defs: definitions, params: new Set(definitions.flatMap(d => d.scope)) };
+    return coveredMemo.params;
+  }
+
+  // The entries of objects of the kind, from the schema, in the order the model keeps for their locations,
+  // each followed by the entries that can sit below it.
+  function entryColumns(kind) {
+    const out = [];
+    const walk = (locs, path, parent) => {
+      const found = new Map();
+      for (const loc of locs) for (const k of indexOf().entriesAt.get(loc) ?? []) {
+        const t = schema[k], label = t.args[0].edge;
+        if (!found.has(norm(label))) found.set(norm(label), { label, type: typeOfTree(t), datatype: t.out.field, options: [], specs: [], params: new Set() });
+        const c = found.get(norm(label));
+        c.specs.push(k);
+        c.params.add(treeParam(t));
+        if ('choice' in t.out && !c.options.some(o => same(o, t.out.choice))) c.options.push(t.out.choice);
+      }
+      const compare = orderedBy(locs.map(l => order[l]).find(Boolean) ?? []);
+      const isName = c => !parent && same(c.label, 'name');
+      for (const c of [...found.values()].sort((a, b) => isName(b) - isName(a) || compare(a, b))) {
+        const labels = [...path, c.label];
+        const params = [...c.params];
+        const def = params.map(definitionCovering).find(Boolean) ?? null;
+        const col = { key: `e:${labels.map(norm).join(' › ')}`, label: c.label, path: labels, parent, type: c.type, datatype: c.datatype,
+          options: c.options.sort(byLabel), params, computedBy: def, required: params.some(isRequired), isName: isName(c) };
+        out.push(col);
+        if (c.type !== 'field' && labels.length < 3) walk(c.specs, labels, col);
+      }
+    };
+    walk([`kind:${norm(kind)}`], [], null);
+    // A kind new to the chart has no Name in the schema yet, but its first row will.
+    if (!out.some(c => c.isName)) out.unshift({ key: 'e:name', label: 'Name', path: ['Name'], parent: null, type: 'field', datatype: 'text',
+      options: [], params: [], computedBy: null, required: false, isName: true });
+    return out;
+  }
+
+  // The lists of relatives: for each form of relation, one column per role the kind can take in it, named
+  // by its list name seen from that role (Owners, Holdings). A relation of more than two takes its own name,
+  // with the role where the kind can take several.
+  function relationColumns(kind) {
+    const cols = new Map();
+    for (const t of Object.values(schema)) {
+      if (!(t.args?.length > 1)) continue;
+      const form = formOfTree(t);
+      for (const a of t.args) {
+        const key = relKey(form, a.edge);
+        if (!isPathOf(a.loc, kind) || cols.has(key)) continue;
+        const other = t.args.find(x => x !== a);
+        cols.set(key, { key, rel: true, form, own: a.edge, arity: t.args.length, path: [], computed: coveredForms().has(form),
+          label: t.args.length === 2 ? listName(form, a.edge, other.edge) : formName(form) });
+      }
+    }
+    const list = [...cols.values()];
+    for (const c of list) if (c.arity > 2 && list.some(x => x !== c && x.form === c.form)) c.label = `${c.label} (${c.own})`;
+    return list.sort((a, b) => a.computed - b.computed || byLabel(a.label, b.label));
+  }
+
+  // The columns, worked out again only when what they come from changes.
+  let colMemo = null;
+  function columns() {
+    const deps = [ui.kind, schema, order, names, definitions, required];
+    if (!colMemo || colMemo.deps.some((d, i) => d !== deps[i])) colMemo = { deps, cols: [...entryColumns(ui.kind), ...relationColumns(ui.kind)] };
+    return colMemo.cols;
+  }
+  const colByKey = key => columns().find(c => c.key === key) ?? null;
+
+  // Shown unless hidden: Name always; the entries at the object; and the lists of entered relations that
+  // some row has. Entries below entries, and lists a formula works out, start hidden.
+  function isShown(c, P) {
+    if (c.isName) return true;
+    const set = ui.prefs.cols?.[c.key];
+    if (set !== undefined) return set;
+    if (!c.rel) return !c.parent;
+    return !c.computed && P.objects.some(id => P.cell(id, c).items.length);
+  }
+
+  // ---- The records, as the table reads them ----
+  // Worked out once for each state: each location's entries by label, the object each location is on, each
+  // object's relations by column, its name, and the formulas' errors by where their output would be.
+  const indexes = new WeakMap();
+  function tableIndex() {
+    const recs = records;
+    if (indexes.has(recs)) return indexes.get(recs);
+    const entries = new Map(), relations = new Map(), errors = new Map(), owners = new Map();
+    for (const [id, r] of Object.entries(recs)) {
+      if (r.args || r.at === undefined) continue;
+      if (!entries.has(r.at)) entries.set(r.at, new Map());
+      entries.get(r.at).set(norm(r.edge), id);
+    }
+    // The object a location is on: up its path to the object it starts at, if it starts at one.
+    const objectAt = id => {
+      if (!owners.has(id)) {
+        const r = recs[id];
+        owners.set(id, !r || r.args ? null : isObject(r) ? id : objectAt(r.at));
+      }
+      return owners.get(id);
+    };
+    for (const [id, r] of Object.entries(recs)) {
+      if (!r.args) continue;
+      const form = formKeyOf(id, recs);
+      for (const a of r.args) {
+        const obj = objectAt(a.at);
+        if (!obj) continue;
+        if (!relations.has(obj)) relations.set(obj, new Map());
+        const byCol = relations.get(obj), key = relKey(form, a.edge);
+        if (!byCol.has(key)) byCol.set(key, []);
+        if (!byCol.get(key).includes(id)) byCol.get(key).push(id);
+      }
+    }
+    for (const e of formulaResult.errors ?? []) if (e.args?.length === 1) errors.set(`${e.args[0].at}|${norm(e.args[0].edge)}`, e);
+    const nameOf = id => { const n = entries.get(id)?.get('name'); return n && isField(recs[n]) ? String(recs[n].value) : `${recs[id]?.kind ?? 'Record'} ${id}`; };
+    const ix = { entries, relations, errors, objectAt, nameOf };
+    indexes.set(recs, ix);
+    return ix;
+  }
+
+  // One reading of the table: its cells are read once each, as rendering, sorting, filtering and searching
+  // all need them.
+  function readPass() {
+    const ix = tableIndex();
+    const cells = new Map();
+    const objects = Object.keys(records).filter(k => isObject(records[k]) && same(records[k].kind, ui.kind));
+    return {
+      ix, objects,
+      cell(obj, c) {
+        const k = `${obj}\u0000${c.key}`;
+        if (!cells.has(k)) cells.set(k, c.rel ? relationCell(obj, c, ix) : entryCell(obj, c, ix));
+        return cells.get(k);
+      },
+    };
+  }
+
+  // An entry's cell: `at` is where its record is, or would go (the object, or for a column below an entry,
+  // that entry), and `id` and `r` its record if there is one. A blank cell may be required, or covered by a
+  // definition that gives nothing there, or hold the error a formula ran into. `blocked` means the entry it
+  // would go below isn't there. `text` is how it reads, `keys` what filters match, `sort` what it sorts by.
+  function entryCell(obj, c, ix) {
+    let at = obj;
+    for (const label of c.path.slice(0, -1)) {
+      at = ix.entries.get(at)?.get(norm(label));
+      if (!at) return { blocked: true, text: '', keys: [], sort: null };
+    }
+    const id = ix.entries.get(at)?.get(norm(c.label)) ?? null;
+    const r = id ? records[id] : null;
+    if (!r) {
+      const param = paramAt(c.label, at);
+      const error = ix.errors.get(`${at}|${norm(c.label)}`)?.error ?? null;
+      return { at, id: null, r: null, error, covered: coveredParams().has(param), missing: !error && required.includes(param),
+        text: error?.code ?? '', keys: [], sort: null };
+    }
+    const base = { at, id, r, computed: isComputed(id), info: formulaInfo(id) };
+    if (isTag(r)) return { ...base, text: Parts.outputText(r), keys: [String(r.tag)], sort: r.tag ? 0 : 1 };
+    if (isChoice(r)) return { ...base, text: r.choice, keys: [norm(r.choice)], sort: norm(r.choice) };
+    const text = displayValue(r);
+    return { ...base, text, keys: [String(r.value)], sort: typeof r.value === 'number' || r.field === 'date' ? r.value : norm(text) };
+  }
+
+  // A relation column's cell: the relatives in that role, each { id, target, name, detail, computed }.
+  // A ruled-out relation isn't one of the list.
+  function relationCell(obj, c, ix) {
+    const items = (ix.relations.get(obj)?.get(c.key) ?? []).map(id => relative(obj, c, id, ix)).filter(Boolean)
+      .sort((a, b) => a.computed - b.computed || byLabel(a.name, b.name));
+    return { items, text: items.map(i => i.text).join('; '), keys: items.map(i => i.target), sort: items.length ? norm(items[0].name) : null };
+  }
+
+  // One relative, seen from `obj`: the object in the first other role, in the relation's own order, with the
+  // relation's detail (an ownership's Percentage, a position's option) and, for a relation of more than two,
+  // the rest of its sides (Calder Ridge GP · on behalf of Fund III).
+  function relative(obj, c, id, ix) {
+    const r = records[id];
+    if (isTag(r) && !r.tag) return null;
+    const own = r.args.find(a => same(a.edge, c.own) && ix.objectAt(a.at) === obj);
+    if (!own) return null;
+    const edges = names[c.form]?.edges ?? [];
+    const rank = a => { const i = edges.findIndex(e => same(e, a.edge)); return i < 0 ? edges.length : i; };
+    const others = r.args.filter(a => a !== own).sort((a, b) => rank(a) - rank(b));
+    const objs = others.map(a => ix.objectAt(a.at));
+    if (!objs[0]) return null;
+    const rest = others.slice(1).map((a, i) => objs[i + 1] && `${a.edge.toLowerCase()} ${ix.nameOf(objs[i + 1])}`);
+    const detail = [relationDetail(id, ix), ...rest].filter(Boolean).join(' · ');
+    const name = ix.nameOf(objs[0]);
+    return { id, target: objs[0], name, detail, sides: rest.length > 0, computed: isComputed(id), text: detail ? `${name} (${detail})` : name };
+  }
+
+  // A relation's one detail: its option or value, or else the first field located at it.
+  function relationDetail(id, ix) {
+    const r = records[id];
+    if (isChoice(r)) return r.choice;
+    if (isField(r)) return displayValue(r);
+    const fields = [...(ix.entries.get(id)?.values() ?? [])].filter(k => isField(records[k]));
+    if (!fields.length) return '';
+    const compare = orderedBy(order[specKey(records, id)] ?? []);
+    fields.sort((a, b) => compare({ type: 'field', label: records[a].edge }, { type: 'field', label: records[b].edge }));
+    return displayValue(records[fields[0]]);
+  }
+
+  // Whether a cell can be typed in or picked from here. A computed value can't, nor a blank a definition
+  // covers, nor an entry whose place above is missing.
+  const editable = (cell, c) => !c.rel && !cell.blocked && !cell.error && (cell.r ? !cell.computed : !cell.covered);
+  const isNumeric = c => !c.rel && c.type === 'field' && ['number', 'percent', 'money'].includes(c.datatype);
+  // Identifiers (an EIN, a file number) read best in tabular figures with a slashed zero.
+  const looksLikeId = s => /^[A-Z0-9][A-Z0-9.\-–/]*$/i.test(s) && /\d/.test(s);
+
+  // ---- Rows ----
+
+  const filterOf = f => colByKey(f.col);
+  const anyFilter = () => ui.filters.some(f => filterOf(f) && isActive(f)) || !!clean(ui.search) || ui.needs;
+  const isActive = f => f.op === 'empty' || f.op === 'filled' || f.values.length > 0;
+
+  function passes(f, cell) {
+    const has = cell.keys.length > 0;
+    if (f.op === 'empty') return !has;
+    if (f.op === 'filled') return has;
+    if (!f.values.length) return true;
+    const hit = cell.keys.some(k => f.values.includes(k));
+    return f.op === 'not' ? !hit : hit;
+  }
+
+  // Whether a row has a required entry blank, in any column of entries, shown or not.
+  const lacking = (P, cols, id) => cols.some(c => c.required && !c.rel && P.cell(id, c).missing);
+
+  // The rows shown: the objects that pass the filters and the search, sorted. Unsorted, they're in name
+  // order, and either way rows added here stay at the end, where they were typed, until the rows are sorted
+  // again, so a new row doesn't jump away as it's filled in.
+  function shownRows(P, cols, shownCols) {
+    const q = norm(ui.search);
+    const filters = ui.filters.map(f => [f, filterOf(f)]).filter(([f, c]) => c && isActive(f));
+    const ids = P.objects.filter(id => filters.every(([f, c]) => passes(f, P.cell(id, c)))
+      && (!q || shownCols.some(c => norm(P.cell(id, c).text).includes(q)))
+      && (!ui.needs || lacking(P, cols, id)));
+    const byName = (a, b) => byLabel(P.ix.nameOf(a), P.ix.nameOf(b));
+    const sort = ui.prefs.sort, col = sort && cols.find(c => c.key === sort.key);
+    const compare = !col ? byName : (a, b) => {
+      const x = P.cell(a, col).sort, y = P.cell(b, col).sort;
+      if (x === null || y === null) return (x === null) - (y === null) || byName(a, b);
+      return (typeof x === 'number' ? x - y : byLabel(String(x), String(y))) * sort.dir || byName(a, b);
+    };
+    const fresh = ui.added.filter(id => ids.includes(id));
+    return [...ids.filter(id => !fresh.includes(id)).sort(compare), ...fresh];
+  }
+
+  // The values a column has across the kind, to filter by: each { key, text, n }, in its sort's order.
+  function filterValues(P, c) {
+    const out = new Map();
+    for (const id of P.objects) {
+      const cell = P.cell(id, c);
+      const pairs = c.rel ? cell.items.map(i => [i.target, i.name, norm(i.name)])
+        : cell.keys.map(k => [k, c.type === 'tag' ? (k === 'true' ? 'Attested' : 'Ruled out') : cell.text, cell.sort]);
+      for (const [key, text, sort] of pairs) {
+        if (!out.has(key)) out.set(key, { key, text, sort, n: 0 });
+        out.get(key).n++;
+      }
+    }
+    return [...out.values()].sort((a, b) => typeof a.sort === 'number' && typeof b.sort === 'number' ? a.sort - b.sort : byLabel(String(a.text), String(b.text)));
+  }
+
+  // Drops what points at rows or columns that are gone, after an undo, say, or a change in another tab.
+  function tidy(P, shownCols) {
+    const keys = new Set(shownCols.map(c => c.key));
+    const there = id => !!records[id];
+    if (ui.active && !(there(ui.active.row) && keys.has(ui.active.col))) ui.active = null;
+    if (ui.edit && !(there(ui.edit.row) && keys.has(ui.edit.col))) ui.edit = null;
+    if (ui.pop?.type === 'choice' && !(there(ui.pop.row) && keys.has(ui.pop.col))) ui.pop = null;
+    if (ui.pop?.type === 'filter' && !ui.filters[ui.pop.index]) ui.pop = null;
+    for (const id of ui.checked) if (!there(id)) ui.checked.delete(id);
+  }
+
+  // ---- Rendering ----
+
+  // How wide a column starts, from its heading and the longest value it has, within bounds for its sort.
+  const WIDTHS = { name: [220, 340], text: [120, 280], document: [150, 280], date: [128, 168], number: [96, 150], percent: [96, 130],
+    money: [112, 170], tag: [96, 176], choice: [128, 264], relation: [160, 320] };
+  function widthOf(c, P) {
+    const sort = c.isName ? 'name' : c.rel ? 'relation' : c.type === 'field' ? c.datatype : c.type;
+    const [min, max] = WIDTHS[sort] ?? [120, 260];
+    const head = 28 + 7.2 * (c.label.length + (c.computedBy || c.computed ? 3 : 0) + (c.required ? 2 : 0) + 2);
+    // A choice leaves room for its chevron; a list of relatives, for its first chip and a count of the rest.
+    let body = 0;
+    if (c.type !== 'tag') for (const id of P.objects) {
+      const cell = P.cell(id, c);
+      body = Math.max(body, c.rel ? (cell.items.length ? 44 + 6.8 * cell.items[0].text.length + (cell.items.length > 1 ? 30 : 0) : 0)
+        : 28 + 7.2 * cell.text.length + (c.type === 'choice' ? 22 : 0));
+    }
+    return Math.round(Math.min(max, Math.max(min, head, body)));
+  }
+
+  function columnTitle(c) {
+    const lines = [c.parent ? `${c.label}, below ${c.path.slice(0, -1).join(' › ')}` : c.label];
+    if (c.rel) lines.push(`${formName(c.form)}, with this ${word()} as ${c.own}`);
+    const d = c.computedBy;
+    if (d) lines.push(d.implications ? `Worked out by formula: implied by ${d.implications.map(i => i.label).join(', ')}` : `Worked out by formula: ${d.formula}`);
+    else if (c.computed) lines.push('Worked out by formula');
+    if (c.required) lines.push(`Required on every ${word()}${c.parent ? ' that has its place' : ''}`);
+    return lines.join('\n');
+  }
+
+  function headHtml(c) {
+    const sort = ui.prefs.sort?.key === c.key ? ui.prefs.sort.dir : 0;
+    const cls = ['rec-head-cell', c.isName ? 'is-sticky rec-name' : '', isNumeric(c) ? 'num' : '', c.computedBy || c.computed ? 'is-computed' : '',
+      !c.isName && !c.rel && !c.parent ? 'is-movable' : ''].filter(Boolean).join(' ');
+    return `<th class="${cls}" data-col="${esc(c.key)}" aria-sort="${sort > 0 ? 'ascending' : sort < 0 ? 'descending' : 'none'}">
+      <button class="rec-th" data-cmd="records.head" data-col="${esc(c.key)}" title="${esc(columnTitle(c))}" aria-haspopup="menu">
+        <span class="rec-th-text">${esc(c.label)}</span>${c.required ? '<span class="req-mark" aria-hidden="true">*</span>' : ''}${c.computedBy || c.computed ? '<span class="rec-fx" aria-hidden="true">fx</span>' : ''}${sort ? `<span class="rec-sort" aria-hidden="true">${sort > 0 ? '↑' : '↓'}</span>` : ''}
+      </button></th>`;
+  }
+
+  // Relatives as chips: as many as fit the cell once it's drawn (see fitChips), then how many more.
+  function chipsHtml(cell) {
+    if (!cell.items.length) return '';
+    const chip = i => Parts.chip(i.target, { detail: i.detail, computed: i.computed });
+    return `<span class="rec-chips">${cell.items.map(i => i.sides ? `<span class="rec-sides">${chip(i)}</span>` : chip(i)).join('')}<span class="rec-more" hidden></span></span>`;
+  }
+
+  // Hides the chips that don't fit, from the end, behind a count. One left that still doesn't fit may shrink.
+  function fitChips() {
+    for (const box of document.querySelectorAll('.rec-chips')) {
+      if (box.scrollWidth <= box.clientWidth) continue;
+      const chips = [...box.querySelectorAll('.chip')];
+      const more = box.querySelector('.rec-more');
+      more.hidden = false;
+      for (let i = chips.length - 1, n = 1; i > 0 && box.scrollWidth > box.clientWidth; i--, n++) {
+        chips[i].style.display = 'none';
+        more.textContent = `+${n}`;
+      }
+      if (chips.length === 1) more.hidden = true;
+      box.classList.toggle('is-squeezed', box.scrollWidth > box.clientWidth);
+    }
+  }
+
+  // The corner mark, as in Excel, on an entered value a formula also covers: amber where the formula would
+  // give something else, or implies a tag this rules out; grey where it agrees.
+  function overrideMark(obj, c, cell) {
+    const info = cell.info;
+    const d = info && !cell.computed && definitionOf(info.def);
+    if (!d) return '';
+    const strong = info.mark === 'differs' || info.mark === 'overrides';
+    const says = info.mark === 'overrides' ? `Ruled out here; ${d.name} implies it` : info.mark === 'also implied' ? `Entered here, and also implied by ${d.name}`
+      : info.mark === 'agrees' ? `Entered here; ${d.name} gives the same` : `Entered here; ${d.name} gives something else`;
+    return `<button class="rec-ovr${strong ? ' is-strong' : ''}" data-cmd="records.override" data-row="${esc(obj)}" data-col="${esc(c.key)}" tabindex="-1" title="${esc(says)}" aria-label="${esc(says)}"></button>`;
+  }
+
+  function cellHtml(obj, c, P) {
+    const cell = P.cell(obj, c);
+    const active = ui.active?.row === obj && ui.active.col === c.key;
+    const cls = ['rec-cell'];
+    if (c.isName) cls.push('is-sticky', 'rec-name');
+    if (isNumeric(c)) cls.push('num');
+    if (c.type === 'field' && c.datatype === 'date') cls.push('tnum');
+    if (active) cls.push('is-active');
+    const attrs = `data-col="${esc(c.key)}" tabindex="${active ? 0 : -1}"`;
+    if (ui.edit?.row === obj && ui.edit.col === c.key) {
+      const e = ui.edit;
+      return `<td class="${cls.join(' ')} is-editing" ${attrs}><input class="rec-input" data-focus="edit" value="${esc(e.text)}" placeholder="${esc(c.datatype === 'text' ? '' : VALUE_HINTS[c.datatype] ?? '')}"
+        aria-label="${esc(c.label)}" autocomplete="off" spellcheck="false">${e.error ? `<div class="rec-error" role="alert">${esc(e.error)}</div>` : ''}</td>`;
+    }
+    let html = '', title = cell.text;
+    const tagAttrs = 'data-tag tabindex="-1"';
+    if (c.rel) html = chipsHtml(cell);
+    else if (cell.blocked) {
+      cls.push('is-blocked');
+      title = `Needs ${c.path.at(-2)} first`;
+    } else if (!cell.r) {
+      if (cell.error) { html = `<span class="fx-error">${esc(cell.error.code)}</span>`; title = `${cell.error.msg} (${c.computedBy?.name ?? 'a formula'})`; }
+      else if (cell.missing) { cls.push('is-missing'); html = c.type === 'tag' ? checkbox(null, tagAttrs) : '<span class="rec-req">Required</span>'; title = `${c.label} is required`; }
+      else if (cell.covered) title = 'Worked out by formula, which gives nothing here';
+      else if (c.type === 'tag') html = checkbox(null, tagAttrs);
+    } else if (isTag(cell.r)) {
+      html = cell.computed ? `<span class="is-implied">${checkbox(cell.r.tag, tagAttrs)}</span>` : checkbox(cell.r.tag, tagAttrs);
+      title = cell.computed ? `${cell.r.tag ? 'Attested' : 'Ruled out'} by formula` : '';
+    } else if (isChoice(cell.r)) {
+      html = `<span class="rec-choice"><span class="rec-choice-text">${Parts.output(cell.id)}</span>${editable(cell, c) ? icon('chevron-down', 'rec-chev') : ''}</span>`;
+    } else if (c.isName) {
+      html = `<a class="row-link" href="${Shell.recordHref(obj)}">${esc(cell.text)}</a>`;
+    } else {
+      html = looksLikeId(cell.text) ? `<span class="ident">${Parts.output(cell.id)}</span>` : Parts.output(cell.id);
+      if (cell.r.field === 'document') title = cell.r.value;
+    }
+    if (cell.r?.computed || (!c.rel && c.computedBy && !cell.r)) cls.push('is-computed');
+    html += cell.r ? overrideMark(obj, c, cell) : '';
+    return `<td class="${cls.join(' ')}" ${attrs}${title ? ` title="${esc(title)}"` : ''}>${html}</td>`;
+  }
+
+  function rowHtml(id, n, cols, P) {
+    const checked = ui.checked.has(id);
+    return `<tr data-row="${esc(id)}" aria-selected="${checked}">
+      <td class="rec-sel is-sticky"><span class="rec-num">${n}</span><input type="checkbox" class="row-check" data-check="${esc(id)}"${checked ? ' checked' : ''} tabindex="-1" aria-label="Select ${esc(P.ix.nameOf(id))}"></td>
+      ${cols.map(c => cellHtml(id, c, P)).join('')}<td class="rec-fill"></td></tr>`;
+  }
+
+  // The last row: a new row being named, or the way to start one.
+  function endRow(cols) {
+    if (!ui.draft) return `<tr class="rec-add"><td colspan="${cols.length + 2}"><button class="rec-add-btn" data-cmd="records.new">${icon('plus')}New ${esc(word())}</button></td></tr>`;
+    const d = ui.draft;
+    return `<tr class="rec-draft"><td class="rec-sel is-sticky"><span class="rec-num">${icon('plus')}</span></td>
+      <td class="rec-cell is-sticky rec-name is-editing"><input class="rec-input" data-focus="draft" value="${esc(d.text)}" placeholder="Name" aria-label="Name of the new ${esc(word())}" autocomplete="off" spellcheck="false">
+        ${d.error ? `<div class="rec-error" role="alert">${esc(d.error)}</div>` : ''}</td>
+      <td class="rec-draft-hint" colspan="${cols.length}"><span><kbd>Enter</kbd> adds it</span><span><kbd>Tab</kbd> adds it and moves on</span><span><kbd>Esc</kbd> cancels</span></td></tr>`;
+  }
+
+  function tableHtml(rows, cols, P) {
+    const widths = cols.map(c => widthOf(c, P));
+    const total = 44 + widths.reduce((a, b) => a + b, 0);
+    const all = rows.length > 0 && rows.every(id => ui.checked.has(id));
+    return `<div class="table-wrap rec-wrap" style="--name-w:${widths[0]}px">
+      <table class="table rec-table${ui.checked.size ? ' has-checked' : ''}" role="grid" aria-label="${esc(kindPlural())}" aria-rowcount="${rows.length + 1}" style="width:max(100%, ${total}px)">
+        <colgroup><col style="width:44px">${widths.map(w => `<col style="width:${w}px">`).join('')}<col></colgroup>
+        <thead><tr><th class="rec-sel is-sticky"><input type="checkbox" class="row-check" data-check="*"${all ? ' checked' : ''} tabindex="-1" aria-label="Select every row shown"></th>${cols.map(headHtml).join('')}<th class="rec-fill"></th></tr></thead>
+        <tbody>${rows.map((id, i) => rowHtml(id, i + 1, cols, P)).join('')}${endRow(cols)}</tbody>
+      </table></div>`;
+  }
+
+  // A filter as its chip reads: Jurisdiction is Delaware, Vehicle Type is not Blocker or Feeder Fund.
+  function filterSummary(f, c, P) {
+    if (f.op === 'empty') return `${esc(c.label)} is empty`;
+    if (f.op === 'filled') return `${esc(c.label)} is not empty`;
+    const texts = new Map(filterValues(P, c).map(v => [v.key, v.text]));
+    const vals = f.values.map(k => texts.get(k) ?? (c.rel ? 'a record no longer here' : k));
+    const shown = vals.length < 3 ? vals.map(esc).join(' or ') : `${vals.length} values`;
+    return `${esc(c.label)} ${f.op === 'not' ? 'is not' : 'is'} <b>${shown}</b>`;
+  }
+
+  function filtersHtml(cols, shownCols, P) {
+    const set = ui.filters.map((f, i) => {
+      const c = filterOf(f);
+      if (!c || !isActive(f) && ui.pop?.index !== i) return '';
+      const open = ui.pop?.type === 'filter' && ui.pop.index === i;
+      return `<span class="filter-chip is-set rec-fchip" data-filter="${i}"><button class="rec-fchip-main" data-cmd="records.filter-open" data-index="${i}" aria-haspopup="dialog" aria-expanded="${open}">${isActive(f) ? filterSummary(f, c, P) : esc(c.label)}</button>
+        <button class="rec-fchip-x" data-cmd="records.filter-remove" data-index="${i}" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>`;
+    }).join('');
+    const needs = ui.needs ? `<span class="filter-chip is-set rec-fchip is-warn"><button class="rec-fchip-main" data-cmd="records.needs">Missing a required entry</button>
+      <button class="rec-fchip-x" data-cmd="records.needs" aria-label="Remove this filter" title="Remove this filter">${icon('x')}</button></span>` : '';
+    // Like Stripe's, the first few choices shown are offered as filters of their own, unset: + Jurisdiction.
+    const quick = shownCols.filter(c => c.type === 'choice' && !c.parent && c.options.length > 1 && !ui.filters.some(f => f.col === c.key)).slice(0, 3);
+    const more = cols.some(c => !c.isName && !quick.includes(c));
+    return `<div class="filters rec-filters">${set}${needs}
+      ${quick.map(c => `<button class="filter-chip" data-cmd="records.filter-add" data-col="${esc(c.key)}">${icon('plus')}${esc(c.label)}</button>`).join('')}
+      ${more ? `<button class="filter-chip" data-cmd="records.filter-pick" aria-haspopup="menu">${icon('plus')}${quick.length ? 'More filters' : 'Filter'}</button>` : ''}
+      ${anyFilter() ? '<button class="link-btn rec-clear" data-cmd="records.clear-filters">Clear filters</button>' : ''}</div>`;
+  }
+
+  // ---- Popovers ----
+  // Each is drawn with the page and placed by its anchor once it's in, so it survives re-rendering.
+
+  function viewPop(cols, P) {
+    const item = c => {
+      const on = isShown(c, P);
+      return `<button class="rec-pop-item${c.parent ? ' is-nested' : ''}${on ? ' is-on' : ''}" data-cmd="records.column" data-col="${esc(c.key)}" role="menuitemcheckbox" aria-checked="${on}"${c.isName ? ' disabled' : ''}
+          title="${esc(columnTitle(c))}"><span class="rec-tick">${on ? icon('check') : ''}</span><span class="rec-pop-text">${esc(c.label)}</span>${c.computedBy || c.computed ? '<span class="rec-fx">fx</span>' : ''}</button>`;
+    };
+    const entries = cols.filter(c => !c.rel), rels = cols.filter(c => c.rel);
+    return `<div class="pop rec-pop rec-view-pop" role="menu" aria-label="Columns" tabindex="-1">
+      <div class="menu-head">Columns</div>${entries.map(item).join('')}
+      ${rels.length ? `<div class="menu-sep"></div><div class="menu-head">Relations</div>${rels.map(item).join('')}` : ''}
+      <div class="menu-sep"></div>
+      <div class="rec-pop-foot"><button class="link-btn" data-cmd="records.columns-all">Show all</button><button class="link-btn" data-cmd="records.columns-reset">Reset</button></div></div>`;
+  }
+
+  function filterPop(P) {
+    const f = ui.filters[ui.pop.index];
+    const c = filterOf(f);
+    const ops = [['is', 'is'], ['not', 'is not'], ['empty', 'is empty'], ['filled', 'is not empty']];
+    const values = filterValues(P, c);
+    const q = norm(ui.pop.query ?? '');
+    const list = values.filter(v => !q || norm(v.text).includes(q));
+    const picking = f.op === 'is' || f.op === 'not';
+    const value = v => {
+      const on = f.values.includes(v.key);
+      return `<button class="rec-pop-item${on ? ' is-on' : ''}" data-cmd="records.filter-value" data-value="${esc(v.key)}" role="menuitemcheckbox" aria-checked="${on}">
+        <span class="rec-tick">${on ? icon('check') : ''}</span><span class="rec-pop-text">${esc(v.text)}</span><span class="rec-pop-count">${v.n}</span></button>`;
+    };
+    return `<div class="pop rec-pop rec-filter-pop" role="dialog" aria-label="Filter by ${esc(c.label)}" tabindex="-1">
+      <div class="rec-pop-title">${esc(c.label)}</div>
+      <div class="seg rec-ops" role="group" aria-label="Condition">${ops.map(([op, text]) => `<button data-cmd="records.filter-op" data-op="${op}" aria-pressed="${f.op === op}">${text}</button>`).join('')}</div>
+      ${picking ? `${values.length > 8 ? `<input class="input rec-pop-search" data-focus="pop" value="${esc(ui.pop.query ?? '')}" placeholder="Find a value" aria-label="Find a value" autocomplete="off" spellcheck="false">` : ''}
+        <div class="rec-values">${list.map(value).join('') || `<div class="rec-pop-note">${values.length ? 'Nothing matches.' : 'No values yet.'}</div>`}</div>` : ''}
+      <div class="rec-pop-foot"><button class="link-btn" data-cmd="records.filter-remove" data-index="${ui.pop.index}">Remove filter</button></div></div>`;
+  }
+
+  // The options a choice cell offers: those its parameterization has in the schema there, or else every
+  // option the column has.
+  function choiceOptions(c, cell) {
+    const here = specsWithParam(paramAt(c.label, cell.at)).filter(t => 'choice' in t.out).map(t => t.out.choice);
+    return [...new Set(here.length ? here : c.options)].sort(byLabel);
+  }
+
+  function choicePop(P) {
+    const p = ui.pop;
+    const c = colByKey(p.col);
+    const cell = P.cell(p.row, c);
+    const options = choiceOptions(c, cell);
+    const q = clean(p.query);
+    p.items = [...options.filter(o => !q || norm(o).includes(norm(q))).map(value => ({ value })),
+      ...(q && !options.some(o => same(o, q)) ? [{ value: q, create: true }] : [])];
+    p.active = Math.max(0, Math.min(p.active ?? 0, p.items.length - 1));
+    const items = p.items.map((it, i) => `<div class="option${it.create ? ' option-create' : ''}" role="option" data-cmd="records.choose" data-index="${i}" aria-selected="${i === p.active}">
+      ${it.create ? `<span class="option-label">Add <strong>${esc(it.value)}</strong></span>` : `<span class="option-label">${esc(it.value)}</span>${cell.r && same(cell.r.choice, it.value) ? icon('check', 'rec-opt-check') : ''}`}</div>`).join('');
+    return `<div class="pop rec-pop rec-choice-pop" role="dialog" aria-label="${esc(c.label)}">
+      <input class="input rec-pop-search" data-focus="pop" value="${esc(p.query)}" placeholder="${options.length ? 'Find or add an option' : 'Add an option'}" aria-label="${esc(c.label)}" autocomplete="off" spellcheck="false">
+      <div class="rec-options" role="listbox">${items || '<div class="rec-pop-note">Type to add an option.</div>'}</div>
+      ${cell.r ? `<div class="listbox-sep"></div><div class="option" data-cmd="records.choose-clear" role="option">Clear ${esc(c.label)}</div>` : ''}</div>`;
+  }
+
+  function popHtml(P, cols) {
+    if (ui.pop?.type === 'view') return viewPop(cols, P);
+    if (ui.pop?.type === 'filter') return filterPop(P);
+    if (ui.pop?.type === 'choice') return choicePop(P);
+    return '';
+  }
+
+  function popAnchor() {
+    if (ui.pop?.type === 'view') return document.querySelector('[data-cmd="records.view"]');
+    if (ui.pop?.type === 'filter') return document.querySelector(`.rec-fchip[data-filter="${ui.pop.index}"]`);
+    if (ui.pop?.type === 'choice') return cellEl(ui.pop);
+    return null;
+  }
+
+  // Under its anchor, or above it where there's no room below; the View menu lines up with its button's
+  // right edge.
+  function placePop() {
+    const el = document.querySelector('.rec-pop');
+    const anchor = popAnchor();
+    if (!el || !anchor) return;
+    const a = anchor.getBoundingClientRect();
+    if (ui.pop.type === 'choice') el.style.minWidth = `${Math.max(232, a.width)}px`;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const left = ui.pop.type === 'view' ? a.right - w : a.left;
+    el.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
+    el.style.top = `${a.bottom + 4 + h <= innerHeight - 8 ? a.bottom + 4 : Math.max(8, a.top - h - 4)}px`;
+  }
+
+  // ---- The page ----
+
+  let renderQueued = false;
+  function pageHtml() {
+    renderQueued = false;
+    ensureKind();
+    const P = readPass();
+    const cols = columns();
+    const shownCols = cols.filter(c => isShown(c, P));
+    tidy(P, shownCols);
+    const rows = shownRows(P, cols, shownCols);
+    if (ui.active && !rows.includes(ui.active.row)) ui.active = null;
+    ui.rows = rows;
+    ui.cols = shownCols.map(c => c.key);
+    const n = P.objects.length;
+    const lackingRows = P.objects.filter(id => lacking(P, cols, id)).length;
+    const sub = [anyFilter() ? `${rows.length} of ${count(n, word())}` : count(n, word())];
+    if (lackingRows) sub.push(`<button class="link-btn rec-needs" data-cmd="records.needs" aria-pressed="${ui.needs}">${lackingRows} missing a required entry</button>`);
+    const body = !n && !ui.draft
+      ? Parts.empty({ title: `No ${kindPlural().toLowerCase()} yet`, desc: `${kindPlural()} you add here appear on the chart too, ready to relate.`, action: { label: `New ${word()}`, cmd: 'records.new' } })
+      : !rows.length && !ui.draft
+      ? Parts.empty({ title: `No ${kindPlural().toLowerCase()} match`, desc: 'Nothing shown passes the filters and the search.', action: { label: 'Clear filters', cmd: 'records.clear-filters' } })
+      : tableHtml(rows, shownCols, P);
+    const bar = ui.checked.size ? `<div class="rec-actionbar" role="toolbar" aria-label="Ticked rows">
+        <span class="rec-actionbar-count">${count(ui.checked.size, word())} selected</span>
+        <button class="btn btn-sm" data-cmd="records.copy-rows">Copy</button>
+        <button class="btn btn-sm rec-delete" data-cmd="records.delete-rows">Delete</button>
+        <button class="icon-btn" data-cmd="records.uncheck" aria-label="Clear the selection" title="Clear the selection (Esc)">${icon('x')}</button></div>` : '';
+    return `<div class="content is-wide rec-page">
+      <div class="page-head rec-head"><div class="page-head-text"><h2 class="page-title">${esc(kindPlural())}</h2><p class="page-sub">${sub.join('<span class="rec-dot">·</span>')}</p></div></div>
+      ${n || ui.draft ? `<div class="rec-bar">
+        <label class="search-input rec-search">${icon('search')}<input class="input" data-focus="search" value="${esc(ui.search)}" placeholder="Search ${esc(kindPlural().toLowerCase())}" aria-label="Search ${esc(kindPlural().toLowerCase())}" autocomplete="off" spellcheck="false"></label>
+        ${filtersHtml(cols, shownCols, P)}
+        <div class="rec-bar-end"><button class="btn btn-sm" data-cmd="records.view" aria-haspopup="menu" aria-expanded="${ui.pop?.type === 'view'}">View${icon('chevron-down')}</button></div>
+      </div>` : ''}
+      ${body}${bar}${popHtml(P, cols)}</div>`;
+  }
+
+  const cellEl = at => at && document.querySelector(`.rec-table tr[data-row="${CSS.escape(at.row)}"] td[data-col="${CSS.escape(at.col)}"]`);
+
+  function after() {
+    const wrap = document.querySelector('.rec-wrap');
+    if (wrap) {
+      wrap.scrollLeft = ui.scroll.left;
+      wrap.scrollTop = ui.scroll.top;
+      wrap.classList.toggle('is-scrolled', wrap.scrollLeft > 0);
+      const all = wrap.querySelector('[data-check="*"]');
+      if (all) all.indeterminate = !all.checked && ui.rows.some(id => ui.checked.has(id));
+      fitChips();
+    }
+    placePop();
+    // The keyboard goes back where it was: the box being typed in, the popover, the search, or the active cell.
+    const box = ui.edit ? document.querySelector('[data-focus="edit"]') : ui.draft && ui.focus === 'draft' ? document.querySelector('[data-focus="draft"]')
+      : ui.pop && ui.focus === 'pop' ? document.querySelector('.rec-pop [data-focus="pop"]') ?? document.querySelector('.rec-pop')
+      : ui.focus === 'search' ? document.querySelector('[data-focus="search"]') : null;
+    if (box) {
+      box.focus({ preventScroll: true });
+      if (box.setSelectionRange) { const end = box.value.length; box.setSelectionRange(...(ui.caret ?? [end, end])); }
+    } else if (ui.active && ui.focus === 'grid') {
+      cellEl(ui.active)?.focus({ preventScroll: true });
+    }
+    if (ui.reveal) { ui.reveal = false; reveal(); }
+    if (sidebarStale) { sidebarStale = false; Shell.render(); }
+  }
+
+  // Brings the active cell into view, clear of the sticky header and Name column.
+  function reveal() {
+    const td = cellEl(ui.active) ?? document.querySelector('.rec-draft');
+    td?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  // Moves the highlight to the active cell without drawing the table again, where it's already drawn.
+  function showActive() {
+    const td = cellEl(ui.active);
+    if (!td) return render();
+    for (const x of document.querySelectorAll('.rec-table .is-active')) { x.classList.remove('is-active'); x.tabIndex = -1; }
+    td.classList.add('is-active');
+    td.tabIndex = 0;
+    td.focus({ preventScroll: true });
+    reveal();
+  }
+
+  function setActive(row, col, { show = true } = {}) {
+    ui.active = { row, col };
+    ui.focus = 'grid';
+    ui.reveal = true;
+    if (show) showActive();
+  }
+
+  // Moves the active cell by rows and columns, Tab wrapping to the next row.
+  function move(dr, dc, wrap = false) {
+    if (!ui.active) return;
+    let r = ui.rows.indexOf(ui.active.row), c = ui.cols.indexOf(ui.active.col);
+    if (r < 0 || c < 0) return;
+    c += dc;
+    if (wrap && c >= ui.cols.length && r < ui.rows.length - 1) { c = 0; r++; }
+    if (wrap && c < 0 && r > 0) { c = ui.cols.length - 1; r--; }
+    r = Math.max(0, Math.min(ui.rows.length - 1, r + dr));
+    c = Math.max(0, Math.min(ui.cols.length - 1, c));
+    ui.active = { row: ui.rows[r], col: ui.cols[c] };
+    ui.reveal = true;
+  }
+
+  // ---- Editing ----
+
+  // Starts typing in a field's cell, with what it holds (a document as its address), or `text` typed over it.
+  function startEdit(row, c, text) {
+    const cell = readPass().cell(row, c);
+    if (!editable(cell, c)) return;
+    const shown = cell.r ? (cell.r.field === 'document' ? String(cell.r.value) : displayValue(cell.r)) : '';
+    Object.assign(ui, { active: { row, col: c.key }, edit: { row, col: c.key, text: text ?? shown, error: null }, focus: 'edit', caret: null, pop: null });
+    render();
+  }
+
+  // Saves what's typed in the cell being edited, read in its datatype. Emptying a cell clears its entry.
+  // Returns why it couldn't, and the cell stays open to put it right.
+  function commitEdit() {
+    const e = ui.edit;
+    if (!e) return null;
+    const c = colByKey(e.col);
+    const cell = c && records[e.row] ? readPass().cell(e.row, c) : null;
+    if (!cell || !editable(cell, c)) { ui.edit = null; return null; }
+    let error = null;
+    if (!clean(e.text)) error = !cell.r ? null : c.isName ? `Every ${word()} needs a Name.` : clearCell(e.row, c, cell);
+    else error = cell.r ? saveFieldValue(cell.id, e.text, c.label) : addFieldValue(cell.at, c.label, e.text, c.datatype);
+    if (error) { e.error = error; return error; }
+    ui.edit = null;
+    return null;
+  }
+
+  // Clears a cell: its entry goes to Deleted with whatever is below it, and Undo brings it back.
+  function clearCell(row, c, cell = readPass().cell(row, c)) {
+    if (!cell.r) return null;
+    if (c.isName) return `Every ${word()} needs a Name.`;
+    if (cell.computed) return `${c.label} is worked out by formula here.`;
+    const below = withDependents([cell.id]).size - 1;
+    const name = tableIndex().nameOf(row);
+    const error = deleteRecords([cell.id], `${c.label} on ${name}`);
+    if (!error) Shell.toast(below ? `Cleared ${c.label} on ${name}, with ${count(below, 'record')} below it` : `Cleared ${c.label} on ${name}`, { undo: true });
+    return error;
+  }
+
+  function openChoice(row, c, query = '') {
+    const cell = readPass().cell(row, c);
+    if (!editable(cell, c)) return;
+    Object.assign(ui, { active: { row, col: c.key }, edit: null, pop: { type: 'choice', row, col: c.key, query, active: 0, fresh: true }, focus: 'pop', caret: null });
+    render();
+  }
+
+  // Sets a choice's option, matching one the schema has whatever its case, or adds a new one. What's located
+  // at the choice moves with it to the new option, which the toast says, since it's easily missed.
+  function setChoice(row, c, value) {
+    const cell = readPass().cell(row, c);
+    const option = choiceOptions(c, cell).find(o => same(o, value)) ?? clean(value);
+    if (!option || (cell.r && cell.r.choice === option)) return null;
+    if (!cell.r) return commit({ ...records, [newId()]: { at: cell.at, edge: c.label, choice: option } });
+    const below = [...(tableIndex().entries.get(cell.id)?.keys() ?? [])].length + relationsAt(cell.id).length;
+    const error = commit({ ...records, [cell.id]: { ...cell.r, choice: option } });
+    if (!error && below) Shell.toast(`Changed ${c.label} to ${option}; the ${count(below, 'record')} below it moved with it`, { undo: true });
+    return error;
+  }
+
+  function chooseOption(index) {
+    const p = ui.pop;
+    const item = p?.items?.[index];
+    if (!item) return;
+    const error = setChoice(p.row, colByKey(p.col), item.value);
+    ui.pop = null;
+    ui.focus = 'grid';
+    if (error) Shell.toast(error, { tone: 'error' });
+    render();
+  }
+
+  // A computed tag can be switched, overriding its formula there, once it's clear what that means.
+  function confirmOverride(row, c, cell) {
+    const d = cell.info && definitionOf(cell.info.def);
+    const why = !d ? 'worked out by formula' : cell.info.labels?.length ? `implied by ${joinList(cell.info.labels)} in ${d.name}` : `worked out by ${d.name}’s formula`;
+    const ruling = cell.r.tag;
+    return Shell.confirm({
+      title: `${ruling ? 'Rule out' : 'Attest'} ${c.label} for ${tableIndex().nameOf(row)}?`,
+      body: `It’s ${why}. It stays ${ruling ? 'ruled out' : 'attested'}, overriding the formula, until you use the formula again.`,
+      confirm: ruling ? 'Rule it out' : 'Attest it',
+    });
+  }
+
+  // Ticks a tag's checkbox: an unrecorded tag is attested; an attested one is ruled out, and back.
+  async function toggleTag(row, c) {
+    const cell = readPass().cell(row, c);
+    if (c.rel || cell.blocked || cell.error || (!cell.r && cell.covered)) return;
+    let error;
+    if (!cell.r) error = commit({ ...records, [newId()]: { at: cell.at, edge: c.label, tag: true } });
+    else {
+      if (cell.computed && !await confirmOverride(row, c, cell)) return;
+      error = commit({ ...records, [cell.id]: { ...cell.r, tag: !cell.r.tag } });
+      if (!error && cell.computed) Shell.toast(`${cell.r.tag ? 'Ruled out' : 'Attested'} ${c.label} for ${tableIndex().nameOf(row)}, overriding the formula`, { undo: true });
+    }
+    if (error) Shell.toast(error, { tone: 'error' });
+    ui.active = { row, col: c.key };
+    ui.focus = 'grid';
+    render();
+  }
+
+  // What Enter, a click or typing does on a cell: edits a field, opens a choice's options, ticks a tag.
+  function act(row, c, { text = null, viaKey = false } = {}) {
+    if (c.rel) return;
+    if (c.type === 'tag') return viaKey || text === null ? toggleTag(row, c) : null;
+    if (c.type === 'choice') return openChoice(row, c, text ?? '');
+    return startEdit(row, c, text ?? undefined);
+  }
+
+  // ---- New rows ----
+
+  function startDraft() {
+    Object.assign(ui, { draft: ui.draft ?? { text: '', error: null }, edit: null, pop: null, focus: 'draft', caret: null });
+    ui.scroll.top = 1e9;
+    render();
+  }
+
+  // Adds the object being named, returning its id, or why it couldn't be added; nothing typed adds nothing.
+  // `again` starts another new row under it.
+  function commitDraft(again = false) {
+    const name = clean(ui.draft?.text);
+    if (!name) { ui.draft = null; return null; }
+    const { id, error } = createObject(ui.kind, name);
+    if (error) { ui.draft.error = error; return { error }; }
+    ui.added.push(id);
+    ui.draft = again ? { text: '', error: null } : null;
+    return { id };
+  }
+
+  // ---- Deleting rows ----
+
+  function deleteRows(ids) {
+    const ix = tableIndex();
+    const namesOf = ids.map(ix.nameOf);
+    const label = namesOf.length < 4 ? joinList(namesOf) : `${namesOf.slice(0, 2).join(', ')} and ${namesOf.length - 2} more`;
+    const error = deleteRecords(ids, label);
+    if (error) return Shell.toast(error, { tone: 'error' });
+    ui.checked.clear();
+    ui.anchor = null;
+    Shell.toast(`Deleted ${ids.length === 1 ? namesOf[0] : count(ids.length, word())}`, { undo: true });
+    render();
+  }
+
+  // ---- Copying, pasting and exporting ----
+
+  // The text a cell copies and exports as: a document as its address, everything else as it reads.
+  const cellText = (cell, c) => !c.rel && cell.r?.field === 'document' ? String(cell.r.value) : cell.text;
+  const tsvField = s => /[\t\n\r"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+
+  function rowsAsTsv(ids) {
+    const P = readPass();
+    const cols = ui.cols.map(colByKey).filter(Boolean);
+    return [cols.map(c => c.label), ...ids.map(id => cols.map(c => cellText(P.cell(id, c), c)))].map(r => r.map(tsvField).join('\t')).join('\r\n');
+  }
+
+  // Excel copies cells as rows of tab-separated text, quoting a cell that holds a tab, a line break or a quote.
+  function parseTsv(text) {
+    const s = String(text).replace(/\r\n?/g, '\n');
+    const rows = [[]];
+    let cell = '', quoted = false;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quoted) {
+        if (ch === '"' && s[i + 1] === '"') { cell += '"'; i++; }
+        else if (ch === '"') quoted = false;
+        else cell += ch;
+      } else if (ch === '"' && cell === '') quoted = true;
+      else if (ch === '\t') { rows.at(-1).push(cell); cell = ''; }
+      else if (ch === '\n') { rows.at(-1).push(cell); rows.push([]); cell = ''; }
+      else cell += ch;
+    }
+    rows.at(-1).push(cell);
+    while (rows.length && rows.at(-1).every(x => !clean(x))) rows.pop();
+    return rows;
+  }
+
+  const YES = /^(yes|y|true|x|✓|✔|attested)$/i, NO = /^(no|n|false|ruled out)$/i;
+  const yesNo = s => YES.test(clean(s)) || clean(s) === '1' ? true : NO.test(clean(s)) || clean(s) === '0' ? false : null;
+
+  // A column pasted under a heading the kind doesn't have yet becomes a new entry, of the datatype its
+  // values read as: yes-or-no values make a tag, and values of one datatype a field of it.
+  function newColumn(label, values) {
+    const vals = values.map(clean).filter(Boolean);
+    if (vals.length && vals.every(v => YES.test(v) || NO.test(v))) return { label, path: [label], type: 'tag', options: [], fresh: true };
+    const types = new Set(vals.map(classify));
+    return { label, path: [label], type: 'field', datatype: types.size === 1 ? [...types][0] : 'text', options: [], fresh: true };
+  }
+
+  // Which rows and columns pasted cells land in. With a heading row naming Name, columns are matched by
+  // their headings, unknown ones becoming new entries, and rows by name, unknown ones becoming new objects.
+  // Otherwise the cells fill the table from the active cell, rightward and down, and rows past the last add
+  // objects, named by the Name column.
+  function pastePlan(grid, cols) {
+    const ix = tableIndex();
+    const notes = { beyond: 0 };
+    const first = grid[0];
+    const nameAt = first.findIndex(h => same(h, 'name'));
+    if (nameAt >= 0 && grid.length > 1) {
+      const entries = cols.filter(c => !c.rel);
+      const heads = first.map((h, j) => !clean(h) ? null
+        : entries.find(c => !c.parent && same(c.label, h)) ?? cols.find(c => same(c.path.join(' › '), h) || same(c.label, h))
+        ?? newColumn(clean(h), grid.slice(1).map(r => r[j] ?? '')));
+      const byName = new Map(readPass().objects.map(id => [norm(ix.nameOf(id)), id]));
+      return { notes, rows: grid.slice(1).map(r => ({ obj: byName.get(norm(r[nameAt])) ?? null, name: r[nameAt] ?? '',
+        cells: heads.map((c, j) => c && [c, r[j] ?? '']).filter(Boolean) })) };
+    }
+    const r0 = ui.active ? Math.max(0, ui.rows.indexOf(ui.active.row)) : ui.rows.length;
+    const c0 = ui.active ? Math.max(0, ui.cols.indexOf(ui.active.col)) : 0;
+    return { notes, rows: grid.map((r, i) => {
+      const obj = ui.rows[r0 + i] ?? null;
+      const cells = [];
+      r.forEach((raw, j) => { const c = colByKey(ui.cols[c0 + j]); if (c) cells.push([c, raw]); else if (clean(raw)) notes.beyond++; });
+      return { obj, name: !obj && c0 === 0 ? r[0] ?? '' : '', cells };
+    }) };
+  }
+
+  // Puts one pasted value in its cell, in `next`: added, or replacing what's there. Returns true if it
+  // changed something, false if it was there already, or why it was left out.
+  function pasteValue(next, at, c, raw, child, adopt) {
+    const id = child(at, c.label);
+    const r = id ? next[id] : null;
+    const fresh = !records[at];
+    if (r?.computed || (!r && !fresh && coveredParams().has(paramAt(c.label, at)))) return 'computed';
+    const type = r ? typeOf(r) : c.type;
+    let out;
+    if (type === 'tag') {
+      const tag = yesNo(raw);
+      if (tag === null) return `${c.label} takes Yes or No`;
+      if (r?.tag === tag) return false;
+      out = { tag };
+    } else if (type === 'choice') {
+      const choice = c.options.find(o => same(o, raw)) ?? clean(raw);
+      if (r && r.choice === choice) return false;
+      out = { choice };
+    } else {
+      const datatype = c.isName ? 'text' : r?.field ?? (fresh ? undefined : fieldDatatype(at, c.label)) ?? c.datatype ?? classify(clean(raw));
+      const value = parseValue(datatype, raw);
+      if (value === undefined) return `${c.label} takes ${asPhrase(datatype)}`;
+      if (r && r.field === datatype && r.value === value) return false;
+      out = { field: datatype, value };
+    }
+    if (r) next[id] = { ...modelPart(r), ...out };
+    else { const nid = newId(); next[nid] = { at, edge: c.label, ...out }; adopt(at, c.label, nid); }
+    return true;
+  }
+
+  // Pastes a block of cells as one change: one undo takes it all back.
+  function pasteGrid(grid) {
+    if (!grid.length || !grid[0].length) return;
+    const ix = tableIndex();
+    const { rows, notes } = pastePlan(grid, columns());
+    const next = { ...records };
+    const kids = new Map();
+    const child = (at, label) => kids.get(at)?.get(norm(label)) ?? ix.entries.get(at)?.get(norm(label));
+    const adopt = (at, label, id) => { if (!kids.has(at)) kids.set(at, new Map()); kids.get(at).set(norm(label), id); };
+    const left = { computed: 0, relation: 0, unread: [], blocked: 0, unnamed: 0 };
+    const added = [];
+    let changed = 0;
+    for (const row of rows) {
+      let obj = row.obj;
+      if (!obj) {
+        if (!row.cells.some(([, raw]) => clean(raw))) continue;
+        if (!clean(row.name)) { left.unnamed++; continue; }
+        obj = newId();
+        next[obj] = { kind: ui.kind };
+        const nameId = newId();
+        next[nameId] = { at: obj, edge: 'Name', field: 'text', value: clean(row.name) };
+        adopt(obj, 'Name', nameId);
+        added.push(obj);
+      }
+      for (const [c, raw] of row.cells) {
+        if (!clean(raw) || (c.isName && !row.obj)) continue;
+        if (c.rel) { left.relation++; continue; }
+        let at = obj;
+        for (const label of c.path.slice(0, -1)) at = at && child(at, label);
+        if (!at) { left.blocked++; continue; }
+        const done = pasteValue(next, at, c, raw, child, adopt);
+        if (done === true) changed++;
+        else if (done === 'computed') left.computed++;
+        else if (done) left.unread.push(done);
+      }
+    }
+    const skipped = [
+      left.unread.length && `${count(left.unread.length, 'value')} couldn’t be read (${left.unread[0]})`,
+      left.computed && `${count(left.computed, 'value')} in computed cells were left as they are`,
+      left.relation && 'relations aren’t pasted; relate records on the chart or their own pages',
+      left.blocked && `${count(left.blocked, 'value')} had no entry above to go below`,
+      left.unnamed && `${count(left.unnamed, 'new row')} had no Name`,
+      notes.beyond && `${count(notes.beyond, 'value')} went past the last column`,
+    ].filter(Boolean);
+    const sentence = list => list.length ? ` ${list.join('; ').replace(/^./, s => s.toUpperCase())}.` : '';
+    if (!changed && !added.length) return Shell.toast(`Nothing to paste: the values are there already.${sentence(skipped)}`);
+    const error = commit(next);
+    if (error) return Shell.toast(`Couldn’t paste that: ${error}`, { tone: 'error' });
+    if (added.length) { ensureKindStyles(ui.kind); saveState(); ui.added.push(...added); }
+    const did = [changed && `Pasted ${count(changed, 'value')}`, added.length && `${changed ? 'added' : 'Added'} ${count(added.length, word())}`].filter(Boolean).join(' and ');
+    Shell.toast(`${did}.${sentence(skipped)}`, { undo: true });
+    render();
+  }
+
+  // Saves what's shown, as it reads, in the order shown, to a CSV file that Excel opens as it is.
+  function exportCsv() {
+    const P = readPass();
+    const cols = columns();
+    const shownCols = cols.filter(c => isShown(c, P));
+    const rows = shownRows(P, cols, shownCols);
+    const field = s => /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const lines = [shownCols.map(c => c.label), ...rows.map(id => shownCols.map(c => cellText(P.cell(id, c), c)))];
+    const csv = `﻿${lines.map(l => l.map(field).join(',')).join('\r\n')}\r\n`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${chartInUse().name} - ${kindPlural()}.csv`.replace(/[\\/:*?"<>|]+/g, '-');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    Shell.toast(`Exported ${count(rows.length, word())} as CSV`);
+  }
+
+  // ---- Columns: showing, hiding, sorting, ordering ----
+
+  function setShown(key, on) {
+    setPrefs({ cols: { ...ui.prefs.cols, [key]: on } });
+    render();
+  }
+
+  function setSort(key, dir) {
+    setPrefs({ sort: key ? { key, dir } : null });
+    ui.added = [];
+    render();
+  }
+
+  // How a column sorts, in its own words.
+  function sortWords(c) {
+    if (c.type === 'tag' && !c.rel) return ['Attested first', 'Ruled out first'];
+    if (c.type === 'field' && c.datatype === 'date') return ['Oldest first', 'Newest first'];
+    if (isNumeric(c)) return ['Smallest first', 'Largest first'];
+    return ['A to Z', 'Z to A'];
+  }
+
+  function headMenu(el) {
+    const c = colByKey(el.dataset.col);
+    if (!c) return;
+    const sort = ui.prefs.sort?.key === c.key ? ui.prefs.sort.dir : 0;
+    const [up, down] = sortWords(c);
+    const about = c.computedBy || c.computed ? 'Worked out by formula' : c.parent ? `Below ${c.path.slice(0, -1).join(' › ')}` : null;
+    Shell.menu(el, [
+      ...(about ? [{ head: about }] : []),
+      { label: `Sort ${up.toLowerCase()}`, checked: sort > 0, run: () => setSort(c.key, 1) },
+      { label: `Sort ${down.toLowerCase()}`, checked: sort < 0, run: () => setSort(c.key, -1) },
+      ...(sort ? [{ label: 'Stop sorting by it', run: () => setSort(null) }] : []),
+      { sep: true },
+      ...(c.isName ? [] : [{ label: `Filter by ${c.label}…`, run: () => addFilter(c.key) }, { label: 'Hide column', run: () => setShown(c.key, false) }]),
+    ], `records-head:${c.key}`);
+  }
+
+  // A record of the kind with this label, to stand for its column when the column is dragged: the model
+  // orders entries by any one of a location's records, for every location like it.
+  function standIn(label) {
+    const ix = tableIndex();
+    for (const obj of readPass().objects) { const id = ix.entries.get(obj)?.get(norm(label)); if (id) return id; }
+    return null;
+  }
+
+  // ---- Filters ----
+
+  function addFilter(key) {
+    const i = ui.filters.findIndex(f => f.col === key);
+    if (i < 0) ui.filters.push({ col: key, op: 'is', values: [] });
+    ui.pop = { type: 'filter', index: i < 0 ? ui.filters.length - 1 : i, query: '', fresh: true };
+    ui.focus = 'pop';
+    saveSession();
+    render();
+  }
+
+  // Closing a filter's popover with nothing picked drops the filter, which wouldn't filter anything.
+  function closePop() {
+    const p = ui.pop;
+    ui.pop = null;
+    if (p?.type === 'filter') {
+      const f = ui.filters[p.index];
+      if (f && !isActive(f)) ui.filters.splice(p.index, 1);
+      saveSession();
+    }
+    if (ui.focus === 'pop') ui.focus = ui.active ? 'grid' : null;
+  }
+
+  function clearFilters() {
+    Object.assign(ui, { filters: [], search: '', needs: false, pop: null });
+    saveSession();
+    render();
+  }
+
+  function filterPicker(el) {
+    const P = readPass();
+    const cols = columns().filter(c => !c.isName);
+    const item = c => ({ label: c.parent ? c.path.join(' › ') : c.label, hint: ui.filters.some(f => f.col === c.key) ? 'In use' : '', run: () => addFilter(c.key) });
+    const shown = cols.filter(c => isShown(c, P)), hidden = cols.filter(c => !isShown(c, P));
+    Shell.menu(el, [{ head: 'Filter by' }, ...shown.map(item), ...(hidden.length ? [{ sep: true }, { head: 'Hidden columns' }, ...hidden.map(item)] : [])], 'records-filter');
+  }
+
+  // ---- Events ----
+
+  Object.entries({
+    'records.new': startDraft,
+    'records.export': exportCsv,
+    'records.view': () => { if (ui.pop?.type === 'view') closePop(); else { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; } render(); },
+    'records.column': el => setShown(el.dataset.col, !isShown(colByKey(el.dataset.col), readPass())),
+    'records.columns-all': () => { setPrefs({ cols: Object.fromEntries(columns().map(c => [c.key, true])) }); render(); },
+    'records.columns-reset': () => { setPrefs({ cols: {} }); render(); },
+    'records.head': el => { if (!dragged) headMenu(el); },
+    'records.filter-add': el => addFilter(el.dataset.col),
+    'records.filter-pick': el => filterPicker(el),
+    'records.filter-open': el => {
+      const i = Number(el.dataset.index);
+      if (ui.pop?.type === 'filter' && ui.pop.index === i) closePop();
+      else { ui.pop = { type: 'filter', index: i, query: '', fresh: true }; ui.focus = 'pop'; }
+      render();
+    },
+    'records.filter-remove': el => {
+      ui.filters.splice(Number(el.dataset.index), 1);
+      if (ui.pop?.type === 'filter') ui.pop = null;
+      saveSession();
+      render();
+    },
+    'records.filter-op': el => { ui.filters[ui.pop.index].op = el.dataset.op; saveSession(); render(); },
+    'records.filter-value': el => {
+      const f = ui.filters[ui.pop.index];
+      f.values = f.values.includes(el.dataset.value) ? f.values.filter(v => v !== el.dataset.value) : [...f.values, el.dataset.value];
+      saveSession();
+      render();
+    },
+    'records.clear-filters': clearFilters,
+    'records.needs': () => { ui.needs = !ui.needs; saveSession(); render(); },
+    'records.choose': el => chooseOption(Number(el.dataset.index)),
+    'records.choose-clear': () => {
+      const p = ui.pop;
+      ui.pop = null;
+      ui.focus = 'grid';
+      const error = clearCell(p.row, colByKey(p.col));
+      if (error) Shell.toast(error, { tone: 'error' });
+      render();
+    },
+    'records.override': el => {
+      const c = colByKey(el.dataset.col), row = el.dataset.row;
+      const cell = readPass().cell(row, c);
+      const d = cell.info && definitionOf(cell.info.def);
+      if (!d) return;
+      const strong = cell.info.mark === 'differs' || cell.info.mark === 'overrides';
+      Shell.menu(el, [{ head: el.title }, { label: strong ? 'Use formula' : 'Clear, and use formula', run: () => {
+        const error = useFormula(cell.id);
+        error ? Shell.toast(error, { tone: 'error' }) : Shell.toast(`${c.label} on ${tableIndex().nameOf(row)} follows ${d.name} again`, { undo: true });
+        render();
+      } }], `records-override:${cell.id}`);
+    },
+    'records.copy-rows': () => { copyRows = true; document.execCommand('copy'); copyRows = false; },
+    'records.delete-rows': () => deleteRows(ui.rows.filter(id => ui.checked.has(id)).concat([...ui.checked].filter(id => !ui.rows.includes(id)))),
+    'records.uncheck': () => { ui.checked.clear(); ui.anchor = null; render(); },
+  }).forEach(([name, fn]) => Shell.on(name, fn));
+
+  const inPage = () => !!document.querySelector('.rec-page');
+  const layerOpen = () => !!document.querySelector('#layer .palette, #layer .dialog, #layer .float-menu');
+  const typingIn = el => !!el?.closest?.('input:not([type="checkbox"]), textarea, select, [contenteditable="true"]');
+
+  // A click elsewhere saves the cell being typed in, before the click does what it does: a click on
+  // another cell edits that one. Where the value can't be saved, the cell stays open and says why. The
+  // page is drawn again once the click is done, so the click lands on what it was aimed at.
+  document.addEventListener('mousedown', e => {
+    if (!inPage() || layerOpen()) return;
+    const t = e.target;
+    if (ui.edit && !t.closest?.('.rec-cell.is-editing')) {
+      if (commitEdit()) { e.preventDefault(); render(); return; }
+      renderQueued = true;
+    }
+    if (ui.draft && !t.closest?.('.rec-draft')) {
+      const done = commitDraft();
+      if (done?.error) { e.preventDefault(); render(); return; }
+      renderQueued = true;
+    }
+    if (!typingIn(t) && !t.closest?.('.rec-pop, .rec-table td')) ui.focus = ui.pop ? 'pop' : null;
+  }, true);
+  document.addEventListener('mouseup', () => { if (renderQueued) setTimeout(() => { if (renderQueued) render(); }); });
+
+  let popAtClick = null;
+  document.addEventListener('click', () => { popAtClick = ui.pop; }, true);
+  document.addEventListener('click', e => {
+    if (!inPage()) return;
+    const t = e.target;
+    // Opening a record remembers it, for the palette's Recent list.
+    const link = t.closest?.('a[href^="record.html#"]');
+    if (link) { try { Shell.visited(decodeURIComponent(link.getAttribute('href').slice('record.html#'.length))); } catch {} }
+    // A click outside an open popover closes it, unless the click is what opened it.
+    if (ui.pop && ui.pop === popAtClick && !t.closest?.('.rec-pop')) { closePop(); render(); }
+    if (link || t.closest?.('[data-cmd], .rec-pop')) return;
+    const check = t.closest?.('.row-check');
+    if (check) return tick(check, e);
+    const td = t.closest?.('.rec-table td[data-col]');
+    const row = td?.closest('tr')?.dataset.row;
+    if (!row) return;
+    const c = colByKey(td.dataset.col);
+    if (!c) return;
+    // A tag's checkbox ticks; any other cell that can be edited opens for editing, but Name only selects, as
+    // its text is the link to the record.
+    if (c.type === 'tag' && !c.rel && t.closest('.check')) return toggleTag(row, c);
+    if (!c.isName && c.type !== 'tag' && editable(readPass().cell(row, c), c)) return act(row, c);
+    setActive(row, c.key, { show: false });
+    ui.reveal = false;
+    render();
+  });
+
+  // Double-clicking a Name, away from its link, edits it.
+  document.addEventListener('dblclick', e => {
+    if (!inPage() || e.target.closest?.('a, input')) return;
+    const td = e.target.closest?.('.rec-table td.rec-name[data-col]');
+    const row = td?.closest('tr')?.dataset.row;
+    if (row) startEdit(row, colByKey(td.dataset.col));
+  });
+
+  // Ticking a row's box selects it; shift-ticking selects the rows between it and the last one ticked.
+  function tick(input, e) {
+    const id = input.dataset.check;
+    if (id === '*') {
+      const all = ui.rows.length && ui.rows.every(r => ui.checked.has(r));
+      for (const r of ui.rows) all ? ui.checked.delete(r) : ui.checked.add(r);
+      ui.anchor = null;
+      return render();
+    }
+    const on = input.checked;
+    if (e.shiftKey && ui.anchor && ui.rows.includes(ui.anchor)) {
+      const [i, j] = [ui.rows.indexOf(ui.anchor), ui.rows.indexOf(id)].sort((a, b) => a - b);
+      for (const r of ui.rows.slice(i, j + 1)) on ? ui.checked.add(r) : ui.checked.delete(r);
+    } else if (on) ui.checked.add(id);
+    else ui.checked.delete(id);
+    ui.anchor = id;
+    render();
+  }
+
+  document.addEventListener('input', e => {
+    const t = e.target;
+    if (!inPage() || !t.dataset?.focus) return;
+    ui.caret = [t.selectionStart, t.selectionEnd];
+    if (t.dataset.focus === 'edit' && ui.edit) { ui.edit.text = t.value; ui.edit.error = null; t.parentElement.querySelector('.rec-error')?.remove(); }
+    else if (t.dataset.focus === 'draft' && ui.draft) { ui.draft.text = t.value; ui.draft.error = null; }
+    else if (t.dataset.focus === 'search') { ui.search = t.value; ui.focus = 'search'; saveSession(); render(); }
+    else if (t.dataset.focus === 'pop' && ui.pop) { ui.pop.query = t.value; ui.pop.active = 0; render(); }
+  });
+  document.addEventListener('focusin', e => {
+    if (!inPage()) return;
+    if (e.target.dataset?.focus === 'search') ui.focus = 'search';
+    const td = e.target.closest?.('.rec-table td[data-col]');
+    if (td && e.target === td) ui.focus = 'grid';
+  });
+  // Keeps the caret where it is when the page is drawn again.
+  document.addEventListener('keyup', e => { if (e.target.dataset?.focus) ui.caret = [e.target.selectionStart, e.target.selectionEnd]; });
+  document.addEventListener('scroll', e => {
+    if (!e.target.classList?.contains('rec-wrap')) return;
+    ui.scroll = { left: e.target.scrollLeft, top: e.target.scrollTop };
+    e.target.classList.toggle('is-scrolled', e.target.scrollLeft > 0);
+    if (ui.pop?.type === 'choice') placePop();
+  }, true);
+  addEventListener('resize', () => { if (ui.pop) placePop(); });
+
+  // ---- Keys ----
+  // The shell's own keys come first (Ctrl+K, G then a letter, ?, /, undo and redo), so typing over a cell
+  // starts with any other key.
+
+  function editorKeys(e) {
+    const step = { Enter: [e.shiftKey ? -1 : 1, 0], Tab: [0, e.shiftKey ? -1 : 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.key];
+    if (e.key === 'Escape') { e.preventDefault(); ui.edit = null; ui.focus = 'grid'; return render(); }
+    if (!step || e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    if (commitEdit()) return render();
+    move(...step, e.key === 'Tab');
+    ui.focus = 'grid';
+    render();
+  }
+
+  function draftKeys(e) {
+    if (e.key === 'Escape') { e.preventDefault(); ui.draft = null; ui.focus = ui.active ? 'grid' : null; return render(); }
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+    e.preventDefault();
+    const done = commitDraft(e.key === 'Enter');
+    if (done?.id && e.key === 'Tab' && ui.cols.length > 1) {
+      const next = colByKey(ui.cols[1]);
+      ui.active = { row: done.id, col: next.key };
+      ui.reveal = true;
+      if (next.type === 'field') { render(); return startEdit(done.id, next); }
+      ui.focus = 'grid';
+    } else if (!done?.error) ui.focus = ui.draft ? 'draft' : 'grid';
+    ui.scroll.top = 1e9;
+    render();
+  }
+
+  function popKeys(e) {
+    const p = ui.pop;
+    if (e.key === 'Escape') { e.preventDefault(); closePop(); return render(); }
+    if (p.type !== 'choice') return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const n = p.items?.length ?? 0;
+      if (!n) return;
+      p.active = (p.active + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+      for (const el of document.querySelectorAll('.rec-choice-pop .option[data-index]')) el.setAttribute('aria-selected', Number(el.dataset.index) === p.active);
+      document.querySelector('.rec-choice-pop .option[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    }
+    if (e.key === 'Enter') { e.preventDefault(); chooseOption(p.active); }
+    if (e.key === 'Tab') { e.preventDefault(); closePop(); move(0, e.shiftKey ? -1 : 1, true); render(); }
+  }
+
+  function gridKeys(e) {
+    const a = ui.active;
+    const c = colByKey(a.col);
+    if (!c) return;
+    const mod = e.ctrlKey || e.metaKey;
+    const steps = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+    if (steps[e.key] && !e.altKey) {
+      e.preventDefault();
+      const [dr, dc] = steps[e.key];
+      move(mod ? dr * 1e6 : dr, mod ? dc * 1e6 : dc);
+      return showActive();
+    }
+    if (e.key === 'Enter' && mod) { e.preventDefault(); Shell.visited(a.row); location.href = Shell.recordHref(a.row); return; }
+    if (mod || e.altKey) return;
+    const jump = { Home: [0, -1e6], End: [0, 1e6], PageUp: [-10, 0], PageDown: [10, 0] }[e.key];
+    if (jump) { e.preventDefault(); move(...jump); return showActive(); }
+    if (e.key === 'Tab') { e.preventDefault(); move(0, e.shiftKey ? -1 : 1, true); return showActive(); }
+    if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); return act(a.row, c, { viaKey: true }); }
+    if (e.key === ' ' && c.type === 'tag') { e.preventDefault(); return toggleTag(a.row, c); }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      const error = clearCell(a.row, c);
+      if (error) Shell.toast(error, { tone: 'error' });
+      return render();
+    }
+    // Typing over a cell starts editing it with what's typed, as in a spreadsheet; G is the shell's.
+    if (e.key.length === 1 && e.key !== ' ' && !'g?/'.includes(e.key.toLowerCase()) && (c.type === 'field' || c.type === 'choice')) {
+      e.preventDefault();
+      act(a.row, c, { text: e.key });
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (!inPage() || e.defaultPrevented || layerOpen()) return;
+    const t = e.target;
+    if (t.dataset?.focus === 'edit') return editorKeys(e);
+    if (t.dataset?.focus === 'draft') return draftKeys(e);
+    if (ui.pop && (t.closest?.('.rec-pop') || e.key === 'Escape')) return popKeys(e);
+    if (t.dataset?.focus === 'search') {
+      if (e.key === 'Escape') { e.preventDefault(); if (ui.search) { ui.search = ''; saveSession(); } else { ui.focus = null; t.blur(); } return render(); }
+      if (e.key === 'ArrowDown' && ui.rows.length) { e.preventDefault(); setActive(ui.rows[0], ui.active?.col ?? ui.cols[0]); }
+      return;
+    }
+    if (typingIn(t)) return;
+    if (e.key === 'Escape' && ui.checked.size) { e.preventDefault(); ui.checked.clear(); return render(); }
+    if (!ui.active) {
+      // Arrows with nothing selected start at the first cell.
+      if (/^Arrow/.test(e.key) && ui.rows.length && !e.altKey) { e.preventDefault(); setActive(ui.rows[0], ui.cols[0]); }
+      return;
+    }
+    gridKeys(e);
+  });
+
+  // Pasting tab-separated text fills cells from the active one, or adds rows; while typing in a cell, a
+  // paste of more than one cell does the same from that cell.
+  document.addEventListener('paste', e => {
+    if (!inPage() || layerOpen()) return;
+    const t = e.target;
+    const grid = parseTsv(e.clipboardData?.getData('text/plain') ?? '');
+    const many = grid.length > 1 || grid[0]?.length > 1;
+    if (t.dataset?.focus === 'edit') {
+      if (!many) return;
+      e.preventDefault();
+      ui.edit = null;
+    } else if (typingIn(t)) return;
+    else e.preventDefault();
+    pasteGrid(grid);
+  });
+
+  // Copying copies the ticked rows, with their headings, or else the active cell.
+  let copyRows = false;
+  document.addEventListener('copy', e => {
+    if (!inPage() || layerOpen() || (typingIn(e.target) && !copyRows)) return;
+    const ids = ui.rows.filter(id => ui.checked.has(id));
+    if (!ids.length && !copyRows && String(getSelection())) return;
+    let text = null;
+    if (ids.length) text = rowsAsTsv(ids);
+    else if (ui.active) { const c = colByKey(ui.active.col); if (c) text = cellText(readPass().cell(ui.active.row, c), c); }
+    if (text === null) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', text);
+    if (ids.length) Shell.toast(`Copied ${count(ids.length, word())}, with their headings`);
+  });
+
+  // ---- Dragging a column ----
+  // A column of entries at the object is dragged by its heading to reorder it among the others. That's the
+  // model's entry order for objects of the kind, so the record page and the chart's panel follow suit.
+  let drag = null, dragged = false;
+  document.addEventListener('pointerdown', e => {
+    const th = e.target.closest?.('.rec-table th.is-movable');
+    if (!th || e.button !== 0) return;
+    drag = { key: th.dataset.col, x: e.clientX, moved: false, target: null, after: false };
+    dragged = false;
+  });
+  document.addEventListener('pointermove', e => {
+    if (!drag) return;
+    if (!drag.moved && Math.abs(e.clientX - drag.x) < 5) return;
+    drag.moved = true;
+    const heads = [...document.querySelectorAll('.rec-table th.is-movable')];
+    for (const h of heads) h.classList.remove('is-drop-before', 'is-drop-after', 'is-dragging');
+    document.querySelector(`.rec-table th[data-col="${CSS.escape(drag.key)}"]`)?.classList.add('is-dragging');
+    const over = heads.find(h => { const r = h.getBoundingClientRect(); return e.clientX >= r.left && e.clientX < r.right; });
+    drag.target = over && over.dataset.col !== drag.key ? over.dataset.col : null;
+    if (drag.target) {
+      const r = over.getBoundingClientRect();
+      drag.after = e.clientX > r.left + r.width / 2;
+      over.classList.add(drag.after ? 'is-drop-after' : 'is-drop-before');
+    }
+  });
+  document.addEventListener('pointerup', () => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (!d.moved) return;
+    dragged = true;
+    setTimeout(() => { dragged = false; });
+    const from = colByKey(d.key), to = d.target && colByKey(d.target);
+    const id = from && standIn(from.label), target = to && standIn(to.label);
+    if (id && target) moveEntry(id, target, d.after);
+    render();
+  });
+
+  // ---- Starting ----
+
+  addEventListener('hashchange', () => { if (useKind()) render(); });
+  Shell.onChartChange(() => { ui.kind = null; useKind(); });
+
+  Shell.start({
+    area: 'records',
+    kind: hashText(),
+    title: () => { ensureKind(); return kindPlural(); },
+    actions: () => `<button class="btn btn-sm" data-cmd="records.export">Export CSV</button>
+      <button class="btn btn-sm btn-primary" data-cmd="records.new">${icon('plus')}New ${esc(word())}</button>`,
+    render: pageHtml,
+    after,
+    commands: () => [
+      { title: `New ${word()}`, keywords: 'add create row record', run: startDraft },
+      { title: `Export ${kindPlural().toLowerCase()} as CSV`, keywords: 'download excel spreadsheet', run: exportCsv },
+      { title: 'Show or hide columns', keywords: 'view columns fields', run: () => { ui.pop = { type: 'view', fresh: true }; ui.focus = 'pop'; render(); } },
+      ...(anyFilter() ? [{ title: 'Clear filters', keywords: 'search reset', run: clearFilters }] : []),
+    ],
+  });
+})();

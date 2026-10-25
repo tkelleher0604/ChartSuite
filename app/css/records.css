@@ -1,0 +1,159 @@
+/* The Records area: a table for each kind, kept like a spreadsheet. It builds on shell.css's table, chips,
+   filters and empty states, and uses only the tokens in base.css. */
+
+/* The page fills the space under the top bar, so the table scrolls within it, header and Name in view. */
+.rec-page { position: relative; display: flex; flex-direction: column; height: 100%; padding-bottom: 20px; }
+.rec-head { flex: none; margin-bottom: 14px; }
+.rec-head .page-sub { display: flex; flex-wrap: wrap; align-items: baseline; font-variant-numeric: tabular-nums; }
+.rec-dot { margin: 0 8px; color: var(--text-3); }
+.rec-needs { color: var(--warn); font-size: inherit; font-weight: 500; }
+.rec-needs:hover:not(:disabled) { color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
+.rec-needs[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
+
+.rec-bar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.rec-search .input { width: 224px; }
+.rec-search .input::-webkit-search-cancel-button { display: none; }
+.rec-filters { flex: 1; min-width: 0; }
+.rec-clear { margin-left: 4px; font-size: 12.5px; }
+.rec-bar-end { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
+.rec-bar-end .btn .icon { width: 14px; height: 14px; margin-right: -3px; color: var(--text-3); }
+
+/* A set filter: what it says, and a way to remove it. */
+.rec-fchip { gap: 0; padding: 0 3px 0 0; }
+.rec-fchip button { height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+.rec-fchip-main { padding: 0 6px 0 11px !important; border-radius: 14px 0 0 14px; }
+.rec-fchip-main b { font-weight: 600; }
+.rec-fchip-x { display: grid; place-items: center; width: 22px; height: 22px !important; border-radius: 11px; opacity: .7; }
+.rec-fchip-x:hover { background: color-mix(in srgb, currentColor 14%, transparent) !important; opacity: 1; }
+.rec-fchip-x .icon { width: 12px; height: 12px; }
+.filter-chip.is-set.is-warn { background: var(--warn-soft); color: var(--warn); }
+
+/* ---- The table ---- */
+.rec-wrap { flex: 0 1 auto; min-height: 120px; scroll-padding: 34px 0 0 calc(44px + var(--name-w, 240px)); }
+.rec-table { table-layout: fixed; }
+.rec-table th, .rec-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-table th { padding: 0; }
+.rec-table td { position: relative; padding: 0 12px; }
+.rec-table .is-sticky.rec-name { left: 44px; }
+.rec-wrap.is-scrolled .rec-name { box-shadow: inset -1px 0 0 var(--border); }
+.rec-table .rec-fill { padding: 0; }
+
+/* Headings: a button that opens the column's menu, and drags it to another place. */
+.rec-th { display: flex; align-items: center; gap: 4px; width: 100%; height: 34px; padding: 0 12px; border: 0; background: none; color: inherit; font: inherit; font-weight: 500; text-align: left; transition: background-color .1s, color .1s; }
+.rec-th:hover, .rec-th[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.rec-th-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.num .rec-th { justify-content: flex-end; }
+.rec-head-cell.is-computed .rec-th-text { font-style: italic; }
+.rec-fx { flex: none; font-size: 11px; font-style: italic; font-weight: 600; color: var(--computed); letter-spacing: .02em; }
+.rec-sort { flex: none; color: var(--text-2); font-size: 12px; }
+.rec-th .req-mark { flex: none; margin-left: -1px; color: var(--danger); font-weight: 600; }
+th.is-movable .rec-th:active { cursor: grabbing; }
+th.is-dragging .rec-th { opacity: .45; }
+th.is-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+
+/* Row numbers give the eye a place to start; hovering or ticking a row turns its number into its box. */
+.rec-sel { padding: 0 !important; text-align: center; user-select: none; }
+.rec-num { color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.rec-num .icon { width: 13px; height: 13px; vertical-align: -2px; }
+.row-check { display: none; width: 14px; height: 14px; margin: 0; vertical-align: -2px; accent-color: var(--accent); cursor: pointer; }
+.rec-table thead .row-check, .rec-table tbody tr:hover .row-check, .rec-table tr[aria-selected="true"] .row-check, .rec-table.has-checked .row-check { display: inline-block; }
+.rec-table tbody tr:hover .rec-num, .rec-table tr[aria-selected="true"] .rec-num, .rec-table.has-checked .rec-num { display: none; }
+
+/* The active cell is ringed inside its edges, so the ring isn't clipped. */
+.rec-cell { cursor: default; }
+.rec-cell:focus, .rec-cell:focus-visible { outline: none; }
+.rec-cell.is-active { box-shadow: inset 0 0 0 2px var(--focus); }
+.rec-table .rec-cell.is-blocked::after { content: "–"; color: var(--text-3); }
+.rec-cell .row-link { color: var(--text); }
+.rec-cell .row-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.rec-cell .link { text-decoration: none; }
+.rec-cell .link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* A tag's checkbox, outlined where a formula worked it out, as in the panel. */
+.rec-cell .check { vertical-align: middle; margin: -2px 0 0 -2px; }
+.rec-cell .is-implied { display: inline-grid; vertical-align: middle; }
+.rec-cell .is-implied .box-yes rect, .rec-cell .is-implied .box-no rect { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.rec-cell .is-implied .box-yes path, .rec-cell .is-implied .box-no path { stroke: currentColor; }
+.rec-cell .check:hover .box-none rect, .rec-cell.is-active .box-none rect { stroke: var(--text-3); }
+
+/* A choice reads as its option, with the dropdown's chevron where it can be changed. */
+.rec-choice { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rec-choice-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rec-chev { width: 14px; height: 14px; margin-left: auto; color: var(--text-3); opacity: 0; transition: opacity .1s; }
+.rec-table tbody tr:hover .rec-chev, .rec-cell.is-active .rec-chev { opacity: 1; }
+
+/* What a formula worked out is in italics (shell.css); what's blank and required says so. */
+.rec-req { color: var(--danger); font-size: 12px; font-weight: 500; }
+.rec-cell .fx-error { color: var(--danger); font-weight: 500; font-variant-numeric: tabular-nums; }
+.rec-ovr { position: absolute; top: 0; left: 0; width: 0; height: 0; padding: 0; border: 0; border-top: 8px solid var(--border-strong); border-right: 8px solid transparent; background: none; cursor: pointer; }
+.rec-ovr.is-strong { border-top-color: var(--warn-solid); }
+
+/* Relatives as chips, as many as fit, then how many more. A chip's name comes before its detail. */
+.rec-chips { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.rec-chips .chip { flex: none; max-width: 280px; }
+.rec-chips.is-squeezed .chip { flex: 0 1 auto; min-width: 0; }
+.rec-chips .chip-detail { flex: none; }
+/* A relation of more than two names its other sides after the first, which give way before the name does. */
+.rec-sides { display: contents; }
+.rec-sides .chip-text { flex: 0 0 auto; max-width: 180px; }
+.rec-sides .chip-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rec-more { flex: none; padding-left: 2px; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Typing in a cell: the box fills it, with what's wrong under it. */
+.rec-table td.is-editing { overflow: visible; padding: 0; }
+.rec-input { display: block; width: 100%; height: 37px; padding: 0 10px; border: 0; border-radius: 0; background: var(--surface); box-shadow: inset 0 0 0 2px var(--focus); color: var(--text); font: inherit; outline: none; }
+.num .rec-input { text-align: right; }
+.rec-input::placeholder { color: var(--text-3); }
+.rec-error { position: absolute; top: calc(100% + 2px); left: 0; z-index: 4; max-width: 360px; padding: 5px 9px; border-radius: var(--radius-sm); background: var(--danger-solid); color: #fff; font-size: 12px; line-height: 16px; white-space: normal; box-shadow: var(--shadow-pop); }
+
+/* The last row: a new row being named, or the way to start one. */
+.rec-table .rec-draft td { background: var(--surface); }
+.rec-table .rec-draft:hover td { background: var(--surface); }
+.rec-draft-hint { color: var(--text-3); font-size: 12px; }
+.rec-draft-hint span + span { margin-left: 16px; }
+.rec-draft-hint kbd { margin-right: 4px; }
+.rec-table .rec-add td { height: 38px; padding: 0; overflow: visible; }
+.rec-table tbody .rec-add:hover td { background: none; }
+.rec-add-btn { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 8px; height: 37px; padding: 0 16px; border: 0; background: none; color: var(--text-3); font-size: 13px; font-weight: 500; }
+.rec-add-btn:hover { color: var(--text); }
+.rec-add-btn .icon { width: 14px; height: 14px; }
+
+/* ---- Popovers: placed by their anchors once drawn ---- */
+.rec-pop.pop { position: fixed; top: 0; left: 0; z-index: 40; outline: none; }
+.rec-pop-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 5px 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font-size: 13px; text-align: left; }
+.rec-pop-item:hover:not(:disabled) { background: var(--hover); }
+.rec-pop-item:disabled { color: var(--text-3); cursor: default; }
+.rec-pop-item.is-nested { padding-left: 32px; }
+.rec-pop-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-pop-count { flex: none; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rec-tick { display: grid; place-items: center; width: 16px; height: 16px; flex: none; border: 1.5px solid var(--border-strong); border-radius: var(--radius-xs); }
+.is-on > .rec-tick { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.rec-pop-item:disabled > .rec-tick { opacity: .5; }
+.rec-tick .icon { width: 12px; height: 12px; stroke-width: 3; }
+.rec-pop-foot { display: flex; gap: 16px; padding: 6px 8px 4px; }
+.rec-pop-foot .link-btn { font-size: 12.5px; }
+.rec-pop-title { padding: 2px 4px 8px; font-size: 13px; font-weight: 600; }
+.rec-pop-note { padding: 8px; color: var(--text-3); font-size: 12.5px; }
+.rec-pop-search { display: block; width: calc(100% - 4px); margin: 2px 2px 6px; }
+
+.rec-view-pop { width: 288px; max-height: min(560px, calc(100vh - 140px)); overflow-y: auto; }
+.rec-filter-pop { width: 300px; padding: 10px 8px 6px; }
+.rec-ops { display: flex; margin: 0 2px 8px; }
+.rec-ops button { flex: 1; }
+.rec-values { max-height: min(280px, 50vh); overflow-y: auto; }
+.rec-choice-pop { max-width: 340px; padding: 4px; }
+.rec-options { max-height: min(280px, 50vh); overflow-y: auto; }
+.rec-opt-check { width: 14px; height: 14px; margin-left: auto; color: var(--accent-text); }
+
+/* ---- Rows ticked for bulk actions ---- */
+.rec-actionbar { position: absolute; bottom: 28px; left: 50%; z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 16px; translate: -50% 0;
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-dialog); font-size: 13px; animation: shell-rise .2s var(--ease); }
+.rec-actionbar-count { margin-right: 8px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-delete { color: var(--danger); }
+
+.rec-page > .empty-state { margin-top: 8px; padding: 56px 24px; }
+
+@media (max-width: 760px) {
+  .rec-search .input { width: 168px; }
+}
