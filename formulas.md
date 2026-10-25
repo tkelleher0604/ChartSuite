@@ -302,7 +302,7 @@ A first set:
 | `x IN list` | TRUE if x is one of the list's items. |
 | `BLANK()`, `ISBLANK(x)` | BLANK, and whether x is BLANK. |
 | `ISRULEDOUT(x)` | TRUE if x is a ruled-out tag. |
-| `COUNT`, `SUM`, `MIN`, `MAX`, `AVERAGE`, `UNIQUE`, `TEXTJOIN` | As in Excel, over lists, except that COUNT counts every item, not only numbers. MIN and MAX also take dates, giving the earliest or latest, but not a mix of dates and numbers. |
+| `COUNT`, `SUM`, `MIN`, `MAX`, `AVERAGE`, `UNIQUE`, `TEXTJOIN` | As in Excel, over lists, except that COUNT counts every item, not only numbers. MIN and MAX also take dates, giving the earliest or latest, but not a mix of dates and numbers; with nothing to compare they give BLANK, which counts as 0 where a number is wanted. |
 | `FILTER(list, condition)` | The items for which the condition is TRUE, with `@` as each item. |
 | `ANY(list, condition)`, `ALL(list, condition)` | Whether the condition holds for some item, or for every item. |
 | `EACH(list, expression)` | The list of the expression's values, with `@` as each item. |

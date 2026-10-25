@@ -721,7 +721,8 @@ function numbersOf(a, c) {
 }
 
 // MIN and MAX: of numbers, or of dates (the earliest or latest), skipping blanks and text. With nothing
-// to compare, MIN and MAX of numbers give 0, as in Excel.
+// to compare, BLANK, which counts as 0 where a number is wanted, as Excel's 0 does, and as no date at all
+// where a date is.
 function extremeOf(name, a, c, sign) {
   const items = flatArgs(a, c);
   if (isErr(items)) return items;
@@ -732,7 +733,7 @@ function extremeOf(name, a, c, sign) {
     if (typeof s === 'number') nums.push(s); else if (isDate(s)) dates.push(s);
   }
   if (nums.length && dates.length) return err('#VALUE!', `${name} takes numbers or dates, not both.`);
-  if (!dates.length) return nums.length ? (sign > 0 ? Math.max(...nums) : Math.min(...nums)) : 0;
+  if (!dates.length) return nums.length ? (sign > 0 ? Math.max(...nums) : Math.min(...nums)) : null;
   return dates.reduce((m, d) => (sign > 0 ? d.iso > m.iso : d.iso < m.iso) ? d : m);
 }
 
