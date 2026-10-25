@@ -231,11 +231,12 @@
   }
 
   // One reading of the table: its cells are read once each, as rendering, sorting, filtering and searching
-  // all need them.
+  // all need them, and where each row's name parts from the others' (partingsOf), for cutting it short.
   function readPass() {
     const ix = tableIndex();
     const cells = new Map();
     const objects = Object.keys(records).filter(k => isObject(records[k]) && same(records[k].kind, ui.kind));
+    let parting = null;
     return {
       ix, objects,
       cell(obj, c) {
@@ -243,6 +244,7 @@
         if (!cells.has(k)) cells.set(k, c.rel ? relationCell(obj, c, ix) : entryCell(obj, c, ix));
         return cells.get(k);
       },
+      parts: name => (parting ??= partingsOf(objects.map(ix.nameOf)))(name),
     };
   }
 
@@ -493,7 +495,10 @@
     } else if (isChoice(cell.r)) {
       html = `<span class="rec-choice"><span class="rec-choice-text">${Parts.output(cell.id)}</span>${editable(cell, c) ? icon('chevron-down', 'rec-chev') : ''}</span>`;
     } else if (c.isName) {
-      html = `<a class="row-link" href="${Shell.recordHref(obj)}">${esc(cell.text)}</a>`;
+      // Cut short, a name keeps its end, which tells it from the kind's like names; the whole is on hover.
+      const [head, tail] = P.parts(cell.text);
+      html = tail ? `<a class="row-link cut" href="${Shell.recordHref(obj)}"><span class="cut-head">${esc(head)}</span><span class="cut-tail">${esc(tail)}</span></a>`
+        : `<a class="row-link" href="${Shell.recordHref(obj)}">${esc(cell.text)}</a>`;
     } else {
       html = looksLikeId(cell.text) ? `<span class="ident">${Parts.output(cell.id)}</span>` : Parts.output(cell.id);
       if (cell.r.field === 'document') title = cell.r.value;

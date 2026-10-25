@@ -33,6 +33,23 @@ function matchRank(text, query) {
 const rankBy = (items, query, text = x => x) => !clean(query) ? items
   : items.map((x, i) => [x, matchRank(text(x), query), i]).filter(([, r]) => r).sort((a, b) => b[1] - a[1] || a[2] - b[2]).map(([x]) => x);
 
+// Where each of a list of names parts from the others, so a name cut short for room can keep what tells
+// it apart, as the Calder Ridge Capital Partners III funds need. Gives a function of a name: [head, tail],
+// the tail from the start of the word where it leaves the name it shares the longest start with
+// ("Calder Ridge Capital Partners ", "III (Cayman), L.P."). A name that parts in its first word is all head.
+function partingsOf(names) {
+  const low = s => s.toLowerCase();
+  const list = [...new Set(names.map(String))].sort((a, b) => low(a) < low(b) ? -1 : low(a) > low(b) ? 1 : 0);
+  const shared = (a, b) => { let i = 0; while (i < a.length && i < b.length && low(a[i]) === low(b[i])) i++; return i; };
+  const at = new Map(list.map((n, i) => [n, Math.max(i ? shared(n, list[i - 1]) : 0, i < list.length - 1 ? shared(n, list[i + 1]) : 0)]));
+  return name => {
+    const s = String(name);
+    let i = at.get(s) ?? 0;
+    while (i > 0 && /[\p{L}\p{N}]/u.test(s[i - 1])) i--;
+    return i > 0 && i < s.length ? [s.slice(0, i), s.slice(i)] : [s, ''];
+  };
+}
+
 // Inner markup of Tabler outline icons; most are in vendor/tabler-icons/outline/.
 const ICONS = {
   'alert-triangle': '<path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" />',
