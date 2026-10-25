@@ -1356,7 +1356,7 @@ function changeSummary(changes, before, after, extra = []) {
 }
 
 // Records a change to the chart's data at the head of the history. `source` says how it was made, when not
-// by an edit: 'undo', 'redo', 'reset' or 'import'.
+// by an edit: 'undo', 'redo', 'reset', 'import' or 'restore'.
 function noteChange(summary, changes = [], source = null) {
   historyLog = [{ id: newId(), when: new Date().toISOString(), who: currentUser(), summary, changes, ...(source ? { source } : {}) }, ...historyLog];
 }
@@ -1382,9 +1382,10 @@ const historyOf = id => historyLog.filter(h => h.changes.some(c => c.id === id))
 //   law applies; see moveAbandoned;
 // - maps: keys already moved with the schema (renaming every one like it) carry over to what's keyed by them;
 // - renames: [from, to] pairs of names to carry into the views' filters;
-// - after: anything else to change in the same step, once the rest has.
+// - after: anything else to change in the same step, once the rest has;
+// - source: how the change was made, for the history, when not by an edit (see noteChange).
 // Returns why not, if the result isn't a state.
-function change(next, { moves = false, maps = null, renames = [], after = null } = {}) {
+function change(next, { moves = false, maps = null, renames = [], after = null, source = null } = {}) {
   const nextEntered = next.entered ?? entered;
   const used = new Set(usage(nextEntered).keys());
   let { definitions: defs, names: nms, schema: S } = canonicalFormulas(next.definitions ?? definitions, next.names ?? names, next.schema ?? schema, used);
@@ -1423,7 +1424,7 @@ function change(next, { moves = false, maps = null, renames = [], after = null }
   const changes = changesBetween(was.entered, entered);
   const extra = definitionChanges(was.definitions, definitions, was.schema, was.names);
   if (JSON.stringify(was.names) !== JSON.stringify(names)) extra.push('Changed relation names');
-  if (changes.length || extra.length || was.schema !== schema) noteChange(changeSummary(changes, was.records, records, extra), changes);
+  if (changes.length || extra.length || was.schema !== schema) noteChange(changeSummary(changes, was.records, records, extra), changes, source);
   saveState();
   return null;
 }

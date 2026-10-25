@@ -45,11 +45,15 @@ const Parts = (() => {
     const n = daysUntil(iso);
     return n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n === -1 ? 'Yesterday' : n > 0 ? `In ${count(n, 'day')}` : `${count(-n, 'day')} ago`;
   }
-  // A moment (an ISO timestamp) relative to now, with the exact time on hover: 5 min ago, Yesterday, Oct 12.
+  // A moment (an ISO timestamp) relative to now, with the exact time on hover: 5 min ago, 3 h ago (today),
+  // Yesterday, Oct 12. Days are calendar days where the viewer is.
   function when(stamp) {
     const t = new Date(stamp), min = Math.round((Date.now() - t) / 60000);
-    const text = min < 1 ? 'Just now' : min < 60 ? `${min} min ago` : min < 1440 ? `${Math.round(min / 60)} h ago`
-      : min < 2880 ? 'Yesterday' : date(stamp.slice(0, 10)).replace(`, ${new Date().getFullYear()}`, '');
+    const dayOf = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5;
+    const daysAgo = dayOf(new Date()) - dayOf(t);
+    const local = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    const text = min < 1 ? 'Just now' : min < 60 ? `${min} min ago` : daysAgo === 0 ? `${Math.round(min / 60)} h ago`
+      : daysAgo === 1 ? 'Yesterday' : date(local).replace(`, ${new Date().getFullYear()}`, '');
     return `<time class="faint tnum" datetime="${esc(stamp)}" title="${esc(t.toLocaleString())}">${esc(text)}</time>`;
   }
 

@@ -16,7 +16,7 @@
   const RUN = 3;     // like changes in a row, by one person, that fold into one line
   const KEYS = ['who', 'record', 'what', 'from', 'to', 'q'];
   const WHAT = [['records', 'Records'], ['definitions', 'Definitions'], ['names', 'Names'], ['required', 'Required entries'], ['schema', 'Schema']];
-  const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset', import: 'Import' };
+  const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset', import: 'Import', restore: 'Restore' };
   // A summary starts with what was done. After a person's name it reads on: "Ann Lee changed …".
   const VERB = /^(Added|Changed|Deleted|Required|Stopped|Reset|Restored|Removed|Renamed|Moved|Imported|Copied)\b/;
 
@@ -407,7 +407,7 @@
     } else {
       const next = { ...entered };
       for (const c of changes) if (c.before) next[c.id] = c.before; else delete next[c.id];
-      error = change({ entered: next });
+      error = change({ entered: next }, { source: 'restore' });
     }
     ui.failed = error ? { id, text: error } : null;
     render();
