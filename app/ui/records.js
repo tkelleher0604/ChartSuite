@@ -947,25 +947,35 @@
     return [cols.map(c => c.label), ...ids.map(id => cols.map(c => cellText(P.cell(id, c), c)))].map(r => r.map(tsvField).join('\t')).join('\r\n');
   }
 
-  // Excel copies cells as rows of tab-separated text, quoting a cell that holds a tab, a line break or a quote.
+  // Excel copies cells as rows of tab-separated text, quoting a cell that holds a tab, a line break or a
+  // quote. A quote that doesn't open a cell quoted that way (one never closed, or closed before its cell
+  // ends, as in "Smart" Fund LLC) is read as the character it is, so it can't swallow the rows after it.
+  // `unclosed` counts the quotes never closed, for the paste's toast.
   function parseTsv(text) {
     const s = String(text).replace(/\r\n?/g, '\n');
-    const rows = [[]];
-    let cell = '', quoted = false;
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (quoted) {
-        if (ch === '"' && s[i + 1] === '"') { cell += '"'; i++; }
-        else if (ch === '"') quoted = false;
+    const literal = new Set();
+    let unclosed = 0;
+    for (;;) {
+      const rows = [[]];
+      let cell = '', open = -1, bad = -1;
+      for (let i = 0; i < s.length && bad < 0; i++) {
+        const ch = s[i];
+        if (open >= 0) {
+          if (ch === '"' && s[i + 1] === '"') { cell += '"'; i++; }
+          else if (ch === '"') { if (i + 1 < s.length && !'\t\n'.includes(s[i + 1])) bad = open; else open = -1; }
+          else cell += ch;
+        } else if (ch === '"' && cell === '' && !literal.has(i)) open = i;
+        else if (ch === '\t') { rows.at(-1).push(cell); cell = ''; }
+        else if (ch === '\n') { rows.at(-1).push(cell); rows.push([]); cell = ''; }
         else cell += ch;
-      } else if (ch === '"' && cell === '') quoted = true;
-      else if (ch === '\t') { rows.at(-1).push(cell); cell = ''; }
-      else if (ch === '\n') { rows.at(-1).push(cell); rows.push([]); cell = ''; }
-      else cell += ch;
+      }
+      if (bad < 0 && open >= 0) { bad = open; unclosed++; }
+      // Read again, with that quote as a character.
+      if (bad >= 0) { literal.add(bad); continue; }
+      rows.at(-1).push(cell);
+      while (rows.length && rows.at(-1).every(x => !clean(x))) rows.pop();
+      return Object.assign(rows, { unclosed });
     }
-    rows.at(-1).push(cell);
-    while (rows.length && rows.at(-1).every(x => !clean(x))) rows.pop();
-    return rows;
   }
 
   const YES = /^(yes|y|true|x|✓|✔|attested)$/i, NO = /^(no|n|false|ruled out)$/i;
@@ -981,12 +991,13 @@
   }
 
   // Which rows and columns pasted cells land in. With a heading row naming Name, columns are matched by
-  // their headings, unknown ones becoming new entries, and rows by name, unknown ones becoming new objects.
-  // Otherwise the cells fill the table from the active cell, rightward and down, and rows past the last add
-  // objects, named by the Name column.
-  function pastePlan(grid, cols) {
+  // their headings, unknown ones becoming new entries, and rows by name (`byName`), unknown ones becoming
+  // new objects. Otherwise the cells fill the table from `at` (a row's and a column's place, by default the
+  // active cell's), rightward and down, and rows past the last add objects, named by the Name column.
+  // `notes` counts what has nowhere to go: values past the last column, or under no heading.
+  function pastePlan(grid, cols, at) {
     const ix = tableIndex();
-    const notes = { beyond: 0 };
+    const notes = { beyond: 0, unheaded: 0 };
     const first = grid[0];
     const nameAt = first.findIndex(h => same(h, 'name'));
     if (nameAt >= 0 && grid.length > 1) {
@@ -995,12 +1006,13 @@
         : entries.find(c => !c.parent && same(c.label, h)) ?? cols.find(c => same(c.path.join(' › '), h) || same(c.label, h))
         ?? newColumn(clean(h), grid.slice(1).map(r => r[j] ?? '')));
       const byName = new Map(readPass().objects.map(id => [norm(ix.nameOf(id)), id]));
-      return { notes, rows: grid.slice(1).map(r => ({ obj: byName.get(norm(r[nameAt])) ?? null, name: r[nameAt] ?? '',
+      for (const r of grid.slice(1)) notes.unheaded += r.filter((raw, j) => !heads[j] && clean(raw)).length;
+      return { notes, byName: true, rows: grid.slice(1).map(r => ({ obj: byName.get(norm(r[nameAt])) ?? null, name: r[nameAt] ?? '',
         cells: heads.map((c, j) => c && [c, r[j] ?? '']).filter(Boolean) })) };
     }
-    const r0 = ui.active ? Math.max(0, ui.rows.indexOf(ui.active.row)) : ui.rows.length;
-    const c0 = ui.active ? Math.max(0, ui.cols.indexOf(ui.active.col)) : 0;
-    return { notes, rows: grid.map((r, i) => {
+    const r0 = at ? Math.max(0, at.row) : ui.rows.length;
+    const c0 = at ? Math.max(0, at.col) : 0;
+    return { notes, byName: false, rows: grid.map((r, i) => {
       const obj = ui.rows[r0 + i] ?? null;
       const cells = [];
       r.forEach((raw, j) => { const c = colByKey(ui.cols[c0 + j]); if (c) cells.push([c, raw]); else if (clean(raw)) notes.beyond++; });
@@ -1038,29 +1050,40 @@
     return true;
   }
 
-  // Pastes a block of cells as one change: one undo takes it all back.
-  function pasteGrid(grid) {
+  // Pastes a block of cells as one change: one undo takes it all back. The toast says what was done, then
+  // whatever wasn't as it might seem: values left out and why, quotes kept as typed, names given twice, a
+  // percentage past 100% or below 0%, and headings that became new columns.
+  function pasteGrid(grid, at = ui.active && { row: ui.rows.indexOf(ui.active.row), col: ui.cols.indexOf(ui.active.col) }) {
     if (!grid.length || !grid[0].length) return;
     const ix = tableIndex();
-    const { rows, notes } = pastePlan(grid, columns());
+    const { rows, notes, byName } = pastePlan(grid, columns(), at);
     const next = { ...records };
     const kids = new Map();
     const child = (at, label) => kids.get(at)?.get(norm(label)) ?? ix.entries.get(at)?.get(norm(label));
     const adopt = (at, label, id) => { if (!kids.has(at)) kids.set(at, new Map()); kids.get(at).set(norm(label), id); };
     const left = { computed: 0, relation: 0, unread: [], blocked: 0, unnamed: 0 };
-    const added = [];
+    const added = [], made = new Map(), twice = new Set(), fresh = new Set();
+    const names = new Set(readPass().objects.map(id => norm(ix.nameOf(id))));
     let changed = 0;
     for (const row of rows) {
       let obj = row.obj;
       if (!obj) {
         if (!row.cells.some(([, raw]) => clean(raw))) continue;
-        if (!clean(row.name)) { left.unnamed++; continue; }
-        obj = newId();
-        next[obj] = { kind: ui.kind };
-        const nameId = newId();
-        next[nameId] = { at: obj, edge: 'Name', field: 'text', value: clean(row.name) };
-        adopt(obj, 'Name', nameId);
-        added.push(obj);
+        const name = clean(row.name);
+        if (!name) { left.unnamed++; continue; }
+        // Rows matched by name are one object for each name, as they would be for a name already here.
+        // Rows placed by position are an object each, and a name given twice is said.
+        if (made.has(norm(name)) || names.has(norm(name))) twice.add(name);
+        if (byName && made.has(norm(name))) obj = made.get(norm(name));
+        else {
+          obj = newId();
+          next[obj] = { kind: ui.kind };
+          const nameId = newId();
+          next[nameId] = { at: obj, edge: 'Name', field: 'text', value: name };
+          adopt(obj, 'Name', nameId);
+          added.push(obj);
+          made.set(norm(name), obj);
+        }
       }
       for (const [c, raw] of row.cells) {
         if (!clean(raw) || (c.isName && !row.obj)) continue;
@@ -1069,24 +1092,33 @@
         for (const label of c.path.slice(0, -1)) at = at && child(at, label);
         if (!at) { left.blocked++; continue; }
         const done = pasteValue(next, at, c, raw, child, adopt);
-        if (done === true) changed++;
+        if (done === true) { changed++; if (c.fresh) fresh.add(c.label); }
         else if (done === 'computed') left.computed++;
         else if (done) left.unread.push(done);
       }
     }
+    const odd = Object.keys(next).filter(id => next[id] !== records[id] && next[id].field === 'percent' && (next[id].value > 1 || next[id].value < 0)).length;
+    const are = (n, one, many) => n === 1 ? one : many;
     const skipped = [
+      fresh.size && `${joinList([...fresh])} ${are(fresh.size, 'wasn’t a column', 'weren’t columns')} of ${kindPlural().toLowerCase()}, so ${are(fresh.size, 'it’s a new one', 'they’re new ones')}`,
       left.unread.length && `${count(left.unread.length, 'value')} couldn’t be read (${left.unread[0]})`,
-      left.computed && `${count(left.computed, 'value')} in computed cells were left as they are`,
+      left.computed && `${count(left.computed, 'value')} in computed cells ${are(left.computed, 'was', 'were')} left as ${are(left.computed, 'it is', 'they are')}`,
       left.relation && 'relations aren’t pasted; relate records on the chart or their own pages',
       left.blocked && `${count(left.blocked, 'value')} had no entry above to go below`,
       left.unnamed && `${count(left.unnamed, 'new row')} had no Name`,
+      notes.unheaded && `${count(notes.unheaded, 'value')} had no heading, and ${are(notes.unheaded, 'was', 'were')} left out`,
       notes.beyond && `${count(notes.beyond, 'value')} went past the last column`,
+      grid.unclosed && `${count(grid.unclosed, 'quotation mark')} that never closed ${are(grid.unclosed, 'was', 'were')} kept as typed`,
+      twice.size && (byName ? `${joinList([...twice])} ${are(twice.size, 'was', 'were each')} named in more than one row, and taken as one ${word()}`
+        : `${joinList([...twice])} ${are(twice.size, 'is', 'are')} now the name of more than one ${word()}`),
+      odd && `${count(odd, 'percentage')} ${are(odd, 'is', 'are')} over 100% or below 0%`,
     ].filter(Boolean);
     const sentence = list => list.length ? ` ${list.join('; ').replace(/^./, s => s.toUpperCase())}.` : '';
-    if (!changed && !added.length) return Shell.toast(`Nothing to paste: the values are there already.${sentence(skipped)}`);
+    // A paste into a box being typed in has closed it, so the page is drawn again whatever comes of it.
+    if (!changed && !added.length) { Shell.toast(`Nothing to paste: the values are there already.${sentence(skipped)}`); return draw(); }
     const error = commit(next);
-    if (error) return Shell.toast(`Couldn’t paste that: ${error}`, { tone: 'error' });
-    if (added.length) { ensureKindStyles(ui.kind); saveState(); ui.added.push(...added); }
+    if (error) { Shell.toast(`Couldn’t paste that: ${error}`, { tone: 'error' }); return draw(); }
+    if (added.length) { ensureKindStyles(ui.kind); saveState(); ui.added.push(...added); ui.toEnd = true; }
     const did = [changed && `Pasted ${count(changed, 'value')}`, added.length && `${changed ? 'added' : 'Added'} ${count(added.length, word())}`].filter(Boolean).join(' and ');
     Shell.toast(`${did}.${sentence(skipped)}`, { undo: true });
     render();
@@ -1448,19 +1480,23 @@
     gridKeys(e);
   });
 
-  // Pasting tab-separated text fills cells from the active one, or adds rows; while typing in a cell, a
-  // paste of more than one cell does the same from that cell.
+  // Pasting tab-separated text fills cells from the active one, or adds rows. While typing in a cell, or in
+  // the new row's Name, a paste of one value is typed in; a paste of more does as it would in the table,
+  // from that cell, or in rows of their own below the last.
   document.addEventListener('paste', e => {
     if (!inPage() || layerOpen()) return;
-    const t = e.target;
+    const t = e.target, box = t.dataset?.focus;
     const grid = parseTsv(e.clipboardData?.getData('text/plain') ?? '');
     const many = grid.length > 1 || grid[0]?.length > 1;
-    if (t.dataset?.focus === 'edit') {
+    if (box === 'edit' || box === 'draft') {
       if (!many) return;
       e.preventDefault();
-      ui.edit = null;
-    } else if (typingIn(t)) return;
-    else e.preventDefault();
+      if (box === 'edit') { ui.edit = null; return pasteGrid(grid); }
+      ui.draft = null;
+      return pasteGrid(grid, { row: ui.rows.length, col: 0 });
+    }
+    if (typingIn(t)) return;
+    e.preventDefault();
     pasteGrid(grid);
   });
 
