@@ -700,28 +700,81 @@ const Shell = (() => {
   }
 
   // ---- Undo ----
-  // The toast says what was taken back or put back, as the history records it ("Undid “Deleted …”").
+  // An undo or redo steps through the page's own undo history (the model's stacks, one for each chart).
+  // With nothing left there (the change was made on another page, or before this one opened), the history
+  // is the stack: an undo takes back your latest change as the history has it, if it can still be taken
+  // back, the way History's Restore does, and says why not if not; a redo puts back what an undo took back,
+  // while nothing has changed since. What was taken back, and how to put it back, is kept for the tab, so
+  // it carries from page to page. The toast says what was undone or redone, as the history records it
+  // ("Undid “Deleted …”"), and in which chart, where the workbook has had more than one.
+  const inChart = () => workbook.charts.length + workbook.deleted.length > 1 ? ` in ${chartInUse().name}` : '';
   function undoOrRedo(redo) {
-    const last = historyLog[0];
-    if (!(redo ? redoState() : undoState())) return redo ? toast('Nothing to redo') : takeBackLatest();
+    const step = (redo ? redoStack : undoStack).at(-1), last = historyLog[0];
+    if (!(redo ? redoState() : undoState())) return redo ? putBackLatest() : takeBackLatest();
     for (const fn of undoListeners) fn();
     render();
-    toast(historyLog[0] !== last ? historyLog[0].summary : redo ? 'Redone' : 'Undone', redo ? {} : { action: { label: 'Redo', run: () => undoOrRedo(true) } });
+    const said = historyLog[0] !== last ? historyLog[0].summary : step.summary ? `${redo ? 'Redid' : 'Undid'} “${step.summary}”` : redo ? 'Redone' : 'Undone';
+    toast(said + inChart(), { action: redo ? { label: 'Undo', run: () => undoOrRedo(false) } : { label: 'Redo', run: () => undoOrRedo(true) } });
   }
-  // With nothing to undo in this page (the change was made on another, or before it opened), an undo takes
-  // back your latest change as the history has it, if it can still be taken back, the way History's Restore
-  // does; and says why not, if not.
+
+  // The steps taken through the history in this tab: `own`, the changes they made, which an undo never
+  // takes back in turn; and `redo`, what a redo puts back, the latest last, while the history's latest
+  // entry is still `head`, the last step's own.
+  const STEPS_KEY = 'rboreal.steps';
+  function steps() {
+    const s = { own: [], redo: [], head: null };
+    try { Object.assign(s, JSON.parse(sessionStorage.getItem(STEPS_KEY))); } catch {}
+    if (s.head !== (historyLog[0]?.id ?? null)) s.redo = [];
+    return s;
+  }
+  function keepSteps(s) {
+    try { sessionStorage.setItem(STEPS_KEY, JSON.stringify({ own: s.own.slice(-200), redo: s.redo, head: historyLog[0]?.id ?? null })); } catch {}
+  }
+  // Takes back a history entry's change, as a change of its own that stays off the page's undo stack, so
+  // the next undo goes further back through the history rather than undoing this. What the page could
+  // still redo waits with the step (`parked`, by the step's entry), and comes back with the state it
+  // belongs to (`back`) when a redo puts the step back.
+  const parked = new Map();
+  function historyStep(entry, back = []) {
+    const waiting = redoStack.slice();
+    const error = restoreChange(entry);
+    if (error) return error;
+    undoStack.pop();
+    redoStack.push(...back);
+    if (waiting.length) parked.set(historyLog[0].id, waiting);
+    return null;
+  }
+  const toHistory = { action: { label: 'Open History', run: () => { location.href = 'history.html'; } } };
+  // Your latest change that's still in effect: one already undone, however it was, has nothing to take back.
+  const inEffect = h => !h.changes.every(c => sameRecord(entered[c.id], c.before));
   function takeBackLatest() {
-    const mine = historyLog.find(h => h.who === authorName() && !['undo', 'redo', 'restore'].includes(h.source) && h.changes?.length);
+    const s = steps();
+    const mine = historyLog.find(h => h.who === authorName() && !['undo', 'redo', 'restore'].includes(h.source) && h.changes?.length && !s.own.includes(h.id) && inEffect(h));
     if (!mine) return toast('Nothing to undo');
-    const toHistory = { action: { label: 'Open History', run: () => { location.href = 'history.html'; } } };
     if (restoreBlock(mine)) return toast(`Nothing to undo here: your last change, “${mine.summary}”, has changed since.`, toHistory);
-    const error = restoreChange(mine);
+    const error = historyStep(mine);
     if (error) return toast(error, { tone: 'error' });
+    s.own.push(historyLog[0].id);
+    s.redo.push({ entry: mine.id, by: historyLog[0].id });
+    keepSteps(s);
     for (const fn of undoListeners) fn();
     render();
-    // Taking back is a change of its own, so putting it back again is undoing that.
-    toast(`Took back “${mine.summary}”`, { action: { label: 'Redo', run: () => undoOrRedo(false) } });
+    toast(`Took back “${mine.summary}”${inChart()}`, { action: { label: 'Redo', run: () => undoOrRedo(true) } });
+  }
+  function putBackLatest() {
+    const s = steps(), next = s.redo.at(-1);
+    const by = next && historyLog.find(h => h.id === next.by), entry = next && historyLog.find(h => h.id === next.entry);
+    if (!by || !entry) return toast('Nothing to redo');
+    if (restoreBlock(by)) return toast(`Can’t put back “${entry.summary}”: it has changed since.`, toHistory);
+    const error = historyStep(by, parked.get(by.id));
+    if (error) return toast(error, { tone: 'error' });
+    parked.delete(by.id);
+    s.own.push(historyLog[0].id);
+    s.redo.pop();
+    keepSteps(s);
+    for (const fn of undoListeners) fn();
+    render();
+    toast(`Put back “${entry.summary}”${inChart()}`, { action: { label: 'Undo', run: () => undoOrRedo(false) } });
   }
 
   // ---- Events ----
