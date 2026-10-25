@@ -363,7 +363,7 @@ Errors show where the output would be, as in Excel, and pass on to whatever read
 These pilot the UI-only names discussed on 2026-10-24. Formulas use them, and so can the panel.
 
 - **Relation names.** A relation as a whole can have a name: Ownership, Control.
-  - A name covers every relation parameterization with the same root edge labels and type. For example, Ownership covers ownership by Entities, by Individuals and by Investor Groups.
+  - A name covers every relation parameterization of one form (model.html §2): the same edge labels, type and depths, whatever kinds the sides are. For example, Ownership covers ownership by Entities, by Individuals and by Investor Groups.
   - Formulas use the name to call the relation, and as the name of a linked record's output (`@.Membership`).
   - Since it covers all the kinds at once, a relation name might also be the unit styles attach to. That would answer the open question about styles multiplying with kinds.
 - **List names.** A name for the list of relatives in one role, seen from another role. Ownership's Owners are seen from Owned, and its Holdings from Owner. Without a name, a list goes by the edge label of the role it lists (Owner), as the panel's rows do now. A named list still answers to that edge label too, so formulas written before it was named keep working.
@@ -449,10 +449,10 @@ Charts don't share formulas. The prototype reuses a definition such as Affiliate
 As built in the prototype:
 
 - **Where formulas are written.**
-  - An entry's edit form, and an entered relation's own panel, show the definition that covers it, editable in place, or "Add a formula".
+  - An entry's edit form, and an entered relation's own panel, show the definition that covers it, editable in place, or "Add definition".
   - Typing a value that starts with `=` into a field's or choice's value box makes it the formula for every location like it, as in Excel. A new tag's row has a box for `← condition` that does the same.
-  - The Formulas view, reached from All, from Add › Formula… and from the chart's Formulas tab, lists every definition. It opens each one in an editor, and has a Names section for relation names and list names.
-  - The Relate view's form for a new kind of relation offers "Worked out by formula instead…".
+  - The Schema view, reached from All and from the chart's Formulas tab (Definitions), lists the chart's vocabulary by form, with each form's definitions and its relation and list names. "New definition", in the ribbon, in Add › Definition… and on a form's row, opens the definition editor.
+  - The Relate view's form for a new kind of relation offers to define it by formula instead.
   - In the editor:
     - implications are rows, each with a label and a formula, dragged to reorder;
     - syntax problems are underlined as you type;
@@ -461,7 +461,7 @@ As built in the prototype:
 - **How computed records look.**
   - Computed values are italic, and an implied tag's checkbox is outlined rather than filled.
   - An "fx" mark after each opens why it's there: the definition, the implications that held, and the records each read.
-  - Computed rows can't be deleted. They offer "Keep as entered" and "Edit formula" instead.
+  - Computed rows can't be deleted. They offer "Keep as entered" and "Edit definition" instead.
   - Rows of computed relations start collapsed, with a count and the first few names.
   - Errors show in red in place.
 - **Overrides.**
