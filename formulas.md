@@ -302,7 +302,7 @@ A first set:
 | `x IN list` | TRUE if x is one of the list's items. |
 | `BLANK()`, `ISBLANK(x)` | BLANK, and whether x is BLANK. |
 | `ISRULEDOUT(x)` | TRUE if x is a ruled-out tag. |
-| `COUNT`, `SUM`, `MIN`, `MAX`, `AVERAGE`, `UNIQUE`, `TEXTJOIN` | As in Excel, over lists, except that COUNT counts every item, not only numbers. |
+| `COUNT`, `SUM`, `MIN`, `MAX`, `AVERAGE`, `UNIQUE`, `TEXTJOIN` | As in Excel, over lists, except that COUNT counts every item, not only numbers. MIN and MAX also take dates, giving the earliest or latest, but not a mix of dates and numbers. |
 | `FILTER(list, condition)` | The items for which the condition is TRUE, with `@` as each item. |
 | `ANY(list, condition)`, `ALL(list, condition)` | Whether the condition holds for some item, or for every item. |
 | `EACH(list, expression)` | The list of the expression's values, with `@` as each item. |
@@ -313,7 +313,8 @@ A first set:
 | `LOOKTHROUGH(from, to, list, factor)` | The sum, over every way of getting from `from` to `to` by following the list, of the product of `factor` along the way. BLANK if there's no way. |
 | `WITHOUT(x, expression)` | The expression, worked out as if x and everything that depends on it weren't in the chart, with every computed record recomputed. For counterfactuals like §57(b)(2)'s carve-out. |
 | `IMPLIEDBY(tag, label, …)` | TRUE if the tag is attested and implied by an implication with one of the labels. |
-| `TODAY`, `DATE`, `YEAR`, `YEARFRAC`, and text functions | As in Excel, added as needed. |
+| `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, `YEARFRAC`, `EDATE`, `EOMONTH`, and text functions | As in Excel, added as needed. A BLANK date compares as earlier than every date. |
+| `NEXTDATE(month, day, from)` | The next date with that month and day, on or after `from` (today if left out). February 29 falls on February 28 in other years. For annual deadlines: `NEXTDATE(3, 31)` is the next March 31. |
 
 Some arguments name a step instead of giving a value: REACH's and LOOKTHROUGH's `list`, and LOOKTHROUGH's `factor`. They're looked up on each record along the way.
 

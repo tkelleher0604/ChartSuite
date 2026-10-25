@@ -591,9 +591,13 @@ function equal(a, b) {
   return a === b;
 }
 
+// BLANK takes the least value of the other side's kind, as in Excel: 0, empty text, FALSE, or a date
+// before every date.
+const EARLIEST = { t: 'date', iso: '0000-01-01' };
 function ordering(S, a, b) {
-  if (a === null) a = typeof b === 'string' ? '' : typeof b === 'boolean' ? false : 0;
-  if (b === null) b = typeof a === 'string' ? '' : typeof a === 'boolean' ? false : 0;
+  const least = x => typeof x === 'string' ? '' : typeof x === 'boolean' ? false : isDate(x) ? EARLIEST : 0;
+  if (a === null) a = least(b);
+  if (b === null) b = least(a);
   if (typeof a === 'number' && typeof b === 'number') return near(a, b) ? 0 : Math.sign(a - b);
   if (typeof a === 'string' && typeof b === 'string') return Math.sign(a.localeCompare(b, undefined, { sensitivity: 'base' }));
   if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : a ? 1 : -1;
@@ -706,6 +710,22 @@ function numbersOf(a, c) {
   return out;
 }
 
+// MIN and MAX: of numbers, or of dates (the earliest or latest), skipping blanks and text. With nothing
+// to compare, MIN and MAX of numbers give 0, as in Excel.
+function extremeOf(name, a, c, sign) {
+  const items = flatArgs(a, c);
+  if (isErr(items)) return items;
+  const nums = [], dates = [];
+  for (const x of items) {
+    const s = scalar(c.S, x);
+    if (isErr(s)) return s;
+    if (typeof s === 'number') nums.push(s); else if (isDate(s)) dates.push(s);
+  }
+  if (nums.length && dates.length) return err('#VALUE!', `${name} takes numbers or dates, not both.`);
+  if (!dates.length) return nums.length ? (sign > 0 ? Math.max(...nums) : Math.min(...nums)) : 0;
+  return dates.reduce((m, d) => (sign > 0 ? d.iso > m.iso : d.iso < m.iso) ? d : m);
+}
+
 // The name a step argument gives, for REACH and LOOKTHROUGH.
 const stepName = x => x.k === 'name' ? x.name : null;
 
@@ -767,14 +787,8 @@ const FUNCTIONS = {
     const xs = numbersOf(a, c);
     return isErr(xs) ? xs : xs.reduce((s, x) => s + x, 0);
   },
-  MIN(a, c) {
-    const xs = numbersOf(a, c);
-    return isErr(xs) ? xs : xs.length ? Math.min(...xs) : 0;
-  },
-  MAX(a, c) {
-    const xs = numbersOf(a, c);
-    return isErr(xs) ? xs : xs.length ? Math.max(...xs) : 0;
-  },
+  MIN(a, c) { return extremeOf('MIN', a, c, -1); },
+  MAX(a, c) { return extremeOf('MAX', a, c, 1); },
   AVERAGE(a, c) {
     const xs = numbersOf(a, c);
     if (isErr(xs)) return xs;
@@ -967,6 +981,21 @@ const FUNCTIONS = {
   // As in Excel: the date some months on, kept within the month it lands in; and the last day of that month.
   EDATE(a, c) { return monthsOn(a, c, 'EDATE', false); },
   EOMONTH(a, c) { return monthsOn(a, c, 'EOMONTH', true); },
+  // The next date with a month and day, on or after a date (today, if none is given): when an annual
+  // deadline next falls. February 29 falls on February 28 in other years.
+  NEXTDATE(a, c) {
+    const bad = arity('NEXTDATE', a, 2, 3);
+    if (bad) return bad;
+    const [m, d] = a.slice(0, 2).map(x => toNumber(c.S, ev(x.x, c)));
+    const e = [m, d].find(isErr);
+    if (e) return e;
+    const from = a[2] ? scalar(c.S, ev(a[2].x, c)) : { t: 'date', iso: isoOf(new Date()) };
+    if (isErr(from)) return from;
+    if (!isDate(from)) return err('#VALUE!', 'NEXTDATE’s third argument is a date.');
+    const at = y => { const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); return isoOf(new Date(Date.UTC(y, m - 1, Math.min(d, last)))); };
+    const y = Number(from.iso.slice(0, 4));
+    return { t: 'date', iso: at(y) >= from.iso ? at(y) : at(y + 1) };
+  },
   // Years between two dates, counting actual days over 365.
   YEARFRAC(a, c) {
     const bad = arity('YEARFRAC', a, 2);
