@@ -4,7 +4,7 @@
    Finder takes dendra.css's --rf-1 … --rf-6; the redline, .add and .del. */
 
 /* ---- The bar: the breadcrumb, the output, the name, and the row that gave it ---- */
-.fxbar { position: relative; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 17px; white-space: nowrap; }
+.fxbar { position: relative; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; white-space: nowrap; }
 .fx-view { color: var(--ink-2); }
 .fx-crumb { flex: 0 1 auto; min-width: 4ch; max-width: 200px; overflow: hidden; text-overflow: ellipsis; border: 0; padding: 0; background: none; color: var(--ink-2); }
 .fx-crumb:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
@@ -37,7 +37,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-text { display: inline-flex; align-items: center; }
 .fx-value:hover:not(:focus) { border-color: var(--rule); }
 .fx-value.fx-typed { color: var(--accent-ink); }
-.fx-was { margin-right: 10px; }
+.fx-was { margin-right: 8px; }
 /* A tag's pending state: dashed, in the colour it would take. */
 .tag.pend { border-style: dashed; background: transparent; }
 .tag.pend.yes { border-color: var(--yes); }
@@ -59,10 +59,10 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 
 /* ---- The rows, over the view: a label column, then the formula; delete and reorder on hover ---- */
 .fx-panel { position: absolute; z-index: 10; top: calc(100% + 1px); left: 0; width: var(--fx-w, 100%); max-height: min(40vh, 400px); overflow: auto;
-  padding: 8px 16px 4px 17px; white-space: normal; background: var(--surface); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow-pop); clip-path: inset(0 0 -32px 0); }
+  padding: 8px 16px 4px 16px; white-space: normal; background: var(--surface); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow-pop); clip-path: inset(0 0 -32px 0); }
 .fx-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; row-gap: 2px; }
 .fx-row { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: start; }
-.fx-row > .fx-label { grid-column: 1; max-width: 240px; padding: 3px 24px 3px 0; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-row > .fx-label { grid-column: 1; max-width: 240px; padding: 2px 24px 2px 0; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-row > input.fx-label { height: 24px; margin: 0 20px 0 -5px; padding: 0 4px; font-weight: 500; field-sizing: content; min-width: 3ch; }
 .fx-row > input.fx-label:hover:not(:focus) { border-color: var(--rule); }
 .fx-row > .fx-cm { grid-column: 2; min-width: 0; margin-inline: -6px; }
@@ -72,7 +72,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-row.alt .CodeMirror { color: var(--ink-2); }
 .fx-row.grey > .fx-label { font-weight: 400; color: var(--ink-3); }
 .fx-row.gone > .fx-label, .fx-cm.gone { color: var(--no); text-decoration: line-through; }
-.fx-cm.gone { padding: 3px 6px; }
+.fx-cm.gone { padding: 2px 8px; }
 /* A row that can be edited looks it on hover; the one being edited is a field, outlined as an input in focus. */
 .fx-row.editable:not(.editing) > .fx-cm:hover .CodeMirror { background: var(--hover); border-radius: var(--r); }
 .fx-row.editing > .fx-cm .CodeMirror { background: var(--surface); border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 1px var(--accent); }
@@ -91,7 +91,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 
 /* ---- A formula, in CodeMirror: the interface's face, functions and keywords in small capitals ---- */
 .fxbar .CodeMirror { height: auto; background: transparent; color: inherit; font: var(--t13); }
-.fxbar .CodeMirror-lines { padding: 3px 6px; }
+.fxbar .CodeMirror-lines { padding: 2px 8px; }
 .fxbar .CodeMirror pre.CodeMirror-line { padding: 0; }
 .fx-cm.grey .CodeMirror { color: var(--ink-3); }
 .fxbar .cm-builtin, .fxbar .cm-keyword, .fxbar .cm-atom { color: inherit; font-weight: 400; font-variant: all-small-caps; letter-spacing: .04em; }
@@ -115,5 +115,5 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-val:not([class*="fx-c"]) { border-left-color: var(--ink-3); background: var(--hover); }
 .fx-loop { text-decoration: underline 2px var(--no); text-underline-offset: 3px; }
 /* What the rows would give, at the end of the cited row, where an entry overrides them. */
-.fx-would { margin-left: 14px; color: var(--ink-2); font-variant: normal; letter-spacing: 0; white-space: nowrap; }
+.fx-would { margin-left: 16px; color: var(--ink-2); font-variant: normal; letter-spacing: 0; white-space: nowrap; }
 .fx-would > .tag { vertical-align: -2px; }

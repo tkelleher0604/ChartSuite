@@ -813,8 +813,8 @@ Shell.register('attention', { items: () => attention.value });
 Shell.register('find', { items: () => {
   const st = App.state.peek(), n = App.notes.peek(), out = [];
   for (const ids of T.index(st).kinds.values()) for (const id of ids) if (!T.isView(st[id])) {
-    out.push({ label: n.nameOf(st, id), detail: st[id].kind, run: () => select([id]) });
-    for (const [list] of relatives(id).lists) out.push({ label: `${n.shortOf(st, id)} › ${list}`, detail: 'List', run: () => { aim.value = 'list:' + list; select([id]); } });
+    out.push({ key: id, label: n.nameOf(st, id), names: [n.shortOf(st, id)].filter(s => s && s !== n.nameOf(st, id)), detail: st[id].kind, run: () => select([id]) });
+    for (const [list] of relatives(id).lists) out.push({ of: id, label: `${n.shortOf(st, id)} › ${list}`, detail: 'List', run: () => { aim.value = 'list:' + list; select([id]); } });
   }
   return out;
 } });
