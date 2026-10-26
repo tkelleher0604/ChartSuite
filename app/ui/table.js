@@ -80,11 +80,13 @@ const Table = (() => {
       const own = up && ids.length && norm(st[ids[0]].edge);
       for (const c of entryColumns(S, isRow)) if (!(up && c.path.length === 1 && norm(c.path[0]) === own))
         cols.push(typed({ ...c, up, pattern: below(base, c.path), title: c.path.at(-1), parent: c.path.slice(0, -1).join(' › '), base: order(base, c.path) }, c.specs));
-      // In the view, Order places a column and Shown shows it; by default every entry at the row shows.
+      // In the view, Order places a column and Shown shows it; by default every entry at the row shows. A tag
+      // a Check note covers is a check, which says only where it fails.
       for (const c of cols) {
         const o = c.pattern && N.resolve('Order', c.pattern, view, c.param);
         c.place = o?.note.view === view ? o.value : Infinity;
         c.shown = !c.pattern || (N.value('Shown', c.pattern, view, c.param) ?? (!!c.param || c.path.length === 1));
+        c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
       }
       const lex = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? -2) - (b[i] ?? -2); if (d) return d; } return 0; };
       cols.sort((a, b) => a.place - b.place || lex(a.base, b.base) || a.key.localeCompare(b.key));
@@ -177,7 +179,9 @@ const Table = (() => {
   const LIST = { autocomplete: true, listOnEmpty: true, placeholderEmpty: 'No match', placeholderLoading: '' };   // Tabulator's dropdowns, worded as the shell's menus
 
   function formatter(c) {
-    const shown = (v, m) => c.type === 'tag' ? (v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`)
+    // A tag's box, blank, attested or ruled out; a check's only where it fails.
+    const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
+    const shown = (v, m) => c.type === 'tag' ? (!c.check ? box(v, m) : v === false ? box(v, m) : '')
       : c.type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
       : esc(text(c.type, v));
     return cell => {
@@ -231,7 +235,9 @@ const Table = (() => {
   let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null, bar = null;
   // The grid fills its width, whatever the inspector leaves it. Each column is as wide as what it holds, to a
   // cap; where there's room, what's cut short has it first, the least cut first, so the most come out whole,
-  // and what's left goes to the widest column of words. A column the user has sized keeps its width.
+  // and what's left goes to the widest column of words. Where there's too little, the columns of words give
+  // way, the widest first, down to one width, so figures and dates stay whole. A column the user has sized
+  // keeps its width.
   const WORDS = /\bc-(text|edge|choice|document)\b/, sized = new WeakSet();   // sized here, so free to size again
   Tabulator.extendModule('layout', 'modes', { fitDataSlack(columns) {
     const shown = columns.filter(c => c.visible), free = shown.filter(c => !c.widthFixed || sized.has(c)), full = new Map();
@@ -242,9 +248,16 @@ const Table = (() => {
       if (c.getWidth() > cap) c.setWidthActual(cap);
     }
     let room = this.table.rowManager.element.clientWidth - shown.reduce((w, c) => w + c.getWidth(), 0);
+    const words = free.filter(c => WORDS.test(c.definition.cssClass)), floor = (c, w) => Math.max(w, c.minWidth || 0);
+    if (room < 0) {
+      const freed = w => words.reduce((s, c) => s + Math.max(0, c.getWidth() - floor(c, w)), 0);
+      let lo = 0, hi = Math.max(0, ...words.map(c => c.getWidth()));
+      while (hi - lo > 1) { const w = (lo + hi) / 2; if (freed(w) >= -room) lo = w; else hi = w; }
+      for (const c of words) if (c.getWidth() > floor(c, lo)) { room += c.getWidth() - Math.floor(floor(c, lo)); c.setWidth(Math.floor(floor(c, lo))); sized.add(c); }
+    }
     const give = (c, d) => { if (c && d > 0) { c.setWidth(c.getWidth() + d); sized.add(c); room -= d; } };
     for (const c of [...free].sort((a, b) => (full.get(a) - a.getWidth()) - (full.get(b) - b.getWidth()))) give(c, Math.min(room, full.get(c) - c.getWidth()));
-    give(free.filter(c => WORDS.test(c.definition.cssClass)).reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null), room);
+    give(words.reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null), room);
   } });
 
   function columnDefs(m) {
@@ -343,11 +356,12 @@ const Table = (() => {
       // One stop in the tab order: the rows, not the headings and their filters.
       host.querySelectorAll('.tabulator-header, .tabulator-header-filter input').forEach(x => x.setAttribute('tabindex', '-1'));
       mark();
+      reveal(Shell.selection.peek()[0]);
       regain();
     });
   }
   // What the columns are; when it changes, the grid is built again rather than refreshed.
-  const signature = m => JSON.stringify([m.view, m.cols.filter(c => c.shown).map(c => [c.key, c.title, c.type, c.options, c.filed]), m.groups]);
+  const signature = m => JSON.stringify([m.view, m.cols.filter(c => c.shown).map(c => [c.key, c.title, c.type, c.options, c.filed, c.check]), m.groups]);
 
   let reds = new Set(), seen = null;
   function refresh() {
@@ -381,7 +395,7 @@ const Table = (() => {
       reds = red;
       t.restoreRedraw();
       mark();
-      if (first) t.scrollToRow(first, 'nearest', false).catch(() => {});
+      if (first) reveal(first);
       flash(lit);
       regain();
       if (f.again) refresh();
@@ -433,7 +447,7 @@ const Table = (() => {
     const row = (id && rows.find(r => r.getData().id === id)) || rows[0], col = table.getColumns().find(c => c.getField());
     if (!row || !col) return;
     table.addRange(row.getCell(col), row.getCell(col));
-    table.scrollToRow(row, 'nearest', false).catch(() => {});
+    reveal(row.getData().id);
   }
   // F6 and the like give the grid the keys, at its active cell.
   function focus() {
@@ -445,11 +459,14 @@ const Table = (() => {
     return true;
   }
   // Before Tabulator hears a key: with no cell active, a key that moves makes one; while a paste is pending,
-  // Enter makes it.
+  // Enter makes it; and on a cell that can't be edited, Enter moves down, as Excel's does.
+  const canEdit = cell => { const d = cell.getColumn().getDefinition(); return !!d.editor && (typeof d.editable !== 'function' || d.editable(cell)); };
   function first(e) {
     if (!table || table.modules.edit?.currentCell) return;
-    if (e.key === 'Enter' && staged.peek()) { e.preventDefault(); e.stopPropagation(); commit(); return; }
-    if (/^(Arrow|Page|Home$|End$)/.test(e.key) && !table.modules.selectRange?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(); }
+    const cell = e.key === 'Enter' && !staged.peek() && table.modules.selectRange?.getActiveCell()?.getComponent();
+    if (e.key === 'Enter' && staged.peek()) { e.preventDefault(); e.stopPropagation(); commit(); }
+    else if (cell && !canEdit(cell)) { e.preventDefault(); e.stopPropagation(); move('down'); }
+    else if (/^(Arrow|Page|Home$|End$)/.test(e.key) && !table.modules.selectRange?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(); }
   }
 
   // ---- Writing: each edit, paste or deletion one change ----
@@ -493,10 +510,10 @@ const Table = (() => {
     if (to) tx.update(row, { args: st[row].args.map(a => same(a.edge, edge) ? { edge: a.edge, at: to } : a) });
   }
   // A tag's box: blank, attested, ruled out, and blank again; over a formula, entering wins and clearing
-  // gives the formula back.
+  // gives the formula back. A check has a box only where it fails.
   function flip(cell) {
     const m = meta(cell), c = columnOf(cell), v = cell.getValue(), entered = m.id in App.entered.value;
-    if (!m.at || App.readOnly.peek() || current.red) return;
+    if (!m.at || App.readOnly.peek() || current.red || (c.check && v !== false)) return;
     if (v === false && entered) edit(tx => tx.remove(m.id));
     else { const p = placed(m, c, { tag: v !== true }); if (p) enter(Object.fromEntries([p])); }
     Shell.emit('tag-flip', m.id);
@@ -798,8 +815,10 @@ const Table = (() => {
 
   // ---- Selection: a row selected is the record selected, and the other way round ----
   let picked = new Set(), picking = false;
-  // Whether a record is a row of the grid shown (Tabulator warns of a row asked for that isn't).
-  const inGrid = id => !!current?.data.some(r => r.id === id);
+  // Whether a record is a row the grid shows, built, filtered and folded as it is (Tabulator warns of a row
+  // asked for that isn't); and its row brought into view if it is.
+  const inGrid = id => { const row = ready && id && table?.rowManager.findRow(id); return !!row && table.rowManager.getDisplayRows().includes(row); };
+  const reveal = id => { if (inGrid(id)) table.scrollToRow(id, 'nearest', false).catch(() => {}); };
   function pick(range) {
     if (!range || !current) return;
     const rows = range.getRows(), all = table.getRows('active').length;
@@ -860,7 +879,7 @@ const Table = (() => {
       const offs = [
         effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view.
-        effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking && id && table && inGrid(id)) table.scrollToRow(id, 'nearest', false).catch(() => {}); }),
+        effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking) reveal(id); }),
         // A grid drawn while its slot was hidden is measured again once it shows.
         effect(() => { Shell.view.value; requestAnimationFrame(() => { if (table && ready && el?.offsetParent) table.redraw(); }); }),
       ];

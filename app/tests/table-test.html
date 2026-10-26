@@ -18,6 +18,9 @@
   .results { position: fixed; top: 41px; right: 0; bottom: 33px; width: 520px; z-index: 30; overflow: auto; padding: 16px 20px; background: var(--surface); border-left: 1px solid var(--rule); font: 12px/18px var(--mono); color: var(--ink-2); }
   .results .fail { color: var(--no); }
   .results b { color: var(--ink); font-weight: 500; }
+  /* The inspector glides in and out in the app; here it's where it ends at once, since a headless run under a
+     time budget draws no frames to glide in. */
+  .main { transition: none !important; }
 </style>
 </head>
 <body>
@@ -298,6 +301,28 @@ async function run() {
   press('Escape'); await tick(150);
   check('Esc leaves it unmade',!$('.pastebar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
 
+  // ---- A check: a tag a Check note covers says only where it fails, and a failure needs attention ----
+  // The sample's Check notes are area F's; where they aren't yet, they're stood in for here.
+  if (!App.notes.peek().notes('Check').length) App.change(tx => ['def_in_range', 'def_adds_up', 'def_capacity_held'].forEach(id => {
+    const n = App.notes.peek().notes('Formula').find(x => x.note === id); if (n) tx.note('Check', n.pattern, true); }), { dated: false });
+  await tick(150);
+  const checkCells = () => Table.grid.getRows().map(r => r.getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range')?.getElement()).filter(Boolean);
+  check('A check’s column is blank where nothing fails: no empty boxes', checkCells().length > 0 && checkCells().every(e => !e.querySelector('.tag')), checkCells().map(e => e.innerHTML).slice(0, 3).join(' | '));
+  const errorsNow = () => Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error').length, e0 = errorsNow();
+  const usRow = Table.grid.getRows().find(r => r.getData().f0 === 'U.S. Investors').getData().id;
+  const usPct = (Tree.index(st()).entries.get(usRow) ?? []).find(e => st()[e].edge === 'Percentage');
+  App.change(tx => tx.update(usPct, { value: 64.7 }), { say: 'Changed Percentage' }); await tick(150);
+  check('A percentage out of range fails its check: a red ✗ in that row’s cell, and only there', checkCells().filter(e => e.querySelector('.tag.no')).length === 1
+    && rowOf(usRow).getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range').getElement().querySelector('.tag.no'), checkCells().map(e => e.innerHTML).join(' | '));
+  check('… counted as an error in the status bar, with Fund III’s ownership no longer adding up', errorsNow() === e0 + 2 && new RegExp(`${e0 + 2} errors`).test($('.status .counts')?.textContent), `${e0} → ${errorsNow()}: ${$('.status .counts')?.textContent}`);
+  let asked = null;
+  const offAsk = Shell.on('why-open', id => { asked = id; });
+  for (const it of Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error')) { it.go(); await tick(40); if (Shell.selection.peek().join() === usRow) break; }
+  offAsk();
+  check('… and going to it selects what it’s at, asking why it fails', Shell.selection.peek().join() === usRow && st()[asked]?.edge === 'Percentages In Range' && st()[asked].tag === false, `${Shell.selection.peek().join()} ${asked}`);
+  Shell.select([]); undo(); await tick(150);
+  check('Undone, nothing fails, and nothing is counted', errorsNow() === e0 && checkCells().every(e => !e.querySelector('.tag')));
+
   // A relation ruled out: a red ✗ in the margin, its words intact.
   await addTable('Relations', 'Signing Authority');
   const ruled = $('.grid .tabulator-row.ruled');
@@ -319,6 +344,12 @@ async function run() {
   const overdue = dates.data.filter(r => r._g === 'overdue');
   check('What’s overdue is a date a formula gives, before today', overdue.length > 0 && overdue.every(r => r.f0 < Log.today() && (r._m.f0.fx || r._m.f0.over)), overdue.map(r => r.f0).join());
   check('Overdue reads red', $$('.grid .tabulator-cell.due').length === overdue.length);
+  const whatCol = column('What'), dr0 = Table.grid.getRows('active')[0];
+  Table.grid.addRange(dr0.getCell(whatCol)); await tick(40);
+  errors.length = 0;
+  press('Enter', Table.grid.rowManager.element); await tick(100);
+  const act = Table.grid.modules.selectRange.getActiveCell()?.getComponent();
+  check('Enter on a cell that can’t be edited moves down, as Excel’s does, and throws nothing', !errors.length && act && act.getRow() !== dr0 && act.getColumn() === whatCol, errors.join(' / '));
   await addTable(null, 'Documents');
   const docs = Table.model(Shell.view.peek());
   check('Documents has every document link, with the Document’s own entries beside it', docs.data.length === Object.values(st()).filter(r => r.field === 'document').length
@@ -339,6 +370,8 @@ async function run() {
   const dl = $('.date-pop .date-days'), near = [...dl.querySelectorAll('[data-day]')].find(b => b.dataset.day <= '2024-01-15');
   check('As of a day, the list of days opens there', !!near && near.offsetTop >= dl.scrollTop && near.offsetTop < dl.scrollTop + dl.clientHeight, `${near?.dataset.day} at ${near?.offsetTop}, list at ${dl?.scrollTop}`);
   const typedDay = $('.date-pop .date-top input');
+  check('As of opens with the day in its field, selected, so typing replaces it', document.activeElement === typedDay && typedDay.selectionStart === 0 && typedDay.selectionEnd === typedDay.value.length && typedDay.value.length > 0,
+    `${document.activeElement?.outerHTML.slice(0, 60)} ${typedDay.selectionStart}–${typedDay.selectionEnd} of ${typedDay.value.length}`);
   typedDay.value = 'December 31, 2023'; typedDay.dispatchEvent(new Event('input', { bubbles: true })); await tick();
   typedDay.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(100);
   check('A day typed and entered is shown, and the calendar closes', Shell.time.peek()?.asOf === '2023-12-31' && !$('.date-pop'), JSON.stringify(Shell.time.peek()));
@@ -352,7 +385,7 @@ async function run() {
   check('While another day shows, the title bar’s date says which, filled, with an × back to today, and no band repeats it', $('.titlebar .asof.past .dd')?.textContent === 'As of July 1, 2024'
     && !!$('.titlebar .asof.past .btn.icon[aria-label="Today"]') && !$('.band') && getComputedStyle($('.titlebar .asof.past')).backgroundColor !== 'rgba(0, 0, 0, 0)', $('.titlebar .asof')?.outerHTML);
   check('The ruler shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
-  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); await tick(60);
+  await tick(60);
   const ruler = $('.scrub').getBoundingClientRect();
   check('Each year’s label stays inside the ruler, or its line stands alone', $$('.scrub > .yr').filter(y => y.textContent).every(y => y.getBoundingClientRect().right <= ruler.right - 16 + 0.5),
     $$('.scrub > .yr').map(y => `${y.textContent} ${Math.round(y.getBoundingClientRect().right)} ${y.style.left}`).join(' ') + ` of ${ruler.left}–${ruler.right}, ${$('.scrub').clientWidth}`);
@@ -386,6 +419,11 @@ async function run() {
   $('.toast button').click(); await tick(60);
   check('… which puts it back, and its own toast offers Undo', ein() === '92-1111111' && /^Redid: /.test($('.toast span')?.textContent) && $('.toast button')?.textContent === 'Undo', $('.toast')?.textContent);
   undo(); await tick(60);
+  check('After an Undo, Redo can put it back', Shell.parts.peek().undo.canRedo());
+  App.change(tx => tx.update('fund_ein', { value: '92-2222222' }), { say: 'Changed EIN' }); await tick(60);
+  Shell.parts.peek().undo.redo(); await tick(60);
+  check('… until a new change is made, which clears Redo', !Shell.parts.peek().undo.canRedo() && ein() === '92-2222222' && /Nothing to redo/.test($('.toast')?.textContent), $('.toast')?.textContent);
+  undo(); await tick(60);
   localStorage.setItem('dendra.name', 'Dana Jordan');
 
   // ---- The selection keeps only what's there ----
@@ -394,16 +432,40 @@ async function run() {
   Shell.select([temp]); await tick(60);
   undo(); await tick(100);
   check('A record a change takes away leaves the selection, and the address', !Shell.selection.peek().includes(temp) && !decodeURIComponent(location.hash).includes(temp), Shell.selection.peek().join());
+  let shape = null;
+  App.change(tx => { shape = tx.add('shape', { view: views()[0].id, geometry: 'text', text: 'Note' }); }, { dated: false }); await tick(60);
+  Shell.select([shape]); await tick(60);
+  undo(); await tick(100);
+  check('So does a shape: added, selected, and undone', !Shell.selection.peek().includes(shape), Shell.selection.peek().join());
   Shell.select([fund]); Shell.at({ asOf: '2020-01-01' }); await tick(100);
   check('One only not there on the day shown stays selected', Shell.selection.peek().join() === fund && !(fund in st()));
   Shell.at(null); Shell.select([]); await tick(60);
+  // A row selected is brought into view only once the grid has it: going through the views warns of nothing.
+  const warned = [], warn0 = console.warn;
+  console.warn = (...a) => { warned.push(a.join(' ')); warn0.apply(console, a); };
+  Shell.select([halvard]); for (const v of views()) { Shell.show(v.id); await tick(30); }
+  await tick(200);
+  console.warn = warn0;
+  check('Going through every view with a record selected warns of nothing', !warned.length, warned.join(' / '));
+  Shell.select([]); await tick(60);
 
   // ---- F8 goes to the worst first, wherever the chart has it (the inspector's attention, stood in for) ----
-  const visits = [], needs = ['blank', 'soon', 'overdue', 'blank', 'error'].map((kind, i) => ({ kind, go: () => visits.push(kind + i) }));
+  // The checks failed (app.js) are errors too, counted with the inspector's.
+  const visits = [], needs = ['blank', 'soon', 'overdue', 'blank', 'error'].map((kind, i) => ({ kind, go: () => visits.push(kind + i) })), failing = errorsNow();
   const unneed = Shell.register('attention', { items: () => needs }); await tick(60);
-  for (let i = 0; i < needs.length; i++) Shell.parts.peek().action.find(a => a.id === 'attend').run();
+  for (let i = 0; i < needs.length + failing; i++) Shell.parts.peek().action.find(a => a.id === 'attend').run();
   check('F8 goes to what’s overdue, then errors, then what’s due soon, then blanks', visits.join() === 'overdue2,error4,soon1,blank0,blank3', visits.join());
-  check('… and the status bar counts them in that order', $$('.status .counts .btn').map(b => b.textContent).join(' · ') === '1 overdue · 1 error · 1 due soon · 2 blank', $$('.status .counts .btn').map(b => b.textContent).join(' · '));
+  check('… and the status bar counts them in that order, a check failed as an error', $$('.status .counts .btn').map(b => b.textContent).join(' · ') === `1 overdue · ${failing + 1} errors · 1 due soon · 2 blank`, $$('.status .counts .btn').map(b => b.textContent).join(' · '));
+  // Find reaches them by the bar's words, and a deadline by what settles it.
+  const problems = async q => { Shell.find(q); await tick(120); const got = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent); Shell.closeAll(); await tick(); return got; };
+  let said = await problems('overdue');
+  check('Find reaches what needs attention by the status bar’s words', said[0] === '#Problems' && said[1] === '1 overdue', said.slice(0, 4).join(' / '));
+  said = await problems('paid');
+  check('… and a deadline by what settles it: “paid” finds what’s overdue and due soon', said.includes('1 overdue') && said.includes('1 due soon'), said.slice(0, 6).join(' / '));
+  visits.length = 0;
+  Shell.find('overdue'); await tick(120);
+  press('Enter', $('.findpal .menu-find')); await tick(120);
+  check('… choosing one goes where the status bar’s count does', visits.join() === 'overdue2', visits.join());
   unneed(); await tick(60);
 
   // ---- Find: each kind under its head (the inspector's records, stood in for, each by its names and kind) ----
@@ -423,6 +485,19 @@ async function run() {
   got = await found('calder iii');
   check('… a name with fewer words after the match first: the fund before its blockers', got.indexOf('Calder Ridge Capital Partners III, L.P.') >= 0 && got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Calder Ridge III AIV-1 Blocker, Inc.')
     && got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Calder Ridge III Blocker, Inc.'), got.slice(0, 10).join(' / '));
+  check('… and of names alike, the record related to more others first: the fund before its general partner', got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Calder Ridge Capital GP III, LLC'), got.slice(0, 6).join(' / '));
+  Shell.closeAll(); await tick();
+  got = await found('northpine');
+  check('… counting the words before the match too: an entity before the documents that name it', got[0] === '#Entities' && got[1] === 'Northpine Software, LLC' && got.includes('#Documents'), got.slice(0, 6).join(' / '));
+  document.activeElement?.blur?.();
+  press('Enter', $('.findpal .menu-find')); await tick(150);
+  check('Choosing a result selects it, and leaves the keys in the view', Shell.selection.peek().join() === named('Northpine Software, LLC') && !!document.activeElement?.closest('[data-region="view"]'), document.activeElement?.outerHTML.slice(0, 80));
+  Shell.select([]);
+  window.Export = { open: () => { window.Export.opened = true; } };
+  got = await found('export');
+  press('Enter', $('.findpal .menu-find')); await tick(120);
+  check('Find reaches Export', got[0] === '#Actions' && got[1] === 'Export' && Export.opened, got.slice(0, 4).join(' / '));
+  delete window.Export;
   Shell.closeAll(); await tick();
   got = await found('close affiliate');
   const under = (head, label) => { let e = $$('.findpal .menu-head').find(h => h.textContent === head); while ((e = e?.nextElementSibling) && !e.classList.contains('menu-head')) if (e.querySelector('.label')?.textContent === label) return e; return null; };
@@ -437,10 +512,11 @@ async function run() {
   check('The keys listed don’t start with Find, or with themselves', !['Find', 'Keyboard shortcuts'].includes(got[0]) && !got.includes('Find'), got.slice(0, 3).join(' / '));
   Shell.closeAll(); unfind(); await tick();
 
-  // ---- Tables fill their width; figures' headings sit over them ----
+  // ---- Tables fill their width and run no further; a heading's menu is at its right edge ----
   // A grid is laid out as it's built, and again when Tabulator's ResizeObserver sees its slot change, which a
   // headless run under a time budget never delivers. So each grid here is built once its slot has settled, with
-  // the inspector open or not, and is laid out then.
+  // the inspector open or not, and is laid out then, in a window of 1440 × 900.
+  Object.assign($('.shell').style, { right: 'auto', bottom: 'auto', width: '1440px', height: '900px' });
   const slotSettled = alone => until(() => { const m = $('.main'), want = alone ? m.clientWidth : m.clientWidth - parseFloat(m.style.getPropertyValue('--insp')) - 1;
     return m.classList.contains('alone') === alone && Math.abs($('.view').getBoundingClientRect().width - want) < 1; });
   const built = title => until(() => !!column(title) && $$('.grid .tabulator-row').length > 0);
@@ -449,14 +525,22 @@ async function run() {
   Shell.show(own); await built('Voting Percentage');
   const holderBox = () => { const h = Table.grid.rowManager.element; return h.getBoundingClientRect().left + h.clientWidth; };
   const lastRight = () => $$('.grid .tabulator-header .tabulator-col').at(-1).getBoundingClientRect().right;
-  check('With the inspector open, a table still fills its width', !$('.main.alone') && lastRight() >= holderBox() - 1, `${lastRight()} of ${holderBox()}`);
+  const widths = () => Table.grid.getColumns().filter(c => c.isVisible() && c.getDefinition().title).map(c => `${c.getDefinition().title} ${c.getWidth()}`).join(', ') + ` to ${lastRight()} in ${holderBox()}`;
+  check('With the inspector open, a table fills its width, and runs no further', !$('.main.alone') && Math.abs(lastRight() - holderBox()) <= 1, widths());
   const textRight = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().right; };
-  const pctTitle = column('Percentage').getElement().querySelector('.tabulator-col-title'), pctCell = Table.grid.getRows()[0].getCells().find(c => c.getColumn() === column('Percentage')).getElement();
-  check('A column of figures has its heading flush right over them', Math.abs(textRight(pctTitle) - textRight(pctCell)) <= 1.5, `${textRight(pctTitle)} over ${textRight(pctCell)}`);
+  const edge = (title, sel) => { const c = column(title).getElement(); return c.getBoundingClientRect().right - c.querySelector(sel).getBoundingClientRect().right; };
+  const pctTitle = column('Percentage').getElement().querySelector('.tabulator-col-title');
+  check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.tabulator-header-filter') - edge('Owner', '.tabulator-header-filter')) <= 0.5
+    && textRight(pctTitle) <= column('Percentage').getElement().querySelector('.tabulator-header-filter').getBoundingClientRect().left, `${edge('Percentage', '.tabulator-header-filter')} vs ${edge('Owner', '.tabulator-header-filter')}`);
+  Shell.show(docsView); await built('Link');
+  const cut = () => Table.grid.getRows('visible').slice(0, 12).flatMap(r => r.getCells()).filter(c => !/c-(text|edge|choice|document)/.test(c.getElement().className) && c.getElement().scrollWidth > c.getElement().clientWidth + 1).map(c => c.getColumn().getDefinition().title);
+  check('Where the columns are wider than the grid, the columns of words give way, and the figures and dates stay whole', Math.abs(lastRight() - holderBox()) <= 1 && !cut().length, `${widths()}; cut: ${[...new Set(cut())].join()}`);
   Shell.select([]); await slotSettled(true);
+  Shell.show(own); await built('Voting Percentage');
   Shell.show(docsView); await built('Link');
   const docCols = Table.grid.getColumns().filter(c => c.isVisible() && c.getDefinition().title);
   check('Documents’ Name takes what’s left over', docCols.every(c => column('Name').getWidth() >= c.getWidth()) && lastRight() >= holderBox() - 1, docCols.map(c => `${c.getDefinition().title} ${c.getWidth()}`).join(', ') + ` in ${holderBox()}`);
+  Object.assign($('.shell').style, { right: '', bottom: '', width: '', height: '' }); await tick(60);
 
   // ---- + › Chart: from the styles of the chart shown, or else the first ----
   Shell.show(own); await tick(60);
@@ -507,6 +591,7 @@ async function run() {
   $$('.hist-row.gone').find(x => x.textContent.includes('Registered Agent · GP III')).querySelector('.btn').click(); await tick(100);
   check('Restore brings it back, as one change', N() === n0 + 1 && gone().length === k - 1 && !!st().gp_agent);
   undo(); await tick(60);
+  check('Undo takes the restore back, and says it undid a restore', !st().gp_agent && /^Undid: Restored /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
   check('Esc then closes History', !$('.inspector .hist'));
 
@@ -518,13 +603,15 @@ async function run() {
   check('… with nothing to undo', !Shell.parts.peek().undo.canUndo());
   undo(); await tick(100);
   check('… so Undo straight after leaves it whole', C() === C1 && App.wb.charts().some(c => c.chart === C1) && views().length > 0 && /Nothing to undo/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
-  const kept = views().map(v => v.name);
-  check('It keeps the views, but not one named after the old chart’s records', !kept.includes('Fund III') && ['Structure', '40 Act', 'Entities'].every(n => kept.includes(n)), kept.join());
+  const kept = views().map(v => v.name), chart1 = views().find(v => v.layout === 'chart');
+  check('It keeps the views named for what they show, and one chart, Chart; none of the old chart’s own pages', ['Chart', 'Entities', 'Ownership', 'Dates', 'Documents'].every(n => kept.includes(n))
+    && !['Structure', '40 Act', 'Fund III', 'Management and control', 'Entities 2'].some(n => kept.includes(n)) && views().filter(v => v.layout === 'chart').length === 1, kept.join());
+  check('… its chart with the styles and Shown of the old chart’s first', chart1 && App.notes.peek().resolve('Shown', { kind: 'Document' }, chart1.id)?.note.view === chart1.id);
   const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
   check('Each of its pages has a title, its name, and an as-of line', pages.length > 0 && pages.every(v => furniture(v).some(s => s.role === 'title' && s.text === name1) && furniture(v).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text))),
     pages.map(v => `${v.name}: ${furniture(v).map(s => s.text).join(' | ')}`).join(' / '));
   App.change(tx => tx.note('Name', { id: views()[0].id, kind: 'View' }, 'Overview'), { dated: false }); await tick(60);
-  check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Structure'));
+  check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Chart'));
   Shell.parts.peek().workbook.open(C0); await tick(200);
   check('Back on the first chart, its Undo is its own', C() === C0 && Shell.parts.peek().undo.canUndo());
   check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));

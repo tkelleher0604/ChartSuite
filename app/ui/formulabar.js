@@ -5,10 +5,11 @@
 // chart in that colour; deeper reasons in the same hue, lighter, down to entered records (Range Finder).
 // Hovering part of a formula shows its value. Clicking a fact, or a lit computed line, steps down to its
 // reason, by the clause the parent cited, and the breadcrumb steps back. The definition's rows drop over the
-// view under the sentence (the chevron, or Ctrl+Shift+U, which keeps them open; a click on the sentence):
-// those that hold in ink, the rest grey. Two objects show the most derived relation that holds between them;
-// one picked that doesn't shows its rows, all grey (why not). Any pending change is redlined before it's made,
-// whoever asks (FormulaBar.preview). It also answers Find's "=", and gives the other panes a record's reason.
+// view under the sentence (the chevron, Ctrl+Shift+U, or a click on the sentence) until the selection changes,
+// clear of what they're about: those that hold in ink, the rest grey. Two objects show the most derived
+// relation that holds between them; one picked that doesn't shows its rows, all grey (why not). Any pending
+// change is redlined before it's made, whoever asks (FormulaBar.preview). It also answers Find's "=", and gives
+// the other panes a record's reason, and a relation's words.
 const FormulaBar = (() => {
   const { html, signal, computed, effect, on, emit } = Shell;
   const { render } = preact;
@@ -73,17 +74,13 @@ const FormulaBar = (() => {
   const asked = signal(null);     // { id, clause, under }: a record asked about, while the selection is still `under`
   const editing = signal(null);   // { cm, key, subject } while a row is edited: the bar holds still
   const draft = signal(null);     // { def, rows: [{ key, label, formula, gone? }] }: a definition being edited
-  const pinned = signal(Shell.store.get('formulas') === 'open');   // the rows kept open, as Excel's expanded bar
-  const opened = signal(false);   // the rows open for now, to edit one
-  const open = computed(() => pinned.value || opened.value);
+  const open = signal(false);     // the rows dropped over the view, as Excel's expanded bar
   const pick = signal(null);      // for two objects, the relation shown
   const hover = signal(null);     // { key, from, to }: the part of a row under the pointer
   const touch = signal(null);     // the records of a fact under the pointer, in the sentence that says why
   const trail = signal([]);       // [{ id, title, clause }]: the records stepped down from, for the breadcrumb
   const aim = signal(null);       // a row to put the cursor in, by its key
-  let saying = false;
-  effect(() => Shell.store.set('formulas', pinned.value ? 'open' : null));
-  on('why-open', id => { if (!saying) asked.value = { id, clause: finder.peek().via.get(id) ?? null, under: Shell.selection.peek() }; });
+  on('why-open', id => { asked.value = { id, clause: finder.peek().via.get(id) ?? null, under: Shell.selection.peek() }; });
 
   const subject = computed(() => {
     const ed = editing.value;
@@ -136,10 +133,24 @@ const FormulaBar = (() => {
     const P = defOf(said?.def ?? err?.def) ?? null;
     const at = rec ? id : err.args ? Object.fromEntries(err.args.map(a => [a.edge, Tree.objectOf(Rv.records, a.at) ?? a.at])) : err.at;
     const m = { id, rec, err, def: P, at, said, clause: s.clause ?? null, computed: !!Rv.computed[id], covered: Rv.covered[id] ?? null,
-      title: P?.name ?? (rec?.args ? N().nameOf(Rv.records, id) : spot.edge), ...argsOf(Rv, spot, P) };
+      title: P?.name ?? (rec?.args ? N().nameOf(Rv.records, id) : spot.edge), ...argsOf(Rv, spot, P, id) };
     m.out = err ? { error: err.error } : outputOf(rec);
     m.rows = rowsOf(m, Rv, dr);
     return m;
+  }
+
+  // Where a record is, said as far as it needs: its object, or the path down to it where the object has another
+  // record of its label (a file number at its jurisdiction and one elsewhere). Counted once per working-out.
+  const labelled = new WeakMap();
+  function whereOf(Rv, id) {
+    const recs = Rv.records, at = recs[id].at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, x)}|${norm(recs[x].edge)}`;
+    if (!isObj(recs[O]) || at === O) return N().placeOf(recs, at);
+    if (!labelled.has(Rv)) {
+      const n = new Map();
+      for (const x in recs) if (!isObj(recs[x]) && !recs[x].args) n.set(key(x), (n.get(key(x)) ?? 0) + 1);
+      labelled.set(Rv, n);
+    }
+    return labelled.get(Rv).get(key(id)) > 1 ? N().placeOf(recs, at) : N().shortOf(recs, O);
   }
 
   // Two objects: the computed relations they could be in, each way round. The one picked shows as its record
@@ -169,8 +180,8 @@ const FormulaBar = (() => {
     return { ...m, options, option: o };
   }
 
-  function argsOf(Rv, r, P) {
-    if (!r.args) return { place: N().placeOf(Rv.records, r.at) };
+  function argsOf(Rv, r, P, id) {
+    if (!r.args) return { place: whereOf(Rv, id) };
     const by = new Map(r.args.map(a => [norm(a.edge), a.at]));
     return { args: (P?.edges ?? r.args.map(a => a.edge)).map(e => {
       const o = Tree.objectOf(Rv.records, by.get(norm(e))) ?? by.get(norm(e));
@@ -298,24 +309,24 @@ const FormulaBar = (() => {
   });
 
   // A new subject. One the last lit, if computed, is a step down: the last goes on the breadcrumb, and the chart
-  // zooms to what's lit now; one on the breadcrumb is a step back to it; anything else starts afresh. The tour
-  // hears that a computed record's reasons are shown.
+  // zooms to what's lit now; one on the breadcrumb is a step back to it; anything else starts afresh.
   let last = { key: '', map: new Map(), crumb: null };
   effect(() => {
     const key = subjectKey.value;
     if (key === last.key) return;
     const m = model.peek(), t = trail.peek(), k = m?.id ? t.findIndex(x => x.id === m.id) : -1;
     const down = k < 0 && !!m?.computed && last.map.has(m.id);
-    hover.value = null; pick.value = null; opened.value = false;
+    hover.value = null; pick.value = null;
     if (draft.peek()) { draft.value = null; preview(null); }
     trail.value = k >= 0 ? t.slice(0, k) : down ? [...t, last.crumb] : [];
     last = { key, map: finder.peek().map, crumb: m && { id: m.id, title: m.title, clause: m.clause, place: m.args?.map(a => a.short).join(' → ') ?? m.place } };
     if (down || k >= 0) {
       const ids = [m.id, ...last.map.keys()];
-      requestAnimationFrame(() => Shell.parts.peek().canvas?.zoomTo?.(ids));
+      requestAnimationFrame(() => { Shell.parts.peek().canvas?.zoomTo?.(ids); clear(); });
     }
-    if (m?.computed) { saying = true; emit('why-open', m.id); saying = false; }
   });
+  // The rows close when the selection changes, unless a row is being edited.
+  on('select', () => { if (!editing.peek()) open.value = false; });
   // Back to a record on the breadcrumb, the last by default.
   function back(i = trail.peek().length - 1) {
     const to = trail.peek()[i];
@@ -394,8 +405,8 @@ const FormulaBar = (() => {
     return p ?? (flip ? { ...flip, flip } : { head: lower(singular(n.listName(t, a))), prep: ' of ', form: 'noun', role: true });
   }
   // A relation in words, for a pane that says its sides itself: [the side said first, the words, the other].
-  // An option says the role: is a director of.
-  function phrase(t, a, b, { choice, not = false } = {}) {
+  // An option says the role: is a director of; a role still to choose is "…", as a side still to choose is.
+  function phrase(t, a, b, { choice = 'choice' in (t.out ?? {}) ? '…' : null, not = false } = {}) {
     const q = predicateOf(t, a, b), w = choice ? { head: lower(choice), form: 'noun', prep: q.form === 'noun' && !q.flip ? q.prep : ' of ' } : q;
     const words = w.form === 'noun' ? ` is ${not ? 'not ' : ''}${article(w.head)} ${w.head}` : w.form === 'participle' ? ` is ${not ? 'not ' : ''}${w.head}`
       : not ? ` does not ${w.head.replace(/s\b/, '')}` : ` ${w.head}`;
@@ -415,6 +426,7 @@ const FormulaBar = (() => {
     // The point: the value read, where one is; else what the record says.
     const term = (x, text) => x === id && reads.length ? text : { term: text, id: x, fx: fx(x) };
     const be = (yes = true) => would ? (yes ? ' would be ' : ' would not be ') : yes ? ' is ' : ' is not ';
+    const holds = yes => would ? (yes ? ' would hold' : ' would not hold') : yes ? ' holds' : ' does not hold';
     const c = { id: [id, ...reads].find(fx) ?? id, ids: [id, ...reads], subj: null, poss: false, pre: [], obj: [], post: [] };
     const withs = reads.flatMap(e => { const x = recs[e]; return 'tag' in x ? [` ${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [` with ${article(x.edge)} ${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
     if (r.args) {
@@ -435,27 +447,31 @@ const FormulaBar = (() => {
     }
     const O = Tree.objectOf(recs, id), o = recs[O];
     if ('tag' in r) {
-      // A tag described as "A fund that …" is a noun: Fund III is a private fund. Any other is its label.
+      // A tag described as "A fund that …" is a noun: Fund III is a private fund. Any other is a condition, by
+      // its name: Ownership Adds Up holds for Fund III.
       const noun = /^an?\s/i.test(n.description(Tree.treeOf(recs, id) ?? { args: [{ edge: r.edge, loc: {} }] }) ?? '');
       return Object.assign(c, noun ? { subj: O, pre: [be(r.tag), `${article(r.edge)} `, term(id, lower(r.edge))] }
-        : { subj: O, poss: true, pre: [` ${r.edge}`, be(), term(id, Tree.outputText(r))] });
+        : { pre: [term(id, r.edge), holds(r.tag)], obj: isObj(o) ? [' for ', { name: O }] : [] });
     }
     const v = Tree.outputText(r), named = o && n.nameOf(recs, O);
     // An entry that names its object (a tax year's Year) says what the object is: the tax year is 2026.
     if (named && [v, String(r.value)].some(x => Tree.same(named, x))) return Object.assign(c, { pre: [`the ${lower(o.kind)}`, be(), term(id, named)] });
+    // A date named for what was done on it says it was done then: it last filed on …; it filed its annual return on ….
+    const done = r.field === 'date' && /^(?:(last|first) )?(?:(.+) )?(\S+ed|paid)(?: on)?$/i.exec(Tree.clean(r.edge));
+    if (done) return Object.assign(c, { subj: O, pre: [` ${[would && 'would have', done[1]?.toLowerCase(), done[3].toLowerCase(), done[2] && `its ${lower(done[2])}`, 'on '].filter(Boolean).join(' ')}`, term(id, v)] });
     return Object.assign(c, { subj: O, poss: true, pre: [` ${lower(r.edge)}`, be(), term(id, v)] });
   }
-  // What the subject is, as the sentence's last clause: a relation, or a tag of an object, as a fact; a value
-  // by its name, its object's where it has one: the Manager's Form ADV is due March 31, 2027; at a relation,
-  // as the bar names its place: the annual tax is due June 1, 2027; Capacity Held is No.
+  // What the subject is, as the sentence's last clause: a relation, or a tag, as a fact; a value by its name,
+  // its object's where it has one: the Manager's Form ADV is due March 31, 2027; at a relation, as the bar
+  // names its place: the annual tax is due June 1, 2027.
   function givenOf(Rv, id, would) {
     const recs = Rv.records, r = would ?? recs[id];
-    if (r.args || ('tag' in r && !recs[r.at]?.args)) return factOf(Rv, id, [], would);
+    if (r.args || 'tag' in r) return factOf(Rv, id, [], would);
     const name = defOfRecord(Rv, id)?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name), O = Tree.objectOf(recs, id);
-    const what = 'tag' in r ? name : lower(due?.[1] ?? name), is = (would ? ' would be' : ' is') + (due ? ' due ' : ' ');
+    const what = lower(due?.[1] ?? name), is = (would ? ' would be' : /\b[a-z]+[^siu]s$/.test(what) ? ' are' : ' is') + (due ? ' due ' : ' ');
     const point = { term: Tree.outputText(r), id, fx: !!Rv.computed[id] || !!would };
-    return isObj(recs[O]) && !('tag' in r) ? { id, ids: [id], subj: O, poss: true, pre: [` ${what}`, is, point], obj: [], post: [] }
-      : { id, ids: [id], subj: null, pre: ['tag' in r ? what : `the ${what}`, is, point], obj: [], post: [] };
+    return isObj(recs[O]) ? { id, ids: [id], subj: O, poss: true, pre: [` ${what}`, is, point], obj: [], post: [] }
+      : { id, ids: [id], subj: null, pre: [`the ${what}`, is, point], obj: [], post: [] };
   }
   // A record as its definition's rows give it, where an entry overrides them.
   const asGiven = (r, v) => 'tag' in r ? { ...r, tag: v } : 'choice' in r ? { ...r, choice: v } : { ...r, value: v?.t === 'date' ? v.iso : v };
@@ -580,7 +596,9 @@ const FormulaBar = (() => {
     clearTimeout(timer);
     if (!change) { pending.value = null; return; }
     const run = () => { const t = performance.now(); pending.value = { change, from, ...hypothetical(change) }; slow = performance.now() - t; };
-    if (slow < 40) run(); else timer = setTimeout(run, 300);   // a big chart waits for a pause in typing
+    // A big chart waits for a pause in typing: a change that replaces the one shown from the same place. A
+    // hover, or the first key, shows at once.
+    if (slow < 40 || pending.peek()?.from !== from) run(); else timer = setTimeout(run, 300);
   }
 
   // The state as the change would leave it, and what would appear, go and change, per definition.
@@ -653,7 +671,7 @@ const FormulaBar = (() => {
   const problem = signal(null);   // { key, message }: why a row can't be committed, said once Enter asks
   function change(def, fn) {
     claimed = true;
-    opened.value = true;
+    open.value = true;
     problem.value = null;
     draft.value = { def, rows: fn(draftOf(def).rows.map(r => ({ ...r }))) };
     previewDraft();
@@ -673,7 +691,6 @@ const FormulaBar = (() => {
       return;
     }
     endEditing();
-    opened.value = false;
     if (!d) return;
     draft.value = null; preview(null);
     if (!unchanged(d)) commit(rowsChange(d), `Edited ${defOf(d.def)?.name ?? 'the formula'}`);
@@ -682,52 +699,57 @@ const FormulaBar = (() => {
     endEditing();
     problem.value = null;
     if (draft.peek()) { draft.value = null; preview(null); }
-    opened.value = false;
     const a = document.activeElement;
     if (a?.closest?.('.fxbar')) a.blur();
   }
-  // Esc, with the rows open for now or a draft pending, discards it and closes them.
+  // Esc, while the rows are open, discards a draft, and then closes them.
   let unlayer = null;
   effect(() => {
-    const on = opened.value || !!draft.value;
-    if (on && !unlayer) unlayer = Shell.layer(discard);
+    const on = open.value || !!draft.value;
+    if (on && !unlayer) unlayer = Shell.layer(() => { if (draft.peek() || editing.peek()) discard(); else open.value = false; });
     else if (!on && unlayer) { unlayer(); unlayer = null; }
   });
-  // The chevron, or Ctrl+Shift+U: the rows kept open, or closed.
+  // The chevron, or Ctrl+Shift+U: the rows open, or closed, a draft still pending.
   function toggle() {
-    if (open.peek()) { pinned.value = false; opened.value = false; } else pinned.value = true;
+    if (open.peek()) endEditing();
+    open.value = !open.peek();
   }
   // The rows open with the cursor in one, to type into.
-  const openAt = key => { claimed = true; opened.value = true; aim.value = key; };
+  const openAt = key => { claimed = true; open.value = true; aim.value = key; };
   // While a row is edited, a click on the chart names a record in it (point mode), and the panel holds just
-  // that row; the boxes of the record worked out, where it still covers them, are scrolled clear of it, as a
-  // wheel scrolls the chart.
+  // that row.
   function startEditing(cm, key) {
     const ed = editing.peek();
     if (ed?.cm === cm) return;
     editing.value = { cm, key, subject: ed?.subject ?? subject.peek() };
-    if (!ed) { Shell.parts.peek().canvas?.point(true); requestAnimationFrame(clear); }
+    if (!ed) Shell.parts.peek().canvas?.point(true);
   }
+  // The rows never cover what they're about: the boxes of the record worked out are scrolled into the view
+  // below them, as a wheel scrolls the chart, as little as will do, its top left first where not all fit.
   function clear() {
     const m = model.peek(), recs = R.peek().records, panel = document.querySelector('.fx-panel'), chart = document.querySelector('.dc-graph');
     if (!m || !panel || !chart) return;
-    const p = panel.getBoundingClientRect(), ids = [...(m.args ?? []).map(a => a.id), m.id && Tree.objectOf(recs, m.id)].filter(id => isObj(recs[id]));
-    const under = ids.map(id => chart.querySelector(`[data-cell-id="${CSS.escape(id)}"]`)?.getBoundingClientRect())
-      .filter(b => b && b.top < p.bottom && b.bottom > p.top && b.left < p.right && b.right > p.left);
-    if (under.length) chart.dispatchEvent(new WheelEvent('wheel', { deltaY: Math.min(...under.map(b => b.top)) - p.bottom - 16, bubbles: true, cancelable: true }));
+    const ids = [...(m.args ?? []).map(a => a.id), m.id && Tree.objectOf(recs, m.id)].filter(id => isObj(recs[id]));
+    const boxes = ids.map(id => chart.querySelector(`[data-cell-id="${CSS.escape(id)}"]`)?.getBoundingClientRect()).filter(Boolean);
+    if (!boxes.length) return;
+    const v = chart.getBoundingClientRect(), p = panel.getBoundingClientRect(), pad = 16;
+    const into = (lo, hi, from, to) => lo < from + pad ? from + pad - lo : hi > to - pad ? Math.max(from + pad - lo, to - pad - hi) : 0;
+    const dx = into(Math.min(...boxes.map(b => b.left)), Math.max(...boxes.map(b => b.right)), Math.max(v.left, p.left), Math.min(v.right, p.right));
+    const dy = into(Math.min(...boxes.map(b => b.top)), Math.max(...boxes.map(b => b.bottom)), Math.max(v.top, p.bottom), v.bottom);
+    if (dx || dy) chart.dispatchEvent(new WheelEvent('wheel', { deltaX: -dx, deltaY: -dy, bubbles: true, cancelable: true }));
   }
   function endEditing() {
     if (!editing.peek()) return;
     editing.value = null;
     Shell.parts.peek().canvas?.point(false);
   }
-  // A click outside the bar ends editing, and closes rows open for now, unless what was clicked brings it to the
-  // bar (a record pointed at on the chart, a row of a definition); a draft stays pending, its rows open.
+  // A click outside the bar ends editing, unless what was clicked brings it to the bar (a record pointed at on
+  // the chart, a row of a definition); a draft stays pending.
   let claimed = false;
   document.addEventListener('pointerdown', e => {
-    if ((!editing.peek() && !opened.peek()) || e.target.closest?.('.fxbar, .CodeMirror-hints')) return;
+    if (!editing.peek() || e.target.closest?.('.fxbar, .CodeMirror-hints')) return;
     claimed = false;
-    setTimeout(() => { if (claimed) return; endEditing(); if (!draft.peek()) opened.value = false; });
+    setTimeout(() => { if (!claimed) endEditing(); });
   }, true);
 
   // ---- Point mode: a click on the chart inserts the name that reaches what was clicked ----
@@ -864,7 +886,7 @@ const FormulaBar = (() => {
         ${draft.value && !unchanged(draft.value) ? html`<span class="fx-acts">
           <button class="btn ghost" data-tip="Discard" data-keys="Esc" onClick=${discard}>Discard</button>
           <button class="btn primary" data-tip="Done" data-keys="Enter" onClick=${commitDraft}>Done</button></span>` : null}
-        ${m.def ? html`<button class="btn icon fx-open" aria-expanded=${!shut} aria-label="Expand formula bar" data-tip=${shut ? 'Expand' : 'Collapse'} data-keys=${EXPAND} onClick=${toggle}>${Shell.icon('chevron')}</button>` : null}
+        ${m.def ? html`<button class="btn icon fx-open" aria-expanded=${!shut} aria-label=${toggled(shut)} data-tip=${toggled(shut)} data-keys=${EXPAND} onClick=${toggle}>${Shell.icon('chevron')}</button>` : null}
       </span>
       ${shut ? null : html`<${Panel} m=${m} />`}
     </div>`;
@@ -916,7 +938,7 @@ const FormulaBar = (() => {
       if (ref.current) ro.observe(ref.current);
       return () => ro.disconnect();
     }, []);
-    const drop = () => { claimed = true; opened.value = true; };
+    const drop = () => { open.value = true; };
     if (said) return html`<span class="fx-inline" ref=${ref}><${Said} runs=${said} cls="fx-why" onClick=${drop} /></span>`;
     if (m.err?.error.msg) return html`<span class="fx-inline" ref=${ref}><span class="fx-why" onClick=${drop}>${m.err.error.msg}</span></span>`;
     const labels = new Map();
@@ -940,6 +962,8 @@ const FormulaBar = (() => {
       ro.observe(view); fit();
       return () => ro.disconnect();
     }, []);
+    // Opened, and as a row is edited and the panel holds just it, the chart it's about is brought clear of it.
+    useLayoutEffect(clear, [m.id ?? m.def?.id, !!editing.value]);
     const w = why.value;
     return html`<div class=${'fx-panel' + (editing.value ? ' editing' : '')} ref=${ref}>
       ${w ? html`<p class="fx-said"><${Said} runs=${w.full} cls="fx-why" /></p>` : null}
@@ -1076,7 +1100,9 @@ const FormulaBar = (() => {
   });
 
   Shell.register('formulabar', Bar);
-  Shell.register('action', { id: 'formulas', name: 'Expand formula bar', keys: '$mod+Shift+KeyU', run: toggle });
+  // What the chevron and its key will do, said as it will do it.
+  const toggled = shut => shut ? 'Expand formula bar' : 'Collapse formula bar';
+  Shell.register('action', { id: 'formulas', get name() { return toggled(!open.peek()); }, keys: '$mod+Shift+KeyU', run: toggle });
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, light: ids => { lit.value = ids; },
     reason, citeOf, phrase, model, finder, pending, draft, hover, open };
 })();
