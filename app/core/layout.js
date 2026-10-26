@@ -194,6 +194,13 @@ function route(geo, lines) {
       l.stagger = ls.length > 2 || (ls.length === 2 && t.w < 220) ? i % levels : 0;
     });
   }
+  // A box's one line leaves it straight above (or below) where it arrives, if the box spans that point.
+  for (const group of groupBy(trunks, t => `${t.from}|${t.dir}`).values()) {
+    const [t] = group, l = t.ls[0], s = G(t.from), m = Math.min(12, s.w / 4);
+    if (group.length !== 1 || t.ls.length !== 1 || l.tx < s.x + m || l.tx > s.x + s.w - m || (s.shape === 'triangle' && t.dir === 'up')) continue;
+    t.x = l.sx = l.tx;
+    t.y = edgeY(s, t.x, t.dir === 'down');
+  }
   // Lines going under leave their box's bottom, each on its own lane below what's in the way.
   lines.filter(l => l.dir === 'under').forEach((l, j) => {
     const s = G(l.from), lane = l.floor + 16 + 9 * j;

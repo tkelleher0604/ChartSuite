@@ -98,6 +98,33 @@ const H = (() => {
     fmt: async (label, value) => { FormatBar.apply(label, value === 'true' ? true : value === 'false' ? false : isNaN(+value) ? value.replace(/_/g, ' ') : +value); await wait(60); },
     open: async which => { document.querySelector(`.fb [data-fb="${which}"]`)?.click(); await wait(120); },
     wait: async ms => wait(+ms),
+    // Range Finder: these records outlined in these hues, the rest dimmed; hidden ones drawn for a while.
+    hl: async (...pairs) => { cv().highlight(new Map(pairs.map(p => p.split('=')).map(([id, n]) => [id, `var(--rf-${n})`])), { dim: true }); await wait(80); },
+    // A pending change, redlined: a percentage changed, a line gone, a record appearing.
+    red: async () => {
+      const now = App.state.peek(), then = { ...now };
+      then.own_us_fund_pct = { ...now.own_us_fund_pct, value: 0.65 };
+      delete then.own_fund_blkr; delete then.own_fund_blkr_pct;
+      then.own_x = { args: [{ edge: 'Owner', at: 'inv_nonus' }, { edge: 'Owned', at: 'fund' }], tag: true };
+      then.own_x_pct = { at: 'own_x', edge: 'Percentage', field: 'percent', value: 0.069 };
+      cv().redline({ state: then });
+      await wait(80);
+    },
+    key: async (k, mods = '') => { const o = { key: k, code: k.length === 1 ? `Key${k.toUpperCase()}` : k, bubbles: true, ctrlKey: mods.includes('c'), shiftKey: mods.includes('s') }; cv().root.focus(); cv().root.dispatchEvent(new KeyboardEvent('keydown', o)); await wait(60); },
+    dbl: async id => { const [x, y] = center(id); mouse('dblclick', x, y); await wait(80); },
+    // Drag from a box's handle to another box; with `hold`, stop short of letting go.
+    relate: async (from, to, hold) => {
+      const [x, y] = center(from), el = at(x, y);
+      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
+      await wait(60);
+      const h = document.querySelector('.dc-handle.s'), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2];
+      const m = cv().scene().byId.get(to), q = cv().graph.localToClient(m.x + m.w / 2, m.y + m.h / 2);
+      h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: p0[0], clientY: p0[1], button: 0 }));
+      for (let i = 1; i <= 6; i++) { dispatchEvent(new PointerEvent('pointermove', { clientX: p0[0] + (q.x - p0[0]) * i / 6, clientY: p0[1] + (q.y - p0[1]) * i / 6 })); await wait(16); }
+      if (!hold) dispatchEvent(new PointerEvent('pointerup', { clientX: q.x, clientY: q.y }));
+      await wait(60);
+    },
+    hover: async id => { const [x, y] = center(id); mouse('mouseover', x, y); mouse('mouseenter', x, y); mouse('mousemove', x, y); await wait(60); },
   };
   // A view dressed as a board would see it: a title, and a key.
   function dress() {

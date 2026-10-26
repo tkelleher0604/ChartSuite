@@ -139,7 +139,6 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // A redline draws what's in the chart now together with what would be: both, marked.
   const state = red?.state ? { ...(opts.state ?? api.state(wb, chart, day)), ...red.state } : (opts.state ?? api.state(wb, chart, day));
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
-  const entered = wb.asOf(chart, day);
   const tree = id => treeOf(state, id);
 
   // A note's rank where it reaches a mark: in the view before none; one record's own (entered) before a
@@ -225,9 +224,9 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const look = s => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v.value]));
   const isRed = id => !red ? null : red.go?.has?.(id) ? 'go' : red.appear?.has?.(id) ? 'appear' : null;
 
-  // The texts drawn in each box and on each line, in their entries' order, each with its own text
-  // properties where something sets them and its mark's where nothing does; but Format, how a value
-  // reads, is each record's own.
+  // The texts drawn in each box and on each line, in their entries' order. A text's properties reach it
+  // through its own record and through its box's (or line's); as everywhere, the later style wins, and its
+  // own where they tie. Format, how a value reads, is each record's own.
   const orderOf = id => Tree.pathOf(state, id).slice(1).map(x => [N.order(tree(x)) ?? Infinity, Tree.norm(state[x].edge ?? '')]);
   const byOrder = (a, b) => {
     const p = orderOf(a.record), q = orderOf(b.record);
@@ -236,13 +235,17 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const container = m => { let c = up(m); while (c && c.type === 'text') c = up(c); return c; };
   const textItem = (m, host) => {
+    for (const label of TEXT_PROPS) {
+      const h = label !== 'Format' && host.cand[label];
+      if (h && (!m.cand[label] || beats(h.rank, m.cand[label].rank))) m.cand[label] = h;
+    }
     settle(m, DEFAULTS.text);
     for (const label of TEXT_PROPS) if (!m.cand[label] && label !== 'Format') m.settings[label] = host.settings[label];
     const r = state[m.record], t = look(m.settings);
     const old = red?.changed?.get?.(m.record);
     return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, N.name(tree(m.record))),
       was: typeof old === 'string' ? old : old ? textOf(old, t.Format, N.name(tree(m.record))) : undefined,
-      computed: !!r.computed || !entered[m.record], redline: isRed(m.record) };
+      computed: !!r.computed, redline: isRed(m.record) };
   };
 
   const boxes = [], lines = [];
@@ -250,7 +253,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     settle(m, DEFAULTS[m.type]);
     (m.type === 'box' ? boxes : lines).push(m);
     m.texts = [];
-    m.computed = !!state[m.record].computed || !entered[m.record];
+    m.computed = !!state[m.record].computed;
     m.redline = isRed(m.record);
     m.revealed = reveal.has(m.record) && !(m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown);
   }

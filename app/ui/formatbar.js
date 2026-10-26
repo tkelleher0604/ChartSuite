@@ -70,17 +70,16 @@ function apply(label, value) {
   const st = src.state.peek(), tree = id => Tree.treeOf(st, id);
   if (scope.outputs) for (const p of scope.outputs) Canvas.writeNote(tx, N, { label, pattern: p, view }, value);
   else for (const m of marks) {
-    if (m.type === 'box' || m.type === 'line') {
-      Canvas.writeNote(tx, N, { label, pattern: tree(m.record), view }, value);
-      if (TEXT_LABELS.has(label)) for (const it of m.texts ?? []) if (it.id !== m.record && st[it.id]) Canvas.writeNote(tx, N, { label, pattern: tree(it.id), view }, value);
-    } else if (m.type === 'shape') {
+    if (m.type === 'box' || m.type === 'line') Canvas.writeNote(tx, N, { label, pattern: tree(m.record), view }, value);
+    else if (m.type === 'shape') {
       const p = Canvas.payload(wb, chart, m.id);
       if (p) tx.set(m.id, { ...p, format: { ...p.format, [label]: value } });
     }
   }
   const done = tx.commit();
   if (typeof done === 'string') Shell.toast(done);
-  c.source.view.peek() && requestAnimationFrame(() => c.root?.focus?.());
+  // Keys go back to the chart, so the next change can be typed.
+  requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
 // A setting's value on the selection: its first mark's, or its first text's for a text property.
 function value(label) {

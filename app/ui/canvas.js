@@ -171,7 +171,14 @@ function mount(el, src) {
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: true,
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: c => { const k = c.getData()?.kind; return k && k !== 'page' && k !== 'label'; } });
   graph.use(sel);
-  graph.use(new Transform({ resizing: { enabled: n => ['box', 'shape'].includes(n.getData()?.kind), minWidth: 24, minHeight: 12, orthogonal: true }, rotating: false }));
+  const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind);
+  const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true }, rotating: false });
+  graph.use(transform);
+  // Resize handles on a shape selected alone, however it came to be selected.
+  const grips = () => {
+    const cs = sel.getSelectedCells();
+    if (cs.length === 1 && resizable(cs[0])) { if (!transform.widgets.has(cs[0])) transform.createWidget(cs[0]); } else transform.clearWidgets();
+  };
   graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5 }));
 
   // The page: a sheet under everything, and a node no one sees, so guides find its edges and middle.
@@ -195,7 +202,6 @@ function mount(el, src) {
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
     const keep = new Set(cells.map(c => c.id));
-    const chosen = sel.getSelectedCells().map(c => c.id);
     syncing = true;
     graph.batchUpdate(() => {
       for (const c of graph.getCells()) if (!keep.has(c.id)) { graph.removeCell(c); cellSig.delete(c.id); }
@@ -214,7 +220,7 @@ function mount(el, src) {
       const z = zooms.get(view);
       if (z) { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); } else requestAnimationFrame(() => zoom('fit'));
     }
-    syncSelection(chosen);
+    syncSelection();
     paintStates();
     fire('change', scene);
   }
@@ -239,12 +245,12 @@ function mount(el, src) {
     }
     return keys;
   }
-  function syncSelection(prev) {
+  // X6 lets go of a cell drawn again, so the selection is taken up again from the keys.
+  function syncSelection() {
     const keys = src.selection.peek().filter(k => scene.byId.has(keyParts(k)[0]));
-    const want = cellsFor(keys).map(c => c.id);
-    if (!same([...want].sort(), [...(prev ?? sel.getSelectedCells().map(c => c.id))].sort()) || !same(want, sel.getSelectedCells().map(c => c.id))) {
-      syncing = true; sel.reset(cellsFor(keys)); syncing = false;
-    }
+    const want = cellsFor(keys), have = sel.getSelectedCells();
+    if (want.length !== have.length || want.some(c => !have.includes(c))) { syncing = true; sel.reset(want); syncing = false; }
+    grips();
   }
   graph.on('selection:changed', () => {
     if (syncing) return;
@@ -255,6 +261,7 @@ function mount(el, src) {
     if (row && !ids.includes(row.legend)) row = null;
     const keys = keysOfSelection();
     if (!same(keys, src.selection.peek())) src.select(keys);
+    grips();
     paintStates();
   });
   const stopSel = effect(() => { const keys = src.selection.value; if (scene && !syncing) { if (!keys.some(k => k.includes('#'))) row = null; syncSelection(); paintStates(); } });
@@ -394,12 +401,14 @@ function mount(el, src) {
     const [id, rowKey] = keyParts(key);
     const m = scene.byId.get(id);
     if (!m) return;
-    let it = null, rect, save;
+    // What's typed over: a record's value as entered, not as the chart reads it; a shape's text as written.
+    let it = null, rect, save, raw;
     const view = src.view.value, wb = src.wb.value, chart = src.chart.value, day = src.day.value;
     if (m.type === 'box') {
       it = textAt(m, target);
       const r = it && src.state.value[it.id];
       if (!r || !(Tree.isField(r) || Tree.isChoice(r))) return;
+      raw = Tree.isField(r) ? Tree.format(r.field, r.value) : r.choice;
       rect = { x: m.x, y: m.y + Math.min(...it.lines.map(l => l.y)) - px(it.look.Size), w: m.w, h: it.lines.length * px(it.look.Size) * 1.2 + 4 };
       save = text => {
         const p = payload(wb, chart, it.id, day), v = Tree.isField(r) ? Tree.parse(r.field, text) : Tree.clean(text);
@@ -422,12 +431,13 @@ function mount(el, src) {
       const legend = m.geometry === 'legend';
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
+      raw = legend ? m.title : payload(wb, chart, m.id)?.text;
       save = text => { const p = payload(wb, chart, m.id); if (!p) return; const tx = src.edit(); tx.set(m.id, legend ? { ...p, title: text } : { ...p, text }); commit(tx); };
     }
     if (!it) return;
-    openEditor(it, rect, typed ?? it.text ?? '', save, m.type === 'shape' && m.geometry !== 'legend');
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, m.type === 'shape' && m.geometry !== 'legend', typed === undefined);
   }
-  function openEditor(it, rect, text, save, multiline) {
+  function openEditor(it, rect, text, save, multiline, selectAll) {
     over.querySelector('.dc-edit')?.remove();
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look;
     const ed = document.createElement('div');
@@ -439,7 +449,11 @@ function mount(el, src) {
     ed.textContent = text;
     over.appendChild(ed);
     ed.focus();
-    const range = document.createRange(); range.selectNodeContents(ed); if (text === it.text) { const s = getSelection(); s.removeAllRanges(); s.addRange(range); } else { range.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(range); }
+    // Double-click selects it all, to type over; typing over starts after what was typed.
+    const range = document.createRange(), s = getSelection();
+    range.selectNodeContents(ed);
+    if (!selectAll) range.collapse(false);
+    s.removeAllRanges(); s.addRange(range);
     let done = false;
     const finish = ok => { if (done) return; done = true; const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); };
     ed.addEventListener('keydown', e => {
@@ -513,7 +527,12 @@ function mount(el, src) {
     const outline = (m, color, cls = 'dc-hl', pad = 3) => {
       const p = document.createElementNS(NS, 'path');
       if (m.type === 'line') p.setAttribute('d', `M${m.points.map(q => q.join(',')).join(' L')}`);
-      else p.setAttribute('d', `M${m.x - pad},${m.y - pad} h${m.w + 2 * pad} v${m.h + 2 * pad} h${-m.w - 2 * pad} Z`);
+      else {
+        // Round a box by its own outline; a triangle's grows from its apex, so it stays clear of it.
+        const k = m.shape === 'triangle' ? 2.2 : 1;
+        p.setAttribute('d', Scene.path(m.type === 'box' ? m.shape : 'rect', m.w + 2 * pad * k, m.h + 2 * pad * (k === 1 ? 1 : 1.4)));
+        p.setAttribute('transform', `translate(${m.x - pad * k},${m.y - pad * (k === 1 ? 1 : 1.8)})`);
+      }
       p.setAttribute('class', cls + (m.type === 'line' ? ' line' : ''));
       if (color) p.style.stroke = color;
       marks.appendChild(p);
