@@ -519,6 +519,7 @@ async function run() {
   check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Structure'));
   Shell.parts.peek().workbook.open(C0); await tick(200);
   check('Back on the first chart, its Undo is its own', C() === C0 && Shell.parts.peek().undo.canUndo());
+  check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
 }
 
 function report() {

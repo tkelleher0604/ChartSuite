@@ -23,7 +23,8 @@
 //   'undo'       { undo(), redo(), canUndo(), canRedo() }                                    (app.js)
 //   'time'       { When({ close }), Ruler(), today() }   the date's popover, the ruler under the view, and
 //                back to today from another day or the past                                  (time.js)
-//   'attention'  { items() → [{ kind: 'overdue' | 'blank' | 'error', go() }] }   counted; F8   (inspector.js)
+//   'attention'  { items() → [{ kind: 'overdue' | 'error' | 'soon' | 'blank', go() }] }   counted and
+//                stepped through by F8, in that order, the worst first                       (inspector.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
@@ -47,11 +48,11 @@
 // dated }) → the change, every edit's one way in; App.restore(changeId); App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
-// and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key) as shown;
-// aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer joins;
-// drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set,
-// this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?,
-// keys?, checked?, disabled?, danger?, run?, items? }; one without run or items is shown, not chosen.
+// and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)
+// as shown; aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer
+// joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name);
+// store.get/set, this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or
+// { label, detail?, keys?, checked?, disabled?, danger?, run?, items? }; one without run or items is shown, not chosen.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
 // (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.

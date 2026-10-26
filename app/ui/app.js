@@ -51,9 +51,9 @@ const App = (() => {
   // there on the day or at the moment shown stays selected.
   let held = null;
   effect(() => {
-    const st = state.value, at = `${chart.value} ${JSON.stringify(Shell.time.value)}`, was = held, gone = k => k.split('@')[0] in was.st && !(k.split('@')[0] in st);
+    const st = state.value, at = `${chart.value} ${JSON.stringify(Shell.time.value)}`, was = held;
     held = { at, st };
-    const keys = Shell.selection.peek();
+    const keys = Shell.selection.peek(), gone = k => k.split('@')[0] in was.st && !(k.split('@')[0] in st);
     if (was?.at === at && keys.some(gone)) Shell.select(keys.filter(k => !gone(k)), { replace: true });
   });
 
