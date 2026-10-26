@@ -92,9 +92,7 @@ const FormulaBar = (() => {
     if (known.length === 2 && known.every(k => isObj(Rv.records[k]))) return { pair: known };
     return null;
   });
-  const subjectKey = computed(() => { const s = subject.value; return !s ? '' : s.pair ? s.pair.join('+') : (s.id ?? s.general) + (s.clause ? '|' + s.clause : ''); });
-  // With nothing to say, the bar names the view, as Excel's Name Box names the cell.
-  const viewName = computed(() => App.views.value.find(v => v.id === Shell.view.value)?.name ?? '');
+  const subjectKey = computed(() => { const s = subject.value; return s?.pair?.join('+') ?? s?.id ?? s?.general ?? ''; });
 
   // A record's spot, its argumentation, which an entered record standing there would share.
   const spotOf = r => r.args ? { args: r.args } : { at: r.at, edge: r.edge };
@@ -585,7 +583,8 @@ const FormulaBar = (() => {
   // ---- The bar ----
   function Bar() {
     const m = model.value, p = pending.value;
-    if (!m) return html`<div class="fxbar"><span class="fx-view">${viewName.value}</span><span class="fx-end"><${Delta} p=${p} /></span></div>`;
+    // With nothing to say, the bar names the view, as Excel's Name Box names the cell.
+    if (!m) return html`<div class="fxbar"><span class="fx-view">${App.views.value.find(v => v.id === Shell.view.value)?.name}</span><span class="fx-end"><${Delta} p=${p} /></span></div>`;
     const f = finder.value, cited = m.rows.find(r => r.cited), shut = !open.value || !m.def;
     const tint = edge => { const c = cited && [...f.colors].find(([n]) => norm(unbracket(cited.formula.slice(n.from, n.to))) === norm(edge)); return c ? ` fx-rf fx-c${c[1]}` : ''; };
     // A tag's checkbox comes first, as a checkbox does before its label; a value after its name and place.
