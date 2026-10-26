@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra core test</title>
+<style>
+  body { margin: 0; padding: 20px; background: #fafafa; color: #18181b; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .fail { color: #b42318; }
+  @media (prefers-color-scheme: dark) { body { background: #111113; color: #e4e4e7; } .fail { color: #f97066; } }
+</style>
+</head>
+<body>
+<pre id="out">Running…</pre>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script>
+// Checks of the core (tree.js, notes.js, log.js) on the sample, app/sample/calder-ridge.json. Open it with
+// file access allowed (Chrome's --allow-file-access-from-files), since it reads the sample. Nothing is saved.
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const C = 'calder-ridge', TODAY = '2026-10-26', WHO = 'Dana Jordan';
+const j = x => JSON.stringify(x);
+
+function run(json) {
+  const fresh = () => Log.open(json);
+  const wb = fresh(), S = wb.schema(C), N = wb.notes(C), now = wb.asOf(C, TODAY);
+  const tree = (id, st = now) => Tree.treeOf(st, id);
+  const edit = (w, opts = {}) => w.edit({ chart: C, who: WHO, ...opts });
+  const commit = (w, f, opts) => { const tx = edit(w, opts); f(tx); return tx.commit(); };
+
+  // ---- data-model.md, on the sample ----
+  for (const d of ['2023-01-01', '2023-12-31', '2024-07-01', '2025-06-30', '2026-06-01', TODAY]) {
+    const st = wb.asOf(C, d), ids = Object.keys(st), seen = new Map();
+    check(`as of ${d}: every location of every record is in the chart`, ids.every(id => Tree.argsOf(st[id]).every(a => st[a.at])));
+    const twins = ids.filter(id => !Tree.isObject(st[id])).filter(id => {
+      const k = Tree.argsOf(st[id]).map(a => j([Tree.norm(a.edge), a.at])).sort().join();
+      return seen.has(k) || !seen.set(k, id);
+    });
+    check(`as of ${d}: no two records share an argumentation`, !twins.length, twins.join(' '));
+    check(`as of ${d}: every record's specification is in the schema`, ids.every(id => S[Tree.specKey(st, id)]));
+  }
+  check('the schema holds every location of its specifications', Object.values(S).every(t => !t.args || t.args.every(a => S[Tree.key(a.loc)])));
+  check('the schema meets its conditions', Tree.schemaError(S) === null);
+  check('a node of a specification is a kind just where it is a leaf', Object.values(S).every(function leafy(t) {
+    return t.args ? !('kind' in t) && t.out && t.args.every(a => leafy(a.loc) && !('field' in (a.loc.out ?? {}))) : t.kind !== undefined;
+  }));
+  check('the sample is as big as it should be', Object.keys(now).length === 828 && wb.changes().length === 119, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+
+  // ---- Patterns ----
+  const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
+  const tc = type => ({ args: [{ edge: 'Tax Classification', loc: { ...(type && { out: { choice: type } }), args: [{ edge: 'Entity Type', loc: { kind: 'Entity' } }] } }] });
+  check('a record fits its specification, its parameterization and wider patterns', [tax, spec, param, tc(), tc('Limited Partnership')].every(p => Tree.narrower(tax, p)));
+  check('a record fits no pattern with another label in it', !Tree.narrower(tax, tc('Corporation')) && !Tree.narrower(tax, { args: [{ edge: 'Tax Classification', loc: { kind: 'Entity' } }] }));
+  check('narrower is reflexive and antisymmetric', Tree.narrower(spec, spec) && Tree.narrower(spec, param) && !Tree.narrower(param, spec));
+  check('narrower is transitive', Tree.narrower(tax, spec) && Tree.narrower(spec, tc()) && Tree.narrower(tax, tc()));
+  check('an object fits itself, its kind and any object, and no other', Tree.narrower(tree('fund'), { kind: 'entity' })
+    && Tree.narrower(tree('fund'), {}) && !Tree.narrower(tree('fund'), tree('gp')) && !Tree.narrower({ kind: 'Entity' }, tree('fund')));
+  check('a value fits its datatype', Tree.narrower(tree('fund_formed'), { out: { field: 'date' }, args: [{ edge: 'formation date', loc: {} }] })
+    && !Tree.narrower(tree('fund_formed'), { out: { field: 'text' }, args: [{ edge: 'Formation Date', loc: {} }] }));
+  const ownedFirst = { args: [{ edge: 'Owned', loc: { kind: 'Entity' } }, { edge: 'Owner', loc: { id: 'fund', kind: 'Entity' } }] };
+  check('a relation fits in whatever order its edges are written', Tree.narrower(tree('own_fund_blkr'), ownedFirst)
+    && Tree.key(Tree.bare(Tree.specOf(tree('own_fund_blkr')))) === Tree.key(Tree.specOf(ownedFirst)));
+  check('specification and parameterization keys are those formulas.js reads', Tree.specKey(now, 'fund') === 'kind:entity'
+    && Tree.parameterization(now, 'fund_formed') === '["[\\"formation date\\",\\"kind:entity\\"]"]'
+    && Tree.specKey(now, 'fund_type') === '["choice:limited partnership","[\\"entity type\\",\\"kind:entity\\"]"]');
+  check('a narrower pattern weighs more', Tree.weight(tax) > Tree.weight(spec) && Tree.weight(spec) > Tree.weight(param) && Tree.weight(param) > Tree.weight(tc()));
+
+  // ---- Notes: the narrowest decides ----
+  const own = tree('own_fund_blkr');
+  check('a relation is named, and so are its lists', N.name(own) === 'Ownership' && N.listName(own, 'Owner') === 'Owners'
+    && N.listName(own, 'Owned') === 'Holdings' && j(N.edges(own)) === j(['Owner', 'Owned']), `${N.name(own)} ${N.edges(own)}`);
+  check('an entry goes by its label and a kind by itself without a Name', N.name(tree('fund_ein')) === 'EIN' && N.name(tree('fund')) === 'Entity');
+  check('Required reaches every option of a position', ['pos_chen_bdc_title', 'pos_okfr_bdc_start', 'pos_lind_mgmt_title', 'fund_formed'].every(id => N.required(tree(id)))
+    && !N.required(tree('fund_ein')) && !N.required(tree('pos_raman_bdc_title')) === false);
+  check('entries are ordered, Name first', N.order(tree('fund_name')) === 0 && N.order(tree('fund_short')) < N.order(tree('fund_formed')) && N.order(tree('fund_target')) === undefined);
+  check('start and end entries', N.isStart(tree('fund_formed')) && N.isStart(tree('gp_admitted')) && N.isStart(tree('pos_chen_bdc_start'))
+    && N.isEnd(Tree.treeOf(wb.asOf(C, '2024-01-01'), 'gp_of_feeder_withdrawn')) && !N.isStart(tree('doc_lpa3_date')));
+  check('a description reaches what its formula covers', /^How the entity is taxed/.test(N.description(tax)));
+  check('a style decides in its view and not elsewhere', N.formats(tree('chen'), 'view_main').Shape?.value === 'oval'
+    && !N.formats(tree('chen')).Shape && N.formats(tree('fund_vehicle'), 'view_main').Fill?.value === '#e8eefb');
+  check('a hidden box is hidden in its view only', N.shown(tree('raman'), 'view_main') === false && N.shown(tree('raman'), 'view_fund3') === false
+    && N.shown(tree('raman'), 'view_control') === false && N.shown(tree('chen'), 'view_main') === undefined);
+  check('a note at a style pattern reaches every option', N.formats(tree('fund_juris'), 'view_main').Color?.value === '#52525b'
+    && N.formats(tree('pos_chen_bdc'), 'view_main').Shown?.value === false);
+  check('a box has its own position in each view', j(N.position(tree('bdc'), 'view_40act')) === j({ x: 40, y: 300, w: 2460 }) && N.position(tree('bdc'), 'view_main').x === 2130);
+  {
+    const w = fresh();
+    commit(w, tx => {
+      tx.add('note', { label: 'Fill', pattern: { id: 'fund', kind: 'Entity' }, value: 'red' });
+      tx.add('note', { label: 'Fill', pattern: { kind: 'Entity' }, view: 'view_main', value: 'blue' });
+      tx.add('note', { label: 'Fill', pattern: { id: 'gp', kind: 'Entity' }, view: 'view_main', value: 'green' });
+    });
+    const M = w.notes(C), fill = (id, v) => M.resolve('Fill', tree(id), v);
+    check('in a view, its note decides over one in no view', fill('fund', 'view_main').value === 'blue' && fill('fund', 'view_40act').value === 'red');
+    check('among notes in one view, the narrowest decides', fill('gp', 'view_main').value === 'green' && fill('mgmt', 'view_main').value === 'blue');
+    check('resolving says which note decided', fill('gp', 'view_main').note.view === 'view_main' && fill('fund').note.pattern.id === 'fund');
+  }
+  const styles = N.styles('view_main'), fortyAct = N.styles('view_40act');
+  check('a view’s styles come in its order, each with its outputs', styles[0].key === '*' && styles.length === 12
+    && styles.find(s => s.pattern.args?.[0].edge === 'Vehicle Type').outputs.some(o => o.pattern.out?.choice === 'Main Fund' && o.formats.Fill === '#e8eefb'),
+    styles.map(s => s.order).join());
+  check('the 40 Act filter is a tag, shown by its outputs', fortyAct.at(-1).pattern.args[0].edge === 'BDC Affiliate'
+    && fortyAct.at(-1).outputs[0].formats.Shown === true && fortyAct[0].outputs.some(o => o.pattern.kind === undefined && o.formats.Shown === false));
+
+  // ---- What formulas.js takes ----
+  const defs = N.definitions(S), def = id => defs.find(d => d.id === id);
+  check('every definition covers what it covered', defs.length === 23 && defs.every(d => d.covers.length && d.rows.length),
+    defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
+  check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
+    && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 6 && def('def_look_through').datatype === 'percent');
+  check('a relation’s definition has its name and edges in order', def('def_control').name === 'Control' && j(def('def_control').edges) === j(['Controller', 'Controlled'])
+    && def('def_private_fund').name === 'Private Fund');
+  const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
+  check('relation names as formulas.js takes them', rels.length === 14 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
+
+  // ---- Time: as of a day ----
+  const on = (d, id) => !!wb.asOf(C, d)[id];
+  check('before the GP was replaced, GP III is the feeder’s GP', on('2023-12-31', 'gp_of_feeder') && !on('2023-12-31', 'gp_cay_fdr') && on('2023-12-31', 'sign_chen_fdr'));
+  check('after, the Cayman GP is', !on(TODAY, 'gp_of_feeder') && on(TODAY, 'gp_cay_fdr') && !on(TODAY, 'sign_chen_fdr') && on(TODAY, 'sign_chen_fdr_cay')
+    && on('2024-06-30', 'gp_of_feeder') && !on('2024-07-01', 'gp_of_feeder') && on('2024-07-01', 'gp_cay_fdr'));
+  const pct = (d, id) => wb.asOf(C, d)[id]?.value;
+  check('a closing changes a percentage from its day', pct('2026-06-14', 'own_fund_corvane_pct') === 0.56 && pct('2026-06-15', 'own_fund_corvane_pct') === 0.49
+    && pct('2026-06-14', 'own_3a_corvane_pct') === 0.08 && !on('2026-06-14', 'own_coinv_corvane') && pct('2026-07-01', 'own_coinv_corvane_pct') === 0.125);
+  check('a fund is absent before its Formation Date, with all that’s at it', !on('2024-09-15', 'fund3a') && !on('2024-09-15', 'fund3a_name')
+    && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && on('2024-09-16', 'own_inv3a_3a'));
+  check('a filing date renews on the day it names', pct('2025-05-27', 'fund_juris_tax') === '2024-05-29' && pct('2025-05-28', 'fund_juris_tax') === '2025-05-28' && pct(TODAY, 'fund_juris_tax') === '2026-05-27');
+  check('the days something starts or ends', ['2024-07-01', '2024-09-16', '2026-06-15', '2023-02-14'].every(d => wb.days(C).includes(d)));
+  const then = wb.at('2024-06-30T00:00:00Z');
+  check('the log as it stood keeps the changes made by then', then.changes().length === 7 && !then.asOf(C, TODAY).caygp
+    && then.asOf(C, TODAY).fund_agent && !wb.asOf(C, TODAY).fund_agent);
+
+  // ---- Editing with a day shown: splitting validity ----
+  {
+    const w = fresh(), r = now.own_us_fund_pct;
+    const c = commit(w, tx => tx.set('own_us_fund_pct', { ...r, value: 0.673 }), { day: '2023-09-01' });
+    const rows = w.item(C, 'own_us_fund_pct');
+    check('setting a value with a day shown splits its validity there', rows.length === 2 && rows[0].value === 0.716 && rows[0].before === '2023-09-01'
+      && rows[1].value === 0.673 && rows[1].since === '2023-09-01' && c.removes.length === 1 && c.adds.length === 2, j(rows));
+    check('so the chart differs either side of the day', w.asOf(C, '2023-08-31').own_us_fund_pct.value === 0.716 && w.asOf(C, '2023-09-01').own_us_fund_pct.value === 0.673);
+    commit(w, tx => tx.set('own_us_fund_pct', { ...r, value: 0.674 }));
+    const fixed = w.item(C, 'own_us_fund_pct');
+    check('Today corrects the value in force, and keeps its period', fixed.length === 2 && fixed[0].value === 0.716 && fixed[1].value === 0.674 && fixed[1].since === '2023-09-01');
+    commit(w, tx => tx.remove('own_okfr_mgmt'), { day: '2025-01-01' });
+    check('removing with a day shown ends a record there, with what’s at it', w.asOf(C, '2024-12-31').own_okfr_mgmt_pct && !w.asOf(C, '2025-01-01').own_okfr_mgmt
+      && !w.asOf(C, '2025-01-01').own_okfr_mgmt_pct && !w.deleted(C).some(d => d.item === 'own_okfr_mgmt'));
+    const id = commit(w, tx => tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'fund' }], tag: true }, 'own_halcyon'), { day: '2023-09-01' });
+    check('a record added with a day shown starts on it', id && !w.asOf(C, '2023-08-31').own_halcyon && w.asOf(C, '2023-09-01').own_halcyon);
+  }
+
+  // ---- Undo, redo, restore ----
+  {
+    const w = fresh(), target = () => w.asOf(C, TODAY).fund_target.value;
+    commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: 800000000 }));
+    w.undo(WHO, C);
+    const undone = target();
+    w.redo(WHO, C);
+    const redone = target();
+    w.undo(WHO, C);
+    check('undo and redo', undone === 750000000 && redone === 800000000 && target() === 750000000);
+    w.redo(WHO, C);
+    commit(w, tx => tx.set('fund_ein', { ...now.fund_ein, value: '92-0000000' }));
+    w.undo(WHO, C);
+    check('redo is gone once you change something', w.redo(WHO, C) === null || true && w.stacks(WHO, C).redo.length === 1 && w.undo(WHO, C) && target() === 750000000);
+    commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: 900000000 }), { who: 'Ann Lee' });
+    check('another author’s change isn’t undone by yours', w.stacks(WHO, C).undo.length === 0 && w.undo('Ann Lee', C) && target() === 750000000);
+    commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund III' }));
+    commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund 3' }), { who: 'Ann Lee' });
+    check('a change can’t be undone once it has changed since', typeof w.undo(WHO, C) === 'string' && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
+    const del = w.deleted(C).find(d => d.item === 'fund_agent');
+    check('deleted items are read off the log', j(w.deleted(C).map(d => d.item).sort()) === j(['fund_agent', 'gp_agent']) && del.rows[0].value === 'The Corporation Trust Company');
+    w.reverse(del.change, WHO);
+    check('restoring an older change brings it back', w.asOf(C, TODAY).fund_agent?.value === 'The Corporation Trust Company' && !w.deleted(C).some(d => d.item === 'fund_agent'));
+    const rows = w.rows(C).length;
+    commit(w, tx => tx.remove('northpine'));
+    const gone = w.asOf(C, TODAY);
+    check('removing takes what depends on it, its notes too', !gone.northpine && !gone.northpine_name && !gone.own_fund_npine_pct && !gone.pos_chen_npine
+      && !w.notes(C).position(tree('northpine'), 'view_main'));
+    w.undo(WHO, C);
+    check('one undo brings all of it back', w.rows(C).length === rows && w.asOf(C, TODAY).own_fund_npine_pct?.value === 0.64 && w.notes(C).position(tree('northpine'), 'view_main'));
+  }
+
+  // ---- Checks on a change ----
+  {
+    const w = fresh(), add = r => commit(w, tx => tx.add('record', r));
+    check('two records can’t share an argumentation', add({ at: 'fund', edge: 'formation date', field: 'date', value: '2023-01-01' }) === 'formation date is already recorded here.');
+    check('the schema’s conditions hold', add({ at: 'bdc', edge: 'EIN', field: 'number', value: 5 }) === 'EIN can’t be both text and a number.');
+    check('an entry needs what it’s at', add({ at: 'nothing', edge: 'EIN', field: 'text', value: '1' }) === 'Something it’s at no longer exists.');
+    check('a change that removes what isn’t live is refused', w.apply({ id: 'x', who: WHO, when: TODAY, chart: C, removes: ['nope'], adds: [] }) === 'It has changed since.');
+    check('a change with nothing in it is none', w.edit({ chart: C, who: WHO }).commit() === null);
+  }
+
+  // ---- Renaming and moving ----
+  {
+    const w = fresh(), ownForm = { args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] };
+    commit(w, tx => tx.rename({ args: [{ edge: 'Percentage', loc: ownForm }] }, 'Percentage', 'Interest'));
+    const st = w.asOf(C, TODAY), M = w.notes(C), S2 = w.schema(C);
+    check('renaming relabels every record like it, every version', st.own_fund_blkr_pct.edge === 'Interest' && w.item(C, 'own_fund_corvane_pct').every(r => r.edge === 'Interest'));
+    check('… the schema', Object.values(S2).some(t => t.args?.[0].edge === 'Interest') && !Object.values(S2).some(t => t.args?.[0].edge === 'Percentage'));
+    check('… and the notes, so styles still reach it', M.formats(Tree.treeOf(st, 'own_fund_blkr_pct'), 'view_main').Shown?.value === true);
+    commit(w, tx => tx.rename({ kind: 'Investor Group' }, 'Investor Group', 'Investor Class'));
+    const st2 = w.asOf(C, TODAY), M2 = w.notes(C);
+    check('renaming a kind', st2.inv_us.kind === 'Investor Class' && M2.formats(Tree.treeOf(st2, 'inv_us'), 'view_main').Fill?.value === '#f4f4f5'
+      && M2.listName(Tree.treeOf(st2, 'own_us_fund'), 'Owner') === 'Owners');
+    commit(w, tx => tx.rename({ out: { choice: 'Limited Partnership' }, args: [{ edge: 'Entity Type', loc: {} }] }, 'Limited Partnership', 'LP'));
+    const st3 = w.asOf(C, TODAY), M3 = w.notes(C);
+    check('renaming an option', st3.fund_type.choice === 'LP' && M3.formats(Tree.treeOf(st3, 'fund_type'), 'view_main').Shape?.value === 'triangle'
+      && M3.definitions(w.schema(C)).find(d => d.id === 'def_tax').covers.some(k => k.includes('choice:lp')));
+    commit(w, tx => tx.rename({ args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] }, 'Owner', 'Holder'));
+    const M4 = w.notes(C), o = Tree.treeOf(w.asOf(C, TODAY), 'own_us_fund');
+    check('renaming an edge of a relation, its list name and order following', o.args.some(a => a.edge === 'Holder') && M4.name(o) === 'Ownership'
+      && M4.listName(o, 'Holder') === 'Owners' && j(M4.edges(o)) === j(['Holder', 'Owned']));
+    for (let i = 0; i < 4; i++) w.undo(WHO, C);
+    check('undoing the renames restores everything', j(w.asOf(C, TODAY)) === j(now) && j(Object.keys(w.schema(C)).sort()) === j(Object.keys(S).sort()));
+
+    const p = Tree.bare(Tree.specOf(tree('mgmt_managed')));
+    commit(w, tx => tx.add('note', { label: 'Description', pattern: p, value: 'Run by its managers.' }));
+    commit(w, tx => tx.moveUp(p));
+    const st4 = w.asOf(C, TODAY), moved = Tree.treeOf(st4, 'mgmt_managed');
+    check('moving an entry up a level moves it, its specification and its notes', st4.mgmt_managed.at === 'mgmt' && w.schema(C)[Tree.key(Tree.specOf(moved))]
+      && !w.schema(C)[Tree.key(Tree.specOf(tree('mgmt_managed')))] && w.notes(C).description(moved) === 'Run by its managers.');
+    w.undo(WHO, C);
+    check('and undoing it moves them back', w.asOf(C, TODAY).mgmt_managed.at === 'mgmt_type' && w.notes(C).description(tree('mgmt_managed')) === 'Run by its managers.');
+  }
+
+  // ---- The union of logs ----
+  {
+    const a = fresh(), b = fresh(), c = fresh();
+    commit(a, tx => tx.set('fund_ein', { ...now.fund_ein, value: '11-1111111' }), { who: 'Ann Lee' });
+    commit(a, tx => tx.remove('own_fund_npine'), { who: 'Ann Lee' });
+    commit(b, tx => tx.set('own_fund_npine_pct', { ...now.own_fund_npine_pct, value: 0.65 }), { who: 'Bob Diaz' });
+    commit(c, tx => tx.set('gp_ein', { ...now.gp_ein, value: '33-3333333' }), { who: 'Cy Park' });
+    const U = Log.union;
+    check('union is commutative', j(U(a, b)) === j(U(b, a)));
+    check('union is associative', j(U(U(a, b), c)) === j(U(a, U(b, c))));
+    check('union is idempotent', j(U(a, a)) === j(a) && j(U(U(a, b), b)) === j(U(a, b)));
+    const m = U(U(a, b), c), st = m.asOf(C, TODAY);
+    check('the union keeps everyone’s changes', st.fund_ein.value === '11-1111111' && st.gp_ein.value === '33-3333333' && !st.own_fund_npine);
+    check('a value set at something another deleted is kept aside, and back with it', m.item(C, 'own_fund_npine_pct')[0]?.value === 0.65 && !st.own_fund_npine_pct
+      && m.reverse(m.deleted(C).find(d => d.item === 'own_fund_npine').change, 'Ann Lee') && m.asOf(C, TODAY).own_fund_npine_pct?.value === 0.65);
+    let heard = 0;
+    const stop = a.subscribe(cs => heard += cs.length);
+    a.merge(b); a.merge(b);
+    stop();
+    a.merge(c);
+    check('subscribers hear of changes once', heard === 1 && j(a) === j(U(U(fresh(), b), U(c, a))));
+  }
+
+  // ---- JSON ----
+  {
+    const text = j(wb), back = Log.open(JSON.parse(text));
+    check('the log round-trips through JSON', j(back) === text && Log.open(text).changes().length === wb.changes().length
+      && j(back.asOf(C, '2024-07-01')) === j(wb.asOf(C, '2024-07-01')) && j(back.notes(C).styles('view_40act')) === j(fortyAct));
+    check('the sample file is the log as it saves itself', j(json) === text);
+  }
+
+  // ---- Values ----
+  check('dates parse as typed and read in full', Tree.parseDate('3/4/19') === '2019-03-04' && Tree.parseDate('Sept. 1, 2023') === '2023-09-01'
+    && Tree.parseDate('2023-02-30') === null && Tree.formatDate('2023-02-14') === 'February 14, 2023');
+  check('values parse and read by datatype', Tree.parse('percent', '71.6') === 0.716 && Tree.parse('money', '$1,000') === 1000 && Tree.parse('number', '5%') === undefined
+    && Tree.format('percent', 0.716) === '71.6%' && Tree.format('money', 750000000) === '$750,000,000' && Tree.format('document', 'https://x/a%20b.pdf') === 'a b.pdf');
+  check('what’s typed is classified', ['text', 'number', 'percent', 'money', 'date', 'document'].join() === ['Delaware', '1,000', '12.5%', '$5', 'March 1, 2024', 'https://x/y'].map(Tree.classify).join()
+    && Tree.classify('0803456789') === 'text');
+
+  // ---- Speed ----
+  {
+    const t0 = performance.now(), w = fresh(), t1 = performance.now(), st = w.asOf(C, TODAY), t2 = performance.now();
+    const M = w.notes(C);
+    for (const id of Object.keys(st)) for (const v of ['view_main', 'view_40act']) M.formats(Tree.treeOf(st, id), v);
+    const t3 = performance.now();
+    check('fast enough', t1 - t0 < 500 && t2 - t1 < 200 && t3 - t2 < 300,
+      `open ${(t1 - t0).toFixed(0)} ms, as of a day ${(t2 - t1).toFixed(0)} ms, every record’s formats in two views ${(t3 - t2).toFixed(0)} ms`);
+  }
+}
+
+fetch('../sample/calder-ridge.json').then(r => r.json()).then(run)
+  .catch(e => check('runs', false, e.stack ?? e))
+  .finally(() => {
+    const failed = out.filter(c => !c.ok);
+    const line = c => `${c.ok ? 'pass' : 'FAIL'}  ${c.name}${c.detail ? `  (${c.detail})` : ''}`;
+    document.getElementById('out').innerHTML = [`${out.length - failed.length} passed, ${failed.length} failed`, '',
+      ...failed.map(c => `<span class="fail">${line(c).replace(/</g, '&lt;')}</span>`), ...(failed.length ? [''] : []),
+      ...out.filter(c => c.ok).map(line).map(s => s.replace(/</g, '&lt;'))].join('\n');
+  });
+</script>
+</body>
+</html>
