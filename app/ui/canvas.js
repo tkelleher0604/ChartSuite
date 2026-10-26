@@ -836,7 +836,11 @@ function fromApp() {
   });
   return {
     wb: App.shown, chart: App.chart, day: App.day, state: App.state, version: App.version,
-    view: computed(() => Shell.view.value ?? firstView.value),
+    // A view laid out as a table isn't the canvas's to draw.
+    view: computed(() => {
+      const list = Shell.parts.value.views?.list() ?? [], v = Shell.view.value ?? firstView.value;
+      return (list.find(x => x.id === v)?.layout ?? 'chart') === 'chart' ? v : null;
+    }),
     selection: Shell.selection, select: keys => Shell.select(keys), edit: opts => App.edit(opts), emit: Shell.emit, on: Shell.on,
   };
 }
