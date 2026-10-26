@@ -27,9 +27,10 @@
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
-// window (in fields too, with inputs) and listed by ? ; 'find' { items() → menu items }, Find's records and
-// lists, an item with any other names it goes by (names: […]) and a key, and what's within it (a list,
-// "AIV-1 › Signatories") with of: that key; 'export' { name, run }; 'status' { render() }.
+// window (in fields too, with inputs) and listed by ? ; 'find' { items() → menu items }, Find's records,
+// lists and definitions, an item with its kind (detail: 'Entity', which heads it), any other names it goes by
+// (names: […]) and a key, and what's within it (a list, "AIV-1 › Signatories") with of: that key; 'export'
+// { name, run }; 'status' { render() }.
 //
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar
@@ -530,13 +531,13 @@ const Shell = (() => {
     return items;
   }
   function TitleBar() {
-    const u = part('undo'), ex = many('export'), t = time.value, tp = part('time');
+    const u = part('undo'), ex = many('export'), t = time.value;
     return html`<header class="titlebar" data-region="bars">
       <div class="left"><button class="btn ghost dd chartmenu" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
-        ${tp ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${tp.When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${t
-          ? html`<button class="btn icon" aria-label="Today" data-tip="Today" onClick=${() => tp.today()}>${icon('x')}</button>` : null}</span>` : null}
+        ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${t
+          ? html`<button class="btn icon" aria-label="Today" data-tip="Today" onClick=${() => part('time').today()}>${icon('x')}</button>` : null}</span>` : null}
         <span class="sep" />
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
