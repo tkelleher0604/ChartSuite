@@ -278,8 +278,9 @@ function mount(el) {
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
     // Each view comes back as it was left; one not seen yet opens on its page. Either is so at once, never
-    // drawn for a moment as the view before was. A preview's page doesn't move the view.
-    const size = `${base.page.w}×${base.page.h}`;
+    // drawn for a moment as the view before was. A framed view frames the page drawn, Tidy's preview's too
+    // (every other preview keeps the page as it was).
+    const size = `${scene.page.w}×${scene.page.h}`;
     if (viewShown !== view) {
       if (viewShown) zooms.set(viewShown, left ?? { s: graph.zoom(), t: graph.translate(), framed });
       viewShown = view;
