@@ -45,7 +45,8 @@ const Time = (() => {
     }
     return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([day, m]) => ({ day, items: [...m.values()] }));
   });
-  Shell.register('time', { days: () => events.value.map(e => e.day) });
+  // The shell draws the date's popover and the strip under the view from these.
+  Shell.register('time', { When, Strip: () => html`<div class="scrub-host"><${Strip} /></div>` });
 
   // ---- A view keeping a date ----
   const viewTree = Table.viewTree;
@@ -125,13 +126,6 @@ const Time = (() => {
       ${t?.asOf && view ? html`<label class="date-keep"><input type="checkbox" checked=${kept(view.id) === t.asOf} onChange=${e => keep(view.id, e.target.checked ? t.asOf : null)} />Keep in ${view.name}</label>` : null}
     </div>`;
   }
-  // The title bar's date opens this calendar in place of the shell's own.
-  document.addEventListener('click', e => {
-    const btn = e.target.closest?.('.titlebar .asof');
-    if (!btn) return;
-    e.stopPropagation();
-    Shell.popover(btn, () => html`<${When} />`, { placement: 'bottom-end' });
-  }, true);
 
   // ---- The strip: a ruler under the view with a tick for each of the chart's days; dragging scrubs ----
   const CAP = 1096;   // a longer gap is drawn as three years, with a break
@@ -366,16 +360,6 @@ const Time = (() => {
     e.stopPropagation();
     if (Shell.time.peek()?.stood) now(); else close();
   }, true);
-
-  // The strip goes under the view once the window is drawn.
-  Shell.on('ready', () => {
-    const view = document.querySelector('.shell .view');
-    if (!view) return;
-    const el = document.createElement('div');
-    el.className = 'scrub-host';
-    view.appendChild(el);
-    render(html`<${Strip} />`, el);
-  });
 
   return { events, describe, deleted, kept, keep, open: openHistory, close };
 })();

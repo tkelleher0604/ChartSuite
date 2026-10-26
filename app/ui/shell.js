@@ -20,7 +20,7 @@
 //                  add?() → id, menu?(id) → items }                          the sheet tabs
 //   'workbook'   { charts() → [{ id, name }], current() → id, open(id), menu?() → items }   the chart menu
 //   'undo'       { undo(), redo(), canUndo() → bool, canRedo() → bool }
-//   'time'       { days() → ['yyyy-mm-dd', …] }   the days on which something starts or ends
+//   'time'       { When({ close }), Strip() }   components: the date's popover, and the strip under the view
 //   'attention'  { items() → [{ kind: 'overdue' | 'blank' | 'error', go() }] }   counted; F8 steps through
 //   'evaluate'   (text, selection) → { value } | { items: [{ label, detail?, run }] } | { error }   Find's "="
 // Any number of:
@@ -402,7 +402,6 @@ const Shell = (() => {
 
   // ---- The title bar ----
   const fmtDay = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const timeLabel = t => !t ? 'As of today' : t.asOf ? 'As of ' + fmtDay(t.asOf)
     : 'As it stood' + (t.at ? ' ' + new Date(t.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
   const chartName = computed(() => { const wb = part('workbook'); return wb ? wb.charts().find(c => c.id === wb.current())?.name : null; });
@@ -421,36 +420,13 @@ const Shell = (() => {
     if (items[items.length - 1] === '-') items.pop();
     return items;
   }
-  function Strip({ days, value, pick }) {
-    const t = d => new Date(d + 'T12:00:00').getTime(), lo = t(days[0]), hi = t(days[days.length - 1]), span = Math.max(1, hi - lo);
-    const x = d => (t(d) - lo) / span * 100;
-    const nearest = e => {
-      const r = e.currentTarget.getBoundingClientRect(), at = lo + (e.clientX - r.left) / r.width * span;
-      return days.reduce((a, b) => Math.abs(t(b) - at) < Math.abs(t(a) - at) ? b : a);
-    };
-    const [hover, setHover] = useState(null);
-    return html`<div class="strip" onPointerMove=${e => setHover(nearest(e))} onPointerLeave=${() => setHover(null)} onClick=${e => pick(nearest(e))}>
-      ${days.map(d => html`<i class=${d === value ? 'on' : d === hover ? 'hot' : ''} style=${`left:${x(d)}%`} />`)}
-      <span class="strip-a">${hover || value ? fmtDay(hover || value) : ''}</span>
-    </div>`;
-  }
-  function When({ close }) {
-    const t = time.value, days = part('time')?.days() || [], now = today();
-    return html`<div class="when">
-      <div class="when-row">
-        <button class="btn" aria-pressed=${!t} onClick=${() => { at(null); close(); }}>Today</button>
-        <input type="date" value=${t?.asOf || now} onChange=${e => e.target.value && at(e.target.value === now ? null : { asOf: e.target.value })} />
-      </div>
-      ${days.length > 1 ? html`<${Strip} days=${days} value=${t?.asOf} pick=${d => at({ asOf: d })} />` : null}
-    </div>`;
-  }
   function TitleBar() {
     const u = part('undo'), ex = many('export'), t = time.value;
     return html`<header class="titlebar">
       <div class="left"><button class="btn ghost dd chartmenu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
       <button class="find" onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+K')}</kbd></button>
       <div class="right">
-        <button class=${'btn ghost dd asof' + (t ? ' past' : '')} onClick=${e => popover(e.currentTarget, close => html`<${When} close=${close} />`, { placement: 'bottom-end' })}>${timeLabel(t)}</button>
+        ${part('time') ? html`<button class=${'btn ghost dd asof' + (t ? ' past' : '')} onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${timeLabel(t)}</button>` : null}
         <span class="sep" />
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+Z')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+Y')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
@@ -498,6 +474,7 @@ const Shell = (() => {
       <div class="view" aria-hidden=${wide.value ? 'true' : null}>
         <${Host} kind="canvas" label="Canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" label="Table" hidden=${layout !== 'table'} />
+        ${part('time') ? html`<${part('time').Strip} />` : null}
       </div>
       <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${drag} onDblClick=${() => wide.value ? narrow() : widen()} />
       <aside class="inspector"><${Host} kind="inspector" label="Inspector" /></aside>

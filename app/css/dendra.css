@@ -257,15 +257,6 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .findpal > .menu-none { padding: 10px 14px; }
 .find-rows .label.mono { white-space: pre-wrap; }
 
-.when { display: grid; gap: 12px; width: 264px; }
-.when-row { display: flex; gap: 8px; }
-.when-row > input { flex: 1; }
-.strip { position: relative; height: 40px; margin: 0 4px; cursor: default; }
-.strip::before { content: ""; position: absolute; left: 0; right: 0; top: 12px; height: 1px; background: var(--rule-2); }
-.strip > i { position: absolute; top: 6px; width: 1px; height: 13px; margin-left: -.5px; background: var(--ink-3); }
-.strip > i.hot { background: var(--ink); }
-.strip > i.on { width: 2px; margin-left: -1px; background: var(--accent); }
-.strip-a { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font: var(--t12); color: var(--ink-2); }
 
 .foot { height: var(--foot); display: flex; align-items: stretch; min-width: 0; border-top: 1px solid var(--rule); background: var(--paper); user-select: none; }
 .sheets { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; padding-left: 4px; }
