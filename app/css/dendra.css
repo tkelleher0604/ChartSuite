@@ -215,8 +215,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .shell { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--paper); }
 .shell > * { flex: none; }
 
-/* 7 px, then a ghost button's border and padding: the mark, like every bar's first glyph, sits at 16. */
-.titlebar { height: var(--bar); display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 400px) minmax(0, 1fr); align-items: center; gap: 12px; padding: 0 8px 0 7px; border-bottom: 1px solid var(--rule); user-select: none; }
+/* 7 px, then a ghost button's border and padding: the mark, like every bar's first glyph, sits at 16. The right keeps room
+   for all it holds, so a long day shown never runs into Find; the chart's name gives way first. */
+.titlebar { height: var(--bar); display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 400px) minmax(max-content, 1fr); align-items: center; gap: 12px; padding: 0 8px 0 7px; border-bottom: 1px solid var(--rule); user-select: none; }
 .titlebar > .left, .titlebar > .right { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .titlebar > .right { justify-content: flex-end; }
 .chartmenu { max-width: 100%; padding: 0 8px; gap: 8px; font-weight: 600; }
