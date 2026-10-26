@@ -113,9 +113,13 @@ function slots(at, all) {
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
-  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at })) : [];
-  return [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity }))
+  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })) : [];
+  const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity }))
     .sort((a, b) => a.o - b.o || a.edge.localeCompare(b.edge));
+  // The first of those it could have is typed into at once.
+  const first = out.find(x => x.open);
+  if (first) first.auto = true;
+  return out;
 }
 // The specifications of entries a record could have and hasn't, Name aside, one an edge.
 function unentered(at) {
@@ -336,7 +340,7 @@ function Output({ id, slot, label }) {
   const more = !r ? null : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
   return type === 'tag' ? html`<${TagBox} r=${r} fx=${f} over=${o} label=${label} flip=${() => flip(id, slot)} change=${() => flipChange(id, slot)}>${more}</${TagBox}>`
     : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}>${more}</${Choice}>`
-    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype}>${more}</${Field}>`;
+    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}>${more}</${Field}>`;
 }
 
 // ---- The record's entries, as a tree ----
@@ -840,6 +844,10 @@ function Statute({ def, p, law }) {
   </div>`;
 }
 
+// A yes or no about an entry in general, a checkbox row as a tag is: its box, then its label.
+const checkRow = (label, on, set) => html`<label class="row chk" key=${label}><span class="v ctl"><input type="checkbox" checked=${on} disabled=${App.readOnly.value}
+  onChange=${e => set(e.target.checked)} /></span><span class="k">${label}</span></label>`;
+
 // An entry, relation or kind in general: what it's called and means, its options, whether it's required,
 // a start or an end, where it's at, its definition, and its styles. Seen as a `style` (a frame selected), it
 // says so. A Description or a Formula not yet written is added from Add.
@@ -869,8 +877,8 @@ function GeneralView({ p, style }) {
       ${ats.map(([k, x]) => html`<div class="row" key=${k}><div class="k">${k}</div><div class="v lines">${x}</div></div>`)}
       ${rel ? n.edges(p).map(e => html`<div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
-      ${kind || rel ? null : html`<div class="row"><div class="k">Required</div><div class="v ctl"><input type="checkbox" aria-label="Required" checked=${n.required(p)} disabled=${still} onChange=${e => flag('Required', p, e.target.checked)} /></div></div>`}
-      ${dated ? ['Start', 'End'].map(l => html`<div class="row" key=${l}><div class="k">${l}</div><div class="v ctl"><input type="checkbox" aria-label=${l} checked=${l === 'Start' ? n.isStart(dp) : n.isEnd(dp)} disabled=${still} onChange=${e => flag(l, dp, e.target.checked)} /></div></div>`) : null}
+      ${kind || rel ? null : checkRow('Required', n.required(p), on => flag('Required', p, on))}
+      ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
     ${type === 'choice' ? html`<${Section} title="Options" n=${options.length}>
