@@ -208,7 +208,7 @@ function run(json) {
     check('… and the notes, so styles still reach it', M.formats(Tree.treeOf(st, 'own_fund_blkr_pct'), 'view_main').Shown?.value === true);
     commit(w, tx => tx.rename({ kind: 'Investor Group' }, 'Investor Group', 'Investor Class'));
     const st2 = w.asOf(C, TODAY), M2 = w.notes(C);
-    check('renaming a kind', st2.inv_us.kind === 'Investor Class' && M2.formats(Tree.treeOf(st2, 'inv_us'), 'view_main').Fill?.value === '#f4f4f5'
+    check('renaming a kind', st2.inv_us.kind === 'Investor Class' && M2.formats(Tree.treeOf(st2, 'inv_us'), 'view_main').Fill?.value === '#edf3ea'
       && M2.listName(Tree.treeOf(st2, 'own_us_fund'), 'Owner') === 'Owners');
     commit(w, tx => tx.rename({ out: { choice: 'Limited Partnership' }, args: [{ edge: 'Entity Type', loc: {} }] }, 'Limited Partnership', 'LP'));
     const st3 = w.asOf(C, TODAY), M3 = w.notes(C);
