@@ -340,7 +340,7 @@ async function checks() {
   let p = FormulaBar.pending.peek();
   check('hovering a tag previews ruling it out: Control −5', p?.deltas.find(d => d.name === 'Control')?.minus === 5 && /Control\s*−5/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
   check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === 5);
-  check('the preview is fast enough per keystroke', ms < 120, `${ms.toFixed(0)} ms`);
+  check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
   document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
   check('leaving it ends the preview', !FormulaBar.pending.peek() && !StandIn.rl.peek());
 

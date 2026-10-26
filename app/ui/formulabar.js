@@ -83,7 +83,10 @@ const FormulaBar = (() => {
   const placeOf = (Rv, id) => Tree.pathOf(Rv.records, id).map((p, i) => i ? segmentOf(Rv, p) : nameOf(Rv, p)).join(' › ');
   const argKey = args => args.map(a => `${norm(a.edge)}=${a.at}`).sort().join('&');
   const noteOf = id => App.notes.peek().notes('Formula').find(n => n.note === id && !n.view);
-  const defOf = id => R.peek().state.P.byId.get(id);
+  // The definitions as the engine takes them, each with its parameters read off the keys of what it covers.
+  const defs = computed(() => new Map(inputs.value.defs.map(d => [d.id, { ...d, isRelation: (d.edges?.length ?? 0) > 1,
+    params: d.covers.map(k => JSON.parse(k).map(s => { const [edge, spec] = JSON.parse(s); return { edge, spec }; })) }])));
+  const defOf = id => id ? defs.peek().get(id) : undefined;
   const errorOf = (Rv, id) => Rv.errors.find(e => e.id === id);
   // Grounds are worked out on demand; each, once per working-out.
   const grounds = new WeakMap();
@@ -167,7 +170,7 @@ const FormulaBar = (() => {
   const pairs = computed(() => {
     const Rv = R.value, out = new Map();
     for (const [id, r] of Object.entries(Rv.records)) if (r.args?.length === 2) {
-      const def = Rv.computed[id]?.def ?? Rv.covered[id]?.def, d = def && Rv.state.P.byId.get(def);
+      const def = Rv.computed[id]?.def ?? Rv.covered[id]?.def, d = def && defOf(def);
       if (!d) continue;
       const by = new Map(r.args.map(a => [norm(a.edge), Tree.objectOf(Rv.records, a.at)]));
       out.set(`${def}|${d.edges.map(e => by.get(norm(e))).join('|')}`, id);
@@ -184,7 +187,7 @@ const FormulaBar = (() => {
     const id = s.id, rec = Rv.records[id], err = !rec && errorOf(Rv, id);
     if (isObj(rec)) return { id, object: true, title: nameOf(Rv, id), place: rec.kind, rows: [] };
     const said = Rv.computed[id] ?? Rv.covered[id] ?? null, spot = rec ?? err;
-    const P = (said?.def ?? err?.def) ? Rv.state.P.byId.get(said?.def ?? err.def) : null;
+    const P = defOf(said?.def ?? err?.def) ?? null;
     const at = rec ? id : err.args ? Object.fromEntries(err.args.map(a => [a.edge, Tree.objectOf(Rv.records, a.at) ?? a.at])) : err.at;
     const m = { id, rec, err, def: P, at, said, computed: !!Rv.computed[id], covered: Rv.covered[id] ?? null,
       title: P?.name ?? relationName(Rv, id, spot) ?? spot.edge, ...argsOf(Rv, spot, P) };
@@ -199,8 +202,8 @@ const FormulaBar = (() => {
   function describePair(s, Rv, dr, pk) {
     const options = [];
     for (const def of Rv.order.flat()) {
-      const d = Rv.state.P.byId.get(def);
-      if (!d?.isRelation || d.error || d.edges.length !== 2) continue;
+      const d = defOf(def);
+      if (!d?.isRelation || Rv.defErrors[def] || d.edges.length !== 2) continue;
       for (const [a, b] of [s.pair, [s.pair[1], s.pair[0]]]) {
         const at = { [d.edges[0]]: a, [d.edges[1]]: b };
         if (!Formulas.evaluateRow(Rv, def, 0, at)) continue;
@@ -242,7 +245,7 @@ const FormulaBar = (() => {
     const P = m.def;
     if (!P) return [];
     const drafted = dr?.def === P.id;
-    const texts = drafted ? dr.rows : (noteOf(P.id)?.value ?? P.rows.map(r => ({ label: r.label, formula: r.text })))
+    const texts = drafted ? dr.rows : P.rows
       .map((r, i) => ({ key: 'r' + i, label: r.label, formula: r.formula }));
     const rows = texts.map((t, i) => ({ ...t, i, ev: t.gone ? null : Formulas.evaluateRow(Rv, P.id, t.formula, m.at) }));
     const implied = rows.every(r => /^\s*(←|<-)/.test(r.formula));
@@ -266,11 +269,11 @@ const FormulaBar = (() => {
   }
 
   // ---- Range Finder: a colour for each name in the lit row, and what each means here, on the chart ----
-  // The lit row is the cited one; or the one being edited; or, for a record that isn't there, the one hovered.
+  // The lit rows: the one being edited; or else the cited one and the one hovered.
   const finder = computed(() => {
     const m = model.value, Rv = R.value, colors = new Map(), map = new Map(), ed = editing.value, hv = hover.value;
     if (!m?.rows?.length) return { colors, map, m };
-    const lit = m.rows.filter(r => ed ? r.key === ed.key : m.absent ? hv?.key === r.key : r.cited);
+    const lit = m.rows.filter(r => ed ? r.key === ed.key : r.cited || hv?.key === r.key);
     const keyed = new Map();
     let next = 0;
     for (const r of lit) for (const n of [...r.ev?.names ?? []].sort((a, b) => a.from - b.from)) {
@@ -326,16 +329,16 @@ const FormulaBar = (() => {
     return row?.ev ? new Set(row.ev.names.filter(n => n.from >= hv.from && n.to <= hv.to).flatMap(n => n.ids)) : null;
   });
 
-  const hue = (c, level) => { const v = css(`--rf-page-${c}`); return /^#[0-9a-f]{6}$/i.test(v) ? v + ['', 'c0', '70'][level] : v; };
+  // The page's hues, its alpha the depth: a witness in full, a name's records lighter, deeper reasons lighter still.
   effect(() => {
-    Shell.theme.value;
+    const hues = [1, 2, 3, 4, 5, 6].map(c => css(`--rf-page-${c}`)), hue = (c, level) => hues[c - 1] + ['', 'c0', '70'][level];
     const lit = pageLight.value;
-    if (lit) return chart.highlight(lit.length ? Object.fromEntries(lit.map(id => [id, css('--rf-page-1')])) : null, { dim: true, strong: lit });
+    if (lit) return chart.highlight(lit.length ? Object.fromEntries(lit.map(id => [id, hues[0]])) : null, { dim: true, strong: lit });
     const { map } = finder.value, pulse = hovered.value;
     if (!map.size) return chart.highlight(null);
-    const colors = {}, strong = [], deep = [];
+    const colors = {}, strong = [], deep = [], loop = css('--no-page');
     for (const [id, x] of map) {
-      colors[id] = x.c === 'loop' ? css('--no-page') : hue(x.c, pulse?.has(id) ? 0 : x.level);
+      colors[id] = x.c === 'loop' ? loop : hue(x.c, pulse?.has(id) ? 0 : x.level);
       if (x.level === 0) strong.push(id); else if (x.level === 2) deep.push(id);
     }
     chart.highlight(colors, { dim: true, strong, deep, pulse: pulse ? [...pulse] : [] });
@@ -419,7 +422,7 @@ const FormulaBar = (() => {
   }
   // Per definition, the records it would attest or give more, fewer, and with another value.
   function deltasOf(d, A, B) {
-    const by = new Map(), name = (X, id) => { const def = X.computed[id]?.def ?? X.covered[id]?.def; return def && X.state.P.byId.get(def)?.name; };
+    const by = new Map(), name = (X, id) => { const def = X.computed[id]?.def ?? X.covered[id]?.def; return def && defOf(def)?.name; };
     const bump = (n, k) => { if (!n) return; if (!by.has(n)) by.set(n, { name: n, plus: 0, minus: 0, changed: 0 }); by.get(n)[k]++; };
     const counts = r => !('tag' in r) || r.tag === true;
     for (const id of d.appear) if (counts(B.records[id])) bump(name(B, id), 'plus');
@@ -815,7 +818,7 @@ const FormulaBar = (() => {
   }, true);
 
   // The page's own model, for editing a row there: the definition at one of its records.
-  const pageModel = () => { const Rv = R.peek(), id = page.peek(), P = Rv.state.P.byId.get(id); return P && { def: P, at: Object.keys(Rv.computed).find(k => Rv.computed[k].def === id) ?? null }; };
+  const pageModel = () => { const Rv = R.peek(), id = page.peek(), P = defOf(id); return P && { def: P, at: Object.keys(Rv.computed).find(k => Rv.computed[k].def === id) ?? null }; };
 
   // Where a definition reads: for a relation, the kinds each side can be; for an entry, where it's located.
   function sidesOf(P, note) {
@@ -852,7 +855,7 @@ const FormulaBar = (() => {
   }
 
   function Page() {
-    const id = page.value, Rv = R.value, P = id && Rv.state.P.byId.get(id);
+    const id = page.value, Rv = R.value, P = id && defs.value.get(id);
     if (!P) return null;
     const note = noteOf(id), d = draft.value?.def === id ? draft.value : null;
     const rows = (d ? d.rows : (note?.value ?? []).map((r, i) => ({ key: 'r' + i, label: r.label, formula: r.formula }))).map((r, i) => ({ ...r, i }));
