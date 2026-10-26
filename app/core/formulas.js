@@ -419,8 +419,8 @@ const inSight = (S, id) => !S.cut || !S.cut.defs.has(S.recs[id]?.computed) || S.
 // notes its key, found or not: that's what the row being worked out depends on, since one of the group's
 // candidates could turn up there. `kind` is how it was looked for: 'entry' (at a location, by name), 'lists'
 // (a list of relatives at a location), 'calls' (a relation call, by its arguments' objects), and, for finding
-// candidates (see holdsWhere), 'rel' (a relation's records with one argument given) and 'inverse' (whose list
-// of a name an object is on). candidateKeys gives the keys under which a candidate could turn up.
+// candidates (see holdsWhere), 'rel' (a relation's records with one argument given). candidateKeys gives the
+// keys under which a candidate could turn up.
 function depend(S, kind, name, key) {
   if (watching(S, kind, name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); if (VALUE_KINDS.has(kind)) S.dep.watchedValues.add(kind); }
 }
@@ -1583,9 +1583,6 @@ function addBits(a, b) {
   for (let i = 0; i < b.length; i++) a[i] |= b[i];
   return a;
 }
-function* idsIn(S, bits) {
-  for (let w = 0; w < bits.length; w++) for (let x = bits[w]; x; x &= x - 1) yield S.numbered[(w << 5) + 31 - Math.clz32(x & -x)];
-}
 
 const NOWHERE = { bits: new Uint32Array(0), exact: true };
 const union = (a, b) => a && b && { bits: !a.bits.length ? b.bits : !b.bits.length ? a.bits : addBits(Uint32Array.from(a.bits), b.bits), exact: a.exact && b.exact };
@@ -1752,45 +1749,9 @@ function filledWhere(K, n, v) {
   if (n.k === 'dot' && isCall(n.x, 'FILTER')) return filledWhere(K, n.x, v);
   if (!isCall(n, 'FILTER') || n.args.length !== 2) return null;
   const [list, cond] = n.args.map(x => x.x);
-  if (!uses(list, v)) {
-    const h = steady(K, list) && holdsWhere(K, cond, v);
-    return h && (c => loose(acrossItems(c, list, h)));
-  }
-  // FILTER(y.List, cond), y being the free variable: an object is on y's list just where y is on that
-  // object's list seen from the other side, so FILTER can keep something only for the objects on the lists
-  // of those its condition can hold for.
-  if (v === AT || list.k !== 'dot' || !isVar(list.x, v) || uses(cond, v)) return null;
-  const h = holdsWhere(K, cond, AT);
-  return h && (c => {
-    if (!listedOnly(c.S, list.n)) return null;
-    const s = h(c);
-    if (!s) return null;
-    const ids = [];
-    for (const o of idsIn(c.S, s.bits)) ids.push(...listing(c.S, o, list.n));
-    return { bits: bitsOf(c.S, ids), exact: false };
-  });
+  const h = !uses(list, v) && steady(K, list) && holdsWhere(K, cond, v);
+  return h && (c => loose(acrossItems(c, list, h)));
 }
-
-// Whether an object's `n` is sure to be its list of relatives of that name: no entry, worked out or not, is
-// called that at an object, and the name is a list's somewhere, so where there are none it's empty.
-function listedOnly(S, n) {
-  if (!S.listedOnly.has(n)) S.listedOnly.set(n, S.P.known.lists.has(n) && !S.dep?.entry.has(n)
-    && ![...S.byAtName.keys(), ...S.failed.keys()].some(k => k.endsWith(`|${n}`) && isObjectAt(S, k.slice(0, -n.length - 1))));
-  return S.listedOnly.get(n);
-}
-
-// The objects whose list of relatives called `n` has o on it, kept as a lookup is.
-const listing = (S, o, n) => remembered(S, `listing|${o}|${n}`, () => {
-  depend(S, 'inverse', n, `${o}|${n}`);
-  const out = [];
-  for (const rid of relationsFor(S, o, n)) {
-    const r = S.recs[rid];
-    if (isTag(r) && r.tag !== true) continue;
-    for (const { own, other, list, alias } of listsOf(S, r))
-      if ((list === n || alias === n) && objectOf(S, other.at) === o) { const y = objectOf(S, own.at); if (y) out.push(y); }
-  }
-  return out;
-});
 
 // A relation call with the free variable as one argument finds a record only among those the other arguments
 // are in, so it can give something only for their objects at its edge. As a condition, a tag relation's call
@@ -1858,7 +1819,7 @@ function stateFor(P, entered) {
     relsByCall: new Map(), indexed: new Map(), seq: 0, listNames: new Map(), specs: new Map(), bySpec: new Map(), enteredByKey: new Map(),
     enteredByEdges: null, holds: new Map(), stage: new Map(), rows: new Map(), dep: null, watch: null, reads: null,
     forgetting: true, done: 0, cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), paramOf: new WeakMap(),
-    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(),
+    pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(),
     cut: null, probe: null, count: null };
   // Every entered record is in before any is indexed, so each is indexed by the objects it belongs to
   // whatever order they come in.
@@ -1924,7 +1885,6 @@ function runStep(S, i) {
   const started = now();
   S.count = { evals: 0, rounds: 0, tried: 0 };
   S.memo.clear();
-  S.listedOnly.clear();
   S.forgetting = false;
   runGroup(S, i);
   S.forgetting = true;
@@ -2121,7 +2081,7 @@ function candidateKeys(S, d, cand, kinds) {
   const n = normal(d.name), objs = cand.args.map(a => objectOf(S, a.at)), keys = [];
   if (want('calls')) keys.push(`calls|${n}|${cand.args.map((a, i) => `${normal(a.edge)}=${objs[i]}`).sort().join('&')}`);
   if (want('rel')) cand.args.forEach((a, i) => keys.push(`rel|${n}|${normal(a.edge)}=${objs[i]}`));
-  if (!want('lists') && !want('inverse')) return keys;
+  if (!want('lists')) return keys;
   const lists = listsByPair(S, d);
   cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
     if (i !== j) for (const list of lists.get(`${normal(own.edge)}|${normal(other.edge)}`)) {
@@ -2129,7 +2089,6 @@ function candidateKeys(S, d, cand, kinds) {
         keys.push(`lists|${own.at}|${list}`);
         if (objs[i] !== own.at) keys.push(`lists|${objs[i]}|${list}`);
       }
-      if (want('inverse')) keys.push(`inverse|${objs[j]}|${list}`);
     }
   }));
   return keys;
@@ -2149,12 +2108,12 @@ function listsByPair(S, d) {
 
 // The names under which a group's own candidates can be looked for, by how (see depend).
 function relevance(S, group) {
-  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), inverse: new Set(), watched: new Set(), watchedValues: new Set() };
+  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), watched: new Set(), watchedValues: new Set() };
   for (const d of group) {
     if (!d.isRelation) { dep.entry.add(normal(d.name)); continue; }
     dep.calls.add(normal(d.name));
     dep.rel.add(normal(d.name));
-    for (const names of listsByPair(S, d).values()) for (const n of names) { dep.lists.add(n); dep.inverse.add(n); }
+    for (const names of listsByPair(S, d).values()) for (const n of names) dep.lists.add(n);
   }
   return dep;
 }
