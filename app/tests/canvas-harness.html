@@ -64,6 +64,7 @@
 <script src="../ui/table.js"></script>
 <script src="../ui/time.js"></script>
 <script src="../ui/formulabar.js"></script>
+<script src="../ui/export.js"></script>
 <script>
 const H = (() => {
   const q = new URLSearchParams(location.search);
@@ -179,6 +180,8 @@ const H = (() => {
     },
     // A menu's item, by its label.
     pick: async label => { [...document.querySelectorAll('.float .menu-item')].find(e => e.textContent.includes(label.replace(/_/g, ' ')))?.click(); await wait(120); },
+    // Anything on the page, by a selector: hit:.ex-page_button.
+    hit: async sel => { document.querySelector(sel.replace(/_/g, ' '))?.click(); await wait(150); },
     // An action, by its id: act:chart.new.
     act: async id => { Shell.parts.peek().action.find(a => a.id === id)?.run(); await wait(300); },
     // A button, by its text.
