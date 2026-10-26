@@ -583,7 +583,7 @@ function RelateView({ a, b }) {
     <div class="relate">
       <div class="rr head"><span /><span /><span title=${nameOf(a)}>${shortOf(objectOf(a))}</span><span title=${nameOf(b)}>${shortOf(objectOf(b))}</span></div>
       ${list.map(x => html`<div class=${'rr' + (x.id && r[x.id].tag === false ? ' ruled' : '')} key=${x.id ?? x.key} data-key=${x.id ?? x.key}>
-        <span class="ctl">${isTag(x) ? output(x) : null}</span><a class=${'nm' + (x.id && w.fx(x.id) ? ' fx' : '')} onClick=${() => x.id ? select([x.id]) : select([general(T.bare(x.s))])}>${x.name}</a>
+        <span class="ctl">${isTag(x) ? output(x) : null}</span><a class=${'nm' + (x.id && w.fx(x.id) ? ' fx' : '')} title=${x.name} onClick=${() => x.id ? select([x.id]) : select([general(T.bare(x.s))])}>${x.name}</a>
         <span>${x.ea}</span><span>${x.eb}</span>
         ${x.rest?.length && !x.id ? html`<span class="more">${x.rest.map(p => html`<span class="relv"><span class="muted">${p.edge}</span><button class="sel dd" onClick=${e => pick(e, x, p)}><span>${picks[x.key + p.edge] ? nameOf(objectOf(picks[x.key + p.edge])) : ''}</span></button></span>`)}</span>` : null}
         ${!isTag(x) || cells(x).length ? html`<span class="more">${isTag(x) ? null : html`<span class="relv">${output(x)}</span>`}${cells(x)}</span>` : null}
