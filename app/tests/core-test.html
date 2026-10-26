@@ -109,11 +109,11 @@ function run(json) {
   check('every definition covers what it covered', defs.length === 23 && defs.every(d => d.covers.length && d.rows.length),
     defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
   check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
-    && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 6 && def('def_look_through').datatype === 'percent');
+    && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 5 && def('def_look_through').datatype === 'percent');
   check('a relation’s definition has its name and edges in order', def('def_control').name === 'Control' && j(def('def_control').edges) === j(['Controller', 'Controlled'])
     && def('def_private_fund').name === 'Private Fund');
   const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
-  check('relation names as formulas.js takes them', rels.length === 14 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
+  check('relation names as formulas.js takes them', rels.length === 15 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
 
   // ---- Time: as of a day ----
   const on = (d, id) => !!wb.asOf(C, d)[id];
