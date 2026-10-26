@@ -1,7 +1,8 @@
 // The inspector (dendra.md, Part 2): the panel on the right, showing whatever is selected. Nothing: the view.
 // A record: its entries as a tree, its relatives by list, its documents, and on a chart its look. Two: every
 // relation they are or could be in. An entry, relation or kind in general: what it's called and means, and its
-// definition, set out as the statute it encodes, whose rows the formula bar edits.
+// definition, set out as the statute it encodes, whose rows the formula bar edits. A free shape: its text, look
+// and place; the Key, its title, columns and rows.
 const Inspector = (() => {
 const { html, emit, on, select, menu, icon, general } = Shell;
 const { render } = preact;
@@ -32,6 +33,43 @@ const step = (edge, out) => out && 'choice' in out ? `${edge}: ${out.choice}` : 
 const where = s => s.kind !== undefined ? s.kind : !s.args ? '' : s.args.length > 1 ? N().name(s) : `${where(s.args[0].loc)} › ${step(s.args[0].edge, s.out)}`;
 const viewShown = () => App.views.value.find(v => v.id === Shell.view.value) ?? null;
 const openDef = id => { const n = N().notes('Formula').find(x => x.note === id && !x.view); if (n) select([general(n.pattern)]); };
+// Words: "a" or "an"; a role as a sentence reads it (GP stays GP); a label begun in a sentence's middle.
+const article = w => /^[aeiou]/i.test(w) ? 'an' : 'a';
+const role = e => e === e.toUpperCase() ? e : e.toLowerCase();
+const midSentence = s => /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s;
+
+// A date a formula gives is overdue once the day shown is past it, and due soon within 30 days of it.
+const later = (iso, days) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days); return T.isoOf(d); };
+function dueOf(id) {
+  const r = recs()[id], day = App.day.value;
+  if (r?.field !== 'date' || !(fx(id) || over(id))) return null;
+  return r.value < day ? 'overdue' : r.value <= later(day, 30) ? 'soon' : null;
+}
+const DUE = { overdue: 'overdue', soon: 'due soon' };
+// A date's text, kept on one line: red when overdue and amber when due soon, saying so to a screen reader.
+const dated = (id, text) => { const d = dueOf(id); return html`<span class=${'date' + (d ? ' ' + d : '')}>${text}${d ? html`<span class="sr"> (${DUE[d]})</span>` : null}</span>`; };
+
+// What a filing records for a due date: the first date its rule reads, at it or beside it, that's neither a
+// start, an end nor worked out (Last Filed, Annual Tax Paid). The rule is the due date's own row, and then
+// the row that gave the relation it's at.
+function filingOf(due) {
+  const R = App.computed.value;
+  for (let id = due; recs()[id] && R.computed[id]; id = recs()[id].at) {
+    const c = R.computed[id], text = App.definitions.value.find(d => d.id === c.def)?.rows[c.row]?.formula, at = recs()[id].args ? id : recs()[id].at;
+    let ev = null;
+    try { ev = text && Formulas.evaluateRow(R, c.def, c.row, at); } catch {}
+    for (const nm of ev?.names ?? []) {
+      const r = recs()[nm.ids[0]], before = text[nm.from - 1] === '.' && ev.names.find(p => p.to === nm.from - 1);
+      const loc = r ? r.at : before ? before.ids[0] : at, edge = r?.edge ?? text.slice(nm.from, nm.to).replace(/^\[|\]$/g, '');
+      if (!recs()[loc] || (r && (r.field !== 'date' || fx(nm.ids[0])))) continue;
+      const spec = specsAt(tree(loc), edge).find(s => s.out.field === 'date');
+      if (!spec) continue;
+      const t = { out: { field: 'date' }, args: [{ edge, loc: tree(loc) }] };
+      if (!N().isStart(t) && !N().isEnd(t)) return { id: r ? nm.ids[0] : null, at: loc, edge: spec.args[0].edge };
+    }
+  }
+  return null;
+}
 
 // The specifications of entries with this edge at locations like t, and what one takes there.
 const specsAt = (t, edge) => Object.values(App.schema.value).filter(s => s.args?.length === 1 && T.same(s.args[0].edge, edge) && T.narrower(t, s.args[0].loc));
@@ -69,20 +107,22 @@ function slots(at) {
 const linkOf = id => entriesAt(id).find(e => recs()[e].field === 'document');
 // A record's relatives by list (Owners, Holdings), and its documents. A relation located anywhere in it
 // lists its other sides under the name of their list, the first side by its edges' order and the rest beside.
+// A relation ruled out makes no relative: it's said once, as a "not", on the side its edges name first.
 function relatives(id) {
-  const r = recs(), lists = new Map(), docs = [];
+  const r = recs(), lists = new Map(), docs = [], nots = [];
   for (const loc of within(id)) for (const rid of relationsAt(loc)) {
     const rel = r[rid], t = tree(rid), mine = rel.args.find(a => a.at === loc);
     if (!t || !mine) continue;
-    const arg = e => rel.args.find(a => a !== mine && T.same(a.edge, e)), [first, ...rest] = N().edges(t).filter(e => !T.same(e, mine.edge)).map(arg);
+    const edges = N().edges(t), arg = e => rel.args.find(a => a !== mine && T.same(a.edge, e)), [first, ...rest] = edges.filter(e => !T.same(e, mine.edge)).map(arg);
     if (!first) continue;
     const item = { rid, obj: objectOf(first.at), rest, mine: mine.edge, edge: first.edge };
+    if (rel.tag === false) { if (T.same(edges[0], mine.edge)) nots.push(item); continue; }
     if (linkOf(item.obj)) { docs.push(item); continue; }
     const name = N().listName(t, first.edge);
     (lists.get(name) ?? lists.set(name, []).get(name)).push(item);
   }
   const by = (a, b) => shortOf(a.obj).localeCompare(shortOf(b.obj));
-  return { lists: [...lists].sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) => [name, items.sort(by)]), docs: docs.sort(by) };
+  return { lists: [...lists].sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) => [name, items.sort(by)]), docs: docs.sort(by), nots: nots.sort(by) };
 }
 
 // Rows that disagree, by the record each is of: both answers, each with who gave it.
@@ -146,6 +186,10 @@ const OPEN = html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d=
 const draft = signal(null);     // an entry being added: { at, type, edge?, datatype?, options? }
 const renaming = signal(null);  // the entry whose label is being typed over
 const aim = signal(null);       // a row or list to bring into view and focus, by its key
+const linking = signal(null);   // the record a link is being typed for
+
+// A name that selects what it names: a button, reached by Tab, set as text.
+const Go = ({ to, cls = '', title, children }) => html`<button class=${'lk ' + cls} title=${title} onClick=${() => select([].concat(to))}>${children}</button>`;
 
 // Drags a row among its siblings (those with the same data-drag); a click without moving is a click.
 function drag(e, onDrop, onClick) {
@@ -155,8 +199,9 @@ function drag(e, onDrop, onClick) {
 }
 
 // A value typed over: Enter or leaving keeps it, Esc puts it back. While it differs, the new text is
-// redlined in blue and the old struck in red. A document shows its name, and its address to edit.
-function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', children }) {
+// redlined in blue and the old struck in red. A document shows its name, and its address to edit. `label`
+// names it; `due` marks a date overdue or due soon.
+function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', label, due, children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
   // What's typed, null while not typing; kept in a ref too, as a blur can come after the record has gone.
   const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null);
@@ -175,9 +220,10 @@ function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', children })
     if (e.key === 'Enter') { e.preventDefault(); done(); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); type(null); setBad(false); e.target.blur(); }
   };
-  return html`<label class=${'cellbox' + cls}><span class=${'hug' + (over ? ' over' : '')}>
+  return html`<label class=${'cellbox' + cls}><span class=${'hug' + (over ? ' over' : '') + (due && text === null ? ' ' + due : '')}>
     <input ref=${ref} class=${'cell' + (fx && text === null ? ' fx' : '') + (dirty && T.clean(text) ? ' add' : '') + (bad ? ' bad' : '')}
       value=${text ?? shown} placeholder=${ph} disabled=${App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null}
+      aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph}
       data-tour=${fx ? 'computed' : null} onFocus=${() => { type(raw); if (fx) emit('why-open', id); }}
       onInput=${e => { type(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${done} /></span>
     ${dirty && raw ? html`<s class="del">${shown}</s>` : null}
@@ -187,9 +233,9 @@ function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', children })
 }
 
 // A choice's option, from its dropdown, or (unless the options are fixed) a new one typed.
-function Choice({ r, options, put, fx, over, id, fixed, children }) {
+function Choice({ r, options, put, fx, over, id, fixed, label, children }) {
   const [typing, setTyping] = useState(false);
-  if (typing) return html`<span class="cellbox"><input class="cell" placeholder="New option" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
+  if (typing) return html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label=${label ?? 'New option'} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
     onKeyDown=${e => { if (e.key === 'Enter') { const t = T.clean(e.target.value); setTyping(false); if (t) put({ choice: t }); } else if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); } }}
     onBlur=${() => setTyping(false)} /></span>`;
   const open = e => {
@@ -197,28 +243,54 @@ function Choice({ r, options, put, fx, over, id, fixed, children }) {
     menu(e.currentTarget, [...options.map(o => ({ label: o, checked: !!r && T.same(o, r.choice), run: () => !(r && T.same(o, r.choice)) && put({ choice: o }) })),
       ...(fixed ? [] : [...(options.length ? ['-'] : []), { label: 'New option', run: () => setTyping(true) }])]);
   };
-  return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'sel dd' + (fx ? ' fx' : '')} disabled=${App.readOnly.value} data-tour=${fx ? 'computed' : null} onClick=${open}><span>${r?.choice ?? ''}</span></button></span>${children}</span>`;
+  return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'sel dd' + (fx ? ' fx' : '')} disabled=${App.readOnly.value} data-tour=${fx ? 'computed' : null}
+    aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open}><span>${r?.choice ?? ''}</span></button></span>${children}</span>`;
 }
 
 // A tag's checkbox: green attested, red ruled out, outlined when computed. Hovering shows the other state,
-// and the formula bar redlines what switching it would change; clicking switches it.
-function TagBox({ r, flip, fx, over, change, children }) {
+// and the formula bar redlines what switching it would change; clicking switches it. After a click nothing
+// is previewed until the pointer has left, so the tag shows what was just done, even remounted under it.
+let clicked = false;
+function TagBox({ r, flip, fx, over, change, label, children }) {
   const [peek, setPeek] = useState(false), on = r?.tag, show = peek ? !(on ?? false) : on;
-  const hover = p => { setPeek(p); FormulaBar.preview(p && change ? change() : null); };
+  const hover = p => { if (p && clicked) return; setPeek(p); FormulaBar.preview(p && change ? change() : null); };
   return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ' no' : '') + (fx && !peek ? ' fx' : '') + (peek ? ' peek' : '')}
-    role="checkbox" aria-checked=${on ? 'true' : 'false'} disabled=${App.readOnly.value} data-tour="tag"
-    onPointerEnter=${() => hover(true)} onPointerLeave=${() => hover(false)} onClick=${() => { hover(false); flip(); }} /></span>${children}</span>`;
+    role="checkbox" aria-checked=${on ? 'true' : 'false'} aria-label=${label && (on === false ? `${label}, ruled out` : label)} disabled=${App.readOnly.value} data-tour="tag"
+    onPointerEnter=${() => hover(true)} onPointerLeave=${() => { clicked = false; hover(false); }} onClick=${() => { hover(false); clicked = true; flip(); }} /></span>${children}</span>`;
 }
 
-// The record's other values, by time: each goes to the chart as of a day it held.
+// The record's other values, by time, as a count ("2 earlier"): each goes to the chart as of a day it held.
 function Versions({ id }) {
   App.version.value;
-  const rows = App.shown.value.item(App.chart.value, id);
-  if (rows.length < 2) return null;
+  const rows = App.shown.value.item(App.chart.value, id), now = App.day.value, others = rows.filter(v => !Log.validOn(v, now));
+  if (!others.length) return null;
+  const n = others.length, ahead = others.filter(v => v.since > now).length, say = `${n} ${!ahead ? 'earlier' : ahead === n ? 'later' : 'other'}`;
   const period = v => v.since && v.before ? `${short(v.since)} – ${short(v.before)}` : v.since ? `Since ${short(v.since)}` : v.before ? `Before ${short(v.before)}` : '';
-  const day = v => { if (v.since) return v.since; const d = new Date(v.before + 'T12:00:00'); d.setDate(d.getDate() - 1); return T.isoOf(d); };
-  return html`<button class="btn icon ver" aria-label="Other values" data-tip="Other values" onClick=${e => menu(e.currentTarget, rows.map(v => ({
-    label: T.outputText(v), detail: period(v), checked: Log.validOn(v, App.day.value), run: () => Shell.at(day(v) === Log.today() ? null : { asOf: day(v) }) })), { placement: 'bottom-end' })}>${icon('chevron')}</button>`;
+  const day = v => v.since ?? later(v.before, -1);
+  return html`<button class="btn ghost ver" aria-label=${`${say} values`} onClick=${e => menu(e.currentTarget, rows.map(v => ({
+    label: T.outputText(v), detail: period(v), checked: Log.validOn(v, now), run: () => Shell.at(day(v) === Log.today() ? null : { asOf: day(v) }) })), { placement: 'bottom-end' })}>${say}</button>`;
+}
+
+// Beside a due date, its filing: the entry its rule reads, typed in a popover while the formula bar redlines
+// where the due date would move. Enter keeps it.
+function Filed({ id }) {
+  const slot = !App.readOnly.value && filingOf(id);
+  if (!slot) return null;
+  const open = e => Shell.popover(e.currentTarget, close => html`<${Filing} due=${id} slot=${slot} close=${close} />`, { placement: 'bottom-end', onClose: () => FormulaBar.preview(null) });
+  return html`<button class="btn ghost ver" aria-label=${`Record ${slot.edge}`} aria-haspopup="dialog" onClick=${open}>${/paid/i.test(slot.edge) ? 'Paid…' : 'Filed…'}</button>`;
+}
+function Filing({ due, slot, close }) {
+  const [text, setText] = useState(T.formatDate(App.day.peek(), 'short')), value = T.parse('date', T.clean(text) || '-');
+  const rec = value ? { at: slot.at, edge: slot.edge, field: 'date', value } : null;
+  useLayoutEffect(() => { FormulaBar.preview(rec && { records: { [slot.id ?? 'fx-filing']: rec } }); }, [value]);
+  const was = recs()[due], p = FormulaBar.pending.value, next = p?.R2.records[due];
+  const keep = () => { if (!rec) return; close(); App.change(tx => slot.id ? tx.set(slot.id, rec) : tx.add('record', rec), { say: `Recorded ${slot.edge}` }); };
+  return html`<div class="filing">
+    <label class="field"><span>${slot.edge}</span><input class="cell" value=${text} spellcheck=${false} aria-invalid=${value ? null : 'true'}
+      ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
+      onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); keep(); } }} /></label>
+    <p class="meta">${was.edge} <s class="del">${short(was.value)}</s>${next && next.value !== was.value ? html` <span class="add">${short(next.value)}</span>` : null}</p>
+  </div>`;
 }
 
 // A value with two answers: both, each with who gave it; choosing one keeps it.
@@ -227,17 +299,18 @@ function Answers({ g }) {
     onClick=${() => App.change(tx => tx.keep(x.row.id), { say: `Kept ${T.outputText(x.row)}` })}>${T.outputText(x.row)}<span class="who">${x.who}</span></button>`)}</span>`;
 }
 
-// A record's output, or a blank one's, in place: typed, chosen or ticked.
-function Output({ id, slot }) {
+// A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
+function Output({ id, slot, label }) {
   if (slot?.error) return html`<button class="err errv" onClick=${() => emit('why-open', slot.error.id)}>${slot.error.error.code}</button>`;
   const g = id && disagreeing.value.get(id);
   if (g) return html`<${Answers} g=${g} />`;
   const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && over(id);
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
-  const type = r ? T.typeOf(r) : k.type, set = out => put(id, slot, out), more = r && !f ? html`<${Versions} id=${id} />` : null;
-  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f} over=${o} flip=${() => flip(id, slot)} change=${() => flipChange(id, slot)}>${more}</${TagBox}>`
-    : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${f} over=${o} put=${set} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}>${more}</${Choice}>`
-    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} datatype=${r?.field ?? k.datatype}>${more}</${Field}>`;
+  const type = r ? T.typeOf(r) : k.type, set = out => put(id, slot, out);
+  const more = !r ? null : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
+  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f} over=${o} label=${label} flip=${() => flip(id, slot)} change=${() => flipChange(id, slot)}>${more}</${TagBox}>`
+    : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}>${more}</${Choice}>`
+    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype}>${more}</${Field}>`;
 }
 
 // ---- The record's entries, as a tree ----
@@ -259,8 +332,10 @@ function addItems(at, anchor) {
   const others = () => [...T.index(recs()).kinds].flatMap(([, ids]) => ids).filter(x => !T.isView(recs()[x]) && x !== objectOf(at))
     .map(x => ({ label: nameOf(x), detail: recs()[x].kind, run: () => select([at, x]) })).sort((a, b) => a.label.localeCompare(b.label));
   return [...items, ...(items.length ? ['-'] : []), { label: 'Value', run: start('field') }, { label: 'Tag', run: start('tag') }, { label: 'Choice', run: start('choice') }, '-',
-    { label: 'Relation…', run: () => menu(anchor, others(), { search: true }) }];
+    { label: 'Relation…', run: () => menu(anchor, others(), { search: true }) }, ...(recs()[at].kind && !linkOf(at) ? [{ label: 'Document…', run: () => linkAdd(anchor, at) }] : [])];
 }
+// A document linked: picked from SharePoint, where it's set up, or its link typed.
+const linkAdd = (anchor, at) => SharePoint.configured() ? menu(anchor, [{ label: 'SharePoint…', run: () => pickLink(at) }, { label: 'Link…', run: () => { linking.value = at; } }]) : (linking.value = at);
 
 function Label({ it, fx }) {
   const r = it.id && recs()[it.id];
@@ -272,14 +347,15 @@ function Label({ it, fx }) {
     ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}</span>`;
 }
 
+// An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
+  const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
   return html`<div class="ent" data-drag=${r ? at : null}>
-    <div class=${'row' + (r?.tag === false ? ' ruled' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`}>
-      ${r ? html`<button class="grip" aria-label=${`Move ${it.edge}`} onPointerDown=${e => drag(e, (from, i) => reorder(at, moved(sibs(), from, i)), g => entryMenu(g, it.id))}
-        onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); entryMenu(e.currentTarget, it.id); } }}>${GRIP}</button>` : null}
-      <div class="k"><${Label} it=${it} fx=${f} /></div>
-      <div class="v ctl"><${Output} id=${it.id} slot=${it} /></div>
+    <div class=${'row' + (r?.tag === false ? ' ruled' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`} onKeyDown=${keyMenu}>
+      ${r ? html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, (from, i) => reorder(at, moved(sibs(), from, i)), g => entryMenu(g, it.id))}>${GRIP}</button>` : null}
+      <div class="k" title=${it.edge}><${Label} it=${it} fx=${f} /></div>
+      <div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>
     </div>
     ${r && !('field' in r) ? html`<${Entries} at=${it.id} depth=${depth + 1} />` : null}
   </div>`;
@@ -298,12 +374,12 @@ function Draft({ d, depth }) {
   const key = e => { if (e.key === 'Escape') { e.stopPropagation(); draft.value = null; } };
   const nameKey = e => { if (e.key !== 'Enter') return; e.preventDefault(); if (!named()) return; if (k.type === 'tag') finish({ tag: true }); else box.current.querySelector('.v input, .v button')?.focus(); };
   return html`<div class="row draft" ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>
-    <div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" value=${edge}
+    <div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" aria-label="Name" value=${edge}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onInput=${e => setEdge(e.target.value)} onKeyDown=${nameKey} onBlur=${named} />`}</div>
-    <div class="v ctl">${k.type === 'tag' ? html`<span class="cellbox"><button class="tag yes" role="checkbox" aria-checked="true" onClick=${() => finish({ tag: true })} /></span>`
-      : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} put=${finish} />`
-      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
-      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} put=${finish} />`}</div>
+    <div class="v ctl">${k.type === 'tag' ? html`<span class="cellbox"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${T.clean(edge) || 'Tag'} onClick=${() => finish({ tag: true })} /></span>`
+      : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
+      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label="New option" onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
+      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>
   </div>`;
 }
 
@@ -316,13 +392,36 @@ function Entries({ at, depth }) {
 // ---- Relatives, documents and look: sections, each folding under its heading ----
 function Section({ title, n, shut = false, act, id, children }) {
   const [open, setOpen] = useState(!shut);
-  return html`<section class=${open ? 'open' : ''} data-key=${id}><div class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
-    ${n ? html`<span class="n">${n}</span>` : null}${act}</div>${open ? children : null}</section>`;
+  return html`<section class=${open ? 'open' : ''} data-key=${id}><h3 class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
+    ${n ? html`<span class="n">${n}</span>` : null}${act}</h3>${open ? children : null}</section>`;
 }
 const plus = (label, run) => App.readOnly.value ? null : html`<button class="btn icon" aria-label=${label} data-tip=${label} onClick=${run}>${icon('plus')}</button>`;
 
+// Beside a relative, what the relation says: its option or value, or else the reason a formula gives it; the
+// others in it; and what's recorded at it: options, a check that fails, in red ("Capacity Held: No"), values
+// (a second percentage saying which, "0% voting"), dates (a start or an end saying so) and the documents
+// that evidence it.
+function detail(it) {
+  const rel = recs()[it.rid], firsts = new Map(), at = slots(it.rid).filter(s => s.id).map(s => [s.id, recs()[s.id]]);
+  const value = f => { const v = T.format(f.field, f.value), first = firsts.get(f.field);
+    if (!first) { firsts.set(f.field, f.edge); return v; }
+    const own = f.edge.split(/\s+/).filter(w => !first.split(/\s+/).some(x => T.same(x, w))).join(' ');
+    return `${v} ${(own || f.edge).toLowerCase()}`; };
+  const recorded = [...at.filter(([, e]) => 'choice' in e).map(([, e]) => e.choice),
+    ...at.filter(([, e]) => e.tag === false).map(([, e]) => html`<span class="no">${e.edge}: No</span>`), ...it.rest.map(a => `${role(a.edge)} ${shortOf(objectOf(a.at))}`),
+    ...at.filter(([, e]) => 'field' in e && e.field !== 'date').map(([, e]) => value(e)),
+    ...at.filter(([, e]) => e.field === 'date').map(([e, f]) => dated(e, `${N().isStart(tree(e)) ? 'Since' : N().isEnd(tree(e)) ? 'Until' : f.edge} ${short(f.value)}`)),
+    ...relatives(it.rid).docs.map(d => shortOf(d.obj))];
+  const own = 'choice' in rel ? rel.choice : 'field' in rel ? T.format(rel.field, rel.value) : !recorded.length && App.computed.value.computed[it.rid]?.label;
+  // A title that repeats the option ("Director · Director") is said once.
+  return [own, ...recorded].filter((x, i, all) => x && (typeof x !== 'string' || all.findIndex(y => typeof y === 'string' && T.same(y, x)) === i));
+}
+// A relation ruled out, said plainly: "Not a remote affiliate of The BDC: close affiliate (§57(b))".
+const notText = it => { const why = App.computed.value.computed[it.rid]?.label;
+  return `Not ${article(it.mine)} ${role(it.mine)} of ${shortOf(it.obj)}${it.rest.map(a => `, ${role(a.edge)} ${shortOf(objectOf(a.at))}`).join('')}${why ? `: ${midSentence(why)}` : ''}`; };
+
 function Relatives({ id }) {
-  const { lists, docs } = relatives(id), obj = !!recs()[id].kind, [linking, setLinking] = useState(false);
+  const { lists, docs, nots } = relatives(id);
   const add = (e, items) => {
     const it = items[0], own = within(id), have = new Set(items.map(x => x.obj)), seen = new Set(), out = [];
     for (const s of N().fitting(App.schema.value, loose(tree(it.rid)))) {
@@ -334,34 +433,44 @@ function Relatives({ id }) {
     }
     menu(e.currentTarget, out.sort((a, b) => a.label.localeCompare(b.label)), { search: true });
   };
-  // Beside a relative: the others in the relation, and what's recorded at it, a start or end date saying so.
-  const detail = it => [...it.rest.map(a => html`<span class="via">${a.edge} <a onClick=${() => select([objectOf(a.at)])}>${shortOf(objectOf(a.at))}</a></span>`),
-    ...entriesAt(it.rid).filter(e => 'field' in recs()[e]).map(e => { const f = recs()[e], t = tree(e);
-      return f.field !== 'date' ? T.format(f.field, f.value) : `${N().isStart(t) ? 'Since' : N().isEnd(t) ? 'Until' : f.edge} ${short(f.value)}`; })];
-  const item = it => { const rel = recs()[it.rid], f = fx(it.rid);
-    return html`<div class=${'row rel' + (rel.tag === false ? ' ruled' : '')} key=${it.rid}>
-      <div class="k">${rel.tag === false ? html`<span class="tag no mini" />` : null}<a class=${f ? 'fx' : ''} title=${nameOf(it.obj)} onClick=${() => select([it.obj])}>${shortOf(it.obj)}</a></div>
-      <div class="v"><a class=${'muted' + (f ? ' fx' : '')} onClick=${() => select([it.rid])}>${detail(it).map((d, i) => html`${i ? ' · ' : ''}${d}`)}</a></div></div>`; };
+  const item = it => { const f = fx(it.rid), d = detail(it);
+    return html`<div class="row rel" key=${it.rid}>
+      <div class="k"><${Go} to=${it.obj} cls=${f ? 'fx' : ''} title=${nameOf(it.obj)}>${shortOf(it.obj)}</${Go}></div>
+      <div class="v">${d.length ? html`<${Go} to=${it.rid} cls=${'muted' + (f ? ' fx' : '')}>${d.map((x, i) => html`${i ? ' · ' : ''}${x}`)}</${Go}>` : null}
+        ${entriesAt(it.rid).filter(dueOf).map(e => html`<${Filed} key=${e} id=${e} />`)}</div></div>`; };
   // A document by its name, its first choice and date beneath, and a way to open it.
   const docRow = it => { const l = recs()[linkOf(it.obj)], s = slots(it.obj).filter(x => x.id).map(x => recs()[x.id]);
     const sub = [s.find(x => 'choice' in x)?.choice, s.find(x => x.field === 'date')].filter(Boolean).map(x => x.value ? short(x.value) : x);
-    return html`<div class="doc" key=${it.rid}><a onClick=${() => select([it.obj])}>${nameOf(it.obj)}</a>
+    return html`<div class="doc" key=${it.rid}><${Go} to=${it.obj}>${nameOf(it.obj)}</${Go}>
       ${l ? html`<a class="btn icon open" href=${SharePoint.href(l.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
       ${sub.length ? html`<span class="meta">${sub.join(' · ')}</span>` : null}</div>`; };
-  const linkAdd = e => SharePoint.configured() ? menu(e.currentTarget, [{ label: 'SharePoint…', run: () => pickLink(id) }, { label: 'Link…', run: () => setLinking(true) }]) : setLinking(true);
-  // Lists someone entered first; those a formula gave, folded, after.
-  const worked = items => items.every(it => fx(it.rid));
-  return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length}
+  // Lists someone entered first; those a formula gave, folded, after. Documents show once there are any.
+  const worked = items => items.every(it => fx(it.rid)), typing = linking.value === id;
+  return html`${nots.length ? html`<div class="nots">${nots.map(it => html`<div class="row" key=${it.rid}><div class="k wide"><${Go} to=${it.rid}>${notText(it)}</${Go}></div></div>`)}</div>` : null}
+    ${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length}
       shut=${worked(items)} act=${items[0].rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, items))}>${items.map(item)}</${Section}>`)}
-    ${obj ? html`<${Section} title="Documents" n=${docs.length} act=${plus('Link a document', linkAdd)}>
+    ${docs.length || typing ? html`<${Section} title="Documents" n=${docs.length} act=${recs()[id].kind ? plus('Link a document', e => linkAdd(e.currentTarget, id)) : null}>
       ${docs.map(docRow)}
-      ${linking ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
-        onKeyDown=${e => { if (e.key === 'Enter') { const u = T.clean(e.target.value); if (T.isAddress(u)) { setLinking(false); link(id, u); } else e.target.setAttribute('aria-invalid', 'true'); } else if (e.key === 'Escape') { e.stopPropagation(); setLinking(false); } }}
-        onBlur=${() => setLinking(false)} /></div></div>` : null}</${Section}>` : null}`;
+      ${typing ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" aria-label="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
+        onKeyDown=${e => { if (e.key === 'Enter') { const u = T.clean(e.target.value); if (T.isAddress(u)) { linking.value = null; link(id, u); } else e.target.setAttribute('aria-invalid', 'true'); } else if (e.key === 'Escape') { e.stopPropagation(); linking.value = null; } }}
+        onBlur=${() => { linking.value = null; }} /></div></div>` : null}</${Section}>` : null}`;
 }
 
-// Look: each format property a note decides for the mark, as the view's scene has it, and where it comes
-// from: this box (or line) alone, a style and its output, or the chart's default.
+// Look: each format property set for a mark, its value and where it comes from; shown once there is one.
+const val = v => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${v.toUpperCase()}`
+  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : typeof v === 'number' ? `${v} pt` : String(v).replace(/^./, c => c.toUpperCase());
+const LookSection = ({ look, reset }) => look.length ? html`<${Section} title="Look" act=${reset}>
+  ${look.map(x => html`<div class="row" key=${x.label}><div class="k">${x.label}</div><div class="v look"><span class="val">${val(x.value)}</span><span class="from">${x.from}</span></div></div>`)}</${Section}>` : null;
+// A place on the page, as entered, in points: typed over to move it.
+const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
+const Place = ({ at, put, reset, keys = 'xyw' }) => html`<${Section} title="Position" act=${reset}>
+  ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl">
+    <${Field} r=${{ field: 'number', value: Math.round(at[k] / Scene.PT) }} datatype="number" label=${label} put=${out => out && put(k, Math.round(out.value * Scene.PT * 2) / 2)}><span class="unit">pt</span></${Field}></div></div>`)}</${Section}>`;
+const resetting = (own, labels, say) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
+  : html`<button class="btn ghost reset" onClick=${() => App.change(tx => own.filter(x => labels(x.label)).forEach(x => tx.remove(x.note)), { say })}>Reset</button>`;
+
+// A record's look, as the view's scene has it: each property a note decides, from this box (or line) alone, a
+// style and its output, or the chart's default; and its place, where one is entered.
 function Look({ id }) {
   const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), pos = recs()[id].kind ? n.position(t, v) : null;
   const from = x => x.pattern.id === id ? (recs()[id].args ? 'This line' : 'This box') : !x.view ? 'Default'
@@ -369,21 +478,15 @@ function Look({ id }) {
   const look = Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
     .map(([label, s]) => ({ label, value: s.value, from: from(s.note) }));
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && x.pattern.id === id);
-  const reset = (labels, say) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
-    : html`<button class="btn ghost reset" onClick=${() => App.change(tx => own.filter(x => labels(x.label)).forEach(x => tx.remove(x.note)), { say })}>Reset</button>`;
-  const val = x => html`<span class="val">${typeof x.value === 'string' && /^#[0-9a-f]{3,8}$/i.test(x.value) ? html`<i class="chip" style=${`background:${x.value}`} />${x.value.toUpperCase()}`
-    : typeof x.value === 'boolean' ? (x.value ? 'Yes' : 'No') : typeof x.value === 'number' ? `${x.value} pt` : String(x.value).replace(/^./, c => c.toUpperCase())}</span>`;
-  return html`<${Section} title="Look" act=${reset(l => l !== 'Position', 'Reset the look')}>
-      ${look.map(x => html`<div class="row" key=${x.label}><div class="k">${x.label}</div><div class="v look">${val(x)}<span class="from">${x.from}</span></div></div>`)}</${Section}>
-    ${recs()[id].kind ? html`<${Section} title="Position" act=${reset(l => l === 'Position', 'Reset the position')}>
-      ${pos ? [['Left', pos.x], ['Top', pos.y], ['Width', pos.w]].filter(p => p[1] != null).map(([k, x]) => html`<div class="row" key=${k}><div class="k">${k}</div><div class="v">${x}</div></div>`)
-        : html`<div class="row"><div class="k">Place</div><div class="v muted">Automatic</div></div>`}</${Section}>` : null}`;
+  const move = (k, x) => App.change(tx => tx.note('Position', t, { ...pos, [k]: x }, { view: v }), { dated: false });
+  return html`<${LookSection} look=${look} reset=${resetting(own, l => l !== 'Position', 'Reset the look')} />
+    ${pos ? html`<${Place} at=${pos} put=${move} reset=${resetting(own, l => l === 'Position', 'Reset the position')} />` : null}`;
 }
 
 // ---- The views of a selection ----
 function Head({ path = [], title, children }) {
   return html`<header class="ih">
-    ${path.length ? html`<nav class="path">${path.map(p => p.go ? html`<a onClick=${p.go}>${p.label}</a>` : html`<span>${p.label}</span>`)}</nav>` : null}
+    ${path.length ? html`<nav class="path">${path.map(p => p.go ? html`<button class="lk" onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
     ${children ?? html`<h2 class="ih-title">${title}</h2>`}</header>`;
 }
 const AddRow = ({ at }) => App.readOnly.value ? null : html`<div class="row addrow"><div class="k"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, addItems(at, e.currentTarget))}>${icon('plus')}Add</button></div></div>`;
@@ -411,10 +514,10 @@ function RecordView({ id }) {
   const sides = r.args ? N().sides(recs(), id) : [];
   return html`<div class="insp">${head}
     <div class="rows">
-      ${sides.map(a => html`<div class="row" key=${a.edge}><div class="k">${a.edge}</div><div class="v"><a onClick=${() => select([objectOf(a.at)])}>${nameOf(objectOf(a.at))}</a>
+      ${sides.map(a => html`<div class="row" key=${a.edge}><div class="k" title=${a.edge}>${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)}>${nameOf(objectOf(a.at))}</${Go}>
         ${a.at !== objectOf(a.at) ? html`<span class="muted"> › ${T.pathOf(recs(), a.at).slice(1).map(x => N().segmentOf(recs(), x)).join(' › ')}</span>` : null}</div></div>`)}
-      ${r.kind ? null : html`<div class=${'row' + (r.tag === false ? ' ruled' : '')} data-key=${id}><div class="k"><span class="lbl">${nameOf(id)}</span></div>
-        <div class="v ctl"><${Output} id=${id} slot=${r} /></div></div>`}
+      ${r.kind ? null : html`<div class=${'row' + (r.tag === false ? ' ruled' : '')} data-key=${id}><div class="k" title=${nameOf(id)}><span class="lbl">${nameOf(id)}</span></div>
+        <div class="v ctl"><${Output} id=${id} slot=${r} label=${nameOf(id)} /></div></div>`}
       ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} />`}
     </div>
     <${Relatives} id=${id} />
@@ -423,30 +526,36 @@ function RecordView({ id }) {
 }
 
 // A style's outputs, each as the legend draws it (Scene's swatch), with its caption.
-function Swatch({ p, f }) {
-  const sw = Scene.swatchOf(p, f), stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight);
-  return html`<svg class=${'sw' + (f.Shown === false ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">${sw.kind === 'line'
+function Swatch({ sw, off }) {
+  const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight);
+  return html`<svg class=${'sw' + (off ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">${sw.kind === 'line'
     ? html`<path d="M2 8H26" fill="none" stroke=${stroke} stroke-width=${Math.min(sw.Weight * Scene.PT, 3)} stroke-dasharray=${dash} />`
     : sw.kind === 'text' ? html`<text x="14" y="12" text-anchor="middle" font-family=${Scene.fontFamily(sw.Font)} font-size="11" fill=${sw.Color}
         font-weight=${sw.Bold ? 700 : 400} font-style=${sw.Italic ? 'italic' : 'normal'}>Aa</text>`
     : html`<path d=${Scene.path(sw.Shape ?? 'rect', 25, 13)} transform="translate(1.5 1.5)" fill=${sw.Fill === 'none' ? 'none' : sw.Fill} stroke=${stroke}
         stroke-width=${Math.min(sw.Weight * Scene.PT, 2.5)} stroke-dasharray=${dash} />`}</svg>`;
 }
+// A view's styles (those reaching `only`, if given), each with the outputs it formats: an output that only
+// shows or hides is a filter, which the legend doesn't key and nor does this.
+const stylesOf = (v, only) => N().styles(v).filter(s => !only || T.narrower(only, s.pattern) || T.narrower(s.pattern, only))
+  .map(s => ({ ...s, outputs: s.outputs.filter(o => Object.keys(o.formats).some(k => k !== 'Shown')) })).filter(s => s.outputs.length);
 function Styles({ v, only }) {
-  const n = N(), all = n.styles(v), list = only ? all.filter(s => T.narrower(only, s.pattern) || T.narrower(s.pattern, only)) : all;
-  const order = (from, i) => App.change(tx => moved(all, from, i).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v })));
+  const n = N(), all = n.styles(v), list = stylesOf(v, only);
+  // Dragged among those listed; the rest keep their places in the view's order.
+  const order = (from, i) => { const q = moved(list, from, i), keys = new Set(list.map(s => s.key));
+    App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
   // A caption typed as the output's own name is no caption.
   const cap = (o, text) => App.change(tx => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v }));
   // An output captioned otherwise shows under its caption: Main Fund · Funds.
   const output = o => {
     const own = Scene.outputName(n, o.pattern), caption = Scene.captionOf(n, o.pattern, v);
-    return html`<div class="row out" key=${T.key(o.pattern)}><div class="k"><${Swatch} p=${o.pattern} f=${o.formats} /></div>
-      <div class="v ctl">${caption === own ? null : html`<span class="oname">${own} ·</span>`}<${Field} r=${{ field: 'text', value: caption }} datatype="text"
+    return html`<div class="row out" key=${T.key(o.pattern)}><div class="k"><${Swatch} sw=${Scene.swatchOf(o.pattern, o.formats)} off=${o.formats.Shown === false} /></div>
+      <div class="v ctl">${caption === own ? null : html`<span class="oname">${own} ·</span>`}<${Field} r=${{ field: 'text', value: caption }} datatype="text" label=${own}
         cls=${o.formats.Shown === false ? ' off' : ''} put=${out => cap(o, out?.value ?? '')} /></div></div>`;
   };
   return list.map(s => html`<div class="ent style" data-drag=${only ? null : 'style'} key=${s.key}>
-    <div class="row" style="--depth:0">${only || App.readOnly.value ? null : html`<button class="grip" aria-label=${`Move ${Scene.styleName(n, s.pattern)}`} onPointerDown=${e => drag(e, order)}>${GRIP}</button>`}
-      <div class="k sname"><a onClick=${() => select([general(s.pattern)])}>${Scene.styleName(n, s.pattern)}</a></div></div>
+    <div class="row" style="--depth:0">${only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`}
+      <div class="k sname"><${Go} to=${general(s.pattern)}>${Scene.styleName(n, s.pattern)}</${Go}></div></div>
     ${s.outputs.map(output)}
   </div>`);
 }
@@ -454,7 +563,7 @@ function Styles({ v, only }) {
 // The view: its name, its layout and its rows (its own notes), and its styles in their order.
 function ViewPanel() {
   const v = viewShown();
-  if (!v) return html`<div class="empty">No view</div>`;
+  if (!v) return null;
   const t = { id: v.id, kind: 'View' }, L = App.layouts.value, all = [...L.kinds, ...L.relations, ...L.datatypes];
   const rowsName = all.find(l => JSON.stringify(l.rows) === JSON.stringify(v.rows))?.name;
   const layout = value => App.change(tx => tx.note('Layout', t, value), { dated: false });
@@ -462,13 +571,51 @@ function ViewPanel() {
     <${Head} path=${[{ label: 'View' }]}><${Field} r=${{ field: 'text', value: v.name }} datatype="text" ph="Name" cls=" title"
       put=${out => out && Shell.parts.peek().views.rename(v.id, out.value)} /></${Head}>
     <div class="rows">
-      <div class="row"><div class="k">Layout</div><div class="v ctl"><${Choice} fixed r=${{ choice: v.layout === 'table' ? 'Table' : 'Chart' }} options=${['Chart', 'Table']}
+      <div class="row"><div class="k">Layout</div><div class="v ctl"><${Choice} fixed label="Layout" r=${{ choice: v.layout === 'table' ? 'Table' : 'Chart' }} options=${['Chart', 'Table']}
         put=${out => layout(out.choice === 'Table' ? { rows: v.rows } : undefined)} /></div></div>
-      ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
+      ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed label="Rows" r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
         put=${out => layout({ rows: all.find(l => l.name === out.choice).rows })} /></div></div>` : null}
     </div>
-    ${v.layout === 'chart' ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
+    ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
   </div>`;
+}
+
+// ---- A free shape: its text, its look and its place; the Key: its title, its columns and its rows ----
+const SHAPES = { text: 'Text box', legend: 'Key', rect: 'Rectangle', rounded: 'Rounded rectangle' };
+function ShapeView({ id, part }) {
+  const row = App.shown.value.item(App.chart.value, id).at(-1), m = App.scene.value?.byId.get(id), n = N(), v = App.scene.value?.view, still = App.readOnly.value;
+  const set = (changes, say) => App.change(tx => tx.update(id, changes), { dated: false, say });
+  const g = row.geometry ?? 'rect', name = SHAPES[g] ?? g[0].toUpperCase() + g.slice(1), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
+  const look = Object.entries(row.format ?? {}).map(([label, value]) => ({ label, value, from: 'This shape' }));
+  const reset = still || !look.length ? null : html`<button class="btn ghost reset" onClick=${() => set({ format: {} }, 'Reset the look')}>Reset</button>`;
+  // The Key's rows, those drawn and then those hidden, each a box to show or hide it.
+  const hidden = (row.hide ?? []).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
+    .map(o => ({ key: T.key(o.pattern), caption: Scene.captionOf(n, o.pattern, v), swatch: Scene.swatchOf(o.pattern, o.formats) }));
+  const rows = key ? [...(m?.rows ?? []).map(r => ({ key: r.key, caption: r.caption.text, swatch: r.swatch })), ...hidden] : [];
+  const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
+  return html`<div class="insp">
+    <${Head} path=${key ? [{ label: name }] : []} title=${name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" cls=" title"
+      put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>
+    <div class="rows">
+      ${worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
+      ${key ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']}
+        put=${out => set({ columns: +out.choice })} /></div></div>` : null}
+    </div>
+    ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<label class=${'row keyrow' + (r.key === part ? ' on' : '')} key=${r.key}>
+      <span class="k"><input type="checkbox" checked=${!(row.hide ?? []).includes(r.key)} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
+      <span class="v">${r.caption}</span></label>`)}</${Section}>` : null}
+    <${LookSection} look=${look} reset=${reset} />
+    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => set({ [k]: x })} />` : null}
+  </div>`;
+}
+
+// Prose typed over in place, its box growing with it: kept on leaving, put back with Esc.
+function Prose({ text, put, label }) {
+  const [typed, setTyped] = useState(null), now = useRef(null), type = t => { now.current = t; setTyped(t); };
+  const grow = el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; } };
+  return html`<textarea class="cell desc" rows="1" ref=${grow} value=${typed ?? text} disabled=${App.readOnly.value} aria-label=${label}
+    onInput=${e => { type(e.target.value); grow(e.target); }} onBlur=${() => { const t = now.current; type(null); if (t !== null && T.clean(t) !== T.clean(text)) put(t.trim()); }}
+    onKeyDown=${e => { if (e.key === 'Escape') { e.stopPropagation(); type(null); e.target.blur(); } }} />`;
 }
 
 // Two records: every relation the two are in or could be in. A side fills a relation's parameter through
@@ -479,7 +626,7 @@ function RelateView({ a, b }) {
   const ca = within(a).filter(x => !('field' in r[x])), cb = within(b).filter(x => !('field' in r[x])), inB = new Set(cb), rows = new Map();
   for (const x of ca) for (const rid of relationsAt(x)) {
     const sa = r[rid].args.find(g => g.at === x), sb = r[rid].args.find(g => g !== sa && inB.has(g.at));
-    if (sb && !rows.has(rid)) rows.set(rid, { id: rid, name: nameOf(rid), ea: sa.edge, eb: sb.edge, key: [sa.edge, sb.edge, x, sb.at].join('|').toLowerCase() });
+    if (sb && !rows.has(rid)) rows.set(rid, { id: rid, name: nameOf(rid), ea: sa.edge, eb: sb.edge, rest: r[rid].args.filter(g => g !== sa && g !== sb), key: [sa.edge, sb.edge, x, sb.at].join('|').toLowerCase() });
   }
   const taken = new Set([...rows.values()].map(x => x.key));
   for (const s of Object.values(App.schema.value)) if (s.args?.length > 1) s.args.forEach((pa, i) => s.args.forEach((pb, j) => {
@@ -492,14 +639,17 @@ function RelateView({ a, b }) {
   const list = [...rows.values()].sort((x, y) => x.name.localeCompare(y.name) || !!y.id - !!x.id || x.ea.localeCompare(y.ea));
   const slotOf = x => { const got = x.rest.map(p => picks[x.key + p.edge]); return got.every(Boolean) ? { args: [{ edge: x.ea, at: x.la }, { edge: x.eb, at: x.lb }, ...x.rest.map((p, k) => ({ edge: p.edge, at: got[k] }))], options: x.options } : null; };
   const pick = (e, x, p) => menu(e.currentTarget, Object.keys(r).filter(y => !('field' in r[y]) && T.narrower(tree(y), p.loc)).map(y => ({ label: nameOf(objectOf(y)), run: () => setPicks({ ...picks, [x.key + p.edge]: y }) })), { search: true });
-  const cells = x => x.id ? entriesAt(x.id).filter(e => 'field' in r[e]).map(e => html`<span class="relv" key=${e}><span class="muted">${r[e].edge}</span><${Field} r=${r[e]} id=${e} fx=${fx(e)} over=${over(e)} datatype=${r[e].field} put=${out => put(e, r[e], out)} /></span>`) : [];
-  // A tag's box leads its row; a value or option sits on the line below, with what's recorded at the relation.
+  // Each relation one row: a tag's box first; its name; each side's role; and in the last column its value or
+  // option, and any third side (Via GP III), picked first where the relation isn't there yet.
   const isTag = x => x.id ? 'tag' in r[x.id] : 'tag' in x.s.out;
   const output = x => { const slot = x.id ? r[x.id] : slotOf(x);
     if (!slot) return html`<span class="tag" aria-disabled="true" />`;
-    if (x.id) return html`<${Output} id=${x.id} slot=${{ ...slot, options: x.options }} />`;
-    return 'tag' in x.s.out ? html`<${TagBox} flip=${() => { put(null, slot, { tag: true }); emit('tag-flip', slot); }} />`
-      : 'choice' in x.s.out ? html`<${Choice} options=${x.options} put=${out => put(null, slot, out)} />` : html`<${Field} datatype=${x.s.out.field} put=${out => put(null, slot, out)} />`; };
+    if (x.id) return html`<${Output} id=${x.id} slot=${{ ...slot, options: x.options }} label=${x.name} />`;
+    return 'tag' in x.s.out ? html`<${TagBox} label=${x.name} flip=${() => { put(null, slot, { tag: true }); emit('tag-flip', slot); }} />`
+      : 'choice' in x.s.out ? html`<${Choice} options=${x.options} label=${x.name} put=${out => put(null, slot, out)} />` : html`<${Field} datatype=${x.s.out.field} label=${x.name} put=${out => put(null, slot, out)} />`; };
+  const third = x => x.id ? x.rest.map(g => html`<span class="muted" key=${g.edge} title=${`${g.edge}: ${nameOf(objectOf(g.at))}`}>${shortOf(objectOf(g.at))}</span>`)
+    : x.rest.map(p => { const y = picks[x.key + p.edge];
+      return html`<button class=${'sel dd' + (y ? '' : ' ph')} key=${p.edge} aria-label=${`${p.edge}: ${y ? nameOf(objectOf(y)) : 'none'}`} onClick=${e => pick(e, x, p)}><span>${y ? shortOf(objectOf(y)) : p.edge}</span></button>`; });
   const make = () => {
     const [name, ra, rb] = ['name', 'ra', 'rb'].map(k => T.clean(form[k]));
     if (!name || !ra || !rb || T.same(ra, rb)) return;
@@ -507,17 +657,15 @@ function RelateView({ a, b }) {
     if (App.change(tx => { tx.add('record', { args: [{ edge: ra, at: a }, { edge: rb, at: b }], tag: true }); tx.note('Name', p, name);
       tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); })) setForm(null);
   };
-  const inp = (k, ph) => html`<input class="cell" placeholder=${ph} value=${form[k]} onInput=${e => setForm({ ...form, [k]: e.target.value })}
+  const inp = (k, ph) => html`<input class="cell" placeholder=${ph} aria-label=${ph} value=${form[k]} onInput=${e => setForm({ ...form, [k]: e.target.value })}
     onKeyDown=${e => { if (e.key === 'Enter') make(); else if (e.key === 'Escape') { e.stopPropagation(); setForm(null); } }} ref=${k === 'name' ? el => el && !el.dataset.on && (el.dataset.on = 1, el.focus()) : null} />`;
   return html`<div class="insp">
-    <header class="ih two">${[a, b].map(x => html`<a class="ih-title" key=${x} onClick=${() => select([x])}>${nameOf(objectOf(x))}${x !== objectOf(x) ? html`<span class="muted"> › ${N().segmentOf(r, x)}</span>` : null}</a>`)}</header>
+    <header class="ih two">${[a, b].map(x => html`<${Go} to=${x} cls="ih-title" key=${x}>${nameOf(objectOf(x))}${x !== objectOf(x) ? html`<span class="muted"> › ${N().segmentOf(r, x)}</span>` : null}</${Go}>`)}</header>
     <div class="relate">
-      <div class="rr head"><span /><span /><span title=${nameOf(a)}>${shortOf(objectOf(a))}</span><span title=${nameOf(b)}>${shortOf(objectOf(b))}</span></div>
+      <div class="rr head"><span /><span /><span title=${nameOf(a)}>${shortOf(objectOf(a))}</span><span title=${nameOf(b)}>${shortOf(objectOf(b))}</span><span /></div>
       ${list.map(x => html`<div class=${'rr' + (x.id && r[x.id].tag === false ? ' ruled' : '')} key=${x.id ?? x.key} data-key=${x.id ?? x.key}>
-        <span class="ctl">${isTag(x) ? output(x) : null}</span><a class=${'nm' + (x.id && fx(x.id) ? ' fx' : '')} title=${x.name} onClick=${() => x.id ? select([x.id]) : select([general(T.bare(x.s))])}>${x.name}</a>
-        <span>${x.ea}</span><span>${x.eb}</span>
-        ${x.rest?.length && !x.id ? html`<span class="more">${x.rest.map(p => html`<span class="relv"><span class="muted">${p.edge}</span><button class="sel dd" onClick=${e => pick(e, x, p)}><span>${picks[x.key + p.edge] ? nameOf(objectOf(picks[x.key + p.edge])) : ''}</span></button></span>`)}</span>` : null}
-        ${!isTag(x) || cells(x).length ? html`<span class="more">${isTag(x) ? null : html`<span class="relv">${output(x)}</span>`}${cells(x)}</span>` : null}
+        <span class="ctl">${isTag(x) ? output(x) : null}</span><${Go} to=${x.id ?? general(T.bare(x.s))} cls=${'nm' + (x.id && fx(x.id) ? ' fx' : '')} title=${x.name}>${x.name}</${Go}>
+        <span>${x.ea}</span><span>${x.eb}</span><span class="val">${isTag(x) ? null : output(x)}${third(x)}</span>
       </div>`)}
       ${still ? null : form ? html`<div class="rr new"><span class="ctl"><span class="tag yes" /></span>${inp('name', 'Name')}${inp('ra', 'Role')}${inp('rb', 'Role')}</div>`
         : html`<div class="rr new"><span /><button class="btn ghost add-entry" onClick=${() => setForm({ name: '', ra: '', rb: '' })}>${icon('plus')}New relation</button></div>`}
@@ -595,60 +743,64 @@ function GeneralView({ p }) {
   const flag = (label, q, v) => App.change(tx => tx.note(label, q, v));
   const options = type === 'choice' ? optionsOf(specs) : [];
   const reorderOpts = (from, i) => App.change(tx => moved(options, from, i).forEach((o, k) => tx.note('Order', { out: { choice: o }, args: p.args }, k + 1)));
-  const [desc, setDesc] = useState(null), d0 = n.description(p) ?? '';
   const ats = kind ? [] : rel ? n.edges(p).map(e => [e, [...new Set(specs.map(s => where(s.args.find(a => T.same(a.edge, e)).loc)))].join(', ')])
     : [['At', [...new Set(specs.map(s => where(s.args[0].loc)))].join('\n')]];
   const below = kind ? [...new Map(Object.values(S).filter(s => s.args?.length === 1 && s.args[0].loc.kind && T.same(s.args[0].loc.kind, p.kind)).map(s => [T.norm(s.args[0].edge), s])).values()] : [];
-  const grow = el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; } };
   const addFormula = () => { if (App.change(tx => tx.note('Formula', p, [{ label: '', formula: type === 'tag' ? '← ' : '= ' }]))) FormulaBar.focus('r0'); };
   const v = viewShown()?.layout === 'chart' ? Shell.view.value : null;
   return html`<div class="insp">
     <${Head} path=${kind || rel ? [] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Tag') }]}>
-      <${Field} r=${{ field: 'text', value: name }} datatype="text" cls=" title" put=${out => out && setName(out.value)} /></${Head}>
+      <${Field} r=${{ field: 'text', value: name }} datatype="text" label="Name" cls=" title" put=${out => out && setName(out.value)} /></${Head}>
     <div class="rows">
-      <div class="row"><div class="k">Description</div><div class="v ctl"><textarea class="cell desc" rows="1" ref=${grow} value=${desc ?? d0} disabled=${still}
-        onInput=${e => { setDesc(e.target.value); grow(e.target); }} onBlur=${() => { if (desc !== null && T.clean(desc) !== d0) App.change(tx => tx.note('Description', p, T.clean(desc) || undefined)); setDesc(null); }}
-        onKeyDown=${e => { if (e.key === 'Escape') { e.stopPropagation(); setDesc(null); e.target.blur(); } }} /></div></div>
+      <div class="row"><div class="k">Description</div><div class="v ctl"><${Prose} text=${n.description(p) ?? ''} label="Description"
+        put=${text => App.change(tx => tx.note('Description', p, text || undefined))} /></div></div>
       ${ats.map(([k, x]) => html`<div class="row" key=${k}><div class="k">${k}</div><div class="v lines">${x}</div></div>`)}
-      ${rel ? n.edges(p).map(e => html`<div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
-        put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
-      ${kind || rel ? null : html`<div class="row"><div class="k">Required</div><div class="v ctl"><input type="checkbox" checked=${n.required(p)} disabled=${still} onChange=${e => flag('Required', p, e.target.checked)} /></div></div>`}
-      ${dated ? ['Start', 'End'].map(l => html`<div class="row" key=${l}><div class="k">${l}</div><div class="v ctl"><input type="checkbox" checked=${l === 'Start' ? n.isStart(dp) : n.isEnd(dp)} disabled=${still} onChange=${e => flag(l, dp, e.target.checked)} /></div></div>`) : null}
+      ${rel ? n.edges(p).map(e => html`<div class="row" key=${'l' + e}><div class="k" title=${`${e} list`}>${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
+        label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
+      ${kind || rel ? null : html`<div class="row"><div class="k">Required</div><div class="v ctl"><input type="checkbox" aria-label="Required" checked=${n.required(p)} disabled=${still} onChange=${e => flag('Required', p, e.target.checked)} /></div></div>`}
+      ${dated ? ['Start', 'End'].map(l => html`<div class="row" key=${l}><div class="k">${l}</div><div class="v ctl"><input type="checkbox" aria-label=${l} checked=${l === 'Start' ? n.isStart(dp) : n.isEnd(dp)} disabled=${still} onChange=${e => flag(l, dp, e.target.checked)} /></div></div>`) : null}
     </div>
     ${type === 'choice' ? html`<${Section} title="Options" n=${options.length}>
-      ${options.map(o => html`<div class="ent" data-drag="opt" key=${o}><div class="row" style="--depth:0">${still ? null : html`<button class="grip" aria-label=${`Move ${o}`} onPointerDown=${e => drag(e, reorderOpts)}>${GRIP}</button>`}
-        <div class="k wide"><${Field} r=${{ field: 'text', value: o }} datatype="text" put=${out => out && out.value !== o && App.change(tx => tx.rename(loose(p), o, out.value))} /></div></div></div>`)}
+      ${options.map(o => html`<div class="ent" data-drag="opt" key=${o}><div class="row" style="--depth:0">${still ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, reorderOpts)}>${GRIP}</button>`}
+        <div class="k wide"><${Field} r=${{ field: 'text', value: o }} datatype="text" label="Option" put=${out => out && out.value !== o && App.change(tx => tx.rename(loose(p), o, out.value))} /></div></div></div>`)}
       ${still ? null : html`<div class="row"><div class="k wide"><${Field} datatype="text" ph="New option" put=${out => out && App.change(tx => tx.add('spec', { tree: { ...T.specOf(s0), out: { choice: out.value } } }))} /></div></div>`}</${Section}>` : null}
     ${below.length ? html`<${Section} title="Entries" n=${below.length}>
       ${below.sort((x, y) => (n.order(x) ?? Infinity) - (n.order(y) ?? Infinity) || x.args[0].edge.localeCompare(y.args[0].edge)).map(s => html`<div class="row" key=${T.key(s)}>
-        <div class="k"><a onClick=${() => select([general(T.bare(s))])}>${s.args[0].edge}</a></div><div class="v muted">${typeName(s)}</div></div>`)}</${Section}>` : null}
+        <div class="k" title=${s.args[0].edge}><${Go} to=${general(T.bare(s))}>${s.args[0].edge}</${Go}></div><div class="v muted">${typeName(s)}</div></div>`)}</${Section}>` : null}
     ${def ? html`<${Section} title="Formula"><${Statute} def=${def} p=${p} /></${Section}>`
       : kind ? null : html`<${Section} title="Formula" act=${plus('Add a formula', addFormula)} />`}
-    ${v && n.styles(v).some(s => T.narrower(p, s.pattern) || T.narrower(s.pattern, p)) ? html`<${Section} title="Styles"><${Styles} v=${v} only=${p} /></${Section}>` : null}
+    ${v && stylesOf(v, p).length ? html`<${Section} title="Styles"><${Styles} v=${v} only=${p} /></${Section}>` : null}
   </div>`;
 }
 
 function Many({ ids }) {
   return html`<div class="insp"><${Head} title=${`${ids.length} selected`} /><div class="rows">
-    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x}><div class="k wide"><a onClick=${() => select([x])}>${nameOf(objectOf(x))}</a></div></div>`)}</div></div>`;
+    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${x}>${nameOf(objectOf(x))}</${Go}></div></div>`)}</div></div>`;
 }
 
+// What a selection key names: a free shape (or a row of a Key) has its own panel; a relation's text in one box
+// is the relation.
 function Inspector() {
   const sel = Shell.selection.value, p = sel.length === 1 && Shell.pattern(sel[0]);
+  if (!App.chart.value) return null;   // opening
   if (p) return html`<${GeneralView} key=${sel[0]} p=${p} />`;
   if (sel.length === 2) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
   if (sel.length > 2) return html`<${Many} ids=${sel} />`;
-  if (sel.length === 1 && (recs()[sel[0]] || App.shown.value.item(App.chart.value, sel[0]).length)) return html`<${RecordView} key=${sel[0]} id=${sel[0]} />`;
+  if (sel.length === 1) {
+    const [id, part] = sel[0].split('#'), rid = id.split('@')[0], rows = App.shown.value.item(App.chart.value, rid);
+    if (rows.at(-1) && 'shape' in rows.at(-1)) return html`<${ShapeView} key=${rid} id=${rid} part=${part} />`;
+    if (recs()[rid] || rows.length) return html`<${RecordView} key=${rid} id=${rid} />`;
+  }
   return html`<${ViewPanel} />`;
 }
 
-// ---- What needs attention: overdue deadlines, blanks where required, and errors ----
+// ---- What needs attention: deadlines overdue and due soon, blanks where required, and errors ----
 const attention = computed(() => {
-  const w = App.computed.value, day = App.day.value, items = [];
-  const dated = new Set(App.definitions.value.filter(d => d.datatype === 'date').flatMap(d => d.covers));
+  const w = App.computed.value, items = [];
   const go = (id, edge) => () => { aim.value = edge ? `${id}|${edge}` : id; select([objectOf(id)]); };
   for (const [id, r] of Object.entries(w.records)) {
-    if (r.field === 'date' && r.value < day && dated.has(T.parameterization(w.records, id))) items.push({ kind: 'overdue', go: go(id) });
+    const due = r.field === 'date' && dueOf(id);
+    if (due) items.push({ kind: due, go: go(id) });
     if (!('field' in r)) for (const b of blanksAt(id)) items.push({ kind: 'blank', go: go(id, b.edge) });
   }
   for (const e of w.errors) items.push({ kind: 'error', go: go(e.id ?? e.args?.[0]?.at) });

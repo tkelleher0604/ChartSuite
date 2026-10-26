@@ -1,16 +1,19 @@
 // Dendra's launch screen: leaf shadows moving on a sunlit wall, from UI/mockups/Dappled Wall.html with its
-// controls, fonts and fallback text taken out. The head script decides whether it shows (html[data-splash],
-// once a tab, when Dendra is opened in a new tab or window) and covers the page in the wall's shade before
-// first paint; this, the first script in <body>, draws the wall and lifts the cover. It holds for at least
-// HOLD ms after its first frame and ends when the shell calls Splash.done(), on a click or a key, or after
-// LIMIT ms whatever happens. Then the light goes down to the page's own paper color as the wall fades, and
-// the WebGL context is released. By moonlight in the dark theme; a still frame and a short fade with
-// reduced motion. Splash.ended resolves once it's gone.
+// controls, fonts and fallback text taken out, and the mark cut out of it in the page's paper. The head
+// script decides whether it shows (html[data-splash], once a tab, when Dendra is opened in a new tab or
+// window) and covers the page in the wall's shade before first paint; this, the first script in <body>
+// after the mark's symbol, draws the wall and lifts the cover. It holds for at least HOLD ms after its first
+// frame (less after the day's first launch) and ends when the shell calls Splash.done(), on a click or a
+// key, or after LIMIT ms whatever happens. Then the light goes down to the paper as the wall fades, and the
+// WebGL context is released. By moonlight in the dark theme; a still frame and a short fade with reduced
+// motion. Splash.ended resolves once it's gone.
 
 const Splash = (() => {
-  const HOLD = 900, LIMIT = 4000, OUT = 650;
+  const LIMIT = 4000, OUT = 650;
   const root = document.documentElement;
   if (!root.hasAttribute('data-splash')) return { done() {}, ended: Promise.resolve() };
+  let HOLD = 900;
+  try { const day = new Date().toDateString(); if (localStorage.getItem('dendra.launchedOn') === day) HOLD = 500; localStorage.setItem('dendra.launchedOn', day); } catch {}
 
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const dark = root.dataset.theme === 'dark';
@@ -25,6 +28,8 @@ const Splash = (() => {
   const cv = document.createElement('canvas');
   cv.style.cssText = 'display:block;width:100%;height:100%';
   veil.appendChild(cv);
+  // The mark, small, a little above the middle: in the paper by day, and by moonlight in the ink.
+  veil.insertAdjacentHTML('beforeend', `<svg viewBox="0 0 16 16" style="position:absolute;left:50%;top:45%;width:24px;height:24px;margin:-12px 0 0 -12px;color:color-mix(in srgb, var(${dark ? '--ink' : '--paper'}) ${dark ? 60 : 70}%, transparent)"><use href="#mark"/></svg>`);
   document.body.prepend(veil);
   root.removeAttribute('data-splash');
 
