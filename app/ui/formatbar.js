@@ -10,14 +10,24 @@ const html = htm.bind(h);
 const { signal, effect } = preactSignals;
 
 const FONTS = Scene.FONTS;
+// Sizes and weights are shown and chosen as the slide has them: the page's, drawn smaller by its scale.
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32];
 const WEIGHTS = [0.5, 0.75, 1, 1.5, 2, 3];
-// Ink and greys, then the soft fills fund charts use, then stronger accents: the palette of a law firm's deck.
-const COLORS = [
-  '#000000', '#262626', '#404040', '#595959', '#7f7f7f', '#a6a6a6', '#d9d9d9', '#ffffff',
-  '#e8eefb', '#e7f1ec', '#fdf3e1', '#f4ecf7', '#e6f3f5', '#fbe9e7', '#f4f4f5', '#f5f0e6',
-  '#1f3864', '#2c4c7c', '#2e75b6', '#2e7d4f', '#9a6300', '#c2372b', '#7a3e8c', '#0e7490',
+// PowerPoint's colors, so a swatch means the same in both: its theme's columns (Background 1, Text 1 and the
+// six accents), each with its tints and shades in PowerPoint's rows, then its standard colors.
+const THEME = [
+  '#ffffff', '#000000', '#4472c4', '#ed7d31', '#a5a5a5', '#ffc000', '#5b9bd5', '#70ad47',
+  '#f2f2f2', '#7f7f7f', '#dae3f3', '#fbe5d6', '#ededed', '#fff2cc', '#deebf7', '#e2f0d9',
+  '#d9d9d9', '#595959', '#b4c7e7', '#f8cbad', '#dbdbdb', '#ffe699', '#bdd7ee', '#c5e0b4',
+  '#bfbfbf', '#404040', '#8faadc', '#f4b183', '#c9c9c9', '#ffd966', '#9dc3e6', '#a9d18e',
+  '#a6a6a6', '#262626', '#2f5597', '#c55a11', '#7c7c7c', '#bf9000', '#2e75b6', '#548235',
+  '#7f7f7f', '#0d0d0d', '#203864', '#843c0c', '#525252', '#7f6000', '#1f4e79', '#385723',
 ];
+const STANDARD = ['#c00000', '#ff0000', '#ffc000', '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0'];
+// A slide's number for the page's, to the half point; and the page's for a slide's.
+const page = () => Canvas.active.peek()?.scene()?.page;
+const shown = v => typeof v === 'number' ? Math.round(Scene.toSlide(page(), v) * 2) / 2 : v;
+const put = v => Math.round(Scene.fromSlide(page(), v) * 100) / 100;
 const TEXT_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color', 'Align', 'Format']);
 let current = null; // { canvas, scopes, scope, marks }
 
@@ -107,7 +117,8 @@ const arrowGlyph = a => html`<svg viewBox="0 0 28 10"><path d="M3 5h22" stroke-w
 const shapeGlyph = g => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${Scene.path(g, 18, 14)} /></svg>`;
 
 function Palette({ value: v, pick, none }) {
-  return html`<div class="palette">${COLORS.map(c => html`<button style=${`background:${c}`} aria-pressed=${v === c} aria-label=${c} onClick=${() => pick(c)} />`)}
+  const swatch = c => html`<button style=${`background:${c}`} aria-pressed=${String(v).toLowerCase() === c} aria-label=${c} onClick=${() => pick(c)} />`;
+  return html`<div class="palette">${THEME.map(swatch)}<i />${STANDARD.map(swatch)}
     ${none ? html`<button class="none" aria-pressed=${v === 'none'} aria-label="None" data-tip="None" onClick=${() => pick('none')} />` : null}</div>`;
 }
 const pop = (e, draw) => Shell.popover(e.currentTarget, close => draw(close), { placement: 'bottom-start' });
@@ -140,10 +151,11 @@ function picture(c) {
   input.click();
 }
 
+// While the inspector is widened over the chart there's nothing here to format.
 function Bar() {
   App.scene.value; Shell.selection.value;
   const c = Canvas.active.value;
-  if (!c || !c.scene()) return html`<div class="fb" />`;
+  if (!c || !c.scene() || Shell.wide.value) return html`<div class="fb" hidden=${Shell.wide.value} />`;
   const s = scopesOf(c);
   const scope = s.scopes.find(x => x.key === chosen.value) ?? s.scopes.find(x => x.key === s.first) ?? s.scopes[0];
   current = { canvas: c, ...s, scope };
@@ -172,8 +184,8 @@ function Bar() {
       <span>${scope?.label}</span></button>`}
     <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => set('Font', f) })))}>
       <span>${any ? value('Font') : 'Arial'}</span></button>
-    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: value('Size') === z, run: () => set('Size', z) })))}>
-      <span>${any ? value('Size') : 10}</span></button>
+    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', put(z)) })))}>
+      <span>${any ? shown(value('Size')) : 10}</span></button>
     <button class="btn letter b" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${any && !!value('Bold')} disabled=${none} onClick=${() => toggle('Bold')}>B</button>
     <button class="btn letter i" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${any && !!value('Italic')} disabled=${none} onClick=${() => toggle('Italic')}>I</button>
     <button class="btn letter u" aria-label="Underline" data-tip="Underline" data-keys="Ctrl+U" aria-pressed=${any && !!value('Underline')} disabled=${none} onClick=${() => toggle('Underline')}>U</button>
@@ -183,7 +195,7 @@ function Bar() {
     <button class="btn dd" aria-label="Fill" data-tip="Fill" data-fb="fill" disabled=${!boxy} onClick=${e => pop(e, close => html`<${Palette} value=${value('Fill')} none pick=${v => { close(); set('Fill', v); }} />`)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none} onClick=${e => pop(e, close => html`<${Palette} value=${value('Outline')} none pick=${v => { close(); set('Outline', v); }} />`)}>${glyph.outline(any ? value('Outline') : 'none')}</button>
     <button class="btn dd" aria-label="Line" data-tip="Line" data-fb="line" disabled=${none} onClick=${e => pop(e, () => html`<div class="picker">
-      <div class="row"><span class="k">Weight</span>${seg(WEIGHTS.map(w => [w, String(w)]), value('Weight'), v => set('Weight', v))}</div>
+      <div class="row"><span class="k">Weight</span>${seg(WEIGHTS.map(w => [w, String(w)]), WEIGHTS.find(w => Math.abs(Scene.toSlide(page(), value('Weight')) - w) < 0.07), v => set('Weight', put(v)))}</div>
       <div class="row"><span class="k">Dash</span>${seg(['solid', 'dashed', 'dotted'].map(d => [d, dashGlyph(d)]), value('Dash'), v => set('Dash', v))}</div>
       ${s.marks.some(m => m.type === 'line') ? html`<div class="row"><span class="k">Route</span>${seg([['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'), v => set('Connector', v))}</div>` : null}
       ${s.scope?.outputs && boxy ? html`<div class="row"><span class="k">Frame</span>${seg([['none', 'None'], ['dashed', dashGlyph('dashed')], ['solid', dashGlyph('solid')], ['bracket', 'Bracket']], value('Frame') ?? 'none', v => set('Frame', v))}</div>` : null}
@@ -194,7 +206,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="order" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
     <button class="btn dd narrow" data-fb="arrange" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Align', items: aligns }, '-', ...orders, '-', grouping])}>Arrange</button>
-    <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: '$mod+0', run: () => c.zoom('fit') }, '-',
+    <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
       ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: Math.abs(z * 100 - zoom) < 0.5, run: () => c.zoom(z) })), '-',
       { label: 'Tidy', run: () => c.tidy() }], { placement: 'bottom-end' })}>${zoom}%</button>
   </div>`;

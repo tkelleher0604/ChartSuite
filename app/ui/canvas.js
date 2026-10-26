@@ -111,7 +111,7 @@ function cellsOf(scene) {
         attrs: { line: { stroke: m.redline === 'appear' ? BLUE : m.redline === 'go' ? RED : paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight)),
           sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight)), ...(m.revealed && { opacity: 0.55 }) }, wrap: { strokeWidth: 10 } } });
-      if (m.labelAt && m.texts.length) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
+      if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
         zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: m.texts.map(it => textMarkup(it, m.redline)) });
     } else if (m.type === 'frame') {
       const d = m.kind === 'bracket' ? `M0.5,${m.h} V${m.h - 5} H${m.w - 0.5} V${m.h}` : `M0,0 H${m.w} V${m.h} H0 Z`;
@@ -245,13 +245,17 @@ function mount(el) {
       }
     });
     syncing = false;
-    const size = `${scene.page.w}×${scene.page.h}`;
+    // Each view comes back as it was left; one not seen yet opens framed on its chart. A preview's page
+    // doesn't move the view.
+    const size = `${base.page.w}×${base.page.h}`;
     if (viewShown !== view) {
-      if (viewShown) zooms.set(viewShown, { s: graph.zoom(), t: graph.translate(), fitted });
+      if (viewShown) zooms.set(viewShown, left ?? { s: graph.zoom(), t: graph.translate(), framed });
       viewShown = view;
       const z = zooms.get(view);
-      if (z) { quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); fitted = z.fitted; } else requestAnimationFrame(() => zoom('fit'));
-    } else if (fitted && size !== pageWas) requestAnimationFrame(() => fitted && zoom('fit'));   // the page grew or shrank: still all of it
+      framed = z ? z.framed : 'chart';
+      left = z && !z.framed ? z : null;
+      requestAnimationFrame(settle);
+    } else if (framed && size !== pageWas) requestAnimationFrame(settle);   // the page grew or shrank: framed again
     pageWas = size;
     syncSelection();
     paintStates();
@@ -592,7 +596,7 @@ function mount(el) {
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)));
   });
   root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) fitted = false; showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) framed = left = null; showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held, or from the
   // middle of the box, for Relate…, until the next click. On another box, the two's relations are asked
@@ -656,15 +660,15 @@ function mount(el) {
       ...(bound ? [{ label: 'Hide in this view', keys: 'Delete', disabled: ro, run: () => remove() }] : []),
       { label: 'Delete', keys: bound ? 'Shift+Delete' : 'Delete', danger: true, disabled: ro, run: () => remove(bound) },
       '-', ...ORDER().map(x => ({ ...x, disabled: ro || ms.every(m => m.type === 'frame') })),
-      '-', { label: 'Copy', keys: '$mod+C', run: copy }, { label: 'Paste', keys: '$mod+V', disabled: ro || !clip?.items.length, run: paste },
+      '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !clip?.items.length, run: () => paste() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
     ];
   }
   const pageItems = p => [
     ...kinds().map(k => ({ label: `New ${k}`, disabled: still(), run: () => create(k, p) })), '-',
-    { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: paste }, '-',
-    { label: 'Zoom to fit', keys: '$mod+0', run: () => zoom('fit') }, { label: 'Tidy', disabled: still(), run: tidy },
+    { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
+    { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, { label: 'Tidy', disabled: still(), run: tidy },
   ];
 
   // ---- States others ask for: highlight, redline, hidden records drawn ----
@@ -821,15 +825,22 @@ function mount(el) {
     const s = parts.join(' and ');
     return s && s[0].toUpperCase() + s.slice(1);
   }
-  // The clipboard holds marks of one view: pasting a box shows it, a shape is copied.
+  // What's copied is marks of one view, and their names: pasting a box shows it, a shape is copied.
   let clip = null;
-  function copy() { clip = { view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x, y: m.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) }; }
-  function cut() { copy(); remove(); }
-  function paste() {
-    if (!clip?.items.length) return;
-    const view = viewOf(), here = view === clip.view, ids = [];
+  const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x, y: m.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
+  // A copy from the menu puts the names on the system's clipboard too, as it can.
+  function copy() {
+    const c = marksNow();
+    if (!c.items.length) return false;
+    clip = { ...c, text: c.items.map(it => it.box ? nameOf(it.box) : it.row.text || SHAPE[it.row.geometry] || 'Shape').join('\n') };
+    return true;
+  }
+  const copyOut = () => { if (copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
+  function paste(c = clip) {
+    if (!c?.items.length) return;
+    const view = viewOf(), here = view === c.view, ids = [];
     App.change(tx => {
-      for (const it of clip.items) {
+      for (const it of c.items) {
         if (it.box) {
           const t = treeOf(it.box);
           if (!t) continue;
@@ -846,7 +857,8 @@ function mount(el) {
     });
     Shell.select(ids);
   }
-  function duplicate() { copy(); paste(); }
+  // Ctrl+D copies in place, leaving the clipboard as it was.
+  const duplicate = () => paste(marksNow());
   const nudge = (dx, dy) => moveTo(new Map(placeable().map(m => [m.id, { x: m.x + dx, y: m.y + dy, ...(m.points && { dx, dy }) }])));
   function align(how) {
     const ms = placeable();
@@ -906,40 +918,63 @@ function mount(el) {
     App.change(tx => App.notes.peek().notes('Position').filter(n => n.view === view).forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' });
   }
 
-  // ---- Zoom: fit, the levels, and framing marks; while the view is fitted it stays fitted as the window
-  // and the page change size ----
-  let fitted = true, quiet = false;
+  // ---- Zoom: the levels, and framing. A view opens framed on its chart, at a size its names read at; Fit
+  // (Shift+1) frames the whole page. A framed view stays framed as the window and the page change size,
+  // until it's zoomed or scrolled. A canvas that can't be seen (a table shown, the inspector widened) is
+  // never measured or moved: it's framed, or put back as it was left, once it's seen again ----
+  let framed = 'chart', left = null, quiet = false;
   const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } };
+  const seen = () => root.clientWidth > 0 && root.clientHeight > 0;
   const LEVELS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
+  // Where a 10 pt name is 10 px on screen.
+  const READS = 0.75;
+  const extent = ms => {
+    const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]), x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y));
+    return { x, y, w: Math.max(...ext.map(m => m.x + m.w)) - x, h: Math.max(...ext.map(m => m.y + m.h)) - y };
+  };
+  // Shows a rect as large as fits within pad of the edges, between lo and hi: in the middle, or from its
+  // top where it's taller than the window.
+  function showRect(r, pad, lo, hi) {
+    const W = root.clientWidth, H = root.clientHeight;
+    const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi);
+    quietly(() => { graph.zoomTo(s); graph.translate((W - r.w * s) / 2 - r.x * s, r.h * s > H - 2 * pad ? pad - r.y * s : (H - r.h * s) / 2 - r.y * s); });
+    zoomLevel.value = graph.zoom();
+  }
+  // The view as it's to be, once it can be seen: as it was left, or framed on the chart (its boxes, lines
+  // and frames, not the page's margins, title and key) or on the page.
+  function settle() {
+    if (!scene || !seen()) return;
+    const page = { x: 0, y: 0, w: scene.page.w, h: scene.page.h }, chart = scene.marks.filter(m => m.type !== 'shape');
+    if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
+    else if (framed === 'chart' && chart.length) showRect(extent(chart), 32, READS, 1);
+    else if (framed) showRect(page, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), 0.1, 2);
+  }
   function zoom(k) {
     if (!scene) return;
-    if (k === 'fit') {
-      const r = root.getBoundingClientRect();
-      quietly(() => graph.zoomToRect({ x: 0, y: 0, width: scene.page.w, height: scene.page.h }, { padding: Math.round(clamp(Math.min(r.width, r.height) * 0.03, 12, 28)), maxScale: 2 }));
-      fitted = true;
-    } else if (k === 'in' || k === 'out') {
+    if (k === 'fit') { framed = 'page'; left = null; return settle(); }
+    if (!seen()) return;
+    if (k === 'in' || k === 'out') {
       const z = graph.zoom(), next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? 0.1;
       const c = graph.getGraphArea().center ?? null;
       graph.zoomTo(next, c ? { center: graph.graphToLocal(c) } : undefined);
     } else graph.zoomTo(k);
     zoomLevel.value = graph.zoom();
   }
-  const resized = new ResizeObserver(() => { showHandles(null); if (fitted && scene) requestAnimationFrame(() => fitted && zoom('fit')); });
+  const resized = new ResizeObserver(() => { showHandles(null); if (framed || left) requestAnimationFrame(settle); });
   resized.observe(root);
   // Frames these records' marks (an entry lights the box or line it's in), as the formula bar asks when it
   // steps down to a reason: closer, up to 100%, where they're small on screen; out as far as they need.
   function zoomTo(ids) {
-    if (!scene) return;
+    if (!scene || !seen()) return;
     const hostOf = id => { const m = markFor(id); return m?.type !== 'text' ? m : scene.marks.find(h => h.texts?.includes(m)) ?? null; };
     const ms = [...new Set([].concat(ids ?? []).map(hostOf).filter(Boolean))];
     if (!ms.length) return;
-    const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]);
-    const x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y)), w = Math.max(...ext.map(m => m.x + m.w)) - x, h = Math.max(...ext.map(m => m.y + m.h)) - y;
+    const { x, y, w, h } = extent(ms);
     // Where they're all on screen already, and legible, the view stays.
-    const r = root.getBoundingClientRect(), a = graph.localToGraph(x, y), b = graph.localToGraph(x + w, y + h);
-    if (a.x >= 24 && a.y >= 24 && b.x <= r.width - 24 && b.y <= r.height - 24 && graph.zoom() >= 0.7) return;
-    graph.zoomToRect({ x, y, width: Math.max(w, 1), height: Math.max(h, 1) }, { padding: 56, maxScale: 1 });
-    zoomLevel.value = graph.zoom();
+    const a = graph.localToGraph(x, y), b = graph.localToGraph(x + w, y + h);
+    if (a.x >= 24 && a.y >= 24 && b.x <= root.clientWidth - 24 && b.y <= root.clientHeight - 24 && graph.zoom() >= 0.7) return;
+    framed = left = null;
+    showRect({ x, y, w, h }, 56, 0.1, 1);
   }
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
@@ -948,31 +983,49 @@ function mount(el) {
     'ArrowLeft': () => nudge(-1, 0), 'ArrowRight': () => nudge(1, 0), 'ArrowUp': () => nudge(0, -1), 'ArrowDown': () => nudge(0, 1),
     'Shift+ArrowLeft': () => nudge(-10, 0), 'Shift+ArrowRight': () => nudge(10, 0), 'Shift+ArrowUp': () => nudge(0, -10), 'Shift+ArrowDown': () => nudge(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(c => { const k = c.getData()?.kind; return k && k !== 'page' && k !== 'label'; })); },
-    '$mod+KeyC': () => copy(), '$mod+KeyX': () => cut(), '$mod+KeyV': () => paste(), '$mod+KeyD': () => duplicate(),
-    '$mod+KeyG': () => group(), '$mod+Shift+KeyG': () => ungroup(),
+    '$mod+KeyD': () => duplicate(), '$mod+KeyG': () => group(), '$mod+Shift+KeyG': () => ungroup(),
     '$mod+BracketRight': () => order('forward'), '$mod+BracketLeft': () => order('backward'),
     '$mod+Shift+BracketRight': () => order('front'), '$mod+Shift+BracketLeft': () => order('back'),
-    '$mod+Equal': () => zoom('in'), '$mod+Minus': () => zoom('out'), '$mod+Digit0': () => zoom('fit'), '$mod+Digit1': () => zoom(1),
+    '$mod+Equal': () => zoom('in'), '$mod+Minus': () => zoom('out'), 'Shift+Digit0': () => zoom(1),
     'F2': () => { const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
     'Enter': () => { const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
     'Escape': () => { if (!keysOfSelection().length) return false; entered = null; row = null; Shell.select([]); },
   };
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
   const unbind = tinykeys.tinykeys(root, wrapped);
-  // Typing over a selected box or shape starts editing it, with what was typed.
-  root.addEventListener('keydown', e => {
+  // Typing over a selected box or shape starts editing it, with what was typed; the window's own keys (? for
+  // the shortcuts, say) come first.
+  const typeOver = e => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1 || e.target !== root) return;
     const k = keysOfSelection();
     if (k.length === 1) { e.preventDefault(); edit(k[0], null, e.key); }
-  });
+  };
+  addEventListener('keydown', typeOver);
+  // The clipboard is the system's, as Office's is. A copy puts the marks' names on it; a paste is of the marks
+  // while those names are still what it holds. Anything else pasted onto the chart, a link onto a selected
+  // box, say, goes on to whoever takes it.
+  const mine = () => root.contains(document.activeElement) && !document.activeElement.closest('.dc-edit');
+  const clipboard = e => {
+    if (!mine()) return;
+    if (e.type === 'paste') { if (!still() && clip && e.clipboardData?.getData('text/plain') === clip.text) { e.preventDefault(); paste(); } return; }
+    if (!copy()) return;
+    e.preventDefault();
+    e.clipboardData?.setData('text/plain', clip.text);
+    if (e.type === 'cut') remove();
+  };
+  for (const name of ['copy', 'cut', 'paste']) document.addEventListener(name, clipboard);
   // A wheel scrolls the page; with Ctrl, X6 zooms.
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
   const stopDraw = effect(() => { App.scene.value; draw(); });
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, point, zoomTo,
-    insert, create, remove, copy, cut, paste, duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
-    destroy() { stopDraw(); stopSel(); unbind(); resized.disconnect(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null; },
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
+    destroy() {
+      stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver);
+      for (const name of ['copy', 'cut', 'paste']) document.removeEventListener(name, clipboard);
+      graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
+    },
   };
   active.value = canvas;
   return canvas;
@@ -983,9 +1036,10 @@ const call = name => (...a) => active.peek()?.[name](...a);
 Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); },
   highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point'), zoomTo: call('zoomTo'),
   kinds: () => kinds().map(k => ({ label: k, run: () => call('create')(k) })) });
-const here = () => !!active.value;
+// A chart is shown, not just kept behind a table.
+const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
-Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: '$mod+Digit0', enabled: here, run: () => call('zoom')('fit') });
+Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 
 return { active, zoom: zoomLevel, keyParts, kinds };
 })();
