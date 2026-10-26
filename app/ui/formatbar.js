@@ -26,7 +26,10 @@ let current = null; // { canvas, scopes, scope, marks }
 
 function scopesOf(c) {
   const sc = c.scene(), keys = c.keys(), src = c.source;
-  const marks = keys.map(k => sc.byId.get(Canvas.keyParts(k)[0])).filter(Boolean);
+  // A group is formatted as its members.
+  const picked = keys.map(k => sc.byId.get(Canvas.keyParts(k)[0])).filter(Boolean);
+  const group = picked.length === 1 && picked[0].geometry === 'group' ? picked[0] : null;
+  const marks = picked.flatMap(m => m.geometry === 'group' ? m.members.map(id => sc.byId.get(id)).filter(Boolean) : [m]);
   if (!marks.length) return { marks, scopes: [] };
   const rowKey = keys.length === 1 ? Canvas.keyParts(keys[0])[1] : null;
   if (rowKey) {
@@ -38,7 +41,7 @@ function scopesOf(c) {
     const f = marks.find(m => m.type === 'frame');
     return { marks, scopes: [{ key: 'frame', label: f.caption.text, outputs: [f.output], style: Tree.key(Tree.bare(f.output)) }] };
   }
-  if (!bound.length) return { marks, scopes: [{ key: 'own', label: marks.length > 1 ? 'These shapes' : 'This shape', own: true }] };
+  if (!bound.length) return { marks, group, scopes: [{ key: 'own', label: marks.length > 1 ? 'These shapes' : 'This shape', own: true }] };
   const wb = src.wb.peek(), chart = src.chart.peek(), view = src.view.peek(), st = src.state.peek();
   const by = new Map();
   for (const m of bound) for (const r of Scene.reach(wb, chart, view, sc, m.id, st)) {
@@ -49,7 +52,7 @@ function scopesOf(c) {
   const styles = [...by.values()].sort((a, b) => b.order - a.order)
     .map(s => ({ ...s, label: s.captions.size === 1 ? [...s.captions][0] : s.name, detail: s.captions.size === 1 ? s.name : `${s.captions.size} kinds` }));
   const own = { key: 'own', label: bound.length > 1 ? 'These boxes' : bound[0].type === 'line' ? 'This line' : 'This box', own: true };
-  return { marks, scopes: [...styles, own], first: defaultScope(bound[0], styles) };
+  return { marks, group, scopes: [...styles, own], first: defaultScope(bound[0], styles) };
 }
 // The style a change goes to unless another is chosen: the latest that gives the mark its look, as the
 // fill of a feeder fund's box comes from Feeder Fund; for a line, its relation's own.
@@ -182,7 +185,7 @@ function Bar() {
       { label: 'Bring to front', keys: '$mod+Shift+BracketRight', run: () => c.order('front') }, { label: 'Bring forward', keys: '$mod+BracketRight', run: () => c.order('forward') },
       { label: 'Send backward', keys: '$mod+BracketLeft', run: () => c.order('backward') }, { label: 'Send to back', keys: '$mod+Shift+BracketLeft', run: () => c.order('back') },
     ])}>Order</button>
-    ${s.marks.length === 1 && s.marks[0].geometry === 'group'
+    ${s.group
       ? html`<button class="btn" data-fb="group" onClick=${() => c.ungroup()}>Ungroup</button>`
       : html`<button class="btn" data-fb="group" disabled=${placeable < 2} onClick=${() => c.group()}>Group</button>`}
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: '$mod+Digit0', run: () => c.zoom('fit') }, '-',

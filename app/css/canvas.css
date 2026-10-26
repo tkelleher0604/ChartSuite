@@ -23,7 +23,7 @@
 .dc .x6-widget-transform-resize { width: 7px !important; height: 7px !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; }
 .dc .x6-widget-snapline line { stroke: #e8432a !important; stroke-width: 1px !important; shape-rendering: crispEdges; }
 .dc .x6-widget-transform-rotate { display: none !important; }
-.dc .x6-edge-selected path:nth-child(2) { stroke: var(--accent); }
+.dc-sel { fill: none; stroke: var(--accent); stroke-width: 4px; stroke-opacity: .35; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
 /* Marks drawn over the chart: Range Finder's outlines, a legend row, a group, a relation being drawn. */
 .dc-marks { pointer-events: none; }

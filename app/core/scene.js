@@ -131,7 +131,6 @@ function textOf(r, format, name) {
 // ---- The scene ----
 
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
-const ranks = new WeakMap();
 
 function of(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
@@ -143,6 +142,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
 
   // A note's rank where it reaches a mark: in the view before none; one record's own (entered) before a
   // style's; a later style before an earlier; and through the mark's own record before a deeper one.
+  const ranks = new Map();
   const rankOf = (note, depth) => {
     let r = ranks.get(note);
     if (!r) ranks.set(note, r = [note.view ? 1 : 0, idsIn(note.pattern).size ? 1 : 0, note.view ? (styleAt.get(key(bare(note.pattern))) ?? -1) : 0]);
@@ -317,8 +317,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     frames.get(parent).members.push(bid);
   }
   for (const f of frames.values()) {
-    const fs = N.formats(f.output, view);
-    f.settings = { Frame: { value: f.kind, note: f.note }, Outline: { value: '#595959', note: null }, ...pick(fs, ['Caption']) };
+    f.settings = { Frame: { value: f.kind, note: f.note } };
     const t = { ...TEXT, Size: 9, Italic: true, Align: 'left' };
     f.caption = { id: f.id, type: 'text', look: t, text: captionOf(N, f.output, view) };
     f.caption.lines = breakLines(f.caption.text, t, 400);
@@ -400,7 +399,6 @@ const latest = new Map();
 // null where nothing in the chart gives the value; a text's for a record shown as text; null if not drawn.
 const settingsOf = (id, view) => latest.get(view)?.byId.get(id)?.settings ?? null;
 
-const pick = (o, ks) => Object.fromEntries(ks.filter(k => o[k]).map(k => [k, o[k]]));
 // The middle of the side of a box that faces a point.
 function edgePoint(g, [x, y]) {
   const cx = g.x + g.w / 2, cy = g.y + g.h / 2, dx = x - cx, dy = y - cy;
@@ -489,11 +487,11 @@ function legend(N, view, styles, marks) {
     const mine = [...used.values()].filter(u => u.style === s.key);
     const groups = new Map();
     for (const u of mine) {
-      const out = s.outputs.find(o => key(o.pattern) === key(u.pattern));
-      const swatch = { kind: u.kind, ...DEFAULTS[u.kind === 'line' ? 'line' : 'box'], ...pick(Object.fromEntries(Object.entries(out?.formats ?? {}).map(([k, v]) => [k, { v }])), KEYED[u.kind]) };
-      for (const [k, v] of Object.entries(swatch)) if (v?.v !== undefined) swatch[k] = v.v;
-      if (u.kind === 'frame') swatch.Frame = out?.formats.Frame;
-      const sk = JSON.stringify(pick(swatch, ['kind', ...KEYED[u.kind]].map(String)));
+      // The swatch: a box or a line in the defaults, with what this output gives it.
+      const f = s.outputs.find(o => key(o.pattern) === key(u.pattern))?.formats ?? {};
+      const swatch = { kind: u.kind, ...DEFAULTS[u.kind === 'line' ? 'line' : 'box'] };
+      for (const k of KEYED[u.kind]) if (k in f) swatch[k] = f[k];
+      const sk = JSON.stringify([u.kind, ...KEYED[u.kind].map(k => swatch[k])]);
       const g = groups.get(sk) ?? groups.set(sk, { style: s.key, order, outputs: [], swatch }).get(sk);
       g.outputs.push(u.pattern);
     }

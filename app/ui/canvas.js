@@ -171,12 +171,14 @@ function mount(el, src) {
       return { nodeMovable: !pointing && k !== 'page' && k !== 'label' };
     },
   });
-  const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: true,
+  const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: c => { const k = c.getData()?.kind; return k && k !== 'page' && k !== 'label'; } });
   graph.use(sel);
   const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind);
   const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true }, rotating: false });
   graph.use(transform);
+  transform.stopListening(); // it would put handles on whatever is clicked; grips() decides
+
   // Resize handles on a shape selected alone, however it came to be selected.
   const grips = () => {
     const cs = sel.getSelectedCells();
@@ -305,14 +307,15 @@ function mount(el, src) {
       if (line) { if (e.shiftKey) sel.isSelected(line) ? sel.unselect(line) : sel.select(line); else sel.reset(line); }
       return;
     }
-    const m = scene.byId.get(node.id), hit = e.target.closest?.('[data-row]');
+    const m = scene.byId.get(node.id), key = e.target.closest?.('[data-row]')?.getAttribute('data-row');
     if (m?.geometry === 'legend') {
-      const key = hit?.getAttribute('data-row');
-      if (key && (row?.legend === m.id || node.getData().clicked)) { row = { legend: m.id, key }; src.select([`${m.id}#${key}`]); paintStates(); }
+      if (key && legendWas === m.id) { row = { legend: m.id, key }; src.select([`${m.id}#${key}`]); paintStates(); }
       else if (!key) row = null;
-      node.setData({ ...node.getData(), clicked: true }, { silent: true });
     }
   });
+  // A click on a legend already selected selects the row under it.
+  let legendWas = null;
+  graph.on('node:mousedown', ({ node }) => { legendWas = scene.byId.get(node.id)?.geometry === 'legend' && sel.isSelected(node) ? node.id : null; });
   graph.on('blank:click', () => { row = null; entered = null; });
 
   // ---- Gestures written through the log ----
@@ -549,7 +552,7 @@ function mount(el, src) {
   // ---- States others ask for: highlight, redline, hidden records drawn ----
   function paintStates(extra) {
     if (!scene) return;
-    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group').forEach(n => n.remove());
+    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-sel').forEach(n => n.remove());
     const outline = (m, color, cls = 'dc-hl', pad = 3) => {
       const p = document.createElementNS(NS, 'path');
       if (m.type === 'line') p.setAttribute('d', `M${m.points.map(q => q.join(',')).join(' L')}`);
@@ -590,6 +593,8 @@ function mount(el, src) {
       for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, null, 'dc-row', 3);
     }
     for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, null, 'dc-group', 4);
+    // A selected line is traced in the accent, as Office marks one.
+    for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, null, 'dc-sel'); }
     const dim = !!hl?.dim && lit.size;
     for (const c of graph.getCells()) {
       const v = graph.findViewByCell(c);

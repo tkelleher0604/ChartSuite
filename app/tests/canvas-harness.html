@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="../css/canvas.css">
 <script>
   try { localStorage.setItem('dendra.toured', '1'); } catch {}
+  document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'light';
   // What went wrong, where a screenshot run can read it.
   const ERRS = [];
   addEventListener('error', e => ERRS.push(`${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -118,6 +119,9 @@ const H = (() => {
       await wait(80);
     },
     point: async on => { Shell.emit('point-mode', on !== 'off'); await wait(30); },
+    // Drag the selection's bottom-right handle by dx, dy.
+    resize: async (dx, dy) => { const h = document.querySelector('.x6-widget-transform-resize[data-position="bottom-right"]'), r = h.getBoundingClientRect(); await drag(r.left + 3, r.top + 3, r.left + 3 + +dx, r.top + 3 + +dy); },
+    undo: async () => { Shell.parts.peek().undo.undo(); await wait(80); },
     key: async (k, mods = '') => { const o = { key: k, code: k.length === 1 ? `Key${k.toUpperCase()}` : k, bubbles: true, ctrlKey: mods.includes('c'), shiftKey: mods.includes('s') }; cv().root.focus(); cv().root.dispatchEvent(new KeyboardEvent('keydown', o)); await wait(60); },
     dbl: async id => { const [x, y] = center(id); mouse('dblclick', x, y); await wait(80); },
     // Drag from a box's handle to another box; with `hold`, stop short of letting go.
