@@ -456,24 +456,32 @@ function mount(el) {
   const viewOf = () => scene.view;
   const treeOf = id => Tree.treeOf(App.state.peek(), id);
   // Places for marks, written: a box's Position at its record in this view, a free shape's own place, kept
-  // on the page. Both are the chart's own, where the page has them less its offset: the page centres the
-  // chart, wherever it was placed.
-  const offset = () => ({ x: scene.page.offset?.x ?? 0, y: scene.page.offset?.y ?? 0 });
+  // on the page; each the chart's own, the page's less its offset (Scene's furnish).
+  const own = (x, y) => [round(x - scene.page.offset.x), round(y - scene.page.offset.y)];
   function place(tx, places) {
-    const view = viewOf(), n = App.notes.peek(), page = scene.page, o = offset();
+    const view = viewOf(), n = App.notes.peek(), page = scene.page;
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box') {
-        const old = n.position(treeOf(m.record), view);
-        tx.note('Position', treeOf(m.record), { x: round(Math.max(0, p.x) - o.x), y: round(Math.max(0, p.y) - o.y), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
+        const old = n.position(treeOf(m.record), view), [x, y] = own(Math.max(0, p.x), Math.max(0, p.y));
+        tx.note('Position', treeOf(m.record), { x, y, w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
       } else if (m.type === 'shape') {
-        const points = rowOf(id)?.points;
-        if (points) { tx.update(id, { x: round(p.x - o.x), y: round(p.y - o.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
-        const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
-        tx.update(id, { x: round(clamp(p.x, 0, page.w - w) - o.x), y: round(clamp(p.y, 0, page.h - h) - o.y), ...(p.w !== undefined && { w: round(w), h: round(h) }) });
+        const points = rowOf(id)?.points, [x, y] = own(p.x, p.y);
+        if (points) { tx.update(id, { x, y, ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
+        const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h), [cx, cy] = own(clamp(p.x, 0, page.w - w), clamp(p.y, 0, page.h - h));
+        tx.update(id, { x: cx, y: cy, ...(p.w !== undefined && { w: round(w), h: round(h) }) });
       }
     }
+  }
+  // Marks moved, written. The page then centres the chart again, so the view follows it by as much, and what
+  // was moved stays where it was put; unless the page changed size while framed, and was framed again.
+  function moveTo(places) {
+    if (!places.size) return;
+    const was = scene.page, z = graph.zoom();
+    if (!App.change(tx => place(tx, places))) return;
+    const now = scene.page, dx = now.offset.x - was.offset.x, dy = now.offset.y - was.offset.y, t = graph.translate();
+    if ((dx || dy) && !(framed && (now.w !== was.w || now.h !== was.h))) quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z));
   }
   function moved(ids) {
     const places = new Map();
@@ -494,7 +502,7 @@ function mount(el) {
         places.set(id, { x: p.x, y: p.y, ...(Math.abs(sz.width - m.w) > 0.01 || Math.abs(sz.height - m.h) > 0.01 ? { w: sz.width, h: sz.height } : {}) });
       }
     }
-    if (places.size) App.change(tx => place(tx, places));
+    moveTo(places);
   }
   const membersOf = f => [...f.members.map(id => scene.byId.get(id)), ...f.frames.flatMap(id => membersOf(scene.byId.get(id)))].filter(Boolean);
   graph.on('node:moved', ({ node }) => { dragging = null; moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
@@ -648,7 +656,7 @@ function mount(el) {
     if (still() || !scene || !kind) return;
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     Shell.store.set('kind', kind);
-    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), o = offset();
+    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), [x, y] = own(p.x, p.y);
     openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, '', name => {
       name = Tree.clean(name);
       if (!name) return;
@@ -656,7 +664,7 @@ function mount(el) {
       if (!App.change(tx => {
         id = tx.add('record', { kind });
         tx.add('record', { at: id, edge: 'Name', field: 'text', value: name });
-        tx.note('Position', { id, kind }, { x: round(p.x - o.x), y: round(p.y - o.y), loose: true }, { view });
+        tx.note('Position', { id, kind }, { x, y, loose: true }, { view });
       })) return;
       if (relate) Shell.emit('relate-open', [relate, id]); else Shell.select([id]);
     }, { box: kind });
@@ -926,7 +934,6 @@ function mount(el) {
   // ---- Commands ----
   const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
   const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape'));
-  const moveTo = places => places.size && App.change(tx => place(tx, places));
   // A new shape goes into free space, never over what's drawn: near the middle of what's on screen, as
   // PowerPoint puts one; a text box or frame in the page's bands round the chart; a key at the bottom right,
   // in two columns.
@@ -949,9 +956,9 @@ function mount(el) {
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
-    // Found where the page has it, its place is kept as the chart's own (see place).
-    const o = offset();
-    if (opts.x === undefined && (o.x || o.y)) Object.assign(row, { x: round(row.x - o.x), y: round(row.y - o.y), ...(row.points && { points: row.points.map(([x, y]) => [round(x - o.x), round(y - o.y)]) }) });
+    // Placed on the page, kept as the chart's own (see place).
+    if (row.x !== undefined) [row.x, row.y] = own(row.x, row.y);
+    if (row.points) row.points = row.points.map(([x, y]) => own(x, y));
     let id = null;
     if (!App.change(tx => { id = tx.add('shape', row); })) return null;
     Shell.select([id]);
@@ -1003,7 +1010,7 @@ function mount(el) {
   // What's copied is marks of one view, and their names: pasting a box shows it where it was in the chart, a
   // shape is copied.
   let clip = null;
-  const marksNow = (o = offset()) => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x - o.x, y: m.y - o.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
+  const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x - scene.page.offset.x, y: m.y - scene.page.offset.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
   function copy() {
     const c = marksNow();
     if (!c.items.length) return false;
