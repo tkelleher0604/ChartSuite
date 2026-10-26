@@ -68,7 +68,8 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana J
 <script>
 // Checks of the canvas (canvas.js) and the format bar (formatbar.js) in the window, on the sample, each
 // driven as a person would: how a view opens, the scope a format goes to and its live preview, sizes in
-// slide points, the keys, and how a highlight draws. The window is set to each size it's checked at.
+// slide points, the keys, how a highlight draws, and that what's drawn is the scene however it came to be. The
+// window is set to each size it's checked at.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));

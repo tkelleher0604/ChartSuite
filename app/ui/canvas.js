@@ -6,7 +6,8 @@
 // Double-clicking the page adds a box, named as it's typed. A drag from near a box's edge to another box
 // relates them, and to empty page adds a box to relate to it. The formula bar's highlight, redline and point
 // mode, and the format bar's live preview, are drawn over the scene, or as a variant of it, which shows what
-// the view hides.
+// the view hides. A scene is drawn by changing only the cells it changes, and only those on screen are drawn,
+// so a chart of hundreds of boxes costs what a screenful does (see cellsTo).
 const Canvas = (() => {
 const { Graph, Selection, Transform, Snapline } = X6;
 const { signal, effect } = preactSignals;
@@ -109,15 +110,18 @@ function partsOf(c) {
   for (const k in c) if (WHERE.has(k)) where[k] = JSON.stringify(c[k]); else what.push(k, c[k]);
   return { where, what: JSON.stringify(what) };
 }
-// A cell moved to where `c` puts it, each key of that set alone where it differs from `was`, as X6 replaces it so.
+// A cell moved to where `c` puts it: the props of it that differ from `was`, set at once in the cell's store,
+// which replaces each (a prop object given to the cell itself is merged into the old, keeping a line's old
+// bends), and draws it once.
 function moveCell(cell, c, was) {
-  const moved = (...ks) => ks.some(k => was[k] !== JSON.stringify(c[k]));
-  if (cell.isEdge()) { for (const k of ['source', 'target', 'vertices', 'connector']) if (moved(k)) cell.setProp(k, c[k]); }
+  const moved = (...ks) => ks.some(k => was[k] !== JSON.stringify(c[k])), props = {};
+  if (cell.isEdge()) { for (const k of ['source', 'target', 'vertices', 'connector']) if (moved(k)) props[k] = c[k]; }
   else {
-    if (moved('x', 'y')) cell.setPosition(c.x, c.y);
-    if (moved('width', 'height')) cell.setSize(c.width, c.height);
+    if (moved('x', 'y')) props.position = { x: c.x, y: c.y };
+    if (moved('width', 'height')) props.size = { width: c.width, height: c.height };
   }
-  if (moved('zIndex')) cell.setZIndex(c.zIndex);
+  if (moved('zIndex')) props.zIndex = c.zIndex;
+  if (Object.keys(props).length) cell.store.set(props);
 }
 
 // The cells for a scene, by id, each with what it's drawn from, to redraw only what changed.

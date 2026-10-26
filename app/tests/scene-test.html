@@ -22,7 +22,8 @@
 <script src="../sample/calder-ridge.js"></script>
 <script>
 // Checks of the scene (scene.js) and the layout (layout.js) on the sample: which note decides a setting,
-// what's drawn, the legend, frames, positions entered and laid out, and how long it takes. Nothing is saved.
+// what's drawn, the legend, frames, positions entered and laid out, how long it takes, and that what a scene
+// keeps from the one before never makes it other than drawn from nothing. Nothing is saved.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const C = 'calder-ridge', DAY = '2026-10-26', WHO = 'Dana Jordan', MAIN = 'view_main';
