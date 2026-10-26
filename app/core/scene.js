@@ -5,7 +5,7 @@
 // and X6 draw them; a Size or a Weight is in points, as Office gives them, each PT pixels.
 //
 // Scene.of(wb, chart, view, day, { state, computed?, reveal, redline }) →
-//   { chart, view, day, page: { w, h }, marks, byId, styles, ms }
+//   { chart, view, day, page: { w, h, scale, sheet }, marks, byId, styles, legend, ms }
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
 // text is a formula. `marks` are in drawing order: frames, lines, boxes, then free shapes, each by its Layer.
 // A box, line or frame has `settings`: { [property]: { value, note } }, the note null where nothing in the
@@ -16,8 +16,8 @@ const Scene = (() => {
 const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, same } = Tree;
 
 // A page is a slide unless the view's Page note says otherwise. It keeps its size's proportions, and grows
-// as a whole to hold what's drawn: a 16:9 slide stays 16:9, and its `scale` says by how much the chart is
-// drawn smaller to fit the slide itself.
+// as a whole to hold what's drawn: a 16:9 slide stays 16:9, its `sheet` is the slide itself (13.33 × 7.5
+// in), and its `scale` says by how much the page is drawn smaller to fit the sheet.
 const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
 const MARGIN = 48;
@@ -330,11 +330,14 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // A box's size: its width entered or its shape's own, and as tall as its text needs, its lines broken to
   // fit the shape where they sit (at a triangle's base, inside an oval). Triangles of one width are one
   // size, the tallest any of them needs.
+  // A loose position, where a box was made on the chart before it was related, gives way to the layout once
+  // a line that ranks it joins the box: it goes beside its relatives.
+  const joined = id => lines.some(l => l.ends.includes(id) && l.settings.Above.value !== 'none');
   const positions = new Map();
   for (const b of boxes) {
     const pos = N.position(tree(b.record), view);
-    if (pos) positions.set(b.id, pos);
-    b.entered = !!pos;
+    if (pos && !(pos.loose && joined(b.id))) positions.set(b.id, pos);
+    b.entered = positions.has(b.id);
     const shape = b.settings.Shape.value;
     let w = pos?.w ?? (shape === 'triangle' ? 230 : 200), h;
     if (shape === 'triangle') {
@@ -474,7 +477,13 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; if (m.type !== 'shape') delete m.ends; }
-  return { chart, view, day, page, marks: marksInOrder, byId, styles, ms: now() - started };
+  return { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
+}
+// A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.
+function shapeOf(row, scene) {
+  const m = freeShape({ shape: '·new', ...row }, null, scene.day);
+  if (m.geometry === 'legend') layoutLegend(m, scene.legend);
+  return m;
 }
 
 // A box's texts placed in it, once its height is known: at a triangle's base, 7 pt up; in the middle of
@@ -613,15 +622,19 @@ function freeShape(row, computed, day) {
   }
   if (m.geometry === 'picture') m.src = row.src;
   if (m.geometry === 'group') m.members = row.members ?? [];
-  if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [] });
+  if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [], captions: row.captions ?? {} });
+  // A text box nobody has sized grows with its text, a line to each paragraph, as PowerPoint's does.
+  if (m.geometry === 'text' && row.w == null) Object.assign(m, { auto: true, w: 120, h: lineHeight(t) + 9.6 });
   // A text that's a formula is worked out on the chart, @AsOf being the view's day.
   let text = row.text ?? '';
   if (/^\s*=/.test(text) && computed) text = Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } }));
   if (text && !['line', 'picture', 'group', 'legend'].includes(m.geometry)) {
-    const inset = 9.6, share = TEXT_AREA[m.geometry] ?? 1, avail = Math.max(16, m.w * share - 2 * inset);
-    const it = { id: shape, type: 'text', look: t, settings: m.settings, text, lines: breakLines(text, t, avail) };
+    const inset = 9.6, share = TEXT_AREA[m.geometry] ?? 1, lines = breakLines(text, t, m.auto ? Infinity : Math.max(16, m.w * share - 2 * inset));
+    if (m.auto) m.w = Math.ceil(widest([{ lines }]) + 2 * inset + 1);
+    const avail = Math.max(16, m.w * share - 2 * inset);
+    const it = { id: shape, type: 'text', look: t, settings: m.settings, text, lines };
     const tb = blockHeight([it]);
-    if (m.geometry === 'text') m.h = Math.max(m.h, tb + 9.6);
+    if (m.geometry === 'text') m.h = m.auto ? tb + 9.6 : Math.max(m.h, tb + 9.6);
     stack(it, (m.w - avail) / 2, avail, m.geometry === 'frame' ? 5 : m.geometry === 'text' ? 4.8 : (m.h - tb) / 2);
     m.texts.push(it);
     m.column = { x: (m.w - avail) / 2, width: avail };
@@ -629,9 +642,12 @@ function freeShape(row, computed, day) {
   return m;
 }
 
-// A legend's rows laid out in its columns under its title.
+// A legend's rows laid out in its columns under its title. A row merging outputs that look alike may have a
+// caption of the legend's own, which no output shares. `all` is every row it could show, each `shown` or not.
 function layoutLegend(m, rows) {
   const t = m.look, pad = 12, sw = 30, gap = 8, lh = lineHeight(t);
+  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption }));
+  m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));
   const colW = (m.w - 2 * pad) / m.columns;
   const title = m.title ? { id: `${m.id}:title`, type: 'text', look: { ...t, Bold: true, Align: 'left' }, text: m.title } : null;
@@ -659,7 +675,7 @@ function layoutLegend(m, rows) {
 function pageOf(N, view) {
   const v = N.resolve('Page', { id: view, kind: 'View' })?.value ?? 'slide';
   const [w, h] = typeof v === 'object' ? [v.w, v.h] : PAGES[v] ?? PAGES.slide;
-  return { size: typeof v === 'object' ? 'custom' : v in PAGES ? v : 'slide', w, h, margin: MARGIN };
+  return { size: typeof v === 'object' ? 'custom' : v in PAGES ? v : 'slide', w, h, margin: MARGIN, sheet: { w, h } };
 }
 
 // ---- For the format bar and the inspector ----
@@ -695,7 +711,7 @@ const boxOf = (state, id) => { const r = state[id]; return !r ? null : isObject(
 const styleName = (N, p) => p.args ? N.name(p) : 'Type';
 
 return {
-  of, reflow, path, dash, measure, breakLines, reach, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  of, reflow, shapeOf, path, dash, measure, breakLines, reach, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
 };
 })();
