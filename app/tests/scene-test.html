@@ -104,24 +104,37 @@ function run() {
   // ---- The legend ----
   {
     const wb = fresh();
-    edit(wb, tx => tx.add('shape', { view: MAIN, geometry: 'legend', x: 40, y: 700, w: 300, title: 'Key' }));
-    const s = scene(wb), lg = s.marks.find(m => m.geometry === 'legend');
-    const caption = k => lg.rows.find(r => r.caption.text.includes(k));
-    check('the legend has a row for each output a drawn mark takes its look from', !!caption('Main Fund') && !!caption('Limited Partnership') && !!caption('Ownership') && !!caption('Portfolio Company'),
+    let key;
+    edit(wb, tx => { key = tx.add('shape', { view: MAIN, geometry: 'legend', x: 40, y: 700, w: 300, title: 'Key' }); });
+    const s = scene(wb), lg = s.byId.get(key);
+    // A row by an output it stands for.
+    const row = (lg, f) => lg.rows.find(r => r.outputs.some(f));
+    const choice = c => o => o.out?.choice === c, owns = o => !!o.args?.some(a => a.edge === 'Owner');
+    check('the legend has a row for each output a drawn mark takes its look from', !!row(lg, choice('Main Fund')) && !!row(lg, choice('Limited Partnership')) && !!row(lg, owns) && !!row(lg, choice('Portfolio Company')),
       lg.rows.map(r => r.caption.text).join(' | '));
-    check('outputs that look alike share a row', caption('Main Fund') === caption('Feeder Fund'));
-    check('no row for a look nothing drawn takes', !caption('Business Development') || s.marks.some(m => m.type === 'box' && m.settings.Fill.note?.pattern.out?.choice === 'Business Development Company'));
-    check('a row’s swatch is drawn in its output’s format', caption('Main Fund').swatch.Fill === '#e8eefb' && caption('Limited Partnership').swatch.Shape === 'triangle'
-      && caption('Ownership').swatch.kind === 'line');
+    check('outputs that look alike share a row', row(lg, choice('Main Fund')) === row(lg, choice('Feeder Fund')));
+    check('no row for a look nothing drawn takes', !row(lg, choice('Business Development Company')) || s.marks.some(m => m.type === 'box' && m.settings.Fill.note?.pattern.out?.choice === 'Business Development Company'));
+    check('a row’s swatch is drawn in its output’s format', row(lg, choice('Main Fund')).swatch.Fill === '#e8eefb' && row(lg, choice('Limited Partnership')).swatch.Shape === 'triangle'
+      && row(lg, owns).swatch.kind === 'line');
+    check('a row is captioned in the chart’s words, by its Caption notes', row(lg, choice('Main Fund')).caption.text === 'Funds' && row(lg, o => o.out?.tag === false).caption.text === 'Not in good standing',
+      lg.rows.map(r => r.caption.text).join(' | '));
     edit(wb, (tx, N) => {
-      note(tx, N, 'Caption', VT('Main Fund'), MAIN, 'Fund vehicle');
+      for (const v of ['Main Fund', 'Business Development Company']) note(tx, N, 'Caption', VT(v), MAIN, 'Fund vehicle');
       note(tx, N, 'Shown', VT('Portfolio Company'), MAIN, false);
     });
-    const t = scene(wb), lt = t.marks.find(m => m.geometry === 'legend');
+    const t = scene(wb), lt = t.byId.get(key);
     check('a Caption note captions a row', lt.rows.some(r => r.caption.text === 'Fund vehicle'));
-    check('rows follow the outputs in use: hide every portfolio company and its row goes', !lt.rows.some(r => r.caption.text.includes('Portfolio Company')) && lt.rows.length === lg.rows.length - 1,
+    check('rows follow the outputs in use: hide every portfolio company and its row goes', !row(lt, choice('Portfolio Company')) && lt.rows.length === lg.rows.length - 1,
       `${lg.rows.length} then ${lt.rows.length}`);
     check('the legend is a shape: placed, sized and formatted as one', lt.x === 40 && lt.y === 700 && lt.w === 300 && lt.h > 40 && lt.look.Outline === '#7f7f7f');
+    edit(wb, (tx, N) => { for (const v of ['Main Fund', 'Business Development Company']) note(tx, N, 'Caption', VT(v), MAIN, undefined); });
+    const u = scene(wb).byId.get(key);
+    check('more than two outputs of one look, with no caption, go by the style’s name', row(u, choice('Main Fund')).caption.text === 'Vehicle Type', row(u, choice('Main Fund')).caption.text);
+    const sample = fresh();
+    check('every sample chart view is an exhibit: a title, its date and a Key', ['view_main', 'view_40act', 'view_fund3', 'view_control'].every(v => {
+      const sh = scene(sample, v).marks.filter(m => m.type === 'shape'), text = m => sample.item(C, m.id)[0]?.text ?? '';
+      return sh.some(m => m.geometry === 'text' && m.look.Bold && m.look.Size >= 16) && sh.some(m => /^="As of " & TEXT\(@AsOf/.test(text(m))) && sh.some(m => m.geometry === 'legend' && m.columns === 2);
+    }));
   }
 
   // ---- Frames ----
@@ -142,7 +155,8 @@ function run() {
   // ---- Positions: entered wins, the layout places the rest, Tidy clears ----
   {
     const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
-    check('an entered position wins', fund.x === 805 && fund.y === 290 && fund.w === 230 && fund.entered);
+    const entered = wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'fund').value;
+    check('an entered position wins', fund.x === entered.x && fund.y === entered.y && fund.w === 230 && entered.x === 805 && fund.entered, j(entered));
     edit(wb, tx => tx.remove(wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'blocker').note));
     const t = scene(wb), b = t.byId.get('blocker');
     const clash = t.marks.filter(m => m.type === 'box' && m.id !== 'blocker').some(m => b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
@@ -156,6 +170,75 @@ function run() {
     check('every box is on the page', boxes.every(m => m.x >= 0 && m.y >= 0 && m.x + m.w <= u.page.w && m.y + m.h <= u.page.h), j(u.page));
     check('every line is routed, with its points on its boxes', u.marks.filter(m => m.type === 'line').every(l => l.points.length >= 2));
     check('other views keep their positions', scene(wb, 'view_fund3').byId.get('fund').entered);
+  }
+
+  // ---- Exhibits: tiers, routes, labels, frames, the page ----
+  {
+    const wb = fresh(), s = scene(wb), boxes = s.marks.filter(m => m.type === 'box'), lines = s.marks.filter(m => m.type === 'line');
+    const tris = boxes.filter(b => b.shape === 'triangle');
+    check('triangles of one width are one size', tris.length > 3 && new Set(tris.map(b => `${b.w}×${b.h}`)).size === 1, j(tris.map(b => [b.id, b.w, b.h])));
+    check('a triangle’s text sits at its base, each line within the triangle where it sits', tris.every(b => {
+      const ls = b.texts.flatMap(it => it.lines);
+      return b.h - ls.at(-1).y < 16 && ls.every(l => l.w <= b.w * (l.y - 12) / b.h) && ls.length <= 5;
+    }), j(tris.map(b => b.texts.flatMap(it => it.lines.map(l => Math.round(l.y))))));
+    const ranks = new Map();
+    for (const b of boxes.filter(b => b.shape !== 'triangle')) { const k = Math.round(b.y / 4); (ranks.get(k) ?? ranks.set(k, []).get(k)).push(b); }
+    check('boxes in a rank are one height', [...ranks.values()].every(r => new Set(r.map(b => b.h)).size === 1), j([...ranks.values()].map(r => r.map(b => b.h))));
+    check('the page is a 16:9 slide, grown as a whole to hold the chart', Math.abs(s.page.w / s.page.h - 16 / 9) < 0.01 && s.page.scale < 1, j(s.page));
+    const legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
+    const level = l => legs(l).filter(([a, b]) => Math.abs(a[1] - b[1]) < 0.5 && Math.abs(a[0] - b[0]) > 1);
+    const gp = lines.filter(l => l.record.startsWith('gp_of_'));
+    check('a general partner’s lines meet its partnerships’ sides, not their apexes', gp.length === 4 && gp.every(l => {
+      const t = s.byId.get(l.to), [a, b] = l.points.slice(-2);
+      return Math.abs(a[1] - b[1]) < 0.5 && b[1] > t.y + t.h * 0.2 && b[1] < t.y + t.h * 0.8;
+    }), j(gp.map(l => l.points.at(-1))));
+    check('and their lane keeps 16 pt clear of the apexes it passes', gp.every(l => level(l).every(([a, b]) => tris.every(t => {
+      const x = t.x + t.w / 2;
+      return x < Math.min(a[0], b[0]) || x > Math.max(a[0], b[0]) || Math.abs(a[1] - t.y) >= 21;
+    }))));
+    const segs = lines.flatMap(l => level(l).map(([a, b]) => ({ l, y: a[1], x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]) })));
+    const rails = segs.flatMap((p, i) => segs.slice(i + 1).filter(q => q.l.from !== p.l.from && Math.abs(q.y - p.y) > 0.5 && Math.abs(q.y - p.y) < 15.5
+      && Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) > 24).map(q => [p.l.id, q.l.id, p.y, q.y]));
+    check('no parallel rails closer than 12 pt', !rails.length, j(rails.slice(0, 3)));
+    const drops = lines.filter(l => l.labelAt && /%$/.test(l.label.text) && (([a, b]) => Math.abs(a[0] - b[0]) < 0.5 && b[1] > a[1])(l.points.slice(-2)));
+    check('a percentage sits right of its drop, just above what it reaches', drops.length > 10 && drops.every(l => {
+      const b = l.points.at(-1);
+      return l.labelAt.x >= b[0] + 2 && l.labelAt.x <= b[0] + 6 && l.labelAt.y + l.label.h <= b[1] && b[1] - (l.labelAt.y + l.label.h) < 60;
+    }), j(drops.filter(l => l.labelAt.x < l.points.at(-1)[0]).map(l => l.id)));
+    const arrow = id => s.byId.get(id).settings.Arrow.value;
+    check('ownership that doesn’t run down carries an arrowhead; down, none', arrow('own_fdr_fund') === 'end' && arrow('own_bdc_npine') === 'end' && arrow('own_us_fund') === 'none',
+      j(['own_fdr_fund', 'own_bdc_npine', 'own_us_fund'].map(arrow)));
+
+    const f = scene(wb, 'view_40act'), frames = f.marks.filter(m => m.type === 'frame');
+    check('40 Act frames the affiliates by kind, outputs captioned alike sharing a frame', j(frames.map(m => m.caption.text).sort())
+      === j(['Adviser and sponsor entities', 'Directors, officers and employees', 'Funds', 'Portfolio companies and blockers', 'Remote affiliate']), j(frames.map(m => m.caption.text)));
+    const funds = frames.find(m => m.caption.text === 'Funds'), toFunds = [...f.byId.values()].filter(m => m.type === 'line' && funds.members.includes(m.to));
+    const drawn = toFunds.filter(l => f.marks.includes(l));
+    check('a box’s lines to every box in a frame land on the frame, drawn as one', toFunds.length === 5 && toFunds.every(l => j(l.points) === j(toFunds[0].points) && Math.abs(l.points.at(-1)[0] - funds.x) < 0.5)
+      && drawn.length === 1 && toFunds.every(l => l === drawn[0] || l.merged === drawn[0].id), j(toFunds.map(l => [l.id, l.merged])));
+    check('a relation’s frame frames its lower end: the remote affiliate', j(frames.find(m => m.caption.text === 'Remote affiliate').members) === j(['pension']));
+    check('the hub is a normal width', f.byId.get('bdc').w === 220);
+
+    const c = scene(wb, 'view_control'), bdc = c.byId.get('bdc');
+    check('positions with Connector None are written in the entity’s box, by role, not drawn', bdc.texts.some(it => it.text === 'Directors: Margaret A. Chen, Priya N. Raman')
+      && bdc.texts.some(it => it.text === 'Officer: David R. Okafor') && !c.marks.some(m => m.type === 'line' && m.record.startsWith('pos_')), j(bdc.texts.map(it => it.text)));
+  }
+
+  // ---- A new box among entered ones ----
+  {
+    const wb = fresh();
+    let e;
+    edit(wb, tx => {
+      e = tx.add('record', { kind: 'Entity' });
+      tx.add('record', { at: e, edge: 'Name', field: 'text', value: 'Halcyon University Endowment' });
+      tx.add('record', { args: [{ edge: 'Owner', at: e }, { edge: 'Owned', at: 'fund3a' }], tag: true });
+    });
+    const s = scene(wb), b = s.byId.get(e), fund3a = s.byId.get('fund3a');
+    const meets = ([p, q]) => Math.max(p[0], q[0]) >= b.x - 4 && Math.min(p[0], q[0]) <= b.x + b.w + 4 && Math.max(p[1], q[1]) >= b.y - 4 && Math.min(p[1], q[1]) <= b.y + b.h + 4;
+    const on = s.marks.filter(m => m.type === 'line' && m.from !== e && m.to !== e && m.points.slice(1).some((p, i) => meets([m.points[i], p])));
+    const over = s.marks.filter(m => m.type === 'box' && m.id !== e && b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
+    check('a new owner is placed on no line it isn’t on, and over no box', !on.length && !over.length, j({ at: [b.x, b.y], on: on.map(m => m.id), over: over.map(m => m.id) }));
+    check('and beside what it owns, above it', b.y + b.h < fund3a.y && Math.abs(b.x + b.w / 2 - (fund3a.x + fund3a.w / 2)) < 400, j({ at: [b.x, b.y] }));
   }
 
   // ---- How long it takes ----
