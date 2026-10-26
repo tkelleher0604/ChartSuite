@@ -265,15 +265,18 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 [data-drop="left"]::after { top: 4px; bottom: 4px; left: -1px; width: 2px; }
 [data-drop="right"]::after { top: 4px; bottom: 4px; right: -1px; width: 2px; }
 
-/* Settings: a label above each field. */
-.settings { display: grid; gap: 12px; padding-bottom: 4px; }
-.settings > .field { display: grid; gap: 4px; color: var(--ink-2); font: var(--t12); }
-.settings > .field > input { font: var(--t13); color: var(--ink); }
-.settings > div.field { grid-template-columns: 1fr auto; align-items: center; }
-.settings > div.field > span:first-child { grid-column: 1 / -1; }
-.settings .who { font: var(--t13); color: var(--ink); }
-.settings > div.field > .btn { justify-self: start; }
-
+/* Settings: a label beside each field, as in the inspector; the connection folded away under its own. */
+.settings { display: grid; gap: 8px; }
+.settings .field { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: var(--row); color: var(--ink-2); }
+.settings .field > input { color: var(--ink); }
+.settings .account { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.settings .who { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings summary { display: flex; align-items: center; gap: 6px; width: max-content; height: var(--row); color: var(--ink-2); list-style: none; cursor: default; user-select: none; border-radius: var(--r); }
+.settings summary::-webkit-details-marker { display: none; }
+.settings summary::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; transform: rotate(-90deg); transition: transform var(--quick) var(--ease); }
+.settings details[open] > summary::after { transform: none; }
+.settings summary:hover { color: var(--ink); }
+.settings details > .settings { padding-top: 4px; }
 
 .foot { height: var(--foot); display: flex; align-items: stretch; min-width: 0; border-top: 1px solid var(--rule); background: var(--paper); user-select: none; }
 .sheets { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; padding-left: 4px; }

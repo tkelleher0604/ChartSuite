@@ -215,20 +215,28 @@ const App = (() => {
   const opened = p => p.then(wb => wb && use(wb), e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t open it'));
   const saved = p => p.then(listBooks, e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t save it'));
 
-  // Settings: who you are, and the SharePoint library the team keeps its workbooks and documents in.
+  // Settings: who you are, and signing in to the SharePoint library the team keeps its workbooks and documents
+  // in. The connection to it is IT's to set up (docs/sharepoint-setup.md), so it's folded away, and opens
+  // when signing in needs it.
   function settings() {
     const v = { name: store.get('name') ?? '', ...SharePoint.settings() };
     const keep = () => SharePoint.configure({ tenant: v.tenant.trim(), client: v.client.trim(), library: v.library.trim() });
     const field = (k, label) => html`<label class="field"><span>${label}</span><input value=${v[k]} spellcheck="false" onInput=${e => { v[k] = e.target.value; }} /></label>`;
-    function Account() {
-      const [me, setMe] = preactHooks.useState(SharePoint.account());
-      const go = p => p.then(() => setMe(SharePoint.account()), e => Shell.toast(e?.message || 'Couldn’t sign in'));
-      return html`<div class="field"><span>SharePoint</span>${me
-        ? html`<span class="who">${me.name}</span><button type="button" class="btn" onClick=${() => go(SharePoint.signOut())}>Sign out</button>`
-        : html`<button type="button" class="btn" onClick=${() => { keep(); go(SharePoint.signIn()); }}>Sign in</button>`}</div>`;
+    function Body() {
+      const [me, setMe] = preactHooks.useState(SharePoint.account()), connection = preactHooks.useRef();
+      const go = p => p.then(() => setMe(SharePoint.account()), e => {
+        Shell.toast(e?.message || 'Couldn’t sign in');
+        if (!SharePoint.configured()) connection.current.open = true;
+      });
+      return html`<div class="settings">
+        ${field('name', 'Your name')}
+        <div class="field"><span>SharePoint</span><span class="account">${me
+          ? html`<span class="who">${me.name}</span><button type="button" class="btn" onClick=${() => go(SharePoint.signOut())}>Sign out</button>`
+          : html`<button type="button" class="btn" onClick=${() => { keep(); go(SharePoint.signIn()); }}>Sign in</button>`}</span></div>
+        <details ref=${connection}><summary>Connection</summary><div class="settings">${field('tenant', 'Tenant ID')}${field('client', 'Client ID')}${field('library', 'Library')}</div></details>
+      </div>`;
     }
-    Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }],
-      body: () => html`<div class="settings">${field('name', 'Your name')}${field('tenant', 'Tenant')}${field('client', 'Client ID')}${field('library', 'Library')}<${Account} /></div>` })
+    Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }], body: () => html`<${Body} />` })
       .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } });
   }
   [
