@@ -101,7 +101,7 @@ const Time = (() => {
     return html`<div class="date-pop">
       <div class="date-top">
         <button class="btn" aria-pressed=${!t} onClick=${() => show(null)}>Today</button>
-        <input value=${text ?? Tree.formatDate(day)} spellcheck="false" onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); }} onKeyDown=${typed} />
+        <input aria-label="Date" value=${text ?? Tree.formatDate(day)} spellcheck="false" onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); }} onKeyDown=${typed} />
       </div>
       <div class="date-body">
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />

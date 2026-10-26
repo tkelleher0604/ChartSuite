@@ -8,8 +8,8 @@
 .grid .tabulator .tabulator-tableholder:focus-visible { outline: none; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
 .grid .tabulator .tabulator-header .tabulator-col { background: var(--paper); border-right-color: var(--rule); }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 7px 8px 7px; }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 16px; padding-right: 22px; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 4px 8px; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 22px; }
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable .tabulator-col-title { padding-right: 38px; }
 .grid .tabulator-col-title .up { display: block; font-weight: 400; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-range-highlight,
@@ -17,7 +17,7 @@
 @media (hover: hover) and (pointer: fine) { .grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover { background: var(--paper) linear-gradient(var(--hover), var(--hover)); } }
 
 /* Sorting: an arrow beside the filter, shown on hover and while the column sorts (Tabulator's triangle goes). */
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter { right: 26px; bottom: 7px; top: auto; width: 12px; height: 16px; justify-content: center; color: var(--ink-3); opacity: 0; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter { right: 26px; bottom: 4px; top: auto; width: 12px; height: 20px; justify-content: center; color: var(--ink-3); opacity: 0; }
 .grid .tabulator .tabulator-header .tabulator-col:hover .tabulator-col-sorter,
 .grid .tabulator .tabulator-header .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter,
 .grid .tabulator .tabulator-header .tabulator-col[aria-sort="descending"] .tabulator-col-sorter { opacity: 1; }
@@ -28,17 +28,17 @@
 .grid .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter::after { transform: rotate(180deg); }
 
 /* Filtering: a dropdown in the heading, as Excel's; a column filtered is underlined in the accent. */
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter { position: absolute; right: 4px; bottom: 5px; width: 20px; margin: 0; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter { position: absolute; right: 4px; bottom: 4px; width: 20px; margin: 0; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input { width: 20px !important; height: 20px; padding: 0 !important; border: 0; border-radius: var(--r); color: transparent; background: transparent var(--chev) no-repeat center; cursor: default; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:hover { background-color: var(--press); }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter:focus-within { left: 4px; width: auto; bottom: 3px; z-index: 2; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter:focus-within { left: 4px; width: auto; bottom: 2px; z-index: 2; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:focus { width: 100% !important; height: 24px; padding: 0 22px 0 6px !important; color: var(--ink); background-color: var(--surface); box-shadow: 0 0 0 1px var(--accent); background-position: right 7px center; cursor: text; outline: none; }
 .grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) { box-shadow: inset 0 -2px var(--accent); }
 .grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) .tabulator-col-title { color: var(--accent-ink); }
 .grid .tabulator .tabulator-header-filter .tabulator-edit-list-clear { display: none; }
 
 /* Row numbers, as Excel's, set in the margin's paper. */
-.grid .tabulator-row .tabulator-cell.rn, .grid .tabulator .tabulator-header .tabulator-col.rn { background: var(--paper); color: var(--ink-3); font: var(--t12); line-height: 18px; }
+.grid .tabulator-row .tabulator-cell.rn, .grid .tabulator .tabulator-header .tabulator-col.rn { background: var(--paper); color: var(--ink-3); font: var(--t12); line-height: 20px; }
 .grid .tabulator-row.picked .tabulator-cell.rn { color: var(--accent-ink); font-weight: 500; }
 
 .grid .tabulator-row { min-height: var(--row); }
@@ -90,7 +90,7 @@
 .grid .tabulator-row .tabulator-cell.c-choice.tabulator-editable:hover { padding-right: 22px; background: var(--chev) no-repeat right 8px center; }
 
 .grid .tabulator-row .tabulator-cell.tabulator-editing input.bad { box-shadow: inset 0 0 0 2px var(--no); }
-.grid .tabulator-row.tabulator-group { padding: 6px 8px 5px 12px; font: 600 var(--t13); }
+.grid .tabulator-row.tabulator-group { padding: 4px 8px 4px 12px; font: 600 var(--t13); }
 .grid .tabulator-row.tabulator-group:hover { background-image: none; }
 .grid .tabulator-row.tabulator-group span { font-weight: 400; }
 /* A month folds on the app's chevron, not Tabulator's triangle. */
@@ -156,14 +156,14 @@
 
 /* ---- History, in the inspector's place ---- */
 .hist { display: flex; flex-direction: column; height: 100%; }
-.hist-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 20px; border-bottom: 1px solid var(--rule); }
+.hist-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 20px; border-bottom: 1px solid var(--rule); }
 .hist-head > .title { flex: 1; font: var(--t15); }
 .hist-head > .menu-seg { margin: 0; width: 168px; }
 .hist-focus { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 2px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); }
 .hist-focus > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hist-list { flex: 1; overflow: auto; padding-bottom: 16px; }
-.hist-day { position: sticky; top: 0; z-index: 1; padding: 14px 20px 4px; background: var(--surface); font: 500 var(--t12); color: var(--ink-3); }
-.hist-row { position: relative; padding: 6px 20px 7px; cursor: default; }
+.hist-day { position: sticky; top: 0; z-index: 1; padding: 16px 20px 4px; background: var(--surface); font: 500 var(--t12); color: var(--ink-3); }
+.hist-row { position: relative; padding: 8px 20px 8px; cursor: default; }
 .hist-row:hover { background: var(--hover); }
 .hist-row[aria-selected="true"] { background: var(--selected); box-shadow: inset 2px 0 var(--accent); }
 .hist-row > .what { overflow-wrap: anywhere; }

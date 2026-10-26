@@ -397,8 +397,8 @@ const Table = (() => {
   }
 
   // ---- The keys: the grid is one stop in the tab order, and keeps the keys through its redraws ----
-  let inside = false;   // whether the grid had the keys last
-  document.addEventListener('pointerdown', e => { inside = !!cells?.contains(e.target); }, true);
+  let inside = false, pressed = 0;   // whether the grid had the keys last; when the pointer last went down
+  document.addEventListener('pointerdown', e => { inside = !!cells?.contains(e.target); pressed = e.timeStamp; }, true);
   const holder = () => cells?.querySelector('.tabulator-tableholder');
   // A redraw that drops the keys gives them back.
   function regain() {
@@ -827,6 +827,10 @@ const Table = (() => {
       preact.render(html`<${PasteBar} />`, bar);
       cells.addEventListener('keydown', first, true);
       cells.addEventListener('keydown', keydown);
+      // Keys arriving from outside (F6 onto the view) go to the rows, not a heading's filter, which would open.
+      cells.addEventListener('focus', e => {
+        if (e.target.closest?.('.tabulator-header') && !cells.contains(e.relatedTarget) && e.timeStamp - pressed > 500) { e.stopPropagation(); focus(); }
+      }, true);
       cells.addEventListener('focusin', e => {
         inside = true;
         if (e.target.classList.contains('tabulator-tableholder') && e.target.matches(':focus-visible')) activate();
