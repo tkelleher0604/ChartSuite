@@ -3489,11 +3489,14 @@ function computeState(entered, definitions, names, from) {
   }
   const computed = {}, covered = {}, errors = [];
   for (const rows of S.rows.values()) for (const row of rows) {
-    const said = { def: row.def, row: row.row ?? null, label: row.label ?? null, holds: row.holds ?? [] };
-    if (row.entered) covered[row.entered] = { ...said, value: row.error ?? row.formula ?? null, agrees: !row.error && sameValue(S, row.entered, row.formula) };
+    if (row.entered) covered[row.entered] = { ...rowSays(row), value: row.error ?? row.formula ?? null, agrees: !row.error && sameValue(S, row.entered, row.formula) };
     // An error is where its record would be: its arguments, an entry's one as well as its location.
     else if (row.error) errors.push({ def: row.def, id: row.id, ...(row.args ? { args: row.args } : { at: row.at, args: [{ edge: P.byId.get(row.def).name, at: row.at }] }), error: row.error });
-    else if (S.recs[row.id]) computed[row.id] = { ...said, stage: row.stage };
+    else if (S.recs[row.id]) {
+      let c = computedOf.get(row);
+      if (!c) computedOf.set(row, c = { ...rowSays(row), stage: row.stage });
+      computed[row.id] = c;
+    }
   }
   const defErrors = Object.fromEntries(defs.filter(d => d.error).map(d => [d.id, d.error]));
   const loops = {};
@@ -3507,6 +3510,10 @@ function computeState(entered, definitions, names, from) {
   return R;
 }
 const push2 = (obj, key, value) => (obj[key] ??= []).push(value);
+// What a row says of where it stands; and of the record it gives, made once, since a row kept from one
+// working-out to the next says the same.
+const rowSays = row => ({ def: row.def, row: row.row ?? null, label: row.label ?? null, holds: row.holds ?? [] });
+const computedOf = new WeakMap();
 
 // Whether an entered record's output is what the rows give.
 function sameValue(S, id, out) {
