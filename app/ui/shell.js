@@ -11,7 +11,9 @@
 // Alt+Right walk ({ replace: true } for a change that isn't a step).
 //
 // THE PARTS register with Shell.register(kind, thing) → unregister. One of each:
-//   'canvas', 'table'  { mount(el) → unmount? }   the view, as a chart or a table   (canvas.js, table.js)
+//   'canvas', 'table'  { mount(el) → unmount? }   the view, as a chart or a table   (canvas.js, table.js);
+//                      the canvas also kinds() → menu items, a box of each kind it can add (never none), which
+//                      a chart with no box offers as its one action, "Add a box"
 //   'inspector'        { mount(el) → unmount? }   the selection                      (inspector.js)
 //   'formatbar'        { mount(el) → unmount? }   on a chart, under the title bar    (formatbar.js)
 //   'formulabar'       a component                under the format bar               (formulabar.js)
@@ -22,9 +24,11 @@
 //   'time'       { When({ close }), Strip() }   the date's popover, the strip under the view  (time.js)
 //   'attention'  { items() → [{ kind: 'overdue' | 'blank' | 'error', go() }] }   counted; F8   (inspector.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
-// Any number of: 'action' { id, name, run, keys?, enabled?, menu?: 'chart', order? } (the chart menu by
-// order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40); 'find' { items() → menu items },
-// Find's records and lists; 'export' { name, run }; 'status' { render() }.
+// Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order? } (the chart
+// menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
+// window (in fields too, with inputs) and listed by ? ; 'find' { items() → menu items }, Find's records and
+// lists, an item with any other names it goes by (names: […]) and a key, and what's within it (a list,
+// "AIV-1 › Signatories") with of: that key; 'export' { name, run }; 'status' { render() }.
 //
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar
@@ -41,11 +45,14 @@
 // dated }) → the change, every edit's one way in; App.restore(changeId); App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
-// and confirm() on <dialog>; toast(text, { undo }); keys(map, opts) on tinykeys; aside(component | null), in
-// the inspector's place; layer(close) → remove, the Esc stack every layer joins; drag(e, { item, items, axis,
-// onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set, this browser's settings;
-// widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?, keys?, checked?, disabled?,
-// danger?, mono?, run?, items? }; one without run or items is shown, not chosen.
+// and confirm() on <dialog>; toast(text, { undo }); keys(map, opts) on tinykeys, and keyLabel(key) as shown;
+// aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer joins;
+// drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set,
+// this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?,
+// keys?, checked?, disabled?, danger?, run?, items? }; one without run or items is shown, not chosen.
+//
+// THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
+// (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.
 
 const Shell = (() => {
   const { h, render } = preact;
@@ -73,7 +80,8 @@ const Shell = (() => {
   function register(kind, thing) {
     const r = reg.peek();
     reg.value = { ...r, [kind]: MANY.has(kind) ? [...(r[kind] || []), thing] : thing };
-    const unbind = kind === 'action' && thing.keys ? keys({ [thing.keys]: () => (!thing.enabled || thing.enabled()) && thing.run() }) : null;
+    const unbind = kind === 'action' && thing.keys
+      ? keys({ [thing.keys]: () => { if (thing.enabled && !thing.enabled()) return false; thing.run(); } }, { inputs: thing.inputs }) : null;
     return () => {
       const r = reg.peek();
       reg.value = { ...r, [kind]: MANY.has(kind) ? (r[kind] || []).filter(t => t !== thing) : r[kind] === thing ? undefined : r[kind] };
@@ -139,7 +147,8 @@ const Shell = (() => {
   const theme = signal(document.documentElement.dataset.theme || 'light');
   function setTheme(t, keep = true) { theme.value = t; document.documentElement.dataset.theme = t; if (keep) store.set('theme', t); }
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => { if (!store.get('theme')) setTheme(e.matches ? 'dark' : 'light', false); });
-  const insp = signal(Math.min(Math.max(280, +store.get('inspector') || 384), Math.max(280, innerWidth - 320)));
+  // The inspector: as the user left it, or 30% of the window between 300 and 384 px, so a small screen keeps its chart.
+  const insp = signal(Math.min(Math.max(280, +store.get('inspector') || Math.round(Math.min(384, Math.max(300, innerWidth * .3)))), Math.max(280, innerWidth - 320)));
   const wide = signal(false), gliding = signal(false);
   const glide = () => { gliding.value = true; setTimeout(() => { gliding.value = false; }, 240); };
   const widen = () => { if (!wide.peek()) { glide(); wide.value = true; } };
@@ -149,10 +158,12 @@ const Shell = (() => {
 
   // ---- Keys, and the Esc stack ----
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-  const keyLabel = k => !k ? '' : k.replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])/g, '$1').replace(/Digit(\d)/g, '$1').replace(/Arrow(\w+)/g, '$1');
+  const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc' };
+  const keyLabel = k => !k ? '' : k.replace(/\[Shift\]\+/g, '').replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])|Digit(\d)/g, '$1$2').replace(/\w+/g, w => KEY[w] ?? w);
+  // A key a part has already taken (typing over a box, say) isn't the window's too.
   function keys(map, o = {}) {
     const wrapped = {};
-    for (const [k, fn] of Object.entries(map)) wrapped[k] = e => { if (fn(e) !== false) e.preventDefault(); };
+    for (const [k, fn] of Object.entries(map)) wrapped[k] = e => { if (!e.defaultPrevented && fn(e) !== false) e.preventDefault(); };
     return tinykeys.tinykeys(o.target || window, wrapped, o.inputs ? { ignore: e => e.isComposing } : {});
   }
   // Esc closes the topmost layer open: a menu or popover, a dialog, History, the tour. Text being typed puts
@@ -169,6 +180,27 @@ const Shell = (() => {
     if (!top.always && e.target.closest?.('input, textarea, [contenteditable], .CodeMirror')) return;
     e.preventDefault(); e.stopPropagation();
     top.close();
+  }, true);
+
+  // ---- Focus: the regions F6 steps through, each remembering where it was; Tab kept inside a dialog ----
+  const TABBABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+  const shown = el => el.getClientRects().length > 0;
+  const tabbables = box => [...box.querySelectorAll(TABBABLE)].filter(shown);
+  const REGIONS = ['bars', 'view', 'inspector', 'tabs'], lastIn = {};
+  document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) lastIn[r.dataset.region] = e.target; });
+  function region(d) {
+    const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
+    const live = REGIONS.filter(n => els(n).length), here = live.indexOf(document.activeElement?.closest?.('[data-region]')?.dataset.region);
+    if (!live.length) return;
+    const n = live[here < 0 ? (d > 0 ? 0 : live.length - 1) : (here + d + live.length) % live.length], last = lastIn[n];
+    (last?.isConnected && shown(last) && !last.disabled ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0]).focus();
+  }
+  addEventListener('keydown', e => {
+    const box = e.key === 'Tab' && !e.defaultPrevented && document.activeElement?.closest?.('dialog[open], .float .pop, [data-trap]');
+    if (!box) return;
+    const t = tabbables(box), i = t.indexOf(document.activeElement);
+    if (!t.length) e.preventDefault();
+    else if (e.shiftKey ? i <= 0 : i === t.length - 1) { e.preventDefault(); t.at(e.shiftKey ? -1 : 0).focus(); }
   }, true);
 
   // ---- Dragging to reorder: an item among its siblings, a drop line where it would go ----
@@ -202,9 +234,8 @@ const Shell = (() => {
     undo: 'M6.5 3.5 3.5 6.5l3 3M3.5 6.5h6a3 3 0 0 1 0 6h-2', redo: 'M9.5 3.5l3 3-3 3M12.5 6.5h-6a3 3 0 0 0 0 6h2',
   };
   const icon = name => html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d=${PATHS[name]} /></svg>`;
-  // The mark, small cut (app/assets/mark-small.svg): a tree grown by one rule, with its roots the same rule reflected.
-  const MARK = 'M9 12L9 8.9A1 1 0 0 0 7 8.9L7 12ZM8.37 8.65L6.2 5.4A0.45 0.45 0 0 0 5.45 5.9L7.63 9.15ZM6.08 5.28L3.55 3.58A0.45 0.45 0 0 0 3.05 4.33L5.58 6.03ZM3.45 3.53L1.21 2.74A0.45 0.45 0 0 0 0.91 3.58L3.14 4.38ZM3.66 3.7L2.29 1.76A0.45 0.45 0 0 0 1.56 2.28L2.93 4.22ZM6.27 5.6L5.88 2.58A0.45 0.45 0 0 0 4.98 2.69L5.38 5.71ZM5.84 2.45L4.85 0.29A0.45 0.45 0 0 0 4.04 0.66L5.02 2.82ZM5.87 2.72L6.31 0.38A0.45 0.45 0 0 0 5.42 0.22L4.99 2.55ZM8.37 9.15L10.55 5.9A0.45 0.45 0 0 0 9.8 5.4L7.63 8.65ZM10.62 5.71L11.02 2.69A0.45 0.45 0 0 0 10.12 2.58L9.73 5.6ZM11.01 2.55L10.58 0.22A0.45 0.45 0 0 0 9.69 0.38L10.13 2.72ZM10.98 2.82L11.96 0.66A0.45 0.45 0 0 0 11.15 0.29L10.16 2.45ZM10.42 6.03L12.95 4.33A0.45 0.45 0 0 0 12.45 3.58L9.92 5.28ZM13.07 4.22L14.44 2.28A0.45 0.45 0 0 0 13.71 1.76L12.34 3.7ZM12.86 4.38L15.09 3.58A0.45 0.45 0 0 0 14.79 2.74L12.55 3.53ZM7 12L7 12.93A1 1 0 0 0 9 12.93L9 12ZM7.82 12.52L5.64 13.49A0.45 0.45 0 0 0 6.01 14.31L8.18 13.34ZM5.74 13.46L3.21 13.97A0.45 0.45 0 0 0 3.38 14.85L5.91 14.35ZM3.25 13.97L1.01 14.2A0.45 0.45 0 0 0 1.11 15.1L3.34 14.86ZM3.12 14L1.75 14.58A0.45 0.45 0 0 0 2.1 15.41L3.47 14.83ZM5.41 13.72L5.02 14.63A0.45 0.45 0 0 0 5.84 14.99L6.24 14.08ZM5.18 14.43L4.2 15.08A0.45 0.45 0 0 0 4.69 15.83L5.68 15.19ZM5.05 15.05L5.48 15.75A0.45 0.45 0 0 0 6.25 15.27L5.81 14.57ZM7.82 13.34L9.99 14.31A0.45 0.45 0 0 0 10.36 13.49L8.18 12.52ZM9.76 14.08L10.16 14.99A0.45 0.45 0 0 0 10.98 14.63L10.59 13.72ZM10.19 14.57L9.75 15.27A0.45 0.45 0 0 0 10.52 15.75L10.95 15.05ZM10.32 15.19L11.31 15.83A0.45 0.45 0 0 0 11.8 15.08L10.82 14.43ZM10.09 14.35L12.62 14.85A0.45 0.45 0 0 0 12.79 13.97L10.26 13.46ZM12.53 14.83L13.9 15.41A0.45 0.45 0 0 0 14.25 14.58L12.88 14ZM12.66 14.86L14.89 15.1A0.45 0.45 0 0 0 14.99 14.2L12.75 13.97Z';
-  const mark = html`<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d=${MARK} /></svg>`;
+  // The mark, the page's one #mark symbol (index.html, from app/assets/mark-small.svg).
+  const mark = html`<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#mark" /></svg>`;
 
   // ---- Floating layers: menus and popovers, in the top layer, placed by Floating UI ----
   const floats = signal([]);
@@ -249,11 +280,13 @@ const Shell = (() => {
       const el = ref.current;
       el.showPopover?.();
       const stop = place(f.anchor, el, f.placement || 'bottom-start', f.gap);
+      // A menu takes the keys; a popover, its first control, unless what it draws took focus itself.
       if (f.kind === 'menu') (el.querySelector('.menu-find') || el.querySelector('.menu'))?.focus({ preventScroll: true });
+      else if (!el.contains(document.activeElement)) tabbables(el)[0]?.focus({ preventScroll: true });
       return stop;
     }, []);
     return html`<div class="float in" popover="manual" ref=${ref}>
-      ${f.kind === 'menu' ? html`<${Menu} f=${f} />` : html`<div class="pop">${f.draw(f.close)}</div>`}</div>`;
+      ${f.kind === 'menu' ? html`<${Menu} f=${f} />` : html`<div class="pop" role="dialog">${f.draw(f.close)}</div>`}</div>`;
   }
   document.addEventListener('pointerdown', e => {
     const open = floats.peek();
@@ -264,13 +297,27 @@ const Shell = (() => {
   }, true);
 
   const uf = new uFuzzy({ intraMode: 1 });
+  const norm = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  // Ranked as uFuzzy ranks their names (a label, and any others), except that a name typed exactly comes
+  // first, and what's within a thing (AIV-1 › Signatories, of its key) comes straight after it, or after
+  // every thing found if it isn't.
   function rank(items, q, limit = 50) {
-    const hay = items.map(x => x.label);
+    const names = x => [x.label, ...(x.names || [])], hay = [], of = [];
+    items.forEach((x, i) => names(x).forEach((n, k) => { hay.push(n); of.push([i, k]); }));
     let [idxs, info, order] = uf.search(hay, q);   // in order, ranked and highlighted
     if (!idxs?.length) [idxs, info, order] = uf.search(hay, q, 1);   // or the words in any order
     if (!idxs) return [];
-    if (!order) return idxs.slice(0, limit).map(i => items[i]);
-    return order.slice(0, limit).map(o => ({ ...items[info.idx[o]], ranges: info.ranges[o] }));
+    const best = new Map();   // each item at its best-ranked name, highlighted if that's its label
+    for (const [h, ranges] of order ? order.map(o => [info.idx[o], info.ranges[o]]) : idxs.map(h => [h])) {
+      const [i, k] = of[h];
+      if (!best.has(i)) best.set(i, { ...items[i], ranges: k ? null : ranges });
+    }
+    const found = [...best.values()], within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q), out = new Set();
+    const add = x => { if (out.has(x)) return; out.add(x); if (x.key !== undefined) found.filter(y => y.of === x.key).forEach(add); };
+    found.filter(x => names(x).some(n => norm(n) === typed)).forEach(add);
+    found.filter(x => !within(x)).forEach(add);
+    found.forEach(add);
+    return [...out].slice(0, limit);
   }
   const marked = (label, ranges) => !ranges ? label : uFuzzy.highlight(label, ranges, (p, m) => m ? html`<b>${p}</b>` : p, [], (a, p) => { a.push(p); });
   const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled && (it.run || it.items);
@@ -283,8 +330,9 @@ const Shell = (() => {
     const live = items.map((it, i) => selectable(it) ? i : -1).filter(i => i >= 0);
     const active = f.search && q.trim() && act < 0 ? live[0] : act;
     const checks = items.some(it => it && it.checked !== undefined);
+    const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
-      if (it.items) return openSub(it, document.querySelector(`[data-mi="${f.id}-${items.indexOf(it)}"]`));
+      if (it.items) return openSub(it, el(items.indexOf(it)));
       closeAll();
       it.run?.();
     };
@@ -303,6 +351,7 @@ const Shell = (() => {
       else if (e.key === 'Enter' && it) run(it);
       else if (e.key === 'ArrowRight' && it?.items) run(it);
       else if (e.key === 'ArrowLeft' && f.parent) f.close();
+      else if (e.key === 'Tab') return closeAll();   // and focus goes on from what opened it
       else if (!f.search && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const k = e.key.toLowerCase(), from = live.indexOf(active);
         const next = [...live.slice(from + 1), ...live.slice(0, from + 1)].find(i => items[i].label.toLowerCase().startsWith(k));
@@ -311,19 +360,22 @@ const Shell = (() => {
       } else return;
       e.preventDefault();
     };
-    useLayoutEffect(() => { document.querySelector(`[data-mi="${f.id}-${active}"]`)?.scrollIntoView({ block: 'nearest' }); }, [active]);
-    return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" onKeyDown=${onKey}>
-      ${f.search ? html`<input class=${'menu-find' + (q.startsWith('=') ? ' mono' : '')} placeholder="Find" value=${q} spellcheck="false" autocomplete="off"
+    useLayoutEffect(() => { el(active)?.scrollIntoView({ block: 'nearest' }); }, [active]);
+    // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
+    const at = active >= 0 && items[active] ? mi(active) : null;
+    return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
+      ${f.search ? html`<input class="menu-find" placeholder="Find" aria-label="Find" aria-activedescendant=${at} value=${q} spellcheck="false" autocomplete="off"
         onInput=${e => { setQ(e.target.value); setAct(-1); }} />` : null}
-      ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" />`
-        : it.head ? html`<div class="menu-head">${it.head}</div>`
-        : it.seg ? html`<div class="menu-seg">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
-        : html`<div role="menuitem" data-mi=${`${f.id}-${i}`} aria-disabled=${it.disabled ? 'true' : null}
+      ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
+        : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
+        : it.seg ? html`<div class="menu-seg" role="group">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
+        : html`<div role=${it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked=${it.checked === undefined ? null : !!it.checked} id=${mi(i)}
+            aria-disabled=${it.disabled ? 'true' : null} aria-haspopup=${it.items ? 'menu' : null}
             class=${'menu-item' + (i === active ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
-            onPointerMove=${() => { if (i !== act && selectable(it)) { setAct(i); if (it.items) openSub(it, document.querySelector(`[data-mi="${f.id}-${i}"]`)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
+            onPointerMove=${() => { if (i !== act && selectable(it)) { setAct(i); if (it.items) openSub(it, el(i)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
             onClick=${() => selectable(it) && run(it)}>
             ${checks ? html`<span class="check">${it.checked ? icon('check') : null}</span>` : null}
-            <span class=${'label' + (it.mono ? ' mono' : '')}>${marked(it.label, it.ranges)}</span>
+            <span class="label">${marked(it.label, it.ranges)}</span>
             ${it.detail ? html`<span class="detail">${it.detail}</span>` : null}
             ${it.keys ? html`<kbd>${keyLabel(it.keys)}</kbd>` : null}
           </div>`)}
@@ -344,14 +396,16 @@ const Shell = (() => {
   function Tip() {
     const el = tip.value, ref = useRef();
     useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); return place(el, ref.current, 'bottom', 6); }, [el]);
-    return el ? html`<div class="float tip" popover="manual" ref=${ref}>${el.dataset.tip}${el.dataset.keys ? html`<kbd>${el.dataset.keys}</kbd>` : null}</div>` : null;
+    return el ? html`<div class="float tip" popover="manual" role="tooltip" ref=${ref}>${el.dataset.tip}${el.dataset.keys ? html`<kbd>${el.dataset.keys}</kbd>` : null}</div>` : null;
   }
 
-  // ---- Dialogs, on <dialog> ----
+  // ---- Dialogs, on <dialog>: modal, named by their title ----
+  let did = 0;
   function dialog({ title, body, actions = [{ label: 'OK', value: true, primary: true }], width }) {
     return new Promise(resolve => {
-      const el = document.createElement('dialog');
+      const el = document.createElement('dialog'), head = 'dlg' + ++did;
       el.className = 'dlg';
+      if (title) el.setAttribute('aria-labelledby', head);
       if (width) el.style.width = `min(${width}px, calc(100vw - 32px))`;
       let done = false, unlayer = null;
       const settle = v => { if (done) return; done = true; unlayer(); if (el.open) el.close(); render(null, el); el.remove(); resolve(v); };
@@ -360,7 +414,7 @@ const Shell = (() => {
       el.addEventListener('close', () => settle(undefined));
       const primary = actions.find(a => a.primary);
       render(html`<form method="dialog" onSubmit=${e => { e.preventDefault(); settle(primary?.value); }}>
-        ${title ? html`<div class="dlg-head">${title}</div>` : null}
+        ${title ? html`<div class="dlg-head" id=${head}>${title}</div>` : null}
         <div class="dlg-body">${typeof body === 'function' ? body(settle) : body}</div>
         <div class="dlg-foot">${actions.map(a => html`<button type=${a.primary ? 'submit' : 'button'} autofocus=${!!a.focus}
           class=${'btn' + (a.primary ? ' primary' : a.danger ? ' danger' : '')} onClick=${a.primary ? undefined : () => settle(a.value)}>${a.label}</button>`)}</div>
@@ -391,7 +445,8 @@ const Shell = (() => {
     <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
       <span>${t.text}</span>${t.undo ? html`<button onClick=${() => { t.dismiss(); t.undo(); }}>Undo</button>` : null}</div>`)}</div>`;
 
-  // ---- Find: views, records, lists and actions, ranked as you type; "=" works a formula out ----
+  // ---- Find: views, records, lists and actions, ranked as you type; "=" works a formula out; "?" lists
+  // the keys ----
   let findButton = null;
   function answers(q) {
     if (q.startsWith('=')) {
@@ -400,12 +455,13 @@ const Shell = (() => {
       let r;
       try { r = ev(q, selection.peek()); } catch (e) { r = { error: e.message || String(e) }; }
       if (r?.error) return [{ label: r.error, danger: true }];
-      return r?.items ?? [{ label: String(r?.value ?? ''), mono: true }];
+      return r?.items ?? [{ label: String(r?.value ?? '') }];
     }
-    const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) }));
-    const acts = many('action').filter(a => !a.enabled || a.enabled()).map(a => ({ label: a.name, detail: keyLabel(a.keys), run: a.run }));
-    if (!q) return [...(vs.length ? [{ head: 'Views' }, ...vs] : []), ...(acts.length ? [{ head: 'Actions' }, ...acts] : [])];
-    return rank([...vs, ...many('find').flatMap(s => s.items()), ...acts], q);
+    const acts = many('action').map(a => ({ label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
+    if (q.startsWith('?')) { const ks = acts.filter(a => a.keys); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
+    const vs = views.value.map(v => ({ label: v.name, detail: q ? 'View' : null, run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
+    if (!q) return [...(vs.length ? [{ head: 'Views' }, ...vs] : []), ...(can.length ? [{ head: 'Actions' }, ...can] : [])];
+    return rank([...vs, ...many('find').flatMap(s => s.items()), ...can], q);
   }
   const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32 }); };
 
@@ -430,15 +486,15 @@ const Shell = (() => {
   }
   function TitleBar() {
     const u = part('undo'), ex = many('export'), t = time.value;
-    return html`<header class="titlebar">
-      <div class="left"><button class="btn ghost dd chartmenu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
-      <button class="find" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+K')}</kbd></button>
+    return html`<header class="titlebar" data-region="bars">
+      <div class="left"><button class="btn ghost dd chartmenu" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
+      <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
-        ${part('time') ? html`<button class=${'btn ghost dd asof' + (t ? ' past' : '')} onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>` : null}
+        ${part('time') ? html`<button class=${'btn ghost dd asof' + (t ? ' past' : '')} aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>` : null}
         <span class="sep" />
-        <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+Z')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
-        <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+Y')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
-        <button class="btn primary dd" disabled=${!ex.length} onClick=${e => menu(e.currentTarget, ex.map(x => ({ label: x.name, run: x.run })), { placement: 'bottom-end' })}>Export</button>
+        <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
+        <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
+        <button class="btn primary dd" aria-haspopup="menu" disabled=${!ex.length} onClick=${e => menu(e.currentTarget, ex.map(x => ({ label: x.name, run: x.run })), { placement: 'bottom-end' })}>Export</button>
       </div>
     </header>`;
   }
@@ -456,11 +512,14 @@ const Shell = (() => {
     }, [p, seen]);
     return p ? html`<div class="host" ref=${ref} hidden=${hidden} />` : null;
   }
-  const Bar = ({ kind, hidden }) => part(kind) ? html`<div class=${'slot ' + kind} hidden=${hidden}><${Host} kind=${kind} /></div>` : html`<div hidden />`;
+  const BARS = { formatbar: 'Format', formulabar: 'Formula' };
+  const Bar = ({ kind, hidden }) => part(kind)
+    ? html`<div class=${'slot ' + kind} role="region" aria-label=${BARS[kind]} data-region="bars" hidden=${hidden}><${Host} kind=${kind} /></div>` : html`<div hidden />`;
 
-  // ---- The view and the inspector ----
+  // ---- The view and the inspector; a chart with no box offers its one action ----
   function Main() {
-    const layout = current.value?.layout || 'chart';
+    const v = current.value, layout = v?.layout || 'chart', kinds = layout === 'chart' && part('canvas')?.kinds;
+    const bare = kinds && v && !App.readOnly.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box');
     const resize = e => {
       if (e.button !== 0) return;
       e.preventDefault();
@@ -477,13 +536,14 @@ const Shell = (() => {
       el.addEventListener('pointerup', up, { once: true });
     };
     return html`<div class=${'main' + (wide.value ? ' wide' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
-      <div class="view" aria-hidden=${wide.value ? 'true' : null}>
+      <div class="view" id="view" role="tabpanel" aria-labelledby=${v ? 'tab-' + v.id : null} data-region="view" tabindex="-1" aria-hidden=${wide.value ? 'true' : null}>
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
+        ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
         ${part('time') ? html`<div class="strip">${h(part('time').Strip)}</div>` : null}
       </div>
       <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${resize} onDblClick=${() => wide.value ? narrow() : widen()} />
-      <aside class="inspector"><${Host} kind="inspector" hidden=${!!aside.value} />${aside.value ? html`<div class="host aside">${h(aside.value)}</div>` : null}</aside>
+      <aside class="inspector" aria-label="Inspector" data-region="inspector" tabindex="-1"><${Host} kind="inspector" hidden=${!!aside.value} />${aside.value ? html`<div class="host aside">${h(aside.value)}</div>` : null}</aside>
     </div>`;
   }
 
@@ -492,6 +552,10 @@ const Shell = (() => {
     const vp = part('views'), list = views.value, ref = useRef();
     const [editing, setEditing] = useState(null);
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [view.value, list.length]);
+    // Tabs that run on past the edge fade into it.
+    const more = () => { const el = ref.current; el?.toggleAttribute('data-more', el.scrollLeft + el.clientWidth < el.scrollWidth - 1); };
+    useLayoutEffect(more);
+    useLayoutEffect(() => { const ro = new ResizeObserver(more); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, [!!vp]);
     if (!vp) return html`<div class="sheets" />`;
     const down = (e, v) => {
       if (e.button !== 0 || editing) return;
@@ -509,18 +573,18 @@ const Shell = (() => {
       ref.current.children[list.indexOf(next)]?.focus();
     };
     const add = e => vp.add(e.currentTarget).then(id => { if (id) { show(id); setEditing(id); } });
-    return html`<div class="sheets" role="tablist" ref=${ref} onKeyDown=${onKey} onWheel=${e => { if (e.deltaY) ref.current.scrollLeft += e.deltaY; }}>
+    return html`<div class="sheets" role="tablist" aria-label="Views" ref=${ref} onKeyDown=${onKey} onScroll=${more} onWheel=${e => { if (e.deltaY) ref.current.scrollLeft += e.deltaY; }}>
       ${list.map(v => editing === v.id
-        ? html`<div class="sheet" aria-selected="true"><input value=${v.name} style=${`width:${v.name.length + 3}ch`} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
+        ? html`<div class="sheet" aria-selected="true"><input aria-label="Name" value=${v.name} style=${`width:${v.name.length + 3}ch`} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
             onKeyDown=${e => { if (e.key === 'Enter') commit(v, e.target.value); else if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }}
             onBlur=${e => commit(v, e.target.value)} /></div>`
-        : html`<button key=${v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
+        : html`<button key=${v.id} id=${'tab-' + v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} aria-controls="view" tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
             onPointerDown=${e => down(e, v)} onDblClick=${() => setEditing(v.id)} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
     </div><button class="btn icon" aria-label="New view" data-tip="New view" onClick=${add}>${icon('plus')}</button>`;
   }
 
   // ---- The status bar: what needs attention, counted; F8 steps through it ----
-  const KINDS = [['overdue', n => `${n} overdue`], ['blank', n => `${n} blank`], ['error', n => n === 1 ? '1 error' : `${n} errors`]];
+  const KINDS = [['overdue', n => `${n} overdue`], ['soon', n => `${n} due soon`], ['blank', n => `${n} blank`], ['error', n => n === 1 ? '1 error' : `${n} errors`]];
   let stepAt = -1;
   function attend(d = 1, kind) {
     const items = (part('attention')?.items() || []).filter(it => !kind || it.kind === kind);
@@ -531,8 +595,9 @@ const Shell = (() => {
   function Status() {
     const items = part('attention')?.items() || [];
     const counts = KINDS.map(([k, say]) => [k, say, items.filter(it => it.kind === k).length]).filter(c => c[2]);
+    // The counts are announced as they change; how the workbook is kept, which ages by the minute, isn't.
     return html`<div class="status">
-      ${counts.map(([k, say, n], i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + k} onClick=${() => attend(1, k)}>${say(n)}</button>`)}
+      <span class="counts" role="status">${counts.map(([k, say, n], i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + k} onClick=${() => attend(1, k)}>${say(n)}</button>`)}</span>
       ${many('status').map(s => s.render())}
     </div>`;
   }
@@ -544,23 +609,29 @@ const Shell = (() => {
       <${Bar} kind="formatbar" hidden=${current.value?.layout === 'table'} />
       <${Bar} kind="formulabar" />
       <${Main} />
-      <footer class="foot"><${Sheets} /><${Status} /></footer>
+      <footer class="foot" data-region="tabs"><${Sheets} /><${Status} /></footer>
     </div>
     ${floats.value.map(f => html`<${Float} key=${f.id} f=${f} />`)}
     <${Toasts} /><${Tip} />`;
 
   // The shell's own actions and keys.
-  register('action', { id: 'back', name: 'Back', keys: 'Alt+ArrowLeft', run: back });
-  register('action', { id: 'forward', name: 'Forward', keys: 'Alt+ArrowRight', run: forward });
-  register('action', { id: 'attend', name: 'Next problem', keys: 'F8', enabled: () => !!part('attention')?.items().length, run: () => attend(1) });
-  keys({ '$mod+KeyK': () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } }, { inputs: true });
+  const problems = () => !!part('attention')?.items().length;
+  [
+    { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
+    { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
+    { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo')?.canUndo(), run: () => part('undo').undo() },
+    { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo')?.canRedo(), run: () => part('undo').redo() },
+    { id: 'back', name: 'Back', keys: 'Alt+ArrowLeft', run: back },
+    { id: 'forward', name: 'Forward', keys: 'Alt+ArrowRight', run: forward },
+    { id: 'view.prev', name: 'Previous view', keys: '$mod+Shift+PageUp', run: () => stepView(-1) },
+    { id: 'view.next', name: 'Next view', keys: '$mod+Shift+PageDown', run: () => stepView(1) },
+    { id: 'pane.next', name: 'Next pane', keys: 'F6', inputs: true, run: () => region(1) },
+    { id: 'pane.prev', name: 'Previous pane', keys: 'Shift+F6', inputs: true, run: () => region(-1) },
+    { id: 'attend', name: 'Next problem', keys: 'F8', enabled: problems, run: () => attend(1) },
+    { id: 'attend.prev', name: 'Previous problem', keys: 'Shift+F8', enabled: problems, run: () => attend(-1) },
+  ].forEach(a => register('action', a));
   keys({
-    '$mod+KeyZ': () => part('undo')?.canUndo() ? part('undo').undo() : false,
-    '$mod+KeyY': () => part('undo')?.canRedo() ? part('undo').redo() : false,
     '$mod+Shift+KeyZ': () => part('undo')?.canRedo() ? part('undo').redo() : false,
-    'Shift+F8': () => attend(-1),
-    '$mod+Shift+PageUp': () => stepView(-1),
-    '$mod+Shift+PageDown': () => stepView(1),
     // With no layer open: the widened inspector narrows, and then the selection clears.
     'Escape': () => { if (wide.peek()) narrow(); else if (selection.peek().length) select([]); else return false; },
   });
@@ -589,7 +660,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store,
     widen, narrow, wide, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     aside: c => { aside.value = c; },
   };
