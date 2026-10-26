@@ -19,23 +19,70 @@
 <script>
 // How long the formulas take to work out as a chart grows: the sample as of a day, with its Formula notes,
 // and with more of a fund complex added (see grown.js). `#n=200` (the default) sets the most entities added;
-// the page works out the sample with none, a quarter, half and all of them, three times each, and keeps the
-// best. The targets: the sample in under 50 ms, and 100 and 200 more entities in under 500. Then the
-// redline: one edit worked out and compared with the state before it, as the preview does on every
-// keystroke, in under 50 ms on the sample.
+// the page works out the sample from nothing with none, a quarter, half and all of them, three times each,
+// and keeps the best. The targets: the sample in under 50 ms, and 100 and 200 more entities in under 500.
+// Then edits at the most, each worked out again from the working-out before, as the app does: each must
+// agree with the same chart worked out from nothing, in every record, value, stage, row, error and ground,
+// and one that reaches few formulas must take under 100 ms. Then the redline: one edit worked out and
+// compared with the state before it, as the preview does on every keystroke, in under 50 ms on the sample.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
+const { definitions: DEFS, names: NAMES } = SAMPLE_INPUTS;
+const fresh = (recs, defs = DEFS) => Formulas.computeState(recs, defs, NAMES, null);
 
-// The best of three workings-out, keeping only what's reported, so one run's records don't weigh on the next.
+// The best of three workings-out from nothing, keeping only what's reported, so one run's records don't
+// weigh on the next.
 function timeIt(n) {
   const recs = grown(SAMPLE_INPUTS.recs, n);
   let best = null;
   for (let i = 0; i < 3; i++) {
-    const R = workOut(recs);
+    const R = fresh(recs);
     if (!best || R.ms < best.ms) best = { ms: R.ms, steps: R.steps, computed: Object.keys(R.computed).length };
   }
   return best;
+}
+
+// Where two workings-out differ, or null: their records in order, what's computed and covered, errors,
+// rows, and the grounds of every 50th computed record.
+function differ(A, B) {
+  const j = R => JSON.stringify([Object.entries(R.records), R.computed, R.covered, R.errors, R.rows, R.keptAside]);
+  if (j(A) !== j(B)) return 'records';
+  for (const id of Object.keys(B.computed).filter((_, i) => i % 50 === 0))
+    if (JSON.stringify(Formulas.ground(A, id)) !== JSON.stringify(Formulas.ground(B, id))) return `the ground of ${id}`;
+  return null;
+}
+
+// Edits to the grown chart, one after another, each worked out from the one before and from nothing.
+function edits(n) {
+  let recs = grown(SAMPLE_INPUTS.recs, n), defs = DEFS, before = fresh(recs);
+  const set = (r, id, change) => ({ ...r, [id]: { ...r[id], ...change } });
+  const without = (r, ...ids) => Object.fromEntries(Object.entries(r).filter(([id]) => !ids.includes(id)));
+  const steps = [
+    ['a value no formula reads (an EIN)', true, r => set(r, 'fund_ein', { value: '92-0000000' })],
+    ['an ownership percentage', false, r => set(r, 'x_own5_pct', { value: 0.5 })],
+    ['a ruling-out of presumed control', false, r => ({ ...r, x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edge: 'Controlled', at: 'gp' }], tag: false } })],
+    ['a name', false, r => set(r, 'fund_name', { value: 'Calder Ridge Capital Partners III-A, L.P.' })],
+    ['an entity type', false, r => set(r, 'x_e7_type', { choice: 'Limited Liability Company' })],
+    ['a good standing', false, r => set(r, 'fund_good', { tag: false })],
+    ['an ownership removed', false, r => without(r, 'x_own9', 'x_own9_pct')],
+    ['an entity added, owned by the fund', false, r => ({ ...r, x_new: { kind: 'Entity' }, x_new_name: { at: 'x_new', edge: 'Name', field: 'text', value: 'Added Holdings LLC' },
+      x_new_own: { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: 'x_new' }], tag: true }, x_new_own_pct: { at: 'x_new_own', edge: 'Percentage', field: 'percent', value: 1 } })],
+    ['a definition’s row', false, r => { defs = defs.map(d => d.id === 'def_control' ? { ...d, rows: d.rows.map((x, i) => i === 2 ? { ...x, formula: x.formula.replace('25%', '35%') } : x) } : d); return r; }],
+    ['the EIN again', true, r => set(r, 'fund_ein', { value: '92-0000001' })],
+  ];
+  const lines = [];
+  for (const [what, quick, edit] of steps) {
+    recs = edit(recs);
+    const t = performance.now(), again = Formulas.computeState(recs, defs, NAMES, before), ms = performance.now() - t;
+    const whole = fresh(recs, defs), d = differ(again, whole);
+    const kept = again.steps.filter(s => s.kept).length;
+    check(`At +${n}, ${what}, worked out again, agrees with the chart worked out from nothing`, !d, d ?? `${kept} of ${again.steps.length} groups kept`);
+    if (quick) check(`At +${n}, ${what} is worked out again in under 100 ms`, ms < 100, `${ms.toFixed(0)} ms, against ${whole.ms.toFixed(0)} from nothing`);
+    lines.push(`+${n}, ${what}: ${ms.toFixed(0)} ms again (${kept} of ${again.steps.length} groups kept), ${whole.ms.toFixed(0)} ms from nothing`);
+    before = again;
+  }
+  return lines;
 }
 
 // Ruling out Okafor's presumed control of GP III, worked out and diffed against the sample as it was.
@@ -45,7 +92,7 @@ function redline() {
   let best = Infinity, d = null;
   for (let i = 0; i < 3; i++) {
     const t = performance.now();
-    d = Formulas.diff(before, workOut(edited));
+    d = Formulas.diff(before, Formulas.computeState(edited, DEFS, NAMES, before));
     best = Math.min(best, performance.now() - t);
   }
   return { ms: best, d };
@@ -64,6 +111,7 @@ function run() {
   }
   for (const [size, target, what] of [[0, 50, 'the sample'], [100, 500, '100 more entities'], [200, 500, '200 more entities']])
     if (times.has(size)) check(`Works out ${what} in under ${target} ms`, times.get(size) < target, `${times.get(size).toFixed(0)} ms`);
+  lines.push('', ...edits(n));
   const r = redline();
   check('Previews a ruling-out on the sample, worked out and compared, in under 50 ms', r.ms < 50,
     `${r.ms.toFixed(1)} ms: ${r.d.appear.length} appear, ${r.d.go.length} go, ${r.d.change.length} change`);
