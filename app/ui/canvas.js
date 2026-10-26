@@ -680,7 +680,7 @@ function mount(el) {
   const pageItems = p => [
     ...kinds().map(k => ({ label: `New ${k}`, disabled: still(), run: () => create(k, p) })), '-',
     { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
-    { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, { label: 'Tidy', disabled: still(), run: tidy },
+    { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Tidy', disabled: still(), run: tidy },
   ];
 
   // ---- States others ask for: highlight, redline, hidden records drawn ----
@@ -1012,7 +1012,7 @@ function mount(el) {
     }
     const boxes = rows.flatMap(r => r.sort((a, b) => a.x - b.x)), at = boxes.findIndex(b => b.id === keysOfSelection()[0]);
     const m = boxes.at(at < 0 ? (by > 0 ? 0 : -1) : (at + by) % boxes.length);
-    if (!m) return;
+    if (!m) return false;
     Shell.select([m.id]);
     const a = graph.localToGraph(m.x, m.y), b = graph.localToGraph(m.x + m.w, m.y + m.h), W = root.clientWidth, H = root.clientHeight, pad = 24;
     const into = (lo, hi, room) => lo < pad ? pad - lo : hi > room - pad ? Math.max(pad - lo, room - pad - hi) : 0;
