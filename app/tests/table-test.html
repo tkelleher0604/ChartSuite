@@ -438,15 +438,23 @@ async function run() {
   Shell.closeAll(); unfind(); await tick();
 
   // ---- Tables fill their width; figures' headings sit over them ----
-  Shell.show(own); await tick(100);
-  Shell.select([Table.grid.getRows()[0].getData().id]); await tick(500);
+  // A grid is laid out as it's built, and again when Tabulator's ResizeObserver sees its slot change, which a
+  // headless run under a time budget never delivers. So each grid here is built once its slot has settled, with
+  // the inspector open or not, and is laid out then.
+  const slotSettled = alone => until(() => { const m = $('.main'), want = alone ? m.clientWidth : m.clientWidth - parseFloat(m.style.getPropertyValue('--insp')) - 1;
+    return m.classList.contains('alone') === alone && Math.abs($('.view').getBoundingClientRect().width - want) < 1; });
+  const built = title => until(() => !!column(title) && $$('.grid .tabulator-row').length > 0);
+  const docsView = views().find(v => v.name === 'Documents').id;
+  Shell.show(docsView); Shell.select([Table.model(own).data[0].id]); await slotSettled(false);
+  Shell.show(own); await built('Voting Percentage');
   const holderBox = () => { const h = Table.grid.rowManager.element; return h.getBoundingClientRect().left + h.clientWidth; };
   const lastRight = () => $$('.grid .tabulator-header .tabulator-col').at(-1).getBoundingClientRect().right;
   check('With the inspector open, a table still fills its width', !$('.main.alone') && lastRight() >= holderBox() - 1, `${lastRight()} of ${holderBox()}`);
   const textRight = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().right; };
   const pctTitle = column('Percentage').getElement().querySelector('.tabulator-col-title'), pctCell = Table.grid.getRows()[0].getCells().find(c => c.getColumn() === column('Percentage')).getElement();
   check('A column of figures has its heading flush right over them', Math.abs(textRight(pctTitle) - textRight(pctCell)) <= 1.5, `${textRight(pctTitle)} over ${textRight(pctCell)}`);
-  Shell.select([]); Shell.show(views().find(v => v.name === 'Documents').id); await tick(500);
+  Shell.select([]); await slotSettled(true);
+  Shell.show(docsView); await built('Link');
   const docCols = Table.grid.getColumns().filter(c => c.isVisible() && c.getDefinition().title);
   check('Documents’ Name takes what’s left over', docCols.every(c => column('Name').getWidth() >= c.getWidth()) && lastRight() >= holderBox() - 1, docCols.map(c => `${c.getDefinition().title} ${c.getWidth()}`).join(', ') + ` in ${holderBox()}`);
 
