@@ -15,9 +15,9 @@
 <script src="../core/tree.js"></script>
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
+<script src="../sample/calder-ridge.js"></script>
 <script>
-// Checks of the core (tree.js, notes.js, log.js) on the sample, app/sample/calder-ridge.json. Open it with
-// file access allowed (Chrome's --allow-file-access-from-files), since it reads the sample. Nothing is saved.
+// Checks of the core (tree.js, notes.js, log.js) on the sample, app/sample/calder-ridge.js. Nothing is saved.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const C = 'calder-ridge', TODAY = '2026-10-26', WHO = 'Dana Jordan';
@@ -274,7 +274,7 @@ function run(json) {
     && Tree.classify('0803456789') === 'text');
 }
 
-fetch('../sample/calder-ridge.json').then(r => r.json()).then(run)
+Promise.resolve().then(() => run(SAMPLE))
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

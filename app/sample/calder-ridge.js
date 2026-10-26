@@ -1,4 +1,6 @@
-{"dendra": 1, "changes": [
+// The sample workbook a first launch opens: the Calder Ridge fund complex, as its log (core/README.md). A script,
+// not a .json file, because a page opened from a file can't fetch.
+const SAMPLE = {"dendra": 1, "changes": [
 {"id":"c001","who":"Jordan Alvarez","when":"2024-06-17T14:05:00.000Z","chart":"calder-ridge","removes":[], "adds": [
   {"id":"r0","chart":"calder-ridge","name":"Calder Ridge Fund III structure"},
   {"id":"r1","record":"fund","kind":"Entity"},
@@ -1704,3 +1706,4 @@
   {"id":"r14n","record":"doc_affil_q3_on_bdc","args":[{"edge":"Document","at":"doc_affil_q3"},{"edge":"Subject","at":"bdc"}],"tag":true}
 ]}
 ]}
+;
