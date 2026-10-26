@@ -620,9 +620,10 @@ function mount(el) {
     let target = null, unlayer = null;
     root.classList.add('relating');
     const at = ev => graph.clientToLocal(ev.clientX, ev.clientY);
+    const boxAt = p => scene.marks.find(m => m.type === 'box' && m.id !== from.id && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h) ?? null;
     const move = ev => {
       const p = at(ev);
-      target = scene.marks.find(m => m.type === 'box' && m.id !== from.id && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h) ?? null;
+      target = boxAt(p);
       line.setAttribute('d', `M${start[0]},${start[1]} L${p.x},${p.y}`);
       paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
     };
@@ -634,6 +635,7 @@ function mount(el) {
       if (click) { ev.preventDefault(); ev.stopPropagation(); }
       end();
       const p = at(ev);
+      target = boxAt(p);
       if (target) Shell.emit('relate-open', [from.id, target.id]);
       else if (!ev.target.closest?.('.dc') || ev.button !== 0) return;
       else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) Shell.menu({ x: ev.clientX, y: ev.clientY }, [

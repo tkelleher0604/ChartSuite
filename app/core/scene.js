@@ -252,12 +252,15 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const reveal = new Set();
   const revealUp = id => { const r = state[id]; if (!r || reveal.has(id)) return; reveal.add(id); argsOf(r).forEach(a => revealUp(a.at)); };
   for (const id of opts.reveal ?? []) revealUp(id);
+  // Where no note says, a box and its name are shown, and nothing else: a new chart's boxes say what they are.
+  const named = m => m.type === 'text' && !m.host && isObject(state[state[m.record].at] ?? {}) && Tree.norm(state[m.record].edge ?? '') === 'name';
+  const shownAlone = m => m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m);
   const drawnMemo = new Map();
   const drawn = m => {
     if (!m) return false;
     if (drawnMemo.has(m)) return drawnMemo.get(m);
     drawnMemo.set(m, false);
-    const shown = reveal.has(m.record) || (m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown);
+    const shown = reveal.has(m.record) || shownAlone(m);
     const d = shown && (m.type === 'box' || (m.type === 'line' ? m.ends.every(b => drawn(own.get(b)[0])) : drawn(up(m))));
     drawnMemo.set(m, d);
     return d;
@@ -319,7 +322,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     m.texts = [];
     m.computed = !!state[m.record].computed;
     m.redline = isRed(m.record);
-    m.revealed = reveal.has(m.record) && !(m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown);
+    m.revealed = reveal.has(m.record) && !shownAlone(m);
   }
   for (const m of [...marks.values()].filter(m => m.type === 'text' && drawn(m)).sort(byOrder)) {
     const host = container(m);

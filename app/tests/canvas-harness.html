@@ -110,11 +110,13 @@ const H = (() => {
     // As the formula bar asks, through the shell's part: hl:fund=1:own_us_fund=2 — an id's hue; a name in
     // front of =, with *, is a witness; with ~, a deeper reason; with !, pulsing.
     hl: async (...pairs) => {
-      const colors = {}, strong = [], deep = [], pulse = [];
-      for (const p of pairs) { const [k, n] = p.split('='), id = k.replace(/^[*~!]/, ''); colors[id] = `var(--rf-${n})`; ({ '*': strong, '~': deep, '!': pulse })[k[0]]?.push(id); }
-      Shell.parts.peek().canvas.highlight(colors, { dim: true, strong, deep, pulse });
+      const colors = {}, pulse = [];
+      for (const p of pairs) { const [k, n] = p.split('='), id = k.replace(/^[*~!]/, ''); colors[id] = [+n, k[0] === '*' ? 0 : k[0] === '~' ? 2 : 1]; if (k[0] === '!') pulse.push(id); }
+      Shell.parts.peek().canvas.highlight(colors, { dim: true, pulse });
       await wait(80);
     },
+    // The formula bar's step down: frame these records.
+    frame: async (...ids) => { Shell.parts.peek().canvas.zoomTo(ids); await wait(400); },
     // A pending change, redlined as the formula bar asks: a percentage changed, a line gone, one appearing.
     red: async () => {
       const now = App.state.peek(), then = { ...now };
@@ -177,6 +179,10 @@ const H = (() => {
     },
     // A menu's item, by its label.
     pick: async label => { [...document.querySelectorAll('.float .menu-item')].find(e => e.textContent.includes(label.replace(/_/g, ' ')))?.click(); await wait(120); },
+    // An action, by its id: act:chart.new.
+    act: async id => { Shell.parts.peek().action.find(a => a.id === id)?.run(); await wait(300); },
+    // A button, by its text.
+    press: async text => { [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text.replace(/_/g, ' '))?.click(); await wait(150); },
     pmenu: async () => { Shell.menu({ x: 300, y: 300 }, [{ label: 'Point menu', run() {} }, { label: 'Second', run() {} }]); await wait(120); },
     // The box selected owns another, as the inspector would record it.
     owns: async (to, pct) => {
@@ -238,7 +244,8 @@ const H = (() => {
     d.id = 'report'; d.hidden = true;
     const menu = [...document.querySelectorAll('.float .menu-item .label')].map(e => e.textContent);
     d.textContent = JSON.stringify({ errors: ERRS, view: sc?.view, marks: sc?.marks.length, ms: sc?.ms, selection: Shell.selection.peek(), page: sc?.page, mounts, said,
-      ...(menu.length && { menu }), toast: document.querySelector('.toast')?.textContent ?? null });
+      ...(menu.length && { menu }), toast: document.querySelector('.toast')?.textContent ?? null,
+      at: Shell.selection.peek().map(k => sc?.byId.get(k)).filter(Boolean).map(m => [m.x, m.y, m.w, m.h].map(v => Math.round(v))) });
     document.body.appendChild(d);
     // With &show, the report on screen, and again a moment later.
     if (q.has('show')) { d.hidden = false; d.style.cssText = 'position:fixed;left:8px;bottom:40px;z-index:9;background:#ffe;color:#000;font:11px monospace;max-width:900px;white-space:pre-wrap;margin:0'; setInterval(() => { d.textContent = `menus ${[...document.querySelectorAll('.float')].map(f => f.style.cssText + ' ' + getComputedStyle(f).opacity + ' open:' + f.matches(':popover-open') + ' ' + JSON.stringify(f.getBoundingClientRect()))} ${new Date().toISOString()}\n` + d.textContent.split('\n').slice(-1)[0]; }, 200); }
