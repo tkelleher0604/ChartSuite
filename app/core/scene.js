@@ -13,7 +13,8 @@
 // chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
 // from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
 // are broken to. A line another crosses has `runs`, the pieces it's drawn in (see jumps). A free shape has its
-// row's formats, with no notes, and a free line the boxes it's glued to.
+// row's formats, with no notes, and a free line the boxes it's glued to; one whose row's `role` is title or
+// date is the page's own, as the Key is (see the page and free shapes).
 const Scene = (() => {
 const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, same } = Tree;
 
@@ -539,7 +540,9 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // into it, moves down under them, as far as the scale it's then drawn at needs.
   const top = () => Math.min(...boxes.map(b => b.y), ...[...frames.values()].map(f => f.y));
   for (let i = 0; i < 3 && !last && !onPaper && boxes.some(b => b.entered) && top() * at.s < at.top - 0.5; i++) {
-    floor = at.top / at.s;
+    // At the scale it fits at once it's moved, as near as can be told before it is.
+    const fits = (sheet.h - MARGIN - at.top) / Math.max(1, Math.max(...boxes.map(b => b.y + b.h)) - top());
+    floor = at.top / Math.min(at.s, SCALES.find(s => s <= fits) ?? fits);
     at = lay(1);
   }
   const heights = new Map(boxes.map(b => [b.id, b.h]));
