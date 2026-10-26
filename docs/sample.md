@@ -1,6 +1,6 @@
 # The sample
 
-The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 136 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would.
+The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 145 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would.
 
 ## What's in it
 
@@ -12,7 +12,7 @@ The workbook a first launch opens is Calder Ridge, a fictional private fund mana
 
 **Relations:** ownership (economic and voting percentages), general partners, membership (managing member or member), positions, signing authority (with capacity and evidence), investment adviser, registered agents, and what each document concerns.
 
-Opened as of today, the chart has 885 entered records. The definitions work out 589 more, for 1,474 in all:
+Opened as of today, the chart has 885 entered records. The definitions work out 584 more, for 1,469 in all:
 - **Control** (51) and **Affiliated Person** (289) under §2(a)(9) and §2(a)(3), with the statute's words beside each clause.
 - The BDC's **Close Affiliates** (21) and its one **Remote Affiliate**, under §57.
 - **Look-Through Ownership** (51), and whether **Ownership Adds Up**.
@@ -25,7 +25,7 @@ Opened as of today, the chart has 885 entered records. The definitions work out 
   - the Cayman annual return and fee, audited accounts, CRS and FATCA.
 
   Each moves to the business day before a weekend where the rule says "on or before".
-- **Checks:** formation documents and governing agreements on file, and **Capacity Held**. That one flags David R. Okafor, who signs through GP III without managing it.
+- **Checks:** formation documents and governing agreements on file, **Percentages In Range** for every ownership, and **Capacity Held**. That one flags David R. Okafor, who signs through GP III without managing it.
 
 ## Views
 

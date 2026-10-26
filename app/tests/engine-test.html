@@ -68,7 +68,7 @@ const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edg
 function theSample() {
   const R = workOut();
   const { definitions } = SAMPLE_INPUTS;
-  check('Notes gives the sample’s 29 definitions, each with what it covers and its rows', definitions.length === 29 && definitions.every(d => d.covers.length && d.rows.length && d.type));
+  check('Notes gives the sample’s 30 definitions, each with what it covers and its rows', definitions.length === 30 && definitions.every(d => d.covers.length && d.rows.length && d.type));
   check('…and none has a problem', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
   const problems = definitions.flatMap(d => d.rows.flatMap(r => Formulas.check(r.formula, { computed: R, def: d.id }).problems.map(p => `${d.id}: ${p.message}`)));
   check('…nor any of their rows, names included', !problems.length, problems.slice(0, 3).join(' | '));
@@ -108,6 +108,11 @@ function theSample() {
   const short = withRecords({ own_okfr_gp_pct: { ...SAMPLE_INPUTS.recs.own_okfr_gp_pct, value: 0.3 } });
   check('…but rules it out where every owner is meant to be charted: GP III, its members holding 80%', entryRow(short, 'def_adds_up', 'gp')?.value === false
     && entryRow(short, 'def_adds_up', 'gp').label === 'Owners missing', JSON.stringify(entryRow(short, 'def_adds_up', 'gp')));
+  // A percentage out of range is the sample's rule to flag, as Ownership Adds Up flags owners that don't add up.
+  check('Percentages In Range records nothing where every holding is from 0% to 100%', !rowsOf(R, 'def_in_range').length);
+  const odd = withRecords({ own_fund_npine_pct: { ...SAMPLE_INPUTS.recs.own_fund_npine_pct, value: 1.5 }, own_chen_gp_pct: { ...SAMPLE_INPUTS.recs.own_chen_gp_pct, value: -0.05 } });
+  const ruled = rowsOf(odd, 'def_in_range').map(r => `${pairOf(odd, { args: odd.records[r.at].args })} ${r.value} ${r.label}`).sort();
+  check('…and rules out a holding of 150% and one of −5%, by their Percentage', ruled.join() === 'chen→gp false Percentage,fund→northpine false Percentage', ruled.join(' / '));
 
   check('Tax Classification: Partnership for Northpine, by the row Otherwise', entryRow(R, 'def_tax', 'northpine')?.value === 'Partnership' && entryRow(R, 'def_tax', 'northpine').label === 'Otherwise');
   check('Tax Classification: C Corporation for Halvard, by the row Corporation', entryRow(R, 'def_tax', 'halvard')?.value === 'C Corporation' && entryRow(R, 'def_tax', 'halvard').label === 'Corporation');
@@ -194,8 +199,21 @@ function theSample() {
   const past = ['2023-06-30', '2024-01-15', '2025-06-30'].map(d => [d, (({ recs, definitions, names }) => Formulas.computeState(recs, definitions, names, null))(sampleAsOf(d))]);
   check('As of June 30, 2023, January 15, 2024 and June 30, 2025, no errors: a name the schema has on another day is nothing, not #NAME?',
     past.every(([, P]) => !P.errors.length), past.map(([d, P]) => `${d}: ${P.errors.map(e => `${e.def} ${e.error.code}`).join(', ') || 'none'}`).join('; '));
-  const R4 = workOut({ ...SAMPLE_INPUTS.recs, mgmt_fye: { ...mgmt_fye, value: '2018-06-30' } });
+  const R4 = workOut({ ...SAMPLE_INPUTS.recs, mgmt_fye: { ...mgmt_fye, value: '--06-30' } });
   check('…and a fiscal year ending June 30 moves it to September 28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso === '2026-09-28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso);
+  // A fiscal year end is a day of the year: MONTH and DAY read it, it has no year, and each deadline it sets is
+  // the one a full date with its month and day would.
+  const fyes = Object.values(SAMPLE_INPUTS.recs).filter(r => r.edge === 'Fiscal Year End');
+  check('Fiscal Year End is a day of the year: December 31, for each of the 12 entities with one', fyes.length === 12 && fyes.every(r => r.field === 'yearly' && r.value === '--12-31'), fyes.map(r => `${r.field} ${r.value}`).join());
+  const fye = text => Formulas.evaluateAt(R, text, 'mgmt', { '@June': { t: 'date', iso: '--06-30' } });
+  check('MONTH and DAY read a day of the year, TEXT says it, and YEAR says it has none', fye('= MONTH([Fiscal Year End])') === 12 && fye('= DAY([Fiscal Year End])') === 31
+    && fye('= TEXT([Fiscal Year End], "mmmm d")') === 'December 31' && fye('= YEAR([Fiscal Year End])')?.msg === 'December 31 has no year.', JSON.stringify(fye('= YEAR([Fiscal Year End])')));
+  check('…days of the year are put in order among themselves, but not among dates, and aren’t counted from', fye('= @June < [Fiscal Year End]') === true
+    && fye('= [Fiscal Year End] > DATE(2026, 6, 30)')?.code === '#VALUE!' && fye('= [Fiscal Year End] + 1')?.code === '#VALUE!' && fye('= WORKDAY([Fiscal Year End], 1)')?.code === '#VALUE!');
+  const asDates = Object.fromEntries(Object.entries(SAMPLE_INPUTS.recs).map(([id, r]) => [id, r.field === 'yearly' ? { ...r, field: 'date', value: `2018${r.value.slice(1)}` } : r]));
+  const deadlines = X => Object.entries(X.records).filter(([id, r]) => X.computed[id] && r.field === 'date').map(([id, r]) => `${id} ${r.value}`).sort();
+  const yearly = deadlines(R), full = deadlines(workOut(asDates));
+  check('Every deadline is the one a fiscal year end as a full date gave', yearly.length > 20 && yearly.join() === full.join(), `${yearly.length} deadlines; ${yearly.filter(x => !full.includes(x)).slice(0, 3).join(', ')}`);
 
   // Signing authority: the capacity is checked where the signatory signs.
   const held = rowsOf(R, 'def_capacity_held'), flagged = held.filter(r => r.value === false).map(r => r.at).sort();
@@ -443,6 +461,52 @@ function listedFirst() {
     && show(R, Formulas.evaluateAt(R, 'COUNT(Owners)', 'b')) === '1');
 }
 
+// ---- Working out again ----
+
+// Edits to the sample of every kind, chosen at random (from a fixed seed), one after another: each worked out
+// again from the working-out before, as the app does, must agree with the same chart worked out from nothing,
+// in every record and its order, value, stage, row and error, and the grounds of every seventh computed record.
+function workedOutAgain() {
+  const { definitions: defs, names } = SAMPLE_INPUTS;
+  let seed = 46, recs = SAMPLE_INPUTS.recs, before = Formulas.computeState(recs, defs, names, null), k = 0;
+  const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = xs => xs[Math.floor(rand() * xs.length)], ids = (r, f) => Object.keys(r).filter(x => f(r[x]));
+  const pct = () => Math.round(rand() * 100) / 100, set = (r, id, change) => id && { ...r, [id]: { ...r[id], ...change } };
+  const ruleOut = def => r => { const c = pick(Object.keys(before.computed).filter(x => before.computed[x].def === def)); return c && { ...r, [`rnd${k}`]: { args: before.records[c].args, tag: false } }; };
+  const gone = (r, id) => { const out = Tree.dependents(r, [id]); return Object.fromEntries(Object.entries(r).filter(([x]) => !out.has(x))); };
+  const kinds = [
+    r => set(r, pick(ids(r, x => x.edge === 'Percentage')), { value: pct() }),
+    r => { const id = pick(ids(r, x => 'tag' in x)); return set(r, id, { tag: !r[id].tag }); },
+    r => set(r, pick(ids(r, x => x.edge === 'Entity Type')), { choice: pick(['Limited Partnership', 'Limited Liability Company', 'Corporation']) }),
+    r => set(r, pick(ids(r, x => x.edge === 'Investment Company Status')), { choice: pick(['3(c)(7) Fund', 'Business Development Company', '3(c)(1) Fund']) }),
+    r => { const id = pick(ids(r, x => x.edge === 'Name')); return set(r, id, { value: `${r[id].value} II` }); },
+    r => { const own = pick(ids(r, x => x.tag && x.args?.some(a => a.edge === 'Owner'))); return own && { ...r, [`rnd${k}`]: { at: own, edge: 'Voting Percentage', field: 'percent', value: pct() } }; },
+    r => { const ents = ids(r, x => x.kind === 'Entity'), a = pick(ents), b = pick(ents); return a !== b && { ...r, [`rnd${k}`]: { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true },
+      [`rnd${k}p`]: { at: `rnd${k}`, edge: 'Percentage', field: 'percent', value: pct() } }; },
+    r => gone(r, pick(ids(r, x => x.args?.some(a => a.edge === 'Owner')))),
+    r => { const id = `rnd${k}`; return { ...r, [id]: { kind: 'Entity' }, [`${id}n`]: { at: id, edge: 'Name', field: 'text', value: `Random Holdings ${k}, LLC` },
+      [`${id}o`]: { args: [{ edge: 'Owner', at: pick(ids(r, x => x.kind === 'Entity')) }, { edge: 'Owned', at: id }], tag: true }, [`${id}p`]: { at: `${id}o`, edge: 'Percentage', field: 'percent', value: 0.6 } }; },
+    r => gone(r, pick(ids(r, x => x.kind === 'Entity'))),
+    ruleOut('def_control'), ruleOut('def_affiliated'),
+  ];
+  const said = R => JSON.stringify([Object.entries(R.records), R.computed, R.covered, R.errors, R.rows, R.keptAside]);
+  const differ = [];
+  let edits = 0, again = 0;
+  for (; k < 60; k++) {
+    const r = pick(kinds)(recs);
+    if (!r) continue;
+    const A = Formulas.computeState(r, defs, names, before), B = Formulas.computeState(r, defs, names, null);
+    edits++;
+    again += A.steps.some(s => s.live !== undefined);
+    if (said(A) !== said(B) || Object.keys(B.computed).some((id, i) => i % 7 === 0 && JSON.stringify(Formulas.ground(A, id)) !== JSON.stringify(Formulas.ground(B, id)))) differ.push(k);
+    recs = r;
+    before = A;
+  }
+  check(`Random edits to the sample, each worked out again from the last, agree with the chart worked out from nothing`, edits > 40 && !differ.length,
+    `${edits} edits, ${differ.length ? `edit ${differ.join(', ')} differ` : 'none differ'}`);
+  check('…most of them working a group out again, not from nothing', again > edits / 2, `${again} of ${edits}`);
+}
+
 // ---- Renaming, text, and what a definition uses ----
 
 function renaming() {
@@ -466,7 +530,7 @@ function renaming() {
 }
 
 function runAll() {
-  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, renaming]) {
+  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, workedOutAgain, renaming]) {
     try { f(); } catch (e) { check(`${f.name} stopped`, false, `${e.message} ${e.stack.split('\n')[1]}`); }
   }
   const failed = out.filter(x => !x.ok).length;

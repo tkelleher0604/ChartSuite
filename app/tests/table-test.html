@@ -255,7 +255,7 @@ async function run() {
   // ---- The Ownership table, and a closing schedule pasted from Excel ----
   await addTable('Relations', 'Ownership');
   const own = Shell.view.peek(), ownRows = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).length;
-  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Voting Percentage');
+  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Percentages In Range,Voting Percentage', Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
   Shell.at({ asOf: '2026-11-02' }); await tick(100);
   n0 = N();
   const rows0 = Table.grid.getRows().length;
@@ -332,7 +332,7 @@ async function run() {
   const jul9 = Time.events.peek().find(e => e.day === '2024-07-09');
   check('Each day is said in the chart’s words: whose in words, not arrows', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP, general partner of Offshore Feeder'), JSON.stringify(jul9?.items));
   const whose = Object.fromEntries(Table.model(views().find(v => v.rows === 'date').id).data.map(r => [r.f1 + '|' + r.f2, true]));
-  check('Dates says whose in words: AIV-1, tax year 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
+  check('Dates says whose in words: AIV-1, taxed for 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, taxed for 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
   // The list of days opens on the day shown, or the last of the chart's days before it.
   Shell.at({ asOf: '2024-01-15' }); await tick(60);
   $('.titlebar .asof .dd').click(); await tick(200);

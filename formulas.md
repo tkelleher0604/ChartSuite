@@ -48,6 +48,13 @@ On the sample:
 - it's ruled out on Northpine (64% plus 12%), Halvard (82%) and the BDC (7%), whose other owners aren't charted;
 - individuals and investor groups have no owners, so the IF gives nothing and nothing is recorded.
 
+A percentage typed as 150% or −5% is kept as typed, and a rule says what's wrong with it. A tag **Percentages In Range**, at Ownership, rules out a holding whose Percentage or Voting Percentage is below 0% or above 100%, by the row that finds it, and says nothing elsewhere:
+
+| Label | Row |
+| --- | --- |
+| Percentage | `= IF(Percentage < 0 OR Percentage > 100%, FALSE)` |
+| Voting Percentage | `= IF([Voting Percentage] < 0 OR [Voting Percentage] > 100%, FALSE)` |
+
 ### Default tax classification, overridden by an election
 
 A choice **Tax Classification**, at Entity Type:
@@ -149,7 +156,7 @@ A tag relation **Affiliated Person** has edges Affiliate and Person (each an Ent
 - **(C)** reads as the statute does: controls, is controlled by, or is under common control with. Control is already direct or indirect.
 - **(D)** covers recorded officers, directors and employees, and general partners. SEC staff also count limited partners as partners, and as copartners of the general partner (IM Guidance Update 2014-12). Each would be one more `OR`.
 - **(E)** applies only when the Person is an investment company.
-- **(F)** is the depositor of an unincorporated investment company with no board. The sample has a Depositor relation and no depositors, so the list is empty. Its NOT is allowed: Positions aren't on the loop.
+- **(F)** is the depositor of an unincorporated investment company with no board. The sample's Depositor relation is at a unit investment trust, the investment company that has one, and records none, so the list is empty. Its NOT is allowed: Positions aren't on the loop.
 
 (A), (B) and (C) run both ways, while (D), (E) and (F) run one way: a director is an affiliated person of the fund, but the fund isn't an affiliated person of its director. Because Affiliate and Person are separate edges, that direction comes for free. A person is never its own affiliate: a tag relation skips candidates that use one object twice, since a thing doesn't stand to itself as a tag relation says two things stand.
 
@@ -250,17 +257,17 @@ Due dates are worked out from what's entered, each from when its obligation was 
 | --- | --- |
 | Each year on the register, from the year of the last payment | `← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company"} AND Taxpayer.[Vehicle Type] <> "Portfolio Company" AND [Tax Year].Year >= YEAR(MAX(Taxpayer.Jurisdiction.[Annual Tax Paid], Taxpayer.[Formation Date]))` |
 
-The tax is owed for every year the entity is on the register, and a payment settles the years before the one it's made in. At each, **Annual Tax Due** is `= WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1)`, and **Annual Tax Amount** has two rows, "From tax year 2026", `= IF([Tax Year].Year >= 2026, $400)`, and "Through tax year 2025", `= $300`. From the entity's side its list is **Delaware Annual Tax**.
+The tax is owed for every year the entity is on the register, and a payment settles the years before the one it's made in. At each, **Annual Tax Due** is `= WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1)`, and **Annual Tax Amount** has two rows, "From tax year 2026", `= IF([Tax Year].Year >= 2026, $400)`, and "Through tax year 2025", `= $300`. From the entity's side its list is **Taxed For**.
 
 The AIV, formed February 11, 2025, has paid nothing, so it owes 2025, due June 1, 2026 and overdue, and 2026, due June 1, 2027. With the six that paid for 2025 in May 2026, seven are due June 1, 2027, $2,800 in all. The reason for the AIV's 2025 is the facts that set it, "… Formation Date February 11, 2025 · Annual Tax Paid —": MAX's reason is the date it chose, and every argument that was nothing.
 
-**A fiscal year.** Fiscal Year End is a date, the end of the entity's first fiscal year, and a rule reads its month and day. The Form ADV annual updating amendment is due within 90 days after the fiscal year after the one the last annual amendment covered:
+**A fiscal year.** Fiscal Year End is a day of the year, December 31, with no year, and a rule reads its month and day. The Form ADV annual updating amendment is due within 90 days after the fiscal year after the one the last annual amendment covered:
 
 | Label | Row |
 | --- | --- |
 | 90 days after the fiscal year | `= WORKDAY(LET(fye, [Fiscal Year End], last, MAX([Last Annual Amendment], [Registered On]), end, DATE(YEAR(last), MONTH(fye), DAY(fye)), IF(end < last, EDATE(end, 12), end)) + 89, 1)` |
 
-An interim amendment isn't a Last Annual Amendment, so it doesn't move the date: March 31, 2027 for the management company. Form PF reads its Last Annual Update the same way, with 120 days, and the feeder's audited accounts and Fund Annual Return its Audited Accounts Filed, with six months. With no fiscal year end, the date isn't a date and WORKDAY gives `#VALUE!`, rather than nothing; a fiscal year ending June 30 gives September 28, 2026.
+An interim amendment isn't a Last Annual Amendment, so it doesn't move the date: March 31, 2027 for the management company. Form PF reads its Last Annual Update the same way, with 120 days, and the feeder's audited accounts and Fund Annual Return its Audited Accounts Filed, with six months. With no fiscal year end the deadline is `#N/A`, "Needs Fiscal Year End.", rather than nothing; a fiscal year ending June 30 gives September 28, 2026.
 
 ## Writing formulas
 
@@ -320,7 +327,7 @@ So a missing percentage leaves a look-through through it unknown, rather than sm
 | `KIND(x)` | x's kind, as text. |
 | `OBJECT(name)` | The object whose Name is the text, without regard to case: nothing if there's none, `#VALUE!` if there are several. |
 | `WITHOUT(x, expression)` | The expression, worked out as if x and everything that depends on it weren't in the chart, with every computed record worked out again. For counterfactuals like §57(b)(2)'s carve-out. It can't read the definition it's in, since that's always a loop. |
-| `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, `YEARFRAC`, `EDATE`, `EOMONTH`, and text functions | As in Excel. |
+| `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, `YEARFRAC`, `EDATE`, `EOMONTH`, and text functions | As in Excel. A day of the year, as a fiscal year ends on, has a `MONTH` and a `DAY` and no `YEAR`, and isn't counted from. |
 | `WORKDAY(date, days)` | As in Excel, without holidays. `WORKDAY(d - 1, 1)` is the first working day on or after d, where a deadline falling on a weekend moves to. |
 
 ### Errors
@@ -404,7 +411,7 @@ This restates the above in the terms of data-model.md.
 - **Where a row can give something.** A relation between two kinds of object has a candidate for every pair, and most pairs come to nothing. So for one argument, given the others, the engine reads off a row's form where it can give something, and tries just the candidates there, the way a database joins tables. `Controller IN Controlled.[General Partners]` holds just for the general partners, and needs no working out; the look-through's row gives something only where the investor owns the investment, or a holding looks through to it. Where the form doesn't tell, every candidate is tried.
 - **What changed.** Each row worked out remembers what it read, so a round works out again only what read something the round before changed.
 - **On demand.** A ground is worked out when it's asked for, by working the row out again at its record, as of its stage. So is the formula bar's view of a row: each name's records there, and each part's value.
-- **How fast.** [perf-test.html](app/tests/perf-test.html) works out the sample in about 15 ms, and a change to it, compared with the state before, in about 10 ms, so the redline can follow every keystroke. With 100 more entities in layers it takes about 0.3 seconds, and with 200 (about 68,000 computed records) about 1.1 seconds.
+- **How fast.** [perf-test.html](app/tests/perf-test.html) works out the sample in about 20 ms, and a change to it, compared with the state before, in about 10 ms, so the redline can follow every keystroke. With 100 more entities in layers it takes about 0.1 seconds, and with 200 (about 11,000 computed records) about 0.3. A change is worked out from the working-out before: a group of definitions the change doesn't reach comes back as it was, and one it reaches is worked out again only at the candidates whose rows read something the change reached, and at what those reach in turn, round by round. So at 200 more entities an edit to a value no formula reads takes about 20 ms, one the formulas read 0.1 to 0.2 seconds, and the preview of a ruling-out, worked out and compared, about 0.1 seconds; the ruling then starts from the preview.
 
 ## What it can't express
 

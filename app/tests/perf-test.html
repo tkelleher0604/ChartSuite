@@ -27,8 +27,10 @@
 // Then edits at the most, each worked out again from the working-out before, as the app does: each must
 // agree with the same chart worked out from nothing, in every record, value, stage, row, error and ground,
 // and one that reaches few formulas must take under 100 ms. Then scenes of it after edits, which must agree
-// with scenes drawn afresh. Then the redline: one edit worked out and compared with the state before it, as
-// the preview does on every keystroke, in under 50 ms on the sample.
+// with scenes drawn afresh. Then what a person does at the most, as the app does it: hovering a tag previews
+// ruling it out in under 150 ms, and the ruling, or an edit to a value, is committed and worked out in under
+// 300 (the scene each draws is reported). Then the redline: one edit worked out and compared with the state before it, as the preview does
+// on every keystroke, in under 50 ms on the sample.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
@@ -116,6 +118,41 @@ function scenes(n) {
   return lines;
 }
 
+// The chart grown by n, in a workbook, as a person works on it: hovering the U.S. investors' ownership tag
+// previews ruling it out, the change worked out from the chart's working-out and compared with it, as the formula
+// bar's redline does; clicking it commits the change, worked out again from the preview's working-out; and so is
+// an edit to a value after it. Each is drawn after, as the app draws it.
+function actions(n) {
+  const wb = Log.open(SAMPLE), C = CHART, V = 'view_main';
+  const edit = f => { const tx = wb.edit({ chart: C, who: 'perf' }); f(tx); const c = tx.commit(); if (typeof c === 'string') throw new Error(c); };
+  const inputs = () => { const S = wb.schema(C), N = wb.notes(C); return [wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S), schema: S }]; };
+  const draw = R => Scene.of(wb, C, V, DAY, { state: R.records, computed: R });
+  const timed = f => { const t = performance.now(), v = f(); return [v, performance.now() - t]; };
+  edit(tx => { for (const [id, r] of Object.entries(grown({}, n))) if (id.startsWith('x_')) tx.add('record', r, id); });
+  let R = Formulas.computeState(...inputs(), null);
+  draw(R);
+  // The best of three, each from the chart's working-out: before the second and third, the chart as it stands
+  // is worked out from it again (at once, nothing having changed), so each starts from it, not from the preview
+  // before. The ruling follows the last.
+  const [entered, defs, names] = inputs(), ruled = { ...entered, own_us_fund: { ...entered.own_us_fund, tag: false } };
+  let hover = Infinity, d = null;
+  for (let i = 0; i < 3; i++) {
+    if (i) Formulas.computeState(entered, defs, names, R);
+    const [x, ms] = timed(() => Formulas.diff(R, Formulas.computeState(ruled, defs, names, R)));
+    if (ms < hover) [hover, d] = [ms, x];
+  }
+  check(`At +${n}, hovering a tag previews ruling it out, worked out and compared, in under 150 ms`, hover < 150,
+    `${hover.toFixed(0)} ms: ${d.appear.length} appear, ${d.go.length} go, ${d.change.length} change`);
+  const lines = [`+${n}, hovering the U.S. investors' ownership tag: ${hover.toFixed(0)} ms`];
+  for (const [what, f] of [['the ruling', tx => tx.update('own_us_fund', { tag: false })], ['an edit to a value (an EIN)', tx => tx.update('fund_ein', { value: '92-2222222' })]]) {
+    const [, ms] = timed(() => { edit(f); R = Formulas.computeState(...inputs(), R); });
+    const [, drawn] = timed(() => draw(R));
+    check(`At +${n}, ${what} is committed and worked out in under 300 ms`, ms < 300, `${ms.toFixed(0)} ms, ${R.steps.filter(s => !s.kept).length} groups worked out again`);
+    lines.push(`+${n}, ${what}: ${ms.toFixed(0)} ms committed and worked out, ${drawn.toFixed(0)} ms drawn`);
+  }
+  return lines;
+}
+
 // Ruling out Okafor's presumed control of GP III, worked out and diffed against the sample as it was.
 function redline() {
   const before = workOut();
@@ -142,7 +179,7 @@ function run() {
   }
   for (const [size, target, what] of [[0, 50, 'the sample'], [100, 500, '100 more entities'], [200, 500, '200 more entities']])
     if (times.has(size)) check(`Works out ${what} in under ${target} ms`, times.get(size) < target, `${times.get(size).toFixed(0)} ms`);
-  lines.push('', ...edits(n), '', ...scenes(n));
+  lines.push('', ...edits(n), '', ...scenes(n), '', ...actions(n));
   const r = redline();
   check('Previews a ruling-out on the sample, worked out and compared, in under 50 ms', r.ms < 50,
     `${r.ms.toFixed(1)} ms: ${r.d.appear.length} appear, ${r.d.go.length} go, ${r.d.change.length} change`);

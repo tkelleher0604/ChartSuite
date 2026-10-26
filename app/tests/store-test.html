@@ -122,7 +122,7 @@ async function browser() {
 
   const again = await Store.open({ id: book.id });
   check('reopened, the workbook is as it was', again !== wb && JSON.stringify(again) === JSON.stringify(wb));
-  check('… and Undo still knows the last change', again.undo('Dana Jordan', C)?.reverses === c.id && again.asOf(C).fund_ein.value === '92-4810337');
+  check('… and its last change can still be reversed', again.reverse(c.id, 'Dana Jordan')?.reverses === c.id && again.asOf(C).fund_ein.value === '92-4810337');
   const t = await tab(), twb = await t.Store.open();
   check('a new tab opens the workbook last open', t.Store.where().name === 'Calder Ridge Fund III structure' && ids(twb) === ids(again));
   const d = set(twb, 'fund_ein', '22-2222222', 'Ann Lee');

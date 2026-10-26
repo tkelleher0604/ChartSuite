@@ -166,7 +166,7 @@ const Table = (() => {
   // ---- How cells read, copy and edit ----
   const NUMERIC = new Set(['number', 'percent', 'money']);
   const text = (type, v) => v === null || v === undefined ? '' : type === 'tag' ? (v ? 'Yes' : 'No')
-    : type === 'date' ? Tree.formatDate(v, 'short') : type === 'document' || NUMERIC.has(type) ? Tree.format(type, v) : String(v);
+    : type === 'date' ? Tree.formatDate(v, 'short') : Tree.format(type, v);
   // What a cell copies and exports as: a document as its address, so the link survives.
   const plain = (type, v) => type === 'document' ? String(v ?? '') : type === 'date' ? (v ? Tree.formatDate(v) : '') : text(type, v);
   const typing = (type, v) => v === null || v === undefined ? '' : type === 'date' ? Tree.formatDate(v) : type === 'document' ? String(v) : text(type, v);
