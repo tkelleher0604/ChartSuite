@@ -432,6 +432,9 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
   // Arrow Auto: an arrowhead where the line doesn't run down from its Above side.
   for (const l of lines) if (l.settings.Arrow.value === 'auto') l.settings.Arrow = { value: l.down ? 'none' : 'end', note: l.settings.Arrow.note };
+  // Lines landing on one frame along one route are drawn once: the first stands for the rest, which stay
+  // known by id, `merged` into it.
+  for (const ls of groupBy(lines.filter(l => l.landed), l => `${l.trunk}|${JSON.stringify(l.points)}`).values()) for (const l of ls.slice(1)) l.merged = ls[0].id;
 
   // Free shapes: the view's own, each with its own formats.
   const geo = new Map(boxes.map(b => [b.id, b]));
@@ -462,11 +465,11 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
   const marksInOrder = [
     ...[...frames.values()].sort((a, b) => depthOf(frames, a) - depthOf(frames, b)),
-    ...lines.sort((a, b) => layer(a) - layer(b)),
+    ...lines.filter(l => !l.merged).sort((a, b) => layer(a) - layer(b)),
     ...boxes.sort((a, b) => layer(a) - layer(b)),
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
-  for (const m of marksInOrder) { delete m.cand; delete m.ends; }
+  for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.ends; }
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, ms: now() - started };
   if (!opts.redline && !opts.reveal) latest.set(view, scene);
   return scene;
@@ -510,7 +513,8 @@ function lineText(r, format, name) {
 // canvas draws while a drag goes on. The scene itself is left as it was.
 function reflow(scene, rects) {
   const boxes = scene.marks.filter(m => m.type === 'box').map(b => ({ ...b, ...rects.get(b.id) }));
-  const lines = scene.marks.filter(m => m.type === 'line');
+  // Every line, those merged into another too, so they land on their frames as before.
+  const lines = [...scene.byId.values()].filter(m => m.type === 'line');
   const frames = new Map(scene.marks.filter(m => m.type === 'frame')
     .map(f => [f.id, { ...f, caption: { ...f.caption, lines: f.caption.lines.map(l => ({ ...l })) } }]));
   frameBounds(frames, boxes);

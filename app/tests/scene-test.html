@@ -212,9 +212,10 @@ function run() {
     const f = scene(wb, 'view_40act'), frames = f.marks.filter(m => m.type === 'frame');
     check('40 Act frames the affiliates by kind, outputs captioned alike sharing a frame', j(frames.map(m => m.caption.text).sort())
       === j(['Adviser and sponsor entities', 'Directors, officers and employees', 'Funds', 'Portfolio companies and blockers', 'Remote affiliate']), j(frames.map(m => m.caption.text)));
-    const funds = frames.find(m => m.caption.text === 'Funds'), toFunds = f.marks.filter(m => m.type === 'line' && funds.members.includes(m.to));
-    check('a box’s lines to every box in a frame land on the frame, as one', toFunds.length === 5 && toFunds.every(l => j(l.points) === j(toFunds[0].points) && Math.abs(l.points.at(-1)[0] - funds.x) < 0.5),
-      j(toFunds.map(l => l.points.at(-1))));
+    const funds = frames.find(m => m.caption.text === 'Funds'), toFunds = [...f.byId.values()].filter(m => m.type === 'line' && funds.members.includes(m.to));
+    const drawn = toFunds.filter(l => f.marks.includes(l));
+    check('a box’s lines to every box in a frame land on the frame, drawn as one', toFunds.length === 5 && toFunds.every(l => j(l.points) === j(toFunds[0].points) && Math.abs(l.points.at(-1)[0] - funds.x) < 0.5)
+      && drawn.length === 1 && toFunds.every(l => l === drawn[0] || l.merged === drawn[0].id), j(toFunds.map(l => [l.id, l.merged])));
     check('a relation’s frame frames its lower end: the remote affiliate', j(frames.find(m => m.caption.text === 'Remote affiliate').members) === j(['pension']));
     check('the hub is a normal width', f.byId.get('bdc').w === 220);
 

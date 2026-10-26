@@ -323,13 +323,22 @@ function route(geo, lines, { frames = [], labels = true } = {}) {
   // How far short of what it reaches a lane must stop: room for the label beside the last leg, and for a
   // line meeting a triangle's side, 16 pt clear of its apex.
   const short = l => l.flank ? CLEAR : Math.max(STEM, l.label ? l.label.h + 5.3 + 4 : 0);
+  // Level runs already fixed, which a lane keeps 12 pt from where they overlap: a trunk's along its box's
+  // side, and a line from side to side.
+  const fixed = [...trunks.filter(t => t.flankSide).map(t => ({ y: t.laneY, x0: t.span[0], x1: t.span[1] })),
+    ...lines.filter(l => l.dir === 'side' && l.y !== undefined).map(l => { const xs = [G(l.from), G(l.to)].flatMap(g => [g.x, g.x + g.w]).sort((a, b) => a - b); return { y: l.y, x0: xs[1], x1: xs[2] }; })];
   for (const t of trunks) {
     const s = G(t.from), lanes = laneOf.get(t)?.lanes ?? 1;
     if (t.flankSide) {
       // Already placed, along the box's side.
     } else if (t.dir === 'down') {
-      const limit = Math.min(...t.ls.map(l => l.ty - short(l))) - LANE * (lanes - 1 - t.lane);
-      t.laneY = Math.max(t.edge + 8 + Math.min(LANE, 8) * t.lane, Math.min(t.edge + 18 + LANE * t.lane, limit));
+      const limit = Math.min(...t.ls.map(l => l.ty - short(l))) - LANE * (lanes - 1 - t.lane), floor = t.edge + 8 + Math.min(LANE, 8) * t.lane;
+      t.laneY = Math.max(floor, Math.min(t.edge + 18 + LANE * t.lane, limit));
+      for (const f of fixed) {
+        if (Math.min(f.x1, t.span[1]) - Math.max(f.x0, t.span[0]) < 4 || Math.abs(t.laneY - f.y) >= LANE) continue;
+        if (f.y + LANE <= limit) t.laneY = f.y + LANE;
+        else if (f.y - LANE >= floor) t.laneY = f.y - LANE;
+      }
     } else if (s.shape !== 'triangle') {
       const limit = Math.max(...t.ls.map(l => l.ty + short(l))) + LANE * (lanes - 1 - t.lane);
       t.laneY = Math.min(t.edge - 8 - Math.min(LANE, 8) * t.lane, Math.max(t.edge - 18 - LANE * t.lane, limit));
@@ -436,6 +445,13 @@ function placeLabels(geo, lines, all = lines) {
     const base = lab.base ?? h * 0.8;
     const spots = [];
     if (l.lane) for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) spots.push({ x: l.lane.x0 + (l.lane.x1 - l.lane.x0) * f - w / 2, y: l.lane.down ? l.lane.y - h - 2 : l.lane.y + 2 });
+    // Lines that meet at an apex share its last leg; one that joins it along a lane says what it says on
+    // the lane, just short of where it joins.
+    const join = legs.length > 1 && l.apex && l.crowd > 1 && !upright(legs[legs.length - 2]) ? legs[legs.length - 2] : null;
+    if (join) {
+      const fromLeft = join.b[0] > join.a[0], x = fromLeft ? join.b[0] - w - 6 : join.b[0] + 6;
+      spots.push({ x, y: join.b[1] - h - 2 }, { x, y: join.b[1] + 3 });
+    }
     if (upright(last)) {
       const down = last.b[1] > last.a[1], x = last.b[0] + 4;
       const y0 = down ? last.b[1] - 5.3 - base : last.b[1] + 5.3;
