@@ -21,6 +21,8 @@
   #out { position: fixed; z-index: 99; left: 8px; bottom: 8px; max-width: 900px; max-height: 60vh; overflow: auto; margin: 0; padding: 10px 12px;
     background: #111; color: #e6e4df; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
   #out .fail { color: #ff8a80; }
+  /* A step's glide is a transition, which a page run on virtual time may never advance: here it lands at once. */
+  .tour-hole.glide, .tour-card.glide { transition: none !important; }
 </style>
 </head>
 <body>
