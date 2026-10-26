@@ -33,13 +33,9 @@
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='10'%3E%3Cpath d='M4 1v8M1 6l3 3 3-3' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center; }
 .grid .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter::after { transform: rotate(180deg); }
 
-/* Filtering: a dropdown in the heading, as Excel's; a column filtered is underlined in the accent. */
+/* Filtering: a dropdown at the heading's right edge, as Excel's, a column of figures' too, its heading set
+   right before it; a column filtered is underlined in the accent. */
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter { position: absolute; right: 4px; bottom: 4px; width: 20px; margin: 0; }
-/* A column of figures has its heading flush right over them, and its filter and sort on the heading's other side. */
-.grid .tabulator .tabulator-header .tabulator-col:is(.c-number, .c-percent, .c-money) .tabulator-col-title { padding: 0 0 0 22px; }
-.grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable:is(.c-number, .c-percent, .c-money) .tabulator-col-title { padding: 0 0 0 38px; }
-.grid .tabulator .tabulator-header .tabulator-col:is(.c-number, .c-percent, .c-money) .tabulator-col-content .tabulator-col-sorter { left: 26px; right: auto; }
-.grid .tabulator .tabulator-header .tabulator-col:is(.c-number, .c-percent, .c-money) .tabulator-header-filter { left: 4px; right: auto; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input { width: 20px !important; height: 20px; padding: 0 !important; border: 0; border-radius: var(--r); color: transparent; background: transparent var(--chev) no-repeat center; cursor: default; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:hover { background-color: var(--press); }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter:focus-within { left: 4px; right: 4px; width: auto; bottom: 2px; z-index: 2; }

@@ -266,18 +266,20 @@ async function run() {
   Shell.at(null); await tick();
 
   // Required, and attention
-  const blanks = Shell.parts.value.attention.items().filter(i => i.kind === 'blank');
+  const blanks = Shell.parts.value.attention.flatMap(a => a.items()).filter(i => i.kind === 'blank');
   check('blank required entries feed attention', blanks.length > 0, blanks.length);
   blanks[0]?.go(); await tick(60);
   check('…and going to one shows it, marked', !!$('i.req'));
   // An error is no record: going to one selects the record it's at, its formula asked why
   const fye = Object.keys(st()).find(k => st()[k].at === 'mgmt' && st()[k].edge === 'Fiscal Year End');
   App.change(tx => tx.remove(fye)); await tick(60);
-  const errs = Shell.parts.value.attention.items().filter(i => i.kind === 'error'), asked = [], offAsk = Shell.on('why-open', d => asked.push(d));
-  errs[0]?.go(); await tick(60); offAsk();
+  // (A check failed is an error too, app.js's: each is gone to until one is the formula's.)
+  const errs = Shell.parts.value.attention.flatMap(a => a.items()).filter(i => i.kind === 'error'), asked = [], offAsk = Shell.on('why-open', d => asked.push(d));
+  for (const e of errs) { asked.length = 0; e.go(); await tick(60); if (Shell.selection.value[0] === 'mgmt') break; }
+  offAsk();
   check('going to an error selects the record it’s at, and asks its formula why', errs.length > 0 && Shell.selection.value[0] === 'mgmt' && asked.length === 1 && !!App.computed.value.errors.find(e => e.id === asked[0]),
     `${errs.length} errors; ${Shell.selection.value}; ${asked}`);
-  check('… where the error shows in place of the value, focused, saying what it needs', document.activeElement?.matches('.insp .errv') && $$('.errv').length === errs.length
+  check('… where the error shows in place of the value, focused, saying what it needs', document.activeElement?.matches('.insp .errv') && $$('.errv').length === App.computed.value.errors.length
     && $$('.errv').every(b => b.textContent === 'Needs Fiscal Year End' && b.dataset.tip?.startsWith('#')), $$('.errv').map(b => `${b.textContent} [${b.dataset.tip}]`).join(' | '));
   Shell.parts.value.undo.undo(); await tick(60);
 
@@ -334,7 +336,7 @@ async function run() {
   Shell.select(['bdc']); Shell.at({ asOf: '2026-10-26' }); await tick(60);
   const formD = rowOf('Form D Due');
   check('a due date within 30 days is amber, and says so', !!formD?.querySelector('.hug.soon') && /due soon$/.test(formD.querySelector('input').getAttribute('aria-label')));
-  check('… and attention counts it', Shell.parts.value.attention.items().some(i => i.kind === 'soon'));
+  check('… and attention counts it', Shell.parts.value.attention.flatMap(a => a.items()).some(i => i.kind === 'soon'));
   const filing = formD.querySelector('.btn.ver.filed');
   check('… its filing always shown, not only on hover', filing?.classList.contains('due') && getComputedStyle(filing).opacity === '1');
   formD.querySelector('.btn.ver').click(); await tick(80);
