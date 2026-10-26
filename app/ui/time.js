@@ -12,13 +12,33 @@ const Time = (() => {
   const list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   const viewTree = id => ({ id, kind: 'View' });
 
-  // What a record is, as the chart says it: [what, whose].
-  function said(recs, id, N) {
+  // What a record is, as the chart says it: [what, whose], whose as a step (Fund III → Northpine) or, worded,
+  // in words (see whose).
+  function said(recs, id, N, worded = false) {
     const r = recs[id];
     if (!r) return ['', ''];
     if (Tree.isObject(r)) return [r.kind, N.nameOf(recs, id)];
-    if (r.args) return [N.nameOf(recs, id), N.segmentOf(recs, id)];
-    return [r.edge, recs[r.at] ? N.placeOf(recs, r.at) : ''];
+    if (r.args) return [N.nameOf(recs, id), worded ? whose(recs, id, N) : N.segmentOf(recs, id)];
+    return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : N.placeOf(recs, r.at)];
+  }
+  // Whose a record is, in words, for a list of dates: an object by its short name, with what it's under in
+  // parentheses (AIV-1 Blocker (Delaware); The Manager (Registered Investment Adviser)); a relation by its first
+  // side, with its option (Margaret A. Chen (Director), The BDC), then each other side by its list's name where
+  // that's a phrase (GP III, general partner of Fund III; via GP III) or the kind it names (AIV-1, tax year 2025).
+  const PHRASE = /\s(of|for|by|to|with)$|^via$/i;
+  function whose(recs, id, N = App.notes.peek()) {
+    const [head, ...under] = Tree.pathOf(recs, id), r = recs[head];
+    if (!r) return '';
+    const within = (lead, qs) => qs.length ? `${lead} (${qs.join(', ')})` : lead;
+    const step = x => { const s = recs[x]; return Tree.isChoice(s) ? s.choice : Tree.isTag(s) && !s.tag ? `not ${s.edge}` : s.edge; };
+    if (!r.args) return within(N.shortOf(recs, head), under.map(step));
+    const t = Tree.treeOf(recs, head), [first, ...others] = N.sides(recs, head).filter(Boolean), obj = a => Tree.objectOf(recs, a.at);
+    if (!first) return N.nameOf(recs, head);
+    const side = a => {
+      const list = t && N.listName(t, a.edge), name = N.shortOf(recs, obj(a));
+      return list && PHRASE.test(list) ? `${list.toLowerCase()} ${name}` : Tree.same(recs[obj(a)]?.kind ?? '', a.edge) ? `${a.edge.toLowerCase()} ${name}` : name;
+    };
+    return within([within(N.shortOf(recs, obj(first)), Tree.isChoice(r) ? [r.choice] : []), ...others.map(side)].join(', '), under.map(step));
   }
   // Every version of every record a log's rows hold, the latest standing for each.
   function recordsOf(rows) {
@@ -30,18 +50,15 @@ const Time = (() => {
     return recs;
   }
 
-  // ---- The chart's days: when something starts or ends ----
+  // ---- The chart's days: when something starts or ends, or a date entered says something happened ----
   const events = computed(() => {
     App.version.value;
     const c = App.chart.value, wb = App.shown.value, N = App.notes.value;
     if (!c) return [];
     const rows = wb.rows(c).filter(r => 'record' in r), recs = recordsOf(rows), out = new Map();
     const add = (d, [what, of]) => { if (!out.has(d)) out.set(d, new Map()); out.get(d).set(what + '·' + of, { what, of }); };
-    for (const r of rows) for (const d of [r.since, r.before]) if (d) add(d, said(recs, r.record, N));
-    for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) {
-      const t = Tree.treeOf(recs, r.record);
-      if (t && (N.isStart(t) || N.isEnd(t))) add(r.value, [r.edge, N.placeOf(recs, r.at)]);
-    }
+    for (const r of rows) for (const d of [r.since, r.before]) if (d) add(d, said(recs, r.record, N, true));
+    for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) add(r.value, [r.edge, whose(recs, r.at, N)]);
     return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([day, m]) => ({ day, items: [...m.values()] }));
   });
   // The shell draws the date's popover and the strip under the view from these.
@@ -88,8 +105,12 @@ const Time = (() => {
     const listRef = useRef();
     useEffect(() => { opened.value = true; return () => { opened.value = false; }; }, []);
     useEffect(() => { setMonth(day.slice(0, 7)); setText(null); }, [day]);
-    // Once the popover shows, the day shown is brought into view in the list.
-    useEffect(() => { const f = requestAnimationFrame(() => { const l = listRef.current, el = l?.querySelector('[aria-pressed="true"]'); if (el) l.scrollTop = el.offsetTop - l.clientHeight / 2 + el.offsetHeight / 2; }); return () => cancelAnimationFrame(f); }, [day]);
+    // Once the popover shows, the day shown, or the last of the chart's days before it, is brought into view in
+    // the list, which runs back from the latest.
+    useEffect(() => {
+      const l = listRef.current, rows = l ? [...l.querySelectorAll('[data-day]')] : [], el = rows.find(r => r.dataset.day <= day) ?? rows.at(-1);
+      if (el) l.scrollTop = el.offsetTop - l.clientHeight / 2 + el.offsetHeight / 2;
+    }, [day]);
     const marked = new Set(evs.map(e => e.day));
     const years = [...new Set(evs.map(e => e.day.slice(0, 4)))].sort().reverse();
     const view = App.views.value.find(v => v.id === Shell.view.value);
@@ -107,8 +128,8 @@ const Time = (() => {
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />
         <div class="date-days" ref=${listRef}>
           ${years.map(y => html`<div class="yr">${y}</div>
-            ${y < today.slice(0, 4) ? html`<button class="dayrow end" aria-pressed=${day === `${y}-12-31`} onClick=${() => show(`${y}-12-31`)}><span class="d">Dec 31</span><span class="w muted">Year-end</span></button>` : null}
-            ${evs.filter(e => e.day.startsWith(y)).reverse().map(e => html`<button class="dayrow" aria-pressed=${e.day === day} onClick=${() => show(e.day)}>
+            ${y < today.slice(0, 4) && !marked.has(`${y}-12-31`) ? html`<button class="dayrow end" data-day=${`${y}-12-31`} aria-pressed=${day === `${y}-12-31`} onClick=${() => show(`${y}-12-31`)}><span class="d">Dec 31</span><span class="w muted">Year-end</span></button>` : null}
+            ${evs.filter(e => e.day.startsWith(y)).reverse().map(e => html`<button class="dayrow" data-day=${e.day} aria-pressed=${e.day === day} onClick=${() => show(e.day)}>
               <span class="d">${monthDay(e.day)}</span>
               <span class="w">${e.items.map(it => html`<span class="it"><b>${it.what}</b>${it.of ? html` · ${it.of}` : null}</span>`)}</span>
             </button>`)}`)}
@@ -361,5 +382,5 @@ const Time = (() => {
   }
   Shell.register('action', { id: 'history', name: 'History', menu: 'chart', order: 10, run: () => open.peek() ? close() : openHistory() });
 
-  return { events, describe, keep, open: openHistory, close };
+  return { events, whose, describe, keep, open: openHistory, close };
 })();
