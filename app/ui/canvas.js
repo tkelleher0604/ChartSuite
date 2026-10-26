@@ -449,20 +449,21 @@ function mount(el) {
   const viewOf = () => scene.view;
   const treeOf = id => Tree.treeOf(App.state.peek(), id);
   // Places for marks, written: a box's Position at its record in this view, a free shape's own place, kept
-  // on the page.
+  // on the page; each the chart's own, the page's less its offset (Scene's furnish).
+  const own = (x, y) => [round(x - scene.page.offset.x), round(y - scene.page.offset.y)];
   function place(tx, places) {
     const view = viewOf(), n = App.notes.peek(), page = scene.page;
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box') {
-        const old = n.position(treeOf(m.record), view);
-        tx.note('Position', treeOf(m.record), { x: round(Math.max(0, p.x)), y: round(Math.max(0, p.y)), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
+        const old = n.position(treeOf(m.record), view), [x, y] = own(Math.max(0, p.x), Math.max(0, p.y));
+        tx.note('Position', treeOf(m.record), { x, y, w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
       } else if (m.type === 'shape') {
-        const points = rowOf(id)?.points;
-        if (points) { tx.update(id, { x: round(p.x), y: round(p.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
-        const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
-        tx.update(id, { x: round(clamp(p.x, 0, page.w - w)), y: round(clamp(p.y, 0, page.h - h)), ...(p.w !== undefined && { w: round(w), h: round(h) }) });
+        const points = rowOf(id)?.points, [x, y] = own(p.x, p.y);
+        if (points) { tx.update(id, { x, y, ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
+        const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h), [cx, cy] = own(clamp(p.x, 0, page.w - w), clamp(p.y, 0, page.h - h));
+        tx.update(id, { x: cx, y: cy, ...(p.w !== undefined && { w: round(w), h: round(h) }) });
       }
     }
   }
@@ -639,7 +640,7 @@ function mount(el) {
     if (still() || !scene || !kind) return;
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     Shell.store.set('kind', kind);
-    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf();
+    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), [x, y] = own(p.x, p.y);
     openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, '', name => {
       name = Tree.clean(name);
       if (!name) return;
@@ -647,7 +648,7 @@ function mount(el) {
       if (!App.change(tx => {
         id = tx.add('record', { kind });
         tx.add('record', { at: id, edge: 'Name', field: 'text', value: name });
-        tx.note('Position', { id, kind }, { x: round(p.x), y: round(p.y), loose: true }, { view });
+        tx.note('Position', { id, kind }, { x, y, loose: true }, { view });
       })) return;
       if (relate) Shell.emit('relate-open', [relate, id]); else Shell.select([id]);
     }, { box: kind });
@@ -901,6 +902,9 @@ function mount(el) {
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
+    // Placed on the page, kept as the chart's own (see place).
+    if (row.x !== undefined) [row.x, row.y] = own(row.x, row.y);
+    if (row.points) row.points = row.points.map(([x, y]) => own(x, y));
     let id = null;
     if (!App.change(tx => { id = tx.add('shape', row); })) return null;
     Shell.select([id]);
@@ -951,7 +955,7 @@ function mount(el) {
   }
   // What's copied is marks of one view, and their names: pasting a box shows it, a shape is copied.
   let clip = null;
-  const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x, y: m.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
+  const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x - scene.page.offset.x, y: m.y - scene.page.offset.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
   function copy() {
     const c = marksNow();
     if (!c.items.length) return false;
