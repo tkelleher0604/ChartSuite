@@ -123,7 +123,7 @@ The window has three coordinates, and every screen is a setting of them:
 
 **The title bar** holds the chart menu (the workbook's charts and a new one, the workbooks this browser keeps, files, History, Settings, light and dark, the tour), Find, the date, Undo and Redo, and Export.
 
-**The format bar** shows on a chart. A scope chip names what a change applies to: the style that reaches the selection ("Feeder Fund"), or "This box". Its menu lists every style that reaches the selection.
+**The format bar** shows on a chart. A change applies to the selection, as in PowerPoint; a scope chip says so ("This box", "These 3 boxes"), and its menu offers each style that reaches the selection, with its reach ("All Funds (6)"). A choice pointed at is previewed on the chart.
 
 **The formula bar** is one row, as Excel's is: the selection's output, its name, and the row that gave it; with nothing selected, the view's name. Its definition's rows drop over the view (the chevron, or Ctrl+Shift+U), headed by why, in a sentence of the facts that fired, each one a link ("… is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person (§2(a)(3)(A)), so it is a remote affiliate (§57(e)(1)(A))"); the rows that hold are in ink and the rest grey. Each name in a row takes a color, and what it means here is outlined on the chart in that color; deeper reasons are the same hue, lighter, down to entered records, even ones the view hides. Hovering part of a formula shows its value here. Clicking a computed line steps down into the clause its parent cited, with a breadcrumb back. The definition is edited here.
 
