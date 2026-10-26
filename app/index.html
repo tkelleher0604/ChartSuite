@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>
+  // Before first paint: the theme, chosen or the system's; and the launch cover, once a tab, when Dendra is
+  // opened in a new tab or window that's in front (not on a reload, a return, or a background tab).
+  (() => {
+    const root = document.documentElement;
+    let theme = null;
+    try { theme = localStorage.getItem('dendra.theme'); } catch {}
+    root.dataset.theme = theme === 'light' || theme === 'dark' ? theme : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    try {
+      const nav = performance.getEntriesByType('navigation')[0];
+      const fresh = sessionStorage.getItem('dendra.launched') !== '1' && (!nav || nav.type === 'navigate') && document.visibilityState === 'visible';
+      sessionStorage.setItem('dendra.launched', '1');
+      if (fresh) root.dataset.splash = '';
+    } catch {}
+  })();
+</script>
+<link rel="stylesheet" href="../vendor/tabulator/tabulator.min.css">
+<link rel="stylesheet" href="../vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="../vendor/codemirror/show-hint.css">
+<link rel="stylesheet" href="../vendor/codemirror/lint.css">
+<link rel="stylesheet" href="css/dendra.css">
+</head>
+<body>
+<script src="ui/splash.js"></script>
+<div id="app"></div>
+
+<script src="../vendor/preact/preact.min.umd.js"></script>
+<script src="../vendor/preact/hooks.umd.js"></script>
+<script src="../vendor/htm/htm.umd.js"></script>
+<script src="../vendor/signals/signals-core.min.js"></script>
+<script src="../vendor/signals/signals.min.js"></script>
+<script src="../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../vendor/dexie/dexie.min.js"></script>
+<script src="../vendor/x6/x6.min.js"></script>
+<script src="../vendor/elkjs/elk.bundled.js"></script>
+<script src="../vendor/tabulator/tabulator.min.js"></script>
+<script src="../vendor/codemirror/codemirror.js"></script>
+<script src="../vendor/codemirror/simple.js"></script>
+<script src="../vendor/codemirror/show-hint.js"></script>
+<script src="../vendor/codemirror/lint.js"></script>
+<script src="../vendor/codemirror/matchbrackets.js"></script>
+<script src="../vendor/jspdf/jspdf.umd.min.js"></script>
+<script src="../vendor/svg2pdf/svg2pdf.umd.min.js"></script>
+<script src="../vendor/pptxgenjs/pptxgen.bundle.js"></script>
+<script src="../vendor/msal/msal-browser.min.js"></script>
+
+<script src="core/tree.js"></script>
+<script src="core/log.js"></script>
+<script src="core/notes.js"></script>
+<script src="core/formulas.js"></script>
+
+<script src="ui/shell.js"></script>
+<script src="ui/tour.js"></script>
+<!-- The other parts of app/ui load here, after the shell, and register with it. -->
+</body>
+</html>
