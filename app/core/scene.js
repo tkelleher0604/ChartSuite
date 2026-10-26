@@ -178,6 +178,8 @@ function textOf(r, format, name) {
 // ---- The scene ----
 
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
+// Where each view's boxes were when it was last drawn as it is, which its previews keep.
+const laidOut = new Map();
 
 function of(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
@@ -414,10 +416,13 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   }
 
   // The layout: entered positions win; ELK places the rest, frames as clusters, ranked by the lines, and
-  // a box placed among entered ones keeps clear of the boxes, lines and free shapes already there.
+  // a box placed among entered ones keeps clear of the boxes, lines and free shapes already there. A
+  // preview (a redline, or records revealed) keeps every box where the view was last drawn.
   const page = pageOf(N, view);
   const shapeRows = wb.rows(chart).filter(r => 'shape' in r && r.view === view);
+  const preview = !!(red || opts.reveal?.length), drawnAs = `${chart}|${view}`;
   const placed = Layout.arrange({
+    keep: preview ? laidOut.get(drawnAs) : null,
     boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape })),
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to })),
     lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
@@ -425,6 +430,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
     entered: positions, page,
   });
+  if (!preview) laidOut.set(drawnAs, placed);
   for (const b of boxes) Object.assign(b, placed.get(b.id));
   // Boxes in a rank, their tops level, are one height: the tallest of them.
   for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) {

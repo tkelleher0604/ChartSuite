@@ -29,19 +29,47 @@ const OPTIONS = {
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
   'elk.edgeRouting': 'ORTHOGONAL',
 };
+// A big chart is laid out the quick way: Brandes and Köpf's placement, and one sweep against crossings.
+// Network simplex takes seconds there, and recurses once for each box and line, past what the stack holds.
+const QUICK = { 'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF', 'elk.layered.thoroughness': '1', 'elk.layered.crossingMinimization.greedySwitch.type': 'OFF' };
+const BIG = 120;   // boxes and lines
 
 // Distances, in pixels: lanes at least 12 pt apart; a lane passing over a triangle's apex, or a junction,
 // at least 16 pt clear of it; a line's last leg at least this long where it carries no label.
 const LANE = 16, CLEAR = 21, STEM = 14;
 
+// What's worked out from geometry, kept by what it read, the latest 24.
+function keeping() {
+  const kept = new Map();
+  return (k, make) => {
+    if (kept.has(k)) { const v = kept.get(k); kept.delete(k); kept.set(k, v); return v; }
+    const v = make();
+    kept.set(k, v);
+    if (kept.size > 24) kept.delete(kept.keys().next().value);
+    return v;
+  };
+}
+
 // Positions for every box, top left at 0, 0: { id → { x, y } }. Laid out again only when what it reads
-// changes: the boxes and their sizes, the lines that rank them, and the frames.
-const cache = new Map();
+// changes: the boxes and their sizes, the lines that rank them, and the frames. Should ELK fail, the
+// boxes are set out in rows by rank, so a chart is always drawn.
+const placed = keeping();
 function place({ boxes, links, clusters }) {
-  const k = JSON.stringify([OPTIONS, boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h)]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
-  if (cache.has(k)) { const v = cache.get(k); cache.delete(k); cache.set(k, v); return v; }
-  const started = now();
-  const root = { id: '·root', layoutOptions: OPTIONS, children: [], edges: [] }, node = new Map([[null, root]]);
+  const quick = boxes.length + links.length > BIG;
+  const k = JSON.stringify([OPTIONS, quick, boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h)]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
+  return placed(k, () => {
+    const started = now();
+    let out = null;
+    for (const options of quick ? [{ ...OPTIONS, ...QUICK }] : [OPTIONS, { ...OPTIONS, ...QUICK }]) {
+      try { out = elkPlace(boxes, links, clusters, options); break; } catch { /* the next way, or rows */ }
+    }
+    out ??= rows(boxes, links);
+    out.ms = now() - started;
+    return out;
+  });
+}
+function elkPlace(boxes, links, clusters, options) {
+  const root = { id: '·root', layoutOptions: options, children: [], edges: [] }, node = new Map([[null, root]]);
   for (const c of clusters) node.set(c.id, { id: c.id, children: [], layoutOptions: { 'elk.padding': `[top=${c.top},left=10,bottom=10,right=10]` } });
   for (const c of clusters) node.get(c.parent ?? null).children.push(node.get(c.id));
   const home = new Map(clusters.flatMap(c => c.members.map(m => [m, c.id])));
@@ -64,25 +92,68 @@ function place({ boxes, links, clusters }) {
     }
   };
   walk(root, 0, 0);
-  out.ms = now() - started;
-  cache.set(k, out);
-  if (cache.size > 24) cache.delete(cache.keys().next().value);
+  return out;
+}
+// Boxes in rows by rank, each a step below everything that ranks it, left to right in the order given.
+function rows(boxes, links) {
+  const above = new Map(boxes.map(b => [b.id, []]));
+  for (const l of links) if (above.has(l.to) && above.has(l.from) && l.from !== l.to) above.get(l.to).push(l.from);
+  const rank = new Map();
+  const rankOf = id => {
+    if (rank.has(id)) return rank.get(id) ?? 0;
+    rank.set(id, null);
+    const r = Math.max(-1, ...above.get(id).map(rankOf)) + 1;
+    rank.set(id, r);
+    return r;
+  };
+  const out = new Map(), byRank = groupBy(boxes, b => rankOf(b.id));
+  let y = 0;
+  for (const r of [...byRank.keys()].sort((a, b) => a - b)) {
+    let x = 0;
+    for (const b of byRank.get(r)) { out.set(b.id, { x, y }); x += b.w + 24; }
+    y += Math.max(...byRank.get(r).map(b => b.h)) + 64;
+  }
   return out;
 }
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
 
-// Every box's position. Entered ones stand. With none entered, ELK's layout sits in the middle of the page,
-// below any shapes across its top (a title). With some, each other box goes beside its relatives: in the
-// row of the boxes that share them (a new owner among the owners of what it owns), or between rows, at the
-// nearest place that's clear of every box, shape and line it isn't on.
+// A grid of rects, for finding what's near a place without looking at everything: near(r) gives the
+// indexes, in order, of every rect that could touch r.
+function grid(rects, size = 96) {
+  const cells = new Map(), cell = v => Math.floor(v / size);
+  const each = (r, f) => { for (let i = cell(r.x); i <= cell(r.x + r.w); i++) for (let j = cell(r.y); j <= cell(r.y + r.h); j++) f(`${i},${j}`); };
+  const g = {
+    add(r, k) { each(r, c => (cells.get(c) ?? cells.set(c, []).get(c)).push(k)); },
+    near(r) { const out = new Set(); each(r, c => { for (const k of cells.get(c) ?? []) out.add(k); }); return [...out].sort((a, b) => a - b); },
+  };
+  rects.forEach((r, k) => g.add(r, k));
+  return g;
+}
+// A segment's bounding rect.
+const span = ([a, b]) => ({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) });
+
+// Every box's position. Entered ones stand, and in a preview, so do the rest of the boxes it had (`keep`,
+// the view's positions as last drawn): only what the preview adds is placed, roughly, and ELK isn't asked.
+// With none standing, ELK's layout sits in the middle of the page, below any shapes across its top (a
+// title). With some, each other box goes beside its relatives: in the row of the boxes that share them (a
+// new owner among the owners of what it owns), or between rows, at the nearest place that's clear of every
+// box, shape and line it isn't on. Worked out again only when what it reads changes.
 // boxes: [{ id, w, h, shape }]; links: the ranking lines { from, to }; lines: every line { id, from, to,
 // trunk, straight }, to route among the boxes already placed; obstacles: free shapes' rects.
-function arrange({ boxes, links, clusters, entered, page, lines = [], obstacles = [] }) {
+const arranged = keeping();
+function arrange(a) {
+  const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null } = a;
+  const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
+  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
+    at(entered), [page.w, page.h, page.margin], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep)]), () => arranging(a));
+}
+function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null }) {
   const out = new Map();
-  for (const b of boxes) if (entered.has(b.id)) { const p = entered.get(b.id); out.set(b.id, { x: p.x, y: p.y }); }
-  const rest = boxes.filter(b => !entered.has(b.id));
+  for (const b of boxes) { const p = entered.get(b.id) ?? keep?.get(b.id); if (p) out.set(b.id, { x: p.x, y: p.y }); }
+  const rest = boxes.filter(b => !out.has(b.id));
   if (!rest.length) return out;
-  const at = place({ boxes, links, clusters }), size = new Map(boxes.map(b => [b.id, b]));
+  const ups = groupBy(links, l => l.to), downs = groupBy(links, l => l.from);
+  const at = keep && out.size ? rough(boxes, ups, downs, out) : place({ boxes, links, clusters }), size = new Map(boxes.map(b => [b.id, b]));
   if (!out.size) {
     const r = Math.max(...boxes.map(b => at.get(b.id).x + b.w)), d = Math.max(...boxes.map(b => at.get(b.id).y + b.h));
     const band = Math.max(0, ...obstacles.filter(o => o.y < page.h / 3).map(o => o.y + o.h + 24));
@@ -100,9 +171,11 @@ function arrange({ boxes, links, clusters, entered, page, lines = [], obstacles 
   const segs = routed.flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p]));
   const meets = (r, [a, b], pad) => Math.max(a[0], b[0]) >= r.x - pad && Math.min(a[0], b[0]) <= r.x + r.w + pad && Math.max(a[1], b[1]) >= r.y - pad && Math.min(a[1], b[1]) <= r.y + r.h + pad;
   const apart = (p, q, gx, gy) => p.x >= q.x + q.w + gx || p.x + p.w + gx <= q.x || p.y >= q.y + q.h + gy || p.y + p.h + gy <= q.y;
-  const clear = p => p.x >= page.margin / 2 && p.y >= page.margin / 2 && [...geo.values()].every(q => apart(p, q, 16, 24))
-    && obstacles.every(q => apart(p, q, 16, 16)) && segs.every(s => !meets(p, s, 8));
-  const linked = (id, dir) => [...new Set(links.flatMap(l => dir === 'down' ? (l.from === id ? [l.to] : []) : (l.to === id ? [l.from] : [])))];
+  const placedBoxes = [...geo.values()], nearBoxes = grid(placedBoxes), nearShapes = grid(obstacles), nearSegs = grid(segs.map(span));
+  const around = (p, gx, gy) => ({ x: p.x - gx, y: p.y - gy, w: p.w + 2 * gx, h: p.h + 2 * gy });
+  const clear = p => p.x >= page.margin / 2 && p.y >= page.margin / 2 && nearBoxes.near(around(p, 16, 24)).every(i => apart(p, placedBoxes[i], 16, 24))
+    && nearShapes.near(around(p, 16, 16)).every(i => apart(p, obstacles[i], 16, 16)) && nearSegs.near(around(p, 8, 8)).every(i => !meets(p, segs[i], 8));
+  const linked = (id, dir) => [...new Set((dir === 'down' ? downs.get(id)?.map(l => l.to) : ups.get(id)?.map(l => l.from)) ?? [])];
   for (const b of rest.sort((a, c) => at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
     const near = [...kids, ...parents];
@@ -129,9 +202,32 @@ function arrange({ boxes, links, clusters, entered, page, lines = [], obstacles 
     }
     const p = best ?? { x: Math.max(page.margin, x0), y: Math.max(page.margin, y0), w: b.w, h: b.h };
     geo.set(b.id, { id: b.id, x: p.x, y: p.y, w: b.w, h: b.h, shape: b.shape });
+    nearBoxes.add(geo.get(b.id), placedBoxes.push(geo.get(b.id)) - 1);
     out.set(b.id, { x: p.x, y: p.y });
   }
   return out;
+}
+// Where the boxes not yet placed would go, roughly, in place of ELK's layout: a row below what ranks a box,
+// or above what it ranks, nearest relatives first; a box related to nothing placed, in a row under all.
+function rough(boxes, ups, downs, out) {
+  const at = new Map(out), size = new Map(boxes.map(b => [b.id, b]));
+  for (let left = boxes.filter(b => !at.has(b.id)); left.length;) {
+    const next = left.filter(b => {
+      const parents = (ups.get(b.id) ?? []).map(l => l.from).filter(id => at.has(id)), kids = (downs.get(b.id) ?? []).map(l => l.to).filter(id => at.has(id));
+      const near = parents.length ? parents : kids;
+      if (!near.length) return true;
+      const cx = near.reduce((s, id) => s + at.get(id).x + size.get(id).w / 2, 0) / near.length;
+      at.set(b.id, { x: cx - b.w / 2, y: parents.length ? Math.max(...parents.map(id => at.get(id).y + size.get(id).h)) + 64 : Math.min(...kids.map(id => at.get(id).y)) - 64 - b.h });
+      return false;
+    });
+    if (next.length === left.length) {
+      const y = Math.max(...[...at].map(([id, p]) => p.y + size.get(id).h)) + 64;
+      next.reduce((x, b) => { at.set(b.id, { x, y }); return x + b.w + 24; }, 0);
+      break;
+    }
+    left = next;
+  }
+  return at;
 }
 
 // ---- The trunk router ----
@@ -430,6 +526,7 @@ function placeLabels(geo, lines, all = lines) {
   const boxes = [...geo.values()].filter(b => b.shape !== 'frame').flatMap(b => b.shape !== 'triangle' ? [b]
     : [{ x: b.x, y: b.y + b.h / 2, w: b.w, h: b.h / 2 }, { x: b.x + b.w / 4, y: b.y, w: b.w / 2, h: b.h / 2 }]), placed = [];
   const segs = all.flatMap(l => (l.points ?? []).slice(1).map((p, i) => ({ l, a: l.points[i], b: p })));
+  const nearBoxes = grid(boxes), nearSegs = grid(segs.map(s => span([s.a, s.b]))), nearPlaced = grid([]);
   const meets = (r, a, b) => {
     const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])], [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
     return x1 >= r.x && x0 <= r.x + r.w && y1 >= r.y && y0 <= r.y + r.h;
@@ -480,13 +577,14 @@ function placeLabels(geo, lines, all = lines) {
     spots.forEach((s, i) => {
       const r = { x: s.x, y: s.y, w, h };
       let cost = i * 2;
-      for (const b of boxes) cost += overlap(r, b) * 4;
-      for (const q of placed) cost += overlap(r, q) * 6;
-      for (const sg of segs) if (sg.l !== l && meets(r, sg.a, sg.b)) cost += 40;
+      for (const k of nearBoxes.near(r)) cost += overlap(r, boxes[k]) * 4;
+      for (const k of nearPlaced.near(r)) cost += overlap(r, placed[k]) * 6;
+      for (const k of nearSegs.near(r)) if (segs[k].l !== l && meets(r, segs[k].a, segs[k].b)) cost += 40;
       if (!best || cost < best.cost) best = { ...s, cost };
     });
     l.labelAt = { x: best.x, y: best.y };
-    placed.push({ x: best.x, y: best.y, w, h });
+    const taken = { x: best.x, y: best.y, w, h };
+    nearPlaced.add(taken, placed.push(taken) - 1);
   }
 }
 
