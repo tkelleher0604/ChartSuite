@@ -359,7 +359,7 @@ const FormulaBar = (() => {
     }
     if (change.rows) ds = ds.flatMap(d => !(d.id in change.rows) ? [d] : change.rows[d.id] ? [{ ...d, rows: change.rows[d.id] }] : []);
     const before = R.peek();
-    const R2 = Formulas.computeState(entered, ds, { relations: App.relations.peek() }), diff = Formulas.diff(before, R2);
+    const R2 = Formulas.computeState(entered, ds, { relations: App.relations.peek(), schema: App.schema.peek() }), diff = Formulas.diff(before, R2);
     return { R2, diff, deltas: deltasOf(diff, before, R2) };
   }
   // Per definition, the records it would attest or give more, fewer, and with another value.

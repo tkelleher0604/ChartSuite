@@ -102,7 +102,7 @@ const Table = (() => {
       if (c.key === '$out') return { id: row, at: null, v: valueOf(st[row]) };
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
       if (c.key === '$entry') return { v: N.nameOf(st, row) };
-      if (c.key === '$of') return { v: N.placeOf(st, st[row].args ? row : st[row].at) };
+      if (c.key === '$of') return { v: Time.whose(st, st[row].args ? row : st[row].at, N) };
       let at = c.up ? st[row].at : row;
       for (const e of c.path.slice(0, -1)) at = entryAt(st, at, e);
       const id = entryAt(st, at, c.path.at(-1));
@@ -255,7 +255,7 @@ const Table = (() => {
         accessorClipboard: v => plain(c.type, v), accessorDownload: v => csvSafe(plain(c.type, v)),
       };
     });
-    if (defs[0]) defs[0].frozen = true;
+    if (defs[0]) defs[0].cssClass += ' pin';   // kept in view by table.css, not frozen: Tabulator's range selection takes only the row numbers frozen
     return defs;
   }
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
@@ -285,8 +285,11 @@ const Table = (() => {
     built = { view: m.view, sig: signature(m) };
     reds = new Set();
     flight = null;
+    // The grid fills the width: its last column stretches to the edge where it's words, and its rows where
+    // it's a number or a tag, which would stand off alone.
+    const last = m.cols.filter(c => c.shown).at(-1)?.type;
     const t = table = new Tabulator(host, {
-      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: 'fitData',
+      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: NUMERIC.has(last) || last === 'tag' ? 'fitDataFill' : 'fitDataStretch',
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,

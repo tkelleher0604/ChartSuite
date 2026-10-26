@@ -2,6 +2,11 @@
    strip under the view, and History in the inspector's place. Tokens are dendra.css's. */
 
 /* ---- The grid, and under it the bar of a paste pending ---- */
+/* With nothing selected, the grid has the inspector's width too (shell.js's .alone); the inspector glides back
+   when a row is selected. */
+.main.alone { grid-template-columns: minmax(0, 1fr) 0 0; }
+.main.alone > :is(.divider, .inspector) { display: none; }
+.main:has(> .view > .host.grid:not([hidden])):not(:has(> .divider.drag)) { transition: grid-template-columns var(--calm) var(--ease); }
 .view > .host.grid { display: flex; flex-direction: column; background: var(--surface); }
 .grid > .cells { flex: 1; min-height: 0; }
 .grid > .cells > .tabulator { height: 100%; }
@@ -42,11 +47,14 @@
 .grid .tabulator-row.picked .tabulator-cell.rn { color: var(--accent-ink); font-weight: 500; }
 
 .grid .tabulator-row { min-height: var(--row); }
-.grid .tabulator-row .tabulator-cell.tabulator-frozen:not(.rn) { background: var(--surface); }
-.grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell.tabulator-frozen { background: var(--selected); }
-/* The first column stays put over the selection's outline, so it draws its own. */
-.grid .tabulator-row .tabulator-cell.tabulator-frozen:not(.rn).tabulator-range-only-cell-selected { box-shadow: inset 0 0 0 2px var(--accent); }
-.grid .tabulator-row .tabulator-cell.tabulator-frozen:not(.rn).tabulator-range-selected:not(.tabulator-range-only-cell-selected) { background: var(--selected); }
+/* The first column stays put beside the row numbers as the grid scrolls across, as a frozen pane (sticky, as
+   Tabulator freezes the row numbers), over the selection's outline, so it draws its own. */
+.grid .tabulator .tabulator-header .tabulator-col.pin, .grid .tabulator-row .tabulator-cell.pin { position: sticky; left: 48px; z-index: 11; border-right: 1px solid var(--rule-2); }
+.grid .tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left, .grid .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left { border-right-color: var(--rule); }
+.grid .tabulator-row .tabulator-cell.pin { background: var(--surface); }
+.grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell:is(.tabulator-frozen, .pin) { background: var(--selected); }
+.grid .tabulator-row .tabulator-cell.pin.tabulator-range-only-cell-selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.grid .tabulator-row .tabulator-cell.pin.tabulator-range-selected:not(.tabulator-range-only-cell-selected) { background: var(--selected); }
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator-row .tabulator-cell.fx { font-style: italic; }
 .grid .tabulator-row .tabulator-cell.due { color: var(--no); }

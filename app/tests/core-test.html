@@ -46,8 +46,9 @@ function run(json) {
   check('a node of a specification is a kind just where it is a leaf', Object.values(S).every(function leafy(t) {
     return t.args ? !('kind' in t) && t.out && t.args.every(a => leafy(a.loc) && !('field' in (a.loc.out ?? {}))) : t.kind !== undefined;
   }));
-  // 122 changes to October 20, 2026, and the legal team's revisions after a general counsel's review.
-  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 136, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  // 122 changes to October 20, 2026, the legal team's revisions after a general counsel's review, and Ownership
+  // Adds Up checked only where every owner is meant to be charted.
+  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 137, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
 
   // ---- Patterns ----
   const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
