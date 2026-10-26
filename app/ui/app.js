@@ -31,12 +31,19 @@ const App = (() => {
   });
   const shown = computed(() => { version.value; return stood.value ?? book.value; });
   const entered = computed(() => { version.value; return chart.value ? shown.value.asOf(chart.value, day.value) : {}; });
-  const schema = computed(() => { version.value; return chart.value ? shown.value.schema(chart.value) : {}; });
-  const notes = computed(() => { version.value; return chart.value ? shown.value.notes(chart.value) : Notes.index([]); });
-  // The formulas work the chart out from its Formula notes, and its relations' names and lists.
+  // The notes and the schema are kept while they say the same, so what's worked out from them is kept too:
+  // the notes while no note changes, the schema while no record's shape does.
+  const keptWhile = (key, make) => { let k, v; return computed(() => { const now = key(); if (v === undefined || now !== k) { k = now; v = make(); } return v; }); };
+  const schemaNow = computed(() => { version.value; return chart.value ? shown.value.schema(chart.value) : {}; });
+  const schema = keptWhile(() => JSON.stringify(schemaNow.value), () => schemaNow.value);
+  const notes = keptWhile(() => { version.value; return chart.value ? `${chart.value}|${shown.value.rows(chart.value).filter(r => 'note' in r).map(r => r.id)}` : ''; },
+    () => chart.peek() ? shown.peek().notes(chart.peek()) : Notes.index([]));
+  // The formulas work the chart out from its Formula notes, and its relations' names and lists, each time
+  // from the working-out before (see Formulas.computeState).
   const definitions = computed(() => notes.value.definitions(schema.value));
   const relations = computed(() => notes.value.relations(schema.value));
-  const result = computed(() => Formulas.computeState(entered.value, definitions.value, { relations: relations.value }));
+  let worked;
+  const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value }, worked));
   const state = computed(() => result.value.records);
 
   // ---- Changing ----

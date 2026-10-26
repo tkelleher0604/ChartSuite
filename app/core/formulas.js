@@ -2926,22 +2926,44 @@ function leftBy(S, i) {
 // Whether two groups' leavings give the same: records, in order, with the same outputs; rows; rows held.
 function sameLeft(A, a, B, b) {
   const rec = (x, y) => typeOf(x) === typeOf(y) && x.tag === y.tag && x.choice === y.choice && x.field === y.field && x.value === y.value;
-  const row = (x, y) => JSON.stringify({ ...x, stage: 0 }) === JSON.stringify({ ...y, stage: 0 });
+  const val = (x, y) => x === y || (isDate(x) && isDate(y) && x.iso === y.iso);
+  const row = (x, y) => x.key === y.key && x.id === y.id && x.entered === y.entered && x.row === y.row && x.label === y.label && val(x.value, y.value)
+    && val(x.formula, y.formula) && x.error?.code === y.error?.code && x.error?.msg === y.error?.msg && x.holds?.join() === y.holds?.join();
   const held = ([k, x], [l, y]) => k === l && JSON.stringify([x.rows, x.labels && [...x.labels]]) === JSON.stringify([y.rows, y.labels && [...y.labels]]);
   return a.recs.length === b.recs.length && a.recs.every((id, k) => id === b.recs[k] && rec(A.recs[id], B.recs[id]))
     && a.rows.length === b.rows.length && a.rows.every((id, k) => id === b.rows[k] && A.rows.get(id).length === B.rows.get(id).length && A.rows.get(id).every((x, j) => row(x, B.rows.get(id)[j])))
     && a.holds.length === b.holds.length && a.holds.every((h, k) => held(h, b.holds[k]));
 }
 
-// How a working-out from `from` goes, or null where it can't: keep(i), whether group i comes back as it
-// was; ran(S, i), once it's been worked out again.
-function reworking(from, P, entered) {
-  const O = from?.state;
+// The entered records changed since an earlier working-out, or null where it was of other definitions or
+// names, or is too far off to start from.
+function changesSince(R, P, entered) {
+  const O = R?.state;
   if (!O || O.P.frame !== P.frame || planOf(O.P) !== planOf(P) || O.left.length !== P.groups.length) return null;
   const was = O.entered, changed = [];
   for (const id in entered) if (was[id] !== entered[id]) changed.push(id);
   for (const id in was) if (!(id in entered)) changed.push(id);
-  if (changed.length > Math.max(64, Object.keys(entered).length / 4)) return null;
+  return changed.length > Math.max(64, Object.keys(entered).length / 4) ? null : changed;
+}
+const rowsOf = d => d.rowsKey ??= JSON.stringify(d.rows.map(r => r.text));
+// Of the latest workings-out, the one to start from: the fewest definitions with other rows, then the fewest
+// records changed.
+const recent = [];
+function closest(P, entered) {
+  let best = null;
+  for (const R of recent) {
+    const changed = changesSince(R, P, entered);
+    if (!changed) continue;
+    const rows = P.groups.reduce((n, g, i) => n + g.defs.filter((d, j) => rowsOf(d) !== rowsOf(R.state.P.groups[i].defs[j])).length, 0);
+    if (!best || rows < best.rows || (rows === best.rows && changed.length < best.changed.length)) best = { R, changed, rows };
+  }
+  return best;
+}
+
+// How a working-out from R goes, given the entered records changed since: keep(i), whether group i comes
+// back as it was; ran(S, i), once it's been worked out again.
+function reworking(R, changed, P, entered) {
+  const O = R.state, was = O.entered;
   // The names the change reaches: the changed records', and those located at them; and names the schema
   // now has, or no longer has, somewhere.
   const touched = new Set();
@@ -2953,20 +2975,36 @@ function reworking(from, P, entered) {
     reads[j].names.forEach(n => reads[i].names.add(n));
     for (const k of ['text', 'objects', 'clock']) reads[i][k] ||= reads[j][k];
   } });
-  const rowsOf = d => JSON.stringify(d.rows.map(r => r.text));
+  const keep = i => {
+    const r = reads[i], left = O.left[i];
+    if (r.clock || left.tangled || P.groups[i].defs.some((d, j) => rowsOf(d) !== rowsOf(O.P.groups[i].defs[j]))) return false;
+    if ((r.text || left.erred) && touched.has('name')) return false;
+    if (r.objects && kinds) return false;
+    for (const n of r.names) if (touched.has(n)) return false;
+    return true;
+  };
   return {
-    keep(i) {
-      const r = reads[i], left = O.left[i];
-      if (r.clock || left.tangled || P.groups[i].defs.some((d, j) => rowsOf(d) !== rowsOf(O.P.groups[i].defs[j]))) return false;
-      if ((r.text || left.erred) && touched.has('name')) return false;
-      if (r.objects && kinds) return false;
-      for (const n of r.names) if (touched.has(n)) return false;
-      return true;
-    },
+    keep,
+    // Whether the change is only to values no group reads: then every group comes back as it was, and the
+    // indexes, which go by where records are and not by their values, stand.
+    valuesOnly: () => changed.every(id => { const a = was[id], b = entered[id]; return a && b && isField(a) && isField(b) && !a.args && !b.args && a.at === b.at && a.edge === b.edge && a.field === b.field; })
+      && P.groups.every((_, i) => keep(i)),
+    // A group worked out again that now gives something else reaches the names its records are found under;
+    // where no later group reads them, it's not compared.
     ran(S, i) {
-      if (!sameLeft(S, S.left[i], O, O.left[i])) namesGiven(P.groups[i], P.reg).forEach(n => touched.add(n));
+      const given = namesGiven(P.groups[i], P.reg);
+      if (!reads.slice(i + 1).some(r => !r.clock && [...given].some(n => r.names.has(n)))) return;
+      if (!sameLeft(S, S.left[i], O, O.left[i])) given.forEach(n => touched.add(n));
     },
   };
+}
+// The state `O` left, with these entered records in place of its own, which changed only in values no group
+// reads (see valuesOnly): its records in the order a working-out from nothing gives them, and its indexes.
+function swapped(O, P, entered) {
+  const recs = Object.assign({}, entered);
+  for (const id in O.recs) if (!(id in recs)) recs[id] = O.recs[id];
+  return { ...O, P, entered, recs, memo: new Map(), cf: new Map(), listBits: new WeakMap(), cut: null, probe: null, count: null, came: [], done: P.groups.length,
+    steps: P.groups.map(g => ({ defs: g.defs.map(d => d.id), ms: 0, rounds: 0, tried: 0, evals: 0, kept: true })) };
 }
 // Group i put back as `O` left it.
 function keepStep(S, i, O) {
@@ -2993,12 +3031,10 @@ function keepStep(S, i, O) {
 
 // ---- What the page uses ----
 
-// The latest working-out, which the next starts from.
-let latest = null;
-
 // Works out the computed state from the entered records, the definitions and the names: see core/README.md.
-// `from`, an earlier working-out, is where it starts (see reworking); by default the latest, and none with null.
-function computeState(entered, definitions, names, from = latest) {
+// `from`, an earlier working-out, is where it starts (see reworking), or where it can't, the closest of the
+// latest two; none with null.
+function computeState(entered, definitions, names, from) {
   const started = now();
   const defs = definitions.map(d => prepareDef(d, names));
   const reg = registry(names, defs);
@@ -3014,11 +3050,13 @@ function computeState(entered, definitions, names, from = latest) {
   P.known = knownNames(entered, defs, reg);
   P.groups = plan(defs, reg);
   P.frame = frameOf(defs, names);
-  const S = stateFor(P, entered), again = reworking(from, P, entered);
+  const given = from && changesSince(from, P, entered), base = given ? { R: from, changed: given } : from === null ? null : closest(P, entered);
+  const again = base && reworking(base.R, base.changed, P, entered);
+  const S = again?.valuesOnly() ? swapped(base.R.state, P, entered) : stateFor(P, entered);
   for (; S.done < P.groups.length; S.done++) {
     const i = S.done;
     S.came = [];
-    if (again?.keep(i)) keepStep(S, i, from.state);
+    if (again?.keep(i)) keepStep(S, i, base.R.state);
     else { runStep(S, i); S.left[i] = leftBy(S, i); again?.ran(S, i); }
   }
   const keptAside = Object.keys(S.entered).filter(id => S.recs[id] && argsOf(S.recs[id]).some(a => !S.recs[a.at]));
@@ -3041,8 +3079,10 @@ function computeState(entered, definitions, names, from = latest) {
   for (const g of P.groups) for (const x of g.reads) push2(loops, x.def, { row: x.row, from: x.from, to: x.to, monotone: x.monotone });
   // What each definition reads: the definitions it depends on.
   const uses = Object.fromEntries(defs.map(d => [d.id, [...d.dependsOn ?? []].filter(e => e !== d).map(e => e.id)]));
-  return latest = { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside, uses,
+  const R = { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside, uses,
     order: P.groups.map(g => g.defs.map(d => d.id)), steps: S.steps, ms: now() - started, state: S };
+  if (recent.unshift(R) > 2) recent.pop();
+  return R;
 }
 const push2 = (obj, key, value) => (obj[key] ??= []).push(value);
 

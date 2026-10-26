@@ -296,7 +296,15 @@ function land(geo, lines, frames) {
 //   comes up into the far box's bottom.
 // - A line landing on a frame (see land) beside the box it leaves runs down that box's spine and into the
 //   frame's near side.
-function route(geo, lines, { frames = [], labels = true } = {}) {
+// Routes are kept by what they read: the boxes, the lines and their labels, and the frames.
+const routes = keeping();
+function route(geo, lines, opts = {}) {
+  const k = JSON.stringify([[...geo.values()].map(g => [g.id, g.x, g.y, g.w, g.h, g.shape]), opts.frames?.map(f => [f.id, f.x, f.y, f.w, f.h, f.members, f.depth]), opts.labels,
+    lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight, l.arrow, l.label && [l.label.w, l.label.h, l.label.base, l.label.shared, l.label.text]])]);
+  const out = routes(k, () => { routing(geo, lines, opts); return lines.map(({ from, to, points, labelAt, down, landed }) => ({ from, to, points, labelAt, down, landed })); });
+  lines.forEach((l, i) => Object.assign(l, out[i]));
+}
+function routing(geo, lines, { frames = [], labels = true } = {}) {
   geo = new Map(geo);
   if (frames.length) land(geo, lines, frames);
   const G = id => geo.get(id);
