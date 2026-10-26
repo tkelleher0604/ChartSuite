@@ -343,7 +343,7 @@ async function run() {
   check('The date control opens a calendar beside the chart’s days', !!$('.date-pop .cal-grid') && $$('.date-pop .dayrow').length >= Time.events.peek().length);
   const list = [...$('.date-pop .date-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');
   list.slice(y2024).find(b => b.querySelector?.('.d')?.textContent === 'Jul 1').click(); await tick(100);
-  check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('Jul 1, 2024'));
+  check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('July 1, 2024'));
   check('While another day shows, a band over the view says which', $('.view > .strip > .band')?.textContent === 'As of July 1, 2024Today', $('.view > .strip > .band')?.textContent);
   check('The strip shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
   [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);

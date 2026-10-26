@@ -322,6 +322,38 @@ const Shell = (() => {
   const marked = (label, ranges) => !ranges ? label : uFuzzy.highlight(label, ranges, (p, m) => m ? html`<b>${p}</b>` : p, [], (a, p) => { a.push(p); });
   const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled && (it.run || it.items);
 
+  // A menu's search field: plain text, set as the formula bar sets it, so after "=" a function's name is in
+  // small capitals. It keeps its text itself, and the caret where it was.
+  let FN = null;
+  const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const typeset = q => !q.startsWith('=') ? esc(q)
+    : esc(q).replace(FN ??= new RegExp(`\\b(${Formulas.FUNCTION_NAMES.join('|')})(?=\\s*\\()`, 'gi'), '<span class="fn">$1</span>');
+  function caretIn(el) {
+    const s = getSelection();
+    if (!s.rangeCount || !el.contains(s.focusNode)) return null;
+    const r = document.createRange();
+    r.selectNodeContents(el); r.setEnd(s.focusNode, s.focusOffset);
+    return r.toString().length;
+  }
+  function caretAt(el, n) {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let t; (t = w.nextNode());) { if (n <= t.length) return getSelection().collapse(t, n); n -= t.length; }
+    getSelection().collapse(el, el.childNodes.length);
+  }
+  function Field({ q, onQuery, at }) {
+    const ref = useRef();
+    useLayoutEffect(() => {
+      const el = ref.current, markup = typeset(q);
+      if (el.innerHTML === markup) return;
+      const n = caretIn(el);
+      el.innerHTML = markup;
+      if (n !== null) caretAt(el, n);
+    }, [q]);
+    const read = e => { if (!e.isComposing) onQuery(e.currentTarget.textContent.replace(/[\n ]/g, ' ')); };
+    return html`<div class="menu-find" ref=${ref} contenteditable="plaintext-only" role="searchbox" aria-label="Find" aria-activedescendant=${at} spellcheck="false" data-placeholder="Find"
+      onInput=${read} onCompositionEnd=${read} onKeyDown=${e => { if (e.key === 'Enter') e.preventDefault(); }} onFocus=${e => caretAt(e.currentTarget, Infinity)} />`;
+  }
+
   // A menu; with `search`, a field that ranks its items, or that `items(query)` answers.
   function Menu({ f }) {
     const [q, setQ] = useState(f.query ?? '');
@@ -364,8 +396,7 @@ const Shell = (() => {
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
     return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
-      ${f.search ? html`<input class="menu-find" placeholder="Find" aria-label="Find" aria-activedescendant=${at} value=${q} spellcheck="false" autocomplete="off"
-        onInput=${e => { setQ(e.target.value); setAct(-1); }} />` : null}
+      ${f.search ? html`<${Field} q=${q} at=${at} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
         : it.seg ? html`<div class="menu-seg" role="group">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
@@ -457,17 +488,18 @@ const Shell = (() => {
       if (r?.error) return [{ label: r.error, danger: true }];
       return r?.items ?? [{ label: String(r?.value ?? '') }];
     }
-    const acts = many('action').map(a => ({ label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
+    const acts = many('action').map(a => ({ id: a.id, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
     if (q.startsWith('?')) { const ks = acts.filter(a => a.keys); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
-    const vs = views.value.map(v => ({ label: v.name, detail: q ? 'View' : null, run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
+    const vs = views.value.map(v => ({ label: v.name, detail: q ? 'View' : null, run: () => show(v.id) })), can = acts.filter(a => !a.disabled && a.id !== 'find');
     if (!q) return [...(vs.length ? [{ head: 'Views' }, ...vs] : []), ...(can.length ? [{ head: 'Actions' }, ...can] : [])];
     return rank([...vs, ...many('find').flatMap(s => s.items()), ...can], q);
   }
   const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32 }); };
 
   // ---- The title bar ----
-  const fmtTime = t => !t ? 'As of today' : t.asOf ? 'As of ' + Tree.formatDate(t.asOf, 'short')
-    : 'As it stood' + (t.at ? ' ' + new Date(t.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+  // The day shown, in the words the band under the view uses.
+  const fmtTime = t => !t ? 'As of today' : t.asOf ? 'As of ' + Tree.formatDate(t.asOf)
+    : 'As it stood' + (t.at ? ` ${Tree.formatDate(Tree.isoOf(new Date(t.at)))}, ${new Date(t.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '');
   const chartName = computed(() => { const wb = part('workbook'); return wb ? wb.charts().find(c => c.id === wb.current())?.name : null; });
   effect(() => { document.title = chartName.value ? `${chartName.value} – Dendra` : 'Dendra'; });
 
@@ -565,7 +597,11 @@ const Shell = (() => {
       drag(e, { item: e.currentTarget, items: [...ref.current.children], axis: 'x', onDrop: (from, i) => vp.move(list[from].id, i) });
     };
     const commit = (v, name) => { setEditing(null); name = name.trim(); if (name && name !== v.name) vp.rename(v.id, name); };
-    const tabMenu = (e, v) => { e.preventDefault(); show(v.id); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', run: () => setEditing(v.id) }, ...vp.menu(v.id)]); };
+    // A tab's menu, at the pointer, or over the tab from the keyboard.
+    const tabMenu = (e, v) => {
+      e.preventDefault(); show(v.id);
+      menu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget, [{ label: 'Rename', run: () => setEditing(v.id) }, ...vp.menu(v.id)], { placement: 'top-start' });
+    };
     const onKey = e => {
       const k = list.findIndex(x => x.id === view.peek()), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
       if (!d || editing) return;
@@ -608,7 +644,7 @@ const Shell = (() => {
   const Window = () => html`
     <div class="shell">
       <${TitleBar} />
-      <${Bar} kind="formatbar" hidden=${current.value?.layout === 'table'} />
+      <${Bar} kind="formatbar" hidden=${current.value?.layout === 'table' || wide.value} />
       <${Bar} kind="formulabar" />
       <${Main} />
       <footer class="foot" data-region="tabs"><${Sheets} /><${Status} /></footer>
@@ -621,8 +657,9 @@ const Shell = (() => {
   [
     { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
     { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
-    { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo')?.canUndo(), run: () => part('undo').undo() },
-    { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo')?.canRedo(), run: () => part('undo').redo() },
+    // With nothing to undo, Undo says so.
+    { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo'), run: () => part('undo').undo() },
+    { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo'), run: () => part('undo').redo() },
     { id: 'back', name: 'Back', keys: 'Alt+ArrowLeft', run: back },
     { id: 'forward', name: 'Forward', keys: 'Alt+ArrowRight', run: forward },
     { id: 'view.prev', name: 'Previous view', keys: '$mod+Shift+PageUp', run: () => stepView(-1) },
@@ -633,7 +670,7 @@ const Shell = (() => {
     { id: 'attend.prev', name: 'Previous problem', keys: 'Shift+F8', enabled: problems, run: () => attend(-1) },
   ].forEach(a => register('action', a));
   keys({
-    '$mod+Shift+KeyZ': () => part('undo')?.canRedo() ? part('undo').redo() : false,
+    '$mod+Shift+KeyZ': () => part('undo') ? part('undo').redo() : false,
     // With no layer open: the widened inspector narrows, and then the selection clears.
     'Escape': () => { if (wide.peek()) narrow(); else if (selection.peek().length) select([]); else return false; },
   });
