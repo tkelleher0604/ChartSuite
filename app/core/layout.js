@@ -142,6 +142,18 @@ function grid(rects, size = 96) {
   rects.forEach((r, k) => g.add(r, k));
   return g;
 }
+// Things sorted by a number of each, f, to find those whose number is within r of v, as sorted(list, f)(v, r)
+// gives them: in the order given.
+function sorted(list, f) {
+  const at = list.map((x, i) => [f(x), i]).sort((a, b) => a[0] - b[0]);
+  return (v, r) => {
+    let lo = 0, hi = at.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (at[m][0] < v - r) lo = m + 1; else hi = m; }
+    const out = [];
+    for (let i = lo; i < at.length && at[i][0] <= v + r; i++) out.push(at[i][1]);
+    return out.sort((a, b) => a - b).map(i => list[i]);
+  };
+}
 // A segment's bounding rect.
 const span = ([a, b]) => ({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) });
 
@@ -626,6 +638,15 @@ function placeLabels(geo, lines, all = lines, taken = []) {
 
 // ---- A line routed around what's drawn ----
 
+// The segments of lines drawn, level ones by their height and upright ones by their x (see sorted), kept for
+// each list of them given, as every line a preview adds is routed among the same.
+const runsOf = new WeakMap();
+function runs(segs) {
+  let r = runsOf.get(segs);
+  if (!r) runsOf.set(segs, r = { byLevel: sorted(segs.filter(([a, b]) => Math.abs(a[1] - b[1]) < 0.5), s => s[0][1]), byUpright: sorted(segs.filter(([a, b]) => Math.abs(a[0] - b[0]) < 0.5), s => s[0][0]) });
+  return r;
+}
+
 // A line added to a drawing that stays as it is, a highlight's or a redline's: square, from the side of its box
 // that faces the other to the side of the other that faces it, 6 pt clear of every other box and of what
 // `avoid` holds (labels and captions), crossing the lines already drawn (`segs`) rather than running along
@@ -656,37 +677,52 @@ function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160 }
   const xs = coords(0, [...starts, ...ends].map(p => p.out[0])), ys = coords(1, [...starts, ...ends].map(p => p.out[1]));
   if (xs.length * ys.length > 40000 || !starts.length || !ends.length) return null;
   const X = new Map(xs.map((v, i) => [v, i])), Y = new Map(ys.map((v, i) => [v, i])), node = (i, j) => i * ys.length + j;
-  // What a step costs beyond its length: running along a line drawn, or across one.
-  const level = segs.filter(([a, b]) => Math.abs(a[1] - b[1]) < 0.5), upright = segs.filter(([a, b]) => Math.abs(a[0] - b[0]) < 0.5);
+  // What a step costs beyond its length: running along a line drawn, or across one. The lines drawn are looked
+  // up by where they run (see runs), each once for each step of the grid, and counted in the order given.
+  const { byLevel, byUpright } = runs(segs);
   const toll = (x0, y0, x1, y1) => {
     let c = 0;
     const [lo, hi] = x0 === x1 ? [Math.min(y0, y1), Math.max(y0, y1)] : [Math.min(x0, x1), Math.max(x0, x1)];
-    for (const [a, b] of x0 === x1 ? upright : level) {
+    for (const [a, b] of (x0 === x1 ? byUpright : byLevel)(x0 === x1 ? x0 : y0, 3)) {
       const [p, q] = x0 === x1 ? [a[0], x0] : [a[1], y0];
       if (Math.abs(p - q) > 2) continue;
       const [u, v] = x0 === x1 ? [Math.min(a[1], b[1]), Math.max(a[1], b[1])] : [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
       c += Math.max(0, Math.min(hi, v) - Math.max(lo, u)) * ALONG;
     }
-    for (const [a, b] of x0 === x1 ? level : upright) {
+    for (const [a, b] of (x0 === x1 ? byLevel : byUpright)((lo + hi) / 2, (hi - lo) / 2 + 1)) {
       const across = x0 === x1 ? a[1] : a[0], [u, v] = x0 === x1 ? [Math.min(a[0], b[0]), Math.max(a[0], b[0])] : [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
       if (across > lo && across < hi && (x0 === x1 ? x0 : y0) > u && (x0 === x1 ? x0 : y0) < v) c += CROSS;
     }
     return c;
   };
   const goal = new Map(ends.map(p => [node(X.get(Math.round(p.out[0] * 4) / 4), Y.get(Math.round(p.out[1] * 4) / 4)), p]));
-  const h = (i, j) => Math.min(...ends.map(p => Math.abs(xs[i] - p.out[0]) + Math.abs(ys[j] - p.out[1])));
-  // A* over (node, heading), its frontier a binary heap.
-  const heap = [], best = new Map(), from_ = new Map();
-  const push = (f, k) => { heap.push([f, k]); for (let i = heap.length - 1; i > 0;) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
-  const pop = () => { const top = heap[0], end = heap.pop(); if (heap.length) { heap[0] = end; for (let i = 0; ;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  // What's known of the grid as the search reaches it, each worked out once: whether a node is clear, and the
+  // middle of the step from it rightward and downward (2 a step, +1 down), that step's toll, and how far a node
+  // is from the nearest end at least.
+  const N = xs.length * ys.length, clearAt = new Int8Array(N), clearStep = new Int8Array(2 * N), tollOf = new Float64Array(2 * N).fill(NaN), near = new Float64Array(N).fill(NaN);
+  const h = (i, j) => {
+    const n = node(i, j);
+    if (Number.isNaN(near[n])) { let m = Infinity; for (const p of ends) m = Math.min(m, Math.abs(xs[i] - p.out[0]) + Math.abs(ys[j] - p.out[1])); near[n] = m; }
+    return near[n];
+  };
+  // A* over (node, heading), its frontier a binary heap of each one's estimate and key, side by side. Each
+  // reached is known by the one it was reached from, or, -1, as where a port starts.
+  const fs = [], ks = [], best = new Float64Array(4 * N).fill(Infinity), from_ = new Int32Array(4 * N), port = new Map();
+  const swap = (a, b) => { [fs[a], fs[b]] = [fs[b], fs[a]]; [ks[a], ks[b]] = [ks[b], ks[a]]; };
+  const push = (f, k) => { fs.push(f); ks.push(k); for (let i = fs.length - 1; i > 0;) { const p = (i - 1) >> 1; if (fs[p] <= fs[i]) break; swap(p, i); i = p; } };
+  const pop = () => {
+    const f = fs[0], k = ks[0], lf = fs.pop(), lk = ks.pop();
+    if (fs.length) { fs[0] = lf; ks[0] = lk; for (let i = 0; ;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < fs.length && fs[l] < fs[m]) m = l; if (r < fs.length && fs[r] < fs[m]) m = r; if (m === i) break; swap(m, i); i = m; } }
+    return [f, k];
+  };
   const toward = (p, g) => { const [dx, dy] = STEP[p.dir]; return dx * (centerX(g) - p.at[0]) + dy * (g.y + g.h / 2 - p.at[1]) > 0 ? 0 : 2 * BEND; };
   for (const p of starts) {
     const i = X.get(Math.round(p.out[0] * 4) / 4), j = Y.get(Math.round(p.out[1] * 4) / 4), k = node(i, j) * 4 + p.dir, g = C + toward(p, t);
-    if (g < (best.get(k) ?? Infinity)) { best.set(k, g); from_.set(k, { start: p }); push(g + h(i, j), k); }
+    if (g < best[k]) { best[k] = g; from_[k] = -1; port.set(k, p); push(g + h(i, j), k); }
   }
   let done = null;
-  while (heap.length) {
-    const [f, k] = pop(), g = best.get(k), n = k >> 2, dir = k & 3, i = Math.floor(n / ys.length), j = n % ys.length;
+  while (fs.length) {
+    const [f, k] = pop(), g = best[k], n = k >> 2, dir = k & 3, i = Math.floor(n / ys.length), j = n % ys.length;
     if (f - h(i, j) > g + 1e-6) continue;
     const end = goal.get(n);
     if (end) {
@@ -699,20 +735,24 @@ function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160 }
       if (d === (dir + 2) % 4) continue;
       const ni = i + STEP[d][0], nj = j + STEP[d][1];
       if (ni < 0 || nj < 0 || ni >= xs.length || nj >= ys.length) continue;
-      const [x0, y0, x1, y1] = [xs[i], ys[j], xs[ni], ys[nj]];
-      if (blocked(x1, y1) || blocked((x0 + x1) / 2, (y0 + y1) / 2)) continue;
-      const nk = node(ni, nj) * 4 + d, ng = g + Math.abs(x1 - x0) + Math.abs(y1 - y0) + (d === dir ? 0 : BEND) + toll(x0, y0, x1, y1);
-      if (ng < (best.get(nk) ?? Infinity)) { best.set(nk, ng); from_.set(nk, { k }); push(ng + h(ni, nj), nk); }
+      const x0 = xs[i], y0 = ys[j], x1 = xs[ni], y1 = ys[nj], nn = node(ni, nj), e = d % 2 ? node(Math.min(i, ni), j) * 2 : node(i, Math.min(j, nj)) * 2 + 1;
+      if (!clearAt[nn]) clearAt[nn] = blocked(x1, y1) ? 2 : 1;
+      if (clearAt[nn] === 2) continue;
+      if (!clearStep[e]) clearStep[e] = blocked((x0 + x1) / 2, (y0 + y1) / 2) ? 2 : 1;
+      if (clearStep[e] === 2) continue;
+      if (Number.isNaN(tollOf[e])) tollOf[e] = toll(x0, y0, x1, y1);
+      const nk = nn * 4 + d, ng = g + Math.abs(x1 - x0) + Math.abs(y1 - y0) + (d === dir ? 0 : BEND) + tollOf[e];
+      if (ng < best[nk]) { best[nk] = ng; from_[nk] = k; push(ng + h(ni, nj), nk); }
     }
   }
   if (!done) return far < 480 ? around(geo, from, to, { avoid, segs, page, far: 480 }) : null;
   const ps = [done.end.at, done.end.out];
   let k = done.k;
   for (;;) {
-    const n = k >> 2, step = from_.get(k);
+    const n = k >> 2;
     ps.push([xs[Math.floor(n / ys.length)], ys[n % ys.length]]);
-    if (step.start) { ps.push(step.start.at); break; }
-    k = step.k;
+    if (from_[k] < 0) { ps.push(port.get(k).at); break; }
+    k = from_[k];
   }
   // Points where the way doesn't turn go.
   const way = ps.reverse().map(([x, y]) => [Math.round(x * 4) / 4, Math.round(y * 4) / 4]).filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);

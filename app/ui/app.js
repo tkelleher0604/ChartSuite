@@ -47,35 +47,51 @@ const App = (() => {
   let worked;
   const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value, schema: schema.value }, worked));
   const state = computed(() => result.value.records);
-  // A record a change takes away (a deadline once paid) leaves the selection with it; one that's only not
-  // there on the day or at the moment shown stays selected.
+  // A record or a shape a change takes away (a deadline once paid, a shape added and undone) leaves the
+  // selection with it, and a Key's row with its Key; a record only not there on the day or at the moment shown
+  // stays selected.
+  const shapes = computed(() => { version.value; return new Set(chart.value ? shown.value.rows(chart.value).filter(r => 'shape' in r).map(r => r.shape) : []); });
   let held = null;
   effect(() => {
-    const st = state.value, at = `${chart.value} ${JSON.stringify(Shell.time.value)}`, was = held;
-    held = { at, st };
-    const keys = Shell.selection.peek(), gone = k => k.split('@')[0] in was.st && !(k.split('@')[0] in st);
-    if (was?.at === at && keys.some(gone)) Shell.select(keys.filter(k => !gone(k)), { replace: true });
+    const now = { at: `${chart.value} ${JSON.stringify(Shell.time.value)}`, st: state.value, shapes: shapes.value }, was = held;
+    held = now;
+    const there = (h, k) => { const id = k.split(/[@#]/)[0]; return id in h.st || h.shapes.has(id); };
+    const keys = Shell.selection.peek(), gone = k => there(was, k) && !there(now, k);
+    if (was?.at === now.at && keys.some(gone)) Shell.select(keys.filter(k => !gone(k)), { replace: true });
   });
+  // A record ruled out where a Check note says ruling out is a problem (Ownership Adds Up, Capacity Held)
+  // needs attention, as an error does. Going to it selects what it's at, and asks why.
+  const failed = computed(() => {
+    const st = state.value, N = notes.value;
+    if (!N.notes('Check').length) return [];
+    return Object.keys(st).filter(id => { const t = st[id].tag === false && Tree.treeOf(st, id); return t && N.value('Check', t) === true; });
+  });
+  Shell.register('attention', { items: () => failed.value.map(id => ({ kind: 'error', go: () => {
+    const r = state.peek()[id];
+    if (!r) return;
+    Shell.select([r.args ? id : r.at]);
+    Shell.emit('why-open', id);
+  } })) });
 
   // ---- Changing ----
   // Undo and Redo are this window's (dendra.md, Workbook: the session's, in no log): each chart's stack of the
   // changes made here, whoever is named as making them, kept for the tab as its address is. Making a chart
-  // isn't one of them. Each says what it took back or put back, by the change that made it, or why it didn't.
+  // isn't one of them. Each entry is the change to reverse and the act it stands for, the change made here
+  // (a restore is one), which the toast says was taken back or put back; or why it wasn't.
   const stacks = signal((() => { try { return JSON.parse(sessionStorage.getItem('dendra.undo')) ?? {}; } catch { return {}; } })());
   const stackOf = c => stacks.value[c] ?? { undo: [], redo: [] };
   const keep = (c, s) => { stacks.value = { ...stacks.peek(), [c]: s }; try { sessionStorage.setItem('dendra.undo', JSON.stringify(stacks.peek())); } catch {} };
-  const made = c => { const s = stackOf(c.chart); keep(c.chart, { undo: [...s.undo, c.id], redo: [] }); return c; };
-  const origin = c => { const all = book.peek().changes(); while (c?.reverses) c = all.find(x => x.id === c.reverses); return c; };
+  const made = c => { const s = stackOf(c.chart); keep(c.chart, { undo: [...s.undo, { id: c.id, act: c.id }], redo: [] }); return c; };
   function step(back) {
     if (readOnly.peek()) return Shell.toast('Can’t change the past');
-    const c = chart.peek(), s = stacks.peek()[c] ?? { undo: [], redo: [] }, [from, to] = back ? ['undo', 'redo'] : ['redo', 'undo'];
-    const r = s[from].length ? book.peek().reverse(s[from].at(-1), who()) : null;
+    const c = chart.peek(), s = stacks.peek()[c] ?? { undo: [], redo: [] }, [from, to] = back ? ['undo', 'redo'] : ['redo', 'undo'], top = s[from].at(-1);
+    const r = top ? book.peek().reverse(top.id, who()) : null;
     // A change kept from before a reload that never reached the workbook is passed over.
-    if (r === null && s[from].length) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back); }
+    if (r === null && top) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back); }
     if (!r) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
     if (typeof r === 'string') return Shell.toast(r);
-    keep(c, { [from]: s[from].slice(0, -1), [to]: [...s[to], r.id] });
-    Shell.toast(`${back ? 'Undid' : 'Redid'}: ${Time.describe(origin(r))}`, back ? { redo } : { undo });
+    keep(c, { [from]: s[from].slice(0, -1), [to]: [...s[to], { id: r.id, act: top.act }] });
+    Shell.toast(`${back ? 'Undid' : 'Redid'}: ${Time.describe(book.peek().changes().find(x => x.id === top.act))}`, back ? { redo } : { undo });
   }
   const undo = () => step(true), redo = () => step(false);
   // One change, by the user: refused while the past is shown; dated from the day shown unless `dated` is false
@@ -103,30 +119,29 @@ const App = (() => {
   // ---- The chart menu: the workbook's charts, a new one, and the workbooks this browser keeps ----
   const books = signal([]);
   const listBooks = () => Store.books().then(bs => { books.value = bs; });
-  // A new chart, added to a workbook: the chart shown without its records. It keeps the schema, and the views
-  // with every note that isn't at one of the records: the definitions, names, descriptions and styles; a view
-  // named after one of the records stays behind. With none kept, one view. Each chart's page starts afresh.
+  // A new chart, added to a workbook: the chart shown without its records. It keeps the schema, and every
+  // note that isn't at one of the records: the definitions, names, descriptions and styles. Of the views, it
+  // keeps those named for what they show (Entities, Ownership), and one chart, Chart, with the styles and
+  // Shown of the chart shown, or else the first; the old chart's own pages stay behind, and its page starts
+  // afresh.
   function startChart(wb) {
     const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name))), from = chart.peek(), src = book.peek();
     let name = 'Untitled', i = 2;
     while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
-    const tx = wb.edit({ chart: c, who: who() }), kept = new Map(), pages = [];
+    const tx = wb.edit({ chart: c, who: who() }), kept = new Map();
     tx.add('chart', { name }, c);
+    const vs = from ? views.peek() : [], like = (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id;
     if (from) {
-      const rows = src.rows(from), st = state.peek(), N = notes.peek(), words = s => ` ${Tree.norm(s).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
-      const theirs = Object.keys(st).filter(id => Tree.isObject(st[id]) && !Tree.isView(st[id]))
-        .flatMap(id => [N.nameOf(st, id), N.shortOf(st, id)].filter(n => n && !Tree.same(n, st[id].kind))).map(words);
+      const L = layouts.peek(), own = v => [...L.kinds, ...L.relations, ...L.datatypes].some(l => Tree.same(l.name, v.name) && JSON.stringify(l.rows) === JSON.stringify(v.rows));
       for (const tree of Object.values(src.schema(from))) tx.add('spec', { tree });
-      for (const v of views.peek()) if (!theirs.some(n => words(v.name).includes(n))) {
-        kept.set(v.id, tx.add('record', { kind: 'View' }));
-        if (v.layout === 'chart') pages.push(kept.get(v.id));
-      }
+      for (const v of vs) if (v.id === like || (v.layout === 'table' && own(v))) kept.set(v.id, tx.add('record', { kind: 'View' }));
       const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: kept.get(t.id) };
-      for (const r of rows) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)))
-        tx.note(r.label, moved(r.pattern), r.value, { view: kept.get(r.view), param: r.param });
+      for (const r of src.rows(from)) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)))
+        tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Chart' : r.value, { view: kept.get(r.view), param: r.param });
     }
-    if (!kept.size) { const id = tx.add('record', { kind: 'View' }); tx.note('Name', viewTree(id), 'Chart'); pages.push(id); }
-    pages.forEach(id => page(tx, id, name));
+    const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
+    tx.note('Name', viewTree(first), 'Chart');
+    page(tx, first, name);
     return tx.commit();
   }
   // A chart's page, begun: its title, the chart's name, and under it the day it's as of, which the page sets
@@ -286,11 +301,12 @@ const App = (() => {
     Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }], body: () => html`<${Body} />` })
       .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } });
   }
+  // Saving somewhere keeps the workbook there from now on, as Office's Save As does; a copy is downloaded.
   [
     { id: 'file.open', name: 'Open…', keys: '$mod+O', run: () => opened(Store.openFile()) },
-    { id: 'file.save', name: 'Save a copy…', keys: '$mod+Shift+S', run: () => saved(Store.saveAs('file')) },
+    { id: 'file.save', name: 'Save as…', keys: '$mod+Shift+S', run: () => saved(Store.saveAs('file')) },
     { id: 'file.library', name: 'Save to SharePoint…', run: () => saved(Store.saveAs('library')) },
-    { id: 'file.download', name: 'Download', run: () => Store.download() },
+    { id: 'file.download', name: 'Download a copy', run: () => Store.download() },
   ].forEach((a, i) => Shell.register('action', { ...a, menu: 'chart', order: 1 + i }));
   Shell.register('action', { id: 'settings', name: 'Settings', menu: 'chart', order: 20, run: settings });
   Shell.register('action', { id: 'chart.new', name: 'New chart', run: newChart });

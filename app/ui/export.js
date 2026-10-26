@@ -7,8 +7,9 @@
 // - PowerPoint: a box is a shape of the same preset geometry, its texts paragraphs in the same fonts that
 //   wrap at the same width; a line is a connector glued to its boxes, grouped with its label so the two move
 //   together, and a line broken where another crosses it its pieces; a frame a shape behind its members; the
-//   legend and free shapes are shapes like any other. A deck's slides share one size, the smallest that
-//   holds every sheet, each in the middle of its slide.
+//   legend one group, a swatch and caption for each row, named for it; the title the slide's title; free
+//   shapes shapes like any other. A deck's slides share one size, the smallest that holds every sheet, each
+//   in the middle of its slide.
 // - PDF: the scene as SVG, through svg2pdf.js, in the PDF's standard fonts (Helvetica has Arial's widths,
 //   Times Times New Roman's), compressed. Each page is its sheet.
 // - The Export dialog, which the title bar's Export opens, previews the file: the same SVG, page by page, on
@@ -161,13 +162,17 @@ const SITES = { rect: [0, 1, 2, 3], rounded: [0, 1, 2, 3], diamond: [0, 1, 2, 3]
   hexagon: [[4, 5], 3, [2, 1], 0], octagon: [[6, 7], [5, 4], [3, 2], [0, 1]], parallelogram: [0, 5, 4, 2], trapezoid: [0, 1, 2, 3],
   pentagon: [0, 1, 3, 5], chevron: [0, 1, 2, 3], arrow: [0, 1, 2, 3], cylinder: [1, 2, 3, 4] };
 const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot' };
-// The page's own texts, by the names PowerPoint's Selection Pane gives them.
-const ROLE = { title: 'Title', date: 'Date' };
+// The page's own texts, by the names PowerPoint's Selection Pane gives them (the title's until it's made the
+// slide's title placeholder); any other shape, as a box is, by what it says.
+const ROLE = { title: '·title·', date: 'Date' };
+// How much wider or narrower than the scene measures it PowerPoint may set a line, and more: within 1%, in
+// PowerPoint, of Arial from 6.5 to 20 pt, kerned as the scene's are.
+const SLACK = 1.015;
 // The widths PowerPoint can wrap a text at and break it into the scene's lines: from its widest line to the
 // narrowest that would take in more of the next, PowerPoint breaking after a hyphen too where the scene breaks
 // only at spaces, and never at the no-break space that keeps a suffix to its name. The width wanted, kept
-// inside that range clear of its ends; null if the range is too narrow to rely on, or the scene broke a text
-// where PowerPoint wouldn't, when the scene's breaks are written as line breaks.
+// inside that range clear of its ends by the slack; null if the range is too narrow for that, or the scene
+// broke a text where PowerPoint wouldn't, when the scene's breaks are written as line breaks.
 function wrapAt(items, want) {
   let lo = 0, hi = Infinity;
   for (const it of items) {
@@ -183,8 +188,7 @@ function wrapAt(items, want) {
       });
     }
   }
-  const m = Math.min(2, (hi - lo) / 2);
-  return hi - lo < 1 ? null : Math.min(Math.max(want, lo + m), hi - m);
+  return lo * SLACK > hi / SLACK ? null : Math.min(Math.max(want, lo * SLACK), hi / SLACK);
 }
 // Of a line's arrowheads, those a piece of it has: its start's on its first, its end's on its last.
 const arrowOf = (a, first, last) => {
@@ -192,9 +196,9 @@ const arrowOf = (a, first, last) => {
   return st && en ? 'both' : st ? 'start' : en ? 'end' : 'none';
 };
 
-// A deck: a slide for each scene, then each line's connector written into its slide's XML, which PptxGenJS
-// can't write: a connector glued to the shapes it joins, so that it follows them when they're moved, in a
-// group with its label, so the two move together.
+// A deck: a slide for each scene, each finished in its XML where PptxGenJS can't write it (see slide). The
+// slides' layout is PowerPoint's Title Only, its title where the first slide's is and in its look, and the
+// file's properties are what PowerPoint would write: no subject, and the fonts and titles the slides hold.
 async function pptx(scenes, title, author) {
   await LIBS.pptx();
   const p = new PptxGenJS();
@@ -203,33 +207,64 @@ async function pptx(scenes, title, author) {
   p.defineLayout({ name: 'Dendra', width: W / 96, height: H / 96 });
   p.layout = 'Dendra';
   p.theme = { headFontFace: 'Arial', bodyFontFace: 'Arial' };
-  Object.assign(p, { title, author, company: '' });
-  const later = scenes.map(s => { const k = fit(s.page); return slide(p, s, { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }); });
+  Object.assign(p, { title, subject: '', author, company: '' });
+  const finish = scenes.map(s => { const k = fit(s.page); return slide(p, s, { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }); });
   const zip = await JSZip.loadAsync(await p.write({ outputType: 'arraybuffer' }));
-  // A line's stand-in, and its label's text box just after it.
-  const stand = /<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·line·(\d+)">[\s\S]*?<\/p:sp>(<p:sp><p:nvSpPr><p:cNvPr id="\d+" name="·label·\2">[\s\S]*?<\/p:sp>)?/g;
-  for (const [i, lines] of later.entries()) {
-    const f = `ppt/slides/slide${i + 1}.xml`;
-    zip.file(f, (await zip.file(f).async('string')).replace(stand, (_, id, j, label) => lines[j](+id, label)));
-  }
+  const edit = async (f, change) => zip.file(f, change(await zip.file(f).async('string')));
+  const slides = await Promise.all(finish.map((done, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(done)));
+  slides.forEach((x, i) => zip.file(`ppt/slides/slide${i + 1}.xml`, x));
+  // Type kerned at every size, as the scene measures it, so a line the scene fits fits: PowerPoint's own
+  // default kerns only from 12 pt.
+  for (const f of ['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml']) await edit(f, x => x.replaceAll('kern="1200"', 'kern="100"'));
+  const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean);
+  await edit('ppt/slideLayouts/slideLayout1.xml', x => x.replace('<p:cSld name="DEFAULT">', `<p:cSld name="${first ? 'Title Only' : 'Blank'}">`)
+    .replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${first ? layoutTitle(first) : ''}</p:spTree>`));
+  await edit('docProps/app.xml', x => properties(x, slides, titles, W === 1280 && H === 720 ? 'Widescreen' : 'Custom'));
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+}
+// A slide's title, in its title placeholder.
+const TITLE = /<p:sp><p:nvSpPr><p:cNvPr id="\d+" name="Title"><\/p:cNvPr><p:cNvSpPr\/><p:nvPr><p:ph type="title"\/>[\s\S]*?<\/p:sp>/;
+// A layout's title placeholder made from a slide's title: in its place, its first paragraph's look its style,
+// holding PowerPoint's prompt.
+function layoutTitle(sp) {
+  const [, pa, pk] = /<a:pPr([^>]*)>([\s\S]*?)<\/a:pPr>/.exec(sp), [, ra, rk] = /<a:rPr([^>]*)>([\s\S]*?)<\/a:rPr>/.exec(sp);
+  return sp.replace(/id="\d+"/, 'id="2"').replace(/<a:lstStyle\/>[\s\S]*<\/p:txBody>/, `<a:lstStyle><a:lvl1pPr${pa}>${pk}<a:defRPr${ra.replace(/ (lang|dirty)="[^"]*"/g, '')}>${rk}</a:defRPr></a:lvl1pPr></a:lstStyle>`
+    + '<a:p><a:r><a:rPr lang="en-US"/><a:t>Click to edit Master title style</a:t></a:r></a:p></p:txBody>');
+}
+// The deck's statistics and contents in its properties, as PowerPoint counts them: its words and paragraphs,
+// its slides' format, and its fonts, theme and slide titles (PowerPoint lists one without a title as "PowerPoint
+// Presentation").
+function properties(app, slides, titles, format) {
+  const said = x => [...(x ?? '').matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => m[1]);
+  const paragraphs = slides.flatMap(x => x.split('<a:p>').slice(1)).filter(q => /<a:t>[^<]/.test(q.slice(0, q.indexOf('</a:p>'))));
+  const parts = [['Fonts Used', [...new Set(slides.flatMap(x => [...x.matchAll(/<a:latin typeface="([^"]*)"/g)].map(m => m[1])))]], ['Theme', ['Office Theme']],
+    ['Slide Titles', titles.map(t => said(t).join(' ') || 'PowerPoint Presentation')]];
+  const vector = (type, items) => `<vt:vector size="${items.length}" baseType="${type}">${items.join('')}</vt:vector>`;
+  return app.replace(/<Words>\d+/, `<Words>${slides.flatMap(said).join(' ').split(/\s+/).filter(Boolean).length}`).replace(/<Paragraphs>\d+/, `<Paragraphs>${paragraphs.length}`)
+    .replace(/<PresentationFormat>[^<]*/, `<PresentationFormat>${format}`)
+    .replace(/<HeadingPairs>[\s\S]*<\/TitlesOfParts>/, `<HeadingPairs>${vector('variant', parts.flatMap(([head, l]) => [`<vt:variant><vt:lpstr>${head}</vt:lpstr></vt:variant>`,
+      `<vt:variant><vt:i4>${l.length}</vt:i4></vt:variant>`]))}</HeadingPairs><TitlesOfParts>${vector('lpstr', parts.flatMap(([, l]) => l.map(t => `<vt:lpstr>${t}</vt:lpstr>`)))}</TitlesOfParts>`);
 }
 
 // One scene on a slide, its page drawn on its sheet `k` times its size from (ox, oy): every mark in the
-// scene's order. A line holds its place with a stand-in, replaced by its connector once the deck is written,
-// when every shape has its number: PptxGenJS numbers a slide's shapes in the order they're added, from 2.
+// scene's order. → what finishes the slide's XML once the deck is written, when every shape has its number
+// (PptxGenJS numbers a slide's shapes in the order they're added, from 2): each line's stand-in replaced by
+// its connector, glued to the shapes it joins so that it follows them when they're moved; what's drawn
+// between a group's two stand-ins grouped, as a line and its label are and the Key is, so they move as one;
+// and the title made the slide's title placeholder, as PowerPoint's Outline and Accessibility Checker read it.
 function slide(p, scene, { k, ox, oy }) {
-  const sl = p.addSlide(), lines = [], ids = new Map();
+  const sl = p.addSlide(), lines = [], groups = [], ids = new Map();
   let count = 0;
   const X = x => (ox + x * k) / 96, Y = y => (oy + y * k) / 96, L = v => v * k / 96, P = px => px * 0.75 * k;
   const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
+  const stand = name => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: name });
   const fill = c => none(c) ? { type: 'none' } : { color: hex(c) };
   const line = (s, w = s.Weight) => none(s.Outline) ? { type: 'none' } : { color: hex(s.Outline), width: w * k, dashType: DASH[s.Dash] ?? 'solid' };
   // A text's column in PowerPoint: the scene's, about the side its lines align to, as wide as wrapAt says;
   // `hug` makes it as narrow as it can be. A text the scene hyphenated is written line by line.
   const column = (items, col, hug) => {
     const cut = items.some(it => it.lines.some(l => l.cut));
-    const w = cut ? null : wrapAt(items, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) + 2, a = items[0].look.Align;
+    const w = cut ? null : wrapAt(items, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) * SLACK, a = items[0].look.Align;
     return { x: a === 'left' ? col.x : a === 'right' ? col.x + col.width - width : col.x + (col.width - width) / 2, width, broken: w === null };
   };
   // Texts as paragraphs: one for each record's text (and each line it was typed on), in its own look, its
@@ -257,20 +292,22 @@ function slide(p, scene, { k, ox, oy }) {
     add('addText', paragraphs(items, f.broken), { ...r, margin: 0, valign: 'top', wrap: true, objectName: name });
     return r;
   };
+  // What `draw` adds, as one group named `name`, framed round the rects `draw` gives back.
+  const group = (name, draw) => { const j = groups.length; groups.push({ name }); stand(`·group·${j}`); groups[j].rects = draw(); stand(`·end·${j}`); };
   // A line, and with `text` its label: the two grouped, named as the line is. A line broken where another
   // crosses it is its pieces, grouped: the first glued where it starts, the last where it ends.
   const connector = (points, s, ends, name, text, runs = [points]) => {
-    const j = lines.length, at = { r: null };
-    lines.push((id, labelXml) => {
-      const glued = ends?.map((b, i) => glue(scene.byId.get(b), points, i)) ?? [];
-      const pieces = runs.map((r, i) => cxn(i ? 200000 + j * 100 + i : id, name, r, { ...s, Arrow: arrowOf(s.Arrow, i === 0, i === runs.length - 1) },
-        [i === 0 ? glued[0] : null, i === runs.length - 1 ? glued[1] : null], { X, Y, k }));
-      const label = labelXml && at.r ? [labelXml.replace(`name="·label·${j}"`, `name="${esc(text.items[0].text)}"`)] : [];
-      return pieces.length + label.length > 1
-        ? grouped(100000 + j, name, [...pieces, ...label], runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })).concat(label.length ? [at.r] : [])) : pieces[0];
-    });
-    add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·line·${j}` });
-    if (text) at.r = label(text.items, text.x, text.y, 200, `·label·${j}`);
+    const draw = () => {
+      const j = lines.length;
+      lines.push(id => {
+        const glued = ends?.map((b, i) => glue(scene.byId.get(b), points, i)) ?? [];
+        return runs.map((r, i) => cxn(i ? 200000 + j * 100 + i : id, name, r, { ...s, Arrow: arrowOf(s.Arrow, i === 0, i === runs.length - 1) },
+          [i === 0 ? glued[0] : null, i === runs.length - 1 ? glued[1] : null], { X, Y, k })).join('');
+      });
+      stand(`·line·${j}`);
+      return runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })).concat(text ? [label(text.items, text.x, text.y, 200)] : []);
+    };
+    if (text || runs.length > 1) group(name, draw); else draw();
   };
   // The site a line's end is glued to: on the side it leaves or arrives by, the nearer if there are two.
   const glue = (b, ps, end) => {
@@ -296,29 +333,35 @@ function slide(p, scene, { k, ox, oy }) {
     else if (m.geometry === 'picture') {
       if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) } });
       if (s.Outline !== '#000000') shape(m, 'rect', { ...s, Fill: 'none' }, [], null);
-    } else if (m.geometry === 'legend') {
+    } else if (m.geometry === 'legend') group(m.title || 'Legend', () => {
       shape(m, 'rect', { ...s, Dash: 'solid' }, m.texts, { x: m.texts[0]?.lines[0]?.x ?? 12, width: m.w - 2 * (m.texts[0]?.lines[0]?.x ?? 12) }, 'top', m.title || 'Legend');
+      // Each row a swatch and its caption, both named as the row is.
       for (const r of m.rows) {
-        const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h };
-        if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, r.caption.text);
-        else if (sw.kind === 'frame') shape(box, 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: FRAME.Weight, Dash: 'dashed' }, [], null);
-        else shape(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box, sw.Shape ?? 'rect', sw, [], null);
+        const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h }, name = r.caption.text;
+        if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, name);
+        else if (sw.kind === 'frame') shape(box, 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: FRAME.Weight, Dash: 'dashed' }, [], null, 'middle', name);
+        else shape(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box, sw.Shape ?? 'rect', sw, [], null, 'middle', name);
         label([r.caption], m.x + r.caption.column.x, m.y, r.caption.column.width);
       }
-    } else if (m.geometry !== 'group') {
+      return [{ x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h) }];
+    });
+    else if (m.geometry !== 'group') {
       const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
-      shape(m, geometry, s, m.texts, m.column, m.geometry === 'text' || m.geometry === 'frame' ? 'top' : 'middle', ROLE[m.role]);
+      shape(m, geometry, s, m.texts, m.column, m.geometry === 'text' || m.geometry === 'frame' ? 'top' : 'middle', ROLE[m.role] ?? m.texts[0]?.text);
     }
   }
-  return lines;
+  return xml => xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·line·(\d+)">[\s\S]*?<\/p:sp>/g, (_, id, j) => lines[j](+id))
+    .replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·group·(\d+)">[\s\S]*?<\/p:sp>([\s\S]*?)<p:sp><p:nvSpPr><p:cNvPr id="\d+" name="·end·\2">[\s\S]*?<\/p:sp>/g,
+      (_, id, j, inner) => grouped(+id, groups[j].name, inner, groups[j].rects))
+    .replace(/(<p:cNvPr id="\d+" name=)"·title·"(><\/p:cNvPr><p:cNvSpPr\/><p:nvPr>)/, '$1"Title"$2<p:ph type="title"/>');
 }
 
 // Shapes' XML as one PowerPoint group, framed round them all (rects in inches on the slide).
-function grouped(id, name, xmls, rects) {
+function grouped(id, name, inner, rects) {
   const E = v => Math.round(v * 914400), x = E(Math.min(...rects.map(r => r.x))), y = E(Math.min(...rects.map(r => r.y)));
   const w = E(Math.max(...rects.map(r => r.x + r.w))) - x, h = E(Math.max(...rects.map(r => r.y + r.h))) - y;
   return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="${esc(name || 'Line')}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
-    + `<p:grpSpPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/><a:chOff x="${x}" y="${y}"/><a:chExt cx="${w}" cy="${h}"/></a:xfrm></p:grpSpPr>${xmls.join('')}</p:grpSp>`;
+    + `<p:grpSpPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/><a:chOff x="${x}" y="${y}"/><a:chExt cx="${w}" cy="${h}"/></a:xfrm></p:grpSpPr>${inner}</p:grpSp>`;
 }
 
 // A route as PowerPoint's connector: straight, or an elbow of one to four legs (bentConnector3 for one or
@@ -368,19 +411,24 @@ async function write(format, scenes, name, author = '') {
 function dates(R, N) {
   const st = R.records;
   const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
+  // A relation as the two-box panel says it, in the formula bar's words, and each side once: Margaret A.
+  // Chen signs for Fund III, via GP III; but Margaret A. Chen signs for the Manager, not via it as well.
+  const short = x => plain(N.shortOf(st, x)), term = x => short(x) !== plain(N.nameOf(st, x)) ? short(x).replace(/^The /, 'the ') : short(x);
+  const sentence = (rel, sides) => {
+    const r = st[rel], t = Tree.treeOf(st, rel), at = Object.fromEntries(sides.map(x => [x.edge, Tree.objectOf(st, x.at)])), [a, b, ...rest] = sides.map(x => x.edge);
+    const role = r.choice ?? a, [p, words, q] = (t && typeof FormulaBar !== 'undefined' && FormulaBar.phrase?.(t, a, b, { choice: r.choice, not: r.tag === false }))
+      || [a, ` is ${r.tag === false ? 'not ' : ''}${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${role.toLowerCase()} of `, b];
+    const said = new Set([at[p], at[q]]), more = rest.filter(e => !said.has(at[e]) && said.add(at[e]));
+    return `${short(at[p])}${words}${term(at[q])}${more.map(e => `, ${e.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase())} ${term(at[e])}`).join('')}`;
+  };
   return Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
-    // What it's the date of, then whose, in full: Annual Tax Due 2025 · Calder Ridge Capital Partners III
-    // AIV-1, L.P. Of a relation, whose is its first side, and its others, by their short names, say which;
-    // its name leads where the date's own label doesn't say it.
-    const path = Tree.pathOf(st, id), full = x => N.nameOf(st, Tree.objectOf(st, x));
-    let what = path.slice(1).map(x => N.segmentOf(st, x)).join(' › '), whose = full(path[0]), which = [];
-    if (!Tree.isObject(st[path[0]])) {
-      const [first, ...rest] = N.sides(st, path[0]), name = N.nameOf(st, path[0]);
-      whose = full(first.at);
-      which = rest.map(a => plain(N.shortOf(st, Tree.objectOf(st, a.at))));
-      if (!Tree.norm(what).includes(Tree.norm(name))) what = `${name} ${what}`;
-    }
-    return { id, day: r.value, what: [what, which.join(', ')].filter(Boolean).join(' '), whose: plain(whose), why: r.computed ? plain(Formulas.groundText(R, id)) : '' };
+    // What it's the date of, then whose: Formation Date · Calder Ridge Capital Partners III, L.P.; Start Date ·
+    // Margaret A. Chen signs for the Manager. A relation of one side is that side's, by name.
+    const path = Tree.pathOf(st, id), sides = Tree.isObject(st[path[0]]) ? [] : N.sides(st, path[0]).filter(Boolean);
+    let what = path.slice(1).map(x => N.segmentOf(st, x)).join(' › ');
+    if (sides.length === 1 && !Tree.norm(what).includes(Tree.norm(N.nameOf(st, path[0])))) what = `${N.nameOf(st, path[0])} ${what}`;
+    const whose = sides.length > 1 ? sentence(path[0], sides) : plain(N.nameOf(st, Tree.objectOf(st, sides[0]?.at ?? path[0])));
+    return { id, day: r.value, what, whose, why: r.computed ? plain(Formulas.groundText(R, id)) : '' };
   });
 }
 // The dates as one all-day event each, for Outlook.
@@ -427,7 +475,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // The pages the file will have: a deck's on its one slide size, a document's each its own.
   const sheets = (format, scenes) => {
     const frame = { w: Math.max(...scenes.map(s => s.page.sheet.w)), h: Math.max(...scenes.map(s => s.page.sheet.h)) };
-    return scenes.map(s => ({ name: s.name, src: uri(svg(s, format === 'pdf' ? { pdf: true } : { frame })) }));
+    return scenes.map(s => { const f = format === 'pdf' ? s.page.sheet : frame; return { name: s.name, src: uri(svg(s, { pdf: format === 'pdf', frame: f })), aspect: f.w / f.h }; });
   };
   // The calendar's dates, by year, as the date's popover lists the chart's days.
   const Dates = () => {
@@ -436,8 +484,9 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${all.filter(e => e.day.startsWith(y)).map(e => html`<div class="dayrow"><span class="d">${Tree.formatDate(e.day, 'short').replace(/, \d{4}$/, '')}</span>
         <span class="w"><span class="it"><b>${e.what}</b> · ${e.whose}</span></span></div>`)}`)}</div>`;
   };
-  // What's exported, on what size of page, and the file's pages, each fitted to the well; a click shows one
-  // at full size. A PDF goes on Letter, unless another paper is picked.
+  // What's exported, on what size of page, and the file's pages, fitted to the well, two across where there
+  // are more, each captioned; a click shows one at full size. A PDF goes on Letter, unless another paper is
+  // picked.
   function Choice({ choice, here, others }) {
     const [format, setFormat] = useState(choice.format), [which, setWhich] = useState(choice.which), [paper, setPaper] = useState(choice.paper);
     const [picked, setPicked] = useState(false), [full, setFull] = useState(null);
@@ -457,8 +506,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <select aria-label="Page size" value=${paper} onChange=${e => { setFull(null); setPicked(true); setPaper(e.target.value); }}>
           ${papers.map(p => html`<option value=${p}>${PAPERS[p]}</option>`)}</select>` : null}
       </div>
-      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : '')}>
-        ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name}>
+      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')}>
+        ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
           <button type="button" aria-label=${pg.name} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button>
           ${pages.length > 1 && !one ? html`<figcaption>${pg.name}</figcaption>` : null}</figure>`)}
       </div>` : format === 'ics' ? html`<div class="ex-well"><${Dates} /></div>` : null}

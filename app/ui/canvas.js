@@ -6,7 +6,8 @@
 // Double-clicking the page adds a box, named as it's typed. A drag from near a box's edge to another box
 // relates them, and to empty page adds a box to relate to it. The formula bar's highlight, redline and point
 // mode, and the format bar's live preview, are drawn over the scene, or as a variant of it, which shows what
-// the view hides.
+// the view hides. A scene is drawn by changing only the cells it changes, and only those on screen are drawn,
+// so a chart of hundreds of boxes costs what a screenful does (see cellsTo).
 const Canvas = (() => {
 const { Graph, Selection, Transform, Snapline } = X6;
 const { signal, effect } = preactSignals;
@@ -102,6 +103,27 @@ const marker = (on, w) => on ? { name: 'block', width: 5 + w * 3, height: 4 + w 
 // behind it shows through its name.
 const FAINT = 0.55;
 
+// A cell in two parts, as JSON: where it is, which moving it changes, each of its keys apart; and what it is.
+const WHERE = new Set(['x', 'y', 'width', 'height', 'zIndex', 'source', 'target', 'vertices', 'connector']);
+function partsOf(c) {
+  const where = {}, what = [];
+  for (const k in c) if (WHERE.has(k)) where[k] = JSON.stringify(c[k]); else what.push(k, c[k]);
+  return { where, what: JSON.stringify(what) };
+}
+// A cell moved to where `c` puts it: the props of it that differ from `was`, set at once in the cell's store,
+// which replaces each (a prop object given to the cell itself is merged into the old, keeping a line's old
+// bends), and draws it once.
+function moveCell(cell, c, was) {
+  const moved = (...ks) => ks.some(k => was[k] !== JSON.stringify(c[k])), props = {};
+  if (cell.isEdge()) { for (const k of ['source', 'target', 'vertices', 'connector']) if (moved(k)) props[k] = c[k]; }
+  else {
+    if (moved('x', 'y')) props.position = { x: c.x, y: c.y };
+    if (moved('width', 'height')) props.size = { width: c.width, height: c.height };
+  }
+  if (moved('zIndex')) props.zIndex = c.zIndex;
+  if (Object.keys(props).length) cell.store.set(props);
+}
+
 // The cells for a scene, by id, each with what it's drawn from, to redraw only what changed.
 function cellsOf(scene) {
   const cells = [], z = new Map(scene.marks.map((m, i) => [m.id, i * 2]));
@@ -180,7 +202,6 @@ function mount(el) {
 
   let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, row = null, dragging = null, syncing = false;
   let pointing = false, hold = false;
-  const cellSig = new Map();
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
   const still = () => App.readOnly.peek();
@@ -188,7 +209,7 @@ function mount(el) {
   const pageRect = all => ({ x: 0, y: 0, width: all ? scene.page.w : 1e6, height: all ? scene.page.h : 1e6 });
 
   const graph = new Graph({
-    container: gEl, autoResize: true, async: false, background: false, grid: false,
+    container: gEl, autoResize: true, async: false, virtual: true, background: false, grid: false,
     panning: { enabled: true, eventTypes: ['mouseWheelDown'] },
     mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], zoomAtMousePosition: true, minScale: LEAST, maxScale: 4, factor: 1.12 },
     scaling: { min: LEAST, max: 4 },
@@ -199,8 +220,19 @@ function mount(el) {
       return { nodeMovable: !pointing && !still() && k !== 'page' && k !== 'label' };
     },
   });
+  // Only the cells on screen, and a margin round it, are drawn, as X6 draws a big graph (`virtual`), so a chart
+  // of hundreds of boxes costs what a screenful does; the rest wait in the model, drawn as they come on screen.
+  // The canvas says where the screen is the moment the view moves, in place of X6's own, which waits for a
+  // pause; and a canvas that can't be seen draws everything, as it can't say. The screen's size is the one last
+  // read (see seen), as reading it again once anything has moved would lay the window out again.
+  graph.virtualRender.stopListening();
+  const AROUND = 120;
+  let screen = { w: 0, h: 0 };
+  const onScreen = () => graph.renderer.setRenderArea(screen.w > 0 && screen.h > 0 ? graph.graphToLocal(0, 0, screen.w, screen.h).inflate(AROUND, AROUND) : undefined);
+  // What can be selected: a mark this view draws (a cell another view drew is kept hidden; see cellsTo).
+  const selectable = c => { const k = c.getData()?.kind; return !!k && k !== 'page' && k !== 'label' && c.isVisible(); };
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
-    pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: c => { const k = c.getData()?.kind; return k && k !== 'page' && k !== 'label'; } });
+    pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: selectable });
   graph.use(sel);
   const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind) && !still();
   const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true }, rotating: false });
@@ -219,7 +251,7 @@ function mount(el) {
       w.container?.classList.toggle('short', s.height * z < 40);
     }
   };
-  graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5 }));
+  graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5, filter: c => c.isVisible() }));
 
   // The page: a sheet under everything, and a node no one sees, so guides find its edges and middle.
   const NS = 'http://www.w3.org/2000/svg';
@@ -240,23 +272,10 @@ function mount(el) {
     const view = base.view;
     scene = revealIds || redDrawn || styledDrawn ? Scene.of(styledDrawn ?? App.shown.peek(), App.chart.peek(), view, base.day,
       { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn ?? (styledDrawn && {}) }) : base;
-    const cells = [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6, data: { kind: 'page' },
-      markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }];
+    cellsTo(App.chart.peek(), view, [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
+      data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
-    const keep = new Set(cells.map(c => c.id));
-    syncing = true;
-    graph.batchUpdate(() => {
-      for (const c of graph.getCells()) if (!keep.has(c.id)) { graph.removeCell(c); cellSig.delete(c.id); }
-      for (const c of cells) {
-        const sig = JSON.stringify(c);
-        if (cellSig.get(c.id) === sig && graph.getCellById(c.id)) continue;
-        if (graph.getCellById(c.id)) graph.removeCell(c.id);
-        c.shape === 'edge' ? graph.addEdge(c) : graph.addNode(c);
-        cellSig.set(c.id, sig);
-      }
-    });
-    syncing = false;
     // Each view comes back as it was left; one not seen yet opens on its page. Either is so at once, never
     // drawn for a moment as the view before was. A preview's page doesn't move the view.
     const size = `${base.page.w}×${base.page.h}`;
@@ -271,6 +290,66 @@ function mount(el) {
     pageWas = size;
     syncSelection();
     paintStates();
+  }
+  // The graph's cells made these. Each is kept by what it's drawn from, in two parts, where it is (a node's
+  // place, size and stacking, a line's route) and what it is (its markup, attributes and data): one that only
+  // moved is moved, a box or shape that looks different is drawn again in place, and only a line that looks
+  // different, or a new cell, is made anew, as making cells is what costs. A cell this view doesn't draw is
+  // hidden while another view of the chart drew it last, for when that one is shown again, and otherwise goes.
+  const drawn = new Map(), drewLast = new Map();
+  let chartDrawn = null;
+  function cellsTo(chart, view, cells) {
+    if (chart !== chartDrawn) { drewLast.clear(); chartDrawn = chart; }
+    const mine = new Set(cells.map(c => c.id));
+    drewLast.set(view, mine);
+    const kept = new Set([...drewLast.values()].flatMap(s => [...s]));
+    stack(cells);
+    syncing = true;
+    if (!screen.w || !screen.h) seen();
+    onScreen();
+    graph.batchUpdate(() => {
+      for (const c of graph.getCells()) {
+        if (mine.has(c.id)) continue;
+        if (!kept.has(c.id)) { graph.removeCell(c); drawn.delete(c.id); }
+        else if (c.isVisible()) c.setVisible(false);
+      }
+      for (const c of cells) {
+        const was = drawn.get(c.id), cell = was && graph.getCellById(c.id), now = partsOf(c);
+        if (cell && cell.isEdge() === (c.shape === 'edge') && (was.what === now.what || cell.isNode())) {
+          if (was.what !== now.what) { cell.setMarkup(c.markup); cell.setData(c.data, { overwrite: true }); }
+          moveCell(cell, c, was.where);
+          if (!cell.isVisible()) cell.setVisible(true);
+        } else { if (cell) graph.removeCell(cell); c.shape === 'edge' ? graph.addEdge(c) : graph.addNode(c); }
+        drawn.set(c.id, now);
+      }
+    });
+    syncing = false;
+  }
+  // The cells stacked in the scene's order, bottom first, as their z. A cell drawn before keeps its z wherever
+  // that's still in order, the most of them that can (the longest run of them in order), and the rest go
+  // between their neighbours: a change restacks only what it moves in the stack, as X6 sorts every cell again
+  // each time one's z changes.
+  function stack(cells) {
+    const order = [...cells].sort((a, b) => a.zIndex - b.zIndex), was = order.map(c => graph.getCellById(c.id)?.getZIndex());
+    const tails = [], before = order.map(() => -1), keep = new Set();
+    order.forEach((c, i) => {
+      if (was[i] == null) return;
+      let lo = 0, hi = tails.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (was[tails[m]] < was[i]) lo = m + 1; else hi = m; }
+      before[i] = lo ? tails[lo - 1] : -1;
+      tails[lo] = i;
+    });
+    for (let i = tails.at(-1) ?? -1; i >= 0; i = before[i]) keep.add(i);
+    for (let i = 0; i < order.length;) {
+      if (keep.has(i)) { order[i].zIndex = was[i]; i++; continue; }
+      let j = i;
+      while (j < order.length && !keep.has(j)) j++;
+      const lo = i ? order[i - 1].zIndex : (j < order.length ? was[j] : 0) - (j - i + 1), hi = j < order.length ? was[j] : lo + (j - i + 1), step = (hi - lo) / (j - i + 1);
+      // Where halving has left no room between them, every cell is stacked afresh.
+      if (step < 1e-6) { order.forEach((c, k) => { c.zIndex = k; }); return; }
+      for (let k = i; k < j; k++) order[k].zIndex = lo + step * (k - i + 1);
+      i = j;
+    }
   }
 
   // ---- Selection: X6's, kept in step with the shell's keys ----
@@ -414,12 +493,15 @@ function mount(el) {
   graph.on('edge:mouseup', ({ edge }) => { if (scene.byId.get(edge.id)?.geometry === 'line') moved([edge.id]); });
 
   // While a box moves, its lines follow and its frames grow round it; a frame carries its members.
+  // What's moved or redrawn so is no longer as the scene drew it, and is put right by the next draw.
   let pending = 0;
+  const astray = (id, looks = false) => { const d = drawn.get(id); if (d) { d.where = {}; if (looks) d.what = null; } };
   function follow(node) {
     const m = scene.byId.get(node.id);
+    astray(node.id);
     if (m?.type === 'frame') {
       const p = node.getPosition(), dx = p.x - m.x, dy = p.y - m.y;
-      for (const b of membersOf(m)) graph.getCellById(b.id)?.setPosition(b.x + dx, b.y + dy, { silent: false });
+      for (const b of membersOf(m)) { graph.getCellById(b.id)?.setPosition(b.x + dx, b.y + dy, { silent: false }); astray(b.id); }
     }
     if (pending) return;
     pending = requestAnimationFrame(() => {
@@ -436,8 +518,9 @@ function mount(el) {
           if (!e) continue;
           e.setSource({ x: ps[0][0], y: ps[0][1] }); e.setTarget({ x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] });
           e.setVertices(ps.slice(1, -1).map(([x, y]) => ({ x, y })));
+          astray(l.id);
           const lab = graph.getCellById(`${l.id}·label`);
-          if (lab && l.labelAt) lab.setPosition(l.labelAt.x, l.labelAt.y);
+          if (lab && l.labelAt) { lab.setPosition(l.labelAt.x, l.labelAt.y); astray(lab.id); }
         }
         for (const f of live.frames) {
           const c = graph.getCellById(f.id);
@@ -447,7 +530,7 @@ function mount(el) {
           body.attrs.d = f.kind === 'bracket' ? `M0.5,${f.h} V${f.h - 5} H${f.w - 0.5} V${f.h}` : `M0,0 H${f.w} V${f.h} H0 Z`;
           hit.attrs.width = f.w;
           c.setMarkup([body, hit, cap]);
-          cellSig.delete(f.id);
+          astray(f.id, true);
         }
       });
       paintStates();
@@ -610,7 +693,7 @@ function mount(el) {
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)));
   });
   root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) framed = left = null; showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = left = null; onScreen(); } showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held, or from the
   // middle of the box, for Relate…, until the next click. On another box, the two's relations are asked
@@ -776,6 +859,20 @@ function mount(el) {
     const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(hidden).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
     if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
+    ahead();
+  }
+  // The chart as a change previewed would leave it, redlined or restyled, is laid out ahead once the window is
+  // idle, however big, so that making the change draws at once: Layout keeps what it works out by what it
+  // reads, and the scene drawn then reads the same.
+  let aheadOf = null;
+  function ahead() {
+    const base = App.scene.peek(), wb = styled ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
+    if (!base || !state || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
+    if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base) return;
+    const mine = aheadOf = { wb, state, base };
+    requestIdleCallback(() => {
+      if (aheadOf === mine && App.scene.peek() === base) Scene.of(wb, App.chart.peek(), base.view, base.day, { state, computed: App.computed.peek(), ahead: true });
+    });
   }
 
   // ---- Commands ----
@@ -954,8 +1051,8 @@ function mount(el) {
   // Where a 10 pt name is 8 px on screen, as small as it's read.
   const READS = 0.6;
   let framed = READS, left = null, quiet = false;
-  const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } };
-  const seen = () => root.clientWidth > 0 && root.clientHeight > 0;
+  const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } onScreen(); };
+  const seen = () => { screen = { w: root.clientWidth, h: root.clientHeight }; return screen.w > 0 && screen.h > 0; };
   const LEVELS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
   const extent = ms => {
     const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]), x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y));
@@ -987,7 +1084,7 @@ function mount(el) {
     } else graph.zoomTo(k);
     zoomLevel.value = graph.zoom();
   }
-  const resized = new ResizeObserver(() => { showHandles(null); if (framed || left) settle(); });
+  const resized = new ResizeObserver(() => { showHandles(null); seen(); if (framed || left) settle(); onScreen(); });
   resized.observe(root);
   // Frames these records' marks (an entry lights the box or line it's in), as the formula bar asks when it
   // steps down to a reason: closer, up to 100%, where they're small on screen; out as far as they need.
@@ -1028,7 +1125,7 @@ function mount(el) {
     'Delete': () => remove(), 'Backspace': () => remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
     'ArrowLeft': () => nudge(-1, 0), 'ArrowRight': () => nudge(1, 0), 'ArrowUp': () => nudge(0, -1), 'ArrowDown': () => nudge(0, 1),
     'Shift+ArrowLeft': () => nudge(-10, 0), 'Shift+ArrowRight': () => nudge(10, 0), 'Shift+ArrowUp': () => nudge(0, -10), 'Shift+ArrowDown': () => nudge(0, 10),
-    '$mod+KeyA': () => { sel.reset(graph.getCells().filter(c => { const k = c.getData()?.kind; return k && k !== 'page' && k !== 'label'; })); },
+    '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
     '$mod+KeyD': () => duplicate(), '$mod+KeyG': () => group(), '$mod+Shift+KeyG': () => ungroup(),
     '$mod+BracketRight': () => order('forward'), '$mod+BracketLeft': () => order('backward'),
     '$mod+Shift+BracketRight': () => order('front'), '$mod+Shift+BracketLeft': () => order('back'),
