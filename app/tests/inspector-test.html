@@ -345,8 +345,11 @@ async function run() {
   Shell.select([legend.shape]); await tick(60);
   check('a Key shows its title, columns and rows to show or hide', $('.ih .cell')?.value === (legend.title ?? 'Key') && $$('.keyrow input[type="checkbox"]').length > 3, $('.insp')?.textContent.slice(0, 200));
   check('… with no eyebrow saying its title again', !$('.ih .path'), $('.ih')?.textContent);
+  // Set as the format bar sets it, in the page's units, its size reads as the slide's, to the half point.
+  App.change(tx => tx.update(legend.shape, { format: { ...legend.format, Size: Scene.fromSlide(App.scene.peek().page, 9) } })); await tick(60);
   const size = $$('.row').find(r => r.querySelector(':scope > .k')?.textContent === 'Size');
-  check('… its size the slide’s, to the half point', size?.querySelector('.v').textContent === `${Math.round(Scene.toSlide(App.scene.peek().page, App.scene.peek().byId.get(legend.shape).look.Size) * 2) / 2} pt`, size?.textContent);
+  check('… its size the slide’s, to the half point', size?.querySelector('.v').textContent === '9 pt', size?.textContent);
+  Shell.parts.value.undo.undo(); await tick(60);
   // A frame is a style's: it says so
   const here = Shell.view.peek(), v40 = App.views.peek().find(v => v.name === '40 Act');
   Shell.show(v40.id); await tick(200);
