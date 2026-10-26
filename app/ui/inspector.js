@@ -819,10 +819,11 @@ Shell.register('find', { items: () => {
   return out;
 } });
 on('relate-open', d => select(d));
-// A link pasted with a record selected, not into a box, links a document to it.
+// A link pasted with an object or a relation selected, not into a box, links a document to it.
 document.addEventListener('paste', e => {
-  const text = T.clean(e.clipboardData?.getData('text/plain')), sel = Shell.selection.peek(), id = sel.length === 1 && recs()[sel[0]] && objectOf(sel[0]);
-  if (e.defaultPrevented || !id || !recs()[id]?.kind || !T.isAddress(text) || e.target.closest?.('input, textarea, [contenteditable]')) return;
+  const text = T.clean(e.clipboardData?.getData('text/plain')), sel = Shell.selection.peek(), r = sel.length === 1 && recs()[sel[0]];
+  const id = r && (r.args ? sel[0] : objectOf(sel[0]));
+  if (e.defaultPrevented || !id || !(recs()[id]?.kind || recs()[id]?.args) || !T.isAddress(text) || e.target.closest?.('input, textarea, [contenteditable]')) return;
   e.preventDefault();
   link(id, text);
 });

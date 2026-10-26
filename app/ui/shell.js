@@ -183,7 +183,7 @@ const Shell = (() => {
   }, true);
 
   // ---- Focus: the regions F6 steps through, each remembering where it was; Tab kept inside a dialog ----
-  const TABBABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+  const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]', '[contenteditable="true"]'].map(s => s + ':not([tabindex="-1"])').join(', ');
   const shown = el => el.getClientRects().length > 0;
   const tabbables = box => [...box.querySelectorAll(TABBABLE)].filter(shown);
   const REGIONS = ['bars', 'view', 'inspector', 'tabs'], lastIn = {};
