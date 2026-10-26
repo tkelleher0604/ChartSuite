@@ -109,7 +109,7 @@ const Table = (() => {
       return { id, at, v: valueOf(st[id]) };
     };
     const today = App.day.value, data = ids.map(id => {
-      const row = { id, _m: {} };
+      const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
       cols.forEach((c, i) => {
         const m = cellOf(id, c), r = m.id && st[m.id], f = 'f' + i;
         row[f] = m.v ?? null;
@@ -151,7 +151,8 @@ const Table = (() => {
       return { ...r, _m };
     });
     const kept = new Set(then.data.map(r => r.id));
-    for (const w of now.data) if (!kept.has(w.id)) data.push({ ...Object.fromEntries(then.cols.map((c, i) => ['f' + i, old(w, c)])), id: w.id, _g: w._g, _m: {}, _red: 'go' });
+    for (const w of now.data) if (!kept.has(w.id)) data.push({ ...Object.fromEntries(then.cols.map((c, i) => ['f' + i, old(w, c)])), id: w.id, _g: w._g, _red: 'go',
+      _m: Object.fromEntries(then.cols.map((c, i) => ['f' + i, w._m[fieldOf.get(c.key)] ?? {}])) });
     return { ...then, data, red: true };
   }
   const isRed = r => !!r._red || Object.values(r._m).some(m => 'was' in m);

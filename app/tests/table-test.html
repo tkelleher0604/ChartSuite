@@ -300,6 +300,12 @@ async function run() {
   check('A row ruled out is marked in the margin, not struck through', !!ruled && [...ruled.querySelectorAll('.tabulator-cell:not(.rn)')].every(x => !getComputedStyle(x).textDecorationLine.includes('line-through'))
     && getComputedStyle(ruled.querySelector('.rn'), '::before').content !== 'none');
   Shell.show(own); await tick(100);
+  // Any change pending, whoever previews it, is redlined in the grid.
+  const goes = Table.grid.getRows()[1].getData().id;
+  FormulaBar.preview({ records: { [goes]: null } }); await tick(100);
+  check('A change pending elsewhere is redlined in the grid: a row that would go is struck in red', rowOf(goes).getElement().classList.contains('red-go') && !$('.pastebar'));
+  FormulaBar.preview(null); await tick(100);
+  check('Without it, the grid is as it was', !$$('.grid .tabulator-row.red-go').length && Table.grid.getRows().length === rows0);
 
   // ---- Dates and Documents ----
   await addTable(null, 'Dates');
