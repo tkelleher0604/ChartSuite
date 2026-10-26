@@ -278,16 +278,17 @@ const FormulaBar = (() => {
     const hv = hover.value, row = hv && model.value?.rows?.find(r => r.key === hv.key), { colors } = finder.value;
     return row?.ev ? new Map(row.ev.names.filter(n => n.from >= hv.from && n.to <= hv.to).flatMap(n => n.ids.map(id => [id, colors.get(n) ?? 1]))) : null;
   });
-  // The chart outlines what the bar names, a hovered part's records at full strength; or, while a clause of a
-  // definition is pointed at, the records it gives.
+  // The chart outlines what the bar names, and a hovered part's or fact's records at full strength, though the
+  // path cited passes them by; or, while a clause of a definition is pointed at, the records it gives.
   const lit = signal(null);
   effect(() => {
-    const { map } = finder.value, hv = hovered.value, pulse = hv ? new Set(hv.keys()) : touch.value && new Set(touch.value), canvas = Shell.parts.peek().canvas, shown = lit.value;
+    const { map } = finder.value, canvas = Shell.parts.peek().canvas, shown = lit.value;
+    const pulse = hovered.value ?? (touch.value && new Map(touch.value.map(id => [id, map.get(id)?.[0] ?? 1])));
     if (shown) return canvas?.highlight(shown.length ? Object.fromEntries(shown.map(id => [id, [1, 0]])) : null, { dim: true });
-    if (!map.size && !hv?.size) return canvas?.highlight(null);
+    if (!map.size && !pulse?.size) return canvas?.highlight(null);
     const colors = Object.fromEntries([...map].map(([id, [c, level]]) => [id, [c, pulse?.has(id) ? 0 : level]]));
-    for (const [id, c] of hv ?? []) colors[id] ??= [c, 0];
-    canvas?.highlight(colors, { dim: true, pulse: pulse ? [...pulse] : [] });
+    for (const [id, c] of pulse ?? []) colors[id] ??= [c, 0];
+    canvas?.highlight(colors, { dim: true, pulse: pulse ? [...pulse.keys()] : [] });
   });
   // Stepping down, the records stepped through are drawn though the view hides them: the chain stays on the
   // chart, and the line just clicked stays under the pointer.
@@ -682,12 +683,22 @@ const FormulaBar = (() => {
   }
   // The rows open with the cursor in one, to type into.
   const openAt = key => { claimed = true; opened.value = true; aim.value = key; };
-  // While a row is edited, a click on the chart names a record in it (point mode).
+  // While a row is edited, a click on the chart names a record in it (point mode), and the panel holds just
+  // that row; the boxes of the record worked out, where it still covers them, are scrolled clear of it, as a
+  // wheel scrolls the chart.
   function startEditing(cm, key) {
     const ed = editing.peek();
     if (ed?.cm === cm) return;
     editing.value = { cm, key, subject: ed?.subject ?? subject.peek() };
-    if (!ed) Shell.parts.peek().canvas?.point(true);
+    if (!ed) { Shell.parts.peek().canvas?.point(true); requestAnimationFrame(clear); }
+  }
+  function clear() {
+    const m = model.peek(), recs = R.peek().records, panel = document.querySelector('.fx-panel'), chart = document.querySelector('.dc-graph');
+    if (!m || !panel || !chart) return;
+    const p = panel.getBoundingClientRect(), ids = [...(m.args ?? []).map(a => a.id), m.id && Tree.objectOf(recs, m.id)].filter(id => isObj(recs[id]));
+    const under = ids.map(id => chart.querySelector(`[data-cell-id="${CSS.escape(id)}"]`)?.getBoundingClientRect())
+      .filter(b => b && b.top < p.bottom && b.bottom > p.top && b.left < p.right && b.right > p.left);
+    if (under.length) chart.dispatchEvent(new WheelEvent('wheel', { deltaY: Math.min(...under.map(b => b.top)) - p.bottom - 16, bubbles: true, cancelable: true }));
   }
   function endEditing() {
     if (!editing.peek()) return;
