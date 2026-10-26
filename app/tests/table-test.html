@@ -53,6 +53,10 @@ const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => localS
 <script>
 const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
+// Until ok() holds, or ms pass. A change previewed is worked out at once, or on a slow chart after a 300 ms
+// pause (FormulaBar.preview), so what the redline shows is checked once the preview is there.
+const until = async (ok, ms = 3000) => { for (const t0 = performance.now(); !ok() && performance.now() - t0 < ms;) await tick(20); };
+const previewed = async () => { await until(() => !!FormulaBar.pending.peek()); await tick(100); };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const C = () => App.chart.peek(), st = () => App.state.peek(), last = () => App.wb.changes().at(-1);
 const N = () => App.wb.changes().length;
@@ -177,7 +181,7 @@ async function run() {
   n0 = N();
   paste('Name\tFund Counsel\tFormation Date\r\nCalder Ridge III Blocker, Inc.\tKirkland & Ellis LLP\t\r\nHollis Bay Holdings, LLC\tSimpson Thacher\t3/2/2026\r\n'); await tick(150);
   check('A heading nothing matches is asked about, and nothing is pasted yet', $('dialog.dlg')?.textContent.includes('Fund Counsel') && N() === n0);
-  await answer('New column');
+  await answer('New column'); await previewed();
   check('The paste is redlined first: its new row in blue, its new column, and a bar saying what it does', $$('.grid .tabulator-row.red-add').length === 1 && !!column('Fund Counsel')
     && /3 values.*1 new entity/.test($('.pastebar')?.textContent) && N() === n0, $('.pastebar')?.textContent);
   check('A pending paste can’t be edited over', !column('Name').getDefinition().editable(rowOf(halvard).getCells()[1]));
@@ -255,7 +259,7 @@ async function run() {
   Shell.at({ asOf: '2026-11-02' }); await tick(100);
   n0 = N();
   const rows0 = Table.grid.getRows().length;
-  paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await tick(150);
+  paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed();
   const bar = $('.pastebar')?.textContent ?? '';
   check('Pasting into a relation says what it creates, and from what day', /3 values/.test(bar) && /1 new ownership/.test(bar) && /new Entity\s*Halcyon University Endowment/.test(bar) && /From Nov 2, 2026/.test(bar) && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
@@ -275,7 +279,7 @@ async function run() {
   const us = Table.grid.getRows().find(r => r.getData().f0 === 'U.S. Investors');
   Table.grid.addRange(us.getCells().find(x => x.getColumn().getDefinition().title === 'Percentage')); await tick(40);
   n0 = N();
-  paste('70%'); await tick(150);
+  paste('70%'); await previewed();
   press('Enter'); await tick(150);
   check('Without headings, a paste fills from the active cell', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.7 && N() === n0 + 1);
   undo(); await tick(100);
@@ -285,11 +289,11 @@ async function run() {
   n0 = N();
   paste('Investor\tFund\tPercentage\r\nU.S. Investors\tFund III\t50%\r\n'); await tick(150);
   check('Headings that don’t match are asked about, never pasted by place', !!$('dialog.dlg') && N() === n0 && Table.grid.getRows()[0].getData().f2 === firstPct);
-  await answer('Owner', 'Owned');
+  await answer('Owner', 'Owned'); await previewed();
   check('Matched, the row is found by its names', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '50%') && !$$('.grid .tabulator-row.red-add').length);
   press('Escape'); await tick(150);
   Table.grid.addRange(first.getCells()[1]); await tick(40);
-  paste('U.S. Investors\tFund III\t50%\r\n'); await tick(150);
+  paste('U.S. Investors\tFund III\t50%\r\n'); await previewed();
   check('Without headings, a row that gives its names finds its row by them, not by place', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && Table.grid.getRows()[0].getData().f2 === firstPct);
   press('Escape'); await tick(150);
   check('Esc leaves it unmade',!$('.pastebar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
@@ -302,7 +306,7 @@ async function run() {
   Shell.show(own); await tick(100);
   // Any change pending, whoever previews it, is redlined in the grid.
   const goes = Table.grid.getRows()[1].getData().id;
-  FormulaBar.preview({ records: { [goes]: null } }); await tick(100);
+  FormulaBar.preview({ records: { [goes]: null } }); await previewed();
   check('A change pending elsewhere is redlined in the grid: a row that would go is struck in red', rowOf(goes).getElement().classList.contains('red-go') && !$('.pastebar'));
   FormulaBar.preview(null); await tick(100);
   check('Without it, the grid is as it was', !$$('.grid .tabulator-row.red-go').length && Table.grid.getRows().length === rows0);
@@ -322,15 +326,24 @@ async function run() {
 
   // ---- The time: the chart's days, the date control, the strip, a view keeping a date ----
   const days = Time.events.peek().map(e => e.day), dated = App.wb.rows(C()).flatMap(r => [r.since, r.before]).filter(Boolean);
-  check('The days on which something starts or ends: every version’s, and every start and end date, in order', dated.every(d => days.includes(d))
-    && ['2024-07-09', '2024-09-16', '2026-06-15', '2023-02-14'].every(d => days.includes(d)) && days.every((d, i) => !i || days[i - 1] < d), days.length);
+  const entered = App.wb.rows(C()).filter(r => r.field === 'date').map(r => r.value);
+  check('The days on which something starts or ends, or a date entered says something happened: every version’s, and every date entered, in order', dated.every(d => days.includes(d))
+    && entered.every(d => days.includes(d)) && ['2024-07-09', '2024-09-16', '2026-06-15', '2023-02-14'].every(d => days.includes(d)) && days.every((d, i) => !i || days[i - 1] < d), days.length);
   const jul9 = Time.events.peek().find(e => e.day === '2024-07-09');
-  check('Each day is said in the chart’s words', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul9?.items));
+  check('Each day is said in the chart’s words: whose in words, not arrows', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP, general partner of Offshore Feeder'), JSON.stringify(jul9?.items));
+  const whose = Object.fromEntries(Table.model(views().find(v => v.rows === 'date').id).data.map(r => [r.f1 + '|' + r.f2, true]));
+  check('Dates says whose in words: AIV-1, tax year 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
+  // The list of days opens on the day shown, or the last of the chart's days before it.
+  Shell.at({ asOf: '2024-01-15' }); await tick(60);
+  $('.titlebar .asof').click(); await tick(200);
+  const dl = $('.date-pop .date-days'), near = [...dl.querySelectorAll('[data-day]')].find(b => b.dataset.day <= '2024-01-15');
+  check('As of a day, the list of days opens there', !!near && near.offsetTop >= dl.scrollTop && near.offsetTop < dl.scrollTop + dl.clientHeight, `${near?.dataset.day} at ${near?.offsetTop}, list at ${dl?.scrollTop}`);
+  Shell.closeAll(); Shell.at(null); await tick(60);
   $('.titlebar .asof').click(); await tick(100);
   check('The date control opens a calendar beside the chart’s days', !!$('.date-pop .cal-grid') && $$('.date-pop .dayrow').length >= Time.events.peek().length);
   const list = [...$('.date-pop .date-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');
   list.slice(y2024).find(b => b.querySelector?.('.d')?.textContent === 'Jul 1').click(); await tick(100);
-  check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('Jul 1, 2024'));
+  check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('July 1, 2024'));
   check('While another day shows, a band over the view says which', $('.view > .strip > .band')?.textContent === 'As of July 1, 2024Today', $('.view > .strip > .band')?.textContent);
   check('The strip shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
   [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);

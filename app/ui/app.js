@@ -45,18 +45,20 @@ const App = (() => {
   const definitions = computed(() => notes.value.definitions(schema.value));
   const relations = computed(() => notes.value.relations(schema.value));
   let worked;
-  const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value }, worked));
+  const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value, schema: schema.value }, worked));
   const state = computed(() => result.value.records);
 
   // ---- Changing ----
-  // Undo and Redo say what they took back or put back, by the change that made it.
+  // Undo and Redo say what they took back or put back, by the change that made it, or why they didn't.
   const origin = c => { const all = book.peek().changes(); while (c?.reverses) c = all.find(x => x.id === c.reverses); return c; };
-  const stepped = (r, verb, back) => {
-    if (r && typeof r !== 'string') Shell.toast(`${verb}: ${Time.describe(origin(r))}`, { undo: back });
-    return r;
-  };
-  const undo = () => !readOnly.peek() && stepped(book.peek().undo(who(), chart.peek()), 'Undid', () => redo());
-  const redo = () => !readOnly.peek() && stepped(book.peek().redo(who(), chart.peek()), 'Redid', () => undo());
+  function step(back) {
+    if (readOnly.peek()) return Shell.toast('Can’t change the past');
+    const r = book.peek()[back ? 'undo' : 'redo'](who(), chart.peek());
+    if (!r) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
+    if (typeof r === 'string') return Shell.toast(r);
+    Shell.toast(`${back ? 'Undid' : 'Redid'}: ${Time.describe(origin(r))}`, { undo: back ? redo : undo });
+  }
+  const undo = () => step(true), redo = () => step(false);
   // One change, by the user: refused while the past is shown; dated from the day shown unless `dated` is false
   // (a view isn't a fact about the world). `say`, a string or a function of the change, is toasted with Undo.
   function change(fn, { say, dated = true } = {}) {
@@ -80,14 +82,24 @@ const App = (() => {
   // ---- The chart menu: the workbook's charts, a new one, and the workbooks this browser keeps ----
   const books = signal([]);
   const listBooks = () => Store.books().then(bs => { books.value = bs; });
-  // A chart of nothing but one view, added to a workbook.
+  // A new chart, added to a workbook: the chart shown without its records. It keeps the schema, and the views
+  // with every note that isn't at one of the records: the definitions, names, descriptions and styles. With
+  // no chart shown, one view.
   function startChart(wb) {
-    const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name)));
+    const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name))), from = chart.peek(), src = book.peek();
     let name = 'Untitled', i = 2;
     while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
     const tx = wb.edit({ chart: c, who: who() });
     tx.add('chart', { name }, c);
-    tx.note('Name', viewTree(tx.add('record', { kind: 'View' })), 'Chart');
+    if (!from) tx.note('Name', viewTree(tx.add('record', { kind: 'View' })), 'Chart');
+    else {
+      const rows = src.rows(from), views = new Map();
+      for (const tree of Object.values(src.schema(from))) tx.add('spec', { tree });
+      for (const r of rows) if ('record' in r && Tree.isView(r) && !views.has(r.record)) views.set(r.record, tx.add('record', { kind: 'View' }));
+      const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: views.get(t.id) };
+      for (const r of rows) if ('note' in r && (!r.view || views.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => views.has(id)))
+        tx.note(r.label, moved(r.pattern), r.value, { view: views.get(r.view), param: r.param });
+    }
     return tx.commit();
   }
   function newChart() {
@@ -97,7 +109,7 @@ const App = (() => {
     chart.value = c.chart;
     Shell.select([]);
   }
-  const blank = () => { const wb = Log.open([]); startChart(wb); return opened(Store.open({ id: Log.newId(), sample: wb })); };
+  const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })); };
   Shell.register('workbook', {
     charts: () => (version.value, book.value.charts().map(c => ({ id: c.chart, name: c.name }))),
     current: () => chart.value,
@@ -164,23 +176,31 @@ const App = (() => {
     return id;
   }
   const order = ids => change(tx => ids.forEach((id, k) => tx.note('Order', viewTree(id), k + 1)), { dated: false });
+  // What a view can show, as menu items: a chart, or a table of a kind's records, a relation's, or every date or
+  // document, each picked as pick(name, rows). Given a view, what it shows is checked.
+  function shows(pick, v) {
+    const L = layouts.peek(), on = rows => v && v.layout === 'table' && JSON.stringify(v.rows) === JSON.stringify(rows);
+    const as = l => ({ label: l.name, checked: on(l.rows), run: () => pick(l.name, l.rows) });
+    const group = (label, ls) => ({ label, checked: v && ls.some(l => on(l.rows)), items: ls.map(as) });
+    return [{ label: 'Chart', checked: v && v.layout === 'chart', run: () => pick('Chart') }, '-', group('Records', L.kinds), group('Relations', L.relations), ...L.datatypes.map(as)];
+  }
   Shell.register('views', {
     list: () => views.value,
     rename: (id, name) => change(tx => tx.note('Name', viewTree(id), name), { dated: false }),
     move: (id, i) => { const ids = views.peek().map(v => v.id).filter(x => x !== id); ids.splice(i, 0, id); order(ids); },
-    // A chart, or a table of a kind's records, a relation's or every date or document: the new view's id, or
-    // null if none is chosen.
+    // A new view of what's picked: its id, or null if none is.
     add: anchor => new Promise(done => {
       let chosen = false;
-      const pick = (name, rows) => () => { chosen = true; done(addView(name, rows)); };
-      const L = layouts.peek(), as = l => ({ label: l.name, run: pick(l.name, l.rows) });
-      Shell.menu(anchor, [{ label: 'Chart', run: pick('Chart') }, '-', { label: 'Records', items: L.kinds.map(as) },
-        { label: 'Relations', items: L.relations.map(as) }, ...L.datatypes.map(as)],
-      { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
+      Shell.menu(anchor, shows((name, rows) => { chosen = true; done(addView(name, rows)); }),
+        { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
     }),
+    // A view's own menu, on its tab: what it shows, as the inspector's view panel sets it, and copying or
+    // deleting it.
     menu: id => {
       const v = views.peek().find(x => x.id === id);
       return [
+        { label: 'Show', items: shows((_, rows) => change(tx => tx.note('Layout', viewTree(id), rows && { rows }), { dated: false }), v) },
+        '-',
         { label: 'Duplicate', run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
         { label: 'Delete', danger: true, disabled: views.peek().length < 2, run: () => {
           const next = views.peek().find(x => x.id !== id);
@@ -203,20 +223,28 @@ const App = (() => {
   const opened = p => p.then(wb => wb && use(wb), e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t open it'));
   const saved = p => p.then(listBooks, e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t save it'));
 
-  // Settings: who you are, and the SharePoint library the team keeps its workbooks and documents in.
+  // Settings: who you are, and signing in to the SharePoint library the team keeps its workbooks and documents
+  // in. The connection to it is IT's to set up (docs/sharepoint-setup.md), so it's folded away, and opens
+  // when signing in needs it.
   function settings() {
     const v = { name: store.get('name') ?? '', ...SharePoint.settings() };
     const keep = () => SharePoint.configure({ tenant: v.tenant.trim(), client: v.client.trim(), library: v.library.trim() });
     const field = (k, label) => html`<label class="field"><span>${label}</span><input value=${v[k]} spellcheck="false" onInput=${e => { v[k] = e.target.value; }} /></label>`;
-    function Account() {
-      const [me, setMe] = preactHooks.useState(SharePoint.account());
-      const go = p => p.then(() => setMe(SharePoint.account()), e => Shell.toast(e?.message || 'Couldn’t sign in'));
-      return html`<div class="field"><span>SharePoint</span>${me
-        ? html`<span class="who">${me.name}</span><button type="button" class="btn" onClick=${() => go(SharePoint.signOut())}>Sign out</button>`
-        : html`<button type="button" class="btn" onClick=${() => { keep(); go(SharePoint.signIn()); }}>Sign in</button>`}</div>`;
+    function Body() {
+      const [me, setMe] = preactHooks.useState(SharePoint.account()), connection = preactHooks.useRef();
+      const go = p => p.then(() => setMe(SharePoint.account()), e => {
+        Shell.toast(e?.message || 'Couldn’t sign in');
+        if (!SharePoint.configured()) connection.current.open = true;
+      });
+      return html`<div class="settings">
+        ${field('name', 'Your name')}
+        <div class="field"><span>SharePoint</span><span class="account">${me
+          ? html`<span class="who">${me.name}</span><button type="button" class="btn" onClick=${() => go(SharePoint.signOut())}>Sign out</button>`
+          : html`<button type="button" class="btn" onClick=${() => { keep(); go(SharePoint.signIn()); }}>Sign in</button>`}</span></div>
+        <details ref=${connection}><summary>Connection</summary><div class="settings">${field('tenant', 'Tenant ID')}${field('client', 'Client ID')}${field('library', 'Library')}</div></details>
+      </div>`;
     }
-    Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }],
-      body: () => html`<div class="settings">${field('name', 'Your name')}${field('tenant', 'Tenant')}${field('client', 'Client ID')}${field('library', 'Library')}<${Account} /></div>` })
+    Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }], body: () => html`<${Body} />` })
       .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } });
   }
   [

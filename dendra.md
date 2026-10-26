@@ -125,9 +125,9 @@ The window has three coordinates, and every screen is a setting of them:
 
 **The format bar** shows on a chart. A scope chip names what a change applies to: the style that reaches the selection ("Feeder Fund"), or "This box". Its menu lists every style that reaches the selection.
 
-**The formula bar** is one row, as Excel's is: the selection's output, its name, and the row that gave it; with nothing selected, the view's name. Its definition's rows drop over the view (the chevron, or Ctrl+Shift+U), those that hold in ink and the rest grey. Each name in a row takes a color, and what it means here is outlined on the chart in that color; deeper reasons are the same hue, lighter, down to entered records, even ones the view hides. Hovering part of a formula shows its value here. Clicking a computed line steps down into the clause its parent cited, with a breadcrumb back. The definition is edited here.
+**The formula bar** is one row, as Excel's is: the selection's output, its name, and the row that gave it; with nothing selected, the view's name. Its definition's rows drop over the view (the chevron, or Ctrl+Shift+U), headed by why, in a sentence of the facts that fired, each one a link ("… is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person (§2(a)(3)(A)), so it is a remote affiliate (§57(e)(1)(A))"); the rows that hold are in ink and the rest grey. Each name in a row takes a color, and what it means here is outlined on the chart in that color; deeper reasons are the same hue, lighter, down to entered records, even ones the view hides. Hovering part of a formula shows its value here. Clicking a computed line steps down into the clause its parent cited, with a breadcrumb back. The definition is edited here.
 
-**The view.** Views are sheet tabs, dragged to reorder. A chart view is a page of shapes: select, marquee, move, resize, guides, align, order, group, nudge, copy and paste, the format painter, as in PowerPoint. Dragging from a box's edge to another box lists every relation the two could be in. A table view is a grid edited like Excel, pasting included.
+**The view.** Views are sheet tabs, dragged to reorder. A chart view is a page of shapes: select, marquee, move, resize, guides, align, order, group, nudge, copy and paste, the format painter, as in PowerPoint. Dragging from a box's edge to another box shows what holds between the two, in sentences, with any other relation they could be in one step away. A table view is a grid edited like Excel, pasting included.
 
 **The inspector** shows whatever is selected:
 
@@ -136,7 +136,7 @@ The window has three coordinates, and every screen is a setting of them:
 | nothing | the view: its layout, styles and legend |
 | a box or a row | the record: its entries as a tree, then its relatives by list, then its documents; its look and position |
 | a line | the relation: its sides, its output, what's at it |
-| two boxes | every relation the two are in or could be in |
+| two boxes | what holds between them, as sentences ("Fund III is an owner of Fund III Blocker"), and Add a relation |
 | a column heading, a legend row, an entry's label | that entry or relation in general: its name, meaning, options, required, start and end, styles, and its definition set out as the statute it encodes (each clause's words beside its rows, and what it gives) |
 
 Widened, the inspector is the record's page. Where two people gave one value at once, it shows both answers, each with who gave it; keeping one settles it. History, when open, takes its place.
@@ -147,7 +147,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
 
-**Launch.** The dappled wall shows once per opened tab and dims into the page. On the very first launch a tour of five steps follows, each advanced by doing what it teaches: select a box; drag to another; select an italic value; flip a tag; switch views.
+**Launch.** The dappled wall shows once per opened tab and dims into the page. On the very first launch a tour of five steps follows, each advanced by doing what it teaches: select a box; drag to another; select an italic value; point at a tag; switch views.
 
 ## Part 3. The look and the words
 

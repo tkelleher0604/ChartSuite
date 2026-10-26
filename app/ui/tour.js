@@ -1,21 +1,30 @@
-// The tour: five steps, each advanced by doing what it teaches, then one card. It runs by itself on the very
+// The tour: five steps, each done by doing what it teaches, then one card. It runs by itself on the very
 // first launch, once the launch screen is gone, if a chart is drawn; after that, from Tour in the chart menu or
-// Find. Enter skips a step, Skip goes to the last card, and Esc ends it. Each step waits for its event on the
-// shell's bus, and points at what the parts mark with data-tour.
+// Find. Enter skips a step, Skip goes to the last card, and Esc ends it. A step waits for its event on the
+// shell's bus, or, pointing, for the pointer to rest on what it points at and leave. It points at what the
+// parts mark with data-tour. The tour changes nothing in the record: a click on what a pointing step points at
+// only points, and what a step opened closes once the next step is under way.
 const Tour = (() => {
   const { html, signal, on, store } = Shell;
   const { render } = preact;
   const { useLayoutEffect, useRef, useState } = preactHooks;
-  const { computePosition, offset, flip, shift } = FloatingUIDOM;
+  const { computePosition, offset, shift } = FloatingUIDOM;
+  // A value asked about holds while the selection it was asked under does (formulabar.js), so the same
+  // selection again ends it, and the chart's highlight with it.
+  function unask() {
+    if (document.activeElement?.closest?.('[data-tour="computed"]')) document.activeElement.blur();
+    const s = Shell.selection.peek();
+    preactSignals.batch(() => { Shell.select([], { replace: true }); Shell.select([...s], { replace: true }); });
+  }
   const STEPS = [
     { event: 'select', target: 'box', act: 'Click a box.', say: 'Every box is a record.', when: s => s?.length },
-    { event: 'relate-open', target: 'box', act: 'Drag from one box’s edge to another.', say: 'Every relation they can be in is listed.' },
-    { event: 'why-open', target: 'computed', act: 'Click an italic value.', say: 'Italic means a formula worked it out. Type over it and yours wins.' },
-    { event: 'tag-flip', target: 'tag', act: 'Click a tag.', say: 'Green is attested; red is ruled out.' },
+    { event: 'relate-open', target: 'box', act: 'Drag from one box’s edge to another.', say: 'See how they’re related, or relate them.' },
+    { event: 'why-open', target: 'computed', act: 'Click an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', ends: unask },
+    { point: true, target: 'tag', in: 'inspector', act: 'Point at a tag.', say: 'Green is attested, red ruled out. Pointing shows what switching it would change.' },
     { event: 'view-switch', target: 'sheet', act: 'Switch view.', say: 'Views share the records; each has its own styles. Export any of them.' },
   ];
   const at = signal(-1); // the step shown; STEPS.length is the last card
-  let unlayer = null;
+  let unlayer = null, rest = null;
 
   function start() {
     store.set('toured', '1');
@@ -23,18 +32,58 @@ const Tour = (() => {
     if (at.peek() < 0) unlayer = Shell.layer(end);
     at.value = 0;
   }
-  const next = () => { if (at.peek() >= 0 && at.peek() < STEPS.length) at.value = at.peek() + 1; };
-  function end() { if (at.peek() < 0) return; at.value = -1; unlayer(); }
-  for (const [i, s] of STEPS.entries()) on(s.event, d => { if (at.peek() === i && (!s.when || s.when(d))) next(); });
+  // What a step opened stays while the next step is read, and closes once that one is begun or done.
+  let opened = null;
+  const settle = () => { const f = opened; opened = null; f?.(); };
+  const leave = () => { rest = null; settle(); opened = STEPS[at.peek()]?.ends ?? null; };
+  const next = () => { if (at.peek() >= 0 && at.peek() < STEPS.length) { leave(); at.value = at.peek() + 1; } };
+  function end() { if (at.peek() < 0) return; leave(); settle(); at.value = -1; unlayer(); }
+  for (const [i, s] of STEPS.entries()) if (s.event) on(s.event, d => { if (at.peek() === i && (!s.when || s.when(d))) next(); });
   Shell.launched.then(() => { if (store.get('toured') !== '1' && Shell.parts.peek().canvas) start(); });
   document.addEventListener('keydown', e => {
     if (at.peek() < 0 || at.peek() >= STEPS.length || e.defaultPrevented || e.key !== 'Enter' || e.target.closest?.('input, textarea, select, button, [contenteditable], .CodeMirror')) return;
     next();
     e.preventDefault(); e.stopPropagation();
   }, true);
+  // A pointing step is begun when the pointer reaches what it points at, and done once it has rested there
+  // and left, or on a click there, which goes no further.
+  const pointed = e => { const s = STEPS[at.peek()]; return s?.point ? e.target.closest?.(`[data-tour="${s.target}"]`) : null; };
+  addEventListener('pointerover', e => { const el = pointed(e); if (el && rest?.el !== el) { settle(); rest = { el, since: e.timeStamp }; } }, true);
+  addEventListener('pointerout', e => {
+    if (!rest || rest.el.contains(e.relatedTarget)) return;
+    const rested = e.timeStamp - rest.since > 500;
+    rest = null;
+    if (rested) next();
+  }, true);
+  addEventListener('click', e => { if (pointed(e)) { e.preventDefault(); e.stopPropagation(); next(); } }, true);
 
-  // The one visible thing a step points at, if it's on screen.
-  const find = name => [...document.querySelectorAll(`[data-tour="${name}"]`)].find(el => el.getClientRects().length);
+  // What a step points at: the first of its kind in view, inside every pane that scrolls it, and in the
+  // step's pane if one is there.
+  const inView = el => { const r = el.getBoundingClientRect(); return document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2).includes(el); };
+  function find(step) {
+    const all = [...document.querySelectorAll(`[data-tour="${step.target}"]`)].filter(el => el.getClientRects().length);
+    const mine = all.filter(el => el.closest(`[data-region="${step.in}"]`));
+    return mine.find(inView) ?? all.find(inView) ?? mine[0] ?? all[0];
+  }
+  // Brought into the middle of the pane that scrolls it.
+  function reveal(el) {
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      const o = getComputedStyle(p);
+      if (!/auto|scroll/.test(o.overflowX + o.overflowY)) continue;
+      const r = el.getBoundingClientRect(), b = p.getBoundingClientRect();
+      return p.scrollBy(r.left + r.width / 2 - (b.left + b.width / 2), r.top + r.height / 2 - (b.top + b.height / 2));
+    }
+  }
+  // The card sits level with what it points at, beside that thing's pane and never over it: over the
+  // inspector for the chart, over the chart for the inspector, above the tabs and below the bars.
+  const SIDE = { view: 'right-start', inspector: 'left-start', tabs: 'top-start', bars: 'bottom-start' };
+  function beside(el) {
+    const pane = el.closest('[data-region]'), side = SIDE[pane?.dataset.region] ?? 'right-start';
+    const r = el.getBoundingClientRect(), p = pane?.getBoundingClientRect() ?? r, across = /^(left|right)/.test(side);
+    const x = across ? p : r, y = across ? r : p;
+    const box = { x: x.left, left: x.left, right: x.right, width: x.width, y: y.top, top: y.top, bottom: y.bottom, height: y.height };
+    return [{ getBoundingClientRect: () => box }, side];
+  }
 
   function Layer() {
     const i = at.value, hole = useRef(), card = useRef(), prev = useRef(-1), [name, setName] = useState(store.get('name') ?? '');
@@ -46,13 +95,20 @@ const Tour = (() => {
       prev.current = i;
       for (const el of [h, c]) el.classList.toggle('glide', gliding);
       const still = gliding && setTimeout(() => [h, c].forEach(el => el.classList.remove('glide')), 240);
+      // Brought into view as the step starts; scrolled away after, it's none.
+      let shown = false;
       const tick = () => {
-        const el = step && find(step.target), r = el?.getBoundingClientRect();
+        let el = step && find(step);
+        if (el && !shown) { shown = true; if (!inView(el)) reveal(el); }
+        if (el && !inView(el)) el = null;
+        const r = el?.getBoundingClientRect();
         h.classList.toggle('none', !r);
         Object.assign(h.style, r ? { left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' } : { left: '50%', top: '50%', width: 0, height: 0 });
-        if (el) computePosition(el, c, { strategy: 'fixed', placement: 'right-start', middleware: [offset(16), flip({ padding: 12 }), shift({ padding: 12 })] })
-          .then(({ x, y }) => { c.style.left = x + 'px'; c.style.top = y + 'px'; });
-        else { c.style.left = (innerWidth - c.offsetWidth) / 2 + 'px'; c.style.top = innerHeight - c.offsetHeight - 72 + 'px'; }
+        if (el) {
+          const [ref, placement] = beside(el);
+          computePosition(ref, c, { strategy: 'fixed', placement, middleware: [offset(16), shift({ padding: 12 })] })
+            .then(({ x, y }) => { c.style.left = x + 'px'; c.style.top = y + 'px'; });
+        } else { c.style.left = (innerWidth - c.offsetWidth) / 2 + 'px'; c.style.top = innerHeight - c.offsetHeight - 72 + 'px'; }
       };
       tick();
       const timer = setInterval(tick, 200);
@@ -67,11 +123,11 @@ const Tour = (() => {
       ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite">
           <div class="step">${i + 1} / ${STEPS.length}</div>
           <p><b>${step.act}</b> ${step.say}</p>
-          <div class="acts"><button class="skip" onClick=${() => { at.value = STEPS.length; }}>Skip</button></div>
+          <div class="acts"><button class="skip" onClick=${() => { leave(); at.value = STEPS.length; }}>Skip</button></div>
         </div>`
       : html`<form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
           onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>
-          <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything.</p>
+          <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything, and History keeps every change, signed with your name.</p>
           <label>Your name<input value=${name} onInput=${e => setName(e.target.value)} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, setTimeout(() => el.focus({ preventScroll: true })))} /></label>
           <div class="acts"><button type="button" class="btn" onClick=${() => finish(true)}>Start blank</button><button class="btn primary">Keep this chart</button></div>
         </form>`}`;
