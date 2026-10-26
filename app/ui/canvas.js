@@ -1,8 +1,10 @@
 // Canvas: a view laid out as a chart, drawn on X6. It draws App.scene and nothing else, and keeps no copy of
 // formats or positions: a gesture is a change through App.change, and the scene that follows is drawn. The
-// gestures are PowerPoint's: click, Shift+click and the marquee; drag, with guides; resize; the arrow keys;
-// Delete; copy and paste; align, order and group; double-click to type; and a drag from a box's edge to another
-// box, to relate them. The formula bar's highlight, redline and point mode are drawn over the scene, or as a
+// gestures are PowerPoint's: click, Shift+click and the marquee; drag, with guides, a shape kept on the page;
+// resize; the arrow keys; copy and paste; align, order and group; double-click to type; right-click for what
+// applies. Delete hides what's selected in this view, Shift+Delete deletes it. Double-clicking the page adds a
+// box, named as it's typed. A drag from near a box's edge to another box relates them, and to empty page adds
+// a box to relate to it. The formula bar's highlight, redline and point mode are drawn over the scene, or as a
 // variant of it, which shows what the view hides.
 const Canvas = (() => {
 const { Graph, Selection, Transform, Snapline } = X6;
@@ -17,11 +19,54 @@ const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 // A selection key's mark, and the legend row it names after the first '#', if it names one.
 const keyParts = k => { const i = k.indexOf('#'); return i < 0 ? [k, null] : [k.slice(0, i), k.slice(i + 1)]; };
 const round = v => Math.round(v * 2) / 2;
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 // Sizes and weights are points; the canvas draws in pixels.
 const px = pt => pt * Scene.PT;
 
 // A free shape's row, as it's kept.
 const rowOf = id => { const r = App.shown.peek().item(App.chart.peek(), id)[0]; if (!r) return null; const { id: _, shape, ...p } = r; return p; };
+const nameOf = id => App.notes.peek().nameOf(App.state.peek(), id);
+const viewName = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
+
+// The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first; in a
+// chart with none yet, an Entity.
+function kinds(scene = App.scene.peek()) {
+  const st = App.state.peek(), N = App.notes.peek(), count = new Map();
+  for (const m of scene?.marks ?? []) if (m.type === 'box') { const k = st[m.record]?.kind; if (k) count.set(k, (count.get(k) ?? 0) + 1); }
+  const all = new Set([...count.keys(), ...Object.values(App.schema.peek()).filter(s => !s.args && s.kind && !Tree.isView(s)).map(s => s.kind)]);
+  const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
+    .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
+  return ks.length ? ks : ['Entity'];
+}
+// The kind last added, while it can be; or the most drawn.
+const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return ks.includes(k) ? k : ks[0]; };
+
+// Where a w × h shape can go on a scene's page: the nearest place to `near` (its middle) clear of every box,
+// frame, shape, label and line, on a grid; with `bands`, clear of the chart too, in the page's bands above,
+// below or beside it. Where the page has no such place, just below everything, and the page grows to hold it.
+function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
+  const page = scene.page, m = page.margin, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
+  const take = (x, y, r, d) => Object.assign(chart, { x: Math.min(chart.x, x), y: Math.min(chart.y, y), r: Math.max(chart.r, r), d: Math.max(chart.d, d) });
+  for (const k of scene.marks) {
+    if (k.points) {
+      k.points.slice(1).forEach((p, i) => segs.push([k.points[i], p]));
+      if (k.labelAt && k.label) rects.push({ x: k.labelAt.x, y: k.labelAt.y, w: k.label.w, h: k.label.h });
+      if (k.type === 'line') for (const [x, y] of k.points) take(x, y, x, y);
+    } else if (k.geometry !== 'group') {
+      rects.push(k);
+      if (k.type !== 'shape') take(k.x, k.y, k.x + k.w, k.y + k.h);
+    }
+  }
+  const g = gap / 2;
+  const clear = (x, y) => !(bands && x < chart.r + gap && x + w + gap > chart.x && y < chart.d + gap && y + h + gap > chart.y)
+    && !rects.some(r => x < r.x + r.w + gap && x + w + gap > r.x && y < r.y + r.h + gap && y + h + gap > r.y)
+    && !segs.some(([a, b]) => Math.max(a[0], b[0]) >= x - g && Math.min(a[0], b[0]) <= x + w + g && Math.max(a[1], b[1]) >= y - g && Math.min(a[1], b[1]) <= y + h + g);
+  const x0 = m, y0 = m, x1 = page.w - m - w, y1 = page.h - m - h, cx = clamp(near.x - w / 2, x0, x1), cy = clamp(near.y - h / 2, y0, y1);
+  const step = Math.max(8, Math.ceil(Math.max(page.w, page.h) / 160)), spots = [];
+  for (let x = x0; x <= x1; x += step) for (let y = y0; y <= y1; y += step) spots.push({ x, y, d: Math.hypot(x - cx, y - cy) });
+  const best = spots.sort((a, b) => a.d - b.d).find(p => clear(p.x, p.y));
+  return best ?? { x: cx, y: Math.max(0, ...scene.marks.map(k => k.y + k.h)) + gap * 2 };
+}
 
 // ---- Drawing: each mark as X6 cells ----
 
@@ -129,12 +174,15 @@ function mount(el) {
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
   const still = () => App.readOnly.peek();
+  // The page, as X6 restricts a move to it: a free shape stays on it; a box or frame only off its left and top.
+  const pageRect = all => ({ x: 0, y: 0, width: all ? scene.page.w : 1e6, height: all ? scene.page.h : 1e6 });
 
   const graph = new Graph({
     container: gEl, autoResize: true, async: false, background: false, grid: false,
     panning: { enabled: true, eventTypes: ['mouseWheelDown'] },
     mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], zoomAtMousePosition: true, minScale: 0.1, maxScale: 4, factor: 1.12 },
     scaling: { min: 0.1, max: 4 },
+    translating: { restrict: view => scene ? pageRect(view?.cell?.getData()?.kind === 'shape') : null },
     interacting: view => {
       const k = view.cell.getData()?.kind;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still(), edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
@@ -149,11 +197,17 @@ function mount(el) {
   graph.use(transform);
   transform.stopListening(); // it would put handles on whatever is clicked; grips() decides
 
-  // Resize handles on a shape selected alone, however it came to be selected.
+  // Resize handles on a shape selected alone, however it came to be selected; a box too small on screen for
+  // its side handles shows only its corners, as Office's does.
   const grips = () => {
     const cs = sel.getSelectedCells();
     if (cs.length === 1 && resizable(cs[0])) { if (!transform.widgets.has(cs[0])) transform.createWidget(cs[0]); } else transform.clearWidgets();
-    showHandles();
+    const z = graph.zoom();
+    for (const [cell, w] of transform.widgets) {
+      const s = cell.getSize();
+      w.container?.classList.toggle('narrow', s.width * z < 40);
+      w.container?.classList.toggle('short', s.height * z < 40);
+    }
   };
   graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5 }));
 
@@ -168,6 +222,7 @@ function mount(el) {
   viewport.appendChild(marks);
 
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted or redlined ----
+  let pageWas = null;
   function draw() {
     const base = App.scene.peek();
     if (!base) return;
@@ -190,12 +245,14 @@ function mount(el) {
       }
     });
     syncing = false;
+    const size = `${scene.page.w}×${scene.page.h}`;
     if (viewShown !== view) {
-      if (viewShown && graph) zooms.set(viewShown, { s: graph.zoom(), t: graph.translate() });
+      if (viewShown) zooms.set(viewShown, { s: graph.zoom(), t: graph.translate(), fitted });
       viewShown = view;
       const z = zooms.get(view);
-      if (z) { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); } else requestAnimationFrame(() => zoom('fit'));
-    }
+      if (z) { quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); fitted = z.fitted; } else requestAnimationFrame(() => zoom('fit'));
+    } else if (fitted && size !== pageWas) requestAnimationFrame(() => fitted && zoom('fit'));   // the page grew or shrank: still all of it
+    pageWas = size;
     syncSelection();
     paintStates();
   }
@@ -240,10 +297,16 @@ function mount(el) {
     paintStates();
   });
   const stopSel = effect(() => { const keys = Shell.selection.value; if (scene && !syncing) { if (!keys.some(k => k.includes('#'))) row = null; syncSelection(); paintStates(); } });
+  // Selects a mark, or the group it's in, unless it's selected already.
+  function take(cell) {
+    if (sel.isSelected(cell)) return;
+    syncing = true; sel.reset(cellsFor([groupOf(cell.id)?.id ?? cell.id])); syncing = false;
+    Shell.select(keysOfSelection());
+  }
 
   // While a formula's row is edited (point mode), a click on a box or line names its record to the formula
   // bar and selects nothing. A click on a computed line the bar has lit shows its reasons there.
-  function point(on) { pointing = !!on; root.classList.toggle('pointing', pointing); showHandles(); }
+  function point(on) { pointing = !!on; root.classList.toggle('pointing', pointing); showHandles(null); }
   function pointed(cell) {
     const d = cell.getData() ?? {}, m = scene?.byId.get(d.kind === 'label' ? d.mark : cell.id);
     if (!m || (m.type !== 'box' && m.type !== 'line')) return false;
@@ -262,10 +325,10 @@ function mount(el) {
   graph.on('node:mousedown', ({ e, node }) => {
     const k = node.getData()?.kind;
     root.focus({ preventScroll: true });
-    if (k === 'page') { if (!e.shiftKey) sel.clean(); sel.startRubberband(e); return; }
+    if (k === 'page') { if (e.button === 0) { if (!e.shiftKey) sel.clean(); sel.startRubberband(e); } return; }
     if (pointed(node)) return;
     if (k === 'label' || e.shiftKey || e.ctrlKey || e.metaKey) return;
-    if (!sel.isSelected(node)) { syncing = true; sel.reset(cellsFor([groupOf(node.id)?.id ?? node.id])); syncing = false; Shell.select(keysOfSelection()); }
+    take(node);
   });
   graph.on('blank:mousedown', () => root.focus({ preventScroll: true }));
   graph.on('node:click', ({ e, node }) => {
@@ -290,19 +353,21 @@ function mount(el) {
   // ---- Gestures, each one change ----
   const viewOf = () => scene.view;
   const treeOf = id => Tree.treeOf(App.state.peek(), id);
-  // Places for marks, written: a box's Position at its record in this view, a free shape's own place.
+  // Places for marks, written: a box's Position at its record in this view, a free shape's own place, kept
+  // on the page.
   function place(tx, places) {
-    const view = viewOf(), n = App.notes.peek();
+    const view = viewOf(), n = App.notes.peek(), page = scene.page;
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box') {
         const old = n.position(treeOf(m.record), view);
-        tx.note('Position', treeOf(m.record), { x: round(p.x), y: round(p.y), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
+        tx.note('Position', treeOf(m.record), { x: round(Math.max(0, p.x)), y: round(Math.max(0, p.y)), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
       } else if (m.type === 'shape') {
         const points = rowOf(id)?.points;
-        tx.update(id, { x: round(p.x), y: round(p.y), ...(p.w !== undefined && { w: round(p.w), h: round(p.h) }),
-          ...(points && p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) });
+        if (points) { tx.update(id, { x: round(p.x), y: round(p.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
+        const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
+        tx.update(id, { x: round(clamp(p.x, 0, page.w - w)), y: round(clamp(p.y, 0, page.h - h)), ...(p.w !== undefined && { w: round(w), h: round(h) }) });
       }
     }
   }
@@ -372,8 +437,8 @@ function mount(el) {
       paintStates();
     });
   }
-  graph.on('node:moving', ({ node }) => { dragging = node.id; follow(node); });
-  graph.on('node:resizing', ({ node }) => follow(node));
+  graph.on('node:moving', ({ node }) => { dragging = node.id; showHandles(null); follow(node); });
+  graph.on('node:resizing', ({ node }) => { dragging = node.id; showHandles(null); follow(node); });
 
   // ---- Double-click to type: a box's text edits its record, a shape's its own ----
   function textAt(m, target) {
@@ -386,7 +451,9 @@ function mount(el) {
     if (!m || still()) return;
     // What's typed over: a record's value as entered, not as the chart reads it; a shape's text as written.
     let it = null, rect, save, raw;
-    const view = viewOf(), caption = (tx, p, text) => tx.note('Caption', p, Tree.clean(text) || undefined, { view });
+    const view = viewOf(), N = App.notes.peek();
+    // A caption typed as the output's own name is no caption.
+    const caption = (tx, p, text) => { const c = Tree.clean(text); tx.note('Caption', p, c && c !== Scene.outputName(N, p) ? c : undefined, { view }); };
     if (m.type === 'box') {
       it = textAt(m, target);
       const r = it && App.state.peek()[it.id];
@@ -407,7 +474,13 @@ function mount(el) {
       if (!r) return;
       it = r.caption;
       rect = { x: m.x + r.x + r.sw.w + 6, y: m.y + r.y, w: r.w - r.sw.w - 6, h: r.h + 2 };
-      save = text => App.change(tx => r.outputs.forEach(p => caption(tx, p, text)));
+      // A row of one output captions that output in this view, wherever it's named. A row merging outputs
+      // that look alike takes a caption of the legend's own, so no output's caption changes.
+      save = text => App.change(tx => {
+        const { [r.key]: _, ...rest } = m.captions, own = Tree.clean(text), base = scene.legend.find(x => x.key === r.key)?.caption;
+        if (r.outputs.length > 1) tx.update(m.id, { captions: own && own !== base ? { ...rest, [r.key]: own } : rest });
+        else { caption(tx, r.outputs[0], text); if (r.key in m.captions) tx.update(m.id, { captions: rest }); }
+      });
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
       const legend = m.geometry === 'legend';
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
@@ -417,17 +490,21 @@ function mount(el) {
       save = text => App.change(tx => m.geometry === 'text' && !text.trim() ? tx.remove(m.id) : tx.update(m.id, legend ? { title: text } : { text }));
     }
     if (!it) return;
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, m.type === 'shape' && m.geometry !== 'legend', typed === undefined);
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto });
   }
-  function openEditor(it, rect, text, save, multiline, selectAll) {
+  // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't, and
+  // leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`: a new box of a kind.
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null } = {}) {
     over.querySelector('.dc-edit')?.remove();
-    const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look;
+    const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
     const ed = document.createElement('div');
-    ed.className = 'dc-edit';
+    ed.className = 'dc-edit' + (grow ? ' grow' : '') + (box ? ' new' : '');
     ed.contentEditable = 'plaintext-only';
     ed.spellcheck = false;
-    Object.assign(ed.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${rect.w * z}px`, minHeight: `${rect.h * z}px`, font: `${t.Bold ? 700 : 400} ${t.Italic ? 'italic' : ''} ${px(t.Size) * z}px/${1.2} ${Scene.fontFamily(t.Font)}`,
-      textAlign: t.Align ?? 'center', color: t.Color, padding: `${2 * z}px ${7.2 * z}px` });
+    if (box) ed.dataset.ph = box;
+    Object.assign(ed.style, { left: `${p.x}px`, top: `${p.y}px`, [grow ? 'minWidth' : 'width']: `${rect.w * z}px`, minHeight: `${rect.h * z}px`,
+      font: `${t.Bold ? 700 : 400} ${t.Italic ? 'italic' : ''} ${size}px/${1.2} ${Scene.fontFamily(t.Font)}`, textAlign: t.Align ?? 'center', color: t.Color,
+      padding: box ? `${Math.max(0, (rect.h * z - size * 1.2) / 2)}px ${9.6 * z}px` : `${2 * z}px ${7.2 * z}px` });
     ed.textContent = text;
     over.appendChild(ed);
     ed.focus();
@@ -447,66 +524,152 @@ function mount(el) {
   }
   graph.on('node:dblclick', ({ e, node }) => {
     const k = node.getData()?.kind;
-    if (k === 'page' || k === 'label') return;
+    if (k === 'page') return addAt(e);
+    if (k === 'label') return;
     const g = groupOf(node.id);
     if (g) { entered = g.id; sel.reset(node); }
     const m = scene.byId.get(node.id);
     edit(m?.geometry === 'legend' && row ? `${m.id}#${row.key}` : node.id, e.target);
   });
+  graph.on('blank:dblclick', ({ e }) => addAt(e));
 
-  // ---- Relating: drag from a box's edge to another box ----
-  // The handles sit on the box under the pointer, or else the box selected alone.
-  let hoverBox = null, relateBox = null;
+  // ---- Adding a box: a record of a kind, named as it's typed ----
+  // Nothing is made until a name is, and Esc makes nothing. The box is dropped where it was asked for, clear
+  // of what's there, and loosely: once a line relates it, it goes beside its relatives (Scene).
+  function create(kind, at, { relate } = {}) {
+    if (still() || !scene || !kind) return;
+    if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
+    Shell.store.set('kind', kind);
+    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf();
+    openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, '', name => {
+      name = Tree.clean(name);
+      if (!name) return;
+      let id = null;
+      if (!App.change(tx => {
+        id = tx.add('record', { kind });
+        tx.add('record', { at: id, edge: 'Name', field: 'text', value: name });
+        tx.note('Position', { id, kind }, { x: round(p.x), y: round(p.y), loose: true }, { view });
+      })) return;
+      if (relate) Shell.emit('relate-open', [relate, id]); else Shell.select([id]);
+    }, { box: kind });
+  }
+  const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
+
+  // ---- Relating: from near a box's edge to another box, or to empty page for a new one ----
+  // The handles show on the box whose outline the pointer nears, a little off the middle of each side.
+  let near = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
     h.className = `dc-handle ${side}`;
-    h.addEventListener('pointerdown', e => startRelate(e, side));
+    h.addEventListener('pointerdown', e => { if (near && e.button === 0) { e.preventDefault(); e.stopPropagation(); relating(near, side); } });
     over.appendChild(h);
     return h;
   });
-  function showHandles(hovered = hoverBox) {
-    hoverBox = hovered;
-    const cs = sel.getSelectedCells(), alone = cs.length === 1 && scene?.byId.get(cs[0].id);
-    const m = relateBox = hoverBox ?? (alone?.type === 'box' ? alone : null);
-    if (!m || pointing || cs.length > 1) { root.classList.remove('relating-on'); return; }
-    // The middles of its sides, on its outline: a triangle's slopes, a diamond's corners.
-    const inset = m.shape === 'triangle' ? m.w / 4 : 0;
-    // They stand a little off it, clear of the resize handles.
-    const a = graph.localToGraph(m.x + inset, m.y), b = graph.localToGraph(m.x + m.w - inset, m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, o = 12;
+  // A triangle's sides are its slopes, a quarter of its width in.
+  const inset = m => m.shape === 'triangle' ? m.w / 4 : 0;
+  function showHandles(m = near) {
+    near = m && !pointing && !still() && !dragging ? m : null;
+    if (!near) { root.classList.remove('relating-on'); return; }
+    const a = graph.localToGraph(m.x + inset(m), m.y), b = graph.localToGraph(m.x + m.w - inset(m), m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, o = 12;
     const at = { n: [cx, a.y - o], e: [b.x + o, cy], s: [cx, b.y + o], w: [a.x - o, cy] };
     handles.forEach(h => { const [x, y] = at[h.classList[1]]; h.style.left = `${x}px`; h.style.top = `${y}px`; });
     root.classList.add('relating-on');
   }
-  graph.on('node:mouseenter', ({ node }) => { const m = scene.byId.get(node.id); if (m?.type === 'box' && !dragging) showHandles(m); });
-  graph.on('node:mouseleave', ({ e }) => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { showHandles(); zoomLevel.value = graph.zoom(); });
-  function startRelate(e, side) {
-    const from = relateBox;
-    if (!from) return;
-    e.preventDefault(); e.stopPropagation();
-    const line = document.createElementNS(NS, 'path');
+  // The box whose outline a point is nearest, within 10 px inside it or 22 outside (where its handles are).
+  function nearEdge(p) {
+    const z = graph.zoom();
+    let best = null, bd = Infinity;
+    for (const m of scene.marks) {
+      if (m.type !== 'box') continue;
+      const dx = Math.max(m.x - p.x, p.x - m.x - m.w, 0), dy = Math.max(m.y - p.y, p.y - m.y - m.h, 0);
+      const d = dx || dy ? Math.hypot(dx, dy) * z : Math.min(p.x - m.x, m.x + m.w - p.x, p.y - m.y, m.y + m.h - p.y) * z;
+      if ((dx || dy ? d <= 22 : d <= 10) && d < bd) { best = m; bd = d; }
+    }
+    return best;
+  }
+  root.addEventListener('pointermove', e => {
+    if (!scene || e.target.closest?.('.dc-handle, .dc-edit')) return;
+    showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)));
+  });
+  root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) fitted = false; showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
+
+  // A relation being drawn from a box: from one of its handles while the button is held, or from the
+  // middle of the box, for Relate…, until the next click. On another box, the two's relations are asked
+  // for; on empty page, a new box of a kind, or a line.
+  function relating(from, side) {
+    const line = document.createElementNS(NS, 'path'), click = !side;
     line.setAttribute('class', 'dc-relating');
     marks.appendChild(line);
-    const inset = from.shape === 'triangle' ? from.w / 4 : 0;
-    const start = { n: [from.x + from.w / 2, from.y], e: [from.x + from.w - inset, from.y + from.h / 2], s: [from.x + from.w / 2, from.y + from.h], w: [from.x + inset, from.y + from.h / 2] }[side];
-    let target = null;
+    const i = inset(from), start = side
+      ? { n: [from.x + from.w / 2, from.y], e: [from.x + from.w - i, from.y + from.h / 2], s: [from.x + from.w / 2, from.y + from.h], w: [from.x + i, from.y + from.h / 2] }[side]
+      : [from.x + from.w / 2, from.y + from.h / 2];
+    let target = null, unlayer = null;
+    root.classList.add('relating');
+    const at = ev => graph.clientToLocal(ev.clientX, ev.clientY);
+    const boxAt = p => scene.marks.find(m => m.type === 'box' && m.id !== from.id && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h) ?? null;
     const move = ev => {
-      const p = graph.clientToLocal(ev.clientX, ev.clientY);
-      target = scene.marks.find(m => m.type === 'box' && m.id !== from.id && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h) ?? null;
+      const p = at(ev);
+      target = boxAt(p);
       line.setAttribute('d', `M${start[0]},${start[1]} L${p.x},${p.y}`);
-      paintStates(target ? new Map([[target.id, ['accent', 1]]]) : null);
+      paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
+    };
+    const end = () => {
+      removeEventListener('pointermove', move); removeEventListener(click ? 'mousedown' : 'pointerup', up, true);
+      unlayer?.(); line.remove(); root.classList.remove('relating'); paintStates();
     };
     const up = ev => {
-      removeEventListener('pointermove', move); removeEventListener('pointerup', up);
-      line.remove(); paintStates();
-      const p = graph.clientToLocal(ev.clientX, ev.clientY);
+      if (click) { ev.preventDefault(); ev.stopPropagation(); }
+      end();
+      const p = at(ev);
+      target = boxAt(p);
       if (target) Shell.emit('relate-open', [from.id, target.id]);
-      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12) insert('line', { points: [start, [p.x, p.y]], ends: [from.id, null] });
+      else if (!ev.target.closest?.('.dc') || ev.button !== 0) return;
+      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) Shell.menu({ x: ev.clientX, y: ev.clientY }, [
+        ...kinds().map(k => ({ label: `New ${k}`, run: () => create(k, p, { relate: from.id }) })), '-',
+        { label: 'Line', run: () => insert('line', { points: [start, [p.x, p.y]], ends: [from.id, null] }) }]);
     };
-    addEventListener('pointermove', move); addEventListener('pointerup', up);
+    addEventListener('pointermove', move);
+    addEventListener(click ? 'mousedown' : 'pointerup', up, true);
+    if (click) unlayer = Shell.layer(end);
   }
 
+  // ---- Right-click: what applies to what's under the pointer ----
+  root.addEventListener('contextmenu', e => e.preventDefault());
+  const contextOf = ({ e, node, edge }) => {
+    let cell = node ?? edge ?? null;
+    if (cell?.getData()?.kind === 'label') cell = graph.getCellById(cell.getData().mark);
+    const at = { x: e.clientX, y: e.clientY }, k = cell?.getData()?.kind;
+    if (!cell || k === 'page') return Shell.menu(at, pageItems(graph.clientToLocal(at.x, at.y)));
+    take(cell);
+    Shell.menu(at, markItems());
+  };
+  for (const name of ['node:contextmenu', 'edge:contextmenu', 'blank:contextmenu']) graph.on(name, contextOf);
+  const ORDER = () => [{ label: 'Bring to front', keys: '$mod+Shift+]', run: () => order('front') }, { label: 'Bring forward', keys: '$mod+]', run: () => order('forward') },
+    { label: 'Send backward', keys: '$mod+[', run: () => order('backward') }, { label: 'Send to back', keys: '$mod+Shift+[', run: () => order('back') }];
+  function markItems() {
+    const ms = selected(), one = ms.length === 1 ? ms[0] : null, bound = ms.some(m => m.type === 'box' || m.type === 'line'), ro = still();
+    const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry);
+    return [
+      ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }, '-'] : []),
+      ...(text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []),
+      ...(bound ? [{ label: 'Hide in this view', keys: 'Delete', disabled: ro, run: () => remove() }] : []),
+      { label: 'Delete', keys: bound ? 'Shift+Delete' : 'Delete', danger: true, disabled: ro, run: () => remove(bound) },
+      '-', ...ORDER().map(x => ({ ...x, disabled: ro || ms.every(m => m.type === 'frame') })),
+      '-', { label: 'Copy', keys: '$mod+C', run: copy }, { label: 'Paste', keys: '$mod+V', disabled: ro || !clip?.items.length, run: paste },
+      ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
+        : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
+    ];
+  }
+  const pageItems = p => [
+    ...kinds().map(k => ({ label: `New ${k}`, disabled: still(), run: () => create(k, p) })), '-',
+    { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: paste }, '-',
+    { label: 'Zoom to fit', keys: '$mod+0', run: () => zoom('fit') }, { label: 'Tidy', disabled: still(), run: tidy },
+  ];
+
   // ---- States others ask for: highlight, redline, hidden records drawn ----
+  // A record not drawn as text lights the box or line it sits in.
+  const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene?.byId.get(x); if (m) return m; } return null; };
   function paintStates(extra) {
     if (!scene) return;
     marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-sel').forEach(n => n.remove());
@@ -524,8 +687,6 @@ function mount(el) {
     };
     const hosts = new Map();
     for (const m of scene.marks) for (const it of m.texts ?? []) hosts.set(it.id, m);
-    // A record not drawn as text lights the box or line it sits in.
-    const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene.byId.get(x); if (m) return m; } return null; };
     const lit = new Set();
     // Each record lit takes its hue, and its depth: 0 a witness, heavier; 2 a deeper reason, lighter.
     for (const [id, [hue, depth]] of [...(hl?.map ?? []), ...(extra ?? [])]) {
@@ -537,7 +698,7 @@ function mount(el) {
         if (!h) continue;
         lit.add(h.id);
         const o = h.type === 'line' ? h.labelAt ?? { x: 0, y: 0 } : h;
-        const ys = m.lines.map(l => l.y), xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0));
+        const xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0)), ys = m.lines.map(l => l.y);
         outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - px(m.look.Size), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * px(m.look.Size) * 1.2 }, cls, 1.5);
       } else { lit.add(m.id); outline(m, cls); }
     }
@@ -588,50 +749,77 @@ function mount(el) {
     if (JSON.stringify(next) !== JSON.stringify(revealIds) || red !== redDrawn) { revealIds = next; redDrawn = red; draw(); } else paintStates();
   }
 
-
   // ---- Commands ----
   const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
   const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape'));
   const moveTo = places => places.size && App.change(tx => place(tx, places));
+  // A new shape goes into free space, never over what's drawn: near the middle of what's on screen, as
+  // PowerPoint puts one; a text box or frame in the page's bands round the chart; a key at the bottom right,
+  // in two columns.
+  const SIZE = { line: [160, 8], 'arrow-line': [160, 8], frame: [320, 200], picture: [160, 100] };
   function insert(geometry, opts = {}) {
-    // A new shape goes in the middle of what's on screen, as PowerPoint puts one.
-    const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2);
-    const cx = Math.min(Math.max(mid.x, 80), s.page.w - 80), cy = Math.min(Math.max(mid.y, 60), s.page.h - 60);
-    const size = { text: [240, 30], line: [160, 0], legend: [220, 0], frame: [320, 200], picture: [160, 100] }[geometry] ?? [140, 70];
-    const sel0 = placeable();
-    let row = { view, geometry, x: round(cx - size[0] / 2), y: round(cy - size[1] / 2), w: size[0], h: size[1], ...opts };
-    if (geometry === 'frame' && sel0.length && !opts.x) {
+    const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable();
+    let row = { view, geometry, ...opts };
+    if (geometry === 'arrow-line') row = { ...row, geometry: 'line', format: { Arrow: 'end' } };
+    if (geometry === 'legend') row = { title: 'Key', columns: 2, w: keyWidth(), ...row };
+    if (geometry === 'text') row.text = opts.text ?? '';
+    if (geometry === 'frame' && sel0.length && opts.x === undefined) {
       const b = { x: Math.min(...sel0.map(m => m.x)), y: Math.min(...sel0.map(m => m.y)), r: Math.max(...sel0.map(m => m.x + m.w)), d: Math.max(...sel0.map(m => m.y + m.h)) };
       row = { ...row, x: round(b.x - 14), y: round(b.y - 28), w: round(b.r - b.x + 28), h: round(b.d - b.y + 42), text: opts.text ?? 'Frame',
         format: { Layer: -1 + Math.min(0, ...s.marks.map(m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0)) } };
+    } else if (row.geometry === 'line' && opts.points) Object.assign(row, { x: opts.points[0][0], y: opts.points[0][1] });
+    else if (opts.x === undefined) {
+      const drawn = geometry === 'text' || geometry === 'legend' ? Scene.shapeOf(row, s) : null;
+      const [w, h] = drawn ? [drawn.w, drawn.h] : [opts.w, opts.h].every(Number.isFinite) ? [opts.w, opts.h] : SIZE[geometry] ?? [140, 70];
+      const p = freeSpot(s, w, h, geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, { bands: ['text', 'legend', 'frame'].includes(geometry) });
+      Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
+      if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
-    if (geometry === 'line' && opts.points) Object.assign(row, { x: opts.points[0][0], y: opts.points[0][1] });
-    if (geometry === 'line' && !opts.points) row.points = [[row.x, cy], [row.x + size[0], cy]];
-    if (geometry === 'arrow-line') Object.assign(row, { geometry: 'line', points: [[row.x, cy], [row.x + size[0], cy]], format: { Arrow: 'end' } });
-    if (geometry === 'legend') Object.assign(row, { x: round(s.page.margin), y: round(s.page.h - s.page.margin - 120), title: 'Key' });
-    if (geometry === 'text') row.text = opts.text ?? '';
     let id = null;
     if (!App.change(tx => { id = tx.add('shape', row); })) return null;
     Shell.select([id]);
     if (geometry === 'text' && !opts.text) requestAnimationFrame(() => edit(id));
     return id;
   }
-  // Deleting from a chart hides a box or line in this view, and deletes a shape.
-  function remove() {
-    const keys = keysOfSelection(), view = viewOf();
+  // A key as wide as two columns of its captions need, within reason.
+  function keyWidth() {
+    const look = { ...Scene.DEFAULTS.text, Size: 9 }, widest = Math.max(60, ...scene.legend.map(r => Scene.measure(r.caption, look)));
+    return Math.round(24 + 2 * (30 + 8 + Math.min(200, widest) + 12));
+  }
+  // Delete hides what's selected in this view and deletes a free shape; with `records`, Shift+Delete, it
+  // deletes the records too, everywhere, and what's in or on them. Either way a toast says what went.
+  function remove(records = false) {
+    const keys = keysOfSelection(), view = viewOf(), st = App.state.peek();
     if (!keys.length) return;
-    App.change(tx => {
+    const hid = [], gone = [], worked = [];
+    // What a toast calls each: a box by its record's name, a line by its relation's, a shape by what it is.
+    const as = (m, name = called(m)) => ({ type: m.type, name });
+    const c = App.change(tx => {
       for (const k of keys) {
         const [id, rowKey] = keyParts(k), m = scene.byId.get(id);
         if (!m) continue;
-        if (m.type === 'box' || m.type === 'line') tx.note('Shown', treeOf(m.record), false, { view });
-        else if (m.type === 'frame') tx.note('Frame', m.output, undefined, { view });
-        else if (m.geometry === 'legend' && rowKey) tx.update(id, { hide: [...m.hide, rowKey] });
-        else if (m.geometry === 'group') { tx.remove(id); for (const x of m.members) if (scene.byId.get(x)?.type === 'shape') tx.remove(x); }
-        else tx.remove(id);
+        if (m.type === 'box' || m.type === 'line') {
+          if (!records) { tx.note('Shown', treeOf(m.record), false, { view }); hid.push(as(m)); }
+          else if (st[m.record]?.computed) worked.push(m);
+          else { gone.push(as(m)); tx.remove(m.record); }
+        } else if (m.type === 'frame') { tx.note('Frame', m.output, undefined, { view }); hid.push(as(m)); }
+        else if (m.geometry === 'legend' && rowKey) { tx.update(id, { hide: [...m.hide, rowKey] }); hid.push({ type: 'row', name: m.rows.find(x => x.key === rowKey)?.caption.text }); }
+        else if (m.geometry === 'group') { tx.remove(id); for (const x of m.members) if (scene.byId.get(x)?.type === 'shape') tx.remove(x); gone.push(as(m)); }
+        else { tx.remove(id); gone.push(as(m)); }
       }
-    });
-    Shell.select([]);
+    }, { say: () => said(hid, gone, view) });
+    if (c) Shell.select([]);
+    else if (worked.length) Shell.toast(worked.length > 1 ? 'Formulas work these out' : 'A formula works this out');
+  }
+  const SHAPE = { text: 'text box', legend: 'key', picture: 'picture', line: 'line', group: 'group', frame: 'frame' };
+  const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? `the ${nameOf(m.record)} line` : m.type === 'frame' ? `the ${m.caption.text} frame`
+    : `the ${SHAPE[m.geometry] ?? 'shape'}`;
+  const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
+  function said(hid, gone, view) {
+    const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');
+    const parts = [marks.length && `hid ${counted(marks)} in ${viewName(view)}`, rows.length && `hid ${counted(rows)} in the key`, gone.length && `deleted ${counted(gone)}`].filter(Boolean);
+    const s = parts.join(' and ');
+    return s && s[0].toUpperCase() + s.slice(1);
   }
   // The clipboard holds marks of one view: pasting a box shows it, a shape is copied.
   let clip = null;
@@ -717,21 +905,46 @@ function mount(el) {
     const view = viewOf();
     App.change(tx => App.notes.peek().notes('Position').filter(n => n.view === view).forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' });
   }
+
+  // ---- Zoom: fit, the levels, and framing marks; while the view is fitted it stays fitted as the window
+  // and the page change size ----
+  let fitted = true, quiet = false;
+  const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } };
   const LEVELS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
   function zoom(k) {
     if (!scene) return;
-    if (k === 'fit') graph.zoomToRect({ x: 0, y: 0, width: scene.page.w, height: scene.page.h }, { padding: 28, maxScale: 2 });
-    else if (k === 'in' || k === 'out') {
+    if (k === 'fit') {
+      const r = root.getBoundingClientRect();
+      quietly(() => graph.zoomToRect({ x: 0, y: 0, width: scene.page.w, height: scene.page.h }, { padding: Math.round(clamp(Math.min(r.width, r.height) * 0.03, 12, 28)), maxScale: 2 }));
+      fitted = true;
+    } else if (k === 'in' || k === 'out') {
       const z = graph.zoom(), next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? 0.1;
       const c = graph.getGraphArea().center ?? null;
       graph.zoomTo(next, c ? { center: graph.graphToLocal(c) } : undefined);
     } else graph.zoomTo(k);
     zoomLevel.value = graph.zoom();
   }
+  const resized = new ResizeObserver(() => { showHandles(null); if (fitted && scene) requestAnimationFrame(() => fitted && zoom('fit')); });
+  resized.observe(root);
+  // Frames these records' marks (an entry lights the box or line it's in), as the formula bar asks when it
+  // steps down to a reason: closer, up to 100%, where they're small on screen; out as far as they need.
+  function zoomTo(ids) {
+    if (!scene) return;
+    const hostOf = id => { const m = markFor(id); return m?.type !== 'text' ? m : scene.marks.find(h => h.texts?.includes(m)) ?? null; };
+    const ms = [...new Set([].concat(ids ?? []).map(hostOf).filter(Boolean))];
+    if (!ms.length) return;
+    const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]);
+    const x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y)), w = Math.max(...ext.map(m => m.x + m.w)) - x, h = Math.max(...ext.map(m => m.y + m.h)) - y;
+    // Where they're all on screen already, and legible, the view stays.
+    const r = root.getBoundingClientRect(), a = graph.localToGraph(x, y), b = graph.localToGraph(x + w, y + h);
+    if (a.x >= 24 && a.y >= 24 && b.x <= r.width - 24 && b.y <= r.height - 24 && graph.zoom() >= 0.7) return;
+    graph.zoomToRect({ x, y, width: Math.max(w, 1), height: Math.max(h, 1) }, { padding: 56, maxScale: 1 });
+    zoomLevel.value = graph.zoom();
+  }
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
   const keyMap = {
-    'Delete': () => remove(), 'Backspace': () => remove(),
+    'Delete': () => remove(), 'Backspace': () => remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
     'ArrowLeft': () => nudge(-1, 0), 'ArrowRight': () => nudge(1, 0), 'ArrowUp': () => nudge(0, -1), 'ArrowDown': () => nudge(0, 1),
     'Shift+ArrowLeft': () => nudge(-10, 0), 'Shift+ArrowRight': () => nudge(10, 0), 'Shift+ArrowUp': () => nudge(0, -10), 'Shift+ArrowDown': () => nudge(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(c => { const k = c.getData()?.kind; return k && k !== 'page' && k !== 'label'; })); },
@@ -757,9 +970,9 @@ function mount(el) {
 
   const stopDraw = effect(() => { App.scene.value; draw(); });
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, point,
-    insert, remove, copy, cut, paste, duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
-    destroy() { stopDraw(); stopSel(); unbind(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null; },
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, point, zoomTo,
+    insert, create, remove, copy, cut, paste, duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
+    destroy() { stopDraw(); stopSel(); unbind(); resized.disconnect(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null; },
   };
   active.value = canvas;
   return canvas;
@@ -768,10 +981,11 @@ function mount(el) {
 // The other parts call the canvas shown through the shell (Shell.parts.value.canvas).
 const call = name => (...a) => active.peek()?.[name](...a);
 Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); },
-  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point') });
+  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point'), zoomTo: call('zoomTo'),
+  kinds: () => kinds().map(k => ({ label: k, run: () => call('create')(k) })) });
 const here = () => !!active.value;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: '$mod+Digit0', enabled: here, run: () => call('zoom')('fit') });
 
-return { active, zoom: zoomLevel, keyParts };
+return { active, zoom: zoomLevel, keyParts, kinds };
 })();

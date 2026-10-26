@@ -1,4 +1,5 @@
-// The format bar: one bar over the chart, in place of the ribbon. A scope chip names what a change applies to:
+// The format bar: one bar over the chart, in place of the ribbon. Insert adds a box of one of the chart's
+// kinds, or a shape, a text box, a line or the key. A scope chip names what a change applies to:
 // the style that reaches the selection ("Feeder Fund") or "This box"; its menu lists every style that reaches
 // it. A change writes format notes: for a style, at its output's pattern in the view; for This box, at the
 // record's own tree in the view. A free shape keeps its formats in its row. Selecting a legend row engages its
@@ -112,14 +113,19 @@ function Palette({ value: v, pick, none }) {
 const pop = (e, draw) => Shell.popover(e.currentTarget, close => draw(close), { placement: 'bottom-start' });
 const seg = (items, v, pick) => html`<div class="seg">${items.map(([k, label]) => html`<button aria-pressed=${v === k} onClick=${() => pick(k)}>${label}</button>`)}</div>`;
 
-const INSERT = [['text', 'Text box'], ['rect', 'Rectangle'], ['rounded', 'Rounded rectangle'], ['oval', 'Oval'], ['triangle', 'Triangle'], ['diamond', 'Diamond'], ['hexagon', 'Hexagon'],
+const SHAPES = [['rect', 'Rectangle'], ['rounded', 'Rounded rectangle'], ['oval', 'Oval'], ['triangle', 'Triangle'], ['diamond', 'Diamond'], ['hexagon', 'Hexagon'],
   ['octagon', 'Octagon'], ['parallelogram', 'Parallelogram'], ['trapezoid', 'Trapezoid'], ['pentagon', 'Pentagon'], ['chevron', 'Chevron'], ['arrow', 'Arrow'], ['cylinder', 'Cylinder']];
+// Insert: a box of each of the chart's kinds, a record named as it's typed; then the shapes PowerPoint has.
 function insertMenu(e, c) {
-  Shell.popover(e.currentTarget, close => html`<div class="picker">
-    <div class="shapes">${INSERT.slice(1).map(([g, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.insert(g); }}>${shapeGlyph(g)}</button>`)}</div>
+  const item = (label, run, close) => html`<div class="menu-item" role="menuitem" tabindex="-1" onClick=${() => { close(); run(); }}
+    onKeyDown=${ev => { if (ev.key === 'Enter') { close(); run(); } }}><span class="label">${label}</span></div>`;
+  const kinds = Canvas.kinds();
+  Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu">
+    ${App.readOnly.peek() ? null : kinds.map(k => item(k, () => c.create(k), close))}${kinds.length && !App.readOnly.peek() ? html`<div class="menu-sep" />` : null}
+    <div class="shapes">${SHAPES.map(([g, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.insert(g); }}>${shapeGlyph(g)}</button>`)}</div>
     <div class="menu-sep" />
     ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) =>
-      html`<div class="menu-item" onClick=${() => { close(); g === 'picture' ? picture(c) : c.insert(g); }}><span class="label">${name}</span></div>`)}
+      item(name, () => g === 'picture' ? picture(c) : c.insert(g), close))}
   </div>`, { placement: 'bottom-start' });
 }
 function picture(c) {
@@ -147,11 +153,23 @@ function Bar() {
   const toggle = label => set(label, !value(label));
   const zoom = Math.round(Canvas.zoom.value * 100);
   const placeable = s.marks.filter(m => m.type === 'box' || m.type === 'shape').length;
+  const aligns = [
+    { head: 'Text' }, ...[['left', 'Left'], ['center', 'Center'], ['right', 'Right']].map(([a, label]) => ({ label, checked: value('Align') === a, run: () => set('Align', a) })),
+    '-', { head: placeable > 1 ? 'Shapes' : 'To the page' },
+    ...[['left', 'Align left'], ['center', 'Align center'], ['right', 'Align right'], ['top', 'Align top'], ['middle', 'Align middle'], ['bottom', 'Align bottom']].map(([a, label]) => ({ label, disabled: !placeable, run: () => c.align(a) })),
+    '-', { label: 'Distribute across', disabled: placeable < 3, run: () => c.distribute('across') }, { label: 'Distribute down', disabled: placeable < 3, run: () => c.distribute('down') },
+    { label: 'Same width', disabled: placeable < 2, run: () => c.match('width') }, { label: 'Same height', disabled: placeable < 2, run: () => c.match('height') },
+  ];
+  const orders = [
+    { label: 'Bring to front', keys: '$mod+Shift+]', run: () => c.order('front') }, { label: 'Bring forward', keys: '$mod+]', run: () => c.order('forward') },
+    { label: 'Send backward', keys: '$mod+[', run: () => c.order('backward') }, { label: 'Send to back', keys: '$mod+Shift+[', run: () => c.order('back') },
+  ];
+  const grouping = s.group ? { label: 'Ungroup', keys: '$mod+Shift+G', run: () => c.ungroup() } : { label: 'Group', keys: '$mod+G', disabled: placeable < 2, run: () => c.group() };
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
     <span class="sep" />
-    <button class=${'btn dd scope' + (scope?.own ? ' own' : '')} data-fb="scope" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, s.scopes.map(x => ({ label: x.label, detail: x.detail, checked: x === scope, run: () => { chosen.value = x.key; } })))}>
-      <span>${scope?.label ?? 'Nothing selected'}</span></button>
+    ${none ? null : html`<button class=${'btn dd scope' + (scope?.own ? ' own' : '')} data-fb="scope" onClick=${e => Shell.menu(e.currentTarget, s.scopes.map(x => ({ label: x.label, detail: x.detail, checked: x === scope, run: () => { chosen.value = x.key; } })))}>
+      <span>${scope?.label}</span></button>`}
     <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => set('Font', f) })))}>
       <span>${any ? value('Font') : 'Arial'}</span></button>
     <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: value('Size') === z, run: () => set('Size', z) })))}>
@@ -161,7 +179,7 @@ function Bar() {
     <button class="btn letter u" aria-label="Underline" data-tip="Underline" data-keys="Ctrl+U" aria-pressed=${any && !!value('Underline')} disabled=${none} onClick=${() => toggle('Underline')}>U</button>
     <button class="btn dd" aria-label="Text color" data-tip="Text color" data-fb="color" disabled=${none} onClick=${e => pop(e, close => html`<${Palette} value=${value('Color')} pick=${v => { close(); set('Color', v); }} />`)}>${glyph.color(any ? value('Color') : '#000000')}</button>
     <span class="sep" />
-    <button class="btn dd" aria-label="Shape" data-tip="Shape" data-fb="shape" disabled=${!boxy} onClick=${e => pop(e, close => html`<div class="shapes">${INSERT.slice(1).map(([g, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); set('Shape', g); }}>${shapeGlyph(g)}</button>`)}</div>`)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect')}</button>
+    <button class="btn dd" aria-label="Shape" data-tip="Shape" data-fb="shape" disabled=${!boxy} onClick=${e => pop(e, close => html`<div class="shapes">${SHAPES.map(([g, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); set('Shape', g); }}>${shapeGlyph(g)}</button>`)}</div>`)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect')}</button>
     <button class="btn dd" aria-label="Fill" data-tip="Fill" data-fb="fill" disabled=${!boxy} onClick=${e => pop(e, close => html`<${Palette} value=${value('Fill')} none pick=${v => { close(); set('Fill', v); }} />`)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none} onClick=${e => pop(e, close => html`<${Palette} value=${value('Outline')} none pick=${v => { close(); set('Outline', v); }} />`)}>${glyph.outline(any ? value('Outline') : 'none')}</button>
     <button class="btn dd" aria-label="Line" data-tip="Line" data-fb="line" disabled=${none} onClick=${e => pop(e, () => html`<div class="picker">
@@ -172,21 +190,11 @@ function Bar() {
     </div>`)}>${glyph.line()}</button>
     <button class="btn dd" aria-label="Arrowheads" data-tip="Arrowheads" data-fb="arrow" disabled=${!lineOnly} onClick=${e => pop(e, close => html`<div class="picker">${seg(['none', 'end', 'start', 'both'].map(a => [a, arrowGlyph(a)]), value('Arrow'), v => { close(); set('Arrow', v); })}</div>`)}>${glyph.arrow()}</button>
     <span class="sep" />
-    <button class="btn dd" data-fb="align" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, [
-      { head: 'Text' }, ...[['left', 'Left'], ['center', 'Center'], ['right', 'Right']].map(([a, label]) => ({ label, checked: value('Align') === a, run: () => set('Align', a) })),
-      '-', { head: placeable > 1 ? 'Shapes' : 'To the page' },
-      ...[['left', 'Align left'], ['center', 'Align center'], ['right', 'Align right'], ['top', 'Align top'], ['middle', 'Align middle'], ['bottom', 'Align bottom']].map(([a, label]) => ({ label, disabled: !placeable, run: () => c.align(a) })),
-      '-', { label: 'Distribute across', disabled: placeable < 3, run: () => c.distribute('across') }, { label: 'Distribute down', disabled: placeable < 3, run: () => c.distribute('down') },
-      { label: 'Same width', disabled: placeable < 2, run: () => c.match('width') }, { label: 'Same height', disabled: placeable < 2, run: () => c.match('height') },
-    ])}>Align</button>
-    <button class="btn dd" data-fb="order" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, [
-      { label: 'Bring to front', keys: '$mod+Shift+BracketRight', run: () => c.order('front') }, { label: 'Bring forward', keys: '$mod+BracketRight', run: () => c.order('forward') },
-      { label: 'Send backward', keys: '$mod+BracketLeft', run: () => c.order('backward') }, { label: 'Send to back', keys: '$mod+Shift+BracketLeft', run: () => c.order('back') },
-    ])}>Order</button>
-    ${s.group
-      ? html`<button class="btn" data-fb="group" onClick=${() => c.ungroup()}>Ungroup</button>`
-      : html`<button class="btn" data-fb="group" disabled=${placeable < 2} onClick=${() => c.group()}>Group</button>`}
-    <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: '$mod+Digit0', run: () => c.zoom('fit') }, '-',
+    <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, aligns)}>Align</button>
+    <button class="btn dd wide" data-fb="order" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
+    <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
+    <button class="btn dd narrow" data-fb="arrange" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Align', items: aligns }, '-', ...orders, '-', grouping])}>Arrange</button>
+    <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: '$mod+0', run: () => c.zoom('fit') }, '-',
       ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: Math.abs(z * 100 - zoom) < 0.5, run: () => c.zoom(z) })), '-',
       { label: 'Tidy', run: () => c.tidy() }], { placement: 'bottom-end' })}>${zoom}%</button>
   </div>`;
