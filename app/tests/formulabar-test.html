@@ -206,7 +206,7 @@ if (!Shell.parts.peek().canvas) Shell.register('canvas', StandIn);
 // ---- Cases, each set up for a screenshot ----
 const q = new URLSearchParams(location.search);
 const wait = ms => new Promise(r => setTimeout(r, ms));
-const CLOSE_NP = 'fx:bdc=bdc_ics&close affiliate=northpine', AP_NP_CHEN = 'fx:affiliate=northpine&person=chen', FEEDER_FUND = 'fx:controlled=fund&controller=feeder';
+const CLOSE_NP = 'fx:bdc=bdc_ics&close affiliate=northpine', AP_NP_CHEN = 'fx:affiliate=northpine&person=chen', OKAFOR_GP = 'fx:controlled=gp&controller=okafor';
 async function ready() {
   for (let i = 0; i < 400 && !Object.keys(App.entered.peek()).length; i++) await wait(10);
   await StandIn.ready;
@@ -244,14 +244,14 @@ function describeAffiliated() {
   if (old) tx.set(old.note, { label: 'Description', pattern: f.pattern, value: text }); else tx.add('note', { label: 'Description', pattern: f.pattern, value: text });
   tx.commit();
 }
-// An ownership loop of 10% fund holdings, which the 3(c)(1) count can't settle.
+// An ownership loop that multiplies to 100%, the blocker owning all of the fund that owns all of it, which
+// the look-through can't settle.
 function makeLoop() {
   const tx = App.edit();
-  tx.add('record', { at: 'northpine', edge: 'Investment Company Status', choice: '3(c)(7) Fund' });
-  const own = tx.add('record', { args: [{ edge: 'Owner', at: 'northpine' }, { edge: 'Owned', at: 'fund' }], tag: true });
-  tx.add('record', { at: own, edge: 'Percentage', field: 'percent', value: 0.2 });
+  const own = tx.add('record', { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Owned', at: 'fund' }], tag: true });
+  tx.add('record', { at: own, edge: 'Percentage', field: 'percent', value: 1 });
   tx.commit();
-  return App.computed.peek().errors.find(e => e.error.code === '#CIRCULAR!' && e.def === 'def_3c1' && e.at && Tree.objectOf(App.state.peek(), e.at) === 'fund')
+  return App.computed.peek().errors.find(e => e.error.code === '#CIRCULAR!' && e.def === 'def_look_through' && e.id && e.args?.some(a => a.at === 'fund'))
     ?? App.computed.peek().errors.find(e => e.error.code === '#CIRCULAR!');
 }
 
@@ -260,10 +260,10 @@ const cases = {
   async hover() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), '@'); },
   async hoverlist() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), 'Personnel'); },
   async step() { Shell.select([CLOSE_NP]); await wait(80); Shell.select([AP_NP_CHEN]); },
-  async type() { Shell.select([FEEDER_FUND]); await wait(80); typeIn('r2', '> ', '3', 1); },
-  async tag() { Shell.select([FEEDER_FUND]); await wait(80); document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); },
+  async type() { Shell.select([OKAFOR_GP]); await wait(80); typeIn('r2', '> ', '6', 1); },
+  async tag() { Shell.select([OKAFOR_GP]); await wait(80); document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); },
   async value() {
-    Shell.select(['own_fdr_fund_pct']); await wait(80);
+    Shell.select(['own_okfr_gp_pct']); await wait(80);
     const i = document.querySelector('.fx-value'); i.focus(); i.value = '20%'; i.dispatchEvent(new Event('input', { bubbles: true }));
   },
   async whynot() { Shell.select(['pension', 'bdc']); await wait(80); hoverOn('r1', 'Personnel'); },
@@ -271,12 +271,12 @@ const cases = {
   async circular() { const e = makeLoop(); await wait(30); Shell.select([e.id]); },
   async page() { describeAffiliated(); await wait(30); Shell.select([AP_NP_CHEN]); await wait(60); FormulaBar.open('def_affiliated'); await wait(60); document.querySelectorAll('.fx-clause')[3]?.dispatchEvent(new PointerEvent('pointerenter')); },
   async point() {
-    Shell.select([FEEDER_FUND]); await wait(80);
+    Shell.select([OKAFOR_GP]); await wait(80);
     typeIn('r2', '> 25%', ' AND ');
     await wait(30);
-    Shell.select(['own_fdr_fund']);
+    Shell.select(['own_okfr_gp']);
   },
-  async delete() { Shell.select([FEEDER_FUND]); await wait(80); document.querySelector('.fxbar .fx-others button').click(); await wait(30); document.querySelector('.fxbar [data-key="r3"] .fx-x').dispatchEvent(new PointerEvent('pointerenter')); },
+  async delete() { Shell.select([OKAFOR_GP]); await wait(80); document.querySelector('.fxbar .fx-others button').click(); await wait(30); document.querySelector('.fxbar [data-key="r3"] .fx-x').dispatchEvent(new PointerEvent('pointerenter')); },
 };
 
 // ---- Checks ----
@@ -333,42 +333,43 @@ async function checks() {
   check('an entered value under a formula shows both, with the amber corner', m.covered && document.querySelector('.fx-out.over') && document.querySelector('.fx-would')?.textContent === 'C Corporation', document.querySelector('.fx-would')?.textContent);
 
   // The redline: hovering a tag
-  Shell.select([FEEDER_FUND]); await wait(40);
+  Shell.select([OKAFOR_GP]); await wait(40);
   let t0 = performance.now();
   document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
   const ms = performance.now() - t0;
   let p = FormulaBar.pending.peek();
-  check('hovering a tag previews ruling it out: Control −5', p?.deltas.find(d => d.name === 'Control')?.minus === 5 && /Control\s*−5/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
-  check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === 5);
+  // Rebutting Okafor's presumed control of GP III takes his control of the eleven it reaches through GP III.
+  check('hovering a tag previews ruling it out: Control −11', p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /Control\s*−11/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
+  check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === p?.diff.go.length && p.diff.go.length >= 11, `${StandIn.rl.peek()?.go?.length} of ${p?.diff.go.length}`);
   check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
   document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
   check('leaving it ends the preview', !FormulaBar.pending.peek() && !StandIn.rl.peek());
 
   // Typing a value
-  Shell.select(['own_fdr_fund_pct']); await wait(40);
+  Shell.select(['own_okfr_gp_pct']); await wait(40);
   const input = document.querySelector('.fx-value');
   input.value = '20%'; input.dispatchEvent(new Event('input', { bubbles: true })); await wait(10);
   p = FormulaBar.pending.peek();
-  check('typing a value previews its redline: the feeder, and whoever controlled the fund through it, lose control', p?.deltas.find(d => d.name === 'Control')?.minus >= 5 && p.diff.go.includes(FEEDER_FUND) && p.diff.change.includes('own_fdr_fund_pct'), JSON.stringify(p?.deltas));
-  check('and a changed value reads ~~28.4%~~ 20%', StandIn.rl.peek()?.changed?.own_fdr_fund_pct?.before === '28.4%' && StandIn.rl.peek().changed.own_fdr_fund_pct.after === '20%');
+  check('typing a value previews its redline: Okafor loses control of GP III, and of what he controlled through it', p?.deltas.find(d => d.name === 'Control')?.minus >= 5 && p.diff.go.includes(OKAFOR_GP) && p.diff.change.includes('own_okfr_gp_pct'), JSON.stringify(p?.deltas));
+  check('and a changed value reads ~~50%~~ 20%', StandIn.rl.peek()?.changed?.own_okfr_gp_pct?.before === '50%' && StandIn.rl.peek().changed.own_okfr_gp_pct.after === '20%');
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(10);
-  check('Esc discards it', !FormulaBar.pending.peek() && App.entered.peek().own_fdr_fund_pct.value === 0.284);
+  check('Esc discards it', !FormulaBar.pending.peek() && App.entered.peek().own_okfr_gp_pct.value === 0.5);
 
   // Typing a formula, then Enter
-  Shell.select([FEEDER_FUND]); await wait(40);
-  typeIn('r2', '> ', '3', 1); await wait(20);
+  Shell.select([OKAFOR_GP]); await wait(40);
+  typeIn('r2', '> ', '6', 1); await wait(20);
   p = FormulaBar.pending.peek();
-  check('typing a formula previews it: 35% rules out the feeder', p?.from === 'bar' && p.deltas.find(d => d.name === 'Control')?.minus >= 5, JSON.stringify(p?.deltas));
+  check('typing a formula previews it: 65% rules out Okafor’s half of GP III', p?.from === 'bar' && p.deltas.find(d => d.name === 'Control')?.minus >= 5, JSON.stringify(p?.deltas));
   check('Commit and Discard show while it is pending', document.querySelectorAll('.fxbar .fx-acts .btn').length === 2);
   const v0 = App.version.peek();
   FormulaBar.commitEdit(); await wait(30);
   const row = App.notes.peek().notes('Formula').find(n => n.note === 'def_control').value[2].formula;
-  check('Enter commits it as one change', App.version.peek() === v0 + 1 && /> 35%/.test(row) && !R().records[FEEDER_FUND], row);
+  check('Enter commits it as one change', App.version.peek() === v0 + 1 && /> 65%/.test(row) && !R().records[OKAFOR_GP], row);
   Shell.parts.peek().undo.undo(); await wait(30);
-  check('and Undo takes it back', /> 25%/.test(App.notes.peek().notes('Formula').find(n => n.note === 'def_control').value[2].formula) && R().records[FEEDER_FUND]);
+  check('and Undo takes it back', /> 25%/.test(App.notes.peek().notes('Formula').find(n => n.note === 'def_control').value[2].formula) && R().records[OKAFOR_GP]);
 
   // Deleting a row
-  Shell.select([FEEDER_FUND]); await wait(40);
+  Shell.select([OKAFOR_GP]); await wait(40);
   document.querySelector('.fxbar .fx-others button').click(); await wait(20);
   check('a grey label opens every row, in order', document.querySelectorAll('.fxbar .fx-row').length === 4);
   document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
@@ -378,17 +379,17 @@ async function checks() {
   check('and leaving it, nothing', !FormulaBar.pending.peek());
 
   // Completion and squiggles
-  check('completion comes from suggest()', Formulas.suggest('← Controlled.Ow', 15, { computed: R(), def: 'def_control', at: FEEDER_FUND }).list.some(x => x.name === 'Owners'));
+  check('completion comes from suggest()', Formulas.suggest('← Controlled.Ow', 15, { computed: R(), def: 'def_control', at: OKAFOR_GP }).list.some(x => x.name === 'Owners'));
   typeIn('r2', '> 25%', ' AND Bogus'); await wait(250);
   check('squiggles come from check()', document.querySelector('.fxbar .CodeMirror-lint-mark-error'), document.querySelector('.fxbar .CodeMirror-lint-mark-error')?.textContent);
   FormulaBar.discard(); await wait(20);
 
   // Point mode
   typeIn('r2', '> 25%', ' AND '); await wait(20);
-  Shell.select(['own_fdr_fund']); await wait(40);
-  const reached = FormulaBar.reaching('own_fdr_fund', M());
+  Shell.select(['own_okfr_gp']); await wait(40);
+  const reached = FormulaBar.reaching('own_okfr_gp', M());
   check('point mode: a click on a line offers the names that reach it', reached.includes('Ownership(Controller, Controlled)') && reached.some(x => /Owners|Holdings/.test(x)), reached.join(' | '));
-  check('and the selection is put back', Shell.selection.peek()[0] === FEEDER_FUND);
+  check('and the selection is put back', Shell.selection.peek()[0] === OKAFOR_GP);
   FormulaBar.discard(); await wait(20);
   check('Esc discards an edit', !FormulaBar.draft.peek() && !FormulaBar.pending.peek());
 
@@ -413,12 +414,12 @@ async function checks() {
   const e = makeLoop(); await wait(30);
   Shell.select([e.id]); await wait(40);
   m = M(); f = F();
-  check('#CIRCULAR!: the loop outlined in red', m.out.error?.code === '#CIRCULAR!' && [...f.map.values()].some(x => x.c === 'loop') && f.map.has('northpine'), [...f.map].map(([id, x]) => id + ':' + x.c).join(' '));
+  check('#CIRCULAR!: the loop outlined in red', m.out.error?.code === '#CIRCULAR!' && [...f.map.values()].some(x => x.c === 'loop') && f.map.has('blocker'), [...f.map].map(([id, x]) => id + ':' + x.c).join(' '));
   check('and the name that closes it underlined', document.querySelector('.fxbar .fx-loop'), document.querySelector('.fxbar .fx-loop')?.textContent);
 
   // Find's =
   const ev = Shell.parts.peek().evaluate;
-  const r1 = ev('=Controlled.Owners', [FEEDER_FUND]), r2 = ev('=SUM(Controlled.Owners.Percentage)', [FEEDER_FUND]);
+  const r1 = ev('=Controlled.Owners', [OKAFOR_GP]), r2 = ev('=SUM(Controlled.Owners.Percentage)', [OKAFOR_GP]);
   check('Find’s = works a formula out at the selection', r1.items?.length >= 2 && /%$/.test(r2.value ?? ''), `${r1.items?.map(x => x.label).join(', ')} | ${r2.value}`);
 }
 

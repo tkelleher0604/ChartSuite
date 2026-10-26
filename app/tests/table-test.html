@@ -207,7 +207,7 @@ async function run() {
   // ---- The Ownership table, and a closing schedule pasted from Excel ----
   await addTable('Relations', 'Ownership');
   const own = Shell.view.peek(), ownRows = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).length;
-  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage');
+  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Voting Percentage');
   Shell.at({ asOf: '2026-11-02' }); await tick(100);
   n0 = N();
   const rows0 = Table.grid.getRows().length;
@@ -246,8 +246,8 @@ async function run() {
 
   // ---- The time: the chart's days, the date control, the strip, a view keeping a date ----
   check('The days on which something starts or ends are the log’s', JSON.stringify(Time.events.peek().map(e => e.day)) === JSON.stringify(App.wb.days(C())));
-  const jul1 = Time.events.peek().find(e => e.day === '2024-07-01');
-  check('Each day is said in the chart’s words', jul1?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul1?.items));
+  const jul9 = Time.events.peek().find(e => e.day === '2024-07-09');
+  check('Each day is said in the chart’s words', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul9?.items));
   $('.titlebar .asof').click(); await tick(100);
   check('The date control opens a calendar beside the chart’s days', !!$('.date-pop .cal-grid') && $$('.date-pop .dayrow').length >= Time.events.peek().length);
   const list = [...$('.date-pop .date-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');

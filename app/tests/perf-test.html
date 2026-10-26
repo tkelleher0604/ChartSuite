@@ -38,10 +38,10 @@ function timeIt(n) {
   return best;
 }
 
-// Ruling out the feeder's control of the fund, worked out and diffed against the sample as it was.
+// Ruling out Okafor's presumed control of GP III, worked out and diffed against the sample as it was.
 function redline() {
   const before = workOut();
-  const edited = { ...SAMPLE_INPUTS.recs, x_rebut: { args: [{ edge: 'Controller', at: 'feeder' }, { edge: 'Controlled', at: 'fund' }], tag: false } };
+  const edited = { ...SAMPLE_INPUTS.recs, x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edge: 'Controlled', at: 'gp' }], tag: false } };
   let best = Infinity, d = null;
   for (let i = 0; i < 3; i++) {
     const t = performance.now();
