@@ -11,6 +11,8 @@ const Canvas = (() => {
 const { Graph, Selection, Transform, Snapline } = X6;
 const { signal, effect } = preactSignals;
 Graph.registerNode('dendra', { markup: [], attrs: {} }, true);
+// A line another crosses is drawn in its runs, the scene's pieces, a gap where each crossing is.
+Graph.registerConnector('runs', (s, t, route, { runs }) => runs.map(r => r.map(([x, y], i) => `${i ? 'L' : 'M'} ${x} ${y}`).join(' ')).join(' '), true);
 
 const active = signal(null);
 const zoomLevel = signal(1);
@@ -115,7 +117,7 @@ function cellsOf(scene) {
       const arrow = s.Arrow;
       cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: 'line', mark: m.id },
         source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] },
-        vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: { name: 'normal' },
+        vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
         attrs: { line: { stroke: m.redline === 'appear' ? BLUE : m.redline === 'go' ? RED : paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight)),
           sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });

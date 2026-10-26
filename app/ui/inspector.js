@@ -459,12 +459,13 @@ function detail(it) {
 const fact = (f, first) => { const text = first ? upper(f.text) : f.text; return f.date ? dated(f.date, text) : f.no ? html`<span class="no">${text}</span>` : text; };
 const facts = (list, first) => list.map((f, i) => html`${i ? ' · ' : ''}${fact(f, first && !i)}`);
 
-// A relation said as a sentence, its first side first: "Fund III is an owner of Fund III Blocker", "Margaret
-// A. Chen is a managing member of GP III", and any further side after ("…, via GP III"). `side(edge, first)`
-// says who's at an edge; an option says the role.
-function sentence(edges, side, { choice, not } = {}) {
+// A relation `t` said as a sentence, in the formula bar's words: "Fund III is an investor in Fund III
+// Blocker", "Margaret A. Chen is a managing member of GP III", and any further side after ("…, via GP III").
+// `side(edge, first)` says who's at an edge; an option says the role.
+function sentence(t, edges, side, { choice, not } = {}) {
   const [e0, e1, ...rest] = edges, r = choice ?? e0;
-  return html`${side(e0, true)} is ${not ? 'not ' : ''}${article(r)} ${lower(r)} of ${side(e1)}${rest.map(e => html`, ${lower(e)} ${side(e)}`)}`;
+  const [a, words, b] = FormulaBar.phrase?.(t, e0, e1, { choice, not }) ?? [e0, ` is ${not ? 'not ' : ''}${article(r)} ${lower(r)} of `, e1];
+  return html`${side(a, true)}${words}${side(b)}${rest.map(e => html`, ${lower(e)} ${side(e)}`)}`;
 }
 // A relation ruled out, said plainly: "Not a remote affiliate of the BDC". Where a formula rules it out
 // because another relation holds between the two, that one is said after it, with the clause that rules:
@@ -735,7 +736,7 @@ function RelateView({ a, b }) {
   const heldRow = x => { const rel = r[x.id], f = fx(x.id), at = e => rel.args.find(g => T.same(g.edge, e)).at, why = f && because(x.id)?.cite;
     return html`<div class=${'rr' + (rel.tag === false ? ' ruled' : '')} key=${x.id} data-key=${x.id}>
         <span class="ctl">${'tag' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
-        <${Go} to=${x.id} cls=${'nm' + (f ? ' fx' : '')}>${sentence(n.edges(tree(x.id)), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false })}</${Go}>
+        <${Go} to=${x.id} cls=${'nm' + (f ? ' fx' : '')}>${sentence(tree(x.id), n.edges(tree(x.id)), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false })}</${Go}>
         <span class="val">${'field' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
         ${why ? html`<span class="why">${why}</span>` : null}
       </div>
@@ -748,7 +749,7 @@ function RelateView({ a, b }) {
       return html`<button class=${'sel dd' + (y ? '' : ' ph')} aria-label=${`${p.edge}: ${y ? nameOf(objectOf(y)) : 'none'}`} onClick=${ev => pick(ev, x, p)}><span>${y ? shortOf(objectOf(y)) : lower(p.edge)}</span></button>`; };
     return html`<div class="rr" key=${x.key} data-key=${x.key}>
       <span class="ctl">${!tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => { relate(x, slot, { tag: true }); emit('tag-flip', slot); }} />` : html`<span class="tag" aria-disabled="true" />`}</span>
-      <span class="nm">${sentence(n.edges(x.s), say)}</span>
+      <span class="nm">${sentence(x.s, n.edges(x.s), say)}</span>
       <span class="val">${tag || !slot ? null : 'choice' in x.s.out ? html`<${Choice} options=${x.options} label=${x.name} ph=${x.name} put=${out => relate(x, slot, out)} />`
         : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => out && relate(x, slot, out)} />`}</span>
     </div>`; };

@@ -1,24 +1,26 @@
 // Exports (dendra.md, Views): a view as a PowerPoint slide or a PDF page, every view as a deck or a document
 // in tab order, and the chart's dates as a calendar for Outlook. The scene is all either draws.
-// - Each page is drawn on its sheet, a 13.33 × 7.5 in slide unless its Page says otherwise, or on the paper
-//   the Export dialog names (Letter, say), smaller by the page's scale, and every size with it: a text's
-//   points are the points it has on the sheet, so it breaks into the scene's lines.
+// - Each page is drawn on its sheet, a 13.33 × 7.5 in slide unless its Page says otherwise, or the paper the
+//   Export dialog names (Letter, say), for which the scene is drawn (Scene.of's paper), smaller by the page's
+//   scale, and every size with it: a text's points are the points it has on the sheet, so it breaks into the
+//   scene's lines.
 // - PowerPoint: a box is a shape of the same preset geometry, its texts paragraphs in the same fonts that
 //   wrap at the same width; a line is a connector glued to its boxes, grouped with its label so the two move
-//   together; a frame a shape behind its members; the legend and free shapes are shapes like any other. A
-//   deck's slides share one size, the smallest that holds every sheet, each in the middle of its slide.
+//   together, and a line broken where another crosses it its pieces; a frame a shape behind its members; the
+//   legend and free shapes are shapes like any other. A deck's slides share one size, the smallest that
+//   holds every sheet, each in the middle of its slide.
 // - PDF: the scene as SVG, through svg2pdf.js, in the PDF's standard fonts (Helvetica has Arial's widths,
 //   Times Times New Roman's), compressed. Each page is its sheet.
-// - The Export dialog previews the file: the same SVG, page by page, on the slides or pages it will have; a
-//   click on a page shows it at full size.
+// - The Export dialog, which the title bar's Export opens, previews the file: the same SVG, page by page, on
+//   the slides or pages it will have, a click on a page showing it at full size; for a calendar, its dates.
 // What the canvas shows only on screen (computed italics and dashes, the redline) is no part of the scene.
 // PptxGenJS, jsPDF and svg2pdf.js load the first time they're needed.
 //
-// Export.write('pptx' | 'pdf', scenes, name, author?, paper?) → a Blob, also saved, its pages on that paper
-// (a size in Scene.PAGES) where one is named; Export.svg(scene, { pdf, frame })
+// Export.write('pptx' | 'pdf', scenes, name, author?) → a Blob, also saved; Export.svg(scene, { pdf, frame })
 // → SVG markup; Export.calendar(R, N, chart, name) → the .ics Blob, also saved, R being Formulas.computeState's
 // and N the chart's Notes reader. Export.onFile, if set, takes each finished file (blob, name) instead of the
-// browser downloading it.
+// browser downloading it. In the window, Export.open(format?) opens the dialog: 'pptx', 'pdf' or 'ics', or
+// what the view shown offers (Shell's 'export' parts: a table's CSV).
 const Export = (() => {
 const PT = Scene.PT;                                    // pixels a point
 const n = v => +v.toFixed(2);
@@ -65,9 +67,10 @@ function texts(items, pdf) {
       + (t.Underline ? `<rect x="${n(l.x - l.w * { start: 0, middle: 0.5, end: 1 }[anchor])}" y="${n(l.y + size * 0.106)}" width="${n(l.w)}" height="${n(size * 0.073)}" fill="${t.Color}"/>` : '')).join('');
   }).join('');
 }
-// A route, with an arrowhead at an end as the canvas draws one (X6's block marker).
-function route(points, s) {
-  const out = [`<path d="M${points.map(p => `${n(p[0])},${n(p[1])}`).join(' L')}" fill="none" ${stroke(s)} stroke-linejoin="miter"/>`];
+// A route, in its runs where another line breaks it, with an arrowhead at an end as the canvas draws one (X6's
+// block marker).
+function route(points, s, runs = [points]) {
+  const out = [`<path d="${runs.map(r => `M${r.map(p => `${n(p[0])},${n(p[1])}`).join(' L')}`).join(' ')}" fill="none" ${stroke(s)} stroke-linejoin="miter"/>`];
   const w = s.Weight * PT, len = 5 + w * 3, half = (4 + w * 2.4) / 2;
   const head = ([x, y], [px, py]) => {
     const d = Math.hypot(x - px, y - py) || 1, ux = (x - px) / d, uy = (y - py) / d, bx = x - ux * len, by = y - uy * len;
@@ -89,7 +92,7 @@ function swatch(sw, { x, y, w, h }) {
 function markSvg(m, pdf) {
   const s = look(m);
   if (m.type === 'box') return g(m.x, m.y, body(m.shape, m.w, m.h, s) + texts(m.texts, pdf));
-  if (m.type === 'line') return route(m.points, s) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, texts(m.texts, pdf)) : '');
+  if (m.type === 'line') return route(m.points, s, m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, texts(m.texts, pdf)) : '');
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, FRAME.Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
@@ -101,15 +104,8 @@ function markSvg(m, pdf) {
 }
 // How much smaller a page is drawn on its sheet: its scale, exactly, so it fills the sheet.
 const fit = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
-// The pages on a paper of one size instead of their own sheets, each turned as its page is and drawn in the
-// middle of it, as large as it fits: a slide's page on Letter, so that it prints at the size it has.
+// The papers a page can be drawn on, by the names the dialog gives them.
 const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid: 'Tabloid', a4: 'A4', a3: 'A3' };
-function onPaper(scenes, paper) {
-  const size = Scene.PAGES[paper];
-  if (!size) return scenes;
-  const [long, short] = [Math.max(...size), Math.min(...size)];
-  return scenes.map(s => ({ ...s, page: { ...s.page, sheet: s.page.w >= s.page.h ? { w: long, h: short } : { w: short, h: long } } }));
-}
 // The scene as SVG, in its own pixels, on white; with `frame` (a sheet's size, in the sheet's pixels), in the
 // middle of a larger sheet, as a deck's slides hold a smaller one.
 function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
@@ -165,22 +161,36 @@ const SITES = { rect: [0, 1, 2, 3], rounded: [0, 1, 2, 3], diamond: [0, 1, 2, 3]
   hexagon: [[4, 5], 3, [2, 1], 0], octagon: [[6, 7], [5, 4], [3, 2], [0, 1]], parallelogram: [0, 5, 4, 2], trapezoid: [0, 1, 2, 3],
   pentagon: [0, 1, 3, 5], chevron: [0, 1, 2, 3], arrow: [0, 1, 2, 3], cylinder: [1, 2, 3, 4] };
 const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot' };
+// The page's own texts, by the names PowerPoint's Selection Pane gives them.
+const ROLE = { title: 'Title', date: 'Date' };
 // The widths PowerPoint can wrap a text at and break it into the scene's lines: from its widest line to the
 // narrowest that would take in more of the next, PowerPoint breaking after a hyphen too where the scene breaks
-// only at spaces. The width wanted, kept inside that range clear of its ends; null if the range is too narrow
-// to rely on, when the scene's breaks are written as line breaks.
-function wrapAt(items, width, want) {
+// only at spaces, and never at the no-break space that keeps a suffix to its name. The width wanted, kept
+// inside that range clear of its ends; null if the range is too narrow to rely on, or the scene broke a text
+// where PowerPoint wouldn't, when the scene's breaks are written as line breaks.
+function wrapAt(items, want) {
   let lo = 0, hi = Infinity;
-  for (const it of items) for (const para of String(it.text).split('\n')) {
-    const ls = Scene.breakLines(para, it.look, width);
-    ls.forEach((l, i) => {
-      lo = Math.max(lo, l.w);
-      if (i < ls.length - 1) hi = Math.min(hi, Scene.measure(`${l.text} ${/^[^\s\-–—]*[\-–—]?/.exec(ls[i + 1].text)[0]}`, it.look));
-    });
+  for (const it of items) {
+    const left = [...it.lines];
+    for (const para of Scene.bind(it.text).split('\n')) {
+      const ls = [], whole = para.split(/ +/).join(' ');
+      let said = null;
+      while (left.length && said !== whole) { const l = left.shift(); ls.push(l); said = said === null ? l.text : `${said} ${l.text}`; }
+      if (said !== whole) return null;
+      ls.forEach((l, i) => {
+        lo = Math.max(lo, l.w);
+        if (i < ls.length - 1) hi = Math.min(hi, Scene.measure(`${l.text} ${/^[^ \-–—]*[\-–—]?/.exec(ls[i + 1].text)[0]}`, it.look));
+      });
+    }
   }
   const m = Math.min(2, (hi - lo) / 2);
   return hi - lo < 1 ? null : Math.min(Math.max(want, lo + m), hi - m);
 }
+// Of a line's arrowheads, those a piece of it has: its start's on its first, its end's on its last.
+const arrowOf = (a, first, last) => {
+  const st = first && (a === 'start' || a === 'both'), en = last && (a === 'end' || a === 'both');
+  return st && en ? 'both' : st ? 'start' : en ? 'end' : 'none';
+};
 
 // A deck: a slide for each scene, then each line's connector written into its slide's XML, which PptxGenJS
 // can't write: a connector glued to the shapes it joins, so that it follows them when they're moved, in a
@@ -216,10 +226,10 @@ function slide(p, scene, { k, ox, oy }) {
   const fill = c => none(c) ? { type: 'none' } : { color: hex(c) };
   const line = (s, w = s.Weight) => none(s.Outline) ? { type: 'none' } : { color: hex(s.Outline), width: w * k, dashType: DASH[s.Dash] ?? 'solid' };
   // A text's column in PowerPoint: the scene's, about the side its lines align to, as wide as wrapAt says;
-  // `hug` makes it as narrow as it can be. A text the scene hyphenated or cut short is written line by line.
+  // `hug` makes it as narrow as it can be. A text the scene hyphenated is written line by line.
   const column = (items, col, hug) => {
     const cut = items.some(it => it.lines.some(l => l.cut));
-    const w = cut ? null : wrapAt(items, col.width, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) + 2, a = items[0].look.Align;
+    const w = cut ? null : wrapAt(items, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) + 2, a = items[0].look.Align;
     return { x: a === 'left' ? col.x : a === 'right' ? col.x + col.width - width : col.x + (col.width - width) / 2, width, broken: w === null };
   };
   // Texts as paragraphs: one for each record's text (and each line it was typed on), in its own look, its
@@ -228,7 +238,7 @@ function slide(p, scene, { k, ox, oy }) {
     const o = { fontFace: it.look.Font, fontSize: it.look.Size * k, bold: !!it.look.Bold, italic: !!it.look.Italic, ...(it.look.Underline && { underline: { style: 'sng' } }),
       color: hex(it.look.Color), align: it.look.Align, lineSpacing: it.look.Size * 1.2 * k };
     return broken ? it.lines.map((l, i) => ({ text: l.text, options: { ...o, softBreakBefore: i > 0, breakLine: i === it.lines.length - 1 } }))
-      : String(it.text).split('\n').map(text => ({ text, options: { ...o, breakLine: true } }));
+      : Scene.bind(it.text).split('\n').map(text => ({ text, options: { ...o, breakLine: true } }));
   }).map((r, i, all) => i < all.length - 1 ? r : { ...r, options: { ...r.options, breakLine: false } });
   // A shape's text, set where the scene sets it: insets that make PowerPoint's text area its column, its
   // lines anchored as the scene anchors them (at the foot of a triangle, at the top of a text box). A text box
@@ -247,12 +257,17 @@ function slide(p, scene, { k, ox, oy }) {
     add('addText', paragraphs(items, f.broken), { ...r, margin: 0, valign: 'top', wrap: true, objectName: name });
     return r;
   };
-  // A line, and with `text` its label: the two grouped, named as the line is.
-  const connector = (points, s, ends, name, text) => {
+  // A line, and with `text` its label: the two grouped, named as the line is. A line broken where another
+  // crosses it is its pieces, grouped: the first glued where it starts, the last where it ends.
+  const connector = (points, s, ends, name, text, runs = [points]) => {
     const j = lines.length, at = { r: null };
     lines.push((id, labelXml) => {
-      const c = cxn(id, name, points, s, ends?.map((b, i) => glue(scene.byId.get(b), points, i)), { X, Y, k });
-      return labelXml && at.r ? grouped(100000 + j, name, [c, labelXml.replace(`name="·label·${j}"`, `name="${esc(text.items[0].text)}"`)], points.map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })).concat(at.r)) : c;
+      const glued = ends?.map((b, i) => glue(scene.byId.get(b), points, i)) ?? [];
+      const pieces = runs.map((r, i) => cxn(i ? 200000 + j * 100 + i : id, name, r, { ...s, Arrow: arrowOf(s.Arrow, i === 0, i === runs.length - 1) },
+        [i === 0 ? glued[0] : null, i === runs.length - 1 ? glued[1] : null], { X, Y, k }));
+      const label = labelXml && at.r ? [labelXml.replace(`name="·label·${j}"`, `name="${esc(text.items[0].text)}"`)] : [];
+      return pieces.length + label.length > 1
+        ? grouped(100000 + j, name, [...pieces, ...label], runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })).concat(label.length ? [at.r] : [])) : pieces[0];
     });
     add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·line·${j}` });
     if (text) at.r = label(text.items, text.x, text.y, 200, `·label·${j}`);
@@ -270,7 +285,7 @@ function slide(p, scene, { k, ox, oy }) {
   for (const m of scene.marks) {
     const s = look(m);
     if (m.type === 'box') ids.set(m.id, shape(m, m.shape, s, m.texts, m.column, m.shape === 'triangle' ? 'bottom' : 'middle', m.texts[0]?.text));
-    else if (m.type === 'line') connector(m.points, s, [m.from, m.to], m.texts[0]?.text, m.labelAt && m.texts.length ? { items: m.texts, x: m.labelAt.x, y: m.labelAt.y } : null);
+    else if (m.type === 'line') connector(m.points, s, [m.from, m.to], m.texts[0]?.text, m.labelAt && m.texts.length ? { items: m.texts, x: m.labelAt.x, y: m.labelAt.y } : null, m.runs);
     else if (m.type === 'frame') {
       const dash = frameDash(m.kind), outline = { Outline: m.lone ? 'none' : FRAME.stroke, Weight: FRAME.Weight, Dash: dash, Fill: 'none' };
       if (m.kind === 'bracket') add('addText', paragraphs([m.caption]), { shape: 'custGeom', x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), line: line(outline),
@@ -282,7 +297,7 @@ function slide(p, scene, { k, ox, oy }) {
       if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) } });
       if (s.Outline !== '#000000') shape(m, 'rect', { ...s, Fill: 'none' }, [], null);
     } else if (m.geometry === 'legend') {
-      shape(m, 'rect', { ...s, Dash: 'solid' }, m.texts, { x: 12, width: m.w - 24 }, 'top', m.title || 'Legend');
+      shape(m, 'rect', { ...s, Dash: 'solid' }, m.texts, { x: m.texts[0]?.lines[0]?.x ?? 12, width: m.w - 2 * (m.texts[0]?.lines[0]?.x ?? 12) }, 'top', m.title || 'Legend');
       for (const r of m.rows) {
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h };
         if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, r.caption.text);
@@ -292,7 +307,7 @@ function slide(p, scene, { k, ox, oy }) {
       }
     } else if (m.geometry !== 'group') {
       const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
-      shape(m, geometry, s, m.texts, m.column, m.geometry === 'text' || m.geometry === 'frame' ? 'top' : 'middle');
+      shape(m, geometry, s, m.texts, m.column, m.geometry === 'text' || m.geometry === 'frame' ? 'top' : 'middle', ROLE[m.role]);
     }
   }
   return lines;
@@ -339,8 +354,7 @@ function cxn(id, name, ps, s, ends, { X, Y, k }) {
 // ---- Writing a file ----
 
 const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Chart';
-async function write(format, scenes, name, author = '', paper = null) {
-  scenes = onPaper(scenes, paper);
+async function write(format, scenes, name, author = '') {
   const blob = format === 'pdf' ? await pdf(scenes, name) : await pptx(scenes, name, author);
   save(blob, `${fileName(name)}.${format}`);
   return blob;
@@ -348,12 +362,29 @@ async function write(format, scenes, name, author = '', paper = null) {
 
 // ---- The calendar ----
 
-// Every date in the chart as worked out, one all-day event each: what it's the date of, and why it falls
+// Every date in the chart as worked out, in order: its day, what it's the date of, whose, and why it falls
 // where it does, the ground on one line. An address, which ends what it's in (a name, or a part of the
 // ground), is given by its file's name alone.
-function calendar(R, N, chart, name, stamp = new Date()) {
+function dates(R, N) {
   const st = R.records;
   const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
+  return Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
+    // What it's the date of, then whose, in full: Annual Tax Due 2025 · Calder Ridge Capital Partners III
+    // AIV-1, L.P. Of a relation, whose is its first side, and its others, by their short names, say which;
+    // its name leads where the date's own label doesn't say it.
+    const path = Tree.pathOf(st, id), full = x => N.nameOf(st, Tree.objectOf(st, x));
+    let what = path.slice(1).map(x => N.segmentOf(st, x)).join(' › '), whose = full(path[0]), which = [];
+    if (!Tree.isObject(st[path[0]])) {
+      const [first, ...rest] = N.sides(st, path[0]), name = N.nameOf(st, path[0]);
+      whose = full(first.at);
+      which = rest.map(a => plain(N.shortOf(st, Tree.objectOf(st, a.at))));
+      if (!Tree.norm(what).includes(Tree.norm(name))) what = `${name} ${what}`;
+    }
+    return { id, day: r.value, what: [what, which.join(', ')].filter(Boolean).join(' '), whose: plain(whose), why: r.computed ? plain(Formulas.groundText(R, id)) : '' };
+  });
+}
+// The dates as one all-day event each, for Outlook.
+function calendar(R, N, chart, name, stamp = new Date()) {
   const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
   // Lines of at most 75 octets, each continued after a space.
   const utf8 = new TextEncoder(), fold = line => {
@@ -367,22 +398,8 @@ function calendar(R, N, chart, name, stamp = new Date()) {
   };
   const day = iso => iso.replace(/-/g, ''), next = iso => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return day(d.toISOString().slice(0, 10)); };
   const now = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-  const events = Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
-    // What it's the date of, then whose, in full: Annual Tax Due 2025 · Calder Ridge Capital Partners III
-    // AIV-1, L.P. Of a relation, whose is its first side, and its others, by their short names, say which;
-    // its name leads where the date's own label doesn't say it.
-    const path = Tree.pathOf(st, id), full = x => N.nameOf(st, Tree.objectOf(st, x));
-    let what = path.slice(1).map(x => N.segmentOf(st, x)).join(' › '), whose = full(path[0]), which = [];
-    if (!Tree.isObject(st[path[0]])) {
-      const [first, ...rest] = N.sides(st, path[0]), name = N.nameOf(st, path[0]);
-      whose = full(first.at);
-      which = rest.map(a => plain(N.shortOf(st, Tree.objectOf(st, a.at))));
-      if (!Tree.norm(what).includes(Tree.norm(name))) what = `${name} ${what}`;
-    }
-    const why = r.computed ? plain(Formulas.groundText(R, id)) : '';
-    return ['BEGIN:VEVENT', `UID:${chart}.${id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(r.value)}`, `DTEND;VALUE=DATE:${next(r.value)}`,
-      `SUMMARY:${text(`${[what, which.join(', ')].filter(Boolean).join(' ')} · ${plain(whose)}`)}`, ...(why ? [`DESCRIPTION:${text(why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT'];
-  });
+  const events = dates(R, N).map(e => ['BEGIN:VEVENT', `UID:${chart}.${e.id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(e.day)}`, `DTEND;VALUE=DATE:${next(e.day)}`,
+    `SUMMARY:${text(`${e.what} · ${e.whose}`)}`, ...(e.why ? [`DESCRIPTION:${text(e.why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT']);
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Dendra//Dendra//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${text(name)}`, ...events.flat(), 'END:VCALENDAR'];
   const blob = new Blob([ics.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar' });
   save(blob, `${fileName(name)}.ics`);
@@ -391,14 +408,20 @@ function calendar(R, N, chart, name, stamp = new Date()) {
 
 const api = { write, svg, calendar, onFile: null };
 
-// ---- In the window: the Export menu, and its dialog ----
+// ---- In the window: the Export dialog ----
 
 if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
-  const { html } = Shell, { useState } = preactHooks;
-  // The chart views, in tab order, each as its scene is now: the one shown is App's.
-  const views = () => App.views.peek().filter(v => v.layout === 'chart').map(v => ({
-    ...(App.scene.peek()?.view === v.id ? App.scene.peek() : Scene.of(App.shown.peek(), App.chart.peek(), v.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek() })),
-    name: v.name }));
+  const { html } = Shell, { useState, useMemo } = preactHooks;
+  const FORMATS = [['pptx', 'PowerPoint'], ['pdf', 'PDF'], ['ics', 'Calendar']];
+  const charts = () => App.views.peek().filter(v => v.layout === 'chart');
+  const pageOf = v => { const p = App.notes.peek().resolve('Page', { id: v.id, kind: 'View' })?.value; return PAPERS[p] ? p : 'slide'; };
+  // The chart views, in tab order, each as its scene is on that paper: the one shown is App's, where it's
+  // drawn on it.
+  const views = paper => charts().map(v => {
+    const shown = App.scene.peek();
+    return { ...(shown?.view === v.id && shown.page.size === paper ? shown
+      : Scene.of(App.shown.peek(), App.chart.peek(), v.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), paper })), name: v.name };
+  });
   const chartName = () => App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name ?? 'Chart';
   const uri = s => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}`;
   // The pages the file will have: a deck's on its one slide size, a document's each its own.
@@ -406,42 +429,57 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const frame = { w: Math.max(...scenes.map(s => s.page.sheet.w)), h: Math.max(...scenes.map(s => s.page.sheet.h)) };
     return scenes.map(s => ({ name: s.name, src: uri(svg(s, format === 'pdf' ? { pdf: true } : { frame })) }));
   };
+  // The calendar's dates, by year, as the date's popover lists the chart's days.
+  const Dates = () => {
+    const all = useMemo(() => dates(App.computed.peek(), App.notes.peek()), []), years = [...new Set(all.map(e => e.day.slice(0, 4)))];
+    return html`<div class="date-days" style="max-height: none; background: var(--surface); box-shadow: 0 0 0 1px var(--rule-2)">${years.map(y => html`<div class="yr">${y}</div>
+      ${all.filter(e => e.day.startsWith(y)).map(e => html`<div class="dayrow"><span class="d">${Tree.formatDate(e.day, 'short').replace(/, \d{4}$/, '')}</span>
+        <span class="w"><span class="it"><b>${e.what}</b> · ${e.whose}</span></span></div>`)}`)}</div>`;
+  };
   // What's exported, on what size of page, and the file's pages, each fitted to the well; a click shows one
-  // at full size.
-  function Choice({ choice, scenes, here }) {
-    const [format, setFormat] = useState(choice.format), [which, setWhich] = useState(choice.which), [paper, setPaper] = useState(choice.paper), [full, setFull] = useState(null);
-    Object.assign(choice, { format, which, paper });
-    const pages = sheets(format, onPaper(which === 'all' ? scenes : [here], paper)), one = pages[full] ?? null;
-    const papers = [...new Set(['slide', 'letter', here.page.size])].filter(p => PAPERS[p]);
+  // at full size. A PDF goes on Letter, unless another paper is picked.
+  function Choice({ choice, here, others }) {
+    const [format, setFormat] = useState(choice.format), [which, setWhich] = useState(choice.which), [paper, setPaper] = useState(choice.paper);
+    const [picked, setPicked] = useState(false), [full, setFull] = useState(null);
+    const drawn = format === 'pptx' || format === 'pdf';
+    const scenes = useMemo(() => drawn ? views(paper) : [], [drawn, paper]);
+    Object.assign(choice, { format, which, paper, scenes });
+    const pages = drawn ? sheets(format, which === 'all' ? scenes : scenes.filter(s => s.view === here.id)) : [], one = pages[full] ?? null;
+    const papers = here ? [...new Set(['slide', 'letter', pageOf(here)])] : [];
+    const pick = f => { setFull(null); setFormat(f); if (!picked && (f === 'pptx' || f === 'pdf')) setPaper(f === 'pdf' ? 'letter' : pageOf(here)); };
     return html`<div class="ex">
       <div class="ex-pick">
-        <select aria-label="Format" value=${format} onChange=${e => { setFull(null); setFormat(e.target.value); }}><option value="pptx">PowerPoint</option><option value="pdf">PDF</option></select>
-        <select aria-label="Views" value=${which} onChange=${e => { setFull(null); setWhich(e.target.value); }} disabled=${scenes.length < 2}>
+        <select aria-label="Format" value=${format} onChange=${e => pick(e.target.value)}>
+          ${FORMATS.filter(([f]) => here || f === 'ics').map(([f, name]) => html`<option value=${f}>${name}</option>`)}
+          ${others.map((x, i) => html`<option value=${`x${i}`}>${x.name}</option>`)}</select>
+        ${drawn ? html`<select aria-label="Views" value=${which} onChange=${e => { setFull(null); setWhich(e.target.value); }} disabled=${charts().length < 2}>
           <option value="this">${here.name}</option><option value="all">Every view</option></select>
-        <select aria-label="Page size" value=${paper} onChange=${e => { setFull(null); setPaper(e.target.value); }}>
-          ${papers.map(p => html`<option value=${p}>${PAPERS[p]}</option>`)}</select>
+        <select aria-label="Page size" value=${paper} onChange=${e => { setFull(null); setPicked(true); setPaper(e.target.value); }}>
+          ${papers.map(p => html`<option value=${p}>${PAPERS[p]}</option>`)}</select>` : null}
       </div>
-      <div class=${'ex-well' + (one ? ' full' : '')}>
+      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : '')}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name}>
           <button type="button" aria-label=${pg.name} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button>
           ${pages.length > 1 && !one ? html`<figcaption>${pg.name}</figcaption>` : null}</figure>`)}
-      </div>
+      </div>` : format === 'ics' ? html`<div class="ex-well"><${Dates} /></div>` : null}
     </div>`;
   }
   async function open(format) {
-    const scenes = views();
-    if (!scenes.length) return;
-    const here = scenes.find(s => s.view === Shell.view.peek()) ?? scenes[0], choice = { format, which: 'this', paper: PAPERS[here.page.size] ? here.page.size : 'slide' };
-    const go = await Shell.dialog({ title: 'Export', width: 720, body: () => html`<${Choice} choice=${choice} scenes=${scenes} here=${here} />`,
+    const shown = Shell.view.peek(), list = charts(), others = Shell.parts.peek().export ?? [];
+    const here = list.find(v => v.id === shown) ?? list[0] ?? null;
+    // What the view shown offers comes first where it's a table; then a chart's slides.
+    const first = format ?? (!list.some(v => v.id === shown) && others.length ? 'x0' : here ? 'pptx' : 'ics');
+    const choice = { format: first, which: 'this', paper: first === 'pdf' ? 'letter' : here ? pageOf(here) : 'slide' };
+    const go = await Shell.dialog({ title: 'Export', width: 720, body: () => html`<${Choice} choice=${choice} here=${here} others=${others} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
+    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName());
+    if (choice.format.startsWith('x')) return others[+choice.format.slice(1)]?.run();
     const all = choice.which === 'all';
-    write(choice.format, all ? scenes : [here], all ? chartName() : fileName(chartName(), here.name), App.who(), choice.paper)
+    write(choice.format, all ? choice.scenes : choice.scenes.filter(s => s.view === here.id), all ? chartName() : fileName(chartName(), here.name), App.who())
       .catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
-  Shell.register('export', { name: 'PowerPoint…', run: () => open('pptx') });
-  Shell.register('export', { name: 'PDF…', run: () => open('pdf') });
-  Shell.register('export', { name: 'Calendar (.ics)', run: () => calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName()) });
+  api.open = open;
 }
 
 return api;

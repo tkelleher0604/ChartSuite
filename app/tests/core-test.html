@@ -48,7 +48,7 @@ function run(json) {
   }));
   // 122 changes to October 20, 2026, the legal team's revisions after a general counsel's review, and Ownership
   // Adds Up checked only where every owner is meant to be charted.
-  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 144, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 145, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
 
   // ---- Patterns ----
   const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
@@ -86,7 +86,7 @@ function run(json) {
     && N.resolve('Shown', tree('raman'), 'view_40act')?.note.pattern.id === undefined && N.shown(tree('chen'), 'view_main') === undefined);
   check('a note at a style pattern reaches every option', N.formats(tree('fund_juris'), 'view_main').Color?.value === '#595959'
     && N.formats(tree('pos_chen_bdc'), 'view_main').Shown?.value === false);
-  check('a box has its own position in each view', N.position(tree('bdc'), 'view_40act').w === 220 && N.position(tree('bdc'), 'view_40act').x === 48 && N.position(tree('bdc'), 'view_main').x === 1350,
+  check('a box has its own position in each view', N.position(tree('bdc'), 'view_40act').w === 220 && N.position(tree('bdc'), 'view_40act').x === 56 && N.position(tree('bdc'), 'view_main').x === 1362,
     j([N.position(tree('bdc'), 'view_40act'), N.position(tree('bdc'), 'view_main')]));
   {
     const w = fresh();

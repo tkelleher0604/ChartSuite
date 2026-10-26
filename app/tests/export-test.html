@@ -36,15 +36,16 @@ function writeNote(tx, N, label, pattern, view, value) {
   const row = { label, pattern, ...(view && { view }), value };
   if (old) tx.set(old.note, row); else tx.add('note', row);
 }
-// How PowerPoint breaks a paragraph at a width: as much as fits, at a space or after a hyphen.
+// How PowerPoint breaks a paragraph at a width: as much as fits, at a space or after a hyphen, never at a
+// no-break space.
 function pptLines(text, look, width) {
   const lines = [];
   let line = '';
-  for (const piece of text.match(/[^\s-]*-|[^\s-]+|\s+/g) ?? []) {
-    if (/^\s+$/.test(piece) || !line.trim() || Scene.measure((line + piece).trimEnd(), look) <= width) line += piece;
-    else { lines.push(line.trimEnd()); line = piece; }
+  for (const piece of text.match(/[^ -]*-|[^ -]+| +/g) ?? []) {
+    if (/^ +$/.test(piece) || !line.trim() || Scene.measure((line + piece).replace(/ +$/, ''), look) <= width) line += piece;
+    else { lines.push(line.replace(/ +$/, '')); line = piece; }
   }
-  return [...lines, line.trimEnd()];
+  return [...lines, line.replace(/ +$/, '')];
 }
 // PowerPoint's text rectangle across a preset, as a share of its width (measured in PowerPoint).
 const ACROSS = { rect: () => [0, 1], roundRect: (w, h) => { const i = Math.min(w, h) * 0.0488155 / w; return [i, 1 - i]; }, ellipse: () => [0.14645, 0.85355], triangle: () => [0.25, 0.75] };
@@ -113,7 +114,7 @@ async function run() {
     const sps = tags(doc, 'p:sp'), cxns = tags(doc, 'p:cxnSp');
     const name = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('name'), idOf = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
     const textOf = el => tags(el, 'a:p').map(p => tags(p, 'a:t').map(t => t.textContent).join('')).filter(Boolean);
-    const shapeOf = b => sps.find(sp => name(sp) === b.texts[0]?.text && j(textOf(sp)) === j(b.texts.map(it => it.text)));
+    const shapeOf = b => sps.find(sp => name(sp) === b.texts[0]?.text && j(textOf(sp)) === j(b.texts.map(it => Scene.bind(it.text))));
     const PRESET = { rect: 'rect', rounded: 'roundRect', oval: 'ellipse', triangle: 'triangle' };
     const missing = boxes(main).filter(b => { const sp = shapeOf(b); return !sp || tags(sp, 'a:prstGeom')[0]?.getAttribute('prst') !== PRESET[b.shape]; });
     check('every box is a shape of its preset geometry, holding its texts as paragraphs', !missing.length, missing.map(b => b.id).join(', '));
@@ -133,7 +134,7 @@ async function run() {
       const width = w * (r - l) - (+body.getAttribute('lIns') + +body.getAttribute('rIns')) / EMU / k;
       tags(sp, 'a:p').forEach((p, i) => {
         const it = b.texts[i], broken = tags(p, 'a:br').length > 0;
-        const got = broken ? tags(p, 'a:t').map(t => t.textContent) : pptLines(it.text, it.look, width);
+        const got = broken ? tags(p, 'a:t').map(t => t.textContent) : pptLines(tags(p, 'a:t').map(t => t.textContent).join(''), it.look, width);
         if (j(got) !== j(it.lines.map(l => l.text)) || got.some(t => Scene.measure(t, it.look) > width)) wrong.push(`${b.id}: ${j(got)} for ${j(it.lines.map(l => l.text))} at ${width.toFixed(1)}`);
       });
     }
@@ -141,16 +142,19 @@ async function run() {
     {
       const body = tags(fund, 'a:bodyPr')[0], w = +tags(fund, 'a:ext')[0].getAttribute('cx') / EMU / k, col = main.byId.get('fund').column;
       const width = w / 2 - (+body.getAttribute('lIns') + +body.getAttribute('rIns')) / EMU / k;
-      check('a triangle’s text keeps the scene’s column, at its base', Math.abs(width - col.width) < 1 && body.getAttribute('anchor') === 'b', `${width.toFixed(1)} for ${col.width.toFixed(1)}`);
+      const widest = Math.max(...main.byId.get('fund').texts.flatMap(it => it.lines.map(l => l.w)));
+      check('a triangle’s text keeps within the scene’s column, at its base', width >= widest - 0.5 && width <= col.width + 1 && body.getAttribute('anchor') === 'b', `${width.toFixed(1)} for ${widest.toFixed(1)} to ${col.width.toFixed(1)}`);
     }
 
     const byId = new Map(sps.map(sp => [idOf(sp), sp]));
-    const glued = lines(main).filter(l => {
-      const c = cxns.find(c => tags(c, 'a:stCxn')[0] && name(byId.get(tags(c, 'a:stCxn')[0].getAttribute('id')) ?? c) === main.byId.get(l.from).texts[0].text
-        && name(byId.get(tags(c, 'a:endCxn')[0]?.getAttribute('id')) ?? c) === main.byId.get(l.to).texts[0].text);
-      return !!c;
-    });
+    // A connector glued where a line starts and where it ends: one, or the first and last of its pieces, in one group.
+    const at = (c, end) => name(byId.get(tags(c, end)[0]?.getAttribute('id')) ?? c);
+    const together = (a, b) => a === b || (a.parentNode === b.parentNode && a.parentNode.localName === 'grpSp');
+    const glued = lines(main).filter(l => cxns.some(a => tags(a, 'a:stCxn')[0] && at(a, 'a:stCxn') === main.byId.get(l.from).texts[0].text
+      && cxns.some(b => tags(b, 'a:endCxn')[0] && at(b, 'a:endCxn') === main.byId.get(l.to).texts[0].text && together(a, b))));
     check('every line is a connector glued to the shapes of the boxes it joins', glued.length === lines(main).length && cxns.length >= lines(main).length, `${glued.length} of ${lines(main).length}`);
+    const sizes = [...new Set(tags(doc, 'a:rPr').map(r => +r.getAttribute('sz')))];
+    check('every size in the deck is a whole or half point', sizes.every(z => z % 50 === 0), sizes.join(' '));
     const prsts = new Set(cxns.map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst')));
     const elbows = cxns.filter(c => tags(c, 'a:stCxn').length).map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst'));
     check('lines are elbow connectors, as the scene’s Connector says; the key’s swatches straight', elbows.every(p => /^bentConnector[234]$/.test(p))
@@ -161,14 +165,14 @@ async function run() {
     check('each line’s label is a text box beside it', labels.every(t => sps.some(sp => textOf(sp).includes(t))), labels.length);
     const groups = tags(doc, 'p:grpSp');
     check('a line and its label are one group, so they move together', groups.length >= lines(main).filter(l => l.labelAt && l.texts.length).length
-      && groups.every(g => tags(g, 'p:cxnSp').length === 1 && tags(g, 'p:sp').length === 1 && name(g) === name(tags(g, 'p:cxnSp')[0])), `${groups.length} groups`);
+      && groups.every(g => tags(g, 'p:cxnSp').length >= 1 && tags(g, 'p:sp').length <= 1 && tags(g, 'p:cxnSp').every(c => name(c) === name(g))), `${groups.length} groups`);
     const order = [...tags(doc, 'p:spTree')[0].children].filter(el => el.localName === 'sp').map(name);
     check('a frame is a shape behind its members, captioned', sps.some(sp => name(sp) === 'Offshore' && textOf(sp)[0] === 'Offshore')
       && order.indexOf('Offshore') < order.indexOf('Calder Ridge Capital Partners III (Cayman), L.P.') && order.indexOf('Investors') > -1);
     const legend = main.marks.find(m => m.geometry === 'legend');
     check('the legend is shapes: its frame and title, a swatch and a caption for each row', sps.some(sp => name(sp) === 'Key' && textOf(sp)[0] === 'Key')
       && legend.rows.every(r => sps.some(sp => textOf(sp)[0] === r.caption.text)) && legend.rows.length > 4, legend.rows.length);
-    check('a free text shape is itself', sps.some(sp => textOf(sp)[0] === 'Calder Ridge Capital Partners III, L.P.' && tags(sp, 'a:rPr')[0].getAttribute('sz') === String(Math.round(2000 * k))));
+    check('a free text shape is itself', sps.some(sp => textOf(sp)[0] === Scene.bind('Calder Ridge Capital Partners III, L.P.') && tags(sp, 'a:rPr')[0].getAttribute('sz') === String(Math.round(2000 * k))));
     const arrow = cxns.find(c => name(c) === 'Line');
     check('a free line is a connector, its arrowhead at its end; a picture is a picture', arrow && tags(arrow, 'a:tailEnd').length && !tags(arrow, 'a:stCxn').length
       && tags(arrow, 'a:prstGeom')[0].getAttribute('prst') === 'bentConnector2' && tags(doc, 'p:pic').length === 1 && Object.keys(zip.files).some(f => /^ppt\/media\/.+\.png$/.test(f)));
@@ -232,16 +236,43 @@ async function run() {
       && Math.abs(+sz.getAttribute('cx') - scenes[3].page.sheet.w * EMU) < 2 && files.at(-1).name === `Calder Ridge Fund III structure - ${scenes[3].name}.pptx`, files.at(-1).name);
   }
 
-  // ---- On Letter ----
+  // ---- The sample as it is, on its slides ----
+  const sample = Log.open(SAMPLE), R2 = (() => { const N = sample.notes(C), S = sample.schema(C); return Formulas.computeState(sample.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); })();
   {
-    const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [main], 'Letter', WHO, 'letter')).arrayBuffer());
+    const slides = views.map(v => ({ ...Scene.of(sample, C, v, DAY, { state: R2.records, computed: R2 }), name: sample.notes(C).nameOf(R2.records, v) }));
+    const zip = await JSZip.loadAsync(await Export.write('pptx', slides, 'Sample', WHO));
+    const docs = await Promise.all(slides.map((_, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(xml)));
+    const named = (d, n) => tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === n);
+    const sz = sp => sp && +tags(sp, 'a:rPr')[0].getAttribute('sz');
+    const sizes = [...new Set(docs.flatMap(d => tags(d, 'a:rPr').map(r => +r.getAttribute('sz'))))].sort((a, b) => a - b);
+    check('every size in the sample’s deck is a whole or half point; its title, date and Key 20, 11 and 8 pt on every slide', sizes.every(z => z % 50 === 0)
+      && docs.every(d => sz(named(d, 'Title')) === 2000 && sz(named(d, 'Date')) === 1100 && sz(named(d, 'Key')) === 800), sizes.join(' '));
+    const main = slides[0], jumped = main.marks.filter(m => m.type === 'line' && m.runs), grouped = tags(docs[0], 'p:grpSp').filter(g => tags(g, 'p:cxnSp').length > 1);
+    check('a line broken where another crosses it is its pieces, grouped and named as the line, its arrowheads at its ends', jumped.length >= 2 && grouped.length === jumped.length
+      && grouped.every(g => { const cs = tags(g, 'p:cxnSp'); return cs.every(c => c.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === g.getElementsByTagName('p:cNvPr')[0].getAttribute('name'))
+        && cs.every((c, i) => !tags(c, 'a:tailEnd').length || i === cs.length - 1) && cs.every((c, i) => !tags(c, 'a:headEnd').length || i === 0); }),
+      `${jumped.length} broken, ${grouped.length} groups of pieces`);
+  }
+
+  // ---- On Letter: each view drawn for the paper ----
+  {
+    const R = R2;
+    const letter = views.map(v => ({ ...Scene.of(sample, C, v, DAY, { state: R.records, computed: R, paper: 'letter' }), name: sample.notes(C).nameOf(R.records, v) }));
+    const main = letter[0];
+    const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [main], 'Letter', WHO)).arrayBuffer());
     const box = /\/MediaBox \[([^\]]+)\]/.exec(raw)[1].trim().split(/\s+/).map(Number);
     check('on Letter, a PDF page is 11 × 8.5 in, so it prints without shrinking', Math.abs(box[2] - 792) < 0.1 && Math.abs(box[3] - 612) < 0.1, box.join(' '));
-    const zip = await JSZip.loadAsync(await Export.write('pptx', [main], 'Letter', WHO, 'letter')), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
-    const doc = xml(await zip.file('ppt/slides/slide1.xml').async('string')), k = Math.min(1056 / main.page.w, 816 / main.page.h), f = main.byId.get('fund');
-    const fund = tags(doc, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === f.texts[0].text), off = tags(fund, 'a:off')[0];
-    check('… and a slide on Letter holds its page in the middle, as large as it fits', Math.abs(+sz.getAttribute('cx') - 1056 * EMU) < 2 && Math.abs(+sz.getAttribute('cy') - 816 * EMU) < 2
-      && Math.abs(+off.getAttribute('y') - ((816 - main.page.h * k) / 2 + f.y * k) * EMU) < 2, `${sz.getAttribute('cx')} × ${sz.getAttribute('cy')}`);
+    const smallest = s => Math.min(...s.marks.filter(m => m.type === 'box').map(b => Scene.toSlide(s.page, b.texts[0].look.Size)));
+    const names = letter.map(smallest), shrunk = views.map(v => smallest(Scene.of(sample, C, v, DAY, { state: R.records, computed: R })) * Math.min(1056 / 1280, 816 / 720));
+    check('… laid out for the paper, not shrunk to it: every view’s names print larger than its slide’s would, none under 7 pt', names.every((p, i) => p > shrunk[i] && p >= 7),
+      `${names.join(', ')} against ${shrunk.map(p => p.toFixed(2)).join(', ')}`);
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [main], 'Letter', WHO)), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
+    const doc = xml(await zip.file('ppt/slides/slide1.xml').async('string')), k = main.page.scale;
+    const title = tags(doc, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === 'Title'), off = title && tags(title, 'a:off')[0];
+    check('… a slide on Letter is the page, its title named so, top left at the half-inch margins', Math.abs(+sz.getAttribute('cx') - 1056 * EMU) < 2 && Math.abs(+sz.getAttribute('cy') - 816 * EMU) < 2
+      && Math.abs(main.page.w * k - 1056) < 0.01 && off && Math.abs(+off.getAttribute('x') / EMU + 9.6 - 48) < 0.5 && Math.abs(+off.getAttribute('y') / EMU + 9.6 - 48) < 0.5,
+      `${sz.getAttribute('cx')} × ${sz.getAttribute('cy')}, title at ${off && [+off.getAttribute('x') / EMU, +off.getAttribute('y') / EMU]}`);
+    check('… and a PDF of every view on Letter has a page for each', (new TextDecoder('latin1').decode(await (await Export.write('pdf', letter, 'Letter', WHO)).arrayBuffer()).match(/\/Type \/Page\b(?!s)/g) ?? []).length === letter.length);
   }
 }
 

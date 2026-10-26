@@ -129,11 +129,11 @@ const App = (() => {
     pages.forEach(id => page(tx, id, name));
     return tx.commit();
   }
-  // A chart's page, begun: its title, the chart's name, and under it the day it's as of, where the chart's
-  // pages have them.
+  // A chart's page, begun: its title, the chart's name, and under it the day it's as of, which the page sets
+  // at the sheet's size and places, as it does every page's.
   function page(tx, view, title) {
-    tx.add('shape', { view, geometry: 'text', x: 48, y: 40, text: title, format: { Bold: true } });
-    tx.add('shape', { view, geometry: 'text', x: 48, y: 84, text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', format: { Color: '#595959' } });
+    tx.add('shape', { view, geometry: 'text', role: 'title', text: title });
+    tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")' });
   }
   function newChart() {
     if (readOnly.peek()) return Shell.toast('Can’t change the past');
