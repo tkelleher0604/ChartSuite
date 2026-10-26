@@ -473,7 +473,8 @@ const Shell = (() => {
     if (!p) return SLOTS && !hidden ? html`<div class="ph">${label}</div>` : null;
     return html`<div class=${cls} ref=${ref} hidden=${hidden} />`;
   }
-  const Bar = ({ kind, label }) => part(kind) || SLOTS ? html`<div class=${'slot ' + kind}><${Host} kind=${kind} label=${label} /></div>` : html`<div hidden />`;
+  const Bar = ({ kind, label, hidden }) => part(kind) || SLOTS
+    ? html`<div class=${'slot ' + kind} hidden=${hidden}><${Host} kind=${kind} label=${label} /></div>` : html`<div hidden />`;
 
   // ---- The view and the inspector ----
   function Main() {
@@ -574,7 +575,7 @@ const Shell = (() => {
   const App = () => html`
     <div class="shell">
       <${TitleBar} />
-      ${current.value?.layout !== 'table' ? html`<${Bar} kind="formatbar" label="Format bar" />` : html`<div hidden />`}
+      <${Bar} kind="formatbar" label="Format bar" hidden=${current.value?.layout === 'table'} />
       <${Bar} kind="formulabar" label="Formula bar" />
       <${Main} />
       <footer class="foot"><${Sheets} /><${Status} /></footer>

@@ -199,7 +199,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .row { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); align-items: start; column-gap: 12px; min-height: var(--row); padding: 0 20px; }
 .row > .k, .row > .v { padding: 5px 0; min-width: 0; overflow-wrap: anywhere; }
 .row > .k { color: var(--ink-2); }
-.row > .v > .tag { vertical-align: -3px; }
+.row > .v > .tag { vertical-align: -2px; margin-top: -2px; }
 .row.in > .k { padding-left: 14px; }
 .row.in.in2 > .k { padding-left: 28px; }
 .row:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
@@ -241,6 +241,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .divider:hover, .divider.drag { background: var(--rule-2); }
 .inspector { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--surface); }
 .main.wide .inspector { --label: 220px; }
+.main.wide .inspector > .host { max-width: 880px; margin: 0 auto; padding-top: 16px; }
 .main.anim { transition: grid-template-columns var(--calm) var(--ease); }
 
 .view > .host { position: absolute; inset: 0; }
