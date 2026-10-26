@@ -112,3 +112,15 @@
 .shapes > button:hover { background: var(--hover); color: var(--ink); }
 .shapes svg { width: 18px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.2; overflow: visible; }
 .pop-head { font: var(--t12); color: var(--ink-3); margin: 2px 0 6px; }
+
+/* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. */
+.ex { display: grid; gap: 12px; }
+.ex-pick { display: flex; gap: 8px; }
+.ex-well { height: min(56vh, 520px); overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
+.ex-well.full { grid-template-columns: max-content; }
+.ex-page { margin: 0; display: grid; gap: 4px; }
+.ex-page > button { display: block; padding: 0; border: 0; border-radius: 0; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); cursor: zoom-in; }
+.ex-page img { display: block; width: 100%; height: auto; }
+.ex-well.full .ex-page > button { cursor: zoom-out; }
+.ex-well.full .ex-page img { width: auto; max-width: none; }
+.ex-page > figcaption { font: var(--t12); color: var(--ink-2); }
