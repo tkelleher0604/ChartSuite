@@ -222,8 +222,8 @@ function theSample() {
   // What the checks rule out, each a problem: a computed record ruled out whose tree carries a Check note.
   const N = WB.notes(CHART), failing = Object.keys(R.computed).filter(id => R.records[id].tag === false && N.check(Tree.treeOf(R.records, id)));
   const by = d => failing.filter(id => R.computed[id].def === d).map(id => objOf(R, R.records[id].at)).sort().join();
-  check('The checks rule out 12: Okafor’s four authorities, five formation documents and three governing agreements not on file', failing.length === 12
-    && by('def_capacity_held') === flagged.join() && by('def_formation_on_file') === 'aiv,coinv,feeder,fund3a,holdco' && by('def_governing_on_file') === 'aiv,aivblk,holdco'
+  check('The checks rule out 4: Okafor’s four authorities; a document not on file is a gap, not a check', failing.length === 4
+    && by('def_capacity_held') === flagged.join() && by('def_formation_on_file') === ''
     && !Object.keys(R.computed).some(id => R.records[id].tag === false && R.computed[id].def === 'def_remote' && N.check(Tree.treeOf(R.records, id))), failing.map(id => R.computed[id].def).join());
 }
 

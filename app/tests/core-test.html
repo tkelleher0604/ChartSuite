@@ -133,8 +133,8 @@ function run(json) {
     j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
-  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range'])
-    && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(tree('fund_good')) && !N.check(patternOf('def_remote')), j(checked));
+  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_in_range'])
+    && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(tree('fund_good')) && !N.check(patternOf('def_remote')) && !N.check(patternOf('def_formation_on_file')), j(checked));
 
   // ---- Time: as of a day ----
   const on = (d, id) => !!wb.asOf(C, d)[id];
