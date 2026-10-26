@@ -66,9 +66,9 @@ function place({ boxes, links, clusters }) {
 }
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
 
-// Every box's position. Entered ones stand. With none entered, ELK's layout sits in the middle of the page,
-// grown to hold it; with some, the others keep ELK's arrangement, moved to line up with the entered ones on
-// average, and each then takes the nearest clear place in its row.
+// Every box's position. Entered ones stand. With none entered, ELK's layout sits in the middle of the page;
+// with some, each other box keeps its place in ELK's arrangement relative to the entered boxes it's linked
+// to (or to all of them, if none), and then takes the nearest clear place in its row.
 function arrange({ boxes, links, clusters, entered, page }) {
   const out = new Map();
   for (const b of boxes) if (entered.has(b.id)) { const p = entered.get(b.id); out.set(b.id, { x: p.x, y: p.y }); }
@@ -82,11 +82,13 @@ function arrange({ boxes, links, clusters, entered, page }) {
     return out;
   }
   const known = [...out.keys()];
-  const dx = known.reduce((s, id) => s + out.get(id).x - at.get(id).x, 0) / known.length;
-  const dy = known.reduce((s, id) => s + out.get(id).y - at.get(id).y, 0) / known.length;
+  const shift = ids => [0, 1].map(k => ids.reduce((s, id) => s + (k ? out.get(id).y - at.get(id).y : out.get(id).x - at.get(id).x), 0) / ids.length);
+  const all = shift(known);
   const placed = known.map(id => ({ ...out.get(id), w: size.get(id).w, h: size.get(id).h }));
   const clear = p => placed.every(q => p.x >= q.x + q.w + 16 || p.x + p.w + 16 <= q.x || p.y >= q.y + q.h + 24 || p.y + p.h + 24 <= q.y);
   for (const b of rest.sort((a, c) => at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
+    const near = [...new Set(links.flatMap(l => l.from === b.id ? [l.to] : l.to === b.id ? [l.from] : []))].filter(id => out.has(id));
+    const [dx, dy] = near.length ? shift(near) : all;
     const x0 = Math.max(page.margin, at.get(b.id).x + dx), y0 = Math.max(page.margin, at.get(b.id).y + dy);
     let p = null;
     for (let row = 0; !p && row < 8; row++)
