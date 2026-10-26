@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra table test</title>
+<script>
+  // Checks of the table views (ui/table.js) and the time (ui/time.js), driven as a person would drive them,
+  // then read off the log. The sample is opened in memory and nothing is saved. ?theme=dark or light.
+  const Q = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = Q.get('theme') || 'light';
+  try { localStorage.clear(); localStorage.setItem('dendra.toured', '1'); localStorage.setItem('dendra.name', 'Dana Jordan'); } catch {}
+</script>
+<link rel="stylesheet" href="../../vendor/tabulator/tabulator.min.css">
+<link rel="stylesheet" href="../css/dendra.css">
+<link rel="stylesheet" href="../css/table.css">
+<style>
+  .results { position: fixed; top: 41px; right: 0; bottom: 33px; width: 520px; z-index: 30; overflow: auto; padding: 16px 20px; background: var(--surface); border-left: 1px solid var(--rule); font: 12px/18px var(--mono); color: var(--ink-2); }
+  .results .fail { color: var(--no); }
+  .results b { color: var(--ink); font-weight: 500; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/tabulator/tabulator.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script>
+// The workbook opened at once, in memory: Store keeps it in IndexedDB, which this page leaves alone.
+const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => '', status: () => ({ text: '' }), subscribe: () => () => {} };
+</script>
+<script src="../sample/calder-ridge.js"></script>
+<script src="../ui/shell.js"></script>
+<script src="../ui/app.js"></script>
+<script src="../ui/table.js"></script>
+<script src="../ui/time.js"></script>
+<script>
+const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const C = () => App.chart.peek(), st = () => App.state.peek(), last = () => App.wb.changes().at(-1);
+const N = () => App.wb.changes().length;
+const views = () => Shell.parts.peek().views.list();
+const undo = () => Shell.parts.peek().undo.undo();
+const named = name => Object.keys(st()).find(id => Tree.isObject(st()[id]) && Tree.objectName(st(), id) === name);
+const item = (label, root = document) => [...root.querySelectorAll('.menu-item')].find(x => x.textContent.trim() === label);
+const hover = el => el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
+const column = title => Table.grid.getColumns().find(c => c.getDefinition().title === title);
+const rowOf = id => Table.grid.getRow(id);
+// The + menu, as a person picks from it: a submenu's item, or one at the top. Says whether the new tab's name
+// was then being typed into, and leaves it as it is.
+async function addTable(sub, label) {
+  $('.foot > .btn.icon[aria-label="New view"]').click(); await tick();
+  if (sub) { hover(item(sub)); await tick(); }
+  item(label).click(); await tick(150);
+  const typing = !!$('.sheets .sheet input');
+  document.activeElement?.blur?.(); await tick();
+  return typing;
+}
+function paste(text, target = Table.grid.rowManager.element) {
+  const dt = new DataTransfer(); dt.setData('text/plain', text);
+  target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+}
+const pct = (owner, owned, day) => {
+  const s = App.wb.asOf(C(), day), o = Object.keys(s).find(id => s[id].args && s[id].args.some(a => a.edge === 'Owner' && Tree.objectName(s, Tree.objectOf(s, a.at)) === owner) && s[id].args.some(a => a.edge === 'Owned' && Tree.objectName(s, a.at) === owned));
+  const p = o && Object.keys(s).find(x => s[x].at === o && s[x].edge === 'Percentage');
+  return p ? s[p].value : null;
+};
+
+async function run() {
+  // ---- The sheet tabs are the View objects, in their Order ----
+  check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control', views().map(v => v.name).join());
+  check('A view without a Layout entry is a chart', views().every(v => v.layout === 'chart'));
+
+  // ---- Adding a table view from the + menu ----
+  let n0 = N();
+  const typing = await addTable('Records', 'Entities');
+  const ent = Shell.view.peek(), ev = st()[ent];
+  const layout = (Tree.index(st()).entries.get(ent) ?? []).map(e => st()[e]).find(r => r.edge === 'Layout');
+  const rowsAt = layout && (Tree.index(st()).entries.get(Object.keys(st()).find(id => st()[id] === layout)) ?? []).map(e => st()[e]).find(r => r.edge === 'Rows');
+  check('The + menu makes a View object, as one change', ev?.kind === 'View' && N() === n0 + 1);
+  check('Its layout is entries on it: Layout Table, and Rows Entity', layout?.choice === 'Table' && rowsAt?.choice === 'Entity', JSON.stringify([layout, rowsAt]));
+  check('Its tab comes last, named for its rows, and shows', views().at(-1).name === 'Entities' && views().at(-1).layout === 'table');
+  check('Its name is being typed into, as a new tab’s is', typing);
+  await tick(100);
+
+  // ---- The Entities table ----
+  const ents = Tree.index(st()).kinds.get('entity').length;
+  check('Its rows are the records of the kind', Table.grid.getRows().length === ents, `${Table.grid.getRows().length} of ${ents}`);
+  const titles = Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean);
+  check('Its columns are what’s located at the rows, Name first, in the entries’ order', titles.slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date', titles.slice(0, 8).join());
+  check('Entries below entries are columns too, hidden at first', Table.model(ent).cols.some(c => c.path?.join('›') === 'Jurisdiction›File Number' && !c.shown));
+  check('Computed cells are italic', $$('.grid .tabulator-cell.fx').length > 0 && $$('.grid .tabulator-cell.fx').every(el => getComputedStyle(el).fontStyle === 'italic'), $$('.grid .tabulator-cell.fx').length);
+  check('Tags are checkboxes, green attested and red ruled out', $$('.grid .c-tag .tag.yes').length > 0 && $$('.grid .c-tag .tag.no').length > 0);
+  check('A choice edits as a dropdown of its options', column('Vehicle Type').getDefinition().editor === 'list' && column('Vehicle Type').getDefinition().editorParams.values.includes('Feeder Fund'));
+  check('Header filters are dropdowns', column('Jurisdiction').getDefinition().headerFilter === 'list');
+
+  // Show/Hide on a column writes a Shown note in the view.
+  n0 = N();
+  const jur = Table.model(ent).cols.find(c => c.title === 'Jurisdiction');
+  Table.grid.getColumns().find(c => c.getDefinition().title === 'Jurisdiction').getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 600, clientY: 60 }));
+  await tick();
+  check('A heading’s menu sorts, hides, and lists the columns with ticks', !!item('Sort A to Z') && !!item('Hide') && !!item('Columns'));
+  item('Hide').click(); await tick(100);
+  const shown = App.notes.peek().resolve('Shown', jur.pattern, ent);
+  check('Hide writes a Shown note in the view, as one change', N() === n0 + 1 && shown?.note.view === ent && shown.value === false);
+  check('The column goes', !column('Jurisdiction'));
+  undo(); await tick(100);
+  check('Undo brings it back', !!column('Jurisdiction'));
+
+  // Editing in place, through App.edit.
+  const halvard = named('Halvard Logistics Holdings, Inc.');
+  n0 = N();
+  const cell = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Short Name');
+  cell.edit(true); await tick();
+  const input = cell.getElement().querySelector('input');
+  input.value = 'Halvard';
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(100);
+  const sn = (Tree.index(st()).entries.get(halvard) ?? []).find(e => st()[e].edge === 'Short Name');
+  check('Typing in a cell enters the value, as one change', N() === n0 + 1 && st()[sn]?.value === 'Halvard');
+  check('The cell shows it', rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Short Name').getValue() === 'Halvard');
+  const bad = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Formation Date');
+  bad.edit(true); await tick();
+  const bi = bad.getElement().querySelector('input'); bi.value = 'next Tuesday';
+  bi.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick();
+  check('What can’t be read stays in the cell, marked, and changes nothing', bi.classList.contains('bad') && N() === n0 + 1);
+  bi.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick();
+  undo(); await tick(100);
+  check('Undo takes the value back', !(Tree.index(st()).entries.get(halvard) ?? []).some(e => st()[e].edge === 'Short Name'));
+
+  // A tag's box flips: attested, ruled out, blank.
+  const good = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Good Standing');
+  n0 = N();
+  good.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
+  const gs = () => (Tree.index(st()).entries.get(halvard) ?? []).map(e => st()[e]).find(r => r.edge === 'Good Standing');
+  check('Clicking a blank tag attests it', gs()?.tag === true && N() === n0 + 1);
+  rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Good Standing').getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
+  check('Clicking an attested tag rules it out', gs()?.tag === false);
+  undo(); await tick(60); undo(); await tick(100);
+
+  // Selection: a row selected is the record selected, and the other way round.
+  const fund = named('Calder Ridge Capital Partners III, L.P.');
+  Table.grid.addRange(rowOf(fund).getCells()[1]); await tick(60);
+  check('Selecting a row selects its record', Shell.selection.peek().join() === fund, Shell.selection.peek().join());
+  Shell.select([halvard]); await tick(60);
+  check('Selecting a record elsewhere marks its row', rowOf(halvard).getElement().classList.contains('picked') && !rowOf(fund).getElement().classList.contains('picked'));
+  Shell.select([]); await tick();
+
+  // A heading the table hasn't got is a new entry; a name it hasn't got is a new row.
+  n0 = N();
+  paste('Name\tFund Counsel\tFormation Date\r\nCalder Ridge III Blocker, Inc.\tKirkland & Ellis LLP\t\r\nHollis Bay Holdings, LLC\tSimpson Thacher\t3/2/2026\r\n'); await tick(150);
+  const blocker = named('Calder Ridge III Blocker, Inc.'), hollis = named('Hollis Bay Holdings, LLC');
+  const at = (id, edge) => (Tree.index(st()).entries.get(id) ?? []).map(e => st()[e]).find(r => r.edge === edge);
+  check('Pasting a new heading adds an entry, and a new name a row, in one change', N() === n0 + 1 && at(blocker, 'Fund Counsel')?.value === 'Kirkland & Ellis LLP'
+    && st()[hollis]?.kind === 'Entity' && at(hollis, 'Formation Date')?.value === '2026-03-02' && !!column('Fund Counsel'));
+  undo(); await tick(150);
+  check('Undo takes the new entry and the new row back', !named('Hollis Bay Holdings, LLC') && !column('Fund Counsel'));
+
+  // Moving a column writes Order notes in the view.
+  Table.grid.addRange(Table.grid.getRows()[0].getCells()[1]); await tick();   // as pressing the heading would
+  n0 = N();
+  Table.grid.moveColumn(column('Jurisdiction').getField(), column('Name').getField(), true); await tick(150);
+  const order = Table.model(ent).cols.filter(x => x.shown).map(x => x.title);
+  check('Moving a column places it, as Order notes in the view, one change', N() === n0 + 1 && order[1] === 'Jurisdiction' && App.notes.peek().resolve('Order', jur.pattern, ent)?.note.view === ent, order.slice(0, 3).join());
+  undo(); await tick(150);
+
+  // The tabs: renamed, moved, duplicated and deleted, each one change.
+  const tabs = Shell.parts.peek().views;
+  n0 = N();
+  tabs.rename(ent, 'Entity register'); await tick(60);
+  check('Renaming a tab renames its view', views().find(v => v.id === ent).name === 'Entity register' && N() === n0 + 1);
+  tabs.move(ent, 0); await tick(60);
+  check('Dragging a tab reorders the views by their Order notes', views()[0].id === ent && N() === n0 + 2);
+  tabs.menu(ent).find(x => x.label === 'Duplicate').run(); await tick(150);
+  const copy = Shell.view.peek();
+  check('Duplicate copies the view, its layout and its notes, next to it', copy !== ent && views()[1].id === copy && views()[1].layout === 'table' && Table.model(copy)?.rows.kind === 'Entity');
+  tabs.menu(copy).find(x => x.label === 'Delete').run(); await tick(150);
+  check('Delete deletes the view, and shows another', !views().some(v => v.id === copy) && Shell.view.peek() !== copy);
+  for (let i = 0; i < 4; i++) { undo(); await tick(60); }
+  check('Undo puts the tabs back as they were', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities', views().map(v => v.name).join());
+  Shell.show(ent); await tick(100);
+
+  // CSV, through the Export menu, while a table shows.
+  let csv = null;
+  const make = URL.createObjectURL;
+  URL.createObjectURL = blob => { blob.text().then(t => { csv = t; }); return 'blob:none'; };
+  const stop = e => { if (e.target.closest?.('a[download]')) e.preventDefault(); };
+  document.addEventListener('click', stop, true);
+  const exp = Shell.parts.peek().export.find(x => x.name === 'CSV');
+  exp?.run(); await tick(100);
+  URL.createObjectURL = make; document.removeEventListener('click', stop, true);
+  const lines = (csv ?? '').replace(/^﻿/, '').split(/\r?\n/);
+  check('Export offers CSV while a table shows', !!exp);
+  check('The CSV is what the table shows, headings first, tags as Yes and No', lines[0]?.startsWith('"Name","Short Name"') && lines.some(l => l.includes('"Calder Ridge Capital Partners III, L.P."') && l.includes('"Yes"')), lines.slice(0, 2).join(' / '));
+
+  // ---- The Ownership table, and a closing schedule pasted from Excel ----
+  await addTable('Relations', 'Ownership');
+  const own = Shell.view.peek(), ownRows = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).length;
+  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage');
+  Shell.at({ asOf: '2026-11-02' }); await tick(100);
+  n0 = N();
+  const rows0 = Table.grid.getRows().length;
+  paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await tick(150);
+  const c = last();
+  check('Pasting is one change', N() === n0 + 1, N() - n0);
+  check('Columns match by heading and rows by name, Short Name included', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.673 && pct('Calder Ridge Capital Partners III (Cayman), L.P.', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.267);
+  check('With a day shown, a value pasted takes effect from it', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-01') === 0.716);
+  check('A row that’s new is added, with its new owner', pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.06 && Table.grid.getRows().length === rows0 + 1);
+  check('A name finds an entity, never a view of that name', c.adds.some(r => r.args?.some(a => a.edge === 'Owned' && a.at === fund)));
+  check('The toast says what was done, with Undo', /^Pasted 3 values, added 1 ownership/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
+  check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III to 67.3% from Nov 2, 2026, and 2 more', Time.describe(c));
+  undo(); await tick(150);
+  check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
+  // Without headings, cells fill the grid from the active cell.
+  Shell.at(null); await tick(100);
+  const us = Table.grid.getRows().find(r => r.getData().f0 === 'U.S. Investors');
+  Table.grid.addRange(us.getCells().find(x => x.getColumn().getDefinition().title === 'Percentage')); await tick(40);
+  n0 = N();
+  paste('70%'); await tick(150);
+  check('Without headings, a paste fills from the active cell', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.7 && N() === n0 + 1);
+  undo(); await tick(100);
+
+  // ---- Dates and Documents ----
+  await addTable(null, 'Dates');
+  const dates = Table.model(Shell.view.peek());
+  check('Dates has every date in the chart, entered or computed', dates.data.length === Object.values(st()).filter(r => r.field === 'date').length && dates.data.some(r => r._m.f0.fx));
+  check('Overdue comes first, then month by month', dates.groups[0] === 'overdue' && dates.groups.slice(1).every(g => /^\d{4}-\d\d$/.test(g)));
+  const overdue = dates.data.filter(r => r._g === 'overdue');
+  check('What’s overdue is a date a formula gives, before today', overdue.length > 0 && overdue.every(r => r.f0 < Log.today() && (r._m.f0.fx || r._m.f0.over)), overdue.map(r => r.f0).join());
+  check('Overdue reads red', $$('.grid .tabulator-cell.due').length === overdue.length);
+  await addTable(null, 'Documents');
+  const docs = Table.model(Shell.view.peek());
+  check('Documents has every document link, with the Document’s own entries beside it', docs.data.length === Object.values(st()).filter(r => r.field === 'document').length
+    && docs.cols.filter(x => x.shown).map(x => x.title).slice(0, 4).join() === 'Document,Name,Document Type,Document Date', docs.cols.filter(x => x.shown).map(x => x.title).join());
+
+  // ---- The time: the chart's days, the date control, the strip, a view keeping a date ----
+  check('The days on which something starts or ends are the log’s', JSON.stringify(Time.events.peek().map(e => e.day)) === JSON.stringify(App.wb.days(C())));
+  const jul1 = Time.events.peek().find(e => e.day === '2024-07-01');
+  check('Each day is said in the chart’s words', jul1?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul1?.items));
+  $('.titlebar .asof').click(); await tick(100);
+  check('The date control opens a calendar beside the chart’s days', !!$('.date-pop .cal-grid') && $$('.date-pop .dayrow').length >= Time.events.peek().length);
+  const list = [...$('.date-pop .date-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');
+  list.slice(y2024).find(b => b.querySelector?.('.d')?.textContent === 'Jul 1').click(); await tick(100);
+  check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('Jul 1, 2024'));
+  check('The strip shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
+  [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);
+  check('Or any day from the calendar', Shell.time.peek()?.asOf === '2024-07-15');
+  Shell.closeAll(); await tick();
+  const s = $('.scrub'), r = s.getBoundingClientRect();
+  s.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r.left + 18, clientY: r.top + 10, pointerId: 1, button: 0 }));
+  s.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + 18, clientY: r.top + 10, pointerId: 1 }));
+  await tick(60);
+  check('Pressing the strip scrubs to the nearest day', Shell.time.peek()?.asOf === Time.events.peek()[0].day, JSON.stringify(Shell.time.peek()));
+  Shell.show(own); Shell.at({ asOf: '2024-07-01' }); await tick(60);
+  Time.keep(own, '2024-07-01'); await tick(60);
+  check('A view keeps a date as an As Of note on its View object', App.notes.peek().resolve('As Of', { id: own, kind: 'View' })?.value === '2024-07-01');
+  Shell.show(ent); await tick(60);
+  check('Leaving it for a view that keeps none comes back to today', Shell.time.peek() === null);
+  Shell.show(own); await tick(60);
+  check('Coming back to it shows its day', Shell.time.peek()?.asOf === '2024-07-01');
+  Time.keep(own, null); Shell.at(null); await tick(60);
+
+  // ---- History ----
+  Shell.select([]);
+  Shell.parts.peek().action.find(a => a.id === 'history').run(); await tick(100);
+  const ours = App.wb.changes().filter(x => x.chart === C());
+  check('History opens in the inspector’s place, from the chart menu', !!$('.inspector .hist') && Shell.parts.peek().action.some(a => a.id === 'history' && a.menu === 'chart'));
+  check('It lists every change, newest first', $$('.hist-row').length === ours.length && $$('.hist-row .what')[0].textContent === Time.describe(ours.at(-1)), `${$$('.hist-row').length} of ${ours.length}: ${$$('.hist-row .what').slice(0, 3).map(x => x.textContent).join(' / ')} ${$('.inspector')?.innerHTML.slice(0, 300)}`);
+  check('Each says who, when, and what, in the chart’s words', $$('.hist-row').some(x => x.textContent.includes('Ruled out Good Standing of AIV-1 from Jul 15, 2026') && x.textContent.includes('Jordan Alvarez')), $$('.hist-row').filter(x => /AIV-1|Corvane/.test(x.textContent)).slice(0, 6).map(x => x.textContent).join(' / '));
+  const before = st();
+  const pick =[...$$('.hist-row')].find(x => x.textContent.includes('Changed Percentage of Fund III → Corvane'));
+  pick.click(); await tick(150);
+  const corvane = named('Corvane Specialty Chemicals Holdings, LLC');
+  check('Picking a change shows the chart as it stood just after it', Shell.time.peek()?.stood && pct('Calder Ridge Capital Partners III, L.P.', 'Corvane Specialty Chemicals Holdings, LLC', Log.today()) === 0.49
+    && App.state.peek() !== before && Object.values(App.state.peek()).some(x => x.at && st()[x.at]?.args?.some(a => a.at === corvane)));
+  check('As it stood, the table can’t be edited', Table.grid.getRows()[0].getCells().every(x => !x.getColumn().getDefinition().editable || !x.getColumn().getDefinition().editable(x)));
+  check('The change picked has Restore', !!$('.hist-row[aria-selected="true"] .btn'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
+  check('Esc comes back to now, keeping History open', Shell.time.peek() === null && !!$('.inspector .hist'));
+  Shell.select([fund]); await tick(60);
+  const touching = $$('.hist-row').length;
+  check('With a selection, History narrows to it', touching > 0 && touching < ours.length && !!$('.hist-focus'), `${touching} of ${ours.length}`);
+  Shell.select([]); await tick(60);
+  $$('.hist-head .menu-seg button')[1].click(); await tick(60);
+  // The sample deleted two registered agents; what this test added and undid is deleted too.
+  const gone = () => $$('.hist-row.gone').map(x => x.querySelector('.what').textContent);
+  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III › Delaware', 'Registered Agent · Fund III › Delaware', 'Halcyon University Endowment'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
+  n0 = N();
+  const k = gone().length;
+  $$('.hist-row.gone').find(x => x.textContent.includes('Registered Agent · GP III')).querySelector('.btn').click(); await tick(100);
+  check('Restore brings it back, as one change', N() === n0 + 1 && gone().length === k - 1 && !!st().gp_agent);
+  undo(); await tick(60);
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
+  check('Esc then closes History', !$('.inspector .hist'));
+}
+
+function report() {
+  const failed = results.filter(x => !x.ok).length;
+  document.title = `table test: ${results.length - failed} pass, ${failed} fail`;
+  const esc = s => s.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]);
+  const el = document.createElement('div');
+  el.className = 'results';
+  el.innerHTML = `<b>${esc(document.title)}</b>\n\n`.replace(/\n/g, '<br>') + [...results.filter(x => !x.ok), ...results.filter(x => x.ok)]
+    .map(x => `<div class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail && !x.ok ? `  [${esc(x.detail)}]` : ''}</div>`).join('');
+  document.body.appendChild(el);
+}
+Shell.on('ready', async () => {
+  while (!App.chart.peek() || !views().length) await tick();
+  await tick(200);
+  try { await run(); } catch (e) { check('The checks ran to the end', false, `${e.message} ${e.stack.split('\n')[1]}`); }
+  report();
+});
+</script>
+</body>
+</html>
