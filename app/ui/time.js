@@ -114,7 +114,7 @@ const Time = (() => {
     const marked = new Set(evs.map(e => e.day));
     const years = [...new Set(evs.map(e => e.day.slice(0, 4)))].sort().reverse();
     const view = App.views.value.find(v => v.id === Shell.view.value);
-    // A day typed and entered is shown, and the calendar closes on it.
+    // The day is typed over as soon as the calendar opens; one entered is shown, and the calendar closes on it.
     const typed = e => {
       if (e.key !== 'Enter') return;
       const d = Tree.parseDate(e.target.value);
@@ -123,7 +123,8 @@ const Time = (() => {
     return html`<div class="date-pop">
       <div class="date-top">
         <button class="btn" aria-pressed=${!t} onClick=${() => show(null)}>Today</button>
-        <input aria-label="Date" value=${text ?? Tree.formatDate(day)} spellcheck="false" onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); }} onKeyDown=${typed} />
+        <input aria-label="Date" autofocus value=${text ?? Tree.formatDate(day)} spellcheck="false" onFocus=${e => e.target.select()}
+          onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); }} onKeyDown=${typed} />
       </div>
       <div class="date-body">
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />
@@ -142,7 +143,8 @@ const Time = (() => {
 
   // ---- The ruler: at the view's foot, a tick for each of the chart's days; dragging scrubs ----
   const CAP = 1096;   // a longer gap is drawn as three years, with a break
-  // Its width: a year's label sits after its line, and where it has no room there, the line stands alone.
+  // Its width, measured as it's drawn and whenever it's resized: a year's label sits after its line, and where
+  // it has no room there, the line stands alone.
   const width = signal(0), measure = new ResizeObserver(es => { for (const e of es) if (e.target.isConnected) width.value = e.contentRect.width; });
   let measured = null;
   function Ruler() {
@@ -186,7 +188,7 @@ const Time = (() => {
       show(days[Math.max(0, Math.min(days.length - 1, i + d))]);
     };
     const cur = t?.asOf ?? today, tip = hot ?? cur, its = items.get(tip) ?? [], tx = pos[days.indexOf(tip)] / span;
-    return html`<div class="scrub" ref=${el => { ref.current = el; if (el && el !== measured) { measure.disconnect(); measure.observe(measured = el); } }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
+    return html`<div class="scrub" ref=${el => { ref.current = el; if (el && el !== measured) { measure.disconnect(); measure.observe(measured = el); width.value = el.clientWidth; } }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
         onPointerDown=${down} onPointerMove=${e => { if (!e.buttons) setHot(nearest(e)); }} onPointerLeave=${() => setHot(null)} onKeyDown=${key}>
       ${years.map(([y, p]) => html`<span class="yr" style=${`left:${at(p)}`}>${width.value && (width.value - 32) * (1 - p / span) < 36 ? '' : y}</span>`)}
       ${breaks.map(p => html`<span class="brk" style=${`left:${at(p)}`} />`)}
@@ -254,7 +256,7 @@ const Time = (() => {
     const it = Tree.isView(r) ? `view ${name ? Log.latest(name.now.length ? name.now : name.was).value : of}` : Tree.isObject(r) ? of : r.args ? `${what}: ${of}` : `${what} of ${of}`;
     const verdict = r.tag ? 'Attested' : 'Ruled out', added = back ? 'Restored' : 'Added';
     const fact = r.args && r.tag === true && !App.definitions.peek().some(d => Tree.same(d.name, what));
-    if (!i.was.length) return Tree.isObject(r) || fact ? `${added} ${it}` : 'tag' in r ? `${verdict} ${it}` : r.args ? `${added} ${it}` : `Set ${it} to ${valueText(r)}`;
+    if (!i.was.length) return Tree.isObject(r) || fact ? `${added} ${it}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}` : `Set ${it} to ${valueText(r)}`;
     if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}` : `Cleared ${it}`;
     const was = Log.latest(i.was), ended = i.now.every(x => x.before) && !was.before;
     if (ended) return `Ended ${it} on ${short(Log.latest(i.now).before)}`;
