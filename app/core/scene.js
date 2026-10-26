@@ -490,7 +490,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (b) ps[ps.length - 1] = edgePoint(b, ps[0]);
     Object.assign(s, bounds(ps.map(([x, y]) => ({ x, y, w: 0, h: 0 }))));
   }
-  const legendRows = legend(N, view, styles, [...boxes, ...lines]);
+  // The key is of what the view draws: what's revealed for a while doesn't change it.
+  const legendRows = legend(N, view, styles, [...boxes, ...lines].filter(m => !m.revealed));
   for (const s of shapes) if (s.geometry === 'legend') layoutLegend(s, legendRows);
   const byId = new Map();
   for (const m of [...boxes, ...lines, ...frames.values(), ...shapes]) {

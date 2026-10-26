@@ -14,6 +14,8 @@ Graph.registerNode('dendra', { markup: [], attrs: {} }, true);
 const active = signal(null);
 const zoomLevel = signal(1);
 const BLUE = '#1f5fbf', RED = '#c2372b';
+// As far out as the canvas goes: a chart of hundreds of boxes still fits.
+const LEAST = 0.02;
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 // A selection key's mark, and the legend row it names after the first '#', if it names one.
@@ -180,8 +182,8 @@ function mount(el) {
   const graph = new Graph({
     container: gEl, autoResize: true, async: false, background: false, grid: false,
     panning: { enabled: true, eventTypes: ['mouseWheelDown'] },
-    mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], zoomAtMousePosition: true, minScale: 0.1, maxScale: 4, factor: 1.12 },
-    scaling: { min: 0.1, max: 4 },
+    mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], zoomAtMousePosition: true, minScale: LEAST, maxScale: 4, factor: 1.12 },
+    scaling: { min: LEAST, max: 4 },
     translating: { restrict: view => scene ? pageRect(view?.cell?.getData()?.kind === 'shape') : null },
     interacting: view => {
       const k = view.cell.getData()?.kind;
@@ -227,7 +229,7 @@ function mount(el) {
     const base = App.scene.peek();
     if (!base) return;
     const view = base.view;
-    scene = revealIds || red ? Scene.of(App.shown.peek(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: red }) : base;
+    scene = revealIds || redDrawn ? Scene.of(App.shown.peek(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn }) : base;
     const cells = [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6, data: { kind: 'page' },
       markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }];
     sheet.setAttribute('width', scene.page.w);
@@ -742,15 +744,21 @@ function mount(el) {
     show();
   }
   // Boxes and lines the view hides are drawn while they're highlighted, redlined, or asked for. (An entry
-  // isn't: it lights what it sits in, so no box changes size under the pointer.)
+  // isn't: it lights what it sits in, so no box changes size under the pointer.) A preview is drawn while
+  // it's quick: a redline on a chart of a few hundred marks, and the hidden drawn only while they're a few
+  // dozen; past that, what's drawn is lit, and the formula bar says the rest.
+  const QUICK = { marks: 400, hidden: 40 };
   let asked = [], redDrawn = null;
   function reveal(ids) { asked = ids ? [...ids] : []; show(); }
   function show() {
-    const st = red?.state ? { ...App.state.peek(), ...red.state } : App.state.peek();
-    const drawable = id => { const r = st[id]; return r && (Tree.isObject(r) || r.args?.length === 2); };
-    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(red ? [...red.appear, ...red.go, ...red.changed.keys()] : [])])].filter(drawable).sort();
-    const next = ids.length ? ids : null;
-    if (JSON.stringify(next) !== JSON.stringify(revealIds) || red !== redDrawn) { revealIds = next; redDrawn = red; draw(); } else paintStates();
+    const base = App.scene.peek(), r = red && (base?.marks.length ?? 0) <= QUICK.marks ? red : null;
+    const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek();
+    const drawn = new Set(base?.byId.keys());
+    for (const m of base?.marks ?? []) for (const it of m.texts ?? []) for (const id of it.records ?? []) drawn.add(id);
+    const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !drawn.has(id); };
+    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(hidden).sort();
+    const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
+    if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn) { revealIds = next; redDrawn = r; draw(); } else paintStates();
   }
 
   // ---- Commands ----
@@ -925,7 +933,7 @@ function mount(el) {
   let framed = 'chart', left = null, quiet = false;
   const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } };
   const seen = () => root.clientWidth > 0 && root.clientHeight > 0;
-  const LEVELS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
+  const LEVELS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
   // Where a 10 pt name is 10 px on screen.
   const READS = 0.75;
   const extent = ms => {
@@ -947,14 +955,14 @@ function mount(el) {
     const page = { x: 0, y: 0, w: scene.page.w, h: scene.page.h }, chart = scene.marks.filter(m => m.type !== 'shape');
     if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
     else if (framed === 'chart' && chart.length) showRect(extent(chart), 32, READS, 1);
-    else if (framed) showRect(page, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), 0.1, 2);
+    else if (framed) showRect(page, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), LEAST, 2);
   }
   function zoom(k) {
     if (!scene) return;
     if (k === 'fit') { framed = 'page'; left = null; return settle(); }
     if (!seen()) return;
     if (k === 'in' || k === 'out') {
-      const z = graph.zoom(), next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? 0.1;
+      const z = graph.zoom(), next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? LEAST;
       const c = graph.getGraphArea().center ?? null;
       graph.zoomTo(next, c ? { center: graph.graphToLocal(c) } : undefined);
     } else graph.zoomTo(k);
@@ -974,7 +982,7 @@ function mount(el) {
     const a = graph.localToGraph(x, y), b = graph.localToGraph(x + w, y + h);
     if (a.x >= 24 && a.y >= 24 && b.x <= root.clientWidth - 24 && b.y <= root.clientHeight - 24 && graph.zoom() >= 0.7) return;
     framed = left = null;
-    showRect({ x, y, w, h }, 56, 0.1, 1);
+    showRect({ x, y, w, h }, 56, LEAST, 1);
   }
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----

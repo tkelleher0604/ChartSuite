@@ -24,9 +24,9 @@ const THEME = [
   '#7f7f7f', '#0d0d0d', '#203864', '#843c0c', '#525252', '#7f6000', '#1f4e79', '#385723',
 ];
 const STANDARD = ['#c00000', '#ff0000', '#ffc000', '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0'];
-// A slide's number for the page's, to the half point; and the page's for a slide's.
+// A slide's number for the page's, to a tenth of a point as PowerPoint shows it; and the page's for a slide's.
 const page = () => Canvas.active.peek()?.scene()?.page;
-const shown = v => typeof v === 'number' ? Math.round(Scene.toSlide(page(), v) * 2) / 2 : v;
+const shown = v => typeof v === 'number' ? Math.round(Scene.toSlide(page(), v) * 10) / 10 : v;
 const put = v => Math.round(Scene.fromSlide(page(), v) * 100) / 100;
 const TEXT_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color', 'Align', 'Format']);
 let current = null; // { canvas, scopes, scope, marks }
