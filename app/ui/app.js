@@ -176,23 +176,31 @@ const App = (() => {
     return id;
   }
   const order = ids => change(tx => ids.forEach((id, k) => tx.note('Order', viewTree(id), k + 1)), { dated: false });
+  // What a view can show, as menu items: a chart, or a table of a kind's records, a relation's, or every date or
+  // document, each picked as pick(name, rows). Given a view, what it shows is checked.
+  function shows(pick, v) {
+    const L = layouts.peek(), on = rows => v && v.layout === 'table' && JSON.stringify(v.rows) === JSON.stringify(rows);
+    const as = l => ({ label: l.name, checked: on(l.rows), run: () => pick(l.name, l.rows) });
+    const group = (label, ls) => ({ label, checked: v && ls.some(l => on(l.rows)), items: ls.map(as) });
+    return [{ label: 'Chart', checked: v && v.layout === 'chart', run: () => pick('Chart') }, '-', group('Records', L.kinds), group('Relations', L.relations), ...L.datatypes.map(as)];
+  }
   Shell.register('views', {
     list: () => views.value,
     rename: (id, name) => change(tx => tx.note('Name', viewTree(id), name), { dated: false }),
     move: (id, i) => { const ids = views.peek().map(v => v.id).filter(x => x !== id); ids.splice(i, 0, id); order(ids); },
-    // A chart, or a table of a kind's records, a relation's or every date or document: the new view's id, or
-    // null if none is chosen.
+    // A new view of what's picked: its id, or null if none is.
     add: anchor => new Promise(done => {
       let chosen = false;
-      const pick = (name, rows) => () => { chosen = true; done(addView(name, rows)); };
-      const L = layouts.peek(), as = l => ({ label: l.name, run: pick(l.name, l.rows) });
-      Shell.menu(anchor, [{ label: 'Chart', run: pick('Chart') }, '-', { label: 'Records', items: L.kinds.map(as) },
-        { label: 'Relations', items: L.relations.map(as) }, ...L.datatypes.map(as)],
-      { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
+      Shell.menu(anchor, shows((name, rows) => { chosen = true; done(addView(name, rows)); }),
+        { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
     }),
+    // A view's own menu, on its tab: what it shows, as the inspector's view panel sets it, and copying or
+    // deleting it.
     menu: id => {
       const v = views.peek().find(x => x.id === id);
       return [
+        { label: 'Show', items: shows((_, rows) => change(tx => tx.note('Layout', viewTree(id), rows && { rows }), { dated: false }), v) },
+        '-',
         { label: 'Duplicate', run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
         { label: 'Delete', danger: true, disabled: views.peek().length < 2, run: () => {
           const next = views.peek().find(x => x.id !== id);

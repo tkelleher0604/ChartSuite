@@ -597,7 +597,11 @@ const Shell = (() => {
       drag(e, { item: e.currentTarget, items: [...ref.current.children], axis: 'x', onDrop: (from, i) => vp.move(list[from].id, i) });
     };
     const commit = (v, name) => { setEditing(null); name = name.trim(); if (name && name !== v.name) vp.rename(v.id, name); };
-    const tabMenu = (e, v) => { e.preventDefault(); show(v.id); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', run: () => setEditing(v.id) }, ...vp.menu(v.id)]); };
+    // A tab's menu, at the pointer, or over the tab from the keyboard.
+    const tabMenu = (e, v) => {
+      e.preventDefault(); show(v.id);
+      menu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget, [{ label: 'Rename', run: () => setEditing(v.id) }, ...vp.menu(v.id)], { placement: 'top-start' });
+    };
     const onKey = e => {
       const k = list.findIndex(x => x.id === view.peek()), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
       if (!d || editing) return;
