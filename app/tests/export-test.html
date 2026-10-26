@@ -132,7 +132,11 @@ async function run() {
       });
     }
     check('PowerPoint breaks every box’s text into the scene’s lines, after hyphens too', !wrong.length, wrong.join('; '));
-    check('a triangle’s text keeps the scene’s column, wider than PowerPoint’s own', +tags(fund, 'a:bodyPr')[0].getAttribute('lIns') < 0 && tags(fund, 'a:bodyPr')[0].getAttribute('anchor') === 'b');
+    {
+      const body = tags(fund, 'a:bodyPr')[0], w = +tags(fund, 'a:ext')[0].getAttribute('cx') / EMU, col = main.byId.get('fund').column;
+      const width = w / 2 - (+body.getAttribute('lIns') + +body.getAttribute('rIns')) / EMU;
+      check('a triangle’s text keeps the scene’s column, at its base', Math.abs(width - col.width) < 1 && body.getAttribute('anchor') === 'b', `${width.toFixed(1)} for ${col.width.toFixed(1)}`);
+    }
 
     const byId = new Map(sps.map(sp => [idOf(sp), sp]));
     const glued = lines(main).filter(l => {
