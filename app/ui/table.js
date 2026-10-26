@@ -176,7 +176,7 @@ const Table = (() => {
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b.f0.localeCompare(a.f0) : a.f0.localeCompare(b.f0)));
     } else if (cols[0]) data.sort((a, b) => text(cols[0].type, a.f0).localeCompare(text(cols[0].type, b.f0)));
 
-    const noun = isDatatype ? Tree.DATATYPES[rows].toLowerCase() : isKind ? rows.kind.toLowerCase() : 'row';
+    const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
     return { view, rows, isKind, isDatatype, cols, data, groups, noun };
   }
 
@@ -261,12 +261,22 @@ const Table = (() => {
     return defs;
   }
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
-  // The objects a relation's side can be at: those of the kinds the schema has there.
-  function objects(m, c) {
-    const st = App.state.value, S = App.schema.value, kinds = new Set();
-    for (const t of Object.values(S)) if (t.args?.length > 1 && Tree.narrower(t, m.rows)) for (const a of t.args) if (same(a.edge, c.edge) && a.loc.kind) kinds.add(norm(a.loc.kind));
-    return [...kinds].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => nameOf(st, id)).sort();
+  // The kinds of object a relation's side can be at, as the schema has them (under the entry it's at, if any).
+  function sideKinds(m, edge) {
+    const kinds = new Set(), root = loc => loc.args ? root(loc.args[0].loc) : loc.kind;
+    for (const t of Object.values(App.schema.value)) if (t.args?.length > 1 && Tree.narrower(t, m.rows))
+      for (const a of t.args) if (same(a.edge, edge) && root(a.loc)) kinds.add(norm(root(a.loc)));
+    return kinds;
   }
+  const objects = (m, c) => { const st = App.state.value; return [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => nameOf(st, id)).sort(); };
+  // An object of those kinds by its Name, or else its Short Name.
+  const find = (st, name, kinds) => {
+    const n = norm(name), of = Object.keys(st).filter(id => Tree.isObject(st[id]) && kinds.has(norm(st[id].kind)));
+    return of.find(id => norm(nameOf(st, id)) === n) ?? of.find(id => norm(shortOf(st, id)) === n);
+  };
+  // Where a relation's side is at under an object: the object, or the entry the side's pattern names there.
+  const follow = (st, id, loc) => !loc.args ? id : (x => x && entryAt(st, x, loc.args[0].edge))(follow(st, id, loc.args[0].loc));
+  const sideLoc = (m, edge) => m.rows.args.find(a => same(a.edge, edge)).loc;
 
   function build(m) {
     if (table) { table.destroy(); table = null; }
@@ -355,7 +365,7 @@ const Table = (() => {
     if (type === 'choice') return { choice: s };
     if (type === 'tag') return YES.test(s) ? { tag: true } : NO.test(s) ? { tag: false } : null;
     const v = Tree.parse(type, s);
-    return v === undefined ? null : { field: type, value: v };
+    return v === undefined ? null : { field: type, value: typeof v === 'number' ? +v.toPrecision(12) : v };   // 67.3% is 0.673
   };
   function write(tx, m, c, out) {
     const st = App.state.value, r = m.id && st[m.id];
@@ -369,16 +379,11 @@ const Table = (() => {
   }
   // A relation's side moved to another object, found by name.
   function side(tx, st, row, edge, name) {
-    const to = find(st, name);
+    const o = find(st, name, sideKinds(current, edge)), to = o && follow(st, o, sideLoc(current, edge));
     if (!to) return;
     const r = st[row], { since, before, ...rest } = r;
     tx.set(row, { ...rest, args: r.args.map(a => same(a.edge, edge) ? { edge: a.edge, at: to } : a) });
   }
-  const find = (st, name) => {
-    const n = norm(name);
-    return Object.keys(st).find(id => Tree.isObject(st[id]) && norm(nameOf(st, id)) === n)
-      ?? Object.keys(st).find(id => Tree.isObject(st[id]) && norm(shortOf(st, id)) === n);
-  };
   // A tag's box: blank, attested, ruled out, and blank again; over a formula, entering wins and clearing
   // gives the formula back.
   function flip(cell) {
@@ -462,15 +467,15 @@ const Table = (() => {
         return o;
       };
       const childAt = (at, edge) => kids.get(`${at}|${norm(edge)}`) ?? entryAt(st, at, edge);
-      // Where a relation's side is at, under an object: the object, or the entry the side's pattern names.
-      const follow = (id, loc) => !loc.args ? id : (x => x && childAt(x, loc.args[0].edge))(follow(id, loc.args[0].loc));
+      // A side named in the paste: an object of the kinds that side can be, or a new one of the commonest.
+      const sideAt = (edge, name) => follow(st, find(st, name, sideKinds(m, edge)) ?? made.get(norm(name)) ?? make(name, kindAt(m, edge)), sideLoc(m, edge));
       for (const p of plan) {
         let row = p.row;
         if (!row) {
           if (!p.key.length || p.key.some(x => !x)) { skipped += p.cells.filter(([, raw]) => clean(raw)).length; continue; }
           if (m.isKind) row = made.get(norm(p.key[0])) ?? make(p.key[0], m.rows.kind);
           else {
-            const args = keys.map((k, i) => ({ edge: k.edge, at: follow(find(st, p.key[i]) ?? made.get(norm(p.key[i])) ?? make(p.key[i], kindAt(m, k.edge)), m.rows.args.find(a => same(a.edge, k.edge)).loc) }));
+            const args = keys.map((k, i) => ({ edge: k.edge, at: sideAt(k.edge, p.key[i]) }));
             if (args.some(a => !a.at)) { skipped += p.cells.length; continue; }
             const own = p.cells.find(([c]) => c.key === '$out');
             row = tx.add('record', { args, ...(own ? value(own[0].type, clean(own[1])) ?? { tag: true } : { tag: true }) });
@@ -661,5 +666,6 @@ const Table = (() => {
     },
   });
 
-  return { model, layouts, views, paste: t => paste(t), get grid() { return table; } };
+  // The chart's words, for time.js too.
+  return { model, layouts, views, viewTree, words: { nameOf, shortOf, whose, sides }, plural, paste: t => paste(t), get grid() { return table; } };
 })();

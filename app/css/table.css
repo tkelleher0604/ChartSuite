@@ -58,3 +58,69 @@
 .grid .tabulator-row.tabulator-group:hover { background-image: none; }
 .grid .tabulator-row.tabulator-group span { font-weight: 400; }
 .grid .tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents { padding: 48px 0; }
+
+/* ---- The date control: a calendar beside the chart's own days ---- */
+.when2 { display: grid; gap: 12px; width: 596px; }
+.when-top { display: flex; gap: 8px; }
+.when-top > input { flex: 1; }
+.when-top > input.bad { border-color: var(--no); box-shadow: 0 0 0 1px var(--no); }
+.when-body { display: grid; grid-template-columns: auto minmax(0, 1fr); margin: 0 -12px; border-top: 1px solid var(--rule); }
+.cal { padding: 8px 12px 4px; border-right: 1px solid var(--rule); }
+.cal-head { display: flex; align-items: center; justify-content: space-between; height: var(--row); margin-bottom: 4px; font-weight: 500; }
+.cal-head .prev svg { transform: rotate(90deg); }
+.cal-head .next svg { transform: rotate(-90deg); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 30px); gap: 2px; }
+.cal-grid .wd { height: 24px; line-height: 24px; text-align: center; font: var(--t12); color: var(--ink-3); }
+.cal-grid .d { position: relative; height: 30px; padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cal-grid .d:hover { background: var(--hover); }
+.cal-grid .d.out { color: var(--ink-3); }
+.cal-grid .d.today { box-shadow: inset 0 0 0 1px var(--rule-2); }
+.cal-grid .d.mark::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent-ink); }
+.cal-grid .d[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+.cal-grid .d[aria-pressed="true"].mark::after { background: var(--on-accent); }
+.when-days { position: relative; max-height: 262px; overflow: auto; padding-bottom: 4px; }
+.when-days .yr { position: sticky; top: 0; z-index: 1; padding: 8px 12px 4px; background: var(--surface); font: 500 var(--t12); color: var(--ink-3); }
+.dayrow { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; width: 100%; padding: 4px 12px; border: 0; background: none; color: var(--ink); text-align: left; cursor: default; }
+.dayrow:hover { background: var(--hover); }
+.dayrow[aria-pressed="true"] { background: var(--selected); }
+.dayrow > .d { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.dayrow > .w { display: grid; min-width: 0; }
+.dayrow .it { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.dayrow .it > b { font-weight: 500; color: var(--ink); }
+.when-keep { display: flex; align-items: center; gap: 8px; margin: -12px; padding: 10px 12px; border-top: 1px solid var(--rule); color: var(--ink-2); }
+
+/* ---- The strip: the chart's days as ticks under the view ---- */
+.view:has(> .scrub-host:not(:empty)) > .host { bottom: 32px; }
+.scrub-host { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; }
+.scrub { position: relative; height: 32px; background: var(--paper); border-top: 1px solid var(--rule); user-select: none; touch-action: none; outline-offset: -2px; }
+.scrub::before { content: ""; position: absolute; left: 16px; right: 16px; top: 11px; height: 1px; background: var(--rule-2); }
+.scrub > i { position: absolute; top: 6px; width: 1px; height: 11px; margin-left: -.5px; background: var(--ink-3); }
+.scrub > i.hot { background: var(--ink); }
+.scrub > i.now { top: 4px; height: 15px; background: var(--ink); }
+.scrub > i.on { top: 3px; width: 3px; height: 17px; margin-left: -1.5px; border-radius: 1px; background: var(--accent); }
+.scrub > .yr { position: absolute; top: 11px; padding: 3px 0 0 4px; border-left: 1px solid var(--rule-2); font: var(--t12); line-height: 14px; color: var(--ink-3); pointer-events: none; }
+.scrub > .brk { position: absolute; top: 7px; width: 6px; height: 9px; margin-left: -3px; background: var(--paper); border-left: 1px solid var(--ink-3); border-right: 1px solid var(--ink-3); transform: skewX(-24deg); }
+.scrub-tip { position: absolute; bottom: 38px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; transform: translateX(-50%); padding: 4px 8px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); white-space: nowrap; pointer-events: none; box-shadow: var(--shadow-pop); }
+.scrub-tip > b { font-weight: 500; }
+.scrub:not(:hover) > .scrub-tip { display: none; }
+
+/* ---- History, in the inspector's place ---- */
+.inspector:has(> .hist-host) > .host { display: none; }
+.hist-host { position: absolute; inset: 0; background: var(--surface); }
+.hist { display: flex; flex-direction: column; height: 100%; }
+.hist-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 20px; border-bottom: 1px solid var(--rule); }
+.hist-head > .title { flex: 1; font: var(--t15); }
+.hist-head > .menu-seg { margin: 0; width: 168px; }
+.hist-focus { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 2px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); }
+.hist-focus > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-list { flex: 1; overflow: auto; padding-bottom: 16px; }
+.hist-day { position: sticky; top: 0; z-index: 1; padding: 14px 20px 4px; background: var(--surface); font: 500 var(--t12); color: var(--ink-3); }
+.hist-row { position: relative; padding: 6px 20px 7px; cursor: default; }
+.hist-row:hover { background: var(--hover); }
+.hist-row[aria-selected="true"] { background: var(--selected); box-shadow: inset 2px 0 var(--accent); }
+.hist-row > .what { overflow-wrap: anywhere; }
+.hist-row > .meta { font: var(--t12); color: var(--ink-3); }
+.hist-row > .btn { margin-top: 8px; }
+.hist-row.gone { padding-right: 104px; }
+.hist-row.gone > .btn { position: absolute; right: 12px; top: 50%; margin: 0; transform: translateY(-50%); }
+.hist .empty { height: auto; padding: 48px 20px; }
