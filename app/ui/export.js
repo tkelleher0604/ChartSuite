@@ -38,6 +38,10 @@ async function loadLibs(which) {
   for (const file of EXPORT_LIBS[which]) await loadScript(EXPORT_VENDOR + file);
 }
 
+// A PDF, compressed. Its text is in the standard fonts (svgFamily), which need no embedding: jsPDF 2.5
+// embeds Inter's TrueType files with every glyph missing, Inter 3's and 4's alike.
+const newPdf = options => new window.jspdf.jsPDF({ ...options, compress: true });
+
 function deliver(blob, name) {
   if (exportOptions.onFile) return exportOptions.onFile(blob, name);
   const a = document.createElement('a');
@@ -183,7 +187,7 @@ function viewScenes() {
 
 const SVG_DASH = { solid: 'none', dashed: '6 4', dotted: '1.5 3' };
 const escSvg = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// Fonts as each format can draw them. A PDF uses its standard fonts, so its text needs no embedding.
+// Fonts as each format can draw them. A PDF uses its standard fonts (see newPdf), so its text needs no embedding.
 const svgFamily = (font, pdf) => /georgia|times/i.test(font ?? '')
   ? (pdf ? 'times' : `${font}, 'Times New Roman', serif`)
   : (pdf ? 'helvetica' : `${[...new Set([font ?? 'Inter', 'Inter'])].join(', ')}, Arial, Helvetica, sans-serif`);
@@ -490,10 +494,9 @@ function exportSvg(scene = chartScene(), { legend = true } = {}) {
 
 async function exportPdf(scenes = [chartScene()], { size = 'letter', orientation = 'auto', legend = true, asOf = todayIso(), split = false } = {}) {
   await loadLibs('pdf');
-  const { jsPDF } = window.jspdf;
   const pages = pagesFor(scenes, { format: 'pdf', size, orientation, legend, asOf, split });
   const formatOf = p => [p.W, p.H];
-  const doc = new jsPDF({ unit: 'pt', format: formatOf(pages[0]), orientation: pages[0].W > pages[0].H ? 'landscape' : 'portrait' });
+  const doc = newPdf({ unit: 'pt', format: formatOf(pages[0]), orientation: pages[0].W > pages[0].H ? 'landscape' : 'portrait' });
   const holder = document.createElement('div');
   holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:0;height:0;overflow:hidden';
   document.body.appendChild(holder);
@@ -695,8 +698,7 @@ function profileValue(r) {
 // short line for each list, its count and first few names.
 async function exportRecordPdf(objectId, { asOf = todayIso() } = {}) {
   await loadLibs('pdf');
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  const doc = newPdf({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
   const name = objectName(objectId);
   // A computed value is in italics, as in the app, and tagged at the row's right.
