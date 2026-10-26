@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra scene test</title>
+<style>
+  body { margin: 0; padding: 20px; background: #fafafa; color: #18181b; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .fail { color: #b42318; }
+  @media (prefers-color-scheme: dark) { body { background: #111113; color: #e4e4e7; } .fail { color: #f97066; } }
+</style>
+</head>
+<body>
+<pre id="out">Running…</pre>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/scene.js"></script>
+<script src="../sample/calder-ridge.js"></script>
+<script>
+// Checks of the scene (scene.js) and the layout (layout.js) on the sample: which note decides a setting,
+// what's drawn, the legend, frames, positions entered and laid out, and how long it takes. Nothing is saved.
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const C = 'calder-ridge', DAY = '2026-10-26', WHO = 'Dana Jordan', MAIN = 'view_main';
+const j = x => JSON.stringify(x);
+const median = xs => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+function run() {
+  const fresh = () => Log.open(SAMPLE);
+  // The chart worked out, as App works it out.
+  const worked = wb => {
+    const N = wb.notes(C), S = wb.schema(C);
+    return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }).records;
+  };
+  const scene = (wb, view = MAIN, opts = {}) => Scene.of(wb, C, view, DAY, { state: worked(wb), ...opts });
+  const edit = (wb, f) => { const tx = wb.edit({ chart: C, who: WHO }); f(tx, wb.notes(C)); const c = tx.commit(); if (typeof c === 'string') throw new Error(c); return c; };
+  const note = (tx, N, label, pattern, view, value) => Canvas_writeNote(tx, N, { label, pattern, view }, value);
+  const tree = (wb, id) => Tree.treeOf(wb.asOf(C, DAY), id);
+  const VT = o => ({ out: { choice: o }, args: [{ edge: 'Vehicle Type', loc: {} }] });
+
+  // ---- The narrowest decides ----
+  {
+    const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
+    check('a style’s format lands on the box: Main Fund fills the fund’s', fund.settings.Fill.value === '#e8eefb' && fund.settings.Fill.note.note === 'n3u',
+      j(fund.settings.Fill));
+    check('a triangle comes from Entity Type, a choice in the box', fund.shape === 'triangle' && fund.settings.Shape.note.pattern.out.choice === 'Limited Partnership');
+    check('a setting nothing in the chart gives is the default, with no note', fund.settings.Outline.value === '#000000' && fund.settings.Outline.note === null);
+    edit(wb, (tx, N) => {
+      note(tx, N, 'Fill', tree(wb, 'fund'), MAIN, '#fdf3e1');
+      note(tx, N, 'Fill', { kind: 'Entity' }, undefined, '#f5f0e6');
+      note(tx, N, 'Fill', { out: { tag: false }, args: [{ edge: 'Good Standing', loc: {} }] }, MAIN, '#fbe9e7');
+    });
+    const t = scene(wb);
+    check('one record’s own note in the view wins over every style', t.byId.get('fund').settings.Fill.value === '#fdf3e1' && Tree.idsIn(t.byId.get('fund').settings.Fill.note.pattern).has('fund'));
+    check('a note in no view is the default where no style says', t.byId.get('gp').settings.Fill.value === '#f5f0e6' && !t.byId.get('gp').settings.Fill.note.view,
+      j(t.byId.get('gp').settings.Fill));
+    check('a note in the view beats one in none', t.byId.get('feeder').settings.Fill.value === '#e8eefb');
+    check('where notes reach one box through two records, the later style wins', t.byId.get('aiv').settings.Fill.value === '#fbe9e7'
+      && t.byId.get('aiv').settings.Fill.note.pattern.args[0].edge === 'Good Standing', j(t.byId.get('aiv').settings.Fill.value));
+    check('a text takes its own style’s properties, and its box’s where none', (() => {
+      const juris = t.byId.get('fund').texts.find(x => x.id === 'fund_juris'), name = t.byId.get('fund').texts.find(x => x.id === 'fund_name');
+      return juris.look.Size === 10.5 && juris.text === '(Delaware)' && name.look.Bold === true && name.look.Font === 'Arial';
+    })());
+  }
+
+  // ---- Shown, reaching through locations ----
+  {
+    const wb = fresh(), s = scene(wb);
+    const drawn = id => s.byId.has(id);
+    check('boxes are drawn unless a style hides them: no documents, no service providers', drawn('fund') && !Object.keys(wb.asOf(C, DAY)).some(id => wb.asOf(C, DAY)[id].kind === 'Document' && drawn(id)));
+    check('one record hidden in the view stays hidden', !drawn('raman') && !drawn('ferraro'));
+    check('a line is drawn only where both its boxes are', s.marks.filter(m => m.type === 'line').every(l => drawn(l.from) && drawn(l.to)));
+    check('a text on a line is drawn where its line is', drawn('own_us_fund_pct') && s.byId.get('own_us_fund').texts.some(x => x.text === '71.6%'));
+    edit(wb, (tx, N) => note(tx, N, 'Shown', tree(wb, 'inv_us'), MAIN, false));
+    const t = scene(wb);
+    check('hiding a box hides its texts, its lines and what is on them', !t.byId.has('inv_us') && !t.byId.has('inv_us_name') && !t.byId.has('own_us_fund') && !t.byId.has('own_us_fund_pct'));
+    const r = scene(wb, MAIN, { reveal: ['own_us_fund_pct'] });
+    check('a hidden record can be drawn for a while, with what it sits in', r.byId.has('own_us_fund_pct') && r.byId.get('inv_us').revealed && !r.byId.get('fund').revealed);
+    const forty = scene(wb, 'view_40act'), st = worked(wb);
+    const affiliates = Object.values(st).filter(x => x.edge === 'BDC Affiliate' && x.tag === true).map(x => x.at);
+    const boxes = forty.marks.filter(m => m.type === 'box').map(m => m.id);
+    check('a style showing by a tag’s output is the view’s filter: 40 Act draws the BDC affiliates', boxes.length > 10 && j([...boxes].sort()) === j([...new Set(affiliates)].sort()),
+      `${boxes.length} drawn, ${new Set(affiliates).size} affiliates`);
+    const fund3 = scene(wb, 'view_fund3');
+    check('a filter by Vehicle Type: Fund III draws the funds, not the manager', fund3.byId.has('fund') && fund3.byId.has('blocker') && !fund3.byId.has('mgmt') && !fund3.byId.has('chen'));
+    check('a filter shows boxes, not the filtering text', !fund3.byId.get('fund').texts.some(x => x.id === 'fund_vehicle'));
+  }
+
+  // ---- Text ----
+  {
+    const wb = fresh(), s = scene(wb);
+    const fits = s.marks.filter(m => m.type === 'box').every(b => b.texts.every(it => it.lines.every(l => l.w <= b.w)));
+    check('every box’s text is broken into lines that fit it', fits);
+    const fund = s.byId.get('fund'), name = fund.texts[0];
+    check('a box’s texts go in their entries’ order, the name first', name.id === 'fund_name' && name.lines.length > 1 && fund.texts[1].id === 'fund_juris');
+    const forty = scene(wb, 'view_40act');
+    check('a computed record is marked, for the canvas to set it in italics', forty.marks.some(m => m.type === 'line' && m.computed) && !s.byId.get('own_us_fund').computed);
+  }
+
+  // ---- The legend ----
+  {
+    const wb = fresh();
+    edit(wb, tx => tx.add('shape', { view: MAIN, geometry: 'legend', x: 40, y: 700, w: 300, title: 'Key' }));
+    const s = scene(wb), lg = s.marks.find(m => m.geometry === 'legend');
+    const caption = k => lg.rows.find(r => r.caption.text.includes(k));
+    check('the legend has a row for each output a drawn mark takes its look from', !!caption('Main Fund') && !!caption('Limited Partnership') && !!caption('Ownership') && !!caption('Portfolio Company'),
+      lg.rows.map(r => r.caption.text).join(' | '));
+    check('outputs that look alike share a row', caption('Main Fund') === caption('Feeder Fund'));
+    check('no row for a look nothing drawn takes', !caption('Business Development') || s.marks.some(m => m.type === 'box' && m.settings.Fill.note?.pattern.out?.choice === 'Business Development Company'));
+    check('a row’s swatch is drawn in its output’s format', caption('Main Fund').swatch.Fill === '#e8eefb' && caption('Limited Partnership').swatch.Shape === 'triangle'
+      && caption('Ownership').swatch.kind === 'line');
+    edit(wb, (tx, N) => {
+      note(tx, N, 'Caption', VT('Main Fund'), MAIN, 'Fund vehicle');
+      note(tx, N, 'Shown', VT('Portfolio Company'), MAIN, false);
+    });
+    const t = scene(wb), lt = t.marks.find(m => m.geometry === 'legend');
+    check('a Caption note captions a row', lt.rows.some(r => r.caption.text === 'Fund vehicle'));
+    check('rows follow the outputs in use: hide every portfolio company and its row goes', !lt.rows.some(r => r.caption.text.includes('Portfolio Company')) && lt.rows.length === lg.rows.length - 1,
+      `${lg.rows.length} then ${lt.rows.length}`);
+    check('the legend is a shape: placed, sized and formatted as one', lt.x === 40 && lt.y === 700 && lt.w === 300 && lt.h > 40 && lt.look.Outline === '#7f7f7f');
+  }
+
+  // ---- Frames ----
+  {
+    const wb = fresh(), cayman = { out: { choice: 'Cayman Islands' }, args: [{ edge: 'Jurisdiction', loc: {} }] };
+    edit(wb, (tx, N) => { note(tx, N, 'Frame', cayman, MAIN, 'dashed'); note(tx, N, 'Caption', cayman, MAIN, 'Offshore'); });
+    const s = scene(wb), f = s.marks.find(m => m.type === 'frame');
+    const inside = (b, o) => b.x >= o.x && b.y >= o.y && b.x + b.w <= o.x + o.w && b.y + b.h <= o.y + o.h;
+    check('a format at Cayman Islands frames its boxes, captioned Offshore', f && j([...f.members].sort()) === j(['caygp', 'feeder']) && f.caption.text === 'Offshore', j(f?.members));
+    check('a frame holds its members', f.members.every(id => inside(s.byId.get(id), f)));
+    edit(wb, (tx, N) => note(tx, N, 'Frame', { kind: 'Entity' }, MAIN, 'solid'));
+    const t = scene(wb), outer = t.marks.find(m => m.type === 'frame' && !m.parent), inner = t.marks.find(m => m.type === 'frame' && m.parent);
+    check('frames nest in the order of the styles: Entity (Kind) around Offshore (Jurisdiction)', outer && inner && inner.parent === outer.id && inside(inner, outer)
+      && t.marks.indexOf(outer) < t.marks.indexOf(inner));
+    check('a frame’s caption is its output’s, where no Caption says', outer.caption.text === 'Entity');
+  }
+
+  // ---- Positions: entered wins, the layout places the rest, Tidy clears ----
+  {
+    const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
+    check('an entered position wins', fund.x === 805 && fund.y === 290 && fund.w === 230 && fund.entered);
+    edit(wb, tx => tx.remove(wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'blocker').note));
+    const t = scene(wb), b = t.byId.get('blocker');
+    const clash = t.marks.filter(m => m.type === 'box' && m.id !== 'blocker').some(m => b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
+    const f = t.byId.get('fund'), h = t.byId.get('halvard');
+    check('a box with no entered position is laid out among the entered ones, clear of them', !b.entered && !clash && f.x === 805, j({ x: b.x, y: b.y }));
+    check('and near what it’s linked to: below its owner, above what it owns', b.y > f.y + f.h && b.y + b.h < h.y && Math.abs(b.x + b.w / 2 - (f.x + f.w / 2)) < 400, j({ x: b.x, y: b.y }));
+    edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note); });
+    const u = scene(wb), boxes = u.marks.filter(m => m.type === 'box');
+    check('Tidy clears the view’s entered positions, and the layout places every box', boxes.every(m => !m.entered) && u.byId.get('fund').x !== 805);
+    check('the layout ranks lines by Above: owners over what they own', u.marks.filter(m => m.type === 'line' && m.record.startsWith('own_')).every(l => u.byId.get(l.from).y + u.byId.get(l.from).h <= u.byId.get(l.to).y + 1));
+    check('every box is on the page', boxes.every(m => m.x >= 0 && m.y >= 0 && m.x + m.w <= u.page.w && m.y + m.h <= u.page.h), j(u.page));
+    check('every line is routed, with its points on its boxes', u.marks.filter(m => m.type === 'line').every(l => l.points.length >= 2));
+    check('other views keep their positions', scene(wb, 'view_fund3').byId.get('fund').entered);
+  }
+
+  // ---- How long it takes ----
+  {
+    const wb = fresh(), st = worked(wb);
+    Scene.of(wb, C, MAIN, DAY, { state: st });
+    const times = Array.from({ length: 7 }, () => { const t0 = performance.now(); Scene.of(wb, C, MAIN, DAY, { state: st }); return performance.now() - t0; });
+    check('a scene in under 50 ms', median(times) < 50, `${median(times).toFixed(1)} ms, the median of 7`);
+    edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note); });
+    const s = Scene.of(wb, C, MAIN, DAY, { state: worked(wb) });
+    const boxes = s.marks.filter(m => m.type === 'box'), links = s.marks.filter(m => m.type === 'line' && m.ranks).map(l => ({ from: l.from, to: l.to }));
+    Layout.OPTIONS['elk.spacing.componentComponent'] = '37';
+    const t0 = performance.now(), placed = Layout.place({ boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h })), links, clusters: [] }), ms = performance.now() - t0;
+    Layout.OPTIONS['elk.spacing.componentComponent'] = '36';
+    check('ELK lays out the sample in under 300 ms', ms < 300 && placed.size === boxes.length, `${ms.toFixed(0)} ms for ${boxes.length} boxes and ${links.length} lines`);
+    const t1 = performance.now(); Scene.of(wb, C, MAIN, DAY, { state: worked(wb) }); const again = performance.now() - t1;
+    check('a layout is kept, and laid out again only when what it reads changes', again < 50, `${again.toFixed(1)} ms with the engine`);
+  }
+}
+
+// Canvas.writeNote, without the canvas: a note at exactly this pattern, label and view.
+function Canvas_writeNote(tx, N, { label, pattern, view }, value) {
+  const k = Tree.key(pattern), old = N.notes(label).find(n => (n.view ?? null) === (view ?? null) && !n.param && Tree.key(n.pattern) === k);
+  const row = { label, pattern, ...(view && { view }), value };
+  if (value === undefined) { if (old) tx.remove(old.note); } else if (old) tx.set(old.note, row); else tx.add('note', row);
+}
+
+Promise.resolve().then(run)
+  .catch(e => check('runs', false, e.stack ?? e))
+  .finally(() => {
+    const failed = out.filter(c => !c.ok);
+    const line = c => `${c.ok ? 'pass' : 'FAIL'}  ${c.name}${c.detail ? `  (${c.detail})` : ''}`;
+    document.title = `scene test: ${out.length - failed.length} pass, ${failed.length} fail`;
+    document.getElementById('out').innerHTML = [`${out.length - failed.length} passed, ${failed.length} failed`, '',
+      ...failed.map(c => `<span class="fail">${line(c).replace(/</g, '&lt;')}</span>`), ...(failed.length ? [''] : []),
+      ...out.filter(c => c.ok).map(line).map(s => s.replace(/</g, '&lt;'))].join('\n');
+  });
+</script>
+</body>
+</html>
