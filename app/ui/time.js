@@ -105,11 +105,11 @@ const Time = (() => {
     const listRef = useRef();
     useEffect(() => { opened.value = true; return () => { opened.value = false; }; }, []);
     useEffect(() => { setMonth(day.slice(0, 7)); setText(null); }, [day]);
-    // Once the popover shows, the day shown, or the last of the chart's days before it, is brought into view in
-    // the list, which runs back from the latest.
+    // Once the popover shows, the list, which runs back from the latest, opens at the day shown or the last of
+    // the chart's days before it, under its year.
     useEffect(() => {
       const l = listRef.current, rows = l ? [...l.querySelectorAll('[data-day]')] : [], el = rows.find(r => r.dataset.day <= day) ?? rows.at(-1);
-      if (el) l.scrollTop = el.offsetTop - l.clientHeight / 2 + el.offsetHeight / 2;
+      if (el) l.scrollTop = el.offsetTop - (l.querySelector('.yr')?.offsetHeight ?? 0);
     }, [day]);
     const marked = new Set(evs.map(e => e.day));
     const years = [...new Set(evs.map(e => e.day.slice(0, 4)))].sort().reverse();

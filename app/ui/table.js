@@ -285,8 +285,11 @@ const Table = (() => {
     built = { view: m.view, sig: signature(m) };
     reds = new Set();
     flight = null;
+    // The grid fills the width: its last column stretches to the edge where it's words, and its rows where
+    // it's a number or a tag, which would stand off alone.
+    const last = m.cols.filter(c => c.shown).at(-1)?.type;
     const t = table = new Tabulator(host, {
-      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: 'fitDataStretch',
+      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: NUMERIC.has(last) || last === 'tag' ? 'fitDataFill' : 'fitDataStretch',
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,

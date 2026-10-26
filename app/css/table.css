@@ -5,7 +5,7 @@
 /* With nothing selected, the grid has the inspector's width too (shell.js's .alone); the inspector glides back
    when a row is selected. */
 .main.alone { grid-template-columns: minmax(0, 1fr) 0 0; }
-.main.alone > :is(.divider, .inspector) { visibility: hidden; }
+.main.alone > :is(.divider, .inspector) { display: none; }
 .main:has(> .view > .host.grid:not([hidden])):not(:has(> .divider.drag)) { transition: grid-template-columns var(--calm) var(--ease); }
 .view > .host.grid { display: flex; flex-direction: column; background: var(--surface); }
 .grid > .cells { flex: 1; min-height: 0; }
