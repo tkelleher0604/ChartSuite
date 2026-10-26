@@ -2,7 +2,7 @@
 
 A pass through Rboreal as a paralegal on the fund legal team, in an ordinary week, on `production` at 34eb7c5 (October 25, 2026). Each day's work was done through the UI in headless Chrome, with state carried from page to page in one browser profile, and its effects checked on the other pages. No page threw a JavaScript error at any point.
 
-Screenshots and the scripts that drove each step are in `C:\Users\thoma\AppData\Local\Temp\claude\c--Users-thoma-ChartSuite\884d2653-fed2-4fd2-892b-a92faf0c6807\scratchpad\paralegal-qa\`, with the screenshots in its `shots` folder. The harness there, `probe.sh`, copies a page beside itself with a script injected, screenshots it and deletes the copy. In the table, "Shot" names a file in that `shots` folder.
+Screenshots and the scripts that drove each step were in the QA session's scratch folder, `paralegal-qa\` (temporary, and not in the repository), with the screenshots in its `shots` folder. The harness there, `probe.sh`, copies a page beside itself with a script injected, screenshots it and deletes the copy. In the table, "Shot" names a file in that `shots` folder.
 
 ## Findings
 

@@ -4,7 +4,7 @@ What a curious colleague might try that the happy path doesn't: what breaks, los
 
 **How.** Headless Chrome (`--headless=new`, fresh profile per run, `--allow-file-access-from-files`), driving the real pages from a harness page in `app/` that loads them in iframes. Each test script clicks, types (setting values and dispatching input, change and key events), pastes (a `ClipboardEvent` with a `DataTransfer`), and reads the page and the model back. Page errors come from Chrome's console log. Two tabs are two iframes on one workbook, so the real `storage` events fire between them. Timings were taken in real time, without virtual time. For those, each page was copied with a timing script first in `<head>` and the edits run at the end of `<body>`.
 
-The scripts and screenshots are in `C:\Users\thoma\AppData\Local\Temp\claude\c--Users-thoma-ChartSuite\884d2653-fed2-4fd2-892b-a92faf0c6807\scratchpad\robust\`. The test scripts are under `tests\`, the runner is `qa.sh` and the timing runner is `perf.sh`. Screenshots below are named by their file in that folder.
+The scripts and screenshots were in the QA session's scratch folder, `robust\` (temporary, and not in the repository). The test scripts are under `tests\`, the runner is `qa.sh` and the timing runner is `perf.sh`. Screenshots below are named by their file in that folder.
 
 Severity, most severe first: **data loss**, **blocker for a demo**, **bad**, **annoying**, **polish**.
 
