@@ -488,17 +488,18 @@ const Shell = (() => {
       if (r?.error) return [{ label: r.error, danger: true }];
       return r?.items ?? [{ label: String(r?.value ?? '') }];
     }
-    const acts = many('action').map(a => ({ label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
+    const acts = many('action').map(a => ({ id: a.id, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
     if (q.startsWith('?')) { const ks = acts.filter(a => a.keys); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
-    const vs = views.value.map(v => ({ label: v.name, detail: q ? 'View' : null, run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
+    const vs = views.value.map(v => ({ label: v.name, detail: q ? 'View' : null, run: () => show(v.id) })), can = acts.filter(a => !a.disabled && a.id !== 'find');
     if (!q) return [...(vs.length ? [{ head: 'Views' }, ...vs] : []), ...(can.length ? [{ head: 'Actions' }, ...can] : [])];
     return rank([...vs, ...many('find').flatMap(s => s.items()), ...can], q);
   }
   const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32 }); };
 
   // ---- The title bar ----
-  const fmtTime = t => !t ? 'As of today' : t.asOf ? 'As of ' + Tree.formatDate(t.asOf, 'short')
-    : 'As it stood' + (t.at ? ' ' + new Date(t.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+  // The day shown, in the words the band under the view uses.
+  const fmtTime = t => !t ? 'As of today' : t.asOf ? 'As of ' + Tree.formatDate(t.asOf)
+    : 'As it stood' + (t.at ? ` ${Tree.formatDate(Tree.isoOf(new Date(t.at)))}, ${new Date(t.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '');
   const chartName = computed(() => { const wb = part('workbook'); return wb ? wb.charts().find(c => c.id === wb.current())?.name : null; });
   effect(() => { document.title = chartName.value ? `${chartName.value} – Dendra` : 'Dendra'; });
 
@@ -637,7 +638,7 @@ const Shell = (() => {
   const Window = () => html`
     <div class="shell">
       <${TitleBar} />
-      <${Bar} kind="formatbar" hidden=${current.value?.layout === 'table'} />
+      <${Bar} kind="formatbar" hidden=${current.value?.layout === 'table' || wide.value} />
       <${Bar} kind="formulabar" />
       <${Main} />
       <footer class="foot" data-region="tabs"><${Sheets} /><${Status} /></footer>
