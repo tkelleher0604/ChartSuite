@@ -987,7 +987,7 @@ const FormulaBar = (() => {
       const cls = 'tag' + (a !== undefined ? ' pend' + state(a?.tag) : state(o.tag) + (m.computed ? ' fx' : ''));
       return html`<span class=${'fx-out' + (m.covered ? ' over' : '')}><button class=${cls} data-tour="tag" aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
         onPointerEnter=${() => m.rec && preview(flipped(m), 'tag')} onPointerLeave=${() => pending.peek()?.from === 'tag' && previewDraft()}
-        onClick=${() => { if (!m.rec) return; preview(null); if (commit(flipped(m))) emit('tag-flip', m.id); }} /></span>`;
+        onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
     }
     if (a !== undefined && a?.value !== m.rec.value && pending.value.from !== 'value')
       return html`<span class="fx-out"><span class="del">${o.text}</span> <span class="add">${a ? Tree.outputText(a) : '—'}</span></span>`;

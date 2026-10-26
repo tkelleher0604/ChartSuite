@@ -219,6 +219,12 @@ function theSample() {
   const held = rowsOf(R, 'def_capacity_held'), flagged = held.filter(r => r.value === false).map(r => r.at).sort();
   check('Capacity Held rules out Okafor’s four authorities through GP III, where he is a member but not its managing member',
     flagged.join() === 'sign_okfr_3a,sign_okfr_aiv,sign_okfr_coinv,sign_okfr_fund' && held.filter(r => r.value === true).length === 9, flagged.join());
+  // What the checks rule out, each a problem: a computed record ruled out whose tree carries a Check note.
+  const N = WB.notes(CHART), failing = Object.keys(R.computed).filter(id => R.records[id].tag === false && N.check(Tree.treeOf(R.records, id)));
+  const by = d => failing.filter(id => R.computed[id].def === d).map(id => objOf(R, R.records[id].at)).sort().join();
+  check('The checks rule out 4: Okafor’s four authorities; a document not on file is a gap, not a check', failing.length === 4
+    && by('def_capacity_held') === flagged.join() && by('def_formation_on_file') === ''
+    && !Object.keys(R.computed).some(id => R.records[id].tag === false && R.computed[id].def === 'def_remote' && N.check(Tree.treeOf(R.records, id))), failing.map(id => R.computed[id].def).join());
 }
 
 // ---- The semantics ----

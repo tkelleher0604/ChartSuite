@@ -36,8 +36,7 @@
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar
 //   view-switch   another view is shown; its id         the shell        → the tour, time.js
-//   why-open      a computed record's reasons asked     inspector, canvas, formula bar, app → the bar
-//   tag-flip      a tag was attested or ruled out       inspector, table, formula bar  → the tour
+//   why-open      a computed record's reasons asked     inspector, canvas, app → the bar
 //   relate-open   two boxes' relations asked for [a, b] the canvas       → the inspector, the tour
 // Anything else one part asks of another is a call: FormulaBar.preview(change), App.change(fn), Canvas.zoom.
 // Shell.ready and Shell.launched are promises: the window is drawn; the launch screen is gone.

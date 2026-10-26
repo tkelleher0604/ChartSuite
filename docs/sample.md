@@ -1,6 +1,6 @@
 # The sample
 
-The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 145 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would.
+The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 136 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would.
 
 ## What's in it
 
@@ -25,7 +25,7 @@ Opened as of today, the chart has 885 entered records. The definitions work out 
   - the Cayman annual return and fee, audited accounts, CRS and FATCA.
 
   Each moves to the business day before a weekend where the rule says "on or before".
-- **Checks:** formation documents and governing agreements on file, **Percentages In Range** for every ownership, and **Capacity Held**. That one flags David R. Okafor, who signs through GP III without managing it.
+- **Checks**, definitions whose every ruled-out record is a problem: formation documents and governing agreements on file, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag twelve: David R. Okafor's four signing authorities through GP III, which he doesn't manage, and eight formation documents and governing agreements not on file.
 
 ## Views
 
@@ -41,11 +41,11 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page.
 
 ## What to look at first
 
-- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), 2 due soon, and 5 blanks where something is required.
+- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), 4 errors (David R. Okafor signs where he holds no capacity), 2 due soon, and 5 blanks where something is required.
 - **Why it holds:** select the dashed Close Affiliate line from the Fund III Blocker to the BDC, and step down through the reason in the formula bar.
 - **As of a day:** set the date to December 31, 2023. GP III is still the Cayman feeder's general partner; the change took effect on July 9, 2024.
 - **History:** it lists every change by who and when. Pick one to see the chart as it stood, and undo it if you need to.
 
 ## How it's kept
 
-The sample was converted from the earlier app's, and revised since by scripts that append changes through the Log API, never by editing past changes. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).
+The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, and the people's addresses. So every change in History is one of the three people's, and the chart as it stood after each works out as it did. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).

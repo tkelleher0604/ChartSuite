@@ -46,9 +46,17 @@ function run(json) {
   check('a node of a specification is a kind just where it is a leaf', Object.values(S).every(function leafy(t) {
     return t.args ? !('kind' in t) && t.out && t.args.every(a => leafy(a.loc) && !('field' in (a.loc.out ?? {}))) : t.kind !== undefined;
   }));
-  // 122 changes to October 20, 2026, the legal team's revisions after a general counsel's review, and Ownership
-  // Adds Up checked only where every owner is meant to be charted.
-  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 145, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  // 136 changes, each the legal team's own, the last its revisions after a general counsel's review in October
+  // 2026: what the app's building changed is folded into the rows it fixed.
+  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 136, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  {
+    const ever = wb.changes().flatMap(c => c.adds), added = new Map(ever.map(r => [r.id, r])), say = ({ id, ...r }) => j(r);
+    check('the sample’s log never held a placeholder address, a Fiscal Year End but as a day of the year, or a name since renamed',
+      ever.filter(r => r.edge === 'Email').every(r => /@calderridge\.com$/.test(r.value)) && ever.filter(r => r.edge === 'Fiscal Year End').every(r => r.field === 'yearly')
+      && !ever.some(r => /Fund Owned|"(Affiliates|Affiliated With|Clients|LLCs|Look-Through Investments|Delaware Annual Tax)"|BDC\.Affiliates\b/.test(say(r))));
+    const echoes = wb.changes().filter(c => c.removes.some(id => c.adds.some(r => Log.typeOf(r) === Log.typeOf(added.get(id)) && r[Log.typeOf(r)] === added.get(id)[Log.typeOf(r)] && say(r) === say(added.get(id)))));
+    check('no change in the sample puts back a row word for word, as a rename made elsewhere does', !echoes.length, echoes.map(c => c.id).join(' '));
+  }
 
   // ---- Patterns ----
   const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
@@ -117,6 +125,16 @@ function run(json) {
     && def('def_private_fund').name === 'Private Fund');
   const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
   check('relation names as formulas.js takes them', rels.length === 17 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
+  // The formula bar says a relation by its first side's list of the second where that reads as a predicate, and
+  // a tag described as "A …" as a noun: an investor in, a member of, a BDC affiliate.
+  const listOf = name => rels.find(r => r.name === name).lists;
+  check('lists as a lawyer writes them', listOf('Look-Through Ownership').Investor.Investment === 'Look-Through Investor In' && listOf('Membership').Member.LLC === 'Member Of'
+    && listOf('Investment Adviser').Adviser.Client === 'Adviser To' && /^A person that /.test(N.description({ args: [{ edge: 'BDC Affiliate', loc: tree('fund') }] })),
+    j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
+  // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
+  const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
+  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_in_range'])
+    && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(tree('fund_good')) && !N.check(patternOf('def_remote')) && !N.check(patternOf('def_formation_on_file')), j(checked));
 
   // ---- Time: as of a day ----
   const on = (d, id) => !!wb.asOf(C, d)[id];
