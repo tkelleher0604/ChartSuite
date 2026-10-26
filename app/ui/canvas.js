@@ -1062,7 +1062,8 @@ function mount(el) {
   // A wheel scrolls the page; with Ctrl, X6 zooms.
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
-  const stopDraw = effect(() => { App.scene.value; draw(); });
+  // A restyle is of the chart as it was: one that changes ends it.
+  const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); });
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo,
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,

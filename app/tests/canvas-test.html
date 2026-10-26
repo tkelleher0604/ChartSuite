@@ -154,8 +154,12 @@ async function run() {
   $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
   check('leaving the swatches ends the preview', fillOf('halvard') === App.scene.peek().byId.get('halvard').settings.Fill.value);
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
+  cv().nudge(1, 0); await tick(120);
+  check('a change to the chart ends a preview of it as it was', sc() === App.scene.peek() && fillOf('halvard') !== '#b4c7e7');
+  $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(40);
+  swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   await closeMenus(); await tick(80);
-  check('closing the palette ends it too', sc() === App.scene.peek() && App.wb.changes().length === changes);
+  check('closing the palette ends it too', sc() === App.scene.peek() && App.wb.changes().length === changes + 1);
   $('[data-fb="size"]').click(); await tick(120);
   const sizeOf = () => sc().byId.get('halvard').texts[0].look.Size;
   $$('.float .menu-item').find(e => txt(e) === '20').dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(80);
