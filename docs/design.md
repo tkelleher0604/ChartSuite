@@ -82,8 +82,9 @@ A page loads its scripts in this order:
 2. `css/base.css`, `css/shell.css` and the page's own CSS;
 3. in `<body>`, the core: `core/common.js`, `core/model.js`, `core/sample.js`, `core/formulas.js`, `core/styles.js`;
 4. where the workbook and its documents are kept: `../vendor/msal/msal-browser.min.js`, `core/sharepoint.js`, `core/documents.js` (what the chart records about documents, as the Documents area and a record's page list them), `core/store.js`. Every page loads these, so a change made on any page is saved wherever the workbook lives, and the sidebar's status is true;
-5. `ui/shell.js` and `ui/parts.js`;
-6. the area's own script, `ui/<area>.js`, which calls `Shell.start(…)`.
+5. `ui/shell.js`, `ui/parts.js` and `ui/tour.js`;
+6. a page that explains computed records (the record panel, the Calendar, Home) also loads `ui/why.js` and `css/why.css`, the one way a Why is drawn;
+7. the area's own script, `ui/<area>.js`, which calls `Shell.start(…)`.
 
 There is no build step, and no server: every page opens from a file.
 

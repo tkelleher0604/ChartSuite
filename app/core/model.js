@@ -1261,10 +1261,10 @@ function restoreChange(entry) {
   const changes = entry.changes;
   const ids = changes.map(c => c.id);
   const batch = changes.every(c => !c.after) && archive.find(b => sameRecord(Object.keys(b.records).sort(), [...ids].sort()));
-  if (batch) return restoreBatch(batch.id);
+  if (batch) return restoreBatch(batch.id, 'restore');
   if (changes.every(c => !c.before)) {
     const roots = ids.filter(k => !argsOf(entered[k]).some(a => ids.includes(a.at)));
-    return deleteRecords(roots, roots.length === 1 ? (isObject(entered[roots[0]]) ? objectName(roots[0]) : recordPhrase(records, roots[0])) : count(roots.length, 'record'));
+    return deleteRecords(roots, roots.length === 1 ? (isObject(entered[roots[0]]) ? objectName(roots[0]) : recordPhrase(records, roots[0])) : count(roots.length, 'record'), 'restore');
   }
   const next = { ...entered };
   for (const c of changes) if (c.before) next[c.id] = c.before; else delete next[c.id];
@@ -1628,16 +1628,16 @@ function withDependents(ids, recs = records) {
 // Only entered records are archived: computed ones go with what they were computed from, and come back
 // with it. The schema keeps their specifications, and every view keeps their box positions, so a restored
 // record returns as it was.
-function deleteRecords(ids, label) {
+function deleteRecords(ids, label, source = null) {
   const gone = withDependents(ids);
   const kept = Object.fromEntries([...gone].filter(k => entered[k]).map(k => [k, entered[k]]));
   const nextEntered = Object.fromEntries(Object.entries(entered).filter(([k]) => !gone.has(k)));
-  return change({ entered: nextEntered }, { after: () => { archive = [{ id: newId(), label, when: Date.now(), records: kept }, ...archive]; } });
+  return change({ entered: nextEntered }, { source, after: () => { archive = [{ id: newId(), label, when: Date.now(), records: kept }, ...archive]; } });
 }
 
 // Puts a deleted batch back. Something it depends on may have been deleted since, in which case that
 // needs restoring first.
-function restoreBatch(batchId) {
+function restoreBatch(batchId, source = null) {
   const batch = archive.find(b => b.id === batchId);
   const there = { ...records, ...batch.records };
   const missing = Object.values(batch.records).flatMap(argsOf).map(a => a.at).find(at => !there[at]);
@@ -1645,7 +1645,7 @@ function restoreBatch(batchId) {
     const other = archive.find(b => b.records[missing]);
     return other ? `Restore ${other.label} first; this depends on it.` : 'Something this depends on no longer exists.';
   }
-  const error = change({ entered: { ...entered, ...batch.records } }, { after: () => { archive = archive.filter(b => b !== batch); } });
+  const error = change({ entered: { ...entered, ...batch.records } }, { source, after: () => { archive = archive.filter(b => b !== batch); } });
   return error ? `Can’t restore it: ${error}` : null;
 }
 
