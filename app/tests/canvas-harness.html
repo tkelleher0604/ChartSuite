@@ -3,8 +3,13 @@
 <head>
 <meta charset="utf-8">
 <title>canvas harness</title>
+<link rel="stylesheet" href="../../vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="../../vendor/codemirror/show-hint.css">
+<link rel="stylesheet" href="../../vendor/codemirror/lint.css">
 <link rel="stylesheet" href="../css/dendra.css">
 <link rel="stylesheet" href="../css/canvas.css">
+<link rel="stylesheet" href="../css/inspector.css">
+<link rel="stylesheet" href="../css/formulabar.css">
 <script>
   try { localStorage.setItem('dendra.toured', '1'); } catch {}
   document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') || 'light';
@@ -16,8 +21,8 @@
 </head>
 <body>
 <div id="app"></div>
-<!-- The window with the canvas and the format bar in it, on the sample. Until the views part lands, this
-     page lists the views as tabs; and it can play gestures for screenshots:
+<!-- The window with the canvas and the format bar in it, and the parts beside them, on the sample. Until
+     the views part lands, this page lists the views as tabs; and it can play gestures for screenshots:
      canvas-harness.html?v=view_40act&do=select:fund,drag:fund:60:0&dress&tidy  -->
 <script src="../../vendor/preact/preact.min.umd.js"></script>
 <script src="../../vendor/preact/hooks.umd.js"></script>
@@ -30,6 +35,11 @@
 <script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
 <script src="../../vendor/x6/x6.min.js"></script>
 <script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../../vendor/codemirror/codemirror.js"></script>
+<script src="../../vendor/codemirror/simple.js"></script>
+<script src="../../vendor/codemirror/show-hint.js"></script>
+<script src="../../vendor/codemirror/lint.js"></script>
+<script src="../../vendor/codemirror/matchbrackets.js"></script>
 <script src="../core/tree.js"></script>
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
@@ -46,6 +56,8 @@
 <script src="../core/scene.js"></script>
 <script src="../ui/canvas.js"></script>
 <script src="../ui/formatbar.js"></script>
+<script src="../ui/inspector.js"></script>
+<script src="../ui/formulabar.js"></script>
 <script>
 const H = (() => {
   const q = new URLSearchParams(location.search);

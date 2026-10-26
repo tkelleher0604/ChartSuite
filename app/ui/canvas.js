@@ -529,7 +529,7 @@ function mount(el, src) {
   }
   graph.on('node:mouseenter', ({ node }) => { const m = scene.byId.get(node.id); if (m?.type === 'box' && !dragging) showHandles(m); });
   graph.on('node:mouseleave', ({ e }) => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
-  graph.on('scale translate', () => { showHandles(); paintStates(); fire('zoom', graph.zoom()); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { showHandles(); fire('zoom', graph.zoom()); });
   function startRelate(e, side) {
     const from = relateBox;
     if (!from) return;
