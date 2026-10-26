@@ -42,6 +42,7 @@ button.lk.muted { color: var(--ink-3); }
 .row > .k:has(> .cellbox, > .cell) { padding-top: 0; padding-bottom: 0; }
 .lbl { cursor: default; }
 .ruled > .k .lbl { color: var(--ink-3); }
+.failed > .k .lbl { color: var(--no); }
 .grip { position: absolute; left: calc(var(--depth, 0) * 16px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
 .grip > svg { width: 14px; height: 14px; }
 .row:hover > .grip, .grip:focus-visible { opacity: 1; }

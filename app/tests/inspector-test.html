@@ -293,6 +293,15 @@ async function run() {
   const closeAff = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Close Affiliate' && st()[k].args.some(a => Tree.objectOf(st(), a.at) === 'blocker'));
   Shell.select([closeAff]); await tick(60);
   check('… a side by its name, the way into its record said only where the side could be at another', rowOf('BDC')?.textContent.includes('Calder Ridge Capital BDC,\u00a0Inc.') && !rowOf('BDC').textContent.includes('›'), rowOf('BDC')?.textContent);
+  // A check that fails, as its definition's Check note says a ruling-out is, is an error in place, in red
+  const pctOf = Object.keys(st()).find(k => st()[k].at === 'own_us_fund' && st()[k].edge === 'Percentage'), pct0 = st()[pctOf].value;
+  const inRange = N().notes('Formula').find(n => n.pattern.args?.length === 1 && Tree.same(n.pattern.args[0].edge, 'Percentages In Range'));
+  App.change(tx => tx.update(pctOf, { value: 1.5 }));
+  if (inRange && N().value('Check', inRange.pattern) !== true) App.change(tx => tx.note('Check', inRange.pattern, true));
+  Shell.select(['own_us_fund']); await tick(60);
+  check('a check that fails is said in place, in red', rowOf('Percentages In Range')?.classList.contains('failed') && !rowOf('Percentages In Range').classList.contains('ruled')
+    && getComputedStyle(rowOf('Percentages In Range').querySelector('.lbl')).color !== getComputedStyle(rowOf('Owner').querySelector('.k')).color, rowOf('Percentages In Range')?.outerHTML.slice(0, 160));
+  while (st()[pctOf].value !== pct0) { Shell.parts.value.undo.undo(); await tick(30); }
   // A deadline: where it is, in words
   const deadline = Object.keys(st()).find(k => st()[k].edge === 'Annual Tax Due' && st()[st()[k].at]?.args);
   Shell.select([deadline]); await tick(60);

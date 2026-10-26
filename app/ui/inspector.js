@@ -425,6 +425,9 @@ function Label({ it, fx }) {
     ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}</span>`;
 }
 
+// A tag ruled out where its definition's Check note says that's a problem (Ownership Adds Up): an error,
+// said in place in red, where any other ruled out is quiet.
+const failed = id => N().value('Check', tree(id)) === true;
 // An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value.
 // A tag is a checkbox row, its box before its name, as the two-box panel draws one; its entries beneath it.
 function Entry({ it, at, depth }) {
@@ -433,7 +436,7 @@ function Entry({ it, at, depth }) {
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
   const k = html`<div class="k"><${Label} it=${it} fx=${f} /></div>`, v = html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
   return html`<div class="ent" data-drag=${r ? at : null}>
-    <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? ' ruled' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`} onKeyDown=${keyMenu}>
+    <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? (failed(it.id) ? ' failed' : ' ruled') : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`} onKeyDown=${keyMenu}>
       ${r ? html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, (from, i) => reorder(at, moved(sibs(), from, i)), g => entryMenu(g, it.id))}>${GRIP}</button>` : null}
       ${tag ? [v, k] : [k, v]}
     </div>
@@ -483,11 +486,11 @@ const plus = (label, run) => App.readOnly.value ? null : html`<button class="btn
 // A relative's other sides, but the one it's named as: "signs for the Manager", not "…, via the Manager".
 const further = it => it.rest.filter(a => objectOf(a.at) !== it.obj);
 // What a relation with a relative says: its role (its option or value, else the reason a formula gives it,
-// as the formula bar gives it, its words on hover), then at most three facts: a check that fails, in red
-// ("Capacity Held: No"); the others in it ("via GP III"); words, options and values recorded at it (a second
-// percentage saying which, "0% voting", where it says something else); dates (a start or an end saying so).
-// Words that say the role more fully ("Director (Chair)") are the role. The document that evidences it is a
-// link, to open.
+// as the formula bar gives it, its words on hover), then at most three facts: a tag ruled out, in red where
+// it's a check that fails ("Capacity Held: No"), or anywhere in a chart with no Check notes; the others in it
+// ("via GP III"); words, options and values recorded at it (a second percentage saying which, "0% voting",
+// where it says something else); dates (a start or an end saying so). Words that say the role more fully
+// ("Director (Chair)") are the role. The document that evidences it is a link, to open.
 function detail(it) {
   const rel = recs()[it.rid], firsts = new Map(), at = slots(it.rid).filter(s => s.id).map(s => [s.id, recs()[s.id]]);
   const value = f => { const v = T.format(f.field, f.value), first = firsts.get(f.field);
@@ -498,7 +501,7 @@ function detail(it) {
   const words = [...at.filter(([, e]) => 'choice' in e).map(([, e]) => e.choice), ...at.filter(([, e]) => e.field === 'text').map(([, e]) => e.value)];
   let role = 'choice' in rel ? rel.choice : 'field' in rel ? T.format(rel.field, rel.value) : at.some(([, e]) => 'choice' in e) ? words[0] : null;
   role = (role && words.find(w => w.length > role.length && T.norm(w).startsWith(T.norm(role)))) ?? role;
-  const facts = [...at.filter(([, e]) => e.tag === false).map(([, e]) => ({ text: `${e.edge}: No`, no: true })),
+  const facts = [...at.filter(([, e]) => e.tag === false).map(([id, e]) => ({ text: `${e.edge}: No`, no: !N().notes('Check').length || failed(id) })),
     ...further(it).map(a => ({ text: `${lower(a.edge)} ${termOf(a.at)}` })),
     ...words.filter(w => !(role && T.same(w, role))).map(text => ({ text })),
     ...at.filter(([, e]) => 'field' in e && !['text', 'date', 'document'].includes(e.field)).map(([, e]) => ({ text: value(e) })).filter(f => f.text),
