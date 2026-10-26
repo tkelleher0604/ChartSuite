@@ -259,6 +259,49 @@ async function run() {
   const toast = txt($$('.toast').at(-1));
   check('a record deleted as of a past day says so', /^Deleted Halvard.* as of Jun 30, 2025/.test(toast), toast);
   Shell.at(null); await tick(100);
+
+  // ---- What's drawn is the scene, however it came to be: after edits, views shown in turn, previews and
+  // undoing, each cell shown is where the scene puts it, saying what it says, stacked in its order, and no
+  // other cell is shown ----
+  const j = x => JSON.stringify(x);
+  const drawnAsScene = () => {
+    const s = sc(), shown = cv().graph.getCells().filter(c => c.isVisible() && c.id !== '·page'), want = new Map(), bad = [];
+    s.marks.forEach((m, i) => {
+      if (m.geometry !== 'group') want.set(m.id, [m, i]);
+      if (m.type === 'line' && m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) want.set(`${m.id}·label`, [m, i + 0.5]);
+    });
+    const texts = ms => JSON.stringify(ms.flatMap(t => t.children?.map(c => c.textContent) ?? []));
+    for (const c of shown) {
+      const [m] = want.get(c.id) ?? [];
+      if (!m) bad.push(`${c.id} drawn`);
+      else if (c.id.endsWith('·label')) { const p = c.getPosition(); if (p.x !== m.labelAt.x || p.y !== m.labelAt.y) bad.push(`${c.id} at ${p.x},${p.y}`); }
+      else if (c.isEdge()) { if (j([c.getSource(), ...c.getVertices(), c.getTarget()].map(p => [p.x, p.y])) !== j(m.points)) bad.push(`${c.id} routed otherwise`); }
+      else {
+        const p = c.getPosition(), z = c.getSize();
+        if (p.x !== m.x || p.y !== m.y || z.width !== Math.max(1, m.w) || z.height !== Math.max(1, m.h)) bad.push(`${c.id} at ${p.x},${p.y} ${z.width}×${z.height}`);
+        if (m.type === 'box' && texts(c.getMarkup().slice(1)) !== j(m.texts.flatMap(it => it.lines.map(l => l.text)))) bad.push(`${c.id} says otherwise`);
+      }
+    }
+    for (const id of want.keys()) if (!shown.some(c => c.id === id)) bad.push(`${id} not drawn`);
+    const order = shown.sort((a, b) => a.getZIndex() - b.getZIndex()).map(c => want.get(c.id)?.[1]);
+    if (order.some((x, i) => i && x < order[i - 1])) bad.push('stacked out of order');
+    return bad;
+  };
+  const steps = [], step = async (what, f) => { await f(); await tick(120); const bad = drawnAsScene(); if (bad.length) steps.push(`${what}: ${bad.slice(0, 3).join(', ')}`); };
+  const mainView = charts()[0], bar = () => $('.fx-out button.tag');
+  await step('shown', () => show(mainView));
+  await step('a name', () => App.change(tx => tx.update('fund_name', { value: 'Calder Ridge Capital Partners III-A, L.P.' })));
+  await step('a tag', () => App.change(tx => tx.update('fund_good', { tag: false })));
+  for (const v of [...charts().slice(1), mainView]) await step(`${v.name} shown`, () => show(v));
+  await step('a style', () => App.change(tx => tx.note('Fill', { kind: 'Entity' }, '#fbe5d6', { view: mainView.id }), { dated: false }));
+  await step('a box hidden', () => App.change(tx => tx.note('Shown', Tree.treeOf(App.state.peek(), 'gp'), false, { view: mainView.id }), { dated: false }));
+  await step('a ruling redlined', async () => { Shell.select(['own_us_fund']); await tick(120); bar()?.dispatchEvent(new PointerEvent('pointerenter')); });
+  await step('… and not', () => bar()?.dispatchEvent(new PointerEvent('pointerleave')));
+  await step('a hidden box revealed', () => Shell.parts.peek().canvas.reveal(['gp']));
+  await step('… and not', () => Shell.parts.peek().canvas.reveal(null));
+  for (let i = 0; i < 4; i++) await step(`undone ${i + 1}`, () => Shell.parts.peek().undo.undo());
+  for (const v of [charts()[1], mainView]) await step(`${v.name} shown again`, () => show(v));
+  check('what the canvas draws is the scene, after edits, views shown in turn, previews and undoing', !steps.length, steps.join('; '));
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

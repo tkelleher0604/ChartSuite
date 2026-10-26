@@ -4,11 +4,13 @@
 // The only page it touches is a canvas, to measure text. Units are CSS pixels, 96 to the inch, as the browser
 // and X6 draw them; a Size or a Weight is in points, as Office gives them, each PT pixels.
 //
-// Scene.of(wb, chart, view, day, { state, computed?, reveal, redline, paper? }) →
+// Scene.of(wb, chart, view, day, { state, computed?, reveal, redline, paper?, ahead? }) →
 //   { chart, view, day, page: { size, w, h, scale, margin, sheet }, marks, byId, styles, legend, ms }
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
 // text is a formula. `paper`, a size in PAGES, draws the view on that paper in place of its own page (see the
-// page). `marks` are in drawing order: frames, lines, boxes, then free shapes, each by its Layer.
+// page). `ahead` lays out a state a change previewed would leave, so it's drawn at once when the change is
+// made, and isn't kept as how the view was drawn. `marks` are in drawing order: frames, lines, boxes, then
+// free shapes, each by its Layer.
 // A box, line or frame has `settings`: { [property]: { value, note } }, the note null where nothing in the
 // chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
 // from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
@@ -626,7 +628,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
-  const laid = !preview && !opts.paper ? {
+  const laid = !preview && !opts.paper && !opts.ahead ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
@@ -643,7 +645,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   ];
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; if (m.type !== 'shape') delete m.ends; }
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
-  if (!preview) drawnFrom.set(whence, { from, scene, laid });
+  if (!preview && !opts.ahead) drawnFrom.set(whence, { from, scene, laid });
   return scene;
 }
 // A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.

@@ -102,16 +102,23 @@ const marker = (on, w) => on ? { name: 'block', width: 5 + w * 3, height: 4 + w 
 // behind it shows through its name.
 const FAINT = 0.55;
 
-// A cell in two parts, as JSON: where it is, which moving it changes, and what it is.
+// A cell in two parts, as JSON: where it is, which moving it changes, each of its keys apart; and what it is.
 const WHERE = new Set(['x', 'y', 'width', 'height', 'zIndex', 'source', 'target', 'vertices', 'connector']);
 function partsOf(c) {
-  const where = [], what = [];
-  for (const k in c) (WHERE.has(k) ? where : what).push(k, c[k]);
-  return { where: JSON.stringify(where), what: JSON.stringify(what) };
+  const where = {}, what = [];
+  for (const k in c) if (WHERE.has(k)) where[k] = JSON.stringify(c[k]); else what.push(k, c[k]);
+  return { where, what: JSON.stringify(what) };
 }
-// Where a cell is, as X6 keeps it.
-const placeOf = c => c.shape === 'edge' ? { source: c.source, target: c.target, vertices: c.vertices, connector: c.connector, zIndex: c.zIndex }
-  : { position: { x: c.x, y: c.y }, size: { width: c.width, height: c.height }, zIndex: c.zIndex };
+// A cell moved to where `c` puts it, each key of that set alone where it differs from `was`, as X6 replaces it so.
+function moveCell(cell, c, was) {
+  const moved = (...ks) => ks.some(k => was[k] !== JSON.stringify(c[k]));
+  if (cell.isEdge()) { for (const k of ['source', 'target', 'vertices', 'connector']) if (moved(k)) cell.setProp(k, c[k]); }
+  else {
+    if (moved('x', 'y')) cell.setPosition(c.x, c.y);
+    if (moved('width', 'height')) cell.setSize(c.width, c.height);
+  }
+  if (moved('zIndex')) cell.setZIndex(c.zIndex);
+}
 
 // The cells for a scene, by id, each with what it's drawn from, to redraw only what changed.
 function cellsOf(scene) {
@@ -303,8 +310,8 @@ function mount(el) {
       for (const c of cells) {
         const was = drawn.get(c.id), cell = was && graph.getCellById(c.id), now = partsOf(c);
         if (cell && cell.isEdge() === (c.shape === 'edge') && (was.what === now.what || cell.isNode())) {
-          if (was.what !== now.what) cell.prop({ markup: c.markup, data: c.data });
-          if (was.where !== now.where) cell.prop(placeOf(c));
+          if (was.what !== now.what) { cell.setMarkup(c.markup); cell.setData(c.data, { overwrite: true }); }
+          moveCell(cell, c, was.where);
           if (!cell.isVisible()) cell.setVisible(true);
         } else { if (cell) graph.removeCell(cell); c.shape === 'edge' ? graph.addEdge(c) : graph.addNode(c); }
         drawn.set(c.id, now);
@@ -482,7 +489,7 @@ function mount(el) {
   // While a box moves, its lines follow and its frames grow round it; a frame carries its members.
   // What's moved or redrawn so is no longer as the scene drew it, and is put right by the next draw.
   let pending = 0;
-  const astray = (id, looks = false) => { const d = drawn.get(id); if (d) { d.where = null; if (looks) d.what = null; } };
+  const astray = (id, looks = false) => { const d = drawn.get(id); if (d) { d.where = {}; if (looks) d.what = null; } };
   function follow(node) {
     const m = scene.byId.get(node.id);
     astray(node.id);
@@ -846,6 +853,20 @@ function mount(el) {
     const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(hidden).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
     if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
+    ahead();
+  }
+  // The chart as a change previewed would leave it, redlined or restyled, is laid out ahead once the window is
+  // idle, however big, so that making the change draws at once: Layout keeps what it works out by what it
+  // reads, and the scene drawn then reads the same.
+  let aheadOf = null;
+  function ahead() {
+    const base = App.scene.peek(), wb = styled ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
+    if (!base || !state || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
+    if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base) return;
+    const mine = aheadOf = { wb, state, base };
+    requestIdleCallback(() => {
+      if (aheadOf === mine && App.scene.peek() === base) Scene.of(wb, App.chart.peek(), base.view, base.day, { state, computed: App.computed.peek(), ahead: true });
+    });
   }
 
   // ---- Commands ----

@@ -348,7 +348,81 @@ function Canvas_writeNote(tx, N, { label, pattern, view }, value) {
   if (value === undefined) { if (old) tx.remove(old.note); } else if (old) tx.set(old.note, row); else tx.add('note', row);
 }
 
-Promise.resolve().then(run)
+// ---- Drawn again ----
+
+// Every chart view drawn as the app draws it, the chart worked out from the working-out before (or from
+// nothing); then the main view redlined with its first ownership ruled out, as the formula bar previews it, and
+// with a few records it hides revealed, each over the view as it was last drawn. → [R, { [what]: scene as JSON }]
+function drawAll(wb, before = null) {
+  const N = wb.notes(C), S = wb.schema(C), defs = N.definitions(S), names = { relations: N.relations(S), schema: S }, entered = wb.asOf(C, DAY);
+  const R = Formulas.computeState(entered, defs, names, before), st = R.records, out = {};
+  const said = ({ page, marks, styles, legend }) => JSON.stringify({ page, marks, styles, legend });
+  for (const v of (Tree.index(st).kinds.get('view') ?? []).filter(v => !N.value('Layout', { id: v, kind: 'View' })).sort())
+    out[v] = said(Scene.of(wb, C, v, DAY, { state: st, computed: R }));
+  const main = Scene.of(wb, C, MAIN, DAY, { state: st, computed: R }), own = Object.keys(entered).sort().find(id => entered[id].tag && entered[id].args?.some(a => a.edge === 'Owner'));
+  if (own) {
+    const R2 = Formulas.computeState({ ...entered, [own]: { ...entered[own], tag: false } }, defs, names, before && R), d = Formulas.diff(R, R2);
+    out.redlined = said(Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, redline: { state: R2.records, appear: new Set(d.appear), go: new Set(d.go), changed: new Map(d.change.map(id => [id, st[id]])) } }));
+  }
+  const hidden = Object.keys(st).filter(id => (Tree.isObject(st[id]) || st[id].args?.length === 2) && !Tree.isView(st[id]) && !main.byId.has(id)).sort();
+  out.revealed = said(Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, reveal: hidden.filter((_, i) => i % 7 === 0).slice(0, 4) }));
+  return [R, out];
+}
+// The same drawn in a page that has kept nothing: this one, opened afresh, the log saved and opened there.
+const drawnAfresh = json => new Promise((done, fail) => {
+  const f = document.createElement('iframe');
+  f.src = `${location.pathname.split('/').pop()}?fresh`;
+  f.style.display = 'none';
+  f.onload = () => { try { done(f.contentWindow.drawFresh(json)); } catch (e) { fail(e); } finally { f.remove(); } };
+  document.body.appendChild(f);
+});
+
+// Edits of every kind to the sample, chosen at random (from a fixed seed), one after another, each with the
+// views drawn after it as the app draws them, from the working-out before and what every scene before kept:
+// each must be the same as drawn from nothing, in a page that has kept nothing.
+async function drawnAgain() {
+  let seed = 7, k = 0;
+  const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = xs => xs[Math.floor(rand() * xs.length)], ids = (r, f) => Object.keys(r).filter(x => f(r[x])).sort();
+  const pct = () => Math.round(rand() * 100) / 100, entity = st => pick(ids(st, x => x.kind === 'Entity'));
+  const VIEWS = ['view_main', 'view_40act', 'view_fund3', 'view_control'];
+  const kinds = [
+    ['a percentage', (tx, st) => { const id = pick(ids(st, x => x.edge === 'Percentage')); if (id) tx.update(id, { value: pct() }); }],
+    ['a name', (tx, st) => { const id = pick(ids(st, x => x.edge === 'Name' && st[x.at]?.kind === 'Entity')); if (id) tx.update(id, { value: `${st[id].value} II` }); }],
+    ['a tag', (tx, st) => { const id = pick(ids(st, x => 'tag' in x)); if (id) tx.update(id, { tag: !st[id].tag }); }],
+    ['an entity type', (tx, st) => { const id = pick(ids(st, x => x.edge === 'Entity Type')); if (id) tx.update(id, { choice: pick(['Limited Partnership', 'Limited Liability Company', 'Corporation']) }); }],
+    ['an ownership added', (tx, st) => { const a = entity(st), b = entity(st); if (a === b) return;
+      const o = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: pct() }); }],
+    ['an ownership removed', (tx, st) => { const id = pick(ids(st, x => x.args?.some(a => a.edge === 'Owner'))); if (id) tx.remove(id); }],
+    ['an entity added', (tx, st) => { const e = tx.add('record', { kind: 'Entity' });
+      tx.add('record', { at: e, edge: 'Name', field: 'text', value: `Random Holdings ${k}, LLC` });
+      tx.add('record', { args: [{ edge: 'Owner', at: entity(st) }, { edge: 'Owned', at: e }], tag: true }); }],
+    ['an entity removed', (tx, st) => { const id = entity(st); if (id) tx.remove(id); }],
+    ['a style', tx => tx.note('Fill', { out: { choice: pick(['Limited Partnership', 'Limited Liability Company']) }, args: [{ edge: 'Entity Type', loc: {} }] }, pick(['#e2f0d9', '#fbe5d6', undefined]), { view: pick(VIEWS) })],
+    ['a box hidden', (tx, st) => { const id = entity(st); if (id) tx.note('Shown', Tree.treeOf(st, id), false, { view: pick(VIEWS) }); }],
+    ['a box moved', (tx, st) => { const id = entity(st); if (id) tx.note('Position', Tree.treeOf(st, id), { x: Math.round(rand() * 900), y: Math.round(rand() * 500), w: 132 }, { view: MAIN }); }],
+    ['a position taken away', (tx, st, N) => { const n = pick(N.notes('Position')); if (n) tx.remove(n.note); }],
+    ['a text box', tx => tx.add('shape', { view: pick(VIEWS), geometry: 'text', text: `Note ${k}`, x: Math.round(rand() * 900), y: Math.round(rand() * 500) })],
+  ];
+  const wb = Log.open(SAMPLE), differ = [];
+  let [R] = drawAll(wb), edits = 0;
+  for (; k < 30; k++) {
+    const [what, f] = pick(kinds), tx = wb.edit({ chart: C, who: WHO });
+    f(tx, wb.asOf(C, DAY), wb.notes(C));
+    const c = tx.commit();
+    if (!c || typeof c === 'string') continue;
+    edits++;
+    const [R2, now] = drawAll(wb, R), fresh = await drawnAfresh(JSON.stringify(wb));
+    const bad = Object.keys(fresh).filter(x => now[x] !== fresh[x]);
+    if (bad.length || Object.keys(now).length !== Object.keys(fresh).length) differ.push(`${what} (${k}): ${bad.join(', ')}`);
+    R = R2;
+  }
+  check('Random edits to the sample, each view drawn after each as the app draws it, are drawn as from nothing, redlined and revealed too',
+    edits >= 20 && !differ.length, `${edits} edits${differ.length ? `; ${differ.join('; ')}` : ', none differ'}`);
+}
+
+if (location.search.includes('fresh')) window.drawFresh = json => drawAll(Log.open(json))[1];
+else Promise.resolve().then(run).then(drawnAgain)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);
