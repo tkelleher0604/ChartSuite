@@ -99,19 +99,18 @@ function elkPlace(boxes, links, clusters, options) {
   walk(root, 0, 0);
   return out;
 }
-// Boxes in rows by rank, each a step below everything that ranks it, left to right in the order given.
+// Boxes in rows by rank, each a step below everything that ranks it (a box in a loop, in the top row), left to
+// right in the order given.
 function rows(boxes, links) {
-  const above = new Map(boxes.map(b => [b.id, []]));
-  for (const l of links) if (above.has(l.to) && above.has(l.from) && l.from !== l.to) above.get(l.to).push(l.from);
-  const rank = new Map();
-  const rankOf = id => {
-    if (rank.has(id)) return rank.get(id) ?? 0;
-    rank.set(id, null);
-    const r = Math.max(-1, ...above.get(id).map(rankOf)) + 1;
-    rank.set(id, r);
-    return r;
-  };
-  const out = new Map(), byRank = groupBy(boxes, b => rankOf(b.id));
+  const below = new Map(boxes.map(b => [b.id, []])), over = new Map(boxes.map(b => [b.id, 0])), rank = new Map();
+  for (const l of links) if (below.has(l.from) && below.has(l.to) && l.from !== l.to) { below.get(l.from).push(l.to); over.set(l.to, over.get(l.to) + 1); }
+  const ready = boxes.filter(b => !over.get(b.id)).map(b => b.id);
+  for (const id of ready) for (const to of below.get(id)) {
+    rank.set(to, Math.max(rank.get(to) ?? 0, (rank.get(id) ?? 0) + 1));
+    over.set(to, over.get(to) - 1);
+    if (!over.get(to)) ready.push(to);
+  }
+  const out = new Map(), byRank = groupBy(boxes, b => over.get(b.id) ? 0 : rank.get(b.id) ?? 0);
   let y = 0;
   for (const r of [...byRank.keys()].sort((a, b) => a - b)) {
     let x = 0;
