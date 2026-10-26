@@ -22,7 +22,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-link { border: 0; padding: 0; background: none; font: inherit; color: var(--ink-2); text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; }
 .fx-link:hover { color: var(--ink); text-decoration-style: solid; }
 .fx-delta { display: flex; gap: 16px; font: var(--t13); color: var(--ink-2); }
-.fx-delta b { font-weight: 600; }
+.fx-delta b { font-weight: 500; }
 .fx-delta .plus { color: var(--accent-ink); }
 .fx-delta .minus { color: var(--no); }
 .fx-delta .changed { color: var(--due); font-weight: 500; }
@@ -57,6 +57,20 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-labels > button:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 .fx-labels > button + button::before { content: "·"; display: inline-block; padding: 0 8px; color: var(--rule-2); }
 
+/* ---- Why, in words: the facts that fired, as a sentence, in the bar's row where it fits and over the rows ----
+   Each fact is a quiet button, its point in weight (italic where a formula gave it) and in the hue its records
+   are outlined in on the chart; the clause that gave each, in ink-3. */
+.fx-inline > .fx-why { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.fx-why b { font-weight: 600; }
+.fxbar .fx-why b.fx-rf { font-weight: 600; }
+.fx-why b.fx { font-style: italic; }
+.fx-cite { color: var(--ink-3); }
+.fx-fact.go { border-radius: 2px; cursor: pointer; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.fx-fact.go:hover { background: var(--hover); box-shadow: 0 0 0 2px var(--hover); }
+.fx-fact.go:focus-visible { outline-offset: 1px; }
+.fx-said { padding: 4px 0 11px; margin-bottom: 7px; border-bottom: 1px solid var(--rule); }
+.fx-said > .fx-why { display: block; max-width: 112ch; text-wrap: pretty; }
+
 /* ---- The rows, over the view: a label column, then the formula; delete and reorder on hover ---- */
 .fx-panel { position: absolute; z-index: 10; top: calc(100% + 1px); left: 0; width: var(--fx-w, 100%); max-height: min(40vh, 400px); overflow: auto;
   padding: 8px 16px 4px 16px; white-space: normal; background: var(--surface); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow-pop); clip-path: inset(0 0 -32px 0); }
@@ -76,6 +90,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 /* A row that can be edited looks it on hover; the one being edited is a field, outlined as an input in focus. */
 .fx-row.editable:not(.editing) > .fx-cm:hover .CodeMirror { background: var(--hover); border-radius: var(--r); }
 .fx-row.editing > .fx-cm .CodeMirror { background: var(--surface); border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 1px var(--accent); }
+.fx-row.editing .CodeMirror-focused { outline: none; }   /* the row's ring is the focus ring; one, not two */
 .fx-row.editing .CodeMirror { color: var(--ink); }
 /* A row whose delete is under the pointer reads as it would go. */
 .fx-row:has(> .fx-x:hover) :is(.fx-label, .CodeMirror) { color: var(--no); text-decoration: line-through; }
