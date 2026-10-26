@@ -247,8 +247,8 @@ function makeLoop() {
 
 const cases = {
   async close() { Shell.select([CLOSE_NP]); },
-  async hover() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), '@'); },
-  async hoverlist() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), 'Personnel'); },
+  async hover() { Shell.select([CLOSE_NP]); await wait(80); await openRows(); hoverOn(citedKey(), '@'); },
+  async hoverlist() { Shell.select([CLOSE_NP]); await wait(80); await openRows(); hoverOn(citedKey(), 'Personnel'); },
   async step() { Shell.select([CLOSE_NP]); await wait(80); Shell.emit('why-open', AP_NP_CHEN); },
   async rows() { Shell.select([CLOSE_NP]); await wait(80); await openRows(); },
   async type() { Shell.select([OKAFOR_GP]); await wait(80); await openRows(); typeIn('r2', '> ', '6', 1); },
@@ -324,14 +324,51 @@ async function checks() {
     && !['northpine', 'corvane', 'feeder', 'fx:controlled=northpine&controller=chen'].some(id => F().map.has(id)), [...F().map.keys()].join(' '));
   Shell.select([CLOSE_NP]); await wait(40);
 
+  // The chevron says what it will do, and so does its key in Find
+  const chevron = () => document.querySelector('.fx-open')?.getAttribute('aria-label'), action = () => Shell.parts.peek().action.find(a => a.id === 'formulas').name;
+  const closed = [chevron(), action()];
+  await openRows();
+  check('the chevron, and its key, say what they will do: expand, then collapse', closed.join() === 'Expand formula bar,Expand formula bar'
+    && chevron() === 'Collapse formula bar' && action() === 'Collapse formula bar' && document.querySelector('.fx-open').dataset.tip === 'Collapse formula bar', `${closed} | ${chevron()} | ${action()}`);
+
   // Stepping down, as a click on a lit line does, and back
   Shell.emit('why-open', AP_NP_CHEN); await wait(40);
   m = M();
   check('stepping down: into the clause the parent cited, (C), not the first that holds', m.title === 'Affiliated Person' && m.clause === '(C)' && m.rows.find(r => r.cited)?.label === '(C)',
     `${m.title} ${m.clause} ${m.rows.find(r => r.cited)?.label}`);
   check('the breadcrumb names where it came from', [...document.querySelectorAll('.fx-crumb')].map(b => b.textContent).join(' › ') === 'Close Affiliate', document.querySelector('.fx-crumb')?.textContent);
+  check('… the rows still open: a step down isn’t a new selection', !!document.querySelector('.fx-panel'));
   FormulaBar.back(); await wait(40);
-  check('and steps back to it', M().id === CLOSE_NP && !document.querySelector('.fx-crumb'));
+  check('and steps back to it', M().id === CLOSE_NP && !document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel'));
+  Shell.select([REMOTE_NS]); await wait(40);
+  check('the rows close when the selection changes', !document.querySelector('.fx-panel') && !FormulaBar.open.peek() && chevron() === 'Expand formula bar');
+  // … unless a row is being edited: the bar holds still, its rows open
+  Shell.select([OKAFOR_GP]); await wait(40); await openRows();
+  typeIn('r2', '> 25%', ' AND '); await wait(20);
+  Shell.select([REMOTE_NS]); await wait(40);
+  check('… unless a row is being edited, when the bar holds still', M().id === OKAFOR_GP && !!document.querySelector('.fx-panel .fx-row.editing'));
+  // Esc steps back a layer at a time: the edit, then the rows
+  Shell.select([OKAFOR_GP]); await wait(20);
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
+  check('Esc discards the edit and keeps the rows', !FormulaBar.draft.peek() && !!document.querySelector('.fx-panel'));
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
+  check('… and Esc again closes them', !document.querySelector('.fx-panel'));
+  // The rows never cover what they're about: dropped, the boxes of the record worked out are brought into the
+  // view below them, as a wheel scrolls the chart. Here a chart of two boxes: GP III's under the rows, Okafor's
+  // half past the view's right edge, as at 1024 with the inspector beside it.
+  const view = document.querySelector('.shell > .main > .view'), graph = Object.assign(document.createElement('div'), { className: 'dc-graph' });
+  graph.style.cssText = 'position: absolute; inset: 0; overflow: hidden; pointer-events: none';
+  graph.innerHTML = '<div data-cell-id="okafor"></div><div data-cell-id="gp"></div>';
+  const shift = { x: 0, y: 0 }, put = () => [[view.clientWidth - 40, 20], [100, 40]].forEach(([x, y], i) => { graph.children[i].style.cssText = `position: absolute; width: 80px; height: 40px; left: ${x + shift.x}px; top: ${y + shift.y}px`; });
+  graph.addEventListener('wheel', e => { shift.x -= e.deltaX; shift.y -= e.deltaY; put(); });
+  put(); view.append(graph);
+  await openRows();
+  const room = view.getBoundingClientRect(), below = document.querySelector('.fx-panel').getBoundingClientRect().bottom;
+  const inRoom = [...graph.children].map(b => b.getBoundingClientRect()).every(b => b.left >= room.left && b.right <= room.right && b.top >= below && b.bottom <= room.bottom);
+  check('the rows dropped, the boxes they’re about are brought clear of them and into the view', inRoom && shift.y > 0 && shift.x < 0, JSON.stringify(shift));
+  typeIn('r2', '> 25%', ' AND '); await wait(20);
+  check('… and as a row is edited, they stay clear of it', [...graph.children].every(b => b.getBoundingClientRect().top >= document.querySelector('.fx-panel').getBoundingClientRect().bottom), JSON.stringify(shift));
+  FormulaBar.discard(); graph.remove(); document.querySelector('.fx-open').click(); await wait(20);
 
   // Nothing selected: the view's name, as Excel's Name Box names the cell
   Shell.select([]); await wait(40);
@@ -340,13 +377,11 @@ async function checks() {
 
   // Why, in words: the facts that fired, a sentence over the rows
   const said = () => document.querySelector('.fx-said')?.textContent;
-  Shell.select([REMOTE_NS]); await wait(40);
-  await openRows();
+  const saidOf = async keys => { Shell.select(keys); await wait(40); await openRows(); return said(); };
   check('why, in words: Northstar’s 7% makes it an affiliated person, so a remote affiliate',
-    said() === 'Northstar Teachers’ Retirement System is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person of the BDC (§2(a)(3)(A)), so it is a remote affiliate of the BDC (§57(e)(1)(A)).', said());
-  Shell.select([CLOSE_BLK]); await wait(40);
+    await saidOf([REMOTE_NS]) === 'Northstar Teachers’ Retirement System is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person of the BDC (§2(a)(3)(A)), so it is a remote affiliate of the BDC (§57(e)(1)(A)).', said());
   check('… and the Blocker a close affiliate, through Chen, a director who controls it',
-    said() === 'Margaret A. Chen is a director of the BDC and a controller of Fund III Blocker (§2(a)(9), presumed), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
+    await saidOf([CLOSE_BLK]) === 'Margaret A. Chen is a director of the BDC and a controller of Fund III Blocker (§2(a)(9), presumed), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
   const facts = [...document.querySelectorAll('.fx-said .fx-fact.go')];
   check('each fact is a button; hovered, its records pulse on the chart', facts.length === 3 && (facts[1].dispatchEvent(new PointerEvent('pointerenter')), (StandIn.hl.peek()?.pulse ?? []).length > 0));
   facts[1].dispatchEvent(new PointerEvent('pointerleave'));
@@ -355,24 +390,35 @@ async function checks() {
     `${M().title} ${M().clause}`);
   FormulaBar.back(); await wait(40);
   // Words: a role with its article, a verb a list names, one subject said once, a default with its facts
-  Shell.select(['fx:capacity held=sign_chen_fund']); await wait(40);
-  check('a role with its article, after a clause with more to say', /^Margaret A\. Chen .*Fund III, via GP III, with a capacity of Managing Member and is a managing member of GP III, so Capacity Held is Yes \(Managing member\)\.$/.test(said() ?? ''), said());
-  Shell.select(['fx:tax classification=northpine_type']); await wait(40);
-  check('a default, said with the facts the rows before it read', said() === 'Northpine Software, LLC’s entity type is Limited Liability Company, so its tax classification is Partnership (Otherwise).', said());
-  Shell.select(['fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris']); await wait(40);
-  check('every fact said, about one subject together, none left as "and 2 more"', /^Fund III’s entity type is Limited Partnership, its vehicle type is Main Fund, its jurisdiction is Delaware, its annual tax paid is .+? and the tax year is 2026, so/.test(said() ?? ''), said());
+  check('a role with its article, after a clause with more to say; a tag that isn’t a noun, as a condition that holds',
+    /^Margaret A\. Chen .*Fund III, via GP III, with a capacity of Managing Member and is a managing member of GP III, so Capacity Held holds \(Managing member\)\.$/.test(await saidOf(['fx:capacity held=sign_chen_fund']) ?? ''), said());
+  check('… and a tag of an object, for it', await saidOf(['fx:ownership adds up=fund']) === 'U.S. Investors is an owner of Fund III with a percentage of 71.6% and Offshore Feeder is an owner of Fund III with a percentage of 28.4%, so Ownership Adds Up holds for Fund III (Owners recorded).', said());
+  check('a default, said with the facts the rows before it read', await saidOf(['fx:tax classification=northpine_type']) === 'Northpine Software, LLC’s entity type is Limited Liability Company, so its tax classification is Partnership (Otherwise).', said());
+  check('every fact said, about one subject together, none left as "and 2 more"; a date of what was done, as done then', /^Fund III’s entity type is Limited Partnership, its vehicle type is Main Fund, its jurisdiction is Delaware, it paid its annual tax on .+? and the tax year is 2026, so/.test(await saidOf(['fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris']) ?? ''), said());
+  check('… its annual return filed on a day, and Form D last filed on one', /and it filed its annual return on January 20, 2026, so its annual return is due/.test(await saidOf(['fx:annual return due=feeder_juris']) ?? '')
+    && /^Offering Open holds for the BDC and the BDC last filed on November 10, 2025, so its Form D is due/.test(await saidOf(['fx:form d due=bdc_regd']) ?? ''), said());
+  // No tag is said as "is Yes", nor any value as a bare yes or no, whatever the record
+  const says = [];
+  for (const def of App.definitions.peek()) { const id = Object.keys(R().computed).find(k => R().computed[k].def === def.id); if (id) says.push(await saidOf([id])); }
+  check('no record is said as “is Yes” or “is No”', says.length > 20 && !says.some(s => /\bis (Yes|No)\b/.test(s ?? '')), says.find(s => /\bis (Yes|No)\b/.test(s ?? '')));
   // The rule, not the sample's words: an owner's list of what it owns named "Investor In" says so
   const own = App.notes.peek().notes('Name').find(n => n.value === 'Ownership' && !n.param && n.pattern.args?.length === 2);
   App.change(tx => tx.note('Name', own.pattern, 'Investor In', { param: 'Owned' })); await wait(40);
-  Shell.select([REMOTE_NS]); await wait(40);
-  check('a list named as a predicate is said with it: is an investor in', /^Northstar Teachers’ Retirement System is an investor in the BDC with a voting percentage of 7%/.test(said() ?? ''), said());
+  check('a list named as a predicate is said with it: is an investor in', /^Northstar Teachers’ Retirement System is an investor in the BDC with a voting percentage of 7%/.test(await saidOf([REMOTE_NS]) ?? ''), said());
   Shell.parts.peek().undo.undo(); await wait(40);
+  // A relation in words, for the other panes: an option says the role, and one still to choose is "…"
+  const spec = Object.values(App.schema.peek()).find(s => s.args?.length === 2 && App.notes.peek().name(s) === 'Position');
+  check('a choice relation’s role still to choose is “…”, never its list’s name (no “a personnel of”)', FormulaBar.phrase(spec, 'Holder', 'Company').join('|') === 'Holder| is a … of |Company'
+    && FormulaBar.phrase(spec, 'Holder', 'Company', { choice: 'Officer' })[1] === ' is an officer of ', FormulaBar.phrase(spec, 'Holder', 'Company').join('|'));
 
   // Two objects: what holds between them; picked, why not
+  const heard = [];
+  Shell.on('why-open', id => heard.push(id));
   Shell.select(['pension', 'bdc']); await wait(40);
   m = M();
   check('two objects: the most derived relation that holds between them, never one that doesn’t', m.title === 'Remote Affiliate' && m.out?.tag === true && !m.absent
     && document.querySelector('.fxbar .fx-out .tag.yes'), `${m.title} ${m.out?.tag}`);
+  check('… which tells no one that a computed value was asked about', !heard.length, heard.join());
   check('with every relation they could be in to pick from', m.options.some(o => o.d.name === 'Close Affiliate' && !o.id) && m.options.some(o => o.d.name === 'Affiliated Person'), m.options.map(o => `${o.d.name}:${o.a}>${o.b}:${o.on}`).join(' '));
   Shell.select(['chen', 'okafor']); await wait(40);
   check('… and where none holds, nothing: the view’s name', !M() && document.querySelector('.fx-view'), M()?.title);
@@ -388,10 +434,17 @@ async function checks() {
   FormulaBar.hover.value = null;
 
   // Overrides
-  Shell.select(['bdc_tax']); await wait(40);
+  await saidOf(['bdc_tax']);
   m = M();
   check('an entered value under a formula shows both, with the amber corner', m.covered && document.querySelector('.fx-out.over') && document.querySelector('.fx-would')?.textContent === 'C Corporation', document.querySelector('.fx-would')?.textContent);
   check('… and says what the rows would give, and why', said() === 'The BDC’s entity type is Corporation, so its tax classification would be C Corporation (Corporation).', said());
+  check('a value’s place is its object, without the path down to it, where it has one of its kind', M().place === 'The BDC' && (Shell.select(['fx:form pf due=mgmt_pf']), await wait(40), M().place === 'The Manager'), M().place);
+  // … and the path where the object has two: a tax paid at its jurisdiction, and one at its entity type
+  Shell.select(['fund_juris_tax']); await wait(40);
+  const once = M().place;
+  App.change(tx => tx.add('record', { at: 'fund_type', edge: 'Annual Tax Paid', field: 'date', value: '2026-01-02' })); await wait(40);
+  check('… and the path down to it where the object has two of its kind', once === 'Fund III' && M().place === 'Fund III › Jurisdiction: Delaware', `${once} | ${M().place}`);
+  Shell.parts.peek().undo.undo(); await wait(40);
 
   // The redline: hovering a tag
   Shell.select([OKAFOR_GP]); await wait(40);
@@ -405,10 +458,25 @@ async function checks() {
   check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
   document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
   check('leaving it ends the preview', !FormulaBar.pending.peek() && !StandIn.rl.peek());
+  // A big chart waits for a pause in typing, never in hovering: each preview here made to seem slow
+  const clock = performance.now, tagBox = document.querySelector('.fx-out .tag');
+  let skew = 0;
+  performance.now = () => clock.call(performance) + (skew += 50);
+  for (const k of [1, 2]) { tagBox.dispatchEvent(new PointerEvent('pointerenter')); if (k === 1) tagBox.dispatchEvent(new PointerEvent('pointerleave')); }
+  const hoveredAgain = FormulaBar.pending.peek()?.from === 'tag';
+  tagBox.dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
+  Shell.select(['own_okfr_gp_pct']); await wait(40);
+  const input = document.querySelector('.fx-value'), typed = () => FormulaBar.pending.peek()?.change.records['own_okfr_gp_pct']?.value;
+  input.value = '20%'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  const first = typed();
+  input.value = '30%'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  const second = typed();
+  await wait(350);
+  check('a big chart previews a hover again at once, and the first key; later keys wait for a pause', hoveredAgain && first === 0.2 && second === 0.2 && typed() === 0.3, `${hoveredAgain} ${first} ${second} ${typed()}`);
+  performance.now = clock;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(10);
 
   // Typing a value
-  Shell.select(['own_okfr_gp_pct']); await wait(40);
-  const input = document.querySelector('.fx-value');
   input.value = '20%'; input.dispatchEvent(new Event('input', { bubbles: true })); await wait(10);
   p = FormulaBar.pending.peek();
   check('typing a value previews its redline: Okafor loses control of GP III, and of what he controlled through it', p?.deltas.find(d => d.name === 'Control')?.minus >= 5 && p.diff.go.includes(OKAFOR_GP) && p.diff.change.includes('own_okfr_gp_pct'), JSON.stringify(p?.deltas));
@@ -417,7 +485,7 @@ async function checks() {
   check('Esc discards it', !FormulaBar.pending.peek() && App.entered.peek().own_okfr_gp_pct.value === 0.5);
 
   // Typing a formula, then Enter
-  Shell.select([OKAFOR_GP]); await wait(40);
+  Shell.select([OKAFOR_GP]); await wait(40); await openRows();
   typeIn('r2', '> ', '6', 1); await wait(20);
   p = FormulaBar.pending.peek();
   check('typing a formula previews it: 65% rules out Okafor’s half of GP III', p?.from === 'bar' && p.deltas.find(d => d.name === 'Control')?.minus >= 5, JSON.stringify(p?.deltas));
@@ -432,8 +500,8 @@ async function checks() {
   check('and Undo takes it back', /> 25%/.test(App.notes.peek().notes('Formula').find(n => n.note === 'def_control').value[2].formula) && R().records[OKAFOR_GP]);
 
   // Deleting a row
-  Shell.select([OKAFOR_GP]); await wait(40);
-  check('the rows stay open, every row in order', document.querySelectorAll('.fxbar .fx-row').length === 4);
+  Shell.select([OKAFOR_GP]); await wait(40); await openRows();
+  check('every row in order', document.querySelectorAll('.fxbar .fx-row').length === 4);
   document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
   p = FormulaBar.pending.peek();
   check('hovering a row’s delete previews what goes', p?.deltas.find(d => d.name === 'Control')?.minus > 0, JSON.stringify(p?.deltas));
@@ -475,7 +543,7 @@ async function checks() {
 
   // A definition in general: its own screen is the inspector's; the bar edits its rows
   Shell.select([AP_NP_CHEN]); await wait(60);
-  document.querySelector('.fxbar .fx-name').click(); await wait(60);
+  document.querySelector('.fxbar .fx-name').click(); await wait(60); await openRows();
   const general = Shell.pattern(Shell.selection.peek()[0]);
   check('the name opens the definition in general', JSON.stringify(general) === JSON.stringify(App.notes.peek().notes('Formula').find(n => n.note === 'def_affiliated').pattern), Shell.selection.peek()[0]);
   check('… where the bar shows every row, to edit', M()?.general && document.querySelectorAll('.fxbar .fx-row').length === App.notes.peek().notes('Formula').find(n => n.note === 'def_affiliated').value.length
@@ -487,7 +555,7 @@ async function checks() {
 
   // #CIRCULAR!
   const e = makeLoop(); await wait(30);
-  Shell.select([e.id]); await wait(40);
+  Shell.select([e.id]); await wait(40); await openRows();
   m = M(); f = F();
   check('#CIRCULAR!: the loop outlined in red', m.out.error?.code === '#CIRCULAR!' && [...f.map.values()].some(x => x[0] === 'loop') && f.map.has('blocker'), [...f.map].map(([id, x]) => id + ':' + x[0]).join(' '));
   check('and the name that closes it underlined', document.querySelector('.fxbar .fx-loop'), document.querySelector('.fxbar .fx-loop')?.textContent);
