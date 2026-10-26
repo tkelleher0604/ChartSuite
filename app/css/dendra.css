@@ -306,7 +306,6 @@ html[data-splash]::after { content: ""; position: fixed; inset: 0; z-index: 2147
 html[data-splash][data-theme="dark"]::after { background: #111315; }
 
 /* ---- The tour: the app under a scrim, cut out around the one thing to do ---- */
-.tour-scrim { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
 .tour-hole { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), 0 0 0 100vmax var(--scrim); pointer-events: none; z-index: 40; }
 .tour-hole.none { box-shadow: 0 0 0 100vmax var(--scrim); }
 .tour-card { position: fixed; z-index: 41; width: 280px; padding: 16px; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); box-shadow: var(--shadow-pop); }
