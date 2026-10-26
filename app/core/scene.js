@@ -226,7 +226,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const isRed = id => !red ? null : red.go?.has?.(id) ? 'go' : red.appear?.has?.(id) ? 'appear' : null;
 
   // The texts drawn in each box and on each line, in their entries' order, each with its own text
-  // properties where something sets them and its mark's where nothing does.
+  // properties where something sets them and its mark's where nothing does; but Format, how a value
+  // reads, is each record's own.
   const orderOf = id => Tree.pathOf(state, id).slice(1).map(x => [N.order(tree(x)) ?? Infinity, Tree.norm(state[x].edge ?? '')]);
   const byOrder = (a, b) => {
     const p = orderOf(a.record), q = orderOf(b.record);
@@ -236,7 +237,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const container = m => { let c = up(m); while (c && c.type === 'text') c = up(c); return c; };
   const textItem = (m, host) => {
     settle(m, DEFAULTS.text);
-    for (const label of TEXT_PROPS) if (!m.cand[label]) m.settings[label] = host.settings[label];
+    for (const label of TEXT_PROPS) if (!m.cand[label] && label !== 'Format') m.settings[label] = host.settings[label];
     const r = state[m.record], t = look(m.settings);
     const old = red?.changed?.get?.(m.record);
     return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, N.name(tree(m.record))),
@@ -351,7 +352,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   });
   for (const b of boxes) Object.assign(b, placed.get(b.id));
   frameBounds(frames, boxes);
-  Layout.route(new Map(boxes.map(b => [b.id, b])), lines);
+  routes(boxes, lines).forEach((r, i) => Object.assign(lines[i], r));
 
   // Free shapes: the view's own, each with its own formats.
   const geo = new Map(boxes.map(b => [b.id, b]));
@@ -414,12 +415,19 @@ function lineText(r, format, name) {
 // canvas draws while a drag goes on. The scene itself is left as it was.
 function reflow(scene, rects) {
   const boxes = scene.marks.filter(m => m.type === 'box').map(b => ({ ...b, ...rects.get(b.id) }));
-  const lines = scene.marks.filter(m => m.type === 'line').map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label }));
-  Layout.route(new Map(boxes.map(b => [b.id, b])), lines);
+  const lines = scene.marks.filter(m => m.type === 'line');
+  const routed = routes(boxes, lines).map((r, i) => ({ id: lines[i].id, ...r }));
   const frames = new Map(scene.marks.filter(m => m.type === 'frame')
     .map(f => [f.id, { ...f, caption: { ...f.caption, lines: f.caption.lines.map(l => ({ ...l })) } }]));
   frameBounds(frames, boxes);
-  return { lines, frames: [...frames.values()] };
+  return { lines: routed, frames: [...frames.values()] };
+}
+// The routes of lines between boxes: each line's points and its label's place, the router's working left
+// behind.
+function routes(boxes, lines) {
+  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label }));
+  Layout.route(new Map(boxes.map(b => [b.id, b])), copies);
+  return copies.map(c => ({ points: c.points, labelAt: c.labelAt }));
 }
 
 // A frame around its members and the frames inside it, with room for its caption; a bracket over them.
@@ -476,10 +484,12 @@ function legend(N, view, styles, marks) {
       for (const [k, v] of Object.entries(swatch)) if (v?.v !== undefined) swatch[k] = v.v;
       if (u.kind === 'frame') swatch.Frame = out?.formats.Frame;
       const sk = JSON.stringify(pick(swatch, ['kind', ...KEYED[u.kind]].map(String)));
-      const g = groups.get(sk) ?? groups.set(sk, { key: `${s.key}|${sk}`, style: s.key, order, outputs: [], swatch }).get(sk);
+      const g = groups.get(sk) ?? groups.set(sk, { style: s.key, order, outputs: [], swatch }).get(sk);
       g.outputs.push(u.pattern);
     }
     for (const g of groups.values()) {
+      // A row goes by its first output, which stays the same while the row does.
+      g.key = key(g.outputs[0]);
       const own = g.outputs.map(p => N.resolve('Caption', p, view)).find(c => c && g.outputs.some(p => key(p) === key(c.note.pattern)));
       g.caption = own ? own.value : g.outputs.map(p => outputText(N, p)).join(', ');
       rows.push(g);

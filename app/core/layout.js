@@ -25,10 +25,7 @@ const OPTIONS = {
   'elk.spacing.nodeNode': '24',
   'elk.layered.spacing.nodeNodeBetweenLayers': '64',
   'elk.spacing.componentComponent': '36',
-  'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-  'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
-  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
-  'elk.layered.crossingMinimization.forceNodeModelOrder': 'false',
+  'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
   'elk.edgeRouting': 'ORTHOGONAL',
 };
 
@@ -36,7 +33,7 @@ const OPTIONS = {
 // changes: the boxes and their sizes, the lines that rank them, and the frames.
 const cache = new Map();
 function place({ boxes, links, clusters }) {
-  const k = JSON.stringify([boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h)]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
+  const k = JSON.stringify([OPTIONS, boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h)]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
   if (cache.has(k)) { const v = cache.get(k); cache.delete(k); cache.set(k, v); return v; }
   const started = now();
   const root = { id: '·root', layoutOptions: OPTIONS, children: [], edges: [] }, node = new Map([[null, root]]);
@@ -80,8 +77,7 @@ function arrange({ boxes, links, clusters, entered, page }) {
   const at = place({ boxes, links, clusters }), size = new Map(boxes.map(b => [b.id, b]));
   if (!out.size) {
     const r = Math.max(...boxes.map(b => at.get(b.id).x + b.w)), d = Math.max(...boxes.map(b => at.get(b.id).y + b.h));
-    const m = page.margin, grow = Math.max(1, (r + 2 * m) / page.w, (d + 2 * m) / page.h);
-    const dx = (page.w * grow - r) / 2, dy = Math.max(m, (page.h * grow - d) / 2);
+    const m = page.margin, dx = Math.max(m, (page.w - r) / 2), dy = Math.max(m, (page.h - d) / 2);
     for (const b of boxes) out.set(b.id, { x: at.get(b.id).x + dx, y: at.get(b.id).y + dy });
     return out;
   }
@@ -156,6 +152,13 @@ function route(geo, lines) {
     const s = G(l.from), t = G(l.to);
     if (l.straight) { l.dir = 'straight'; continue; }
     l.dir = t.y >= s.y + s.h + 16 ? 'down' : s.y >= t.y + t.h + 16 ? 'up' : 'side';
+    // Boxes nearly touching, one over the other, are joined straight across the gap.
+    const ox0 = Math.max(s.x, t.x), ox1 = Math.min(s.x + s.w, t.x + t.w);
+    if (l.dir === 'side' && ox1 - ox0 >= 16 && (t.y >= s.y + s.h - 1 || s.y >= t.y + t.h - 1)) {
+      const x = (ox0 + ox1) / 2, below = t.y >= s.y + s.h - 1;
+      Object.assign(l, { dir: 'stub', points: below ? [[x, edgeY(s, x, true)], [x, edgeY(t, x, false)]] : [[x, edgeY(s, x, false)], [x, edgeY(t, x, true)]] });
+      continue;
+    }
     if (l.dir === 'side') {
       const y = (Math.max(s.y, t.y) + Math.min(s.y + s.h, t.y + t.h)) / 2;
       const x0 = Math.min(s.x + s.w, t.x + t.w), x1 = Math.max(s.x, t.x);
@@ -176,14 +179,14 @@ function route(geo, lines) {
       for (const l of t.ls) l.sx = t.x;
     });
   }
-  const arriving = lines.filter(l => l.dir !== 'side' && l.dir !== 'straight');
+  const arriving = lines.filter(l => l.dir === 'down' || l.dir === 'up' || l.dir === 'under');
   for (const ls of groupBy(arriving, l => `${l.to}|${l.dir === 'down' ? 'top' : 'bottom'}`).values()) {
     const t = G(ls[0].to), start = l => l.sx ?? centerX(G(l.from));
     ls.sort((p, q) => start(p) - start(q));
-    const levels = ls.length > 4 ? 3 : 2;
+    const levels = ls.length > 4 ? 3 : 2, xs = arrivals(t, ls.map(start));
     ls.forEach((l, i) => {
       l.apex = t.shape === 'triangle' && l.dir === 'down';
-      l.tx = l.apex ? centerX(t) : t.x + t.w * (i + 1) / (ls.length + 1);
+      l.tx = l.apex ? centerX(t) : xs[i];
       l.ty = l.dir === 'down' ? edgeY(t, l.tx, false) : edgeY(t, l.tx, true);
       l.crowd = ls.length;
       l.stagger = ls.length > 2 || (ls.length === 2 && t.w < 220) ? i % levels : 0;
@@ -245,33 +248,84 @@ function route(geo, lines) {
     l.points = l.points.filter((p, i, ps) => i === 0 || Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) > 0.5)
       .map(([x, y]) => [Math.round(x * 4) / 4, Math.round(y * 4) / 4]);
     if (l.points.length === 3 && Math.abs(l.points[0][0] - l.points[2][0]) < 1) l.points = [l.points[0], l.points[2]];
-    l.labelAt = labelSpot(l, G);
   }
   // A trunk whose lines all say the same thing, like a GP's to each of its funds, says it once, on its lane.
+  const once = new Set();
   for (const t of trunks) {
     if (t.ls.length < 2 || t.laneY === undefined || !t.ls.every(l => l.label?.shared) || new Set(t.ls.map(l => l.label.text)).size > 1) continue;
-    const lab = t.ls[0].label;
-    t.ls.forEach((l, i) => { l.labelAt = i ? null : { x: (t.span[0] + t.span[1]) / 2 - lab.w / 2, y: t.dir === 'down' ? t.laneY - lab.h - 2 : t.laneY + 2 }; });
+    t.ls.slice(1).forEach(l => { l.labelAt = null; once.add(l); });
+    t.ls[0].lane = { y: t.laneY, x0: t.span[0], x1: t.span[1], down: t.dir === 'down' };
+  }
+  placeLabels(geo, lines.filter(l => !once.has(l)));
+}
+
+// Where lines arrive along a box's edge, in the order of where they start: straight below (or above) where
+// each starts, if the box reaches that far; otherwise spread evenly; and never closer than a step apart.
+function arrivals(t, starts) {
+  const n = starts.length, m = Math.min(12, t.w / 4), lo = t.x + m, hi = t.x + t.w - m;
+  const even = starts.map((_, i) => t.x + t.w * (i + 1) / (n + 1));
+  const xs = starts.map((s, i) => s >= lo && s <= hi ? s : even[i]);
+  const gap = Math.min(14, (hi - lo) / Math.max(1, n - 1));
+  for (let i = 1; i < n; i++) xs[i] = Math.max(xs[i], xs[i - 1] + gap);
+  for (let i = n - 1; i >= 0; i--) xs[i] = Math.min(xs[i], i < n - 1 ? xs[i + 1] - gap : hi);
+  return xs[0] < lo - 0.5 ? even : xs;
+}
+
+// Labels, each where it reads best and hides least. A label's places, in the order structure charts
+// prefer them: beside the last leg just short of the box it reaches, as percentages sit, a step higher for
+// each line arriving beside it; beside the top of that leg; along its lane; beside or above its longest
+// leg. Each place costs what it covers (boxes most, then other labels, then lines it crosses) and how far
+// down that order it is; the cheapest wins.
+function placeLabels(geo, lines) {
+  // What a box covers: a triangle its lower half, and the middle of its upper half.
+  const boxes = [...geo.values()].flatMap(b => b.shape !== 'triangle' ? [b]
+    : [{ x: b.x, y: b.y + b.h / 2, w: b.w, h: b.h / 2 }, { x: b.x + b.w / 4, y: b.y, w: b.w / 2, h: b.h / 2 }]), placed = [];
+  const segs = lines.flatMap(l => (l.points ?? []).slice(1).map((p, i) => ({ l, a: l.points[i], b: p })));
+  const meets = (r, a, b) => {
+    const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])], [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+    return x1 >= r.x && x0 <= r.x + r.w && y1 >= r.y && y0 <= r.y + r.h;
+  };
+  const overlap = (r, q) => Math.max(0, Math.min(r.x + r.w, q.x + q.w) - Math.max(r.x, q.x)) * Math.max(0, Math.min(r.y + r.h, q.y + q.h) - Math.max(r.y, q.y));
+  for (const l of lines) {
+    const ps = l.points, lab = l.label;
+    l.labelAt = null;
+    if (!lab || !ps || ps.length < 2) continue;
+    const w = lab.w, h = lab.h, legs = ps.slice(1).map((p, i) => ({ a: ps[i], b: p, len: Math.hypot(p[0] - ps[i][0], p[1] - ps[i][1]) }));
+    const upright = g => Math.abs(g.a[0] - g.b[0]) < 1, last = legs[legs.length - 1];
+    const spots = [];
+    if (l.lane) for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) spots.push({ x: l.lane.x0 + (l.lane.x1 - l.lane.x0) * f - w / 2, y: l.lane.down ? l.lane.y - h - 2 : l.lane.y + 2 });
+    if (upright(last) && !(l.apex && l.crowd > 1)) {
+      const down = last.b[1] > last.a[1], x = last.b[0] + 4;
+      for (let k = 0; k < 3; k++) {
+        const off = 4 + ((l.stagger ?? 0) + k) % 3 * (h + 1);
+        spots.push({ x, y: down ? last.b[1] - off - h : last.b[1] + off });
+      }
+      spots.push({ x, y: down ? last.a[1] - h - 2 : last.a[1] + 2 }, { x: last.b[0] - w - 4, y: down ? last.b[1] - 4 - h : last.b[1] + 4 });
+    }
+    for (const g of [...legs].sort((p, q) => q.len - p.len).slice(0, 2)) {
+      for (const f of [0.5, 0.3, 0.7]) {
+        const x = g.a[0] + (g.b[0] - g.a[0]) * f, y = g.a[1] + (g.b[1] - g.a[1]) * f;
+        spots.push(upright(g) ? { x: x + 4, y: y - h / 2 } : { x: x - w / 2, y: y - h - 2 });
+      }
+      // Across a short leg, the label may hang past either end of it, above or below.
+      if (!upright(g)) {
+        const [x0, x1] = [Math.min(g.a[0], g.b[0]), Math.max(g.a[0], g.b[0])], y = g.a[1];
+        spots.push({ x: x0, y: y - h - 2 }, { x: x1 - w, y: y - h - 2 }, { x: (x0 + x1 - w) / 2, y: y + 3 }, { x: x0, y: y + 3 }, { x: x1 - w, y: y + 3 });
+      }
+    }
+    let best = null;
+    spots.forEach((s, i) => {
+      const r = { x: s.x, y: s.y, w, h };
+      let cost = i * 2;
+      for (const b of boxes) cost += overlap(r, b) * 4;
+      for (const q of placed) cost += overlap(r, q) * 6;
+      for (const sg of segs) if (meets(r, sg.a, sg.b)) cost += 40;
+      if (!best || cost < best.cost) best = { ...s, cost };
+    });
+    l.labelAt = { x: best.x, y: best.y };
+    placed.push({ x: best.x, y: best.y, w, h });
   }
 }
 
-// A label sits beside the last leg of its line, just short of the box it reaches, as percentages do on
-// structure charts, a step higher for each line arriving beside it; where there's no room there, or the
-// line shares a triangle's apex with others, beside or above the middle of its longest leg.
-function labelSpot(l, G) {
-  const ps = l.points, lab = l.label;
-  if (!lab || ps.length < 2) return null;
-  const legs = ps.slice(1).map((p, i) => ({ a: ps[i], b: p, len: Math.hypot(p[0] - ps[i][0], p[1] - ps[i][1]) }));
-  const upright = g => Math.abs(g.a[0] - g.b[0]) < 1;
-  const last = legs[legs.length - 1];
-  if (upright(last) && last.len >= lab.h + 12 && !(l.apex && l.crowd > 1)) {
-    const down = last.b[1] > last.a[1], off = 4 + (l.stagger ?? 0) * (lab.h + 1);
-    return { x: last.b[0] + 4, y: down ? last.b[1] - off - lab.h : last.b[1] + off };
-  }
-  const leg = legs.reduce((m, g) => g.len > m.len ? g : m);
-  if (upright(leg)) return { x: leg.a[0] + 4, y: (leg.a[1] + leg.b[1]) / 2 - lab.h / 2 };
-  return { x: (leg.a[0] + leg.b[0]) / 2 - lab.w / 2, y: Math.min(leg.a[1], leg.b[1]) - lab.h - 2 };
-}
-
-return { place, arrange, route };
+return { place, arrange, route, OPTIONS };
 })();

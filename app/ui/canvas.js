@@ -24,6 +24,8 @@ const active = signal(null);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+// A selection key's mark, and the legend row it names after the first '#', if it names one.
+const keyParts = k => { const i = k.indexOf('#'); return i < 0 ? [k, null] : [k.slice(0, i), k.slice(i + 1)]; };
 const round = v => Math.round(v * 2) / 2;
 // Sizes and weights are points; the canvas draws in pixels.
 const px = pt => pt * Scene.PT;
@@ -151,7 +153,7 @@ function mount(el, src) {
   const on = (name, fn) => { (subs.get(name) ?? subs.set(name, new Set()).get(name)).add(fn); return () => subs.get(name).delete(fn); };
   const fire = (name, d) => subs.get(name)?.forEach(f => f(d));
 
-  let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, row = null, dragging = null;
+  let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, row = null, dragging = null, syncing = false;
   const cellSig = new Map();
   const zooms = new Map();
 
@@ -194,6 +196,7 @@ function mount(el, src) {
     sheet.setAttribute('height', scene.page.h);
     const keep = new Set(cells.map(c => c.id));
     const chosen = sel.getSelectedCells().map(c => c.id);
+    syncing = true;
     graph.batchUpdate(() => {
       for (const c of graph.getCells()) if (!keep.has(c.id)) { graph.removeCell(c); cellSig.delete(c.id); }
       for (const c of cells) {
@@ -204,6 +207,7 @@ function mount(el, src) {
         cellSig.set(c.id, sig);
       }
     });
+    syncing = false;
     if (viewShown !== view) {
       if (viewShown && graph) zooms.set(viewShown, { s: graph.zoom(), t: graph.translate() });
       viewShown = view;
@@ -216,13 +220,12 @@ function mount(el, src) {
   }
 
   // ---- Selection: X6's, kept in step with the source's keys ----
-  let syncing = false;
   const groups = () => scene ? scene.marks.filter(m => m.geometry === 'group') : [];
   const groupOf = id => groups().find(g => g.members.includes(id) && g.id !== entered);
   function cellsFor(keys) {
     const out = [];
     for (const k of keys) {
-      const id = k.includes('#') ? k.slice(0, k.indexOf('#')) : k;
+      const [id] = keyParts(k);
       const m = scene?.byId.get(id);
       if (m?.geometry === 'group') out.push(...m.members); else if (graph.getCellById(id)) out.push(id);
     }
@@ -237,7 +240,7 @@ function mount(el, src) {
     return keys;
   }
   function syncSelection(prev) {
-    const keys = src.selection.peek().filter(k => scene.byId.has(k.split('#')[0]) || k.includes('#'));
+    const keys = src.selection.peek().filter(k => scene.byId.has(keyParts(k)[0]));
     const want = cellsFor(keys).map(c => c.id);
     if (!same([...want].sort(), [...(prev ?? sel.getSelectedCells().map(c => c.id))].sort()) || !same(want, sel.getSelectedCells().map(c => c.id))) {
       syncing = true; sel.reset(cellsFor(keys)); syncing = false;
@@ -388,7 +391,7 @@ function mount(el, src) {
     return m.texts?.find(it => it.id === id) ?? m.texts?.find(it => Tree.isField(src.state.value[it.id] ?? {})) ?? m.texts?.[0];
   }
   function edit(key, target, typed) {
-    const [id, rowKey] = key.split('#');
+    const [id, rowKey] = keyParts(key);
     const m = scene.byId.get(id);
     if (!m) return;
     let it = null, rect, save;
@@ -467,7 +470,9 @@ function mount(el, src) {
   function showHandles(m) {
     hoverBox = m;
     if (!m || sel.getSelectedCells().length > 1) { root.classList.remove('relating-on'); return; }
-    const a = graph.localToGraph(m.x, m.y), b = graph.localToGraph(m.x + m.w, m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    // The middles of its sides, on its outline: a triangle's slopes, a diamond's corners.
+    const inset = m.shape === 'triangle' ? m.w / 4 : 0;
+    const a = graph.localToGraph(m.x + inset, m.y), b = graph.localToGraph(m.x + m.w - inset, m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
     const at = { n: [cx, a.y], e: [b.x, cy], s: [cx, b.y], w: [a.x, cy] };
     handles.forEach(h => { const [x, y] = at[h.classList[1]]; h.style.left = `${x}px`; h.style.top = `${y}px`; });
     root.classList.add('relating-on');
@@ -482,7 +487,8 @@ function mount(el, src) {
     const line = document.createElementNS(NS, 'path');
     line.setAttribute('class', 'dc-relating');
     marks.appendChild(line);
-    const start = { n: [from.x + from.w / 2, from.y], e: [from.x + from.w, from.y + from.h / 2], s: [from.x + from.w / 2, from.y + from.h], w: [from.x, from.y + from.h / 2] }[side];
+    const inset = from.shape === 'triangle' ? from.w / 4 : 0;
+    const start = { n: [from.x + from.w / 2, from.y], e: [from.x + from.w - inset, from.y + from.h / 2], s: [from.x + from.w / 2, from.y + from.h], w: [from.x + inset, from.y + from.h / 2] }[side];
     let target = null;
     const move = ev => {
       const p = graph.clientToLocal(ev.clientX, ev.clientY);
@@ -529,7 +535,12 @@ function mount(el, src) {
     }
     // A selected legend row, and an entered or selected group.
     const lg = row && scene.byId.get(row.legend), r = lg?.rows?.find(x => x.key === row.key);
-    if (r) outline({ type: 'box', x: lg.x + r.x - 2, y: lg.y + r.y - 1, w: r.w, h: r.h + 2 }, null, 'dc-row', 0);
+    if (r) {
+      outline({ type: 'box', x: lg.x + r.x - 2, y: lg.y + r.y - 1, w: r.w, h: r.h + 2 }, null, 'dc-row', 0);
+      // And every mark with that look.
+      const outs = new Set(r.outputs.map(p => Tree.key(p)));
+      for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, null, 'dc-row', 3);
+    }
     for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, null, 'dc-group', 4);
     const dim = !!hl?.dim && lit.size;
     for (const c of graph.getCells()) {
@@ -559,10 +570,12 @@ function mount(el, src) {
   function reveal(ids) { revealIds = ids && [...ids].length ? [...ids] : null; draw(); }
 
   // ---- Commands ----
-  const selected = () => keysOfSelection().map(k => scene.byId.get(k.split('#')[0])).filter(Boolean);
+  const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
   const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape'));
   function insert(geometry, opts = {}) {
-    const view = src.view.value, s = scene, cx = s.page.w / 2, cy = s.page.h / 2;
+    // A new shape goes in the middle of what's on screen, as PowerPoint puts one.
+    const view = src.view.value, s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2);
+    const cx = Math.min(Math.max(mid.x, 80), s.page.w - 80), cy = Math.min(Math.max(mid.y, 60), s.page.h - 60);
     const size = { text: [240, 30], line: [160, 0], legend: [220, 0], frame: [320, 200], picture: [160, 100] }[geometry] ?? [140, 70];
     const sel0 = placeable();
     let row = { view, geometry, x: round(cx - size[0] / 2), y: round(cy - size[1] / 2), w: size[0], h: size[1], ...opts };
@@ -587,7 +600,7 @@ function mount(el, src) {
     if (!keys.length) return;
     const tx = src.edit(), n = N(), view = src.view.value;
     for (const k of keys) {
-      const [id, rowKey] = k.split('#'), m = scene.byId.get(id);
+      const [id, rowKey] = keyParts(k), m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box' || m.type === 'line') writeNote(tx, n, { label: 'Shown', pattern: treeOf(m.record), view }, false);
       else if (m.type === 'frame') writeNote(tx, n, { label: 'Frame', pattern: m.output, view }, undefined);
@@ -759,5 +772,5 @@ function fromApp() {
 if (typeof Shell !== 'undefined' && typeof App !== 'undefined')
   Shell.register('canvas', { mount(el) { const c = mount(el, fromApp()); return () => c.destroy(); } });
 
-return { mount, fromApp, active, writeNote, payload };
+return { mount, fromApp, active, writeNote, payload, keyParts };
 })();

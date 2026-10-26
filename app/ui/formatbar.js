@@ -26,9 +26,9 @@ let current = null; // { canvas, scopes, scope, marks }
 
 function scopesOf(c) {
   const sc = c.scene(), keys = c.keys(), src = c.source;
-  const marks = keys.map(k => sc.byId.get(k.split('#')[0])).filter(Boolean);
+  const marks = keys.map(k => sc.byId.get(Canvas.keyParts(k)[0])).filter(Boolean);
   if (!marks.length) return { marks, scopes: [] };
-  const rowKey = keys.length === 1 && keys[0].includes('#') ? keys[0].split('#')[1] : null;
+  const rowKey = keys.length === 1 ? Canvas.keyParts(keys[0])[1] : null;
   if (rowKey) {
     const r = marks[0].rows?.find(x => x.key === rowKey);
     if (r) return { marks, row: r, scopes: [{ key: 'row', label: r.caption.text, outputs: r.outputs, style: r.style }] };
@@ -103,7 +103,7 @@ const glyph = {
 };
 const dashGlyph = d => html`<svg viewBox="0 0 28 10"><path d="M1 5h26" stroke-width="1.5" stroke-dasharray=${d === 'dashed' ? '5 3' : d === 'dotted' ? '1.5 2.5' : null} stroke-linecap=${d === 'dotted' ? 'round' : 'butt'} /></svg>`;
 const arrowGlyph = a => html`<svg viewBox="0 0 28 10"><path d="M3 5h22" stroke-width="1.3" />${a === 'end' || a === 'both' ? html`<path d="M21 2l4 3-4 3" stroke-width="1.3" />` : null}${a === 'start' || a === 'both' ? html`<path d="M7 2 3 5l4 3" stroke-width="1.3" />` : null}</svg>`;
-const shapeGlyph = g => html`<svg viewBox="0 0 18 14"><path d=${Scene.path(g, 18, 14)} /></svg>`;
+const shapeGlyph = g => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${Scene.path(g, 18, 14)} /></svg>`;
 
 function Palette({ value: v, pick, none }) {
   return html`<div class="palette">${COLORS.map(c => html`<button style=${`background:${c}`} aria-pressed=${v === c} aria-label=${c} onClick=${() => pick(c)} />`)}
