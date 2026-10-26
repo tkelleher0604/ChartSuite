@@ -19,9 +19,12 @@ In the order of the sidebar:
   - **Needs attention:** deadlines overdue or due in the next 30 days; required entries left blank, a line per requirement with the records lacking it; and formula errors, a line per definition. Each links to where it's fixed.
   - **Recent changes:** the latest of the history, with who and when, each linking to the record it touched. **Recently viewed:** the records the palette lists as Recent.
   - On the right, the current view in outline, the records by kind (linking to their tables), and the agenda's next few dates.
-- [chart.html](chart.html): the chart, in the app's shell, as a full-bleed canvas: the ribbon above it, the record panel on the right, and along its foot the view tabs, the legend's switch and the zoom. The top bar names the chart, with Export… and Present on its right. The sidebar switches charts and themes.
+- [chart.html](chart.html): the chart, in the app's shell, as a full-bleed canvas: the ribbon above it, the record panel on the right, and along its foot the view tabs, the legend's switch and the zoom. The top bar names the chart, with Undo, Redo, Export… and Present on its right. The page starts without the app's sidebar, which the top bar's button (or Ctrl+\) brings back, and keeps its own choice of it.
+  - **With nothing selected**, the panel is about the view in use: its name and today's as-of date; what needs attention in it (boxes with a required entry blank, in amber, and a filter or formula that gives an error there, in red), each a link that selects it; its legend, readable at any zoom, with how many boxes or lines each row stands for; what it shows, by kind of box, line and text, each ticked on or off (More text… finds the rest); its filter, which opens the filter menu; and the chart's records by kind.
+  - **The ribbon's** groups have no captions; each control says what it does, in words or on hover. In a narrow window its last groups fold into More, and the view tabs that don't fit into a menu after the rest. The panel gives way before the canvas, and goes under it where there's no room beside.
   - Every object is a box, and every two-argument relation is a line from its first argument to its second.
   - A line's label is the relation's own text (a tag's relation name, like General Partner, or a field's or choice's output), if its style gives one, followed by whatever is located at the relation that its own style shows. Ownership is a tag (Owner, Owned) with a Percentage located at it, so its lines carry no label of their own and the Percentage labels them, just above the box a line reaches. Clicking that text selects the line and engages the Percentage's style.
+  - Lines of one look from one box share a trunk, as a parent's lines do on a structure chart, and trunks of different looks (ownership and positions, say) leave the box apart. Trunks leaving boxes level with each other turn along lanes stacked to cross the fewest lines. A trunk whose lines all give the same name or option, like a GP's to its funds, says it once, on its lane; amounts are said on each line.
   - **Styles.**
     - A style belongs to a form, and maps the form's outputs to formatting: shape, fill, outline, font, and whether it's drawn (as a line of text in its box, or, for a relation, as a line).
     - A form is what entries or relations like one another share: the same kind of output (tag, choice or field), the same labels on their edges, and locations of the same shape, whatever kinds and options those locations sit under. So one style covers a Jurisdiction on every kind of entity, and an Ownership whoever the owner is. Each view has at most one style per form, and the gallery and the panel name a style by its form.
@@ -33,19 +36,20 @@ In the order of the sidebar:
     - The engaged style is outlined in the ribbon's gallery and highlighted in the panel, on its row or on the kind under the object's name. Its text is ringed on the chart.
     - Controls showing a value that comes from another style are muted. A dot marks a value that a later style overrides on the selected box.
     - The ribbon's first checkbox says whether the engaged style draws its output: Show boxes for the Kind style, Draw line for a relation's, Show text for an entry's.
-  - Clicking a box selects it and opens its object in the panel. Clicking a line of text in a box engages that text's style. Clicking a line opens its relation.
+  - Clicking a box selects it and opens its object in the panel. Clicking a line of text in a box engages that text's style. Clicking a line opens its relation. Tab goes from box to box, in reading order, then to the lines, and Enter selects the one with the focus. A box selected from the panel or the palette is brought into view; one opened from elsewhere (chart.html#<id>, as Open on chart does) is shown at a size its text can be read at.
+  - A box keeps its text to six lines, ending in an ellipsis, with the whole of a long one on hover.
   - **Editing a name in place.** Double-click a name, press F2, or just start typing over a selected box. The panel follows as you type. Enter saves and Esc cancels.
   - **Moving and deleting.** Drag a box to move it, or nudge it with the arrow keys.
     - Delete, on a selected box or line, asks whether to delete it from the chart (with everything that depends on it, in every view) or only hide it in this view. Deleted records can be restored from the record panel's Deleted list.
     - A line a formula works out can't be deleted, since the formula would put it back. Delete offers to hide it in this view, or, for a tag, to rule it out, which is entered and overrides the formula there (see [formulas.md](../formulas.md)).
   - **Views.** Tabs along the bottom, like a workbook's sheet tabs, switch between the chart's views. Views share the records and formulas, and each has its own styles, box positions and hidden things.
     - "+" adds a view that starts as a copy of the current one. Double-click a tab to rename it, drag tabs to reorder them, and use the current tab's menu (or right-click a tab) to rename, duplicate or delete a view. The last view can't be deleted.
-    - Switching keeps the selection, unless the new view hides it.
+    - Switching keeps the selection, unless the new view hides it. The boxes glide to their places in the new view, and the lines fade in after; Tidy layout, Fit and the zoom steps glide too, unless the system asks for less motion.
     - The sample ([docs/sample.md](../docs/sample.md)) has four views:
       - Structure, which leaves out the people who hold nothing;
       - 40 Act, laid out around the BDC, which hides ownership and draws the BDC's close affiliates (dashed) and remote affiliates (dotted), both in the computed purple;
       - Fund III, the fund family alone: its investors, vehicles, GPs and holdings;
-      - Management and control: the people, and the sponsor's entities they own and hold positions in, with their positions drawn.
+      - Management and control: the people, and the sponsor's entities they own and hold positions in, with their positions drawn as thin grey lines, apart from ownership.
 
       None draws boxes for its documents or service providers; View › Show brings them.
   - **Show and hide**, in the View tab, act on the current view only.
@@ -55,19 +59,20 @@ In the order of the sidebar:
     - Tidy layout, offered when a view hides boxes, lays out the ones it shows in rows along ownership and control, in this view only.
     - A computed relation is drawn only where a style shows it. Adding a new relation draws it in the current view and leaves it hidden in the others.
   - **Formulas tab.** Definitions opens the panel's Schema view on its computed forms. New definition starts one, of an entry or of a relation (a relation starts from the selected box, or the two being related). Why? opens the selected computed line, or line of text, in the panel. Calculation says how many computed records the definitions gave, how long it took, and how many errors there are.
-  - **The legend** says what the view's looks mean: a row for each look a style gives the boxes drawn (outputs that look alike share a row), grouped by the style's form, then a row for each kind of line, computed ones in italics. Text styles aren't listed. It sits on the sheet under the drawing, and the switch at the foot of the chart (or View › Legend) hides it.
-  - **Export…**, in the top bar, opens a dialog with the choices on the left and a live preview of every page or slide on the right, drawn from the same layout the file is made from:
-    - Format: PDF (vector), PowerPoint (a title slide, then the view as editable shapes: boxes with their text in them, lines as single paths, labels as text boxes, in the chart's colors and dashes) or SVG (the view as a picture, with the legend as the sheet shows it).
+  - **The legend** says what the view's looks mean: a row for each look a style gives the boxes drawn (outputs that look alike share a row), grouped by the style's form, then a row for each kind of line, named by its relation, computed ones in italics. Text styles aren't listed. It's worded for a board: kinds have no heading, and a tag's looks read Yes and No (Good Standing: No). It sits on the sheet under the drawing, and the switch at the foot of the chart (or View › Legend) hides it; the panel lists it too.
+  - **Export…**, in the top bar, opens a dialog with the choices on the left and a live preview of every page or slide on the right, drawn from the same layout the file is made from, each saying the size its smallest text prints at:
+    - Format: PDF (vector), PowerPoint (the view as editable shapes: boxes with their text in them, lines as single paths, labels as text boxes, in the chart's colors and dashes, after a title slide if asked, as it is by default for every view) or SVG (the view as a picture, with the legend as the sheet shows it).
+    - Text: at least 8 pt by default, so a view too big for its page or slide at that size is split into parts, in reading order, cut between boxes, with the legend on a page of its own; or shrunk to one page a view, which the dialog says how small that makes the text.
     - Views: this view, or every view, a page or slide each.
     - Page size (Letter, A4 or Tabloid, and an orientation, by default to suit each view) or slide size (16:9 or 4:3).
     - As of: the date printed in the footer, today by default.
     - Include the legend, beside the chart or below it, wherever the chart comes out larger.
-    - With a box selected, Profile of it saves a PDF of its entries and its relations by name, computed values in italics. So does the palette's Export a profile.
+    - With a box selected, Profile of it saves a PDF of it, the key facts first: its entries, then the relations entered for it under each list's name (General Partners, Owners, Signatories), its documents last, then what formulas work out, a short line for each list. Computed values are in italics, and tags read Yes and No. So does the palette's Export a profile.
     Everything is made in the browser, and nothing is uploaded.
-  - **Present** hides everything but the chart (the sidebar, top bar, ribbon, panel and the bar along its foot), full screen where the browser allows, and fits the chart to the screen. The arrow keys step through the views, each fitted, and Esc comes back to where things were.
+  - **Present** hides everything but the chart (the sidebar, top bar, ribbon, panel and the bar along its foot), full screen where the browser allows, and fits the chart to the screen, under its title, view and as-of date. The arrow keys step through the views, each fitted, and Esc comes back to where things were: the view presenting started from, at its zoom. Esc with the palette open closes only the palette.
   - Text a formula works out is set in italics on the chart. Lines that would pass behind other boxes go under them and come up into the box they reach.
-  - A box with a required entry left blank has a red asterisk at its corner.
-  - **Creating boxes.** Double-click the sheet to add a box of any kind there, or of a new kind. The Insert tab does the same at the middle of the view.
+  - A box with a required entry left blank has an amber asterisk at its corner.
+  - **Creating boxes.** Double-click the sheet to add a box of any kind there, or of a new kind. The Insert tab does the same at the middle of the view. A box for an object made elsewhere (in the panel, Records or a record's page) goes, the first time a view draws it, near what it's related to (below what owns or controls it), or else in the middle of what the chart is showing, clear of the other boxes, and stays there.
   - **Relating two boxes.** Drag from a box's edge handle to another box.
     - A moving dashed line joins the two boxes. The rest of the chart fades and takes no input until Done or Esc.
     - The panel is headed by the two sides. Its rows list every relation in the schema that the two are inputs to, grouped under the relation's name, with one row per way of placing them among its parameters and the role each side takes in it. Sections divide them: Relations they can be in, Computed, and Needs something first.
@@ -76,7 +81,7 @@ In the order of the sidebar:
     - Relations with more than two parameters get pickers for the rest.
     - A new relation can be started at the bottom, with a role for each side and where each side's end sits.
   - **Adding styles.** Use Add › Style… in the panel or New style in the ribbon to style the chart by another entry.
-  - **Zoom.** Ctrl+wheel, or − and + at the foot of the chart, zooms; the percentage between them opens a menu of sizes, and Fit (or Shift+1) fits the whole sheet to the screen. The chart opens as it was left in this session; a chart not looked at yet opens whole if it's readable that way, and otherwise from the top. The panel's left edge drags to resize it.
+  - **Zoom.** Ctrl+wheel, or − and + at the foot of the chart, zooms; the percentage between them opens a menu of sizes, and Fit (or Shift+1) fits the whole sheet to the screen. The chart opens as it was left in this session; a chart not looked at yet opens whole, fitted to the screen, no larger than life. The panel's left edge drags to resize it.
   - What a change did is said in a toast, with Undo when it was an edit.
   - The command palette (Ctrl+K) has the page's actions: Export…, Present, Fit to screen, the views, Tidy layout, the legend and the panel. On the sample chart, Reset sample puts it back as it started, with its views and formulas; Undo brings the changes back.
 - [documents.html](documents.html): the index to the document library. SharePoint keeps the files; the chart keeps what each one is and which records it concerns.
