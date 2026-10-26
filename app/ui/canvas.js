@@ -200,7 +200,7 @@ function mount(el) {
   el.appendChild(root);
   const gEl = root.firstChild, over = root.lastChild;
 
-  let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, row = null, dragging = null, syncing = false;
+  let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, dragging = null, syncing = false;
   let pointing = false, hold = false;
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
@@ -264,14 +264,15 @@ function mount(el) {
   viewport.appendChild(marks);
 
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
-  // A restyle is drawn as an empty redline is, so its boxes stay where they are, as in every preview.
+  // A restyle is drawn as an empty redline is, so its boxes stay where they are, as in every preview; one that
+  // moves them, Tidy's, is laid out afresh, and not kept as how the view was drawn.
   let pageWas = null;
   function draw() {
     const base = App.scene.peek();
     if (!base) return;
-    const view = base.view;
-    scene = revealIds || redDrawn || styledDrawn ? Scene.of(styledDrawn ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn ?? (styledDrawn && {}) }) : base;
+    const view = base.view, s = styledDrawn;
+    scene = revealIds || redDrawn || s ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
+      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn ?? (s && !s.moves ? {} : null), ahead: !!s?.moves }) : base;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
       data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
@@ -364,10 +365,15 @@ function mount(el) {
     }
     return [...new Set(out)].map(id => graph.getCellById(id)).filter(Boolean);
   }
+  // The legend row selected, however it came to be: clicked, or by Back, Find or another part.
+  const keyRow = () => {
+    const ks = Shell.selection.peek(), [legend, key] = ks.length === 1 ? keyParts(ks[0]) : [];
+    return key && scene?.byId.get(legend)?.geometry === 'legend' ? { legend, key } : null;
+  };
   function keysOfSelection() {
-    const ids = sel.getSelectedCells().map(c => c.id), keys = [];
+    const ids = sel.getSelectedCells().map(c => c.id), keys = [], r = keyRow();
     for (const id of ids) {
-      const g = groupOf(id), k = g ? g.id : row && row.legend === id && ids.length === 1 ? `${id}#${row.key}` : id;
+      const g = groupOf(id), k = g ? g.id : r && r.legend === id && ids.length === 1 ? `${id}#${r.key}` : id;
       if (!keys.includes(k)) keys.push(k);
     }
     return keys;
@@ -385,13 +391,12 @@ function mount(el) {
     const ids = sel.getSelectedCells().map(c => c.id);
     const grow = [...new Set(ids.map(groupOf).filter(Boolean))].flatMap(g => g.members).filter(id => !ids.includes(id));
     if (grow.length) { syncing = true; sel.select(grow.map(id => graph.getCellById(id)).filter(Boolean)); syncing = false; }
-    if (row && !ids.includes(row.legend)) row = null;
     const keys = keysOfSelection();
     if (!same(keys, Shell.selection.peek())) Shell.select(keys);
     grips();
     paintStates();
   });
-  const stopSel = effect(() => { const keys = Shell.selection.value; if (scene && !syncing) { if (!keys.some(k => k.includes('#'))) row = null; syncSelection(); paintStates(); } });
+  const stopSel = effect(() => { Shell.selection.value; if (scene && !syncing) { syncSelection(); paintStates(); } });
   // Selects a mark, or the group it's in, unless it's selected already.
   function take(cell) {
     if (sel.isSelected(cell)) return;
@@ -400,13 +405,15 @@ function mount(el) {
   }
 
   // While a formula's row is edited (point mode), a click on a box or line names its record to the formula
-  // bar and selects nothing. A click on a computed line the bar has lit shows its reasons there.
+  // bar and selects nothing. A click on a computed line the bar has lit, or on the line lit in its place,
+  // shows its reasons there.
   function point(on) { pointing = !!on; root.classList.toggle('pointing', pointing); showHandles(null); }
   function pointed(cell) {
-    const d = cell.getData() ?? {}, m = scene?.byId.get(d.kind === 'label' ? d.mark : cell.id);
+    const d = cell.getData() ?? {}, m = scene?.byId.get(d.kind === 'label' ? d.mark : cell.id), st = App.state.peek();
     if (!m || (m.type !== 'box' && m.type !== 'line')) return false;
+    const why = m.type === 'line' && [m.record, ...[...standIns].filter(([, l]) => l === m.id).map(([id]) => id)].find(id => st[id]?.computed && hl?.map.has(id));
     if (pointing) FormulaBar.point(m.record);
-    else if (m.type === 'line' && m.computed && hl?.map.has(m.record)) Shell.emit('why-open', m.record);
+    else if (why) Shell.emit('why-open', why);
     else return false;
     hold = true;
     sel.disable();
@@ -436,33 +443,35 @@ function mount(el) {
     }
     const m = scene.byId.get(node.id), key = e.target.closest?.('[data-row]')?.getAttribute('data-row');
     if (m?.geometry === 'legend') {
-      if (key && legendWas === m.id) { row = { legend: m.id, key }; Shell.select([`${m.id}#${key}`]); paintStates(); }
-      else if (!key) row = null;
+      if (key && legendWas === m.id) Shell.select([`${m.id}#${key}`]);
+      else if (!key && keyRow()) Shell.select([m.id]);
     }
   });
   // A click on a legend already selected selects the row under it.
   let legendWas = null;
   graph.on('node:mousedown', ({ node }) => { legendWas = scene.byId.get(node.id)?.geometry === 'legend' && sel.isSelected(node) ? node.id : null; });
-  graph.on('blank:click', () => { row = null; entered = null; });
+  graph.on('blank:click', () => { entered = null; });
 
   // ---- Gestures, each one change ----
   const viewOf = () => scene.view;
   const treeOf = id => Tree.treeOf(App.state.peek(), id);
   // Places for marks, written: a box's Position at its record in this view, a free shape's own place, kept
-  // on the page.
+  // on the page. Both are the chart's own, where the page has them less its offset: the page centres the
+  // chart, wherever it was placed.
+  const offset = () => ({ x: scene.page.offset?.x ?? 0, y: scene.page.offset?.y ?? 0 });
   function place(tx, places) {
-    const view = viewOf(), n = App.notes.peek(), page = scene.page;
+    const view = viewOf(), n = App.notes.peek(), page = scene.page, o = offset();
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box') {
         const old = n.position(treeOf(m.record), view);
-        tx.note('Position', treeOf(m.record), { x: round(Math.max(0, p.x)), y: round(Math.max(0, p.y)), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
+        tx.note('Position', treeOf(m.record), { x: round(Math.max(0, p.x) - o.x), y: round(Math.max(0, p.y) - o.y), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
       } else if (m.type === 'shape') {
         const points = rowOf(id)?.points;
-        if (points) { tx.update(id, { x: round(p.x), y: round(p.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
+        if (points) { tx.update(id, { x: round(p.x - o.x), y: round(p.y - o.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
         const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
-        tx.update(id, { x: round(clamp(p.x, 0, page.w - w)), y: round(clamp(p.y, 0, page.h - h)), ...(p.w !== undefined && { w: round(w), h: round(h) }) });
+        tx.update(id, { x: round(clamp(p.x, 0, page.w - w) - o.x), y: round(clamp(p.y, 0, page.h - h) - o.y), ...(p.w !== undefined && { w: round(w), h: round(h) }) });
       }
     }
   }
@@ -628,7 +637,7 @@ function mount(el) {
     const g = groupOf(node.id);
     if (g) { entered = g.id; sel.reset(node); }
     const m = scene.byId.get(node.id);
-    edit(m?.geometry === 'legend' && row ? `${m.id}#${row.key}` : node.id, e.target);
+    edit(m?.geometry === 'legend' && keyRow() ? Shell.selection.peek()[0] : node.id, e.target);
   });
   graph.on('blank:dblclick', ({ e }) => addAt(e));
 
@@ -639,7 +648,7 @@ function mount(el) {
     if (still() || !scene || !kind) return;
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     Shell.store.set('kind', kind);
-    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf();
+    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), o = offset();
     openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, '', name => {
       name = Tree.clean(name);
       if (!name) return;
@@ -647,7 +656,7 @@ function mount(el) {
       if (!App.change(tx => {
         id = tx.add('record', { kind });
         tx.add('record', { at: id, edge: 'Name', field: 'text', value: name });
-        tx.note('Position', { id, kind }, { x: round(p.x), y: round(p.y), loose: true }, { view });
+        tx.note('Position', { id, kind }, { x: round(p.x - o.x), y: round(p.y - o.y), loose: true }, { view });
       })) return;
       if (relate) Shell.emit('relate-open', [relate, id]); else Shell.select([id]);
     }, { box: kind });
@@ -655,36 +664,67 @@ function mount(el) {
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
 
   // ---- Relating: from near a box's edge to another box, or to empty page for a new one ----
-  // The handles show on the box whose outline the pointer nears, a little off the middle of each side of
-  // its frame, where its selection is drawn: a triangle's too, so they're clear of the lines that land on
-  // its slopes.
-  let near = null;
+  // The handles show on the box whose outline the pointer nears, on the outline, as PowerPoint's connection
+  // points are: at the middle of each side (a triangle's slopes and base), or off it along the side as far as
+  // keeps them clear of the lines there and of the box's grips, so a click by a box on a line takes the line.
+  // A side with no such place has none.
+  let near = null, placed = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
     h.className = `dc-handle ${side}`;
-    h.addEventListener('pointerdown', e => { if (near && e.button === 0) { e.preventDefault(); e.stopPropagation(); relating(near, side); } });
+    h.addEventListener('pointerdown', e => { if (near && h.at && e.button === 0) { e.preventDefault(); e.stopPropagation(); relating(near, h.at, e); } });
     over.appendChild(h);
     return h;
   });
-  // A triangle's sides are its slopes, a quarter of its width in: a line drawn from one starts there.
-  const inset = m => m.shape === 'triangle' ? m.w / 4 : 0;
+  // A point t of the way along a side of a box's outline: a triangle's slopes and base (it has no top), an
+  // oval's quarters, or else its frame's sides.
+  function sidePoint(m, side, t) {
+    const { x, y, w, h } = m, along = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    if (m.shape === 'oval') { const a = ({ n: -1, e: 0, s: 1, w: 2 }[side] + t - 0.5) * Math.PI / 2; return [x + w / 2 * (1 + Math.cos(a)), y + h / 2 * (1 + Math.sin(a))]; }
+    const sides = m.shape === 'triangle' ? { e: [[x + w / 2, y], [x + w, y + h]], s: [[x + w, y + h], [x, y + h]], w: [[x, y + h], [x + w / 2, y]] }
+      : { n: [[x, y], [x + w, y]], e: [[x + w, y], [x + w, y + h]], s: [[x + w, y + h], [x, y + h]], w: [[x, y + h], [x, y]] };
+    return sides[side] ? along(...sides[side]) : null;
+  }
+  // A box's outline as a polygon, to say how near a point is to it.
+  const outlineOf = m => m.shape === 'triangle' || m.shape === 'oval' ? [...['e', 's', 'w'], ...(m.shape === 'oval' ? ['n'] : [])].flatMap(s => [0, 0.25, 0.5, 0.75].map(t => sidePoint(m, s, t)))
+    : [[m.x, m.y], [m.x + m.w, m.y], [m.x + m.w, m.y + m.h], [m.x, m.y + m.h]];
+  const toSegment = ([x, y], [ax, ay], [bx, by]) => {
+    const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy, t = l ? clamp(((x - ax) * dx + (y - ay) * dy) / l, 0, 1) : 0;
+    return Math.hypot(x - ax - t * dx, y - ay - t * dy);
+  };
+  // How far off the middle a handle may go, and how clear it keeps, in screen pixels: its reach and a line's.
+  const ALONG = [0.5, 0.38, 0.62, 0.26, 0.74, 0.14, 0.86], CLEAR = 16;
   function showHandles(m = near) {
     near = m && !pointing && !still() && !dragging ? m : null;
-    if (!near) { root.classList.remove('relating-on'); return; }
-    const a = graph.localToGraph(m.x, m.y), b = graph.localToGraph(m.x + m.w, m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, o = 12;
-    const at = { n: [cx, a.y - o], e: [b.x + o, cy], s: [cx, b.y + o], w: [a.x - o, cy] };
-    handles.forEach(h => { const [x, y] = at[h.classList[1]]; h.style.left = `${x}px`; h.style.top = `${y}px`; });
+    if (!near) { root.classList.remove('relating-on'); placed = null; return; }
+    const z = graph.zoom(), cell = graph.getCellById(m.id), gripped = transform.widgets.has(cell), t = graph.translate();
+    const now = [m, scene, z, t.tx, t.ty, gripped];
+    if (placed && same(placed, now)) return root.classList.add('relating-on');
+    placed = now;
+    // What's near the box: the lines' legs, and its grips, at its corners and the middles of its sides.
+    const r = CLEAR / z, segs = [];
+    for (const k of scene.marks) if (k.points) k.points.slice(1).forEach((p, i) => {
+      const q = k.points[i];
+      if (Math.max(p[0], q[0]) >= m.x - r && Math.min(p[0], q[0]) <= m.x + m.w + r && Math.max(p[1], q[1]) >= m.y - r && Math.min(p[1], q[1]) <= m.y + m.h + r) segs.push([q, p]);
+    });
+    const dots = gripped ? [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => fx !== 0.5 || fy !== 0.5).map(fy => [m.x + m.w * fx, m.y + m.h * fy])) : [];
+    const clear = p => segs.every(([a, b]) => toSegment(p, a, b) * z >= CLEAR) && dots.every(d => Math.hypot(p[0] - d[0], p[1] - d[1]) * z >= CLEAR);
+    for (const h of handles) {
+      const side = h.classList[1], p = ALONG.map(f => sidePoint(m, side, f)).find(p => p && clear(p));
+      h.at = p ?? null;
+      h.hidden = !p;
+      if (p) { const g = graph.localToGraph(p[0], p[1]); h.style.left = `${g.x}px`; h.style.top = `${g.y}px`; }
+    }
     root.classList.add('relating-on');
   }
-  // The box whose outline a point is nearest, within 10 px inside it or 22 outside (where its handles are).
+  // The box whose outline a point is within 12 px of, on screen, the nearest.
   function nearEdge(p) {
-    const z = graph.zoom();
+    const z = graph.zoom(), r = 12 / z;
     let best = null, bd = Infinity;
     for (const m of scene.marks) {
-      if (m.type !== 'box') continue;
-      const dx = Math.max(m.x - p.x, p.x - m.x - m.w, 0), dy = Math.max(m.y - p.y, p.y - m.y - m.h, 0);
-      const d = dx || dy ? Math.hypot(dx, dy) * z : Math.min(p.x - m.x, m.x + m.w - p.x, p.y - m.y, m.y + m.h - p.y) * z;
-      if ((dx || dy ? d <= 22 : d <= 10) && d < bd) { best = m; bd = d; }
+      if (m.type !== 'box' || p.x < m.x - r || p.x > m.x + m.w + r || p.y < m.y - r || p.y > m.y + m.h + r) continue;
+      const o = outlineOf(m), d = Math.min(...o.map((a, i) => toSegment([p.x, p.y], a, o[(i + 1) % o.length]))) * z;
+      if (d <= 12 && d < bd) { best = m; bd = d; }
     }
     return best;
   }
@@ -695,16 +735,13 @@ function mount(el) {
   root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
   for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = left = null; onScreen(); } showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
 
-  // A relation being drawn from a box: from one of its handles while the button is held, or from the
-  // middle of the box, for Relate…, until the next click. On another box, the two's relations are asked
-  // for; on empty page, a new box of a kind, or a line.
-  function relating(from, side) {
-    const line = document.createElementNS(NS, 'path'), click = !side;
+  // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
+  // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
+  // asked for; on empty page, a new box of a kind, or a line. A handle clicked, not dragged, is a click on its box.
+  function relating(from, start = [from.x + from.w / 2, from.y + from.h / 2], down = null) {
+    const line = document.createElementNS(NS, 'path'), click = !down;
     line.setAttribute('class', 'dc-relating');
     marks.appendChild(line);
-    const i = inset(from), start = side
-      ? { n: [from.x + from.w / 2, from.y], e: [from.x + from.w - i, from.y + from.h / 2], s: [from.x + from.w / 2, from.y + from.h], w: [from.x + i, from.y + from.h / 2] }[side]
-      : [from.x + from.w / 2, from.y + from.h / 2];
     let target = null, unlayer = null;
     root.classList.add('relating');
     const at = ev => graph.clientToLocal(ev.clientX, ev.clientY);
@@ -722,6 +759,7 @@ function mount(el) {
     const up = ev => {
       if (click) { ev.preventDefault(); ev.stopPropagation(); }
       end();
+      if (down && Math.hypot(ev.clientX - down.clientX, ev.clientY - down.clientY) < 4) return take(graph.getCellById(from.id));
       const p = at(ev);
       target = boxAt(p);
       if (target) Shell.emit('relate-open', [from.id, target.id]);
@@ -769,18 +807,19 @@ function mount(el) {
   ];
 
   // ---- States others ask for: highlight, redline, hidden records drawn ----
-  // A record not drawn as text lights the box or line it sits in.
-  const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene?.byId.get(x); if (m) return m; } return null; };
+  // A record not drawn as text lights the box or line it sits in, or the line that stands in for it.
+  const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene?.byId.get(x) ?? scene?.byId.get(standIns.get(x)); if (m) return m; } return null; };
   // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's.
   const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
   function paintStates(extra) {
     if (!scene) return;
     marks.querySelectorAll('.dc-hl, .dc-row, .dc-group').forEach(n => n.remove());
     // A box or a text is outlined over the chart; a line is traced where it lies, under the boxes, so a
-    // line lit never crosses a name. A line drawn once for others traces them.
-    const traced = new Map();
+    // line lit never crosses a name. A line drawn once for others traces them, in the strongest light of
+    // theirs: the deeper reasons are lit first, so a witness's is over them.
+    const traced = new Map(), lights = new Set(TRACES.filter(c => c !== 'dc-row' && c !== 'dc-sel'));
     const outline = (m, cls, pad = 3) => {
-      if (m.points) { const id = m.merged ?? m.id; return traced.set(id, [...traced.get(id) ?? [], ...cls.split(' ')]); }
+      if (m.points) { const id = m.merged ?? m.id, was = traced.get(id) ?? []; return traced.set(id, [...cls.startsWith('dc-hl') ? was.filter(c => !lights.has(c)) : was, ...cls.split(' ')]); }
       const p = document.createElementNS(NS, 'path');
       // Round a box by its own outline; a triangle's grows from its apex, so it stays clear of it.
       const k = m.shape === 'triangle' ? 2.2 : 1;
@@ -793,7 +832,7 @@ function mount(el) {
     for (const m of scene.marks) for (const it of m.texts ?? []) hosts.set(it.id, m);
     const lit = new Set();
     // Each record lit takes its hue, and its depth: 0 a witness, heavier; 2 a deeper reason, lighter.
-    for (const [id, [hue, depth]] of [...(hl?.map ?? []), ...(extra ?? [])]) {
+    for (const [id, [hue, depth]] of [...(hl?.map ?? []), ...(extra ?? [])].sort((a, b) => (b[1][1] ?? 1) - (a[1][1] ?? 1))) {
       const m = markFor(id);
       if (!m) continue;
       const cls = `dc-hl h${hue}` + (depth === 0 ? ' strong' : depth === 2 ? ' deep' : '') + (hl?.pulse.has(id) ? ' pulse' : '');
@@ -807,7 +846,7 @@ function mount(el) {
       } else { lit.add(m.merged ?? m.id); outline(m, cls); }
     }
     // A selected legend row, and an entered or selected group.
-    const lg = row && scene.byId.get(row.legend), r = lg?.rows?.find(x => x.key === row.key);
+    const kr = keyRow(), lg = kr && scene.byId.get(kr.legend), r = lg?.rows?.find(x => x.key === kr.key);
     if (r) {
       outline({ type: 'box', x: lg.x + r.x - 2, y: lg.y + r.y - 1, w: r.w, h: r.h + 2 }, 'dc-row', 0);
       // And every mark with that look.
@@ -843,20 +882,29 @@ function mount(el) {
     show();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
-  // change would leave it, PowerPoint's live preview. null ends it.
-  function restyle(wb) { styled = wb; show(); }
+  // change would leave it, PowerPoint's live preview; with `moves`, laid out again (Tidy). null ends it.
+  function restyle(wb, { moves = false } = {}) { styled = wb && { wb, moves }; show(); }
   // Boxes and lines the view hides are drawn while they're highlighted, redlined, or asked for. (An entry
   // isn't: it lights what it sits in, so no box changes size under the pointer.) A preview is drawn while
   // it's quick: a redline or a restyle on a chart of a few hundred marks, and the hidden drawn only while
   // they're a few dozen; past that, what's drawn is lit, and the formula bar says the rest.
   const QUICK = { marks: 400, hidden: 40 };
-  let asked = [], redDrawn = null, styled = null, styledDrawn = null;
+  let asked = [], redDrawn = null, styled = null, styledDrawn = null, standIns = new Map();
   function reveal(ids) { asked = ids ? [...ids] : []; show(); }
   function show() {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, r = red && quick ? red : null, s = styled && quick ? styled : null;
     const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek();
     const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id); };
-    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(hidden).sort();
+    // A relation the view hides, lit or stepped through, whose two boxes a line drawn here already joins, is
+    // lit on that line, not routed a second time beside it. (One a redline adds is drawn, as what would change.)
+    const joins = new Map(), pair = (a, b) => [a, b].sort().join(' ');
+    for (const m of base?.byId.values() ?? []) if (m.type === 'line' && !joins.has(pair(m.from, m.to))) joins.set(pair(m.from, m.to), m.merged ?? m.id);
+    standIns = new Map();
+    for (const id of [...asked, ...(hl ? hl.map.keys() : [])]) {
+      const x = st[id], line = hidden(id) && x.args?.length === 2 && joins.get(pair(...x.args.map(a => Tree.objectOf(st, a.at))));
+      if (line) standIns.set(id, line);
+    }
+    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(id => hidden(id) && !standIns.has(id)).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
     if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
     ahead();
@@ -866,7 +914,7 @@ function mount(el) {
   // reads, and the scene drawn then reads the same.
   let aheadOf = null;
   function ahead() {
-    const base = App.scene.peek(), wb = styled ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
+    const base = App.scene.peek(), wb = styled?.wb ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
     if (!base || !state || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
     if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base) return;
     const mine = aheadOf = { wb, state, base };
@@ -901,6 +949,9 @@ function mount(el) {
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
+    // Found where the page has it, its place is kept as the chart's own (see place).
+    const o = offset();
+    if (opts.x === undefined && (o.x || o.y)) Object.assign(row, { x: round(row.x - o.x), y: round(row.y - o.y), ...(row.points && { points: row.points.map(([x, y]) => [round(x - o.x), round(y - o.y)]) }) });
     let id = null;
     if (!App.change(tx => { id = tx.add('shape', row); })) return null;
     Shell.select([id]);
@@ -949,9 +1000,10 @@ function mount(el) {
     const s = parts.join(' and ');
     return s && s[0].toUpperCase() + s.slice(1);
   }
-  // What's copied is marks of one view, and their names: pasting a box shows it, a shape is copied.
+  // What's copied is marks of one view, and their names: pasting a box shows it where it was in the chart, a
+  // shape is copied.
   let clip = null;
-  const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x, y: m.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
+  const marksNow = (o = offset()) => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x - o.x, y: m.y - o.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
   function copy() {
     const c = marksNow();
     if (!c.items.length) return false;
@@ -1037,17 +1089,27 @@ function mount(el) {
     const gs = selected().filter(m => m.geometry === 'group');
     if (gs.length && App.change(tx => gs.forEach(g => tx.remove(g.id)))) Shell.select(gs.flatMap(g => g.members));
   }
+  // Tidy: the view's entered positions gone, the layout's in their place (dendra.md, The layout), and the view
+  // framed on its page again, as it opens. `tidied` is the workbook as Tidy would leave it, which a preview draws.
+  const placedHere = () => App.notes.peek().notes('Position').filter(n => n.view === viewOf());
+  function tidied() {
+    const wb = App.shown.peek(), gone = new Set(placedHere().map(n => n.note)), rows = wb.rows(App.chart.peek()).filter(r => !gone.has(r.note));
+    const notes = Notes.index(rows.filter(r => 'note' in r));
+    return { ...wb, rows: () => rows, notes: () => notes };
+  }
   function tidy() {
-    const view = viewOf();
-    App.change(tx => App.notes.peek().notes('Position').filter(n => n.view === view).forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' });
+    if (!App.change(tx => placedHere().forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' })) return;
+    framed = READS; left = null;
+    settle();
   }
 
   // ---- Zoom: the levels, and framing. A view opens on its whole page, as PowerPoint opens a slide, where
-  // that's READS or more; otherwise at READS from the page's top left, so nothing is cut but its right and
-  // foot. Fit (Shift+1) frames the whole page however small. A framed view stays framed as the window and
-  // the page change size, until it's zoomed or scrolled: `framed` is the least zoom it's framed at. A canvas
-  // that can't be seen (a table shown, the inspector widened) is never measured or moved: it's framed, or
-  // put back as it was left, once it's seen again ----
+  // that's READS or more; otherwise at READS from the page's top left, its margin no wider on screen than the
+  // sheet's own, so nothing is cut but its right and foot (and the blank of a page drawn very small, which
+  // opens on its title). Fit (Shift+1) frames the whole page however small. A framed view stays framed as the
+  // window and the page change size, until it's zoomed or scrolled: `framed` is the least zoom it's framed at.
+  // A canvas that can't be seen (a table shown, the inspector widened) is never measured or moved: it's
+  // framed, or put back as it was left, once it's seen again ----
   // Where a 10 pt name is 8 px on screen, as small as it's read.
   const READS = 0.6;
   let framed = READS, left = null, quiet = false;
@@ -1059,19 +1121,21 @@ function mount(el) {
     return { x, y, w: Math.max(...ext.map(m => m.x + m.w)) - x, h: Math.max(...ext.map(m => m.y + m.h)) - y };
   };
   // Shows a rect as large as fits within pad of the edges, between lo and hi: in the middle; or, where
-  // it's too big, from its top left.
-  function showRect(r, pad, lo, hi) {
+  // it's too big, from its top left, less `trim(zoom)` screen pixels of it.
+  function showRect(r, pad, lo, hi, trim = () => 0) {
     const W = root.clientWidth, H = root.clientHeight;
-    const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi);
-    const at = (x, w, room) => w * s > room - 2 * pad ? pad - x * s : (room - w * s) / 2 - x * s;
+    const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi), cut = trim(s);
+    const at = (x, w, room) => w * s > room - 2 * pad ? pad - x * s - cut : (room - w * s) / 2 - x * s;
     quietly(() => { graph.zoomTo(s); graph.translate(at(r.x, r.w, W), at(r.y, r.h, H)); });
     zoomLevel.value = graph.zoom();
   }
-  // The view as it's to be, once it can be seen: as it was left, or framed on its page.
+  // The view as it's to be, once it can be seen: as it was left, or framed on its page, whose margin is cut
+  // to the sheet's own where the page is shown larger than the sheet.
   function settle() {
     if (!scene || !seen()) return;
+    const p = scene.page;
     if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
-    else if (framed) showRect({ x: 0, y: 0, w: scene.page.w, h: scene.page.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), framed, 2);
+    else if (framed) showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), framed, 2, s => p.margin * Math.max(0, s - p.scale));
   }
   function zoom(k) {
     if (!scene) return;
@@ -1132,7 +1196,7 @@ function mount(el) {
     '$mod+Equal': () => zoom('in'), '$mod+Minus': () => zoom('out'), 'Shift+Digit0': () => zoom(1),
     'F2': () => { const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
     'Enter': () => { const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
-    'Escape': () => { if (!keysOfSelection().length) return false; entered = null; row = null; Shell.select([]); },
+    'Escape': () => { if (!keysOfSelection().length) return false; entered = null; Shell.select([]); },
   };
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
   const unbind = tinykeys.tinykeys(root, wrapped);
@@ -1165,7 +1229,7 @@ function mount(el) {
   const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); });
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo,
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
