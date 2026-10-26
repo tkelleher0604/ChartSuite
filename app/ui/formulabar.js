@@ -400,7 +400,7 @@ const FormulaBar = (() => {
     // The point: the value read, where one is; else what the record says.
     const term = (x, text) => x === id && reads.length ? text : { term: text, id: x, fx: fx(x) };
     const be = (yes = true) => would ? (yes ? ' would be ' : ' would not be ') : yes ? ' is ' : ' is not ';
-    const c = { id: [id, ...reads].find(fx) ?? id, ids: [id, ...reads], subj: null, poss: false, pre: [], obj: [], objId: null, post: [] };
+    const c = { id: [id, ...reads].find(fx) ?? id, ids: [id, ...reads], subj: null, poss: false, pre: [], obj: [], post: [] };
     const withs = reads.flatMap(e => { const x = recs[e]; return 'tag' in x ? [` ${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [` with ${article(x.edge)} ${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
     if (r.args) {
       const [a, b, ...rest] = n.sides(recs, id), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
@@ -409,13 +409,13 @@ const FormulaBar = (() => {
       const p = B ? predicate(mine) ?? predicate(n.nameOf(recs, id), true) : null, flip = B && !p && 'tag' in r ? predicate(theirs) : null;
       const of = B ? [p?.form === 'noun' && !('field' in r) ? p.prep : ' of ', { name: B }] : [];
       c.post = [...rest.flatMap(x => [`, ${lower(x.edge)} `, { name: Tree.objectOf(recs, x.at) }]), ...(rest.length && withs.length ? [','] : []), ...withs];
-      if ('field' in r) return Object.assign(c, { subj: A, poss: true, pre: [` ${lower(n.nameOf(recs, id))}`], obj: of, objId: B, post: [be(), term(id, Tree.outputText(r)), ...c.post] });
+      if ('field' in r) return Object.assign(c, { subj: A, poss: true, pre: [` ${lower(n.nameOf(recs, id))}`], obj: of, post: [be(), term(id, Tree.outputText(r)), ...c.post] });
       const says = q => q.form === 'noun' ? [be(yes), `${article(q.head)} `, term(id, q.head)] : q.form === 'participle' ? [be(yes), term(id, q.head)]
         : yes ? (would ? [' would ', term(id, q.head.replace(/s\b/, ''))] : [' ', term(id, q.head)]) : [would ? ' would not ' : ' does not ', term(id, q.head.replace(/s\b/, ''))];
-      if ('choice' in r) return Object.assign(c, { subj: A, pre: says({ head: lower(r.choice), form: 'noun' }), obj: of, objId: B });
-      if (p) return Object.assign(c, { subj: A, pre: says(p), obj: [p.prep, { name: B }], objId: B });
-      if (flip) return Object.assign(c, { subj: B, pre: says(flip), obj: [flip.prep, { name: A }], objId: A });
-      return Object.assign(c, { subj: A, pre: says({ head: lower(singular(theirs)), form: 'noun' }), obj: of, objId: B });
+      if ('choice' in r) return Object.assign(c, { subj: A, pre: says({ head: lower(r.choice), form: 'noun' }), obj: of });
+      if (p) return Object.assign(c, { subj: A, pre: says(p), obj: [p.prep, { name: B }] });
+      if (flip) return Object.assign(c, { subj: B, pre: says(flip), obj: [flip.prep, { name: A }] });
+      return Object.assign(c, { subj: A, pre: says({ head: lower(singular(theirs)), form: 'noun' }), obj: of });
     }
     const O = Tree.objectOf(recs, id), o = recs[O];
     if ('tag' in r) {
