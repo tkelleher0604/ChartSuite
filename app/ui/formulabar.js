@@ -618,9 +618,13 @@ const FormulaBar = (() => {
     if (e.key === 'Enter') commitDraft(); else discard();
   }
 
-  // The row that gave the output, in the bar's one row; or, where none did, the rows' labels.
+  // The row that gave the output, in the bar's one row; or, where none did, the rows' labels, a clause once.
   function Inline({ m, cited, colors }) {
-    if (!cited) return html`<span class="fx-inline fx-labels">${m.rows.map(r => html`<button class=${r.ink ? null : 'grey'} onClick=${() => { opened.value = true; }}>${r.label || '—'}</button>`)}</span>`;
+    if (!cited) {
+      const labels = new Map();
+      for (const r of m.rows) labels.set(r.label || '—', labels.get(r.label || '—') || r.ink);
+      return html`<span class="fx-inline fx-labels">${[...labels].map(([l, ink]) => html`<button class=${ink ? null : 'grey'} onClick=${() => { opened.value = true; }}>${l}</button>`)}</span>`;
+    }
     return html`<span class="fx-inline" data-key=${cited.key}><span class="fx-label">${cited.label}</span>
       <${Formula} key=${m.def.id + cited.key} row=${cited} m=${m} colors=${colors} grey=${!cited.ink} would=${wouldOf(m, cited)} inline /></span>`;
   }
