@@ -467,7 +467,7 @@ async function run() {
     && App.notes.peek().resolve('Shown', { kind: 'Document' }, nv)?.note.view === nv && !notesIn(nv).some(r => r.label === 'Position')
     && notesIn(nv).length === notesIn(firstChart).filter(r => r.label !== 'Position').length, `${notesIn(nv).length} of ${notesIn(firstChart).length}`);
   const chartName = App.wb.charts().find(c => c.chart === C()).name;
-  check('… on a page with a title and an as-of line', shapesIn(nv).length === 2 && shapesIn(nv).some(s => s.text === chartName) && shapesIn(nv).some(s => /^="As of " & TEXT\(@AsOf/.test(s.text)), JSON.stringify(shapesIn(nv)));
+  check('… on a page with a title and an as-of line', shapesIn(nv).length === 2 && shapesIn(nv).some(s => s.role === 'title' && s.text === chartName) && shapesIn(nv).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text)), JSON.stringify(shapesIn(nv)));
   undo(); await tick(100);
   Shell.show(own); await tick(60);
 
@@ -521,7 +521,7 @@ async function run() {
   const kept = views().map(v => v.name);
   check('It keeps the views, but not one named after the old chart’s records', !kept.includes('Fund III') && ['Structure', '40 Act', 'Entities'].every(n => kept.includes(n)), kept.join());
   const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
-  check('Each of its pages has a title, its name, and an as-of line', pages.length > 0 && pages.every(v => furniture(v).some(s => s.text === name1) && furniture(v).some(s => /^="As of " & TEXT\(@AsOf/.test(s.text))),
+  check('Each of its pages has a title, its name, and an as-of line', pages.length > 0 && pages.every(v => furniture(v).some(s => s.role === 'title' && s.text === name1) && furniture(v).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text))),
     pages.map(v => `${v.name}: ${furniture(v).map(s => s.text).join(' | ')}`).join(' / '));
   App.change(tx => tx.note('Name', { id: views()[0].id, kind: 'View' }, 'Overview'), { dated: false }); await tick(60);
   check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Structure'));

@@ -93,7 +93,7 @@ A **view** is an object of the kind View. Its notes say how it presents the char
 
 **The layout** works out every position not entered, together: drawn boxes and their sizes, frames as clusters, the lines that rank boxes (a line's Above names the edge drawn on top, as Owner), and the routes of lines. **Tidy** removes a view's entered positions. A box placed among entered ones goes beside its relatives, on no line it isn't on. A redline or a highlight keeps every box where it is, and places what it adds the same way. Boxes in a rank share a height, and triangles of a width a size. A box's lines of one look to every box in a frame land on the frame as one. Arrow Auto draws an arrowhead where a line doesn't run down from its Above side.
 
-**The page** keeps its size's proportions, a 16:9 slide unless a Page note says otherwise, and grows as a whole to hold what's drawn, so the chart is drawn smaller to fit the slide.
+**The page** keeps its size's proportions, a 16:9 slide unless a Page note says otherwise, and grows as a whole to hold what's drawn, so the chart is drawn smaller to fit the slide, by twentieths, so its sizes stay on PowerPoint's half points. Its title, date and Key are the sheet's own, at the sheet's size (20, 11 and 8 pt), however small the chart is drawn.
 
 **The scene** is the drawn marks and free shapes, each setting valued and each text broken into lines. It depends on the computed state and the view and nothing else, and the canvas, PDF and PowerPoint each draw it and nothing else.
 
