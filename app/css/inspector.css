@@ -50,7 +50,7 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .cellbox > .del { flex: 0 1 auto; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cellbox.off .cell { color: var(--ink-3); }
 /* Text that wraps (a value's text, a title, prose): as tall as its lines. */
-textarea.cell { field-sizing: content; height: auto; min-height: var(--row); padding: 4px 6px; line-height: 20px; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+textarea.cell { field-sizing: content; height: auto; min-height: var(--row); padding: 3px 6px; line-height: 20px; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
 .cellbox.title .cell, textarea.cell.prose { width: calc(100% + 7px); max-width: none; }
 .hug.over::after { top: 4px; right: -1px; }
 .cellbox > .unit { margin-left: -6px; color: var(--ink-3); }
