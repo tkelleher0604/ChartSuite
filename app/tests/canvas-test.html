@@ -86,6 +86,11 @@ function onScreen() {
   const g = cv().graph, p = sc().page, a = g.localToGraph(0, 0), b = g.localToGraph(p.w, p.h);
   return { a, b, W: cv().root.clientWidth, H: cv().root.clientHeight, z: g.zoom() };
 }
+// Where the title's words start on screen.
+function titleAt() {
+  const t = sc().marks.find(m => m.role === 'title' && m.texts[0]?.lines.length), l = t?.texts[0].lines[0];
+  return t ? cv().graph.localToGraph(t.x + t.column.x, t.y + l.y - t.look.Size * Scene.PT * 0.93) : { x: NaN, y: NaN };
+}
 const key = (k, o = {}) => { const e = new KeyboardEvent('keydown', { key: k, code: o.code ?? k, bubbles: true, cancelable: true, ...o }); cv().root.dispatchEvent(e); };
 const menuItems = () => $$('.float .menu-item').map(txt);
 const closeMenus = async () => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); await tick(); };
@@ -104,9 +109,9 @@ async function run() {
     if (order[0].id === Shell.view.peek()) order.push(order.shift());
     for (const v of order) {
       await show(v);
-      // (Its margin is cut to the sheet's own where the page is shown larger than the sheet.)
-      const { a, b, W, H, z } = onScreen(), fits = b.x <= W + 0.5 && b.y <= H + 0.5, cut = sc().page.margin * Math.max(0, z - sc().page.scale);
-      if (a.x < -cut - 0.5 || a.y < -cut - 0.5 || z < 0.6 - 1e-6 || (!fits && z > 0.6 + 1e-6)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);
+      // (60%, or the page's own scale where that's smaller, so a page is never opened larger than its sheet.)
+      const { a, b, W, H, z } = onScreen(), fits = b.x <= W + 0.5 && b.y <= H + 0.5, least = Math.min(0.6, sc().page.scale);
+      if (a.x < -0.5 || a.y < -0.5 || z < least - 1e-6 || (!fits && z > least + 1e-6)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);
     }
     check(`at ${w}×${h} every view opens on its whole page, or at 60% from its top left`, !bad.length, bad.join('; '));
   }
@@ -323,18 +328,19 @@ async function run() {
   cv().zoom(2); await tick(80);
   tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
   tidyBtn.click(); await tick(200);
-  const tidyToast = txt($$('.toast').at(-1)), { a: ta, z: tz } = onScreen();
-  check('Tidy is one change, “Tidied the layout”, and the view is framed on its page again', tidyToast.startsWith('Tidied the layout') && App.wb.changes().length === made + 1
-    && sc() === base() && (whole() || (Math.abs(tz - 0.6) < 1e-6 && ta.x > -0.5 && ta.y > -0.5)), `${tidyToast} ${tz}`);
+  const tidyToast = txt($$('.toast').at(-1)), { a: ta, z: tz } = onScreen(), said = Time.describe(App.wb.changes().at(-1));
+  check('Tidy is one change, “Tidied the layout” in its toast and History, and the view is framed on its page again', tidyToast.startsWith('Tidied the layout') && said === 'Tidied the layout'
+    && App.wb.changes().length === made + 1 && sc() === base() && (whole() || (Math.abs(tz - Math.min(0.6, sc().page.scale)) < 1e-6 && ta.x > -0.5 && ta.y > -0.5)), `${tidyToast} | ${said} | ${tz}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   check('… and Undo says so too', txt($$('.toast').at(-1)).startsWith('Undid: Tidied the layout'), txt($$('.toast').at(-1)));
 
-  // ---- A page drawn very small opens on its title, its margin no wider on screen than the sheet's own ----
+  // ---- A page drawn very small (as a chart of hundreds of boxes is) opens whole, not at 60% on its blank
+  // margin or its title many times its size ----
   const pageOf = { id: main.id, kind: 'View' };
   App.change(tx => tx.note('Page', pageOf, { w: 240, h: 135 }), { dated: false }); await tick(200);
-  { const p = sc().page, { a, z, W, H } = onScreen(), title = sc().marks.find(m => m.role === 'title'), t = title && g.localToGraph(title.x + Math.min(...title.texts[0].lines.map(l => l.x)), title.y + title.texts[0].lines[0].y);
-    check('a page drawn very small opens at 60%, its margin cut to the sheet’s, its title in view', p.scale < 0.2 && Math.abs(z - 0.6) < 1e-6 && a.x + p.margin * z <= 28 + 48 + 0.5 && a.y + p.margin * z <= 28 + 48 + 0.5
-      && !!t && t.x >= 0 && t.y >= 0 && t.x < W && t.y < H, `scale ${p.scale}, margin from ${Math.round(a.x + p.margin * z)},${Math.round(a.y + p.margin * z)}, title at ${t && [t.x, t.y].map(Math.round)}`); }
+  { const p = sc().page, { z, W, H } = onScreen(), t = titleAt();
+    check('a page drawn very small opens whole, its title in view', p.scale < 0.2 && z < 0.6 && whole() && t.x >= 0 && t.y >= 0 && t.x < W && t.y < H,
+      `scale ${p.scale}, zoom ${z}, title’s words at ${[t.x, t.y].map(Math.round)}`); }
   Shell.parts.peek().undo.undo(); await tick(200);
 
   // ---- Deleting as of a past day says from when ----

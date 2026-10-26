@@ -1112,12 +1112,13 @@ function mount(el) {
   }
 
   // ---- Zoom: the levels, and framing. A view opens on its whole page, as PowerPoint opens a slide, where
-  // that's READS or more; otherwise at READS from the page's top left, its margin no wider on screen than the
-  // sheet's own, so nothing is cut but its right and foot (and the blank of a page drawn very small, which
-  // opens on its title). Fit (Shift+1) frames the whole page however small. A framed view stays framed as the
-  // window and the page change size, until it's zoomed or scrolled: `framed` is the least zoom it's framed at.
-  // A canvas that can't be seen (a table shown, the inspector widened) is never measured or moved: it's
-  // framed, or put back as it was left, once it's seen again ----
+  // that's READS or more; otherwise at READS from the page's top left, so nothing is cut but its right and
+  // foot. A page drawn smaller than READS (a chart of hundreds of boxes) opens whole, or, where even its sheet's
+  // own size is too big for that, at that size from its top left: at READS its title and margin would loom
+  // larger than the sheet's. Fit (Shift+1) frames the whole page however small. A framed view stays framed as
+  // the window and the page change size, until it's zoomed or scrolled: `framed` is the least zoom it's
+  // framed at. A canvas that can't be seen (a table shown, the inspector widened) is never measured or moved:
+  // it's framed, or put back as it was left, once it's seen again ----
   // Where a 10 pt name is 8 px on screen, as small as it's read.
   const READS = 0.6;
   let framed = READS, left = null, quiet = false;
@@ -1129,21 +1130,21 @@ function mount(el) {
     return { x, y, w: Math.max(...ext.map(m => m.x + m.w)) - x, h: Math.max(...ext.map(m => m.y + m.h)) - y };
   };
   // Shows a rect as large as fits within pad of the edges, between lo and hi: in the middle; or, where
-  // it's too big, from its top left, less `trim(zoom)` screen pixels of it.
-  function showRect(r, pad, lo, hi, trim = () => 0) {
+  // it's too big, from its top left.
+  function showRect(r, pad, lo, hi) {
     const W = root.clientWidth, H = root.clientHeight;
-    const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi), cut = trim(s);
-    const at = (x, w, room) => w * s > room - 2 * pad ? pad - x * s - cut : (room - w * s) / 2 - x * s;
+    const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi);
+    const at = (x, w, room) => w * s > room - 2 * pad ? pad - x * s : (room - w * s) / 2 - x * s;
     quietly(() => { graph.zoomTo(s); graph.translate(at(r.x, r.w, W), at(r.y, r.h, H)); });
     zoomLevel.value = graph.zoom();
   }
-  // The view as it's to be, once it can be seen: as it was left, or framed on its page, whose margin is cut
-  // to the sheet's own where the page is shown larger than the sheet.
+  // The view as it's to be, once it can be seen: as it was left, or framed on its page, never larger than its
+  // sheet is.
   function settle() {
     if (!scene || !seen()) return;
     const p = scene.page;
     if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
-    else if (framed) showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), framed, 2, s => p.margin * Math.max(0, s - p.scale));
+    else if (framed) showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), Math.min(framed, p.scale), 2);
   }
   function zoom(k) {
     if (!scene) return;
