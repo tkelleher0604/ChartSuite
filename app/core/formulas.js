@@ -517,8 +517,10 @@ const inSight = (S, id) => !S.cut || !S.cut.defs.has(S.recs[id]?.computed) || S.
 // candidates (see holdsWhere), 'rel' (a relation's records with one argument given) and 'inverse' (whose list
 // of a name an object is on). candidateKeys gives the keys under which a candidate could turn up.
 function depend(S, kind, name, key) {
-  if (S.reads && S.dep?.[kind].has(name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); if (VALUE_KINDS.has(kind)) S.dep.watchedValues.add(kind); }
+  if (watching(S, kind, name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); if (VALUE_KINDS.has(kind)) S.dep.watchedValues.add(kind); }
 }
+// Whether a lookup is to be noted: where a key is costly to spell, it's spelled only then.
+const watching = (S, kind, name) => !!S.reads && !!S.dep?.[kind].has(name);
 
 // What a name gives where nothing has it: an empty list for a list the schema has somewhere, nothing for any
 // other name the schema has somewhere, and an error for a name it doesn't have at all.
@@ -573,7 +575,7 @@ const ambiguous = name => err('#NAME?', `${name} could mean more than one thing 
 
 // The entry called `n` at a record, if in sight, or what its formula gave there where that was an error.
 function entryAt(S, id, n, found) {
-  depend(S, 'entry', n, `${id}|${n}`);
+  if (watching(S, 'entry', n)) depend(S, 'entry', n, `${id}|${n}`);
   const entry = S.byAtName.get(`${id}|${n}`);
   if (entry && inSight(S, entry)) found.push(recOf(entry));
   else if (S.failed.has(`${id}|${n}`)) found.push(S.failed.get(`${id}|${n}`));
@@ -1187,8 +1189,13 @@ function callRelation(c, rel, a) {
     if (!v?.id) return recOf(null);
     ids.set(edge, v.id);
   }
-  const pairs = [...ids].map(([edge, g]) => `${edge}=${objectOf(S, g)}`).sort().join('&');
-  depend(S, 'calls', rel.n, `${rel.n}|${pairs}`);
+  let pairs;
+  if (ids.size === 2) {
+    const it = ids.entries(), [e1, g1] = it.next().value, [e2, g2] = it.next().value;
+    const p = `${e1}=${objectOf(S, g1)}`, q = `${e2}=${objectOf(S, g2)}`;
+    pairs = p < q ? `${p}&${q}` : `${q}&${p}`;
+  } else pairs = [...ids].map(([edge, g]) => `${edge}=${objectOf(S, g)}`).sort().join('&');
+  if (watching(S, 'calls', rel.n)) depend(S, 'calls', rel.n, `${rel.n}|${pairs}`);
   for (const rid of S.relsByCall.get(`${rel.sig}|${pairs}`) ?? []) {
     const r = S.recs[rid];
     // Records with the relation's edges but of another form are another relation.
@@ -1809,8 +1816,10 @@ function acrossItems(c, list, h) {
   const items = toList(ev(list, c));
   if (isErr(items)) return null;
   let bits = new Uint32Array(0), exact = true;
+  const ci = withAt(c, null);
   for (const item of items) {
-    const s = h(withAt(c, item));
+    ci.at = item;
+    const s = h(ci);
     if (!s) return null;
     exact &&= s.exact;
     bits = addBits(bits, s.bits);
@@ -1893,7 +1902,17 @@ function relatedWhere(K, n, v, asCondition, label = null) {
   if (!given || isErr(given)) return null;
   const free = [...given].filter(([, x]) => uses(x, v)), others = [...given].filter(([, x]) => !uses(x, v));
   if (free.length !== 1 || !isVar(free[0][1], v) || !others.length || !others.every(([, x]) => steady(K, x))) return null;
-  const freeEdge = free[0][0];
+  const freeEdge = free[0][0], tail = `|${freeEdge}|${asCondition}|${label}`;
+  // Kept as a lookup is, since many supports share it.
+  if (others.length === 1) {
+    const [edge, x] = others[0];
+    return c => {
+      const r = asRec(c.S, ev(x, c));
+      if (isErr(r)) return null;
+      if (!r?.id) return NOWHERE;
+      return remembered(c.S, `related|${rel.n}|${edge}=${r.id}${tail}`, () => relatedAt(c.S, rel, new Map([[edge, r.id]]), freeEdge, asCondition, label));
+    };
+  }
   return c => {
     const ids = new Map();
     for (const [edge, x] of others) {
@@ -1902,9 +1921,7 @@ function relatedWhere(K, n, v, asCondition, label = null) {
       if (!r?.id) return NOWHERE;
       ids.set(edge, r.id);
     }
-    // Kept as a lookup is: many supports share it.
-    const key = `related|${rel.n}|${[...ids].map(([e, id]) => `${e}=${id}`).join('&')}|${freeEdge}|${asCondition}|${label}`;
-    return remembered(c.S, key, () => relatedAt(c.S, rel, ids, freeEdge, asCondition, label));
+    return remembered(c.S, `related|${rel.n}|${[...ids].map(([e, id]) => `${e}=${id}`).join('&')}${tail}`, () => relatedAt(c.S, rel, ids, freeEdge, asCondition, label));
   };
 }
 
@@ -2147,9 +2164,16 @@ const anchorContext = (b, free, anchor) => ({ S: null, def: b.d, at: null, lets:
 // no support.
 function picksFor(S, b, free, s) {
   if (!s) return b.pools[free].map((_, k) => k);
-  b.numbers[free] ??= b.objects[free].map(obj => obj ? numberOf(S, obj) : -1);
-  const out = [];
-  b.numbers[free].forEach((k, i) => { if (k >= 0 && hasBit(s.bits, k)) out.push(i); });
+  // The pool's records by their objects' numbers, so a support's objects find theirs.
+  if (!b.numbers[free]) {
+    b.numbers[free] = new Map();
+    b.objects[free].forEach((obj, i) => { if (obj) push(b.numbers[free], numberOf(S, obj), i); });
+  }
+  const out = [], at = b.numbers[free];
+  for (let w = 0; w < s.bits.length; w++) for (let x = s.bits[w]; x; x &= x - 1) {
+    const ks = at.get((w << 5) + 31 - Math.clz32(x & -x));
+    if (ks) out.push(...ks);
+  }
   return out;
 }
 
