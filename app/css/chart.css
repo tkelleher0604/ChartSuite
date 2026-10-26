@@ -321,6 +321,11 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 .vp-dot.is-danger { background: var(--danger-solid); }
 .vp-item-name { font-weight: 500; }
 .vp-item-what { color: var(--text-2); text-align: right; }
+/* In a narrow panel, what about it goes under the name. */
+@container panel (max-width: 380px) {
+  .vp-item { grid-template-columns: 7px minmax(0, 1fr); }
+  .vp-item-what { grid-column: 2; font-size: var(--fs-small); text-align: left; }
+}
 .vp-key, .vp-check { display: flex; align-items: center; gap: 10px; min-height: 26px; font-size: var(--fs-dense); line-height: 18px; }
 .vp-swatch { display: inline-grid; flex: none; place-items: center; width: 30px; height: 20px; border-radius: var(--radius-xs); background: var(--paper); box-shadow: inset 0 0 0 1px rgb(33 32 28 / .1); }
 .vp-swatch svg { width: 22px; height: 12px; overflow: visible; }
