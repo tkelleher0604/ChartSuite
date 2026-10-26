@@ -255,8 +255,8 @@ function mount(el) {
       }
     });
     syncing = false;
-    // Each view comes back as it was left; one not seen yet opens on its page. A preview's page doesn't
-    // move the view.
+    // Each view comes back as it was left; one not seen yet opens on its page. Either is so at once, never
+    // drawn for a moment as the view before was. A preview's page doesn't move the view.
     const size = `${base.page.w}×${base.page.h}`;
     if (viewShown !== view) {
       if (viewShown) zooms.set(viewShown, left ?? { s: graph.zoom(), t: graph.translate(), framed });
@@ -264,8 +264,8 @@ function mount(el) {
       const z = zooms.get(view);
       framed = z ? z.framed : READS;
       left = z && !z.framed ? z : null;
-      requestAnimationFrame(settle);
-    } else if (framed && size !== pageWas) requestAnimationFrame(settle);   // the page grew or shrank: framed again
+      settle();
+    } else if (framed && size !== pageWas) settle();   // the page grew or shrank: framed again
     pageWas = size;
     syncSelection();
     paintStates();
@@ -985,7 +985,7 @@ function mount(el) {
     } else graph.zoomTo(k);
     zoomLevel.value = graph.zoom();
   }
-  const resized = new ResizeObserver(() => { showHandles(null); if (framed || left) requestAnimationFrame(settle); });
+  const resized = new ResizeObserver(() => { showHandles(null); if (framed || left) settle(); });
   resized.observe(root);
   // Frames these records' marks (an entry lights the box or line it's in), as the formula bar asks when it
   // steps down to a reason: closer, up to 100%, where they're small on screen; out as far as they need.
