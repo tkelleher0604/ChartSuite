@@ -1,5 +1,6 @@
-// The formula engine as it stood before it was made to scale: formulas.js at commit 66090d4, loaded as
-// FormulasReference beside Formulas. app/tests/engine-test.html checks that formulas.js gives exactly what
+// The formula engine as it stood before it was made to scale: formulas.js as of the commit "Index every
+// entered record by its objects whatever order the records come in", loaded as FormulasReference beside
+// Formulas. app/tests/engine-test.html checks that formulas.js gives exactly what
 // this gives, record by record and explanation by explanation. Nothing else uses it; don't change it.
 //
 // Formulas: records worked out from other records, the way a spreadsheet works out cells (see formulas.md).
