@@ -120,7 +120,7 @@ async function run() {
     const fund = shapeOf(main.byId.get('fund')), run = tags(fund, 'a:rPr')[0], latin = tags(fund, 'a:latin')[0];
     check('a text keeps its font, weight and color, at the size it has on the slide', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.round(1000 * k)) && run.getAttribute('b') === '1'
       && tags(run, 'a:srgbClr')[0].getAttribute('val') === '000000', run.outerHTML.slice(0, 120));
-    const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.sheet.w) / 2, oy = (H - main.page.sheet.h) / 2;
+    const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.w * k) / 2, oy = (H - main.page.h * k) / 2;
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
       && Math.abs(+ext.getAttribute('cx') - f.w * k * EMU) < 2, `${off.getAttribute('x')}, ${off.getAttribute('y')}`);
 
@@ -230,6 +230,18 @@ async function run() {
     const zip = await JSZip.loadAsync(blob), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
     check('one view is a slide of its own sheet’s size', Object.keys(zip.files).filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f)).length === 1
       && Math.abs(+sz.getAttribute('cx') - scenes[3].page.sheet.w * EMU) < 2 && files.at(-1).name === `Calder Ridge Fund III structure - ${scenes[3].name}.pptx`, files.at(-1).name);
+  }
+
+  // ---- On Letter ----
+  {
+    const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [main], 'Letter', WHO, 'letter')).arrayBuffer());
+    const box = /\/MediaBox \[([^\]]+)\]/.exec(raw)[1].trim().split(/\s+/).map(Number);
+    check('on Letter, a PDF page is 11 × 8.5 in, so it prints without shrinking', Math.abs(box[2] - 792) < 0.1 && Math.abs(box[3] - 612) < 0.1, box.join(' '));
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [main], 'Letter', WHO, 'letter')), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
+    const doc = xml(await zip.file('ppt/slides/slide1.xml').async('string')), k = Math.min(1056 / main.page.w, 816 / main.page.h), f = main.byId.get('fund');
+    const fund = tags(doc, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === f.texts[0].text), off = tags(fund, 'a:off')[0];
+    check('… and a slide on Letter holds its page in the middle, as large as it fits', Math.abs(+sz.getAttribute('cx') - 1056 * EMU) < 2 && Math.abs(+sz.getAttribute('cy') - 816 * EMU) < 2
+      && Math.abs(+off.getAttribute('y') - ((816 - main.page.h * k) / 2 + f.y * k) * EMU) < 2, `${sz.getAttribute('cx')} × ${sz.getAttribute('cy')}`);
   }
 }
 

@@ -46,7 +46,7 @@ function run() {
   // ---- The narrowest decides ----
   {
     const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
-    check('a style’s format lands on the box: Main Fund fills the fund’s', fund.settings.Fill.value === '#e8eefb' && fund.settings.Fill.note.note === 'n3u',
+    check('a style’s format lands on the box: Main Fund fills the fund’s', fund.settings.Fill.value === '#dae3f3' && fund.settings.Fill.note.note === 'n3u',
       j(fund.settings.Fill));
     check('a triangle comes from Entity Type, a choice in the box', fund.shape === 'triangle' && fund.settings.Shape.note.pattern.out.choice === 'Limited Partnership');
     check('a setting nothing in the chart gives is the default, with no note', fund.settings.Outline.value === '#000000' && fund.settings.Outline.note === null);
@@ -59,12 +59,12 @@ function run() {
     check('one record’s own note in the view wins over every style', t.byId.get('fund').settings.Fill.value === '#fdf3e1' && Tree.idsIn(t.byId.get('fund').settings.Fill.note.pattern).has('fund'));
     check('a note in no view is the default where no style says', t.byId.get('gp').settings.Fill.value === '#f5f0e6' && !t.byId.get('gp').settings.Fill.note.view,
       j(t.byId.get('gp').settings.Fill));
-    check('a note in the view beats one in none', t.byId.get('feeder').settings.Fill.value === '#e8eefb');
+    check('a note in the view beats one in none', t.byId.get('feeder').settings.Fill.value === '#dae3f3');
     check('where notes reach one box through two records, the later style wins', t.byId.get('aiv').settings.Fill.value === '#fbe9e7'
       && t.byId.get('aiv').settings.Fill.note.pattern.args[0].edge === 'Good Standing', j(t.byId.get('aiv').settings.Fill.value));
     check('a text takes its own style’s properties, and its box’s where none', (() => {
       const juris = t.byId.get('fund').texts.find(x => x.id === 'fund_juris'), name = t.byId.get('fund').texts.find(x => x.id === 'fund_name');
-      return juris.look.Size === 10.5 && juris.text === '(Delaware)' && name.look.Bold === true && name.look.Font === 'Arial';
+      return juris.look.Size === 8 && juris.text === '(Delaware)' && name.look.Bold === true && name.look.Font === 'Arial';
     })());
   }
 
@@ -100,6 +100,14 @@ function run() {
     check('a box’s texts go in their entries’ order, the name first', name.id === 'fund_name' && name.lines.length > 1 && fund.texts[1].id === 'fund_juris');
     const forty = scene(wb, 'view_40act');
     check('a computed record is marked, for the canvas to set it in italics', forty.marks.some(m => m.type === 'line' && m.computed) && !s.byId.get('own_us_fund').computed);
+    const tier = sc => sc.marks.filter(m => m.shape === 'triangle' && m.id !== 'feeder').map(m => m.h);
+    edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: 'Calder Ridge Beteiligungsverwaltungsgesellschaft mbH' }));
+    const long = scene(wb), feeder = long.byId.get('feeder'), ls = feeder.texts[0].lines;
+    check('a word wider than its box is hyphenated, and its box doesn’t stretch the others in its tier', ls.some(l => l.cut && l.text.endsWith('-')) && ls.every(l => l.w <= feeder.w)
+      && j(tier(long)) === j(tier(s)), j(ls.map(l => l.text)));
+    edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: 'Calder Ridge Capital Partners III (Cayman), L.P., '.repeat(5) }));
+    const cut = scene(wb).byId.get('feeder').texts[0].lines;
+    check('a text too long for its box is cut short at six lines', cut.length === 6 && cut.at(-1).text.endsWith('…'), j(cut.map(l => l.text)));
   }
 
   // ---- The legend ----
@@ -115,7 +123,7 @@ function run() {
       lg.rows.map(r => r.caption.text).join(' | '));
     check('outputs that look alike share a row', row(lg, choice('Main Fund')) === row(lg, choice('Feeder Fund')));
     check('no row for a look nothing drawn takes', !row(lg, choice('Business Development Company')) || s.marks.some(m => m.type === 'box' && m.settings.Fill.note?.pattern.out?.choice === 'Business Development Company'));
-    check('a row’s swatch is drawn in its output’s format', row(lg, choice('Main Fund')).swatch.Fill === '#e8eefb' && row(lg, choice('Limited Partnership')).swatch.Shape === 'triangle'
+    check('a row’s swatch is drawn in its output’s format', row(lg, choice('Main Fund')).swatch.Fill === '#dae3f3' && row(lg, choice('Limited Partnership')).swatch.Shape === 'triangle'
       && row(lg, owns).swatch.kind === 'line');
     check('a row is captioned in the chart’s words, by its Caption notes', row(lg, choice('Main Fund')).caption.text === 'Funds' && row(lg, o => o.out?.tag === false).caption.text === 'Not in good standing',
       lg.rows.map(r => r.caption.text).join(' | '));
@@ -160,16 +168,16 @@ function run() {
   {
     const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
     const entered = wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'fund').value;
-    check('an entered position wins', fund.x === entered.x && fund.y === entered.y && fund.w === 230 && entered.x === 805 && fund.entered, j(entered));
+    check('an entered position wins', fund.x === entered.x && fund.y === entered.y && fund.w === 176 && entered.x === 639 && fund.entered, j(entered));
     edit(wb, tx => tx.remove(wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'blocker').note));
     const t = scene(wb), b = t.byId.get('blocker');
     const clash = t.marks.filter(m => m.type === 'box' && m.id !== 'blocker').some(m => b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
     const f = t.byId.get('fund'), h = t.byId.get('halvard');
-    check('a box with no entered position is laid out among the entered ones, clear of them', !b.entered && !clash && f.x === 805, j({ x: b.x, y: b.y }));
+    check('a box with no entered position is laid out among the entered ones, clear of them', !b.entered && !clash && f.x === 639, j({ x: b.x, y: b.y }));
     check('and near what it’s linked to: below its owner, above what it owns', b.y > f.y + f.h && b.y + b.h < h.y && Math.abs(b.x + b.w / 2 - (f.x + f.w / 2)) < 400, j({ x: b.x, y: b.y }));
     edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note); });
     const u = scene(wb), boxes = u.marks.filter(m => m.type === 'box');
-    check('Tidy clears the view’s entered positions, and the layout places every box', boxes.every(m => !m.entered) && u.byId.get('fund').x !== 805);
+    check('Tidy clears the view’s entered positions, and the layout places every box', boxes.every(m => !m.entered) && u.byId.get('fund').x !== 639);
     check('the layout ranks lines by Above: owners over what they own', u.marks.filter(m => m.type === 'line' && m.record.startsWith('own_')).every(l => u.byId.get(l.from).y + u.byId.get(l.from).h <= u.byId.get(l.to).y + 1));
     check('every box is on the page', boxes.every(m => m.x >= 0 && m.y >= 0 && m.x + m.w <= u.page.w && m.y + m.h <= u.page.h), j(u.page));
     check('every line is routed, with its points on its boxes', u.marks.filter(m => m.type === 'line').every(l => l.points.length >= 2));
@@ -210,7 +218,7 @@ function run() {
       return l.labelAt.x >= b[0] + 2 && l.labelAt.x <= b[0] + 6 && l.labelAt.y + l.label.h <= b[1] && b[1] - (l.labelAt.y + l.label.h) < 60;
     }), j(drops.filter(l => l.labelAt.x < l.points.at(-1)[0]).map(l => l.id)));
     const arrow = id => s.byId.get(id).settings.Arrow.value;
-    check('ownership that doesn’t run down carries an arrowhead; down, none', arrow('own_fdr_fund') === 'end' && arrow('own_bdc_npine') === 'end' && arrow('own_us_fund') === 'none',
+    check('ownership that doesn’t run down carries an arrowhead; down, none', arrow('own_fdr_fund') === 'end' && arrow('own_bdc_npine') === 'none' && arrow('own_us_fund') === 'none',
       j(['own_fdr_fund', 'own_bdc_npine', 'own_us_fund'].map(arrow)));
 
     const f = scene(wb, 'view_40act'), frames = f.marks.filter(m => m.type === 'frame');
@@ -220,7 +228,11 @@ function run() {
     const drawn = toFunds.filter(l => f.marks.includes(l));
     check('a box’s lines to every box in a frame land on the frame, drawn as one', toFunds.length === 5 && toFunds.every(l => j(l.points) === j(toFunds[0].points) && Math.abs(l.points.at(-1)[0] - funds.x) < 0.5)
       && drawn.length === 1 && toFunds.every(l => l === drawn[0] || l.merged === drawn[0].id), j(toFunds.map(l => [l.id, l.merged])));
-    check('a relation’s frame frames its lower end: the remote affiliate', j(frames.find(m => m.caption.text === 'Remote affiliate (§57(e))').members) === j(['pension']));
+    const remote = frames.find(m => m.caption.text === 'Remote affiliate (§57(e))'), pension = f.byId.get('pension');
+    check('a relation’s frame frames its lower end: the remote affiliate', j(remote.members) === j(['pension']));
+    check('a frame round one box alone is its caption, 4 pt over the box, not a second outline', remote.lone && Math.abs(remote.y + remote.h - pension.y) < 6 && remote.x === pension.x);
+    const panels = frames.filter(m => !m.lone);
+    check('frames stacked in a column share their left and right sides', new Set(panels.map(m => `${m.x}|${m.w}`)).size === 1, j(panels.map(m => [m.x, m.w])));
     check('the hub is a normal width', f.byId.get('bdc').w === 220);
 
     const c = scene(wb, 'view_control'), bdc = c.byId.get('bdc');

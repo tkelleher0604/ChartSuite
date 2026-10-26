@@ -1,8 +1,8 @@
 // Exports (dendra.md, Views): a view as a PowerPoint slide or a PDF page, every view as a deck or a document
 // in tab order, and the chart's dates as a calendar for Outlook. The scene is all either draws.
-// - Each page is drawn on its sheet, a 13.33 × 7.5 in slide unless its Page says otherwise, smaller by the
-//   page's scale, and every size with it: a text's points are the points it has on the sheet, so it breaks
-//   into the scene's lines.
+// - Each page is drawn on its sheet, a 13.33 × 7.5 in slide unless its Page says otherwise, or on the paper
+//   the Export dialog names (Letter, say), smaller by the page's scale, and every size with it: a text's
+//   points are the points it has on the sheet, so it breaks into the scene's lines.
 // - PowerPoint: a box is a shape of the same preset geometry, its texts paragraphs in the same fonts that
 //   wrap at the same width; a line is a connector glued to its boxes, grouped with its label so the two move
 //   together; a frame a shape behind its members; the legend and free shapes are shapes like any other. A
@@ -14,7 +14,8 @@
 // What the canvas shows only on screen (computed italics and dashes, the redline) is no part of the scene.
 // PptxGenJS, jsPDF and svg2pdf.js load the first time they're needed.
 //
-// Export.write('pptx' | 'pdf', scenes, name, author?) → a Blob, also saved; Export.svg(scene, { pdf, frame })
+// Export.write('pptx' | 'pdf', scenes, name, author?, paper?) → a Blob, also saved, its pages on that paper
+// (a size in Scene.PAGES) where one is named; Export.svg(scene, { pdf, frame })
 // → SVG markup; Export.calendar(R, N, chart, name) → the .ics Blob, also saved, R being Formulas.computeState's
 // and N the chart's Notes reader. Export.onFile, if set, takes each finished file (blob, name) instead of the
 // browser downloading it.
@@ -89,7 +90,7 @@ function markSvg(m, pdf) {
   const s = look(m);
   if (m.type === 'box') return g(m.x, m.y, body(m.shape, m.w, m.h, s) + texts(m.texts, pdf));
   if (m.type === 'line') return route(m.points, s) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, texts(m.texts, pdf)) : '');
-  if (m.type === 'frame') return g(m.x, m.y, `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, FRAME.Weight)}/>` + texts([m.caption], pdf));
+  if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, FRAME.Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
   if (m.geometry === 'picture') return g(m.x, m.y, `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
@@ -100,6 +101,15 @@ function markSvg(m, pdf) {
 }
 // How much smaller a page is drawn on its sheet: its scale, exactly, so it fills the sheet.
 const fit = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
+// The pages on a paper of one size instead of their own sheets, each turned as its page is and drawn in the
+// middle of it, as large as it fits: a slide's page on Letter, so that it prints at the size it has.
+const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid: 'Tabloid', a4: 'A4', a3: 'A3' };
+function onPaper(scenes, paper) {
+  const size = Scene.PAGES[paper];
+  if (!size) return scenes;
+  const [long, short] = [Math.max(...size), Math.min(...size)];
+  return scenes.map(s => ({ ...s, page: { ...s.page, sheet: s.page.w >= s.page.h ? { w: long, h: short } : { w: short, h: long } } }));
+}
 // The scene as SVG, in its own pixels, on white; with `frame` (a sheet's size, in the sheet's pixels), in the
 // middle of a larger sheet, as a deck's slides hold a smaller one.
 function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
@@ -184,7 +194,7 @@ async function pptx(scenes, title, author) {
   p.layout = 'Dendra';
   p.theme = { headFontFace: 'Arial', bodyFontFace: 'Arial' };
   Object.assign(p, { title, author, company: '' });
-  const later = scenes.map(s => slide(p, s, { k: fit(s.page), ox: (W - s.page.sheet.w) / 2, oy: (H - s.page.sheet.h) / 2 }));
+  const later = scenes.map(s => { const k = fit(s.page); return slide(p, s, { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }); });
   const zip = await JSZip.loadAsync(await p.write({ outputType: 'arraybuffer' }));
   // A line's stand-in, and its label's text box just after it.
   const stand = /<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·line·(\d+)">[\s\S]*?<\/p:sp>(<p:sp><p:nvSpPr><p:cNvPr id="\d+" name="·label·\2">[\s\S]*?<\/p:sp>)?/g;
@@ -206,9 +216,10 @@ function slide(p, scene, { k, ox, oy }) {
   const fill = c => none(c) ? { type: 'none' } : { color: hex(c) };
   const line = (s, w = s.Weight) => none(s.Outline) ? { type: 'none' } : { color: hex(s.Outline), width: w * k, dashType: DASH[s.Dash] ?? 'solid' };
   // A text's column in PowerPoint: the scene's, about the side its lines align to, as wide as wrapAt says;
-  // `hug` makes it as narrow as it can be.
+  // `hug` makes it as narrow as it can be. A text the scene hyphenated or cut short is written line by line.
   const column = (items, col, hug) => {
-    const w = wrapAt(items, col.width, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) + 2, a = items[0].look.Align;
+    const cut = items.some(it => it.lines.some(l => l.cut));
+    const w = cut ? null : wrapAt(items, col.width, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) + 2, a = items[0].look.Align;
     return { x: a === 'left' ? col.x : a === 'right' ? col.x + col.width - width : col.x + (col.width - width) / 2, width, broken: w === null };
   };
   // Texts as paragraphs: one for each record's text (and each line it was typed on), in its own look, its
@@ -261,11 +272,11 @@ function slide(p, scene, { k, ox, oy }) {
     if (m.type === 'box') ids.set(m.id, shape(m, m.shape, s, m.texts, m.column, m.shape === 'triangle' ? 'bottom' : 'middle', m.texts[0]?.text));
     else if (m.type === 'line') connector(m.points, s, [m.from, m.to], m.texts[0]?.text, m.labelAt && m.texts.length ? { items: m.texts, x: m.labelAt.x, y: m.labelAt.y } : null);
     else if (m.type === 'frame') {
-      const dash = frameDash(m.kind), outline = { Outline: FRAME.stroke, Weight: FRAME.Weight, Dash: dash, Fill: 'none' };
+      const dash = frameDash(m.kind), outline = { Outline: m.lone ? 'none' : FRAME.stroke, Weight: FRAME.Weight, Dash: dash, Fill: 'none' };
       if (m.kind === 'bracket') add('addText', paragraphs([m.caption]), { shape: 'custGeom', x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), line: line(outline),
         points: [[0.5, m.h], [0.5, m.h - 5], [m.w - 0.5, m.h - 5], [m.w - 0.5, m.h]].map(([x, y]) => ({ x: L(x), y: L(y) })),
         margin: 0, valign: 'top', wrap: false, objectName: m.caption.text });
-      else shape(m, 'rect', outline, [m.caption], { x: 6, width: 400 }, 'top', m.caption.text, true);
+      else shape(m, 'rect', outline, [m.caption], { x: m.lone ? 0 : 6, width: 400 }, 'top', m.caption.text, true);
     } else if (m.geometry === 'line') connector(m.points, s, m.ends ?? null, 'Line');
     else if (m.geometry === 'picture') {
       if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) } });
@@ -277,7 +288,7 @@ function slide(p, scene, { k, ox, oy }) {
         if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, r.caption.text);
         else if (sw.kind === 'frame') shape(box, 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: FRAME.Weight, Dash: 'dashed' }, [], null);
         else shape(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box, sw.Shape ?? 'rect', sw, [], null);
-        label([r.caption], m.x + r.caption.lines[0].x, m.y, r.w - r.sw.w - 12);   // as layoutLegend breaks it
+        label([r.caption], m.x + r.caption.column.x, m.y, r.caption.column.width);
       }
     } else if (m.geometry !== 'group') {
       const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
@@ -328,7 +339,8 @@ function cxn(id, name, ps, s, ends, { X, Y, k }) {
 // ---- Writing a file ----
 
 const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Chart';
-async function write(format, scenes, name, author = '') {
+async function write(format, scenes, name, author = '', paper = null) {
+  scenes = onPaper(scenes, paper);
   const blob = format === 'pdf' ? await pdf(scenes, name) : await pptx(scenes, name, author);
   save(blob, `${fileName(name)}.${format}`);
   return blob;
@@ -394,16 +406,20 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const frame = { w: Math.max(...scenes.map(s => s.page.sheet.w)), h: Math.max(...scenes.map(s => s.page.sheet.h)) };
     return scenes.map(s => ({ name: s.name, src: uri(svg(s, format === 'pdf' ? { pdf: true } : { frame })) }));
   };
-  // What's exported, and the file's pages, each fitted to the well; a click shows one at full size.
+  // What's exported, on what size of page, and the file's pages, each fitted to the well; a click shows one
+  // at full size.
   function Choice({ choice, scenes, here }) {
-    const [format, setFormat] = useState(choice.format), [which, setWhich] = useState(choice.which), [full, setFull] = useState(null);
-    Object.assign(choice, { format, which });
-    const pages = sheets(format, which === 'all' ? scenes : [here]), one = pages[full] ?? null;
+    const [format, setFormat] = useState(choice.format), [which, setWhich] = useState(choice.which), [paper, setPaper] = useState(choice.paper), [full, setFull] = useState(null);
+    Object.assign(choice, { format, which, paper });
+    const pages = sheets(format, onPaper(which === 'all' ? scenes : [here], paper)), one = pages[full] ?? null;
+    const papers = [...new Set(['slide', 'letter', here.page.size])].filter(p => PAPERS[p]);
     return html`<div class="ex">
       <div class="ex-pick">
         <select aria-label="Format" value=${format} onChange=${e => { setFull(null); setFormat(e.target.value); }}><option value="pptx">PowerPoint</option><option value="pdf">PDF</option></select>
         <select aria-label="Views" value=${which} onChange=${e => { setFull(null); setWhich(e.target.value); }} disabled=${scenes.length < 2}>
           <option value="this">${here.name}</option><option value="all">Every view</option></select>
+        <select aria-label="Page size" value=${paper} onChange=${e => { setFull(null); setPaper(e.target.value); }}>
+          ${papers.map(p => html`<option value=${p}>${PAPERS[p]}</option>`)}</select>
       </div>
       <div class=${'ex-well' + (one ? ' full' : '')}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name}>
@@ -415,12 +431,12 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   async function open(format) {
     const scenes = views();
     if (!scenes.length) return;
-    const here = scenes.find(s => s.view === Shell.view.peek()) ?? scenes[0], choice = { format, which: 'this' };
+    const here = scenes.find(s => s.view === Shell.view.peek()) ?? scenes[0], choice = { format, which: 'this', paper: PAPERS[here.page.size] ? here.page.size : 'slide' };
     const go = await Shell.dialog({ title: 'Export', width: 720, body: () => html`<${Choice} choice=${choice} scenes=${scenes} here=${here} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
     const all = choice.which === 'all';
-    write(choice.format, all ? scenes : [here], all ? chartName() : fileName(chartName(), here.name), App.who())
+    write(choice.format, all ? scenes : [here], all ? chartName() : fileName(chartName(), here.name), App.who(), choice.paper)
       .catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
   Shell.register('export', { name: 'PowerPoint…', run: () => open('pptx') });

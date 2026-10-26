@@ -48,7 +48,7 @@ function run(json) {
   }));
   // 122 changes to October 20, 2026, the legal team's revisions after a general counsel's review, and Ownership
   // Adds Up checked only where every owner is meant to be charted.
-  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 137, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 139, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
 
   // ---- Patterns ----
   const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
@@ -81,12 +81,12 @@ function run(json) {
     && N.isEnd(Tree.treeOf(wb.asOf(C, '2024-01-01'), 'gp_of_feeder_withdrawn')) && !N.isStart(tree('doc_lpa3_date')));
   check('a description reaches what its formula covers', /^How the entity is taxed/.test(N.description(tax)));
   check('a style decides in its view and not elsewhere', N.formats(tree('chen'), 'view_main').Shape?.value === 'oval'
-    && !N.formats(tree('chen')).Shape && N.formats(tree('fund_vehicle'), 'view_main').Fill?.value === '#e8eefb');
+    && !N.formats(tree('chen')).Shape && N.formats(tree('fund_vehicle'), 'view_main').Fill?.value === '#dae3f3');
   check('a hidden box is hidden in its view only', N.shown(tree('raman'), 'view_main') === false && N.shown(tree('raman'), 'view_fund3') === false
     && N.resolve('Shown', tree('raman'), 'view_40act')?.note.pattern.id === undefined && N.shown(tree('chen'), 'view_main') === undefined);
-  check('a note at a style pattern reaches every option', N.formats(tree('fund_juris'), 'view_main').Color?.value === '#52525b'
+  check('a note at a style pattern reaches every option', N.formats(tree('fund_juris'), 'view_main').Color?.value === '#595959'
     && N.formats(tree('pos_chen_bdc'), 'view_main').Shown?.value === false);
-  check('a box has its own position in each view', N.position(tree('bdc'), 'view_40act').w === 220 && N.position(tree('bdc'), 'view_40act').x === 48 && N.position(tree('bdc'), 'view_main').x === 2130,
+  check('a box has its own position in each view', N.position(tree('bdc'), 'view_40act').w === 220 && N.position(tree('bdc'), 'view_40act').x === 48 && N.position(tree('bdc'), 'view_main').x === 1350,
     j([N.position(tree('bdc'), 'view_40act'), N.position(tree('bdc'), 'view_main')]));
   {
     const w = fresh();
@@ -102,7 +102,7 @@ function run(json) {
   }
   const styles = N.styles('view_main'), fortyAct = N.styles('view_40act');
   check('a view’s styles come in its order, each with its outputs', styles[0].key === '*' && styles.length === 12
-    && styles.find(s => s.pattern.args?.[0].edge === 'Vehicle Type').outputs.some(o => o.pattern.out?.choice === 'Main Fund' && o.formats.Fill === '#e8eefb'),
+    && styles.find(s => s.pattern.args?.[0].edge === 'Vehicle Type').outputs.some(o => o.pattern.out?.choice === 'Main Fund' && o.formats.Fill === '#dae3f3'),
     styles.map(s => s.order).join());
   check('the 40 Act filter is a tag, shown by its outputs', fortyAct.at(-1).pattern.args[0].edge === 'BDC Affiliate'
     && fortyAct.at(-1).outputs[0].formats.Shown === true && fortyAct[0].outputs.some(o => o.pattern.kind === undefined && o.formats.Shown === false));
@@ -197,9 +197,11 @@ function run(json) {
     commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund 3' }), { who: 'Ann Lee' });
     check('a change can’t be undone once it has changed since', typeof w.undo(WHO, C) === 'string' && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
     const del = w.deleted(C).find(d => d.item === 'fund_agent');
-    // The registered agents once kept as text, and the per-entity Annual Tax Due and Amount, now one for each tax year.
-    check('deleted items are read off the log', j(w.deleted(C).map(d => d.item).sort()) === j(['fund_agent', 'gp_agent', 's1b', 'sq']) && del.rows[0].value === 'The Corporation Trust Company',
-      j(w.deleted(C).map(d => d.item).sort()));
+    // The registered agents once kept as text, the per-entity Annual Tax Due and Amount, now one for each tax
+    // year, and the positions views no longer draw.
+    const dropped = w.deleted(C), others = dropped.filter(d => !['fund_agent', 'gp_agent', 's1b', 'sq'].includes(d.item));
+    check('deleted items are read off the log', dropped.length - others.length === 4 && others.every(d => d.rows.every(r => r.label === 'Position')) && del.rows[0].value === 'The Corporation Trust Company',
+      j(dropped.map(d => d.item).sort()));
     w.reverse(del.change, WHO);
     check('restoring an older change brings it back', w.asOf(C, TODAY).fund_agent?.value === 'The Corporation Trust Company' && !w.deleted(C).some(d => d.item === 'fund_agent'));
     const rows = w.rows(C).length;
@@ -231,7 +233,7 @@ function run(json) {
     check('… and the notes, so styles still reach it', M.formats(Tree.treeOf(st, 'own_fund_blkr_pct'), 'view_main').Shown?.value === true);
     commit(w, tx => tx.rename({ kind: 'Investor Group' }, 'Investor Group', 'Investor Class'));
     const st2 = w.asOf(C, TODAY), M2 = w.notes(C);
-    check('renaming a kind', st2.inv_us.kind === 'Investor Class' && M2.formats(Tree.treeOf(st2, 'inv_us'), 'view_main').Fill?.value === '#edf3ea'
+    check('renaming a kind', st2.inv_us.kind === 'Investor Class' && M2.formats(Tree.treeOf(st2, 'inv_us'), 'view_main').Fill?.value === '#e2f0d9'
       && M2.listName(Tree.treeOf(st2, 'own_us_fund'), 'Owner') === 'Owners');
     commit(w, tx => tx.rename({ out: { choice: 'Limited Partnership' }, args: [{ edge: 'Entity Type', loc: {} }] }, 'Limited Partnership', 'LP'));
     const st3 = w.asOf(C, TODAY), M3 = w.notes(C);

@@ -20,12 +20,14 @@ function run(graph) {
   return graph;
 }
 
+// Boxes 16 pt apart in a rank, and ranks 40 pt apart, at the least: a chart is as compact as its lines allow.
+const GAP = { across: 21, down: 53 };
 const OPTIONS = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
   'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-  'elk.spacing.nodeNode': '24',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '64',
+  'elk.spacing.nodeNode': String(GAP.across),
+  'elk.layered.spacing.nodeNodeBetweenLayers': String(GAP.down),
   'elk.spacing.componentComponent': '36',
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
   'elk.edgeRouting': 'ORTHOGONAL',
@@ -35,9 +37,10 @@ const OPTIONS = {
 const QUICK = { 'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF', 'elk.layered.thoroughness': '1', 'elk.layered.crossingMinimization.greedySwitch.type': 'OFF' };
 const BIG = 120;   // boxes and lines
 
-// Distances, in pixels: lanes at least 12 pt apart; a lane passing over a triangle's apex, or a junction,
-// at least 16 pt clear of it; a line's last leg at least this long where it carries no label.
-const LANE = 16, CLEAR = 21, STEM = 14;
+// Distances, in pixels: lanes at least 15 pt apart, so 12 pt on a slide that draws the page at 0.8; a lane
+// passing over a triangle's apex, or a junction, at least 16 pt clear of it; a line's last leg at least this
+// long where it carries no label.
+const LANE = 20, CLEAR = 21, STEM = 14;
 
 // What's worked out from geometry, kept by what it read, the latest 24.
 function keeping() {
@@ -115,17 +118,22 @@ function rows(boxes, links) {
   let y = 0;
   for (const r of [...byRank.keys()].sort((a, b) => a - b)) {
     let x = 0;
-    for (const b of byRank.get(r)) { out.set(b.id, { x, y }); x += b.w + 24; }
-    y += Math.max(...byRank.get(r).map(b => b.h)) + 64;
+    for (const b of byRank.get(r)) { out.set(b.id, { x, y }); x += b.w + GAP.across; }
+    y += Math.max(...byRank.get(r).map(b => b.h)) + GAP.down;
   }
   return out;
 }
 
 // A grid of rects, for finding what's near a place without looking at everything: near(r) gives the
-// indexes, in order, of every rect that could touch r; any(r, f), whether f holds for any of them.
+// indexes, in order, of every rect that could touch r; any(r, f), whether f holds for any of them. A rect
+// with no finite place or size is nowhere.
 function grid(rects, size = 96) {
   const cells = new Map(), cell = v => Math.floor(v / size);
-  const each = (r, f) => { for (let i = cell(r.x); i <= cell(r.x + r.w); i++) for (let j = cell(r.y); j <= cell(r.y + r.h); j++) if (f(i * 100003 + j)) return true; return false; };
+  const each = (r, f) => {
+    if (![r.x, r.y, r.w, r.h].every(Number.isFinite)) return false;
+    for (let i = cell(r.x); i <= cell(r.x + r.w); i++) for (let j = cell(r.y); j <= cell(r.y + r.h); j++) if (f(i * 100003 + j)) return true;
+    return false;
+  };
   const g = {
     add(r, k) { each(r, c => { (cells.get(c) ?? cells.set(c, []).get(c)).push(k); }); },
     near(r) { const out = new Set(); each(r, c => { for (const k of cells.get(c) ?? []) out.add(k); }); return [...out].sort((a, b) => a - b); },
@@ -139,10 +147,11 @@ const span = ([a, b]) => ({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w:
 
 // Every box's position. Entered ones stand, and in a preview, so do the rest of the boxes it had (`keep`,
 // the view's positions as last drawn): only what the preview adds is placed, roughly, and ELK isn't asked.
-// With none standing, ELK's layout sits in the middle of the page, below any shapes across its top (a
-// title). With some, each other box goes beside its relatives: in the row of the boxes that share them (a
-// new owner among the owners of what it owns), or between rows, at the nearest place that's clear of every
-// box, shape and line it isn't on. Worked out again only when what it reads changes.
+// With none standing, ELK's layout sits across the middle of the page, 24 pt below any shapes across its top
+// (a title and its date), or its margin. With some, each other box goes beside its relatives: in the row of
+// the boxes that share them (a new owner among the owners of what it owns), or between rows, at the nearest
+// place that's clear of every box, shape and line it isn't on. Worked out again only when what it reads
+// changes.
 // boxes: [{ id, w, h, shape }]; links: the ranking lines { from, to }; lines: every line { id, from, to,
 // trunk, straight }, to route among the boxes already placed; obstacles: free shapes' rects.
 const arranged = keeping();
@@ -160,9 +169,9 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const ups = groupBy(links, l => l.to), downs = groupBy(links, l => l.from);
   const at = keep && out.size ? rough(boxes, ups, downs, out) : place({ boxes, links, clusters }), size = new Map(boxes.map(b => [b.id, b]));
   if (!out.size) {
-    const r = Math.max(...boxes.map(b => at.get(b.id).x + b.w)), d = Math.max(...boxes.map(b => at.get(b.id).y + b.h));
-    const band = Math.max(0, ...obstacles.filter(o => o.y < page.h / 3).map(o => o.y + o.h + 24));
-    const m = page.margin, dx = Math.max(m, (page.w - r) / 2), dy = Math.max(m, band, (page.h - d) / 2);
+    const r = Math.max(...boxes.map(b => at.get(b.id).x + b.w));
+    const band = Math.max(0, ...obstacles.filter(o => o.y < page.h / 3).map(o => o.y + o.h + 32));
+    const m = page.margin, dx = Math.max(m, (page.w - r) / 2), dy = Math.max(m, band);
     for (const b of boxes) out.set(b.id, { x: at.get(b.id).x + dx, y: at.get(b.id).y + dy });
     return out;
   }
@@ -187,14 +196,16 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all;
     const x0 = at.get(b.id).x + (Number.isFinite(dx) ? dx : all[0]), y0 = at.get(b.id).y + (Number.isFinite(dy) ? dy : all[1]);
     const cx = near.length ? near.reduce((s, id) => s + geo.get(id).x + geo.get(id).w / 2, 0) / near.length : x0 + b.w / 2;
-    // The row of the boxes that share its relatives, and the rows between it and them.
+    // The row of the boxes that share its relatives, and the rows between it and them: halfway, or as near
+    // halfway as clears the lines that run there.
     const sibs = [...new Set([...kids.flatMap(id => linked(id, 'up')), ...parents.flatMap(id => linked(id, 'down'))])].filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
     const sib = sibs.sort((p, q) => Math.abs(p.x + p.w / 2 - cx) - Math.abs(q.x + q.w / 2 - cx))[0];
     const rows = [];
     if (sib) rows.push({ y: sib.y, cost: 0 });
     rows.push({ y: y0, cost: 120 });
-    if (kids.length) { const top = Math.min(...kids.map(id => geo.get(id).y)), above = sib ? sib.y + sib.h : top - b.h - 96; rows.push({ y: (above + top - b.h) / 2, cost: 120 }); }
-    if (parents.length) { const bottom = Math.max(...parents.map(id => geo.get(id).y + geo.get(id).h)), below = sib ? sib.y : bottom + b.h + 96; rows.push({ y: (bottom + below - b.h) / 2, cost: 120 }); }
+    const between = (lo, hi) => { const mid = (lo + hi - b.h) / 2; for (let y = lo + 24; y <= hi - 24 - b.h; y += 8) rows.push({ y, cost: 120 + Math.abs(y - mid) * 0.5 }); rows.push({ y: mid, cost: 120 }); };
+    if (kids.length) { const top = Math.min(...kids.map(id => geo.get(id).y)); between(sib ? sib.y + sib.h : top - b.h - 96, top); }
+    if (parents.length) { const bottom = Math.max(...parents.map(id => geo.get(id).y + geo.get(id).h)); between(bottom, sib ? sib.y : bottom + b.h + 96); }
     let best = null;
     for (const row of rows) {
       const y = Math.max(page.margin / 2, row.y), ideal = cx - b.w / 2;
@@ -353,8 +364,8 @@ function routing(geo, lines, { frames = [], labels = true } = {}) {
   for (const ls of groupBy(arriving, l => `${l.to}|${l.dir === 'down' ? 'top' : 'bottom'}`).values()) {
     const t = G(ls[0].to), start = l => l.sx ?? centerX(G(l.from));
     ls.sort((p, q) => start(p) - start(q));
-    // Room after each drop for its label, which sits right of it.
-    const levels = ls.length > 4 ? 3 : 2, xs = arrivals(t, ls.map(start), ls.map(l => l.label ? l.label.w + 10 : 14));
+    // Room after each drop for its label, which sits right of it, and 12 pt clear of the next one's.
+    const levels = ls.length > 4 ? 3 : 2, xs = arrivals(t, ls.map(start), ls.map(l => l.label ? l.label.w + 4 + 16 : 14));
     ls.forEach((l, i) => {
       l.apex = t.shape === 'triangle' && l.dir === 'down';
       l.tx = l.apex ? centerX(t) : xs[i];
@@ -441,7 +452,7 @@ function routing(geo, lines, { frames = [], labels = true } = {}) {
     if (t.flankSide) {
       // Already placed, along the box's side.
     } else if (t.dir === 'down') {
-      const limit = Math.min(...t.ls.map(l => l.ty - short(l))) - LANE * (lanes - 1 - t.lane), floor = t.edge + 8 + Math.min(LANE, 8) * t.lane;
+      const limit = Math.min(...t.ls.map(l => l.ty - short(l))) - LANE * (lanes - 1 - t.lane), floor = t.edge + 8 + LANE * t.lane;
       t.laneY = Math.max(floor, Math.min(t.edge + 18 + LANE * t.lane, limit));
       for (const f of fixed) {
         if (Math.min(f.x1, t.span[1]) - Math.max(f.x0, t.span[0]) < 4 || Math.abs(t.laneY - f.y) >= LANE) continue;
@@ -450,7 +461,7 @@ function routing(geo, lines, { frames = [], labels = true } = {}) {
       }
     } else if (s.shape !== 'triangle') {
       const limit = Math.max(...t.ls.map(l => l.ty + short(l))) + LANE * (lanes - 1 - t.lane);
-      t.laneY = Math.min(t.edge - 8 - Math.min(LANE, 8) * t.lane, Math.max(t.edge - 18 - LANE * t.lane, limit));
+      t.laneY = Math.min(t.edge - 8 - LANE * t.lane, Math.max(t.edge - 18 - LANE * t.lane, limit));
     }
     if (t.dir === 'down') {
       for (const l of t.ls) {
@@ -481,6 +492,8 @@ function routing(geo, lines, { frames = [], labels = true } = {}) {
     } else if (l.dir === 'straight') l.points = [exit(s, centerOf(t)), exit(t, centerOf(s))];
     l.points = l.points.filter((p, i, ps) => i === 0 || Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) > 0.5)
       .map(([x, y]) => [Math.round(x * 4) / 4, Math.round(y * 4) / 4]);
+    // Boxes that touch are joined where they touch, by a line of no length.
+    if (l.points.length === 1) l.points.push([...l.points[0]]);
     if (l.points.length === 3 && Math.abs(l.points[0][0] - l.points[2][0]) < 1) l.points = [l.points[0], l.points[2]];
     const [a, b] = [l.points[0], l.points[l.points.length - 1]];
     l.down = l.dir === 'down' || l.dir === 'ell' || ((l.dir === 'straight' || l.dir === 'stub') && b[1] > a[1] + 1);
@@ -492,7 +505,7 @@ function routing(geo, lines, { frames = [], labels = true } = {}) {
     if (t.ls.length < 2 || t.laneY === undefined || !t.ls.every(l => l.label?.shared) || new Set(t.ls.map(l => l.label.text)).size > 1) continue;
     t.ls.slice(1).forEach(l => { l.labelAt = null; once.add(l); });
     const xs = t.flankSide ? [t.x, ...t.ls.map(l => l.gx)] : [t.span[0], t.span[1]];
-    t.ls[0].lane = { y: t.laneY, x0: Math.min(...xs), x1: Math.max(...xs), down: true };
+    t.ls[0].lane = { y: t.laneY, x0: Math.min(...xs), x1: Math.max(...xs), from: t.x };
   }
   // Lines drawn one over another, landing on one frame, say it once.
   for (const ls of groupBy(lines.filter(l => l.landed), l => `${l.from}|${l.to}|${l.trunk}`).values()) ls.slice(1).forEach(l => { l.labelAt = null; once.add(l); });
@@ -554,7 +567,17 @@ function placeLabels(geo, lines, all = lines) {
     // The label's last baseline sits `base` below its top.
     const base = lab.base ?? h * 0.8;
     const spots = [];
-    if (l.lane) for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) spots.push({ x: l.lane.x0 + (l.lane.x1 - l.lane.x0) * f - w / 2, y: l.lane.down ? l.lane.y - h - 2 : l.lane.y + 2 });
+    // A label said once for a trunk sits by its lane, 4 pt above it (or below, where its box is too near), 8 pt
+    // along from where it leaves its box, on the side it runs further first, stepping on past a line in the
+    // way; or else along the lane.
+    if (l.lane) {
+      const { x0, x1, from, y } = l.lane, along = 10.7, sides = [from - x0, x1 - from];
+      for (const top of [y - 5.3 - h, y + 4]) {
+        for (const k of sides[0] > sides[1] ? [0, 1] : [1, 0])
+          for (let d = along; d + w <= sides[k] && d <= along + 120; d += 12) spots.push({ x: k ? from + d : from - d - w, y: top });
+      }
+      for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) spots.push({ x: x0 + (x1 - x0) * f - w / 2, y: y - 5.3 - h });
+    }
     // Lines that meet at an apex share its last leg; one that joins it along a lane says what it says on
     // the lane, just short of where it joins.
     const join = legs.length > 1 && l.apex && l.crowd > 1 && !upright(legs[legs.length - 2]) ? legs[legs.length - 2] : null;

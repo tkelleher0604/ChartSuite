@@ -77,6 +77,9 @@ function path(shape, w, h) {
 // text sits at its base, each line as wide as the triangle is where the line sits (see pyramid).
 const TEXT_AREA = { oval: 0.78, diamond: 0.56, hexagon: 0.8, octagon: 0.8, pentagon: 0.7, chevron: 0.6, arrow: 0.6, triangle: 0.62 };
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
+// A box's width where none is entered: about 100 pt, so that a chart's names wrap rather than its page
+// widens; a triangle's a little more, its text sitting in its lower half.
+const WIDTH = { box: 132, triangle: 176 };
 
 // ---- Text ----
 
@@ -94,32 +97,41 @@ function measure(text, t) {
   }
   return w;
 }
-// Text broken into lines no wider than `width`, at spaces where it can be, and within a word where it can't.
+// Text broken into lines no wider than `width`, at spaces where it can be; a word wider than the line is
+// hyphenated where it must be, and that line is `cut`, the text no longer what was typed.
 function breakLines(text, t, width) {
   const out = [];
   for (const para of String(text).split('\n')) {
     let line = '';
     for (const word of para.split(/ +/)) {
       const next = line ? `${line} ${word}` : word;
-      if (!line || measure(next, t) <= width) { line = next; continue; }
-      out.push(line);
+      if (measure(next, t) <= width) { line = next; continue; }
+      if (line) out.push(line);
       line = word;
-    }
-    // A word wider than the line is cut where it must be.
-    while (line && measure(line, t) > width && line.length > 1) {
-      let i = line.length - 1;
-      while (i > 1 && measure(line.slice(0, i), t) > width) i--;
-      out.push(line.slice(0, i));
-      line = line.slice(i);
+      while (measure(line, t) > width && line.length > 4) {
+        let i = line.length - 2;
+        while (i > 2 && measure(`${line.slice(0, i)}-`, t) > width) i--;
+        out.push({ text: `${line.slice(0, i)}-`, cut: true });
+        line = line.slice(i);
+      }
     }
     out.push(line);
   }
-  return out.map(s => ({ text: s, w: measure(s, t) }));
+  return out.map(s => typeof s === 'string' ? { text: s, w: measure(s, t) } : { ...s, w: measure(s.text, t) });
 }
-// A text's lines; in a redline, what it said struck through above what it would say.
+// A text's lines, at most MOST of them, the last ending in an ellipsis where there were more; in a redline,
+// what it said struck through above what it would say.
+const MOST = 6;
+function capped(text, t, width) {
+  const ls = breakLines(text, t, width);
+  if (ls.length <= MOST) return ls;
+  let last = ls[MOST - 1].text.replace(/-$/, '');
+  while (last.length > 1 && measure(`${last}…`, t) > width) last = last.slice(0, -1);
+  return [...ls.slice(0, MOST - 1), { text: `${last.trimEnd()}…`, w: measure(`${last.trimEnd()}…`, t), cut: true }];
+}
 const linesOf = (it, width) => it.was !== undefined && it.was !== it.text
-  ? [...breakLines(it.was, it.look, width).map(l => ({ ...l, red: 'go' })), ...(it.text ? breakLines(it.text, it.look, width).map(l => ({ ...l, red: 'appear' })) : [])]
-  : it.text ? breakLines(it.text, it.look, width) : [];
+  ? [...capped(it.was, it.look, width).map(l => ({ ...l, red: 'go' })), ...(it.text ? capped(it.text, it.look, width).map(l => ({ ...l, red: 'appear' })) : [])]
+  : it.text ? capped(it.text, it.look, width) : [];
 // A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels.
 const dash = (d, w) => { const p = w * PT; return d === 'dashed' ? `${Math.max(4, p * 4)} ${Math.max(3, p * 3)}` : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
 const lineHeight = t => t.Size * PT * 1.2;
@@ -136,32 +148,38 @@ function stack(item, x0, width, y) {
 const blockHeight = items => items.reduce((h, it) => h + it.lines.length * lineHeight(it.look), 0);
 const widest = items => Math.max(0, ...items.flatMap(it => it.lines.map(l => l.w)));
 
-// A triangle's text, set at its base: each line no wider than the triangle is at the line's top, less an
-// inset. Of the ways to break it, the one that needs the shortest triangle (and then the fewest lines);
-// a triangle whose width nobody entered widens before its text takes more than four lines.
+// A triangle's text, set at its base: each line no wider than the triangle is at the line's top, less a
+// little either side, the sides opening out below it. Of the ways to break it, the one that needs the
+// shortest triangle, or one with fewer lines that's no more than a line taller; a triangle whose width nobody
+// entered widens, by half at most, before its text takes more than four lines.
 // → { w, h, width, lines: [lines of each text] }, h the least height that holds it, at least half the width,
 // and width what its lines are broken to.
 function pyramid(texts, w, widen) {
-  // No narrower than its longest word, which would be cut.
-  const word = Math.max(32, ...texts.flatMap(it => String(it.text ?? '').split(/\s+/).map(s => measure(s, it.look))));
+  const most = widen ? w * 1.5 : w;
   for (;;) {
-    let best = null;
+    // No narrower than its longest word, leaving out a word wider than three quarters of the base, which is
+    // hyphenated wherever the lines break.
+    const word = Math.max(32, ...texts.flatMap(it => String(it.text ?? '').split(/\s+/).map(s => measure(s, it.look))).filter(x => x <= w * 0.75 - 2 * INSET));
+    const ways = [];
     for (let f = 0.94; f > 0.3; f -= 0.04) {
       const a = w * f - 2 * INSET;
-      if (a < word && best) break;
+      if (a < word && ways.length) break;
       const lines = texts.map(it => linesOf(it, Math.max(word, a)));
       const rows = texts.flatMap((it, i) => lines[i].map(l => ({ w: l.w, lh: lineHeight(it.look) })));
       // A line's top sits D above the base; there the triangle is w (h − D) / h wide.
       let h = w * 0.5, d = BASE;
       for (let i = rows.length - 1; i >= 0; i--) {
         d += rows[i].lh;
-        const q = (rows[i].w + 2 * INSET) / w;
-        h = Math.max(h, q < 0.98 ? d / (1 - q) : Infinity);
+        const q = (rows[i].w + 2 * PAD) / w;
+        h = Math.max(h, d / (1 - Math.min(q, 0.94)));
       }
-      if (!best || h < best.h - 0.5 || (h < best.h + 0.5 && rows.length < best.n)) best = { h, lines, n: rows.length, width: Math.max(word, a) };
+      ways.push({ h, lines, n: rows.length, width: Math.max(word, a) });
     }
-    if (!widen || w >= 360 || (best.n <= 4 && best.h <= w * 0.9)) return { w, h: Math.ceil(best.h), width: best.width, lines: best.lines };
-    w += 20;
+    // The shortest, or one with fewer lines no more than a line taller.
+    const least = Math.min(...ways.map(c => c.h)), step = lineHeight(texts[0]?.look ?? TEXT);
+    const best = ways.filter(c => c.h <= least + step).sort((p, q) => p.n - q.n || p.h - q.h)[0];
+    if (w >= most || (best.n <= 4 && best.h <= w * 0.9)) return { w, h: Math.ceil(best.h), width: best.width, lines: best.lines };
+    w = Math.min(most, w + 12);
   }
 }
 
@@ -361,7 +379,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
 
   // A box's size: its width entered or its shape's own, and as tall as its text needs, its lines broken to
   // fit the shape where they sit (at a triangle's base, inside an oval). Triangles of one width are one
-  // size, the tallest any of them needs.
+  // size, the tallest any of them needs (see level).
   // A loose position, where a box was made on the chart before it was related, gives way to the layout once
   // a line that ranks it joins the box: it goes beside its relatives.
   const joined = id => lines.some(l => l.ends.includes(id) && l.settings.Above.value !== 'none');
@@ -371,7 +389,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (pos && !(pos.loose && joined(b.id))) positions.set(b.id, pos);
     b.entered = positions.has(b.id);
     const shape = b.settings.Shape.value;
-    let w = pos?.w ?? (shape === 'triangle' ? 230 : 200), h;
+    let w = pos?.w ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box'], h;
     if (shape === 'triangle') {
       const fit = pyramid(b.texts, w, !pos?.w);
       b.texts.forEach((it, i) => { it.lines = fit.lines[i]; });
@@ -386,10 +404,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     b.texts = b.texts.filter(it => it.lines.length);
     Object.assign(b, { w, h: Math.max(h, pos?.h ?? 0), shape });
   }
-  for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => Math.round(b.w)).values()) {
-    const h = Math.max(...ts.map(b => b.h));
-    for (const b of ts) b.h = h;
-  }
+  for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => Math.round(b.w)).values()) level(ts);
 
   // Frames: each style giving a box's record, or a record in it, a Frame adds a step to the box's path,
   // and every beginning of a path is a frame around the boxes whose paths begin so. A relation's Frame
@@ -420,7 +435,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     }
     frames.get(parent).members.push(bid);
   }
-  // A frame's caption: small and grey, at its top left, in the chart's face.
+  // A frame's caption: small and grey, at its top left, in the chart's face. A frame round one box alone
+  // would outline it twice: it's `lone`, its caption alone.
   for (const f of frames.values()) {
     f.settings = { Frame: { value: f.kind, note: f.note } };
     const t = { ...TEXT, Size: 8, Bold: true, Color: '#595959', Align: 'left' };
@@ -428,6 +444,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     delete f.text;
     f.caption.lines = breakLines(f.caption.text, t, 400);
     f.label = f.caption.lines.length * lineHeight(t);
+    f.lone = f.kind !== 'bracket' && f.members.length === 1 && !f.frames.length;
   }
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
@@ -466,11 +483,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   });
   if (!preview) laidOut.set(drawnAs, placed);
   for (const b of boxes) Object.assign(b, placed.get(b.id));
-  // Boxes in a rank, their tops level, are one height: the tallest of them.
-  for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) {
-    const h = Math.max(...rank.map(b => b.h));
-    for (const b of rank) b.h = h;
-  }
+  // Boxes in a rank, their tops level, are one height: the tallest of them (see level).
+  for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) level(rank);
   for (const b of boxes) setText(b);
   frameBounds(frames, boxes);
   routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
@@ -526,6 +540,13 @@ function shapeOf(row, scene) {
   return m;
 }
 
+// Boxes that go together share a height, the tallest of them; but a box whose text had to be hyphenated or
+// cut short doesn't set it, and stands taller alone if it must, rather than stretch the rest.
+function level(ms) {
+  const h = Math.max(0, ...ms.filter(b => !b.texts.some(it => it.lines.some(l => l.cut))).map(b => b.h));
+  for (const b of ms) if (b.h < h) b.h = h;
+}
+
 // A box's texts placed in it, once its height is known: at a triangle's base, 7 pt up; in the middle of
 // anything else. Its `column` is the width its lines were broken to (a triangle's, its pyramid's).
 function setText(b) {
@@ -541,6 +562,8 @@ function edgePoint(g, [x, y]) {
   return Math.abs(dx) * g.h > Math.abs(dy) * g.w ? [dx > 0 ? g.x + g.w : g.x, cy] : [cx, dy > 0 ? g.y + g.h : g.y];
 }
 const depthOf = (frames, f) => f.parent ? 1 + depthOf(frames, frames.get(f.parent)) : 0;
+// The boxes in a frame, at any depth.
+const inFrame = (frames, f) => [...f.members, ...f.frames.flatMap(id => inFrame(frames, frames.get(id)))];
 function bounds(ms) {
   if (!ms.length) return { x: 0, y: 0, w: 0, h: 0 };
   const x = Math.min(...ms.map(m => m.x)), y = Math.min(...ms.map(m => m.y));
@@ -571,13 +594,14 @@ function reflow(scene, rects) {
 // its Above side; the router's working left behind. Lines may land on frames (Layout.route says when).
 function routes(boxes, lines, frames = new Map()) {
   const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label, arrow: l.settings?.Arrow?.value }));
-  const all = f => [...f.members, ...f.frames.flatMap(id => all(frames.get(id)))];
-  const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: all(f), depth: depthOf(frames, f) }));
+  const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
   Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs });
   return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, ...(c.landed && { landed: c.landed }) }));
 }
 
-// A frame around its members and the frames inside it, with room for its caption; a bracket over them.
+// A frame around its members and the frames inside it, with room for its caption; a bracket over them; a
+// lone frame its caption alone, 4 pt above its box. Frames stacked in a column, their left sides within 18 pt,
+// share their left and right sides, where that takes in no other box: a column of panels.
 function frameBounds(frames, boxes) {
   const byId = new Map(boxes.map(b => [b.id, b]));
   const done = new Set();
@@ -587,12 +611,25 @@ function frameBounds(frames, boxes) {
     const inner = [...f.members.map(id => byId.get(id)), ...f.frames.map(id => fit(frames.get(id)))];
     const b = bounds(inner), pad = 10;
     if (f.kind === 'bracket') Object.assign(f, { x: b.x, y: b.y - f.label - 12, w: b.w, h: f.label + 6 });
+    else if (f.lone) Object.assign(f, { x: b.x, y: b.y - f.label - 5.3, w: b.w, h: f.label + 5.3 });
     else Object.assign(f, { x: b.x - pad, y: b.y - pad - f.label, w: b.w + 2 * pad, h: b.h + 2 * pad + f.label });
-    stack(f.caption, f.kind === 'bracket' ? 0 : 6, f.kind === 'bracket' ? f.w : 0, f.kind === 'bracket' ? 0 : 4);
+    stack(f.caption, f.kind === 'bracket' || f.lone ? 0 : 6, f.kind === 'bracket' ? f.w : 0, f.kind === 'bracket' || f.lone ? 0 : 4);
     if (f.kind === 'bracket') { f.caption.look = { ...f.caption.look, Align: 'center' }; stack(f.caption, 0, f.w, 0); }
     return f;
   };
   for (const f of frames.values()) fit(f);
+  const columns = [];
+  for (const f of [...frames.values()].filter(f => f.kind !== 'bracket' && !f.lone).sort((a, b) => a.x - b.x)) {
+    const c = columns.find(c => c[0].parent === f.parent && f.x - c[0].x <= 24);
+    if (c) c.push(f); else columns.push([f]);
+  }
+  for (const column of columns.filter(c => c.length > 1)) {
+    const left = Math.min(...column.map(f => f.x)), right = Math.max(...column.map(f => f.x + f.w));
+    for (const f of column) {
+      const mine = new Set(inFrame(frames, f));
+      if (!boxes.some(b => !mine.has(b.id) && b.x < right && b.x + b.w > left && b.y < f.y + f.h && b.y + b.h > f.y)) Object.assign(f, { x: left, w: right - left });
+    }
+  }
 }
 
 // What a style's output is called on the chart: its Caption, or its own name.
@@ -698,10 +735,11 @@ function layoutLegend(m, rows) {
   m.rows = shown.map((r, i) => {
     const col = Math.floor(i / perCol);
     if (i % perCol === 0) y = colTops[0];
-    const caption = { id: `${m.id}:${r.key}`, type: 'text', look: { ...t, Align: 'left' }, text: r.caption };
-    caption.lines = breakLines(r.caption, caption.look, colW - sw - gap - 4);
-    const x = pad + col * colW, h = Math.max(lh, caption.lines.length * lh);
-    stack(caption, x + sw + gap, colW - sw - gap, y + (h - caption.lines.length * lh) / 2);
+    // A caption stops 12 pt short of the next column.
+    const x = pad + col * colW, caption = { id: `${m.id}:${r.key}`, type: 'text', look: { ...t, Align: 'left' }, text: r.caption, column: { x: x + sw + gap, width: colW - sw - gap - 16 } };
+    caption.lines = breakLines(r.caption, caption.look, caption.column.width);
+    const h = Math.max(lh, caption.lines.length * lh);
+    stack(caption, caption.column.x, caption.column.width, y + (h - caption.lines.length * lh) / 2);
     const row = { key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, x, y, w: colW, h, sw: { x, y: y + h / 2 - 7, w: sw, h: 14 }, caption };
     y += h + 5;
     return row;
