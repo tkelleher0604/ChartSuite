@@ -29,7 +29,7 @@ const Splash = (() => {
   cv.style.cssText = 'display:block;width:100%;height:100%';
   veil.appendChild(cv);
   // The mark, a little above the middle: in the paper by day, and by moonlight in the ink.
-  veil.insertAdjacentHTML('beforeend', `<svg viewBox="0 0 16 16" style="position:absolute;left:50%;top:45%;width:40px;height:40px;margin:-20px 0 0 -20px;color:color-mix(in srgb, var(${dark ? '--ink' : '--paper'}) ${dark ? 60 : 70}%, transparent)"><use href="#mark"/></svg>`);
+  veil.insertAdjacentHTML('beforeend', `<svg viewBox="0 0 32 32" style="position:absolute;left:50%;top:45%;width:40px;height:40px;margin:-20px 0 0 -20px;color:color-mix(in srgb, var(${dark ? '--ink' : '--paper'}) ${dark ? 60 : 70}%, transparent)"><use href="#mark-fine"/></svg>`);
   document.body.prepend(veil);
   root.removeAttribute('data-splash');
 
