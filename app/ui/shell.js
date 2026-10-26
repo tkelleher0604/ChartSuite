@@ -45,10 +45,10 @@
 // dated }) → the change, every edit's one way in; App.restore(changeId); App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
-// and confirm() on <dialog>; toast(text, { undo }); keys(map, opts) on tinykeys; aside(component | null), in
-// the inspector's place; layer(close) → remove, the Esc stack every layer joins; drag(e, { item, items, axis,
-// onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set, this browser's settings;
-// widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?, keys?, checked?, disabled?,
+// and confirm() on <dialog>; toast(text, { undo }); keys(map, opts) on tinykeys, and keyLabel(key) as shown;
+// aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer joins;
+// drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set,
+// this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?, keys?, checked?, disabled?,
 // danger?, run?, items? }; one without run or items is shown, not chosen.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
@@ -656,7 +656,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store,
     widen, narrow, wide, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     aside: c => { aside.value = c; },
   };
