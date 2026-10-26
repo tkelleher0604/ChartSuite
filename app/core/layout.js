@@ -364,8 +364,8 @@ function routing(geo, lines, { frames = [], labels = true } = {}) {
   for (const ls of groupBy(arriving, l => `${l.to}|${l.dir === 'down' ? 'top' : 'bottom'}`).values()) {
     const t = G(ls[0].to), start = l => l.sx ?? centerX(G(l.from));
     ls.sort((p, q) => start(p) - start(q));
-    // Room after each drop for its label, which sits right of it.
-    const levels = ls.length > 4 ? 3 : 2, xs = arrivals(t, ls.map(start), ls.map(l => l.label ? l.label.w + 10 : 14));
+    // Room after each drop for its label, which sits right of it, and 12 pt clear of the next one's.
+    const levels = ls.length > 4 ? 3 : 2, xs = arrivals(t, ls.map(start), ls.map(l => l.label ? l.label.w + 4 + 16 : 14));
     ls.forEach((l, i) => {
       l.apex = t.shape === 'triangle' && l.dir === 'down';
       l.tx = l.apex ? centerX(t) : xs[i];
