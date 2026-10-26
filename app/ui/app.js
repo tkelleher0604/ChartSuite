@@ -45,7 +45,7 @@ const App = (() => {
   const definitions = computed(() => notes.value.definitions(schema.value));
   const relations = computed(() => notes.value.relations(schema.value));
   let worked;
-  const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value }, worked));
+  const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value, schema: schema.value }, worked));
   const state = computed(() => result.value.records);
 
   // ---- Changing ----

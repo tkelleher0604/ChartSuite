@@ -400,7 +400,7 @@ const watching = (S, kind, name) => !!S.reads && !!S.dep?.[kind].has(name);
 function missing(S, name) {
   const n = normal(name);
   if (S.P.known.lists.has(n)) return [];
-  if (S.P.known.values.has(n)) return null;
+  if (S.P.known.values.has(n)) { S.blanks?.push(name); return null; }
   return err('#NAME?', `Nothing is called ${name}.`);
 }
 
@@ -1221,19 +1221,19 @@ function registry(names, defs) {
   return reg;
 }
 
-// Every name the schema has somewhere, so a name missing at one record can be nothing there. Rows' labels
-// count, since a tag's rows can be cited by label.
-function knownNames(entered, defs, reg) {
+// Every name the schema has somewhere, so a name missing at one record can be nothing there: the schema's
+// across time where it's given, so a name no record has yet on the day shown is nothing, not an error; and
+// the records'. Rows' labels count, since a tag's rows can be cited by label.
+function knownNames(entered, defs, reg, schema) {
   const lists = new Set(), values = new Set();
   const addRelation = (type, edges, rel = reg.bySig.get(signature(type, edges))) => {
     edges.forEach((own, i) => edges.forEach((other, j) => { if (i !== j) { lists.add(normal(listNameOf(rel, own, other))); lists.add(normal(other)); } }));
     edges.forEach(e => values.add(normal(e)));
     if (rel) values.add(normal(rel.name));
   };
-  for (const r of Object.values(entered)) {
-    if (r.args) addRelation(typeOf(r), r.args.map(a => a.edge));
-    else if (r.edge) values.add(normal(r.edge));
-  }
+  const add = (type, args) => { if (args.length > 1) addRelation(type, args.map(a => a.edge)); else if (args[0]?.edge) values.add(normal(args[0].edge)); };
+  for (const t of Object.values(schema ?? {})) if (t.args?.length) add(!t.out || 'tag' in t.out ? 'tag' : 'choice' in t.out ? 'choice' : 'field', t.args);
+  for (const r of Object.values(entered)) if (!isObject(r)) add(typeOf(r), argsOf(r));
   for (const d of defs) {
     if (d.isRelation) addRelation(d.type, d.edges);
     else values.add(normal(d.name));
@@ -2236,13 +2236,19 @@ function runGroup(S, i) {
   S.dep = S.watch = null;
 }
 
+// A row that can't be worked out for want of a value, where what it read was blank, says what it needs.
 function rowGives(S, t, ri) {
-  const row = t.d.rows[ri];
-  if (row.implies) {
-    const v = truth(S, safeEv(row.ast, t.ctx));
-    return isErr(v) ? { error: v } : v ? TRUE_OUT : NONE;
-  }
-  return asOutput(S, t.d, safeEv(row.ast, t.ctx));
+  const row = t.d.rows[ri], was = S.blanks, blanks = S.blanks = [];
+  try {
+    let out;
+    if (row.implies) { const v = truth(S, safeEv(row.ast, t.ctx)); out = isErr(v) ? { error: v } : v ? TRUE_OUT : NONE; }
+    else out = asOutput(S, t.d, safeEv(row.ast, t.ctx));
+    return out.error?.code === '#VALUE!' && blanks.length ? { error: needs(blanks) } : out;
+  } finally { S.blanks = was; }
+}
+function needs(names) {
+  const xs = [...new Map(names.map(n => [normal(n), n])).values()];
+  return err('#N/A', `Needs ${xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`}.`);
 }
 
 // A candidate's output from its rows' results, and the rows that hold there (for a tag).
@@ -2904,7 +2910,7 @@ function namesGiven(g, reg) {
   return out;
 }
 // Everything a definition says but its rows: what the plan, and every group's candidates, rest on.
-const frameOf = (defs, names) => JSON.stringify([names ?? null, defs.map(d => [d.id, d.name, d.type, d.datatype, d.options, d.edges, d.covers, d.cited, d.error?.message])]);
+const frameOf = (defs, names) => JSON.stringify([names?.relations ?? null, defs.map(d => [d.id, d.name, d.type, d.datatype, d.options, d.edges, d.covers, d.cited, d.error?.message])]);
 const planOf = P => P.groups.map(g => g.defs.map(d => d.id).join(',')).join(';');
 
 // What group i left in the state, just worked out: its records in the order they came, the rows that held,
@@ -3069,7 +3075,7 @@ function computeState(entered, definitions, names, from) {
   const dots = n => { if (n.k === 'dot') dotted.add(n.n); childrenOf(n).forEach(dots); };
   for (const d of defs) if (!d.error) d.rows.forEach(r => dots(r.ast));
   for (const d of defs) d.cited = [...d.labels].some(l => dotted.has(l));
-  P.known = knownNames(entered, defs, reg);
+  P.known = knownNames(entered, defs, reg, names?.schema);
   P.groups = plan(defs, reg);
   P.frame = frameOf(defs, names);
   const given = from && changesSince(from, P, entered), base = given ? { R: from, changed: given } : from === null ? null : closest(P, entered);
@@ -3093,7 +3099,8 @@ function computeState(entered, definitions, names, from) {
   for (const rows of S.rows.values()) for (const row of rows) {
     const said = { def: row.def, row: row.row ?? null, label: row.label ?? null, holds: row.holds ?? [] };
     if (row.entered) covered[row.entered] = { ...said, value: row.error ?? row.formula ?? null, agrees: !row.error && sameValue(S, row.entered, row.formula) };
-    else if (row.error) errors.push({ def: row.def, id: row.id, ...(row.args ? { args: row.args } : { at: row.at }), error: row.error });
+    // An error is where its record would be: its arguments, an entry's one as well as its location.
+    else if (row.error) errors.push({ def: row.def, id: row.id, ...(row.args ? { args: row.args } : { at: row.at, args: [{ edge: P.byId.get(row.def).name, at: row.at }] }), error: row.error });
     else if (S.recs[row.id]) computed[row.id] = { ...said, stage: row.stage };
   }
   const defErrors = Object.fromEntries(defs.filter(d => d.error).map(d => [d.id, d.error]));

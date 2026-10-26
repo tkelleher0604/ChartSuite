@@ -75,13 +75,15 @@ function theSample() {
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 589 computed records, with no errors: the 566 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
-    total === 589 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 566, `${total} computed, ${R.errors.length} errors`);
+  check(`The sample works out 584 computed records, with no errors: the 561 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
+    total === 584 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 561, `${total} computed, ${R.errors.length} errors`);
   // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
   // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
   // The Delaware annual tax 7 → 8: the AIV owes tax years 2025 and 2026. New: Voting Percentage (24 holdings),
   // Capacity Held (13 signing authorities), the tax years owed (8), CIMA accounts, CRS and FATCA (1 each).
-  const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 16, def_tax: 6,
+  // Ownership Adds Up 16 → 11: not ruled out where the other owners aren't charted, at the four portfolio
+  // companies and the BDC.
+  const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 11, def_tax: 6,
     def_private_fund: 5, def_investment_company: 1, def_annual_tax: 8, def_annual_tax_amount: 8, def_annual_tax_owed: 8, def_franchise_tax: 2, def_annual_return: 2,
     def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
     def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13 };
@@ -101,8 +103,11 @@ function theSample() {
     && remote.filter(r => r.value === false).map(r => objOf(R, r.args[0].at)).sort().join() === closeOfBdc.join() && remote.filter(r => r.value === false).every(r => r.label === 'Close affiliate (§57(b))'));
 
   for (const id of ['fund', 'feeder', 'blocker', 'gp', 'mgmt']) check(`Ownership Adds Up attested on ${id}`, entryRow(R, 'def_adds_up', id)?.value === true);
-  for (const id of ['northpine', 'halvard', 'bdc']) check(`Ownership Adds Up ruled out on ${id}`, entryRow(R, 'def_adds_up', id)?.value === false);
   for (const id of ['chen', 'okafor', 'inv_us', 'inv_nonus']) check(`Ownership Adds Up records nothing on ${id}`, !entryRow(R, 'def_adds_up', id));
+  for (const id of ['northpine', 'halvard', 'bdc']) check(`…nor on ${id}, short of 100%, whose other owners aren’t charted`, !entryRow(R, 'def_adds_up', id));
+  const short = withRecords({ own_okfr_gp_pct: { ...SAMPLE_INPUTS.recs.own_okfr_gp_pct, value: 0.3 } });
+  check('…but rules it out where every owner is meant to be charted: GP III, its members holding 80%', entryRow(short, 'def_adds_up', 'gp')?.value === false
+    && entryRow(short, 'def_adds_up', 'gp').label === 'Owners missing', JSON.stringify(entryRow(short, 'def_adds_up', 'gp')));
 
   check('Tax Classification: Partnership for Northpine, by the row Otherwise', entryRow(R, 'def_tax', 'northpine')?.value === 'Partnership' && entryRow(R, 'def_tax', 'northpine').label === 'Otherwise');
   check('Tax Classification: C Corporation for Halvard, by the row Corporation', entryRow(R, 'def_tax', 'halvard')?.value === 'C Corporation' && entryRow(R, 'def_tax', 'halvard').label === 'Corporation');
@@ -180,7 +185,15 @@ function theSample() {
   check('Form ADV and Form PF from the fiscal year after the last annual one: March 31 and April 30, 2027', due('def_form_adv', 'mgmt') === '2027-03-31' && due('def_form_pf', 'mgmt') === '2027-04-30');
   check('The feeder’s audited accounts and Fund Annual Return, and its CRS return, due June 30, 2027', due('def_cima_accounts', 'feeder') === '2027-06-30' && due('def_crs', 'feeder') === '2027-06-30');
   const { mgmt_fye, ...noFye } = SAMPLE_INPUTS.recs, R3 = workOut(noFye);
-  check('Form ADV with no fiscal year end recorded is an error, not nothing', entryRow(R3, 'def_form_adv', 'mgmt')?.error?.code === '#VALUE!', JSON.stringify(entryRow(R3, 'def_form_adv', 'mgmt')));
+  const noFyeError = entryRow(R3, 'def_form_adv', 'mgmt')?.error;
+  check('Form ADV with no fiscal year end recorded is an error, not nothing, that says what it needs, where the deadline would be',
+    noFyeError?.code === '#N/A' && noFyeError.msg === 'Needs Fiscal Year End.' && R3.errors.some(e => e.def === 'def_form_adv' && e.args?.[0]?.edge === 'Form ADV Due' && e.args[0].at === e.at),
+    JSON.stringify(entryRow(R3, 'def_form_adv', 'mgmt')));
+  // A past day: the deadlines read entries no record had yet (Audited Accounts Filed, CRS Filed, FATCA Filed),
+  // which the schema has across time, so they're nothing then, not unknown names.
+  const past = ['2023-06-30', '2024-01-15', '2025-06-30'].map(d => [d, (({ recs, definitions, names }) => Formulas.computeState(recs, definitions, names, null))(sampleAsOf(d))]);
+  check('As of June 30, 2023, January 15, 2024 and June 30, 2025, no errors: a name the schema has on another day is nothing, not #NAME?',
+    past.every(([, P]) => !P.errors.length), past.map(([d, P]) => `${d}: ${P.errors.map(e => `${e.def} ${e.error.code}`).join(', ') || 'none'}`).join('; '));
   const R4 = workOut({ ...SAMPLE_INPUTS.recs, mgmt_fye: { ...mgmt_fye, value: '2018-06-30' } });
   check('…and a fiscal year ending June 30 moves it to September 28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso === '2026-09-28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso);
 
