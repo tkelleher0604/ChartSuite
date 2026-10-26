@@ -516,7 +516,6 @@ const Table = (() => {
     if (!m.at || App.readOnly.peek() || current.red || (c.check && v !== false)) return;
     if (v === false && entered) edit(tx => tx.remove(m.id));
     else { const p = placed(m, c, { tag: v !== true }); if (p) enter(Object.fromEntries([p])); }
-    Shell.emit('tag-flip', m.id);
   }
   // Clears the cells of the range: the values entered there go, as one change.
   function clear() {
