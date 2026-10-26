@@ -64,9 +64,6 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .rec-table .rec-cell.is-blocked::after { content: "–"; color: var(--text-3); }
 .rec-cell .row-link { color: var(--text); }
 /* A name cut short keeps its end, which tells it from like names: its start gives way first. */
-.cut { display: inline-flex; max-width: 100%; }
-.cut-head { flex: 0 1 auto; min-width: 1.6em; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
-.cut-tail { flex: none; max-width: calc(100% - 1.6em); overflow: hidden; text-overflow: ellipsis; }
 .rec-cell .row-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .rec-cell .link { text-decoration: none; }
 .rec-cell .link:hover { text-decoration: underline; text-underline-offset: 3px; }

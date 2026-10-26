@@ -319,18 +319,9 @@ function subjectChips(subjects, max = 1) {
   return `<div class="chips docs-chips">${subjects.slice(0, max).map(s => subjectChip(s.id, s.computed)).join('')}${more > 0
     ? `<span class="docs-more" title="${esc(subjects.slice(max).map(s => objectName(s.id)).join(', '))}">+${more}</span>` : ''}</div>`;
 }
-// A record's chip (Parts.chip), its name cut short, where there's no room, so it keeps the part that tells
-// it from the records named like it (partingsOf), as the Records table cuts names. The whole is on hover.
-const parting = { recs: null, of: null };
-function subjectChip(id, computed) {
-  if (parting.recs !== records) {
-    const named = Object.keys(records).filter(k => isObject(records[k]) && !isDocObject(k)).map(k => objectName(k));
-    Object.assign(parting, { recs: records, of: partingsOf(named) });
-  }
-  const chip = Parts.chip(id, { computed }), name = objectName(id), [head, tail] = parting.of(name);
-  return !tail ? chip : chip.replace(`<span class="chip-text">${esc(name)}</span>`,
-    `<span class="chip-text cut"><span class="cut-head">${esc(head)}</span><span class="cut-tail">${esc(tail)}</span></span>`);
-}
+// A record's chip, its name cut short where there's no room so it keeps the part that tells it apart
+// (Parts.name). The whole is on hover.
+const subjectChip = (id, computed) => Parts.chip(id, { computed });
 const cellText = (cell, cls = '') => !cell ? '' : `<span class="${cls}${cell.computed ? ' computed-text' : ''}"${cell.computed ? ' title="Worked out by formula"' : ''}>${esc(cell.text)}</span>`;
 
 function linkedView(rows) {

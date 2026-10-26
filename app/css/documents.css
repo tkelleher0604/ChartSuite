@@ -59,9 +59,6 @@
 .docs-chips { flex-wrap: nowrap; min-width: 0; overflow: hidden; }
 .docs-chips .chip { flex: 0 1 auto; min-width: 0; }
 /* A name cut short keeps its end, which tells it from like names: its start gives way first. */
-.cut { display: inline-flex; max-width: 100%; }
-.cut-head { flex: 0 1 auto; min-width: 1.6em; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
-.cut-tail { flex: none; max-width: calc(100% - 1.6em); overflow: hidden; text-overflow: ellipsis; }
 .docs-more { flex: none; align-self: center; padding-left: 2px; font-size: var(--fs-small); color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 /* What needs attention: a link that leads nowhere. */

@@ -328,3 +328,8 @@ th:hover .th-menu, .th-menu:focus-visible, .th-menu[aria-expanded="true"] { opac
 .tour-text { margin: 0; color: var(--text-2); font-size: var(--fs-dense); line-height: 20px; }
 .tour-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .tour-target { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+/* A name cut short where there's no room, keeping the part that tells it from like names (Parts.name). */
+.cut { display: inline-flex; max-width: 100%; }
+.cut-head { flex: 0 1 auto; min-width: 1.6em; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.cut-tail { flex: none; max-width: calc(100% - 1.6em); overflow: hidden; text-overflow: ellipsis; }

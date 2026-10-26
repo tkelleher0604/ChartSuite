@@ -10,10 +10,20 @@ const Parts = (() => {
   function chip(id, { detail = '', computed = false } = {}) {
     if (!records[id]) return '';
     return `<a class="chip${computed ? ' is-computed' : ''}" href="${Shell.recordHref(id)}" title="${esc(objectName(id))} · ${esc(Shell.subtitleOf(id))}${computed ? ' · worked out by formula' : ''}">
-      <span class="chip-text">${esc(objectName(id))}</span>${detail ? `<span class="chip-detail">${esc(detail)}</span>` : ''}</a>`;
+      <span class="chip-text">${name(id)}</span>${detail ? `<span class="chip-detail">${esc(detail)}</span>` : ''}</a>`;
   }
   // An object's name as a link to its page, for a table's first column.
-  const link = id => records[id] ? `<a class="row-link" href="${Shell.recordHref(id)}">${esc(objectName(id))}</a>` : '';
+  const link = id => records[id] ? `<a class="row-link" href="${Shell.recordHref(id)}" title="${esc(objectName(id))}">${name(id)}</a>` : '';
+
+  // An object's name, which, cut short where there's no room, keeps the part that tells it from the records
+  // named like it ("Calder Ridge Capital Par…III-A, L.P."): where each name parts from its neighbors
+  // (common.js's partingsOf) is worked out once for each set of records.
+  let parting = { recs: null, of: null };
+  function name(id) {
+    if (parting.recs !== records) parting = { recs: records, of: partingsOf(Object.keys(records).filter(k => isObject(records[k])).map(k => objectName(k))) };
+    const text = objectName(id), [head, tail] = parting.of(text);
+    return tail ? `<span class="cut"><span class="cut-head">${esc(head)}</span><span class="cut-tail">${esc(tail)}</span></span>` : esc(text);
+  }
 
   // A record's output as text: a field's value in its datatype's format, a choice's option, a tag's state.
   const outputText = r => isField(r) ? displayValue(r) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Attested' : 'Ruled out') : r.kind;
@@ -23,7 +33,7 @@ const Parts = (() => {
     const r = records[id];
     if (!r) return '';
     const html = isTag(r) ? `<span class="tag-state" title="${r.tag ? 'Attested' : 'Ruled out'}">${box(r.tag)}</span>`
-      : isField(r) && r.field === 'document' ? `<a class="link" href="${esc(r.value)}" target="_blank" rel="noopener">${esc(displayValue(r))}</a>`
+      : isField(r) && r.field === 'document' ? `<a class="link" href="${esc(typeof SharePoint === 'object' ? SharePoint.openUrl(r.value) : r.value)}" target="_blank" rel="noopener">${esc(displayValue(r))}</a>`
       : esc(outputText(r));
     return isComputed(id) ? `<span class="computed-text" title="Worked out by formula">${html}</span>` : html;
   }
@@ -191,6 +201,6 @@ const Parts = (() => {
   // A person's initials in a circle, for who made a change.
   const avatar = name => `<span class="avatar" title="${esc(name)}">${esc(clean(name).split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?')}</span>`;
 
-  return { chip, link, output, outputText, tagBox, formulaText, overrideMark, formulaError, date, dateCell, daysUntil, dueText, when, badge, file, docStatus,
+  return { chip, link, name, output, outputText, tagBox, formulaText, overrideMark, formulaError, date, dateCell, daysUntil, dueText, when, badge, file, docStatus,
     required, tabs, filterChip, columnHead, empty, avatar };
 })();
