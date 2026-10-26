@@ -227,8 +227,8 @@ function mount(el) {
   // read (see seen), as reading it again once anything has moved would lay the window out again.
   graph.virtualRender.stopListening();
   const AROUND = 120;
-  let size = { w: 0, h: 0 };
-  const onScreen = () => graph.renderer.setRenderArea(size.w > 0 && size.h > 0 ? graph.graphToLocal(0, 0, size.w, size.h).inflate(AROUND, AROUND) : undefined);
+  let screen = { w: 0, h: 0 };
+  const onScreen = () => graph.renderer.setRenderArea(screen.w > 0 && screen.h > 0 ? graph.graphToLocal(0, 0, screen.w, screen.h).inflate(AROUND, AROUND) : undefined);
   // What can be selected: a mark this view draws (a cell another view drew is kept hidden; see cellsTo).
   const selectable = c => { const k = c.getData()?.kind; return !!k && k !== 'page' && k !== 'label' && c.isVisible(); };
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
@@ -272,11 +272,12 @@ function mount(el) {
     const view = base.view;
     scene = revealIds || redDrawn || styledDrawn ? Scene.of(styledDrawn ?? App.shown.peek(), App.chart.peek(), view, base.day,
       { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn ?? (styledDrawn && {}) }) : base;
+    cellsTo(App.chart.peek(), view, [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
+      data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
     // Each view comes back as it was left; one not seen yet opens on its page. Either is so at once, never
-    // drawn for a moment as the view before was, and before its cells are, so those off screen wait. A
-    // preview's page doesn't move the view.
+    // drawn for a moment as the view before was. A preview's page doesn't move the view.
     const size = `${base.page.w}×${base.page.h}`;
     if (viewShown !== view) {
       if (viewShown) zooms.set(viewShown, left ?? { s: graph.zoom(), t: graph.translate(), framed });
@@ -287,8 +288,6 @@ function mount(el) {
       settle();
     } else if (framed && size !== pageWas) settle();   // the page grew or shrank: framed again
     pageWas = size;
-    cellsTo(App.chart.peek(), view, [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
-      data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     syncSelection();
     paintStates();
   }
@@ -306,6 +305,7 @@ function mount(el) {
     const kept = new Set([...drewLast.values()].flatMap(s => [...s]));
     stack(cells);
     syncing = true;
+    if (!screen.w || !screen.h) seen();
     onScreen();
     graph.batchUpdate(() => {
       for (const c of graph.getCells()) {
@@ -1052,7 +1052,7 @@ function mount(el) {
   const READS = 0.6;
   let framed = READS, left = null, quiet = false;
   const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } onScreen(); };
-  const seen = () => { size = { w: root.clientWidth, h: root.clientHeight }; return size.w > 0 && size.h > 0; };
+  const seen = () => { screen = { w: root.clientWidth, h: root.clientHeight }; return screen.w > 0 && screen.h > 0; };
   const LEVELS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
   const extent = ms => {
     const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]), x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y));
