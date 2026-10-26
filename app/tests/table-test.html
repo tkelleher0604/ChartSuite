@@ -32,10 +32,13 @@
 <script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
 <script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
 <script src="../../vendor/tabulator/tabulator.min.js"></script>
+<script src="../../vendor/codemirror/codemirror.js"></script>
+<script src="../../vendor/codemirror/simple.js"></script>
 <script src="../core/tree.js"></script>
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
+<script src="../core/sharepoint.js"></script>
 <script>
 // The workbook opened at once, in memory: Store keeps it in IndexedDB, which this page leaves alone.
 const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => localStorage.getItem('dendra.name'), status: () => ({ text: '' }), subscribe: () => () => {},
@@ -46,6 +49,7 @@ const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => localS
 <script src="../ui/app.js"></script>
 <script src="../ui/table.js"></script>
 <script src="../ui/time.js"></script>
+<script src="../ui/formulabar.js"></script>
 <script>
 const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
@@ -71,8 +75,20 @@ async function addTable(sub, label) {
 }
 function paste(text, target = Table.grid.rowManager.element) {
   const dt = new DataTransfer(); dt.setData('text/plain', text);
-  target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  const e = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+  target.dispatchEvent(e);
+  return e;
 }
+const press = (key, el = document.activeElement || document.body) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+// The dialog that asks what headings are, answered: each select set to the option with this label.
+async function answer(...labels) {
+  const sels = $$('dialog.dlg select');
+  labels.forEach((l, i) => { const o = [...sels[i].options].find(x => x.textContent === l); sels[i].value = o.value; sels[i].dispatchEvent(new Event('change', { bubbles: true })); });
+  await tick();
+  $('dialog.dlg .btn.primary').click(); await tick(200);
+}
+const errors = [];
+addEventListener('error', e => errors.push(e.message));
 const pct = (owner, owned, day) => {
   const s = App.wb.asOf(C(), day), o = Object.keys(s).find(id => s[id].args && s[id].args.some(a => a.edge === 'Owner' && App.notes.peek().nameOf(s, Tree.objectOf(s, a.at)) === owner) && s[id].args.some(a => a.edge === 'Owned' && App.notes.peek().nameOf(s, a.at) === owned));
   const p = o && Object.keys(s).find(x => s[x].at === o && s[x].edge === 'Percentage');
@@ -157,15 +173,43 @@ async function run() {
   check('Selecting a record elsewhere marks its row', rowOf(halvard).getElement().classList.contains('picked') && !rowOf(fund).getElement().classList.contains('picked'));
   Shell.select([]); await tick();
 
-  // A heading the table hasn't got is a new entry; a name it hasn't got is a new row.
+  // A heading the table hasn't got is asked about: here, a new entry; a name it hasn't got is a new row.
   n0 = N();
   paste('Name\tFund Counsel\tFormation Date\r\nCalder Ridge III Blocker, Inc.\tKirkland & Ellis LLP\t\r\nHollis Bay Holdings, LLC\tSimpson Thacher\t3/2/2026\r\n'); await tick(150);
+  check('A heading nothing matches is asked about, and nothing is pasted yet', $('dialog.dlg')?.textContent.includes('Fund Counsel') && N() === n0);
+  await answer('New column');
+  check('The paste is redlined first: its new row in blue, its new column, and a bar saying what it does', $$('.grid .tabulator-row.red-add').length === 1 && !!column('Fund Counsel')
+    && /3 values.*1 new entity/.test($('.pastebar')?.textContent) && N() === n0, $('.pastebar')?.textContent);
+  check('A pending paste can’t be edited over', !column('Name').getDefinition().editable(rowOf(halvard).getCells()[1]));
+  press('Enter'); await tick(150);
   const blocker = named('Calder Ridge III Blocker, Inc.'), hollis = named('Hollis Bay Holdings, LLC');
   const at = (id, edge) => (Tree.index(st()).entries.get(id) ?? []).map(e => st()[e]).find(r => r.edge === edge);
   check('Pasting a new heading adds an entry, and a new name a row, in one change', N() === n0 + 1 && at(blocker, 'Fund Counsel')?.value === 'Kirkland & Ellis LLP'
     && st()[hollis]?.kind === 'Entity' && at(hollis, 'Formation Date')?.value === '2026-03-02' && !!column('Fund Counsel'));
+  check('Enter makes it, and the redline goes', !$('.pastebar') && !$$('.grid .tabulator-row.red-add').length && !$$('.grid .tabulator-cell .del, .grid .tabulator-cell .add').length);
   undo(); await tick(150);
   check('Undo takes the new entry and the new row back', !named('Hollis Bay Holdings, LLC') && !column('Fund Counsel'));
+
+  // A link pasted onto a row isn't written over a cell: it goes on, to link a document to the row's record.
+  n0 = N();
+  Table.grid.addRange(rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Name')); await tick(60);
+  const linked = paste('https://contoso.sharepoint.com/sites/FundLegal/Shared%20Documents/Halvard%20LLC%20Agreement.pdf'); await tick(100);
+  check('A link pasted onto a row goes on to link a document, and never overwrites the Name', !linked.defaultPrevented && N() === n0 && !$('.pastebar')
+    && Shell.selection.peek().join() === halvard && rowOf(halvard).getData().f0 === 'Halvard Logistics Holdings, Inc.');
+
+  // The keys: one stop in the tab order, and an arrow with no cell active makes one.
+  const holder = Table.grid.rowManager.element;
+  Table.grid.modules.selectRange.resetRanges?.(); Table.grid.modules.selectRange.activeRange = undefined;
+  holder.focus(); errors.length = 0;
+  press('ArrowDown', holder); await tick(60);
+  check('An arrow with no cell active makes one, and throws nothing', !errors.length && !!Table.grid.modules.selectRange.activeRange, errors.join());
+  check('The headings and their filters are out of the tab order', $$('.grid .tabulator-header-filter input').every(x => x.tabIndex === -1) && $$('.grid .tabulator-cell').slice(0, 20).every(x => x.tabIndex === -1));
+  const sc = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Short Name');
+  sc.edit(true); await tick();
+  const si = sc.getElement().querySelector('input'); si.value = 'Halvard';
+  si.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(150);
+  check('After an edit the grid keeps the keys', $('.grid .cells').contains(document.activeElement), document.activeElement?.className);
+  undo(); await tick(100);
 
   // Moving a column writes Order notes in the view.
   Table.grid.addRange(Table.grid.getRows()[0].getCells()[1]); await tick();   // as pressing the heading would
@@ -212,6 +256,10 @@ async function run() {
   n0 = N();
   const rows0 = Table.grid.getRows().length;
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await tick(150);
+  const bar = $('.pastebar')?.textContent ?? '';
+  check('Pasting into a relation says what it creates, and from what day', /3 values/.test(bar) && /1 new ownership/.test(bar) && /new Entity\s*Halcyon University Endowment/.test(bar) && /From Nov 2, 2026/.test(bar) && N() === n0, bar);
+  check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
+  press('Enter'); await tick(150);
   const c = last();
   check('Pasting is one change', N() === n0 + 1, N() - n0);
   check('Columns match by heading and rows by name, Short Name included', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.673 && pct('Calder Ridge Capital Partners III (Cayman), L.P.', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.267);
@@ -219,7 +267,7 @@ async function run() {
   check('A row that’s new is added, with its new owner', pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.06 && Table.grid.getRows().length === rows0 + 1);
   check('A name finds an entity, never a view of that name', c.adds.some(r => r.args?.some(a => a.edge === 'Owned' && a.at === fund)));
   check('The toast says what was done, with Undo', /^Pasted 3 values, added 1 ownership/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
-  check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III to 67.3% from Nov 2, 2026, and 2 more', Time.describe(c));
+  check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III from 71.6% to 67.3% as of Nov 2, 2026, and 2 more', Time.describe(c));
   undo(); await tick(150);
   check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
   // Without headings, cells fill the grid from the active cell.
@@ -228,8 +276,36 @@ async function run() {
   Table.grid.addRange(us.getCells().find(x => x.getColumn().getDefinition().title === 'Percentage')); await tick(40);
   n0 = N();
   paste('70%'); await tick(150);
+  press('Enter'); await tick(150);
   check('Without headings, a paste fills from the active cell', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.7 && N() === n0 + 1);
   undo(); await tick(100);
+  // A schedule whose headings don't match is never pasted by place: it's asked about, and matched by name.
+  const first = Table.grid.getRows()[0], firstPct = first.getData().f2;
+  Table.grid.addRange(first.getCells()[1]); await tick(40);
+  n0 = N();
+  paste('Investor\tFund\tPercentage\r\nU.S. Investors\tFund III\t50%\r\n'); await tick(150);
+  check('Headings that don’t match are asked about, never pasted by place', !!$('dialog.dlg') && N() === n0 && Table.grid.getRows()[0].getData().f2 === firstPct);
+  await answer('Owner', 'Owned');
+  check('Matched, the row is found by its names', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '50%') && !$$('.grid .tabulator-row.red-add').length);
+  press('Escape'); await tick(150);
+  Table.grid.addRange(first.getCells()[1]); await tick(40);
+  paste('U.S. Investors\tFund III\t50%\r\n'); await tick(150);
+  check('Without headings, a row that gives its names finds its row by them, not by place', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && Table.grid.getRows()[0].getData().f2 === firstPct);
+  press('Escape'); await tick(150);
+  check('Esc leaves it unmade',!$('.pastebar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
+
+  // A relation ruled out: a red ✗ in the margin, its words intact.
+  await addTable('Relations', 'Signing Authority');
+  const ruled = $('.grid .tabulator-row.ruled');
+  check('A row ruled out is marked in the margin, not struck through', !!ruled && [...ruled.querySelectorAll('.tabulator-cell:not(.rn)')].every(x => !getComputedStyle(x).textDecorationLine.includes('line-through'))
+    && getComputedStyle(ruled.querySelector('.rn'), '::before').content !== 'none');
+  Shell.show(own); await tick(100);
+  // Any change pending, whoever previews it, is redlined in the grid.
+  const goes = Table.grid.getRows()[1].getData().id;
+  FormulaBar.preview({ records: { [goes]: null } }); await tick(100);
+  check('A change pending elsewhere is redlined in the grid: a row that would go is struck in red', rowOf(goes).getElement().classList.contains('red-go') && !$('.pastebar'));
+  FormulaBar.preview(null); await tick(100);
+  check('Without it, the grid is as it was', !$$('.grid .tabulator-row.red-go').length && Table.grid.getRows().length === rows0);
 
   // ---- Dates and Documents ----
   await addTable(null, 'Dates');
@@ -255,6 +331,7 @@ async function run() {
   const list = [...$('.date-pop .date-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');
   list.slice(y2024).find(b => b.querySelector?.('.d')?.textContent === 'Jul 1').click(); await tick(100);
   check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('Jul 1, 2024'));
+  check('While another day shows, a band over the view says which', $('.view > .strip > .band')?.textContent === 'As of July 1, 2024Today', $('.view > .strip > .band')?.textContent);
   check('The strip shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
   [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);
   check('Or any day from the calendar', Shell.time.peek()?.asOf === '2024-07-15');
@@ -271,7 +348,9 @@ async function run() {
   check('Leaving it for a view that keeps none comes back to today', Shell.time.peek() === null);
   Shell.show(own); await tick(60);
   check('Coming back to it shows its day', Shell.time.peek()?.asOf === '2024-07-01');
-  Time.keep(own, null); Shell.at(null); await tick(60);
+  Time.keep(own, null); await tick(60);
+  $('.view > .strip > .band .btn').click(); await tick(60);
+  check('Its Today comes back to today, and the band goes', Shell.time.peek() === null && !$('.band'));
 
   // ---- History ----
   Shell.select([]);
@@ -279,7 +358,10 @@ async function run() {
   const ours = App.wb.changes().filter(x => x.chart === C());
   check('History opens in the inspector’s place, from the chart menu', !!$('.inspector .hist') && Shell.parts.peek().action.some(a => a.id === 'history' && a.menu === 'chart'));
   check('It lists every change, newest first', $$('.hist-row').length === ours.length && $$('.hist-row .what')[0].textContent === Time.describe(ours.at(-1)), `${$$('.hist-row').length} of ${ours.length}: ${$$('.hist-row .what').slice(0, 3).map(x => x.textContent).join(' / ')} ${$('.inspector')?.innerHTML.slice(0, 300)}`);
-  check('Each says who, when, and what, in the chart’s words', $$('.hist-row').some(x => x.textContent.includes('Ruled out Good Standing of AIV-1 from Jul 15, 2026') && x.textContent.includes('Jordan Alvarez')), $$('.hist-row').filter(x => /AIV-1|Corvane/.test(x.textContent)).slice(0, 6).map(x => x.textContent).join(' / '));
+  check('Each says who, when, and what, in the chart’s words', $$('.hist-row').some(x => x.textContent.includes('Ruled out Good Standing of AIV-1 as of Jul 15, 2026') && x.textContent.includes('Jordan Alvarez')), $$('.hist-row').filter(x => /AIV-1|Corvane/.test(x.textContent)).slice(0, 6).map(x => x.textContent).join(' / '));
+  const okafor = named('David R. Okafor'), manager = named('Calder Ridge Capital Management, LLC');
+  const ruling = { id: 'x', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xr', record: 'xc', args: [{ edge: 'Controller', at: okafor }, { edge: 'Controlled', at: manager }], tag: false }] };
+  check('A presumption ruled out says so', Time.describe(ruling) === 'Ruled out Control: David R. Okafor → The Manager', Time.describe(ruling));
   const before = st();
   const pick =[...$$('.hist-row')].find(x => x.textContent.includes('Changed Percentage of Fund III → Corvane'));
   pick.click(); await tick(150);
@@ -287,7 +369,8 @@ async function run() {
   check('Picking a change shows the chart as it stood just after it', Shell.time.peek()?.stood && pct('Calder Ridge Capital Partners III, L.P.', 'Corvane Specialty Chemicals Holdings, LLC', Log.today()) === 0.49
     && App.state.peek() !== before && Object.values(App.state.peek()).some(x => x.at && st()[x.at]?.args?.some(a => a.at === corvane)));
   check('As it stood, the table can’t be edited', Table.grid.getRows()[0].getCells().every(x => !x.getColumn().getDefinition().editable || !x.getColumn().getDefinition().editable(x)));
-  check('The change picked has Restore', !!$('.hist-row[aria-selected="true"] .btn'));
+  check('The change picked can be undone, by name', $('.hist-row[aria-selected="true"] .btn')?.textContent === 'Undo this change');
+  check('As it stood, the band says when', /^As it stood \w+ \d+, \d{4}, \d+:\d\d [AP]MToday$/.test($('.view > .strip > .band')?.textContent ?? ''), $('.view > .strip > .band')?.textContent);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
   check('Esc comes back to now, keeping History open', Shell.time.peek() === null && !!$('.inspector .hist'));
   Shell.select([fund]); await tick(60);
@@ -295,9 +378,10 @@ async function run() {
   check('With a selection, History narrows to it', touching > 0 && touching < ours.length && !!$('.hist-focus'), `${touching} of ${ours.length}`);
   Shell.select([]); await tick(60);
   $$('.hist-head .menu-seg button')[1].click(); await tick(60);
-  // The sample deleted two registered agents; what this test added and undid is deleted too.
+  // The sample deleted two registered agents; what this test added and undid was never there.
   const gone = () => $$('.hist-row.gone').map(x => x.querySelector('.what').textContent);
-  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III › Jurisdiction: Delaware', 'Registered Agent · Fund III › Jurisdiction: Delaware', 'Halcyon University Endowment'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
+  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III › Jurisdiction: Delaware', 'Registered Agent · Fund III › Jurisdiction: Delaware'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
+  check('An addition undone isn’t listed as deleted', !gone().includes('Halcyon University Endowment') && !gone().includes('Hollis Bay Holdings, LLC'), gone().join());
   n0 = N();
   const k = gone().length;
   $$('.hist-row.gone').find(x => x.textContent.includes('Registered Agent · GP III')).querySelector('.btn').click(); await tick(100);
