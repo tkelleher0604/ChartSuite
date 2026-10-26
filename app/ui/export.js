@@ -678,15 +678,18 @@ function pdfFrame(doc, { title, subtitle, footer, page, pages }) {
   doc.text(`Page ${page} of ${pages}`, W - 36, H - 22, { align: 'right' });
 }
 
-// What the profile says a record's output is.
+// What the profile says a record's output is: a tag reads Yes or No, as a reader expects.
 function profileValue(r) {
-  if (isTag(r)) return r.tag ? 'Yes' : 'Ruled out';
+  if (isTag(r)) return r.tag ? 'Yes' : 'No';
   if (isChoice(r)) return r.choice;
   if (isField(r)) return displayValue(r);
   return '';
 }
 
-// One page (or more) about one object: its entries, as the panel lists them, then its relations by name.
+// One page (or more) about one object, the key facts first: its entries, as the panel lists them; then the
+// relations entered for it, each under its list's name from this side (General Partners, Owners,
+// Signatories) in the order the panel has them, the other side first; then what formulas work out, a
+// short line for each list, its count and first few names.
 async function exportRecordPdf(objectId, { asOf = todayIso() } = {}) {
   await loadLibs('pdf');
   const { jsPDF } = window.jspdf;
@@ -713,35 +716,49 @@ async function exportRecordPdf(objectId, { asOf = todayIso() } = {}) {
     room(h);
     doc.setTextColor(INK.muted).setFont('helvetica', 'normal').text(labelLines, 36 + indent, y);
     doc.setTextColor(INK.text).setFont('helvetica', computed ? 'italic' : 'normal').text(lines, valueX, y);
-    if (computed) doc.setFontSize(7.5).setTextColor(INK.faint).setFont('helvetica', 'normal').text('Computed', W - 36, y, { align: 'right' });
+    if (computed) doc.setFontSize(8).setTextColor(INK.faint).setFont('helvetica', 'normal').text('Computed', W - 36, y, { align: 'right' });
+    y += h;
+  };
+  // A relation, as a line across the page: who's on the other side, then what's recorded about it.
+  const line = (text, { computed = false } = {}) => {
+    const lines = doc.setFont('helvetica', computed ? 'italic' : 'normal').setFontSize(10).splitTextToSize(text, W - 36 - 56 - 36);
+    const h = lines.length * 13 + 4;
+    room(h);
+    doc.setTextColor(INK.text).text(lines, 36, y);
+    if (computed) doc.setFontSize(8).setTextColor(INK.faint).setFont('helvetica', 'normal').text('Computed', W - 36, y, { align: 'right' });
     y += h;
   };
 
-  heading('Entries');
+  heading('Details');
   const base = pathTo(objectId).length;
-  for (const id of panelOrder(objectId).slice(1)) {
+  const locations = panelOrder(objectId);
+  for (const id of locations.slice(1)) {
     const r = records[id];
     if (!r || isRelation(r)) continue;
     row(r.edge, profileValue(r), { indent: (pathTo(id).length - base - 1) * 12, computed: isComputed(id) });
   }
 
-  // Relations with an argument at this object or below it, grouped by the relation's name.
-  const groups = new Map();
-  for (const [id, r] of Object.entries(records)) {
-    if (!isRelation(r) || !r.args.some(a => objectOf(a.at) === objectId)) continue;
-    const key = relationNameOf(id);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(id);
-  }
-  for (const [rel, ids] of [...groups].sort((a, b) => a[0].localeCompare(b[0]))) {
-    heading(rel);
-    for (const id of ids) {
+  // The relations at this object and its entries, by list, as relationGroups gives them; the documents
+  // that concern it, which are its papers rather than its structure, last.
+  const groups = locations.filter(at => !isRelation(records[at])).flatMap(at => relationGroups(at).map(g => ({ ...g, at })));
+  const otherSides = (g, id) => { const r = records[id]; const others = r.args.filter(a => a.at !== g.at); return others.length ? others : r.args.slice(1); };
+  const papers = g => g.ids.every(id => same(records[objectOf(otherSides(g, id)[0].at)].kind, Documents.KIND));
+  for (const g of groups.filter(g => !g.ids.every(isComputed)).sort((a, b) => papers(a) - papers(b))) {
+    heading(g.list);
+    for (const id of g.ids) {
       const r = records[id];
-      const own = r.args.filter(a => objectOf(a.at) === objectId).map(a => a.edge).join(', ');
-      const others = r.args.filter(a => objectOf(a.at) !== objectId).map(a => `${a.edge}: ${objectName(objectOf(a.at))}`).join('; ');
-      const details = entriesOf(id).map(e => `${records[e].edge} ${profileValue(records[e])}`).join(', ');
-      const out = isTag(r) ? (r.tag ? '' : 'Ruled out') : profileValue(r);
-      row(`As ${own}`, [others, out, details].filter(Boolean).join(' · '), { computed: isComputed(id) });
+      const [first, ...rest] = otherSides(g, id);
+      const out = isTag(r) ? (r.tag ? '' : 'No') : profileValue(r);
+      const details = entriesOf(id).map(e => `${records[e].edge}: ${profileValue(records[e])}`);
+      line([placeName(first.at), ...rest.map(a => `${a.edge}: ${placeName(a.at)}`), out, ...details].filter(Boolean).join(' · '), { computed: isComputed(id) });
+    }
+  }
+  const worked = groups.filter(g => g.ids.every(isComputed));
+  if (worked.length) {
+    heading('Worked out by formulas');
+    for (const g of worked) {
+      const names = g.ids.map(id => placeName(otherSides(g, id)[0].at));
+      row(g.list, `${names.length}: ${names.slice(0, 3).join('; ')}${names.length > 3 ? `; and ${names.length - 3} more` : ''}`, { computed: true });
     }
   }
 
