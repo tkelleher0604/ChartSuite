@@ -66,10 +66,9 @@ function scopesOf(c) {
   }
   const own = { key: 'own', label: these(marks), own: true };
   if (!bound.length) return { marks, group, scopes: [own] };
-  // Each style that reaches the selection, by the groups of its outputs that the Key, Styles and this share
-  // (Scene.groupsOf; till Scene has it, the Key's rows), each group that reaches it a scope; an output in
-  // none, alone.
-  const groups = Scene.groupsOf?.(App.notes.peek(), sc.view) ?? sc.legend, by = new Map();
+  // Each style that reaches the selection, by the groups of its outputs that the Key and Styles go by too
+  // (Scene.groupsOf), each group that reaches it a scope; an output in none (a filter), alone.
+  const groups = Scene.groupsOf(App.notes.peek(), sc.view), by = new Map();
   for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek())) {
     const k = Tree.key(r.output), g = groups.find(g => g.style === r.style && g.outputs.some(p => Tree.key(p) === k)) ?? { outputs: [r.output], caption: r.caption };
     const key = `${r.style} ${Tree.key(g.outputs[0])}`;
