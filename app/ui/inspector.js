@@ -374,12 +374,12 @@ function Draft({ d, depth }) {
   const key = e => { if (e.key === 'Escape') { e.stopPropagation(); draft.value = null; } };
   const nameKey = e => { if (e.key !== 'Enter') return; e.preventDefault(); if (!named()) return; if (k.type === 'tag') finish({ tag: true }); else box.current.querySelector('.v input, .v button')?.focus(); };
   return html`<div class="row draft" ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>
-    <div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" value=${edge}
+    <div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" aria-label="Name" value=${edge}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onInput=${e => setEdge(e.target.value)} onKeyDown=${nameKey} onBlur=${named} />`}</div>
     <div class="v ctl">${k.type === 'tag' ? html`<span class="cellbox"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${T.clean(edge) || 'Tag'} onClick=${() => finish({ tag: true })} /></span>`
-      : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} put=${finish} />`
-      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
-      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} put=${finish} />`}</div>
+      : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
+      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label="New option" onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
+      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>
   </div>`;
 }
 
@@ -413,7 +413,8 @@ function detail(it) {
     ...at.filter(([, e]) => e.field === 'date').map(([e, f]) => dated(e, `${N().isStart(tree(e)) ? 'Since' : N().isEnd(tree(e)) ? 'Until' : f.edge} ${short(f.value)}`)),
     ...relatives(it.rid).docs.map(d => shortOf(d.obj))];
   const own = 'choice' in rel ? rel.choice : 'field' in rel ? T.format(rel.field, rel.value) : !recorded.length && App.computed.value.computed[it.rid]?.label;
-  return [own, ...recorded].filter(Boolean);
+  // A title that repeats the option ("Director · Director") is said once.
+  return [own, ...recorded].filter((x, i, all) => x && (typeof x !== 'string' || all.findIndex(y => typeof y === 'string' && T.same(y, x)) === i));
 }
 // A relation ruled out, said plainly: "Not a remote affiliate of The BDC: close affiliate (§57(b))".
 const notText = it => { const why = App.computed.value.computed[it.rid]?.label;
@@ -570,9 +571,9 @@ function ViewPanel() {
     <${Head} path=${[{ label: 'View' }]}><${Field} r=${{ field: 'text', value: v.name }} datatype="text" ph="Name" cls=" title"
       put=${out => out && Shell.parts.peek().views.rename(v.id, out.value)} /></${Head}>
     <div class="rows">
-      <div class="row"><div class="k">Layout</div><div class="v ctl"><${Choice} fixed r=${{ choice: v.layout === 'table' ? 'Table' : 'Chart' }} options=${['Chart', 'Table']}
+      <div class="row"><div class="k">Layout</div><div class="v ctl"><${Choice} fixed label="Layout" r=${{ choice: v.layout === 'table' ? 'Table' : 'Chart' }} options=${['Chart', 'Table']}
         put=${out => layout(out.choice === 'Table' ? { rows: v.rows } : undefined)} /></div></div>
-      ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
+      ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed label="Rows" r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
         put=${out => layout({ rows: all.find(l => l.name === out.choice).rows })} /></div></div>` : null}
     </div>
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
