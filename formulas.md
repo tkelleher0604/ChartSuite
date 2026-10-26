@@ -485,8 +485,21 @@ Everything above is built into the app in [app/](app/), so it can be tried:
 - **[formula-lab.html](app/tests/formula-lab.html).** The core's definitions side by side with their results, and a scratch box that works out any expression at any record. Open it with `#selftest` to check the results this document claims.
 - **[formulas.js](app/core/formulas.js).** The engine. A definition there names what it covers by locations written as paths from a kind, like `Entity › Entity Type: Limited Partnership`. Computed records get ids made from their argumentation, so they keep them from one working-out to the next.
 
+How the engine works a chart out:
+- **In steps.** Definitions are worked out in the order they depend on each other, whatever order they're listed in. A definition depends on those that give the names its formulas use, a list's edge label among them, and on those whose records it's located at. Definitions that depend on each other are worked out together, in rounds where implications are among them (see [Loops](#loops)).
+- **Where a formula can hold.** A relation between two kinds of object has a candidate for every pair, and most pairs come to nothing. So for one argument, given the others, the engine works out from the formula's form where it can hold, and tries just the candidates there, the way a database joins tables:
+  - `Affiliate IN REACH(Person, Controllers)` can hold only for the Person's controllers.
+  - `SUM(FILTER(Person.Owners, @ = Affiliate OR @ IN REACH(Affiliate, [Controlled Companies])).Percentage) >= 5%` can hold only where the Affiliate, or something it controls, owns the Person.
+  - `IMPLIEDBY([Affiliated Person](Person, Affiliate), "(A)")` holds just where that record holds (A), once the implications labeled (A) are done, which they are after the first round, since they read nothing the step works out.
+  - `LOOKTHROUGH(Investor, Investment, Holdings, Percentage)` gives something only where Holdings lead from the Investor to the Investment.
+
+  Where the form says exactly where an implication holds, as `IN`, `=`, `OR` and `ANY` of those can, it holds there without being worked out at each candidate. Where the form doesn't tell, every candidate is tried.
+- **What changed.** Each result remembers what its formula read, so a round works out again only what read something the last round changed. What a record read is spelled out only when someone asks why it's there.
+- **How fast.** [perf-test.html](app/tests/perf-test.html) works out the sample a chart starts from in about 15 ms. With 200 more entities in layers, each controlling the ones below (about 68,000 computed records), it takes about 0.9 seconds. [engine-test.html](app/tests/engine-test.html) checks that this gives exactly what working out every candidate gave, record by record and explanation by explanation.
+
 Where the prototype differs from this document:
 - **Loops through NOT and the like.** The prototype catches one when it leaves an attestation that no longer holds. One that happens to settle isn’t flagged yet.
+- **Records entered at computed ones.** A relation entered at a computed record, like a person made responsible for a computed deadline, has its name and named lists once that record is worked out. A formula that reads such a list before then, as one at the person counting their deadlines might, misses it: the order of steps doesn't yet count that dependency.
 - **Renames.**
   - What a formula covers follows renames and moves, as styles do.
   - Renaming an entry, or a relation's edge, offers "here only" or "every one like it", defaulting to every one.

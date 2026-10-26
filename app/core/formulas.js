@@ -356,7 +356,7 @@ function indexByObjects(S, id, r, known) {
   for (const e of edges) names.add(e);
 }
 const pull = (map, key, id) => { const list = map?.get(key); if (list) map.set(key, list.filter(x => x !== id)); };
-function unindexByObjects(S, id, r) {
+function unindexByObjects(S, id) {
   const { objs, edges, sig, call } = S.indexed.get(id);
   for (const obj of distinct(objs)) pull(S.byObject.get(obj), sig, id);
   edges.forEach((e, i) => pull(S.byEdge, `${sig}|${e}=${objs[i]}`, id));
@@ -398,7 +398,7 @@ function removeRecord(S, id) {
   }
   if (r.args) {
     for (const at of distinct(r.args.map(a => a.at))) if (!isObjectAt(S, at)) pull(S.relsAt, at, id);
-    unindexByObjects(S, id, r);
+    unindexByObjects(S, id);
   }
   const spec = S.specs.get(id);
   if (spec) { pull(S.bySpec, spec, id); S.specs.delete(id); }
@@ -460,8 +460,8 @@ const note = (S, id) => { if (S.reads) S.reads.ids.push(id); };
 // depends on, since one of the step's candidates could turn up there. `kind` is how it was looked for:
 // 'entry' (at a location, by name), 'lists' (a list of relatives at a location), 'calls' (a relation call,
 // by callKey), and, for finding candidates (see holdsWhere), 'rel' (a relation's records with one argument
-// given, by relation name, edge and object) and 'inverse' (whose list of a name an object is on).
-// candidateKeys gives the keys under which a candidate could turn up.
+// given, by relation name, edge and object), 'held' (the same, holding a label) and 'inverse' (whose list
+// of a name an object is on). candidateKeys gives the keys under which a candidate could turn up.
 function depend(S, kind, name, key) {
   if (S.reads && S.dep?.[kind].has(name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); }
 }
@@ -1573,10 +1573,10 @@ function asOutput(S, d, v) {
 // doesn't tell, there's no support (null), and every candidate is tried. holdsWhere and the rest compile a
 // formula to a function from the given arguments (in a context, as ev takes) to a support, or to null.
 //
-// They compile it for a step, K: { P, own, settles }, own being the names of the relations the step works
-// out, and settles, for each, whether each label is settled once the step's first round is done (see
-// settledLabels). What a support works out it works out once for every value of the free argument, and once
-// for a whole round of the step, so it may use only what's steady (see steady).
+// They compile it for a step (see supportContext): the relations it works out, which of their labels
+// settle in its first round, and which have no entered records. What a support works out it works out once
+// for every value of the free argument, and once for a whole round of the step, so it may use only what's
+// steady (see steady).
 
 const AT = { at: true };   // `@` as the free variable: the item a condition is asked of
 const isVar = (n, v) => v === AT ? n.k === 'at' : n.k === 'name' && n.n === v.name;
@@ -1858,8 +1858,8 @@ function givesWhere(K, n, v) {
 // definitions give, so they came out for good in that round; and which are quiet, having no entered
 // records, so that there's nothing for IMPLIEDBY to find until the end of that round.
 function supportContext(S, group) {
-  const entered = new Set(Object.values(S.entered).filter(r => r.args).map(signatureOf));
-  const quiet = new Set(group.filter(d => d.isRelation && !entered.has(signature(typeOfDef(d), d.edges))).map(d => normal(d.name)));
+  S.enteredSigs ??= new Set(Object.values(S.entered).filter(r => r.args).map(signatureOf));
+  const quiet = new Set(group.filter(d => d.isRelation && !S.enteredSigs.has(signature(typeOfDef(d), d.edges))).map(d => normal(d.name)));
   const names = new Set(group.flatMap(d => [...namesProvided(d, S.P.reg)]));
   const settles = new Map();
   for (const d of group) if (d.isRelation && d.imps) {
@@ -1882,7 +1882,7 @@ function stateFor(P, entered) {
     relsByCall: new Map(), indexed: new Map(), seq: 0, listNames: new Map(), specs: new Map(), bySpec: new Map(), enteredByKey: new Map(),
     prov: new Map(), rows: new Map(), lazy: null, dep: null, watch: null, reads: null, forgetting: true, settled: false, done: 0,
     cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(), forms: new WeakMap(),
-    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(), provenances: new Map() };
+    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(), provenances: new Map(), enteredSigs: null };
   // Every entered record is in before any is indexed, so each is indexed by the objects it belongs to
   // whatever order they come in.
   Object.assign(S.recs, entered);
@@ -1927,7 +1927,7 @@ function againBelow(S, id) {
     const r = S.recs[rid];
     if (!r || r.computed) continue;
     if (r.args) {
-      unindexByObjects(S, rid, r);
+      unindexByObjects(S, rid);
       indexByObjects(S, rid, r);
     }
     const spec = S.specs.get(rid);
