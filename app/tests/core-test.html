@@ -48,7 +48,7 @@ function run(json) {
   }));
   // 122 changes to October 20, 2026, the legal team's revisions after a general counsel's review, and Ownership
   // Adds Up checked only where every owner is meant to be charted.
-  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 139, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 144, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
 
   // ---- Patterns ----
   const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
@@ -109,7 +109,7 @@ function run(json) {
 
   // ---- What formulas.js takes ----
   const defs = N.definitions(S), def = id => defs.find(d => d.id === id);
-  check('every definition covers what it covered', defs.length === 29 && defs.every(d => d.covers.length && d.rows.length),
+  check('every definition covers what it covered', defs.length === 30 && defs.every(d => d.covers.length && d.rows.length),
     defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
   check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
     && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 5 && def('def_look_through').datatype === 'percent');
@@ -312,6 +312,10 @@ function run(json) {
     && Tree.format('document', 'https://x/a%20b.pdf') === 'a b.pdf' && Tree.format('document', 'https://contoso.sharepoint.com/:b:/s/FundLegal/EaBcD123xyz?e=AbC12') === 'PDF in SharePoint');
   check('an output reads as its value, its option, or Yes and No', Tree.outputText(now.fund_good) === 'Yes' && Tree.outputText(now.fund_erisa) === 'No'
     && Tree.outputText(now.fund_juris) === 'Delaware' && Tree.outputText(now.fund_target) === '$750,000,000');
+  check('a day of the year is typed with its month’s name or as a date, kept as ISO’s --MM-DD, and read without a year', Tree.parse('yearly', 'December 31') === '--12-31'
+    && Tree.parse('yearly', 'Dec. 31') === '--12-31' && Tree.parse('yearly', '31 December') === '--12-31' && Tree.parse('yearly', '12/31') === '--12-31' && Tree.parse('yearly', '2023-12-31') === '--12-31'
+    && Tree.parse('yearly', 'Feb 29') === '--02-29' && Tree.parse('yearly', 'June 31') === undefined && Tree.parseDate('12/31') === null && Tree.format('yearly', '--12-31') === 'December 31'
+    && Tree.formatDate('--06-30', 'short') === 'Jun 30' && Tree.classify('June 30') === 'yearly' && Tree.classify('6/30') === 'text');
   check('what’s typed is classified', ['text', 'number', 'percent', 'money', 'date', 'document'].join() === ['Delaware', '1,000', '12.5%', '$5', 'March 1, 2024', 'https://x/y'].map(Tree.classify).join()
     && Tree.classify('0803456789') === 'text');
 }

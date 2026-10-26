@@ -68,7 +68,7 @@ const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edg
 function theSample() {
   const R = workOut();
   const { definitions } = SAMPLE_INPUTS;
-  check('Notes gives the sample’s 29 definitions, each with what it covers and its rows', definitions.length === 29 && definitions.every(d => d.covers.length && d.rows.length && d.type));
+  check('Notes gives the sample’s 30 definitions, each with what it covers and its rows', definitions.length === 30 && definitions.every(d => d.covers.length && d.rows.length && d.type));
   check('…and none has a problem', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
   const problems = definitions.flatMap(d => d.rows.flatMap(r => Formulas.check(r.formula, { computed: R, def: d.id }).problems.map(p => `${d.id}: ${p.message}`)));
   check('…nor any of their rows, names included', !problems.length, problems.slice(0, 3).join(' | '));
@@ -108,6 +108,11 @@ function theSample() {
   const short = withRecords({ own_okfr_gp_pct: { ...SAMPLE_INPUTS.recs.own_okfr_gp_pct, value: 0.3 } });
   check('…but rules it out where every owner is meant to be charted: GP III, its members holding 80%', entryRow(short, 'def_adds_up', 'gp')?.value === false
     && entryRow(short, 'def_adds_up', 'gp').label === 'Owners missing', JSON.stringify(entryRow(short, 'def_adds_up', 'gp')));
+  // A percentage out of range is the sample's rule to flag, as Ownership Adds Up flags owners that don't add up.
+  check('Percentages In Range records nothing where every holding is from 0% to 100%', !rowsOf(R, 'def_in_range').length);
+  const odd = withRecords({ own_fund_npine_pct: { ...SAMPLE_INPUTS.recs.own_fund_npine_pct, value: 1.5 }, own_chen_gp_pct: { ...SAMPLE_INPUTS.recs.own_chen_gp_pct, value: -0.05 } });
+  const ruled = rowsOf(odd, 'def_in_range').map(r => `${pairOf(odd, { args: odd.records[r.at].args })} ${r.value} ${r.label}`).sort();
+  check('…and rules out a holding of 150% and one of −5%, by their Percentage', ruled.join() === 'chen→gp false Percentage,fund→northpine false Percentage', ruled.join(' / '));
 
   check('Tax Classification: Partnership for Northpine, by the row Otherwise', entryRow(R, 'def_tax', 'northpine')?.value === 'Partnership' && entryRow(R, 'def_tax', 'northpine').label === 'Otherwise');
   check('Tax Classification: C Corporation for Halvard, by the row Corporation', entryRow(R, 'def_tax', 'halvard')?.value === 'C Corporation' && entryRow(R, 'def_tax', 'halvard').label === 'Corporation');
@@ -194,8 +199,21 @@ function theSample() {
   const past = ['2023-06-30', '2024-01-15', '2025-06-30'].map(d => [d, (({ recs, definitions, names }) => Formulas.computeState(recs, definitions, names, null))(sampleAsOf(d))]);
   check('As of June 30, 2023, January 15, 2024 and June 30, 2025, no errors: a name the schema has on another day is nothing, not #NAME?',
     past.every(([, P]) => !P.errors.length), past.map(([d, P]) => `${d}: ${P.errors.map(e => `${e.def} ${e.error.code}`).join(', ') || 'none'}`).join('; '));
-  const R4 = workOut({ ...SAMPLE_INPUTS.recs, mgmt_fye: { ...mgmt_fye, value: '2018-06-30' } });
+  const R4 = workOut({ ...SAMPLE_INPUTS.recs, mgmt_fye: { ...mgmt_fye, value: '--06-30' } });
   check('…and a fiscal year ending June 30 moves it to September 28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso === '2026-09-28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso);
+  // A fiscal year end is a day of the year: MONTH and DAY read it, it has no year, and each deadline it sets is
+  // the one a full date with its month and day would.
+  const fyes = Object.values(SAMPLE_INPUTS.recs).filter(r => r.edge === 'Fiscal Year End');
+  check('Fiscal Year End is a day of the year: December 31, for each of the 12 entities with one', fyes.length === 12 && fyes.every(r => r.field === 'yearly' && r.value === '--12-31'), fyes.map(r => `${r.field} ${r.value}`).join());
+  const fye = text => Formulas.evaluateAt(R, text, 'mgmt', { '@June': { t: 'date', iso: '--06-30' } });
+  check('MONTH and DAY read a day of the year, TEXT says it, and YEAR says it has none', fye('= MONTH([Fiscal Year End])') === 12 && fye('= DAY([Fiscal Year End])') === 31
+    && fye('= TEXT([Fiscal Year End], "mmmm d")') === 'December 31' && fye('= YEAR([Fiscal Year End])')?.msg === 'December 31 has no year.', JSON.stringify(fye('= YEAR([Fiscal Year End])')));
+  check('…days of the year are put in order among themselves, but not among dates, and aren’t counted from', fye('= @June < [Fiscal Year End]') === true
+    && fye('= [Fiscal Year End] > DATE(2026, 6, 30)')?.code === '#VALUE!' && fye('= [Fiscal Year End] + 1')?.code === '#VALUE!' && fye('= WORKDAY([Fiscal Year End], 1)')?.code === '#VALUE!');
+  const asDates = Object.fromEntries(Object.entries(SAMPLE_INPUTS.recs).map(([id, r]) => [id, r.field === 'yearly' ? { ...r, field: 'date', value: `2018${r.value.slice(1)}` } : r]));
+  const deadlines = X => Object.entries(X.records).filter(([id, r]) => X.computed[id] && r.field === 'date').map(([id, r]) => `${id} ${r.value}`).sort();
+  const yearly = deadlines(R), full = deadlines(workOut(asDates));
+  check('Every deadline is the one a fiscal year end as a full date gave', yearly.length > 20 && yearly.join() === full.join(), `${yearly.length} deadlines; ${yearly.filter(x => !full.includes(x)).slice(0, 3).join(', ')}`);
 
   // Signing authority: the capacity is checked where the signatory signs.
   const held = rowsOf(R, 'def_capacity_held'), flagged = held.filter(r => r.value === false).map(r => r.at).sort();

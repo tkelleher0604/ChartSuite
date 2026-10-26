@@ -19,13 +19,16 @@ const same = (a, b) => normal(String(a ?? '')) === normal(String(b ?? ''));
 // ---- Values ----
 // BLANK, nothing, is null. Numbers, text and TRUE/FALSE stand for themselves. A record is { t: 'rec', id, link },
 // with `link` the relation record it was reached through when it came from a list of relatives. A relation
-// call that finds nothing gives a record whose id is null, which is nothing. A date is { t: 'date', iso }, a
+// call that finds nothing gives a record whose id is null, which is nothing. A date is { t: 'date', iso }, and a
+// day of the year (a fiscal year end) is one whose iso is --12-31: it has a month and a day, and no year. A
 // list is an array, and an error is { t: 'err', code, msg }.
 
 const err = (code, msg) => ({ t: 'err', code, msg });
 const isErr = v => v?.t === 'err';
 const isRec = v => v?.t === 'rec';
 const isDate = v => v?.t === 'date';
+// A day on the calendar: a date with its year.
+const dated = v => isDate(v) && v.iso[0] !== '-';
 const recOf = (id, link = null) => ({ t: 'rec', id, link });
 const circular = () => err('#CIRCULAR!', 'This depends on itself.');
 const isNothing = v => v === null || v === undefined || (Array.isArray(v) && !v.length) || (isRec(v) && v.id === null);
@@ -554,8 +557,8 @@ function output(S, id) {
   if (isObject(r)) return recOf(id);
   if (isTag(r)) return r.tag;
   if (isChoice(r)) return r.choice;
-  // Values are canonical: numbers for numbers, percentages and money, ISO strings for dates.
-  if (r.field === 'date') return { t: 'date', iso: r.value };
+  // Values are canonical: numbers for numbers, percentages and money, ISO strings for dates and days of the year.
+  if (r.field === 'date' || r.field === 'yearly') return { t: 'date', iso: r.value };
   if (typeof r.value === 'string' && r.field !== 'text') return readNumber(r.value) ?? r.value;
   return r.value;
 }
@@ -632,16 +635,16 @@ function equal(a, b) {
 }
 
 // Nothing takes the least value of the other side's kind, as in Excel: 0, empty text, FALSE, or a date
-// before every date.
-const EARLIEST = { t: 'date', iso: '0000-01-01' };
+// before every date (or day of the year).
+const EARLIEST = { t: 'date', iso: '0000-01-01' }, FIRST = { t: 'date', iso: '--00-00' };
 function ordering(S, a, b) {
-  const least = x => typeof x === 'string' ? '' : typeof x === 'boolean' ? false : isDate(x) ? EARLIEST : 0;
+  const least = x => typeof x === 'string' ? '' : typeof x === 'boolean' ? false : isDate(x) ? (dated(x) ? EARLIEST : FIRST) : 0;
   if (a === null) a = least(b);
   if (b === null) b = least(a);
   if (typeof a === 'number' && typeof b === 'number') return near(a, b) ? 0 : Math.sign(a - b);
   if (typeof a === 'string' && typeof b === 'string') return Math.sign(a.localeCompare(b, undefined, { sensitivity: 'base' }));
   if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : a ? 1 : -1;
-  if (isDate(a) && isDate(b)) return Math.sign(a.iso.localeCompare(b.iso));
+  if (isDate(a) && isDate(b) && dated(a) === dated(b)) return Math.sign(a.iso.localeCompare(b.iso));
   return err('#VALUE!', `Can’t put ${describe(S, a)} and ${describe(S, b)} in order.`);
 }
 
@@ -747,13 +750,13 @@ function arithmetic(S, op, a, b) {
     const y = toNumber(S, b);
     return isErr(y) ? y : -y;
   }
-  // Dates subtract to a number of days, and move by a number of days.
-  if (isDate(a) && isDate(b) && op === '-') return dayOf(a) - dayOf(b);
-  if (isDate(a) && (op === '+' || op === '-')) {
+  // Dates subtract to a number of days, and move by a number of days. A day of the year, with no year, doesn't.
+  if (dated(a) && dated(b) && op === '-') return dayOf(a) - dayOf(b);
+  if (dated(a) && (op === '+' || op === '-')) {
     const n = toNumber(S, b);
     return isErr(n) ? n : fromDay(dayOf(a) + (op === '+' ? n : -n));
   }
-  if (isDate(b) && op === '+') {
+  if (dated(b) && op === '+') {
     const n = toNumber(S, a);
     return isErr(n) ? n : fromDay(dayOf(b) + n);
   }
@@ -796,6 +799,7 @@ function extremeOf(name, a, c, sign) {
     if (typeof s === 'number') nums.push(s); else if (isDate(s)) dates.push(s);
   }
   if (nums.length && dates.length) return err('#VALUE!', `${name} takes numbers or dates, not both.`);
+  if (dates.some(d => dated(d) !== dated(dates[0]))) return err('#VALUE!', `${name} takes dates or days of the year, not both.`);
   if (!dates.length) return nums.length ? (sign > 0 ? Math.max(...nums) : Math.min(...nums)) : null;
   return dates.reduce((m, d) => (sign > 0 ? d.iso > m.iso : d.iso < m.iso) ? d : m);
 }
@@ -968,7 +972,7 @@ const FUNCTIONS = {
     if (bad) return bad;
     const d = scalar(c.S, ev(a[0].x, c));
     if (isErr(d) || d === null) return d;
-    if (!isDate(d)) return err('#VALUE!', 'WORKDAY takes a date first.');
+    if (!dated(d)) return err('#VALUE!', 'WORKDAY takes a date first.');
     const n = toNumber(c.S, ev(a[1].x, c));
     if (isErr(n)) return n;
     const step = n < 0 ? -1 : 1;
@@ -986,7 +990,7 @@ const FUNCTIONS = {
     if (bad) return bad;
     const [x, y] = a.map(n => scalar(c.S, ev(n.x, c)));
     if (x === null || y === null) return null;
-    if (!isDate(x) || !isDate(y)) return err('#VALUE!', 'YEARFRAC takes two dates.');
+    if (!dated(x) || !dated(y)) return err('#VALUE!', 'YEARFRAC takes two dates.');
     return Math.abs(dayOf(y) - dayOf(x)) / 365;
   },
   TEXT(a, c) {
@@ -995,7 +999,7 @@ const FUNCTIONS = {
     const v = scalar(c.S, ev(a[0].x, c)), f = toText(c.S, ev(a[1].x, c));
     if (isErr(v)) return v;
     if (isErr(f)) return f;
-    return isDate(v) ? dateText(v.iso, f) : typeof v === 'number' ? numberText(v, f) : toText(c.S, v);
+    return isDate(v) ? dateText(v, f) : typeof v === 'number' ? numberText(v, f) : toText(c.S, v);
   },
   LEN(a, c) { return textFn(a, c, 'LEN', 1, 1, t => t.length); },
   LEFT(a, c) { return textFn(a, c, 'LEFT', 1, 2, (t, n = 1) => t.slice(0, n)); },
@@ -1017,12 +1021,15 @@ function eachItem(a, c, use) {
   return out;
 }
 
+// A date's year, month or day as a number: [year, month, day], the year null for a day of the year.
+const partsOf = d => { const p = d.iso.slice(dated(d) ? 0 : 1).split('-').map(Number); return [dated(d) ? p[0] : null, p[1], p[2]]; };
 function datePart(a, c, name, i) {
   const bad = arity(name, a, 1);
   if (bad) return bad;
   const d = scalar(c.S, ev(a[0].x, c));
   if (isErr(d) || d === null) return d;
-  return isDate(d) ? Number(d.iso.split('-')[i]) : err('#VALUE!', `${name} takes a date.`);
+  if (!isDate(d)) return err('#VALUE!', `${name} takes a date.`);
+  return partsOf(d)[i] ?? err('#VALUE!', `${toText(c.S, d)} has no year.`);
 }
 
 // A date moved by whole months: to the same day, or the month's last day if it has fewer (EDATE), or to
@@ -1032,19 +1039,20 @@ function monthsOn(a, c, name, toEnd) {
   if (bad) return bad;
   const d = scalar(c.S, ev(a[0].x, c));
   if (isErr(d) || d === null) return d;
-  if (!isDate(d)) return err('#VALUE!', `${name} takes a date first.`);
+  if (!dated(d)) return err('#VALUE!', `${name} takes a date first.`);
   const n = toNumber(c.S, ev(a[1].x, c));
   if (isErr(n)) return n;
-  const [y, m, day] = d.iso.split('-').map(Number);
+  const [y, m, day] = partsOf(d);
   const last = new Date(y, m - 1 + Math.trunc(n) + 1, 0).getDate();
   return { t: 'date', iso: Tree.isoOf(new Date(y, m - 1 + Math.trunc(n), toEnd ? last : Math.min(day, last))) };
 }
 
-// TEXT(value, format), as Excel's for dates and numbers: "mmmm d, yyyy", "mmm d", "0.0%", "$#,##0".
+// TEXT(value, format), as Excel's for dates and numbers: "mmmm d, yyyy", "mmm d", "0.0%", "$#,##0". A day of the
+// year has no year, nor a day of the week.
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-function dateText(iso, f) {
-  const [y, m, d] = iso.split('-').map(Number), month = Tree.MONTHS[m - 1], wd = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-  const part = { yyyy: String(y), yy: String(y).slice(-2), mmmm: month, mmm: month.slice(0, 3), mm: String(m).padStart(2, '0'), m: String(m),
+function dateText(v, f) {
+  const [y, m, d] = partsOf(v), month = Tree.MONTHS[m - 1], wd = y === null ? '' : WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  const part = { yyyy: String(y ?? ''), yy: String(y ?? '').slice(-2), mmmm: month, mmm: month.slice(0, 3), mm: String(m).padStart(2, '0'), m: String(m),
     dddd: wd, ddd: wd.slice(0, 3), dd: String(d).padStart(2, '0'), d: String(d) };
   return f.replace(/yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d/gi, t => part[t.toLowerCase()]);
 }
@@ -1509,7 +1517,7 @@ function asOutput(S, d, v) {
     const option = optionsOf(S, d).find(o => same(o, v));
     return option ? { out: option } : { error: err('#OPTION?', `“${v}” isn’t one of ${d.name}’s options.`) };
   }
-  if (d.datatype === 'date') return isDate(v) ? { out: v } : wrong('a date');
+  if (d.datatype === 'date' || d.datatype === 'yearly') return isDate(v) && dated(v) === (d.datatype === 'date') ? { out: v } : wrong(Tree.PHRASES[d.datatype]);
   if (d.datatype === 'text' || d.datatype === 'document') { const t = toText(S, v); return isErr(t) ? { error: t } : { out: t }; }
   return typeof v === 'number' ? { out: v } : wrong('a number');
 }

@@ -163,34 +163,42 @@ function schemaError(S) {
 
 // ---- Values ----
 // A field's value is canonical for its datatype: text a string; a number, percentage (0.716 for 71.6%) or
-// amount of money a number; a date an ISO day; a document its address.
+// amount of money a number; a date an ISO day; a day of the year, as a fiscal year ends on, ISO's --12-31;
+// a document its address.
 
-const DATATYPES = { text: 'Text', number: 'Number', percent: 'Percent', money: 'Money', date: 'Date', document: 'Document' };
+const DATATYPES = { text: 'Text', number: 'Number', percent: 'Percent', money: 'Money', date: 'Date', yearly: 'Day of the year', document: 'Document' };
 const PHRASES = { text: 'text', number: 'a number', percent: 'a percentage', money: 'an amount of money', date: 'a date',
-  document: 'a link to a document', choice: 'a choice', tag: 'a checkbox' };
+  yearly: 'a day of the year', document: 'a link to a document', choice: 'a choice', tag: 'a checkbox' };
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const monthOf = w => { w = w.toLowerCase().replace(/\.$/, ''); return MONTHS.findIndex(m => m.toLowerCase() === w || m.slice(0, 3).toLowerCase() === w || (w === 'sept' && m === 'September')) + 1; };
 
-// 2019-03-04, 3/4/2019, 3-4-19, March 4, 2019, Mar. 4, 2019 or 4 March 2019, as an ISO day; null if not a date.
-// A two-digit year reads as Excel reads it: 00–29 in the 2000s.
-function parseDate(s) {
+// A day as typed, its year left out or not: 2019-03-04 or --03-04, 3/4/2019, 3-4-19 or 3/4, March 4, 2019 or
+// March 4, Mar. 4 or 4 March. [year or null, month, day], or null if it isn't a day. A two-digit year reads as
+// Excel reads it: 00–29 in the 2000s. February 29 is a day of the year, so one without a year is a leap year's.
+function dayParts(s) {
   let m, y, mo, d;
   s = clean(s);
-  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) [, y, mo, d] = m;
-  else if ((m = s.match(/^(\d{1,2})([/-])(\d{1,2})\2(\d{4}|\d{2})$/))) { [, mo, , d, y] = m; if (y.length === 2) y = (+y < 30 ? 2000 : 1900) + +y; }
-  else if ((m = s.match(/^([A-Za-z]+\.?) (\d{1,2}),? (\d{4})$/))) [y, mo, d] = [m[3], monthOf(m[1]), m[2]];
-  else if ((m = s.match(/^(\d{1,2}) ([A-Za-z]+\.?),? (\d{4})$/))) [y, mo, d] = [m[3], monthOf(m[2]), m[1]];
+  if ((m = s.match(/^(\d{4}|-)-(\d{1,2})-(\d{1,2})$/))) [, y, mo, d] = m;
+  else if ((m = s.match(/^(\d{1,2})([/-])(\d{1,2})(?:\2(\d{4}|\d{2}))?$/))) { [, mo, , d, y] = m; if (y?.length === 2) y = (+y < 30 ? 2000 : 1900) + +y; }
+  else if ((m = s.match(/^([A-Za-z]+\.?) (\d{1,2})(?:,? (\d{4}))?$/))) [y, mo, d] = [m[3], monthOf(m[1]), m[2]];
+  else if ((m = s.match(/^(\d{1,2}) ([A-Za-z]+\.?)(?:,? (\d{4}))?$/))) [y, mo, d] = [m[3], monthOf(m[2]), m[1]];
   else return null;
-  [y, mo, d] = [y, mo, d].map(Number);
-  const date = new Date(Date.UTC(y, mo - 1, d));
-  if (!mo || date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null;
-  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  [y, mo, d] = [y === undefined || y === '-' ? null : Number(y), Number(mo), Number(d)];
+  const date = new Date(Date.UTC(y ?? 2000, mo - 1, d));
+  if (!mo || (y !== null && date.getUTCFullYear() !== y) || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null;
+  return [y, mo, d];
 }
+const pad = n => String(n).padStart(2, '0');
+// An ISO day, or null if it isn't a date.
+const parseDate = s => { const p = dayParts(s); return p && p[0] !== null ? `${p[0]}-${pad(p[1])}-${pad(p[2])}` : null; };
+// A day of the year, as ISO writes one (--12-31), from a day typed with its year or without; null if it isn't one.
+const parseYearly = s => { const p = dayParts(s); return p && `--${pad(p[1])}-${pad(p[2])}`; };
 // A day as it reads: 'long' February 14, 2023 (a value); 'short' Feb 14, 2023 (the window's own); 'month'
-// February 2023.
+// February 2023. A day of the year reads without a year: February 14.
 function formatDate(iso, style = 'long') {
-  const [y, m, d] = String(iso).split('-').map(Number), month = MONTHS[m - 1];
-  return style === 'month' ? `${month} ${y}` : `${style === 'short' ? month.slice(0, 3) : month} ${d}, ${y}`;
+  const yearly = String(iso).startsWith('--'), [y, m, d] = String(iso).slice(yearly ? 1 : 0).split('-').map(Number), month = MONTHS[m - 1];
+  if (style === 'month') return yearly ? month : `${month} ${y}`;
+  return `${style === 'short' ? month.slice(0, 3) : month} ${d}${yearly ? '' : `, ${y}`}`;
 }
 // The day a moment falls on, on this computer's calendar.
 const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -198,28 +206,30 @@ const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 // 1,000, $750,000,000 or 12.5%. A leading zero (0803456789) marks an identifier, which is text.
 const isNumber = s => /^[-+]?\$?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?%?$/.test(s) && !/^[-+]?\$?0\d/.test(s);
 const isAddress = s => /^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(s) || /^\\\\[^\\\s]+\\\S+/.test(s);
-// The datatype something typed reads as, where nothing else says.
-const classify = s => (s = clean(s), isAddress(s) ? 'document' : parseDate(s) ? 'date' : !isNumber(s) ? 'text'
-  : s.endsWith('%') ? 'percent' : /^[-+]?\$/.test(s) ? 'money' : 'number');
+// The datatype something typed reads as, where nothing else says. A day of the year is one typed with its
+// month's name (June 30), since 6/30 could be a fraction.
+const classify = s => (s = clean(s), isAddress(s) ? 'document' : parseDate(s) ? 'date' : parseYearly(s) && /[a-z]|^--/i.test(s) ? 'yearly'
+  : !isNumber(s) ? 'text' : s.endsWith('%') ? 'percent' : /^[-+]?\$/.test(s) ? 'money' : 'number');
 // What's typed, as a value of the datatype, or undefined. In a percentage a bare number is one: 25 is 25%.
 function parse(datatype, raw) {
   const s = clean(raw);
   if (!s) return undefined;
   if (datatype === 'date') return parseDate(s) ?? undefined;
+  if (datatype === 'yearly') return parseYearly(s) ?? undefined;
   if (datatype === 'document') return isAddress(s) ? s : undefined;
   if (datatype === 'text') return s;
   if (!isNumber(s) || (datatype !== 'percent' && s.endsWith('%'))) return undefined;
   const n = Number(s.replace(/[$,%]/g, ''));
   return datatype === 'percent' ? n / 100 : n;
 }
-// How a value reads: 71.6%, $750,000,000, 1,000, February 14, 2023, and a document by what its link names.
-// A formatter is costly to make and values are formatted by the thousand, so each kind is made once.
+// How a value reads: 71.6%, $750,000,000, 1,000, February 14, 2023, December 31, and a document by what its
+// link names. A formatter is costly to make and values are formatted by the thousand, so each kind is made once.
 const numberFormats = new Map();
 const numberFormat = (min, max) => numberFormats.get(min * 10 + max)
   ?? numberFormats.set(min * 10 + max, new Intl.NumberFormat('en-US', { minimumFractionDigits: min, maximumFractionDigits: max })).get(min * 10 + max);
 function format(datatype, v) {
   if (v === null || v === undefined) return '';
-  if (datatype === 'date') return formatDate(v);
+  if (datatype === 'date' || datatype === 'yearly') return formatDate(v);
   if (datatype === 'document') return linkOf(v).short;
   if (typeof v !== 'number') return String(v);
   const n = (x, min = 0, max = 2) => numberFormat(min, max).format(x);
@@ -335,6 +345,6 @@ return {
   // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },
   schema, schemaError,
-  DATATYPES, PHRASES, MONTHS, parseDate, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, plural, linkOf,
+  DATATYPES, PHRASES, MONTHS, parseDate, parseYearly, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, plural, linkOf,
 };
 })();

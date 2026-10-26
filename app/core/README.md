@@ -5,7 +5,7 @@ Classic scripts, each exposing one global and touching no page: `Tree` (tree.js)
 ## Shapes
 
 **Records**, keyed by id in a state `{ [id]: record }`:
-`{ kind }`, `{ at, edge, field, value }`, `{ at, edge, choice }`, `{ at, edge, tag }`, `{ args: [{ edge, at }], field+value | choice | tag }`. A record may carry `since` and `before` (ISO days). Values are canonical: a percentage is a fraction (0.716), a date an ISO day, money a number, a document its address.
+`{ kind }`, `{ at, edge, field, value }`, `{ at, edge, choice }`, `{ at, edge, tag }`, `{ args: [{ edge, at }], field+value | choice | tag }`. A record may carry `since` and `before` (ISO days). Values are canonical: a percentage is a fraction (0.716), a date an ISO day, a day of the year (a fiscal year end, datatype `yearly`) ISO's --12-31, money a number, a document its address.
 
 **Trees.** Specifications, patterns and a record's own tree are nested:
 - an object node: `{ id, kind }` an object, `{ kind }` a kind, `{}` unlabeled;
@@ -25,7 +25,7 @@ Edges keep their labels; argument order doesn't matter.
 - `index(recs)` → `{ entries, relations, kinds }`, Maps from a record id (or a normalized kind) to ids. `dependents(recs, ids)`: the ids and everything located at them, at any depth. `pathOf(recs, id)`, `objectOf(recs, id)`, `entryAt(recs, id, edge)`.
 - Patterns: `specOf(t)`, `bare(t)` (root label removed), `key(t)`, `paramKey(t)`, `shapeOf(t)`, `weight(t)`, `narrower(p, q)`, `fits(recs, id, p)`, `idsIn(t)`, `rename(t, p, from, to)`, `renamed(node or row, from, to)`, `lift(t, p)`.
 - `schema(trees)` → `{ [key]: spec }`, closed under locations. `schemaError(S)`: a sentence, or null.
-- Values: `DATATYPES`, `PHRASES`, `MONTHS`, `parseDate(text)` → ISO or null, `formatDate(iso, 'long' | 'short' | 'month')` (February 14, 2023; Feb 14, 2023; February 2023), `isoOf(date)` (the day a moment falls on, here), `classify(text)`, `parse(datatype, text)` → value or undefined, `format(datatype, value)` → text (a percentage to four places), `outputText(r)` (a record's output: its value, its option, a tag Yes or No), `isNumber`, `isAddress`.
+- Values: `DATATYPES`, `PHRASES`, `MONTHS`, `parseDate(text)` → ISO or null, `parseYearly(text)` → --MM-DD or null (December 31, 12/31, or a date's month and day), `formatDate(iso, 'long' | 'short' | 'month')` (February 14, 2023; Feb 14, 2023; February 2023; a day of the year without its year), `isoOf(date)` (the day a moment falls on, here), `classify(text)`, `parse(datatype, text)` → value or undefined, `format(datatype, value)` → text (a percentage to four places), `outputText(r)` (a record's output: its value, its option, a tag Yes or No), `isNumber`, `isAddress`.
 - `linkOf(address)` → `{ link, system, kind, name, id, short, host, site, library, folder, sharing }`: what a document's address points at (SharePoint, OneDrive, EDGAR, NetDocuments, iManage, a file share or the web). A document reads as its `short`.
 
 ## Notes
@@ -79,4 +79,4 @@ Records worked out from other records, as formulas.md describes. It takes the en
 
 ## The sample
 
-[../sample/calder-ridge.js](../sample/calder-ridge.js) holds one chart, `calder-ridge`, in 120 changes by three authors, from June 2024 on. Its views are the View objects `view_main` (Structure), `view_40act`, `view_fund3` and `view_control`, drawn as charts, and four laid out as tables by their Layout notes: Entities, Ownership, Dates and Documents. Definitions keep their old ids (`def_tax`, `def_control`…). The 40 Act filter is the tag BDC Affiliate (`def_bdc_affiliate`), shown by its output; the other two filters are Shown notes by kind and Vehicle Type. The feeder's GP change, the Corvane closing, renewed filings and status changes are dated rows. The registered agents once kept as text are deleted, and can be restored.
+[../sample/calder-ridge.js](../sample/calder-ridge.js) holds one chart, `calder-ridge`, in 144 changes by three authors, from June 2024 to Friday, October 23, 2026. Its views are the View objects `view_main` (Structure), `view_40act`, `view_fund3` and `view_control`, drawn as charts, and four laid out as tables by their Layout notes: Entities, Ownership, Dates and Documents. Definitions keep their old ids (`def_tax`, `def_control`…). The 40 Act filter is the tag BDC Affiliate (`def_bdc_affiliate`), shown by its output; the other two filters are Shown notes by kind and Vehicle Type. The feeder's GP change, the Corvane closing, renewed filings and status changes are dated rows. The registered agents once kept as text are deleted, and can be restored.
