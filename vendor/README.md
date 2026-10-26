@@ -19,4 +19,4 @@ Each library is pinned, unmodified from jsDelivr, and loads as a classic script 
 | jspdf | 4.2.1 | MIT | `jspdf/jspdf.umd.min.js` | PDF export |
 | svg2pdf.js | 2.8.1 | MIT | `svg2pdf/svg2pdf.umd.min.js` | PDF export |
 | @azure/msal-browser | 3.28.1 | MIT | `msal/msal-browser.min.js` | signing in to Microsoft 365 |
-| IBM Plex Sans (variable), Plex Mono | Fontsource 5.3.0 | OFL-1.1 | `plex/*.woff2`, latin and latin-ext | the interface, and formulas |
+| IBM Plex Sans (variable) | Fontsource 5.3.0 | OFL-1.1 | `plex/*.woff2`, latin and latin-ext | the interface, formulas included |

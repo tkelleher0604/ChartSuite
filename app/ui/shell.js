@@ -12,8 +12,8 @@
 //
 // THE PARTS register with Shell.register(kind, thing) → unregister. One of each:
 //   'canvas', 'table'  { mount(el) → unmount? }   the view, as a chart or a table   (canvas.js, table.js);
-//                      the canvas also kinds() → menu items, a box of each kind, which a chart with no box
-//                      offers as its one action ("Add a box")
+//                      the canvas also kinds() → menu items, a box of each kind it can add (never none), which
+//                      a chart with no box offers as its one action, "Add a box"
 //   'inspector'        { mount(el) → unmount? }   the selection                      (inspector.js)
 //   'formatbar'        { mount(el) → unmount? }   on a chart, under the title bar    (formatbar.js)
 //   'formulabar'       a component                under the format bar               (formulabar.js)
@@ -48,8 +48,8 @@
 // and confirm() on <dialog>; toast(text, { undo }); keys(map, opts) on tinykeys, and keyLabel(key) as shown;
 // aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer joins;
 // drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set,
-// this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?, keys?, checked?, disabled?,
-// danger?, run?, items? }; one without run or items is shown, not chosen.
+// this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?,
+// keys?, checked?, disabled?, danger?, run?, items? }; one without run or items is shown, not chosen.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
 // (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.
@@ -519,7 +519,7 @@ const Shell = (() => {
   // ---- The view and the inspector; a chart with no box offers its one action ----
   function Main() {
     const v = current.value, layout = v?.layout || 'chart', kinds = layout === 'chart' && part('canvas')?.kinds;
-    const bare = kinds && v && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box');
+    const bare = kinds && v && !App.readOnly.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box');
     const resize = e => {
       if (e.button !== 0) return;
       e.preventDefault();
