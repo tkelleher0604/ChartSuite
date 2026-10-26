@@ -1,0 +1,411 @@
+[
+  {
+    "id": "def_private_fund",
+    "name": "Private Fund",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"private fund\\\",\\\"kind:entity\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "3(c)(1) or 3(c)(7)",
+        "formula": "← [Investment Company Status] IN {\"3(c)(1) Fund\", \"3(c)(7) Fund\"}"
+      }
+    ]
+  },
+  {
+    "id": "def_investment_company",
+    "name": "Investment Company",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"investment company\\\",\\\"kind:entity\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "BDC",
+        "formula": "← [Investment Company Status] = \"Business Development Company\""
+      }
+    ]
+  },
+  {
+    "id": "def_adds_up",
+    "name": "Ownership Adds Up",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"ownership adds up\\\",\\\"kind:entity\\\"]\"]",
+      "[\"[\\\"ownership adds up\\\",\\\"kind:individual\\\"]\"]",
+      "[\"[\\\"ownership adds up\\\",\\\"kind:investor group\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "Owners recorded",
+        "formula": "= IF(COUNT(Owners) > 0, SUM(Owners.Percentage) = 100%)"
+      }
+    ]
+  },
+  {
+    "id": "def_tax",
+    "name": "Tax Classification",
+    "type": "choice",
+    "covers": [
+      "[\"[\\\"tax classification\\\",\\\"[\\\\\\\"choice:limited partnership\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"tax classification\\\",\\\"[\\\\\\\"choice:limited liability company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"tax classification\\\",\\\"[\\\\\\\"choice:corporation\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "Corporation",
+        "formula": "= IF(@ = \"Corporation\", \"C Corporation\")"
+      },
+      {
+        "label": "Single owner",
+        "formula": "= IF([Ownership Adds Up] AND COUNT(Owners) = 1 AND KIND(Owners) <> \"Investor Group\", \"Disregarded Entity\")"
+      },
+      {
+        "label": "Otherwise",
+        "formula": "= \"Partnership\""
+      }
+    ]
+  },
+  {
+    "id": "def_look_through",
+    "name": "Look-Through Ownership",
+    "type": "field",
+    "datatype": "percent",
+    "self": true,
+    "covers": [
+      "[\"[\\\"investment\\\",\\\"kind:entity\\\"]\",\"[\\\"investor\\\",\\\"kind:entity\\\"]\"]",
+      "[\"[\\\"investment\\\",\\\"kind:entity\\\"]\",\"[\\\"investor\\\",\\\"kind:individual\\\"]\"]",
+      "[\"[\\\"investment\\\",\\\"kind:entity\\\"]\",\"[\\\"investor\\\",\\\"kind:investor group\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "Directly and through each holding",
+        "formula": "= Ownership(Investor, Investment).Percentage + SUM(EACH(Investor.Holdings, @.Percentage * [Look-Through Ownership](@, Investment)))"
+      }
+    ]
+  },
+  {
+    "id": "def_control",
+    "name": "Control",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"controlled\\\",\\\"kind:entity\\\"]\",\"[\\\"controller\\\",\\\"kind:entity\\\"]\"]",
+      "[\"[\\\"controlled\\\",\\\"kind:entity\\\"]\",\"[\\\"controller\\\",\\\"kind:individual\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "General partner",
+        "formula": "← Controller IN Controlled.[General Partners]"
+      },
+      {
+        "label": "Managing member",
+        "formula": "← Controller IN FILTER(Controlled.Members, @.Membership = \"Managing Member\")"
+      },
+      {
+        "label": "More than 25%",
+        "formula": "← SUM(FILTER(Controlled.Owners, @ = Controller OR Control(Controller, @)).Percentage) > 25%"
+      },
+      {
+        "label": "Through a controlled company",
+        "formula": "← ANY(Controller.[Controlled Companies], Control(@, Controlled))"
+      }
+    ]
+  },
+  {
+    "id": "def_affiliated",
+    "name": "Affiliated Person",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"affiliate\\\",\\\"kind:entity\\\"]\",\"[\\\"person\\\",\\\"kind:entity\\\"]\"]",
+      "[\"[\\\"affiliate\\\",\\\"kind:entity\\\"]\",\"[\\\"person\\\",\\\"kind:individual\\\"]\"]",
+      "[\"[\\\"affiliate\\\",\\\"kind:individual\\\"]\",\"[\\\"person\\\",\\\"kind:entity\\\"]\"]",
+      "[\"[\\\"affiliate\\\",\\\"kind:individual\\\"]\",\"[\\\"person\\\",\\\"kind:individual\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "(A)",
+        "formula": "← SUM(FILTER(Person.Owners, @ = Affiliate OR Control(Affiliate, @)).Percentage) >= 5%"
+      },
+      {
+        "label": "(B)",
+        "formula": "← [Affiliated Person](Person, Affiliate).[(A)]"
+      },
+      {
+        "label": "(C)",
+        "formula": "← Control(Affiliate, Person) OR Control(Person, Affiliate) OR ANY(Person.Controllers, Control(@, Affiliate))"
+      },
+      {
+        "label": "(D)",
+        "formula": "← Affiliate IN FILTER(Person.Personnel, @.Position <> \"Advisory Board Member\") OR Affiliate IN Person.[General Partners]"
+      },
+      {
+        "label": "(E)",
+        "formula": "← Person.[Investment Company] AND (Affiliate IN Person.Advisers OR Affiliate IN FILTER(Person.Personnel, @.Position = \"Advisory Board Member\"))"
+      },
+      {
+        "label": "(F)",
+        "formula": "← Person.[Investment Company] AND Person.[Entity Type] <> \"Corporation\" AND NOT ANY(Person.Personnel, @.Position = \"Director\") AND Affiliate IN Person.Depositors"
+      }
+    ]
+  },
+  {
+    "id": "def_close",
+    "name": "Close Affiliate",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"bdc\\\",\\\"[\\\\\\\"choice:business development company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"investment company status\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\",\"[\\\"close affiliate\\\",\\\"kind:entity\\\"]\"]",
+      "[\"[\\\"bdc\\\",\\\"[\\\\\\\"choice:business development company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"investment company status\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\",\"[\\\"close affiliate\\\",\\\"kind:individual\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "(b)(1)",
+        "formula": "← [Close Affiliate] IN BDC.Personnel"
+      },
+      {
+        "label": "(b)(1) affiliates",
+        "formula": "← ANY(BDC.Personnel, [Affiliated Person]([Close Affiliate], @).[(C)])"
+      },
+      {
+        "label": "(b)(2)",
+        "formula": "← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[General Partners] OR Control([Close Affiliate], BDC)"
+      },
+      {
+        "label": "(b)(2)",
+        "formula": "← ANY(BDC.Controllers, WITHOUT(BDC, Control(@, [Close Affiliate])))"
+      },
+      {
+        "label": "(b)(2) affiliates",
+        "formula": "← ANY(BDC.[Close Affiliates], @.[(b)(2)] AND LET(a, [Affiliated Person]([Close Affiliate], @), a.[(C)] OR a.[(D)]))"
+      }
+    ]
+  },
+  {
+    "id": "def_remote",
+    "name": "Remote Affiliate",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"bdc\\\",\\\"[\\\\\\\"choice:business development company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"investment company status\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\",\"[\\\"remote affiliate\\\",\\\"kind:entity\\\"]\"]",
+      "[\"[\\\"bdc\\\",\\\"[\\\\\\\"choice:business development company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"investment company status\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\",\"[\\\"remote affiliate\\\",\\\"kind:individual\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "§57(d)",
+        "formula": "= IF([Close Affiliate]([Remote Affiliate], BDC), FALSE)"
+      },
+      {
+        "label": "(e)(1)(A)",
+        "formula": "← [Affiliated Person]([Remote Affiliate], BDC).[(A)]"
+      },
+      {
+        "label": "(e)(1)(C)",
+        "formula": "← ANY(FILTER(BDC.Affiliates, @.[(A)]), [Affiliated Person]([Remote Affiliate], @).[(C)])"
+      }
+    ]
+  },
+  {
+    "id": "def_3c1",
+    "name": "3(c)(1) Count",
+    "type": "field",
+    "datatype": "number",
+    "covers": [
+      "[\"[\\\"3(c)(1) count\\\",\\\"kind:entity\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "Each owner, looking through a fund holding 10%",
+        "formula": "= IF([Private Fund], SUM(EACH(Owners, IF(KIND(@) = \"Entity\" AND @.Percentage >= 10% AND @.[Private Fund], @.[3(c)(1) Count], 1))))"
+      }
+    ]
+  },
+  {
+    "id": "def_annual_tax",
+    "name": "Annual Tax Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"annual tax due\\\",\\\"[\\\\\\\"choice:delaware\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"jurisdiction\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "LP or LLC",
+        "formula": "= IF([Entity Type] IN {\"Limited Partnership\", \"Limited Liability Company\"} AND [Vehicle Type] <> \"Portfolio Company\", DATE(YEAR(MAX([Annual Tax Paid], [Formation Date])) + 1, 6, 1))"
+      }
+    ]
+  },
+  {
+    "id": "def_annual_tax_amount",
+    "name": "Annual Tax Amount",
+    "type": "field",
+    "datatype": "money",
+    "covers": [
+      "[\"[\\\"annual tax amount\\\",\\\"[\\\\\\\"choice:delaware\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"jurisdiction\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "From tax year 2026",
+        "formula": "= IF(YEAR([Annual Tax Due]) - 1 >= 2026, $400)"
+      },
+      {
+        "label": "Through tax year 2025",
+        "formula": "= IF(NOT ISBLANK([Annual Tax Due]), $300)"
+      }
+    ]
+  },
+  {
+    "id": "def_franchise_tax",
+    "name": "Franchise Tax Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"franchise tax due\\\",\\\"[\\\\\\\"choice:delaware\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"jurisdiction\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "Corporation",
+        "formula": "= IF([Entity Type] = \"Corporation\" AND [Vehicle Type] <> \"Portfolio Company\", DATE(YEAR(MAX([Franchise Tax Paid], [Formation Date])) + 1, 3, 1))"
+      }
+    ]
+  },
+  {
+    "id": "def_annual_return",
+    "name": "Annual Return Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"annual return due\\\",\\\"[\\\\\\\"choice:cayman islands\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"jurisdiction\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "January 31",
+        "formula": "= IF([Vehicle Type] <> \"Portfolio Company\", DATE(YEAR(MAX([Annual Return Filed], [Formation Date])) + 1, 1, 31))"
+      }
+    ]
+  },
+  {
+    "id": "def_form_adv",
+    "name": "Form ADV Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"form adv due\\\",\\\"[\\\\\\\"tag:true\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"registered investment adviser\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "90 days after the year ends",
+        "formula": "= IF([Fiscal Year End] = \"December 31\", DATE(YEAR([Last Filed]), 12, 31) + 90)"
+      }
+    ]
+  },
+  {
+    "id": "def_form_pf",
+    "name": "Form PF Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"form pf due\\\",\\\"[\\\\\\\"tag:true\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"form pf filer\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"[\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"tag:true\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"[\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"registered investment adviser\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"]\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"]\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "120 days after the year ends",
+        "formula": "= IF([Fiscal Year End] = \"December 31\", DATE(YEAR([Last Filed]), 12, 31) + 120)"
+      }
+    ]
+  },
+  {
+    "id": "def_cima_fee",
+    "name": "Annual Fee Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"annual fee due\\\",\\\"[\\\\\\\"tag:true\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"cima registered\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "January 15",
+        "formula": "= DATE(YEAR(MAX([Last Paid], [Registered On])) + 1, 1, 15)"
+      }
+    ]
+  },
+  {
+    "id": "def_form_d",
+    "name": "Form D Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"form d due\\\",\\\"[\\\\\\\"tag:true\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"regulation d offering\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "While the offering is open",
+        "formula": "= IF([Offering Open], LET(due, EDATE([Last Filed], 12), WORKDAY(due - 1, 1)))"
+      }
+    ]
+  },
+  {
+    "id": "def_cftc",
+    "name": "Affirmation Due",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"affirmation due\\\",\\\"[\\\\\\\"tag:true\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"4.13(a)(3) exemption\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "60 days after the year ends",
+        "formula": "= LET(due, DATE(YEAR(MAX([Last Affirmed], [Claimed On])), 12, 31) + 60, WORKDAY(due - 1, 1))"
+      }
+    ]
+  },
+  {
+    "id": "def_lei",
+    "name": "Next Renewal",
+    "type": "field",
+    "datatype": "date",
+    "covers": [
+      "[\"[\\\"next renewal\\\",\\\"[\\\\\\\"tag:true\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"lei registered\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "A year on",
+        "formula": "= EDATE(MAX([Last Renewed], [Registered On]), 12)"
+      }
+    ]
+  },
+  {
+    "id": "def_formation_on_file",
+    "name": "Formation Document on File",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"formation document on file\\\",\\\"[\\\\\\\"choice:limited partnership\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"formation document on file\\\",\\\"[\\\\\\\"choice:exempted limited partnership\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"formation document on file\\\",\\\"[\\\\\\\"choice:limited liability company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"formation document on file\\\",\\\"[\\\\\\\"choice:corporation\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"formation document on file\\\",\\\"[\\\\\\\"choice:exempted company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "",
+        "formula": "= IF([Vehicle Type] <> \"Portfolio Company\", LET(wanted, IF(@ = \"Exempted Company\", \"Memorandum and Articles\", \"Certificate of Formation\"), ANY(Documents, @.[Document Type] = wanted AND @.Status IN {\"Executed\", \"Filed\", \"Final\"})))"
+      }
+    ]
+  },
+  {
+    "id": "def_governing_on_file",
+    "name": "Governing Agreement on File",
+    "type": "tag",
+    "covers": [
+      "[\"[\\\"governing agreement on file\\\",\\\"[\\\\\\\"choice:limited partnership\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"governing agreement on file\\\",\\\"[\\\\\\\"choice:exempted limited partnership\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"governing agreement on file\\\",\\\"[\\\\\\\"choice:limited liability company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"governing agreement on file\\\",\\\"[\\\\\\\"choice:corporation\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]",
+      "[\"[\\\"governing agreement on file\\\",\\\"[\\\\\\\"choice:exempted company\\\\\\\",\\\\\\\"[\\\\\\\\\\\\\\\"entity type\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"kind:entity\\\\\\\\\\\\\\\"]\\\\\\\"]\\\"]\"]"
+    ],
+    "rows": [
+      {
+        "label": "",
+        "formula": "= IF([Vehicle Type] <> \"Portfolio Company\", LET(wanted, IF(@ IN {\"Limited Partnership\", \"Exempted Limited Partnership\"}, \"Limited Partnership Agreement\", IF(@ = \"Limited Liability Company\", \"Operating Agreement\", IF(@ = \"Corporation\", \"Bylaws\", IF(@ = \"Exempted Company\", \"Memorandum and Articles\")))), ANY(Documents, @.[Document Type] = wanted AND @.Status IN {\"Executed\", \"Filed\", \"Final\"})))"
+      }
+    ]
+  }
+]

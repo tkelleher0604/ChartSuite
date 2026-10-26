@@ -14,36 +14,50 @@
 <script src="../core/model.js"></script>
 <script src="../core/sample.js"></script>
 <script src="../core/formulas.js"></script>
-<script src="../core/styles.js"></script>
 <script src="grown.js"></script>
 <script>
 // How long the formulas take to work out as a chart grows: the sample a chart starts from, with its
-// definitions, and with more of a fund complex added (see grown.js). `#n=200` (the default) sets the most
-// entities added; the page works out the sample with none, a quarter, half and all of them, three times
-// each, and keeps the best. The targets: the sample in under 50 ms, and 200 more entities in under 500.
-// Nothing is saved.
-saveState = () => {};
+// definitions (app/sample/definitions.json), and with more of a fund complex added (see grown.js). `#n=200`
+// (the default) sets the most entities added; the page works out the sample with none, a quarter, half and
+// all of them, three times each, and keeps the best. The targets: the sample in under 50 ms, 100 more
+// entities in under 500, and 200 more in under 500 too. Then the redline: one edit worked out and compared
+// with the state before it, as the preview does on every keystroke, in under 50 ms on the sample.
+// Run it in Chrome with --allow-file-access-from-files, so it can read the definitions. Nothing is saved.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 
 // The best of three workings-out, keeping only what's reported, so one run's records don't weigh on the next.
-function timeIt(st, n) {
-  const { recs, definitions, names } = engineInputs(grown(st.records, n), null, null, st);
+function timeIt(n) {
+  const recs = grown(SAMPLE, n);
   let best = null;
   for (let i = 0; i < 3; i++) {
-    const R = Formulas.computeState(recs, definitions, names);
+    const R = Formulas.computeState(recs, DEFINITIONS, NAMES);
     if (!best || R.ms < best.ms) best = { ms: R.ms, steps: R.steps, computed: Object.keys(R.computed).length };
   }
   return best;
 }
 
+// Ruling out the feeder's control of the fund, worked out and diffed against the sample as it was.
+function redline() {
+  const recs = structuredClone(SAMPLE);
+  const before = Formulas.computeState(recs, DEFINITIONS, NAMES);
+  const edited = { ...recs, x_rebut: { args: [{ edge: 'Controller', at: 'feeder' }, { edge: 'Controlled', at: 'fund' }], tag: false } };
+  let best = Infinity, d = null;
+  for (let i = 0; i < 3; i++) {
+    const t = performance.now();
+    const after = Formulas.computeState(edited, DEFINITIONS, NAMES);
+    d = Formulas.diff(before, after);
+    best = Math.min(best, performance.now() - t);
+  }
+  return { ms: best, d };
+}
+
 function run() {
   const n = Number(new URLSearchParams(location.hash.slice(1)).get('n') ?? 200);
-  const st = sampleState();
   const lines = [];
   const times = new Map();
   for (const size of [...new Set([0, Math.round(n / 4), Math.round(n / 2), n])]) {
-    const t = timeIt(st, size);
+    const t = timeIt(size);
     times.set(size, t.ms);
     const slow = [...t.steps].sort((a, b) => b.ms - a.ms).slice(0, 4)
       .map(s => `${s.defs.join('+')} ${s.ms.toFixed(0)}ms/${s.rounds}r/${s.tried}c/${s.evals}e`).join(', ');
@@ -51,6 +65,9 @@ function run() {
   }
   for (const [size, target, what] of [[0, 50, 'the sample'], [100, 500, '100 more entities'], [200, 500, '200 more entities']])
     if (times.has(size)) check(`Works out ${what} in under ${target} ms`, times.get(size) < target, `${times.get(size).toFixed(0)} ms`);
+  const r = redline();
+  check('Previews a ruling-out on the sample, worked out and compared, in under 50 ms', r.ms < 50,
+    `${r.ms.toFixed(1)} ms: ${r.d.appear.length} appear, ${r.d.go.length} go, ${r.d.change.length} change`);
   const failed = out.filter(x => !x.ok).length;
   document.title = `perf test: ${out.length - failed} pass, ${failed} fail`;
   document.getElementById('out').innerHTML = `${document.title}\n\n${lines.map(esc).join('\n')}\n\n` + out.map(x =>

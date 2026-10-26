@@ -517,7 +517,7 @@ const inSight = (S, id) => !S.cut || !S.cut.defs.has(S.recs[id]?.computed) || S.
 // candidates (see holdsWhere), 'rel' (a relation's records with one argument given) and 'inverse' (whose list
 // of a name an object is on). candidateKeys gives the keys under which a candidate could turn up.
 function depend(S, kind, name, key) {
-  if (S.reads && S.dep?.[kind].has(name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); }
+  if (S.reads && S.dep?.[kind].has(name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); if (VALUE_KINDS.has(kind)) S.dep.watchedValues.add(kind); }
 }
 
 // What a name gives where nothing has it: an empty list for a list the schema has somewhere, nothing for any
@@ -546,7 +546,7 @@ function listHere(S, id, n) {
       if ((list !== n && alias !== n) || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
       hit = true;
       if (isTag(r) && r.tag !== true) continue;
-      items.push(recOf(objectOf(S, other.at), rid));
+      items.push(recOf(objectOf(S, other.at) ?? other.at, rid));
     }
   }
   return hit ? items : null;
@@ -585,8 +585,15 @@ function labelOn(S, id, n) {
   if (!r || !isTag(r)) return null;
   const d = defOf(S, id);
   if (!d?.labels.has(n)) return null;
-  const round = S.holds.get(keyOf(r))?.get(n);
-  return { v: r.tag === true && round !== undefined && !(S.cut?.defs.has(d.id) && round >= S.cut.limit) };
+  return { v: r.tag === true && holdsLabel(S, r, n) };
+}
+
+// Whether a row with this label holds at a record's candidate; while a ground is worked out, whether it held
+// before the stage in sight.
+function holdsLabel(S, r, n) {
+  const t = S.holds.get(keyOf(r));
+  if (!t?.rows.some(i => t.d.rows[i].n === n)) return false;
+  return !S.cut?.defs.has(t.d.id) || t.labels?.get(n) < S.cut.limit;
 }
 
 // A name on the relation record a relative was reached through: its arguments by edge label, its output by
@@ -1702,9 +1709,13 @@ function holdsWhere(K, n, v) {
     }
     case 'in': return isVar(n.a, v) && !uses(n.b, v) && steady(K, n.b) ? c => among(c.S, ev(n.b, c)) : null;
     case 'cmp': return comparedWhere(K, n, v);
-    // A dot on a relation call, as in [Affiliated Person](Person, Affiliate).[(A)], is nothing where the call
-    // finds nothing.
-    case 'dot': return n.x.k === 'call' ? relatedWhere(K, n.x, v, false) : null;
+    // A dot on a relation call is nothing where the call finds nothing; citing one of its rows by label, as
+    // [Affiliated Person](Person, Affiliate).[(A)] does, holds just where that row holds.
+    case 'dot': {
+      if (n.x.k !== 'call') return null;
+      const cited = K.P.defs.some(d => d.isRelation && !d.error && same(d.name, n.x.name) && d.labels.has(n.n));
+      return relatedWhere(K, n.x, v, cited, cited ? n.n : null);
+    }
     case 'call': {
       const a = n.args;
       if (isCall(n, 'ANY') && a.length === 2 && !uses(a[0].x, v) && steady(K, a[0].x)) {
@@ -1875,8 +1886,8 @@ const listing = (S, o, n) => remembered(S, `listing|${o}|${n}`, () => {
 
 // A relation call with the free variable as one argument finds a record only among those the other arguments
 // are in, so it can give something only for their objects at its edge. As a condition, a tag relation's call
-// holds just where its record is attested.
-function relatedWhere(K, n, v, asCondition) {
+// holds just where its record is attested; citing one of its rows by label, just where that row holds too.
+function relatedWhere(K, n, v, asCondition, label = null) {
   const rel = !isFunction(n.name) && K.P.reg.byName.get(normal(n.name));
   const given = rel && givenArgs(rel, n.args);
   if (!given || isErr(given)) return null;
@@ -1891,13 +1902,15 @@ function relatedWhere(K, n, v, asCondition) {
       if (!r?.id) return NOWHERE;
       ids.set(edge, r.id);
     }
-    return relatedAt(c.S, rel, ids, freeEdge, asCondition);
+    // Kept as a lookup is: many supports share it.
+    const key = `related|${rel.n}|${[...ids].map(([e, id]) => `${e}=${id}`).join('&')}|${freeEdge}|${asCondition}|${label}`;
+    return remembered(c.S, key, () => relatedAt(c.S, rel, ids, freeEdge, asCondition, label));
   };
 }
 
 // The objects at one edge of a relation's records whose other arguments are as given, the first such record
 // for each being the one a call finds; or, where a row gave an error there, the call's error.
-function relatedAt(S, rel, ids, freeEdge, asCondition) {
+function relatedAt(S, rel, ids, freeEdge, asCondition, label) {
   const [edge, g] = ids.entries().next().value;
   const obj = objectOf(S, g);
   depend(S, 'rel', rel.n, `${rel.n}|${edge}=${obj}`);
@@ -1912,8 +1925,8 @@ function relatedAt(S, rel, ids, freeEdge, asCondition) {
     if (!y || seen.has(y)) continue;
     seen.add(y);
     if (!asCondition) out.push(y);
-    else if (!isTag(r)) { out.push(y); exact = false; }
-    else if (r.tag === true) out.push(y);
+    else if (!isTag(r) || (label && S.byAtName.has(`${rid}|${label}`))) { out.push(y); exact = false; }
+    else if (r.tag === true && (!label || holdsLabel(S, r, label))) out.push(y);
   }
   for (const failure of S.failed.get(`rel|${obj}|${rel.n}`) ?? []) {
     const a = failure.args.find(x => normal(x.edge) === freeEdge), y = a && objectOf(S, a.at);
@@ -2212,7 +2225,7 @@ function listsByPair(S, d) {
 
 // The names under which a group's own candidates can be looked for, by how (see depend).
 function relevance(S, group) {
-  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), inverse: new Set(), watched: new Set() };
+  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), inverse: new Set(), watched: new Set(), watchedValues: new Set() };
   for (const d of group) {
     if (!d.isRelation) { dep.entry.add(normal(d.name)); continue; }
     dep.calls.add(normal(d.name));
@@ -2323,27 +2336,27 @@ function runGroup(S, i) {
     for (const t of queue.sort((x, y) => x.ordinal - y.ordinal)) {
       const pending = t.pending;
       t.pending = null;
-      pending.forEach((known, ri) => {
-        if (known !== EVALUATE) t.results[ri] = { r: known ? TRUE_OUT : NONE, reads: null };
-        else {
-          S.count.evals++;
-          t.ctx ??= contextFor(S, t.d, t.cand);
-          const { v, reads } = reading(S, () => rowGives(S, t, ri));
-          Object.assign(reads, { job: t, row: ri });
-          t.results[ri] = { r: v, reads };
-        }
-      });
+      for (let ri = 0; ri < pending.length; ri++) {
+        const known = pending[ri];
+        if (known === undefined) continue;
+        if (known !== EVALUATE) { t.results[ri] = { r: known ? TRUE_OUT : NONE, reads: null }; continue; }
+        S.count.evals++;
+        t.ctx ??= contextFor(S, t.d, t.cand);
+        const { v, reads } = reading(S, () => rowGives(S, t, ri));
+        reads.job = t;
+        reads.row = ri;
+        t.results[ri] = { r: v, reads };
+      }
       const next = outcome(t);
-      if (!sameOutcome(t, next)) changed.push([t, next]);
+      if (!sameOut(t.out, next.out) || !sameRows(t.rows, next.rows)) changed.push([t, next]);
     }
     queue = [];
     // The outputs change together, after the round.
-    const fired = new Set(), keys = [];
+    const keys = [];
     for (const [t, next] of changed) {
       if (loops && !t.entered && (capped || wentDown(t.out, next.out))) { t.blocked = true; next.out = { error: circular() }; }
       const kinds = settle(S, t, next, round);
-      if (S.watch && kinds) keys.push(...candidateKeys(S, t.d, t.cand, kinds === true ? S.dep.watched : new Set([...S.dep.watched].filter(k => VALUE_KINDS.has(k)))));
-      fired.add(t);
+      if (S.watch && kinds) keys.push(...candidateKeys(S, t.d, t.cand, kinds === true ? S.dep.watched : S.dep.watchedValues));
     }
     if (!S.watch || !keys.length) continue;
     const again = [];
@@ -2369,22 +2382,28 @@ function rowGives(S, t, ri) {
 }
 
 // A candidate's output from its rows' results, and the rows that hold there (for a tag).
+const NO_ROWS = [];
 function outcome(t) {
   const d = t.d, rs = t.results;
-  const rows = d.type === 'tag' ? rs.flatMap((x, i) => x?.r.out === true ? [i] : []) : [];
+  let rows = NO_ROWS, first = -1, error = -1;
+  for (let i = 0; i < rs.length; i++) {
+    const r = rs[i]?.r;
+    if (!r || r.none) continue;
+    if (first < 0) first = i;
+    if (r.error && error < 0) error = i;
+    if (r.out === true && d.type === 'tag') (rows === NO_ROWS ? rows = [] : rows).push(i);
+  }
   if (t.blocked) return { out: { error: circular() }, rows };
   if (d.allImplied) {
     if (rows.length) return { out: TRUE_OUT, rows, row: rows[0] };
-    const e = rs.findIndex(x => x?.r.error);
-    return e >= 0 ? { out: rs[e].r, rows, row: e } : { out: NONE, rows };
+    return error >= 0 ? { out: rs[error].r, rows, row: error } : { out: NONE, rows };
   }
-  const i = rs.findIndex(x => x && !x.r.none);
-  return i >= 0 ? { out: rs[i].r, rows, row: i } : { out: NONE, rows };
+  return first >= 0 ? { out: rs[first].r, rows, row: first } : { out: NONE, rows };
 }
 
 const sameOut = (a, b) => a.none ? !!b.none : a.error ? !!b.error && a.error.code === b.error.code
   : b.out !== undefined && (typeof a.out === 'number' && typeof b.out === 'number' ? near(a.out, b.out) : isDate(a.out) ? isDate(b.out) && a.out.iso === b.out.iso : a.out === b.out);
-const sameOutcome = (t, next) => sameOut(t.out, next.out) && t.rows.length === next.rows.length && t.rows.every((r, i) => r === next.rows[i]);
+const sameRows = (a, b) => a.length === b.length && a.every((r, i) => r === b[i]);
 
 // Whether an output went down: anything to nothing, a tag no longer attested, a number smaller, or a value
 // replaced by another.
@@ -2404,15 +2423,18 @@ function settle(S, t, next, round) {
   const before = t.out;
   t.out = next.out;
   t.row = next.row;
-  if (t.rows.join() !== next.rows.join()) {
+  if (!sameRows(t.rows, next.rows)) {
     t.rows = next.rows;
-    const labels = t.labels ?? new Map(), now = new Set(next.rows.map(i => t.d.rows[i].n).filter(Boolean));
-    for (const l of labels.keys()) if (!now.has(l)) labels.delete(l);
-    for (const l of now) if (!labels.has(l)) labels.set(l, round);
-    t.labels = labels;
-    S.holds.set(t.cand.key, labels);
+    S.holds.set(t.cand.key, t);
+    // Where a row is cited by label, each label keeps the round it first held in, for grounds.
+    if (t.d.cited) {
+      const labels = t.labels ?? new Map(), holding = new Set(next.rows.map(i => t.d.rows[i].n).filter(Boolean));
+      for (const l of labels.keys()) if (!holding.has(l)) labels.delete(l);
+      for (const l of holding) if (!labels.has(l)) labels.set(l, round);
+      t.labels = labels;
+    }
   }
-  if (t.entered) return true;
+  if (t.entered || sameOut(before, next.out)) return true;
   if (before.error) unfail(S, t);
   if (next.out.error) fail(S, t, next.out.error);
   const id = t.cand.id, had = before.out !== undefined, has = next.out.out !== undefined;
@@ -3009,6 +3031,11 @@ function computeState(entered, definitions, names) {
   const P = { defs, reg, byId: new Map(defs.map(d => [d.id, d])), coverOf: new Map(),
     located: new Set(defs.flatMap(d => d.params.flat().map(p => p.spec))) };
   for (const d of defs) if (!d.error) for (const p of d.covers) P.coverOf.set(p, d);
+  // A definition whose rows some row cites by label, after a dot.
+  const dotted = new Set();
+  const dots = n => { if (n.k === 'dot') dotted.add(n.n); partsOf(n).forEach(dots); };
+  for (const d of defs) if (!d.error) d.rows.forEach(r => dots(r.ast));
+  for (const d of defs) d.cited = [...d.labels].some(l => dotted.has(l));
   P.known = knownNames(entered, defs, reg);
   P.groups = plan(defs, reg);
   const S = stateFor(P, entered);
