@@ -282,12 +282,13 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // Where no note says, a box and its name are shown, and nothing else: a new chart's boxes say what they are.
   const named = m => m.type === 'text' && !m.host && isObject(state[state[m.record].at] ?? {}) && Tree.norm(state[m.record].edge ?? '') === 'name';
   const shownAlone = m => m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m);
+  // Revealed, a hidden box or line is drawn; never a text, which would change the box it's in.
   const drawnMemo = new Map();
   const drawn = m => {
     if (!m) return false;
     if (drawnMemo.has(m)) return drawnMemo.get(m);
     drawnMemo.set(m, false);
-    const shown = reveal.has(m.record) || shownAlone(m);
+    const shown = (reveal.has(m.record) && m.type !== 'text') || shownAlone(m);
     const d = shown && (m.type === 'box' || (m.type === 'line' ? m.ends.every(b => drawn(own.get(b)[0])) : drawn(up(m))));
     drawnMemo.set(m, d);
     return d;
@@ -430,14 +431,15 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   }
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
-  // order gives, where no note says. Its label is its own text, then the texts drawn on it.
+  // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
+  // has none, as what reveals it names it.
   for (const l of lines) {
     const r = state[l.record], t = tree(l.record);
     [l.from, l.to] = endsOf(l.record, l.ends);
     l.ranks = l.settings.Above.value !== 'none';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
       text: lineText(r, l.settings.Format.value, N.name(t)), computed: l.computed, redline: l.redline };
-    l.texts = [own, ...l.texts].filter(it => it.text);
+    l.texts = l.revealed ? [] : [own, ...l.texts].filter(it => it.text);
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
     let y = 0;
     for (const it of l.texts) y = stack(it, 0, 0, y);
@@ -488,12 +490,15 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (b) ps[ps.length - 1] = edgePoint(b, ps[0]);
     Object.assign(s, bounds(ps.map(([x, y]) => ({ x, y, w: 0, h: 0 }))));
   }
-  const legendRows = legend(N, view, styles, [...boxes, ...lines]);
+  // The key is of what the view draws: what's revealed for a while doesn't change it.
+  const legendRows = legend(N, view, styles, [...boxes, ...lines].filter(m => !m.revealed));
   for (const s of shapes) if (s.geometry === 'legend') layoutLegend(s, legendRows);
   const byId = new Map();
+  // Each mark by its id, and each text by its record's, or by each of the relations one written in a box
+  // names.
   for (const m of [...boxes, ...lines, ...frames.values(), ...shapes]) {
     byId.set(m.id, m);
-    for (const it of m.texts ?? []) if (!byId.has(it.id)) byId.set(it.id, it);
+    for (const it of m.texts ?? []) for (const id of it.records ?? [it.id]) if (!byId.has(id)) byId.set(id, it);
   }
   for (const g of shapes.filter(s => s.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
@@ -744,9 +749,12 @@ function reach(wb, chart, view, scene, markId, state) {
 const boxOf = (state, id) => { const r = state[id]; return !r ? null : isObject(r) ? id : r.at ? boxOf(state, r.at) : null; };
 // What a style is called: its pattern's name, or for a style by kind, Type.
 const styleName = (N, p) => p.args ? N.name(p) : 'Type';
+// A size or place on a page as it is on its sheet, the page drawn smaller by its scale: the number the slide
+// has, which is the one shown; and back, for one typed.
+const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v / (page?.scale ?? 1);
 
 return {
   of, reflow, shapeOf, path, dash, measure, breakLines, reach, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
+  toSlide, fromSlide, DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
 };
 })();
