@@ -223,6 +223,11 @@ async function run() {
   check('at 1024 the zoom stays in the window', zr.right <= shell.right + 0.5 && zr.width > 0, `${zr.right} of ${shell.right}`);
   $('[data-fb="scope"]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   check('a scope cut short is named whole on hover', span.scrollWidth <= span.clientWidth || $('[data-fb="scope"]').dataset.tip === txt(span), `${span.scrollWidth} ${span.clientWidth} ${$('[data-fb="scope"]').dataset.tip}`);
+  $('[data-fb="arrange"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e) === 'Tidy')?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(150);
+  const tidyShown = sc() !== App.scene.peek();
+  await closeMenus(); await tick(100);
+  check('at 1024, pointing at Tidy in Arrange draws it as it would be, and closing the menu ends that', tidyShown && sc() === App.scene.peek());
   await size(1440, 900);
 
   // ---- Colors by PowerPoint's names ----
