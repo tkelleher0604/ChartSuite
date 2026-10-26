@@ -235,6 +235,30 @@ async function run() {
   check('Find reaches records by name and lists by whose they are', found.some(x => x.label === 'Calder Ridge Capital Partners III, L.P.') && found.some(x => x.label === 'Fund III › Owners'),
     found.filter(x => x.detail === 'List').slice(0, 3).map(x => x.label).join(' | '));
 
+  // A ruled-out relation is no relative: said once, plainly, on the side its edges name first
+  Shell.select(['blocker']); await tick(60);
+  check('a ruled-out relation is no relative, and is said plainly', /^Not a remote affiliate of .+: close affiliate \(§57\(b\)\)/.test($('.nots')?.textContent.trim())
+    && !$$('.sect > .fold').some(s => s.textContent === 'Remote Affiliate Of'), $('.nots')?.textContent);
+  check('… and a relative says what the relation does', $$('.row.rel').some(r => /% · \d+% voting$/.test(r.querySelector('.v').textContent.trim())), $$('.row.rel .v').map(v => v.textContent.trim()).join(' | '));
+
+  // A date a formula gives: amber within 30 days, red once past; a due date offers its filing
+  Shell.select(['bdc']); Shell.at({ asOf: '2026-10-26' }); await tick(60);
+  const formD = rowOf('Form D Due');
+  check('a due date within 30 days is amber, and says so', !!formD?.querySelector('.hug.soon') && /due soon$/.test(formD.querySelector('input').getAttribute('aria-label')));
+  check('… and attention counts it', Shell.parts.value.attention.items().some(i => i.kind === 'soon'));
+  formD.querySelector('.btn.ver').click(); await tick(80);
+  const filed = FormulaBar.pending.peek();
+  check('Filed… records the entry the rule reads, redlining where the due date moves', document.querySelector('.filing .field span')?.textContent === 'Last Filed'
+    && filed?.diff.change.some(id => id.startsWith('fx:form d due')), JSON.stringify(filed?.diff));
+  key(document.querySelector('.filing input'), 'Escape'); await tick();
+  check('… and Esc leaves it as it was', !document.querySelector('.filing') && !FormulaBar.pending.peek());
+  Shell.at(null); await tick(40);
+
+  // A free shape: its own panel
+  const legend = App.wb.rows(C).find(r => 'shape' in r && r.geometry === 'legend' && r.view === Shell.view.peek());
+  Shell.select([legend.shape]); await tick(60);
+  check('a Key shows its title, columns and rows to show or hide', $('.ih .cell')?.value === (legend.title ?? 'Key') && $$('.keyrow input[type="checkbox"]').length > 3, $('.insp')?.textContent.slice(0, 200));
+
   const mine = App.wb.changes().slice(n0);
   check('every edit is one change in the log, by the user', mine.length >= 14 && mine.every(c => c.who === 'Dana Jordan' && c.chart === C), mine.length);
 
