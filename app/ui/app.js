@@ -7,7 +7,9 @@
 //   App.day       computed: the day shown ('yyyy-mm-dd'), today unless the time says otherwise
 //   App.shown     computed: the workbook as shown, as it stood at a moment in History, or as it is
 //   App.entered   computed: the chart's entered records as of the day, a state
-//   App.state     computed: the computed state, what the parts draw
+//   App.state     computed: the computed state, entered and computed records, what the parts draw
+//   App.computed  computed: the formulas' whole working-out (Formulas.computeState), for the formula bar's
+//                 Formulas.ground, evaluateRow and diff
 //   App.schema, App.notes   computed: the chart's schema and its Notes reader
 //   App.edit(opts?) → a transaction for the chart in use, by the current user, from the day shown
 //   App.who()     the name changes are made under
@@ -26,8 +28,11 @@ const App = (() => {
   const entered = computed(() => shown.value.asOf(chart.value, day.value));
   const schema = computed(() => shown.value.schema(chart.value));
   const notes = computed(() => shown.value.notes(chart.value));
-  // Until the reworked engine lands, the computed state is the entered one.
-  const state = computed(() => entered.value);
+  // The formulas work the chart out from its Formula notes, and its relations' names and lists.
+  const definitions = computed(() => notes.value.definitions(schema.value));
+  const names = computed(() => ({ relations: notes.value.relations(schema.value) }));
+  const result = computed(() => Formulas.computeState(entered.value, definitions.value, names.value));
+  const state = computed(() => result.value.records);
 
   const edit = (opts = {}) => wb.edit({ chart: chart.value, who: who(), day: Shell.time.value?.asOf, ...opts });
 
@@ -43,5 +48,5 @@ const App = (() => {
     canRedo: () => (version.value, wb.stacks(who(), chart.value).redo.length > 0),
   });
 
-  return { wb, chart, version, day, shown, entered, state, schema, notes, edit, who };
+  return { wb, chart, version, day, shown, entered, state, computed: result, schema, notes, edit, who };
 })();

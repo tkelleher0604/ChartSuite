@@ -1,39 +1,34 @@
-// What the formula tests share: the core's helpers the engine needs, the sample's definitions in both
-// languages, and a chart grown for testing how the engine scales (perf-test.html) and what it gives
-// (engine-test.html).
+// What the formula tests share: the sample's log, as formulas.js takes it on a day, a chart grown from it for
+// testing how the engine scales, and definitions written as Notes gives them.
 
-// The two helpers formulas.js takes from the core (see its header), here from common.js and model.js, until
-// app/core/tree.js provides them.
-if (typeof Tree === 'undefined') window.Tree = { norm, formatDate };
-
-// The sample's definitions as formulas.js takes them, from app/sample/definitions.json. A page reads a file
-// beside it only when Chrome runs with --allow-file-access-from-files, as the tests do.
-function loadJSON(path) {
-  const req = new XMLHttpRequest();
-  req.open('GET', path, false);
-  req.overrideMimeType('application/json');
-  req.send();
-  return JSON.parse(req.responseText);
+// The sample as of a day: its entered records, and its Formula notes and relation names as formulas.js takes
+// them. The day is fixed, so the counts the tests check don't move.
+const DAY = '2026-10-26';
+const WB = Log.open(SAMPLE), CHART = WB.charts()[0].chart;
+function sampleAsOf(day = DAY) {
+  const S = WB.schema(CHART), N = WB.notes(CHART);
+  return { recs: WB.asOf(CHART, day), definitions: N.definitions(S), names: { relations: N.relations(S) } };
 }
-const DEFINITIONS = loadJSON('../sample/definitions.json');
-// The core's: the sample's first eleven, before the deadlines and documents on file.
-const CORE_IDS = new Set(SAMPLE_DEFINITIONS.map(d => d.id));
-const CORE_DEFINITIONS = DEFINITIONS.filter(d => CORE_IDS.has(d.id));
-// The same definitions as the engine before this one took them (engine-reference.js): sample.js's, written
-// with = formulas and ← implications.
-const OLD_DEFINITIONS = [...SAMPLE_DEFINITIONS, ...DEADLINE_DEFINITIONS, ...ON_FILE_DEFINITIONS];
+const SAMPLE_INPUTS = sampleAsOf();
+const workOut = (recs = SAMPLE_INPUTS.recs, definitions = SAMPLE_INPUTS.definitions, names = SAMPLE_INPUTS.names) =>
+  Formulas.computeState(recs, definitions, names);
 
-// The sample's names, and a Depositor relation for Affiliated Person's clause (F), which the sample doesn't
-// chart: without it, Depositors is a name the chart doesn't have, which is #NAME? wherever (F) gets that far.
-const NAMES = { relations: [...SAMPLE_NAMES.relations,
-  { name: 'Depositor', type: 'tag', edges: ['Depositor', 'Fund'], lists: { Fund: { Depositor: 'Depositors' }, Depositor: { Fund: 'Deposited Funds' } } }] };
+// A definition a test writes, as Notes.definitions gives one: what it covers, from its specifications' trees,
+// each parameter given by its edge and the kinds (or location trees) it can be at.
+function definition(id, name, out, params, rows) {
+  let combos = [[]];
+  for (const [edge, locs] of params)
+    combos = combos.flatMap(c => [].concat(locs).map(l => [...c, { edge, loc: typeof l === 'string' ? { kind: l } : l }]));
+  const type = 'tag' in out ? 'tag' : 'choice' in out ? 'choice' : 'field';
+  return { id, name, covers: combos.map(args => Tree.paramKey({ out, args })), rows, type,
+    ...(type === 'field' && { datatype: out.field }), ...(params.length > 1 && { edges: params.map(([e]) => e) }) };
+}
 
 // `base` with `n` more entities, in layers of four, each owned 60/40 by two of the layer above (the first four
-// by the fund outright; every other one by one of the layer above outright, through one record, since a state
-// has one ownership between a pair), with a general partner for every other one and an officer for every
-// third, and a person for every four entities.
+// by the fund outright; every other one by one of the layer above outright), with a general partner for
+// every other one, an officer for every third, and a person for every four entities.
 function grown(base, n) {
-  const recs = structuredClone(base);
+  const recs = { ...base };
   const ents = [], people = [];
   for (let i = 0; i < n; i++) {
     const id = `x_e${i}`;
