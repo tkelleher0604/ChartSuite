@@ -285,7 +285,7 @@ const Time = (() => {
       case 'Shown': return gone ? `Reset ${of}${inView}` : `${n.value === false ? 'Hid' : 'Showed'} ${of}${inView}`;
       case 'Position': return `Moved ${of}${inView}`;
       case 'Formula': return gone ? `Deleted the formula of ${of}` : i.was.length ? `Changed the formula of ${of}` : `Defined ${of}`;
-      case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? `Named ${of} ${n.value}`
+      case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? (Tree.same(of, n.value) ? `Named ${n.value}` : `Named ${of} ${n.value}`)
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;

@@ -106,10 +106,12 @@ function index(rows) {
   // A relation's arguments in its edges' order.
   const sides = (recs, id) => { const r = recs[id]; return edges(treeAt(recs, id)).map(e => r.args.find(a => same(a.edge, e))); };
   // A record as a step on a path: an object by its short name, a relation by its sides', an option with its
-  // label, a tag ruled out with Not.
+  // label, a tag ruled out with Not. A relation's sides are joined as its line joins them, by an arrow, but a
+  // side named by a number, which alone doesn't say what it is, is said with its kind: AIV-1, tax year 2025.
   function segmentOf(recs, id) {
-    const r = recs[id];
-    return !r ? '' : isObject(r) ? shortOf(recs, id) : r.args ? sides(recs, id).map(a => shortOf(recs, objectOf(recs, a.at))).join(' → ')
+    const r = recs[id], side = (a, i) => { const o = objectOf(recs, a.at), s = shortOf(recs, o);
+      return !i ? s : /^\d+$/.test(s) && recs[o]?.kind ? `, ${recs[o].kind.toLowerCase()} ${s}` : ` → ${s}`; };
+    return !r ? '' : isObject(r) ? shortOf(recs, id) : r.args ? sides(recs, id).map(side).join('')
       : isChoice(r) ? `${r.edge}: ${r.choice}` : isTag(r) && !r.tag ? `Not ${r.edge}` : r.edge;
   }
   // Where a record is: the path down to it, a step at a time.
