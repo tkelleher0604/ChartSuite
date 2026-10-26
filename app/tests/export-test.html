@@ -120,7 +120,7 @@ async function run() {
     const fund = shapeOf(main.byId.get('fund')), run = tags(fund, 'a:rPr')[0], latin = tags(fund, 'a:latin')[0];
     check('a text keeps its font, weight and color, at the size it has on the slide', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.round(1000 * k)) && run.getAttribute('b') === '1'
       && tags(run, 'a:srgbClr')[0].getAttribute('val') === '000000', run.outerHTML.slice(0, 120));
-    const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.sheet.w) / 2, oy = (H - main.page.sheet.h) / 2;
+    const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.w * k) / 2, oy = (H - main.page.h * k) / 2;
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
       && Math.abs(+ext.getAttribute('cx') - f.w * k * EMU) < 2, `${off.getAttribute('x')}, ${off.getAttribute('y')}`);
 
