@@ -26,7 +26,7 @@ Two registered agents serve the entities, and 47 indexed documents evidence it a
 | Service Provider | 2 | a Delaware registered agent and a Cayman registered office |
 | Document | 47 | each a file in the demo library |
 
-That's 29 objects a chart draws as boxes (the Structure view draws 24 of them), and 808 entered records, from which 22 definitions work out 504 more in about 60 ms.
+That's 29 objects a chart draws as boxes (the Structure view draws 24 of them), and 808 entered records, from which 22 definitions work out 506 more in about 15 ms.
 
 ## The core
 
