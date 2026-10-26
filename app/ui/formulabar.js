@@ -1,12 +1,13 @@
 // The formula bar (dendra.md, Part 2): one row that never changes height, as Excel's doesn't. It names the
-// selection, or the view when nothing is, with its output and, inline, the row of its definition that gave it.
-// Each name in that row takes a colour, and what it means here is outlined on the chart in that colour; deeper
-// reasons in the same hue, lighter, down to entered records (Range Finder). Hovering part of a formula shows its
-// value. Clicking a lit computed line steps down to its reason, by the clause the parent cited, and the
-// breadcrumb steps back. The definition's rows drop over the view (the chevron, or Ctrl+Shift+U, which keeps
-// them open; a click on the inline row, to edit it): those that hold in ink, the rest grey. Two objects in no
-// computed relation show that relation's rows, all grey (why not). Any pending change is redlined before it's
-// made, whoever asks (FormulaBar.preview). It also answers Find's "=", worked out at the selection.
+// selection, or the view when nothing is, with its output and, inline, why: the facts that gave it as a
+// sentence, where that fits ("… so it is a remote affiliate (§57(e)(1)(A))"), or else the row of its definition
+// that gave it. Each name in that row takes a colour, and what it means here is outlined on the chart in that
+// colour; deeper reasons in the same hue, lighter, down to entered records (Range Finder). Hovering part of a
+// formula shows its value. Clicking a fact, or a lit computed line, steps down to its reason, by the clause the
+// parent cited, and the breadcrumb steps back. The definition's rows drop over the view under the sentence (the
+// chevron, or Ctrl+Shift+U, which keeps them open; a click on the inline row, to edit it): those that hold in
+// ink, the rest grey. Two objects in no computed relation show that relation's rows, all grey (why not). Any
+// pending change is redlined before it's made, whoever asks (FormulaBar.preview). It also answers Find's "=".
 const FormulaBar = (() => {
   const { html, signal, computed, effect, on, emit } = Shell;
   const { render } = preact;
@@ -332,7 +333,7 @@ const FormulaBar = (() => {
   function citeOf(def, label) {
     const n = noteOf(def), lead = n ? String(N().description(n.pattern) ?? '').split('\n')[0] : '', l = Tree.clean(label);
     const sec = /^(?:Section|§)\s*(\d[\w.]*)((?:\([^)\s]+\))*)/i.exec(lead);
-    if (l.includes('§')) return /§\s*\d[\w.]*(?:\([^)\s]+\))*/.exec(l)[0];
+    if (l.includes('§')) return /§\s*\d[\w.]*(?:\([^)\s]+\))*/.exec(l)?.[0] ?? l;
     if (!sec) return l || null;
     const groups = s => s.match(/\([^)]+\)/g) ?? [], own = /^(?:\([^)\s]+\))+/.exec(l);
     if (!own) { const head = l.split(':')[0]; return `§${sec[1]}${sec[2]}${head ? `, ${head[0].toLowerCase()}${head.slice(1)}` : ''}`; }
@@ -387,13 +388,14 @@ const FormulaBar = (() => {
     if (named && [v, String(r.value)].some(x => Tree.same(named, x))) return Object.assign(c, { pre: [`the ${lower(o.kind)} is `, term(id, named)] });
     return Object.assign(c, { subj: O, poss: true, pre: [` ${lower(r.edge)} is `, term(id, v)] });
   }
-  // What the subject is, as the sentence's last clause: a relation or tag as a fact, a value by its name,
-  // which the bar names the place of: the annual tax is due June 1, 2027.
+  // What the subject is, as the sentence's last clause: a relation, or a tag of an object, as a fact; a value
+  // by its name, as the bar names its place: the annual tax is due June 1, 2027; Capacity Held is No.
   function givenOf(Rv, id) {
     const r = Rv.records[id];
-    if (r.args || 'tag' in r) return factOf(Rv, id);
+    if (r.args || ('tag' in r && !Rv.records[r.at]?.args)) return factOf(Rv, id);
     const name = defOfRecord(Rv, id)?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name);
-    return { id, ids: [id], subj: null, pre: [due ? `the ${lower(due[1])} is due ` : `the ${lower(name)} is `, { term: Tree.outputText(r), id, fx: !!Rv.computed[id] }], obj: [], post: [] };
+    const pre = 'tag' in r ? `${name} is ` : due ? `the ${lower(due[1])} is due ` : `the ${lower(name)} is `;
+    return { id, ids: [id], subj: null, pre: [pre, { term: Tree.outputText(r), id, fx: !!Rv.computed[id] }], obj: [], post: [] };
   }
 
   // A record's reasons as pieces, { join, c: clause, cite?, self? } or { text }: its facts, the one reason
@@ -440,7 +442,8 @@ const FormulaBar = (() => {
       if (p.text) { runs.push({ text: p.text }); continue; }
       if (p.join) runs.push({ text: p.join });
       const c = p.c, again = !!c.subj && c.subj === prev?.subj, so = p.join === ', so ', and = !!p.join && !so;
-      let subj = !c.subj ? [] : again && !c.still && !isPerson(Rv, c.subj) ? [c.poss ? 'its' : 'it'] : [{ name: c.subj }, ...(c.poss ? ['’s'] : [])], pre = c.pre;
+      const of = c.poss ? [/s$/.test(N().shortOf(Rv.records, c.subj)) ? '’' : '’s'] : [];
+      let subj = !c.subj ? [] : again && !isPerson(Rv, c.subj) ? [c.poss ? 'its' : 'it'] : [{ name: c.subj }, ...of], pre = c.pre;
       if (again && and && !c.poss && !prev.poss && pre[0] === ' is ' && prev.pre[0] === ' is ') { subj = []; pre = pre.slice(1); }
       const obj = so && again && c.objId && c.objId === prev.objId ? [] : c.obj;
       runs.push({ fact: c, self: !!p.self, segs: [...subj, ...pre, ...obj, ...c.post].filter(s => s !== '') });
