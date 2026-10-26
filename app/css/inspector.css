@@ -1,0 +1,124 @@
+/* The inspector, on dendra.css's rows: a label column and a value column, values typed over in place. */
+
+.insp { padding-bottom: 32px; }
+.ih { padding: 18px 20px 14px; border-bottom: 1px solid var(--rule); }
+.ih > .path { margin-bottom: 2px; }
+.ih a, .rows a, .relate a, .styles a, section a { cursor: default; }
+.ih a:hover, .rows a:hover, .relate a:hover, section a:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--rule-2); }
+.ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; }
+.ih.two { display: grid; gap: 4px; }
+.main.wide .ih { padding-top: 28px; }
+.main.wide .ih-title, .main.wide .cellbox.title > .cell { font: var(--t22); }
+.main.wide .cellbox.title > .cell { height: 36px; }
+
+/* A row's depth in the tree, and its grip: drag to reorder, click for its menu. */
+.row { position: relative; }
+.row > .k { padding-left: calc(var(--depth, 0) * 14px); }
+.row > .v.ctl { display: flex; align-items: center; gap: 2px; padding: 0; min-height: var(--row); }
+.row > .k.wide { grid-column: 1 / -1; }
+.lbl { cursor: default; }
+.ruled > .k .lbl, .ruled > .k a { color: var(--ink-3); }
+.grip { position: absolute; left: calc(var(--depth, 0) * 14px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
+.grip > svg { width: 14px; height: 14px; }
+.row:hover > .grip, .grip:focus-visible { opacity: 1; }
+.grip:hover { color: var(--ink); background: var(--hover); }
+.ent { position: relative; }
+.ent.dragging { opacity: .45; }
+.ent.drop-before::before, .ent.drop-after::after { content: ""; position: absolute; left: 20px; right: 20px; height: 2px; background: var(--accent); z-index: 1; }
+.ent.drop-before::before { top: -1px; }
+.ent.drop-after::after { bottom: -1px; }
+i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border-radius: 50%; background: var(--due); vertical-align: 2px; }
+
+/* Values typed over: plain text until hovered or focused. */
+.cellbox { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
+.cellbox:has(> .tag) { flex: none; }
+.cell { width: calc(100% + 7px); height: var(--row); margin-left: -7px; padding: 0 6px; border-color: transparent; background: transparent; text-overflow: ellipsis; }
+:where(.cell):hover:not(:focus, :disabled) { border-color: var(--rule); }
+.cell:focus { background: var(--surface); }
+.cell:disabled { color: inherit; background: transparent; }
+.cell.fx { font-style: italic; }
+.cell.add { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
+.cell.bad, .cell[aria-invalid="true"] { border-color: var(--no); box-shadow: 0 0 0 1px var(--no); }
+.cellbox > .del { flex: none; max-width: 45%; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cellbox.off > .cell { color: var(--ink-3); }
+textarea.cell.desc { height: auto; min-height: var(--row); padding: 4px 6px; line-height: 18px; resize: none; overflow: hidden; white-space: pre-wrap; }
+.cellbox.over::after { top: 1px; right: 1px; }
+
+/* A choice: its option and a chevron, opening the options. */
+.sel { height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 0 6px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); text-align: left; cursor: default; }
+.sel > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel:hover:not(:disabled) { border-color: var(--rule); }
+.sel:disabled::after { visibility: hidden; }
+.sel.fx > span { font-style: italic; }
+
+/* A tag: hovering shows the other state, and redlines the label. */
+.v.ctl .tag { cursor: default; }
+.tag.peek { opacity: .8; }
+.tag:disabled { pointer-events: none; }
+.tag[aria-disabled="true"] { opacity: .4; }
+.tag.mini { width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
+.tag.mini::before, .tag.mini::after { width: 6px; height: 1.4px; }
+.row:has(.tag.peek.no) > .k .lbl, .rr:has(.tag.peek.no) > .nm { color: var(--no); text-decoration: line-through; }
+.row:has(.tag.peek.yes) > .k .lbl, .rr:has(.tag.peek.yes) > .nm { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
+
+.ver { width: 20px; height: 20px; flex: none; color: var(--ink-3); }
+.ver > svg { width: 14px; height: 14px; }
+.btn.icon.open { width: 24px; height: 24px; flex: none; color: var(--ink-3); }
+.btn.icon.open > svg { width: 14px; height: 14px; }
+.addrow .add-entry, .rr .add-entry { height: 24px; margin: 2px 0 0 -7px; padding: 0 7px 0 4px; gap: 4px; color: var(--ink-3); }
+.add-entry:hover { color: var(--ink); }
+.add-entry > svg { width: 14px; height: 14px; }
+
+/* Sections: relatives by list, documents, look, deleted. */
+.sect { justify-content: flex-start; gap: 8px; }
+.sect > span:first-child { flex: 1; }
+.sect > .btn.icon { width: 20px; height: 20px; margin: -6px -6px -6px 0; }
+.sect > .btn.icon > svg { width: 14px; height: 14px; }
+.sect > .reset { height: 20px; margin: -6px -6px -6px 0; padding: 0 6px; font: var(--t12); color: var(--ink-2); }
+button.sect.toggle { width: 100%; border: 0; border-top: 1px solid var(--rule); background: none; text-align: left; cursor: default; }
+button.sect.toggle::after { content: ""; width: 10px; height: 6px; align-self: center; background: var(--chev) no-repeat center; transform: rotate(-90deg); transition: transform var(--quick) var(--ease); }
+button.sect.toggle[aria-expanded="true"]::after { transform: none; }
+button.sect.toggle:hover { color: var(--ink); }
+section > .row:last-child { margin-bottom: 4px; }
+.row.rel > .k a { color: var(--ink); }
+.row.rel > .v a.muted:hover { color: var(--ink-2); }
+.via + .via, .via:not(:first-child) { margin-left: 0; }
+.via > a { color: var(--ink-2); }
+.v.doc, .v.gone { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0; min-height: var(--row); }
+.v.gone > .btn { height: 24px; padding: 0 8px; }
+.v.look { display: flex; align-items: baseline; gap: 8px; }
+.v.look > .from { margin-left: auto; font: var(--t12); color: var(--ink-3); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1px solid var(--rule-2); border-radius: 2px; vertical-align: -1px; }
+.v.lines { white-space: pre-line; }
+
+/* Styles: each style's name, then its outputs, each a swatch drawn as on the page and its caption. */
+.styles { padding: 4px 0 8px; }
+.style > .row > .k.sname { grid-column: 1 / -1; font-weight: 500; color: var(--ink); }
+.style > .row > .k.sname > a { cursor: default; }
+.row.out { grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; padding-left: 34px; }
+.row.out > .k { display: flex; align-items: center; padding: 0; min-height: var(--row); }
+svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; }
+svg.sw.off { opacity: .35; }
+
+/* Two records: a row for each relation they're in or could be in, with each side's role. */
+.relate { padding: 8px 0 16px; }
+.rr { display: grid; grid-template-columns: 14px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: var(--row); padding: 0 20px; }
+.rr:not(.head):hover { background-image: linear-gradient(var(--hover), var(--hover)); }
+.rr.head { min-height: 24px; font: 500 var(--t12); color: var(--ink-3); }
+.rr > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.rr > .ctl { display: flex; overflow: visible; }
+.rr > .nm { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr.ruled > .nm { color: var(--ink-3); }
+.rr > .more { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 16px; padding-bottom: 4px; overflow: visible; }
+.relv { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.relv > .cellbox { flex: none; width: 96px; }
+.relv > .sel { margin-left: 0; min-width: 96px; border-color: var(--rule); }
+.rr.new > .cell { width: 100%; margin-left: -7px; }
+.rr.new > .add-entry { grid-column: 2 / -1; justify-self: start; }
+
+/* A definition's rows, read here and edited in the formula bar. */
+.formula { display: block; width: calc(100% - 40px); margin: 4px 20px 8px; padding: 6px 10px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--paper); color: var(--ink); text-align: left; cursor: default; }
+.formula:hover { border-color: var(--rule-2); }
+.frow { display: grid; gap: 0; padding: 2px 0; }
+.frow > code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.frow > .muted { font: var(--t12); }
