@@ -692,11 +692,10 @@ function Styles({ v, only }) {
   // A caption typed as an output's own name is no caption.
   const cap = (os, text) => App.change(tx => os.forEach(o => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v })));
   // A style's outputs that look alike are one row, as in the Key: its swatch, its caption (the Key's word,
-  // typed over, which captions each), and beneath, the outputs, where they say other than the caption. The Key,
-  // Styles and the format bar's scope group by one rule, Scene.groupsOf's ({ style, outputs, swatch, caption,
-  // off }); where Scene has none, by the Key's here: by swatch, and shown or not, a frame's caption being part
-  // of its look, since it's drawn on it; captioned by a Caption at one of them, or by them (two at most), or by
-  // the style's name.
+  // typed over, which captions each), and beneath, the outputs, where they say other than the caption. The
+  // rule is Scene.groupsOf's, [{ style, outputs, swatch, caption, off }]; till Scene has it, the Key's, here:
+  // by swatch and Shown (a frame's caption is drawn on it, so part of its look), captioned by a Caption at
+  // one of them, or by them, two at most, or by the style's name.
   const rowsOf = s => {
     const given = Scene.groupsOf?.(n, v)?.filter(g => g.style === s.key);
     if (given?.length) return given.map(g => ({ caption: g.caption, sw: g.swatch, off: !!g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
