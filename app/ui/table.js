@@ -563,7 +563,7 @@ const Table = (() => {
   function mark() {
     if (!table) return;
     const now = new Set(Shell.selection.peek());
-    for (const id of new Set([...picked, ...now])) table.getRow(id)?.getElement().classList.toggle('picked', now.has(id));
+    for (const id of new Set([...picked, ...now])) table.getRow(id) && table.getRow(id).getElement().classList.toggle('picked', now.has(id));
     picked = now;
   }
 
