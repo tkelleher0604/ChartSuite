@@ -135,9 +135,9 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 .styles { padding: 4px 0 8px; }
 .style > .row > .k.sname { grid-column: 1 / -1; font-weight: 500; color: var(--ink); }
 .row.out { grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; padding-left: 34px; }
-.row.out > .k { display: flex; align-items: center; padding: 0; min-height: var(--row); }
-.row.out .oname { flex: 0 1 auto; min-width: 0; padding: 4px 4px 4px 0; color: var(--ink-3); }
-.row.out .cellbox { flex: 1 0 auto; }
+.row.out > .k { display: flex; flex-wrap: wrap; align-items: center; padding: 0; min-height: var(--row); }
+.row.out .oname { flex: 0 1 auto; min-width: min-content; padding: 4px 4px 4px 0; color: var(--ink-3); }
+.row.out .cellbox { flex: 1 1 8ch; min-width: min-content; }
 svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; }
 svg.sw.off { opacity: .35; }
 /* In dark, a swatch is drawn as the page's colours turned to the panel's, as are colour chips' edges. */
