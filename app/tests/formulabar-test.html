@@ -292,7 +292,7 @@ async function checks() {
   check('the canvas is asked to highlight', StandIn.hl.peek()?.colors?.[AP_NP_CHEN] && StandIn.hl.peek().dim);
   // One reason, for every pane that gives one: the row the bar cites, its citation and the statute's words
   const why = FormulaBar.reason(CLOSE_NP);
-  check('reason(): the cited row, its citation, and its words from the Description', why?.label === cited.label && why.cite === '§57(b)(1)' && /^or any person/.test(why.words ?? ''),
+  check('reason(): the cited row, its citation, and its words from the Description', why?.label === cited.label && why.cite === '§57(b)(1)' && /^any person \(other than the business development company itself\)/.test(why.words ?? ''),
     JSON.stringify(why));
   check('citeOf(): a clause letter under its section', FormulaBar.citeOf('def_affiliated', '(C)') === '§2(a)(3)(C)' && FormulaBar.citeOf('def_remote', '(e)(1)(A)') === '§57(e)(1)(A)'
     && FormulaBar.citeOf('def_control', 'Presumed: more than 25% of voting securities') === '§2(a)(9), presumed', FormulaBar.citeOf('def_affiliated', '(C)'));

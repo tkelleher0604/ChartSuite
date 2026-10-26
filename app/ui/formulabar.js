@@ -349,11 +349,11 @@ const FormulaBar = (() => {
     return `§${sec[1]}${a.join('')}${b.slice(k).join('')}`;
   }
   // A clause's own words: the paragraph of its Description that starts with the row's label, as the definition's
-  // page sets it beside the row, less the label and the joining word at its end ("…, or").
+  // page sets it beside the row, less the label and the joining words at its ends ("or any person …, or").
   function wordsOf(def, label) {
     const n = noteOf(def), l = Tree.clean(label).toLowerCase();
     const p = l && String((n && N().description(n.pattern)) ?? '').split('\n').map(x => x.trim()).find(x => x.toLowerCase().startsWith(l) && !/\w/.test(x[l.length] ?? ' '));
-    return p ? p.slice(l.length).replace(/^[\s.:—–-]+/, '').replace(/[\s,;]*(?:\b(?:or|and))?[\s,;]*$/, '') || null : null;
+    return p ? p.slice(l.length).replace(/^[\s.:—–-]+(?:(?:or|and)\s+)?/i, '').replace(/[\s,;]*(?:\b(?:or|and))?[\s,;]*$/, '') || null : null;
   }
   // The one row that decided a computed record, the one its sentence cites (its ground's holding row of least
   // stage): its label, its citation, and the statute's words for it, where the Description gives them.
