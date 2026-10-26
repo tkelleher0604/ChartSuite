@@ -85,15 +85,16 @@ const Shell = (() => {
     return '#' + p.join('&');
   }
   function parse(hash) {
-    const q = new URLSearchParams(hash.replace(/^#/, '')), t = q.get('t');
+    const q = Object.fromEntries(hash.replace(/^#/, '').split('&').filter(Boolean).map(p => [p.slice(0, p.indexOf('=') >>> 0), p.slice(p.indexOf('=') + 1)]));
+    const dec = s => { try { return decodeURIComponent(s); } catch { return s; } }, t = q.t;
     return {
-      view: q.get('v') || null,
-      selection: q.get('s') ? q.get('s').split(',').map(decodeURIComponent) : [],
-      time: !t ? null : t[0] === '@' ? { stood: decodeURIComponent(t.slice(1)) } : /^\d{4}-\d\d-\d\d$/.test(t) ? { asOf: t } : null,
+      view: q.v ? dec(q.v) : null,
+      selection: q.s ? q.s.split(',').map(dec) : [],
+      time: !t ? null : t[0] === '@' ? { stood: dec(t.slice(1)) } : /^\d{4}-\d\d-\d\d$/.test(t) ? { asOf: t } : null,
     };
   }
   let step = history.state?.dendra ?? 0, restoring = false, replacing = false, started = false;
-  const url = a => a === '#' ? location.pathname + location.search : a;
+  const url = a => location.href.split('#')[0] + (a === '#' ? '' : a);
   function apply(a) {
     restoring = true;
     batch(() => { view.value = a.view; if (!same(selection.peek(), a.selection)) selection.value = a.selection; time.value = a.time; });
@@ -106,7 +107,7 @@ const Shell = (() => {
     else history.pushState({ dendra: ++step }, '', url(a));
   });
   addEventListener('popstate', e => {
-    if (e.state?.dendra == null) history.replaceState({ dendra: ++step }, '', location.hash);
+    if (e.state?.dendra == null) history.replaceState({ dendra: ++step }, '', location.href);
     else step = e.state.dendra;
     apply(parse(location.hash));
   });
@@ -129,7 +130,7 @@ const Shell = (() => {
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => { if (!store.get('theme')) setTheme(e.matches ? 'dark' : 'light', false); });
   const user = signal({ name: store.get('name') || '', signedIn: false });
   effect(() => store.set('name', user.value.name || null));
-  const insp = signal(Math.max(280, +store.get('inspector') || 360));
+  const insp = signal(Math.min(Math.max(280, +store.get('inspector') || 384), Math.max(280, innerWidth - 320)));
   const wide = signal(false), gliding = signal(false);
   const glide = () => { gliding.value = true; setTimeout(() => { gliding.value = false; }, 240); };
   const widen = () => { if (!wide.peek()) { glide(); wide.value = true; } };
@@ -217,7 +218,9 @@ const Shell = (() => {
 
   const uf = new uFuzzy({ intraMode: 1 });
   function rank(items, q, limit = 50) {
-    const [idxs, info, order] = uf.search(items.map(x => x.label), q, 1);
+    const hay = items.map(x => x.label);
+    let [idxs, info, order] = uf.search(hay, q);   // in order, ranked and highlighted
+    if (!idxs?.length) [idxs, info, order] = uf.search(hay, q, 1);   // or the words in any order
     if (!idxs) return [];
     if (!order) return idxs.slice(0, limit).map(i => items[i]);
     return order.slice(0, limit).map(o => ({ ...items[info.idx[o]], ranges: info.ranges[o] }));
@@ -302,9 +305,11 @@ const Shell = (() => {
       const el = document.createElement('dialog');
       el.className = 'dlg';
       if (width) el.style.width = `min(${width}px, calc(100vw - 32px))`;
-      let result;
-      const finish = v => { result = v; el.close(); };
-      el.addEventListener('close', () => { render(null, el); el.remove(); resolve(result); });
+      let done = false;
+      const settle = v => { if (done) return; done = true; if (el.open) el.close(); render(null, el); el.remove(); resolve(v); };
+      const finish = v => settle(v);
+      el.addEventListener('cancel', () => settle(undefined));
+      el.addEventListener('close', () => settle(undefined));
       const primary = actions.find(a => a.primary);
       render(html`<form method="dialog" onSubmit=${e => { e.preventDefault(); finish(primary?.value); }}>
         ${title ? html`<div class="dlg-head">${title}</div>` : null}
@@ -426,7 +431,7 @@ const Shell = (() => {
     const [hover, setHover] = useState(null);
     return html`<div class="strip" onPointerMove=${e => setHover(nearest(e))} onPointerLeave=${() => setHover(null)} onClick=${e => pick(nearest(e))}>
       ${days.map(d => html`<i class=${d === value ? 'on' : d === hover ? 'hot' : ''} style=${`left:${x(d)}%`} />`)}
-      <span class="strip-a">${fmtDay(hover || value || days[0])}</span>
+      <span class="strip-a">${hover || value ? fmtDay(hover || value) : ''}</span>
     </div>`;
   }
   function When({ close }) {
@@ -538,7 +543,7 @@ const Shell = (() => {
     };
     return html`<div class="sheets" role="tablist" ref=${ref} onKeyDown=${onKey} onWheel=${e => { if (e.deltaY) ref.current.scrollLeft += e.deltaY; }}>
       ${list.map(v => editing === v.id
-        ? html`<div class="sheet" aria-selected="true"><input value=${v.name} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
+        ? html`<div class="sheet" aria-selected="true"><input value=${v.name} style=${`width:${v.name.length + 3}ch`} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
             onKeyDown=${e => { if (e.key === 'Enter') commit(v, e.target.value); else if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }}
             onBlur=${e => commit(v, e.target.value)} /></div>`
         : html`<button key=${v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
@@ -601,7 +606,10 @@ const Shell = (() => {
     const vs = views.peek(), k = vs.findIndex(v => v.id === view.peek());
     if (vs.length) show(vs[(k + d + vs.length) % vs.length].id);
   }
-  addEventListener('resize', () => { if (insp.peek() > innerWidth - 320) insp.value = Math.max(280, innerWidth - 320); });
+  addEventListener('resize', () => {
+    if (insp.peek() > innerWidth - 320) insp.value = Math.max(280, innerWidth - 320);
+    floats.peek().filter(f => !(f.anchor instanceof Element)).forEach(f => f.close()); // a menu at a point
+  });
 
   // Draws the window, then tells the launch screen it's ready; 'launched' follows when the screen is gone.
   function start() {

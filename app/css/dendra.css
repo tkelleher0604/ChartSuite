@@ -103,6 +103,7 @@ kbd { font: var(--t12); color: var(--ink-3); }
 .btn.primary { background-color: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { background-image: linear-gradient(rgb(255 255 255 / .08), rgb(255 255 255 / .08)); }
 .btn.primary:disabled { color: var(--on-accent); }
+.btn.primary.dd::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23fff' stroke-opacity='.8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 .btn.danger { background-color: var(--no); border-color: var(--no); color: #fff; font-weight: 500; }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.icon { width: var(--row); padding: 0; border-color: transparent; background: transparent; color: var(--ink-2); }
@@ -142,7 +143,8 @@ input.bare { border-color: transparent; background: transparent; box-shadow: non
 .float.in { animation: rise var(--quick) var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(-2px); } }
 .menu, .pop { background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop); }
-.menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: min(480px, calc(100vh - 80px)); overflow: auto; }
+.menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: min(480px, calc(100vh - 80px)); overflow: auto; outline: none; }
+.menu-item b, .find-rows b { font-weight: 600; }
 .menu-find { display: block; width: calc(100% + 8px); margin: -4px -4px 4px; height: 36px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--rule); border-radius: var(--r-pop) var(--r-pop) 0 0; background: transparent; }
 .menu-find:focus { box-shadow: none; }
 .menu-item { height: var(--row); padding: 0 8px; display: flex; align-items: center; gap: 8px; border-radius: var(--r); white-space: nowrap; cursor: default; user-select: none; }
@@ -194,9 +196,10 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 
 /* ---- The inspector's rows: a label column and a value column ---- */
 .rows { padding: 8px 0; }
-.row { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: var(--row); padding: 0 20px; }
-.row > .k { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row > .v { min-width: 0; overflow-wrap: anywhere; }
+.row { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); align-items: start; column-gap: 12px; min-height: var(--row); padding: 0 20px; }
+.row > .k, .row > .v { padding: 5px 0; min-width: 0; overflow-wrap: anywhere; }
+.row > .k { color: var(--ink-2); }
+.row > .v > .tag { vertical-align: -3px; }
 .row.in > .k { padding-left: 14px; }
 .row.in.in2 > .k { padding-left: 28px; }
 .row:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
@@ -230,7 +233,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .formatbar { background: var(--paper); }
 .formulabar { background: var(--surface); }
 
-.shell > .main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 1px var(--insp, 360px); min-height: 0; }
+.shell > .main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 1px var(--insp, 384px); min-height: 0; }
 .main.wide { grid-template-columns: 0 1px minmax(0, 1fr); }
 .view { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
 .divider { position: relative; background: var(--rule); cursor: col-resize; z-index: 2; }
@@ -272,7 +275,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .sheet.dragging { opacity: .4; }
 .sheet.drop-before::after, .sheet.drop-after::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 2px; background: var(--accent); }
 .sheet.drop-before::after { left: -1px; } .sheet.drop-after::after { right: -1px; }
-.sheet > input { width: 12ch; height: 22px; padding: 0 4px; font-weight: 500; }
+.sheet > input { min-width: 8ch; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 500; }
 .foot > .btn.icon { align-self: center; flex: none; margin-left: 2px; }
 .status { margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 16px; flex: none; color: var(--ink-2); }
 .status > .btn { height: 24px; padding: 0 6px; }
@@ -286,9 +289,11 @@ html[data-splash][data-theme="dark"]::after { background: #111315; }
 
 /* ---- The tour: the app under a scrim, cut out around the one thing to do ---- */
 .tour-scrim { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
-.tour-hole { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), 0 0 0 100vmax var(--scrim); pointer-events: none; z-index: 40; transition: all var(--calm) var(--ease); }
+.tour-hole { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), 0 0 0 100vmax var(--scrim); pointer-events: none; z-index: 40; }
 .tour-hole.none { box-shadow: 0 0 0 100vmax var(--scrim); }
-.tour-card { position: fixed; z-index: 41; width: 280px; padding: 14px 16px 12px; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); box-shadow: var(--shadow-pop); transition: left var(--calm) var(--ease), top var(--calm) var(--ease); }
+.tour-card { position: fixed; z-index: 41; width: 280px; padding: 14px 16px 12px; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); box-shadow: var(--shadow-pop); }
+.tour-hole.glide { transition: left var(--calm) var(--ease), top var(--calm) var(--ease), width var(--calm) var(--ease), height var(--calm) var(--ease); }
+.tour-card.glide { transition: left var(--calm) var(--ease), top var(--calm) var(--ease); }
 .tour-card > .step { font: var(--t12); color: var(--ink-3); }
 .tour-card > p { margin: 4px 0 12px; }
 .tour-card > .acts { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
