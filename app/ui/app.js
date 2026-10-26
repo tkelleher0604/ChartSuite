@@ -49,14 +49,16 @@ const App = (() => {
   const state = computed(() => result.value.records);
 
   // ---- Changing ----
-  // Undo and Redo say what they took back or put back, by the change that made it.
+  // Undo and Redo say what they took back or put back, by the change that made it, or why they didn't.
   const origin = c => { const all = book.peek().changes(); while (c?.reverses) c = all.find(x => x.id === c.reverses); return c; };
-  const stepped = (r, verb, back) => {
-    if (r && typeof r !== 'string') Shell.toast(`${verb}: ${Time.describe(origin(r))}`, { undo: back });
-    return r;
-  };
-  const undo = () => !readOnly.peek() && stepped(book.peek().undo(who(), chart.peek()), 'Undid', () => redo());
-  const redo = () => !readOnly.peek() && stepped(book.peek().redo(who(), chart.peek()), 'Redid', () => undo());
+  function step(back) {
+    if (readOnly.peek()) return Shell.toast('Can’t change the past');
+    const r = book.peek()[back ? 'undo' : 'redo'](who(), chart.peek());
+    if (!r) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
+    if (typeof r === 'string') return Shell.toast(r);
+    Shell.toast(`${back ? 'Undid' : 'Redid'}: ${Time.describe(origin(r))}`, { undo: back ? redo : undo });
+  }
+  const undo = () => step(true), redo = () => step(false);
   // One change, by the user: refused while the past is shown; dated from the day shown unless `dated` is false
   // (a view isn't a fact about the world). `say`, a string or a function of the change, is toasted with Undo.
   function change(fn, { say, dated = true } = {}) {

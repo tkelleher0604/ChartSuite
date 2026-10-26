@@ -619,8 +619,9 @@ const Shell = (() => {
   [
     { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
     { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
-    { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo')?.canUndo(), run: () => part('undo').undo() },
-    { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo')?.canRedo(), run: () => part('undo').redo() },
+    // With nothing to undo, Undo says so.
+    { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo'), run: () => part('undo').undo() },
+    { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo'), run: () => part('undo').redo() },
     { id: 'back', name: 'Back', keys: 'Alt+ArrowLeft', run: back },
     { id: 'forward', name: 'Forward', keys: 'Alt+ArrowRight', run: forward },
     { id: 'view.prev', name: 'Previous view', keys: '$mod+Shift+PageUp', run: () => stepView(-1) },
@@ -631,7 +632,7 @@ const Shell = (() => {
     { id: 'attend.prev', name: 'Previous problem', keys: 'Shift+F8', enabled: problems, run: () => attend(-1) },
   ].forEach(a => register('action', a));
   keys({
-    '$mod+Shift+KeyZ': () => part('undo')?.canRedo() ? part('undo').redo() : false,
+    '$mod+Shift+KeyZ': () => part('undo') ? part('undo').redo() : false,
     // With no layer open: the widened inspector narrows, and then the selection clears.
     'Escape': () => { if (wide.peek()) narrow(); else if (selection.peek().length) select([]); else return false; },
   });
