@@ -552,6 +552,10 @@ const Shell = (() => {
     const vp = part('views'), list = views.value, ref = useRef();
     const [editing, setEditing] = useState(null);
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [view.value, list.length]);
+    // Tabs that run on past the edge fade into it.
+    const more = () => { const el = ref.current; el?.toggleAttribute('data-more', el.scrollLeft + el.clientWidth < el.scrollWidth - 1); };
+    useLayoutEffect(more);
+    useLayoutEffect(() => { const ro = new ResizeObserver(more); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, [!!vp]);
     if (!vp) return html`<div class="sheets" />`;
     const down = (e, v) => {
       if (e.button !== 0 || editing) return;
@@ -569,7 +573,7 @@ const Shell = (() => {
       ref.current.children[list.indexOf(next)]?.focus();
     };
     const add = e => vp.add(e.currentTarget).then(id => { if (id) { show(id); setEditing(id); } });
-    return html`<div class="sheets" role="tablist" aria-label="Views" ref=${ref} onKeyDown=${onKey} onWheel=${e => { if (e.deltaY) ref.current.scrollLeft += e.deltaY; }}>
+    return html`<div class="sheets" role="tablist" aria-label="Views" ref=${ref} onKeyDown=${onKey} onScroll=${more} onWheel=${e => { if (e.deltaY) ref.current.scrollLeft += e.deltaY; }}>
       ${list.map(v => editing === v.id
         ? html`<div class="sheet" aria-selected="true"><input aria-label="Name" value=${v.name} style=${`width:${v.name.length + 3}ch`} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
             onKeyDown=${e => { if (e.key === 'Enter') commit(v, e.target.value); else if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }}
@@ -580,7 +584,7 @@ const Shell = (() => {
   }
 
   // ---- The status bar: what needs attention, counted; F8 steps through it ----
-  const KINDS = [['overdue', n => `${n} overdue`], ['blank', n => `${n} blank`], ['error', n => n === 1 ? '1 error' : `${n} errors`]];
+  const KINDS = [['overdue', n => `${n} overdue`], ['soon', n => `${n} due soon`], ['blank', n => `${n} blank`], ['error', n => n === 1 ? '1 error' : `${n} errors`]];
   let stepAt = -1;
   function attend(d = 1, kind) {
     const items = (part('attention')?.items() || []).filter(it => !kind || it.kind === kind);
