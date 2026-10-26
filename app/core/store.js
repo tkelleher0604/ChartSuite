@@ -43,7 +43,7 @@ const stale = () => Object.assign(new Error('Saved there since.'), { stale: true
 async function access(book) {
   const h = book.handle;
   if (typeof h?.getFile !== 'function') throw Object.assign(new Error('This browser no longer has the file.'), { name: 'NotFoundError' });
-  if (await h.queryPermission({ mode: 'readwrite' }) !== 'granted') throw Object.assign(new Error('Needs leave to save.'), { name: 'NotAllowedError' });
+  if (await h.queryPermission({ mode: 'readwrite' }) !== 'granted') throw Object.assign(new Error('Allow Dendra to save to this file.'), { name: 'NotAllowedError' });
   return h;
 }
 const stamp = f => ({ version: f.lastModified, modified: new Date(f.lastModified).toISOString() });
