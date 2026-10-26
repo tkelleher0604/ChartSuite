@@ -80,8 +80,7 @@ const FormulaBar = (() => {
   const touch = signal(null);     // the records of a fact under the pointer, in the sentence that says why
   const trail = signal([]);       // [{ id, title, clause }]: the records stepped down from, for the breadcrumb
   const aim = signal(null);       // a row to put the cursor in, by its key
-  let saying = false;
-  on('why-open', id => { if (!saying) asked.value = { id, clause: finder.peek().via.get(id) ?? null, under: Shell.selection.peek() }; });
+  on('why-open', id => { asked.value = { id, clause: finder.peek().via.get(id) ?? null, under: Shell.selection.peek() }; });
 
   const subject = computed(() => {
     const ed = editing.value;
@@ -310,8 +309,7 @@ const FormulaBar = (() => {
   });
 
   // A new subject. One the last lit, if computed, is a step down: the last goes on the breadcrumb, and the chart
-  // zooms to what's lit now; one on the breadcrumb is a step back to it; anything else starts afresh. The tour
-  // hears that a computed record's reasons are shown, but not for two objects, where none was asked about.
+  // zooms to what's lit now; one on the breadcrumb is a step back to it; anything else starts afresh.
   let last = { key: '', map: new Map(), crumb: null };
   effect(() => {
     const key = subjectKey.value;
@@ -326,7 +324,6 @@ const FormulaBar = (() => {
       const ids = [m.id, ...last.map.keys()];
       requestAnimationFrame(() => { Shell.parts.peek().canvas?.zoomTo?.(ids); clear(); });
     }
-    if (m?.computed && !m.options) { saying = true; emit('why-open', m.id); saying = false; }
   });
   // The rows close when the selection changes, unless a row is being edited.
   on('select', () => { if (!editing.peek()) open.value = false; });
