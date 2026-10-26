@@ -1427,22 +1427,22 @@ function loopReads(group, reg) {
     const own = new Set(d.isRelation ? d.edges.map(normal) : []);
     d.rows.forEach((row, ri) => {
       const found = [];
-      const read = (n, from, to, ok) => found.push({ def: d.id, row: ri, from, to, monotone: ok });
+      const read = (from, to, ok) => found.push({ def: d.id, row: ri, from, to, monotone: ok });
       // `ok` is whether the place is monotone; `lets` maps a LET name to whether its value reads the loop.
       const walk = (n, ok, lets) => {
         switch (n.k) {
           case 'name':
-            if (lets.has(n.n)) { if (lets.get(n.n)) read(n, n.from, n.to, ok); }
-            else if (!own.has(n.n) && names.has(n.n)) read(n, n.from, n.to, ok);
+            if (lets.has(n.n)) { if (lets.get(n.n)) read(n.from, n.to, ok); }
+            else if (!own.has(n.n) && names.has(n.n)) read(n.from, n.to, ok);
             return;
           case 'dot':
             walk(n.x, ok, lets);
-            if (names.has(n.n) || labels.has(n.n)) read(n, n.at, n.to, ok);
+            if (names.has(n.n) || labels.has(n.n)) read(n.at, n.to, ok);
             return;
           case 'call': {
             const f = isFunction(n.name) && n.name.toUpperCase();
             if (!f) {
-              if (names.has(normal(n.name))) read(n, n.from, n.nameTo, ok);
+              if (names.has(normal(n.name))) read(n.from, n.nameTo, ok);
               n.args.forEach(x => walk(x.x, ok, lets));
             } else if (f === 'LET') {
               const inner = new Map(lets);
@@ -1472,8 +1472,8 @@ function loopReads(group, reg) {
         // from a later one with another value: past it, every row only attests. And a row that can give FALSE
         // can go down.
         const whole = { def: d.id, row: ri, from: row.ast.from, to: row.ast.to, monotone: false };
-        if (d.type === 'tag' && !row.implies && !onlyTrue(row.ast)) out.push({ ...whole, why: 'can give FALSE' });
-        else if (d.rows.slice(ri + 1).some(later => !(row.implies && later.implies))) out.push({ ...whole, why: 'comes before another row' });
+        if (d.type === 'tag' && !row.implies && !onlyTrue(row.ast)) out.push(whole);
+        else if (d.rows.slice(ri + 1).some(later => !(row.implies && later.implies))) out.push(whole);
       }
       out.push(...found);
     });
@@ -1646,23 +1646,23 @@ const AT = { at: true };   // `@` as the free variable: the item a condition is 
 const isVar = (n, v) => v === AT ? n.k === 'at' : n.k === 'name' && n.n === v.name;
 const isCall = (n, f) => n.k === 'call' && n.name.toUpperCase() === f;
 const ITEM_FUNCTIONS = new Set(['FILTER', 'ANY', 'ALL', 'EACH']);
-const partsOf = n => [n.x, n.a, n.b, ...(n.items ?? []), ...(n.args ?? []).map(x => x.x)].filter(x => x && typeof x === 'object');
+const childrenOf = n => [n.x, n.a, n.b, ...(n.items ?? []), ...(n.args ?? []).map(x => x.x)].filter(x => x && typeof x === 'object');
 
 // Whether an expression uses the free variable: an argument by its name, or `@` outside the conditions of
 // FILTER and the like, where it means their items.
 function uses(n, v) {
   if (isVar(n, v)) return true;
   if (v === AT && n.k === 'call' && ITEM_FUNCTIONS.has(n.name.toUpperCase())) return !!n.args[0] && uses(n.args[0].x, v);
-  return partsOf(n).some(x => uses(x, v));
+  return childrenOf(n).some(x => uses(x, v));
 }
 
 // Whether an expression comes out the same all through a round: it reads no OBJECT, which reads Names that no
 // formula names.
-const steady = (K, n) => !isCall(n, 'OBJECT') && partsOf(n).every(x => steady(K, x));
+const steady = (K, n) => !isCall(n, 'OBJECT') && childrenOf(n).every(x => steady(K, x));
 
 // Whether LET gives a name another meaning somewhere in an expression.
 const binds = (n, name) => isCall(n, 'LET') && n.args.some((x, i) => i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name' && x.x.n === name)
-  || partsOf(n).some(x => binds(x, name));
+  || childrenOf(n).some(x => binds(x, name));
 
 // Sets of objects as bits. Each object (or other record) a support names gets a number in the state.
 function numberOf(S, id) {
@@ -1677,7 +1677,6 @@ function bitsOf(S, ids) {
   for (const k of ks) bits[k >> 5] |= 1 << (k & 31);
   return bits;
 }
-const hasBit = (bits, k) => (k >> 5) < bits.length && ((bits[k >> 5] >>> (k & 31)) & 1) === 1;
 // Adds b's bits to a, making a longer where b is: returns a, or its longer copy.
 function addBits(a, b) {
   if (b.length > a.length) { const longer = new Uint32Array(b.length); longer.set(a); a = longer; }
@@ -2440,14 +2439,14 @@ function wentDown(a, b) {
 }
 
 // A candidate's new output comes into the state: its record added, changed or taken out, its error where
-// readers find it, and the labels of the rows that hold there, each with the round it first held in. Returns
-// the kinds of lookup that can find the change: all of them (true) where a record came, went or changed sort,
-// those that read a field's value where only that changed, or none.
+// readers find it, and the rows that hold there. Returns the kinds of lookup that can find the change: all of
+// them (true) where a record came, went or changed sort, or only which rows hold; those that read a field's
+// value where only that changed; or none, where an entry stands and the rows holding didn't change.
 function settle(S, t, next, round) {
-  const before = t.out;
+  const before = t.out, rowsChanged = !sameRows(t.rows, next.rows);
   t.out = next.out;
   t.row = next.row;
-  if (!sameRows(t.rows, next.rows)) {
+  if (rowsChanged) {
     t.rows = next.rows;
     S.holds.set(t.cand.key, t);
     // Where a row is cited by label, each label keeps the round it first held in, for grounds.
@@ -2458,7 +2457,7 @@ function settle(S, t, next, round) {
       t.labels = labels;
     }
   }
-  if (t.entered || sameOut(before, next.out)) return true;
+  if (t.entered || sameOut(before, next.out)) return rowsChanged || null;
   if (before.error) unfail(S, t);
   if (next.out.error) fail(S, t, next.out.error);
   const id = t.cand.id, had = before.out !== undefined, has = next.out.out !== undefined;
@@ -2772,9 +2771,7 @@ function ground(R, id) {
     const rows = [];
     for (const row of d.rows) {
       const x = gv(row.ast, c);
-      if (row.implies) { if (truth(S, x.v) === true) rows.push({ row: row.i, label: row.label, stage: rankOf(c, x.g), parts: x.g }); continue; }
-      const out = asOutput(S, d, x.v);
-      if (out.none) continue;
+      if (row.implies ? truth(S, x.v) !== true : asOutput(S, d, x.v).none) continue;
       rows.push({ row: row.i, label: row.label, stage: rankOf(c, x.g), parts: x.g });
       if (!d.allImplied) break;
     }
@@ -2937,7 +2934,7 @@ function check(text, ctx = {}) {
   try { ast = parseExpression(f.body, f.offset); }
   catch (e) {
     const pos = e.pos ?? f.offset;
-    problems.push({ from: pos, to: Math.max(pos + 1, pos), message: e.message });
+    problems.push({ from: pos, to: pos + 1, message: e.message });
     return { kind: f.kind, problems };
   }
   const E = editorContext(ctx);
@@ -2955,7 +2952,7 @@ function check(text, ctx = {}) {
       else if (n.k === 'name' && d?.isRelation && !own.has(n.n) && !lets.has(n.n)) problems.push({ from: n.from, to: n.to, message: `${n.name} isn’t one of this relation’s arguments.` });
       if (n.k === 'dot' && !has(n.n)) unknown(n.name, n.at, n.to);
       if (n.k === 'call' && !isFunction(n.name) && !S.P.reg.byName.has(normal(n.name))) problems.push({ from: n.from, to: n.nameTo, message: `There’s no function or relation called ${n.name}.` });
-      partsOf(n).forEach(walk);
+      childrenOf(n).forEach(walk);
     };
     walk(ast);
   }
@@ -3057,7 +3054,7 @@ function computeState(entered, definitions, names) {
   for (const d of defs) if (!d.error) for (const p of d.covers) P.coverOf.set(p, d);
   // A definition whose rows some row cites by label, after a dot.
   const dotted = new Set();
-  const dots = n => { if (n.k === 'dot') dotted.add(n.n); partsOf(n).forEach(dots); };
+  const dots = n => { if (n.k === 'dot') dotted.add(n.n); childrenOf(n).forEach(dots); };
   for (const d of defs) if (!d.error) d.rows.forEach(r => dots(r.ast));
   for (const d of defs) d.cited = [...d.labels].some(l => dotted.has(l));
   P.known = knownNames(entered, defs, reg);
