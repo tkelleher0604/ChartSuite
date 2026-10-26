@@ -1,20 +1,25 @@
 /* The inspector, on dendra.css's rows: a label column and a value column, values typed over in place. */
 
-/* The label column narrows with the panel, so a value keeps room for a long date; narrower still, a label
-   sits over its value. */
-.inspector { --label: clamp(112px, 36cqi, 152px); }
-.insp { padding-bottom: 32px; }
+/* The panel is one grid: its labels in a column as wide as the longest of them, up to half the panel, and
+   its values in the rest. Its parts, and their rows, take its columns; a row with columns of its own (a tag's,
+   a relative's, a style's output) or a heading spans them. Narrow, a label sits over its value (below). */
+.insp { display: grid; grid-template-columns: fit-content(50%) minmax(0, 1fr); column-gap: 12px; align-content: start; padding-bottom: 32px; }
+.insp > *, .insp :is(.rows, section, .styles, .relate, .rr-at, .nots, .ent) > * { grid-column: 1 / -1; min-width: 0; }
+.insp :is(.rows, section, .styles, .relate, .rr-at, .nots, .ent, .row:not(.chk, .out, .rel, .keyrow)) { display: grid; grid-template-columns: subgrid; }
+/* A row Enter has left a value for: focused, so a key typed next is the window's. */
+.insp :is(.row, .rr, .ih):focus { outline: none; }
+.insp :is(.row, .rr, .ih):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ih { position: relative; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
 .ih > .path { margin-bottom: 4px; }
-.ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; }
+.ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; text-wrap: balance; }
 .ih-title > .and { font-weight: 400; color: var(--ink-3); }
-/* A title wraps, as many lines as it takes. A tag's title has its box before it, as a checkbox row has. */
+/* A title wraps, as many lines as it takes, balanced. A tag's title has its box before it, as a checkbox row has. */
 .cellbox.title .hug { flex: 1; }
-.cellbox.title .cell { font: var(--t15); }
+.cellbox.title .cell { font: var(--t15); text-wrap: balance; }
 .ih-tag { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 8px; }
 .ih-tag > .cellbox { position: static; min-height: 0; }
 .ih:hover .btn.ver { opacity: 1; }
-.ih .btn.ver { right: 20px; top: 16px; }
+.ih .btn.ver { right: 13px; top: 16px; }
 @container (min-width: 640px) { .ih { padding-top: 28px; } .ih .btn.ver { top: 32px; } .ih-title, .cellbox.title .cell { font: var(--t22); } }
 
 /* A name that selects what it names: set as text, a button to the keyboard. */
@@ -23,6 +28,8 @@ button.lk:hover { text-decoration: underline; text-underline-offset: 2px; text-d
 button.lk:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; border-radius: 2px; }
 button.lk.fx { font-style: italic; }
 button.lk.muted { color: var(--ink-3); }
+/* A reason's own words, said on hover: a tip that wraps once it's long. */
+.float.tip { max-width: 320px; white-space: normal; text-wrap: pretty; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* A row's depth in the tree, and its grip: drag to reorder, click for its menu. */
@@ -44,21 +51,22 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .row.chk { grid-template-columns: 14px minmax(0, 1fr); column-gap: 8px; padding-left: calc(20px + var(--depth, 0) * 16px); }
 .row.chk > .k { padding-left: 0; color: var(--ink); }
 .row.chk .cellbox { position: static; }
-.row.chk .btn.ver { right: 20px; }
+.row.chk .btn.ver { right: 13px; }
 /* Narrow, every row of a label and its value sets the label over the value, so neither wraps but a long
    value. (A relative is a name and its role, as a list's row is.) */
 @container (max-width: 340px) {
-  .row:not(.chk, .out, .rel) { grid-template-columns: minmax(0, 1fr); }
+  .insp .row:not(.chk, .out, .rel, .keyrow) { grid-template-columns: minmax(0, 1fr); }
   .row:not(.chk, .out, .rel, .src, .draft) > .k:not(.wide) { padding: 4px 0 0 calc(var(--depth, 0) * 16px); font: var(--t12); color: var(--ink-3); }
   .row:not(.chk, .out, .rel) > .v { padding-left: calc(var(--depth, 0) * 16px); }
 }
 
 /* Values typed over: plain text until hovered or focused. A value's box hugs it, so an amber corner sits
-   beside it; clicking anywhere in the cell types into it. */
+   beside it, and reaches past its text by as much on either side, so the text keeps its column's whole width;
+   clicking anywhere in the cell types into it. */
 .cellbox { position: relative; display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; min-height: var(--row); }
 .hug { position: relative; display: flex; align-items: center; min-width: 0; max-width: 100%; }
-.cell { field-sizing: content; width: auto; min-width: 4ch; max-width: calc(100% + 7px); height: var(--row); margin-left: -7px; padding: 0 6px; border-color: transparent; background: transparent; text-overflow: ellipsis; }
-.draft .cell, .k > .cell { width: calc(100% + 7px); }
+.cell { field-sizing: content; width: auto; min-width: 4ch; max-width: calc(100% + 14px); height: var(--row); margin: 0 -7px; padding: 0 6px; border-color: transparent; background: transparent; text-overflow: ellipsis; }
+.draft .cell, .k > .cell { width: calc(100% + 14px); }
 :where(.cell):hover:not(:focus, :disabled) { border-color: var(--rule); }
 .cell:focus { background: var(--surface); }
 .cell:disabled { color: inherit; background: transparent; }
@@ -69,9 +77,9 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .cellbox.off .cell { color: var(--ink-3); }
 /* Text that wraps (a value's text, a title, prose): as tall as its lines. */
 textarea.cell { field-sizing: content; height: auto; min-height: var(--row); padding: 3px 6px; line-height: 20px; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
-.cellbox.title .cell, textarea.cell.prose { width: calc(100% + 7px); max-width: none; }
-.hug.over::after { top: 4px; right: -1px; }
-.cellbox > .unit { margin-left: -6px; color: var(--ink-3); }
+.cellbox.title .cell, textarea.cell.prose { width: calc(100% + 14px); max-width: none; }
+.hug.over::after { top: 4px; right: -8px; }
+.cellbox > .unit { margin-left: 1px; color: var(--ink-3); }
 .cellbox:has(> .unit) .cell { min-width: 2ch; }
 
 /* Dates: never shortened nor broken across lines; red once overdue, amber when due soon. */
@@ -82,7 +90,7 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .cell.date { max-width: none; }
 
 /* A choice: its option, wrapping where it must, and a chevron after its last word, opening the options. */
-.sel { min-height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 3px 6px; display: inline-block; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); line-height: 20px; text-align: left; cursor: default; }
+.sel { min-height: var(--row); max-width: calc(100% + 14px); margin: 0 -7px; padding: 3px 6px; display: inline-block; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); line-height: 20px; text-align: left; cursor: default; }
 .sel > span { overflow-wrap: anywhere; }
 .sel.dd::after { content: none; }
 .sel.dd > span::after { content: ""; display: inline-block; width: 10px; height: 6px; margin-left: 8px; background: var(--chev) no-repeat center; vertical-align: 2px; }
@@ -95,19 +103,19 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .tag.peek { opacity: .8; }
 .tag:disabled { pointer-events: none; }
 .tag[aria-disabled="true"] { opacity: .4; }
-.row:has(.tag.peek.no) > .k .lbl, .rr:has(.tag.peek.no) > .nm, .ih-tag:has(.tag.peek.no) > .nm { color: var(--no); text-decoration: line-through; }
+.row:has(.tag.peek:not(.yes)) > .k .lbl, .rr:has(.tag.peek:not(.yes)) > .nm, .ih-tag:has(.tag.peek:not(.yes)) > .nm { color: var(--no); text-decoration: line-through; }
 .row:has(.tag.peek.yes) > .k .lbl, .rr:has(.tag.peek.yes) > .nm, .ih-tag:has(.tag.peek.yes) > .nm { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
 
 /* Quiet actions at a value's right, shown on hover or focus as the grip is: its other values counted
    ("2 earlier"), and a due date's filing, a button. Each sits over the value's end, not beside it, so the
    value keeps its whole width; while the value is typed, they keep out of the way. */
-.btn.ver { position: absolute; right: 0; top: 4px; height: 20px; padding: 0 6px; font: var(--t12); color: var(--ink-2); background: var(--surface); opacity: 0; transition: opacity var(--quick) var(--ease); }
+.btn.ver { position: absolute; right: -7px; top: 4px; height: 20px; padding: 0 6px; font: var(--t12); color: var(--ink-2); background: var(--surface); opacity: 0; transition: opacity var(--quick) var(--ease); }
 .row:hover .btn.ver { background: linear-gradient(var(--hover), var(--hover)) var(--surface); }
 .row:hover .btn.ver, .btn.ver:focus { opacity: 1; }
 .cellbox:has(.cell:focus) > .btn.ver { opacity: 0; pointer-events: none; }
 .btn.ver.filed { border-color: var(--edge); }
 /* Overdue or due soon, a due date's filing is what someone came for: always shown, after the date. */
-.btn.ver.filed.due { position: static; flex: none; margin-left: auto; opacity: 1; }
+.btn.ver.filed.due { position: static; flex: none; margin: 0 -7px 0 auto; opacity: 1; }
 .cellbox:has(> .btn.ver.filed.due) { flex-wrap: wrap; }
 .btn.ver:hover { color: var(--ink); }
 .filing { display: grid; gap: 8px; width: 220px; }
@@ -134,17 +142,19 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .sect > .btn.icon > svg { width: 14px; height: 14px; }
 .sect > .reset { height: 20px; margin: 0 -6px 0 0; padding: 0 6px; font: var(--t12); color: var(--ink-2); }
 section.open > :last-child { margin-bottom: 8px; }
-/* A relative: its name in ink and its role, and beneath them its facts; the document evidencing it, to open. */
+/* A relative: its name in ink, taking the room, and its role or figure set at the right; beneath, its facts;
+   the document evidencing it, to open. */
+.row.rel { grid-template-columns: minmax(0, 1fr) fit-content(50%); }
 .row.rel > .k { color: var(--ink); }
-.row.rel > .v { position: relative; display: flex; align-items: baseline; gap: 4px; }
+.row.rel > .v { position: relative; display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; text-align: right; font-variant-numeric: tabular-nums; }
 .row.rel > .v:empty { display: none; }
 .row.rel > .v > .lk { flex: 0 1 auto; min-width: 0; color: var(--ink-2); }
 .row.rel > .v > .lk:hover { color: var(--ink); }
-.row.rel > .v > .open { align-self: center; margin: -4px -6px -4px auto; }
+.row.rel > .v > .open { align-self: center; margin: -4px -6px -4px 0; }
 .row.rel > .facts { grid-column: 1 / -1; margin-top: -4px; padding-bottom: 6px; font: var(--t12); color: var(--ink-3); overflow-wrap: anywhere; }
-/* What a record is not, said plainly under its entries. */
-.nots { padding: 8px 0; border-top: 1px solid var(--rule); color: var(--ink-2); }
-.nots .lk:hover { color: var(--ink); }
+/* What a record is not, said plainly and quietly, after all it is. */
+.nots { padding: 8px 0; border-top: 1px solid var(--rule); color: var(--ink-3); }
+.nots .lk:hover { color: var(--ink-2); }
 .doc { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 8px; padding: 4px 16px 4px 20px; }
 .doc > .open { margin: -2px 0; }
 .doc > .meta { grid-column: 1; }
