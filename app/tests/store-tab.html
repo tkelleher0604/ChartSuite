@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Another tab</title>
+<!-- For store-test.html, which drives this page's Store: another tab, or, on a workbook of its own, another
+     person's browser. It reaches the test's stand-ins for Graph and MSAL, so that every page shares one tenant. -->
+<script>
+  window.fetch = (...a) => parent.fetch(...a);
+  window.msal = parent.msal;
+</script>
+<script src="../../vendor/dexie/dexie.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/sharepoint.js"></script>
+<script src="../core/store.js"></script>
+<script>Object.assign(window, { Store, SharePoint });</script>
+</head>
+<body></body>
+</html>
