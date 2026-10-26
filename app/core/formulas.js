@@ -306,21 +306,23 @@ function indexRecord(S, id, r, known) {
 function indexByObjects(S, id, r, known) {
   const objs = known?.objs ?? r.args.map(a => objectOf(S, a.at)), sig = known?.sig ?? signatureOf(r), edges = known?.edges ?? r.args.map(a => normal(a.edge));
   const call = known?.call || `${sig}|${edges.map((e, i) => `${e}=${objs[i]}`).sort().join('&')}`;
-  for (const obj of distinct(objs)) {
+  // Its objects, once each, and its keys by edge: spelled once, and kept for a working-out that keeps it.
+  const own = known?.own ?? distinct(objs), along = known?.along ?? edges.map((e, i) => `${sig}|${e}=${objs[i]}`);
+  for (const obj of own) {
     if (!S.byObject.has(obj)) S.byObject.set(obj, new Map());
     place(S, S.byObject.get(obj), sig, id);
   }
-  edges.forEach((e, i) => place(S, S.byEdge, `${sig}|${e}=${objs[i]}`, id));
+  for (const k of along) place(S, S.byEdge, k, id);
   place(S, S.relsByCall, call, id);
-  S.indexed.set(id, { objs, edges, sig, call, seq: S.seq++ });
+  S.indexed.set(id, { objs, edges, sig, call, own, along, seq: S.seq++ });
   const names = listNamesOf(S, sig);
   for (const e of edges) names.add(e);
 }
 const pull = (map, key, id) => { const list = map?.get(key); if (list) map.set(key, list.filter(x => x !== id)); };
 function unindexByObjects(S, id) {
-  const { objs, edges, sig, call } = S.indexed.get(id);
-  for (const obj of distinct(objs)) pull(S.byObject.get(obj), sig, id);
-  edges.forEach((e, i) => pull(S.byEdge, `${sig}|${e}=${objs[i]}`, id));
+  const { sig, call, own, along } = S.indexed.get(id);
+  for (const obj of own) pull(S.byObject.get(obj), sig, id);
+  for (const k of along) pull(S.byEdge, k, id);
   pull(S.relsByCall, call, id);
   S.indexed.delete(id);
 }
@@ -2194,6 +2196,7 @@ function runGroup(S, i, re = null) {
   const seek = f => {
     let s = null;
     if (f.where) {
+      f.ctx ??= anchorContext(...f.at);
       const run = reading(S, () => supportAt(S, f.where, f.ctx));
       s = run.v;
       f.reads = run.reads;
@@ -2204,6 +2207,7 @@ function runGroup(S, i, re = null) {
     // is worked out, and what it gives where it's held, which the candidates' own keys don't say (see replay).
     const found = new Set(), holding = new Set();
     for (const x of f.targets) {
+      x.state ??= new Uint8Array(x.b.pools[x.free].length);
       const at = k => candAt(x.b, x.ordinal + k * x.b.strides[x.free], () => { const picks = [...x.anchor]; picks[x.free] = k; return picks; });
       const find = k => { x.state[k] = FOUND; const t = at(k); if (t) found.add(t.cand.key); enqueue(t, f.ri); };
       if (s && !s.exact && x.held.length) {
@@ -2233,8 +2237,8 @@ function runGroup(S, i, re = null) {
     plans.get(b.d).forEach(({ free, where }, ri) => {
       for (const anchor of anchorsOf(b, free)) {
         const key = `${b.d.id}|${ri}|${anchor.map((k, j) => j === free ? '' : b.objects[j][k]).join('|')}`;
-        if (!finders.has(key)) finders.set(key, { key, ri, where, ctx: where && anchorContext(b, free, anchor), targets: [], reads: null });
-        finders.get(key).targets.push({ b, free, anchor, ordinal: ordinalIn(b, anchor), state: new Uint8Array(b.pools[free].length), held: [] });
+        if (!finders.has(key)) finders.set(key, { key, ri, where, ctx: null, at: [b, free, anchor], targets: [], reads: null });
+        finders.get(key).targets.push({ b, free, anchor, ordinal: ordinalIn(b, anchor), state: null, held: [] });
       }
     });
   }
@@ -2444,12 +2448,18 @@ function circularGroup(S, group) {
 function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
   const { H, O, D } = re, readers = readersOf(H);
   // Each candidate of the last working-out, found again by its records in this one's blocks, or gone.
-  const pools = blocks.map(b => b.pools.map(pool => new Map(pool.map((id, k) => [id, k])))), old = new Map();
+  const pools = blocks.map(b => b.pools.map(pool => new Map(pool.map((id, k) => [id, k])))), old = new Map(), byId = new Map();
+  const picksOf = w => w.h.args.map((a, j) => pools[w.b.index][j].get(a.at));
   for (const h of H.cands.values()) {
     // Its arguments are in its block's order, and the blocks are as they were but for what's in their pools.
-    const b = blocks[h.block], picks = b?.d.id === h.def ? h.args.map((a, j) => pools[h.block][j].get(a.at)) : null;
-    const w = picks?.every(k => k !== undefined) ? { h, b, picks, ordinal: ordinalIn(b, picks) } : null;
-    if (w) old.set(h.key, w);
+    const b = blocks[h.block], at = b?.d.id === h.def ? pools[h.block] : null;
+    let ordinal = at ? b.base : -1;
+    for (let j = 0; at && j < at.length; j++) {
+      const k = at[j].get(h.args[j].at);
+      if (k === undefined) { ordinal = -1; break; }
+      ordinal += k * b.strides[j];
+    }
+    if (ordinal >= 0) { const w = { h, b, ordinal }; old.set(h.key, w); byId.set(h.id, w); }
     else if (h.settles.length) for (const k of candidateKeys(O, O.P.byId.get(h.def), h, ALL_KINDS)) D.add(k);
   }
   const live = new Set([...re.entered].filter(k => old.has(k))), started = new Set();
@@ -2458,8 +2468,7 @@ function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
 
   // What's kept: the records, in their order, ranked as a working-out from nothing would have placed them
   // (once they're all in, so they go in last), and the rows that held.
-  const kept = [], byId = new Map();
-  for (const w of old.values()) byId.set(w.h.id, w);
+  const kept = [];
   for (const id of O.left[i].recs) {
     const w = byId.get(id);
     if (!w || live.has(w.h.key)) continue;
@@ -2467,11 +2476,11 @@ function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
     const spec = O.specs.get(id), stage = O.stage.get(id);
     if (spec) { S.specs.set(id, spec); push(S.bySpec, spec, id); }
     S.stage.set(id, stage);
-    kept.push(id, stage * (size + 1) + w.ordinal);
+    kept.push(w);
   }
   S.rankOf = (stage, ordinal) => stage * (size + 1) + ordinal;
   S.rank = new Map();
-  for (let k = 0; k < kept.length; k += 2) S.rank.set(kept[k], kept[k + 1]);
+  for (const w of kept) S.rank.set(w.h.id, S.rankOf(S.stage.get(w.h.id), w.ordinal));
   if (S.watch) S.cut = { defs: new Set(group.map(d => d.id)), limit: 1, wake: true, last: 0 };
   for (const [key, t] of O.left[i].holds) if (old.has(key) && !live.has(key)) S.holds.set(key, { d: S.P.byId.get(t.d.id), rows: t.rows, labels: t.labels });
 
@@ -2480,7 +2489,7 @@ function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
   const due = new Map();
   let round = 0, last = 0;
   function wake(key, k) {
-    const w = old.get(key), t = w && candAt(w.b, w.ordinal, () => w.picks);
+    const w = old.get(key), t = w && candAt(w.b, w.ordinal, () => picksOf(w));
     if (!t || t.live) return;
     t.live = true;
     t.h = w.h;
@@ -2498,6 +2507,13 @@ function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
     t.d.rows.forEach((_, ri) => enqueue(t, ri));
   }
   for (const key of [...live]) { live.delete(key); wake(key, 0); }
+  // Whether a target's pool has a record no candidate of the last working-out had there.
+  const had = new Map();
+  const grew = x => {
+    const k = `${x.b.index}|${x.free}`;
+    if (!had.has(k)) had.set(k, new Set([...old.values()].filter(w => w.b === x.b).map(w => w.h.args[x.free].at)));
+    return x.b.pools[x.free].some(id => !had.get(k).has(id));
+  };
   // A finder searching again from round k, as it stood then: what it had found and held by then.
   const searching = new Set();
   function search(f, k) {
@@ -2509,7 +2525,7 @@ function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
     f.holds = (h.holds ?? []).filter(x => x[0] <= k);
     f.held = f.holds.at(-1)?.[1];
     const found = new Set(f.found.flatMap(x => [...x[1]]));
-    for (const x of f.targets) for (let p = 0; p < x.state.length; p++) {
+    for (const x of f.targets) for (let p = 0, n = (x.state ??= new Uint8Array(x.b.pools[x.free].length)).length; p < n; p++) {
       const t = candAt(x.b, x.ordinal + p * x.b.strides[x.free], () => { const picks = [...x.anchor]; picks[x.free] = p; return picks; });
       if (found.has(t?.cand.key)) x.state[p] = FOUND;
       else if (f.held?.has(t?.cand.key)) { x.state[p] = HELD; x.held.push(p); }
@@ -2526,9 +2542,9 @@ function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
       t.keys = new Set();
       return true;
     },
-    // Whether a finder searches from the start: one with no support (which finds every record of its pool), a
-    // new one, or one whose search read a key the change reaches.
-    seeks: f => (!f.where || !H.finders.has(f.key) || H.finders.get(f.key).bare || started.has(f.key)) && search(f, 0),
+    // Whether a finder searches from the start: a new one; one whose search read a key the change reaches; or
+    // one with no support, which finds every record of its pools, where they have one the last didn't.
+    seeks: f => (!H.finders.has(f.key) || started.has(f.key) || (f.where ? H.finders.get(f.key).bare : f.targets.some(grew))) && search(f, 0),
     // After round r's searches: where an exact support holds a candidate otherwise than it did by then last time,
     // it's worked out from the next round.
     sought(r) {
@@ -2576,13 +2592,19 @@ function replay(S, i, re, { group, blocks, candAt, finders, enqueue, size }) {
       }
       fresh.sort((a, b) => a[0] - b[0]);
       for (const d of group) {
-        const rows = [];
-        for (const row of O.rows.get(d.id) ?? []) { const w = old.get(row.key); if (w && !live.has(row.key)) rows.push([w.ordinal, row]); }
-        const all = merged(rows, fresh.filter(x => x[1].def === d.id), x => x[0]);
-        if (all.length) S.rows.set(d.id, all.map(x => x[1]));
+        const rows = [], mine = fresh.filter(x => x[1].def === d.id);
+        let j = 0;
+        for (const row of O.rows.get(d.id) ?? []) {
+          const w = old.get(row.key);
+          if (!w || live.has(row.key)) continue;
+          while (j < mine.length && mine[j][0] < w.ordinal) rows.push(mine[j++][1]);
+          rows.push(row);
+        }
+        while (j < mine.length) rows.push(mine[j++][1]);
+        if (rows.length) S.rows.set(d.id, rows);
       }
       const still = [];
-      for (let k = 0; k < kept.length; k += 2) if (S.recs[kept[k]] && !live.has(byId.get(kept[k]).h.key)) still.push(kept[k]);
+      for (const w of kept) if (S.recs[w.h.id] && !live.has(w.h.key)) still.push(w.h.id);
       ids.sort((a, b) => S.rank.get(a) - S.rank.get(b));
       S.came = merged(still, ids, id => S.rank.get(id));
       // Records worked out came last; from the first of them on, each goes back in its place.
@@ -2622,22 +2644,29 @@ function merged(a, b, by) {
 // error; a loop that went down; a record that went, or changed its value, after it came; an entry at one of
 // the group's records (indexed by when it was entered); or WITHOUT, which reads a chart of its own.
 function history(S, cands, finders, group, rp) {
-  const cs = new Map(), fs = new Map(), changed = new Set();
+  const cs = new Map(), fs = new Map(), changed = new Set(), readers = rp ? null : new Map();
   if (rp) for (const [key, h] of rp.H.cands) if (rp.keeps(key)) cs.set(key, h);
   let unsafe = !!rp?.H.unsafe || S.without;
   for (const t of cands) {
     if (!t || (rp && !t.live)) continue;
     const trail = t.trail ?? [];
     if (t.blocked || trail.some((x, j) => x[1].error || (j > 0 && (x[1].none || (t.d.type === 'field' && !sameOut(trail[j - 1][1], x[1])))))) unsafe = true;
-    cs.set(t.cand.key, { key: t.cand.key, def: t.d.id, block: t.b.index, args: t.cand.args, at: t.cand.at, id: t.cand.id, settles: trail, keys: [...(t.keys ?? [])], labels: t.labels ?? null });
+    const keys = [...(t.keys ?? [])];
+    cs.set(t.cand.key, { key: t.cand.key, def: t.d.id, block: t.b.index, args: t.cand.args, at: t.cand.at, id: t.cand.id, settles: trail, keys, labels: t.labels ?? null });
+    if (readers) for (const k of keys) push(readers, k, 'c' + t.cand.key);
     changed.add('c' + t.cand.key);
   }
   for (const f of finders.values()) {
-    if (!rp || f.live) { fs.set(f.key, { keys: [...(f.keys ?? [])], bare: !f.where, found: f.found ?? null, holds: f.holds ?? null }); changed.add('f' + f.key); }
-    else if (rp.H.finders.has(f.key)) fs.set(f.key, rp.H.finders.get(f.key));
+    if (rp && !f.live) { if (rp.H.finders.has(f.key)) fs.set(f.key, rp.H.finders.get(f.key)); continue; }
+    const keys = [...(f.keys ?? [])];
+    fs.set(f.key, { keys, bare: !f.where, found: f.found ?? null, holds: f.holds ?? null });
+    if (readers) for (const k of keys) push(readers, k, 'f' + f.key);
+    changed.add('f' + f.key);
   }
   const entered = id => [...S.byAt.get(id) ?? [], ...S.relsAt.get(id) ?? []].some(x => S.recs[x] && !S.recs[x].computed);
-  return { cands: cs, finders: fs, unsafe: unsafe || S.came.some(entered), from: rp && { H: rp.H, changed } };
+  // Who read each key is known at once from a group worked out from nothing, and from one worked out again,
+  // by the last's (see readersOf).
+  return { cands: cs, finders: fs, unsafe: unsafe || S.came.some(entered), readers, from: rp && { H: rp.H, changed } };
 }
 // Every key a trace read, its parts' included: what a working-out again asks about. A kept lookup's are spelled
 // once.
