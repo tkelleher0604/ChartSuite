@@ -1,11 +1,12 @@
 // Canvas: a view laid out as a chart, drawn on X6. It draws App.scene and nothing else, and keeps no copy of
 // formats or positions: a gesture is a change through App.change, and the scene that follows is drawn. The
 // gestures are PowerPoint's: click, Shift+click and the marquee; drag, with guides, a shape kept on the page;
-// resize; the arrow keys; copy and paste; align, order and group; double-click to type; right-click for what
-// applies. Delete hides what's selected in this view, Shift+Delete deletes it. Double-clicking the page adds a
-// box, named as it's typed. A drag from near a box's edge to another box relates them, and to empty page adds
-// a box to relate to it. The formula bar's highlight, redline and point mode are drawn over the scene, or as a
-// variant of it, which shows what the view hides.
+// resize; Tab through the boxes, and the arrow keys; copy and paste; align, order and group; double-click to
+// type; right-click for what applies. Delete hides what's selected in this view, Shift+Delete deletes it.
+// Double-clicking the page adds a box, named as it's typed. A drag from near a box's edge to another box
+// relates them, and to empty page adds a box to relate to it. The formula bar's highlight, redline and point
+// mode, and the format bar's live preview, are drawn over the scene, or as a variant of it, which shows what
+// the view hides.
 const Canvas = (() => {
 const { Graph, Selection, Transform, Snapline } = X6;
 const { signal, effect } = preactSignals;
@@ -72,12 +73,13 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
 
 // ---- Drawing: each mark as X6 cells ----
 
-function textMarkup(it, red) {
+// A text; `faint`, in a box drawn only while it's asked about.
+function textMarkup(it, red, faint) {
   const t = it.look, tone = c => red === 'appear' ? BLUE : red === 'go' ? RED : c;
   return {
     tagName: 'text', attrs: {
       'font-family': Scene.fontFamily(t.Font), 'font-size': px(t.Size), 'font-weight': t.Bold ? 700 : 400,
-      'font-style': t.Italic || it.computed ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id,
+      'font-style': t.Italic || it.computed ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
     },
     children: it.lines.map(l => {
       const r = l.red ?? it.redline ?? red;
@@ -94,6 +96,9 @@ function bodyMarkup(shape, w, h, s, red, extra = {}) {
 }
 const look = m => m.look ?? Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
 const marker = (on, w) => on ? { name: 'block', width: 5 + w * 3, height: 4 + w * 2.4, offset: 0 } : null;
+// How strongly a mark the view hides is drawn while it's asked about. A box keeps its fill, so no line
+// behind it shows through its name.
+const FAINT = 0.55;
 
 // The cells for a scene, by id, each with what it's drawn from, to redraw only what changed.
 function cellsOf(scene) {
@@ -101,9 +106,10 @@ function cellsOf(scene) {
   const node = (m, kind, markup, extra = {}) => cells.push({ id: m.id, shape: 'dendra', x: m.x, y: m.y, width: Math.max(1, m.w), height: Math.max(1, m.h),
     zIndex: z.get(m.id), markup, data: { kind, mark: m.id }, ...extra });
   for (const m of scene.marks) {
-    const s = look(m), dim = m.revealed ? { opacity: 0.55 } : {};
+    const s = look(m);
     if (m.type === 'box') {
-      node(m, 'box', [bodyMarkup(m.shape, m.w, m.h, s, m.redline, { 'data-tour': 'box' }), ...m.texts.map(it => textMarkup(it, m.redline))], { attrs: { root: dim } });
+      node(m, 'box', [bodyMarkup(m.shape, m.w, m.h, s, m.redline, { 'data-tour': 'box', ...(m.revealed && { 'stroke-opacity': FAINT }) }),
+        ...m.texts.map(it => textMarkup(it, m.redline, m.revealed))]);
     } else if (m.type === 'line') {
       const ps = m.points, dashed = Scene.dash(s.Dash, s.Weight) ?? (m.computed && !m.settings.Dash.note ? Scene.dash('dashed', s.Weight) : null);
       const arrow = s.Arrow;
@@ -112,7 +118,7 @@ function cellsOf(scene) {
         vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: { name: 'normal' },
         attrs: { line: { stroke: m.redline === 'appear' ? BLUE : m.redline === 'go' ? RED : paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight)),
-          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight)), ...(m.revealed && { opacity: 0.55 }) }, wrap: { strokeWidth: 10 } } });
+          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
         zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: m.texts.map(it => textMarkup(it, m.redline)) });
     } else if (m.type === 'frame') {
@@ -223,13 +229,15 @@ function mount(el) {
   marks.setAttribute('class', 'dc-marks');
   viewport.appendChild(marks);
 
-  // ---- Drawing the scene: App's, or a variant of it showing what's highlighted or redlined ----
+  // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
+  // A restyle is drawn as an empty redline is, so its boxes stay where they are, as in every preview.
   let pageWas = null;
   function draw() {
     const base = App.scene.peek();
     if (!base) return;
     const view = base.view;
-    scene = revealIds || redDrawn ? Scene.of(App.shown.peek(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn }) : base;
+    scene = revealIds || redDrawn || styledDrawn ? Scene.of(styledDrawn ?? App.shown.peek(), App.chart.peek(), view, base.day,
+      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn ?? (styledDrawn && {}) }) : base;
     const cells = [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6, data: { kind: 'page' },
       markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }];
     sheet.setAttribute('width', scene.page.w);
@@ -247,14 +255,14 @@ function mount(el) {
       }
     });
     syncing = false;
-    // Each view comes back as it was left; one not seen yet opens framed on its chart. A preview's page
-    // doesn't move the view.
+    // Each view comes back as it was left; one not seen yet opens on its page. A preview's page doesn't
+    // move the view.
     const size = `${base.page.w}×${base.page.h}`;
     if (viewShown !== view) {
       if (viewShown) zooms.set(viewShown, left ?? { s: graph.zoom(), t: graph.translate(), framed });
       viewShown = view;
       const z = zooms.get(view);
-      framed = z ? z.framed : 'chart';
+      framed = z ? z.framed : READS;
       left = z && !z.framed ? z : null;
       requestAnimationFrame(settle);
     } else if (framed && size !== pageWas) requestAnimationFrame(settle);   // the page grew or shrank: framed again
@@ -562,7 +570,9 @@ function mount(el) {
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
 
   // ---- Relating: from near a box's edge to another box, or to empty page for a new one ----
-  // The handles show on the box whose outline the pointer nears, a little off the middle of each side.
+  // The handles show on the box whose outline the pointer nears, a little off the middle of each side of
+  // its frame, where its selection is drawn: a triangle's too, so they're clear of the lines that land on
+  // its slopes.
   let near = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
@@ -571,12 +581,12 @@ function mount(el) {
     over.appendChild(h);
     return h;
   });
-  // A triangle's sides are its slopes, a quarter of its width in.
+  // A triangle's sides are its slopes, a quarter of its width in: a line drawn from one starts there.
   const inset = m => m.shape === 'triangle' ? m.w / 4 : 0;
   function showHandles(m = near) {
     near = m && !pointing && !still() && !dragging ? m : null;
     if (!near) { root.classList.remove('relating-on'); return; }
-    const a = graph.localToGraph(m.x + inset(m), m.y), b = graph.localToGraph(m.x + m.w - inset(m), m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, o = 12;
+    const a = graph.localToGraph(m.x, m.y), b = graph.localToGraph(m.x + m.w, m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, o = 12;
     const at = { n: [cx, a.y - o], e: [b.x + o, cy], s: [cx, b.y + o], w: [a.x - o, cy] };
     handles.forEach(h => { const [x, y] = at[h.classList[1]]; h.style.left = `${x}px`; h.style.top = `${y}px`; });
     root.classList.add('relating-on');
@@ -676,19 +686,22 @@ function mount(el) {
   // ---- States others ask for: highlight, redline, hidden records drawn ----
   // A record not drawn as text lights the box or line it sits in.
   const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene?.byId.get(x); if (m) return m; } return null; };
+  // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's.
+  const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
   function paintStates(extra) {
     if (!scene) return;
-    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-sel').forEach(n => n.remove());
+    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group').forEach(n => n.remove());
+    // A box or a text is outlined over the chart; a line is traced where it lies, under the boxes, so a
+    // line lit never crosses a name. A line drawn once for others traces them.
+    const traced = new Map();
     const outline = (m, cls, pad = 3) => {
+      if (m.points) { const id = m.merged ?? m.id; return traced.set(id, [...traced.get(id) ?? [], ...cls.split(' ')]); }
       const p = document.createElementNS(NS, 'path');
-      if (m.type === 'line') p.setAttribute('d', `M${m.points.map(q => q.join(',')).join(' L')}`);
-      else {
-        // Round a box by its own outline; a triangle's grows from its apex, so it stays clear of it.
-        const k = m.shape === 'triangle' ? 2.2 : 1;
-        p.setAttribute('d', Scene.path(m.type === 'box' ? m.shape : 'rect', m.w + 2 * pad * k, m.h + 2 * pad * (k === 1 ? 1 : 1.4)));
-        p.setAttribute('transform', `translate(${m.x - pad * k},${m.y - pad * (k === 1 ? 1 : 1.8)})`);
-      }
-      p.setAttribute('class', cls + (m.type === 'line' ? ' line' : ''));
+      // Round a box by its own outline; a triangle's grows from its apex, so it stays clear of it.
+      const k = m.shape === 'triangle' ? 2.2 : 1;
+      p.setAttribute('d', Scene.path(m.type === 'box' ? m.shape : 'rect', m.w + 2 * pad * k, m.h + 2 * pad * (k === 1 ? 1 : 1.4)));
+      p.setAttribute('transform', `translate(${m.x - pad * k},${m.y - pad * (k === 1 ? 1 : 1.8)})`);
+      p.setAttribute('class', cls);
       marks.appendChild(p);
     };
     const hosts = new Map();
@@ -706,7 +719,7 @@ function mount(el) {
         const o = h.type === 'line' ? h.labelAt ?? { x: 0, y: 0 } : h;
         const xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0)), ys = m.lines.map(l => l.y);
         outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - px(m.look.Size), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * px(m.look.Size) * 1.2 }, cls, 1.5);
-      } else { lit.add(m.id); outline(m, cls); }
+      } else { lit.add(m.merged ?? m.id); outline(m, cls); }
     }
     // A selected legend row, and an entered or selected group.
     const lg = row && scene.byId.get(row.legend), r = lg?.rows?.find(x => x.key === row.key);
@@ -723,8 +736,9 @@ function mount(el) {
     for (const c of graph.getCells()) {
       const v = graph.findViewByCell(c);
       if (!v) continue;
-      const k = c.getData()?.kind, id = k === 'label' ? c.getData().mark : c.id;
-      v.container.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id));
+      const k = c.getData()?.kind, id = k === 'label' ? c.getData().mark : c.id, el = v.container;
+      el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id));
+      if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
   }
   // Range Finder: colors { [record id]: [hue 1–6 or 'loop', depth 0–2] }, each record outlined in its hue;
@@ -743,20 +757,23 @@ function mount(el) {
       changed: new Map(Object.entries(r.changed ?? {}).map(([id, c]) => [id, now[id] ?? c?.before ?? c])) } : null;
     show();
   }
+  // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
+  // change would leave it, PowerPoint's live preview. null ends it.
+  function restyle(wb) { styled = wb; show(); }
   // Boxes and lines the view hides are drawn while they're highlighted, redlined, or asked for. (An entry
   // isn't: it lights what it sits in, so no box changes size under the pointer.) A preview is drawn while
-  // it's quick: a redline on a chart of a few hundred marks, and the hidden drawn only while they're a few
-  // dozen; past that, what's drawn is lit, and the formula bar says the rest.
+  // it's quick: a redline or a restyle on a chart of a few hundred marks, and the hidden drawn only while
+  // they're a few dozen; past that, what's drawn is lit, and the formula bar says the rest.
   const QUICK = { marks: 400, hidden: 40 };
-  let asked = [], redDrawn = null;
+  let asked = [], redDrawn = null, styled = null, styledDrawn = null;
   function reveal(ids) { asked = ids ? [...ids] : []; show(); }
   function show() {
-    const base = App.scene.peek(), r = red && (base?.marks.length ?? 0) <= QUICK.marks ? red : null;
+    const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, r = red && quick ? red : null, s = styled && quick ? styled : null;
     const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek();
     const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id); };
     const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(hidden).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
-    if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn) { revealIds = next; redDrawn = r; draw(); } else paintStates();
+    if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
   }
 
   // ---- Commands ----
@@ -825,9 +842,11 @@ function mount(el) {
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? `the ${nameOf(m.record)} line` : m.type === 'frame' ? `the ${m.caption.text} frame`
     : `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
+  // A record deleted with a day shown is gone from that day on, and the toast says so.
   function said(hid, gone, view) {
-    const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');
-    const parts = [marks.length && `hid ${counted(marks)} in ${viewName(view)}`, rows.length && `hid ${counted(rows)} in the key`, gone.length && `deleted ${counted(gone)}`].filter(Boolean);
+    const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row'), day = Shell.time.peek()?.asOf;
+    const from = day && gone.some(m => m.type === 'box' || m.type === 'line') ? ` as of ${Tree.formatDate(day, 'short')}` : '';
+    const parts = [marks.length && `hid ${counted(marks)} in ${viewName(view)}`, rows.length && `hid ${counted(rows)} in the key`, gone.length && `deleted ${counted(gone)}${from}`].filter(Boolean);
     const s = parts.join(' and ');
     return s && s[0].toUpperCase() + s.slice(1);
   }
@@ -924,42 +943,40 @@ function mount(el) {
     App.change(tx => App.notes.peek().notes('Position').filter(n => n.view === view).forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' });
   }
 
-  // ---- Zoom: the levels, and framing. A view opens framed on its chart, at a size its names read at; Fit
-  // (Shift+1) frames the whole page. A framed view stays framed as the window and the page change size,
-  // until it's zoomed or scrolled. A canvas that can't be seen (a table shown, the inspector widened) is
-  // never measured or moved: it's framed, or put back as it was left, once it's seen again ----
-  let framed = 'chart', left = null, quiet = false;
+  // ---- Zoom: the levels, and framing. A view opens on its whole page, as PowerPoint opens a slide, where
+  // that's READS or more; otherwise at READS from the page's top left, so nothing is cut but its right and
+  // foot. Fit (Shift+1) frames the whole page however small. A framed view stays framed as the window and
+  // the page change size, until it's zoomed or scrolled: `framed` is the least zoom it's framed at. A canvas
+  // that can't be seen (a table shown, the inspector widened) is never measured or moved: it's framed, or
+  // put back as it was left, once it's seen again ----
+  // Where a 10 pt name is 8 px on screen, as small as it's read.
+  const READS = 0.6;
+  let framed = READS, left = null, quiet = false;
   const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } };
   const seen = () => root.clientWidth > 0 && root.clientHeight > 0;
   const LEVELS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
-  // Where a 10 pt name is 10 px on screen.
-  const READS = 0.75;
   const extent = ms => {
     const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]), x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y));
     return { x, y, w: Math.max(...ext.map(m => m.x + m.w)) - x, h: Math.max(...ext.map(m => m.y + m.h)) - y };
   };
   // Shows a rect as large as fits within pad of the edges, between lo and hi: in the middle; or, where
-  // it's too big, from its top, centred on `at` but never past its sides.
-  function showRect(r, pad, lo, hi, at = r.x + r.w / 2) {
+  // it's too big, from its top left.
+  function showRect(r, pad, lo, hi) {
     const W = root.clientWidth, H = root.clientHeight;
     const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi);
-    const tx = r.w * s > W - 2 * pad ? clamp(W / 2 - at * s, W - pad - (r.x + r.w) * s, pad - r.x * s) : (W - r.w * s) / 2 - r.x * s;
-    quietly(() => { graph.zoomTo(s); graph.translate(tx, r.h * s > H - 2 * pad ? pad - r.y * s : (H - r.h * s) / 2 - r.y * s); });
+    const at = (x, w, room) => w * s > room - 2 * pad ? pad - x * s : (room - w * s) / 2 - x * s;
+    quietly(() => { graph.zoomTo(s); graph.translate(at(r.x, r.w, W), at(r.y, r.h, H)); });
     zoomLevel.value = graph.zoom();
   }
-  // The view as it's to be, once it can be seen: as it was left, or framed on the chart (its boxes, lines
-  // and frames, not the page's margins, title and key), which is read from its first rank; or on the page.
+  // The view as it's to be, once it can be seen: as it was left, or framed on its page.
   function settle() {
     if (!scene || !seen()) return;
-    const page = { x: 0, y: 0, w: scene.page.w, h: scene.page.h }, chart = scene.marks.filter(m => m.type !== 'shape');
-    const boxes = chart.filter(m => m.type === 'box'), top = Math.min(...boxes.map(b => b.y)), first = extent(boxes.filter(b => b.y < top + 24));
     if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
-    else if (framed === 'chart' && boxes.length) showRect(extent(chart), 32, READS, 1, first.x + first.w / 2);
-    else if (framed) showRect(page, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), LEAST, 2);
+    else if (framed) showRect({ x: 0, y: 0, w: scene.page.w, h: scene.page.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), framed, 2);
   }
   function zoom(k) {
     if (!scene) return;
-    if (k === 'fit') { framed = 'page'; left = null; return settle(); }
+    if (k === 'fit') { framed = LEAST; left = null; return settle(); }
     if (!seen()) return;
     if (k === 'in' || k === 'out') {
       const z = graph.zoom(), next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? LEAST;
@@ -985,8 +1002,27 @@ function mount(el) {
     showRect({ x, y, w, h }, 56, LEAST, 1);
   }
 
+  // Tab and Shift+Tab select the next box and the one before, in reading order (by rows, top down, then
+  // left to right), as PowerPoint's step through its shapes; and bring it on screen.
+  function next(by) {
+    const rows = [];
+    for (const b of scene.marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y)) {
+      const r = rows.at(-1);
+      if (r && b.y < r[0].y + r[0].h / 2) r.push(b); else rows.push([b]);
+    }
+    const boxes = rows.flatMap(r => r.sort((a, b) => a.x - b.x)), at = boxes.findIndex(b => b.id === keysOfSelection()[0]);
+    const m = boxes.at(at < 0 ? (by > 0 ? 0 : -1) : (at + by) % boxes.length);
+    if (!m) return;
+    Shell.select([m.id]);
+    const a = graph.localToGraph(m.x, m.y), b = graph.localToGraph(m.x + m.w, m.y + m.h), W = root.clientWidth, H = root.clientHeight, pad = 24;
+    const into = (lo, hi, room) => lo < pad ? pad - lo : hi > room - pad ? Math.max(pad - lo, room - pad - hi) : 0;
+    const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H), t = graph.translate();
+    if (dx || dy) graph.translate(t.tx + dx, t.ty + dy);
+  }
+
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
   const keyMap = {
+    'Tab': () => next(1), 'Shift+Tab': () => next(-1),
     'Delete': () => remove(), 'Backspace': () => remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
     'ArrowLeft': () => nudge(-1, 0), 'ArrowRight': () => nudge(1, 0), 'ArrowUp': () => nudge(0, -1), 'ArrowDown': () => nudge(0, 1),
     'Shift+ArrowLeft': () => nudge(-10, 0), 'Shift+ArrowRight': () => nudge(10, 0), 'Shift+ArrowUp': () => nudge(0, -10), 'Shift+ArrowDown': () => nudge(0, 10),
@@ -1028,7 +1064,7 @@ function mount(el) {
 
   const stopDraw = effect(() => { App.scene.value; draw(); });
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, point, zoomTo,
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo,
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
     destroy() {
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
