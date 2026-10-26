@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra tour test</title>
+<script>
+  // A very first launch: never toured, so the tour runs by itself once the window is drawn.
+  try { sessionStorage.setItem('dendra.launched', '1'); localStorage.clear(); } catch {}
+</script>
+<link rel="stylesheet" href="../../vendor/tabulator/tabulator.min.css">
+<link rel="stylesheet" href="../../vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="../../vendor/codemirror/show-hint.css">
+<link rel="stylesheet" href="../../vendor/codemirror/lint.css">
+<link rel="stylesheet" href="../css/dendra.css">
+<link rel="stylesheet" href="../css/canvas.css">
+<link rel="stylesheet" href="../css/inspector.css">
+<link rel="stylesheet" href="../css/formulabar.css">
+<link rel="stylesheet" href="../css/table.css">
+<style>
+  #out { position: fixed; z-index: 99; left: 8px; bottom: 8px; max-width: 900px; max-height: 60vh; overflow: auto; margin: 0; padding: 10px 12px;
+    background: #111; color: #e6e4df; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+  #out .fail { color: #ff8a80; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<pre id="out">Running…</pre>
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/x6/x6.min.js"></script>
+<script src="../../vendor/tabulator/tabulator.min.js"></script>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../../vendor/codemirror/codemirror.js"></script>
+<script src="../../vendor/codemirror/simple.js"></script>
+<script src="../../vendor/codemirror/show-hint.js"></script>
+<script src="../../vendor/codemirror/lint.js"></script>
+<script src="../../vendor/codemirror/matchbrackets.js"></script>
+<script src="../../vendor/msal/msal-browser.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/sharepoint.js"></script>
+<script>
+// The workbook opened at once, in memory: nothing is kept.
+const Store = { open: async ({ sample }) => Log.open(sample), who: () => localStorage.getItem('dendra.name') || 'Dana Jordan', status: () => ({ text: '' }), subscribe: () => () => {},
+  books: async () => [], where: () => null, openFile: async () => null, saveAs: async () => null, download() {}, fix() {} };
+</script>
+<script src="../sample/calder-ridge.js"></script>
+<script src="../ui/shell.js"></script>
+<script src="../ui/tour.js"></script>
+<script src="../ui/app.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/scene.js"></script>
+<script src="../ui/canvas.js"></script>
+<script src="../ui/formatbar.js"></script>
+<script src="../ui/inspector.js"></script>
+<script src="../ui/table.js"></script>
+<script src="../ui/time.js"></script>
+<script src="../ui/formulabar.js"></script>
+<script src="../ui/export.js"></script>
+<script>
+// Checks of the tour (tour.js) on a very first launch, in the whole window, each step done as a person would
+// do it: a step is done only by doing what it teaches, never by what another part announces, and the tour
+// ends on the view as the person left it, with nothing it chose still chosen and nothing in the record changed.
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+// The step the card shows ("3 / 5"), 'last' on the last card, or null with no card.
+const step = () => $('.tour-card') ? txt($('.tour-card .step')) || 'last' : null;
+const N = () => App.wb.changes().length;
+const shown = el => { const r = el.getBoundingClientRect(); return r.width > 0 && document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2).includes(el); };
+const visible = sel => $$(sel).find(shown);
+const hole = () => $('.tour-hole').getBoundingClientRect();
+const around = el => { const r = el.getBoundingClientRect(), h = hole(); return Math.abs(h.left - (r.left - 4)) < 2 && Math.abs(h.top - (r.top - 4)) < 2 && Math.abs(h.width - (r.width + 8)) < 2; };
+const press = (key, el = document.activeElement || document.body) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+async function run() {
+  await until(() => App.views.peek().length && App.scene.peek() && Canvas.active.peek(), 15000);
+  await until(() => step() === '1 / 5', 8000);
+  check('On the very first launch the tour starts by itself, at its first step', step() === '1 / 5', step());
+  check('… and it’s kept as toured', localStorage.getItem('dendra.toured') === '1');
+  const n0 = N(), began = Shell.selection.peek().join();
+
+  // 1. Select a box.
+  await until(() => !$('.tour-hole').classList.contains('none'));
+  const box = visible('[data-tour="box"]');
+  check('Step 1 points at a box on the chart', !!box && around(box), box && JSON.stringify(box.getBoundingClientRect()));
+  Shell.select(['fund']); await tick(150);
+  check('Clicking a box does step 1', step() === '2 / 5', step());
+
+  // 2. Drag to another: the canvas asks for the two boxes' relations.
+  Shell.emit('relate-open', ['fund', 'blocker']); await tick(300);
+  check('Dragging from one box to another does step 2', step() === '3 / 5', step());
+
+  // 3. Click an italic value: what the two boxes show, and any part asking a reason, don't do it.
+  await tick(800);
+  check('Step 3 waits to be done: the two boxes’ relations, shown with their reasons, don’t do it', step() === '3 / 5', step());
+  const computed = Object.keys(App.computed.peek().computed).find(id => !('tag' in App.state.peek()[id]));
+  Shell.emit('why-open', computed); await tick(150);
+  check('… nor does a reason asked anywhere but on what it points at', step() === '3 / 5', step());
+  await until(() => !!visible('[data-tour="computed"]') && around(visible('[data-tour="computed"]')));
+  const italic = visible('[data-tour="computed"]');
+  check('Step 3 points at an italic value, a formula’s', !!italic && around(italic) && getComputedStyle(italic).fontStyle === 'italic', italic?.outerHTML.slice(0, 160));
+  const asked = [], off = Shell.on('why-open', id => asked.push(id));
+  italic.focus(); italic.click(); await tick(200);
+  off();
+  check('Clicking it does step 3', step() === '4 / 5', step());
+  check('… and the click goes on: the value is asked about, so the formula bar says why', document.activeElement === italic && asked.length > 0, `${document.activeElement?.outerHTML.slice(0, 80)} ${asked.join()}`);
+
+  // 4. Point at a tag: a click there only points.
+  await until(() => !!visible('.inspector [data-tour="tag"]'));
+  const tag = visible('.inspector [data-tour="tag"]'), was = tag.className;
+  tag.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+  tag.click(); await tick(200);
+  check('Pointing at a tag and clicking it does step 4, and switches nothing', step() === '5 / 5' && N() === n0, `${step()} ${N() - n0} changes`);
+
+  // 5. Switch view.
+  await until(() => !!visible('[data-tour="sheet"]') && around(visible('[data-tour="sheet"]')));
+  const sheet = visible('[data-tour="sheet"]');
+  check('Step 5 points at another view’s tab', !!sheet && around(sheet), sheet && `${JSON.stringify(sheet.getBoundingClientRect())} ${JSON.stringify(hole())}`);
+  const other = App.views.peek().find(v => v.layout === 'chart' && v.id !== Shell.view.peek());
+  Shell.show(other.id); await tick(400);
+  check('Switching view does step 5, and the last card shows', step() === 'last' && !!$('.tour-card input'), step());
+  check('With the steps done, the selection is the one the tour began on', Shell.selection.peek().join() === began, Shell.selection.peek().join());
+  check('… so the view it ends on is whole, not greyed out', !$$('.dc-dim').length, `${$$('.dc-dim').length} dimmed`);
+
+  // The last card: a name, and Keep this chart.
+  const name = $('.tour-card input');
+  check('The last card asks for a name, its field focused', document.activeElement === name);
+  name.value = 'Pat Example'; name.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  $('.tour-card .btn.primary').click(); await tick(150);
+  check('Keep this chart ends the tour, keeping the name', step() === null && localStorage.getItem('dendra.name') === 'Pat Example');
+  check('The tour changed nothing in the record', N() === n0, `${N() - n0} changes`);
+  check('… and the view it ended on is the one switched to, whole', Shell.view.peek() === other.id && !$$('.dc-dim').length);
+
+  // Again, from the chart menu, with a box selected: Skip goes to the last card, and Esc ends it, as it found it.
+  Shell.select(['gp']); await tick(100);
+  Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
+  check('Tour, from the chart menu, starts it again', step() === '1 / 5', step());
+  Shell.select(['fund']); await tick(150);
+  check('… its first step done by a box clicked', step() === '2 / 5', step());
+  $('.tour-card .skip').click(); await tick(150);
+  check('Skip goes to the last card, with the selection the tour began on', step() === 'last' && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  press('Escape', $('.tour-card input')); await tick(150);
+  check('Esc ends it', step() === null);
+  Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
+  Shell.select(['blocker']); await tick(150);
+  press('Escape', document.body); await tick(150);
+  check('Esc in a step ends it too, with the selection it began on', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  check('Nothing threw', !errors.length, errors.join(' / '));
+}
+
+const errors = [];
+window.onerror = (m, s, l) => { errors.push(`${m} (${(s || '').split('/').pop()}:${l})`); };
+addEventListener('unhandledrejection', e => errors.push(String(e.reason?.stack ?? e.reason)));
+Shell.ready.then(() => run())
+  .catch(e => check('runs', false, e.stack ?? e))
+  .finally(() => {
+    const failed = out.filter(c => !c.ok);
+    const line = c => `${c.ok ? 'pass' : 'FAIL'}  ${c.name}${c.detail && !c.ok ? `  (${c.detail})` : ''}`;
+    document.title = `tour test: ${out.length - failed.length} pass, ${failed.length} fail`;
+    $('#out').innerHTML = [`${out.length - failed.length} passed, ${failed.length} failed`, '',
+      ...failed.map(c => `<span class="fail">${line(c).replace(/</g, '&lt;')}</span>`), ...(failed.length ? [''] : []),
+      ...out.filter(c => c.ok).map(line).map(s => s.replace(/</g, '&lt;'))].join('\n');
+  });
+</script>
+</body>
+</html>
