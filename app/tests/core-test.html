@@ -46,7 +46,8 @@ function run(json) {
   check('a node of a specification is a kind just where it is a leaf', Object.values(S).every(function leafy(t) {
     return t.args ? !('kind' in t) && t.out && t.args.every(a => leafy(a.loc) && !('field' in (a.loc.out ?? {}))) : t.kind !== undefined;
   }));
-  check('the sample is as big as it should be', Object.keys(now).length === 828 && wb.changes().length === 122, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  // 122 changes to October 20, 2026, and the legal team's revisions after a general counsel's review.
+  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 136, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
 
   // ---- Patterns ----
   const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
@@ -107,25 +108,26 @@ function run(json) {
 
   // ---- What formulas.js takes ----
   const defs = N.definitions(S), def = id => defs.find(d => d.id === id);
-  check('every definition covers what it covered', defs.length === 23 && defs.every(d => d.covers.length && d.rows.length),
+  check('every definition covers what it covered', defs.length === 29 && defs.every(d => d.covers.length && d.rows.length),
     defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
   check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
     && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 5 && def('def_look_through').datatype === 'percent');
   check('a relation’s definition has its name and edges in order', def('def_control').name === 'Control' && j(def('def_control').edges) === j(['Controller', 'Controlled'])
     && def('def_private_fund').name === 'Private Fund');
   const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
-  check('relation names as formulas.js takes them', rels.length === 15 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
+  check('relation names as formulas.js takes them', rels.length === 17 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
 
   // ---- Time: as of a day ----
   const on = (d, id) => !!wb.asOf(C, d)[id];
   check('before the GP was replaced, GP III is the feeder’s GP', on('2023-12-31', 'gp_of_feeder') && !on('2023-12-31', 'gp_cay_fdr') && on('2023-12-31', 'sign_chen_fdr'));
-  check('after, the Cayman GP is', !on(TODAY, 'gp_of_feeder') && on(TODAY, 'gp_cay_fdr') && !on(TODAY, 'sign_chen_fdr') && on(TODAY, 'sign_chen_fdr_cay')
-    && on('2024-06-30', 'gp_of_feeder') && !on('2024-07-01', 'gp_of_feeder') && on('2024-07-01', 'gp_cay_fdr'));
+  check('after, the Cayman GP is, from the day the notice of the change was filed', !on(TODAY, 'gp_of_feeder') && on(TODAY, 'gp_cay_fdr') && !on(TODAY, 'sign_chen_fdr') && on(TODAY, 'sign_chen_fdr_cay')
+    && on('2024-07-08', 'gp_of_feeder') && !on('2024-07-08', 'gp_cay_fdr') && !on('2024-07-09', 'gp_of_feeder') && on('2024-07-09', 'gp_cay_fdr') && on('2024-07-09', 'sign_chen_fdr_cay'));
   const pct = (d, id) => wb.asOf(C, d)[id]?.value;
   check('a closing changes a percentage from its day', pct('2026-06-14', 'own_fund_corvane_pct') === 0.56 && pct('2026-06-15', 'own_fund_corvane_pct') === 0.49
     && pct('2026-06-14', 'own_3a_corvane_pct') === 0.08 && !on('2026-06-14', 'own_coinv_corvane') && pct('2026-07-01', 'own_coinv_corvane_pct') === 0.125);
-  check('a fund is absent before its Formation Date, with all that’s at it', !on('2024-09-15', 'fund3a') && !on('2024-09-15', 'fund3a_name')
-    && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && on('2024-09-16', 'own_inv3a_3a'));
+  check('a fund is absent before its Formation Date, with all that’s at it, and its investors before its first sale', !on('2024-09-15', 'fund3a') && !on('2024-09-15', 'fund3a_name')
+    && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && !on('2024-09-16', 'own_inv3a_3a') && on('2024-11-15', 'own_inv3a_3a'));
+  check('the Blocker was in good standing from its formation', wb.asOf(C, '2023-12-31').blocker_good?.tag === true && wb.asOf(C, TODAY).blocker_good?.tag === true);
   check('a filing date renews on the day it names', pct('2025-05-27', 'fund_juris_tax') === '2024-05-29' && pct('2025-05-28', 'fund_juris_tax') === '2025-05-28' && pct(TODAY, 'fund_juris_tax') === '2026-05-27');
   // ---- The chart's words, and a view's own notes ----
   check('an object reads by its Name, or its Short Name where room is short', N.nameOf(now, 'fund') === 'Calder Ridge Capital Partners III, L.P.' && N.shortOf(now, 'fund') === 'Fund III');
@@ -194,7 +196,9 @@ function run(json) {
     commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund 3' }), { who: 'Ann Lee' });
     check('a change can’t be undone once it has changed since', typeof w.undo(WHO, C) === 'string' && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
     const del = w.deleted(C).find(d => d.item === 'fund_agent');
-    check('deleted items are read off the log', j(w.deleted(C).map(d => d.item).sort()) === j(['fund_agent', 'gp_agent']) && del.rows[0].value === 'The Corporation Trust Company');
+    // The registered agents once kept as text, and the per-entity Annual Tax Due and Amount, now one for each tax year.
+    check('deleted items are read off the log', j(w.deleted(C).map(d => d.item).sort()) === j(['fund_agent', 'gp_agent', 's1b', 'sq']) && del.rows[0].value === 'The Corporation Trust Company',
+      j(w.deleted(C).map(d => d.item).sort()));
     w.reverse(del.change, WHO);
     check('restoring an older change brings it back', w.asOf(C, TODAY).fund_agent?.value === 'The Corporation Trust Company' && !w.deleted(C).some(d => d.item === 'fund_agent'));
     const rows = w.rows(C).length;

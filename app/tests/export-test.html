@@ -208,7 +208,7 @@ async function run() {
     const described = computed.filter(([id]) => events.some(e => e.includes(`UID:${C}.${id}@`) && unesc(/DESCRIPTION:(.*)/.exec(e)?.[1] ?? '') === Formulas.groundText(R, id)));
     check('a worked-out date’s description is its ground on one line', computed.length > 5 && described.length === computed.length, `${described.length} of ${computed.length}`);
     const tax = events.find(e => e.includes('Annual Tax Due'));
-    check('an event says whose date it is, and of what', /SUMMARY:Calder Ridge Capital Partners III AIV-1\\, L\.P\. › Jurisdiction: Delaware › Annual Tax Due/.test(tax), /SUMMARY:.*/.exec(tax)?.[0]);
+    check('an event says whose date it is, and of what', /SUMMARY:Calder Ridge Capital Partners III AIV-1\\, L\.P\. → 2025 › Annual Tax Due/.test(tax), /SUMMARY:.*/.exec(tax)?.[0]);
     check('an all-day event, on its day', /DTSTART;VALUE=DATE:20260601\r?\n?DTEND;VALUE=DATE:20260602/.test(tax.replace(/\r\n/g, '\n')) || (/DTSTART;VALUE=DATE:\d{8}/.test(tax) && /DTEND;VALUE=DATE:\d{8}/.test(tax)));
     const said = [...unfolded.matchAll(/^(?:SUMMARY|DESCRIPTION):(.*)$/gm)].map(m => unesc(m[1]));
     const leaks = said.filter(s => /[=←]|\b[A-Z]{2,}\(|\\|:\/\//.test(s));

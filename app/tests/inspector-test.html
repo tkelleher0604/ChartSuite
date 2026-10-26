@@ -111,17 +111,20 @@ async function run() {
   await pick('Business Development Company');
   check('choosing an option sets it', st().fund_ics.choice === 'Business Development Company', st().fund_ics.choice);
 
-  // Computed values: italic; typing over one enters it, and clearing that lets the formula stand
+  // Computed values: italic; typing over one enters it, and clearing that lets the formula stand. The U.S.
+  // investors' limited partnership interest carries no vote by default; one that can remove the GP may.
   const whys = [], offWhy = Shell.on('why-open', d => whys.push(d));
-  const count = () => Object.entries(st()).find(([, r]) => r.at === 'fund_juris' && r.edge === 'Annual Tax Amount');
-  const cnt = rowOf('Annual Tax Amount').querySelector('input'), was = count();
+  Shell.select(['own_us_fund']); await tick();
+  const count = () => Object.entries(st()).find(([, r]) => r.at === 'own_us_fund' && r.edge === 'Voting Percentage');
+  const cnt = rowOf('Voting Percentage').querySelector('input'), was = count();
   check('a computed value is italic', cnt.classList.contains('fx') && App.computed.value.computed[was[0]]);
-  await type(cnt, '$500');
+  await type(cnt, '10%');
   check('clicking a computed value asks why', whys.includes(was[0]));
-  check('typing over a computed value enters it, with an amber corner', count()[1].value === 500 && !App.computed.value.computed[count()[0]] && !!rowOf('Annual Tax Amount').querySelector('.hug.over'));
-  await type(rowOf('Annual Tax Amount').querySelector('input'), '');
+  check('typing over a computed value enters it, with an amber corner', count()[1].value === 0.1 && !App.computed.value.computed[count()[0]] && !!rowOf('Voting Percentage').querySelector('.hug.over'));
+  await type(rowOf('Voting Percentage').querySelector('input'), '');
   check('clearing an entered value lets the formula stand', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
   offWhy();
+  Shell.select(['fund']); await tick();
 
   // Adding an entry, with its specification
   $('.add-entry').click(); await tick();

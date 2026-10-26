@@ -333,7 +333,8 @@ function calendar(R, N, chart, name, stamp = new Date()) {
   const now = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const events = Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
     // Whose date it is, in full, and where it is in that.
-    const path = Tree.pathOf(st, id), head = Tree.isObject(st[path[0]]) ? N.nameOf(st, path[0]) : N.segmentOf(st, path[0]);
+    const path = Tree.pathOf(st, id), full = x => N.nameOf(st, Tree.objectOf(st, x));
+    const head = Tree.isObject(st[path[0]]) ? full(path[0]) : N.sides(st, path[0]).map(a => full(a.at)).join(' → ');
     const why = r.computed ? plain(Formulas.groundText(R, id)) : '';
     return ['BEGIN:VEVENT', `UID:${chart}.${id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(r.value)}`, `DTEND;VALUE=DATE:${next(r.value)}`,
       `SUMMARY:${text([plain(head), ...path.slice(1).map(x => N.segmentOf(st, x))].join(' › '))}`, ...(why ? [`DESCRIPTION:${text(why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT'];

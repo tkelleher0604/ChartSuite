@@ -53,7 +53,7 @@ function grown(base, n) {
     else if (i % 2) own(ents[i - 4], id, 1, k++);
     else { own(ents[i - 4], id, 0.6, k++); own(ents[i - 3], id, 0.4, k++); }
     if (i % 2 && recs[`${id}_type`].choice === 'Limited Partnership')
-      recs[`x_gp${i}`] = { args: [{ edge: 'GP', at: ents[Math.max(0, i - 1)] }, { edge: 'Fund Owned', at: `${id}_type` }], tag: true };
+      recs[`x_gp${i}`] = { args: [{ edge: 'GP', at: ents[Math.max(0, i - 1)] }, { edge: 'Partnership', at: `${id}_type` }], tag: true };
     if (i % 3 === 0 && people.length)
       recs[`x_pos${i}`] = { args: [{ edge: 'Holder', at: people[i % people.length] }, { edge: 'Company', at: id }], choice: 'Officer' };
   });
