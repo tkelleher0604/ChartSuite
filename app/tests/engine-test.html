@@ -65,25 +65,46 @@ function differences(a, b) {
 // Definitions that reach the ways a step can be worked out that the sample's don't: an implication whose
 // form doesn't say where it can hold; NOT; a list that errs; three arguments; a look-through whose factor
 // isn't a number; a holding read from the other side; a value formula and an implication on one loop,
-// which is circular; and a relation that reads itself through NOT.
+// which is circular; a relation that reads itself through NOT; a choice between two objects worked out
+// at every pair; a field located at a computed relation; and a list of an entered relation that's
+// located at a computed one.
 const EDGE_DEFINITIONS = [
   { id: 'def_sibling', name: 'Sibling', type: 'tag', args: [{ edge: 'Elder', at: ['Entity'] }, { edge: 'Younger', at: ['Entity'] }],
     implications: [{ label: 'A shared owner', formula: '← ANY(Younger.Owners, @ IN Elder.Owners)' }] },
-  { id: 'def_passive', name: 'Passive Holder', type: 'tag', args: [{ edge: 'Holder', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Company', at: ['Entity'] }],
-    implications: [{ label: 'Holds without control', formula: '← Holder IN Company.Owners AND NOT Control(Holder, Company)' }] },
+  { id: 'def_passive', name: 'Passive Holder', type: 'tag', args: [{ edge: 'Passive', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Passively Held', at: ['Entity'] }],
+    implications: [{ label: 'Holds without control', formula: '← Passive IN [Passively Held].Owners AND NOT Control(Passive, [Passively Held])' }] },
   { id: 'def_bogus', name: 'Bogus', type: 'tag', args: [{ edge: 'From', at: ['Entity'] }, { edge: 'To', at: ['Entity'] }],
     implications: [{ label: 'A step that isn’t there', formula: '← To IN REACH(From, Nowhere)' }, { label: 'Owned', formula: '← From IN To.Owners' }] },
   { id: 'def_signing', name: 'Signing Path', type: 'tag', args: [{ edge: 'Signatory', at: ['Individual'] }, { edge: 'Via', at: ['Entity'] }, { edge: 'On Behalf Of', at: ['Entity'] }],
     implications: [{ label: 'An officer of the general partner', formula: '← Via IN [On Behalf Of].[General Partners] AND Signatory IN Via.Personnel' }] },
   { id: 'def_name_product', name: 'Name Product', type: 'field', datatype: 'number', args: [{ edge: 'Top', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Bottom', at: ['Entity'] }],
     formula: '= LOOKTHROUGH(Top, Bottom, Holdings, Name)' },
-  { id: 'def_half', name: 'Half Owner', type: 'tag', args: [{ edge: 'Holder', at: ['Entity', 'Individual'] }, { edge: 'Company', at: ['Entity'] }],
-    implications: [{ label: 'Half or more', formula: '← SUM(FILTER(Company.Owners, @ = Holder OR @ IN REACH(Holder, Holdings)).Percentage) >= 50%' }] },
+  { id: 'def_half', name: 'Half Owner', type: 'tag', args: [{ edge: 'Half Holder', at: ['Entity', 'Individual'] }, { edge: 'Half Held', at: ['Entity'] }],
+    implications: [{ label: 'Half or more', formula: '← SUM(FILTER([Half Held].Owners, @ = [Half Holder] OR @ IN REACH([Half Holder], Holdings)).Percentage) >= 50%' }] },
   { id: 'def_control_count', name: 'Control Count', type: 'field', datatype: 'number', at: ['Entity'], formula: '= COUNT(Controllers) + IF([Widely Held], 1, 0)' },
   { id: 'def_widely_held', name: 'Widely Held', type: 'tag', at: ['Entity'], implications: [{ label: 'Many controllers', formula: '← [Control Count] > 3' }] },
   { id: 'def_contrary', name: 'Contrary', type: 'tag', args: [{ edge: 'P', at: ['Entity'] }, { edge: 'Q', at: ['Entity'] }],
     implications: [{ label: 'Owned, unless the other way', formula: '← Q IN P.Owners AND NOT Contrary(Q, P)' }] },
+  { id: 'def_majority', name: 'Majority', type: 'choice', args: [{ edge: 'Major', at: ['Entity', 'Individual', 'Investor Group'] }, { edge: 'Majority Held', at: ['Entity'] }],
+    formula: '= IF(SUM(FILTER([Majority Held].Owners, @ = Major).Percentage) > 50%, "Majority", BLANK())' },
+  { id: 'def_control_share', name: 'Control Share', type: 'field', datatype: 'percent',
+    covers: ['entity', 'individual'].map(kind => Formulas.parameterizationKey([{ edge: 'Control Share',
+      spec: JSON.stringify(['tag:true', ...[JSON.stringify(['controlled', 'kind:entity']), JSON.stringify(['controller', `kind:${kind}`])].sort()]) }])),
+    formula: '= SUM(FILTER(Controlled.Owners, @ = Controller).Percentage)' },
+  { id: 'def_approver', name: 'Approves Control', type: 'tag', at: ['Individual'], implications: [{ label: 'Has approved one', formula: '← COUNT(Approved) > 0' }] },
 ];
+
+// Records entered at computed ones: a note on Chen's control of the management company, Raman's approval of
+// it, and a note on the fund's Private Fund tag. And two look-throughs entered where the formula gives a
+// different one, and nothing.
+const chenControlsMgmt = Formulas.computedId([{ edge: 'Controller', at: 'chen' }, { edge: 'Controlled', at: 'mgmt' }]);
+const ENTERED_AT_COMPUTED = {
+  x_basis: { at: chenControlsMgmt, edge: 'Basis', field: 'text', value: 'A majority of the units' },
+  x_approval: { args: [{ edge: 'Approved', at: chenControlsMgmt }, { edge: 'Approver', at: 'raman' }], tag: true },
+  x_pf_note: { at: Formulas.computedId([{ edge: 'Private Fund', at: 'fund' }]), edge: 'Note', field: 'text', value: 'A 3(c)(7) fund' },
+  x_lt_us: { args: [{ edge: 'Investor', at: 'inv_us' }, { edge: 'Investment', at: 'halvard' }], field: 'percent', value: 0.5 },
+  x_lt_pension: { args: [{ edge: 'Investor', at: 'pension' }, { edge: 'Investment', at: 'halvard' }], field: 'percent', value: 0.01 },
+};
 
 // The charts: the sample a chart starts from, grown; the feeder's control of the fund ruled out; the core
 // with the fund as a BDC, so the carve-out comes up; and the core with the definitions above, once with an
@@ -98,7 +119,7 @@ function oracleCharts() {
     ['The sample with 12 more entities', sample(12)],
     ['The sample with 24 more entities and the feeder’s control of the fund ruled out', rebutted],
     ['The core with the fund as a BDC and 20 more entities', core(20, recs => { recs.fund_ics.choice = 'Business Development Company'; })],
-    ['The core with 10 more entities and the edge definitions', core(10, () => {}, [...SAMPLE_DEFINITIONS, ...EDGE_DEFINITIONS])],
+    ['The core with 10 more entities, the edge definitions, and records entered at computed ones', core(10, recs => Object.assign(recs, ENTERED_AT_COMPUTED), [...SAMPLE_DEFINITIONS, ...EDGE_DEFINITIONS])],
     ['…with an entry named Owners on the blocker', core(10, recs => { recs.x_owners = { at: 'blocker', edge: 'Owners', field: 'text', value: 'See the register' }; }, [...SAMPLE_DEFINITIONS, ...EDGE_DEFINITIONS])],
   ];
 }

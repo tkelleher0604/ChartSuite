@@ -2246,6 +2246,7 @@ function lazyValues(S, jobs, blocked = new Set()) {
 function settleValues(S, group) {
   const jobs = blocksOf(S, group).flatMap(b => S.forgetting ? everyCandidate(b) : foundValues(S, b));
   S.lazy = lazyValues(S, jobs);
+  S.count.tried += S.lazy.cands.size;
   for (const key of S.lazy.cands.keys()) force(S, key);
   valueOverlaps(S, jobs);
   S.lazy = null;
