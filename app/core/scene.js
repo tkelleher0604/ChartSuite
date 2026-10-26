@@ -494,9 +494,11 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const legendRows = legend(N, view, styles, [...boxes, ...lines].filter(m => !m.revealed));
   for (const s of shapes) if (s.geometry === 'legend') layoutLegend(s, legendRows);
   const byId = new Map();
+  // Each mark by its id, and each text by its record's, or by each of the relations one written in a box
+  // names.
   for (const m of [...boxes, ...lines, ...frames.values(), ...shapes]) {
     byId.set(m.id, m);
-    for (const it of m.texts ?? []) if (!byId.has(it.id)) byId.set(it.id, it);
+    for (const it of m.texts ?? []) for (const id of it.records ?? [it.id]) if (!byId.has(id)) byId.set(id, it);
   }
   for (const g of shapes.filter(s => s.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 

@@ -753,9 +753,7 @@ function mount(el) {
   function show() {
     const base = App.scene.peek(), r = red && (base?.marks.length ?? 0) <= QUICK.marks ? red : null;
     const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek();
-    const drawn = new Set(base?.byId.keys());
-    for (const m of base?.marks ?? []) for (const it of m.texts ?? []) for (const id of it.records ?? []) drawn.add(id);
-    const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !drawn.has(id); };
+    const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id); };
     const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(hidden).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
     if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn) { revealIds = next; redDrawn = r; draw(); } else paintStates();
@@ -836,13 +834,13 @@ function mount(el) {
   // What's copied is marks of one view, and their names: pasting a box shows it, a shape is copied.
   let clip = null;
   const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x, y: m.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
-  // A copy from the menu puts the names on the system's clipboard too, as it can.
   function copy() {
     const c = marksNow();
     if (!c.items.length) return false;
-    clip = { ...c, text: c.items.map(it => it.box ? nameOf(it.box) : it.row.text || SHAPE[it.row.geometry] || 'Shape').join('\n') };
+    clip = { ...c, text: c.items.map(it => it.box ? nameOf(it.box) : it.row.text || SHAPE[it.row.geometry] || 'shape').join('\n') };
     return true;
   }
+  // A copy from the menu puts the names on the system's clipboard too, as it can.
   const copyOut = () => { if (copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
   function paste(c = clip) {
     if (!c?.items.length) return;
@@ -1023,7 +1021,8 @@ function mount(el) {
     e.clipboardData?.setData('text/plain', clip.text);
     if (e.type === 'cut') remove();
   };
-  for (const name of ['copy', 'cut', 'paste']) document.addEventListener(name, clipboard);
+  const CLIP = ['copy', 'cut', 'paste'];
+  CLIP.forEach(n => document.addEventListener(n, clipboard));
   // A wheel scrolls the page; with Ctrl, X6 zooms.
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
@@ -1032,8 +1031,7 @@ function mount(el) {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, point, zoomTo,
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
     destroy() {
-      stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver);
-      for (const name of ['copy', 'cut', 'paste']) document.removeEventListener(name, clipboard);
+      stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
