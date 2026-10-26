@@ -1,28 +1,16 @@
-// Canvas: a view laid out as a chart, drawn on X6 (canvas.md §5.4). It draws the scene and nothing else,
-// and keeps no copy of formats or positions: a gesture writes notes or shape rows through the log, and the
-// scene that follows is drawn. The gestures are PowerPoint's: click, Shift+click and the marquee; drag, with
-// guides; resize; the arrow keys; Delete; copy and paste; align, order and group; double-click to type; and
-// a drag from a box's edge to another box, to relate them.
-//
-// Canvas.mount(el, source) → a canvas. The source holds signals { wb, chart, view, day, state, selection }
-// and edit(opts) → a transaction, select(keys), emit(name, detail), on(name, fn); Canvas.fromApp() is the
-// window's. Selection keys are mark ids: a box's or a line's record, a free shape's id, a frame's, and a
-// legend row as `legend id#row key`. The canvas:
-//   scene(), selected() → marks, keys(), select(keys)
-//   highlight({ [id]: color } | null, { dim, strong, deep, pulse }), redline({ appear, go, changed, records }
-//     | null), reveal(ids | null): the states the formula bar asks for (formulabar.js says how)
-//   insert(geometry, opts) → id, remove(), copy(), cut(), paste(), duplicate(), nudge(dx, dy)
-//   align('left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'), distribute('across' | 'down'),
-//   match('width' | 'height'), order('front' | 'forward' | 'backward' | 'back'), group(), ungroup()
-//   edit(key), tidy(), zoom(k | 'fit' | 'in' | 'out'), on('change' | 'zoom', fn), destroy()
-// On the source's bus it emits 'relate-open' ([a, b]) after a drag from one box to another; 'point' (a
-// record id) for a click while 'point-mode' is on; 'why-open' (its id) for a click on a lit computed line.
+// Canvas: a view laid out as a chart, drawn on X6. It draws App.scene and nothing else, and keeps no copy of
+// formats or positions: a gesture is a change through App.change, and the scene that follows is drawn. The
+// gestures are PowerPoint's: click, Shift+click and the marquee; drag, with guides; resize; the arrow keys;
+// Delete; copy and paste; align, order and group; double-click to type; and a drag from a box's edge to another
+// box, to relate them. The formula bar's highlight, redline and point mode are drawn over the scene, or as a
+// variant of it, which shows what the view hides.
 const Canvas = (() => {
 const { Graph, Selection, Transform, Snapline } = X6;
-const { signal, effect, computed } = preactSignals;
+const { signal, effect } = preactSignals;
 Graph.registerNode('dendra', { markup: [], attrs: {} }, true);
 
 const active = signal(null);
+const zoomLevel = signal(1);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -32,25 +20,8 @@ const round = v => Math.round(v * 2) / 2;
 // Sizes and weights are points; the canvas draws in pixels.
 const px = pt => pt * Scene.PT;
 
-// ---- Writing ----
-
-// A note at exactly this pattern, label and view: set to `value`, or removed when it's undefined.
-function writeNote(tx, N, { label, pattern, view, param }, value) {
-  const k = Tree.key(pattern);
-  const old = N.notes(label).find(n => (n.view ?? null) === (view ?? null) && (n.param ?? null) === (param ?? null) && Tree.key(n.pattern) === k);
-  if (value === undefined) { if (old) tx.remove(old.note); return; }
-  const row = { label, pattern, ...(view && { view }), ...(param && { param }), value };
-  if (!old) tx.add('note', row);
-  else if (JSON.stringify(old.value) !== JSON.stringify(value)) tx.set(old.note, row);
-}
-// An item's live row as a payload for tx.set: a record's version in force on the day, or a shape's row.
-function payload(wb, chart, id, day) {
-  const rows = wb.item(chart, id);
-  const r = rows.find(x => !('record' in x) || Log.validOn(x, day)) ?? rows[rows.length - 1];
-  if (!r) return null;
-  const { id: _, record, shape, since, before, ...p } = r;
-  return p;
-}
+// A free shape's row, as it's kept.
+const rowOf = id => { const r = App.shown.peek().item(App.chart.peek(), id)[0]; if (!r) return null; const { id: _, shape, ...p } = r; return p; };
 
 // ---- Drawing: each mark as X6 cells ----
 
@@ -144,21 +115,20 @@ function legendMarkup(m, s) {
 
 // ---- The canvas ----
 
-function mount(el, src) {
+function mount(el) {
   const root = document.createElement('div');
   root.className = 'dc';
   root.tabIndex = 0;
   root.innerHTML = '<div class="dc-graph"></div><div class="dc-over"></div>';
   el.appendChild(root);
   const gEl = root.firstChild, over = root.lastChild;
-  const subs = new Map();
-  const on = (name, fn) => { (subs.get(name) ?? subs.set(name, new Set()).get(name)).add(fn); return () => subs.get(name).delete(fn); };
-  const fire = (name, d) => subs.get(name)?.forEach(f => f(d));
 
   let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, row = null, dragging = null, syncing = false;
   let pointing = false, hold = false;
   const cellSig = new Map();
   const zooms = new Map();
+  // In History nothing moves: the chart is as it stood.
+  const still = () => App.readOnly.peek();
 
   const graph = new Graph({
     container: gEl, autoResize: true, async: false, background: false, grid: false,
@@ -167,14 +137,14 @@ function mount(el, src) {
     scaling: { min: 0.1, max: 4 },
     interacting: view => {
       const k = view.cell.getData()?.kind;
-      if (view.cell.isEdge()) return { edgeMovable: k === 'shape', edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && k !== 'page' && k !== 'label' };
+      if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still(), edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
+      return { nodeMovable: !pointing && !still() && k !== 'page' && k !== 'label' };
     },
   });
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: c => { const k = c.getData()?.kind; return k && k !== 'page' && k !== 'label'; } });
   graph.use(sel);
-  const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind);
+  const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind) && !still();
   const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true }, rotating: false });
   graph.use(transform);
   transform.stopListening(); // it would put handles on whatever is clicked; grips() decides
@@ -197,12 +167,12 @@ function mount(el, src) {
   marks.setAttribute('class', 'dc-marks');
   viewport.appendChild(marks);
 
-  // ---- Drawing the scene ----
-  const read = () => ({ wb: src.wb.value, chart: src.chart.value, view: src.view.value, day: src.day.value, state: src.state.value });
+  // ---- Drawing the scene: App's, or a variant of it showing what's highlighted or redlined ----
   function draw() {
-    const { wb, chart, view, day, state } = read();
-    if (!wb || !chart || !view) return;
-    scene = Scene.of(wb, chart, view, day, { state, reveal: revealIds, redline: red });
+    const base = App.scene.peek();
+    if (!base) return;
+    const view = base.view;
+    scene = revealIds || red ? Scene.of(App.shown.peek(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: red }) : base;
     const cells = [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6, data: { kind: 'page' },
       markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }];
     sheet.setAttribute('width', scene.page.w);
@@ -228,10 +198,9 @@ function mount(el, src) {
     }
     syncSelection();
     paintStates();
-    fire('change', scene);
   }
 
-  // ---- Selection: X6's, kept in step with the source's keys ----
+  // ---- Selection: X6's, kept in step with the shell's keys ----
   const groups = () => scene ? scene.marks.filter(m => m.geometry === 'group') : [];
   const groupOf = id => groups().find(g => g.members.includes(id) && g.id !== entered);
   function cellsFor(keys) {
@@ -253,7 +222,7 @@ function mount(el, src) {
   }
   // X6 lets go of a cell drawn again, so the selection is taken up again from the keys.
   function syncSelection() {
-    const keys = src.selection.peek().filter(k => scene.byId.has(keyParts(k)[0]));
+    const keys = Shell.selection.peek().filter(k => scene.byId.has(keyParts(k)[0]));
     const want = cellsFor(keys), have = sel.getSelectedCells();
     if (want.length !== have.length || want.some(c => !have.includes(c))) { syncing = true; sel.reset(want); syncing = false; }
     grips();
@@ -266,20 +235,20 @@ function mount(el, src) {
     if (grow.length) { syncing = true; sel.select(grow.map(id => graph.getCellById(id)).filter(Boolean)); syncing = false; }
     if (row && !ids.includes(row.legend)) row = null;
     const keys = keysOfSelection();
-    if (!same(keys, src.selection.peek())) src.select(keys);
+    if (!same(keys, Shell.selection.peek())) Shell.select(keys);
     grips();
     paintStates();
   });
-  const stopSel = effect(() => { const keys = src.selection.value; if (scene && !syncing) { if (!keys.some(k => k.includes('#'))) row = null; syncSelection(); paintStates(); } });
+  const stopSel = effect(() => { const keys = Shell.selection.value; if (scene && !syncing) { if (!keys.some(k => k.includes('#'))) row = null; syncSelection(); paintStates(); } });
 
   // While a formula's row is edited (point mode), a click on a box or line names its record to the formula
   // bar and selects nothing. A click on a computed line the bar has lit shows its reasons there.
-  const offPoint = src.on?.('point-mode', on => { pointing = !!on; root.classList.toggle('pointing', pointing); showHandles(); });
+  function point(on) { pointing = !!on; root.classList.toggle('pointing', pointing); showHandles(); }
   function pointed(cell) {
     const d = cell.getData() ?? {}, m = scene?.byId.get(d.kind === 'label' ? d.mark : cell.id);
     if (!m || (m.type !== 'box' && m.type !== 'line')) return false;
-    if (pointing) src.emit?.('point', m.record);
-    else if (m.type === 'line' && m.computed && hl?.map.has(m.record)) src.emit?.('why-open', m.record);
+    if (pointing) FormulaBar.point(m.record);
+    else if (m.type === 'line' && m.computed && hl?.map.has(m.record)) Shell.emit('why-open', m.record);
     else return false;
     hold = true;
     sel.disable();
@@ -296,7 +265,7 @@ function mount(el, src) {
     if (k === 'page') { if (!e.shiftKey) sel.clean(); sel.startRubberband(e); return; }
     if (pointed(node)) return;
     if (k === 'label' || e.shiftKey || e.ctrlKey || e.metaKey) return;
-    if (!sel.isSelected(node)) { syncing = true; sel.reset(cellsFor([groupOf(node.id)?.id ?? node.id])); syncing = false; src.select(keysOfSelection()); }
+    if (!sel.isSelected(node)) { syncing = true; sel.reset(cellsFor([groupOf(node.id)?.id ?? node.id])); syncing = false; Shell.select(keysOfSelection()); }
   });
   graph.on('blank:mousedown', () => root.focus({ preventScroll: true }));
   graph.on('node:click', ({ e, node }) => {
@@ -309,7 +278,7 @@ function mount(el, src) {
     }
     const m = scene.byId.get(node.id), key = e.target.closest?.('[data-row]')?.getAttribute('data-row');
     if (m?.geometry === 'legend') {
-      if (key && legendWas === m.id) { row = { legend: m.id, key }; src.select([`${m.id}#${key}`]); paintStates(); }
+      if (key && legendWas === m.id) { row = { legend: m.id, key }; Shell.select([`${m.id}#${key}`]); paintStates(); }
       else if (!key) row = null;
     }
   });
@@ -318,30 +287,22 @@ function mount(el, src) {
   graph.on('node:mousedown', ({ node }) => { legendWas = scene.byId.get(node.id)?.geometry === 'legend' && sel.isSelected(node) ? node.id : null; });
   graph.on('blank:click', () => { row = null; entered = null; });
 
-  // ---- Gestures written through the log ----
-  const N = () => src.wb.value.notes(src.chart.value);
-  const commit = (tx, done) => {
-    const c = tx.commit();
-    if (typeof c === 'string' && typeof Shell !== 'undefined') Shell.toast(c);
-    else if (c && done) Shell?.toast?.(done, { undo: () => Shell.parts.peek().undo?.undo() });
-    return c;
-  };
-  const treeOf = id => Tree.treeOf(src.state.value, id);
+  // ---- Gestures, each one change ----
+  const viewOf = () => scene.view;
+  const treeOf = id => Tree.treeOf(App.state.peek(), id);
   // Places for marks, written: a box's Position at its record in this view, a free shape's own place.
   function place(tx, places) {
-    const view = src.view.value, n = N();
+    const view = viewOf(), n = App.notes.peek();
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box') {
         const old = n.position(treeOf(m.record), view);
-        writeNote(tx, n, { label: 'Position', pattern: treeOf(m.record), view }, { x: round(p.x), y: round(p.y), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) });
+        tx.note('Position', treeOf(m.record), { x: round(p.x), y: round(p.y), w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
       } else if (m.type === 'shape') {
-        const row = payload(src.wb.value, src.chart.value, id);
-        if (!row) continue;
-        const next = { ...row, x: round(p.x), y: round(p.y), ...(p.w !== undefined && { w: round(p.w), h: round(p.h) }) };
-        if (row.points && p.dx !== undefined) next.points = row.points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]);
-        tx.set(id, next);
+        const points = rowOf(id)?.points;
+        tx.update(id, { x: round(p.x), y: round(p.y), ...(p.w !== undefined && { w: round(p.w), h: round(p.h) }),
+          ...(points && p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) });
       }
     }
   }
@@ -364,10 +325,7 @@ function mount(el, src) {
         places.set(id, { x: p.x, y: p.y, ...(Math.abs(sz.width - m.w) > 0.01 || Math.abs(sz.height - m.h) > 0.01 ? { w: sz.width, h: sz.height } : {}) });
       }
     }
-    if (!places.size) return;
-    const tx = src.edit();
-    place(tx, places);
-    commit(tx);
+    if (places.size) App.change(tx => place(tx, places));
   }
   const membersOf = f => [...f.members.map(id => scene.byId.get(id)), ...f.frames.flatMap(id => membersOf(scene.byId.get(id)))].filter(Boolean);
   graph.on('node:moved', ({ node }) => { dragging = null; moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
@@ -420,51 +378,43 @@ function mount(el, src) {
   // ---- Double-click to type: a box's text edits its record, a shape's its own ----
   function textAt(m, target) {
     const id = target?.closest?.('[data-text]')?.getAttribute('data-text');
-    return m.texts?.find(it => it.id === id) ?? m.texts?.find(it => Tree.isField(src.state.value[it.id] ?? {})) ?? m.texts?.[0];
+    return m.texts?.find(it => it.id === id) ?? m.texts?.find(it => Tree.isField(App.state.peek()[it.id] ?? {})) ?? m.texts?.[0];
   }
   function edit(key, target, typed) {
     const [id, rowKey] = keyParts(key);
     const m = scene.byId.get(id);
-    if (!m) return;
+    if (!m || still()) return;
     // What's typed over: a record's value as entered, not as the chart reads it; a shape's text as written.
     let it = null, rect, save, raw;
-    const view = src.view.value, wb = src.wb.value, chart = src.chart.value, day = src.day.value;
+    const view = viewOf(), caption = (tx, p, text) => tx.note('Caption', p, Tree.clean(text) || undefined, { view });
     if (m.type === 'box') {
       it = textAt(m, target);
-      const r = it && src.state.value[it.id];
+      const r = it && App.state.peek()[it.id];
       if (!r || !(Tree.isField(r) || Tree.isChoice(r))) return;
       raw = Tree.isField(r) ? Tree.format(r.field, r.value) : r.choice;
       rect = { x: m.x, y: m.y + Math.min(...it.lines.map(l => l.y)) - px(it.look.Size), w: m.w, h: it.lines.length * px(it.look.Size) * 1.2 + 4 };
       save = text => {
-        const p = payload(wb, chart, it.id, day), v = Tree.isField(r) ? Tree.parse(r.field, text) : Tree.clean(text);
-        if (!p || v === undefined || v === '' || v === (Tree.isField(r) ? r.value : r.choice)) return;
-        const tx = src.edit();
-        tx.set(it.id, { ...p, ...(Tree.isField(r) ? { value: v } : { choice: v }) });
-        commit(tx);
+        const v = Tree.isField(r) ? Tree.parse(r.field, text) : Tree.clean(text);
+        if (v === undefined || v === '' || v === (Tree.isField(r) ? r.value : r.choice)) return;
+        App.change(tx => tx.update(it.id, Tree.isField(r) ? { value: v } : { choice: v }));
       };
     } else if (m.type === 'frame') {
       it = m.caption;
       rect = { x: m.x, y: m.y, w: Math.max(160, m.w), h: m.label + 8 };
-      save = text => { const tx = src.edit(); writeNote(tx, N(), { label: 'Caption', pattern: m.output, view }, Tree.clean(text) || undefined); commit(tx); };
+      save = text => App.change(tx => caption(tx, m.output, text));
     } else if (m.geometry === 'legend' && rowKey) {
       const r = m.rows.find(x => x.key === rowKey);
       if (!r) return;
       it = r.caption;
       rect = { x: m.x + r.x + r.sw.w + 6, y: m.y + r.y, w: r.w - r.sw.w - 6, h: r.h + 2 };
-      save = text => { const tx = src.edit(); for (const p of r.outputs) writeNote(tx, N(), { label: 'Caption', pattern: p, view }, Tree.clean(text) || undefined); commit(tx); };
+      save = text => App.change(tx => r.outputs.forEach(p => caption(tx, p, text)));
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
       const legend = m.geometry === 'legend';
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
-      raw = legend ? m.title : payload(wb, chart, m.id)?.text;
+      raw = legend ? m.title : rowOf(m.id)?.text;
       // A text box left empty goes, as PowerPoint's does.
-      save = text => {
-        const p = payload(wb, chart, m.id);
-        if (!p) return;
-        const tx = src.edit();
-        if (m.geometry === 'text' && !text.trim()) tx.remove(m.id); else tx.set(m.id, legend ? { ...p, title: text } : { ...p, text });
-        commit(tx);
-      };
+      save = text => App.change(tx => m.geometry === 'text' && !text.trim() ? tx.remove(m.id) : tx.update(m.id, legend ? { title: text } : { text }));
     }
     if (!it) return;
     openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, m.type === 'shape' && m.geometry !== 'legend', typed === undefined);
@@ -529,7 +479,7 @@ function mount(el, src) {
   }
   graph.on('node:mouseenter', ({ node }) => { const m = scene.byId.get(node.id); if (m?.type === 'box' && !dragging) showHandles(m); });
   graph.on('node:mouseleave', ({ e }) => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { showHandles(); fire('zoom', graph.zoom()); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { showHandles(); zoomLevel.value = graph.zoom(); });
   function startRelate(e, side) {
     const from = relateBox;
     if (!from) return;
@@ -544,13 +494,13 @@ function mount(el, src) {
       const p = graph.clientToLocal(ev.clientX, ev.clientY);
       target = scene.marks.find(m => m.type === 'box' && m.id !== from.id && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h) ?? null;
       line.setAttribute('d', `M${start[0]},${start[1]} L${p.x},${p.y}`);
-      paintStates(target ? new Map([[target.id, 'var(--accent)']]) : null);
+      paintStates(target ? new Map([[target.id, ['accent', 1]]]) : null);
     };
     const up = ev => {
       removeEventListener('pointermove', move); removeEventListener('pointerup', up);
       line.remove(); paintStates();
       const p = graph.clientToLocal(ev.clientX, ev.clientY);
-      if (target) { src.select([from.id, target.id]); src.emit?.('relate-open', [from.id, target.id]); }
+      if (target) Shell.emit('relate-open', [from.id, target.id]);
       else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12) insert('line', { points: [start, [p.x, p.y]], ends: [from.id, null] });
     };
     addEventListener('pointermove', move); addEventListener('pointerup', up);
@@ -560,7 +510,7 @@ function mount(el, src) {
   function paintStates(extra) {
     if (!scene) return;
     marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-sel').forEach(n => n.remove());
-    const outline = (m, color, cls = 'dc-hl', pad = 3) => {
+    const outline = (m, cls, pad = 3) => {
       const p = document.createElementNS(NS, 'path');
       if (m.type === 'line') p.setAttribute('d', `M${m.points.map(q => q.join(',')).join(' L')}`);
       else {
@@ -570,38 +520,38 @@ function mount(el, src) {
         p.setAttribute('transform', `translate(${m.x - pad * k},${m.y - pad * (k === 1 ? 1 : 1.8)})`);
       }
       p.setAttribute('class', cls + (m.type === 'line' ? ' line' : ''));
-      if (color) p.style.stroke = color;
       marks.appendChild(p);
     };
     const hosts = new Map();
     for (const m of scene.marks) for (const it of m.texts ?? []) hosts.set(it.id, m);
     // A record not drawn as text lights the box or line it sits in.
-    const markFor = id => { const st = src.state.value; for (let x = id; x; x = st[x]?.at) { const m = scene.byId.get(x); if (m) return m; } return null; };
+    const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene.byId.get(x); if (m) return m; } return null; };
     const lit = new Set();
-    for (const [id, color] of [...(hl?.map ?? []), ...(extra ?? [])]) {
+    // Each record lit takes its hue, and its depth: 0 a witness, heavier; 2 a deeper reason, lighter.
+    for (const [id, [hue, depth]] of [...(hl?.map ?? []), ...(extra ?? [])]) {
       const m = markFor(id);
       if (!m) continue;
-      const cls = 'dc-hl' + (hl?.strong.has(id) ? ' strong' : '') + (hl?.deep.has(id) ? ' deep' : '') + (hl?.pulse.has(id) ? ' pulse' : '');
+      const cls = `dc-hl h${hue}` + (depth === 0 ? ' strong' : depth === 2 ? ' deep' : '') + (hl?.pulse.has(id) ? ' pulse' : '');
       if (m.type === 'text') {
         const h = hosts.get(m.id);
         if (!h) continue;
         lit.add(h.id);
         const o = h.type === 'line' ? h.labelAt ?? { x: 0, y: 0 } : h;
         const ys = m.lines.map(l => l.y), xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0));
-        outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - px(m.look.Size), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * px(m.look.Size) * 1.2 }, color, cls, 1.5);
-      } else { lit.add(m.id); outline(m, color, cls); }
+        outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - px(m.look.Size), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * px(m.look.Size) * 1.2 }, cls, 1.5);
+      } else { lit.add(m.id); outline(m, cls); }
     }
     // A selected legend row, and an entered or selected group.
     const lg = row && scene.byId.get(row.legend), r = lg?.rows?.find(x => x.key === row.key);
     if (r) {
-      outline({ type: 'box', x: lg.x + r.x - 2, y: lg.y + r.y - 1, w: r.w, h: r.h + 2 }, null, 'dc-row', 0);
+      outline({ type: 'box', x: lg.x + r.x - 2, y: lg.y + r.y - 1, w: r.w, h: r.h + 2 }, 'dc-row', 0);
       // And every mark with that look.
       const outs = new Set(r.outputs.map(p => Tree.key(p)));
-      for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, null, 'dc-row', 3);
+      for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, 'dc-row', 3);
     }
-    for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, null, 'dc-group', 4);
+    for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, 'dc-group', 4);
     // A selected line is traced in the accent, as Office marks one.
-    for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, null, 'dc-sel'); }
+    for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
     const dim = !!hl?.dim && lit.size;
     for (const c of graph.getCells()) {
       const v = graph.findViewByCell(c);
@@ -610,19 +560,18 @@ function mount(el, src) {
       v.container.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id));
     }
   }
-  // Range Finder (transparency.md §3.1): colors { [record id]: CSS colour }, each record outlined in its
-  // colour; strong, the witnesses, heavier; deep, deeper reasons, the same hue lighter; pulse, what a hovered
-  // part of a formula means. With dim, the rest fades. null clears it.
-  function highlight(colors, { dim = false, strong = [], deep = [], pulse = [] } = {}) {
-    const map = colors instanceof Map ? colors : new Map(Object.entries(colors ?? {}));
-    hl = map.size ? { map, dim, strong: new Set(strong), deep: new Set(deep), pulse: new Set(pulse) } : null;
+  // Range Finder: colors { [record id]: [hue 1–6 or 'loop', depth 0–2] }, each record outlined in its hue;
+  // pulse, what a hovered part of a formula means. With dim, the rest fades. null clears it.
+  function highlight(colors, { dim = false, pulse = [] } = {}) {
+    const map = new Map(Object.entries(colors ?? {}));
+    hl = map.size ? { map, dim, pulse: new Set(pulse) } : null;
     show();
   }
   // A pending change, as comparison software shows one: what would appear in blue, what would go in red and
   // struck through, and a changed value's old text struck before its new. records: the state it would leave,
   // so what doesn't exist yet can be drawn. null clears it.
   function redline(r) {
-    const now = src.state.peek();
+    const now = App.state.peek();
     red = r ? { state: r.records ?? null, appear: new Set(r.appear ?? []), go: new Set(r.go ?? []),
       changed: new Map(Object.entries(r.changed ?? {}).map(([id, c]) => [id, now[id] ?? c?.before ?? c])) } : null;
     show();
@@ -632,19 +581,21 @@ function mount(el, src) {
   let asked = [], redDrawn = null;
   function reveal(ids) { asked = ids ? [...ids] : []; show(); }
   function show() {
-    const st = red?.state ? { ...src.state.peek(), ...red.state } : src.state.peek();
+    const st = red?.state ? { ...App.state.peek(), ...red.state } : App.state.peek();
     const drawable = id => { const r = st[id]; return r && (Tree.isObject(r) || r.args?.length === 2); };
     const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(red ? [...red.appear, ...red.go, ...red.changed.keys()] : [])])].filter(drawable).sort();
     const next = ids.length ? ids : null;
     if (JSON.stringify(next) !== JSON.stringify(revealIds) || red !== redDrawn) { revealIds = next; redDrawn = red; draw(); } else paintStates();
   }
 
+
   // ---- Commands ----
   const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
   const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape'));
+  const moveTo = places => places.size && App.change(tx => place(tx, places));
   function insert(geometry, opts = {}) {
     // A new shape goes in the middle of what's on screen, as PowerPoint puts one.
-    const view = src.view.value, s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2);
+    const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2);
     const cx = Math.min(Math.max(mid.x, 80), s.page.w - 80), cy = Math.min(Math.max(mid.y, 60), s.page.h - 60);
     const size = { text: [240, 30], line: [160, 0], legend: [220, 0], frame: [320, 200], picture: [160, 100] }[geometry] ?? [140, 70];
     const sel0 = placeable();
@@ -659,67 +610,63 @@ function mount(el, src) {
     if (geometry === 'arrow-line') Object.assign(row, { geometry: 'line', points: [[row.x, cy], [row.x + size[0], cy]], format: { Arrow: 'end' } });
     if (geometry === 'legend') Object.assign(row, { x: round(s.page.margin), y: round(s.page.h - s.page.margin - 120), title: 'Key' });
     if (geometry === 'text') row.text = opts.text ?? '';
-    const tx = src.edit(), id = tx.add('shape', row);
-    commit(tx);
-    src.select([id]);
+    let id = null;
+    if (!App.change(tx => { id = tx.add('shape', row); })) return null;
+    Shell.select([id]);
     if (geometry === 'text' && !opts.text) requestAnimationFrame(() => edit(id));
     return id;
   }
+  // Deleting from a chart hides a box or line in this view, and deletes a shape.
   function remove() {
-    const keys = keysOfSelection();
+    const keys = keysOfSelection(), view = viewOf();
     if (!keys.length) return;
-    const tx = src.edit(), n = N(), view = src.view.value;
-    for (const k of keys) {
-      const [id, rowKey] = keyParts(k), m = scene.byId.get(id);
-      if (!m) continue;
-      if (m.type === 'box' || m.type === 'line') writeNote(tx, n, { label: 'Shown', pattern: treeOf(m.record), view }, false);
-      else if (m.type === 'frame') writeNote(tx, n, { label: 'Frame', pattern: m.output, view }, undefined);
-      else if (m.geometry === 'legend' && rowKey) { const p = payload(src.wb.value, src.chart.value, id); tx.set(id, { ...p, hide: [...(p.hide ?? []), rowKey] }); }
-      else if (m.geometry === 'group') { tx.remove(id); for (const x of m.members) if (scene.byId.get(x)?.type === 'shape') tx.remove(x); }
-      else tx.remove(id);
-    }
-    commit(tx);
-    src.select([]);
+    App.change(tx => {
+      for (const k of keys) {
+        const [id, rowKey] = keyParts(k), m = scene.byId.get(id);
+        if (!m) continue;
+        if (m.type === 'box' || m.type === 'line') tx.note('Shown', treeOf(m.record), false, { view });
+        else if (m.type === 'frame') tx.note('Frame', m.output, undefined, { view });
+        else if (m.geometry === 'legend' && rowKey) tx.update(id, { hide: [...m.hide, rowKey] });
+        else if (m.geometry === 'group') { tx.remove(id); for (const x of m.members) if (scene.byId.get(x)?.type === 'shape') tx.remove(x); }
+        else tx.remove(id);
+      }
+    });
+    Shell.select([]);
   }
   // The clipboard holds marks of one view: pasting a box shows it, a shape is copied.
   let clip = null;
-  function copy() { clip = { view: src.view.value, items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x, y: m.y, w: m.w } : { row: payload(src.wb.value, src.chart.value, m.id) }).filter(x => x.box || x.row) }; }
+  function copy() { clip = { view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x, y: m.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) }; }
   function cut() { copy(); remove(); }
   function paste() {
     if (!clip?.items.length) return;
-    const view = src.view.value, n = N(), tx = src.edit(), here = view === clip.view, ids = [];
-    for (const it of clip.items) {
-      if (it.box) {
-        const t = treeOf(it.box);
-        if (!t) continue;
-        writeNote(tx, n, { label: 'Shown', pattern: t, view }, undefined);
-        if (!here || !scene.byId.has(it.box)) { if (!scene.byId.has(it.box)) writeNote(tx, n, { label: 'Shown', pattern: t, view }, true); writeNote(tx, n, { label: 'Position', pattern: t, view }, { x: it.x, y: it.y, w: it.w }); }
-        ids.push(it.box);
-      } else {
-        // Pasted in its own view, a shape lands a step down and right of the last copy, as PowerPoint's do.
-        const d = here ? 12 : 0;
-        it.row = { ...it.row, x: it.row.x + d, y: it.row.y + d, ...(it.row.points && { points: it.row.points.map(([x, y]) => [x + d, y + d]) }) };
-        ids.push(tx.add('shape', { ...it.row, view }));
+    const view = viewOf(), here = view === clip.view, ids = [];
+    App.change(tx => {
+      for (const it of clip.items) {
+        if (it.box) {
+          const t = treeOf(it.box);
+          if (!t) continue;
+          tx.note('Shown', t, scene.byId.has(it.box) ? undefined : true, { view });
+          if (!here || !scene.byId.has(it.box)) tx.note('Position', t, { x: it.x, y: it.y, w: it.w }, { view });
+          ids.push(it.box);
+        } else {
+          // Pasted in its own view, a shape lands a step down and right of the last copy, as PowerPoint's do.
+          const d = here ? 12 : 0;
+          it.row = { ...it.row, x: it.row.x + d, y: it.row.y + d, ...(it.row.points && { points: it.row.points.map(([x, y]) => [x + d, y + d]) }) };
+          ids.push(tx.add('shape', { ...it.row, view }));
+        }
       }
-    }
-    commit(tx);
-    src.select(ids);
+    });
+    Shell.select(ids);
   }
   function duplicate() { copy(); paste(); }
-  function nudge(dx, dy) {
-    const places = new Map(placeable().map(m => [m.id, { x: m.x + dx, y: m.y + dy, ...(m.points && { dx, dy }) }]));
-    if (!places.size) return;
-    const tx = src.edit(); place(tx, places); commit(tx);
-  }
+  const nudge = (dx, dy) => moveTo(new Map(placeable().map(m => [m.id, { x: m.x + dx, y: m.y + dy, ...(m.points && { dx, dy }) }])));
   function align(how) {
     const ms = placeable();
     if (!ms.length) return;
     const one = ms.length === 1, b = one ? { x: 0, y: 0, r: scene.page.w, d: scene.page.h }
       : { x: Math.min(...ms.map(m => m.x)), y: Math.min(...ms.map(m => m.y)), r: Math.max(...ms.map(m => m.x + m.w)), d: Math.max(...ms.map(m => m.y + m.h)) };
     const at = m => ({ left: { x: b.x }, center: { x: (b.x + b.r - m.w) / 2 }, right: { x: b.r - m.w }, top: { y: b.y }, middle: { y: (b.y + b.d - m.h) / 2 }, bottom: { y: b.d - m.h } })[how];
-    const tx = src.edit();
-    place(tx, new Map(ms.map(m => { const p = { x: m.x, y: m.y, ...at(m) }; return [m.id, { ...p, ...(m.points && { dx: p.x - m.x, dy: p.y - m.y }) }]; })));
-    commit(tx);
+    moveTo(new Map(ms.map(m => { const p = { x: m.x, y: m.y, ...at(m) }; return [m.id, { ...p, ...(m.points && { dx: p.x - m.x, dy: p.y - m.y }) }]; })));
   }
   function distribute(axis) {
     const ms = placeable();
@@ -730,51 +677,45 @@ function mount(el, src) {
     let at = first[pos];
     const places = new Map();
     for (const m of sorted) { places.set(m.id, { x: m.x, y: m.y, [pos]: at }); at += m[size] + gap; }
-    const tx = src.edit(); place(tx, places); commit(tx);
+    moveTo(places);
   }
   function match(dim) {
     const ms = placeable();
     if (ms.length < 2) return;
     const v = ms[0][dim === 'width' ? 'w' : 'h'];
-    const tx = src.edit();
-    place(tx, new Map(ms.map(m => [m.id, { x: m.x, y: m.y, w: dim === 'width' ? v : m.w, h: dim === 'height' ? v : m.h }])));
-    commit(tx);
+    moveTo(new Map(ms.map(m => [m.id, { x: m.x, y: m.y, w: dim === 'width' ? v : m.w, h: dim === 'height' ? v : m.h }])));
   }
   function order(how) {
     const ms = selected().filter(m => m.type !== 'frame');
     if (!ms.length) return;
-    const layer = m => m.settings?.Layer?.value ?? 0;
+    const layer = m => m.settings?.Layer?.value ?? 0, view = viewOf();
     const peers = scene.marks.filter(m => m.type === ms[0].type);
     const top = Math.max(0, ...peers.map(layer)), bottom = Math.min(0, ...peers.map(layer));
-    const tx = src.edit(), n = N(), view = src.view.value;
-    for (const m of ms) {
-      const v = how === 'front' ? top + 1 : how === 'back' ? bottom - 1 : layer(m) + (how === 'forward' ? 1 : -1);
-      if (m.type === 'shape') { const p = payload(src.wb.value, src.chart.value, m.id); tx.set(m.id, { ...p, format: { ...p.format, Layer: v } }); }
-      else writeNote(tx, n, { label: 'Layer', pattern: treeOf(m.record), view }, v);
-    }
-    commit(tx);
+    App.change(tx => {
+      for (const m of ms) {
+        const v = how === 'front' ? top + 1 : how === 'back' ? bottom - 1 : layer(m) + (how === 'forward' ? 1 : -1);
+        if (m.type === 'shape') tx.update(m.id, { format: { ...rowOf(m.id).format, Layer: v } });
+        else tx.note('Layer', treeOf(m.record), v, { view });
+      }
+    });
   }
   function group() {
     const ms = placeable();
     if (ms.length < 2) return;
-    const tx = src.edit();
-    for (const g of groups()) if (g.members.some(id => ms.some(m => m.id === id))) tx.remove(g.id);
-    const id = tx.add('shape', { view: src.view.value, geometry: 'group', members: ms.map(m => m.id) });
-    commit(tx);
-    src.select([id]);
+    let id = null;
+    App.change(tx => {
+      for (const g of groups()) if (g.members.some(x => ms.some(m => m.id === x))) tx.remove(g.id);
+      id = tx.add('shape', { view: viewOf(), geometry: 'group', members: ms.map(m => m.id) });
+    });
+    if (id) Shell.select([id]);
   }
   function ungroup() {
     const gs = selected().filter(m => m.geometry === 'group');
-    if (!gs.length) return;
-    const tx = src.edit();
-    for (const g of gs) tx.remove(g.id);
-    commit(tx);
-    src.select(gs.flatMap(g => g.members));
+    if (gs.length && App.change(tx => gs.forEach(g => tx.remove(g.id)))) Shell.select(gs.flatMap(g => g.members));
   }
   function tidy() {
-    const view = src.view.value, tx = src.edit();
-    for (const n of N().notes('Position')) if (n.view === view) tx.remove(n.note);
-    commit(tx, 'Tidied the layout');
+    const view = viewOf();
+    App.change(tx => App.notes.peek().notes('Position').filter(n => n.view === view).forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' });
   }
   const LEVELS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
   function zoom(k) {
@@ -785,10 +726,10 @@ function mount(el, src) {
       const c = graph.getGraphArea().center ?? null;
       graph.zoomTo(next, c ? { center: graph.graphToLocal(c) } : undefined);
     } else graph.zoomTo(k);
-    fire('zoom', graph.zoom());
+    zoomLevel.value = graph.zoom();
   }
 
-  // ---- Keys ----
+  // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
   const keyMap = {
     'Delete': () => remove(), 'Backspace': () => remove(),
     'ArrowLeft': () => nudge(-1, 0), 'ArrowRight': () => nudge(1, 0), 'ArrowUp': () => nudge(0, -1), 'ArrowDown': () => nudge(0, 1),
@@ -801,7 +742,7 @@ function mount(el, src) {
     '$mod+Equal': () => zoom('in'), '$mod+Minus': () => zoom('out'), '$mod+Digit0': () => zoom('fit'), '$mod+Digit1': () => zoom(1),
     'F2': () => { const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
     'Enter': () => { const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
-    'Escape': () => { if (!keysOfSelection().length) return false; entered = null; row = null; src.select([]); },
+    'Escape': () => { if (!keysOfSelection().length) return false; entered = null; row = null; Shell.select([]); },
   };
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
   const unbind = tinykeys.tinykeys(root, wrapped);
@@ -814,46 +755,23 @@ function mount(el, src) {
   // A wheel scrolls the page; with Ctrl, X6 zooms.
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
-  const stopDraw = effect(() => { read(); src.version?.value; draw(); });
+  const stopDraw = effect(() => { App.scene.value; draw(); });
   const canvas = {
-    scene: () => scene, graph, root, selected, select: keys => src.select(keys), keys: keysOfSelection,
-    highlight, redline, reveal, insert, remove, copy, cut, paste, duplicate, nudge, align, distribute, match, order, group, ungroup,
-    edit: key => edit(key), tidy, zoom, zoomLevel: () => graph.zoom(), on, source: src, writeNote,
-    destroy() { stopDraw(); stopSel(); unbind(); offPoint?.(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null; },
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, point,
+    insert, remove, copy, cut, paste, duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, zoom,
+    destroy() { stopDraw(); stopSel(); unbind(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null; },
   };
   active.value = canvas;
   return canvas;
 }
 
-// The window's source: the workbook as shown, the chart, the view (the first, where none is shown yet), the
-// day and the state, the shell's selection, and its edits.
-function fromApp() {
-  const firstView = computed(() => {
-    App.version.value;
-    const st = App.shown.value.asOf(App.chart.value, App.day.value), N = App.notes.value;
-    const vs = Object.keys(st).filter(id => Tree.isObject(st[id]) && Tree.same(st[id].kind, 'View'));
-    return vs.sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? Infinity) - (N.order({ id: b, kind: 'View' }) ?? Infinity))[0] ?? null;
-  });
-  return {
-    wb: App.shown, chart: App.chart, day: App.day, state: App.state, version: App.version,
-    // A view laid out as a table isn't the canvas's to draw.
-    view: computed(() => {
-      const list = Shell.parts.value.views?.list() ?? [], v = Shell.view.value ?? firstView.value;
-      return (list.find(x => x.id === v)?.layout ?? 'chart') === 'chart' ? v : null;
-    }),
-    selection: Shell.selection, select: keys => Shell.select(keys), edit: opts => App.edit(opts), emit: Shell.emit, on: Shell.on,
-  };
-}
+// The other parts call the canvas shown through the shell (Shell.parts.value.canvas).
+const call = name => (...a) => active.peek()?.[name](...a);
+Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); },
+  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point') });
+const here = () => !!active.value;
+Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
+Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: '$mod+Digit0', enabled: here, run: () => call('zoom')('fit') });
 
-// The window's part. The other parts call the canvas shown through it (Shell.parts.value.canvas).
-if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
-  const call = name => (...a) => active.peek()?.[name](...a);
-  Shell.register('canvas', { mount(el) { const c = mount(el, fromApp()); return () => c.destroy(); },
-    highlight: call('highlight'), redline: call('redline'), reveal: call('reveal') });
-  const here = () => !!active.value;
-  Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
-  Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: '$mod+Digit0', enabled: here, run: () => call('zoom')('fit') });
-}
-
-return { mount, fromApp, active, writeNote, payload, keyParts };
+return { active, zoom: zoomLevel, keyParts };
 })();

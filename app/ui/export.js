@@ -11,8 +11,9 @@
 // PptxGenJS, jsPDF and svg2pdf.js load the first time they're needed.
 //
 // Export.write('pptx' | 'pdf', scenes, name, author?) → a Blob, also saved; Export.svg(scene, { pdf, frame })
-// → SVG markup; Export.calendar(R, chart, name) → the .ics Blob, also saved, R being Formulas.computeState's.
-// Export.onFile, if set, takes each finished file (blob, name) instead of the browser downloading it.
+// → SVG markup; Export.calendar(R, N, chart, name) → the .ics Blob, also saved, R being Formulas.computeState's
+// and N the chart's Notes reader. Export.onFile, if set, takes each finished file (blob, name) instead of the
+// browser downloading it.
 const Export = (() => {
 const PT = Scene.PT;                                    // pixels a point
 const n = v => +v.toFixed(2);
@@ -41,9 +42,6 @@ function save(blob, name) {
 const lh = t => t.Size * PT * 1.2;
 const top = it => it.lines[0].y - it.look.Size * PT * 0.93;
 const block = items => ({ top: top(items[0]), bottom: top(items[0]) + items.reduce((h, it) => h + it.lines.length * lh(it.look), 0) });
-// The width the scene breaks a shape's text at, and where that column starts (scene.js's TEXT_AREA).
-const SHARE = { oval: 0.78, diamond: 0.56, hexagon: 0.8, octagon: 0.8, pentagon: 0.7, chevron: 0.6, arrow: 0.6, triangle: 0.62 };
-const column = (shape, w, min) => { const width = Math.max(min, w * (SHARE[shape] ?? 1) - 19.2); return { x: (w - width) / 2, width }; };
 
 // ---- SVG: the PDF, and the preview ----
 
@@ -242,7 +240,7 @@ function slide(p, scene, { k, ox, oy }) {
 
   for (const m of scene.marks) {
     const s = look(m);
-    if (m.type === 'box') ids.set(m.id, shape(m, m.shape, s, m.texts, column(m.shape, m.w, 32), m.shape === 'triangle' ? 'bottom' : 'middle', m.texts[0]?.text));
+    if (m.type === 'box') ids.set(m.id, shape(m, m.shape, s, m.texts, m.column, m.shape === 'triangle' ? 'bottom' : 'middle', m.texts[0]?.text));
     else if (m.type === 'line') {
       connector(m.points, s, [m.from, m.to], m.texts[0]?.text);
       if (m.labelAt && m.texts.length) label(m.texts, m.labelAt.x, m.labelAt.y, 200);
@@ -252,7 +250,7 @@ function slide(p, scene, { k, ox, oy }) {
         points: [[0.5, m.h], [0.5, m.h - 5], [m.w - 0.5, m.h - 5], [m.w - 0.5, m.h]].map(([x, y]) => ({ x: L(x), y: L(y) })),
         margin: 0, valign: 'top', wrap: false, objectName: m.caption.text });
       else shape(m, 'rect', outline, [m.caption], { x: 6, width: 400 }, 'top', m.caption.text, true);
-    } else if (m.geometry === 'line') connector(m.points, s, null, 'Line');
+    } else if (m.geometry === 'line') connector(m.points, s, m.ends ?? null, 'Line');
     else if (m.geometry === 'picture') {
       if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) } });
       if (s.Outline !== '#000000') shape(m, 'rect', { ...s, Fill: 'none' }, [], null);
@@ -267,7 +265,7 @@ function slide(p, scene, { k, ox, oy }) {
       }
     } else if (m.geometry !== 'group') {
       const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
-      shape(m, geometry, s, m.texts, column(geometry, m.w, 16), m.geometry === 'text' || m.geometry === 'frame' ? 'top' : 'middle');
+      shape(m, geometry, s, m.texts, m.column, m.geometry === 'text' || m.geometry === 'frame' ? 'top' : 'middle');
     }
   }
   return lines;
@@ -317,9 +315,9 @@ async function write(format, scenes, name, author = '') {
 // Every date in the chart as worked out, one all-day event each: what it's the date of, and why it falls
 // where it does, the ground on one line. An address, which ends what it's in (a name, or a part of the
 // ground), is given by its file's name alone.
-function calendar(R, chart, name, stamp = new Date()) {
-  const st = R.records, objName = id => { const r = st[id]; return !r ? '' : Tree.isObject(r) ? Tree.objectName(st, id) : Tree.argsOf(r).map(a => objName(Tree.objectOf(st, a.at))).join(' – '); };
-  const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, Tree.documentName)).join(' · ');
+function calendar(R, N, chart, name, stamp = new Date()) {
+  const st = R.records;
+  const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
   const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
   // Lines of at most 75 octets, each continued after a space.
   const utf8 = new TextEncoder(), fold = line => {
@@ -334,10 +332,11 @@ function calendar(R, chart, name, stamp = new Date()) {
   const day = iso => iso.replace(/-/g, ''), next = iso => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return day(d.toISOString().slice(0, 10)); };
   const now = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const events = Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
-    const path = Tree.pathOf(st, id), what = path.slice(1).map(x => st[x].choice ?? st[x].edge).filter(Boolean).join(' › ');
+    // Whose date it is, in full, and where it is in that.
+    const path = Tree.pathOf(st, id), head = Tree.isObject(st[path[0]]) ? N.nameOf(st, path[0]) : N.segmentOf(st, path[0]);
     const why = r.computed ? plain(Formulas.groundText(R, id)) : '';
     return ['BEGIN:VEVENT', `UID:${chart}.${id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(r.value)}`, `DTEND;VALUE=DATE:${next(r.value)}`,
-      `SUMMARY:${text(`${plain(objName(path[0]))}: ${what}`)}`, ...(why ? [`DESCRIPTION:${text(why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT'];
+      `SUMMARY:${text([plain(head), ...path.slice(1).map(x => N.segmentOf(st, x))].join(' › '))}`, ...(why ? [`DESCRIPTION:${text(why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT'];
   });
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Dendra//Dendra//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${text(name)}`, ...events.flat(), 'END:VCALENDAR'];
   const blob = new Blob([ics.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar' });
@@ -351,13 +350,10 @@ const api = { write, svg, calendar, onFile: null };
 
 if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   const { html } = Shell, { useState } = preactHooks;
-  // The chart views, in tab order, each as its scene is now.
-  const views = () => {
-    const st = App.state.peek(), N = App.notes.peek();
-    const listed = Shell.parts.peek().views?.list().filter(v => v.layout === 'chart').map(v => v.id) ?? Object.keys(App.entered.peek())
-      .filter(id => Tree.isObject(st[id]) && Tree.same(st[id].kind, 'View')).sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? Infinity) - (N.order({ id: b, kind: 'View' }) ?? Infinity));
-    return listed.map(id => ({ ...Scene.of(App.shown.peek(), App.chart.peek(), id, App.day.peek(), { state: st }), name: Tree.objectName(st, id) }));
-  };
+  // The chart views, in tab order, each as its scene is now: the one shown is App's.
+  const views = () => App.views.peek().filter(v => v.layout === 'chart').map(v => ({
+    ...(App.scene.peek()?.view === v.id ? App.scene.peek() : Scene.of(App.shown.peek(), App.chart.peek(), v.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek() })),
+    name: v.name }));
   const chartName = () => App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name ?? 'Chart';
   const uri = s => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}`;
   // The pages the file will have: a deck's on its one slide size, a document's each its own.
@@ -395,7 +391,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   Shell.register('export', { name: 'PowerPoint…', run: () => open('pptx') });
   Shell.register('export', { name: 'PDF…', run: () => open('pdf') });
-  Shell.register('export', { name: 'Calendar (.ics)', run: () => calendar(App.computed.peek(), App.chart.peek(), chartName()) });
+  Shell.register('export', { name: 'Calendar (.ics)', run: () => calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName()) });
 }
 
 return api;

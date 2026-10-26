@@ -57,7 +57,7 @@ async function run() {
   const wb = Log.open(SAMPLE);
   const worked = () => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
   let st = worked().records;
-  const views = Object.keys(st).filter(id => Tree.isObject(st[id]) && Tree.same(st[id].kind, 'View'))
+  const views = Object.keys(st).filter(id => Tree.isView(st[id]) && !wb.notes(C).value('Layout', { id, kind: 'View' })?.rows)
     .sort((a, b) => (wb.notes(C).order({ id: a, kind: 'View' }) ?? 99) - (wb.notes(C).order({ id: b, kind: 'View' }) ?? 99));
   {
     const tx = wb.edit({ chart: C, who: WHO }), N = wb.notes(C);
@@ -82,7 +82,7 @@ async function run() {
   }
   const R = worked();
   st = R.records;
-  const scenes = views.map(v => ({ ...Scene.of(wb, C, v, DAY, { state: st }), name: Tree.objectName(st, v) }));
+  const scenes = views.map(v => ({ ...Scene.of(wb, C, v, DAY, { state: st }), name: wb.notes(C).nameOf(st, v) }));
   const main = scenes[0], boxes = s => s.marks.filter(m => m.type === 'box'), lines = s => s.marks.filter(m => m.type === 'line');
   const files = [];
   Export.onFile = (blob, name) => files.push({ blob, name });
@@ -192,7 +192,7 @@ async function run() {
 
   // ---- The calendar ----
   {
-    const blob = Export.calendar(R, C, 'Calder Ridge Fund III structure', new Date('2026-10-26T12:00:00Z'));
+    const blob = Export.calendar(R, wb.notes(C), C, 'Calder Ridge Fund III structure', new Date('2026-10-26T12:00:00Z'));
     check('the calendar is written through the hook, as .ics', files.at(-1)?.blob === blob && files.at(-1).name === 'Calder Ridge Fund III structure.ics' && blob.type === 'text/calendar');
     const ics = await blob.text(), rows = ics.split('\r\n');
     const dates = Object.values(st).filter(r => r.field === 'date');
@@ -204,11 +204,11 @@ async function run() {
     const described = computed.filter(([id]) => events.some(e => e.includes(`UID:${C}.${id}@`) && unesc(/DESCRIPTION:(.*)/.exec(e)?.[1] ?? '') === Formulas.groundText(R, id)));
     check('a worked-out date’s description is its ground on one line', computed.length > 5 && described.length === computed.length, `${described.length} of ${computed.length}`);
     const tax = events.find(e => e.includes('Annual Tax Due'));
-    check('an event says whose date it is, and of what', /SUMMARY:Calder Ridge Capital Partners III AIV-1\\, L\.P\.: Delaware › Annual Tax Due/.test(tax), /SUMMARY:.*/.exec(tax)?.[0]);
+    check('an event says whose date it is, and of what', /SUMMARY:Calder Ridge Capital Partners III AIV-1\\, L\.P\. › Jurisdiction: Delaware › Annual Tax Due/.test(tax), /SUMMARY:.*/.exec(tax)?.[0]);
     check('an all-day event, on its day', /DTSTART;VALUE=DATE:20260601\r?\n?DTEND;VALUE=DATE:20260602/.test(tax.replace(/\r\n/g, '\n')) || (/DTSTART;VALUE=DATE:\d{8}/.test(tax) && /DTEND;VALUE=DATE:\d{8}/.test(tax)));
     const said = [...unfolded.matchAll(/^(?:SUMMARY|DESCRIPTION):(.*)$/gm)].map(m => unesc(m[1]));
     const leaks = said.filter(s => /[=←]|\b[A-Z]{2,}\(|\\|:\/\//.test(s));
-    check('no formula text and no file paths: a document known by its address goes by its file’s name', !leaks.length && said.includes('Side Letter - Halcyon.pdf: Document Date'), leaks.slice(0, 3).join(' | '));
+    check('no formula text and no file paths: a document known by its address goes by its file’s name', !leaks.length && said.includes('Side Letter - Halcyon.pdf › Document Date'), leaks.slice(0, 3).join(' | '));
   }
 
   // ---- One view ----

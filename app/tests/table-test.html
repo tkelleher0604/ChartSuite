@@ -38,7 +38,8 @@
 <script src="../core/formulas.js"></script>
 <script>
 // The workbook opened at once, in memory: Store keeps it in IndexedDB, which this page leaves alone.
-const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => '', status: () => ({ text: '' }), subscribe: () => () => {} };
+const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => localStorage.getItem('dendra.name'), status: () => ({ text: '' }), subscribe: () => () => {},
+  books: () => Promise.resolve([]), where: () => null };
 </script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../ui/shell.js"></script>
@@ -53,7 +54,7 @@ const C = () => App.chart.peek(), st = () => App.state.peek(), last = () => App.
 const N = () => App.wb.changes().length;
 const views = () => Shell.parts.peek().views.list();
 const undo = () => Shell.parts.peek().undo.undo();
-const named = name => Object.keys(st()).find(id => Tree.isObject(st()[id]) && Tree.objectName(st(), id) === name);
+const named = name => Object.keys(st()).find(id => Tree.isObject(st()[id]) && App.notes.peek().nameOf(st(), id) === name);
 const item = (label, root = document) => [...root.querySelectorAll('.menu-item')].find(x => x.textContent.trim() === label);
 const hover = el => el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
 const column = title => Table.grid.getColumns().find(c => c.getDefinition().title === title);
@@ -73,7 +74,7 @@ function paste(text, target = Table.grid.rowManager.element) {
   target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
 }
 const pct = (owner, owned, day) => {
-  const s = App.wb.asOf(C(), day), o = Object.keys(s).find(id => s[id].args && s[id].args.some(a => a.edge === 'Owner' && Tree.objectName(s, Tree.objectOf(s, a.at)) === owner) && s[id].args.some(a => a.edge === 'Owned' && Tree.objectName(s, a.at) === owned));
+  const s = App.wb.asOf(C(), day), o = Object.keys(s).find(id => s[id].args && s[id].args.some(a => a.edge === 'Owner' && App.notes.peek().nameOf(s, Tree.objectOf(s, a.at)) === owner) && s[id].args.some(a => a.edge === 'Owned' && App.notes.peek().nameOf(s, a.at) === owned));
   const p = o && Object.keys(s).find(x => s[x].at === o && s[x].edge === 'Percentage');
   return p ? s[p].value : null;
 };
@@ -81,16 +82,15 @@ const pct = (owner, owned, day) => {
 async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
   check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities,Ownership,Dates,Documents', views().map(v => v.name).join());
-  check('A view without a Layout entry is a chart', views().slice(0, 4).every(v => v.layout === 'chart') && views().slice(4).every(v => v.layout === 'table'));
+  check('A view without a Layout note is a chart', views().slice(0, 4).every(v => v.layout === 'chart') && views().slice(4).every(v => v.layout === 'table'));
 
   // ---- Adding a table view from the + menu ----
   let n0 = N();
   const typing = await addTable('Records', 'Entities');
   const ent = Shell.view.peek(), ev = st()[ent];
-  const layout = (Tree.index(st()).entries.get(ent) ?? []).map(e => st()[e]).find(r => r.edge === 'Layout');
-  const rowsAt = layout && (Tree.index(st()).entries.get(Object.keys(st()).find(id => st()[id] === layout)) ?? []).map(e => st()[e]).find(r => r.edge === 'Rows');
-  check('The + menu makes a View object, as one change', ev?.kind === 'View' && N() === n0 + 1);
-  check('Its layout is entries on it: Layout Table, and Rows Entity', layout?.choice === 'Table' && rowsAt?.choice === 'Entity', JSON.stringify([layout, rowsAt]));
+  const layout = App.notes.peek().value('Layout', { id: ent, kind: 'View' });
+  check('The + menu makes a View object, as one change, never dated', ev?.kind === 'View' && N() === n0 + 1 && last().adds.every(r => !r.since));
+  check('Its layout is a note at it: a table of the kind’s rows', JSON.stringify(layout) === JSON.stringify({ rows: { kind: 'Entity' } }), JSON.stringify(layout));
   check('Its tab comes last, named for its rows, and shows', views().at(-1).name === 'Entities 2' && views().at(-1).layout === 'table');
   check('Its name is being typed into, as a new tab’s is', typing);
   await tick(100);
@@ -119,7 +119,7 @@ async function run() {
   undo(); await tick(100);
   check('Undo brings it back', !!column('Jurisdiction'));
 
-  // Editing in place, through App.edit.
+  // Editing in place, each edit one change.
   const halvard = named('Halvard Logistics Holdings, Inc.');
   n0 = N();
   const cell = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Short Name');
@@ -245,7 +245,9 @@ async function run() {
     && docs.cols.filter(x => x.shown).map(x => x.title).slice(0, 4).join() === 'Document,Name,Document Type,Document Date', docs.cols.filter(x => x.shown).map(x => x.title).join());
 
   // ---- The time: the chart's days, the date control, the strip, a view keeping a date ----
-  check('The days on which something starts or ends are the log’s', JSON.stringify(Time.events.peek().map(e => e.day)) === JSON.stringify(App.wb.days(C())));
+  const days = Time.events.peek().map(e => e.day), dated = App.wb.rows(C()).flatMap(r => [r.since, r.before]).filter(Boolean);
+  check('The days on which something starts or ends: every version’s, and every start and end date, in order', dated.every(d => days.includes(d))
+    && ['2024-07-01', '2024-09-16', '2026-06-15', '2023-02-14'].every(d => days.includes(d)) && days.every((d, i) => !i || days[i - 1] < d), days.length);
   const jul1 = Time.events.peek().find(e => e.day === '2024-07-01');
   check('Each day is said in the chart’s words', jul1?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul1?.items));
   $('.titlebar .asof').click(); await tick(100);
@@ -295,7 +297,7 @@ async function run() {
   $$('.hist-head .menu-seg button')[1].click(); await tick(60);
   // The sample deleted two registered agents; what this test added and undid is deleted too.
   const gone = () => $$('.hist-row.gone').map(x => x.querySelector('.what').textContent);
-  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III › Delaware', 'Registered Agent · Fund III › Delaware', 'Halcyon University Endowment'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
+  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III › Jurisdiction: Delaware', 'Registered Agent · Fund III › Jurisdiction: Delaware', 'Halcyon University Endowment'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
   n0 = N();
   const k = gone().length;
   $$('.hist-row.gone').find(x => x.textContent.includes('Registered Agent · GP III')).querySelector('.btn').click(); await tick(100);
@@ -315,7 +317,7 @@ function report() {
     .map(x => `<div class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail && !x.ok ? `  [${esc(x.detail)}]` : ''}</div>`).join('');
   document.body.appendChild(el);
 }
-Shell.on('ready', async () => {
+Shell.ready.then(async () => {
   while (!App.chart.peek() || !views().length) await tick();
   await tick(200);
   try { await run(); } catch (e) { check('The checks ran to the end', false, `${e.message} ${e.stack.split('\n')[1]}`); }

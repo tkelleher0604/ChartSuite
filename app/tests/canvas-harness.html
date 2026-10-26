@@ -47,10 +47,11 @@
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
+<script src="../core/sharepoint.js"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script>
   // The store, in memory: each visit opens the sample afresh, and nothing is kept.
-  const Store = { open: async ({ sample }) => Log.open(sample), who: () => '', status: () => ({ text: '' }), subscribe: () => () => {},
+  const Store = { open: async ({ sample }) => Log.open(sample), who: () => '', status: () => ({ text: '' }), subscribe: () => () => {}, books: async () => [], where: () => null,
     openFile: async () => null, saveAs: async () => null, download() {}, fix() {} };
 </script>
 <script src="../ui/shell.js"></script>
@@ -146,26 +147,27 @@ const H = (() => {
   };
   // A view dressed as a board would see it: a title, and a key.
   function dress() {
-    const view = Shell.view.peek() ?? cv().source.view.peek(), sc = cv().scene();
+    const sc = cv().scene(), view = sc.view;
     if (sc.marks.some(m => m.type === 'shape')) return;
-    const name = Tree.objectName(App.entered.peek(), view);
+    const name = App.notes.peek().nameOf(App.entered.peek(), view);
     const top = Math.min(...sc.marks.filter(m => m.type === 'box').map(m => m.y));
-    const tx = App.edit();
+    App.change(tx => {
     tx.add('shape', { view, geometry: 'text', x: 40, y: Math.max(16, top - 74), w: 640, h: 30, text: 'Calder Ridge Capital Partners III, L.P.', format: { Size: 20, Bold: true } });
     tx.add('shape', { view, geometry: 'text', x: 40, y: Math.max(42, top - 46), w: 640, h: 20, text: `${name} · as of October 26, 2026`, format: { Size: 11, Color: '#404040' } });
     const bottom = Math.max(...sc.marks.filter(m => m.type === 'box').map(m => m.y + m.h));
     tx.add('shape', { view, geometry: 'legend', x: 48, y: bottom + 32, w: 520, title: 'Key', columns: 2 });
-    tx.commit();
+    });
   }
   // Frames from styles: Cayman Islands boxed as Offshore, and the investor groups bracketed as Investors.
   function frames() {
-    const view = cv().source.view.peek(), tx = App.edit(), N = App.notes.peek();
+    const view = cv().scene().view;
     const cayman = { out: { choice: 'Cayman Islands' }, args: [{ edge: 'Jurisdiction', loc: {} }] }, investors = { kind: 'Investor Group' };
-    Canvas.writeNote(tx, N, { label: 'Frame', pattern: cayman, view }, 'dashed');
-    Canvas.writeNote(tx, N, { label: 'Caption', pattern: cayman, view }, 'Offshore');
-    Canvas.writeNote(tx, N, { label: 'Frame', pattern: investors, view }, 'bracket');
-    Canvas.writeNote(tx, N, { label: 'Caption', pattern: investors, view }, 'Investors');
-    tx.commit();
+    App.change(tx => {
+      tx.note('Frame', cayman, 'dashed', { view });
+      tx.note('Caption', cayman, 'Offshore', { view });
+      tx.note('Frame', investors, 'bracket', { view });
+      tx.note('Caption', investors, 'Investors', { view });
+    });
   }
   async function run() {
     for (let i = 0; i < 100 && !cv()?.scene(); i++) await wait(50);
@@ -180,7 +182,7 @@ const H = (() => {
   }
   // What the canvas said on the bus.
   const said = [];
-  for (const name of ['relate-open', 'point', 'why-open']) Shell.on(name, d => said.push([name, d]));
+  for (const name of ['relate-open', 'why-open']) Shell.on(name, d => said.push([name, d]));
   let mounts = 0;
   preactSignals.effect(() => { if (Canvas.active.value) mounts++; else if (mounts) ERRS.push('canvas destroyed: ' + new Error().stack.split('\n').slice(2, 12).join(' | ')); });
   function report() {
@@ -190,7 +192,7 @@ const H = (() => {
     document.body.appendChild(d);
     document.title = ERRS.length ? 'errors' : 'ready';
   }
-  Shell.on('ready', () => run().catch(e => { ERRS.push(e.message + ' ' + e.stack); report(); }));
+  Shell.ready.then(() => run().catch(e => { ERRS.push(e.message + ' ' + e.stack); report(); }));
   return { STEPS, dress };
 })();
 </script>

@@ -10,8 +10,12 @@
   document.documentElement.dataset.theme = Q.get('theme') || 'light';
   try { localStorage.clear(); localStorage.setItem('dendra.toured', '1'); localStorage.setItem('dendra.name', 'Dana Jordan'); } catch {}
 </script>
+<link rel="stylesheet" href="../../vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="../../vendor/codemirror/show-hint.css">
+<link rel="stylesheet" href="../../vendor/codemirror/lint.css">
 <link rel="stylesheet" href="../css/dendra.css">
 <link rel="stylesheet" href="../css/inspector.css">
+<link rel="stylesheet" href="../css/formulabar.css">
 <style>
   .results { position: absolute; inset: 0; overflow: auto; padding: 20px 24px; font: 12px/18px var(--mono); color: var(--ink-2); }
   .results .fail { color: var(--no); }
@@ -30,6 +34,12 @@
 <script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
 <script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
 <script src="../../vendor/msal/msal-browser.min.js"></script>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../../vendor/codemirror/codemirror.js"></script>
+<script src="../../vendor/codemirror/simple.js"></script>
+<script src="../../vendor/codemirror/show-hint.js"></script>
+<script src="../../vendor/codemirror/lint.js"></script>
+<script src="../../vendor/codemirror/matchbrackets.js"></script>
 <script src="../core/tree.js"></script>
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
@@ -37,22 +47,20 @@
 <script src="../core/sharepoint.js"></script>
 <script>
 // The workbook opened at once, in memory: Store keeps it in IndexedDB, which this page leaves alone.
-const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => '', status: () => ({ text: '' }), subscribe: () => () => {} };
+const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => localStorage.getItem('dendra.name'), status: () => ({ text: '' }), subscribe: () => () => {},
+  books: () => Promise.resolve([]), where: () => null };
 </script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../ui/shell.js"></script>
 <script src="../ui/app.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/scene.js"></script>
 <script src="../ui/inspector.js"></script>
+<script src="../ui/formulabar.js"></script>
 <script>
-// The sheet tabs stand in for the views part, which the canvas and tables register in the app.
-Shell.register('views', {
-  list: () => (App.version.value, (Tree.index(App.entered.value).kinds.get('view') ?? []).map(id => ({ id, name: Tree.objectName(App.entered.value, id), layout: 'chart' }))),
-  rename: (id, name) => { const tx = App.edit(), n = (Tree.index(App.entered.value).entries.get(id) ?? []).find(e => App.entered.value[e].edge === 'Name'); tx.set(n, { at: id, edge: 'Name', field: 'text', value: name }); tx.commit(); },
-  move: () => {},
-});
 // ?wide widens the inspector; ?y=… scrolls it, for looking at.
 if (Q.has('wide')) addEventListener('DOMContentLoaded', () => setTimeout(Shell.widen, 0));
-if (Q.has('y')) Shell.on('ready', () => setTimeout(() => { document.querySelector('.inspector').scrollTop = +Q.get('y'); }, 200));
+if (Q.has('y')) Shell.ready.then(() => setTimeout(() => { document.querySelector('.inspector').scrollTop = +Q.get('y'); }, 200));
 
 // ---- The checks: each drives the inspector as a person would, then reads the log ----
 const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
@@ -87,11 +95,12 @@ async function run() {
   // Flipping a tag
   const erisa = rowOf('ERISA Plan Assets').querySelector('.tag');
   check('a ruled-out tag is red and crossed', erisa.classList.contains('no'));
-  const previews = [], off = Shell.on('preview', d => previews.push(d));
   erisa.dispatchEvent(new PointerEvent('pointerenter')); await tick();
-  check('hovering a tag previews the other state, and the change', erisa.classList.contains('yes') && erisa.classList.contains('peek')
-    && previews[0]?.removes[0] === 'fund_erisa' && previews[0].adds[0].tag === true, JSON.stringify(previews));
-  off();
+  const pend = FormulaBar.pending.peek();
+  check('hovering a tag previews the other state, and the bar redlines what it would change', erisa.classList.contains('yes') && erisa.classList.contains('peek')
+    && pend?.change.records.fund_erisa?.tag === true && pend.diff.change.includes('fund_erisa'), JSON.stringify(pend?.change));
+  erisa.dispatchEvent(new PointerEvent('pointerleave')); await tick();
+  check('… and leaving it ends the redline', !FormulaBar.pending.peek());
   erisa.click(); await tick();
   check('clicking a tag switches it', st().fund_erisa.tag === true && tags.includes('fund_erisa'));
 
@@ -121,7 +130,7 @@ async function run() {
   const added = Object.entries(st()).find(([, r]) => r.at === 'fund' && r.edge === 'Side Letters');
   check('adding a tag records it attested, with its specification', added && added[1].tag === true && last().adds.some(r => 'spec' in r));
   $('.add-entry').click(); await tick();
-  await pick('Field');
+  await pick('Value');
   await type($('.draft input'), 'Closing Date');
   await type($('.draft .v input'), 'June 30, 2024');
   const field = Object.values(st()).find(r => r.at === 'fund' && r.edge === 'Closing Date');
@@ -205,8 +214,52 @@ async function run() {
   dispatchEvent(new PointerEvent('pointerup', {})); await tick();
   check('dragging a style reorders the view’s styles', $$('.style .sname')[0].textContent !== firstStyle && $$('.style .sname')[1].textContent === firstStyle, $$('.style .sname').map(s => s.textContent).join(', '));
 
+  // A definition in general: one screen, its Formula set out as the statute it encodes
+  describeAffiliated();
+  const affiliated = N().notes('Formula').find(n => n.note === 'def_affiliated');
+  Shell.select([Shell.general(affiliated.pattern)]); await tick(80);
+  const clauses = $$('.statute .st-clause');
+  check('a definition in general: its Description, clause by clause, beside its rows', clauses.length === 6 && /controlling, controlled by/.test(clauses[2].querySelector('.st-law').textContent)
+    && $('.statute .st-lead')?.textContent.startsWith('“Affiliated person”'), clauses.map(c => c.querySelector('.st-label').textContent).join(' '));
+  check('… each clause counting the records it gives', clauses.every((c, i) => i === 5 || /^\d+$/.test(c.querySelector('.st-n').textContent)), clauses.map(c => c.querySelector('.st-n').textContent).join(' '));
+  check('… a top-level OR on a line of its own', clauses[2].querySelectorAll('.st-set > div').length === 3);
+  check('… and its rows in the bar, to edit', document.querySelectorAll('.fxbar .fx-row').length === affiliated.value.length);
+
+  // Find reaches every record and every list
+  const found = Shell.parts.peek().find.flatMap(s => s.items());
+  check('Find reaches records by name and lists by whose they are', found.some(x => x.label === 'Calder Ridge Capital Partners III, L.P.') && found.some(x => x.label === 'Fund III › Owners'),
+    found.filter(x => x.detail === 'List').slice(0, 3).map(x => x.label).join(' | '));
+
   const mine = App.wb.changes().slice(n0);
   check('every edit is one change in the log, by the user', mine.length >= 14 && mine.every(c => c.who === 'Dana Jordan' && c.chart === C), mine.length);
+
+  // As it stood, nothing can be changed
+  const before = App.wb.changes().length, then = App.wb.changes()[40];
+  Shell.select(['fund']); Shell.at({ stood: then.id, at: then.when }); await tick(60);
+  check('as it stood, the inspector’s values are read-only', !!rowOf('EIN') && rowOf('EIN').querySelector('input').disabled);
+  check('… and any change is refused', App.change(tx => tx.update('fund_ein', { value: '00-0000000' })) === null && App.wb.changes().length === before);
+  Shell.at(null); await tick(40);
+
+  // Two answers to one value: both shown, with who gave each; choosing one keeps it
+  const base = App.wb.changes(), ann = Log.open(base), bob = Log.open(base);
+  for (const [w, who, value] of [[ann, 'Ann Lee', '11-1111111'], [bob, 'Bob Diaz', '22-2222222']]) { const tx = w.edit({ chart: C, who }); tx.update('fund_ein', { value }); tx.commit(); }
+  App.wb.merge(ann).merge(bob); await tick(60);
+  const answers = $$('.answers .btn');
+  check('a value with two answers shows both, each with who gave it', answers.length === 2 && answers.some(b => b.textContent.includes('22-2222222') && b.textContent.includes('Bob Diaz')), answers.map(b => b.textContent).join(' | '));
+  answers.find(b => b.textContent.includes('Bob Diaz'))?.click(); await tick(60);
+  check('… and choosing one keeps it', !$('.answers') && st().fund_ein.value === '22-2222222' && !App.wb.disagreements(C).length);
+}
+// The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
+function describeAffiliated() {
+  const f = N().notes('Formula').find(n => n.note === 'def_affiliated');
+  const text = ['“Affiliated person” of another person means—',
+    '(A) any person directly or indirectly owning, controlling, or holding with power to vote, 5 per centum or more of the outstanding voting securities of such other person;',
+    '(B) any person 5 per centum or more of whose outstanding voting securities are directly or indirectly owned, controlled, or held with power to vote, by such other person;',
+    '(C) any person directly or indirectly controlling, controlled by, or under common control with, such other person;',
+    '(D) any officer, director, partner, copartner, or employee of such other person;',
+    '(E) if such other person is an investment company, any investment adviser thereof or any member of an advisory board thereof; and',
+    '(F) if such other person is an unincorporated investment company not having a board of directors, the depositor thereof.'].join('\n');
+  App.change(tx => tx.note('Description', f.pattern, text));
 }
 
 function report() {
@@ -226,10 +279,10 @@ const ACTS = {
   peek: () => rowOf('Good Standing').querySelector('.tag').dispatchEvent(new PointerEvent('pointerenter')),
   type: () => { const i = rowOf('EIN').querySelector('input'); i.focus(); setTimeout(() => { i.value = '92-4810999'; i.dispatchEvent(new Event('input', { bubbles: true })); }, 30); },
   choose: () => rowOf('Jurisdiction').querySelector('.sel').click(),
-  draft: () => { $('.add-entry').click(); setTimeout(() => pick('Field'), 30); },
+  draft: () => { $('.add-entry').click(); setTimeout(() => pick('Value'), 30); },
 };
-if (ACTS[Q.get('act')]) Shell.on('ready', () => setTimeout(ACTS[Q.get('act')], 100));
-if (Q.has('run')) Shell.on('ready',() => setTimeout(() => run().catch(e => check(`threw: ${e.message}`, false, e.stack)).finally(report), 50));
+if (ACTS[Q.get('act')]) Shell.ready.then(() => setTimeout(ACTS[Q.get('act')], 100));
+if (Q.has('run')) Shell.ready.then(() => setTimeout(() => run().catch(e => check(`threw: ${e.message}`, false, e.stack)).finally(report), 50));
 </script>
 </body>
 </html>

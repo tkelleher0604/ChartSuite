@@ -91,8 +91,6 @@
 .date-keep { display: flex; align-items: center; gap: 8px; margin: -12px; padding: 10px 12px; border-top: 1px solid var(--rule); color: var(--ink-2); }
 
 /* ---- The strip: the chart's days as ticks under the view ---- */
-.view:has(> .scrub-host:not(:empty)) > .host { bottom: 32px; }
-.scrub-host { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; }
 .scrub { position: relative; height: 32px; background: var(--paper); border-top: 1px solid var(--rule); user-select: none; touch-action: none; outline-offset: -2px; }
 .scrub::before { content: ""; position: absolute; left: 16px; right: 16px; top: 11px; height: 1px; background: var(--rule-2); }
 .scrub > i { position: absolute; top: 6px; width: 1px; height: 11px; margin-left: -.5px; background: var(--ink-3); }
@@ -108,8 +106,6 @@
 .scrub:not(:hover) > .scrub-tip { display: none; }
 
 /* ---- History, in the inspector's place ---- */
-.inspector:has(> .hist-host) > .host { display: none; }
-.hist-host { position: absolute; inset: 0; background: var(--surface); }
 .hist { display: flex; flex-direction: column; height: 100%; }
 .hist-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 20px; border-bottom: 1px solid var(--rule); }
 .hist-head > .title { flex: 1; font: var(--t15); }

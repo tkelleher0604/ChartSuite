@@ -1,9 +1,8 @@
-// The format bar (canvas.md §5.5): one bar over the chart, in place of the ribbon. A scope chip names what a
-// change applies to: the style that reaches the selection ("Feeder Fund") or "This box"; its menu lists every
-// style that reaches it. A change writes format notes: for a style, at its output's pattern in the view; for
-// This box, at the record's own tree in the view, and its texts'. A free shape keeps its formats in its row.
-// Selecting a legend row engages its style, so the legend is the other way to restyle.
-// FormatBar.apply(label, value) makes a change as the bar would, for tests and keys.
+// The format bar: one bar over the chart, in place of the ribbon. A scope chip names what a change applies to:
+// the style that reaches the selection ("Feeder Fund") or "This box"; its menu lists every style that reaches
+// it. A change writes format notes: for a style, at its output's pattern in the view; for This box, at the
+// record's own tree in the view. A free shape keeps its formats in its row. Selecting a legend row engages its
+// style, so the legend is the other way to restyle.
 const FormatBar = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
@@ -19,13 +18,12 @@ const COLORS = [
   '#1f3864', '#2c4c7c', '#2e75b6', '#2e7d4f', '#9a6300', '#c2372b', '#7a3e8c', '#0e7490',
 ];
 const TEXT_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color', 'Align', 'Format']);
-const tick = signal(0);
 let current = null; // { canvas, scopes, scope, marks }
 
 // ---- What the selection is, and what reaches it ----
 
 function scopesOf(c) {
-  const sc = c.scene(), keys = c.keys(), src = c.source;
+  const sc = c.scene(), keys = c.keys();
   // A group is formatted as its members.
   const picked = keys.map(k => sc.byId.get(Canvas.keyParts(k)[0])).filter(Boolean);
   const group = picked.length === 1 && picked[0].geometry === 'group' ? picked[0] : null;
@@ -42,9 +40,8 @@ function scopesOf(c) {
     return { marks, scopes: [{ key: 'frame', label: f.caption.text, outputs: [f.output], style: Tree.key(Tree.bare(f.output)) }] };
   }
   if (!bound.length) return { marks, group, scopes: [{ key: 'own', label: marks.length > 1 ? 'These shapes' : 'This shape', own: true }] };
-  const wb = src.wb.peek(), chart = src.chart.peek(), view = src.view.peek(), st = src.state.peek();
   const by = new Map();
-  for (const m of bound) for (const r of Scene.reach(wb, chart, view, sc, m.id, st)) {
+  for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek())) {
     const s = by.get(r.style) ?? by.set(r.style, { key: r.style, order: r.order, name: r.name, outputs: [], captions: new Set(), count: 0 }).get(r.style);
     if (!s.outputs.some(o => Tree.key(o) === Tree.key(r.output))) s.outputs.push(r.output);
     s.captions.add(r.caption);
@@ -69,18 +66,14 @@ function apply(label, value) {
   if (!c) return;
   const { marks, scopes, row, first } = scopesOf(c), scope = scopes.find(s => s.key === chosen.peek()) ?? scopes.find(s => s.key === first) ?? scopes[0];
   if (!scope) return;
-  const src = c.source, wb = src.wb.peek(), chart = src.chart.peek(), view = src.view.peek(), N = wb.notes(chart), tx = src.edit();
-  const st = src.state.peek(), tree = id => Tree.treeOf(st, id);
-  if (scope.outputs) for (const p of scope.outputs) Canvas.writeNote(tx, N, { label, pattern: p, view }, value);
-  else for (const m of marks) {
-    if (m.type === 'box' || m.type === 'line') Canvas.writeNote(tx, N, { label, pattern: tree(m.record), view }, value);
-    else if (m.type === 'shape') {
-      const p = Canvas.payload(wb, chart, m.id);
-      if (p) tx.set(m.id, { ...p, format: { ...p.format, [label]: value } });
+  const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id);
+  App.change(tx => {
+    if (scope.outputs) for (const p of scope.outputs) tx.note(label, p, value, { view });
+    else for (const m of marks) {
+      if (m.type === 'box' || m.type === 'line') tx.note(label, tree(m.record), value, { view });
+      else if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, [label]: value } });
     }
-  }
-  const done = tx.commit();
-  if (typeof done === 'string') Shell.toast(done);
+  });
   // Keys go back to the chart, so the next change can be typed.
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
@@ -142,7 +135,7 @@ function picture(c) {
 }
 
 function Bar() {
-  tick.value;
+  App.scene.value; Shell.selection.value;
   const c = Canvas.active.value;
   if (!c || !c.scene()) return html`<div class="fb" />`;
   const s = scopesOf(c);
@@ -152,7 +145,7 @@ function Bar() {
   const any = !none, boxy = any && !lineOnly && !s.marks.every(m => m.type === 'frame');
   const set = (label, v) => apply(label, v);
   const toggle = label => set(label, !value(label));
-  const zoom = Math.round((c.zoomLevel?.() ?? 1) * 100);
+  const zoom = Math.round(Canvas.zoom.value * 100);
   const placeable = s.marks.filter(m => m.type === 'box' || m.type === 'shape').length;
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
@@ -200,20 +193,18 @@ function Bar() {
 }
 
 function mount(el) {
-  let offs = [];
-  const bind = c => { offs.forEach(f => f()); offs = c ? [c.on('change', () => tick.value = tick.peek() + 1), c.on('zoom', () => tick.value = tick.peek() + 1)] : []; };
-  const stopActive = effect(() => bind(Canvas.active.value));
-  const stopSel = effect(() => { Shell.selection.value; chosen.value = null; tick.value = tick.peek() + 1; });
+  // Another selection starts at the style that gives it its look.
+  const stopSel = effect(() => { Shell.selection.value; chosen.value = null; });
   render(html`<${Bar} />`, el);
   const keys = Shell.keys({
     '$mod+KeyB': () => inCanvas() ? apply('Bold', !value('Bold')) : false,
     '$mod+KeyI': () => inCanvas() ? apply('Italic', !value('Italic')) : false,
     '$mod+KeyU': () => inCanvas() ? apply('Underline', !value('Underline')) : false,
   });
-  return () => { stopActive(); stopSel(); bind(null); keys(); render(null, el); };
+  return () => { stopSel(); keys(); render(null, el); };
 }
-const inCanvas = () => !!document.activeElement?.closest?.('.dc') && !document.activeElement.closest('.dc-edit') && current?.marks.length;
+const inCanvas = () => !!Canvas.active.peek()?.root.contains(document.activeElement) && !document.activeElement.closest('.dc-edit') && current?.marks.length;
 
 Shell.register('formatbar', { mount });
-return { mount, apply, value };
+return { apply, value };
 })();

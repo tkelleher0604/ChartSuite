@@ -25,9 +25,16 @@
 .dc .x6-widget-transform-rotate { display: none !important; }
 .dc-sel { fill: none; stroke: var(--accent); stroke-width: 4px; stroke-opacity: .35; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
-/* Marks drawn over the chart: Range Finder's outlines, a legend row, a group, a relation being drawn. */
+/* Marks drawn over the chart: Range Finder's outlines, a legend row, a group, a relation being drawn. The
+   page stays white in both themes, so the outlines on it take the light theme's hues; a witness in full, a
+   name's record lighter, a deeper reason lighter still. */
+:root { --rf-page-1: #1f6fa8; --rf-page-2: #187a74; --rf-page-3: #a3570f; --rf-page-4: #a63a68; --rf-page-5: #5c6a17; --rf-page-6: #6e5a43; --no-page: #c2372b; }
 .dc-marks { pointer-events: none; }
-.dc-hl { fill: none; stroke: var(--rf-1); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.dc-hl { fill: none; stroke: var(--rf-page-1); stroke-width: 2px; stroke-opacity: .75; vector-effect: non-scaling-stroke; }
+.dc-hl.h2 { stroke: var(--rf-page-2); } .dc-hl.h3 { stroke: var(--rf-page-3); } .dc-hl.h4 { stroke: var(--rf-page-4); }
+.dc-hl.h5 { stroke: var(--rf-page-5); } .dc-hl.h6 { stroke: var(--rf-page-6); }
+.dc-hl.hloop { stroke: var(--no-page); } .dc-hl.haccent { stroke: var(--accent); }
+.dc-hl.strong { stroke-opacity: 1; }
 .dc-hl.line { stroke-width: 5px; stroke-opacity: .45; stroke-linejoin: round; }
 .dc-hl.strong { stroke-width: 3px; }
 .dc-hl.line.strong { stroke-width: 7px; stroke-opacity: .55; }
