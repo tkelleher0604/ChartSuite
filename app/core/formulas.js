@@ -2949,25 +2949,34 @@ function sameLeft(A, a, B, b) {
     && a.holds.length === b.holds.length && a.holds.every((h, k) => held(h, b.holds[k]));
 }
 
+// Whether two entered records say the same, whatever order their keys were written in.
+function sameEntry(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  for (const k in a) if (a[k] !== b[k] && (k !== 'args' || JSON.stringify(a.args) !== JSON.stringify(b.args))) return false;
+  for (const k in b) if (!(k in a)) return false;
+  return true;
+}
 // The entered records changed since an earlier working-out, or null where it was of other definitions or
 // names, or is too far off to start from.
 function changesSince(R, P, entered) {
   const O = R?.state;
   if (!O || O.P.frame !== P.frame || planOf(O.P) !== planOf(P) || O.left.length !== P.groups.length) return null;
   const was = O.entered, changed = [];
-  for (const id in entered) if (was[id] !== entered[id]) changed.push(id);
+  for (const id in entered) if (!sameEntry(was[id], entered[id])) changed.push(id);
   for (const id in was) if (!(id in entered)) changed.push(id);
   return changed.length > Math.max(64, Object.keys(entered).length / 4) ? null : changed;
 }
 const rowsOf = d => d.rowsKey ??= JSON.stringify(d.rows.map(r => r.text));
-// Of the latest workings-out, the one to start from: the fewest definitions with other rows, then the fewest
-// records changed. The latest that was started from one given (the app's own) is kept apart from the two
-// latest others (a preview's), so previews never push it out.
+// Of an earlier working-out given and the latest, the one to start from: the fewest definitions with other
+// rows, then the fewest records changed. So a change made after its preview starts from the preview, which
+// worked it out already. The latest that was started from one given (the app's own) is kept apart from the
+// two latest others (a preview's), so previews never push it out.
 const recent = [];
 let followed = null;
-function closest(P, entered) {
+function closest(P, entered, from) {
   let best = null;
-  for (const R of [followed, ...recent]) {
+  for (const R of new Set([from, followed, ...recent])) {
     const changed = changesSince(R, P, entered);
     if (!changed) continue;
     const rows = P.groups.reduce((n, g, i) => n + g.defs.filter((d, j) => rowsOf(d) !== rowsOf(R.state.P.groups[i].defs[j])).length, 0);
@@ -3068,8 +3077,8 @@ function keepStep(S, i, O) {
 // ---- What the page uses ----
 
 // Works out the computed state from the entered records, the definitions and the names: see core/README.md.
-// `from`, an earlier working-out, is where it starts (see reworking), or where it can't, the closest of the
-// latest (see closest); none with null.
+// It starts from the closest of `from`, an earlier working-out, and the latest (see closest and reworking);
+// from nothing with null.
 function computeState(entered, definitions, names, from) {
   const started = now();
   const defs = definitions.map(d => prepareDef(d, names));
@@ -3086,7 +3095,7 @@ function computeState(entered, definitions, names, from) {
   P.known = knownNames(entered, defs, reg, names?.schema);
   P.groups = plan(defs, reg);
   P.frame = frameOf(defs, names);
-  const given = from && changesSince(from, P, entered), base = given ? { R: from, changed: given } : from === null ? null : closest(P, entered);
+  const base = from === null ? null : closest(P, entered, from);
   const again = base && reworking(base.R, base.changed, P, entered);
   const S = again?.inPlace() ? swapped(base.R.state, P, entered, base.changed) : stateFor(P, entered);
   for (; S.done < P.groups.length; S.done++) {
