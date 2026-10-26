@@ -1,40 +1,28 @@
-// The open workbook, and what every part reads from it: the chart in use, its schema and notes, and its state
-// as of the shell's time. A part reads App.state.value (and the others) inside the window's drawing, so it
-// redraws when the workbook changes, another is opened, or the time moves. Edits go through App.edit().
-//   App.wb        the workbook (core/README.md); Store opens it, so it is replaced when another is opened
-//   App.chart     signal: the chart in use
-//   App.version   signal: bumped after every change and every opening; read it to follow the workbook
-//   App.day       computed: the day shown ('yyyy-mm-dd'), today unless the time says otherwise
-//   App.shown     computed: the workbook as shown, as it stood at a moment in History, or as it is
-//   App.entered   computed: the chart's entered records as of the day, a state
-//   App.state     computed: the computed state, entered and computed records, what the parts draw
-//   App.computed  computed: the formulas' whole working-out (Formulas.computeState), for the formula bar's
-//                 Formulas.ground, evaluateRow and diff
-//   App.schema, App.notes   computed: the chart's schema and its Notes reader
-//   App.edit(opts?) → a transaction for the chart in use, by the current user, from the day shown
-//   App.who()     the name changes are made under
-
+// The open workbook, and what every part reads from it and changes it through (shell.js lists the API).
 const App = (() => {
   const { signal, computed } = preactSignals;
-  const html = Shell.html;
+  const { html, store } = Shell;
 
   // Empty until Store has opened the workbook, which the launch screen covers.
   const book = signal(Log.open({ dendra: 1, changes: [] }));
   const version = signal(0);
   const chart = signal(null);
-  let unsubscribe = () => {};
+  let unsubscribe = null;
   function use(wb) {
-    unsubscribe();
+    // Another workbook: nothing of the last one is selected, and it shows as it is now.
+    if (unsubscribe) { Shell.select([], { replace: true }); Shell.at(null, { replace: true }); unsubscribe(); }
     unsubscribe = wb.subscribe(() => { version.value++; });
     book.value = wb;
     if (!wb.charts().some(c => c.chart === chart.peek())) chart.value = wb.charts()[0]?.chart ?? null;
     version.value++;
+    listBooks();
   }
   Store.open({ sample: SAMPLE }).then(use, () => use(Log.open(SAMPLE)));
 
-  const who = () => Store.who() || Shell.user.value.name || 'You';
+  const who = () => Store.who() || 'You';
   const day = computed(() => Shell.time.value?.asOf ?? Log.today());
-  // In History, the workbook as it stood just after the change picked.
+  // In History, the workbook as it stood just after the change picked, which can't be changed.
+  const readOnly = computed(() => !!Shell.time.value?.stood);
   const stood = computed(() => {
     const t = Shell.time.value;
     if (!t?.stood) return null;
@@ -47,25 +35,146 @@ const App = (() => {
   const notes = computed(() => { version.value; return chart.value ? shown.value.notes(chart.value) : Notes.index([]); });
   // The formulas work the chart out from its Formula notes, and its relations' names and lists.
   const definitions = computed(() => notes.value.definitions(schema.value));
-  const names = computed(() => ({ relations: notes.value.relations(schema.value) }));
-  const result = computed(() => Formulas.computeState(entered.value, definitions.value, names.value));
+  const relations = computed(() => notes.value.relations(schema.value));
+  const result = computed(() => Formulas.computeState(entered.value, definitions.value, { relations: relations.value }));
   const state = computed(() => result.value.records);
 
-  const edit = (opts = {}) => book.peek().edit({ chart: chart.peek(), who: who(), day: Shell.time.peek()?.asOf, ...opts });
+  // ---- Changing ----
+  const undo = () => !readOnly.peek() && book.peek().undo(who(), chart.peek());
+  // One change, by the user: refused while the past is shown; dated from the day shown unless `dated` is false
+  // (a view isn't a fact about the world). `say`, a string or a function of the change, is toasted with Undo.
+  function change(fn, { say, dated = true } = {}) {
+    if (readOnly.peek()) { Shell.toast('Can’t change the past'); return null; }
+    const tx = book.peek().edit({ chart: chart.peek(), who: who(), day: dated ? Shell.time.peek()?.asOf ?? null : null });
+    fn(tx);
+    const c = tx.commit();
+    if (typeof c === 'string') { Shell.toast(c); return null; }
+    const said = c && (typeof say === 'function' ? say(c) : say);
+    if (said) Shell.toast(said, { undo });
+    return c;
+  }
+  // Restore: the reverse of a change, as it stood or deleted, made now.
+  function restore(id, say = 'Restored 1 change') {
+    const c = book.peek().reverse(id, who());
+    if (typeof c === 'string') return Shell.toast(c);
+    Shell.at(null);
+    if (c) Shell.toast(say, { undo });
+  }
 
+  // ---- The chart menu: the workbook's charts, a new one, and the workbooks this browser keeps ----
+  const books = signal([]);
+  const listBooks = () => Store.books().then(bs => { books.value = bs; });
+  // A chart of nothing but one view, added to a workbook.
+  function startChart(wb) {
+    const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name)));
+    let name = 'Untitled', i = 2;
+    while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
+    const tx = wb.edit({ chart: c, who: who() });
+    tx.add('chart', { name }, c);
+    tx.note('Name', viewTree(tx.add('record', { kind: 'View' })), 'Chart');
+    return tx.commit();
+  }
+  function newChart() {
+    if (readOnly.peek()) return Shell.toast('Can’t change the past');
+    const c = startChart(book.peek());
+    if (typeof c === 'string') return Shell.toast(c);
+    chart.value = c.chart;
+    Shell.select([]);
+  }
+  const blank = () => { const wb = Log.open([]); startChart(wb); return opened(Store.open({ id: Log.newId(), sample: wb })); };
   Shell.register('workbook', {
     charts: () => (version.value, book.value.charts().map(c => ({ id: c.chart, name: c.name }))),
     current: () => chart.value,
-    open: id => { chart.value = id; },
+    open: id => { chart.value = id; Shell.select([]); },
+    menu: () => [{ label: 'New chart', run: newChart }, { label: 'Workbooks', items: [
+      ...books.value.map(b => ({ label: b.name, checked: b.id === Store.where()?.id, run: () => b.id !== Store.where()?.id && opened(Store.open({ id: b.id })) })),
+      ...(books.value.length ? ['-'] : []), { label: 'New workbook', run: blank }] }],
   });
   Shell.register('undo', {
-    undo: () => book.peek().undo(who(), chart.peek()),
-    redo: () => book.peek().redo(who(), chart.peek()),
-    canUndo: () => (version.value, book.value.stacks(who(), chart.value).undo.length > 0),
-    canRedo: () => (version.value, book.value.stacks(who(), chart.value).redo.length > 0),
+    undo, redo: () => !readOnly.peek() && book.peek().redo(who(), chart.peek()),
+    canUndo: () => (version.value, !readOnly.value && book.value.stacks(who(), chart.value).undo.length > 0),
+    canRedo: () => (version.value, !readOnly.value && book.value.stacks(who(), chart.value).redo.length > 0),
   });
 
-  // Where the workbook is kept: its status at the foot, and opening and saving it in the chart menu.
+  // ---- Views: View objects, each described by its own notes, never dated ----
+  const viewTree = id => ({ id, kind: 'View' });
+  const views = computed(() => {
+    const st = entered.value, N = notes.value;
+    return (Tree.index(st).kinds.get('view') ?? []).map(id => {
+      const t = viewTree(id), lay = N.value('Layout', t);
+      return { id, name: N.nameOf(st, id), layout: lay && typeof lay === 'object' ? 'table' : 'chart', rows: lay?.rows ?? null,
+        keeps: N.value('As Of', t) ?? null, order: N.order(t) ?? Infinity };
+    }).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  });
+  // The view shown, drawn: what the canvas, the format bar and the inspector's Look read.
+  const scene = computed(() => {
+    const v = views.value.find(x => x.id === Shell.view.value);
+    return v?.layout !== 'chart' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
+  });
+  // What a table's rows can be: each kind, each relation (its edges, every other label removed), and dates
+  // and documents.
+  const strip = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: strip(a.loc) })) } : {};
+  const layouts = computed(() => {
+    const N = notes.value, rels = new Map(), kinds = new Set(), byName = (a, b) => a.name.localeCompare(b.name);
+    for (const t of Object.values(schema.value)) {
+      if (!t.args) { if (!Tree.isView(t)) kinds.add(t.kind); }
+      else if (t.args.length > 1) { const p = strip(t); rels.set(Tree.key(p), p); }
+    }
+    return {
+      kinds: [...kinds].map(kind => ({ name: Tree.plural(kind), rows: { kind } })).sort(byName),
+      relations: [...rels.values()].map(p => ({ name: N.name(p), rows: p })).sort(byName),
+      datatypes: ['date', 'document'].map(d => ({ name: Tree.plural(Tree.DATATYPES[d]), rows: d })),
+    };
+  });
+  // A new view after the one it copies, or at the end: a chart, or a table of `rows`. A copy takes the
+  // original's notes and shapes, but its name.
+  function addView(name, rows, from) {
+    const vs = views.peek(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(vs.map(v => Tree.norm(v.name)));
+    let n = name, i = 2;
+    while (taken.has(Tree.norm(n))) n = `${name} ${i++}`;
+    let id = null;
+    change(tx => {
+      id = tx.add('record', { kind: 'View' });
+      const t = viewTree(id);
+      tx.note('Name', t, n);
+      [...vs.slice(0, at), { id }, ...vs.slice(at)].forEach((v, k) => tx.note('Order', viewTree(v.id), k + 1));
+      if (rows !== undefined) tx.note('Layout', t, { rows });
+      if (from) for (const { id: _, ...r } of book.peek().rows(chart.peek())) {
+        if ('shape' in r && r.view === from) { const { shape, ...s } = r; tx.add('shape', { ...s, view: id }); }
+        else if ('note' in r && r.view === from) { const { note, ...x } = r; tx.add('note', { ...x, view: id }); }
+        else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name') tx.note(r.label, t, r.value);
+      }
+    }, { dated: false });
+    return id;
+  }
+  const order = ids => change(tx => ids.forEach((id, k) => tx.note('Order', viewTree(id), k + 1)), { dated: false });
+  Shell.register('views', {
+    list: () => views.value,
+    rename: (id, name) => change(tx => tx.note('Name', viewTree(id), name), { dated: false }),
+    move: (id, i) => { const ids = views.peek().map(v => v.id).filter(x => x !== id); ids.splice(i, 0, id); order(ids); },
+    // A chart, or a table of a kind's records, a relation's or every date or document: the new view's id, or
+    // null if none is chosen.
+    add: anchor => new Promise(done => {
+      let chosen = false;
+      const pick = (name, rows) => () => { chosen = true; done(addView(name, rows)); };
+      const L = layouts.peek(), as = l => ({ label: l.name, run: pick(l.name, l.rows) });
+      Shell.menu(anchor, [{ label: 'Chart', run: pick('Chart') }, '-', { label: 'Records', items: L.kinds.map(as) },
+        { label: 'Relations', items: L.relations.map(as) }, ...L.datatypes.map(as)],
+      { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
+    }),
+    menu: id => {
+      const v = views.peek().find(x => x.id === id);
+      return [
+        { label: 'Duplicate', run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
+        { label: 'Delete', danger: true, disabled: views.peek().length < 2, run: () => {
+          const next = views.peek().find(x => x.id !== id);
+          if (change(tx => tx.remove(id), { say: `Deleted ${v.name}`, dated: false }) && Shell.view.peek() === id) Shell.show(next.id, { replace: true });
+        } },
+      ];
+    },
+  });
+
+  // ---- Where the workbook is kept: its status at the foot, and opening and saving it in the chart menu ----
   const status = signal(Store.status());
   Store.subscribe(st => { status.value = st; });
   Shell.register('status', {
@@ -76,15 +185,37 @@ const App = (() => {
     },
   });
   const opened = p => p.then(wb => wb && use(wb), e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t open it'));
+  const saved = p => p.then(listBooks, e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t save it'));
+
+  // Settings: who you are, and the SharePoint library the team keeps its workbooks and documents in.
+  function settings() {
+    const v = { name: store.get('name') ?? '', ...SharePoint.settings() };
+    const keep = () => SharePoint.configure({ tenant: v.tenant.trim(), client: v.client.trim(), library: v.library.trim() });
+    const field = (k, label) => html`<label class="field"><span>${label}</span><input value=${v[k]} spellcheck="false" onInput=${e => { v[k] = e.target.value; }} /></label>`;
+    function Account() {
+      const [me, setMe] = preactHooks.useState(SharePoint.account());
+      const go = p => p.then(() => setMe(SharePoint.account()), e => Shell.toast(e?.message || 'Couldn’t sign in'));
+      return html`<div class="field"><span>SharePoint</span>${me
+        ? html`<span class="who">${me.name}</span><button type="button" class="btn" onClick=${() => go(SharePoint.signOut())}>Sign out</button>`
+        : html`<button type="button" class="btn" onClick=${() => { keep(); go(SharePoint.signIn()); }}>Sign in</button>`}</div>`;
+    }
+    Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }],
+      body: () => html`<div class="settings">${field('name', 'Your name')}${field('tenant', 'Tenant')}${field('client', 'Client ID')}${field('library', 'Library')}<${Account} /></div>` })
+      .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } });
+  }
   [
     { id: 'file.open', name: 'Open…', keys: '$mod+O', run: () => opened(Store.openFile()) },
-    { id: 'file.save', name: 'Save a copy…', keys: '$mod+Shift+S', run: () => opened(Store.saveAs('file')) },
-    { id: 'file.library', name: 'Save to SharePoint…', run: () => opened(Store.saveAs('library')) },
+    { id: 'file.save', name: 'Save a copy…', keys: '$mod+Shift+S', run: () => saved(Store.saveAs('file')) },
+    { id: 'file.library', name: 'Save to SharePoint…', run: () => saved(Store.saveAs('library')) },
     { id: 'file.download', name: 'Download', run: () => Store.download() },
   ].forEach((a, i) => Shell.register('action', { ...a, menu: 'chart', order: 1 + i }));
+  Shell.register('action', { id: 'settings', name: 'Settings', menu: 'chart', order: 20, run: settings });
+  Shell.register('action', { id: 'chart.new', name: 'New chart', run: newChart });
+  Shell.register('action', { id: 'file.new', name: 'New workbook', run: blank });
 
   return {
     get wb() { return book.value; },
-    chart, version, day, shown, entered, state, computed: result, schema, notes, edit, who,
+    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, state,
+    readOnly, change, restore, views, scene, layouts, addView, who, blank,
   };
 })();

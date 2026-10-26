@@ -1,52 +1,58 @@
-// Dendra's window (dendra.md, Part 2): the title bar, the format and formula bars, the view beside the
-// inspector, and the sheet tabs with the status bar; and the pieces every part uses: menus, popovers,
-// dialogs, toasts, keys, Find and an event bus. Preact with htm and signals, all classic scripts.
+// Dendra's window (dendra.md, Part 2), and the contract between its parts. Preact, htm and signals, all classic
+// scripts; each part is one global, loaded after this one, that registers with the shell.
 //
-// THE COORDINATES are signals, and the address (location.hash) holds them, so any state can be linked:
+// THE COORDINATES are signals, held in the address (location.hash) so any state can be linked:
 //   Shell.view       the id of the view shown
-//   Shell.selection  what is selected: a list of keys, in whatever form the part that selects them uses
-//   Shell.time       null for today, { asOf: 'yyyy-mm-dd' }, or { stood: changeId, at: isoTime }
-// Shell.show(id), Shell.select(keys) and Shell.at(time) change them, each a step on the trail that
-// Alt+Left and Alt+Right walk (pass { replace: true } for a change that isn't a step).
+//   Shell.selection  a list of keys: a record's id (a box, row, line or text); a free shape's id; `legend#row`,
+//                    a legend's row; `frame:/…`, a frame; `id@box`, a relation's text in one of its boxes; and
+//                    `~json`, an entry, relation or kind in general (Shell.general(pattern), Shell.pattern(key))
+//   Shell.time       null for today, { asOf: 'yyyy-mm-dd' }, or { stood: changeId, at: isoTime } in History
+// Shell.show(id), Shell.select(keys) and Shell.at(time) change them, each a step on the trail Alt+Left and
+// Alt+Right walk ({ replace: true } for a change that isn't a step).
 //
-// THE PARTS register with Shell.register(kind, thing), which returns a function that unregisters it.
-// What a provider's functions read while the window draws (signals included) redraws it when it changes.
-// One of each:
-//   'canvas', 'table'   { mount(el) → unmount? }  draws the view, when it's laid out as a chart or a table
-//   'inspector'         { mount(el) → unmount? }  shows the selection
-//   'formatbar'         { mount(el) → unmount? }  under the title bar, on views laid out as charts
-//   'formulabar'        { mount(el) → unmount? }  under the format bar
-//   'views'      { list() → [{ id, name, layout: 'chart' | 'table' }], rename(id, name), move(id, index),
-//                  add?() → id, menu?(id) → items }                          the sheet tabs
-//   'workbook'   { charts() → [{ id, name }], current() → id, open(id), menu?() → items }   the chart menu
-//   'undo'       { undo(), redo(), canUndo() → bool, canRedo() → bool }
-//   'time'       { When({ close }), Strip() }   components: the date's popover, and the strip under the view
-//   'attention'  { items() → [{ kind: 'overdue' | 'blank' | 'error', go() }] }   counted; F8 steps through
-//   'evaluate'   (text, selection) → { value } | { items: [{ label, detail?, run }] } | { error }   Find's "="
-// Any number of:
-//   'action'  { id, name, run, keys?, enabled?() → bool, menu?: 'chart', order? }   in Find, the chart
-//             menu (by order: History 10, Settings 20, Light and Dark 30, Tour 40) and the keys
-//   'find'    { items() → [{ label, detail?, run }] }    Find's other sources: records, lists
-//   'export'  { name, run }                              the Export menu
-//   'status'  { render() → vnode }                       beside the counts in the status bar
-// A part's mount may instead be a Preact component, which the slot renders.
+// THE PARTS register with Shell.register(kind, thing) → unregister. One of each:
+//   'canvas', 'table'  { mount(el) → unmount? }   the view, as a chart or a table   (canvas.js, table.js)
+//   'inspector'        { mount(el) → unmount? }   the selection                      (inspector.js)
+//   'formatbar'        { mount(el) → unmount? }   on a chart, under the title bar    (formatbar.js)
+//   'formulabar'       a component                under the format bar               (formulabar.js)
+//   'views'      { list() → [{ id, name, layout }], rename(id, name), move(id, i), add(anchor) → Promise of an
+//                  id or null, menu(id) → items }          the sheet tabs           (app.js)
+//   'workbook'   { charts() → [{ id, name }], current() → id, open(id), menu() → items }   the chart menu (app.js)
+//   'undo'       { undo(), redo(), canUndo(), canRedo() }                                    (app.js)
+//   'time'       { When({ close }), Strip() }   the date's popover, the strip under the view  (time.js)
+//   'attention'  { items() → [{ kind: 'overdue' | 'blank' | 'error', go() }] }   counted; F8   (inspector.js)
+//   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
+// Any number of: 'action' { id, name, run, keys?, enabled?, menu?: 'chart', order? } (the chart menu by
+// order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40); 'find' { items() → menu items },
+// Find's records and lists; 'export' { name, run }; 'status' { render() }.
 //
-// THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, render, opts) on Floating UI;
-// Shell.dialog(opts) and Shell.confirm(text, opts) on <dialog>; Shell.toast(text, { undo }); Shell.keys(map,
-// opts) on tinykeys; Shell.find(query) opens Find; Shell.icon(name); Shell.on(event, fn) and
-// Shell.emit(event, detail), the bus (tour.js lists the events the parts emit); Shell.widen() and
-// Shell.narrow() for the inspector; Shell.theme and Shell.user, signals; Shell.html, htm bound to Preact.
-// A menu item is '-', { head }, or { label, detail?, keys?, checked?, disabled?, danger?, run?, items? }.
+// THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
+//   select        the selection changed; its keys       the shell        → the tour, the formula bar
+//   view-switch   another view is shown; its id         the shell        → the tour, time.js
+//   why-open      a computed record's reasons asked     inspector, canvas, formula bar → the bar, the tour
+//   tag-flip      a tag was attested or ruled out       inspector, table, formula bar  → the tour
+//   relate-open   two boxes' relations asked for [a, b] the canvas       → the inspector, the tour
+// Anything else one part asks of another is a call: FormulaBar.preview(change), App.change(fn), Canvas.zoom.
+// Shell.ready and Shell.launched are promises: the window is drawn; the launch screen is gone.
 //
-// With ?slots in the address, a slot nothing has registered for shows its name, muted.
+// APP (app.js) is the workbook: App.wb; signals chart, version, day, readOnly (in History); computed shown,
+// entered, schema, notes, definitions, relations, computed (Formulas.computeState's), state, views
+// ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
+// dated }) → the change, every edit's one way in; App.restore(changeId); App.addView; App.who(); App.blank().
+//
+// THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
+// and confirm() on <dialog>; toast(text, { undo }); keys(map, opts) on tinykeys; aside(component | null), in
+// the inspector's place; layer(close) → remove, the Esc stack every layer joins; drag(e, { item, items, axis,
+// onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set, this browser's settings;
+// widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?, keys?, checked?, disabled?,
+// danger?, mono?, run?, items? }; one without run or items is shown, not chosen.
 
 const Shell = (() => {
   const { h, render } = preact;
-  const { useEffect, useLayoutEffect, useRef, useState } = preactHooks;
+  const { useLayoutEffect, useRef, useState } = preactHooks;
   const { signal, computed, effect, batch } = preactSignals;
   const { computePosition, autoUpdate, offset, flip, shift } = FloatingUIDOM;
   const html = htm.bind(h);
-  const SLOTS = new URLSearchParams(location.search).has('slots');
   const store = {
     get: k => { try { return localStorage.getItem('dendra.' + k); } catch { return null; } },
     set: (k, v) => { try { v == null ? localStorage.removeItem('dendra.' + k) : localStorage.setItem('dendra.' + k, v); } catch {} },
@@ -56,6 +62,8 @@ const Shell = (() => {
   const bus = new EventTarget();
   const on = (name, fn) => { const f = e => fn(e.detail); bus.addEventListener(name, f); return () => bus.removeEventListener(name, f); };
   const emit = (name, detail) => bus.dispatchEvent(new CustomEvent(name, { detail }));
+  let isReady, isLaunched;
+  const ready = new Promise(r => { isReady = r; }), launched = new Promise(r => { isLaunched = r; });
 
   // ---- The registry ----
   const MANY = new Set(['action', 'find', 'export', 'status']);
@@ -115,6 +123,9 @@ const Shell = (() => {
   const select = (keys, o) => go(() => { const k = [].concat(keys ?? []); if (!same(k, selection.peek())) selection.value = k; }, o);
   const show = (id, o) => go(() => { view.value = id; }, o);
   const at = (t, o) => go(() => { time.value = t || null; }, o);
+  // An entry, relation or kind in general, as a selection key; and a key's pattern, if it's one of those.
+  const general = p => '~' + JSON.stringify(p);
+  const pattern = key => { if (key?.[0] !== '~') return null; try { return JSON.parse(key.slice(1)); } catch { return null; } };
   const back = () => { if (step > 0) history.back(); };
   const forward = () => history.forward();
   let lastSel = [], lastView = null;
@@ -124,25 +135,65 @@ const Shell = (() => {
   const current = computed(() => views.value.find(v => v.id === view.value));
   effect(() => { const vs = views.value; if (vs.length && !current.value) show(vs[0].id, { replace: true }); });
 
-  // ---- Theme, the user, the inspector's width ----
+  // ---- Theme, and the inspector's width ----
   const theme = signal(document.documentElement.dataset.theme || 'light');
-  function setTheme(t, keep = true) { theme.value = t; document.documentElement.dataset.theme = t; if (keep) store.set('theme', t); emit('theme', t); }
+  function setTheme(t, keep = true) { theme.value = t; document.documentElement.dataset.theme = t; if (keep) store.set('theme', t); }
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => { if (!store.get('theme')) setTheme(e.matches ? 'dark' : 'light', false); });
-  const user = signal({ name: store.get('name') || '', signedIn: false });
-  effect(() => store.set('name', user.value.name || null));
   const insp = signal(Math.min(Math.max(280, +store.get('inspector') || 384), Math.max(280, innerWidth - 320)));
   const wide = signal(false), gliding = signal(false);
   const glide = () => { gliding.value = true; setTimeout(() => { gliding.value = false; }, 240); };
   const widen = () => { if (!wide.peek()) { glide(); wide.value = true; } };
   const narrow = () => { if (wide.peek()) { glide(); wide.value = false; } };
+  // What takes the inspector's place, while it does: History.
+  const aside = signal(null);
 
-  // ---- Keys ----
+  // ---- Keys, and the Esc stack ----
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   const keyLabel = k => !k ? '' : k.replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])/g, '$1').replace(/Digit(\d)/g, '$1').replace(/Arrow(\w+)/g, '$1');
   function keys(map, o = {}) {
     const wrapped = {};
     for (const [k, fn] of Object.entries(map)) wrapped[k] = e => { if (fn(e) !== false) e.preventDefault(); };
     return tinykeys.tinykeys(o.target || window, wrapped, o.inputs ? { ignore: e => e.isComposing } : {});
+  }
+  // Esc closes the topmost layer open: a menu or popover, a dialog, History, the tour. Text being typed puts
+  // itself back first, unless the layer is a menu, whose only text is its search.
+  const layers = [];
+  function layer(close, o = {}) {
+    const l = { close, always: !!o.always };
+    layers.push(l);
+    return () => { const i = layers.indexOf(l); if (i >= 0) layers.splice(i, 1); };
+  }
+  addEventListener('keydown', e => {
+    const top = layers.at(-1);
+    if (e.key !== 'Escape' || !top || e.defaultPrevented) return;
+    if (!top.always && e.target.closest?.('input, textarea, [contenteditable], .CodeMirror')) return;
+    e.preventDefault(); e.stopPropagation();
+    top.close();
+  }, true);
+
+  // ---- Dragging to reorder: an item among its siblings, a drop line where it would go ----
+  function drag(e, { item, items, axis = 'y', onDrop, onClick }) {
+    if (e.button !== 0) return;
+    const x0 = e.clientX, y0 = e.clientY, across = axis === 'x';
+    let moving = false, to = -1;
+    const clear = () => items.forEach(x => { delete x.dataset.drop; delete x.dataset.dragging; });
+    const move = ev => {
+      if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+      moving = true;
+      clear();
+      item.dataset.dragging = '';
+      to = items.findIndex(x => { const r = x.getBoundingClientRect(); return across ? ev.clientX < r.left + r.width / 2 : ev.clientY < r.top + Math.min(r.height, 28) / 2; });
+      if (to < 0) { to = items.length; items.at(-1).dataset.drop = across ? 'right' : 'bottom'; } else items[to].dataset.drop = across ? 'left' : 'top';
+    };
+    const up = () => {
+      removeEventListener('pointermove', move);
+      clear();
+      if (!moving) return onClick?.();
+      const from = items.indexOf(item), i = to > from ? to - 1 : to;
+      if (to >= 0 && i !== from) onDrop(from, i);
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up, { once: true });
   }
 
   // ---- Icons: only functional ones ----
@@ -166,15 +217,17 @@ const Shell = (() => {
       if (again) return () => {};
     }
     const id = ++fid, back = document.activeElement;
-    let shut = false;
+    let shut = false, unlayer = null;
     const close = () => {
       if (shut) return;
       shut = true;
+      unlayer();
       floats.peek().filter(x => x.parent === id).forEach(x => x.close());
       floats.value = floats.peek().filter(x => x.id !== id);
       f.onClose?.();
       if (!f.parent && back?.isConnected && document.activeElement?.closest?.('.float')) back.focus();
     };
+    unlayer = layer(close, { always: true });
     if (f.parent) floats.peek().filter(x => x.parent === f.parent).forEach(x => x.close());
     floats.value = [...floats.peek(), { ...f, id, close }];
     return close;
@@ -209,12 +262,6 @@ const Shell = (() => {
     if (top?.anchor instanceof Element && top.anchor.contains(e.target)) return; // its click toggles it
     closeAll();
   }, true);
-  document.addEventListener('keydown', e => {
-    const open = floats.peek();
-    if (e.key !== 'Escape' || !open.length) return;
-    e.preventDefault(); e.stopPropagation();
-    open[open.length - 1].close();
-  }, true);
 
   const uf = new uFuzzy({ intraMode: 1 });
   function rank(items, q, limit = 50) {
@@ -226,13 +273,13 @@ const Shell = (() => {
     return order.slice(0, limit).map(o => ({ ...items[info.idx[o]], ranges: info.ranges[o] }));
   }
   const marked = (label, ranges) => !ranges ? label : uFuzzy.highlight(label, ranges, (p, m) => m ? html`<b>${p}</b>` : p, [], (a, p) => { a.push(p); });
-  const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled;
+  const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled && (it.run || it.items);
 
+  // A menu; with `search`, a field that ranks its items, or that `items(query)` answers.
   function Menu({ f }) {
-    const [q, setQ] = useState('');
+    const [q, setQ] = useState(f.query ?? '');
     const [act, setAct] = useState(-1);
-    const all = typeof f.items === 'function' ? f.items() : f.items;
-    const items = f.search && q.trim() ? rank(all.filter(selectable), q) : all;
+    const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? rank(f.items.filter(selectable), q) : f.items;
     const live = items.map((it, i) => selectable(it) ? i : -1).filter(i => i >= 0);
     const active = f.search && q.trim() && act < 0 ? live[0] : act;
     const checks = items.some(it => it && it.checked !== undefined);
@@ -251,8 +298,8 @@ const Shell = (() => {
       const it = items[active];
       if (e.key === 'ArrowDown') move(1);
       else if (e.key === 'ArrowUp') move(-1);
-      else if (e.key === 'Home') setAct(live[0]);
-      else if (e.key === 'End') setAct(live[live.length - 1]);
+      else if (e.key === 'Home' && !f.search) setAct(live[0]);
+      else if (e.key === 'End' && !f.search) setAct(live[live.length - 1]);
       else if (e.key === 'Enter' && it) run(it);
       else if (e.key === 'ArrowRight' && it?.items) run(it);
       else if (e.key === 'ArrowLeft' && f.parent) f.close();
@@ -265,21 +312,22 @@ const Shell = (() => {
       e.preventDefault();
     };
     useLayoutEffect(() => { document.querySelector(`[data-mi="${f.id}-${active}"]`)?.scrollIntoView({ block: 'nearest' }); }, [active]);
-    return html`<div class="menu" role="menu" tabindex="-1" onKeyDown=${onKey}>
-      ${f.search ? html`<input class="menu-find" placeholder="Find" value=${q} onInput=${e => { setQ(e.target.value); setAct(-1); }} />` : null}
+    return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" onKeyDown=${onKey}>
+      ${f.search ? html`<input class=${'menu-find' + (q.startsWith('=') ? ' mono' : '')} placeholder="Find" value=${q} spellcheck="false" autocomplete="off"
+        onInput=${e => { setQ(e.target.value); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" />`
         : it.head ? html`<div class="menu-head">${it.head}</div>`
         : it.seg ? html`<div class="menu-seg">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
         : html`<div role="menuitem" data-mi=${`${f.id}-${i}`} aria-disabled=${it.disabled ? 'true' : null}
-            class=${'menu-item' + (i === active ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '')}
-            onPointerMove=${() => { if (i !== act && !it.disabled) { setAct(i); if (it.items) openSub(it, document.querySelector(`[data-mi="${f.id}-${i}"]`)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
-            onClick=${() => !it.disabled && run(it)}>
+            class=${'menu-item' + (i === active ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
+            onPointerMove=${() => { if (i !== act && selectable(it)) { setAct(i); if (it.items) openSub(it, document.querySelector(`[data-mi="${f.id}-${i}"]`)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
+            onClick=${() => selectable(it) && run(it)}>
             ${checks ? html`<span class="check">${it.checked ? icon('check') : null}</span>` : null}
-            <span class="label">${marked(it.label, it.ranges)}</span>
+            <span class=${'label' + (it.mono ? ' mono' : '')}>${marked(it.label, it.ranges)}</span>
             ${it.detail ? html`<span class="detail">${it.detail}</span>` : null}
             ${it.keys ? html`<kbd>${keyLabel(it.keys)}</kbd>` : null}
           </div>`)}
-      ${f.search && q.trim() && !live.length ? html`<div class="menu-none">No match</div>` : null}
+      ${f.search && q.trim() && q.trim() !== '=' && !items.length ? html`<div class="menu-none">No match</div>` : null}
     </div>`;
   }
 
@@ -305,17 +353,17 @@ const Shell = (() => {
       const el = document.createElement('dialog');
       el.className = 'dlg';
       if (width) el.style.width = `min(${width}px, calc(100vw - 32px))`;
-      let done = false;
-      const settle = v => { if (done) return; done = true; if (el.open) el.close(); render(null, el); el.remove(); resolve(v); };
-      const finish = v => settle(v);
+      let done = false, unlayer = null;
+      const settle = v => { if (done) return; done = true; unlayer(); if (el.open) el.close(); render(null, el); el.remove(); resolve(v); };
+      unlayer = layer(() => settle(undefined));
       el.addEventListener('cancel', () => settle(undefined));
       el.addEventListener('close', () => settle(undefined));
       const primary = actions.find(a => a.primary);
-      render(html`<form method="dialog" onSubmit=${e => { e.preventDefault(); finish(primary?.value); }}>
+      render(html`<form method="dialog" onSubmit=${e => { e.preventDefault(); settle(primary?.value); }}>
         ${title ? html`<div class="dlg-head">${title}</div>` : null}
-        <div class="dlg-body">${typeof body === 'function' ? body(finish) : body}</div>
+        <div class="dlg-body">${typeof body === 'function' ? body(settle) : body}</div>
         <div class="dlg-foot">${actions.map(a => html`<button type=${a.primary ? 'submit' : 'button'} autofocus=${!!a.focus}
-          class=${'btn' + (a.primary ? ' primary' : a.danger ? ' danger' : '')} onClick=${a.primary ? undefined : () => finish(a.value)}>${a.label}</button>`)}</div>
+          class=${'btn' + (a.primary ? ' primary' : a.danger ? ' danger' : '')} onClick=${a.primary ? undefined : () => settle(a.value)}>${a.label}</button>`)}</div>
       </form>`, el);
       document.body.appendChild(el);
       el.showModal();
@@ -343,73 +391,33 @@ const Shell = (() => {
     <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
       <span>${t.text}</span>${t.undo ? html`<button onClick=${() => { t.dismiss(); t.undo(); }}>Undo</button>` : null}</div>`)}</div>`;
 
-  // ---- Find: records, lists, views and actions, ranked as you type; "=" works a formula out ----
-  const finding = signal(null);
-  const find = (q = '') => { closeAll(); finding.value = { q }; };
-  function sources() {
-    const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) }));
-    const acts = many('action').filter(a => !a.enabled || a.enabled()).map(a => ({ label: a.name, detail: keyLabel(a.keys), run: a.run }));
-    return { vs, acts, rest: many('find').flatMap(s => s.items()) };
-  }
+  // ---- Find: views, records, lists and actions, ranked as you type; "=" works a formula out ----
+  let findButton = null;
   function answers(q) {
     if (q.startsWith('=')) {
       const ev = part('evaluate');
       if (!ev || !q.slice(1).trim()) return [];
       let r;
       try { r = ev(q, selection.peek()); } catch (e) { r = { error: e.message || String(e) }; }
-      if (r?.error) return [{ label: r.error, err: true }];
-      if (r?.items) return r.items;
-      return [{ label: String(r?.value ?? ''), mono: true }];
+      if (r?.error) return [{ label: r.error, danger: true }];
+      return r?.items ?? [{ label: String(r?.value ?? ''), mono: true }];
     }
-    const { vs, acts, rest } = sources();
-    if (!q.trim()) return [...(vs.length ? [{ head: 'Views' }, ...vs] : []), ...(acts.length ? [{ head: 'Actions' }, ...acts] : [])];
-    return rank([...vs, ...rest, ...acts], q);
+    const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) }));
+    const acts = many('action').filter(a => !a.enabled || a.enabled()).map(a => ({ label: a.name, detail: keyLabel(a.keys), run: a.run }));
+    if (!q) return [...(vs.length ? [{ head: 'Views' }, ...vs] : []), ...(acts.length ? [{ head: 'Actions' }, ...acts] : [])];
+    return rank([...vs, ...many('find').flatMap(s => s.items()), ...acts], q);
   }
-  function Find() {
-    const st = finding.value, ref = useRef(), list = useRef();
-    const [q, setQ] = useState(st.q);
-    const [act, setAct] = useState(0);
-    const rows = answers(q);
-    const live = rows.map((r, i) => r.head || r.err || !r.run ? -1 : i).filter(i => i >= 0);
-    const active = live.includes(act) ? act : live[0] ?? -1;
-    const close = () => { finding.value = null; };
-    const run = r => { close(); r?.run?.(); };
-    useLayoutEffect(() => { ref.current.showPopover?.(); ref.current.querySelector('input').focus(); }, []);
-    useLayoutEffect(() => { list.current?.children[active]?.scrollIntoView({ block: 'nearest' }); }, [active]);
-    useEffect(() => {
-      const away = e => { if (!ref.current.contains(e.target)) close(); };
-      document.addEventListener('pointerdown', away, true);
-      return () => document.removeEventListener('pointerdown', away, true);
-    }, []);
-    const onKey = e => {
-      const k = live.indexOf(active);
-      if (e.key === 'ArrowDown' && live.length) setAct(live[(k + 1) % live.length]);
-      else if (e.key === 'ArrowUp' && live.length) setAct(live[(k - 1 + live.length) % live.length]);
-      else if (e.key === 'Enter') run(rows[active]);
-      else if (e.key === 'Escape') close();
-      else return;
-      e.preventDefault(); e.stopPropagation();
-    };
-    return html`<div class="float findpal" popover="manual" ref=${ref} onKeyDown=${onKey}>
-      <input class=${'menu-find' + (q.startsWith('=') ? ' mono' : '')} placeholder="Find" value=${q} spellcheck="false" autocomplete="off"
-        onInput=${e => { setQ(e.target.value); setAct(0); }} />
-      ${rows.length ? html`<div class="find-rows" ref=${list}>${rows.map((r, i) => r.head ? html`<div class="menu-head">${r.head}</div>`
-        : html`<div class=${'menu-item' + (i === active ? ' on' : '') + (r.err ? ' danger' : '')} onPointerMove=${() => r.run && setAct(i)} onClick=${() => r.run && run(r)}>
-            <span class=${'label' + (r.mono ? ' mono' : '')}>${marked(r.label, r.ranges)}</span>${r.detail ? html`<span class="detail">${r.detail}</span>` : null}</div>`)}</div>`
-        : q.trim() && q !== '=' ? html`<div class="menu-none">No match</div>` : null}
-    </div>`;
-  }
+  const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32 }); };
 
   // ---- The title bar ----
-  const fmtDay = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const timeLabel = t => !t ? 'As of today' : t.asOf ? 'As of ' + fmtDay(t.asOf)
+  const fmtTime = t => !t ? 'As of today' : t.asOf ? 'As of ' + Tree.formatDate(t.asOf, 'short')
     : 'As it stood' + (t.at ? ' ' + new Date(t.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
   const chartName = computed(() => { const wb = part('workbook'); return wb ? wb.charts().find(c => c.id === wb.current())?.name : null; });
   effect(() => { document.title = chartName.value ? `${chartName.value} – Dendra` : 'Dendra'; });
 
   function chartMenu() {
     const wb = part('workbook'), items = [];
-    if (wb) items.push(...wb.charts().map(c => ({ label: c.name, checked: c.id === wb.current(), run: () => wb.open(c.id) })), ...(wb.menu?.() || []), '-');
+    if (wb) items.push(...wb.charts().map(c => ({ label: c.name, checked: c.id === wb.current(), run: () => wb.open(c.id) })), ...wb.menu(), '-');
     const themes = { order: 30, seg: [['Light', 'light'], ['Dark', 'dark']].map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
     const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
     for (const it of [...acts, themes].sort((a, b) => a.order - b.order)) {
@@ -424,9 +432,9 @@ const Shell = (() => {
     const u = part('undo'), ex = many('export'), t = time.value;
     return html`<header class="titlebar">
       <div class="left"><button class="btn ghost dd chartmenu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
-      <button class="find" onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+K')}</kbd></button>
+      <button class="find" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+K')}</kbd></button>
       <div class="right">
-        ${part('time') ? html`<button class=${'btn ghost dd asof' + (t ? ' past' : '')} onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${timeLabel(t)}</button>` : null}
+        ${part('time') ? html`<button class=${'btn ghost dd asof' + (t ? ' past' : '')} onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>` : null}
         <span class="sep" />
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+Z')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+Y')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
@@ -436,26 +444,24 @@ const Shell = (() => {
   }
 
   // ---- Slots: where the other parts draw ----
-  function Host({ kind, label, hidden, cls = 'host' }) {
+  function Host({ kind, hidden }) {
     const p = part(kind), ref = useRef(), [seen, setSeen] = useState(!hidden);
     if (!hidden && !seen) setSeen(true);
-    useEffect(() => {
+    useLayoutEffect(() => {
       if (!p || !seen) return;
       const el = ref.current;
       if (typeof p === 'function') { render(h(p), el); return () => render(null, el); }
       const off = p.mount(el);
       return () => { if (typeof off === 'function') off(); el.replaceChildren(); };
     }, [p, seen]);
-    if (!p) return SLOTS && !hidden ? html`<div class="ph">${label}</div>` : null;
-    return html`<div class=${cls} ref=${ref} hidden=${hidden} />`;
+    return p ? html`<div class="host" ref=${ref} hidden=${hidden} />` : null;
   }
-  const Bar = ({ kind, label, hidden }) => part(kind) || SLOTS
-    ? html`<div class=${'slot ' + kind} hidden=${hidden}><${Host} kind=${kind} label=${label} /></div>` : html`<div hidden />`;
+  const Bar = ({ kind, hidden }) => part(kind) ? html`<div class=${'slot ' + kind} hidden=${hidden}><${Host} kind=${kind} /></div>` : html`<div hidden />`;
 
   // ---- The view and the inspector ----
   function Main() {
     const layout = current.value?.layout || 'chart';
-    const drag = e => {
+    const resize = e => {
       if (e.button !== 0) return;
       e.preventDefault();
       const el = e.currentTarget, W = innerWidth;
@@ -472,12 +478,12 @@ const Shell = (() => {
     };
     return html`<div class=${'main' + (wide.value ? ' wide' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
       <div class="view" aria-hidden=${wide.value ? 'true' : null}>
-        <${Host} kind="canvas" label="Canvas" hidden=${layout !== 'chart'} />
-        <${Host} kind="table" label="Table" hidden=${layout !== 'table'} />
-        ${part('time') ? html`<${part('time').Strip} />` : null}
+        <${Host} kind="canvas" hidden=${layout !== 'chart'} />
+        <${Host} kind="table" hidden=${layout !== 'table'} />
+        ${part('time') ? html`<div class="strip">${h(part('time').Strip)}</div>` : null}
       </div>
-      <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${drag} onDblClick=${() => wide.value ? narrow() : widen()} />
-      <aside class="inspector"><${Host} kind="inspector" label="Inspector" /></aside>
+      <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${resize} onDblClick=${() => wide.value ? narrow() : widen()} />
+      <aside class="inspector"><${Host} kind="inspector" hidden=${!!aside.value} />${aside.value ? html`<div class="host aside">${h(aside.value)}</div>` : null}</aside>
     </div>`;
   }
 
@@ -486,31 +492,14 @@ const Shell = (() => {
     const vp = part('views'), list = views.value, ref = useRef();
     const [editing, setEditing] = useState(null);
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [view.value, list.length]);
-    if (!vp) return SLOTS ? html`<div class="ph">Views</div>` : html`<div class="sheets" />`;
+    if (!vp) return html`<div class="sheets" />`;
     const down = (e, v) => {
       if (e.button !== 0 || editing) return;
       show(v.id);
-      const tab = e.currentTarget, x0 = e.clientX, tabs = [...ref.current.children];
-      let dragging = false, to = -1;
-      const clear = () => tabs.forEach(t => t.classList.remove('drop-before', 'drop-after', 'dragging'));
-      const move = ev => {
-        if (!dragging && Math.abs(ev.clientX - x0) < 5) return;
-        if (!dragging) { dragging = true; tab.setPointerCapture(e.pointerId); }
-        clear(); tab.classList.add('dragging');
-        to = tabs.findIndex(t => { const r = t.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; });
-        if (to < 0) { to = tabs.length; tabs[tabs.length - 1].classList.add('drop-after'); } else tabs[to].classList.add('drop-before');
-      };
-      const up = () => {
-        removeEventListener('pointermove', move);
-        clear();
-        const from = list.findIndex(x => x.id === v.id), i = to > from ? to - 1 : to;
-        if (dragging && to >= 0 && i !== from) vp.move(v.id, i);
-      };
-      addEventListener('pointermove', move);
-      addEventListener('pointerup', up, { once: true });
+      drag(e, { item: e.currentTarget, items: [...ref.current.children], axis: 'x', onDrop: (from, i) => vp.move(list[from].id, i) });
     };
     const commit = (v, name) => { setEditing(null); name = name.trim(); if (name && name !== v.name) vp.rename(v.id, name); };
-    const tabMenu = (e, v) => { e.preventDefault(); show(v.id); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', run: () => setEditing(v.id) }, ...(vp.menu?.(v.id) || [])]); };
+    const tabMenu = (e, v) => { e.preventDefault(); show(v.id); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', run: () => setEditing(v.id) }, ...vp.menu(v.id)]); };
     const onKey = e => {
       const k = list.findIndex(x => x.id === view.peek()), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
       if (!d || editing) return;
@@ -519,6 +508,7 @@ const Shell = (() => {
       show(next.id);
       ref.current.children[list.indexOf(next)]?.focus();
     };
+    const add = e => vp.add(e.currentTarget).then(id => { if (id) { show(id); setEditing(id); } });
     return html`<div class="sheets" role="tablist" ref=${ref} onKeyDown=${onKey} onWheel=${e => { if (e.deltaY) ref.current.scrollLeft += e.deltaY; }}>
       ${list.map(v => editing === v.id
         ? html`<div class="sheet" aria-selected="true"><input value=${v.name} style=${`width:${v.name.length + 3}ch`} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
@@ -526,7 +516,7 @@ const Shell = (() => {
             onBlur=${e => commit(v, e.target.value)} /></div>`
         : html`<button key=${v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
             onPointerDown=${e => down(e, v)} onDblClick=${() => setEditing(v.id)} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
-    </div>${vp.add ? html`<button class="btn icon" aria-label="New view" data-tip="New view" onClick=${() => { const id = vp.add(); if (id) { show(id); setEditing(id); } }}>${icon('plus')}</button>` : null}`;
+    </div><button class="btn icon" aria-label="New view" data-tip="New view" onClick=${add}>${icon('plus')}</button>`;
   }
 
   // ---- The status bar: what needs attention, counted; F8 steps through it ----
@@ -539,35 +529,31 @@ const Shell = (() => {
     items[stepAt].go();
   }
   function Status() {
-    const ap = part('attention'), items = ap?.items() || [], extra = many('status');
+    const items = part('attention')?.items() || [];
     const counts = KINDS.map(([k, say]) => [k, say, items.filter(it => it.kind === k).length]).filter(c => c[2]);
     return html`<div class="status">
       ${counts.map(([k, say, n], i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + k} onClick=${() => attend(1, k)}>${say(n)}</button>`)}
-      ${extra.map(s => s.render())}
-      ${!ap && !extra.length && SLOTS ? html`<div class="ph">Status</div>` : null}
+      ${many('status').map(s => s.render())}
     </div>`;
   }
 
   // ---- The window ----
-  const App = () => html`
+  const Window = () => html`
     <div class="shell">
       <${TitleBar} />
-      <${Bar} kind="formatbar" label="Format bar" hidden=${current.value?.layout === 'table'} />
-      <${Bar} kind="formulabar" label="Formula bar" />
+      <${Bar} kind="formatbar" hidden=${current.value?.layout === 'table'} />
+      <${Bar} kind="formulabar" />
       <${Main} />
       <footer class="foot"><${Sheets} /><${Status} /></footer>
     </div>
     ${floats.value.map(f => html`<${Float} key=${f.id} f=${f} />`)}
-    ${finding.value ? html`<${Find} key=${finding.value} />` : null}
     <${Toasts} /><${Tip} />`;
 
   // The shell's own actions and keys.
   register('action', { id: 'back', name: 'Back', keys: 'Alt+ArrowLeft', run: back });
   register('action', { id: 'forward', name: 'Forward', keys: 'Alt+ArrowRight', run: forward });
-  register('action', { id: 'attend', name: 'Next to attend to', keys: 'F8', enabled: () => !!part('attention')?.items().length, run: () => attend(1) });
-  register('action', { id: 'light', name: 'Light theme', enabled: () => theme.value !== 'light', run: () => setTheme('light') });
-  register('action', { id: 'dark', name: 'Dark theme', enabled: () => theme.value !== 'dark', run: () => setTheme('dark') });
-  keys({ '$mod+KeyK': () => { finding.peek() ? (finding.value = null) : find(); } }, { inputs: true });
+  register('action', { id: 'attend', name: 'Next problem', keys: 'F8', enabled: () => !!part('attention')?.items().length, run: () => attend(1) });
+  keys({ '$mod+KeyK': () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } }, { inputs: true });
   keys({
     '$mod+KeyZ': () => part('undo')?.canUndo() ? part('undo').undo() : false,
     '$mod+KeyY': () => part('undo')?.canRedo() ? part('undo').redo() : false,
@@ -575,10 +561,8 @@ const Shell = (() => {
     'Shift+F8': () => attend(-1),
     '$mod+Shift+PageUp': () => stepView(-1),
     '$mod+Shift+PageDown': () => stepView(1),
-    'Escape': () => {
-      if (document.querySelector('dialog[open]')) return false;
-      if (wide.peek()) narrow(); else if (selection.peek().length) select([]); else return false;
-    },
+    // With no layer open: the widened inspector narrows, and then the selection clears.
+    'Escape': () => { if (wide.peek()) narrow(); else if (selection.peek().length) select([]); else return false; },
   });
   function stepView(d) {
     const vs = views.peek(), k = vs.findIndex(v => v.id === view.peek());
@@ -589,23 +573,24 @@ const Shell = (() => {
     floats.peek().filter(f => !(f.anchor instanceof Element)).forEach(f => f.close()); // a menu at a point
   });
 
-  // Draws the window, then tells the launch screen it's ready; 'launched' follows when the screen is gone.
+  // Draws the window, then tells the launch screen it's ready.
   function start() {
     if (started) return;
     apply(parse(location.hash));
     history.replaceState({ dendra: step }, '', url(addressOf(view.peek(), selection.peek(), time.peek())));
     started = true;
-    render(html`<${App} />`, document.getElementById('app'));
+    render(html`<${Window} />`, document.getElementById('app'));
     requestAnimationFrame(() => {
-      emit('ready');
-      if (typeof Splash !== 'undefined') { Splash.done(); Splash.ended.then(() => emit('launched')); } else emit('launched');
+      isReady();
+      if (typeof Splash !== 'undefined') { Splash.done(); Splash.ended.then(isLaunched); } else isLaunched();
     });
   }
   document.addEventListener('DOMContentLoaded', start);
 
   return {
-    view, selection, time, show, select, at, back, forward,
-    register, on, emit, keys, menu, popover, closeAll, dialog, confirm, toast, find, icon,
-    widen, narrow, wide, theme, setTheme, user, html, h, signal, computed, effect, parts: reg,
+    view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
+    register, on, emit, keys, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store,
+    widen, narrow, wide, theme, setTheme, html, h, signal, computed, effect, parts: reg,
+    aside: c => { aside.value = c; },
   };
 })();

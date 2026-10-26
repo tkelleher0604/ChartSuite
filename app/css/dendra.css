@@ -144,7 +144,7 @@ input.bare { border-color: transparent; background: transparent; box-shadow: non
 @keyframes rise { from { opacity: 0; transform: translateY(-2px); } }
 .menu, .pop { background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop); }
 .menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: min(480px, calc(100vh - 80px)); overflow: auto; outline: none; }
-.menu-item b, .find-rows b { font-weight: 600; }
+.menu-item b { font-weight: 600; }
 .menu-find { display: block; width: calc(100% + 8px); margin: -4px -4px 4px; height: 36px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--rule); border-radius: var(--r-pop) var(--r-pop) 0 0; background: transparent; }
 .menu-find:focus { box-shadow: none; }
 .menu-item { height: var(--row); padding: 0 8px; display: flex; align-items: center; gap: 8px; border-radius: var(--r); white-space: nowrap; cursor: default; user-select: none; }
@@ -245,17 +245,34 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .main.anim { transition: grid-template-columns var(--calm) var(--ease); }
 
 .view > .host { position: absolute; inset: 0; }
+/* The time's strip, under the view while it shows. */
+.view > .strip { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; }
+.view:has(> .strip:not(:empty)) > .host { bottom: 32px; }
 .inspector > .host { min-height: 100%; }
-.ph { display: grid; place-items: center; height: 100%; padding: 8px; font: var(--t12); color: var(--ink-3); }
-.formatbar > .ph { height: 36px; }
-.formulabar > .ph { height: 32px; }
+/* What takes the inspector's place (History) fills it, and scrolls itself. */
+.inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }
 
-.findpal { top: 5px; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop); animation: none; }
-.findpal > .menu-find { width: 100%; height: 40px; margin: 0; padding: 0 14px; }
-.findpal > .menu-find.mono { font-size: 13px; }
-.find-rows { max-height: min(440px, calc(100vh - 120px)); overflow: auto; padding: 4px; }
-.findpal > .menu-none { padding: 10px 14px; }
-.find-rows .label.mono { white-space: pre-wrap; }
+/* Find: a menu over the title bar's field, its answers ranked as you type. */
+.menu.findpal { width: min(600px, calc(100vw - 32px)); max-width: none; max-height: min(480px, calc(100vh - 80px)); }
+.menu.findpal > .menu-find { height: 40px; padding: 0 14px; }
+.menu-find.mono, .menu-item > .label.mono { font-family: var(--mono); font-size: 13px; white-space: pre-wrap; }
+.menu-item.said { cursor: text; user-select: text; }
+
+/* Dragging to reorder: the item dragged, faint, and a line where it would go. */
+[data-dragging] { opacity: .4; }
+[data-drop]::after { content: ""; position: absolute; z-index: 1; background: var(--accent); pointer-events: none; }
+[data-drop="top"]::after { left: 0; right: 0; top: -1px; height: 2px; }
+[data-drop="bottom"]::after { left: 0; right: 0; bottom: -1px; height: 2px; }
+[data-drop="left"]::after { top: 6px; bottom: 6px; left: -1px; width: 2px; }
+[data-drop="right"]::after { top: 6px; bottom: 6px; right: -1px; width: 2px; }
+
+/* Settings: a label above each field. */
+.settings { display: grid; gap: 12px; padding-bottom: 4px; }
+.settings > .field { display: grid; gap: 4px; color: var(--ink-2); font: var(--t12); }
+.settings > .field > input { font: var(--t13); color: var(--ink); }
+.settings > div.field { grid-template-columns: 1fr auto; align-items: center; }
+.settings > div.field > span:first-child { grid-column: 1 / -1; }
+.settings .who { font: var(--t13); color: var(--ink); }
 
 
 .foot { height: var(--foot); display: flex; align-items: stretch; min-width: 0; border-top: 1px solid var(--rule); background: var(--paper); user-select: none; }
@@ -264,16 +281,12 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .sheet:hover { color: var(--ink); background-image: linear-gradient(var(--hover), var(--hover)); }
 .sheet[aria-selected="true"] { color: var(--ink); font-weight: 500; background: var(--surface); box-shadow: inset 1px 0 var(--rule), inset -1px 0 var(--rule); }
 .sheet[aria-selected="true"]::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--accent); }
-.sheet.dragging { opacity: .4; }
-.sheet.drop-before::after, .sheet.drop-after::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 2px; background: var(--accent); }
-.sheet.drop-before::after { left: -1px; } .sheet.drop-after::after { right: -1px; }
 .sheet > input { min-width: 8ch; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 500; }
 .foot > .btn.icon { align-self: center; flex: none; margin-left: 2px; }
 .status { margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 16px; flex: none; color: var(--ink-2); }
 .status > .btn { height: 24px; padding: 0 6px; }
 .status .overdue, .status .error { color: var(--no); }
 .status .blank { color: var(--due); }
-.status > .ph { padding: 0 8px; }
 
 /* The launch cover, set before first paint by the head script, so nothing of the app shows first. */
 html[data-splash]::after { content: ""; position: fixed; inset: 0; z-index: 2147483647; background: #727f95; }
