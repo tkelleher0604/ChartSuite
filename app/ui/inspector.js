@@ -7,16 +7,19 @@
 //                             chart its look and position
 //   [a, b]                    two records: every relation the two are in or could be in
 //   [Inspector.general(p)]    an entry, relation or kind in general, by its pattern ('~' and its JSON)
-// It emits on the shell's bus 'tag-flip' (a tag switched), 'why-open' (a computed value's id),
-// 'formula-open' ({ note, pattern }: a definition's rows) and 'formula-new' ({ at } or { pattern }), and
-// takes 'relate-open' ([a, b]) as the selection of the two. It feeds 'attention' with what's overdue, blank
-// where required, or in error.
+// On the shell's bus it emits:
+//   'tag-flip'      a tag was switched; detail, its id (or where a new one went)
+//   'why-open'      a computed value was clicked; detail, its id
+//   'preview'       a tag's checkbox is hovered: the change switching it would make, { removes: [id],
+//                   adds: [record with its id] }; null when the pointer leaves
+//   'formula-open'  a definition's rows were clicked: { note, pattern }
+//   'formula-new'   Formula… was chosen: { at }, the record to work an entry out at
+// and takes 'relate-open' ([a, b]) as the selection of the two. It feeds 'attention' with what's overdue,
+// blank where required, or in error.
 //
 // Hooks for parts written alongside it:
-//   worked()                   the engine's output; until it lands, the computed state is the entered one
 //   Scene.settingsOf(id, view) → [{ label, value, from }], each format property of a mark and where it comes
 //                              from; until it lands, Look reads the notes
-//   SharePoint.pick()          → a promise of [{ url, name }], the documents to link from the library
 //   A view's layout is the choice Layout (Chart, Table) at its View object, with the choice Rows at Table.
 
 const Inspector = (() => {
@@ -29,8 +32,8 @@ const T = Tree;
 // ---- What the engine says ----
 // The computed state; which of its records are computed; which entered ones a formula also covers; errors.
 const W = computed(() => {
-  const recs = App.state.value, covers = new Set(App.notes.value.definitions(App.schema.value).flatMap(d => d.covers));
-  return { recs, fx: id => !!recs[id]?.computed, over: id => !!recs[id] && !recs[id].computed && covers.has(T.parameterization(recs, id)), errors: [] };
+  const recs = App.state.value, c = App.computed.value;
+  return { recs, fx: id => !!c.computed?.[id], over: id => !!c.covered?.[id], errors: c.errors ?? [] };
 });
 const worked = () => W.value;
 
@@ -83,12 +86,13 @@ function blanksAt(at) {
   return out;
 }
 
-// A record's entries and blank required ones, in Order, Name first.
+// A record's entries, the errors where a formula would put one, and blank required ones; in Order, Name first.
 function slots(at) {
-  const r = recs(), own = !!r[at]?.kind;
+  const r = recs(), own = !!r[at]?.kind, slot = (edge, x) => ({ edge, ...x, t: { args: [{ edge, loc: tree(at) }] } });
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
-  const blanks = blanksAt(at).map(b => ({ ...b, blank: true, t: { args: [{ edge: b.edge, loc: tree(at) }] } }));
-  return [...ents.filter(e => !(own && e.pinned)), ...blanks].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity }))
+  const errors = worked().errors.filter(e => e.args?.length === 1 && e.args[0].at === at && !entryNamed(at, e.args[0].edge)).map(e => slot(e.args[0].edge, { error: e }));
+  const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
+  return [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity }))
     .sort((a, b) => a.o - b.o || a.edge.localeCompare(b.edge));
 }
 
@@ -123,18 +127,19 @@ function change(fn, say) {
   if (c && say) toast(say, { undo });
   return c;
 }
-const where1 = r => r.args ? { args: r.args } : { at: r.at, edge: r.edge };
-// Puts an output on a record or a blank one. Typing over a computed record enters it; clearing an entered
-// one removes it, and lets a formula stand.
+// A record, or a blank one, with another output. Typing over a computed record enters it; clearing an
+// entered one removes it, and lets a formula stand.
+const entered = id => !!id && !!recs()[id] && !recs()[id].computed;
+const withOut = (id, slot, out) => { const r = id ? recs()[id] : slot; return { ...(r.args ? { args: r.args } : { at: r.at, edge: r.edge }), ...out }; };
 function put(id, slot, out) {
-  const r = id ? recs()[id] : null;
   change(tx => {
-    if (!out) return r && !r.computed && tx.remove(id);
-    const next = { ...(r ? where1(r) : slot.args ? { args: slot.args } : { at: slot.at, edge: slot.edge }), ...out };
-    if (r && !r.computed) tx.set(id, next); else tx.add('record', next);
+    if (!out) return entered(id) && tx.remove(id);
+    if (entered(id)) tx.set(id, withOut(id, slot, out)); else tx.add('record', withOut(id, slot, out));
   });
 }
-const flip = (id, slot) => { put(id, slot, { tag: !(recs()[id]?.tag ?? false) }); emit('tag-flip', id ?? slot); };
+const flipped = (id, slot) => ({ tag: !(recs()[id]?.tag ?? false) });
+const flip = (id, slot) => { put(id, slot, flipped(id, slot)); emit('tag-flip', id ?? slot); };
+const preview = (id, slot) => ({ removes: entered(id) ? [id] : [], adds: [{ id: entered(id) ? id : 'preview', ...withOut(id, slot, flipped(id, slot)) }] });
 const remove = id => { const say = `Deleted ${recs()[id].args ? nameOf(id) : recs()[id].edge ?? nameOf(id)}`; change(tx => tx.remove(id), say); };
 // Adds an entry, and its specification if the schema hasn't got it.
 function addEntry(at, edge, out) {
@@ -172,7 +177,9 @@ function link(at, url, name = T.documentName(url)) {
     tx.add('record', { args: [{ edge: doc?.edge ?? 'Document', at: d }, { edge: subj?.edge ?? 'Subject', at }], tag: true });
   }, `Linked ${name}`);
 }
-const pickLink = at => SharePoint.pick().then(files => (files ?? []).forEach(f => typeof f === 'string' ? link(at, f) : link(at, f.url, f.name)));
+const sharepoint = () => typeof SharePoint !== 'undefined' ? SharePoint : null;
+const pickLink = at => SharePoint.pick({ multiple: true }).then(items => (items ?? []).forEach(it => it.link && link(at, it.link, it.name)), e => toast(e.message));
+const href = u => sharepoint()?.href(u) ?? u;
 
 // ---- Pieces ----
 const GRIP = html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor" stroke="none"><circle cx="6" cy="4" r="1.1"/><circle cx="10" cy="4" r="1.1"/><circle cx="6" cy="8" r="1.1"/><circle cx="10" cy="8" r="1.1"/><circle cx="6" cy="12" r="1.1"/><circle cx="10" cy="12" r="1.1"/></g></svg>`;
@@ -232,7 +239,7 @@ function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '' }) {
       data-tour=${fx ? 'computed' : null} onFocus=${() => { setText(raw); if (fx) emit('why-open', id); }}
       onInput=${e => { setText(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${done} />
     ${dirty && raw ? html`<s class="del">${shown}</s>` : null}
-    ${doc && r && text === null ? html`<a class="btn icon open" href=${r.value} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
+    ${doc && r && text === null ? html`<a class="btn icon open" href=${href(r.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
   </span>`;
 }
 
@@ -251,16 +258,18 @@ function Choice({ r, options, put, fx, over, id }) {
 }
 
 // A tag's checkbox: green attested, red ruled out, outlined when computed. Hovering shows the other state,
-// and redlines the label; clicking switches to it.
-function TagBox({ r, flip, fx, over }) {
+// redlines the label and previews the change; clicking makes it.
+function TagBox({ r, flip, fx, over, change }) {
   const [peek, setPeek] = useState(false), on = r?.tag, show = peek ? !(on ?? false) : on;
+  const hover = p => { setPeek(p); emit('preview', p && change ? change() : null); };
   return html`<span class=${'cellbox' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ' no' : '') + (fx && !peek ? ' fx' : '') + (peek ? ' peek' : '')}
     role="checkbox" aria-checked=${on ? 'true' : 'false'} disabled=${still()} data-tour="tag"
-    onPointerEnter=${() => setPeek(true)} onPointerLeave=${() => setPeek(false)} onClick=${() => { setPeek(false); flip(); }} /></span>`;
+    onPointerEnter=${() => hover(true)} onPointerLeave=${() => hover(false)} onClick=${() => { hover(false); flip(); }} /></span>`;
 }
 
 // The record's other values, by time: each goes to the chart as of a day it held.
 function Versions({ id }) {
+  App.version.value;
   const rows = App.shown.value.item(App.chart.value, id);
   if (rows.length < 2) return null;
   const period = v => v.since && v.before ? `${short(v.since)} – ${short(v.before)}` : v.since ? `Since ${short(v.since)}` : v.before ? `Before ${short(v.before)}` : '';
@@ -271,10 +280,11 @@ function Versions({ id }) {
 
 // A record's output, or a blank one's, in place: typed, chosen or ticked.
 function Output({ id, slot }) {
+  if (slot?.error) return html`<button class="err errv" onClick=${() => emit('why-open', slot.error.id)}>${slot.error.error.code}</button>`;
   const w = worked(), r = id ? w.recs[id] : null, fx = !!id && w.fx(id), over = !!id && w.over(id);
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
   const type = r ? T.typeOf(r) : k.type, set = out => put(id, slot, out);
-  const el = type === 'tag' ? html`<${TagBox} r=${r} fx=${fx} over=${over} flip=${() => flip(id, slot)} />`
+  const el = type === 'tag' ? html`<${TagBox} r=${r} fx=${fx} over=${over} flip=${() => flip(id, slot)} change=${() => preview(id, slot)} />`
     : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${fx} over=${over} put=${set} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []} />`
     : html`<${Field} r=${r} id=${id} fx=${fx} over=${over} put=${set} datatype=${r?.field ?? k.datatype} />`;
   return html`${el}${r && !fx ? html`<${Versions} id=${id} />` : null}`;
@@ -378,9 +388,9 @@ function Relatives({ id }) {
       <div class="v"><a class=${'muted' + (fx ? ' fx' : '')} onClick=${() => select([it.rid])}>${detail(it).map((d, i) => html`${i ? ' · ' : ''}${d}`)}</a></div></div>`; };
   const docRow = it => { const l = recs()[linkOf(it.obj)], type = recs()[entryNamed(it.obj, 'Document Type')]?.choice;
     return html`<div class="row rel" key=${it.rid}><div class="k"><a title=${nameOf(it.obj)} onClick=${() => select([it.obj])}>${nameOf(it.obj)}</a></div>
-      <div class="v doc"><span class="muted">${type ?? ''}</span>${l ? html`<a class="btn icon open" href=${l.value} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}</div></div>`; };
+      <div class="v doc"><span class="muted">${type ?? ''}</span>${l ? html`<a class="btn icon open" href=${href(l.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}</div></div>`; };
   const [linking, setLinking] = useState(false);
-  const docAdd = e => typeof SharePoint !== 'undefined' && SharePoint.pick
+  const docAdd = e => sharepoint()?.configured()
     ? menu(e.currentTarget, [{ label: 'SharePoint…', run: () => pickLink(id) }, { label: 'Link…', run: () => setLinking(true) }]) : setLinking(true);
   return html`${lists.map(([name, items]) => html`<section key=${name}>
       <div class="sect"><span>${name}</span><span class="n">${items.length}</span>
@@ -423,6 +433,7 @@ function Look({ id }) {
 
 // What was deleted from these records, or deleted objects, each with Restore.
 function Deleted({ of }) {
+  App.version.value;
   const [open, setOpen] = useState(false), all = App.shown.value.deleted(App.chart.value).filter(d => d.type === 'record'), live = of && new Set(of);
   const items = all.filter(d => { const r = d.rows.at(-1); return live ? (r.at && live.has(r.at)) || r.args?.some(a => live.has(a.at)) : 'kind' in r && r.kind !== 'View'; });
   if (!items.length) return null;

@@ -29,10 +29,14 @@
 <script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
 <script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
 <script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/dexie/dexie.min.js"></script>
+<script src="../../vendor/msal/msal-browser.min.js"></script>
 <script src="../core/tree.js"></script>
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
+<script src="../core/sharepoint.js"></script>
+<script src="../core/store.js"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../ui/shell.js"></script>
 <script src="../ui/app.js"></script>
@@ -60,6 +64,7 @@ const tags = [];
 Shell.on('tag-flip', d => tags.push(d));
 
 async function run() {
+  while (!App.chart.value) await tick(50);
   const C = App.chart.value, n0 = App.wb.changes().length;
   Shell.select(['fund']); await tick();
   check('a record shows its name and path', $('.ih .cell')?.value === 'Calder Ridge Capital Partners III, L.P.' && $('.ih .path')?.textContent.includes('Entity'), $('.ih')?.textContent);
@@ -78,8 +83,11 @@ async function run() {
   // Flipping a tag
   const erisa = rowOf('ERISA Plan Assets').querySelector('.tag');
   check('a ruled-out tag is red and crossed', erisa.classList.contains('no'));
+  const previews = [], off = Shell.on('preview', d => previews.push(d));
   erisa.dispatchEvent(new PointerEvent('pointerenter')); await tick();
-  check('hovering a tag previews the other state', erisa.classList.contains('yes') && erisa.classList.contains('peek'));
+  check('hovering a tag previews the other state, and the change', erisa.classList.contains('yes') && erisa.classList.contains('peek')
+    && previews[0]?.removes[0] === 'fund_erisa' && previews[0].adds[0].tag === true, JSON.stringify(previews));
+  off();
   erisa.click(); await tick();
   check('clicking a tag switches it', st().fund_erisa.tag === true && tags.includes('fund_erisa'));
 
