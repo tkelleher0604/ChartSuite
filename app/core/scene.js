@@ -180,6 +180,9 @@ function textOf(r, format, name) {
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
 // Where each view's boxes were when it was last drawn as it is, which its previews keep.
 const laidOut = new Map();
+// What a scene works out from a record's tree and the notes alone, its formats and its edges' order, kept by
+// record from one scene to the next while the notes, the view and the records its tree runs through stand.
+const worked = new WeakMap();
 
 function of(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
@@ -188,6 +191,22 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const state = red?.state ? { ...opts.state, ...red.state } : opts.state;
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
   const tree = id => treeOf(state, id);
+  const notesAre = `${view}|${wb.rows(chart).filter(r => 'note' in r).map(r => r.id).join()}`, stands = new Map();
+  const standing = id => {
+    if (!stands.has(id)) {
+      const r = state[id], w = r && worked.get(r);
+      stands.set(id, false);
+      stands.set(id, !!w && w.notes === notesAre && argsOf(r).every((a, i) => state[a.at] === w.locs[i] && standing(a.at)));
+    }
+    return stands.get(id);
+  };
+  const work = id => {
+    if (standing(id)) return worked.get(state[id]);
+    const r = state[id], w = { notes: notesAre, locs: argsOf(r).map(a => state[a.at]), formats: N.formats(tree(id), view), edges: null };
+    worked.set(r, w);
+    stands.set(id, true);
+    return w;
+  };
 
   // A note's rank where it reaches a mark: in the view before none; one record's own (entered) before a
   // style's; a later style before an earlier; and through the mark's own record before a deeper one.
@@ -199,7 +218,11 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const beats = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
 
-  const boxOf = id => { const r = state[id]; return !r || Tree.isView(r) ? null : isObject(r) ? id : r.at ? boxOf(r.at) : null; };
+  const boxAt = new Map();
+  const boxOf = id => {
+    if (!boxAt.has(id)) { const r = state[id]; boxAt.set(id, !r || Tree.isView(r) ? null : isObject(r) ? id : r.at ? boxOf(r.at) : null); }
+    return boxAt.get(id);
+  };
 
   // Marks: an object a box; a relation with two locations a line between their boxes; any other record a
   // text, in the mark of its nearest location (a relation of more than two, in each of their boxes). A
@@ -208,12 +231,12 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // app's own and never drawn.
   const marks = new Map(), own = new Map();
   const addMark = m => { marks.set(m.id, m); (own.get(m.record) ?? own.set(m.record, []).get(m.record)).push(m); return m; };
-  const ids = Object.keys(state).filter(id => !Tree.isView(state[id]) && tree(id));
+  const ids = Object.keys(state).filter(id => !Tree.isView(state[id]) && (standing(id) || tree(id)));
   // What each record's notes give, landing on the nearest mark up the tree that has the property.
-  const formats = new Map(ids.map(id => [id, N.formats(tree(id), view)]));
+  const formats = new Map(ids.map(id => [id, work(id).formats]));
   // A two-sided relation's ends as its line runs, from its Above side, the edge drawn on top, to the other.
   const endsOf = (id, ends) => {
-    const r = state[id], above = formats.get(id).Above?.value ?? N.edges(tree(id))[0];
+    const r = state[id], w = work(id), above = formats.get(id).Above?.value ?? (w.edges ??= N.edges(tree(id)))[0];
     const top = above && boxOf(r.args.find(a => same(a.edge, above))?.at);
     return top && top === ends[1] ? [ends[1], ends[0]] : ends;
   };
