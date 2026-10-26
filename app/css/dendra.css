@@ -242,6 +242,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .main.anim { transition: grid-template-columns var(--calm) var(--ease); }
 
 .view > .host { position: absolute; inset: 0; }
+/* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
+.view > .void { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.view > .void > .btn { pointer-events: auto; }
 /* The time's strip, under the view while it shows. */
 .view > .strip { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; }
 .view:has(> .strip:not(:empty)) > .host { bottom: 32px; }
@@ -280,8 +283,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .sheet[aria-selected="true"]::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--accent); }
 .sheet > input { min-width: 8ch; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 500; }
 .foot > .btn.icon { align-self: center; flex: none; margin-left: 4px; }
-.status { margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 0 16px; flex: none; color: var(--ink-2); }
-.status > .btn, .status-fix { height: 24px; padding: 0 4px; }
+.status { margin-left: auto; padding: 0 16px; flex: none; color: var(--ink-2); }
+.status, .status > .counts { display: flex; align-items: center; gap: 4px; }
+.status .btn, .status-fix { height: 24px; padding: 0 4px; }
 .status .overdue, .status .error, .status-store.is-error { color: var(--no); }
 .status .blank, .status-fix { color: var(--due); }
 .status-fix { border: 0; border-radius: var(--r); background: none; font-weight: 500; }
