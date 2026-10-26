@@ -73,18 +73,27 @@
 // and the two calls the formula bar makes: highlight, which draws what it names (computed lines too) and
 // dims the rest, and redline. A click selects; shift-click adds to the selection.
 const StandIn = (() => {
-  const NS = 'http://www.w3.org/2000/svg', KINDS = new Set(['Entity', 'Individual', 'Investor Group']);
+  // The cast of the 40 Act examples in formulas.md, so the stand-in stays legible.
+  const NS = 'http://www.w3.org/2000/svg', CAST = new Set(['chen', 'okafor', 'raman', 'mgmt', 'gp', 'caygp', 'holdco', 'fund', 'feeder', 'blocker',
+    'northpine', 'halvard', 'bdc', 'pension', 'inv_us', 'inv_nonus']);
   const FROM = ['owner', 'gp', 'member', 'holder', 'adviser'];
   const INK = '#1b1e1d', BLUE = '#2c4c7c', RED = '#c2372b';
   const hl = Shell.signal(null), rl = Shell.signal(null), placed = Shell.signal(null);
   let host = null, done;
   const ready = new Promise(r => { done = r; });
-  const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs ?? {})) if (v != null) e.setAttribute(k, v); parent?.appendChild(e); return e; };
+  // Paint goes in style, so the stand-in's own CSS doesn't cover it.
+  const PAINT = new Set(['stroke', 'stroke-width', 'stroke-dasharray', 'fill']);
+  const el = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs ?? {})) if (v != null) PAINT.has(k) ? e.style.setProperty(k, v) : e.setAttribute(k, v);
+    parent?.appendChild(e);
+    return e;
+  };
   const wrap = s => { const out = [''], words = s.split(' '); for (const w of words) { if (out.at(-1) && (out.at(-1) + ' ' + w).length > 24) out.push(w); else out[out.length - 1] = (out.at(-1) + ' ' + w).trim(); } return out; };
 
   async function lay() {
     const recs = App.entered.peek(), name = id => Tree.objectName(recs, id);
-    const boxes = Object.keys(recs).filter(id => KINDS.has(recs[id].kind));
+    const boxes = Object.keys(recs).filter(id => CAST.has(id));
     const drawn = new Set(boxes);
     const lines = [];
     for (const [id, r] of Object.entries(recs)) {
@@ -114,8 +123,12 @@ const StandIn = (() => {
   function draw() {
     const P = placed.value, H = hl.value, L = rl.value, sel = new Set(Shell.selection.value), R = App.computed.value;
     if (!host || !P) return;
-    const recs = { ...R.records, ...(L?.records ?? {}) }, C = H?.colors ?? {}, strong = new Set(H?.strong ?? []);
+    const recs = { ...R.records, ...(L?.records ?? {}) }, C = { ...H?.colors ?? {} }, strong = new Set(H?.strong ?? []);
     const appear = new Set(L?.appear ?? []), go = new Set(L?.go ?? []), changed = L?.changed ?? {};
+    // An entry lights its object's box; a redlined line, its ends; a selected computed line is drawn too.
+    for (const [id, c] of Object.entries(C)) if (recs[id]?.at) { const o = Tree.objectOf(recs, id); if (o && !C[o]) C[o] = c; }
+    for (const id of [...appear, ...go]) for (const a of recs[id]?.args ?? []) { const o = Tree.objectOf(recs, a.at); if (o && !C[o]) C[o] = INK; }
+    for (const id of sel) if (recs[id]?.computed && !C[id]) C[id] = BLUE;
     const lit = id => C[id] ?? (appear.has(id) ? BLUE : go.has(id) ? RED : null);
     const faint = id => (H?.dim || L) && !lit(id) && !sel.has(id);
     const pad = 24, svg = el('svg', { class: 'si', viewBox: `${-pad} ${-pad} ${P.w + 2 * pad} ${P.h + 2 * pad}`, preserveAspectRatio: 'xMidYMid meet' });

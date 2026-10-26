@@ -248,11 +248,16 @@ const FormulaBar = (() => {
     const implied = rows.every(r => /^\s*(←|<-)/.test(r.formula));
     const gives = r => r.ev && !Formulas.isError(r.ev.value) && r.ev.value !== null && r.ev.value !== undefined && !(Array.isArray(r.ev.value) && !r.ev.value.length);
     const loops = (Rv.loops[P.id] ?? []).filter(l => !drafted);
+    // As worked out: a row of the definition, by its place in it. A drafted row that doesn't read yet keeps it.
+    const was = i => !!m.said && (m.said.holds?.length ? m.said.holds.includes(i) : m.said.row === i);
+    const unread = r => r.ev?.value?.code === '#SYNTAX' && /^r\d+$/.test(r.key);
     let ink;
     if (m.absent) ink = () => false;
     else if (m.err) ink = r => loops.some(l => l.row === r.i) || Formulas.isError(r.ev?.value);
-    else if (drafted || !m.said) { const first = rows.findIndex(r => !r.gone && gives(r)); ink = r => !r.gone && (implied ? r.ev?.value === true : r.i === first); }
-    else ink = r => m.said.holds?.length ? m.said.holds.includes(r.i) : m.said.row === r.i;
+    else if (drafted || !m.said) {
+      const first = rows.findIndex(r => !r.gone && gives(r));
+      ink = r => !r.gone && (unread(r) ? was(+r.key.slice(1)) : implied ? r.ev?.value === true : r.i === first);
+    } else ink = r => was(r.i);
     for (const r of rows) { r.ink = ink(r); if (m.err) r.loops = loops.filter(l => l.row === r.i); }
     const g = !drafted && m.rec && groundOf(Rv, m.id);
     const cited = g ? rows[g.rows[0].row] : rows.find(r => r.ink);
@@ -541,9 +546,9 @@ const FormulaBar = (() => {
   // ---- A row's formula, in CodeMirror ----
   // Its names in their colours, squiggles from check(), completion from suggest(), the value of the part under
   // the pointer just after it, and the name that closes a loop underlined in red. Enter commits; Esc discards.
-  function Formula({ row, m, colors, grey }) {
+  function Formula({ row, m, colors, grey, would, focus }) {
     const host = useRef(), cmr = useRef(), props = useRef();
-    props.current = { row, m, colors };
+    props.current = { row, m, colors, would };
     useLayoutEffect(() => {
       const ctx = () => ({ computed: R.peek(), def: props.current.m.def?.id, at: props.current.m.at });
       const hint = c => {
@@ -580,10 +585,11 @@ const FormulaBar = (() => {
       });
       wrap.addEventListener('mouseleave', () => { if (hover.peek()?.key === props.current.row.key) hover.value = null; });
       cmr.current = cm;
+      if (focus) requestAnimationFrame(() => { cm.focus(); cm.setCursor(cm.lineCount(), 0); });
       return () => wrap.remove();
     }, []);
     useLayoutEffect(() => {
-      const cm = cmr.current, { row, colors } = props.current, hv = hover.value;
+      const cm = cmr.current, { row, colors, would } = props.current, hv = hover.value;
       if (!cm.hasFocus() && cm.getValue() !== row.formula) cm.setValue(row.formula);
       cm.operation(() => {
         for (const mk of cm.getAllMarks()) if (mk.fx) mk.clear();
@@ -600,6 +606,12 @@ const FormulaBar = (() => {
           el.textContent = partText(row, part);
           cm.setBookmark(at(part.to), { widget: el, insertLeft: true }).fx = true;
         }
+        if (would && !cm.hasFocus()) {
+          const el = document.createElement('span');
+          el.className = 'fx-would';
+          render(would, el);
+          cm.setBookmark(at(cm.getValue().length), { widget: el }).fx = true;
+        }
       });
     });
     return html`<div class=${'fx-cm' + (grey ? ' grey' : '')} ref=${host} />`;
@@ -614,14 +626,16 @@ const FormulaBar = (() => {
     const others = all ? [] : [...new Set(m.rows.filter(r => !r.ink).map(r => r.label || '—'))];
     const cited = m.rows.find(r => r.cited);
     const tint = edge => { const c = cited && [...f.colors].find(([n]) => norm(unbracket(cited.formula.slice(n.from, n.to))) === norm(edge)); return c ? ` fx-rf fx-c${c[1]}` : ''; };
-    const t = trail.value.at(-1), editable = all && !m.absent;
+    // A tag's checkbox comes first, as a checkbox does before its label; a value after its name and place.
+    const t = trail.value.at(-1), editable = all && !m.absent, boxed = !!m.out && 'tag' in m.out;
     return html`<div class="fxbar" onKeyDown=${onKey}>
       <div class="fx-head">
         ${t ? html`<button class="btn ghost fx-back" onClick=${back}>${Shell.icon('chevron')}<span>${t.title}</span></button>` : null}
-        <${Output} m=${m} />
+        ${boxed ? html`<${Output} m=${m} />` : null}
         ${m.options ? html`<button class="btn ghost dd fx-name" onClick=${e => pickMenu(e, m)}>${m.title}</button>`
           : m.def ? html`<button class="fx-name" onClick=${() => openPage(m.def.id)}>${m.title}</button>` : html`<span class="fx-name">${m.title}</span>`}
         <span class="fx-args">${m.args ? m.args.map((a, i) => html`${i ? html`<span class="to">${m.args.length === 2 ? '→' : '·'}</span>` : null}<span class=${'fx-arg' + tint(a.edge)}>${a.name}</span>`) : m.place}</span>
+        ${boxed ? null : html`<${Output} m=${m} />`}
         <span class="fx-end">
           ${p ? html`<${Delta} p=${p} />` : m.object ? null : html`<${UsedBy} m=${m} />`}
           ${p?.from === 'bar' ? html`<span class="fx-acts">
@@ -659,7 +673,8 @@ const FormulaBar = (() => {
         onPointerEnter=${() => m.rec && preview(flipped(m), 'tag')} onPointerLeave=${() => pending.peek()?.from === 'tag' && previewDraft()}
         onClick=${() => { if (!m.rec) return; preview(null); if (commit(flipped(m))) emit('tag-flip', m.id); }} /></span>`;
     }
-    if (a !== undefined && a?.value !== m.rec.value) return html`<span class="fx-out"><span class="del">${o.text}</span> <span class="add">${a ? outputOf(a).text : '—'}</span></span>`;
+    if (a !== undefined && a?.value !== m.rec.value && pending.value.from !== 'value')
+      return html`<span class="fx-out"><span class="del">${o.text}</span> <span class="add">${a ? outputOf(a).text : '—'}</span></span>`;
     return html`<${Value} m=${m} />`;
   }
   // A tag in the other state: an entered one flipped, a computed one ruled out by an entry at its spot.
@@ -667,9 +682,15 @@ const FormulaBar = (() => {
     const { computed: _, ...rec } = m.rec;
     return { records: m.computed ? { 'fx-pending': { ...spotOf(rec), tag: !rec.tag } } : { [m.id]: { ...rec, tag: !rec.tag } } };
   }
+  // While a value is typed, what it replaces shows struck through before it, and the input keeps what's typed.
   function Value({ m }) {
-    const o = m.out, wrap = 'fx-out' + (m.covered ? ' over' : '');
-    if (!o.field) return html`<span class=${wrap}><span class=${'fx-text' + (m.computed ? ' fx' : '')}>${o.text}</span></span>`;
+    const o = m.out, wrap = 'fx-out' + (m.covered ? ' over' : ''), typing = pending.value?.from === 'value';
+    if (!o.field) {
+      const options = m.def?.options ?? [], enter = choice => commit({ records: m.computed ? { 'fx-pending': { ...spotOf(m.rec), choice } } : { [m.id]: { ...spotOf(m.rec), choice } } });
+      return html`<span class=${wrap}>${options.length
+        ? html`<button class=${'btn ghost dd fx-text' + (m.computed ? ' fx' : '')} onClick=${e => Shell.menu(e.currentTarget, options.map(c => ({ label: c, checked: c === o.text, run: () => c !== o.text && enter(c) })))}>${o.text}</button>`
+        : html`<span class=${'fx-text' + (m.computed ? ' fx' : '')}>${o.text}</span>`}</span>`;
+    }
     const typed = text => {
       const v = Tree.parse(o.field, text);
       if (v === undefined || v === m.rec.value) return null;
@@ -684,7 +705,8 @@ const FormulaBar = (() => {
       if (c) commit(c); else e.target.value = o.text;
       e.target.blur();
     };
-    return html`<span class=${wrap}><input class=${'bare fx-value' + (m.computed ? ' fx' : '')} value=${o.text} size=${Math.max(4, o.text.length + 1)}
+    return html`<span class=${wrap}>${typing ? html`<span class="del fx-was">${o.text}</span>` : null}<input key=${m.id + '|' + o.text}
+      class=${'bare fx-value' + (m.computed ? ' fx' : '') + (typing ? ' fx-typed' : '')} defaultValue=${o.text} size=${Math.max(4, o.text.length + 1)}
       spellcheck="false" aria-label=${m.title} onInput=${e => { const c = typed(e.target.value); c ? preview(c, 'value') : preview(null); }}
       onKeyDown=${key} onBlur=${e => { if (pending.peek()?.from === 'value') preview(null); e.target.value = o.text; }} /></span>`;
   }
@@ -714,11 +736,10 @@ const FormulaBar = (() => {
       ${editable ? html`<span class="fx-grip" aria-hidden="true" onPointerDown=${e => dragRow(e, m.def.id)} />` : null}
       ${editable ? html`<input class="bare fx-label" value=${r.label} size=${Math.max(2, r.label.length)} spellcheck="false" aria-label="Label"
           onInput=${e => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, label: e.target.value } : x))} />`
-        : html`<span class="fx-label">${r.label}</span>`}
-      ${r.gone ? html`<div class="fx-cm gone">${r.formula}</div>` : html`<${Formula} row=${r} m=${m} colors=${colors} grey=${!r.ink} />`}
-      ${over ? html`<span class="fx-would">${overrideOf(m)}</span>` : null}
+        : html`<span class="fx-label" title=${r.label.length > 28 ? r.label : null}>${r.label}</span>`}
+      ${r.gone ? html`<div class="fx-cm gone">${r.formula}</div>` : html`<${Formula} row=${r} m=${m} colors=${colors} grey=${!r.ink} would=${over ? overrideOf(m) : null} focus=${r.key === fresh} />`}
       ${editable ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'}
-          onPointerEnter=${() => !keep && preview(rowsChange({ ...draftOf(m.def.id), rows: draftOf(m.def.id).rows.map(x => x.key === r.key ? { ...x, gone: true } : x) }), 'bar')}
+          onPointerEnter=${() => !keep && preview(rowsChange({ ...draftOf(m.def.id), rows: draftOf(m.def.id).rows.map(x => x.key === r.key ? { ...x, gone: true } : x) }), 'row')}
           onPointerLeave=${() => previewDraft()}
           onClick=${() => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, gone: !x.gone } : x))}>${Shell.icon('x')}</button>` : null}
     </div>`;
@@ -730,13 +751,15 @@ const FormulaBar = (() => {
     if ('tag' in m.rec) return html`<span class=${'tag fx ' + (v ? 'yes' : 'no')} />`;
     return html`<span class="fx">${v?.t === 'date' ? Tree.formatDate(v.iso) : typeof v === 'number' ? Tree.format(m.rec.field, v) : String(v)}</span>`;
   }
+  // A new row, at the end, with the cursor in it.
+  let fresh = null;
   function addRow(m) {
-    const key = newKey();
-    change(m.def.id, rows => [...rows, { key, label: '', formula: m.def.type === 'tag' ? '← ' : '= ' }]);
+    fresh = newKey();
+    change(m.def.id, rows => [...rows, { key: fresh, label: '', formula: m.def.type === 'tag' ? '← ' : '= ' }]);
     expanded.value = true;
-    requestAnimationFrame(() => { const cm = document.querySelector(`.fxbar [data-key="${key}"] .CodeMirror`)?.CodeMirror; if (cm) { cm.focus(); cm.setCursor(cm.lineCount(), 0); } });
   }
-  // A row dragged by its grip moves among its definition's rows; the move is a pending change like any other.
+  // A row dragged by its grip moves among its definition's rows; a clause on the page moves with all the rows
+  // it holds (data-keys). The move is a pending change like any other.
   function dragRow(e, def) {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -757,8 +780,9 @@ const FormulaBar = (() => {
       clear(); item.classList.remove('dragging');
       const i = to > from ? to - 1 : to;
       if (i === from) return;
-      const order = list.map(x => x.dataset.key);
-      order.splice(i, 0, order.splice(from, 1)[0]);
+      const items = list.map(x => (x.dataset.keys ?? x.dataset.key).split(' '));
+      items.splice(i, 0, items.splice(from, 1)[0]);
+      const order = items.flat();
       change(def, rows => [...order.map(k => rows.find(x => x.key === k)).filter(Boolean), ...rows.filter(x => !order.includes(x.key))]);
     }, { once: true });
   }
@@ -850,7 +874,7 @@ const FormulaBar = (() => {
       ${lead.map(t => html`<p class="fx-lead">${t}</p>`)}
       <ol class="fx-clauses">${groups.map((g, gi) => {
         const ids = attests(g);
-        return html`<li class=${'fx-clause' + (g.rows.length ? '' : ' unwritten') + (g.rows.every(r => r.gone) && g.rows.length ? ' gone' : '')} data-key=${g.rows[0]?.key ?? 'u' + gi}
+        return html`<li class=${'fx-clause' + (g.rows.length ? '' : ' unwritten') + (g.rows.every(r => r.gone) && g.rows.length ? ' gone' : '')} data-key=${g.rows[0]?.key ?? 'u' + gi} data-keys=${g.rows.length ? g.rows.map(r => r.key).join(' ') : null}
           onPointerEnter=${() => { pageLight.value = ids; }} onPointerLeave=${() => { pageLight.value = null; }}>
           ${g.rows.length ? html`<span class="fx-grip" aria-hidden="true" onPointerDown=${e => dragRow(e, id)} />` : html`<span />`}
           <span class="fx-label">${g.label}</span>
@@ -860,6 +884,7 @@ const FormulaBar = (() => {
           ${ids.length ? html`<button class="fx-n" onClick=${() => Shell.select(ids)}>${ids.length}</button>` : html`<span class="fx-n" />`}
         </li>`;
       })}</ol>
+      <button class="btn icon fx-add" aria-label="Add a row" data-tip="Add a row" onClick=${() => { const key = newKey(); change(id, xs => [...xs, { key, label: '', formula: P.type === 'tag' ? '← ' : '= ' }]); pageEdit.value = key; }}>${Shell.icon('plus')}</button>
       ${tail.map(t => html`<p class="fx-lead">${t}</p>`)}
       ${p?.from === 'bar' && d ? html`<div class="fx-doc-pend"><${Delta} p=${p} /><span class="fx-acts">
         <button class="btn" onClick=${discard}>Discard</button><button class="btn primary" onClick=${commitDraft}>Commit</button></span></div>` : null}
@@ -873,7 +898,7 @@ const FormulaBar = (() => {
   // A row set as a statute sets a clause: a top-level OR or AND on a line of its own with a hanging indent,
   // functions and keywords in small capitals, other definitions' names as links. Clicked, it's edited in place.
   function Typeset({ r, m }) {
-    if (pageEdit.value === r.key && !r.gone) return html`<div class="fx-edit"><${Formula} row=${{ ...r, ev: null }} m=${m} /></div>`;
+    if (pageEdit.value === r.key && !r.gone) return html`<div class="fx-edit"><${Formula} row=${{ ...r, ev: null }} m=${m} focus /></div>`;
     const lines = [[]];
     let depth = 0;
     for (const t of tokens(r.formula)) {
@@ -887,12 +912,7 @@ const FormulaBar = (() => {
       if (x && x.id !== m.def.id) return html`<button class="fx-link" onClick=${e => { e.stopPropagation(); openPage(x.id); }}>${t.text}</button>`;
       return t.style ? html`<span class=${'cm-' + t.style}>${t.text}</span>` : t.text;
     };
-    const edit = () => {
-      if (r.gone) return;
-      pageEdit.value = r.key;
-      requestAnimationFrame(() => { const cm = pageEl?.querySelector('.fx-edit .CodeMirror')?.CodeMirror; if (cm) { cm.focus(); cm.setCursor(cm.lineCount(), 0); } });
-    };
-    return html`<div class=${'fx-set' + (r.gone ? ' gone' : '')} onClick=${edit}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l.map(span)}</div>`)}</div>`;
+    return html`<div class=${'fx-set' + (r.gone ? ' gone' : '')} onClick=${() => { if (!r.gone) pageEdit.value = r.key; }}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l.map(span)}</div>`)}</div>`;
   }
 
   // ---- Find's "=": a formula worked out at the selection ----

@@ -37,6 +37,8 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-value, .fx-text { height: 22px; padding: 0 4px; margin: 0 -4px; font-weight: 500; }
 .fx-text { display: inline-flex; align-items: center; }
 .fx-value:hover:not(:focus) { border-color: var(--rule); }
+.fx-value.fx-typed { color: var(--accent-ink); }
+.fx-was { margin-right: 10px; }
 /* A tag's pending state: dashed, in the colour it would take. */
 .tag.pend { border-style: dashed; background: transparent; }
 .tag.pend.yes { border-color: var(--yes); }
@@ -45,15 +47,13 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .tag.pend.no::before, .tag.pend.no::after { background: var(--no); }
 
 /* ---- The rows: a label column, then the formula; the rest of a row's cells only while editing ---- */
-.fx-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto auto; padding-left: 22px; }
+.fx-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; padding-left: 22px; }
 .fx-row { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: start; }
-.fx-row > .fx-label { grid-column: 1; max-width: 200px; padding: 3px 16px 3px 0; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-row > .fx-label { grid-column: 1; max-width: 240px; padding: 3px 16px 3px 0; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-row > input.fx-label { height: 24px; margin: 0 12px 0 -5px; padding: 0 4px; font-weight: 500; field-sizing: content; min-width: 3ch; }
 .fx-row > input.fx-label:hover:not(:focus) { border-color: var(--rule); }
 .fx-row > .fx-cm { grid-column: 2; min-width: 0; }
-.fx-row > .fx-would { grid-column: 3; padding: 3px 0 3px 16px; color: var(--ink-2); white-space: nowrap; }
-.fx-row > .fx-would > .tag { vertical-align: -2px; }
-.fx-row > .fx-x { grid-column: 4; width: 24px; height: 24px; margin-left: 8px; opacity: 0; }
+.fx-row > .fx-x { grid-column: 3; width: 24px; height: 24px; margin-left: 8px; opacity: 0; }
 .fx-row:hover > .fx-x, .fx-row > .fx-x:focus-visible { opacity: 1; }
 .fx-row.alt > .fx-label { font-weight: 400; color: var(--ink-2); }
 .fx-row.alt .CodeMirror { color: var(--ink-2); }
@@ -64,8 +64,12 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-others > button { border: 0; padding: 0; background: none; color: inherit; }
 .fx-others > button:hover { color: var(--ink); }
 .fx-others > button + button::before { content: "·"; padding: 0 8px; color: var(--rule-2); }
-.fx-more { grid-column: 1 / -1; }
-.fx-add { width: 24px; height: 24px; margin-left: -6px; color: var(--ink-3); }
+.fx-more { grid-column: 1 / -1; height: 0; }
+.fx-add { width: 24px; height: 24px; margin: -2px 0 0 -6px; color: var(--ink-3); opacity: 0; }
+.fxbar:hover .fx-add, .fx-add:focus-visible { opacity: 1; }
+.fxbar:has(.fx-add) { padding-bottom: 20px; }
+/* A row whose delete is under the pointer reads as it would go. */
+.fx-row:has(> .fx-x:hover) :is(.fx-label, .CodeMirror) { color: var(--no); text-decoration: line-through; }
 
 /* A grip, shown on hover, to drag a row to another place. */
 .fx-grip { position: absolute; left: -16px; top: 5px; width: 8px; height: 14px; cursor: grab; opacity: 0;
@@ -101,6 +105,10 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
   background: color-mix(in srgb, currentColor 9%, var(--surface)); font: 500 12px/18px var(--sans); white-space: nowrap; vertical-align: top; }
 .fx-val:not([class*="fx-c"]) { border-left-color: var(--ink-3); background: var(--hover); }
 .fx-loop { text-decoration: underline 2px var(--no); text-underline-offset: 3px; }
+/* What the rows would give, at the end of the cited row, where an entry overrides them. */
+.fx-would { margin-left: 14px; color: var(--ink-2); font-variant: normal; letter-spacing: 0; white-space: nowrap; }
+.fx-would > .tag { vertical-align: -2px; }
+.fx-head > .fx-out:last-child, .fx-args + .fx-out { margin-left: 6px; }
 
 /* ---- A definition's page, in the inspector's place, widened, with the chart still beside it ---- */
 .shell > .main:not(.wide):has(> .fx-page) { grid-template-columns: minmax(0, 1fr) 1px clamp(560px, 58vw, 920px); }
@@ -132,6 +140,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-n { justify-self: end; height: 20px; border: 0; padding: 0; background: none; color: var(--ink-2); }
 button.fx-n:hover { text-decoration: underline; text-underline-offset: 3px; }
 .fx-clause:hover > .fx-n { color: var(--rf-1); font-weight: 600; }
+.fx-doc > .fx-add { margin: 6px 0 0 -6px; opacity: 1; }
 .fx-doc-pend { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--rule); }
 .fx-doc-pend > .fx-acts { margin-left: auto; }
 .fx-uses { display: grid; grid-template-columns: max-content 1fr; gap: 6px 20px; margin: 24px 0 0; font: var(--t12); }
