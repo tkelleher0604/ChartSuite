@@ -209,6 +209,7 @@ if (!Shell.parts.peek().canvas) Shell.register('canvas', StandIn);
 const q = new URLSearchParams(location.search);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const CLOSE_NP = 'fx:bdc=bdc_ics&close affiliate=northpine', AP_NP_CHEN = 'fx:affiliate=northpine&person=chen', OKAFOR_GP = 'fx:controlled=gp&controller=okafor';
+const REMOTE_NS = 'fx:bdc=bdc_ics&remote affiliate=pension', CLOSE_BLK = 'fx:bdc=bdc_ics&close affiliate=blocker';
 async function ready() {
   for (let i = 0; i < 400 && !Object.keys(App.entered.peek()).length; i++) await wait(10);
   await StandIn.ready;
@@ -318,6 +319,23 @@ async function checks() {
   check('nothing selected: the view’s name, in the same row', document.querySelector('.fx-view')?.textContent === Shell.parts.peek().views.list().find(v => v.id === Shell.view.peek())?.name && tall() === 36,
     document.querySelector('.fxbar')?.textContent);
 
+  // Why, in words: the facts that fired, a sentence over the rows
+  const said = () => document.querySelector('.fx-said')?.textContent;
+  Shell.select([REMOTE_NS]); await wait(40);
+  await openRows();
+  check('why, in words: Northstar’s 7% makes it an affiliated person, so a remote affiliate',
+    said() === 'Northstar Teachers’ Retirement System is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person (§2(a)(3)(A)), so it is a remote affiliate (§57(e)(1)(A)).', said());
+  Shell.select([CLOSE_BLK]); await wait(40);
+  check('… and the Blocker a close affiliate, through Chen, a director who controls it',
+    said() === 'Margaret A. Chen is Director of the BDC and a controller of Fund III Blocker (§2(a)(9), presumed), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
+  const facts = [...document.querySelectorAll('.fx-said .fx-fact.go')];
+  check('each fact is a button; hovered, its records pulse on the chart', facts.length === 3 && (facts[1].dispatchEvent(new PointerEvent('pointerenter')), (StandIn.hl.peek()?.pulse ?? []).length > 0));
+  facts[1].dispatchEvent(new PointerEvent('pointerleave'));
+  facts[2].click(); await wait(40);
+  check('a computed fact clicked steps down into it, by the clause cited', M().title === 'Affiliated Person' && M().clause === '(C)' && /^Close Affiliate/.test(document.querySelector('.fx-crumb')?.textContent ?? ''),
+    `${M().title} ${M().clause}`);
+  FormulaBar.back(); await wait(40);
+
   // Why not
   Shell.select(['pension', 'bdc']); await wait(40);
   m = M();
@@ -341,7 +359,7 @@ async function checks() {
   const ms = performance.now() - t0;
   let p = FormulaBar.pending.peek();
   // Rebutting Okafor's presumed control of GP III takes his control of the eleven it reaches through GP III.
-  check('hovering a tag previews ruling it out: Control −11', p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /Control\s*−11/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
+  check('hovering a tag previews ruling it out, in words: Control: 11 fewer', p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /Control: 11 fewer/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
   check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === p?.diff.go.length && p.diff.go.length >= 11, `${StandIn.rl.peek()?.go?.length} of ${p?.diff.go.length}`);
   check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
   document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
@@ -393,6 +411,12 @@ async function checks() {
   const reached = FormulaBar.reaching('own_okfr_gp', M());
   check('point mode: a click on a line offers the names that reach it', reached.includes('Ownership(Controller, Controlled)') && reached.some(x => /Owners|Holdings/.test(x)), reached.join(' | '));
   check('while a row is edited, the chart is in point mode, and a record clicked offers its names', StandIn.pointing === true && !!document.querySelector('.CodeMirror-hints'));
+  // A real click on the chart gives the chart focus after its mousedown; the names offered stay.
+  const chart = Object.assign(document.createElement('div'), { tabIndex: 0 });
+  document.body.append(chart);
+  FormulaBar.point('okafor'); chart.focus(); await wait(160);
+  check('… even once the click has given the chart focus', !!document.querySelector('.CodeMirror-hints') && document.activeElement?.closest?.('.CodeMirror'), document.activeElement?.className);
+  chart.remove();
   FormulaBar.discard(); await wait(20);
   check('Esc discards an edit', !FormulaBar.draft.peek() && !FormulaBar.pending.peek());
 

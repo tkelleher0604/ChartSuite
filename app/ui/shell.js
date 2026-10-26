@@ -567,7 +567,9 @@ const Shell = (() => {
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up, { once: true });
     };
-    return html`<div class=${'main' + (wide.value ? ' wide' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
+    // A table with nothing selected has the width: the inspector would show only the view's settings.
+    const alone = layout === 'table' && !wide.value && !aside.value && !selection.value.length;
+    return html`<div class=${'main' + (wide.value ? ' wide' : '') + (alone ? ' alone' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
       <div class="view" id="view" role="tabpanel" aria-labelledby=${v ? 'tab-' + v.id : null} data-region="view" tabindex="-1" aria-hidden=${wide.value ? 'true' : null}>
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
