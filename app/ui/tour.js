@@ -3,7 +3,7 @@
 // Find. Enter skips a step, Skip goes to the last card, and Esc ends it. A step waits for its event on the
 // shell's bus, or, pointing, for the pointer to rest on what it points at and leave. It points at what the
 // parts mark with data-tour. The tour changes nothing in the record: a click on what a pointing step points at
-// only points, and what a step opened closes when the step is done.
+// only points, and what a step opened closes once the next step is under way.
 const Tour = (() => {
   const { html, signal, on, store } = Shell;
   const { render } = preact;
@@ -18,7 +18,7 @@ const Tour = (() => {
   }
   const STEPS = [
     { event: 'select', target: 'box', act: 'Click a box.', say: 'Every box is a record.', when: s => s?.length },
-    { event: 'relate-open', target: 'box', act: 'Drag from one box’s edge to another.', say: 'The relations between them are listed.' },
+    { event: 'relate-open', target: 'box', act: 'Drag from one box’s edge to another.', say: 'See how they’re related, or relate them.' },
     { event: 'why-open', target: 'computed', act: 'Click an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', ends: unask },
     { point: true, target: 'tag', in: 'inspector', act: 'Point at a tag.', say: 'Green is attested, red ruled out. Pointing shows what switching it would change.' },
     { event: 'view-switch', target: 'sheet', act: 'Switch view.', say: 'Views share the records; each has its own styles. Export any of them.' },
@@ -32,15 +32,12 @@ const Tour = (() => {
     if (at.peek() < 0) unlayer = Shell.layer(end);
     at.value = 0;
   }
-  // What a step opened closes once the gesture that did the step is over: a click asks why on its press,
-  // and again as it ends.
-  let pressed = false;
-  addEventListener('pointerdown', () => { pressed = true; }, true);
-  addEventListener('pointerup', () => { pressed = false; }, true);
-  const after = fn => pressed ? addEventListener('pointerup', () => setTimeout(fn), { once: true, capture: true }) : fn();
-  const leave = () => { rest = null; const s = STEPS[at.peek()]; if (s?.ends) after(s.ends); };
+  // What a step opened stays while the next step is read, and closes once that one is begun or done.
+  let opened = null;
+  const settle = () => { const f = opened; opened = null; f?.(); };
+  const leave = () => { rest = null; settle(); opened = STEPS[at.peek()]?.ends ?? null; };
   const next = () => { if (at.peek() >= 0 && at.peek() < STEPS.length) { leave(); at.value = at.peek() + 1; } };
-  function end() { if (at.peek() < 0) return; leave(); at.value = -1; unlayer(); }
+  function end() { if (at.peek() < 0) return; leave(); settle(); at.value = -1; unlayer(); }
   for (const [i, s] of STEPS.entries()) if (s.event) on(s.event, d => { if (at.peek() === i && (!s.when || s.when(d))) next(); });
   Shell.launched.then(() => { if (store.get('toured') !== '1' && Shell.parts.peek().canvas) start(); });
   document.addEventListener('keydown', e => {
@@ -48,10 +45,10 @@ const Tour = (() => {
     next();
     e.preventDefault(); e.stopPropagation();
   }, true);
-  // A pointing step is done once the pointer has rested on what it points at and left it, or on a click
-  // there, which goes no further.
+  // A pointing step is begun when the pointer reaches what it points at, and done once it has rested there
+  // and left, or on a click there, which goes no further.
   const pointed = e => { const s = STEPS[at.peek()]; return s?.point ? e.target.closest?.(`[data-tour="${s.target}"]`) : null; };
-  addEventListener('pointerover', e => { const el = pointed(e); if (el && rest?.el !== el) rest = { el, since: e.timeStamp }; }, true);
+  addEventListener('pointerover', e => { const el = pointed(e); if (el && rest?.el !== el) { settle(); rest = { el, since: e.timeStamp }; } }, true);
   addEventListener('pointerout', e => {
     if (!rest || rest.el.contains(e.relatedTarget)) return;
     const rested = e.timeStamp - rest.since > 500;
