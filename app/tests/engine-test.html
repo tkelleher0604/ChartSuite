@@ -22,7 +22,9 @@
 // Checks of the formula engine (formulas.js), end to end: the sample's log, as of a day, its Formula notes and
 // relation names as Notes gives them, worked out. First the sample's results, as formulas.md describes them,
 // and the changes the reworked semantics made on purpose: Control gains its fourth row, "Through a
-// controlled company", and Remote Affiliate rules out the BDC's close affiliates under §57(d). Then the
+// controlled company", and Remote Affiliate rules out the BDC's close affiliates under §57(d); and those the
+// legal team's revisions of October 2026 made: the 25% and 5% tests read votes, the 3(c)(1) count only 3(c)(1)
+// funds, each tax year's Delaware tax is its own deadline, and a signatory's capacity is checked. Then the
 // semantics (nothing, loops, stages and grounds), the APIs for the formula bar, the redline and the editor,
 // definitions that reach the ways a group is worked out that the sample's don't, and cases where the engine
 // once went wrong. Nothing is saved.
@@ -38,41 +40,51 @@ const pairRow = (R, def, a, b) => rowsOf(R, def).find(r => r.args && objOf(R, r.
 const attested = (R, row) => !!row && !row.error && (row.entered ? R.records[row.entered].tag === true : row.value === true);
 const labelsOf = (R, row) => (row?.holds ?? []).map(i => R.state.P.byId.get(row.def).rows[i].label);
 const pairOf = (R, row) => row.args.map(a => objOf(R, a.at)).join('→');
+// A Delaware annual tax entry, at the relation of a taxpayer and a tax year: whose, and for which year.
+const taxRows = (R, def, obj) => rowsOf(R, def).filter(r => r.at && R.records[r.at]?.args?.some(a => a.edge === 'Taxpayer' && objOf(R, a.at) === obj));
+const yearOf = (R, row) => { const y = (R.records[row.at] ?? row).args.find(a => a.edge === 'Tax Year').at; return Object.values(R.records).find(x => x.at === y && x.edge === 'Year')?.value; };
 const withRecords = more => workOut({ ...SAMPLE_INPUTS.recs, ...more });
 const ctl = (a, b) => Formulas.computedId([{ edge: 'Controller', at: a }, { edge: 'Controlled', at: b }]);
-const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'feeder' }, { edge: 'Controlled', at: 'fund' }], tag: false } };
+const PRESUMED = 'Presumed: more than 25% of voting securities';
+// Rebutting the presumption that Okafor, a member of GP III but not its managing member, controls it by his half of its units.
+const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edge: 'Controlled', at: 'gp' }], tag: false } };
 
 // ---- The sample, as formulas.md describes it ----
 
 function theSample() {
   const R = workOut();
   const { definitions } = SAMPLE_INPUTS;
-  check('Notes gives the sample’s 23 definitions, each with what it covers and its rows', definitions.length === 23 && definitions.every(d => d.covers.length && d.rows.length && d.type));
+  check('Notes gives the sample’s 29 definitions, each with what it covers and its rows', definitions.length === 29 && definitions.every(d => d.covers.length && d.rows.length && d.type));
   check('…and none has a problem', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
   const problems = definitions.flatMap(d => d.rows.flatMap(r => Formulas.check(r.formula, { computed: R, def: d.id }).problems.map(p => `${d.id}: ${p.message}`)));
   check('…nor any of their rows, names included', !problems.length, problems.slice(0, 3).join(' | '));
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 559 computed records, with no errors: the 536 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
-    total === 559 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 536, `${total} computed, ${R.errors.length} errors`);
-  const want = { def_control: 66, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 16, def_tax: 6, def_3c1: 5,
-    def_private_fund: 5, def_investment_company: 1, def_annual_tax: 7, def_annual_tax_amount: 7, def_franchise_tax: 2, def_annual_return: 2, def_form_adv: 1,
-    def_form_pf: 1, def_cima_fee: 1, def_form_d: 2, def_cftc: 3, def_lei: 4, def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23 };
+  check(`The sample works out 589 computed records, with no errors: the 566 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
+    total === 589 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 566, `${total} computed, ${R.errors.length} errors`);
+  // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
+  // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
+  // The Delaware annual tax 7 → 8: the AIV owes tax years 2025 and 2026. New: Voting Percentage (24 holdings),
+  // Capacity Held (13 signing authorities), the tax years owed (8), CIMA accounts, CRS and FATCA (1 each).
+  const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 16, def_tax: 6,
+    def_private_fund: 5, def_investment_company: 1, def_annual_tax: 8, def_annual_tax_amount: 8, def_annual_tax_owed: 8, def_franchise_tax: 2, def_annual_return: 2,
+    def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
+    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13 };
   const off = Object.keys({ ...want, ...counts }).filter(d => want[d] !== counts[d]);
-  check('…by definition: Control 66, Affiliated Person 289, Close Affiliate 21, Remote Affiliate 22, Look-Through Ownership 51, and the rest', !off.length,
+  check('…by definition: Control 51, Affiliated Person 289, Close Affiliate 21, Remote Affiliate 22, Look-Through Ownership 51, and the rest', !off.length,
     off.map(d => `${d} ${counts[d]} (want ${want[d]})`).join(', '));
 
   // The changes the semantics made on purpose.
   const through = rowsOf(R, 'def_control').filter(r => attested(R, r) && labelsOf(R, r).join() === 'Through a controlled company').map(r => pairOf(R, r)).sort();
-  check('Control gains 9 pairs, each holding only through a controlled company whose general partner the controller controls: Chen and Okafor → the feeder, Fund III-A, the AIV and the co-invest vehicle, and the sponsor’s holding company → the feeder',
-    through.join() === 'chen→aiv,chen→coinv,chen→feeder,chen→fund3a,holdco→feeder,okafor→aiv,okafor→coinv,okafor→feeder,okafor→fund3a', through.join(' '));
+  check('Control holds 11 pairs only through a controlled company whose general partner the controller controls: Chen and Okafor → the fund, Fund III-A, the AIV, the co-invest vehicle and the feeder, and the sponsor’s holding company → the feeder',
+    through.join() === 'chen→aiv,chen→coinv,chen→feeder,chen→fund,chen→fund3a,holdco→feeder,okafor→aiv,okafor→coinv,okafor→feeder,okafor→fund,okafor→fund3a', through.join(' '));
   const remote = rowsOf(R, 'def_remote').filter(r => !r.error);
   const closeOfBdc = rowsOf(R, 'def_close').filter(r => attested(R, r) && objOf(R, r.args[1].at) === 'bdc').map(r => objOf(R, r.args[0].at)).sort();
   check('Remote Affiliate attests only the pension plan, under (e)(1)(A)', remote.filter(r => r.value === true).map(r => objOf(R, r.args[0].at)).join() === 'pension'
     && labelsOf(R, pairRow(R, 'def_remote', 'pension', 'bdc')).includes('(e)(1)(A)'));
-  check('…and rules out each of the BDC’s 21 close affiliates, under §57(d)', closeOfBdc.length === 21
-    && remote.filter(r => r.value === false).map(r => objOf(R, r.args[0].at)).sort().join() === closeOfBdc.join() && remote.filter(r => r.value === false).every(r => r.label === '§57(d)'));
+  check('…and rules out each of the BDC’s 21 close affiliates, as close affiliates under §57(b)', closeOfBdc.length === 21
+    && remote.filter(r => r.value === false).map(r => objOf(R, r.args[0].at)).sort().join() === closeOfBdc.join() && remote.filter(r => r.value === false).every(r => r.label === 'Close affiliate (§57(b))'));
 
   for (const id of ['fund', 'feeder', 'blocker', 'gp', 'mgmt']) check(`Ownership Adds Up attested on ${id}`, entryRow(R, 'def_adds_up', id)?.value === true);
   for (const id of ['northpine', 'halvard', 'bdc']) check(`Ownership Adds Up ruled out on ${id}`, entryRow(R, 'def_adds_up', id)?.value === false);
@@ -92,13 +104,19 @@ function theSample() {
   check('Look-through is recorded only between connected pairs', !pairRow(R, 'def_look_through', 'pension', 'fund') && !pairRow(R, 'def_look_through', 'inv_us', 'bdc'));
 
   for (const [a, b] of [['chen', 'mgmt'], ['okafor', 'mgmt'], ['chen', 'gp'], ['okafor', 'gp'], ['gp', 'fund'], ['caygp', 'feeder'], ['fund', 'blocker'], ['fund', 'northpine'],
-    ['fund', 'halvard'], ['feeder', 'fund'], ['feeder', 'blocker'], ['feeder', 'northpine'], ['feeder', 'halvard'], ['chen', 'feeder'], ['okafor', 'feeder']])
+    ['fund', 'halvard'], ['chen', 'fund'], ['okafor', 'fund'], ['chen', 'feeder'], ['okafor', 'feeder']])
     check(`Control: ${a} controls ${b}`, attested(R, pairRow(R, 'def_control', a, b)), labelsOf(R, pairRow(R, 'def_control', a, b)).join(', '));
-  check('Control: Chen’s control of the management company holds by Managing member and More than 25%',
-    ['Managing member', 'More than 25%'].every(l => labelsOf(R, pairRow(R, 'def_control', 'chen', 'mgmt')).includes(l)));
+  check('Control: Chen’s control of the management company holds by Managing member and the presumption, on her 60% of its votes',
+    ['Managing member', PRESUMED].every(l => labelsOf(R, pairRow(R, 'def_control', 'chen', 'mgmt')).includes(l)));
+  check('Voting Percentage: a limited partnership interest carries no vote, and the feeder’s 28.4% of the fund none',
+    ['own_us_fund', 'own_nonus_fdr', 'own_fdr_fund', 'own_inv3a_3a', 'own_invaiv_aiv', 'own_invco_coinv'].every(o => entryRow(R, 'def_voting', o)?.value === 0)
+    && entryRow(R, 'def_voting', 'own_chen_mgmt')?.value === 0.6);
+  for (const [a, b] of [['feeder', 'fund'], ['feeder', 'blocker'], ['caygp', 'fund'], ['holdco', 'fund']])
+    check(`Control: ${a} doesn’t control ${b}: the feeder’s interest in the fund isn’t a voting security`, !pairRow(R, 'def_control', a, b));
   const R2 = withRecords(rebuttal);
-  check('Rebuttal: the ruling-out stands, and More than 25% still holds beneath it', R2.records.x_rebut.tag === false && labelsOf(R2, { def: 'def_control', holds: R2.covered.x_rebut?.holds }).includes('More than 25%'));
-  for (const b of ['blocker', 'northpine', 'halvard', 'corvane']) check(`Rebuttal: the feeder no longer controls ${b}`, !attested(R2, pairRow(R2, 'def_control', 'feeder', b)));
+  check('Rebuttal: the ruling-out stands, and the presumption still holds beneath it', R2.records.x_rebut.tag === false && labelsOf(R2, { def: 'def_control', holds: R2.covered.x_rebut?.holds }).includes(PRESUMED));
+  for (const b of ['fund', 'blocker', 'northpine', 'halvard', 'corvane']) check(`Rebuttal: Okafor no longer controls ${b}`, !attested(R2, pairRow(R2, 'def_control', 'okafor', b)));
+  check('…while Chen, GP III’s managing member, still controls the fund', attested(R2, pairRow(R2, 'def_control', 'chen', 'fund')));
 
   const aff = rowsOf(R, 'def_affiliated').filter(r => attested(R, r));
   const has = (a, b, l) => labelsOf(R, pairRow(R, 'def_affiliated', a, b)).includes(l);
@@ -119,17 +137,43 @@ function theSample() {
   for (const a of ['blocker', 'northpine', 'halvard']) check(`Fund as BDC: ${a} not under (b)(2) (the carve-out)`, !closeFund[a]?.includes('(b)(2)'));
   for (const a of ['blocker', 'northpine', 'halvard']) check(`Fund as BDC: ${a} under (b)(2) affiliates, read literally`, closeFund[a]?.includes('(b)(2) affiliates'));
 
-  check('3(c)(1) Count of the fund is 2', entryRow(R, 'def_3c1', 'fund')?.value === 2, entryRow(R, 'def_3c1', 'fund')?.value);
+  check('3(c)(1) Count: nothing for a 3(c)(7) fund', !rowsOf(R, 'def_3c1').length);
+  const as3c1 = withRecords({ fund_ics: { ...SAMPLE_INPUTS.recs.fund_ics, choice: '3(c)(1) Fund' } });
+  check('3(c)(1) Count of the fund as a 3(c)(1) fund: the U.S. investors’ 86 beneficial owners, and the feeder’s 41 holders, looked through at 28.4%',
+    entryRow(as3c1, 'def_3c1', 'fund')?.value === 127, entryRow(as3c1, 'def_3c1', 'fund')?.value);
   const loop = withRecords({
+    fund_ics: { ...SAMPLE_INPUTS.recs.fund_ics, choice: '3(c)(1) Fund' },
     x_loop: { args: [{ edge: 'Owner', at: 'northpine' }, { edge: 'Owned', at: 'fund' }], tag: true },
     x_loop_pct: { at: 'x_loop', edge: 'Percentage', field: 'percent', value: 0.2 },
     x_np_pf: { at: 'northpine', edge: 'Private Fund', tag: true },
   });
-  for (const id of ['fund', 'northpine']) check(`3(c)(1) Count around a loop of holdings: ${id} never settles, and shows #CIRCULAR!`, entryRow(loop, 'def_3c1', id)?.error?.code === '#CIRCULAR!');
-  check('…and the feeder, off the loop, still works out', entryRow(loop, 'def_3c1', 'feeder')?.value === 1, entryRow(loop, 'def_3c1', 'feeder')?.value);
+  check('3(c)(1) Count around a loop of 10% fund holdings looks through one tier, to the holder’s own holders, and settles', entryRow(loop, 'def_3c1', 'fund')?.value === 129, entryRow(loop, 'def_3c1', 'fund')?.value);
   const lt = pairRow(loop, 'def_look_through', 'inv_us', 'fund')?.value;
   check('Look-through around the same loop settles at its limit, 71.6% / (1 − 64% × 20%)', Math.abs(lt - 0.716 / (1 - 0.64 * 0.2)) < 1e-9, lt);
-  check('The AIV’s Delaware annual tax is due June 1, 2026', entryRow(R, 'def_annual_tax', 'aiv')?.value?.iso === '2026-06-01');
+
+  // Deadlines: each tax year's Delaware tax, and one weekend rule each.
+  const aivTax = taxRows(R, 'def_annual_tax', 'aiv').map(r => `${yearOf(R, r)} ${r.value?.iso}`).sort();
+  check('The AIV owes Delaware annual tax for 2025, due June 1, 2026, and for 2026, due June 1, 2027', aivTax.join() === '2025 2026-06-01,2026 2027-06-01', aivTax.join());
+  const amounts = taxRows(R, 'def_annual_tax_amount', 'aiv').map(r => `${yearOf(R, r)} ${r.value}`).sort();
+  check('…$300 for 2025 and $400 for 2026', amounts.join() === '2025 300,2026 400', amounts.join());
+  const june27 = rowsOf(R, 'def_annual_tax').filter(r => r.value?.iso === '2027-06-01');
+  check('Seven Delaware annual taxes are due June 1, 2027, $2,800 in all', june27.length === 7
+    && rowsOf(R, 'def_annual_tax_amount').filter(a => june27.some(d => d.at === a.at)).reduce((s, a) => s + a.value, 0) === 2800, june27.length);
+  const due = (def, id) => entryRow(R, def, id)?.value?.iso;
+  check('On or before a date on a weekend: the business day before (Fund III’s LEI, Nov 14, 2026; the annual returns, Jan 31, 2027; FATCA, Jul 31, 2027; the Co-Invest Form D, Jun 26, 2027)',
+    due('def_lei', 'fund') === '2026-11-13' && due('def_annual_return', 'feeder') === '2027-01-29' && due('def_fatca', 'feeder') === '2027-07-30' && due('def_form_d', 'coinv') === '2027-06-25',
+    [due('def_lei', 'fund'), due('def_annual_return', 'feeder'), due('def_fatca', 'feeder'), due('def_form_d', 'coinv')].join());
+  check('Form ADV and Form PF from the fiscal year after the last annual one: March 31 and April 30, 2027', due('def_form_adv', 'mgmt') === '2027-03-31' && due('def_form_pf', 'mgmt') === '2027-04-30');
+  check('The feeder’s audited accounts and Fund Annual Return, and its CRS return, due June 30, 2027', due('def_cima_accounts', 'feeder') === '2027-06-30' && due('def_crs', 'feeder') === '2027-06-30');
+  const { mgmt_fye, ...noFye } = SAMPLE_INPUTS.recs, R3 = workOut(noFye);
+  check('Form ADV with no fiscal year end recorded is an error, not nothing', entryRow(R3, 'def_form_adv', 'mgmt')?.error?.code === '#VALUE!', JSON.stringify(entryRow(R3, 'def_form_adv', 'mgmt')));
+  const R4 = workOut({ ...SAMPLE_INPUTS.recs, mgmt_fye: { ...mgmt_fye, value: '2018-06-30' } });
+  check('…and a fiscal year ending June 30 moves it to September 28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso === '2026-09-28', entryRow(R4, 'def_form_adv', 'mgmt')?.value?.iso);
+
+  // Signing authority: the capacity is checked where the signatory signs.
+  const held = rowsOf(R, 'def_capacity_held'), flagged = held.filter(r => r.value === false).map(r => r.at).sort();
+  check('Capacity Held rules out Okafor’s four authorities through GP III, where he is a member but not its managing member',
+    flagged.join() === 'sign_okfr_3a,sign_okfr_aiv,sign_okfr_coinv,sign_okfr_fund' && held.filter(r => r.value === true).length === 9, flagged.join());
 }
 
 // ---- The semantics ----
@@ -146,11 +190,12 @@ function semantics() {
   check('$750,000,000 is a number; IN takes an array constant', at('= $750,000,000') === 750000000 && at('= "a" IN {"A", "b"}') === true);
   check('A dot on a list maps over it', Formulas.formatValue(R, at('= Owners.Percentage'), { percent: true }) === '71.6%; 28.4%');
   check('OBJECT finds an object by its Name, without regard to case', show(R, at('= OBJECT("calder ridge iii blocker, inc.")')) === 'Calder Ridge III Blocker, Inc.');
-  const feederOver = '= Control(OBJECT("Calder Ridge Capital Partners III (Cayman), L.P."), @)';
-  check('A row’s label on a tag: TRUE where that row holds', show(R, at(`${feederOver}.[More than 25%]`)) === 'TRUE' && show(R, at(`${feederOver}.[General partner]`)) === 'FALSE');
+  const okaforOver = '= Control(OBJECT("David R. Okafor"), OBJECT("Calder Ridge Capital GP III, LLC"))';
+  check('A row’s label on a tag: TRUE where that row holds', show(R, at(`${okaforOver}.[${PRESUMED}]`)) === 'TRUE' && show(R, at(`${okaforOver}.[Managing member]`)) === 'FALSE');
   const withoutGP = show(R, at('= WITHOUT(@.[Entity Type].[General Partners], @.Controllers)'));
-  check('WITHOUT: without the GP, the fund’s controllers are the feeder and those who control it: the Cayman GP, the holding company, Chen and Okafor',
-    withoutGP === 'Calder Ridge Capital Partners III (Cayman), L.P.; Calder Ridge Capital GP III (Cayman), Ltd.; Calder Ridge Partners Holdings, LLC; Margaret A. Chen; David R. Okafor', withoutGP);
+  check('WITHOUT: without its general partner, nothing controls the fund, since its limited partners’ interests carry no vote', withoutGP === show(R, []), withoutGP);
+  const withoutOkafor = show(R, at('= WITHOUT(OBJECT("David R. Okafor"), @.Controllers)'));
+  check('WITHOUT: without Okafor, the fund’s controllers are GP III and Chen, its managing member', /GP III, LLC/.test(withoutOkafor) && /Chen/.test(withoutOkafor) && !/Okafor/.test(withoutOkafor), withoutOkafor);
 
   // A monotone loop between two definitions settles at its least solution.
   const ALL = ['Entity', 'Individual', 'Investor Group'];
@@ -202,9 +247,9 @@ function semantics() {
 
 function grounds() {
   const R = workOut();
-  const g1 = Formulas.ground(R, ctl('feeder', 'fund'));
-  check('The feeder controls the fund: More than 25%, on its ownership of 28.4%', g1.rows[0].label === 'More than 25%'
-    && g1.rows[0].parts.some(p => p.id === 'own_fdr_fund' && p.items.some(q => q.id === 'own_fdr_fund_pct')), JSON.stringify(g1.rows[0]));
+  const g1 = Formulas.ground(R, ctl('okafor', 'gp'));
+  check('Okafor controls GP III by the presumption, on his ownership and its Voting Percentage of 50%', g1.rows[0].label === PRESUMED
+    && g1.rows[0].parts.some(p => p.id === 'own_okfr_gp' && p.items.some(q => R.records[q.id]?.edge === 'Voting Percentage' && R.records[q.id].value === 0.5)), JSON.stringify(g1.rows[0]));
   const g2 = Formulas.ground(R, ctl('chen', 'feeder')), via = g2.rows[0].parts[0];
   check('Chen controls the feeder through a controlled company, which controls the feeder', g2.rows[0].label === 'Through a controlled company'
     && R.records[via.id]?.computed === 'def_control' && objOf(R, R.records[via.id].args[0].at) === 'chen'
@@ -214,11 +259,12 @@ function grounds() {
   check('Look-through: the path, one holding at a time: the feeder 100%, then the feeder’s look-through to Northpine', lt1.id === 'own_nonus_fdr'
     && lt1.items.map(p => p.id).join() === ['own_nonus_fdr_pct', Formulas.computedId([{ edge: 'Investor', at: 'feeder' }, { edge: 'Investment', at: 'northpine' }])].join(), JSON.stringify(lt1));
   const gr = Formulas.ground(withRecords(rebuttal), 'x_rebut');
-  check('A ruled-out presumption keeps its ground beneath it', gr.entered && gr.rows[0].label === 'More than 25%' && gr.rows[0].parts.some(p => p.id === 'own_fdr_fund'));
+  check('A ruled-out presumption keeps its ground beneath it', gr.entered && gr.rows[0].label === PRESUMED && gr.rows[0].parts.some(p => p.id === 'own_okfr_gp'));
   const rm = Formulas.ground(R, Formulas.computedId([{ edge: 'Remote Affiliate', at: 'northpine' }, { edge: 'BDC', at: 'bdc_ics' }]));
-  check('A close affiliate ruled out as a remote one: §57(d), on its Close Affiliate record', rm.rows[0].label === '§57(d)'
+  check('A close affiliate ruled out as a remote one: “Close affiliate (§57(b))”, on its Close Affiliate record', rm.rows[0].label === 'Close affiliate (§57(b))'
     && rm.rows[0].parts.some(p => p.id === Formulas.computedId([{ edge: 'Close Affiliate', at: 'northpine' }, { edge: 'BDC', at: 'bdc_ics' }])));
-  const text = Formulas.groundText(R, entryRow(R, 'def_annual_tax', 'aiv').id);
+  const owed = rowsOf(R, 'def_annual_tax_owed').find(r => objOf(R, r.args.find(a => a.edge === 'Taxpayer').at) === 'aiv' && yearOf(R, r) === 2025);
+  const text = owed && Formulas.groundText(R, owed.id);
   check('A deadline’s ground on one line: what set the date, and what was nothing', /Formation Date February 11, 2025/.test(text) && /Annual Tax Paid —/.test(text), text);
 }
 
@@ -238,11 +284,11 @@ function apis() {
   check('evaluateRow works out a formula as typed', Formulas.evaluateRow(R, 'def_close', '← [Close Affiliate] IN BDC.Advisers', { 'Close Affiliate': 'mgmt', BDC: 'bdc' }).value === true);
 
   const d = Formulas.diff(R, withRecords(rebuttal));
-  check('diff: ruling out the feeder’s control of the fund takes its control of the blocker, Northpine, Halvard and Corvane with it',
-    ['blocker', 'northpine', 'halvard', 'corvane'].every(b => d.go.includes(ctl('feeder', b))) && d.appear.includes('x_rebut') && d.go.includes(ctl('feeder', 'fund')), JSON.stringify(d));
-  const d3 = Formulas.diff(R, withRecords({ own_fdr_fund_pct: { ...SAMPLE_INPUTS.recs.own_fdr_fund_pct, value: 0.2 } }));
-  check('diff: 20% for the feeder’s 28.4% changes the look-throughs through it, and takes its control of the fund', d3.change.includes('own_fdr_fund_pct')
-    && d3.change.includes(Formulas.computedId([{ edge: 'Investor', at: 'inv_nonus' }, { edge: 'Investment', at: 'fund' }])) && d3.go.includes(ctl('feeder', 'fund')), JSON.stringify(d3));
+  check('diff: ruling out Okafor’s control of GP III takes his control of the fund, the blocker, Northpine, Halvard and Corvane with it',
+    ['fund', 'blocker', 'northpine', 'halvard', 'corvane'].every(b => d.go.includes(ctl('okafor', b))) && d.appear.includes('x_rebut') && d.go.includes(ctl('okafor', 'gp')), JSON.stringify(d));
+  const d3 = Formulas.diff(R, withRecords({ own_okfr_gp_pct: { ...SAMPLE_INPUTS.recs.own_okfr_gp_pct, value: 0.2 } }));
+  check('diff: 20% for Okafor’s half of GP III changes his look-through and his votes, and takes his control of it', d3.change.includes('own_okfr_gp_pct')
+    && d3.change.includes(Formulas.computedId([{ edge: 'Investor', at: 'okafor' }, { edge: 'Investment', at: 'gp' }])) && d3.go.includes(ctl('okafor', 'gp')), JSON.stringify(d3));
 
   check('check: a syntax error, with where it is', Formulas.check('= SUM(1, )').problems[0]?.from === 9, JSON.stringify(Formulas.check('= SUM(1, )')));
   check('check: <- starts an implication, and = a value', Formulas.check('<- TRUE').kind === 'implies' && Formulas.check('= 1').kind === 'value' && !Formulas.check('= 1').problems.length);
@@ -295,7 +341,8 @@ function testDefinitions() {
   check('Contrary, which reads itself through NOT, is #CIRCULAR! at every candidate', rowsOf(R, 't_contrary').length > 100 && rowsOf(R, 't_contrary').every(r => r.error?.code === '#CIRCULAR!'));
   check('Bogus holds where its second row does, and is #NAME? where only its first could', attested(R, pairRow(R, 't_bogus', 'fund', 'blocker'))
     && pairRow(R, 't_bogus', 'blocker', 'fund')?.error?.code === '#NAME?');
-  check('Passive Holder: U.S. Investors hold the fund without controlling it', attested(R, pairRow(R, 't_passive', 'inv_us', 'fund')) && !pairRow(R, 't_passive', 'feeder', 'fund'));
+  check('Passive Holder: U.S. Investors and the feeder hold the fund without controlling it, and the fund controls the blocker it holds', attested(R, pairRow(R, 't_passive', 'inv_us', 'fund'))
+    && attested(R, pairRow(R, 't_passive', 'feeder', 'fund')) && !pairRow(R, 't_passive', 'fund', 'blocker'));
   check('Sibling: the blocker and Northpine share an owner, the fund', attested(R, pairRow(R, 't_sibling', 'blocker', 'northpine')));
   check('Majority: the fund holds a majority of the blocker', pairRow(R, 't_majority', 'fund', 'blocker')?.value === 'Majority');
   const share = id => rowsOf(R, 't_share').find(r => r.at === id);
