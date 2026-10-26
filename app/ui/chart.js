@@ -1348,11 +1348,12 @@ document.addEventListener('keydown', e => {
     moveBox(sel.object, g.x + arrows[e.key][0] * step, g.y + arrows[e.key][1] * step);
     return render();
   }
-  // Typing over a selected box starts a new name, as typing over a spreadsheet cell does; F2 edits it.
+  // Typing over a selected box starts a new name, as typing over a spreadsheet cell does; F2 edits it. ?
+  // and /, which no name starts with, stay the shell's: the shortcuts and the palette, on every page.
   const nameId = nameRecordOf(sel.object);
   if (!nameId || t.closest('.panel')) return;
   if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); startEditing(nameId); return render(); }
-  if (e.key.length === 1 && e.key !== ' ') { e.preventDefault(); startEditing(nameId, e.key); render(); }
+  if (e.key.length === 1 && !' ?/'.includes(e.key)) { e.preventDefault(); startEditing(nameId, e.key); render(); }
 });
 
 document.addEventListener('wheel', e => {
@@ -1586,35 +1587,24 @@ Shell.onChartChange(() => {
   closeExport();
 });
 
-// The chart leads, so on this page the app's sidebar starts hidden. The shell's toggle (the top bar's
-// button, or Ctrl+\) shows and hides it, and this page keeps its own choice (prefs.sidebarOn.chart),
-// putting back the shell's for the other pages.
-const sidebarElsewhere = prefs.sidebar;
-const sidebarHere = () => prefs.sidebarOn?.chart === true;
-new MutationObserver(() => {
-  const shown = document.documentElement.dataset.sidebar !== 'hidden';
-  if (shown === sidebarHere()) return;
-  prefs.sidebarOn = { ...prefs.sidebarOn, chart: shown };
-  prefs.sidebar = sidebarElsewhere;
-  savePrefs();
-}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-sidebar'] });
-if (sidebarHere()) delete document.documentElement.dataset.sidebar;
-else document.documentElement.dataset.sidebar = 'hidden';
-
-// Undo and Redo sit in the top bar, as Office keeps them in its title bar. Undo can always try, since with
-// nothing to undo here it takes back your last change made elsewhere (see Shell.undoOrRedo).
+// The chart leads, so the page starts without the app's sidebar, and keeps its own choice of it. Undo and
+// Redo sit in the top bar, as Office keeps them in its title bar; each can always try, since with nothing
+// left in this page an undo takes back your latest change from the history, and a redo puts it back (see
+// Shell.undoOrRedo).
 Shell.start({
   area: 'chart',
   title: () => chartInUse().name,
+  sidebar: false,
   actions: () => `<button class="btn btn-sm btn-ghost" data-action="undo" title="Undo (${undoKey})">Undo</button>
-    <button class="btn btn-sm btn-ghost" data-action="redo"${redoStack.length ? '' : ' disabled'} title="Redo (${redoKey})">Redo</button>
+    <button class="btn btn-sm btn-ghost" data-action="redo" title="Redo (${redoKey})">Redo</button>
     <button class="btn btn-sm" data-cmd="chart.export" title="Export the chart as PDF, PowerPoint or SVG">Export…</button>
     <button class="btn btn-sm" data-cmd="chart.present" title="Show only the chart, full screen. Esc returns">Present</button>`,
   after: drawPage,
   commands: chartCommands,
   undo: false,
-  keys: [['Double-click', 'Add a box'], ['F2, or start typing', 'Rename the selected box'], ['Arrows', 'Nudge the selected box'],
-    ['Delete', 'Delete or hide what’s selected'], ['Shift+1', 'Fit the chart'], ['Esc', 'Leave Present']],
+  keys: [['Double-click', 'Add a box, on the sheet'], ['F2', 'Rename the selected box, as typing over it does'], ['Tab', 'Go from box to box, then to the lines'],
+    ['Enter', 'Select the box or line with the focus'], ['Arrow keys', 'Nudge the selected box'], ['Delete', 'Delete or hide what’s selected'],
+    ['Shift+1', 'Fit the chart'], ['Esc', 'Leave Present, or stop relating']],
 });
 chart.undoDepth = undoStack.length;
 lookAtChart();
