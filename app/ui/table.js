@@ -731,7 +731,7 @@ const Table = (() => {
       x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
     return html`<div class="pastebar" role="region" aria-label="Paste">
       <span class="what">${parts.map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
-      ${day ? html`<span class="when">From ${Tree.formatDate(day)}</span>` : null}
+      ${day ? html`<span class="when">From ${Tree.formatDate(day, 'short')}</span>` : null}
       <button class="btn" onClick=${cancel}>Cancel</button>
       <button class="btn primary" onClick=${commit}>Paste</button>
     </div>`;
@@ -829,13 +829,17 @@ const Table = (() => {
         if (e.target.classList.contains('tabulator-tableholder') && e.target.matches(':focus-visible')) activate();
       });
       cells.addEventListener('focusout', e => { if (e.relatedTarget && !cells.contains(e.relatedTarget)) inside = false; });
+      // Tabulator draws its rows again when the grid's size changes (the formula bar growing), dropping the keys.
+      const sized = new ResizeObserver(() => requestAnimationFrame(regain));
+      sized.observe(cells);
       const offs = [
         effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
-        effect(() => { Shell.selection.value; if (!picking) { mark(); const id = Shell.selection.value[0]; if (id && table && inGrid(id)) table.scrollToRow(id, 'nearest', false).catch(() => {}); } }),
+        // The rows of the records selected are marked; selected elsewhere, the first is brought into view.
+        effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking && id && table && inGrid(id)) table.scrollToRow(id, 'nearest', false).catch(() => {}); }),
         // A grid drawn while its slot was hidden is measured again once it shows.
         effect(() => { Shell.view.value; requestAnimationFrame(() => { if (table && ready && el?.offsetParent) table.redraw(); }); }),
       ];
-      return () => { offs.forEach(f => f()); unstage(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
+      return () => { offs.forEach(f => f()); sized.disconnect(); unstage(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
     },
     focus,
   });

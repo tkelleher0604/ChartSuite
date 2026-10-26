@@ -16,12 +16,16 @@
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-range-selected { background: var(--paper) linear-gradient(var(--press), var(--press)); color: var(--ink); }
 @media (hover: hover) and (pointer: fine) { .grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover { background: var(--paper) linear-gradient(var(--hover), var(--hover)); } }
 
-/* Sorting: an arrow beside the filter, shown on hover and while the column sorts. */
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter { right: 26px; bottom: 7px; top: auto; height: 16px; opacity: 0; }
+/* Sorting: an arrow beside the filter, shown on hover and while the column sorts (Tabulator's triangle goes). */
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter { right: 26px; bottom: 7px; top: auto; width: 12px; height: 16px; justify-content: center; color: var(--ink-3); opacity: 0; }
 .grid .tabulator .tabulator-header .tabulator-col:hover .tabulator-col-sorter,
 .grid .tabulator .tabulator-header .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter,
 .grid .tabulator .tabulator-header .tabulator-col[aria-sort="descending"] .tabulator-col-sorter { opacity: 1; }
-.grid .tabulator .tabulator-header .tabulator-col[aria-sort="none"] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow { border-bottom-color: var(--rule-2); }
+.grid .tabulator .tabulator-header .tabulator-col:is([aria-sort="ascending"], [aria-sort="descending"]) .tabulator-col-sorter { color: var(--ink); }
+.grid .tabulator-col .tabulator-col-sorter .tabulator-arrow { display: none; }
+.grid .tabulator-col .tabulator-col-sorter::after { content: ""; width: 8px; height: 10px; background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='10'%3E%3Cpath d='M4 1v8M1 6l3 3 3-3' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center; }
+.grid .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter::after { transform: rotate(180deg); }
 
 /* Filtering: a dropdown in the heading, as Excel's; a column filtered is underlined in the accent. */
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter { position: absolute; right: 4px; bottom: 5px; width: 20px; margin: 0; }
@@ -40,6 +44,9 @@
 .grid .tabulator-row { min-height: var(--row); }
 .grid .tabulator-row .tabulator-cell.tabulator-frozen:not(.rn) { background: var(--surface); }
 .grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell.tabulator-frozen { background: var(--selected); }
+/* The first column stays put over the selection's outline, so it draws its own. */
+.grid .tabulator-row .tabulator-cell.tabulator-frozen:not(.rn).tabulator-range-only-cell-selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.grid .tabulator-row .tabulator-cell.tabulator-frozen:not(.rn).tabulator-range-selected:not(.tabulator-range-only-cell-selected) { background: var(--selected); }
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator-row .tabulator-cell.fx { font-style: italic; }
 .grid .tabulator-row .tabulator-cell.due { color: var(--no); }
@@ -66,8 +73,8 @@
 .grid .tabulator-row .tabulator-cell.lit { animation: lit 1.6s var(--ease); }
 @keyframes lit { from { background-color: var(--selected); } }
 
-.pastebar { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--rule-2); background: var(--paper); }
-.pastebar > .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.pastebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--rule-2); background: var(--paper); }
+.pastebar > .what { flex: 1 1 240px; min-width: 0; color: var(--ink-2); }
 .pastebar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
 .pastebar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
 
@@ -86,6 +93,10 @@
 .grid .tabulator-row.tabulator-group { padding: 6px 8px 5px 12px; font: 600 var(--t13); }
 .grid .tabulator-row.tabulator-group:hover { background-image: none; }
 .grid .tabulator-row.tabulator-group span { font-weight: 400; }
+/* A month folds on the app's chevron, not Tabulator's triangle. */
+.grid .tabulator-row.tabulator-group .tabulator-arrow, .grid .tabulator-row.tabulator-group.tabulator-group-visible .tabulator-arrow { width: 10px; height: 6px; margin: 0 10px 0 2px; border: 0;
+  background: var(--chev) no-repeat center; vertical-align: 2px; transform: rotate(-90deg); }
+.grid .tabulator-row.tabulator-group.tabulator-group-visible .tabulator-arrow { transform: none; }
 .grid .tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents { padding: 48px 0; }
 
 /* ---- The date control: a calendar beside the chart's own days ---- */
