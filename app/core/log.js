@@ -19,6 +19,8 @@ const overlap = (a, b) => (!a.since || !b.before || a.since < b.before) && (!b.s
 const latest = rows => rows.reduce((a, b) => (b.since ?? '') > (a.since ?? '') ? b : a);
 const records = new WeakMap();
 const recordOf = row => { let r = records.get(row); if (!r) { const { id, record, ...rest } = row; records.set(row, r = rest); } return r; };
+const contents = new WeakMap();
+const contentOf = row => { let s = contents.get(row); if (!s) { const { id, ...rest } = row; contents.set(row, s = JSON.stringify(rest)); } return s; };
 const argKey = r => Tree.argsOf(r).map(a => JSON.stringify([Tree.norm(a.edge), a.at])).sort().join();
 
 // Each record as its latest version, for what doesn't depend on the day: dependents, renaming, the schema.
@@ -42,13 +44,25 @@ function schemaOf(rows) {
 function open(data) {
   if (typeof data === 'string') data = JSON.parse(data);
   const changes = new Map(), added = new Map(), removedBy = new Map(), live = new Map(), chartOf = new Map(), subs = new Set();
+  // Live rows by content: a reverse brings rows back as fresh copies, which are still as a change left them.
+  const twins = new Map(), twinKey = (c, r) => `${c}|${contentOf(r)}`;
+  const twin = (c, r) => twins.get(twinKey(c, r))?.values().next().value;
   let cache = new Map(), sorted = null, last = 0;
 
   function take(c) {
     if (changes.has(c.id)) return false;
     changes.set(c.id, c);
-    for (const id of c.removes) { removedBy.set(id, c.id); live.delete(id); }
-    for (const r of c.adds) { added.set(r.id, r); chartOf.set(r.id, c.chart); if (!removedBy.has(r.id)) live.set(r.id, r); }
+    for (const id of c.removes) {
+      removedBy.set(id, c.id);
+      if (live.delete(id)) twins.get(twinKey(chartOf.get(id), added.get(id))).delete(id);
+    }
+    for (const r of c.adds) {
+      added.set(r.id, r); chartOf.set(r.id, c.chart);
+      if (removedBy.has(r.id)) continue;
+      live.set(r.id, r);
+      const k = twinKey(c.chart, r);
+      (twins.get(k) ?? twins.set(k, new Set()).get(k)).add(r.id);
+    }
     last = Math.max(last, Date.parse(c.when) || 0);
     return true;
   }
@@ -126,13 +140,13 @@ function open(data) {
   }
 
   // The reverse of a change removes what it added and adds fresh copies of what it removed, while what it
-  // added is all still live. Undo reverses your latest change not yet undone; Redo your latest undo.
-  const canReverse = id => !!changes.get(id)?.adds.every(r => live.has(r.id));
+  // added is all still as it left it. Undo reverses your latest change not yet undone; Redo your latest undo.
+  const canReverse = id => { const c = changes.get(id); return !!c && c.adds.every(r => twin(c.chart, r)); };
   function reverse(id, who) {
     const c = changes.get(id);
     if (!c) return null;
     if (!canReverse(id)) return 'It has changed since.';
-    return apply({ id: newId(), who, when: now(), chart: c.chart, removes: c.adds.map(r => r.id),
+    return apply({ id: newId(), who, when: now(), chart: c.chart, removes: c.adds.map(r => twin(c.chart, r)),
       adds: c.removes.map(rid => ({ ...added.get(rid), id: newId() })), reverses: c.id });
   }
   // An author's undo and redo stacks in a chart, replayed from the log: a reverse of the top of either is

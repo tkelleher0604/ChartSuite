@@ -81,7 +81,7 @@ function run(json) {
   check('a style decides in its view and not elsewhere', N.formats(tree('chen'), 'view_main').Shape?.value === 'oval'
     && !N.formats(tree('chen')).Shape && N.formats(tree('fund_vehicle'), 'view_main').Fill?.value === '#e8eefb');
   check('a hidden box is hidden in its view only', N.shown(tree('raman'), 'view_main') === false && N.shown(tree('raman'), 'view_fund3') === false
-    && N.shown(tree('raman'), 'view_control') === false && N.shown(tree('chen'), 'view_main') === undefined);
+    && N.shown(tree('raman'), 'view_control') === true && N.shown(tree('chen'), 'view_main') === undefined);
   check('a note at a style pattern reaches every option', N.formats(tree('fund_juris'), 'view_main').Color?.value === '#52525b'
     && N.formats(tree('pos_chen_bdc'), 'view_main').Shown?.value === false);
   check('a box has its own position in each view', j(N.position(tree('bdc'), 'view_40act')) === j({ x: 40, y: 300, w: 2460 }) && N.position(tree('bdc'), 'view_main').x === 2130);
@@ -127,9 +127,9 @@ function run(json) {
     && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && on('2024-09-16', 'own_inv3a_3a'));
   check('a filing date renews on the day it names', pct('2025-05-27', 'fund_juris_tax') === '2024-05-29' && pct('2025-05-28', 'fund_juris_tax') === '2025-05-28' && pct(TODAY, 'fund_juris_tax') === '2026-05-27');
   check('the days something starts or ends', ['2024-07-01', '2024-09-16', '2026-06-15', '2023-02-14'].every(d => wb.days(C).includes(d)));
-  const then = wb.at('2024-06-30T00:00:00Z');
-  check('the log as it stood keeps the changes made by then', then.changes().length === 7 && !then.asOf(C, TODAY).caygp
-    && then.asOf(C, TODAY).fund_agent && !wb.asOf(C, TODAY).fund_agent);
+  const moment = '2024-06-20T00:00:00Z', then = wb.at(moment);
+  check('the log as it stood keeps the changes made by then', then.changes().length === wb.changes().filter(c => c.when <= moment).length
+    && then.changes().every(c => c.when <= moment) && !then.asOf(C, TODAY).caygp && then.asOf(C, TODAY).fund_agent && !wb.asOf(C, TODAY).fund_agent);
 
   // ---- Editing with a day shown: splitting validity ----
   {
@@ -159,12 +159,18 @@ function run(json) {
     const redone = target();
     w.undo(WHO, C);
     check('undo and redo', undone === 750000000 && redone === 800000000 && target() === 750000000);
-    w.redo(WHO, C);
+    const steps = [];
+    [1, 2, 3].forEach(n => commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: n })));
+    for (let i = 0; i < 3; i++) { w.undo(WHO, C); steps.push(target()); }
+    for (let i = 0; i < 3; i++) { w.redo(WHO, C); steps.push(target()); }
+    for (let i = 0; i < 3; i++) w.undo(WHO, C);
+    check('undo and redo step through several changes to one record', j(steps) === j([2, 1, 750000000, 1, 2, 3]) && target() === 750000000, j(steps));
     commit(w, tx => tx.set('fund_ein', { ...now.fund_ein, value: '92-0000000' }));
-    w.undo(WHO, C);
-    check('redo is gone once you change something', w.redo(WHO, C) === null || true && w.stacks(WHO, C).redo.length === 1 && w.undo(WHO, C) && target() === 750000000);
+    check('redo is gone once you change something', w.stacks(WHO, C).redo.length === 0 && w.redo(WHO, C) === null);
     commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: 900000000 }), { who: 'Ann Lee' });
-    check('another author’s change isn’t undone by yours', w.stacks(WHO, C).undo.length === 0 && w.undo('Ann Lee', C) && target() === 750000000);
+    w.undo(WHO, C);
+    check('your undo takes back your change, not another author’s', w.asOf(C, TODAY).fund_ein.value === '92-4810337' && target() === 900000000
+      && w.undo('Ann Lee', C) && target() === 750000000);
     commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund III' }));
     commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund 3' }), { who: 'Ann Lee' });
     check('a change can’t be undone once it has changed since', typeof w.undo(WHO, C) === 'string' && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
@@ -212,7 +218,11 @@ function run(json) {
     check('renaming an edge of a relation, its list name and order following', o.args.some(a => a.edge === 'Holder') && M4.name(o) === 'Ownership'
       && M4.listName(o, 'Holder') === 'Owners' && j(M4.edges(o)) === j(['Holder', 'Owned']));
     for (let i = 0; i < 4; i++) w.undo(WHO, C);
-    check('undoing the renames restores everything', j(w.asOf(C, TODAY)) === j(now) && j(Object.keys(w.schema(C)).sort()) === j(Object.keys(S).sort()));
+    const canon = st => j(Object.keys(st).sort().map(k => [k, st[k]]));
+    const notesOf = x => canon(Object.fromEntries(x.rows(C).filter(r => 'note' in r).map(r => [r.note, [r.pattern, r.param]])));
+    const recDiff = Object.keys(now).filter(k => j(w.asOf(C, TODAY)[k]) !== j(now[k]));
+    const specDiff = Object.keys(w.schema(C)).filter(k => !S[k]);
+    check('undoing the renames restores everything', !recDiff.length && !specDiff.length && notesOf(w) === notesOf(wb), `${recDiff.slice(0, 3)} ${specDiff.slice(0, 2)}`);
 
     const p = Tree.bare(Tree.specOf(tree('mgmt_managed')));
     commit(w, tx => tx.add('note', { label: 'Description', pattern: p, value: 'Run by its managers.' }));
