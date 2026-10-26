@@ -29,14 +29,16 @@
 <script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
 <script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
 <script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
-<script src="../../vendor/dexie/dexie.min.js"></script>
 <script src="../../vendor/msal/msal-browser.min.js"></script>
 <script src="../core/tree.js"></script>
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/sharepoint.js"></script>
-<script src="../core/store.js"></script>
+<script>
+// The workbook opened at once, in memory: Store keeps it in IndexedDB, which this page leaves alone.
+const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => '', status: () => ({ text: '' }), subscribe: () => () => {} };
+</script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../ui/shell.js"></script>
 <script src="../ui/app.js"></script>
@@ -48,7 +50,9 @@ Shell.register('views', {
   rename: (id, name) => { const tx = App.edit(), n = (Tree.index(App.entered.value).entries.get(id) ?? []).find(e => App.entered.value[e].edge === 'Name'); tx.set(n, { at: id, edge: 'Name', field: 'text', value: name }); tx.commit(); },
   move: () => {},
 });
+// ?wide widens the inspector; ?y=… scrolls it, for looking at.
 if (Q.has('wide')) addEventListener('DOMContentLoaded', () => setTimeout(Shell.widen, 0));
+if (Q.has('y')) Shell.on('ready', () => setTimeout(() => { document.querySelector('.inspector').scrollTop = +Q.get('y'); }, 200));
 
 // ---- The checks: each drives the inspector as a person would, then reads the log ----
 const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
@@ -130,7 +134,7 @@ async function run() {
   check('Undo brings it back', !!st().fund_fye);
 
   // Relatives by list
-  check('relatives show by list, each a link', $$('.sect > span:first-child').map(s => s.textContent).includes('Owners') && $$('.row.rel .k a').some(a => a.textContent === 'Offshore Feeder'));
+  check('relatives show by list, each a link', $$('.sect > .fold').map(s => s.textContent).includes('Owners') && $$('.row.rel .k a').some(a => a.textContent === 'Offshore Feeder'));
   $$('.row.rel .k a').find(a => a.textContent === 'Offshore Feeder').click(); await tick();
   check('a relative’s link selects it', Shell.selection.value[0] === 'feeder');
 
@@ -161,7 +165,7 @@ async function run() {
   // An entry in general
   Shell.select(['fund']); await tick();
   rowOf('Jurisdiction').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
-  check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect span').some(s => s.textContent === 'Options'));
+  check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
   const req = rowOf('Required')?.querySelector('input');
   check('…with Required', req?.checked === true);
 
@@ -203,7 +207,17 @@ function report() {
   document.querySelector('.view').appendChild(out);
 }
 window.onerror = (m, s, l) => { results.push({ name: `error: ${m} (${(s || '').split('/').pop()}:${l})`, ok: false }); };
-if (Q.has('run')) Shell.on('ready', () => setTimeout(() => run().catch(e => check(`threw: ${e.message}`, false, e.stack)).finally(report), 50));
+// ?act=… leaves the inspector in a passing state, for looking at.
+const ACTS = {
+  add: () => $('.add-entry').click(),
+  menu: () => { const g = rowOf('Jurisdiction').querySelector('.grip'); g.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })); dispatchEvent(new PointerEvent('pointerup')); },
+  peek: () => rowOf('Good Standing').querySelector('.tag').dispatchEvent(new PointerEvent('pointerenter')),
+  type: () => { const i = rowOf('EIN').querySelector('input'); i.focus(); setTimeout(() => { i.value = '92-4810999'; i.dispatchEvent(new Event('input', { bubbles: true })); }, 30); },
+  choose: () => rowOf('Jurisdiction').querySelector('.sel').click(),
+  draft: () => { $('.add-entry').click(); setTimeout(() => pick('Field'), 30); },
+};
+if (ACTS[Q.get('act')]) Shell.on('ready', () => setTimeout(ACTS[Q.get('act')], 100));
+if (Q.has('run')) Shell.on('ready',() => setTimeout(() => run().catch(e => check(`threw: ${e.message}`, false, e.stack)).finally(report), 50));
 </script>
 </body>
 </html>

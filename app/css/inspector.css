@@ -8,14 +8,16 @@
 .ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; }
 .ih.two { display: grid; gap: 4px; }
 .main.wide .ih { padding-top: 28px; }
-.main.wide .ih-title, .main.wide .cellbox.title > .cell { font: var(--t22); }
-.main.wide .cellbox.title > .cell { height: 36px; }
+.main.wide .ih-title, .main.wide .cellbox.title .cell { font: var(--t22); }
+.main.wide .cellbox.title .cell { height: 36px; }
+.cellbox.title .cell { font: var(--t15); }
 
 /* A row's depth in the tree, and its grip: drag to reorder, click for its menu. */
 .row { position: relative; }
 .row > .k { padding-left: calc(var(--depth, 0) * 14px); }
 .row > .v.ctl { display: flex; align-items: center; gap: 2px; padding: 0; min-height: var(--row); }
 .row > .k.wide { grid-column: 1 / -1; }
+.row > .k:has(> .cellbox, > .cell) { padding-top: 0; padding-bottom: 0; }
 .lbl { cursor: default; }
 .ruled > .k .lbl, .ruled > .k a { color: var(--ink-3); }
 .grip { position: absolute; left: calc(var(--depth, 0) * 14px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
@@ -29,20 +31,22 @@
 .ent.drop-after::after { bottom: -1px; }
 i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border-radius: 50%; background: var(--due); vertical-align: 2px; }
 
-/* Values typed over: plain text until hovered or focused. */
-.cellbox { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
-.cellbox:has(> .tag) { flex: none; }
-.cell { width: calc(100% + 7px); height: var(--row); margin-left: -7px; padding: 0 6px; border-color: transparent; background: transparent; text-overflow: ellipsis; }
+/* Values typed over: plain text until hovered or focused. A value's box hugs it, so an amber corner and
+   the chevron to its other values sit beside it; clicking anywhere in the cell types into it. */
+.cellbox { position: relative; display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; min-height: var(--row); }
+.hug { position: relative; display: flex; align-items: center; min-width: 0; max-width: 100%; }
+.cell { field-sizing: content; width: auto; min-width: 4ch; max-width: calc(100% + 7px); height: var(--row); margin-left: -7px; padding: 0 6px; border-color: transparent; background: transparent; text-overflow: ellipsis; }
+.draft .cell, .rr.new > .cell, .k > .cell { width: calc(100% + 7px); }
 :where(.cell):hover:not(:focus, :disabled) { border-color: var(--rule); }
 .cell:focus { background: var(--surface); }
 .cell:disabled { color: inherit; background: transparent; }
 .cell.fx { font-style: italic; }
 .cell.add { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
 .cell.bad, .cell[aria-invalid="true"] { border-color: var(--no); box-shadow: 0 0 0 1px var(--no); }
-.cellbox > .del { flex: none; max-width: 45%; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cellbox.off > .cell { color: var(--ink-3); }
-textarea.cell.desc { height: auto; min-height: var(--row); padding: 4px 6px; line-height: 18px; resize: none; overflow: hidden; white-space: pre-wrap; }
-.cellbox.over::after { top: 1px; right: 1px; }
+.cellbox > .del { flex: 0 1 auto; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cellbox.off .cell { color: var(--ink-3); }
+textarea.cell.desc { field-sizing: fixed; width: calc(100% + 7px); height: auto; min-height: var(--row); padding: 4px 6px; line-height: 18px; resize: none; overflow: hidden; white-space: pre-wrap; }
+.hug.over::after { top: 4px; right: -1px; }
 
 /* A choice: its option and a chevron, opening the options. */
 .sel { height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 0 6px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); text-align: left; cursor: default; }
@@ -69,24 +73,32 @@ textarea.cell.desc { height: auto; min-height: var(--row); padding: 4px 6px; lin
 .add-entry:hover { color: var(--ink); }
 .add-entry > svg { width: 14px; height: 14px; }
 
-/* Sections: relatives by list, documents, look, deleted. */
-.sect { justify-content: flex-start; gap: 8px; }
-.sect > span:first-child { flex: 1; }
-.sect > .btn.icon { width: 20px; height: 20px; margin: -6px -6px -6px 0; }
+/* Sections: each heading folds it; a folded one shows its chevron turned. */
+.insp .sect { align-items: center; justify-content: flex-start; gap: 8px; min-height: 40px; padding: 12px 20px 4px; border-top: 1px solid var(--rule); }
+.insp section:not(.open) > .sect { min-height: 36px; padding-bottom: 12px; }
+.insp section:not(.open) + section:not(.open) > .sect { border-top-color: transparent; margin-top: -12px; }
+.sect > .fold { flex: 1; display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: default; }
+.sect > .fold::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; opacity: 0; transition: transform var(--quick) var(--ease); }
+.sect:hover > .fold::after, .sect > .fold:focus-visible::after, .sect > .fold[aria-expanded="false"]::after { opacity: 1; }
+.sect > .fold[aria-expanded="false"]::after { transform: rotate(-90deg); }
+.sect > .fold:hover { color: var(--ink); }
+.sect > .btn.icon { width: 20px; height: 20px; margin: 0 -4px 0 0; }
 .sect > .btn.icon > svg { width: 14px; height: 14px; }
-.sect > .reset { height: 20px; margin: -6px -6px -6px 0; padding: 0 6px; font: var(--t12); color: var(--ink-2); }
-button.sect.toggle { width: 100%; border: 0; border-top: 1px solid var(--rule); background: none; text-align: left; cursor: default; }
-button.sect.toggle::after { content: ""; width: 10px; height: 6px; align-self: center; background: var(--chev) no-repeat center; transform: rotate(-90deg); transition: transform var(--quick) var(--ease); }
-button.sect.toggle[aria-expanded="true"]::after { transform: none; }
-button.sect.toggle:hover { color: var(--ink); }
-section > .row:last-child { margin-bottom: 4px; }
+.sect > .reset { height: 20px; margin: 0 -6px 0 0; padding: 0 6px; font: var(--t12); color: var(--ink-2); }
+section.open > :last-child { margin-bottom: 8px; }
 .row.rel > .k a { color: var(--ink); }
-.row.rel > .v a.muted:hover { color: var(--ink-2); }
-.via + .via, .via:not(:first-child) { margin-left: 0; }
-.via > a { color: var(--ink-2); }
-.v.doc, .v.gone { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0; min-height: var(--row); }
+.row.rel > .v > a { color: var(--ink-2); }
+.row.rel > .v > a:hover { color: var(--ink); }
+.via > a { color: var(--ink); }
+.doc { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 8px; padding: 5px 16px 5px 20px; }
+.doc > a:first-child { color: var(--ink); }
+.doc > .open { margin: -3px 0; }
+.doc > .meta { grid-column: 1; }
+.doc:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
+.v.gone { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0; min-height: var(--row); }
 .v.gone > .btn { height: 24px; padding: 0 8px; }
 .v.look { display: flex; align-items: baseline; gap: 8px; }
+.v.look > .val { flex: none; white-space: nowrap; }
 .v.look > .from { margin-left: auto; font: var(--t12); color: var(--ink-3); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1px solid var(--rule-2); border-radius: 2px; vertical-align: -1px; }
 .v.lines { white-space: pre-line; }
@@ -111,8 +123,9 @@ svg.sw.off { opacity: .35; }
 .rr.ruled > .nm { color: var(--ink-3); }
 .rr > .more { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 16px; padding-bottom: 4px; overflow: visible; }
 .relv { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.relv > .cellbox { flex: none; width: 96px; }
-.relv > .sel { margin-left: 0; min-width: 96px; border-color: var(--rule); }
+.relv > .cellbox { flex: none; width: 104px; }
+.relv .cell, .relv .sel { margin-left: 0; width: 104px; border-color: var(--rule); }
+.relv .sel { justify-content: space-between; }
 .rr.new > .cell { width: 100%; margin-left: -7px; }
 .rr.new > .add-entry { grid-column: 2 / -1; justify-self: start; }
 
