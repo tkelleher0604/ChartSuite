@@ -41,7 +41,7 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page.
 
 ## What to look at first
 
-- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), 2 due soon, and 5 blanks where something is required.
+- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), the 12 failed checks, 2 due soon, and 5 blanks where something is required.
 - **Why it holds:** select the dashed Close Affiliate line from the Fund III Blocker to the BDC, and step down through the reason in the formula bar.
 - **As of a day:** set the date to December 31, 2023. GP III is still the Cayman feeder's general partner; the change took effect on July 9, 2024.
 - **History:** it lists every change by who and when. Pick one to see the chart as it stood, and undo it if you need to.
