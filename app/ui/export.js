@@ -375,7 +375,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <select aria-label="Views" value=${which} onChange=${e => setWhich(e.target.value)} disabled=${scenes.length < 2}>
           <option value="this">${here.name}</option><option value="all">Every view</option></select>
       </div>
-      <div style="max-height:min(56vh,560px);overflow:auto;display:grid;gap:16px;padding:16px;background:var(--side);border:1px solid var(--rule);border-radius:var(--r)">
+      <div style="height:min(56vh,520px);overflow:auto;display:grid;align-content:safe center;gap:16px;padding:16px;background:var(--side);border:1px solid var(--rule);border-radius:var(--r)">
         ${pages.map(pg => html`<figure style="margin:0;display:grid;gap:6px">
           <img src=${pg.src} alt=${pg.name} style="display:block;width:100%;height:auto;background:#fff;box-shadow:0 0 0 1px var(--rule-2)" />
           ${pages.length > 1 ? html`<figcaption style="font:var(--t12);color:var(--ink-2)">${pg.name}</figcaption>` : null}</figure>`)}
