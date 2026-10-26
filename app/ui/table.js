@@ -575,8 +575,7 @@ const Table = (() => {
     const label = c => c.parent ? `${c.parent} › ${c.title}` : c.title;
     const choice = asked.map(() => '');
     // Where one heading is left and one column a row is found by, it's that one.
-    const keys = m.isKind ? cols.filter(c => c.path?.length === 1 && same(c.title, 'Name')) : cols.filter(c => c.type === 'edge');
-    const open = keys.filter(k => !head.includes(k));
+    const open = keysOf(m, cols).filter(k => !head.includes(k));
     if (asked.length === 1 && open.length === 1) choice[0] = open[0].key;
     function Match() {
       const [, redraw] = preactHooks.useState(0);
