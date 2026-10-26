@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>canvas harness</title>
+<link rel="stylesheet" href="../css/dendra.css">
+<link rel="stylesheet" href="../css/canvas.css">
+<script>
+  try { localStorage.setItem('dendra.toured', '1'); } catch {}
+  // What went wrong, where a screenshot run can read it.
+  const ERRS = [];
+  addEventListener('error', e => ERRS.push(`${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
+  addEventListener('unhandledrejection', e => ERRS.push(`${e.reason?.message ?? e.reason}`));
+</script>
+</head>
+<body>
+<div id="app"></div>
+<!-- The window with the canvas and the format bar in it, on the sample. Until the parts they need land,
+     this page lists the views as tabs, works the chart out with the engine, and can play gestures for
+     screenshots: canvas-harness.html?v=view_40act&do=select:fund,drag:fund:60:0&dress&tidy  -->
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/x6/x6.min.js"></script>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../sample/calder-ridge.js"></script>
+<script src="../ui/shell.js"></script>
+<script src="../ui/app.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/scene.js"></script>
+<script src="../ui/canvas.js"></script>
+<script src="../ui/formatbar.js"></script>
+<script>
+const H = (() => {
+  const { computed } = preactSignals;
+  const q = new URLSearchParams(location.search);
+  if (q.get('v')) location.hash = 'v=' + q.get('v');
+  // The views, as sheet tabs.
+  Shell.register('views', {
+    list: () => {
+      App.version.value;
+      const st = App.entered.value, N = App.notes.value;
+      return Object.keys(st).filter(id => Tree.isObject(st[id]) && Tree.same(st[id].kind, 'View'))
+        .sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? 99) - (N.order({ id: b, kind: 'View' }) ?? 99))
+        .map(id => ({ id, name: Tree.objectName(st, id), layout: 'chart' }));
+    },
+    rename() {}, move() {},
+  });
+  // The chart worked out, with the engine's definitions where it has them and the chart's own otherwise.
+  let file = [];
+  try { const x = new XMLHttpRequest(); x.open('GET', '../sample/definitions.json', false); x.send(); file = JSON.parse(x.responseText); } catch {}
+  const state = computed(() => {
+    const S = App.schema.value, N = App.notes.value, own = N.definitions(S), ids = new Set(file.map(d => d.id));
+    return Formulas.computeState(App.entered.value, [...file, ...own.filter(d => !ids.has(d.id))], { relations: N.relations(S) }).records;
+  });
+  Scene.state = () => state.value;
+  Shell.register('canvas', { mount(el) { const c = Canvas.mount(el, { ...Canvas.fromApp(), state }); return () => c.destroy(); } });
+
+  // ---- Gestures, played for screenshots ----
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const cv = () => Canvas.active.peek();
+  const center = id => { const g = cv().graph, m = cv().scene().byId.get(id); const p = g.localToClient(m.x + m.w / 2, m.y + m.h / 2); return [p.x, p.y]; };
+  const at = (x, y) => document.elementFromPoint(x, y);
+  const mouse = (type, x, y, el = at(x, y), o = {}) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mouseup' ? 0 : 1, view: window, ...o }));
+  async function drag(x0, y0, x1, y1, o = {}) {
+    const el = at(x0, y0);
+    mouse('mousedown', x0, y0, el, o);
+    for (let i = 1; i <= 8; i++) { mouse('mousemove', x0 + (x1 - x0) * i / 8, y0 + (y1 - y0) * i / 8, document, o); await wait(16); }
+    mouse('mouseup', x1, y1, document, o);
+    await wait(60);
+  }
+  async function click(x, y, o = {}) { mouse('mousedown', x, y, undefined, o); mouse('mouseup', x, y, undefined, o); mouse('click', x, y, undefined, o); await wait(60); }
+  const STEPS = {
+    select: async id => { const [x, y] = center(id); await click(x, y); },
+    shift: async id => { const [x, y] = center(id); await click(x, y, { shiftKey: true }); },
+    marquee: async (a, b) => { const [x0, y0] = a.split('x').map(Number), [x1, y1] = b.split('x').map(Number); await drag(x0, y0, x1, y1); },
+    drag: async (id, dx, dy) => { const [x, y] = center(id); await drag(x, y, x + +dx, y + +dy); },
+    hold: async (id, dx, dy) => { const [x, y] = center(id); const el = at(x, y); mouse('mousedown', x, y, el); for (let i = 1; i <= 6; i++) { mouse('mousemove', x + dx * i / 6, y + dy * i / 6, document); await wait(16); } },
+    insert: async g => { cv().insert(g); await wait(80); },
+    type: async t => { const ed = document.querySelector('.dc-edit'); if (ed) { ed.textContent = t.replace(/_/g, ' '); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); } await wait(60); },
+    row: async n => { const lg = cv().scene().marks.find(m => m.geometry === 'legend'); const r = lg?.rows[+n || 0]; if (!r) return; const g = cv().graph, p = g.localToClient(lg.x + r.x + 30, lg.y + r.y + r.h / 2); await click(p.x, p.y); await click(p.x, p.y); },
+    zoom: async k => cv().zoom(k === 'fit' ? 'fit' : +k),
+    tidy: async () => { cv().tidy(); await wait(100); },
+    fmt: async (label, value) => { FormatBar.apply(label, value === 'true' ? true : value === 'false' ? false : isNaN(+value) ? value.replace(/_/g, ' ') : +value); await wait(60); },
+    open: async which => { document.querySelector(`.fb [data-fb="${which}"]`)?.click(); await wait(120); },
+    wait: async ms => wait(+ms),
+  };
+  // A view dressed as a board would see it: a title, and a key.
+  function dress() {
+    const view = Shell.view.peek() ?? cv().source.view.peek(), sc = cv().scene();
+    if (sc.marks.some(m => m.type === 'shape')) return;
+    const name = Tree.objectName(App.entered.peek(), view);
+    const top = Math.min(...sc.marks.filter(m => m.type === 'box').map(m => m.y));
+    const tx = App.edit();
+    tx.add('shape', { view, geometry: 'text', x: 40, y: Math.max(16, top - 74), w: 640, h: 30, text: 'Calder Ridge Capital Partners III, L.P.', format: { Size: 20, Bold: true } });
+    tx.add('shape', { view, geometry: 'text', x: 40, y: Math.max(42, top - 46), w: 640, h: 20, text: `${name} · as of October 26, 2026`, format: { Size: 11, Color: '#404040' } });
+    tx.add('shape', { view, geometry: 'legend', x: 40, y: sc.page.h - 160, w: 300, title: 'Key', columns: 1 });
+    tx.commit();
+  }
+  async function run() {
+    await wait(300);
+    if (q.has('tidy')) await STEPS.tidy();
+    if (q.has('dress')) { dress(); await wait(120); }
+    await wait(120);
+    cv().zoom('fit');
+    for (const s of (q.get('do') || '').split(',').filter(Boolean)) { const [name, ...args] = s.split(':'); await STEPS[name]?.(...args); }
+    report();
+  }
+  function report() {
+    const sc = cv()?.scene(), d = document.createElement('pre');
+    d.id = 'report'; d.hidden = true;
+    d.textContent = JSON.stringify({ errors: ERRS, view: sc?.view, marks: sc?.marks.length, ms: sc?.ms, selection: Shell.selection.peek(), page: sc?.page });
+    document.body.appendChild(d);
+    document.title = ERRS.length ? 'errors' : 'ready';
+  }
+  Shell.on('ready', () => run().catch(e => { ERRS.push(e.message + ' ' + e.stack); report(); }));
+  return { STEPS, dress, state };
+})();
+</script>
+</body>
+</html>

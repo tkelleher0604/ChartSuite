@@ -1,0 +1,82 @@
+/* The chart canvas and its format bar: only what's theirs. Tokens are dendra.css's. The page is the
+   document, so it stays white in both themes; the selection is Office's, a thin frame in the accent with
+   square handles, and the guides are red-orange. */
+
+.dc { position: absolute; inset: 0; outline: none; background: var(--side); overflow: hidden; }
+.dc-graph { position: absolute; inset: 0; }
+.dc-graph svg { overflow: visible; }
+.dc-over { position: absolute; inset: 0; pointer-events: none; }
+.dc-over > * { pointer-events: auto; }
+
+.dc-sheet { fill: var(--page); stroke: var(--rule-2); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+:root[data-theme="dark"] .dc-sheet { stroke: transparent; }
+.dc .x6-graph-svg-stage text { user-select: none; }
+.dc .x6-node, .dc .x6-edge { cursor: default; }
+.dc .x6-edge path:first-child { cursor: default; }
+.dc-dim { opacity: .22; transition: opacity var(--quick) var(--ease); }
+
+/* The selection: a thin frame and square handles, as in Office. */
+.dc .x6-widget-selection-box { border: 1px solid var(--accent) !important; box-shadow: none !important; margin: -3px 0 0 -3px !important; padding: 2px !important; border-radius: 0 !important; }
+.dc .x6-widget-selection-inner { display: none !important; }
+.dc .x6-widget-selection-rubberband { background: rgb(44 76 124 / .06) !important; border: 1px solid var(--accent) !important; opacity: 1 !important; }
+.dc .x6-widget-transform { border: 0 !important; margin: -3px 0 0 -3px !important; padding: 2px !important; box-shadow: none !important; }
+.dc .x6-widget-transform-resize { width: 7px !important; height: 7px !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; }
+.dc .x6-widget-snapline-vertical, .dc .x6-widget-snapline-horizontal { border-color: #e8432a !important; }
+.dc .x6-widget-snapline-vertical { border-right-width: 1px !important; }
+.dc .x6-widget-snapline-horizontal { border-bottom-width: 1px !important; }
+.dc .x6-edge-selected path:nth-child(2) { stroke: var(--accent); }
+
+/* Marks drawn over the chart: Range Finder's outlines, a legend row, a group, a relation being drawn. */
+.dc-marks { pointer-events: none; }
+.dc-hl { fill: none; stroke: var(--rf-1); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.dc-hl.line { stroke-width: 5px; stroke-opacity: .45; stroke-linejoin: round; }
+.dc-row, .dc-group { fill: none; stroke: var(--accent); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.dc-group { stroke-dasharray: 4 3; }
+.dc-relating { fill: none; stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+
+/* The handles a relation is drawn from, at the middle of a box's sides. */
+.dc-handle { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: #fff; border: 1.5px solid var(--accent); cursor: crosshair; opacity: 0; transition: opacity var(--quick) var(--ease); }
+.dc.relating-on .dc-handle { opacity: 1; }
+.dc:not(.relating-on) .dc-handle { pointer-events: none; }
+
+/* Typing in place. */
+.dc-edit { position: absolute; z-index: 3; box-sizing: border-box; outline: 1px solid var(--accent); background: #fff; white-space: pre-wrap; overflow-wrap: break-word; cursor: text; }
+
+/* ---- The format bar ---- */
+.fb { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.fb > .sep { width: 1px; height: 16px; margin: 0 6px; background: var(--rule); flex: none; }
+.fb .btn { height: 28px; padding: 0 8px; border-color: transparent; background: transparent; flex: none; }
+.fb .btn:hover:not(:disabled) { border-color: transparent; }
+.fb .btn.icon { width: 28px; }
+.fb .scope { border-color: var(--rule-2); background: var(--surface); max-width: 220px; font-weight: 500; }
+.fb .scope > span { overflow: hidden; text-overflow: ellipsis; }
+.fb .scope.own { color: var(--ink-2); font-weight: 400; }
+.fb .font { width: 132px; justify-content: space-between; }
+.fb .size { width: 52px; justify-content: space-between; }
+.fb .letter { width: 28px; padding: 0; font-family: Georgia, serif; font-size: 15px; }
+.fb .letter.b { font-family: var(--sans); font-weight: 700; font-size: 14px; }
+.fb .letter.i { font-style: italic; }
+.fb .letter.u { text-decoration: underline; text-underline-offset: 2px; font-family: var(--sans); font-size: 14px; }
+.fb .well { position: relative; display: inline-grid; place-items: center; width: 16px; height: 16px; }
+.fb .well > i { position: absolute; left: 1px; right: 1px; bottom: 0; height: 3px; border-radius: 1px; box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .25); }
+.fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+.fb .zoom { margin-left: auto; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.fb:has(.btn:disabled) .btn:disabled { opacity: .4; }
+
+/* The palette and the pickers in the format bar's popovers. */
+.palette { display: grid; grid-template-columns: repeat(8, 20px); gap: 4px; }
+.palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid rgb(0 0 0 / .14); border-radius: 3px; cursor: default; }
+.palette > button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.palette > button.none { background: linear-gradient(to top right, transparent calc(50% - .75px), var(--no) calc(50% - .75px), var(--no) calc(50% + .75px), transparent calc(50% + .75px)), #fff; }
+.picker { display: grid; gap: 10px; min-width: 200px; }
+.picker > .row { display: flex; align-items: center; gap: 8px; }
+.picker > .row > .k { width: 56px; color: var(--ink-3); font: var(--t12); }
+.picker .seg { display: flex; gap: 2px; padding: 2px; border-radius: var(--r); background: var(--hover); }
+.picker .seg > button { height: 24px; min-width: 32px; padding: 0 6px; border: 0; border-radius: 3px; background: transparent; color: var(--ink-2); display: grid; place-items: center; }
+.picker .seg > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--rule-2); }
+.picker .seg svg { width: 28px; height: 10px; stroke: currentColor; fill: none; }
+.shapes { display: grid; grid-template-columns: repeat(7, 28px); gap: 2px; }
+.shapes > button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; place-items: center; }
+.shapes > button:hover { background: var(--hover); color: var(--ink); }
+.shapes svg { width: 18px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.2; overflow: visible; }
+.pop-head { font: var(--t12); color: var(--ink-3); margin: 2px 0 6px; }
