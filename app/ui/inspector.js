@@ -497,10 +497,10 @@ const LookSection = ({ look, reset }) => look.length ? html`<${Section} title="L
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
 // scale), so the numbers are the ones PowerPoint shows: typed over to move it.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
-const Place = ({ at, put, reset, keys = 'xyw' }) => { const pt = Scene.PT / (App.scene.value?.page.scale ?? 1);
+const Place = ({ at, put, reset, keys = 'xyw' }) => { const page = App.scene.value?.page;
   return html`<${Section} title="Position" act=${reset}>
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl">
-    <${Field} r=${{ field: 'number', value: Math.round(at[k] / pt) }} datatype="number" label=${label} put=${out => out && put(k, Math.round(out.value * pt * 2) / 2)}><span class="unit">pt</span></${Field}></div></div>`)}</${Section}>`; };
+    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT)) }} datatype="number" label=${label} put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 2) / 2)}><span class="unit">pt</span></${Field}></div></div>`)}</${Section}>`; };
 const resetting = (own, labels, say) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
   : html`<button class="btn ghost reset" onClick=${() => App.change(tx => own.filter(x => labels(x.label)).forEach(x => tx.remove(x.note)), { say })}>Reset</button>`;
 
@@ -848,6 +848,9 @@ function Inspector() {
   if (p) return html`<${GeneralView} key=${sel[0]} p=${p} />`;
   if (sel.length === 2) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
   if (sel.length > 2) return html`<${Many} ids=${sel} />`;
+  // A frame is drawn by a style: selecting it shows the entry the style is of, with its styles.
+  const frame = sel.length === 1 && sel[0].startsWith('frame:') && App.scene.value?.byId.get(sel[0]);
+  if (frame?.output) return html`<${GeneralView} key=${sel[0]} p=${T.bare(frame.output)} />`;
   if (sel.length === 1) {
     const [id, part] = sel[0].split('#'), rid = id.split('@')[0], rows = App.shown.value.item(App.chart.value, rid);
     if (rows.at(-1) && 'shape' in rows.at(-1)) return html`<${ShapeView} key=${rid} id=${rid} part=${part} />`;
