@@ -80,8 +80,8 @@ const pct = (owner, owned, day) => {
 
 async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
-  check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control', views().map(v => v.name).join());
-  check('A view without a Layout entry is a chart', views().every(v => v.layout === 'chart'));
+  check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities,Ownership,Dates,Documents', views().map(v => v.name).join());
+  check('A view without a Layout entry is a chart', views().slice(0, 4).every(v => v.layout === 'chart') && views().slice(4).every(v => v.layout === 'table'));
 
   // ---- Adding a table view from the + menu ----
   let n0 = N();
@@ -91,7 +91,7 @@ async function run() {
   const rowsAt = layout && (Tree.index(st()).entries.get(Object.keys(st()).find(id => st()[id] === layout)) ?? []).map(e => st()[e]).find(r => r.edge === 'Rows');
   check('The + menu makes a View object, as one change', ev?.kind === 'View' && N() === n0 + 1);
   check('Its layout is entries on it: Layout Table, and Rows Entity', layout?.choice === 'Table' && rowsAt?.choice === 'Entity', JSON.stringify([layout, rowsAt]));
-  check('Its tab comes last, named for its rows, and shows', views().at(-1).name === 'Entities' && views().at(-1).layout === 'table');
+  check('Its tab comes last, named for its rows, and shows', views().at(-1).name === 'Entities 2' && views().at(-1).layout === 'table');
   check('Its name is being typed into, as a new tab’s is', typing);
   await tick(100);
 
@@ -188,7 +188,7 @@ async function run() {
   tabs.menu(copy).find(x => x.label === 'Delete').run(); await tick(150);
   check('Delete deletes the view, and shows another', !views().some(v => v.id === copy) && Shell.view.peek() !== copy);
   for (let i = 0; i < 4; i++) { undo(); await tick(60); }
-  check('Undo puts the tabs back as they were', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities', views().map(v => v.name).join());
+  check('Undo puts the tabs back as they were', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities,Ownership,Dates,Documents,Entities 2', views().map(v => v.name).join());
   Shell.show(ent); await tick(100);
 
   // CSV, through the Export menu, while a table shows.
