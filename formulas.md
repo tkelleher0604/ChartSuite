@@ -2,9 +2,9 @@
 
 This extends [data-model.md](data-model.md), and [dendra.md](dendra.md)'s "Definitions" says it in brief. Some records can be worked out by formula instead of entered, the way a spreadsheet works some cells out from others.
 
-The examples use the sample's core (`SAMPLE_CORE` in [app/core/sample.js](app/core/sample.js)), with the definitions in [app/sample/definitions.json](app/sample/definitions.json). [app/tests/engine-test.html](app/tests/engine-test.html) checks every result this document claims. The sample a chart starts from fills the core out into a fund complex ([docs/sample.md](docs/sample.md)), where the same definitions find more. Ownership is a tag with edges Owner and Owned, with a Percentage field located at it.
+The examples use the sample, the Calder Ridge fund complex ([app/sample/calder-ridge.js](app/sample/calder-ridge.js)), as of October 26, 2026. Its definitions are its Formula notes. [app/tests/engine-test.html](app/tests/engine-test.html) checks every result this document claims. Ownership is a tag with edges Owner and Owned, with a Percentage field located at it.
 
-For the 40 Act examples, the sample has:
+For the 40 Act examples, the sample has, among the rest:
 - **A BDC.** Calder Ridge Capital BDC, Inc., which the management company advises. It holds 12% of Northpine.
 - **People.** Chen and an independent director, Raman, sit on the BDC's board. Okafor is an officer of the BDC and of the management company. A pension plan holds 7% of the BDC.
 - **Positions.** A choice relation with edges Holder and Company, whose options are §57(b)(1)'s list: Director, Officer, Employee and Advisory Board Member. From the company's side, its list is **Personnel**.
@@ -78,7 +78,7 @@ A percentage relation **Look-Through Ownership**, with edges Investor (an Entity
 It's the direct holding, plus, through each holding, that holding's share of what the holding looks through to.
 - `Holdings` is the list of what something owns. Inside EACH, `@` is each holding in turn, and `@.Percentage` the Percentage on that ownership.
 - Nothing drops out of a sum and wipes out a product (see [Nothing](#nothing)). So with no path from the Investor to the Investment, the row gives nothing, and the relation is recorded only between connected pairs.
-- The relation may relate a thing to itself, so a look-through around an ownership loop counts every trip around it.
+- Unlike a tag relation, a value relation can relate a thing to itself, so a look-through around an ownership loop counts every trip around it.
 
 On the sample:
 - Non-U.S. Investors hold 28.4% of the fund through the feeder, and 18.176% of Northpine;
@@ -104,17 +104,18 @@ A tag relation **Control**, with edges Controller (an Entity or Individual) and 
 
 Control reads itself in two rows. That's allowed, since more control can only make more rows hold (see [Loops](#loops)).
 
-**On the sample**, Control attests 27 pairs:
-- Chen and Okafor control the management company (60% and 40%) and the GP (50% each);
-- the GP controls the fund and the feeder, as their general partner;
-- the fund controls the blocker (100%), Northpine (64%) and, through the blocker, Halvard (82%);
-- the feeder controls the fund, since it holds 28.4%: the presumption at work. So it also controls the blocker, Northpine and Halvard;
-- Chen and Okafor control the feeder, through the GP they each own 50% of. These two are new: before Control had its fourth row, they controlled the fund but not the feeder.
+**On the sample**, Control attests 66 pairs. Among them:
+- Chen and Okafor control the management company (60% and 40%), the GP (50% each) and the sponsor's holding company, which controls the Cayman GP;
+- the GP controls the fund, Fund III-A, the AIV and the co-invest vehicle, and the Cayman GP the feeder, as their general partner;
+- the fund controls the blocker (100%), Northpine (64%), Corvane (49%) and, through the blocker, Halvard (82%);
+- the feeder controls the fund, since it holds 28.4%: the presumption at work. So it also controls the blocker, Northpine, Halvard and Corvane.
+
+Nine hold only through a controlled company: Chen and Okafor control the feeder, Fund III-A, the AIV and the co-invest vehicle, and the holding company the feeder, through a general partner they control. Before Control had its fourth row, these weren't recorded, though Chen and Okafor were credited with the funds' holdings.
 
 **Rebutting the presumption.** Rule out the Control between the feeder and the fund.
 - The entry wins over the rows, and "More than 25%" still shows beneath it, holding: the presumption and the rebuttal are both on screen.
 - The ruling-out is a record, so its basis can be located at it, such as an SEC order and its date.
-- Whatever held only through it goes: the feeder's control of the blocker, Northpine and Halvard.
+- Whatever held only through it goes: the feeder's control of the blocker, Northpine, Halvard and Corvane.
 
 ### Affiliated person: rows that cite the statute
 
@@ -134,11 +135,11 @@ A tag relation **Affiliated Person** has edges Affiliate and Person (each an Ent
 - **(C)** reads as the statute does: controls, is controlled by, or is under common control with. Control is already direct or indirect.
 - **(D)** covers recorded officers, directors and employees, and general partners. SEC staff also count limited partners as partners, and as copartners of the general partner (IM Guidance Update 2014-12). Each would be one more `OR`.
 - **(E)** applies only when the Person is an investment company.
-- **(F)**, the depositor of an unincorporated investment company with no board, needs a Depositor relation, which the sample doesn't chart. Its NOT is allowed: Positions aren't on the loop.
+- **(F)** is the depositor of an unincorporated investment company with no board. The sample has a Depositor relation and no depositors, so the list is empty. Its NOT is allowed: Positions aren't on the loop.
 
-(A), (B) and (C) run both ways, while (D), (E) and (F) run one way: a director is an affiliated person of the fund, but the fund isn't an affiliated person of its director. Because Affiliate and Person are separate edges, that direction comes for free. A person is never its own affiliate: a relation skips candidates that use one object twice, unless it may relate a thing to itself.
+(A), (B) and (C) run both ways, while (D), (E) and (F) run one way: a director is an affiliated person of the fund, but the fund isn't an affiliated person of its director. Because Affiliate and Person are separate edges, that direction comes for free. A person is never its own affiliate: a tag relation skips candidates that use one object twice, since a thing doesn't stand to itself as a tag relation says two things stand.
 
-On the sample, Affiliated Person attests 78 pairs.
+On the sample, Affiliated Person attests 289 pairs.
 
 ### Close and remote affiliates of a BDC
 
@@ -160,11 +161,11 @@ A tag relation **Close Affiliate** has edges Close Affiliate (an Entity or Indiv
 
 **The carve-out, in the second (b)(2) row.** §57(b)(2) excepts "any person who, if it were not directly or indirectly controlled by the business development company, would not be directly or indirectly under the control of a person who controls the business development company". `WITHOUT(BDC, …)` works its second argument out as if the BDC weren't in the chart, so control that runs through the BDC drops out, and what's left is control some other way. If the BDC has no controller, everything it controls is excepted.
 
-**On the sample**, the BDC has ten close affiliates:
+**On the sample**, the BDC has 21 close affiliates:
 - **(b)(1):** Chen and Raman, its directors, and Okafor, its officer;
-- **(b)(1) affiliates:** everything Chen and Okafor control: the management company, the GP, the fund, the feeder, the blocker, Northpine and Halvard;
+- **(b)(1) affiliates:** the 15 entities Chen and Okafor control: the management company, the holding company, both GPs, the funds and the feeder, the blockers and the portfolio companies;
 - **(b)(2):** the management company, its adviser;
-- **(b)(2) affiliates:** the management company's (C) and (D) affiliates.
+- **(b)(2) affiliates:** the management company's (C) and (D) affiliates, Ferraro, Moretti and Lindqvist among them.
 
 Northpine is a close affiliate even though the BDC holds 12% of it, through the fund that controls it.
 
@@ -186,7 +187,9 @@ These readings come from the statutory text and are for you to correct. The poin
 - For a close affiliate, the first row gives FALSE, which is the output: it's ruled out, with "§57(d)" as its reason. Anyone else gets nothing from it, and the next rows decide.
 - (e)(1)(C) covers anyone who controls, is controlled by, or is under common control with a 5% holder.
 
-On the sample, the pension plan holds 7% of the BDC, so it's a remote affiliate under (e)(1)(A). The BDC's ten close affiliates are ruled out as remote ones.
+On the sample, the pension plan holds 7% of the BDC, so it's a remote affiliate under (e)(1)(A). The BDC's 21 close affiliates are ruled out as remote ones.
+
+The 40 Act view shows the BDC and its affiliates by a tag, **BDC Affiliate**, on Entities and Individuals: `← [Investment Company] OR COUNT([Close Affiliate Of]) + COUNT([Remote Affiliate Of]) > 0`. A ruled-out tag doesn't make a relative, so the count is of attested ones: on the sample, the BDC, its 21 close affiliates and the pension plan.
 
 ### Counting beneficial owners under §3(c)(1)
 
@@ -312,7 +315,7 @@ For a tag whose rows are all `←`, the ground is the holding row of least stage
 
 For example:
 - the feeder controls the fund by "More than 25%": its ownership of the fund, with its Percentage of 28.4%;
-- Chen controls the feeder "Through a controlled company": her control of the GP, and beneath it the GP's control of the feeder, which is "General partner" on the entered GP relation;
+- Chen controls the feeder "Through a controlled company": her control of the holding company, and beneath it the holding company's control of the feeder, itself through the Cayman GP, which is "General partner" on the entered relation;
 - Non-U.S. Investors' look-through to Northpine is its holding of the feeder at 100%, with the feeder's look-through to Northpine beneath, and so on down the path;
 - a ruled-out record keeps its rows' grounds beneath it: the rebutted presumption shows "More than 25%" and the feeder's 28.4%;
 - an entered value a formula also covers shows what the rows would give, and why.
@@ -323,7 +326,7 @@ This restates the above in the terms of data-model.md.
 
 **Definitions.** A definition in a schema S **covers** a set of parameterizations of S that all have the same root edge labels, and whose specifications in S are either all fields of one datatype, all choices, or all tags. It's a nonempty list of rows, each a label and a formula. No parameterization is covered by two definitions.
 
-**Candidates.** If p is a parameterization and Σ is a set of records, a **candidate** for p in Σ is an argumentation obtained from p by replacing each of its locations with a record in Σ whose underlying specification is that location. Unless a definition says otherwise, it skips candidates in which two of p's parameters are filled by records belonging to the same object.
+**Candidates.** If p is a parameterization and Σ is a set of records, a **candidate** for p in Σ is an argumentation obtained from p by replacing each of its locations with a record in Σ whose underlying specification is that location. A definition of tags skips candidates in which two of p's parameters are filled by records belonging to the same object.
 
 **What a row gives.** At a candidate a for a parameterization p that a definition covers, reading a set of records, a row **gives** an output of p, or nothing. A choice's output must be one of p's outputs in S, and writing a new option into a row adds a specification with that output to S.
 
@@ -337,8 +340,8 @@ This restates the above in the terms of data-model.md.
 
 ## Names for relations and lists
 
-- **Relation names.** A relation as a whole can have a name: Ownership, Control. It covers every relation parameterization of one form (model.html §2), whatever kinds the sides are. Formulas use it to call the relation, and as the name of a linked record's output (`@.Membership`).
-- **List names.** A name for the list of relatives in one role, seen from another: Ownership's Owners are seen from Owned, its Holdings from Owner. Without a name, a list goes by the edge label of the role it lists, and a named list still answers to that label.
+- **Relation names.** A Name note at a relation's pattern names it: Ownership, Control. It covers every parameterization fitting the pattern, whatever kinds the sides are. Formulas use the name to call the relation, and as the name of a linked record's output (`@.Membership`), and Order notes at its edges give its arguments' order.
+- **List names.** A Name note at one of the pattern's edges names the list of relatives in that role: Ownership's Owners are seen from Owned, its Holdings from Owner. Without a name, a list goes by the edge label of the role it lists, and a named list still answers to that label.
 
 ## When what a formula refers to changes
 
@@ -350,12 +353,12 @@ This restates the above in the terms of data-model.md.
 
 ## The engine
 
-[app/core/formulas.js](app/core/formulas.js) works a chart out. Its header lists what it gives the page and what it needs from the core.
+[app/core/formulas.js](app/core/formulas.js) works a chart out from its entered records as of a day, its Formula notes and its relations' names, as the core's Notes reader gives them; the app keeps the result as `App.computed`, and its records as `App.state`. The engine's header lists what it gives the page.
 - **In groups.** Definitions that read each other are worked out together, whatever order they're listed in. A group that doesn't loop takes one round.
 - **Where a row can give something.** A relation between two kinds of object has a candidate for every pair, and most pairs come to nothing. So for one argument, given the others, the engine reads off a row's form where it can give something, and tries just the candidates there, the way a database joins tables. `Controller IN Controlled.[General Partners]` holds just for the general partners, and needs no working out; the look-through's row gives something only where the investor owns the investment, or a holding looks through to it. Where the form doesn't tell, every candidate is tried.
 - **What changed.** Each row worked out remembers what it read, so a round works out again only what read something the round before changed.
 - **On demand.** A ground is worked out when it's asked for, by working the row out again at its record, as of its stage. So is the formula bar's view of a row: each name's records there, and each part's value.
-- **How fast.** [perf-test.html](app/tests/perf-test.html) works out the sample a chart starts from in about 15 ms, and a change to it, compared with the state before, in about 11 ms, so the redline can follow every keystroke. With 100 more entities in layers it takes about 0.3 seconds, and with 200 (about 68,000 computed records) about a second.
+- **How fast.** [perf-test.html](app/tests/perf-test.html) works out the sample in about 15 ms, and a change to it, compared with the state before, in about 10 ms, so the redline can follow every keystroke. With 100 more entities in layers it takes about 0.3 seconds, and with 200 (about 68,000 computed records) about 1.1 seconds.
 
 ## What it can't express
 
@@ -370,6 +373,6 @@ This restates the above in the terms of data-model.md.
 2. **Naming a particular object.** Should a formula be able to name one object, as in "the close affiliates of Fund III"? `OBJECT("Fund III")` finds an object by its Name, but a name can change, so a reference that follows the object would be sturdier.
 3. **Relation names and edge labels.** Should a relation's name be allowed to equal one of its edge labels? Close Affiliate's is, which is why a dot gives the edge there.
 4. **A definition that reads itself one way.** Excel works out a column whose cells read the row above, through `-` or anything else, as long as no cell reads itself. Here such a definition is `#CIRCULAR!` unless it's monotone. Should a loop that isn't monotone be worked out record by record, as Excel does, where its records don't loop?
-5. **Depositors.** (F) reads a Depositor relation the sample doesn't chart. Should the sample have one?
+5. **A thing and itself.** A tag relation skips pairs of one object with itself, and a value relation doesn't, so look-through can count an ownership loop. That replaced a switch on each definition. Is it the right line?
 6. **Rebuttals.** Should an entry that rules out a tag its rows attest ask for its basis?
 7. **Cardinality hints.** A hint, such as "a fund has at most one general partner", would let the editor warn about a list that could have several items where one value is expected. Should it be enforced, or only warned about?
