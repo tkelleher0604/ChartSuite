@@ -150,11 +150,13 @@ function chartScene() {
     }
   }
   const pad = 24;
-  const x0 = Math.min(...xs, 0) - pad, y0 = Math.min(...ys, 0) - pad;
+  const x0 = (xs.length ? Math.min(...xs) : 0) - pad, y0 = (ys.length ? Math.min(...ys) : 0) - pad;
+  // The smallest text drawn, which says how small a page may draw the scene (see MIN_TEXT).
+  const sizes = [...boxes.flatMap(b => b.rows.map(r => r.size)), ...lines.flatMap(l => l.label?.parts.map(p => p.size) ?? [])];
   return {
     title: chartTitle(), view: viewInUse().name,
     x0, y0, width: Math.max(...xs, 100) + pad - x0, height: Math.max(...ys, 100) + pad - y0,
-    boxes, lines, legend: legendRows(geo, routed),
+    boxes, lines, legend: legendRows(geo, routed), minText: sizes.length ? Math.min(...sizes) : TEXT_DEFAULTS.size,
   };
 }
 
@@ -229,10 +231,11 @@ function sceneSvg(scene, { pdf = false } = {}) {
 
 // ---- The legend, on paper ----
 // The legend's rows (legendRows in chart.js) set in a framed block: its groups in columns, as few as fit
-// the height it's given, a long label wrapping onto a second line. Sizes are in the page's units. The
-// chart draws the same block on its sheet, under the drawing, and an SVG export does too.
+// the height it's given, a long label wrapping onto a second line. Sizes are in the page's units, its text
+// no smaller than a board pack's (MIN_TEXT). The chart draws the same block on its sheet, under the
+// drawing, and an SVG export does too.
 
-const LEGEND = { pad: 8, title: 8, head: 7, text: 7.5, row: 12, line: 9.5, headRow: 12, sw: 16, sh: 9, gap: 6, colGap: 18, label: 160 };
+const LEGEND = { pad: 9, title: 9, head: 8, text: 8.5, row: 13.5, line: 10.5, headRow: 13.5, sw: 18, sh: 10, gap: 7, colGap: 20, label: 170 };
 
 // A label's lines, broken between words to fit the legend's label width.
 function legendLines(text, italic) {
@@ -315,7 +318,7 @@ function legendSvg(block, x, y, pdf = false) {
 
 // The legend under a drawing, right-aligned with it, its text the size of the chart's: on the chart's
 // sheet, and in an SVG export. `extent` is the drawing's { left, right, bottom }.
-const LEGEND_ON_SHEET = 1.4;
+const LEGEND_ON_SHEET = 1.3;
 function legendUnder(rows, { left, right, bottom }) {
   const k = LEGEND_ON_SHEET;
   const block = rows?.length ? legendBlockWithin(rows, (right - left) / k) : null;
@@ -324,9 +327,11 @@ function legendUnder(rows, { left, right, bottom }) {
 const legendG = (at, pdf = false) => `<g class="sheet-legend" transform="translate(${at.x} ${at.y}) scale(${at.k})">${legendSvg(at.block, 0, 0, pdf)}</g>`;
 
 // ---- Pages ----
-// A page is laid out once and drawn the same way everywhere: { W, H, frame, chart: { k, ox, oy }, legend:
-// { block, x, y } | null }, in points. `frame` has the title, subtitle and footer, each { text, x, y,
-// size, bold, color, align }, y at the baseline, and rules across the page.
+// A page is laid out once and drawn the same way everywhere: { W, H, frame, scene, chart: { k, ox, oy },
+// legend: { block, x, y } | null, window, textPt }, in points. `frame` has the title, subtitle and
+// footer, each { text, x, y, size, bold, color, align }, y at the baseline, and rules across the page.
+// `window` is the part of the scene the page shows, where it shows only part; `textPt`, the size its
+// smallest text prints at.
 
 const PAGE_SIZES = {
   letter: { name: 'Letter', w: 612, h: 792 },
@@ -336,20 +341,29 @@ const PAGE_SIZES = {
   standard: { name: 'Standard (4:3)', w: 720, h: 540, slide: 'LAYOUT_4x3' },
 };
 
-// The legend goes beside the chart or below it, whichever lets the chart be drawn larger.
-function layoutPage(scene, { size, orientation = 'auto', legend = true, title, subtitle, footer, page = '' }) {
-  const base = PAGE_SIZES[size];
-  const turn = !base.slide && (orientation === 'auto' ? scene.width >= scene.height : orientation === 'landscape');
-  const W = turn ? Math.max(base.w, base.h) : base.slide ? base.w : Math.min(base.w, base.h);
-  const H = turn ? Math.min(base.w, base.h) : base.slide ? base.h : Math.max(base.w, base.h);
-  const M = 36;
-  const frame = {
+// The smallest text a page should print, in points: what a board pack can be read at.
+const MIN_TEXT = 8;
+
+const PAGE_MARGIN = 36;
+function pageFrame(W, H, { title, subtitle, footer, page = '' }) {
+  const M = PAGE_MARGIN;
+  return {
     title: { text: title, x: M, y: M + 6, size: 15, bold: true, color: INK.text },
     subtitle: { text: subtitle, x: M, y: M + 21, size: 9.5, color: INK.muted },
     rules: [M + 30, H - 34],
     footer: footer ? { text: footer, x: M, y: H - 22, size: 8, color: INK.muted } : null,
     page: page ? { text: page, x: W - M, y: H - 22, size: 8, color: INK.muted, align: 'end' } : null,
   };
+}
+
+// The chart shrunk to fit one page, with the legend beside it or below it, whichever lets the chart be
+// drawn larger.
+function layoutPage(scene, { size, orientation = 'auto', legend = true }) {
+  const base = PAGE_SIZES[size];
+  const turn = !base.slide && (orientation === 'auto' ? scene.width >= scene.height : orientation === 'landscape');
+  const W = turn ? Math.max(base.w, base.h) : base.slide ? base.w : Math.min(base.w, base.h);
+  const H = turn ? Math.min(base.w, base.h) : base.slide ? base.h : Math.max(base.w, base.h);
+  const M = PAGE_MARGIN;
   const area = { x: M, y: M + 42, w: W - 2 * M, h: H - (M + 42) - 46 };
   const fit = (w, h) => Math.min(w / scene.width, h / scene.height);
   const GAP = 14;
@@ -369,18 +383,64 @@ function layoutPage(scene, { size, orientation = 'auto', legend = true, title, s
   const k = fit(chartArea.w, chartArea.h);
   const ox = chartArea.x + (chartArea.w - scene.width * k) / 2 - scene.x0 * k;
   const oy = chartArea.y + (chartArea.h - scene.height * k) / 2 - scene.y0 * k;
-  return { W, H, frame, scene, chart: { k, ox, oy }, legend: legendAt };
+  return { W, H, scene, area: chartArea, chart: { k, ox, oy }, legend: legendAt, textPt: scene.minText * k };
+}
+
+// A scene's pages: one, with the chart shrunk to fit it, or, with `split`, as many as keep its smallest
+// text at MIN_TEXT, each showing a part of the chart in reading order: bands across it, each cut into
+// parts, all between boxes where there's room, so no box is cut in two (lines are, at the edge). The parts
+// fill their pages, and the legend, if it comes along, has a page of its own after them.
+function scenePages(scene, opts) {
+  const one = layoutPage(scene, opts);
+  if (!opts.split || one.textPt >= MIN_TEXT - 0.05) return [one];
+  const bare = layoutPage(scene, { ...opts, legend: false });
+  const k = MIN_TEXT / scene.minText, span = { w: bare.area.w / k, h: bare.area.h / k };
+  const pages = [];
+  const ys = cutsAlong(scene.boxes.map(b => [b.y, b.y + b.h]), scene.y0, scene.height, span.h);
+  for (let r = 1; r < ys.length; r++) {
+    const band = scene.boxes.filter(b => b.y + b.h / 2 >= ys[r - 1] && b.y + b.h / 2 < ys[r]);
+    const xs = cutsAlong(band.map(b => [b.x, b.x + b.w]), scene.x0, scene.width, span.w);
+    for (let c = 1; c < xs.length; c++) {
+      const window = { x: xs[c - 1], y: ys[r - 1], w: xs[c] - xs[c - 1], h: ys[r] - ys[r - 1] };
+      if (!band.some(b => b.x < window.x + window.w && b.x + b.w > window.x)) continue;
+      pages.push({ ...bare, window, chart: { k, ox: bare.area.x - window.x * k, oy: bare.area.y - window.y * k }, textPt: MIN_TEXT });
+    }
+  }
+  if (opts.legend !== false && scene.legend?.length) {
+    const block = legendBlockWithin(scene.legend, bare.area.w);
+    pages.push({ ...bare, legendOnly: true, legend: { block, x: bare.area.x, y: bare.area.y }, textPt: LEGEND.text });
+  }
+  return pages;
+}
+
+// Where to cut a stretch (from, from + length) into pieces no longer than `span`, given the stretches
+// boxes take (`spans`): in a gap between boxes, at least 10 from each, as far along as a piece allows; at
+// `span` itself only where no gap falls in a piece's last two thirds.
+function cutsAlong(spans, from, length, span) {
+  const clear = p => spans.every(([a, b]) => p <= a - 10 || p >= b + 10);
+  const cuts = [from];
+  while (from + length - cuts.at(-1) > span + 0.5) {
+    const start = cuts.at(-1);
+    let at = start + span;
+    for (let p = start + span; p > start + span / 3; p -= 2) if (clear(p)) { at = p; break; }
+    cuts.push(at);
+  }
+  return [...cuts, from + length];
 }
 
 const frameText = (t, pdf) => t ? `<text x="${t.x}" y="${t.y}"${t.align === 'end' ? ' text-anchor="end"' : ''} ${svgFont({ font: 'Inter', size: t.size, bold: t.bold }, pdf)} fill="${t.color}">${escSvg(t.text)}</text>` : '';
 
-// A whole page as one SVG, in points: what the PDF draws, and what the preview shows.
+// A whole page as one SVG, in points: what the PDF draws, and what the preview shows. A page showing part
+// of the chart clips it to that part (each clip named apart, since a preview shows several pages at once).
+let clipCount = 0;
 function pageSvg(page, { pdf = false } = {}) {
-  const { W, H, frame, chart: c, scene } = page;
-  const rules = frame.rules.map(y => `<line x1="36" y1="${y}" x2="${W - 36}" y2="${y}" stroke="${INK.rule}" stroke-width="0.6" />`).join('');
+  const { W, H, frame, chart: c, scene, window: win } = page;
+  const rules = frame.rules.map(y => `<line x1="${PAGE_MARGIN}" y1="${y}" x2="${W - PAGE_MARGIN}" y2="${y}" stroke="${INK.rule}" stroke-width="0.6" />`).join('');
+  const clip = win ? `page-part-${++clipCount}` : '';
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    ${clip ? `<defs><clipPath id="${clip}"><rect x="${win.x}" y="${win.y}" width="${win.w}" height="${win.h}" /></clipPath></defs>` : ''}
     <rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff" />${frameText(frame.title, pdf)}${frameText(frame.subtitle, pdf)}${rules}
-    <g transform="translate(${c.ox} ${c.oy}) scale(${c.k})">${sceneSvg(scene, { pdf })}</g>
+    ${page.legendOnly ? '' : `<g transform="translate(${c.ox} ${c.oy}) scale(${c.k})"${clip ? ` clip-path="url(#${clip})"` : ''}>${sceneSvg(scene, { pdf })}</g>`}
     ${page.legend ? legendSvg(page.legend.block, page.legend.x, page.legend.y, pdf) : ''}${frameText(frame.footer, pdf)}${frameText(frame.page, pdf)}</svg>`;
 }
 
@@ -405,22 +465,30 @@ function pictureSvg(scene, legend = true) {
 
 // ---- The formats ----
 
-// The pages for some scenes: a PDF's, each saying its chart and view, or a deck's slides, each its view.
-function pagesFor(scenes, { format, size, orientation, legend, asOf }) {
-  const n = scenes.length;
-  return scenes.map((s, i) => layoutPage(s, format === 'pptx'
-    ? { size, legend, title: s.view, subtitle: s.title, footer: `As of ${longDate(asOf)}`, page: n > 1 ? `${i + 1} of ${n}` : '' }
-    : { size, orientation, legend, title: s.title, subtitle: `${s.view} view`, footer: `${s.title} · ${s.view} · As of ${longDate(asOf)}`, page: `Page ${i + 1} of ${n}` }));
+// The pages for some scenes, split to keep their text readable if asked: a PDF's, each saying its chart
+// and view, or a deck's slides, each its view; a part of a view says which.
+function pagesFor(scenes, { format, size, orientation, legend, asOf, split }) {
+  const parts = scenes.map(s => scenePages(s, { size, orientation: format === 'pptx' ? 'auto' : orientation, legend, split }));
+  const n = parts.flat().length;
+  let i = 0;
+  return parts.flatMap((pages, v) => pages.map((p, j) => {
+    const s = scenes[v], pieces = pages.filter(x => !x.legendOnly).length;
+    const part = p.legendOnly ? ' · legend' : pieces > 1 ? ` · part ${j + 1} of ${pieces}` : '';
+    i++;
+    return { ...p, frame: pageFrame(p.W, p.H, format === 'pptx'
+      ? { title: s.view, subtitle: `${s.title}${part}`, footer: `As of ${longDate(asOf)}`, page: n > 1 ? `${i} of ${n}` : '' }
+      : { title: s.title, subtitle: `${s.view} view${part}`, footer: `${s.title} · ${s.view} · As of ${longDate(asOf)}`, page: `Page ${i} of ${n}` }) };
+  }));
 }
 
 function exportSvg(scene = chartScene(), { legend = true } = {}) {
   deliver(new Blob([pictureSvg(scene, legend)], { type: 'image/svg+xml' }), fileName([scene.title, scene.view], 'svg'));
 }
 
-async function exportPdf(scenes = [chartScene()], { size = 'letter', orientation = 'auto', legend = true, asOf = todayIso() } = {}) {
+async function exportPdf(scenes = [chartScene()], { size = 'letter', orientation = 'auto', legend = true, asOf = todayIso(), split = false } = {}) {
   await loadLibs('pdf');
   const { jsPDF } = window.jspdf;
-  const pages = pagesFor(scenes, { format: 'pdf', size, orientation, legend, asOf });
+  const pages = pagesFor(scenes, { format: 'pdf', size, orientation, legend, asOf, split });
   const formatOf = p => [p.W, p.H];
   const doc = new jsPDF({ unit: 'pt', format: formatOf(pages[0]), orientation: pages[0].W > pages[0].H ? 'landscape' : 'portrait' });
   const holder = document.createElement('div');
@@ -482,19 +550,46 @@ const pptText = (slide, t, w) => t && slide.addText(t.text, {
   fontFace: 'Calibri', fontSize: t.size, bold: !!t.bold, color: pptColor(t.color), margin: 0, align: t.align === 'end' ? 'right' : 'left', valign: 'bottom',
 });
 
+// The part of a segment inside a window, as two points, or null (Liang and Barsky's clipping).
+function clipSegment([ax, ay], [bx, by], w) {
+  const dx = bx - ax, dy = by - ay;
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, ax - w.x], [dx, w.x + w.w - ax], [-dy, ay - w.y], [dy, w.y + w.h - ay]]) {
+    if (!p) { if (q < 0) return null; continue; }
+    const t = q / p;
+    if (p < 0) { if (t > t1) return null; t0 = Math.max(t0, t); } else { if (t < t0) return null; t1 = Math.min(t1, t); }
+  }
+  return [[ax + t0 * dx, ay + t0 * dy], [ax + t1 * dx, ay + t1 * dy]];
+}
+// A line's runs inside a window: where it leaves the window and comes back, two runs.
+function clipLine(points, w) {
+  const runs = [];
+  for (let i = 1; i < points.length; i++) {
+    const seg = clipSegment(points[i - 1], points[i], w);
+    if (!seg) continue;
+    const run = runs.at(-1), end = run?.at(-1);
+    if (end && Math.hypot(end[0] - seg[0][0], end[1] - seg[0][1]) < 0.01) run.push(seg[1]); else runs.push(seg);
+  }
+  return runs.filter(r => r.length > 1);
+}
+
 // A page on a slide, as native, editable shapes: each box a shape with its text in it, each line one
-// freeform path, each label a text box, and the legend's swatches and words.
+// freeform path, each label a text box, and the legend's swatches and words. A slide showing part of the
+// chart has the boxes and labels in that part, and the lines clipped to it.
 function addPageSlide(pptx, page) {
   const slide = pptx.addSlide();
-  const { frame, chart: c, scene } = page;
+  const { frame, chart: c, scene, window: win } = page;
   const X = x => c.ox + x * c.k, Y = y => c.oy + y * c.k, S = v => v * c.k;
+  const inside = (x, y) => !win || (x >= win.x && x <= win.x + win.w && y >= win.y && y <= win.y + win.h);
   pptText(slide, frame.title, page.W - 72);
   pptText(slide, frame.subtitle, page.W - 72);
   if (page.cover) return slide;
   for (const y of frame.rules) slide.addShape(pptx.ShapeType.line, { x: inch(36), y: inch(y), w: inch(page.W - 72), h: 0, line: { color: pptColor(INK.rule), width: 0.6 } });
   pptText(slide, frame.footer, page.W - 200);
   pptText(slide, frame.page, 120);
-  for (const l of scene.lines) {
+  if (page.legendOnly) { addLegendShapes(slide, pptx, page.legend); return slide; }
+  const runs = scene.lines.flatMap(l => (win ? clipLine(l.points, win) : [l.points]).map(points => ({ ...l, points })));
+  for (const l of runs) {
     const xs = l.points.map(p => p[0]), ys = l.points.map(p => p[1]);
     const minX = Math.min(...xs), minY = Math.min(...ys);
     const w = Math.max(inch(S(Math.max(...xs) - minX)), 0.01), h = Math.max(inch(S(Math.max(...ys) - minY)), 0.01);
@@ -514,15 +609,15 @@ function addPageSlide(pptx, page) {
       line: { color: pptColor(l.stroke), width: Math.max(0.25, S(l.strokeWidth)), dashType: PPT_DASH[l.dash] ?? 'solid' },
     });
   }
-  for (const b of scene.boxes) {
-    const runs = b.paragraphs.map((p, i) => ({
+  for (const b of scene.boxes.filter(b => inside(b.x + b.w / 2, b.y + b.h / 2))) {
+    const text = b.paragraphs.map((p, i) => ({
       text: p.text,
       options: { fontFace: pptFont(p.font), fontSize: S(p.size), bold: p.bold, italic: p.italic, color: pptColor(p.color), breakLine: i < b.paragraphs.length - 1 },
     }));
-    pptBox(slide, pptx, b, X, Y, S, runs.length ? runs : '');
+    pptBox(slide, pptx, b, X, Y, S, text.length ? text : '');
   }
   for (const l of scene.lines) {
-    if (!l.label) continue;
+    if (!l.label || !inside(l.label.x, l.label.y)) continue;
     const width = l.label.parts.reduce((s, p) => s + textWidth(`${p.text} `, p), 0) + 6;
     const size = Math.max(...l.label.parts.map(p => p.size));
     slide.addText(l.label.parts.map((p, i) => ({
@@ -557,14 +652,14 @@ function addLegendShapes(slide, pptx, { block, x, y }) {
   }
 }
 
-// A deck: a title slide, then a slide for each scene.
-async function exportPptx(scenes = [chartScene()], { size = 'wide', legend = true, asOf = todayIso() } = {}) {
+// A deck: a title slide if asked, then a slide for each scene, or each part of one.
+async function exportPptx(scenes = [chartScene()], { size = 'wide', legend = true, asOf = todayIso(), split = false, cover = false } = {}) {
   await loadLibs('pptx');
   const pptx = new PptxGenJS();
   pptx.layout = PAGE_SIZES[size].slide;
   pptx.title = scenes[0].title;
-  addPageSlide(pptx, titlePage(size, scenes[0].title, asOf));
-  for (const p of pagesFor(scenes, { format: 'pptx', size, legend, asOf })) addPageSlide(pptx, p);
+  if (cover) addPageSlide(pptx, titlePage(size, scenes[0].title, asOf));
+  for (const p of pagesFor(scenes, { format: 'pptx', size, legend, asOf, split })) addPageSlide(pptx, p);
   const blob = await pptx.write({ outputType: 'blob' });
   deliver(blob, fileName([scenes[0].title, scenes.length > 1 ? 'All views' : scenes[0].view], 'pptx'));
   return blob;
@@ -664,9 +759,13 @@ async function exportRecordPdf(objectId, { asOf = todayIso() } = {}) {
 }
 
 // ---- The Export dialog ----
-// Diligent's and Lucid's model: on the left the format, the views, the page and the "as of" date, and
-// whether the legend comes along; on the right a live preview of every page or slide, drawn from the same
-// layout the file is made from. Its choices are remembered while the page is open.
+// Diligent's and Lucid's model: on the left the format, the views, the page, how small the text may get,
+// the "as of" date, and whether the legend and a title slide come along; on the right a live preview of
+// every page or slide, drawn from the same layout the file is made from, each saying the size its text
+// prints at. Its choices are remembered while the page is open.
+// Text is kept at MIN_TEXT or larger by default, splitting a view that can't fit a page at that size into
+// parts; shrinking each view onto one page is the other choice, and the dialog says how small that makes
+// the text.
 
 const FORMATS_OUT = [['pdf', 'PDF'], ['pptx', 'PowerPoint'], ['svg', 'SVG']];
 const exportUi = {
@@ -676,7 +775,9 @@ const exportUi = {
   size: 'letter',         // a PDF's page
   slide: 'wide',          // a deck's slides
   orientation: 'auto',
+  fit: 'split',           // 'split' keeps text at MIN_TEXT over more pages; 'page' shrinks each view to one
   legend: null,           // null follows the chart's own legend switch
+  cover: null,            // a deck's title slide: null has one for every view, and none for one view
   asOf: '',
   busy: false,
   error: null,
@@ -684,8 +785,12 @@ const exportUi = {
 };
 
 const exportLegend = () => exportUi.legend ?? legendShown();
+const exportCover = () => exportUi.cover ?? exportUi.views === 'all';
 const exportScenes = () => exportUi.views === 'all' && exportUi.format !== 'svg' ? views.map(v => exportUi.scenes[v.id]) : [exportUi.scenes[viewId]];
-const exportSettings = () => ({ format: exportUi.format, size: exportUi.format === 'pptx' ? exportUi.slide : exportUi.size, orientation: exportUi.orientation, legend: exportLegend(), asOf: exportUi.asOf || todayIso() });
+const exportSettings = () => ({ format: exportUi.format, size: exportUi.format === 'pptx' ? exportUi.slide : exportUi.size, orientation: exportUi.orientation,
+  legend: exportLegend(), asOf: exportUi.asOf || todayIso(), split: exportUi.fit === 'split', cover: exportUi.format === 'pptx' && exportCover() });
+// A text size, as the dialog says it, marked where it's smaller than a board pack's.
+const pointText = pt => `<span class="${pt < MIN_TEXT - 0.05 ? 'export-small' : ''}">text ${Math.round(pt * 10) / 10} pt</span>`;
 
 // While it's open it has the keyboard (as every dialog does): Enter exports, and Esc closes it.
 function openExport() {
@@ -709,15 +814,27 @@ function exportPreview() {
   const s = exportSettings();
   if (s.format === 'svg') return `<figure class="export-page is-picture">${pictureSvg(scenes[0], s.legend)}</figure>`;
   const pages = pagesFor(scenes, s);
-  const all = s.format === 'pptx' ? [titlePage(s.size, scenes[0].title, s.asOf), ...pages] : pages;
+  const all = s.cover ? [titlePage(s.size, scenes[0].title, s.asOf), ...pages] : pages;
   return all.map((p, i) => `<figure class="export-page">${p.cover ? coverSvg(p) : pageSvg(p)}
-    <figcaption>${s.format === 'pptx' ? (p.cover ? 'Title slide' : `Slide ${i + 1}: ${esc(p.scene.view)}`) : `Page ${i + 1}: ${esc(p.scene.view)}`}</figcaption></figure>`).join('');
+    <figcaption>${p.cover ? 'Title slide' : `${s.format === 'pptx' ? 'Slide' : 'Page'} ${i + 1}: ${esc(p.scene.view)}${p.legendOnly ? ', legend' : p.window ? ', in part' : ''} · ${pointText(p.textPt)}`}</figcaption></figure>`).join('');
+}
+
+// How small the text gets, shrunk to one page, or how many pages keep it readable; said under the choice.
+function exportFitNote() {
+  const scenes = exportScenes(), s = exportSettings();
+  const page = exportUi.format === 'pptx' ? 'slide' : 'page';
+  const smallest = Math.min(...scenes.map(sc => layoutPage(sc, s).textPt));
+  if (smallest >= MIN_TEXT - 0.05) return `Every ${page} fits with text at ${MIN_TEXT} pt or larger.`;
+  const split = pagesFor(scenes, { ...s, split: true }).length;
+  return s.split ? `Kept at ${MIN_TEXT} pt or larger over ${count(split, page)}; shrunk to one ${page} each, it would print at ${Math.round(smallest * 10) / 10} pt.`
+    : `<span class="export-small">Text prints as small as ${Math.round(smallest * 10) / 10} pt.</span> At ${MIN_TEXT} pt it takes ${count(split, page)}.`;
 }
 
 function exportSummary() {
-  const n = exportScenes().length;
-  const f = exportUi.format;
-  const what = f === 'svg' ? 'One picture' : f === 'pptx' ? `${count(n + 1, 'slide')}, with a title slide, as editable shapes` : `${count(n, 'page')} of vector PDF`;
+  const s = exportSettings();
+  if (s.format === 'svg') return 'One picture. Made in your browser; nothing is uploaded.';
+  const n = pagesFor(exportScenes(), s).length;
+  const what = s.format === 'pptx' ? `${count(n + (s.cover ? 1 : 0), 'slide')}${s.cover ? ', with a title slide,' : ''} as editable shapes` : `${count(n, 'page')} of vector PDF`;
   return `${what}. Made in your browser; nothing is uploaded.`;
 }
 
@@ -725,14 +842,18 @@ function exportHtml() {
   const f = exportUi.format;
   const sel = selection();
   const pageSizes = f === 'pptx' ? ['wide', 'standard'] : ['letter', 'a4', 'tabloid'];
+  const page = f === 'pptx' ? 'slide' : 'page';
+  const check = (cmd, on, text) => `<div class="export-field"><span class="export-label"></span><button class="export-check" data-cmd="${cmd}" aria-pressed="${on}">${box(on ? true : null)}${text}</button></div>`;
   const fields = [
     exportField('Format', `<select class="input" data-export="format">${FORMATS_OUT.map(([v, t]) => option(v, t, f)).join('')}</select>`),
     exportField('Views', `<select class="input" data-export="views"${f === 'svg' ? ' disabled' : ''}>${option('this', `This view: ${viewInUse().name}`, f === 'svg' ? 'this' : exportUi.views)}${views.length > 1 ? option('all', `Every view, ${f === 'pptx' ? 'a slide' : 'a page'} each (${views.length})`, f === 'svg' ? 'this' : exportUi.views) : ''}</select>`,
       f === 'svg' ? 'An SVG is one picture, of this view' : ''),
     f === 'svg' ? '' : exportField(f === 'pptx' ? 'Slide size' : 'Page size', `<select class="input" data-export="${f === 'pptx' ? 'slide' : 'size'}">${pageSizes.map(k => option(k, PAGE_SIZES[k].name, f === 'pptx' ? exportUi.slide : exportUi.size)).join('')}</select>`),
     f === 'pdf' ? exportField('Orientation', `<select class="input" data-export="orientation">${[['auto', 'To suit each view'], ['landscape', 'Landscape'], ['portrait', 'Portrait']].map(([v, t]) => option(v, t, exportUi.orientation)).join('')}</select>`) : '',
-    f === 'svg' ? '' : exportField('As of', `<input class="input" type="date" data-export="asOf" value="${esc(exportUi.asOf)}">`, 'Printed in the footer'),
-    `<div class="export-field"><span class="export-label"></span><button class="export-check" data-cmd="chart.export-legend" aria-pressed="${exportLegend()}">${box(exportLegend() ? true : null)}Include the legend</button></div>`,
+    f === 'svg' ? '' : exportField('Text', `<select class="input" data-export="fit">${option('split', `At least ${MIN_TEXT} pt, over more ${page}s`, exportUi.fit)}${option('page', `Shrunk to one ${page} a view`, exportUi.fit)}</select>`, exportFitNote()),
+    f === 'svg' ? '' : exportField('As of', `<input class="input" type="date" data-export="asOf" value="${esc(exportUi.asOf)}">`, `Printed in the footer as ${esc(longDate(exportUi.asOf || todayIso()))}`),
+    check('chart.export-legend', exportLegend(), 'Include the legend'),
+    f === 'pptx' ? check('chart.export-cover', exportCover(), 'Start with a title slide') : '',
   ].join('');
   const profile = sel.object ? `<button class="link-btn export-profile" data-cmd="chart.export-profile" title="A PDF of its entries and relations">Profile of ${esc(objectName(sel.object))} instead…</button>` : '';
   return `<div class="export-main">
@@ -785,6 +906,7 @@ async function exportProfile(id) {
 Shell.on('chart.export-close', closeExport);
 Shell.on('chart.export-run', runExport);
 Shell.on('chart.export-legend', () => { exportUi.legend = !exportLegend(); drawExport(); });
+Shell.on('chart.export-cover', () => { exportUi.cover = !exportCover(); drawExport(); });
 Shell.on('chart.export-profile', () => { const id = selection().object; if (id) exportProfile(id); });
 
 document.addEventListener('change', e => {
