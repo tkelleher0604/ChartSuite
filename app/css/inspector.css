@@ -2,7 +2,7 @@
 
 /* The label column narrows with the panel, so a value keeps room for a long date; narrower still, a label
    sits over its value. */
-.inspector { --label: clamp(112px, 44cqi, 172px); }
+.inspector { --label: clamp(112px, 36cqi, 152px); }
 .insp { padding-bottom: 32px; }
 .ih { position: relative; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
 .ih > .path { margin-bottom: 4px; }
