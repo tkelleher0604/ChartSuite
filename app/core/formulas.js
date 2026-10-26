@@ -38,6 +38,18 @@ const isDate = v => v?.t === 'date';
 const recOf = (id, link = null) => ({ t: 'rec', id, link });
 const circular = () => err('#CIRCULAR!', 'This depends on itself.');
 
+// Names and labels compared without regard to case (common.js's norm), kept once worked out: the same few
+// are compared over and over as a chart is worked out.
+const normals = new Map();
+function normal(s) {
+  let n = normals.get(s);
+  if (n === undefined) {
+    if (normals.size > 50000) normals.clear();
+    normals.set(s, n = norm(s));
+  }
+  return n;
+}
+
 // Numbers as the chart stores them: 1,000, $750,000,000, 71.6%.
 function readNumber(s) {
   const m = /^\s*([-+]?)\$?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(%?)\s*$/.exec(String(s));
@@ -126,7 +138,7 @@ function parseExpression(src) {
         next();
         const t = next();
         if (t.k !== 'name') throw new FormulaError('Expected a name after the dot.', t.pos);
-        x = { k: 'dot', x, name: t.v, n: norm(t.v) };
+        x = { k: 'dot', x, name: t.v, n: normal(t.v) };
       } else if (isOp('(') && x.k === 'name') {
         next();
         x = { k: 'call', name: x.name, args: callArgs() };
@@ -152,7 +164,7 @@ function parseExpression(src) {
     const t = next();
     if (t.k === 'num' || t.k === 'str') return { k: 'lit', v: t.v, pct: t.pct };
     if (t.k === 'kw' && (t.v === 'TRUE' || t.v === 'FALSE')) return { k: 'lit', v: t.v === 'TRUE' };
-    if (t.k === 'name') return { k: 'name', name: t.v, n: norm(t.v) };
+    if (t.k === 'name') return { k: 'name', name: t.v, n: normal(t.v) };
     if (t.k === 'op' && t.v === '@') return { k: 'at' };
     if (t.k === 'op' && t.v === '(') { const x = or(); expect(')'); return x; }
     if (t.k === 'op' && t.v === '{') {
@@ -203,13 +215,13 @@ function parseLocation(text) {
 // A location's specification key, as model.js's specKey() would give it for a record there.
 function locationKey(text) {
   const loc = parseLocation(text);
-  let key = `kind:${norm(loc.kind)}`;
+  let key = `kind:${normal(loc.kind)}`;
   for (const s of loc.segs)
-    key = JSON.stringify([s.choice !== undefined ? `choice:${norm(s.choice)}` : `tag:${s.tag}`, JSON.stringify([norm(s.edge), key])]);
+    key = JSON.stringify([s.choice !== undefined ? `choice:${normal(s.choice)}` : `tag:${s.tag}`, JSON.stringify([normal(s.edge), key])]);
   return key;
 }
 
-const parameterizationKey = params => JSON.stringify(params.map(p => JSON.stringify([norm(p.edge), p.spec])).sort());
+const parameterizationKey = params => JSON.stringify(params.map(p => JSON.stringify([normal(p.edge), p.spec])).sort());
 
 // The parameterizations a definition written with locations covers: for a relation, every combination of
 // its parameters' locations.
@@ -288,7 +300,7 @@ function segmentOf(S, id) {
 // How a location reads: its object's name, then the segments below it.
 const placeOf = (S, id) => (pathOf(S, id) ?? [id]).map((p, i) => i ? segmentOf(S, p) : nameOf(S, p)).join(' › ');
 
-const argKey = args => JSON.stringify(args.map(a => JSON.stringify([norm(a.edge), a.at])).sort());
+const argKey = args => JSON.stringify(args.map(a => JSON.stringify([normal(a.edge), a.at])).sort());
 // A record's argumentation key, worked out once per record.
 const keyCache = new WeakMap();
 function keyOf(r) {
@@ -301,51 +313,99 @@ function push(map, key, value) {
   map.get(key).push(value);
 }
 
-// A relation record is also indexed by each object it relates and its signature, for relation calls.
+const distinct = xs => xs.filter((x, i) => xs.indexOf(x) === i);
+
+// Lookups kept from before (see remembered) are let go when a record comes or goes, unless the step being
+// worked out keeps track of what each one read (see runStep).
 function addRecord(S, id, r) {
-  S.memo?.clear();
+  if (S.forgetting) S.memo?.clear();
   S.recs[id] = r;
+  indexRecord(S, id, r);
+}
+
+// A record is indexed by where it's located and its name there; a relation record by each record it's
+// located at and by its objects (see indexByObjects).
+function indexRecord(S, id, r) {
   if (r.at) {
     push(S.byAt, r.at, id);
-    S.byAtName.set(`${r.at}|${norm(r.edge)}`, id);
+    S.byAtName.set(`${r.at}|${normal(r.edge)}`, id);
   }
   if (r.args) {
-    for (const at of new Set(r.args.map(a => a.at))) push(S.relsAt, at, id);
-    const sig = signatureOf(r);
-    for (const obj of new Set(r.args.map(a => objectOf(S, a.at)))) {
-      push(S.relsAtObj, obj, id);
-      push(S.relsBySig, `${obj}|${sig}`, id);
-    }
+    for (const at of distinct(r.args.map(a => a.at))) push(S.relsAt, at, id);
+    indexByObjects(S, id, r);
   }
+}
+
+// A relation record by each object it relates, with its signature, and by the call that finds it: its
+// signature with each argument's edge and object. Records of another form, or located below their objects
+// elsewhere, can share a call's key, so a call still checks what it finds. The objects are kept, to take
+// it back out by.
+function indexByObjects(S, id, r) {
+  const objs = r.args.map(a => objectOf(S, a.at)), sig = signatureOf(r), edges = r.args.map(a => normal(a.edge));
+  const call = `${sig}|${edges.map((e, i) => `${e}=${objs[i]}`).sort().join('&')}`;
+  for (const obj of distinct(objs)) {
+    if (!S.byObject.has(obj)) S.byObject.set(obj, new Map());
+    push(S.byObject.get(obj), sig, id);
+  }
+  edges.forEach((e, i) => push(S.byEdge, `${sig}|${e}=${objs[i]}`, id));
+  push(S.relsByCall, call, id);
+  S.indexed.set(id, { objs, edges, call, seq: S.seq++ });
+  const names = listNamesOf(S, sig);
+  for (const e of edges) names.add(e);
+}
+const pull = (map, key, id) => { const list = map?.get(key); if (list) map.set(key, list.filter(x => x !== id)); };
+function unindexByObjects(S, id, r) {
+  const { objs, edges, call } = S.indexed.get(id), sig = signatureOf(r);
+  for (const obj of distinct(objs)) pull(S.byObject.get(obj), sig, id);
+  edges.forEach((e, i) => pull(S.byEdge, `${sig}|${e}=${objs[i]}`, id));
+  pull(S.relsByCall, call, id);
+  S.indexed.delete(id);
+}
+
+// The names a relation record of a signature can make a list under: the list names any relation of that
+// signature is given, and the edge labels of its records, as they come (see listsOf).
+function listNamesOf(S, sig) {
+  if (!S.listNames.has(sig)) {
+    const names = new Set();
+    for (const rel of S.P.reg.byName.values()) if (rel.sig === sig) for (const name of rel.lists.values()) names.add(normal(name));
+    S.listNames.set(sig, names);
+  }
+  return S.listNames.get(sig);
+}
+
+// The relation records at an object that can make a list called `n`, in the order they came in.
+function relationsFor(S, obj, n) {
+  let out = null, merged = false;
+  for (const [sig, rids] of S.byObject.get(obj) ?? []) if (rids.length && listNamesOf(S, sig).has(n)) {
+    merged = !!out;
+    out = out ? out.concat(rids) : rids;
+  }
+  if (merged) out.sort((a, b) => S.indexed.get(a).seq - S.indexed.get(b).seq);
+  return out ?? [];
 }
 
 // Takes a record back out, as when a step is worked out again.
 function removeRecord(S, id) {
   const r = S.recs[id];
   if (!r) return;
-  S.memo?.clear();
-  const pull = (map, key) => { const list = map.get(key); if (list) map.set(key, list.filter(x => x !== id)); };
+  if (S.forgetting) S.memo?.clear();
   if (r.at) {
-    pull(S.byAt, r.at);
-    if (S.byAtName.get(`${r.at}|${norm(r.edge)}`) === id) S.byAtName.delete(`${r.at}|${norm(r.edge)}`);
+    pull(S.byAt, r.at, id);
+    if (S.byAtName.get(`${r.at}|${normal(r.edge)}`) === id) S.byAtName.delete(`${r.at}|${normal(r.edge)}`);
   }
   if (r.args) {
-    for (const at of new Set(r.args.map(a => a.at))) pull(S.relsAt, at);
-    const sig = signatureOf(r);
-    for (const obj of new Set(r.args.map(a => objectOf(S, a.at)))) {
-      pull(S.relsAtObj, obj);
-      pull(S.relsBySig, `${obj}|${sig}`);
-    }
+    for (const at of distinct(r.args.map(a => a.at))) pull(S.relsAt, at, id);
+    unindexByObjects(S, id, r);
   }
   const spec = S.specs.get(id);
-  if (spec) { pull(S.bySpec, spec); S.specs.delete(id); }
+  if (spec) { pull(S.bySpec, spec, id); S.specs.delete(id); }
   delete S.recs[id];
 }
 
 // A relation's pilot name and list names belong to its form (model.html §2): its specification's shape,
 // with every node label erased, and its sort. Names given without a form fall back on the relation's
 // output type and edge labels, its signature. Records don't change, so each one's is worked out once.
-const signature = (type, edges) => `${type}:${edges.map(norm).sort().join('|')}`;
+const signature = (type, edges) => `${type}:${edges.map(normal).sort().join('|')}`;
 const sigCache = new WeakMap();
 function signatureOf(r) {
   if (!sigCache.has(r)) sigCache.set(r, signature(typeOf(r), r.args.map(a => a.edge)));
@@ -360,7 +420,7 @@ const argShapes = (S, r) => {
   for (const a of argsOf(r)) {
     const shape = shapeOfRecord(S, a.at);
     if (shape === null) return null;
-    out.push(JSON.stringify([norm(a.edge), shape]));
+    out.push(JSON.stringify([normal(a.edge), shape]));
   }
   return out.sort();
 };
@@ -384,27 +444,29 @@ function formOfRecord(S, r) {
   return S.forms.get(r);
 }
 const relationOf = (S, r) => S.P.reg.byForm.get(formOfRecord(S, r)) ?? S.P.reg.bySig.get(signatureOf(r));
-const listNameOf = (rel, from, listed) => rel?.lists.get(`${norm(from)}|${norm(listed)}`) ?? listed;
+const listNameOf = (rel, from, listed) => rel?.lists.get(`${normal(from)}|${normal(listed)}`) ?? listed;
 
 // ---- Looking names up ----
 
 // While a formula is worked out, the entries and relation records it reads are noted, to say why its
-// record is there.
-const note = (S, id) => { if (S.reads) S.reads.ids.add(id); };
+// record is there (see reading).
+const note = (S, id) => { if (S.reads) S.reads.ids.push(id); };
 
-// While a step is worked out (see settleStep), a lookup that could find one of the step's own candidates
-// notes its key, found or not, in S.deps: that's what the formula being worked out depends on. `kind` is
-// how it was looked for: 'entry' (at a location, by name), 'lists' (a list of relatives at a location) or
-// 'calls' (a relation call, by callKey).
-function depend(S, kind, key) {
-  if (!S.deps) return;
-  for (const k of S.dep[kind].get(key) ?? []) S.deps.add(k);
+// While a step with implications is worked out (see settleStep), a lookup by a name the step's own
+// definitions give records under notes its key, found or not: that's what the formula being worked out
+// depends on, since one of the step's candidates could turn up there. `kind` is how it was looked for:
+// 'entry' (at a location, by name), 'lists' (a list of relatives at a location), 'calls' (a relation call,
+// by callKey), and, for finding candidates (see holdsWhere), 'rel' (a relation's records with one argument
+// given, by relation name, edge and object) and 'inverse' (whose list of a name an object is on).
+// candidateKeys gives the keys under which a candidate could turn up.
+function depend(S, kind, name, key) {
+  if (S.reads && S.dep?.[kind].has(name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); }
 }
 
 // What a name gives where nothing has it: an empty list for a list the schema has somewhere, BLANK for
 // any other name the schema has somewhere, and an error for a name it doesn't have at all.
 function missing(S, name) {
-  const n = norm(name);
+  const n = normal(name);
   if (S.P.known.lists.has(n)) return [];
   if (S.P.known.values.has(n)) return null;
   return err('#NAME?', `Nothing is called ${name}.`);
@@ -416,12 +478,12 @@ function missing(S, name) {
 // parameter through the object's record there: a fund's General Partners, though the relation is located
 // at its Entity Type. A list answers to its name and also to the edge label it lists, so a formula written
 // before the list was named keeps working.
-const listAt = (S, id, n) => remembered(S, `list|${id}|${n}`, () => listHere(S, id, n));
+const listAt = (S, id, n) => remembered(S, `list|${id}|${n}`, () => { depend(S, 'lists', n, `${id}|${n}`); return listHere(S, id, n); });
 function listHere(S, id, n) {
   let hit = false;
   const items = [];
   const onObject = isObject(S.recs[id]);
-  for (const rid of (onObject ? S.relsAtObj : S.relsAt).get(id) ?? []) {
+  for (const rid of onObject ? relationsFor(S, id, n) : S.relsAt.get(id) ?? []) {
     const r = S.recs[rid];
     for (const { own, other, list, alias } of listsOf(S, r)) {
       if ((list !== n && alias !== n) || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
@@ -441,13 +503,13 @@ function listsOf(S, r) {
   if (S.recLists.has(r)) return S.recLists.get(r);
   const rel = relationOf(S, r);
   const out = [];
-  r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: norm(listNameOf(rel, own.edge, other.edge)), alias: norm(other.edge) }); }));
+  r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: normal(listNameOf(rel, own.edge, other.edge)), alias: normal(other.edge) }); }));
   if (formOfRecord(S, r) !== null) S.recLists.set(r, out);
   return out;
 }
 const argEdges = new WeakMap();
 function argByEdge(r, n) {
-  if (!argEdges.has(r)) argEdges.set(r, new Map(r.args.map(a => [norm(a.edge), a])));
+  if (!argEdges.has(r)) argEdges.set(r, new Map(r.args.map(a => [normal(a.edge), a])));
   return argEdges.get(r).get(n);
 }
 
@@ -463,7 +525,7 @@ function linkLookup(S, rid, n, name) {
   const arg = argByEdge(r, n);
   if (arg) found.push(recOf(objectOf(S, arg.at)));
   else if (relationOf(S, r)?.n === n) found.push(recOf(rid));
-  depend(S, 'entry', `${rid}|${n}`);
+  depend(S, 'entry', n, `${rid}|${n}`);
   const pending = forceEntry(S, rid, n);
   if (pending) return { v: pending };
   const entry = S.byAtName.get(`${rid}|${n}`);
@@ -477,8 +539,7 @@ function linkLookup(S, rid, n, name) {
 // arguments by edge label.
 function ownLookup(S, id, n, name) {
   const found = [];
-  depend(S, 'entry', `${id}|${n}`);
-  depend(S, 'lists', `${id}|${n}`);
+  depend(S, 'entry', n, `${id}|${n}`);
   const pending = forceEntry(S, id, n) ?? forceLists(S, id, n);
   if (pending) return { v: pending };
   const entry = S.byAtName.get(`${id}|${n}`);
@@ -495,7 +556,7 @@ function ownLookup(S, id, n, name) {
 
 // A dot: on a list, the name on each item; on a record reached through a relation, the relation first;
 // then the record itself, and on up its path to its object.
-function lookupOn(S, v, name, n = norm(name)) {
+function lookupOn(S, v, name, n = normal(name)) {
   if (Array.isArray(v)) {
     const out = [];
     for (const x of v) {
@@ -521,7 +582,7 @@ function lookupOn(S, v, name, n = norm(name)) {
 
 // A name on its own: a LET name; in a relation's formula, one of its arguments, as an object; in an
 // entry's formula, a name on its location, looked up the path.
-function lookupBare(c, name, n = norm(name)) {
+function lookupBare(c, name, n = normal(name)) {
   for (let l = c.lets; l; l = l.up) if (l.n === n) return l.v;
   if (c.self.args) return c.self.args.has(n) ? recOf(c.self.args.get(n)) : err('#NAME?', `${name} isn’t one of this relation’s arguments.`);
   return lookupOn(c.S, recOf(c.self.loc), name, n);
@@ -565,7 +626,9 @@ function asRec(S, v) {
 }
 
 const flatten = v => Array.isArray(v) ? v.flatMap(flatten) : [v];
-const toList = v => isErr(v) ? v : v === null ? [] : flatten(v);
+// A list without lists in it is kept as it is, not copied, so what's worked out once from a list that's
+// kept (objectIds) is found again.
+const toList = v => isErr(v) ? v : v === null ? [] : !Array.isArray(v) ? [v] : v.some(Array.isArray) ? v.flatMap(flatten) : v;
 
 function truth(S, v) {
   v = scalar(S, v);
@@ -868,7 +931,7 @@ const FUNCTIONS = {
     if (bad) return bad;
     const list = toList(ev(a[0].x, c));
     if (isErr(list)) return list;
-    for (const item of list) { const t = truth(c.S, ev(a[1].x, { ...c, at: item })); if (isErr(t) || t) return t; }
+    for (const item of list) { const t = truth(c.S, ev(a[1].x, withAt(c, item))); if (isErr(t) || t) return t; }
     return false;
   },
   ALL(a, c) {
@@ -876,7 +939,7 @@ const FUNCTIONS = {
     if (bad) return bad;
     const list = toList(ev(a[0].x, c));
     if (isErr(list)) return list;
-    for (const item of list) { const t = truth(c.S, ev(a[1].x, { ...c, at: item })); if (isErr(t) || !t) return t; }
+    for (const item of list) { const t = truth(c.S, ev(a[1].x, withAt(c, item))); if (isErr(t) || !t) return t; }
     return true;
   },
   EACH(a, c) {
@@ -891,7 +954,7 @@ const FUNCTIONS = {
       if (a[i].x.k !== 'name') return err('#VALUE!', 'LET needs a name before each value.');
       const v = ev(a[i + 1].x, { ...c, lets });
       if (isErr(v)) return v;
-      lets = { n: norm(a[i].x.name), v, up: lets };
+      lets = { n: normal(a[i].x.name), v, up: lets };
     }
     return ev(a.at(-1).x, { ...c, lets });
   },
@@ -908,8 +971,9 @@ const FUNCTIONS = {
     if (bad) return bad;
     const name = toText(c.S, ev(a[0].x, c));
     if (isErr(name)) return name;
-    const hits = remembered(c.S, `object|${norm(name)}`, () => Object.keys(c.S.recs).filter(id => {
+    const hits = remembered(c.S, `object|${normal(name)}`, () => Object.keys(c.S.recs).filter(id => {
       if (!isObject(c.S.recs[id])) return false;
+      depend(c.S, 'entry', 'name', `${id}|name`);
       const nameId = c.S.byAtName.get(`${id}|name`);
       if (!nameId) return false;
       note(c.S, nameId);
@@ -956,30 +1020,8 @@ const FUNCTIONS = {
     if (isErr(from)) return from;
     if (isErr(to)) return to;
     if (!from?.id || !to?.id) return null;
-    const out = new Map(), queue = [from.id], seen = new Set([from.id]);
-    while (queue.length) {
-      const u = queue.shift(), edges = [];
-      const items = toList(lookupOn(c.S, recOf(u), step, stepN));
-      if (isErr(items)) return items;
-      for (const item of items) {
-        if (!isRec(item) || !item.id) continue;
-        const f = toNumber(c.S, lookupOn(c.S, item, factor, factorN));
-        if (isErr(f)) return f;
-        edges.push([item.id, f]);
-        if (!seen.has(item.id)) { seen.add(item.id); queue.push(item.id); }
-      }
-      out.set(u, edges);
-    }
-    const total = new Map();
-    let wave = new Map([[from.id, 1]]);
-    for (let k = 0; wave.size; k++) {
-      if (k > 10000) return err('#VALUE!', 'The look-through doesn’t settle: a loop multiplies to 100% or more.');
-      const next = new Map();
-      for (const [u, w] of wave) for (const [v, f] of out.get(u) ?? []) next.set(v, (next.get(v) ?? 0) + w * f);
-      let size = 0;
-      for (const [v, w] of next) { total.set(v, (total.get(v) ?? 0) + w); size = Math.max(size, Math.abs(w)); }
-      wave = size < 1e-15 ? new Map() : next;
-    }
+    const total = lookThrough(c.S, from.id, step, stepN, factor, factorN);
+    if (isErr(total)) return total;
     return total.has(to.id) ? total.get(to.id) : null;
   },
   // The expression, worked out as if x and everything depending on it weren't in the chart.
@@ -1004,7 +1046,7 @@ const FUNCTIONS = {
     for (const x of a.slice(1)) {
       const label = toText(c.S, ev(x.x, c));
       if (isErr(label)) return label;
-      if (held.has(norm(label))) return true;
+      if (held.has(normal(label))) return true;
     }
     return false;
   },
@@ -1073,12 +1115,45 @@ const FUNCTIONS = {
   TRIM(a, c) { return textFn(a, c, 'TRIM', 1, 1, t => clean(t)); },
 };
 
+// LOOKTHROUGH from one record: for each record reached by following the list, the sum over every way of
+// getting there of the product of the factor along the way. The same from a start for every `to`, so it's
+// kept as a lookup is (see remembered).
+function lookThrough(S, from, step, stepN, factor, factorN) {
+  return remembered(S, `through|${from}|${step}|${factor}`, () => {
+    const out = new Map(), queue = [from], seen = new Set([from]);
+    while (queue.length) {
+      const u = queue.shift(), edges = [];
+      const items = toList(lookupOn(S, recOf(u), step, stepN));
+      if (isErr(items)) return items;
+      for (const item of items) {
+        if (!isRec(item) || !item.id) continue;
+        const f = toNumber(S, lookupOn(S, item, factor, factorN));
+        if (isErr(f)) return f;
+        edges.push([item.id, f]);
+        if (!seen.has(item.id)) { seen.add(item.id); queue.push(item.id); }
+      }
+      out.set(u, edges);
+    }
+    const total = new Map();
+    let wave = new Map([[from, 1]]);
+    for (let k = 0; wave.size; k++) {
+      if (k > 10000) return err('#VALUE!', 'The look-through doesn’t settle: a loop multiplies to 100% or more.');
+      const next = new Map();
+      for (const [u, w] of wave) for (const [v, f] of out.get(u) ?? []) next.set(v, (next.get(v) ?? 0) + w * f);
+      let size = 0;
+      for (const [v, w] of next) { total.set(v, (total.get(v) ?? 0) + w); size = Math.max(size, Math.abs(w)); }
+      wave = size < 1e-15 ? new Map() : next;
+    }
+    return total;
+  });
+}
+
 function eachItem(a, c, use) {
   const list = toList(ev(a[0].x, c));
   if (isErr(list)) return list;
   const out = [];
   for (const item of list) {
-    const stop = use(item, ev(a[1].x, { ...c, at: item }), out);
+    const stop = use(item, ev(a[1].x, withAt(c, item)), out);
     if (stop !== undefined) return stop;
   }
   return out;
@@ -1117,9 +1192,9 @@ function textFn(a, c, name, min, max, fn) {
 }
 
 function call(node, c) {
-  const fn = FUNCTIONS[node.name.toUpperCase()];
-  if (fn) return fn(node.args, c);
-  const rel = c.S.P.reg.byName.get(norm(node.name));
+  if (node.fn === undefined) node.fn = FUNCTIONS[node.name.toUpperCase()] ?? null;
+  if (node.fn) return node.fn(node.args, c);
+  const rel = c.S.P.reg.byName.get(normal(node.name));
   if (rel) return callRelation(c, rel, node.args);
   return err('#NAME?', `There’s no function or relation called ${node.name}.`);
 }
@@ -1128,16 +1203,8 @@ function call(node, c) {
 // recorded. An object given for a parameter that sits below its objects fills it through its record there.
 function callRelation(c, rel, a) {
   const S = c.S;
-  if (a.length !== rel.edges.length) return err('#VALUE!', `${rel.name} takes ${rel.edges.length} arguments.`);
-  const given = new Map();
-  if (a.some(x => x.label)) {
-    for (const x of a) {
-      const edge = rel.edges.find(e => same(e, x.label ?? ''));
-      if (!edge) return err('#NAME?', `${rel.name} has no argument called ${x.label ?? '(unlabeled)'}.`);
-      given.set(norm(edge), x.x);
-    }
-    if (given.size !== rel.edges.length) return err('#VALUE!', `Give each of ${rel.name}’s arguments once.`);
-  } else rel.edges.forEach((e, i) => given.set(norm(e), a[i].x));
+  const given = givenArgs(rel, a);
+  if (isErr(given)) return given;
   const ids = new Map();
   for (const [edge, x] of given) {
     const v = asRec(S, ev(x, c));
@@ -1145,26 +1212,56 @@ function callRelation(c, rel, a) {
     if (!v?.id) return recOf(null);
     ids.set(edge, v.id);
   }
-  const first = objectOf(S, [...ids.values()][0]);
-  const key = callKey(S, rel.name, [...ids]);
-  depend(S, 'calls', key);
+  // The call's key (see callKey) and the records it can find (see indexByObjects) share their arguments.
+  const pairs = [...ids].map(([edge, g]) => `${edge}=${objectOf(S, g)}`).sort().join('&');
+  const key = `${rel.n}|${pairs}`;
+  depend(S, 'calls', rel.n, key);
   const pending = forceRelation(S, key);
   if (pending) return pending;
-  for (const rid of S.relsBySig.get(`${first}|${signature(rel.type, rel.edges)}`) ?? []) {
+  for (const rid of S.relsByCall.get(`${rel.sig}|${pairs}`) ?? []) {
     const r = S.recs[rid];
     // Records with the relation's edges but of another form are another relation.
     if (rel.form && formOfRecord(S, r) !== rel.form) continue;
-    const fits = r.args.every(x => {
-      const g = ids.get(norm(x.edge));
-      return isObject(S.recs[g]) ? objectOf(S, x.at) === g : x.at === g;
-    });
-    if (fits) { note(S, rid); return recOf(rid); }
+    if (fitsCall(S, r, ids)) { note(S, rid); return recOf(rid); }
   }
   // A value formula that gave an error there passes it on.
-  for (const { args, error } of S.failed.get(`rel|${first}|${norm(rel.name)}`) ?? [])
-    if (args.every(x => { const g = ids.get(norm(x.edge)); return isObject(S.recs[g]) ? objectOf(S, x.at) === g : x.at === g; })) return error;
+  for (const failure of S.failed.get(`rel|${objectOf(S, ids.values().next().value)}|${rel.n}`) ?? [])
+    if (fitsCall(S, failure, ids)) return failure.error;
   return recOf(null);
 }
+
+// A relation call's arguments by normalized edge label, in the order they're worked out: as labeled, or
+// else in the relation's own order. Worked out once for each call written in a formula.
+const givens = new WeakMap();
+function givenArgs(rel, a) {
+  const kept = givens.get(a);
+  if (kept?.rel === rel) return kept.given;
+  const given = argsGiven(rel, a);
+  givens.set(a, { rel, given });
+  return given;
+}
+function argsGiven(rel, a) {
+  if (a.length !== rel.edges.length) return err('#VALUE!', `${rel.name} takes ${rel.edges.length} arguments.`);
+  const given = new Map();
+  if (!a.some(x => x.label)) {
+    rel.edges.forEach((e, i) => given.set(normal(e), a[i].x));
+    return given;
+  }
+  for (const x of a) {
+    const edge = rel.edges.find(e => same(e, x.label ?? ''));
+    if (!edge) return err('#NAME?', `${rel.name} has no argument called ${x.label ?? '(unlabeled)'}.`);
+    given.set(normal(edge), x.x);
+  }
+  return given.size === rel.edges.length ? given : err('#VALUE!', `Give each of ${rel.name}’s arguments once.`);
+}
+
+// Whether a record (or a value formula's failure, with its args) is the one a call with these arguments
+// finds: an object given fills a parameter through its record there, and any other record fills it as is.
+// An argument given as undefined is left open.
+const fitsCall = (S, r, ids) => r.args.every(x => {
+  const g = ids.get(normal(x.edge));
+  return g === undefined || (isObject(S.recs[g]) ? objectOf(S, x.at) === g : x.at === g);
+});
 
 
 // ---- Definitions, and the order they're worked out in ----
@@ -1209,8 +1306,8 @@ function prepareDef(def, names) {
   return d;
 }
 
-const writtenEdge = (d, edge) => d.edges.find(e => norm(e) === edge) ?? edge;
-const edgeIndex = (d, edge) => d.edges.findIndex(e => norm(e) === edge);
+const writtenEdge = (d, edge) => d.edges.find(e => normal(e) === edge) ?? edge;
+const edgeIndex = (d, edge) => d.edges.findIndex(e => normal(e) === edge);
 
 // The names a formula mentions: every name after a dot, every relation it calls, and every name on its own
 // that isn't one of its own arguments. Names inside WITHOUT are kept apart too.
@@ -1218,8 +1315,8 @@ function namesIn(ast, own) {
   const refs = new Set(), inWithout = new Set();
   const walk = (n, w) => {
     if (!n) return;
-    const add = name => { refs.add(norm(name)); if (w) inWithout.add(norm(name)); };
-    if (n.k === 'name') { if (!own.has(norm(n.name))) add(n.name); return; }
+    const add = name => { refs.add(normal(name)); if (w) inWithout.add(normal(name)); };
+    if (n.k === 'name') { if (!own.has(normal(n.name))) add(n.name); return; }
     if (n.k === 'dot') { walk(n.x, w); add(n.name); return; }
     if (n.k === 'call') {
       const f = n.name.toUpperCase();
@@ -1237,10 +1334,10 @@ function namesIn(ast, own) {
 // What a definition provides names for: its own name, and for a relation, its lists of relatives, which
 // also answer to the edge labels they list.
 function namesProvided(d, reg) {
-  const out = new Set([norm(d.name)]);
+  const out = new Set([normal(d.name)]);
   if (d.isRelation) {
-    const rel = reg.byName.get(norm(d.name));
-    d.edges.forEach((own, i) => d.edges.forEach((other, j) => { if (i !== j) out.add(norm(listNameOf(rel, own, other))).add(norm(other)); }));
+    const rel = reg.byName.get(normal(d.name));
+    d.edges.forEach((own, i) => d.edges.forEach((other, j) => { if (i !== j) out.add(normal(listNameOf(rel, own, other))).add(normal(other)); }));
   }
   return out;
 }
@@ -1253,9 +1350,9 @@ function registry(names, defs) {
   for (const r of rels) {
     const lists = new Map();
     for (const [from, listed] of Object.entries(r.lists ?? {}))
-      for (const [to, name] of Object.entries(listed)) lists.set(`${norm(from)}|${norm(to)}`, name);
-    const rel = { name: r.name, n: norm(r.name), type: r.type, edges: r.edges, form: r.form, lists };
-    reg.byName.set(norm(r.name), rel);
+      for (const [to, name] of Object.entries(listed)) lists.set(`${normal(from)}|${normal(to)}`, name);
+    const rel = { name: r.name, n: normal(r.name), type: r.type, edges: r.edges, form: r.form, lists, sig: signature(r.type, r.edges) };
+    reg.byName.set(normal(r.name), rel);
     if (r.form) reg.byForm.set(r.form, rel);
     else reg.bySig.set(signature(r.type, r.edges), rel);
   }
@@ -1266,17 +1363,17 @@ function registry(names, defs) {
 function knownNames(entered, defs, reg) {
   const lists = new Set(), values = new Set();
   const addRelation = (type, edges, rel = reg.bySig.get(signature(type, edges))) => {
-    edges.forEach((own, i) => edges.forEach((other, j) => { if (i !== j) { lists.add(norm(listNameOf(rel, own, other))); lists.add(norm(other)); } }));
-    edges.forEach(e => values.add(norm(e)));
-    if (rel) values.add(norm(rel.name));
+    edges.forEach((own, i) => edges.forEach((other, j) => { if (i !== j) { lists.add(normal(listNameOf(rel, own, other))); lists.add(normal(other)); } }));
+    edges.forEach(e => values.add(normal(e)));
+    if (rel) values.add(normal(rel.name));
   };
   for (const r of Object.values(entered)) {
     if (r.args) addRelation(typeOf(r), r.args.map(a => a.edge));
-    else if (r.edge) values.add(norm(r.edge));
+    else if (r.edge) values.add(normal(r.edge));
   }
   for (const d of defs) {
     if (d.isRelation) addRelation(typeOfDef(d), d.edges);
-    else values.add(norm(d.name));
+    else values.add(normal(d.name));
     for (const ps of d.params) for (const p of ps) edgesInSpec(p.spec).forEach(e => values.add(e));
   }
   for (const rel of reg.byName.values()) addRelation(rel.type, rel.edges, rel);
@@ -1292,7 +1389,7 @@ function plan(defs, reg) {
   for (const d of defs) for (const p of d.covers) push(covering, p, d);
   const deps = new Map();
   for (const d of defs) {
-    const own = new Set(d.isRelation ? d.edges.map(norm) : []);
+    const own = new Set(d.isRelation ? d.edges.map(normal) : []);
     const asts = d.error ? [] : d.imps ? d.imps.map(i => i.ast) : [d.ast];
     const refs = new Set(), inWithout = new Set();
     for (const ast of asts) {
@@ -1335,28 +1432,39 @@ function plan(defs, reg) {
 
 // A record's underlying specification, as model.js's specKey() gives it; null while something it's
 // located at isn't there.
-const rootLabel = r => isTag(r) ? `tag:${r.tag}` : isChoice(r) ? `choice:${norm(r.choice)}` : `field:${r.field}`;
+const rootLabel = r => isTag(r) ? `tag:${r.tag}` : isChoice(r) ? `choice:${normal(r.choice)}` : `field:${r.field}`;
 function specOf(S, id) {
   if (S.specs.has(id)) return S.specs.get(id);
   const r = S.recs[id];
   if (!r) return null;
-  let key = `kind:${norm(r.kind)}`;
+  let key = `kind:${normal(r.kind)}`;
   if (!isObject(r)) {
     const parts = [];
     for (const a of argsOf(r)) {
       const s = specOf(S, a.at);
       if (s === null) return null;
-      parts.push(JSON.stringify([norm(a.edge), s]));
+      parts.push(kept(specParts, `${normal(a.edge)}\n${s}`, () => JSON.stringify([normal(a.edge), s])));
     }
-    key = JSON.stringify([rootLabel(r), ...parts.sort()]);
+    parts.sort();
+    key = kept(specKeys, `${rootLabel(r)}\n${parts.join('\n')}`, () => JSON.stringify([rootLabel(r), ...parts]));
   }
   S.specs.set(id, key);
   push(S.bySpec, key, id);
   return key;
 }
+// Keys spelled out once: a computed relation's records mostly share their specification.
+const specParts = new Map(), specKeys = new Map();
+function kept(map, k, make) {
+  let v = map.get(k);
+  if (v === undefined) {
+    if (map.size > 50000) map.clear();
+    map.set(k, v = make());
+  }
+  return v;
+}
 
 // A computed record's id comes from its argumentation, so it stays the same from one working-out to the next.
-const computedId = args => `fx:${args.map(a => `${norm(a.edge)}=${a.at}`).sort().join('&')}`;
+const computedId = args => `fx:${args.map(a => `${normal(a.edge)}=${a.at}`).sort().join('&')}`;
 
 // The argumentations a definition could give an output at: for each parameterization it covers, every way
 // of filling its parameters with records of their locations' specifications, skipping ways that use one
@@ -1383,7 +1491,7 @@ function candidatesOf(S, d) {
 }
 
 function contextFor(S, d, cand) {
-  if (d.isRelation) return { S, def: d, self: { args: new Map(cand.args.map(a => [norm(a.edge), objectOf(S, a.at)])) }, at: null, lets: null };
+  if (d.isRelation) return { S, def: d, self: { args: new Map(cand.args.map(a => [normal(a.edge), objectOf(S, a.at)])) }, at: null, lets: null };
   return { S, def: d, self: { loc: cand.at }, at: recOf(cand.at), lets: null };
 }
 
@@ -1448,16 +1556,333 @@ function asOutput(S, d, v) {
   return typeof v === 'number' ? { out: v } : wrong('a number');
 }
 
+// ---- Where a formula can hold ----
+// A relation's candidates are every way of filling its parameters, and for a relation between two kinds of
+// object most of them come to nothing: an implication doesn't hold there, a value formula gives BLANK. So
+// where a formula's form says where it can come to something, a step finds its candidates there, the way a
+// database joins tables, instead of trying every pair.
+//
+// For one argument, the free one, given the others: a support is the set of objects outside of which the
+// formula is sure to come to nothing, exactly FALSE or BLANK and no error, as { bits, exact }, the objects
+// being bits by their numbers in the state (see numberOf). Where it's exact, an implication is sure to hold
+// just there, so there's nothing to work out. A support is worked out with the same lookups the formula
+// would make, so it's worked out again when what they found changes (see settleStep). Where the form
+// doesn't tell, there's no support (null), and every candidate is tried. holdsWhere and the rest compile a
+// formula to a function from the given arguments (in a context, as ev takes) to a support, or to null.
+//
+// They compile it for a step, K: { P, own, settles }, own being the names of the relations the step works
+// out, and settles, for each, whether each label is settled once the step's first round is done (see
+// settledLabels). What a support works out it works out once for every value of the free argument, and once
+// for a whole round of the step, so it may use only what's steady (see steady).
+
+const AT = { at: true };   // `@` as the free variable: the item a condition is asked of
+const isVar = (n, v) => v === AT ? n.k === 'at' : n.k === 'name' && n.n === v.name;
+const isCall = (n, f) => n.k === 'call' && n.name.toUpperCase() === f;
+const ITEM_FUNCTIONS = new Set(['FILTER', 'ANY', 'ALL', 'EACH']);
+const parts = n => [n.x, n.a, n.b, ...(n.items ?? []), ...(n.args ?? []).map(x => x.x)].filter(x => x && typeof x === 'object');
+const withAt = (c, at) => ({ S: c.S, def: c.def, self: c.self, at, lets: c.lets });
+
+// Whether an expression uses the free variable: an argument by its name, or `@` outside the conditions of
+// FILTER and the like, where it means their items.
+function uses(n, v) {
+  if (isVar(n, v)) return true;
+  if (v === AT && n.k === 'call' && ITEM_FUNCTIONS.has(n.name.toUpperCase())) return !!n.args[0] && uses(n.args[0].x, v);
+  return parts(n).some(x => uses(x, v));
+}
+
+// Whether an expression comes out the same all through a round. It reads no OBJECT, which reads Names that
+// no formula names; and no IMPLIEDBY, whose answer can change within a round, unless of a relation another
+// step works out, or of one this step works out with labels that are settled by the time its records are
+// there (see supportContext).
+function steady(K, n) {
+  if (n.k === 'call') {
+    const f = n.name.toUpperCase(), tag = n.args[0]?.x;
+    if (f === 'OBJECT') return false;
+    if (f === 'IMPLIEDBY' && (tag?.k !== 'call' || FUNCTIONS[tag.name.toUpperCase()]
+      || K.own.has(normal(tag.name)) && !(K.quiet.has(normal(tag.name)) && n.args.slice(1).every(x => x.x.k === 'lit'
+        && typeof x.x.v === 'string' && K.settles.get(normal(tag.name))?.get(normal(x.x.v)) !== false)))) return false;
+  }
+  return parts(n).every(x => steady(K, x));
+}
+
+const callsTo = (n, f) => isCall(n, f) || parts(n).some(x => callsTo(x, f));
+
+// Whether LET gives a name another meaning somewhere in an expression.
+const binds = (n, name) => isCall(n, 'LET') && n.args.some((x, i) => i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name' && x.x.n === name)
+  || parts(n).some(x => binds(x, name));
+
+// Sets of objects as bits. Each object (or other record) a support names gets a number in the state.
+function numberOf(S, id) {
+  let k = S.numbers.get(id);
+  if (k === undefined) { S.numbers.set(id, k = S.numbered.length); S.numbered.push(id); }
+  return k;
+}
+function bitsOf(S, ids) {
+  const ks = [];
+  for (const id of ids) ks.push(numberOf(S, id));
+  const bits = new Uint32Array((S.numbered.length >> 5) + 1);
+  for (const k of ks) bits[k >> 5] |= 1 << (k & 31);
+  return bits;
+}
+const hasBit = (bits, k) => (k >> 5) < bits.length && ((bits[k >> 5] >>> (k & 31)) & 1) === 1;
+// Adds b's bits to a, making a longer where b is: returns a, or its longer copy.
+function addBits(a, b) {
+  if (b.length > a.length) { const longer = new Uint32Array(b.length); longer.set(a); a = longer; }
+  for (let i = 0; i < b.length; i++) a[i] |= b[i];
+  return a;
+}
+function* idsIn(S, bits) {
+  for (let w = 0; w < bits.length; w++) for (let x = bits[w]; x; x &= x - 1) yield S.numbered[(w << 5) + 31 - Math.clz32(x & -x)];
+}
+
+const NOWHERE = { bits: new Uint32Array(0), exact: true };
+const union = (a, b) => a && b && { bits: !a.bits.length ? b.bits : !b.bits.length ? a.bits : addBits(Uint32Array.from(a.bits), b.bits), exact: a.exact && b.exact };
+const loose = s => s && { bits: s.bits, exact: false };
+
+// Where a condition can be TRUE.
+function holdsWhere(K, n, v) {
+  // One that doesn't use the free variable is worked out once: where it's FALSE, it's FALSE everywhere.
+  if (!uses(n, v)) return steady(K, n) && (c => truth(c.S, ev(n, c)) === false ? NOWHERE : null);
+  switch (n.k) {
+    case 'or': {
+      const a = holdsWhere(K, n.a, v), b = holdsWhere(K, n.b, v);
+      return a && b && (c => { const s = a(c); return s && union(s, b(c)); });
+    }
+    // AND stops at a FALSE, so it can hold only where its first side can; or, where that's worked out
+    // once, only where its second side can.
+    case 'and': {
+      if (uses(n.a, v)) { const a = holdsWhere(K, n.a, v); return a && (c => loose(a(c))); }
+      if (!steady(K, n.a)) return null;
+      const b = holdsWhere(K, n.b, v);
+      return c => { const t = truth(c.S, ev(n.a, c)); return t === false ? NOWHERE : t === true && b ? b(c) : null; };
+    }
+    case 'in': return isVar(n.a, v) && !uses(n.b, v) && steady(K, n.b) ? c => among(c.S, ev(n.b, c)) : null;
+    case 'cmp': return comparedWhere(K, n, v);
+    case 'call': {
+      const f = n.name.toUpperCase(), a = n.args;
+      if (f === 'ANY' && a.length === 2 && !uses(a[0].x, v) && steady(K, a[0].x)) {
+        const h = holdsWhere(K, a[1].x, v);
+        return h && (c => acrossItems(c, a[0].x, h));
+      }
+      // IMPLIEDBY reads its labels only where its tag is there; where they're written out, they say
+      // just where it holds, once they've settled.
+      if (f === 'IMPLIEDBY' && a.length >= 2 && a[0].x.k === 'call')
+        return relatedWhere(K, a[0].x, v, a.slice(1).every(x => x.x.k === 'lit' && typeof x.x.v === 'string') ? a.slice(1).map(x => normal(x.x.v)) : null);
+      return relatedWhere(K, n, v, null);
+    }
+  }
+  return null;
+}
+
+// `x IN list`, with x the free variable: TRUE just for the objects on the list, unless an item errs. A list
+// that's kept (see remembered) has its bits worked out once.
+function among(S, v) {
+  const list = toList(v);
+  if (isErr(list)) return null;
+  let bits = S.listBits.get(list);
+  if (!bits) {
+    const ids = [];
+    for (const x of list) {
+      const s = scalar(S, x);
+      if (isErr(s)) return null;
+      if (isRec(s) && s.id) ids.push(s.id);
+    }
+    S.listBits.set(list, bits = bitsOf(S, ids));
+  }
+  return { bits, exact: true };
+}
+
+// The union of a condition's supports with `@` as each item of a list worked out once: where ANY can hold,
+// or FILTER can keep something.
+function acrossItems(c, list, h) {
+  const items = toList(ev(list, c));
+  if (isErr(items)) return null;
+  let bits = new Uint32Array(0), exact = true;
+  for (const item of items) {
+    const s = h(withAt(c, item));
+    if (!s) return null;
+    exact &&= s.exact;
+    bits = addBits(bits, s.bits);
+  }
+  return { bits, exact };
+}
+
+// `x = e`, with x the free variable: TRUE just for e's object. And a sum or count compared with a number it
+// doesn't reach while what it counts is empty, as SUM(…) > 25% doesn't: it can hold only where that isn't.
+function comparedWhere(K, n, v) {
+  const e = n.op === '=' ? isVar(n.a, v) ? n.b : isVar(n.b, v) ? n.a : null : null;
+  if (e) return !uses(e, v) && steady(K, e) ? c => {
+    const s = scalar(c.S, ev(e, c));
+    return isErr(s) ? null : { bits: bitsOf(c.S, isRec(s) && s.id ? [s.id] : []), exact: true };
+  } : null;
+  const tally = x => isCall(x, 'SUM') || isCall(x, 'COUNT');
+  const [counted, lit, litFirst] = tally(n.a) && n.b.k === 'lit' ? [n.a, n.b, false] : tally(n.b) && n.a.k === 'lit' ? [n.b, n.a, true] : [];
+  if (!counted || typeof lit.v !== 'number' || compare(null, n.op, litFirst ? lit.v : 0, litFirst ? 0 : lit.v) !== false) return null;
+  const each = counted.args.map(x => filledWhere(K, x.x, v));
+  return each.every(Boolean) && (c => {
+    let out = NOWHERE;
+    for (const f of each) if (!(out = union(out, f(c)))) return null;
+    return loose(out);
+  });
+}
+
+// Where a list can have something in it: outside, it's sure to be empty, or BLANK, and no error.
+function filledWhere(K, n, v) {
+  if (!uses(n, v)) return steady(K, n) && (c => { const l = toList(ev(n, c)); return isErr(l) || l.length ? null : NOWHERE; });
+  // A dot over FILTER's list maps it, so it's empty where that is.
+  if (n.k === 'dot' && isCall(n.x, 'FILTER')) return filledWhere(K, n.x, v);
+  if (!isCall(n, 'FILTER') || n.args.length !== 2) return null;
+  const [list, cond] = n.args.map(x => x.x);
+  if (!uses(list, v)) {
+    const h = steady(K, list) && holdsWhere(K, cond, v);
+    return h && (c => loose(acrossItems(c, list, h)));
+  }
+  // FILTER(y.List, cond), y being the free variable: an object is on y's list just where y is on that
+  // object's list seen from the other side, so FILTER can keep something only for the objects on the lists
+  // of those its condition can hold for.
+  if (v === AT || list.k !== 'dot' || !isVar(list.x, v) || uses(cond, v)) return null;
+  const h = holdsWhere(K, cond, AT);
+  return h && (c => {
+    if (!listedOnly(c.S, list.n)) return null;
+    const s = h(c);
+    if (!s) return null;
+    const ids = [];
+    for (const o of idsIn(c.S, s.bits)) ids.push(...listing(c.S, o, list.n));
+    return { bits: bitsOf(c.S, ids), exact: false };
+  });
+}
+
+// Whether an object's `n` is sure to be its list of relatives of that name: no entry, worked out or not,
+// is called that at an object, and the name is a list's somewhere, so where there are none it's empty.
+function listedOnly(S, n) {
+  if (!S.listedOnly.has(n)) S.listedOnly.set(n, S.P.known.lists.has(n) && !S.dep?.entry.has(n)
+    && ![...S.byAtName.keys(), ...S.failed.keys()].some(k => k.endsWith(`|${n}`) && isObject(S.recs[k.slice(0, -n.length - 1)])));
+  return S.listedOnly.get(n);
+}
+
+// The objects whose list of relatives called `n` has o on it, kept as a lookup is.
+const listing = (S, o, n) => remembered(S, `listing|${o}|${n}`, () => {
+  depend(S, 'inverse', n, `${o}|${n}`);
+  const out = [];
+  for (const rid of relationsFor(S, o, n)) {
+    const r = S.recs[rid];
+    if (isTag(r) && r.tag !== true) continue;
+    for (const { own, other, list, alias } of listsOf(S, r))
+      if ((list === n || alias === n) && objectOf(S, other.at) === o) { const y = objectOf(S, own.at); if (y) out.push(y); }
+  }
+  return out;
+});
+
+// A relation call with the free variable as one argument finds a record only among those the other
+// arguments are in, so, as a condition or for IMPLIEDBY, it can hold only for their objects at its edge.
+// For IMPLIEDBY with its labels written out (`labels`), only where the record found has one of them.
+function relatedWhere(K, n, v, labels) {
+  const rel = !FUNCTIONS[n.name.toUpperCase()] && K.P.reg.byName.get(normal(n.name));
+  const given = rel && givenArgs(rel, n.args);
+  if (!given || isErr(given)) return null;
+  const free = [...given].filter(([, x]) => uses(x, v)), others = [...given].filter(([, x]) => !uses(x, v));
+  if (free.length !== 1 || !isVar(free[0][1], v) || !others.length || !others.every(([, x]) => steady(K, x))) return null;
+  const freeEdge = free[0][0];
+  return c => {
+    const ids = new Map();
+    for (const [edge, x] of others) {
+      const r = asRec(c.S, ev(x, c));
+      if (isErr(r)) return null;
+      if (!r?.id) return NOWHERE;
+      ids.set(edge, r.id);
+    }
+    return relatedAt(c.S, rel, ids, freeEdge, labels && settledLabels(K, c.S, rel, labels));
+  };
+}
+
+// IMPLIEDBY's labels, where they say for good whether it holds: those of a relation another step works
+// out, or of one this step does once its first round is done, if the implications that give them don't read
+// anything the step works out, and so came out for good in that round.
+function settledLabels(K, S, rel, labels) {
+  if (!K.own.has(rel.n)) return labels;
+  return S.settled && labels.every(l => K.settles.get(rel.n)?.get(l) !== false) ? labels : null;
+}
+
+// The objects at one edge of a relation's records whose other arguments are as given, the first such
+// record for each being the one a call finds; or, where a value formula gave an error there, the call's
+// error. With `labels`, just where IMPLIEDBY would hold for those labels.
+function relatedAt(S, rel, ids, freeEdge, labels) {
+  const [edge, g] = ids.entries().next().value;
+  const obj = objectOf(S, g);
+  // With labels, it changes only where one of them comes or goes (see candidateKeys).
+  if (labels) for (const l of labels) depend(S, 'held', rel.n, `${rel.n}|${edge}=${obj}|${l}`);
+  else depend(S, 'rel', rel.n, `${rel.n}|${edge}=${obj}`);
+  const out = [], seen = new Set();
+  // Every record here has the first argument given; the others are checked.
+  const checked = ids.size > 1 || !isObject(S.recs[g]);
+  let exact = !!labels;
+  for (const rid of S.byEdge.get(`${rel.sig}|${edge}=${obj}`) ?? []) {
+    const r = S.recs[rid];
+    if ((rel.form && formOfRecord(S, r) !== rel.form) || (checked && !fitsCall(S, r, ids))) continue;
+    const { objs, edges } = S.indexed.get(rid), y = objs[edges.indexOf(freeEdge)];
+    if (!y || seen.has(y)) continue;
+    seen.add(y);
+    if (!labels) out.push(y);
+    else if (!isTag(r)) { out.push(y); exact = false; }
+    else if (r.tag === true && labels.some(l => S.prov.get(keyOf(r))?.has(l))) out.push(y);
+  }
+  for (const failure of S.failed.get(`rel|${obj}|${rel.n}`) ?? []) {
+    const a = failure.args.find(x => normal(x.edge) === freeEdge), y = a && objectOf(S, a.at);
+    if (y && !seen.has(y) && fitsCall(S, failure, ids)) { seen.add(y); out.push(y); exact = false; }
+  }
+  return { bits: bitsOf(S, out), exact };
+}
+
+// Where a value formula can give something other than BLANK. LOOKTHROUGH gives BLANK where there's no way
+// from one argument to the other.
+function givesWhere(K, n, v) {
+  if (!uses(n, v)) return steady(K, n) && (c => scalar(c.S, ev(n, c)) === null ? NOWHERE : null);
+  if (!isCall(n, 'LOOKTHROUGH') || n.args.length !== 4) return null;
+  const [from, to, step, factor] = n.args.map(x => x.x);
+  if (!isVar(to, v) || uses(from, v) || !steady(K, from) || !stepName(step) || !stepName(factor)) return null;
+  return c => {
+    const r = asRec(c.S, ev(from, c));
+    if (isErr(r)) return null;
+    if (!r?.id) return NOWHERE;
+    const total = lookThrough(c.S, r.id, step.name, step.n, factor.name, factor.n);
+    return isErr(total) ? null : { bits: bitsOf(c.S, total.keys()), exact: false };
+  };
+}
+
+// A step's context for compiling supports (see holdsWhere): the relations it works out; which of their
+// labels are settled once its first round is done, those whose implications use no name the step's
+// definitions give, so they came out for good in that round; and which are quiet, having no entered
+// records, so that there's nothing for IMPLIEDBY to find until the end of that round.
+function supportContext(S, group) {
+  const entered = new Set(Object.values(S.entered).filter(r => r.args).map(signatureOf));
+  const quiet = new Set(group.filter(d => d.isRelation && !entered.has(signature(typeOfDef(d), d.edges))).map(d => normal(d.name)));
+  const names = new Set(group.flatMap(d => [...namesProvided(d, S.P.reg)]));
+  const settles = new Map();
+  for (const d of group) if (d.isRelation && d.imps) {
+    const labels = new Map(), own = new Set(d.edges.map(normal));
+    for (const imp of d.imps) {
+      const { refs } = namesIn(imp.ast, own);
+      // OBJECT reads Names without naming them.
+      const alone = ![...refs].some(n => names.has(n)) && !(names.has('name') && callsTo(imp.ast, 'OBJECT'));
+      labels.set(normal(imp.label), labels.get(normal(imp.label)) !== false && alone);
+    }
+    settles.set(normal(d.name), labels);
+  }
+  return { P: S.P, own: new Set(group.filter(d => d.isRelation).map(d => normal(d.name))), settles, quiet };
+}
+
 // ---- Working out the state ----
 
 function stateFor(P, entered) {
-  const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), relsAtObj: new Map(), relsBySig: new Map(), specs: new Map(),
-    bySpec: new Map(), enteredByKey: new Map(), prov: new Map(), rows: new Map(), lazy: null, dep: null, deps: null, reads: null, done: 0,
-    cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(), forms: new WeakMap() };
-  // Every entered record is in before any is indexed, so a relation listed before a record it's located at
-  // is still indexed by that record's object.
+  const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), byObject: new Map(), byEdge: new Map(),
+    relsByCall: new Map(), indexed: new Map(), seq: 0, listNames: new Map(), specs: new Map(), bySpec: new Map(), enteredByKey: new Map(),
+    prov: new Map(), rows: new Map(), lazy: null, dep: null, watch: null, reads: null, forgetting: true, settled: false, done: 0,
+    cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(), forms: new WeakMap(),
+    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap() };
+  // Every entered record is in before any is indexed, so each is indexed by the objects it belongs to
+  // whatever order they come in.
   Object.assign(S.recs, entered);
-  for (const [id, r] of Object.entries(entered)) addRecord(S, id, r);
+  for (const [id, r] of Object.entries(entered)) indexRecord(S, id, r);
   for (const [id, r] of Object.entries(entered)) {
     specOf(S, id);
     if (!isObject(r)) S.enteredByKey.set(argKey(argsOf(r)), id);
@@ -1465,21 +1890,73 @@ function stateFor(P, entered) {
   return S;
 }
 
-function addComputed(S, id, r) {
+// A computed record comes into the state, or goes, as a step works it out (again). The candidate it's
+// worked out at comes with it, with its block, which knows what all its records share: their signature,
+// and their specification for each output.
+function addComputed(S, id, r, cand, b) {
+  keyCache.set(r, cand.key);
+  if (b?.sig) sigCache.set(r, b.sig);
   addRecord(S, id, r);
-  specOf(S, id);
+  const root = rootLabel(r), spec = b?.specs.get(root);
+  if (spec) { S.specs.set(id, spec); push(S.bySpec, spec, id); }
+  else { const own = specOf(S, id); if (b && own) b.specs.set(root, own); }
+  againBelow(S, id);
+}
+function removeComputed(S, id) {
+  removeRecord(S, id);
+  againBelow(S, id);
+}
+
+// An entered record located at a computed one was indexed by the objects it belonged to, and given its
+// specification, while that wasn't there. When it comes or goes, those located at it, and at them, are
+// indexed and specified again.
+function againBelow(S, id) {
+  if (!S.byAt.has(id) && !S.relsAt.has(id)) return;
+  for (const rid of [...(S.byAt.get(id) ?? []), ...(S.relsAt.get(id) ?? [])]) {
+    const r = S.recs[rid];
+    if (!r || r.computed) continue;
+    if (r.args) {
+      unindexByObjects(S, rid, r);
+      indexByObjects(S, rid, r);
+    }
+    const spec = S.specs.get(rid);
+    if (spec) {
+      S.bySpec.set(spec, S.bySpec.get(spec).filter(x => x !== rid));
+      S.specs.delete(rid);
+    }
+    specOf(S, rid);
+    againBelow(S, rid);
+  }
 }
 
 // Works out one step: a group of definitions that read each other. Value formulas alone are worked out on
 // demand; with implications among them, the step goes in rounds (see settleStep).
+//
+// What the step's lookups find is kept for the step (see remembered). A step of implications alone keeps
+// track of what each lookup read, and at the end of each round lets go of those that read something the
+// round changed. A value formula that doesn't read what it gives keeps them all. Anything else lets go of
+// them all whenever a record comes or goes, as a spreadsheet recalculates.
 function runStep(S, i) {
   const started = now();
   const group = S.P.order[i].filter(d => !d.error);
-  S.count = { evals: 0, rounds: 0, attempts: 0 };
-  if (group.some(d => d.imps)) settleStep(S, group);
-  else settleValues(S, group);
+  S.count = { evals: 0, rounds: 0, attempts: 0, tried: 0 };
+  S.memo.clear();
+  S.listedOnly.clear();
+  if (group.some(d => d.imps)) {
+    S.forgetting = group.some(d => !d.imps);
+    settleStep(S, group);
+  } else {
+    S.forgetting = !aloof(S.P, group);
+    settleValues(S, group);
+  }
+  S.forgetting = true;
+  S.memo.clear();
   S.steps.push({ defs: S.P.order[i].map(d => d.id), ms: now() - started, ...S.count });
 }
+
+// Whether a step is one value formula that can't read what it gives: it names none of it, and gives no
+// Names, which OBJECT reads.
+const aloof = (P, group) => group.length === 1 && !group[0].dependsOn.has(group[0]) && !namesProvided(group[0], P.reg).has('name');
 
 function runUpTo(S, limit) {
   for (; S.done < limit; S.done++) runStep(S, S.done);
@@ -1487,43 +1964,84 @@ function runUpTo(S, limit) {
 
 const now = () => typeof performance === 'object' ? performance.now() : Date.now();
 
-// Works out an expression with what it reads noted, and within a step what it depends on (see depend).
-// Both count for any expression it's part of, too. What an expression reads is kept as the ids it read
-// itself and the reads of what it was made of, so a lookup used many times is kept once; they're spelled
-// out (readIds) only for the records that are there, since most of what a step tries comes to nothing.
-const NONE = new Set();
-const NO_READS = { ids: NONE, parts: [] };
-function readIds(reads) {
-  const out = new Set(), seen = new Set(), stack = [reads];
+// ---- What a formula read ----
+// A formula is worked out with what it reads noted (see reading). What it read is kept as a trace: the ids
+// it read itself, the keys it depends on within a step (see depend), and the traces of what it was made
+// of, so a lookup used many times is kept once. The ids are spelled out (readIds) only for the records
+// someone asks about. Within a step, a trace that depends on keys is watched for them, directly or
+// through what it was part of (see watch and affected), so a change finds what it changes.
+
+const NO_READS = { ids: [], keys: [], parts: [] };
+function readIds(trace) {
+  const out = new Set(), seen = new Set(), stack = [trace];
   while (stack.length) {
-    const r = stack.pop();
-    if (seen.has(r)) continue;
-    seen.add(r);
-    for (const id of r.ids) out.add(id);
-    stack.push(...r.parts);
+    const t = stack.pop();
+    if (seen.has(t)) continue;
+    seen.add(t);
+    for (const id of t.ids) out.add(id);
+    stack.push(...t.parts);
   }
   return [...out];
 }
+// The keys a trace depends on, at any depth.
+function keysOf(trace, out = new Set(), seen = new Set()) {
+  if (seen.has(trace)) return out;
+  seen.add(trace);
+  for (const k of trace.keys) out.add(k);
+  for (const p of trace.parts) keysOf(p, out, seen);
+  return out;
+}
+
 function reading(S, fn) {
-  const outer = S.reads, outerDeps = S.deps;
-  S.reads = { ids: new Set(), parts: [] };
-  S.deps = S.dep ? new Set() : null;
-  try { return { v: fn(), reads: S.reads, deps: S.deps ?? NONE }; }
+  const outer = S.reads;
+  const trace = S.reads = { ids: [], keys: [], parts: [] };
+  try { return { v: fn(), reads: trace }; }
   finally {
-    if (outer) outer.parts.push(S.reads);
-    if (outerDeps && S.deps) for (const k of S.deps) outerDeps.add(k);
     S.reads = outer;
-    S.deps = outerDeps;
+    if (S.watch) watch(S, trace);
+    if (outer) outer.parts.push(trace);
   }
 }
 
-// Lookups are kept until the state changes, which in a round of implications is not until its end.
+// A trace that depends on keys, itself or through its parts, is found from them: each key lists the traces
+// that noted it, and each part the traces it's part of.
+function watch(S, trace) {
+  trace.live = trace.keys.length > 0 || trace.parts.some(p => p.live);
+  if (!trace.live) return;
+  for (const k of trace.keys) push(S.watch, k, trace);
+  for (const p of trace.parts) if (p.live) (p.up ??= []).push(trace);
+}
+
+// The traces a change to these keys reaches, through what they're part of. A lookup kept for the step
+// that's reached is let go of; the traces of what's being worked out are returned. The keys are done with.
+function affected(S, keys) {
+  const out = [], seen = new Set(), stack = [];
+  for (const k of keys) {
+    const traces = S.watch.get(k);
+    if (traces) { stack.push(...traces); S.watch.delete(k); }
+  }
+  while (stack.length) {
+    const t = stack.pop();
+    if (seen.has(t)) continue;
+    seen.add(t);
+    if (t.memo && S.memo.get(t.memo)?.reads === t) S.memo.delete(t.memo);
+    if (t.job) out.push(t);
+    if (t.up) stack.push(...t.up);
+  }
+  return out;
+}
+
+// Lookups are kept until what they read changes (see runStep).
 function remembered(S, key, fn) {
-  if (!S.memo.has(key)) S.memo.set(key, reading(S, fn));
-  const { v, reads, deps } = S.memo.get(key);
-  if (S.reads) S.reads.parts.push(reads);
-  if (S.deps) deps.forEach(k => S.deps.add(k));
-  return v;
+  const kept = S.memo.get(key);
+  if (kept) {
+    if (S.reads) S.reads.parts.push(kept.reads);
+    return kept.v;
+  }
+  const run = reading(S, fn);
+  run.reads.memo = key;
+  S.memo.set(key, run);
+  return run.v;
 }
 
 function safeEv(ast, c) {
@@ -1531,30 +2049,177 @@ function safeEv(ast, c) {
   catch (e) { return err('#VALUE!', e instanceof RangeError ? 'This goes around too many times.' : String(e)); }
 }
 
-// Where a step's candidates could be found, for working them out on demand and for noting what depends on
-// them (see depend): an entry by its location and name, and a relation by the lists of relatives it makes
-// and by the call that would find it (see callKey). Each maps to candidate keys.
-function indexCandidates(S, jobs) {
-  const idx = { entry: new Map(), lists: new Map(), calls: new Map() };
-  for (const { d, cand } of jobs) {
-    if (!d.isRelation) { push(idx.entry, `${cand.at}|${norm(d.name)}`, cand.key); continue; }
-    const rel = S.P.reg.byName.get(norm(d.name));
-    cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
-      if (i === j) return;
-      // A named list still answers to the edge label it lists, as it did before it was named.
-      const obj = objectOf(S, own.at);
-      for (const list of new Set([norm(listNameOf(rel, own.edge, other.edge)), norm(other.edge)])) {
-        push(idx.lists, `${own.at}|${list}`, cand.key);
-        if (obj !== own.at) push(idx.lists, `${obj}|${list}`, cand.key);
-      }
-    }));
-    push(idx.calls, callKey(S, d.name, cand.args.map(a => [a.edge, a.at])), cand.key);
+// A property worked out when it's first read, and kept: what a record read is spelled out only for the
+// records someone asks about.
+function lazily(obj, name, fn) {
+  Object.defineProperty(obj, name, { enumerable: true, configurable: true, get() {
+    const value = fn();
+    Object.defineProperty(obj, name, { value, enumerable: true, configurable: true, writable: true });
+    return value;
+  } });
+  return obj;
+}
+
+// ---- Candidates, as a step finds them ----
+
+// A definition's candidates for one parameterization it covers, as a block: its parameters in the
+// relation's order, the records each can be filled with (pools, as they stand when the step starts), and
+// each record's object. A candidate is one record from each pool, as indexes; its ordinal is its place in
+// candidatesOf's order, so candidates found in any order are worked out in that order.
+function blocksOf(S, group) {
+  const blocks = [];
+  let base = 0;
+  for (const d of group) for (const params of d.params) {
+    const ordered = d.isRelation ? [...params].sort((a, b) => edgeIndex(d, a.edge) - edgeIndex(d, b.edge)) : params;
+    const pools = ordered.map(p => [...(S.bySpec.get(p.spec) ?? [])]);
+    const strides = pools.map(() => 1);
+    for (let j = pools.length - 2; j >= 0; j--) strides[j] = strides[j + 1] * pools[j + 1].length;
+    blocks.push(keyedBlock({ d, pools, strides, base, edges: ordered.map(p => writtenEdge(d, p.edge)), objects: pools.map(pool => pool.map(id => objectOf(S, id))), numbers: [] }));
+    base += pools.length ? strides[0] * pools[0].length : 0;
   }
+  return blocks;
+}
+
+// The candidate with these records, or null if it uses one object twice and its definition doesn't allow
+// that; and its ordinal.
+function candidateIn(b, picks) {
+  if (!b.d.self) for (let i = 1; i < picks.length; i++) for (let j = 0; j < i; j++) if (b.objects[i][picks[i]] === b.objects[j][picks[j]]) return null;
+  const args = picks.map((k, j) => ({ edge: b.edges[j], at: b.pools[j][k] }));
+  const key = `[${b.keyOrder.map(j => kept(b.keyParts[j], picks[j], () => JSON.stringify(JSON.stringify([b.normals[j], args[j].at])))).join(',')}]`;
+  const id = b.idOrder ? `fx:${b.idOrder.map(j => `${b.normals[j]}=${args[j].at}`).join('&')}` : computedId(args);
+  return { key, args, at: b.d.isRelation ? undefined : args[0].at, id };
+}
+
+// argKey and computedId sort their pairs, [edge, location] and edge=location, and a block's edges alone
+// decide the order: two pairs differ first within their edges (or, for computedId, at the = after the
+// shorter, unless an edge has = or & in it). So a block works the order out once, and a key's pairs once
+// for each record of a pool.
+function keyedBlock(b) {
+  b.normals = b.edges.map(normal);
+  b.sig = b.d.isRelation && signature(typeOfDef(b.d), b.edges);
+  b.specs = new Map();
+  const order = by => b.normals.map((_, j) => j).sort((x, y) => by(x) < by(y) ? -1 : by(x) > by(y) ? 1 : 0);
+  b.keyOrder = order(j => JSON.stringify([b.normals[j], '']));
+  b.idOrder = b.normals.some(e => /[=&]/.test(e)) ? null : order(j => `${b.normals[j]}=`);
+  b.keyParts = b.normals.map(() => new Map());
+  return b;
+}
+const ordinalIn = (b, picks) => picks.reduce((o, k, j) => o + k * b.strides[j], b.base);
+
+// Every choice of records for the parameters other than the free one (whose index is left 0).
+function anchorsOf(b, free) {
+  const out = [], picks = b.pools.map(() => 0);
+  const walk = j => {
+    if (j === b.pools.length) return out.push([...picks]);
+    if (j === free) return walk(j + 1);
+    for (let k = 0; k < b.pools[j].length; k++) { picks[j] = k; walk(j + 1); }
+  };
+  if (b.pools.every((pool, j) => j === free || pool.length)) walk(0);
+  return out;
+}
+const anchorContext = (b, free, anchor) => ({ S: null, def: b.d, at: null, lets: null,
+  self: { args: new Map(anchor.flatMap((k, j) => j === free ? [] : [[normal(b.edges[j]), b.objects[j][k]]])) } });
+
+// The free parameter's records for a support's objects, as indexes into its pool; all of them where
+// there's no support.
+function picksFor(S, b, free, s) {
+  if (!s) return b.pools[free].map((_, k) => k);
+  b.numbers[free] ??= b.objects[free].map(obj => obj ? numberOf(S, obj) : -1);
+  const out = [];
+  b.numbers[free].forEach((k, i) => { if (k >= 0 && hasBit(s.bits, k)) out.push(i); });
+  return out;
+}
+
+function everyCandidate(b) {
+  const out = [];
+  for (const anchor of anchorsOf(b, b.pools.length - 1)) for (const k of picksFor(null, b, b.pools.length - 1, null)) {
+    anchor[b.pools.length - 1] = k;
+    const cand = candidateIn(b, anchor);
+    if (cand) out.push({ d: b.d, b, cand, ordinal: ordinalIn(b, anchor) });
+  }
+  return out;
+}
+
+// For each implication of a block, or its value formula: the parameter left free, and the support given
+// the others (see holdsWhere), where its form gives one and `find` allows; else every candidate is tried.
+function plansOf(K, b, find) {
+  return (b.d.imps ? b.d.imps.map(i => i.ast) : [b.d.ast]).map(ast => {
+    if (find && b.d.isRelation) for (let free = 0; free < b.edges.length; free++) {
+      const v = { name: normal(b.edges[free]) };
+      const where = !binds(ast, v.name) && (b.d.imps ? holdsWhere(K, ast, v) : givesWhere(K, ast, v));
+      if (where) return { free, where };
+    }
+    return { free: b.edges.length - 1, where: null };
+  });
+}
+
+// A support worked out for a block's anchor, or null where it can't be.
+function supportAt(S, where, ctx) {
+  try { return where({ ...ctx, S }); } catch { return null; }
+}
+
+// The keys under which a candidate could turn up in a lookup (see depend): an entry at its location by its
+// name; a relation in each list of relatives it makes, from each argument's record and object, under the
+// list's name and the edge label it lists, and in whose lists each object is; by the call that finds it;
+// and by each argument, for finding candidates (see relatedAt).
+function candidateKeys(S, d, cand, kinds = null, turned = []) {
+  const want = kind => !kinds || kinds.has(kind);
+  if (!d.isRelation) return want('entry') ? [`entry|${cand.at}|${normal(d.name)}`] : [];
+  const n = normal(d.name), objs = cand.args.map(a => objectOf(S, a.at)), keys = [];
+  if (want('calls')) keys.push(`calls|${n}|${cand.args.map((a, i) => `${normal(a.edge)}=${objs[i]}`).sort().join('&')}`);
+  if (want('rel')) cand.args.forEach((a, i) => keys.push(`rel|${n}|${normal(a.edge)}=${objs[i]}`));
+  if (want('held')) cand.args.forEach((a, i) => turned.forEach(l => keys.push(`held|${n}|${normal(a.edge)}=${objs[i]}|${l}`)));
+  if (!want('lists') && !want('inverse')) return keys;
+  const lists = listsByPair(S, d);
+  cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
+    if (i !== j) for (const list of lists.get(`${normal(own.edge)}|${normal(other.edge)}`)) {
+      if (want('lists')) {
+        keys.push(`lists|${own.at}|${list}`);
+        if (objs[i] !== own.at) keys.push(`lists|${objs[i]}|${list}`);
+      }
+      if (want('inverse')) keys.push(`inverse|${objs[j]}|${list}`);
+    }
+  }));
+  return keys;
+}
+
+// The names of a relation definition's lists of relatives, normalized, by the edge they're seen from and the
+// edge they list: the list's name, and the edge label it also answers to.
+function listsByPair(S, d) {
+  if (!S.pairLists.has(d)) {
+    const rel = S.P.reg.byName.get(normal(d.name)), lists = new Map();
+    for (const own of d.edges) for (const other of d.edges)
+      if (own !== other) lists.set(`${normal(own)}|${normal(other)}`, [...new Set([normal(listNameOf(rel, own, other)), normal(other)])]);
+    S.pairLists.set(d, lists);
+  }
+  return S.pairLists.get(d);
+}
+
+// The names under which a step's own candidates can be looked for, by how (see depend).
+function relevance(S, group) {
+  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), held: new Set(), inverse: new Set(), watched: new Set() };
+  for (const d of group) {
+    if (!d.isRelation) { dep.entry.add(normal(d.name)); continue; }
+    dep.calls.add(normal(d.name));
+    dep.rel.add(normal(d.name));
+    dep.held.add(normal(d.name));
+    for (const names of listsByPair(S, d).values()) for (const n of names) { dep.lists.add(n); dep.inverse.add(n); }
+  }
+  return dep;
+}
+
+// Candidates by the keys they could turn up under, for working value formulas out on demand and for
+// finding loops (see loopsIn).
+function indexCandidates(S, jobs) {
+  const idx = new Map();
+  for (const { d, cand } of jobs) for (const k of candidateKeys(S, d, cand)) push(idx, k, cand.key);
   return idx;
 }
 
 // A relation call by what it would find: the relation's name, and each argument's edge with its object.
-const callKey = (S, name, pairs) => `${norm(name)}|${pairs.map(([edge, at]) => `${norm(edge)}=${objectOf(S, at)}`).sort().join('&')}`;
+const callKey = (S, name, pairs) => `${normal(name)}|${pairs.map(([edge, at]) => `${normal(edge)}=${objectOf(S, at)}`).sort().join('&')}`;
+
+// ---- Value formulas ----
 
 // Value formulas' candidates, ready to be worked out on demand: all but those where an entered record stands.
 // A `blocked` one was found on a loop (see settleStep), and gives #CIRCULAR!.
@@ -1564,13 +2229,35 @@ function lazyValues(S, jobs, blocked = new Set()) {
 }
 
 // Value formulas are worked out on demand, so a record can read the same definition's records elsewhere,
-// as a spreadsheet cell reads other cells. Asking for a record that's being worked out is a loop.
+// as a spreadsheet cell reads other cells. Asking for a record that's being worked out is a loop. A value
+// formula that can't read what it gives (see aloof) is worked out only where its support says it can give
+// something, and where an entered record stands.
 function settleValues(S, group) {
-  const jobs = group.flatMap(d => candidatesOf(S, d).map(cand => ({ d, cand })));
+  const jobs = blocksOf(S, group).flatMap(b => S.forgetting ? everyCandidate(b) : foundValues(S, b));
   S.lazy = lazyValues(S, jobs);
   for (const key of S.lazy.cands.keys()) force(S, key);
   valueOverlaps(S, jobs);
   S.lazy = null;
+}
+
+// A value formula's candidates where its support says it can give something, and where an entered record
+// stands, which is marked as agreeing with it or not; in candidatesOf's order.
+function foundValues(S, b) {
+  const [{ free, where }] = plansOf(supportContext(S, [b.d]), b, true);
+  if (!where) return everyCandidate(b);
+  const found = new Map();
+  const take = picks => { const ordinal = ordinalIn(b, picks); if (found.has(ordinal)) return; const cand = candidateIn(b, picks); if (cand) found.set(ordinal, { d: b.d, b, cand, ordinal }); };
+  for (const anchor of anchorsOf(b, free)) {
+    for (const k of picksFor(S, b, free, supportAt(S, where, anchorContext(b, free, anchor)))) { anchor[free] = k; take(anchor); }
+  }
+  const at = b.pools.map(pool => new Map(pool.map((id, k) => [id, k])));
+  for (const id of S.enteredByKey.values()) {
+    const r = S.entered[id];
+    if (r.args?.length !== b.edges.length) continue;
+    const picks = b.edges.map((edge, j) => at[j].get(r.args.find(a => same(a.edge, edge))?.at));
+    if (picks.every(k => k !== undefined)) take(picks);
+  }
+  return [...found.values()].sort((x, y) => x.ordinal - y.ordinal);
 }
 
 // What a value formula gives where an entered record stands, to mark it as agreeing or differing.
@@ -1581,7 +2268,7 @@ function valueOverlaps(S, jobs) {
     const { v, reads } = reading(S, () => safeEv(d.ast, contextFor(S, d, cand)));
     const res = asOutput(S, d, v);
     const mark = res.error || res.none ? null : equal(scalar(S, recOf(enteredId)), res.out) ? 'agrees' : 'differs';
-    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark, reads: readIds(reads) });
+    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark }, reads);
   }
 }
 
@@ -1590,45 +2277,45 @@ function force(S, key) {
   if (!job || job.state === 'done') return null;
   if (job.state === 'busy') return circular();
   job.state = 'busy';
-  const { v, reads, deps } = job.blocked ? { v: circular(), reads: NO_READS, deps: NONE } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
+  const { v, reads } = job.blocked ? { v: circular(), reads: NO_READS } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
   const res = asOutput(S, job.d, v);
-  Object.assign(job, { state: 'done', res, deps, failed: [] });
+  Object.assign(job, { state: 'done', res, reads, failed: [] });
   if (res.error) {
-    addRow(S, job.d, { ...job.cand, error: res.error, reads: readIds(reads) });
+    addRow(S, job.d, { ...job.cand, error: res.error }, reads);
     // Whatever reads the record reads the error instead.
     if (!job.d.isRelation) {
-      S.failed.set(`${job.cand.at}|${norm(job.d.name)}`, res.error);
-      job.failed.push([`${job.cand.at}|${norm(job.d.name)}`]);
+      S.failed.set(`${job.cand.at}|${normal(job.d.name)}`, res.error);
+      job.failed.push([`${job.cand.at}|${normal(job.d.name)}`]);
     } else for (const obj of new Set(job.cand.args.map(a => objectOf(S, a.at)))) {
       const failure = { args: job.cand.args, error: res.error };
-      push(S.failed, `rel|${obj}|${norm(job.d.name)}`, failure);
-      job.failed.push([`rel|${obj}|${norm(job.d.name)}`, failure]);
+      push(S.failed, `rel|${obj}|${normal(job.d.name)}`, failure);
+      job.failed.push([`rel|${obj}|${normal(job.d.name)}`, failure]);
     }
   } else if (!res.none) {
-    addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out));
+    addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out), job.cand, job.b);
     job.added = true;
-    addRow(S, job.d, { ...job.cand, value: res.out, reads: readIds(reads) });
+    addRow(S, job.d, { ...job.cand, value: res.out }, reads);
   }
   return null;
 }
 
 // Takes back what a value formula gave at a candidate, so it can be worked out again.
 function unforce(S, job) {
-  if (job.added) removeRecord(S, job.cand.id);
+  if (job.added) removeComputed(S, job.cand.id);
   for (const [key, failure] of job.failed ?? []) {
     if (!failure) S.failed.delete(key);
     else S.failed.set(key, S.failed.get(key).filter(x => x !== failure));
   }
-  Object.assign(job, { state: 'todo', added: false, failed: [], res: null, deps: NONE });
+  Object.assign(job, { state: 'todo', added: false, failed: [], res: null, reads: null });
 }
 
 function forceMany(S, keys) {
   for (const k of keys ?? []) { const e = force(S, k); if (e) return e; }
   return null;
 }
-const forceEntry = (S, at, n) => S.lazy ? forceMany(S, S.lazy.idx.entry.get(`${at}|${n}`)) : null;
-const forceLists = (S, at, n) => S.lazy ? forceMany(S, S.lazy.idx.lists.get(`${at}|${n}`)) : null;
-const forceRelation = (S, key) => S.lazy ? forceMany(S, S.lazy.idx.calls.get(key)) : null;
+const forceEntry = (S, at, n) => S.lazy?.idx.size ? forceMany(S, S.lazy.idx.get(`entry|${at}|${n}`)) : null;
+const forceLists = (S, at, n) => S.lazy?.idx.size ? forceMany(S, S.lazy.idx.get(`lists|${at}|${n}`)) : null;
+const forceRelation = (S, key) => S.lazy?.idx.size ? forceMany(S, S.lazy.idx.get(`calls|${key}`)) : null;
 
 // ---- Steps with implications ----
 // Implications only ever attest, so a step with implications starts with nothing attested by them, attests
@@ -1636,19 +2323,22 @@ const forceRelation = (S, key) => S.lazy ? forceMany(S, S.lazy.idx.calls.get(key
 // attestations they support. Any value formulas in the step are worked out afresh each round, on demand,
 // from what's attested so far.
 //
-// Within the step, every lookup notes which of the step's own candidates it could have found (see depend),
-// so a round works out again only the implications whose inputs changed. The same notes find loops per
-// record: once the step settles, a value formula's record on a loop through the step's records is circular,
-// and so are the others on that loop, and the step is worked out again with them left out, giving
-// #CIRCULAR!, so nothing is built on them. A loop through implications alone isn't circular. An
-// implication's record that some implication held for, and none does any more, came from a loop through
-// something like NOT, and is circular too.
+// Each implication is worked out at the candidates its support allows (see holdsWhere), or at every one
+// where there's none, and where the step has value formulas too, whose loops need every candidate to find.
+// Where a support is exact, the implication holds just there, with nothing to work out. Within the step,
+// every lookup notes the keys it depends on (see depend), so a round works out again only the
+// implications, and the supports, whose inputs changed. The same notes find loops per record: once the
+// step settles, a value formula's record on a loop through the step's records is circular, and so are the
+// others on that loop, and the step is worked out again with them left out, giving #CIRCULAR!, so nothing
+// is built on them. A loop through implications alone isn't circular. An implication's record that some
+// implication held for, and none does any more, came from a loop through something like NOT, and is
+// circular too.
 function settleStep(S, group) {
   const blocked = new Set();
   for (let attempt = 0; ; attempt++) {
     S.count.attempts++;
     const run = attemptStep(S, group, blocked);
-    const loops = attempt < 4 ? loopsIn(run) : [];
+    const loops = attempt < 4 ? loopsIn(S, run) : [];
     if (!loops.length) return finishStep(S, run);
     undoStep(S, group, run);
     loops.forEach(k => blocked.add(k));
@@ -1660,54 +2350,129 @@ const labelsOf = t => t.d.imps.reduce((out, imp, i) => t.results[i]?.v === true 
 const resultKey = res => res ? JSON.stringify(res.error ? ['error', res.error.code] : res.none ? ['none'] : ['out', res.out]) : '';
 
 function attemptStep(S, group, blocked) {
-  const jobs = group.flatMap(d => candidatesOf(S, d).map(cand => ({ d, cand })));
-  S.dep = indexCandidates(S, jobs);
-  S.lazy = lazyValues(S, jobs.filter(j => !j.d.imps), blocked);
+  const blocks = blocksOf(S, group);
+  const find = group.every(d => d.imps), K = supportContext(S, group);
+  S.dep = relevance(S, group);
+  S.watch = new Map();
+  S.settled = false;
+  const valueJobs = blocks.filter(b => !b.d.imps).flatMap(everyCandidate);
+  S.lazy = lazyValues(S, valueJobs, blocked);
   const values = [...S.lazy.cands.values()];
-  const tags = jobs.filter(j => j.d.imps).map(j => ({ ...j, ctx: contextFor(S, j.d, j.cand), results: j.d.imps.map(() => null),
-    labels: [], derived: false, blocked: blocked.has(j.cand.key) }));
-  let queue = tags.filter(t => !t.blocked).flatMap(t => t.d.imps.map((_, i) => [t, i]));
+  const width = Math.max(1, ...group.map(d => d.imps?.length ?? 0));
+  const tags = new Map();
+  let queue = new Map();
+  // A tag's candidate, made when first wanted.
+  const tagAt = (b, picks) => {
+    const ordinal = ordinalIn(b, picks);
+    if (!tags.has(ordinal)) {
+      const cand = candidateIn(b, picks);
+      tags.set(ordinal, cand && { d: b.d, b, cand, ordinal, ctx: null, results: b.d.imps.map(() => null), labels: [], derived: false, blocked: blocked.has(cand.key) });
+      if (cand) S.count.tried++;
+    }
+    return tags.get(ordinal);
+  };
+  // Queues an implication at a candidate: to be worked out, or, where `known`, holding or not as a support said.
+  const enqueue = (t, i, known) => { if (t && !t.blocked) queue.set(t.ordinal * width + i, [t, i, known]); };
+  // A finder works an implication's support out for one choice of the other arguments' objects, and queues
+  // the implication where it newly allows, in each block with those objects (its targets).
+  const seek = g => {
+    let s = null;
+    if (g.where) {
+      const run = reading(S, () => supportAt(S, g.where, g.ctx));
+      s = run.v;
+      g.reads = run.reads;
+      g.reads.job = g;
+    }
+    for (const x of g.targets) {
+      const at = k => { const picks = [...x.anchor]; picks[x.free] = k; return tagAt(x.b, picks); };
+      if (s && !s.exact && x.held.size) {
+        // No longer exact: what it said held is worked out instead.
+        for (const k of x.held) { x.found.add(k); enqueue(at(k), g.i); }
+        x.held.clear();
+      }
+      const picks = picksFor(S, x.b, x.free, s);
+      if (s?.exact) {
+        const now = new Set(picks.filter(k => !x.found.has(k)));
+        for (const k of now) if (!x.held.has(k)) enqueue(at(k), g.i, true);
+        for (const k of x.held) if (!now.has(k)) enqueue(at(k), g.i, false);
+        x.held = now;
+      } else for (const k of picks) if (!x.found.has(k)) { x.found.add(k); enqueue(at(k), g.i); }
+    }
+    if (!s) g.where = null;
+  };
+  const plans = new Map(), finders = new Map();
+  for (const b of blocks) if (b.d.imps) {
+    if (!plans.has(b.d)) plans.set(b.d, plansOf(K, b, find));
+    plans.get(b.d).forEach(({ free, where }, i) => {
+      for (const anchor of anchorsOf(b, free)) {
+        const key = `${b.d.id}|${i}|${anchor.map((k, j) => j === free ? '' : b.objects[j][k]).join('|')}`;
+        if (!finders.has(key)) finders.set(key, { i, where, ctx: where && anchorContext(b, free, anchor), targets: [], reads: null });
+        finders.get(key).targets.push({ b, free, anchor, found: new Set(), held: new Set() });
+      }
+    });
+  }
+  finders.forEach(seek);
   let outputs = null, factsChanged = false;
-  for (let round = 0; round < 1000 && (queue.length || (factsChanged && values.length)); round++) {
+  for (let round = 0; round < 1000 && (queue.size || (factsChanged && values.length)); round++) {
     S.count.rounds++;
-    S.count.evals += queue.length;
     for (const job of values) unforce(S, job);
     for (const d of group) if (!d.imps) S.rows.delete(d.id);
-    const changed = new Set();
-    for (const [t, i] of queue) {
-      const { v, reads, deps } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, t.ctx)));
-      t.results[i] = { v, deps, reads };
+    const changed = [];
+    for (const [t, i, known] of [...queue.values()].sort((x, y) => x[0].ordinal - y[0].ordinal || x[1] - y[1])) {
+      if (known !== undefined) t.results[i] = { v: known, reads: null };
+      else {
+        S.count.evals++;
+        t.ctx ??= contextFor(S, t.d, t.cand);
+        const { v, reads } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, t.ctx)));
+        Object.assign(reads, { job: t, imp: i });
+        t.results[i] = { v, reads };
+      }
       const labels = labelsOf(t);
       if (labels.join('\n') === t.labels.join('\n')) continue;
+      t.was ??= t.labels;
       t.labels = labels;
-      S.prov.set(t.cand.key, new Set(labels.map(norm)));
-      changed.add(t.cand.key);
+      S.prov.set(t.cand.key, new Set(labels.map(normal)));
+      if (changed.at(-1) !== t) changed.push(t);
     }
+    queue = new Map();
+    S.settled = true;
     for (const job of values) force(S, job.cand.key);
     // A value formula's output that differs from last round's changes what read it then.
     const now = new Map(values.map(job => [job.cand.key, resultKey(job.res)]));
-    if (outputs) for (const [k, o] of now) if (outputs.get(k) !== o) changed.add(k);
+    const changedValues = outputs ? values.filter(job => outputs.get(job.cand.key) !== now.get(job.cand.key)) : [];
     outputs = now;
-    factsChanged = changed.size > 0;
-    for (const t of tags) if (t.labels.length && !t.derived && !t.blocked && !S.enteredByKey.has(t.cand.key)) {
+    factsChanged = changed.length > 0 || changedValues.length > 0;
+    for (const t of changed) if (t.labels.length && !t.derived && !S.enteredByKey.has(t.cand.key)) {
       t.derived = true;
-      addComputed(S, t.cand.id, makeRecord(t.d, t.cand, true));
+      addComputed(S, t.cand.id, makeRecord(t.d, t.cand, true), t.cand, t.b);
     }
-    queue = [];
-    if (changed.size) for (const t of tags) if (!t.blocked) t.results.forEach((r, i) => {
-      if (r) for (const k of r.deps) if (changed.has(k)) { queue.push([t, i]); return; }
-    });
+    if (!factsChanged) continue;
+    // The labels that came or went at each candidate, normalized as IMPLIEDBY compares them.
+    const turned = t => [...new Set([...t.was, ...t.labels])].filter(l => t.was.includes(l) !== t.labels.includes(l)).map(normal);
+    const keys = [...changed.flatMap(t => candidateKeys(S, t.d, t.cand, S.dep.watched, turned(t))),
+      ...changedValues.flatMap(x => candidateKeys(S, x.d, x.cand, S.dep.watched))];
+    for (const t of changed) t.was = undefined;
+    const again = [];
+    for (const trace of affected(S, keys)) {
+      const job = trace.job;
+      if (trace.imp === undefined) { if (job.reads === trace && job.where) again.push(job); }
+      else if (job.results[trace.imp]?.reads === trace) enqueue(job, trace.imp);
+    }
+    again.forEach(seek);
   }
-  return { jobs, tags, values };
+  return { tags: [...tags.values()].filter(Boolean).sort((x, y) => x.ordinal - y.ordinal), values, valueJobs };
 }
 
 // The candidates on loops through a value formula: in the graph of what depends on what among the step's
-// candidates, each strongly connected group that loops and has a value formula's candidate in it.
-function loopsIn(run) {
+// candidates, each strongly connected group that loops and has a value formula's candidate in it. With
+// value formulas in the step, every candidate was tried, and the graph has them all.
+function loopsIn(S, run) {
+  if (!run.values.length) return [];
+  const idx = indexCandidates(S, [...run.tags, ...run.valueJobs]);
+  const on = trace => new Set([...keysOf(trace)].flatMap(k => idx.get(k) ?? []));
   const edges = new Map(), values = new Set();
-  for (const t of run.tags) if (!t.blocked) edges.set(t.cand.key, new Set(t.results.flatMap(r => r ? [...r.deps] : [])));
-  for (const job of run.values) if (!job.blocked) { edges.set(job.cand.key, new Set(job.deps ?? NONE)); values.add(job.cand.key); }
-  if (!values.size) return [];
+  for (const t of run.tags) if (!t.blocked) edges.set(t.cand.key, new Set(t.results.flatMap(r => r?.reads ? [...on(r.reads)] : [])));
+  for (const job of run.values) if (!job.blocked) { edges.set(job.cand.key, job.reads ? on(job.reads) : new Set()); values.add(job.cand.key); }
   const index = new Map(), low = new Map(), stack = [], onStack = new Set(), out = [];
   let counter = 0;
   const visit = v => {
@@ -1732,11 +2497,24 @@ function loopsIn(run) {
 function undoStep(S, group, run) {
   for (const job of run.values) unforce(S, job);
   for (const t of run.tags) {
-    if (t.derived) removeRecord(S, t.cand.id);
+    if (t.derived) removeComputed(S, t.cand.id);
     S.prov.delete(t.cand.key);
   }
   for (const d of group) S.rows.delete(d.id);
-  S.dep = S.lazy = null;
+  S.dep = S.lazy = S.watch = null;
+}
+
+// What each implication that held read, by label. Where an exact support said it held, it's worked out to
+// see what it reads, as explain works implications out.
+function readsByLabel(S, t) {
+  const reads = {};
+  t.results.forEach((r, i) => {
+    if (r?.v !== true) return;
+    const label = t.d.imps[i].label;
+    const trace = r.reads ?? reading(S, () => truth(S, safeEv(t.d.imps[i].ast, contextFor(S, t.d, t.cand)))).reads;
+    reads[label] = [...new Set([...(reads[label] ?? []), ...readIds(trace)])];
+  });
+  return reads;
 }
 
 // The rows a settled step leaves, for its implications and where entered records stand; its value formulas
@@ -1745,29 +2523,30 @@ function finishStep(S, run) {
   for (const t of run.tags) {
     const { d, cand, labels } = t;
     const errors = t.results.flatMap((r, i) => r && isErr(r.v) ? [{ label: d.imps[i].label, error: r.v }] : []);
-    const reads = {};
-    t.results.forEach((r, i) => { if (r?.v === true) reads[d.imps[i].label] = [...new Set([...(reads[d.imps[i].label] ?? []), ...readIds(r.reads)])]; });
     const enteredId = S.enteredByKey.get(cand.key);
     if (t.blocked) addRow(S, d, { ...cand, error: circular() });
     else if (t.derived && !labels.length) {
-      removeRecord(S, cand.id);
+      removeComputed(S, cand.id);
       S.prov.delete(cand.key);
       addRow(S, d, { ...cand, error: circular(), errors });
     } else if (enteredId) {
       const tag = S.entered[enteredId].tag;
       if (labels.length || errors.length)
-        addRow(S, d, { ...cand, entered: enteredId, formula: labels.length ? true : null, labels, errors, reads,
+        addRow(S, d, { ...cand, entered: enteredId, formula: labels.length ? true : null, labels, errors, reads: readsByLabel(S, t),
           mark: labels.length ? tag ? 'also implied' : 'overrides' : null });
-    } else if (labels.length) addRow(S, d, { ...cand, value: true, labels, errors, reads });
+    } else if (labels.length) addRow(S, d, { ...cand, value: true, labels, errors }, () => readsByLabel(S, t));
     else if (errors.length) addRow(S, d, { ...cand, error: errors[0].error, errors });
   }
-  valueOverlaps(S, run.jobs);
-  S.dep = S.lazy = null;
+  valueOverlaps(S, run.valueJobs);
+  S.dep = S.lazy = S.watch = null;
 }
 
-function addRow(S, d, row) {
-  if (!S.rows.has(d.id)) S.rows.set(d.id, []);
-  S.rows.get(d.id).push({ def: d.id, ...row });
+// A row of a definition's records, with what its formula read (`reads`, a trace or a function giving it by
+// label) spelled out when it's first asked for (see lazily).
+function addRow(S, d, row, reads) {
+  const out = { def: d.id, ...row };
+  if (reads) lazily(out, 'reads', typeof reads === 'function' ? reads : () => readIds(reads));
+  push(S.rows, d.id, out);
 }
 
 // WITHOUT: the chart as if `id` and everything depending on it weren't there, with what was worked out
@@ -1809,7 +2588,7 @@ function neededSteps(P, d, limit) {
 // then the record's own, and those up its path.
 function namesOnValue(S, v) {
   const out = new Map();
-  const add = (name, kind) => { if (!out.has(norm(name))) out.set(norm(name), { name, kind }); };
+  const add = (name, kind) => { if (!out.has(normal(name))) out.set(normal(name), { name, kind }); };
   for (const x of toList(v).slice(0, 20)) {
     if (!isRec(x) || !x.id) continue;
     const link = x.link && S.recs[x.link];
@@ -1865,13 +2644,15 @@ function computeState(entered, definitions, names) {
   P.order = plan(defs, reg);
   const S = stateFor(P, entered);
   runUpTo(S, P.order.length);
-  const keptAside = Object.keys(S.recs).filter(id => !S.recs[id].computed && argsOf(S.recs[id]).some(a => !S.recs[a.at]));
-  const records = Object.fromEntries(Object.entries(S.recs).filter(([id]) => !keptAside.includes(id)));
+  const keptAside = Object.keys(S.entered).filter(id => S.recs[id] && argsOf(S.recs[id]).some(a => !S.recs[a.at]));
+  const aside = new Set(keptAside), records = {};
+  for (const id in S.recs) if (!aside.has(id)) records[id] = S.recs[id];
   const computed = {}, covered = {}, errors = [];
   for (const rows of S.rows.values()) for (const row of rows) {
     if (row.error) errors.push({ def: row.def, id: row.id, args: row.args, error: row.error });
     else if (row.entered) covered[row.entered] = { def: row.def, mark: row.mark, formula: row.formula, labels: row.labels ?? [] };
-    else if (S.recs[row.id]) computed[row.id] = { def: row.def, labels: row.labels ?? [], reads: row.reads ?? [] };
+    // What it read is spelled out when it's asked for.
+    else if (S.recs[row.id]) computed[row.id] = { def: row.def, labels: row.labels ?? [], get reads() { return row.reads ?? []; } };
   }
   const defErrors = Object.fromEntries(defs.filter(d => d.error).map(d => [d.id, d.error]));
   const ms = (typeof performance === 'object' ? performance.now() : Date.now()) - started;
@@ -1921,7 +2702,7 @@ function phrase(n, c) {
   const S = c.S;
   if (n.k === 'at') return c.at ? describe(S, c.at) : '@';
   if (n.k === 'name') {
-    const id = c.self.args?.get(norm(n.name));
+    const id = c.self.args?.get(normal(n.name));
     return id ? nameOf(S, id) : unparse(n);
   }
   if (n.k === 'dot') return `${phrase(n.x, c)}’s ${n.name}`;
@@ -1929,13 +2710,13 @@ function phrase(n, c) {
     return `${phrase(n.args[0].x, c)}’s ${unparse(n.args[1].x).replace(/^\[|\]$/g, '')}, directly or indirectly`;
   if (n.k === 'call' && n.name.toUpperCase() === 'FILTER' && n.args.length === 2)
     return `${phrase(n.args[0].x, c)} with ${unparse(n.args[1].x).replace(/@\./g, '')}`;
-  if (n.k === 'call' && S.P.reg.byName.has(norm(n.name)))
+  if (n.k === 'call' && S.P.reg.byName.has(normal(n.name)))
     return `${n.name}: ${n.args.map(a => phrase(a.x, c)).join(' → ')}`;
   return unparse(n);
 }
 
 // Whether an expression names one of the relation's arguments, which as a value is just its name.
-const isArgument = (n, c) => n.k === 'name' && !!c.self.args?.has(norm(n.name));
+const isArgument = (n, c) => n.k === 'name' && !!c.self.args?.has(normal(n.name));
 
 // Why a condition holds, in context c. It's only asked of conditions that do hold.
 function why(n, c) {
@@ -1944,7 +2725,7 @@ function why(n, c) {
   switch (n.k) {
     case 'or': return holds(n.a) ? why(n.a, c) : why(n.b, c);
     case 'and': return `${why(n.a, c)}; ${why(n.b, c)}`;
-    case 'not': return n.x.k === 'call' && S.P.reg.byName.has(norm(n.x.name))
+    case 'not': return n.x.k === 'call' && S.P.reg.byName.has(normal(n.x.name))
       ? `${phrase(n.x, c)} isn’t attested` : `not ${unparse(n.x)}`;
     case 'in': {
       const value = shown(S, ev(n.a, c));
@@ -1964,7 +2745,7 @@ function why(n, c) {
       const f = n.name.toUpperCase(), a = n.args;
       if (f === 'ANY' && a.length === 2) {
         for (const item of toList(ev(a[0].x, c))) {
-          const ci = { ...c, at: item };
+          const ci = withAt(c, item);
           if (truth(S, ev(a[1].x, ci)) === true) return `through ${describe(S, item)}: ${why(a[1].x, ci)}`;
         }
         return unparse(n);
@@ -1978,10 +2759,10 @@ function why(n, c) {
         const v = asRec(S, ev(a[0].x, c));
         const r = v?.id ? S.recs[v.id] : null;
         const held = r ? S.prov.get(keyOf(r)) ?? new Set() : new Set();
-        const labels = a.slice(1).map(x => toText(S, ev(x.x, c))).filter(l => typeof l === 'string' && held.has(norm(l)));
+        const labels = a.slice(1).map(x => toText(S, ev(x.x, c))).filter(l => typeof l === 'string' && held.has(normal(l)));
         return `${relationText(S, a[0].x, r)} by ${labels.join(', ')}`;
       }
-      if (S.P.reg.byName.has(norm(n.name))) {
+      if (S.P.reg.byName.has(normal(n.name))) {
         const v = asRec(S, ev(n, c));
         return `${relationText(S, n, v?.id ? S.recs[v.id] : null)} is attested`;
       }
@@ -2073,7 +2854,7 @@ function relabel(definitions, names, from, to) {
     return `${m[1] ?? ''}${swap(m[2])}${m[3] ?? ''}`;
   }).join(' › ');
   // Keys spell edge labels too: a parameterization's pairs [edge, location key], and a form's [edge, shape].
-  const pairs = (list, inner) => list.map(s => { const [e, k] = JSON.parse(s); return JSON.stringify([e === norm(from) ? norm(to) : e, inner(k)]); }).sort();
+  const pairs = (list, inner) => list.map(s => { const [e, k] = JSON.parse(s); return JSON.stringify([e === normal(from) ? normal(to) : e, inner(k)]); }).sort();
   const specKey = k => k.startsWith('kind:') ? k : (([head, ...rest]) => JSON.stringify([head, ...pairs(rest, specKey)]))(JSON.parse(k));
   const paramKey = k => JSON.stringify(pairs(JSON.parse(k), specKey));
   const shapeKey = k => k === '•' ? k : JSON.stringify(['∘', ...pairs(JSON.parse(k).slice(1), shapeKey)]);
@@ -2122,7 +2903,7 @@ function suggest(computed, defId, textBefore, at) {
       ...Object.keys(FUNCTIONS).map(f => ({ name: f, kind: 'function' })),
     ];
   }
-  return names.filter(x => norm(x.name).startsWith(norm(partial)));
+  return names.filter(x => normal(x.name).startsWith(normal(partial)));
 }
 
 // How a value reads. Numbers can be shown as percentages.
