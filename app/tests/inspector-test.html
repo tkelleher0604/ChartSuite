@@ -228,7 +228,9 @@ async function run() {
     && $('.statute .st-lead')?.textContent.startsWith('“Affiliated person”'), clauses.map(c => c.querySelector('.st-label').textContent).join(' '));
   check('… each clause counting the records it gives', clauses.every((c, i) => i === 5 || /^\d+$/.test(c.querySelector('.st-n').textContent)), clauses.map(c => c.querySelector('.st-n').textContent).join(' '));
   check('… a top-level OR on a line of its own', clauses[2].querySelectorAll('.st-set > div').length === 3);
-  check('… and its rows in the bar, to edit', document.querySelectorAll('.fxbar .fx-row').length === affiliated.value.length);
+  $('.statute .st-set').click(); await tick(80);
+  check('… and its rows in the bar, to edit, open where a clause is clicked', document.querySelectorAll('.fxbar .fx-row').length === affiliated.value.length);
+  FormulaBar.discard(); await tick();
 
   // Find reaches every record and every list
   const found = Shell.parts.peek().find.flatMap(s => s.items());
