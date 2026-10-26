@@ -39,14 +39,14 @@ function run(json) {
       return seen.has(k) || !seen.set(k, id);
     });
     check(`as of ${d}: no two records share an argumentation`, !twins.length, twins.join(' '));
-    check(`as of ${d}: every record's specification is in the schema`, ids.every(id => S[Tree.specKey(st, id)]));
+    check(`as of ${d}: every record's specification is in the schema`, ids.every(id => S[Tree.key(Tree.specOf(tree(id, st)))]));
   }
   check('the schema holds every location of its specifications', Object.values(S).every(t => !t.args || t.args.every(a => S[Tree.key(a.loc)])));
   check('the schema meets its conditions', Tree.schemaError(S) === null);
   check('a node of a specification is a kind just where it is a leaf', Object.values(S).every(function leafy(t) {
     return t.args ? !('kind' in t) && t.out && t.args.every(a => leafy(a.loc) && !('field' in (a.loc.out ?? {}))) : t.kind !== undefined;
   }));
-  check('the sample is as big as it should be', Object.keys(now).length === 844 && wb.changes().length === 120, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  check('the sample is as big as it should be', Object.keys(now).length === 828 && wb.changes().length === 120, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
 
   // ---- Patterns ----
   const tax = tree('fund_tax'), spec = Tree.specOf(tax), param = Tree.bare(spec);
@@ -62,9 +62,9 @@ function run(json) {
   const ownedFirst = { args: [{ edge: 'Owned', loc: { kind: 'Entity' } }, { edge: 'Owner', loc: { id: 'fund', kind: 'Entity' } }] };
   check('a relation fits in whatever order its edges are written', Tree.narrower(tree('own_fund_blkr'), ownedFirst)
     && Tree.key(Tree.bare(Tree.specOf(tree('own_fund_blkr')))) === Tree.key(Tree.specOf(ownedFirst)));
-  check('specification and parameterization keys are those formulas.js reads', Tree.specKey(now, 'fund') === 'kind:entity'
+  check('specification and parameterization keys are those formulas.js reads', Tree.key(Tree.specOf(tree('fund'))) === 'kind:entity'
     && Tree.parameterization(now, 'fund_formed') === '["[\\"formation date\\",\\"kind:entity\\"]"]'
-    && Tree.specKey(now, 'fund_type') === '["choice:limited partnership","[\\"entity type\\",\\"kind:entity\\"]"]');
+    && Tree.key(Tree.specOf(tree('fund_type'))) === '["choice:limited partnership","[\\"entity type\\",\\"kind:entity\\"]"]');
   check('a narrower pattern weighs more', Tree.weight(tax) > Tree.weight(spec) && Tree.weight(spec) > Tree.weight(param) && Tree.weight(param) > Tree.weight(tc()));
 
   // ---- Notes: the narrowest decides ----
@@ -126,7 +126,25 @@ function run(json) {
   check('a fund is absent before its Formation Date, with all that’s at it', !on('2024-09-15', 'fund3a') && !on('2024-09-15', 'fund3a_name')
     && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && on('2024-09-16', 'own_inv3a_3a'));
   check('a filing date renews on the day it names', pct('2025-05-27', 'fund_juris_tax') === '2024-05-29' && pct('2025-05-28', 'fund_juris_tax') === '2025-05-28' && pct(TODAY, 'fund_juris_tax') === '2026-05-27');
-  check('the days something starts or ends', ['2024-07-01', '2024-09-16', '2026-06-15', '2023-02-14'].every(d => wb.days(C).includes(d)));
+  // ---- The chart's words, and a view's own notes ----
+  check('an object reads by its Name, or its Short Name where room is short', N.nameOf(now, 'fund') === 'Calder Ridge Capital Partners III, L.P.' && N.shortOf(now, 'fund') === 'Fund III');
+  check('a view reads by its Name note, and an unnamed object as its kind', N.nameOf(now, 'view_40act') === '40 Act' && Tree.isView(now.view_40act)
+    && N.nameOf({ ...now, x: { kind: 'Entity' } }, 'x') === 'Entity');
+  check('a record’s place, step by step', N.placeOf(now, 'fund_tax') === 'Fund III › Entity Type: Limited Partnership › Tax Classification: Partnership', N.placeOf(now, 'fund_tax'));
+  check('a relation by its name, its sides in its edges’ order', N.nameOf(now, 'own_fund_blkr') === 'Ownership' && N.segmentOf(now, 'own_fund_blkr').startsWith('Fund III → '), N.segmentOf(now, 'own_fund_blkr'));
+  check('a view’s layout is a note at its View object', j(N.value('Layout', { id: 'mvp9abrp01co8c', kind: 'View' })) === j({ rows: { kind: 'Entity' } }) && N.value('Layout', { id: 'view_main', kind: 'View' }) === undefined);
+  {
+    const w = fresh(), p = { id: 'view_40act', kind: 'View' };
+    commit(w, tx => tx.note('As Of', p, '2025-01-01'));
+    commit(w, tx => tx.note('Description', { args: [{ edge: 'EIN', loc: { id: 'fund', kind: 'Entity' } }] }, 'Its own'));
+    const M = w.notes(C);
+    check('tx.note writes at exactly its pattern', M.value('As Of', p) === '2025-01-01' && M.description(Tree.treeOf(w.asOf(C, TODAY), 'fund_ein')) === 'Its own'
+      && M.description(Tree.treeOf(w.asOf(C, TODAY), 'gp_ein')) === N.description(tree('gp_ein')));
+    commit(w, tx => tx.note('As Of', p, undefined));
+    check('… and removes it when given nothing', w.notes(C).value('As Of', p) === undefined);
+    commit(w, tx => tx.update('fund_ein', { value: '99-9999999' }), { day: '2025-01-01' });
+    check('tx.update changes the version in force, from the day shown', w.asOf(C, TODAY).fund_ein.value === '99-9999999' && w.asOf(C, '2024-12-31').fund_ein.value === '92-4810337');
+  }
   const moment = '2024-06-20T00:00:00Z', then = wb.at(moment);
   check('the log as it stood keeps the changes made by then', then.changes().length === wb.changes().filter(c => c.when <= moment).length
     && then.changes().every(c => c.when <= moment) && !then.asOf(C, TODAY).caygp && then.asOf(C, TODAY).fund_agent && !wb.asOf(C, TODAY).fund_agent);
@@ -241,7 +259,7 @@ function run(json) {
     commit(a, tx => tx.remove('own_fund_npine'), { who: 'Ann Lee' });
     commit(b, tx => tx.set('own_fund_npine_pct', { ...now.own_fund_npine_pct, value: 0.65 }), { who: 'Bob Diaz' });
     commit(c, tx => tx.set('gp_ein', { ...now.gp_ein, value: '33-3333333' }), { who: 'Cy Park' });
-    const U = Log.union;
+    const U = (x, y) => Log.open(x).merge(y);
     check('union is commutative', j(U(a, b)) === j(U(b, a)));
     check('union is associative', j(U(U(a, b), c)) === j(U(a, U(b, c))));
     check('union is idempotent', j(U(a, a)) === j(a) && j(U(U(a, b), b)) === j(U(a, b)));
@@ -257,6 +275,18 @@ function run(json) {
     check('subscribers hear of changes once', heard === 1 && j(a) === j(U(U(fresh(), b), U(c, a))));
   }
 
+  // ---- Disagreements, settled by keeping one ----
+  {
+    const ann = fresh(), bob = fresh();
+    commit(ann, tx => tx.update('own_fund_npine_pct', { value: 0.7 }), { who: 'Ann Lee' });
+    commit(bob, tx => tx.update('own_fund_npine_pct', { value: 0.65 }), { who: 'Bob Diaz' });
+    const m = Log.open(ann).merge(bob), ds = m.disagreements(C);
+    check('two people changing one value at once disagree', fresh().disagreements(C).length === 0 && ds.length === 1 && ds[0].rows.map(r => r.who).sort().join() === 'Ann Lee,Bob Diaz', j(ds.map(d => d.rows.map(r => r.who))));
+    const keep = ds[0].rows.find(r => r.who === 'Bob Diaz').row.id;
+    commit(m, tx => tx.keep(keep));
+    check('… and keeping one settles it, as a change', !m.disagreements(C).length && m.asOf(C, TODAY).own_fund_npine_pct.value === 0.65);
+  }
+
   // ---- JSON ----
   {
     const text = j(wb), back = Log.open(JSON.parse(text));
@@ -266,10 +296,14 @@ function run(json) {
   }
 
   // ---- Values ----
-  check('dates parse as typed and read in full', Tree.parseDate('3/4/19') === '2019-03-04' && Tree.parseDate('Sept. 1, 2023') === '2023-09-01'
-    && Tree.parseDate('2023-02-30') === null && Tree.formatDate('2023-02-14') === 'February 14, 2023');
+  check('dates parse as typed and read in full, short, or by month', Tree.parseDate('3/4/19') === '2019-03-04' && Tree.parseDate('Sept. 1, 2023') === '2023-09-01'
+    && Tree.parseDate('2023-02-30') === null && Tree.formatDate('2023-02-14') === 'February 14, 2023' && Tree.formatDate('2023-02-14', 'short') === 'Feb 14, 2023'
+    && Tree.formatDate('2023-02-14', 'month') === 'February 2023' && Tree.isoOf(new Date(2024, 1, 29, 23, 30)) === '2024-02-29' && Log.today() === Tree.isoOf(new Date()));
   check('values parse and read by datatype', Tree.parse('percent', '71.6') === 0.716 && Tree.parse('money', '$1,000') === 1000 && Tree.parse('number', '5%') === undefined
-    && Tree.format('percent', 0.716) === '71.6%' && Tree.format('money', 750000000) === '$750,000,000' && Tree.format('document', 'https://x/a%20b.pdf') === 'a b.pdf');
+    && Tree.format('percent', 0.716) === '71.6%' && Tree.format('percent', 0.26696) === '26.696%' && Tree.format('money', 750000000) === '$750,000,000'
+    && Tree.format('document', 'https://x/a%20b.pdf') === 'a b.pdf' && Tree.format('document', 'https://contoso.sharepoint.com/:b:/s/FundLegal/EaBcD123xyz?e=AbC12') === 'PDF in SharePoint');
+  check('an output reads as its value, its option, or Yes and No', Tree.outputText(now.fund_good) === 'Yes' && Tree.outputText(now.fund_erisa) === 'No'
+    && Tree.outputText(now.fund_juris) === 'Delaware' && Tree.outputText(now.fund_target) === '$750,000,000');
   check('what’s typed is classified', ['text', 'number', 'percent', 'money', 'date', 'document'].join() === ['Delaware', '1,000', '12.5%', '$5', 'March 1, 2024', 'https://x/y'].map(Tree.classify).join()
     && Tree.classify('0803456789') === 'text');
 }

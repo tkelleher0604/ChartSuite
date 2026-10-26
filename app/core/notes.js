@@ -3,10 +3,11 @@
 // edges, for a list's name or an edge's order. For a record and a label, the narrowest note it fits decides:
 // one in the view before one in none, then the pattern that keeps more labels.
 const Notes = (() => {
-const { narrower, shapeOf, weight, key, bare, paramKey } = Tree;
+const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoice, isTag, objectOf, pathOf, entryAt, same } = Tree;
 
-// Labels that aren't how a view draws something. Every other label is a format property, Shown among them.
-const NOT_FORMAT = new Set(['Name', 'Description', 'Order', 'Required', 'Start', 'End', 'Formula', 'Position', 'Caption']);
+// The format properties: how a view draws what a note reaches.
+const FORMATS = new Set(['Shown', 'Shape', 'Fill', 'Outline', 'Weight', 'Dash', 'Frame', 'Layer', 'Arrow', 'Connector', 'Above',
+  'Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color', 'Align', 'Format']);
 const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
 const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
 const bySchema = new WeakMap();
@@ -43,7 +44,7 @@ function index(rows) {
   // How a view draws a record: each format property that a note decides, with its note.
   function formats(t, view) {
     const out = {};
-    for (const label of byShape.get(shapeOf(t)) ?? []) if (!NOT_FORMAT.has(label)) {
+    for (const label of byShape.get(shapeOf(t)) ?? []) if (FORMATS.has(label)) {
       const r = resolve(label, t, view);
       if (r) out[label] = r;
     }
@@ -58,7 +59,7 @@ function index(rows) {
     for (const n of rows) if (n.view === view) {
       const p = n.pattern;
       if (n.label === 'Order') { order.set(key(p), n.value); group(p); }
-      else if ((!NOT_FORMAT.has(n.label) || n.label === 'Caption') && p.id === undefined && !(p.out && 'value' in p.out)) {
+      else if ((FORMATS.has(n.label) || n.label === 'Caption') && p.id === undefined && !(p.out && 'value' in p.out)) {
         const outs = group(bare(p)).outputs, k = key(p);
         if (!outs.has(k)) outs.set(k, { pattern: p, formats: {} });
         outs.get(k).formats[n.label] = n.value;
@@ -90,8 +91,33 @@ function index(rows) {
     return { name: n.value, type: typeOfSpec(specs[0]), edges: es, lists, covers: [...new Set(specs.map(paramKey))] };
   });
 
+  // ---- The chart's words: how a record in a state reads ----
+  // An object by its Name (an entry, or for a view a note), or else its kind; a relation by its name; any other
+  // record by its label.
+  const treeAt = (recs, id) => treeOf(recs, id) ?? { args: recs[id].args.map(a => ({ edge: a.edge, loc: {} })) };
+  function nameOf(recs, id) {
+    const r = recs[id];
+    if (!r) return '';
+    if (isObject(r)) { const n = entryAt(recs, id, 'Name'); return n ? String(recs[n].value) : value('Name', { id, kind: r.kind }) ?? r.kind; }
+    return r.args ? name(treeAt(recs, id)) : r.edge;
+  }
+  // Where there's little room: an object's Short Name.
+  const shortOf = (recs, id) => { const s = isObject(recs[id] ?? {}) && entryAt(recs, id, 'Short Name'); return s ? String(recs[s].value) : nameOf(recs, id); };
+  // A relation's arguments in its edges' order.
+  const sides = (recs, id) => { const r = recs[id]; return edges(treeAt(recs, id)).map(e => r.args.find(a => same(a.edge, e))); };
+  // A record as a step on a path: an object by its short name, a relation by its sides', an option with its
+  // label, a tag ruled out with Not.
+  function segmentOf(recs, id) {
+    const r = recs[id];
+    return !r ? '' : isObject(r) ? shortOf(recs, id) : r.args ? sides(recs, id).map(a => shortOf(recs, objectOf(recs, a.at))).join(' → ')
+      : isChoice(r) ? `${r.edge}: ${r.choice}` : isTag(r) && !r.tag ? `Not ${r.edge}` : r.edge;
+  }
+  // Where a record is: the path down to it, a step at a time.
+  const placeOf = (recs, id) => pathOf(recs, id).map(x => segmentOf(recs, x)).join(' › ');
+
   return {
     resolve, value, name, listName, edges, formats, styles, definitions, relations, fitting,
+    nameOf, shortOf, sides, segmentOf, placeOf,
     notes: label => byLabel.get(label) ?? [],
     description: t => value('Description', t),
     order: t => value('Order', t),
@@ -104,5 +130,5 @@ function index(rows) {
   };
 }
 
-return { index, NOT_FORMAT };
+return { index, FORMATS };
 })();

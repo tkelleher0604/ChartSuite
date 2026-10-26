@@ -21,6 +21,8 @@ const isField = r => 'field' in r;
 const isTag = r => 'tag' in r;
 const isChoice = r => 'choice' in r;
 const isRelation = r => 'args' in r;
+// View is the app's own kind, which every chart has and none lists among its kinds.
+const isView = r => isObject(r) && same(r.kind, 'View');
 const typeOf = r => isObject(r) ? 'object' : isField(r) ? 'field' : isTag(r) ? 'tag' : 'choice';
 const argsOf = r => r.args ?? (r.at ? [{ edge: r.edge, at: r.at }] : []);
 const rootLabel = r => isTag(r) ? `tag:${r.tag}` : isChoice(r) ? `choice:${norm(r.choice)}` : `field:${r.field}`;
@@ -74,10 +76,8 @@ function pathOf(recs, id) {
   return path;
 }
 const objectOf = (recs, id) => pathOf(recs, id)[0];
-function objectName(recs, id) {
-  const n = (index(recs).entries.get(id) ?? []).find(e => isField(recs[e]) && same(recs[e].edge, 'Name'));
-  return n ? recs[n].value : recs[id]?.kind ?? '';
-}
+// The entry at a record with this label.
+const entryAt = (recs, id, edge) => (index(recs).entries.get(id) ?? []).find(e => same(recs[e].edge, edge));
 
 // ---- Patterns ----
 
@@ -186,7 +186,14 @@ function parseDate(s) {
   if (!mo || date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null;
   return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
-const formatDate = iso => { const [y, m, d] = iso.split('-').map(Number); return `${MONTHS[m - 1]} ${d}, ${y}`; };
+// A day as it reads: 'long' February 14, 2023 (a value); 'short' Feb 14, 2023 (the window's own); 'month'
+// February 2023.
+function formatDate(iso, style = 'long') {
+  const [y, m, d] = String(iso).split('-').map(Number), month = MONTHS[m - 1];
+  return style === 'month' ? `${month} ${y}` : `${style === 'short' ? month.slice(0, 3) : month} ${d}, ${y}`;
+}
+// The day a moment falls on, on this computer's calendar.
+const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // 1,000, $750,000,000 or 12.5%. A leading zero (0803456789) marks an identifier, which is text.
 const isNumber = s => /^[-+]?\$?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?%?$/.test(s) && !/^[-+]?\$?0\d/.test(s);
@@ -205,32 +212,125 @@ function parse(datatype, raw) {
   const n = Number(s.replace(/[$,%]/g, ''));
   return datatype === 'percent' ? n / 100 : n;
 }
-// A document goes by its file name, the last part of its address.
-function documentName(address) {
-  const last = String(address).replace(/[?#].*$/, '').replace(/[\\/]+$/, '').split(/[\\/]/).pop();
-  try { return decodeURIComponent(last || address); } catch { return last || String(address); }
-}
-// How a value reads: 71.6%, $750,000,000, 1,000, February 14, 2023.
+// How a value reads: 71.6%, $750,000,000, 1,000, February 14, 2023, and a document by what its link names.
 function format(datatype, v) {
   if (v === null || v === undefined) return '';
   if (datatype === 'date') return formatDate(v);
-  if (datatype === 'document') return documentName(v);
+  if (datatype === 'document') return linkOf(v).short;
   if (typeof v !== 'number') return String(v);
-  const n = (x, min = 0) => x.toLocaleString('en-US', { minimumFractionDigits: min, maximumFractionDigits: 2 });
-  if (datatype === 'percent') return `${n(v * 100)}%`;
+  const n = (x, min = 0, max = 2) => x.toLocaleString('en-US', { minimumFractionDigits: min, maximumFractionDigits: max });
+  // A percentage as precise as it was entered, to four places: 26.696%.
+  if (datatype === 'percent') return `${n(v * 100, 0, 4)}%`;
   if (datatype === 'money') return `${v < 0 ? '-' : ''}$${n(Math.abs(v), Number.isInteger(v) ? 0 : 2)}`;
   return n(v);
+}
+// How a record's output reads: a value as its datatype reads, an option as itself, a tag Yes or No.
+const outputText = r => isField(r) ? format(r.field, r.value) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Yes' : 'No') : '';
+const plural = w => /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's';
+
+// ---- Links: what a document's address points at, from the address alone ----
+
+const KINDS = { doc: 'word', docx: 'word', docm: 'word', dot: 'word', dotx: 'word', rtf: 'word', pdf: 'pdf',
+  xls: 'excel', xlsx: 'excel', xlsm: 'excel', xlsb: 'excel', csv: 'excel', ppt: 'powerpoint', pptx: 'powerpoint',
+  pptm: 'powerpoint', msg: 'email', eml: 'email' };
+// A modern SharePoint link says what it is after its first colon, /:w:/ for Word, and a sharing link
+// says nothing else: :b: is any other file, most often a PDF.
+const LETTERS = { w: 'word', x: 'excel', p: 'powerpoint', b: 'pdf', f: 'folder' };
+const WORDS = { word: 'Word document', pdf: 'PDF', excel: 'Spreadsheet', powerpoint: 'Presentation', email: 'Email', folder: 'Folder', other: 'File' };
+const SYSTEMS = { sharepoint: 'SharePoint', onedrive: 'OneDrive', edgar: 'EDGAR', netdocuments: 'NetDocuments', imanage: 'iManage', file: 'File share', web: 'Web' };
+const decode = s => { try { return decodeURIComponent(s); } catch { return s; } };
+const extension = name => /\.([a-z][a-z0-9]{1,4})$/i.exec(name ?? '')?.[1].toLowerCase() ?? null;
+// A file's name ends in an extension, and a web page's (Doc.aspx, index.htm) names no document.
+const fileName = s => extension(s) && !/^(aspx?|html?|php|jsp|cgi)$/.test(extension(s)) ? s : null;
+
+// { link, system, kind, name, id, short, host, site, library, folder, sharing }. `system` is sharepoint,
+// onedrive, edgar, netdocuments, imanage, file or web, or null if it isn't a link. `name` is the file's name
+// where the link gives one; `id` the document's number in a system that has one (an EDGAR accession number,
+// a NetDocuments or iManage number); `short` what the document is called. For SharePoint, `site` is the
+// site's path (/sites/FundLegal), `library` the library as the address spells it, `folder` the folders below
+// it, joined by /, and `sharing` says it's a sharing link, which names no file.
+function linkOf(link) {
+  const text = String(link ?? '').trim();
+  const p = { link: text, system: null, kind: 'other', name: null, id: null, short: text, host: null, site: null, library: null, folder: '', sharing: false };
+  if (/^iwl:/i.test(text)) {
+    const q = Object.fromEntries(text.slice(4).split('&&').map(kv => kv.split('=')));
+    return named({ ...p, system: 'imanage', id: q.num ? `${q.num}${q.ver ? `v${q.ver}` : ''}` : null });
+  }
+  if (/^\\\\|^file:/i.test(text)) {
+    const parts = text.replace(/^file:\/*/i, '').split(/[\\/]+/).filter(Boolean).map(decode), name = fileName(parts.at(-1));
+    return named({ ...p, system: 'file', host: parts[0] ?? null, name, folder: parts.slice(1, name ? -1 : undefined).join('/') });
+  }
+  let u;
+  try { u = new URL(text); } catch { return p; }
+  if (!/^https?:$/.test(u.protocol)) return p;
+  const host = u.hostname.toLowerCase(), segs = u.pathname.split('/').filter(Boolean).map(decode);
+  Object.assign(p, { system: 'web', host });
+
+  if (/(^|\.)sec\.gov$/.test(host)) {
+    const accession = segs.map(s => /^\d{18}$/.test(s) ? `${s.slice(0, 10)}-${s.slice(10, 12)}-${s.slice(12)}` : /^\d{10}-\d{2}-\d{6}/.exec(s)?.[0]).find(Boolean);
+    const cik = u.searchParams.get('CIK') ?? u.searchParams.get('cik') ?? (/^data$/i.test(segs[2] ?? '') ? segs[3] : null);
+    const last = segs.at(-1);
+    return named({ ...p, system: 'edgar', name: extension(last) && !/-index\.html?$/i.test(last) ? last : null,
+      id: accession ?? (cik ? `CIK ${cik}` : null) });
+  }
+  if (/(^|\.)(netvoyage|netdocuments)\.(com|net)$/.test(host))
+    return named({ ...p, system: 'netdocuments', id: u.searchParams.get('id') ?? /\d{4}-\d{4}-\d{4}/.exec(u.pathname)?.[0] ?? null });
+  if (/(^|\.)(imanage\.work|cloudimanage\.com)$/.test(host)) {
+    const m = /[\w-]+!(\d+)(?:\.(\d+))?/.exec(decode(u.pathname + u.search));
+    return named({ ...p, system: 'imanage', id: m ? `${m[1]}${m[2] ? `v${m[2]}` : ''}` : null });
+  }
+  const onedrive = /-my\.sharepoint(-df)?\.(com|us|de|cn)$/.test(host);
+  if (!/\.sharepoint(-df)?\.(com|us|de|cn)$/.test(host) && !segs.some(s => /^_layouts$/i.test(s))) {
+    if (/(^|\.)onedrive\.live\.com$|(^|\.)1drv\.ms$/.test(host)) return named({ ...p, system: 'onedrive', sharing: true });
+    return named({ ...p, name: fileName(segs.at(-1)) });
+  }
+  p.system = onedrive ? 'onedrive' : 'sharepoint';
+  let s = segs;
+
+  // A modern link: /:w:/r/sites/X/Library/… spells out the path; /:b:/s/X/token is a sharing link, which
+  // names no file, as is /:w:/g/personal/user/token on OneDrive.
+  const modern = /^:([a-z]):$/i.exec(s[0] ?? '');
+  if (modern) {
+    const how = (s[1] ?? '').toLowerCase();
+    s = s.slice(2);
+    if (how !== 'r') {
+      const site = /^(sites|teams|personal)$/i.test(s[0] ?? '') ? `/${s[0]}/${s[1] ?? ''}` : s.length > 1 ? `/${how === 't' ? 'teams' : 'sites'}/${s[0]}` : null;
+      return named({ ...p, sharing: true, site, kind: LETTERS[modern[1].toLowerCase()] ?? 'other' });
+    }
+  }
+  // A page of SharePoint's own names the file in its query: Doc.aspx?…&file=Name.docx, or a library
+  // view's AllItems.aspx?id=/sites/X/Library/Folder/File.pdf.
+  const id = u.searchParams.get('id'), file = u.searchParams.get('file');
+  const page = s.some(x => /^_layouts$/i.test(x)) || /\.aspx$/i.test(s.at(-1) ?? '');
+  if (page && id) s = id.split('/').filter(Boolean);
+  else if (page) {
+    const at = s.findIndex(x => /^_layouts$/i.test(x));
+    s = at >= 0 ? s.slice(0, at) : s.slice(0, -1);
+    if (/^forms$/i.test(s.at(-1) ?? '')) s = s.slice(0, -1);
+  }
+  if (/^(sites|teams|personal)$/i.test(s[0] ?? '')) { p.site = `/${s[0]}/${s[1] ?? ''}`; s = s.slice(2); }
+  p.library = s[0] ?? null;
+  const rest = s.slice(1), file1 = fileName(rest.at(-1));
+  p.name = file1 ?? (page && file ? file : null);
+  p.folder = (file1 ? rest.slice(0, -1) : rest).join('/');
+  if (!p.name) p.kind = 'folder';
+  return named(p);
+}
+function named(p) {
+  if (p.name) p.kind = KINDS[extension(p.name)] ?? 'other';
+  p.short = p.id ? `${SYSTEMS[p.system]} ${p.id}` : p.name
+    ?? (p.sharing ? `${WORDS[p.kind]} in ${SYSTEMS[p.system]}` : p.folder ? p.folder.split('/').pop() : p.library ?? p.host ?? p.link);
+  return p;
 }
 
 return {
   clean, norm, same,
-  isObject, isField, isTag, isChoice, isRelation, typeOf, argsOf, rootLabel,
-  treeOf, index, dependents, pathOf, objectOf, objectName,
+  isObject, isField, isTag, isChoice, isRelation, isView, typeOf, argsOf, rootLabel,
+  treeOf, index, dependents, pathOf, objectOf, entryAt,
   specOf, bare, key, paramKey, shapeOf, weight, narrower, fits, idsIn, renamed, rename, lift,
-  // A record's specification key and parameterization key, as formulas.js has always read them.
-  specKey: (recs, id) => { const t = treeOf(recs, id); return t && key(specOf(t)); },
+  // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },
   schema, schemaError,
-  DATATYPES, PHRASES, MONTHS, parseDate, formatDate, isNumber, isAddress, classify, parse, format, documentName,
+  DATATYPES, PHRASES, MONTHS, parseDate, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, plural, linkOf,
 };
 })();

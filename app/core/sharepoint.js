@@ -1,116 +1,18 @@
-// SharePoint: what a link to a document is, and the library a team keeps its documents and workbooks in.
+// SharePoint: the library a team keeps its documents and workbooks in. What a link points at is Tree.linkOf's.
 //
 // One global, `SharePoint`, with nothing on the page:
-// - parse(link): what a link points at, from the link alone; href(link) and open(link) to follow it;
+// - href(link): an address a browser can follow;
 // - settings: the tenant, the app's client id and the library's address, kept in this browser;
-// - signing in through MSAL (vendor/msal), and Microsoft Graph as the person signed in: browse, search,
-//   an item's details, Microsoft's File Picker for linking a document, and read and write for the store.
+// - signing in through MSAL (vendor/msal), and Microsoft Graph as the person signed in: Microsoft's File
+//   Picker for linking a document, and read and write for the store.
 //
 // Signing in and the picker need the page served over https (or from localhost): Entra ID sends a sign-in
 // back only to an address registered for it, and a file has none. See docs/sharepoint-setup.md.
 const SharePoint = (() => {
 
-// ---- Links ----
-
-const KINDS = { doc: 'word', docx: 'word', docm: 'word', dot: 'word', dotx: 'word', rtf: 'word', pdf: 'pdf',
-  xls: 'excel', xlsx: 'excel', xlsm: 'excel', xlsb: 'excel', csv: 'excel', ppt: 'powerpoint', pptx: 'powerpoint',
-  pptm: 'powerpoint', msg: 'email', eml: 'email' };
-// A modern SharePoint link says what it is after its first colon, /:w:/ for Word, and a sharing link
-// says nothing else: :b: is any other file, most often a PDF.
-const LETTERS = { w: 'word', x: 'excel', p: 'powerpoint', b: 'pdf', f: 'folder' };
-const WORDS = { word: 'Word document', pdf: 'PDF', excel: 'Spreadsheet', powerpoint: 'Presentation', email: 'Email', folder: 'Folder', other: 'File' };
-const SYSTEMS = { sharepoint: 'SharePoint', onedrive: 'OneDrive', edgar: 'EDGAR', netdocuments: 'NetDocuments', imanage: 'iManage', file: 'File share', web: 'Web' };
-const decode = s => { try { return decodeURIComponent(s); } catch { return s; } };
-const extension = name => /\.([a-z][a-z0-9]{1,4})$/i.exec(name ?? '')?.[1].toLowerCase() ?? null;
-// A file's name ends in an extension, and a web page's (Doc.aspx, index.htm) names no document.
-const fileName = s => extension(s) && !/^(aspx?|html?|php|jsp|cgi)$/.test(extension(s)) ? s : null;
-const kindOf = name => KINDS[extension(name)] ?? 'other';
-
-// What a link points at: { link, system, kind, name, id, short, host, site, library, folder, sharing }.
-// `system` is sharepoint, onedrive, edgar, netdocuments, imanage, file or web, or null if it isn't a link.
-// `name` is the file's name where the link gives one; `id` the document's number in a system that has one
-// (an EDGAR accession number, a NetDocuments or iManage number); `short` what the link is called where
-// there's little room. For SharePoint, `site` is the site's path (/sites/FundLegal), `library` the library
-// as the address spells it (Shared Documents), `folder` the folders below it, joined by /, and `sharing`
-// says it's a sharing link, which names no file.
-function parse(link) {
-  const text = String(link ?? '').trim();
-  const p = { link: text, system: null, kind: 'other', name: null, id: null, short: text, host: null, site: null, library: null, folder: '', sharing: false };
-  if (/^iwl:/i.test(text)) {
-    const q = Object.fromEntries(text.slice(4).split('&&').map(kv => kv.split('=')));
-    return finish({ ...p, system: 'imanage', id: q.num ? `${q.num}${q.ver ? `v${q.ver}` : ''}` : null });
-  }
-  if (/^\\\\|^file:/i.test(text)) {
-    const parts = text.replace(/^file:\/*/i, '').split(/[\\/]+/).filter(Boolean).map(decode), name = fileName(parts.at(-1));
-    return finish({ ...p, system: 'file', host: parts[0] ?? null, name, folder: parts.slice(1, name ? -1 : undefined).join('/') });
-  }
-  let u;
-  try { u = new URL(text); } catch { return p; }
-  if (!/^https?:$/.test(u.protocol)) return p;
-  const host = u.hostname.toLowerCase(), segs = u.pathname.split('/').filter(Boolean).map(decode);
-  Object.assign(p, { system: 'web', host });
-
-  if (/(^|\.)sec\.gov$/.test(host)) {
-    const accession = segs.map(s => /^\d{18}$/.test(s) ? `${s.slice(0, 10)}-${s.slice(10, 12)}-${s.slice(12)}` : /^\d{10}-\d{2}-\d{6}/.exec(s)?.[0]).find(Boolean);
-    const cik = u.searchParams.get('CIK') ?? u.searchParams.get('cik') ?? (/^data$/i.test(segs[2] ?? '') ? segs[3] : null);
-    const last = segs.at(-1);
-    return finish({ ...p, system: 'edgar', name: extension(last) && !/-index\.html?$/i.test(last) ? last : null,
-      id: accession ?? (cik ? `CIK ${cik}` : null) });
-  }
-  if (/(^|\.)(netvoyage|netdocuments)\.(com|net)$/.test(host))
-    return finish({ ...p, system: 'netdocuments', id: u.searchParams.get('id') ?? /\d{4}-\d{4}-\d{4}/.exec(u.pathname)?.[0] ?? null });
-  if (/(^|\.)(imanage\.work|cloudimanage\.com)$/.test(host)) {
-    const m = /[\w-]+!(\d+)(?:\.(\d+))?/.exec(decode(u.pathname + u.search));
-    return finish({ ...p, system: 'imanage', id: m ? `${m[1]}${m[2] ? `v${m[2]}` : ''}` : null });
-  }
-  const onedrive = /-my\.sharepoint(-df)?\.(com|us|de|cn)$/.test(host);
-  if (!/\.sharepoint(-df)?\.(com|us|de|cn)$/.test(host) && !segs.some(s => /^_layouts$/i.test(s))) {
-    if (/(^|\.)onedrive\.live\.com$|(^|\.)1drv\.ms$/.test(host)) return finish({ ...p, system: 'onedrive', sharing: true });
-    return finish({ ...p, name: fileName(segs.at(-1)) });
-  }
-  p.system = onedrive ? 'onedrive' : 'sharepoint';
-  let s = segs;
-
-  // A modern link: /:w:/r/sites/X/Library/… spells out the path; /:b:/s/X/token is a sharing link, which
-  // names no file, as is /:w:/g/personal/user/token on OneDrive.
-  const modern = /^:([a-z]):$/i.exec(s[0] ?? '');
-  if (modern) {
-    const how = (s[1] ?? '').toLowerCase();
-    s = s.slice(2);
-    if (how !== 'r') {
-      const site = /^(sites|teams|personal)$/i.test(s[0] ?? '') ? `/${s[0]}/${s[1] ?? ''}` : s.length > 1 ? `/${how === 't' ? 'teams' : 'sites'}/${s[0]}` : null;
-      return finish({ ...p, sharing: true, site, kind: LETTERS[modern[1].toLowerCase()] ?? 'other' });
-    }
-  }
-  // A page of SharePoint's own names the file in its query: Doc.aspx?…&file=Name.docx, or a library
-  // view's AllItems.aspx?id=/sites/X/Library/Folder/File.pdf.
-  const id = u.searchParams.get('id'), file = u.searchParams.get('file');
-  const page = s.some(x => /^_layouts$/i.test(x)) || /\.aspx$/i.test(s.at(-1) ?? '');
-  if (page && id) s = id.split('/').filter(Boolean);
-  else if (page) {
-    const at = s.findIndex(x => /^_layouts$/i.test(x));
-    s = at >= 0 ? s.slice(0, at) : s.slice(0, -1);
-    if (/^forms$/i.test(s.at(-1) ?? '')) s = s.slice(0, -1);
-  }
-  if (/^(sites|teams|personal)$/i.test(s[0] ?? '')) { p.site = `/${s[0]}/${s[1] ?? ''}`; s = s.slice(2); }
-  p.library = s[0] ?? null;
-  const rest = s.slice(1), named = fileName(rest.at(-1));
-  p.name = named ?? (page && file ? file : null);
-  p.folder = (named ? rest.slice(0, -1) : rest).join('/');
-  if (!p.name) p.kind = 'folder';
-  return finish(p);
-}
-function finish(p) {
-  if (p.name) p.kind = kindOf(p.name);
-  p.short = p.id ? `${SYSTEMS[p.system]} ${p.id}` : p.name
-    ?? (p.sharing ? `${WORDS[p.kind]} in ${SYSTEMS[p.system]}` : p.folder ? p.folder.split('/').pop() : p.library ?? p.host ?? p.link);
-  return p;
-}
-
 // An address a browser can follow: a file share's path as a file: URL, and anything else as it is.
 const href = link => /^\\\\/.test(link)
   ? `file:${link.replace(/\\/g, '/').split('/').map((s, i) => i < 3 ? s : encodeURIComponent(s)).join('/')}` : link;
-const open = link => window.open(href(link), '_blank', 'noopener');
 
 // ---- Settings ----
 // The directory (tenant) id, the app registration's client id, and the address of the library or folder
@@ -207,53 +109,32 @@ async function all(path) {
   }
 }
 const encodePath = path => path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+const decode = s => { try { return decodeURIComponent(s); } catch { return s; } };
 
-// An item as the app holds it: { drive, id, name, link, folder, kind, size, version, modified, by }.
-const DETAILS = '$expand=listItem($expand=fields($select=_UIVersionString))';
-const itemOf = it => ({
-  drive: it.parentReference?.driveId ?? null, id: it.id, name: it.name, link: it.webUrl ?? null, folder: !!it.folder,
-  kind: it.folder ? 'folder' : kindOf(it.name), size: it.size ?? null, version: it.listItem?.fields?._UIVersionString ?? null,
-  modified: it.lastModifiedDateTime ?? null, by: it.lastModifiedBy?.user?.displayName ?? null,
-});
+// An item as the app holds it: { drive, id, name, link }.
+const itemOf = it => ({ drive: it.parentReference?.driveId ?? null, id: it.id, name: it.name, link: it.webUrl ?? null });
 
 // The library or folder the settings name, as a folder item.
 let lib = null;
 function library() {
   return lib ??= (async () => {
-    const p = parse(settings().library);
+    const p = Tree.linkOf(settings().library);
     if (!p.host || !p.library) throw new SharePointError('No library is set.', 0);
     const site = await graph(`/sites/${p.host}${p.site ? `:${p.site}` : ''}`);
     const drives = await all(`/sites/${site.id}/drives?$select=id,name,webUrl`);
-    const d = drives.find(x => same(x.name, p.library) || same(decode(new URL(x.webUrl).pathname).split('/').pop(), p.library));
-    if (!d) throw new SharePointError(`There’s no library called ${p.library} there.`, 404);
+    const d = drives.find(x => Tree.same(x.name, p.library) || Tree.same(decode(new URL(x.webUrl).pathname).split('/').pop(), p.library));
+    if (!d) throw new SharePointError(`No library called ${p.library}`, 404);
     return itemOf(await graph(`/drives/${d.id}/root${p.folder ? `:/${encodePath(p.folder)}` : ''}`));
   })().catch(e => { lib = null; throw e; });
 }
-// A folder's contents, folders first: the library's, or a folder's from an earlier browse.
-async function browse(folder) {
-  const f = folder ?? await library();
-  return (await all(`/drives/${f.drive}/items/${f.id}/children?${DETAILS}&$top=200`)).map(itemOf)
-    .sort((a, b) => b.folder - a.folder || a.name.localeCompare(b.name));
-}
-// The library's files and folders whose names or contents match, as SharePoint's own search finds them.
-async function search(query) {
-  const f = await library(), q = encodeURIComponent(String(query).replace(/'/g, "''"));
-  return (await all(`/drives/${f.drive}/root/search(q='${q}')?${DETAILS}`)).map(itemOf);
-}
-// An item's details: from a link of any kind SharePoint gives out, or an item { drive, id }.
-function item(ref) {
-  if (typeof ref !== 'string') return graph(`/drives/${ref.drive}/items/${ref.id}?${DETAILS}`).then(itemOf);
-  const share = `u!${btoa(String.fromCharCode(...new TextEncoder().encode(ref))).replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-')}`;
-  return graph(`/shares/${share}/driveItem?${DETAILS}`).then(itemOf);
-}
+const item = ref => graph(`/drives/${ref.drive}/items/${ref.id}`).then(itemOf);
 
 // Microsoft's File Picker (v8), hosted by the tenant, in a window of its own, opened at the library: the
 // documents picked, as items, or none if it's closed. Called on a click, since it opens a window.
 function pick({ multiple = false } = {}) {
   const win = window.open('', 'dendra-picker', 'width=1080,height=680');
   if (!win) return Promise.reject(new SharePointError('The browser blocked the picker’s window.', 0));
-  const p = parse(settings().library), base = `https://${p.host}`, channelId = crypto.randomUUID();
+  const p = Tree.linkOf(settings().library), base = `https://${p.host}`, channelId = crypto.randomUUID();
   const options = {
     sdk: '8.0', authentication: {}, messaging: { origin: location.origin, channelId },
     entry: { sharePoint: { byPath: { web: base + (p.site ?? ''), list: p.library, ...(p.folder && { folder: p.folder }) } } },
@@ -331,10 +212,10 @@ async function write(file, text, version) {
 }
 
 return {
-  parse, href, open,
+  href,
   settings, configure, configured,
   ready, account, signIn, signOut,
-  library, browse, search, item, pick, read, write,
+  library, pick, read, write,
   SharePointError,
 };
 })();

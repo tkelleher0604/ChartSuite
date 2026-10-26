@@ -12,7 +12,7 @@ const itemOf = row => row[typeOf(row)];
 const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
 let counter = 0;
 const newId = () => Date.now().toString(36) + (counter++ % 1296).toString(36).padStart(2, '0') + Math.random().toString(36).slice(2, 6);
-const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const today = () => Tree.isoOf(new Date());
 const byTime = (a, b) => a.when < b.when ? -1 : a.when > b.when ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 const validOn = (r, d) => (!r.since || r.since <= d) && (!r.before || d < r.before);
 const overlap = (a, b) => (!a.since || !b.before || a.since < b.before) && (!b.since || !a.before || b.since < a.before);
@@ -22,6 +22,9 @@ const recordOf = row => { let r = records.get(row); if (!r) { const { id, record
 const contents = new WeakMap();
 const contentOf = row => { let s = contents.get(row); if (!s) { const { id, ...rest } = row; contents.set(row, s = JSON.stringify(rest)); } return s; };
 const argKey = r => Tree.argsOf(r).map(a => JSON.stringify([Tree.norm(a.edge), a.at])).sort().join();
+// A row's content, whatever order its keys were written in.
+const content = ({ id, ...rest }) => JSON.stringify(rest, (k, v) => v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : v);
 
 // Each record as its latest version, for what doesn't depend on the day: dependents, renaming, the schema.
 function rawOf(items) {
@@ -106,14 +109,6 @@ function open(data) {
     d.days.set(day, state);
     return state;
   }
-  // The days on which something starts or ends, for the date control's strip.
-  function days(c) {
-    const d = chart(c), raw = rawOf(d.items), set = new Set();
-    for (const rows of d.records.values()) for (const r of rows) { if (r.since) set.add(r.since); if (r.before) set.add(r.before); }
-    for (const id of Object.keys(raw)) if (bound(d, raw, id)) for (const r of d.records.get(id)) set.add(r.value);
-    return [...set].sort();
-  }
-
   // Why a change can't be made, in words, or null. Only what it would newly break counts: two records
   // with one argumentation valid on a common day, an entry at something not there, or a schema at odds.
   function check(c) {
@@ -169,6 +164,30 @@ function open(data) {
     });
   }
 
+  // Live rows that disagree (dendra.md, Change): versions of one item that differ and are valid on a common
+  // day, or records of two items with one argumentation. Each group with who made each row, the earliest first.
+  function disagreements(c) {
+    const d = chart(c);
+    return d.disagree ??= (() => {
+      const made = new Map(), groups = new Map(), up = new Map(d.rows.map(r => [r.id, r.id]));
+      for (const x of list()) if (x.chart === c) for (const r of x.adds) made.set(r.id, x);
+      const top = id => up.get(id) === id ? id : top(up.get(id));
+      for (const r of d.rows) {
+        push(groups, `item ${itemOf(r)}`, r);
+        if ('record' in r && !('kind' in r)) push(groups, `args ${argKey(r)}`, r);
+      }
+      for (const [k, g] of groups) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
+        const a = g[i], b = g[j];
+        if (overlap(a, b) && (k.startsWith('item') ? content(a) !== content(b) : a.record !== b.record)) up.set(top(a.id), top(b.id));
+      }
+      const sets = new Map();
+      for (const r of d.rows) push(sets, top(r.id), r);
+      return [...sets.values()].filter(s => s.length > 1).map(s => ({ rows: s
+        .map(row => { const x = made.get(row.id); return { row, who: x?.who, when: x?.when, change: x?.id }; })
+        .sort((a, b) => a.when < b.when ? -1 : a.when > b.when ? 1 : 0) }));
+    })();
+  }
+
   // An edit, building one change. With a day shown, an added record starts on it, setting a record's
   // value splits its validity there, and removing ends it there. With none, each corrects.
   function edit({ chart: c, who, day = null, when } = {}) {
@@ -180,6 +199,14 @@ function open(data) {
     };
     const all = () => [...items.values()].flat();
     const swap = (r, u) => { if (u !== r) { drop(r); put({ ...u, id: newId() }); } };
+    // Every Formula row that cites a name, citing the new one, where formulas.js offers renameName.
+    const reword = (from, to) => {
+      const text = typeof Formulas !== 'undefined' ? Formulas.renameName : null;
+      if (text) for (const r of all()) if ('note' in r && r.label === 'Formula') {
+        const value = r.value.map(row => ({ ...row, formula: text(row.formula, from, to) }));
+        swap(r, JSON.stringify(value) === JSON.stringify(r.value) ? r : { ...r, value });
+      }
+    };
     const tx = {
       add(type, payload, id = newId()) { put({ id: newId(), [type]: id, ...payload, ...(type === 'record' && day && { since: day }) }); return id; },
       set(id, payload) {
@@ -204,20 +231,45 @@ function open(data) {
           else if (!r.before || r.before > day) swap(r, { ...r, before: day });
         }
       },
-      // Renaming relabels every tree like p: records, specifications, notes' patterns and edges, and, where
-      // formulas.js offers it, the formulas that use the name.
+      // A note at exactly this pattern (and view and param): set to `value`, or removed when it's undefined.
+      // A Name that changes renames it in the formulas that cite it.
+      note(label, pattern, value, { view, param } = {}) {
+        const k = Tree.key(pattern);
+        const old = all().find(r => 'note' in r && r.label === label && (r.view ?? null) === (view ?? null) && (r.param ?? null) === (param ?? null) && Tree.key(r.pattern) === k);
+        if (value === undefined || value === null) { if (old) drop(old); return; }
+        if (old && JSON.stringify(old.value) === JSON.stringify(value)) return;
+        const row = { label, pattern, ...(view && { view }), ...(param && { param }), value };
+        if (old) tx.set(old.note, row); else tx.add('note', row);
+        if (label === 'Name' && !view && typeof old?.value === 'string' && typeof value === 'string') reword(old.value, value);
+      },
+      // A new version with these changes: of a record, the version in force on the day.
+      update(id, changes) {
+        const rs = items.get(id);
+        if (!rs) return;
+        const type = typeOf(rs[0]), r = type === 'record' ? rs.find(x => validOn(x, day ?? today())) ?? latest(rs) : rs[0];
+        const { id: _, [type]: __, since, before, ...p } = r;
+        tx.set(id, { ...p, ...changes });
+      },
+      // Settles a disagreement by keeping this row: the rows that disagree with it go.
+      keep(rowId) {
+        const g = disagreements(c).find(x => x.rows.some(y => y.row.id === rowId));
+        for (const { row } of g?.rows ?? []) if (row.id !== rowId) drop(row);
+      },
+      // Renaming relabels every tree like p: records, specifications, notes' patterns and edges, a table's rows,
+      // and the formulas that cite the name.
       rename(p, from, to) {
-        const raw = rawOf(items), text = typeof Formulas !== 'undefined' ? Formulas.renameName : null;
+        const raw = rawOf(items);
         for (const r of all()) {
           if ('record' in r) swap(r, Tree.fits(raw, r.record, p) ? Tree.renamed(r, from, to) : r);
           else if ('spec' in r) { const tree = Tree.rename(r.tree, p, from, to); swap(r, tree === r.tree ? r : { ...r, tree }); }
           else if ('note' in r) {
             const u = { ...r, pattern: Tree.rename(r.pattern, p, from, to) };
             if (r.param && Tree.same(r.param, from) && Tree.narrower(r.pattern, p)) u.param = to;
-            if (r.label === 'Formula' && text) u.value = r.value.map(row => ({ ...row, formula: text(row.formula, from, to) }));
+            if (r.label === 'Layout' && typeof r.value?.rows === 'object') u.value = { ...r.value, rows: Tree.rename(r.value.rows, p, from, to) };
             swap(r, JSON.stringify(u) === JSON.stringify(r) ? r : u);
           }
         }
+        reword(from, to);
       },
       // Moving up a level: every record like p, an entry at an entry, moves to its location's location, and
       // so do the specifications and notes' patterns like it.
@@ -236,7 +288,7 @@ function open(data) {
   }
 
   const wb = {
-    apply, edit, asOf, days, schema, canReverse, reverse, stacks, deleted,
+    apply, edit, asOf, schema, canReverse, reverse, stacks, deleted, disagreements,
     changes: list,
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,
@@ -256,5 +308,5 @@ function open(data) {
 }
 const changesOf = x => !x ? [] : Array.isArray(x) ? x : typeof x.changes === 'function' ? x.changes() : x.changes ?? [];
 
-return { open, union: (a, b) => open(a).merge(b), newId, today, validOn };
+return { open, newId, today, validOn, typeOf, latest };
 })();

@@ -26,7 +26,7 @@
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/sharepoint.js"></script>
-<script src="../core/store.js"></script>
+<script src="../core/store.js" data-db="dendra-test"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script>
 // Checks of the store (core/store.js) and the SharePoint connector (core/sharepoint.js), against the
@@ -42,7 +42,8 @@ const rejects = p => p.then(() => null, e => e);
 // A headless run's virtual time races past IndexedDB, which answers in real time; reading a local file
 // now and then spends some, so that it can.
 const pump = setInterval(() => { try { const x = new XMLHttpRequest(); x.open('GET', '../sample/calder-ridge.js', false); x.send(); } catch {} }, 1);
-const db = new Dexie('dendra');
+// The test keeps its own database, and starts it empty.
+const db = new Dexie('dendra-test');
 db.version(1).stores({ changes: '[book+id], book', books: 'id, opened' });
 
 const set = (wb, id, value, who = 'Dana Jordan') => { const tx = wb.edit({ chart: C, who }); tx.set(id, { ...wb.asOf(C)[id], value }); return tx.commit(); };
@@ -100,7 +101,7 @@ function links() {
     ['not a link', 'not a link', { system: null, short: 'not a link' }],
   ];
   for (const [what, link, want] of CASES) {
-    const got = SharePoint.parse(link), wrong = Object.entries(want).filter(([k, v]) => got[k] !== v);
+    const got = Tree.linkOf(link), wrong = Object.entries(want).filter(([k, v]) => got[k] !== v);
     check(`a link: ${what}`, !wrong.length, wrong.map(([k, v]) => `${k}: ${JSON.stringify(got[k])}, wanted ${JSON.stringify(v)}`).join('; '));
   }
   check('a file share opens as a file: address', SharePoint.href('\\\\fileserver\\Legal\\Fund III\\LPA.pdf') === 'file://fileserver/Legal/Fund%20III/LPA.pdf', SharePoint.href('\\\\fileserver\\Legal\\Fund III\\LPA.pdf'));
@@ -129,7 +130,7 @@ async function browser() {
   const e = add(again);
   check('… and one here, there', await until(() => has(twb, e)));
   check('… and each is kept once', await until(async () => await db.changes.where('book').equals(book.id).count() === again.changes().length));
-  check('the sample has no disagreements', !Store.disagreements().length, JSON.stringify(Store.disagreements()));
+  check('the sample has no disagreements', !Store.wb.disagreements(C).length, JSON.stringify(Store.wb.disagreements(C)));
   return t;
 }
 
@@ -138,17 +139,19 @@ function disagreements() {
   const ann = Log.open(base), bob = Log.open(base);
   const a = set(ann, 'own_fund_npine_pct', 0.7, 'Ann Lee'), b = set(bob, 'own_fund_npine_pct', 0.65, 'Bob Diaz');
   wb.merge(ann).merge(bob);
-  const ds = Store.disagreements(), rows = ds[0]?.rows ?? [];
+  const ds = Store.wb.disagreements(C), rows = ds[0]?.rows ?? [];
   check('two people changing one percentage at once disagree', ds.length === 1 && rows.length === 2 && rows.map(r => `${r.who} ${r.row.value}`).sort().join() === 'Ann Lee 0.7,Bob Diaz 0.65'
-    && rows.every(r => r.change && r.when) && ds[0].chart === C, JSON.stringify(ds));
-  wb.apply({ id: Log.newId(), who: 'Dana Jordan', when: new Date().toISOString(), chart: C, removes: [rows.find(r => r.who === 'Bob Diaz').row.id], adds: [] });
-  check('… and keeping one settles it', !Store.disagreements().length && wb.asOf(C).own_fund_npine_pct.value === 0.7);
+    && rows.every(r => r.change && r.when), JSON.stringify(ds));
+  const tx = wb.edit({ chart: C, who: 'Dana Jordan' });
+  tx.keep(rows.find(r => r.who === 'Ann Lee').row.id);
+  tx.commit();
+  check('… and keeping one settles it', !Store.wb.disagreements(C).length && wb.asOf(C).own_fund_npine_pct.value === 0.7);
 
   const cy = Log.open(wb.changes()), di = Log.open(wb.changes());
   set(cy, 'gp_ein', '33-3333333', 'Cy Park');
   set(di, 'gp_ein', '33-3333333', 'Di Ng');
   wb.merge(cy).merge(di);
-  check('two people typing the same value don’t', !Store.disagreements().length, JSON.stringify(Store.disagreements()));
+  check('two people typing the same value don’t', !Store.wb.disagreements(C).length, JSON.stringify(Store.wb.disagreements(C)));
 
   const ed = Log.open(wb.changes()), fay = Log.open(wb.changes());
   const del = ed.edit({ chart: C, who: 'Ed Moss' });
@@ -156,8 +159,8 @@ function disagreements() {
   del.commit();
   set(fay, 'own_fund_npine_pct', 0.6, 'Fay Wu');
   wb.merge(ed).merge(fay);
-  check('a record deleted while its percentage changed: the change is kept aside, and nothing disagrees', !Store.disagreements().length && !wb.asOf(C).own_fund_npine
-    && wb.rows(C).some(r => r.record === 'own_fund_npine_pct' && r.value === 0.6), JSON.stringify(Store.disagreements()));
+  check('a record deleted while its percentage changed: the change is kept aside, and nothing disagrees', !Store.wb.disagreements(C).length && !wb.asOf(C).own_fund_npine
+    && wb.rows(C).some(r => r.record === 'own_fund_npine_pct' && r.value === 0.6), JSON.stringify(Store.wb.disagreements(C)));
 
   const gil = Log.open(wb.changes()), hal = Log.open(wb.changes());
   for (const [w, who, value] of [[gil, 'Gil Roy', '5493001KJTIIGC8Y1R12'], [hal, 'Hal Ito', '5493001KJTIIGC8Y1R99']]) {
@@ -166,7 +169,7 @@ function disagreements() {
     tx.commit();
   }
   wb.merge(gil).merge(hal);
-  const lei = Store.disagreements();
+  const lei = Store.wb.disagreements(C);
   check('two people adding one entry at once disagree', lei.length === 1 && lei[0].rows.map(r => r.who).sort().join() === 'Gil Roy,Hal Ito', JSON.stringify(lei));
 }
 
@@ -235,14 +238,7 @@ async function sharepoint() {
     && FakeMsal.config.auth.clientId === 'client-id', Store.who());
 
   const lib = await SharePoint.library();
-  check('the library is the folder the settings name', lib.id === folder.id && lib.drive === graph.drive && lib.folder, JSON.stringify(lib));
-  const top = await SharePoint.browse({ drive: graph.drive, id: graph.root.id });
-  check('browse: a folder’s contents, folders first', top.map(x => x.name).join('|') === 'Dendra|Side Letters', top.map(x => x.name).join('|'));
-  const found = await SharePoint.search('halcyon');
-  check('search', found.length === 1 && found[0].name === doc.name);
-  const it = await SharePoint.item(graph.link(doc));
-  check('a link’s item: its name, version, and who changed it when', it.name === doc.name && it.version === '1.0' && it.by === 'Priya Raman' && it.modified === doc.modified
-    && it.kind === 'pdf' && it.link === graph.link(doc) && it.id === doc.id, JSON.stringify(it));
+  check('the library is the folder the settings name', lib.id === folder.id && lib.drive === graph.drive, JSON.stringify(lib));
 
   // Into the library, from a new workbook in this browser.
   await Store.open({ id: 'dana', sample: SAMPLE });
@@ -288,7 +284,7 @@ async function sharepoint() {
   const a = set(bob.Store.wb, 'fund_target', 760000000, 'Bob Diaz'), b = set(cy.Store.wb, 'fund_target', 770000000, 'Cy Park');
   await Promise.all([bob.Store.sync(), cy.Store.sync()]);
   await Store.sync();
-  const ds = Store.disagreements();
+  const ds = Store.wb.disagreements(C);
   check('two people changing one value at once: saved, and found to disagree', has(Store.wb, a, b) && ds.length === 1 && ds[0].rows.map(r => r.who).sort().join() === 'Bob Diaz,Cy Park', JSON.stringify(ds));
   graph.latency = 0;
 
@@ -311,9 +307,6 @@ async function sharepoint() {
   await Store.sync();
   check('signed out, changes are kept here', Store.status().text === 'Signed out · kept here' && Store.status().fix === 'sign-in' && Store.who() === 'Dana Jordan', Store.status().text);
   check('… and saved on signing in', saved(await Store.fix()) && Store.who() === 'Ann Lee');
-
-  const t = await tab(), twb = await t.Store.openLibrary(graph.link(file));
-  check('a workbook opens from its link in the library', t.Store.where().type === 'sharepoint' && t.Store.where().name === 'Calder Ridge' && ids(twb) === ids(Store.wb));
 
   // The File Picker, in a window of its own: here a frame, which the test speaks for.
   const frame = document.createElement('iframe');
@@ -340,12 +333,13 @@ async function sharepoint() {
     && heard.some(m => m.type === 'acknowledge' && m.id === 'a1'), JSON.stringify(heard));
   win.port.postMessage({ type: 'command', id: 'p1', data: { command: 'pick', items: [{ id: doc.id, name: doc.name, parentReference: { driveId: graph.drive } }] } });
   const picked = await Promise.race([picking, sleep(5000).then(() => 'timed out')]);
-  check('what’s picked comes back as items', picked?.length === 1 && picked[0].name === doc.name && picked[0].link === graph.link(doc) && picked[0].version === '1.0', JSON.stringify(picked));
+  check('what’s picked comes back as items', picked?.length === 1 && picked[0].name === doc.name && picked[0].link === graph.link(doc), JSON.stringify(picked));
   check('Graph is asked for what Dendra needs, and no more', ['User.Read', 'Files.ReadWrite.All', 'Sites.Read.All'].every(x => FakeMsal.scopes.includes(x))
     && FakeMsal.scopes.every(x => /^(User\.Read|Files\.ReadWrite\.All|Sites\.Read\.All|https:\/\/.*\/\.default)$/.test(x)), [...new Set(FakeMsal.scopes)].join(' '));
 }
 
 (async () => {
+  await Dexie.delete('dendra-test');
   links();
   await browser();
   disagreements();

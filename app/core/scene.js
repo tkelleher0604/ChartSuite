@@ -4,12 +4,14 @@
 // The only page it touches is a canvas, to measure text. Units are CSS pixels, 96 to the inch, as the browser
 // and X6 draw them; a Size or a Weight is in points, as Office gives them, each PT pixels.
 //
-// Scene.of(wb, chart, view, day, { state, reveal, redline }) →
+// Scene.of(wb, chart, view, day, { state, computed?, reveal, redline }) →
 //   { chart, view, day, page: { w, h }, marks, byId, styles, ms }
-// `marks` are in drawing order: frames, lines, boxes, then free shapes, each by its Layer. A box, line or
-// frame has `settings`: { [property]: { value, note } }, the note null where nothing in the chart says.
-// A box or line has `texts`, each a record's text with its own settings and its `lines`, placed from the
-// mark's top left (a line's from its label's). A free shape has its row's formats, with no notes.
+// `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
+// text is a formula. `marks` are in drawing order: frames, lines, boxes, then free shapes, each by its Layer.
+// A box, line or frame has `settings`: { [property]: { value, note } }, the note null where nothing in the
+// chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
+// from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
+// are broken to. A free shape has its row's formats, with no notes, and a free line the boxes it's glued to.
 const Scene = (() => {
 const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, same } = Tree;
 
@@ -29,8 +31,18 @@ const DEFAULTS = {
 };
 const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
-// What a legend row shows: the properties of a box, line or frame that tell marks apart.
-const KEYED = { box: ['Shape', 'Fill', 'Outline', 'Weight', 'Dash'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow'], frame: ['Frame'] };
+// What a swatch shows: the properties of a box, line or frame that tell marks apart, or a text's look.
+const KEYED = { box: ['Shape', 'Fill', 'Outline', 'Weight', 'Dash'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow'], frame: ['Frame'],
+  text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color'] };
+// A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
+function swatch(kind, f) {
+  const sw = { kind, ...DEFAULTS[kind === 'frame' ? 'box' : kind] };
+  for (const k of KEYED[kind]) if (k in f) sw[k] = f[k];
+  return sw;
+}
+// An output's swatch where no mark says what it is: a relation's is a line, a box's a box, and an entry's a box
+// where its formats draw one, or else a text.
+const swatchOf = (p, f) => swatch(p.args?.length > 1 ? 'line' : !p.args || KEYED.box.some(k => k in f) ? 'box' : 'text', f);
 const FONTS = { Arial: "Arial, 'Liberation Sans', Helvetica, sans-serif", Calibri: 'Calibri, Carlito, sans-serif',
   'Times New Roman': "'Times New Roman', 'Liberation Serif', Times, serif", Georgia: 'Georgia, Gelasio, serif' };
 const fontFamily = f => FONTS[f] ?? `'${f}', sans-serif`;
@@ -136,7 +148,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
   const red = opts.redline ?? null;
   // A redline draws what's in the chart now together with what would be: both, marked.
-  const state = red?.state ? { ...(opts.state ?? api.state(wb, chart, day)), ...red.state } : (opts.state ?? api.state(wb, chart, day));
+  const state = red?.state ? { ...opts.state, ...red.state } : opts.state;
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
   const tree = id => treeOf(state, id);
 
@@ -150,22 +162,14 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const beats = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
 
-  // A View object, and whatever is located at one, is the app's own and never drawn.
-  const viewish = new Map();
-  const isViewItem = id => {
-    if (viewish.has(id)) return viewish.get(id);
-    viewish.set(id, false);
-    const r = state[id], v = !!r && (isObject(r) ? same(r.kind, 'View') : argsOf(r).some(a => isViewItem(a.at)));
-    viewish.set(id, v);
-    return v;
-  };
-  const boxOf = id => { const r = state[id]; return !r ? null : isObject(r) ? id : r.at ? boxOf(r.at) : null; };
+  const boxOf = id => { const r = state[id]; return !r || Tree.isView(r) ? null : isObject(r) ? id : r.at ? boxOf(r.at) : null; };
 
   // Marks: an object a box; a relation with two locations a line between their boxes; any other record a
-  // text, in the mark of its nearest location (a relation of more than two, in each of their boxes).
+  // text, in the mark of its nearest location (a relation of more than two, in each of their boxes). A View
+  // object is the app's own and never drawn.
   const marks = new Map(), own = new Map();
   const addMark = m => { marks.set(m.id, m); (own.get(m.record) ?? own.set(m.record, []).get(m.record)).push(m); return m; };
-  const ids = Object.keys(state).filter(id => !isViewItem(id) && tree(id));
+  const ids = Object.keys(state).filter(id => !Tree.isView(state[id]) && tree(id));
   for (const id of ids) if (isObject(state[id])) addMark({ id, type: 'box', record: id, cand: {} });
   for (const id of ids) {
     const r = state[id];
@@ -289,7 +293,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (pos?.h > h) { y += (pos.h - h) / 2; h = pos.h; }
     const x0 = (w - avail) / 2;
     for (const it of b.texts) y = stack(it, x0, avail, y);
-    Object.assign(b, { w, h, shape });
+    Object.assign(b, { w, h, shape, column: { x: x0, width: avail } });
   }
 
   // Frames: each style giving a box's record, or a record in it, a Frame adds a step to the box's path,
@@ -358,7 +362,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
 
   // Free shapes: the view's own, each with its own formats.
   const geo = new Map(boxes.map(b => [b.id, b]));
-  const shapes = wb.rows(chart).filter(r => 'shape' in r && r.view === view).map(r => freeShape(r, { wb, chart, view, day, state, geo }));
+  const shapes = wb.rows(chart).filter(r => 'shape' in r && r.view === view).map(r => freeShape(r, opts.computed, day));
   // A free line glued to a box leaves it where it faces the line's other end, and follows it.
   for (const s of shapes) if (s.geometry === 'line' && s.ends) {
     const ps = s.points, [a, b] = s.ends.map(id => geo.get(id) ?? shapes.find(x => x.id === id));
@@ -388,16 +392,9 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     ...boxes.sort((a, b) => layer(a) - layer(b)),
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
-  for (const m of marksInOrder) { delete m.cand; delete m.ends; }
-  const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, ms: now() - started };
-  if (!opts.redline && !opts.reveal) latest.set(view, scene);
-  return scene;
+  for (const m of marksInOrder) { delete m.cand; if (m.type !== 'shape') delete m.ends; }
+  return { chart, view, day, page, marks: marksInOrder, byId, styles, ms: now() - started };
 }
-// The scene last worked out for each view, for what asks about a mark without working one out.
-const latest = new Map();
-// A mark's settings in the scene last worked out for its view: { [property]: { value, note } }, the note
-// null where nothing in the chart gives the value; a text's for a record shown as text; null if not drawn.
-const settingsOf = (id, view) => latest.get(view)?.byId.get(id)?.settings ?? null;
 
 // The middle of the side of a box that faces a point.
 function edgePoint(g, [x, y]) {
@@ -463,8 +460,8 @@ function captionOf(N, output, view) {
   return outputText(N, output);
 }
 function outputText(N, p) {
-  if (!p.args) return p.kind ?? 'Every box';
-  const name = p.args.length > 1 ? N.name(p) : p.args[0].edge;
+  if (!p.args) return p.kind ?? 'All';
+  const name = N.name(bare(p));
   if (!p.out) return name;
   if ('choice' in p.out) return p.args.length > 1 ? `${name}: ${p.out.choice}` : p.out.choice;
   if ('tag' in p.out) return p.out.tag ? name : `Not ${name}`;
@@ -487,12 +484,9 @@ function legend(N, view, styles, marks) {
     const mine = [...used.values()].filter(u => u.style === s.key);
     const groups = new Map();
     for (const u of mine) {
-      // The swatch: a box or a line in the defaults, with what this output gives it.
-      const f = s.outputs.find(o => key(o.pattern) === key(u.pattern))?.formats ?? {};
-      const swatch = { kind: u.kind, ...DEFAULTS[u.kind === 'line' ? 'line' : 'box'] };
-      for (const k of KEYED[u.kind]) if (k in f) swatch[k] = f[k];
-      const sk = JSON.stringify([u.kind, ...KEYED[u.kind].map(k => swatch[k])]);
-      const g = groups.get(sk) ?? groups.set(sk, { style: s.key, order, outputs: [], swatch }).get(sk);
+      const sw = swatch(u.kind, s.outputs.find(o => key(o.pattern) === key(u.pattern))?.formats ?? {});
+      const sk = JSON.stringify([u.kind, ...KEYED[u.kind].map(k => sw[k])]);
+      const g = groups.get(sk) ?? groups.set(sk, { style: s.key, order, outputs: [], swatch: sw }).get(sk);
       g.outputs.push(u.pattern);
     }
     for (const g of groups.values()) {
@@ -509,7 +503,7 @@ function legend(N, view, styles, marks) {
 // A free shape, from its row: its geometry, place, formats and text.
 const SHAPE_DEFAULTS = { Fill: '#ffffff', Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Layer: 0, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12 };
-function freeShape(row, ctx) {
+function freeShape(row, computed, day) {
   const { id, shape, view, format = {}, ...rest } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'legend' && { Size: 9, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
     ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left' }),
@@ -525,8 +519,9 @@ function freeShape(row, ctx) {
   if (m.geometry === 'picture') m.src = row.src;
   if (m.geometry === 'group') m.members = row.members ?? [];
   if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [] });
+  // A text that's a formula is worked out on the chart, @AsOf being the view's day.
   let text = row.text ?? '';
-  if (/^\s*=/.test(text) && api.evaluate) { try { text = String(api.evaluate(text, { ...ctx, shape: row })); } catch (e) { text = '#VALUE!'; } }
+  if (/^\s*=/.test(text) && computed) text = Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } }));
   if (text && !['line', 'picture', 'group', 'legend'].includes(m.geometry)) {
     const inset = 9.6, share = TEXT_AREA[m.geometry] ?? 1, avail = Math.max(16, m.w * share - 2 * inset);
     const it = { id: shape, type: 'text', look: t, settings: m.settings, text, lines: breakLines(text, t, avail) };
@@ -534,6 +529,7 @@ function freeShape(row, ctx) {
     if (m.geometry === 'text') m.h = Math.max(m.h, tb + 9.6);
     stack(it, (m.w - avail) / 2, avail, m.geometry === 'frame' ? 5 : m.geometry === 'text' ? 4.8 : (m.h - tb) / 2);
     m.texts.push(it);
+    m.column = { x: (m.w - avail) / 2, width: avail };
   }
   return m;
 }
@@ -585,7 +581,6 @@ function outputPattern(style, t) {
 function reach(wb, chart, view, scene, markId, state) {
   const m = scene.byId.get(markId);
   if (!m || (m.type !== 'box' && m.type !== 'line')) return [];
-  state ??= api.state(wb, chart, scene.day);
   const N = wb.notes(chart), ids = Tree.dependents(state, [m.record]);
   const out = [];
   scene.styles.forEach((s, order) => {
@@ -595,21 +590,17 @@ function reach(wb, chart, view, scene, markId, state) {
       if (!t || !Tree.narrower(t, s.pattern)) continue;
       const output = outputPattern(s, t);
       if (!out.some(o => o.style === s.key && key(o.output) === key(output)))
-        out.push({ style: s.key, order, record: id, output, caption: captionOf(N, output, view), name: styleName(N, s) });
+        out.push({ style: s.key, order, record: id, output, caption: captionOf(N, output, view), name: styleName(N, s.pattern) });
     }
   });
   return out;
 }
 const boxOf = (state, id) => { const r = state[id]; return !r ? null : isObject(r) ? id : r.at ? boxOf(state, r.at) : null; };
-const styleName = (N, s) => !s.pattern.args ? 'Kind' : s.pattern.args.length > 1 ? N.name(s.pattern) : s.pattern.args[0].edge;
+// What a style is called: its pattern's name, or for a style by kind, Type.
+const styleName = (N, p) => p.args ? N.name(p) : 'Type';
 
-const api = {
-  of, settingsOf, reflow, path, dash, measure, breakLines, reach, outputPattern, captionOf, styleName, fontFamily,
+return {
+  of, reflow, path, dash, measure, breakLines, reach, outputPattern, captionOf, styleName, swatch, swatchOf, fontFamily,
   DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
-  // The chart as of a day, worked out: the formula engine sets this. Until it does, what's entered.
-  state: (wb, chart, day) => wb.asOf(chart, day),
-  // A text shape's formula, worked out: the formula engine sets this. Until it does, it reads as typed.
-  evaluate: null,
 };
-return api;
 })();

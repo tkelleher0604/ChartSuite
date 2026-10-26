@@ -1,42 +1,5 @@
 // Formulas: records worked out from other records, the way a spreadsheet works out cells (see formulas.md).
-// Nothing here touches the page.
-//
-// ---- What it takes (app/core/README.md) ----
-// The entered records as of one day, a state, in the core's shapes; and from the chart's Notes reader:
-//   definitions   Notes.definitions(schema): [{ id, name, covers, rows: [{ label, formula }], type, datatype,
-//                 options, edges }], one per Formula note. covers holds parameterization keys (Tree.paramKey). A
-//                 row's formula starts with = (gives a value) or ← (`<-` as typed), short for = IF(c, TRUE).
-//   names         { relations: Notes.relations(schema) }: [{ name, type, edges, lists: { [from edge]:
-//                 { [listed edge]: list name } }, covers }]. A relation's arguments go in its edges' order.
-// From Tree it uses norm and clean, the record predicates (isObject … argsOf, typeOf, rootLabel) and formatDate.
-//
-// ---- The API ----
-// computeState(entered, definitions, names) → R, the computed state:
-//   records     entered and computed. A computed one has `computed`, its definition's id, and an id from its
-//               argumentation (computedId), the same from one working-out to the next.
-//   computed    { [id]: { def, row, label, holds, stage } }: the row that gave it (its index and label), every
-//               row that holds there (indexes; for a tag), and its stage, the round it first appeared in.
-//   covered     { [entered id]: { def, row, label, holds, value, agrees } }: what the rows give where an entry
-//               stands, which wins (row zero).
-//   errors      [{ def, id, args | at, error }], error being { code, msg }. defErrors: { [def]: { message, row, pos } }.
-//   loops       { [def]: [{ row, from, to, monotone }] }: where each row reads its own loop, for underlining.
-//   rows        all of it per definition; keptAside, order, steps, ms; and state, the engine's own.
-// ground(R, id) → why a record is there, as records, not words, for unfolding one level at a time:
-//   { id, def, entered, stage, rows: [{ row, label, stage, parts }] }. rows[0] is the ground: the row that gave
-//   it, or for a tag whose rows are all ←, the holding row of least stage; the others hold too. A part is
-//   { id, from, to, items? }: a record read (id null where what was read was nothing), the span of the formula
-//   that read it, and for an item counted or found, what it was counted or found with. A computed record in
-//   a part has a ground of its own; under a computed tag, each comes from an earlier group or round.
-// groundText(R, id) → the ground on one line, for exports: "Formation Date February 11, 2025 · Annual Tax Paid —".
-// evaluateRow(R, def, row, at) → { value, names: [{ from, to, ids }], parts: [{ from, to, values }] }: a row
-//   (its index, or a formula as typed) worked out at a record (its id, or { [edge]: object id } for a pair that
-//   has none): each name with the records it resolves to there, and each part's values (several inside FILTER).
-// diff(before, after) → { appear, go, change }: the record ids that would appear, go, or change output.
-// check(text, { computed, def }) → { kind, problems: [{ from, to, message }] }, for an editor's squiggles.
-// suggest(text, cursor, { computed, def, at }) → { from, to, list: [{ text, name, kind }] }, for completion.
-// evaluateAt(R, text, at, def) works an expression out at a record; formatValue(R, v) shows a value.
-// renameName(text, from, to) renames in a formula, for Log's renames; optionsWritten(text), the options a row
-// writes, for declaring them. Spans are character offsets into the row's formula, prefix included.
+// Nothing here touches the page. Its API is in core/README.md, under Formulas.
 
 const Formulas = (() => {
 const { isObject, isField, isTag, isChoice, isRelation, argsOf, typeOf, rootLabel, clean } = Tree;
@@ -84,6 +47,8 @@ class FormulaError extends Error {
 }
 
 const KEYWORDS = new Set(['AND', 'OR', 'NOT', 'IN', 'TRUE', 'FALSE']);
+// A name as a formula writes it: bracketed where it isn't one plain word.
+const nameText = name => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !KEYWORDS.has(name.toUpperCase()) ? name : `[${name}]`;
 
 // Numbers take `$` and `%` as typed in the chart. A thousands comma only counts after a `$`, since
 // `IF(x, 1,000)` would otherwise be ambiguous.
@@ -187,6 +152,8 @@ function parseExpression(src, offset = 0) {
     if (t.k === 'num' || t.k === 'str') return span({ k: 'lit', v: t.v, pct: t.pct }, t.pos, t.end);
     if (t.k === 'kw' && (t.v === 'TRUE' || t.v === 'FALSE')) return span({ k: 'lit', v: t.v === 'TRUE' }, t.pos, t.end);
     if (t.k === 'name') return span({ k: 'name', name: t.v, n: normal(t.v) }, t.pos, t.end);
+    // @AsOf, written as one word, is a name a free shape's text is given; @ alone is the item at hand.
+    if (t.k === 'op' && t.v === '@' && peek().k === 'name' && peek().pos === t.end) { const x = next(); return span({ k: 'name', name: `@${x.v}`, n: normal(`@${x.v}`) }, t.pos, x.end); }
     if (t.k === 'op' && t.v === '@') return span({ k: 'at' }, t.pos, t.end);
     if (t.k === 'op' && t.v === '(') { const x = or(); expect(')'); return x; }
     if (t.k === 'op' && t.v === '{') {
@@ -263,12 +230,14 @@ function objectOf(S, id) {
   return null;
 }
 
+// How a record reads in a formula's text: an object by its Name, or else its kind (Notes' nameOf, which the
+// engine, given no notes, reads off the records).
 function nameOf(S, id) {
   const r = S.recs[id];
-  if (!r) return '(deleted)';
+  if (!r) return '';
   if (!isObject(r)) return segmentOf(S, id);
   const nameId = S.byAtName.get(`${id}|name`);
-  return nameId ? String(S.recs[nameId].value) : `${r.kind} ${id}`;
+  return nameId ? String(S.recs[nameId].value) : r.kind;
 }
 
 function segmentOf(S, id) {
@@ -365,7 +334,6 @@ function relationsFor(S, obj, n = null) {
   return out ?? [];
 }
 
-// Takes a record back out.
 function removeRecord(S, id) {
   const r = S.recs[id];
   if (!r) return;
@@ -691,9 +659,9 @@ function compare(S, op, a, b) {
 
 // ---- Dates ----
 
-const isoOf = d => d.toISOString().slice(0, 10);
+// Dates are calendar days: made on this computer's calendar and read back as ISO days, and counted as days since 1970.
 const dayOf = v => Date.UTC(...v.iso.split('-').map((x, i) => Number(x) - (i === 1 ? 1 : 0))) / 864e5;
-const fromDay = n => ({ t: 'date', iso: isoOf(new Date(n * 864e5)) });
+const fromDay = n => ({ t: 'date', iso: Tree.isoOf(new Date(1970, 0, 1 + n)) });
 
 // ---- Working out expressions ----
 // A context `c` holds the state S, `def`, `self` (a relation's arguments by edge, as objects, or an entry's
@@ -975,7 +943,7 @@ const FUNCTIONS = {
     if (!x?.id) return ev(a[1].x, c);
     return ev(a[1].x, { ...c, S: counterfactual(c.S, x.id, c.def) });
   },
-  TODAY(a) { return arity('TODAY', a, 0) ?? { t: 'date', iso: isoOf(new Date()) }; },
+  TODAY(a) { return arity('TODAY', a, 0) ?? { t: 'date', iso: Tree.isoOf(new Date()) }; },
   // A date of nothing is nothing.
   DATE(a, c) {
     const bad = arity('DATE', a, 3);
@@ -985,7 +953,7 @@ const FUNCTIONS = {
     if (e) return e;
     if (parts.some(x => x === null)) return null;
     const [y, m, d] = parts.map(x => toNumber(c.S, x));
-    return [y, m, d].find(isErr) ?? { t: 'date', iso: isoOf(new Date(Date.UTC(y, m - 1, d))) };
+    return [y, m, d].find(isErr) ?? { t: 'date', iso: Tree.isoOf(new Date(y, m - 1, d)) };
   },
   YEAR(a, c) { return datePart(a, c, 'YEAR', 0); },
   MONTH(a, c) { return datePart(a, c, 'MONTH', 1); },
@@ -1020,6 +988,14 @@ const FUNCTIONS = {
     if (x === null || y === null) return null;
     if (!isDate(x) || !isDate(y)) return err('#VALUE!', 'YEARFRAC takes two dates.');
     return Math.abs(dayOf(y) - dayOf(x)) / 365;
+  },
+  TEXT(a, c) {
+    const bad = arity('TEXT', a, 2);
+    if (bad) return bad;
+    const v = scalar(c.S, ev(a[0].x, c)), f = toText(c.S, ev(a[1].x, c));
+    if (isErr(v)) return v;
+    if (isErr(f)) return f;
+    return isDate(v) ? dateText(v.iso, f) : typeof v === 'number' ? numberText(v, f) : toText(c.S, v);
   },
   LEN(a, c) { return textFn(a, c, 'LEN', 1, 1, t => t.length); },
   LEFT(a, c) { return textFn(a, c, 'LEFT', 1, 2, (t, n = 1) => t.slice(0, n)); },
@@ -1060,8 +1036,22 @@ function monthsOn(a, c, name, toEnd) {
   const n = toNumber(c.S, ev(a[1].x, c));
   if (isErr(n)) return n;
   const [y, m, day] = d.iso.split('-').map(Number);
-  const last = new Date(Date.UTC(y, m - 1 + Math.trunc(n) + 1, 0)).getUTCDate();
-  return { t: 'date', iso: isoOf(new Date(Date.UTC(y, m - 1 + Math.trunc(n), toEnd ? last : Math.min(day, last)))) };
+  const last = new Date(y, m - 1 + Math.trunc(n) + 1, 0).getDate();
+  return { t: 'date', iso: Tree.isoOf(new Date(y, m - 1 + Math.trunc(n), toEnd ? last : Math.min(day, last))) };
+}
+
+// TEXT(value, format), as Excel's for dates and numbers: "mmmm d, yyyy", "mmm d", "0.0%", "$#,##0".
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function dateText(iso, f) {
+  const [y, m, d] = iso.split('-').map(Number), month = Tree.MONTHS[m - 1], wd = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  const part = { yyyy: String(y), yy: String(y).slice(-2), mmmm: month, mmm: month.slice(0, 3), mm: String(m).padStart(2, '0'), m: String(m),
+    dddd: wd, ddd: wd.slice(0, 3), dd: String(d).padStart(2, '0'), d: String(d) };
+  return f.replace(/yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d/gi, t => part[t.toLowerCase()]);
+}
+function numberText(v, f) {
+  const pct = f.includes('%'), places = /\.(0+)/.exec(f)?.[1].length ?? 0, x = pct ? v * 100 : v;
+  const s = Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places, useGrouping: f.includes(',') });
+  return `${x < 0 ? '-' : ''}${f.includes('$') ? '$' : ''}${s}${pct ? '%' : ''}`;
 }
 
 function textFn(a, c, name, min, max, fn) {
@@ -1162,12 +1152,12 @@ function prepareDef(def, names) {
     d.type = def.type ?? (written.length && written.every(x => x.f.kind === 'implies') ? 'tag' : 'field');
     d.rows = written.map(({ row, f }, i) => {
       at = { row: i, pos: 0 };
-      if (!f.kind) throw new FormulaError('A row’s formula starts with = or ←.', 0);
-      if (f.kind === 'implies' && d.type !== 'tag') throw new FormulaError('Only a tag can be implied; start this row with =.', 0);
+      if (!f.kind) throw new FormulaError('No = or ← at the start', 0);
+      if (f.kind === 'implies' && d.type !== 'tag') throw new FormulaError('Only a tag can use ←', 0);
       return { i, label: clean(row.label), n: normal(clean(row.label)), implies: f.kind === 'implies', ast: parseCached(f.body, f.offset), text: String(row.formula) };
     });
     at = null;
-    if (!d.rows.length) throw new FormulaError('A definition has at least one row.', 0);
+    if (!d.rows.length) throw new FormulaError('No rows', 0);
     d.allImplied = d.type === 'tag' && d.rows.every(r => r.implies);
     d.labels = new Set(d.rows.map(r => r.n).filter(Boolean));
   } catch (e) {
@@ -1307,7 +1297,7 @@ function plan(defs, reg) {
   // WITHOUT can't read what's being worked out alongside it: that's always a loop.
   for (const g of groups) for (const d of g.defs)
     if (!d.error && g.defs.some(e => d.withoutReads.has(e)))
-      d.error = { message: 'WITHOUT reads something that depends on this, which is a loop (#CIRCULAR!).', row: null, pos: 0 };
+      d.error = { message: 'A loop through WITHOUT', row: null, pos: 0 };
   return groups;
 }
 
@@ -1490,11 +1480,6 @@ function givenTexts(ast) {
   };
   walk(ast);
   return out;
-}
-function optionsWritten(text) {
-  const f = splitFormula(text);
-  if (f.kind === 'implies') return [];
-  try { return givenTexts(parseExpression(f.body, f.offset)); } catch { return []; }
 }
 
 // The options a choice's rows may give: those the core knows (`options`; otherwise those its entries have
@@ -2254,7 +2239,6 @@ function runGroup(S, i) {
   S.dep = S.watch = null;
 }
 
-// What a row gives at a candidate.
 function rowGives(S, t, ri) {
   const row = t.d.rows[ri];
   if (row.implies) {
@@ -2539,7 +2523,6 @@ function listGround(n, c) {
   return { v: list, items, g: list.length ? [] : x?.g.length ? x.g : partFor(S, null, n) };
 }
 
-// Functions, with their grounds.
 function gfn(n, c) {
   const S = c.S, f = n.name.toUpperCase(), a = n.args;
   switch (f) {
@@ -2613,7 +2596,7 @@ function gfn(n, c) {
   return { v: ev(n, c), g: xs.flatMap(x => x.g) };
 }
 
-// Why a record at one of a definition's candidates is there, or would be: see the header.
+// Why a record at one of a definition's candidates is there, or would be: see core/README.md.
 function ground(R, id) {
   const S = R.state, r = S.recs[id];
   const d = r && defOf(S, id);
@@ -2662,15 +2645,12 @@ function outputText(S, id) {
   const r = S.recs[id];
   if (!r) return '—';
   if (isObject(r)) return nameOf(S, id);
-  const value = isTag(r) ? (r.tag ? 'Yes' : 'No') : isChoice(r) ? r.choice
-    : r.field === 'date' ? Tree.formatDate(r.value) : r.field === 'percent' ? `${tidyNumber(r.value * 100)}%`
-    : r.field === 'money' ? `$${Number(r.value).toLocaleString('en-US')}` : String(r.value);
-  return isRelation(r) ? `${segmentOf(S, id)}${isTag(r) ? '' : ` ${value}`}` : value;
+  return isRelation(r) ? `${segmentOf(S, id)}${isTag(r) ? '' : ` ${Tree.outputText(r)}`}` : Tree.outputText(r);
 }
 
 // ---- The formula bar ----
 
-// A row worked out at a record, with each name's records and each part's values: see the header.
+// A row worked out at a record, with each name's records and each part's values: see core/README.md.
 function evaluateRow(R, defId, row, at) {
   const S = R.state, d = S.P.byId.get(defId);
   if (!d || (typeof row === 'number' && !d.rows[row])) return null;
@@ -2789,7 +2769,7 @@ function editorContext(ctx) {
 function check(text, ctx = {}) {
   const f = splitFormula(text);
   const problems = [];
-  if (!f.kind) problems.push({ from: 0, to: Math.min(1, String(text ?? '').length), message: 'A formula starts with = or ←.' });
+  if (!f.kind) problems.push({ from: 0, to: Math.min(1, String(text ?? '').length), message: 'No = or ← at the start' });
   let ast;
   try { ast = parseExpression(f.body, f.offset); }
   catch (e) {
@@ -2800,7 +2780,7 @@ function check(text, ctx = {}) {
   const E = editorContext(ctx);
   if (E) {
     const { S, d } = E, known = S.P.known;
-    if (f.kind === 'implies' && d && d.type !== 'tag') problems.push({ from: 0, to: f.offset, message: 'Only a tag can be implied; start this row with =.' });
+    if (f.kind === 'implies' && d && d.type !== 'tag') problems.push({ from: 0, to: f.offset, message: 'Only a tag can use ←' });
     const own = new Set(d?.isRelation ? d.edges.map(normal) : []);
     const lets = new Set();
     const walk = n => {
@@ -2832,7 +2812,7 @@ function suggest(text, cursor, ctx = {}) {
   const after = /^(?:[^\]\[(),.]*\]|[A-Za-z0-9_]*)/.exec(s.slice(cursor))?.[0] ?? '';
   const from = cursor - typed.length, to = cursor + (typed.startsWith('[') || /^[A-Za-z0-9_]/.test(after) ? after.length : 0);
   const partial = normal(typed.replace(/^\[/, ''));
-  const bracket = name => !typed.startsWith('[') && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !KEYWORDS.has(name.toUpperCase()) ? name : `[${name}]`;
+  const bracket = name => typed.startsWith('[') ? `[${name}]` : nameText(name);
   const functions = Object.keys(FUNCTIONS).map(f => ({ name: f, kind: 'function' }));
   const E = editorContext(ctx);
   let names = functions;
@@ -2865,13 +2845,12 @@ function suggest(text, cursor, ctx = {}) {
 function renameName(text, from, to) {
   const s = String(text ?? '');
   const start = /^\s*(=|←|<-)?/.exec(s)[0].length;
-  const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(to) && !KEYWORDS.has(to.toUpperCase());
   let toks;
   try { toks = tokenize(s.slice(start), start); } catch { return s; }
   let out = '', last = 0;
   for (const t of toks) {
     if (t.k !== 'name' || !same(t.v, from)) continue;
-    out += s.slice(last, t.pos) + (bare ? to : `[${to}]`);
+    out += s.slice(last, t.pos) + nameText(to);
     last = t.end;
   }
   return out + s.slice(last);
@@ -2879,7 +2858,7 @@ function renameName(text, from, to) {
 
 // ---- What the page uses ----
 
-// Works out the computed state from the entered records, the definitions and the names: see the header.
+// Works out the computed state from the entered records, the definitions and the names: see core/README.md.
 function computeState(entered, definitions, names) {
   const started = now();
   const defs = definitions.map(d => prepareDef(d, names));
@@ -2915,7 +2894,9 @@ function computeState(entered, definitions, names) {
   const defErrors = Object.fromEntries(defs.filter(d => d.error).map(d => [d.id, d.error]));
   const loops = {};
   for (const g of P.groups) for (const x of g.reads) push2(loops, x.def, { row: x.row, from: x.from, to: x.to, monotone: x.monotone });
-  return { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside,
+  // What each definition reads: the definitions it depends on.
+  const uses = Object.fromEntries(defs.map(d => [d.id, [...d.dependsOn ?? []].filter(e => e !== d).map(e => e.id)]));
+  return { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside, uses,
     order: P.groups.map(g => g.defs.map(d => d.id)), steps: S.steps, ms: now() - started, state: S };
 }
 const push2 = (obj, key, value) => (obj[key] ??= []).push(value);
@@ -2929,42 +2910,29 @@ function sameValue(S, id, out) {
   return equal(scalar(S, recOf(id)), out);
 }
 
-// Works out an expression at a record, as if it were the formula of an entry located there, or of the given
-// definition at one of its candidates (`at` being a record there, or objects by edge).
-function evaluateAt(R, text, at, defId) {
+// Works out an expression at a record (or none), as if it were the formula of an entry located there, with
+// `names` given values ({ '@AsOf': date }).
+function evaluateAt(R, text, at, names = {}) {
   const S = R.state;
   const f = splitFormula(text);
   let ast;
   try { ast = parseExpression(f.body, f.offset); }
   catch (e) { return err('#SYNTAX', e.message); }
-  const d = defId && S.P.byId.get(defId);
-  let v;
-  if (d?.isRelation) {
-    const cand = candidateAt(S, d, at);
-    if (!cand) return err('#VALUE!', 'That isn’t one of the definition’s candidates.');
-    v = safeEv(ast, contextFor(S, d, cand));
-  } else v = safeEv(ast, { S, def: d ?? null, self: { loc: at }, at: at ? recOf(at) : null, lets: null });
+  let lets = null;
+  for (const [n, v] of Object.entries(names)) lets = { n: normal(n), v, up: lets };
+  const v = safeEv(ast, { S, def: null, self: { loc: at }, at: at ? recOf(at) : null, lets });
   return f.kind === 'implies' ? truth(S, v) : v;
 }
 
-// How a value reads. Numbers can be shown as percentages.
-function formatValue(R, v, { percent = false } = {}) {
-  const S = R.state;
-  if (isErr(v)) return v.code;
-  if (Array.isArray(v)) return v.length ? v.map(x => formatValue(R, x, { percent })).join('; ') : '(empty list)';
-  if (isRec(v)) {
-    if (v.id === null) return '(blank)';
-    const o = output(S, v.id);
-    return isRec(o) ? nameOf(S, o.id) : formatValue(R, o, { percent });
-  }
-  if (v === null || v === undefined) return '(blank)';
-  if (typeof v === 'number') return percent ? `${tidyNumber(v * 100)}%` : String(tidyNumber(v));
-  return toText(S, v);
+// How a value reads as text, as `&` reads it: a list's items joined, an error by its code.
+function text(R, v) {
+  const t = Array.isArray(v) ? v.map(x => text(R, x)).join(', ') : toText(R.state, v);
+  return isErr(t) ? t.code : t;
 }
 
 return {
-  computeState, ground, groundText, evaluateRow, diff, check, suggest, evaluateAt, formatValue,
-  renameName, optionsWritten, computedId, splitFormula, tidyArrow, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
+  computeState, ground, groundText, evaluateRow, diff, check, suggest, evaluateAt, text, renameName, computedId, splitFormula, tidyArrow,
+  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
 };
 
 })();

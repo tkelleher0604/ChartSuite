@@ -2,29 +2,27 @@
 // browser's IndexedDB as it's made, and other tabs open on the workbook take it in at once. A workbook kept
 // in a file or a SharePoint library is saved there too, the same way for both: read the copy there, take
 // the union, and write it back naming the version read; if someone saved in between, read again and repeat.
-// A union loses nothing, so there's never anything to choose. What it can leave is live rows that
-// disagree, which are found here for the window to show.
+// A union loses nothing, so there's never anything to choose; what it can leave is rows that disagree (Log's).
 //
 // One global, `Store`, with nothing on the page:
 //   Store.open({ id?, sample? }) → the workbook (core/README.md) last open in this browser, or the one with
 //     that id; where there's none, a new one in this browser, holding the sample's changes
-//   Store.openFile(file?), Store.openLibrary(link or item) → the workbook kept there; Store.books()
+//   Store.openFile(file?) → the workbook kept in a file; Store.books() → those this browser keeps, latest first
 //   Store.saveAs('file' | 'library', name?), Store.download(name?): keep it there from now on, or a copy
 //   Store.status() → { text, tone: '' | 'busy' | 'error', fix?: 'allow' | 'sign-in', detail? }; Store.fix()
 //     does what `fix` says, on a click; Store.subscribe(fn) → unsubscribe, fn(status) when it changes
-//   Store.where() → { type: 'browser' | 'file' | 'sharepoint', name }; Store.sync(): now
-//   Store.disagreements() → [{ chart, rows: [{ row, who, when, change }] }]
-//   Store.who(): the Microsoft account signed in, or else the name set once (the shell's)
+//   Store.where() → { id, type: 'browser' | 'file' | 'sharepoint', name }; Store.sync(): now
+//   Store.who(): the Microsoft account signed in, or else the name set in Settings
 // Load vendor/dexie and the core first, and for SharePoint vendor/msal and sharepoint.js.
 const Store = (() => {
-const db = new Dexie('dendra');
+// The database is the page's own, or the one its script tag names (data-db), as a test's is.
+const db = new Dexie(document.currentScript?.dataset.db || 'dendra');
 db.version(1).stores({ changes: '[book+id], book', books: 'id, opened' });
 const SAVE_AFTER = 1500, LOOK_EVERY = 20000;
 const TYPES = [{ description: 'Dendra workbook', accept: { 'application/json': ['.json'] } }];
 const canKeepFiles = typeof showOpenFilePicker === 'function';
 const sp = () => typeof SharePoint === 'undefined' ? null : SharePoint;
 const now = () => new Date().toISOString();
-const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
 
 // The file is the log, a change to a line, so it reads and compares change by change.
 const text = changes => `{"dendra":1,"changes":[\n${changes.map(c => JSON.stringify(c)).join(',\n')}\n]}\n`;
@@ -94,41 +92,6 @@ function describe(e) {
 const unkept = e => ({ text: [e?.name, e?.inner?.name].includes('QuotaExceededError') ? 'Not kept · browser storage is full'
   : 'Not kept · browser storage is off', tone: 'error', detail: e?.message });
 
-// ---- Disagreements ----
-// Two live rows disagree where they can't both be in force: versions of one item that differ and are valid
-// on a common day, or records of two items with one argumentation (dendra.md, Time). Only changes made
-// without seeing each other leave them, and a person settles one by keeping a row, which is a change.
-
-const TYPES_OF_ROW = ['chart', 'spec', 'record', 'note', 'shape'];
-const itemOf = r => r[TYPES_OF_ROW.find(t => t in r)];
-const overlap = (a, b) => (!a.since || !b.before || a.since < b.before) && (!b.since || !a.before || b.since < a.before);
-const argKey = r => Tree.argsOf(r).map(a => JSON.stringify([Tree.norm(a.edge), a.at])).sort().join();
-const content = ({ id, ...rest }) => JSON.stringify(rest, (k, v) => v && typeof v === 'object' && !Array.isArray(v)
-  ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : v);
-
-function disagreementsOf(wb) {
-  const made = new Map(), out = [];
-  for (const c of wb.changes()) for (const r of c.adds) made.set(r.id, c);
-  for (const chart of new Set(wb.changes().map(c => c.chart))) {
-    const rows = wb.rows(chart), groups = new Map(), up = new Map(rows.map(r => [r.id, r.id]));
-    const top = id => up.get(id) === id ? id : top(up.get(id));
-    for (const r of rows) {
-      push(groups, `item ${itemOf(r)}`, r);
-      if ('record' in r && !('kind' in r)) push(groups, `args ${argKey(r)}`, r);
-    }
-    for (const [k, g] of groups) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
-      const a = g[i], b = g[j];
-      if (overlap(a, b) && (k.startsWith('item') ? content(a) !== content(b) : a.record !== b.record)) up.set(top(a.id), top(b.id));
-    }
-    const sets = new Map();
-    for (const r of rows) push(sets, top(r.id), r);
-    for (const set of sets.values()) if (set.length > 1) out.push({ chart, rows: set
-      .map(row => { const c = made.get(row.id); return { row, who: c?.who, when: c?.when, change: c?.id }; })
-      .sort((a, b) => a.when < b.when ? -1 : a.when > b.when ? 1 : 0) });
-  }
-  return out;
-}
-
 // ---- The workbook open in this tab ----
 // A book is a workbook as this browser keeps it: { id, type, name, handle (a file's), file (SharePoint's),
 // opened }. Its changes are in IndexedDB under its id, so workbooks kept in different places never mix.
@@ -148,10 +111,10 @@ async function session(book, seed) {
   const known = new Set(wb.changes().map(c => c.id));
   const remote = () => book.type !== 'browser';
   // `seen` is the copy there as last read or written: its version, when it was saved, and its changes.
-  let seen = null, problem = null, saving = false, writing = 0, keptAt = book.opened, found = null;
+  let seen = null, problem = null, saving = false, writing = 0, keptAt = book.opened;
   let timer = null, running = null, again = false, pulling = false, self = null;
   const tell = () => { if (s === self) emit(); };
-  const where = () => ({ type: book.type, name: book.name });
+  const where = () => ({ id: book.id, type: book.type, name: book.name });
 
   // In this browser: each new change is appended, and the other tabs told.
   function keep(changes) {
@@ -161,7 +124,6 @@ async function session(book, seed) {
       .finally(() => { writing--; tell(); });
   }
   const off = wb.subscribe(cs => {
-    found = null;
     const fresh = cs.filter(c => !known.has(c.id));
     if (fresh.length) {
       fresh.forEach(c => known.add(c.id));
@@ -275,7 +237,6 @@ async function session(book, seed) {
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
       return null;
     },
-    disagreements: () => found ??= disagreementsOf(wb),
     close() {
       off();
       clearInterval(poll);
@@ -328,15 +289,7 @@ const choose = () => new Promise(resolve => {
   input.oncancel = () => resolve(null);
   input.click();
 });
-// A workbook in a SharePoint library: by its link, or an item from SharePoint.browse, search or pick.
-async function openLibrary(ref) {
-  await SharePoint.ready();
-  const it = typeof ref === 'string' ? await SharePoint.item(ref) : ref, file = { drive: it.drive, id: it.id };
-  const got = await SharePoint.read(file), seed = got && logOf(got.text, it.name);
-  const b = (await db.books.toArray().catch(() => [])).find(b => b.type === 'sharepoint' && b.file?.drive === it.drive && b.file?.id === it.id);
-  return use(b ?? { id: Log.newId(), type: 'sharepoint', file, name: bare(it.name) }, seed);
-}
-// The workbooks this browser keeps, the latest opened first.
+
 const books = async () => (await db.books.orderBy('opened').reverse().toArray().catch(() => []))
   .map(b => ({ id: b.id, type: b.type, name: b.name, opened: b.opened }));
 
@@ -345,7 +298,7 @@ function who() {
 }
 
 return {
-  open, openFile, openLibrary, books, canKeepFiles,
+  open, openFile, books,
   get wb() { return s?.wb ?? null; },
   where: () => s?.where() ?? null,
   status, subscribe: fn => (listeners.add(fn), () => listeners.delete(fn)),
@@ -353,7 +306,6 @@ return {
   fix: () => s?.fix(),
   saveAs: (type, name) => s.saveAs(type, name),
   download: name => s.download(name),
-  disagreements: () => s?.disagreements() ?? [],
   who,
 };
 })();

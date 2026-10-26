@@ -29,7 +29,21 @@
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
-const show = (R, v) => Formulas.formatValue(R, v);
+// How a value reads, for these checks: a record by its output, a list's items joined, a number as a percentage
+// where asked.
+const show = (R, v, pct = false) => {
+  if (v?.t === 'err') return v.code;
+  if (Array.isArray(v)) return v.length ? v.map(x => show(R, x, pct)).join('; ') : '(empty list)';
+  if (v?.t === 'rec') {
+    const r = R.records[v.id];
+    if (!r) return '(blank)';
+    if (Tree.isObject(r)) return Formulas.text(R, v);
+    return show(R, Tree.isTag(r) ? r.tag : Tree.isChoice(r) ? r.choice : r.field === 'date' ? { t: 'date', iso: r.value } : r.value, pct);
+  }
+  if (v === null || v === undefined) return '(blank)';
+  if (typeof v === 'number') return pct ? `${+(v * 100).toPrecision(12)}%` : String(+v.toPrecision(12));
+  return Formulas.text(R, v);
+};
 
 const objOf = (R, id) => { let cur = id; while (R.records[cur]?.at) cur = R.records[cur].at; return cur; };
 const rowsOf = (R, def) => R.rows[def] ?? [];
@@ -144,7 +158,7 @@ function semantics() {
   check('← c is = IF(c, TRUE): TRUE, or nothing', at('← 1 > 0') === true && at('← 1 < 0') === false);
   check('Precedence: 1 + 2 * 3 is 7, and NOT 1 = 2 AND TRUE is TRUE', at('= 1 + 2 * 3') === 7 && at('= NOT 1 = 2 AND TRUE') === true);
   check('$750,000,000 is a number; IN takes an array constant', at('= $750,000,000') === 750000000 && at('= "a" IN {"A", "b"}') === true);
-  check('A dot on a list maps over it', Formulas.formatValue(R, at('= Owners.Percentage'), { percent: true }) === '71.6%; 28.4%');
+  check('A dot on a list maps over it', show(R, at('= Owners.Percentage'), true) === '71.6%; 28.4%');
   check('OBJECT finds an object by its Name, without regard to case', show(R, at('= OBJECT("calder ridge iii blocker, inc.")')) === 'Calder Ridge III Blocker, Inc.');
   const feederOver = '= Control(OBJECT("Calder Ridge Capital Partners III (Cayman), L.P."), @)';
   check('A row’s label on a tag: TRUE where that row holds', show(R, at(`${feederOver}.[More than 25%]`)) === 'TRUE' && show(R, at(`${feederOver}.[General partner]`)) === 'FALSE');
@@ -369,8 +383,30 @@ function listedFirst() {
     && show(R, Formulas.evaluateAt(R, 'COUNT(Owners)', 'b')) === '1');
 }
 
+// ---- Renaming, text, and what a definition uses ----
+
+function renaming() {
+  const C = 'calder-ridge', DAY = '2026-10-26', ownership = { args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] };
+  const worked = wb => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
+  const before = worked(Log.open(SAMPLE));
+  const rows = wb => wb.notes(C).notes('Formula').flatMap(n => n.value.map(r => r.formula));
+  const renamed = (f, from) => { const wb = Log.open(SAMPLE), tx = wb.edit({ chart: C, who: 'Dana Jordan' }); f(tx); const c = tx.commit(); return { wb, c, R: worked(wb), cited: rows(wb).filter(t => t.includes(from)).length }; };
+  const list = renamed(tx => tx.note('Name', ownership, 'Investments', { param: 'Owned' }), 'Holdings');
+  check('Renaming a list renames it in every formula that cites it, in one change', typeof list.c === 'object' && list.cited === 0
+    && rows(list.wb).some(t => t.includes('Investor.Investments')) && list.R.errors.length === before.errors.length && Object.keys(list.R.computed).length === Object.keys(before.computed).length,
+    `${list.R.errors.length} errors, ${Object.keys(list.R.computed).length} computed`);
+  const rel = renamed(tx => tx.note('Name', ownership, 'Holding'), 'Ownership(');
+  check('…as does renaming a relation', rel.cited === 0 && rows(rel.wb).some(t => t.includes('Holding(')) && Object.keys(rel.R.computed).length === Object.keys(before.computed).length);
+  const entry = renamed(tx => tx.rename({ args: [{ edge: 'Percentage', loc: ownership }] }, 'Percentage', 'Share'), '.Percentage');
+  check('…and renaming an entry’s label', entry.cited === 0 && Object.keys(entry.R.computed).length === Object.keys(before.computed).length && entry.R.errors.length === before.errors.length);
+  const at = text => Formulas.text(before, Formulas.evaluateAt(before, text, null, { '@AsOf': { t: 'date', iso: '2026-10-26' } }));
+  check('TEXT sets a date and a number as Excel does, and @AsOf is the day given', at('="As of " & TEXT(@AsOf, "mmmm d, yyyy")') === 'As of October 26, 2026'
+    && at('=TEXT(0.716, "0.0%")') === '71.6%' && at('=TEXT(1234.5, "$#,##0")') === '$1,235' && at('=TEXT(@AsOf, "mmm d")') === 'Oct 26', at('=TEXT(1234.5, "$#,##0")'));
+  check('What each definition uses', before.uses.def_look_through?.includes('def_look_through') === false && before.uses.def_close?.includes('def_affiliated'), JSON.stringify(before.uses.def_close));
+}
+
 function runAll() {
-  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst]) {
+  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, renaming]) {
     try { f(); } catch (e) { check(`${f.name} stopped`, false, `${e.message} ${e.stack.split('\n')[1]}`); }
   }
   const failed = out.filter(x => !x.ok).length;
