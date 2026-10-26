@@ -95,10 +95,13 @@ async function run() {
   const main = charts()[0];
 
   // ---- The opening frame: the whole page where it fits at 60% or more; else 60% from its top left ----
+  // Each view is opened from another at each size, so it's framed for that size as it opens, whether or
+  // not this browser lays the window out again before the next check.
   for (const [w, h] of [[1024, 768], [1280, 800], [1440, 900], [1920, 1080]]) {
     await size(w, h);
-    const bad = [];
-    for (const v of charts()) {
+    const bad = [], order = charts();
+    if (order[0].id === Shell.view.peek()) order.push(order.shift());
+    for (const v of order) {
       await show(v);
       const { a, b, W, H, z } = onScreen(), fits = b.x <= W + 0.5 && b.y <= H + 0.5;
       if (a.x < -0.5 || a.y < -0.5 || z < 0.6 - 1e-6 || (!fits && z > 0.6 + 1e-6)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);

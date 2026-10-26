@@ -92,9 +92,10 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .letter.b { font-weight: 700; }
 .fb .letter.i { font-style: italic; }
 .fb .letter.u { text-decoration: underline; text-underline-offset: 2px; }
-/* Narrower than the bar's full width, Align, Order and Group are one Arrange menu. */
+/* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
+.slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
-@media (max-width: 1180px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb .font { width: 112px; } }
+@container (max-width: 1180px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb .font { width: 112px; } }
 .fb .well { position: relative; display: inline-grid; place-items: center; width: 16px; height: 16px; }
 .fb .well > i { position: absolute; left: 1px; right: 1px; bottom: 0; height: 3px; border-radius: 1px; box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .25); }
 :root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }
