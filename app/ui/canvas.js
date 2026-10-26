@@ -457,7 +457,14 @@ function mount(el, src) {
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
       raw = legend ? m.title : payload(wb, chart, m.id)?.text;
-      save = text => { const p = payload(wb, chart, m.id); if (!p) return; const tx = src.edit(); tx.set(m.id, legend ? { ...p, title: text } : { ...p, text }); commit(tx); };
+      // A text box left empty goes, as PowerPoint's does.
+      save = text => {
+        const p = payload(wb, chart, m.id);
+        if (!p) return;
+        const tx = src.edit();
+        if (m.geometry === 'text' && !text.trim()) tx.remove(m.id); else tx.set(m.id, legend ? { ...p, title: text } : { ...p, text });
+        commit(tx);
+      };
     }
     if (!it) return;
     openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, m.type === 'shape' && m.geometry !== 'legend', typed === undefined);
@@ -689,8 +696,10 @@ function mount(el, src) {
         if (!here || !scene.byId.has(it.box)) { if (!scene.byId.has(it.box)) writeNote(tx, n, { label: 'Shown', pattern: t, view }, true); writeNote(tx, n, { label: 'Position', pattern: t, view }, { x: it.x, y: it.y, w: it.w }); }
         ids.push(it.box);
       } else {
+        // Pasted in its own view, a shape lands a step down and right of the last copy, as PowerPoint's do.
         const d = here ? 12 : 0;
-        ids.push(tx.add('shape', { ...it.row, view, x: it.row.x + d, y: it.row.y + d, ...(it.row.points && { points: it.row.points.map(([x, y]) => [x + d, y + d]) }) }));
+        it.row = { ...it.row, x: it.row.x + d, y: it.row.y + d, ...(it.row.points && { points: it.row.points.map(([x, y]) => [x + d, y + d]) }) };
+        ids.push(tx.add('shape', { ...it.row, view }));
       }
     }
     commit(tx);
@@ -837,6 +846,9 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   const call = name => (...a) => active.peek()?.[name](...a);
   Shell.register('canvas', { mount(el) { const c = mount(el, fromApp()); return () => c.destroy(); },
     highlight: call('highlight'), redline: call('redline'), reveal: call('reveal') });
+  const here = () => !!active.value;
+  Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
+  Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: '$mod+Digit0', enabled: here, run: () => call('zoom')('fit') });
 }
 
 return { mount, fromApp, active, writeNote, payload, keyParts };

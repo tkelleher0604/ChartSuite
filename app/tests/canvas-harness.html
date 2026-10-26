@@ -91,7 +91,7 @@ const H = (() => {
     drag: async (id, dx, dy) => { const [x, y] = center(id); await drag(x, y, x + +dx, y + +dy); },
     hold: async (id, dx, dy) => { const [x, y] = center(id); mouse('mousedown', x, y, at(x, y)); for (let i = 1; i <= 6; i++) { const p = [x + dx * i / 6, y + dy * i / 6]; mouse('mousemove', p[0], p[1], at(...p) ?? document.body); await wait(16); } },
     insert: async g => { cv().insert(g); await wait(80); },
-    type: async t => { const ed = document.querySelector('.dc-edit'); if (ed) { ed.textContent = t.replace(/_/g, ' '); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); } await wait(60); },
+    type: async t => { let ed; for (let i = 0; i < 20 && !(ed = document.querySelector('.dc-edit')); i++) await wait(25); if (ed) { ed.textContent = t.replace(/_/g, ' '); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); } await wait(60); },
     row: async n => { const lg = cv().scene().marks.find(m => m.geometry === 'legend'); const r = lg?.rows[+n || 0]; if (!r) return; const g = cv().graph, p = g.localToClient(lg.x + r.x + 30, lg.y + r.y + r.h / 2); await click(p.x, p.y); await click(p.x, p.y); },
     zoom: async k => cv().zoom(k === 'fit' ? 'fit' : +k),
     at: async (k, x, y) => { cv().zoom(+k); cv().graph.centerPoint(+x, +y); await wait(60); },
@@ -122,6 +122,8 @@ const H = (() => {
     // Drag the selection's bottom-right handle by dx, dy.
     resize: async (dx, dy) => { const h = document.querySelector('.x6-widget-transform-resize[data-position="bottom-right"]'), r = h.getBoundingClientRect(); await drag(r.left + 3, r.top + 3, r.left + 3 + +dx, r.top + 3 + +dy); },
     undo: async () => { Shell.parts.peek().undo.undo(); await wait(80); },
+    // Any of the canvas's commands: cmd:align:left, cmd:copy, cmd:paste.
+    cmd: async (name, arg) => { cv()[name](arg); await wait(80); },
     key: async (k, mods = '') => { const o = { key: k, code: k.length === 1 ? `Key${k.toUpperCase()}` : k, bubbles: true, ctrlKey: mods.includes('c'), shiftKey: mods.includes('s') }; cv().root.focus(); cv().root.dispatchEvent(new KeyboardEvent('keydown', o)); await wait(60); },
     dbl: async id => { const [x, y] = center(id); mouse('dblclick', x, y); await wait(80); },
     // Drag from a box's handle to another box; with `hold`, stop short of letting go.

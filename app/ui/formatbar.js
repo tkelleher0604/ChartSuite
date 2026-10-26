@@ -89,6 +89,11 @@ function value(label) {
   const m = current?.marks[0];
   if (!m) return undefined;
   if (current.row) return current.row.swatch[label] ?? current.row.caption.look[label];
+  // A frame is the style's, drawn round the boxes it reaches.
+  if (label === 'Frame') {
+    const outs = new Set((current.scope?.outputs ?? []).map(p => Tree.key(p)));
+    return current.canvas.scene().marks.find(f => f.type === 'frame' && outs.has(Tree.key(f.output)))?.kind ?? 'none';
+  }
   if (TEXT_LABELS.has(label) && m.texts?.length) return m.texts[0].look?.[label] ?? m.texts[0].settings?.[label]?.value;
   return m.settings?.[label]?.value ?? m.look?.[label];
 }
