@@ -195,9 +195,9 @@ async function files() {
   const writes = disk.writes;
   for (let round = 0; round < 6 && !(people.every(p => ids(p.wb) === ids(Store.wb)) && JSON.parse(disk.text).changes.length === Store.wb.changes().length); round++)
     await Promise.all(people.map(p => p.sync()));
+  const settled = await until(() => people.every(p => saved(p.status())));   // read the file once every save has landed
   const final = JSON.parse(disk.text);
-  check('three people saving to one file at once lose nothing', mine.every(m => final.changes.some(x => x.id === m.id)) && people.every(p => has(p.wb, ...mine))
-    && await until(() => people.every(p => saved(p.status()))), `${disk.writes - writes} writes, ${disk.aborted ?? 0} caught just in time; `
+  check('three people saving to one file at once lose nothing', settled && mine.every(m => final.changes.some(x => x.id === m.id)) && people.every(p => has(p.wb, ...mine)), `${disk.writes - writes} writes, ${disk.aborted ?? 0} caught just in time; `
     + `${people.map(p => `${p.wb.changes().length} ${p.status().text}`).join(', ')}`);
 
   // Opened again without leave to save, as on the next launch: one click allows it.
@@ -277,9 +277,9 @@ async function sharepoint() {
   for (const [p, who] of [[Store, 'Dana Jordan'], [bob.Store, 'Bob Diaz'], [cy.Store, 'Cy Park']]) for (let i = 0; i < 3; i++) made.push(add(p.wb, who));
   for (let round = 0; round < 6 && !(people.every(p => ids(p.wb) === ids(Store.wb)) && JSON.parse(file.text).changes.length === Store.wb.changes().length); round++)
     await Promise.all(people.map(p => p.sync()));
+  const landed = await until(() => people.every(p => saved(p.status())));
   const all = JSON.parse(file.text);
-  check('three people saving to the library at once lose nothing', made.every(m => all.changes.some(c => c.id === m.id)) && people.every(p => has(p.wb, ...made))
-    && await until(() => people.every(p => saved(p.status()))), `${graph.log.filter(l => l.endsWith(' 412')).length} writes refused, `
+  check('three people saving to the library at once lose nothing', landed && made.every(m => all.changes.some(c => c.id === m.id)) && people.every(p => has(p.wb, ...made)), `${graph.log.filter(l => l.endsWith(' 412')).length} writes refused, `
     + `${graph.log.filter(l => l.startsWith('PUT') && l.endsWith(' 200')).length} made; ${people.map(p => p.status().text).join(', ')}`);
   const a = set(bob.Store.wb, 'fund_target', 760000000, 'Bob Diaz'), b = set(cy.Store.wb, 'fund_target', 770000000, 'Cy Park');
   await Promise.all([bob.Store.sync(), cy.Store.sync()]);
