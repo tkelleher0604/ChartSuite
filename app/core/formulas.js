@@ -1,34 +1,14 @@
 // Formulas: records worked out from other records, the way a spreadsheet works out cells (see formulas.md).
 // Nothing here touches the page.
 //
-// ---- What it needs from the core (app/core/tree.js) ----
-//   Tree.norm(text)       a label as labels are compared: without regard to case, with spaces collapsed. Two
-//                         names are the same name when their norms are equal.
-//   Tree.formatDate(iso)  a date as it reads: '2025-02-11' as "February 11, 2025".
-// Everything else it reads off the records, whose shapes are the core's:
-//   { kind }                      an object
-//   { at, edge, field, value }    a field: its datatype ('text', 'number', 'percent', 'money', 'date', …) and
-//                                 its value, canonical for the datatype (a number, or an ISO date)
-//   { at, edge, choice }          a choice
-//   { at, edge, tag }             a tag: true is attested, false ruled out
-//   { args: [{ edge, at }], … }   a relation: any of the outputs above, with arguments for `at` and `edge`
-// The input is a plain state: the entered records as of one day, by id.
-//
-// ---- Definitions ----
-//   { id, name, covers, rows: [{ label, formula }], type, datatype, self, options }
-//   name      an entry's label, or a relation's name
-//   covers    the parameterizations it covers, as parameterization keys: each parameter's edge and its
-//             location's specification key, as model.js's parameterization() spells them. parameterizationKey()
-//             and locationKey() spell them, and coversOf() turns locations written as paths from a kind
-//             ({ at: ['Entity › Entity Type: Corporation'] }, or for a relation { args: [{ edge, at }] }) into them.
-//   rows      each row's formula starts with = (gives a value) or ← (`<-` as typed), short for = IF(c, TRUE)
-//   type      'tag', 'choice' or 'field', and for a field its datatype ('number' if none). A pattern says these;
-//             until patterns replace `covers`, the definition does. Rows all ← make a tag.
-//   self      the relation may relate a thing to itself
-//   options   a choice's options, where the core knows them
-// A relation's arguments go in the order of its name's edges (below), or else as its parameterizations list them.
-// Names: { relations: [{ name, type, edges: [...], form, lists: { [from edge]: { [listed edge]: list name } } }] }.
-// A list without a name goes by the edge label it lists. `form` is optional, keyed as model.js keys forms.
+// ---- What it takes (app/core/README.md) ----
+// The entered records as of one day, a state, in the core's shapes; and from the chart's Notes reader:
+//   definitions   Notes.definitions(schema): [{ id, name, covers, rows: [{ label, formula }], type, datatype,
+//                 options, edges }], one per Formula note. covers holds parameterization keys (Tree.paramKey). A
+//                 row's formula starts with = (gives a value) or ← (`<-` as typed), short for = IF(c, TRUE).
+//   names         { relations: Notes.relations(schema) }: [{ name, type, edges, lists: { [from edge]:
+//                 { [listed edge]: list name } }, covers }]. A relation's arguments go in its edges' order.
+// From Tree it uses norm and clean, the record predicates (isObject … argsOf, typeOf, rootLabel) and formatDate.
 //
 // ---- The API ----
 // computeState(entered, definitions, names) → R, the computed state:
@@ -55,19 +35,11 @@
 // check(text, { computed, def }) → { kind, problems: [{ from, to, message }] }, for an editor's squiggles.
 // suggest(text, cursor, { computed, def, at }) → { from, to, list: [{ text, name, kind }] }, for completion.
 // evaluateAt(R, text, at, def) works an expression out at a record; formatValue(R, v) shows a value.
-// Spans are character offsets into the row's formula, prefix included.
+// renameName(text, from, to) renames in a formula, for Log's renames; optionsWritten(text), the options a row
+// writes, for declaring them. Spans are character offsets into the row's formula, prefix included.
 
 const Formulas = (() => {
-
-// ---- Records ----
-
-const isObject = r => 'kind' in r;
-const isField = r => 'field' in r;
-const isTag = r => 'tag' in r;
-const isChoice = r => 'choice' in r;
-const isRelation = r => 'args' in r;
-const argsOf = r => r.args ?? (r.at ? [{ edge: r.edge, at: r.at }] : []);
-const clean = s => String(s ?? '').trim().replace(/\s+/g, ' ');
+const { isObject, isField, isTag, isChoice, isRelation, argsOf, typeOf, rootLabel, clean } = Tree;
 
 // Names compared as the core compares labels, kept once worked out: the same few are compared over and over.
 const normals = new Map();
@@ -254,44 +226,9 @@ function parseCached(body, offset) {
   return parsedCache.get(key);
 }
 
-// ---- Locations and parameterizations ----
-// Keys follow model.js: a location's specification is specKey(), and a parameterization is a sorted list of
-// [edge, location specification] pairs, each serialized.
-
-// 'Entity › Entity Type: Limited Partnership' as a kind and the segments below it.
-function parseLocation(text) {
-  const [kind, ...segs] = String(text).split(/\s*[›>]\s*/).map(clean).filter(Boolean);
-  return {
-    kind,
-    segs: segs.map(s => {
-      let m;
-      if ((m = /^(.+?):\s*(.+)$/.exec(s))) return { edge: m[1], choice: m[2] };
-      if ((m = /^not\s+(.+)$/i.exec(s))) return { edge: m[1], tag: false };
-      return { edge: s, tag: true };
-    }),
-  };
-}
-
-// A location's specification key, as model.js's specKey() would give it for a record there.
-function locationKey(text) {
-  const loc = parseLocation(text);
-  let key = `kind:${normal(loc.kind)}`;
-  for (const s of loc.segs)
-    key = JSON.stringify([s.choice !== undefined ? `choice:${normal(s.choice)}` : `tag:${s.tag}`, JSON.stringify([normal(s.edge), key])]);
-  return key;
-}
-
-const parameterizationKey = params => JSON.stringify(params.map(p => JSON.stringify([normal(p.edge), p.spec])).sort());
-
-// The parameterizations a definition covers: its `covers`, or those of the locations it's written with (for a
-// relation, every combination of its parameters' locations).
-function coversOf(def) {
-  if (def.covers) return def.covers;
-  if (!def.args) return (def.at ?? []).map(at => parameterizationKey([{ edge: def.name, spec: locationKey(at) }]));
-  let combos = [[]];
-  for (const a of def.args) combos = combos.flatMap(c => (a.at ?? []).map(at => [...c, { edge: a.edge, spec: locationKey(at) }]));
-  return combos.map(parameterizationKey);
-}
+// ---- Keys ----
+// Tree's: a specification's key is its root label and its [edge, location key] pairs, sorted; a
+// parameterization's, those pairs.
 
 // A parameterization key as its parameters: [{ edge, spec }], edges normalized.
 const paramsOf = key => JSON.parse(key).map(s => { const [edge, spec] = JSON.parse(s); return { edge, spec }; });
@@ -326,19 +263,6 @@ function objectOf(S, id) {
   return null;
 }
 
-// The records from the object down to `id`, or null if the path runs through a relation.
-function pathOf(S, id) {
-  const path = [];
-  for (let cur = id, n = 0; cur && n < 64; n++) {
-    const r = S.recs[cur];
-    if (!r) return null;
-    path.unshift(cur);
-    if (isObject(r)) return path;
-    cur = r.at;
-  }
-  return null;
-}
-
 function nameOf(S, id) {
   const r = S.recs[id];
   if (!r) return '(deleted)';
@@ -354,9 +278,6 @@ function segmentOf(S, id) {
   if (isTag(r)) return `${r.tag ? '' : 'Not '}${r.edge}`;
   return isChoice(r) ? `${r.edge}: ${r.choice}` : r.edge;
 }
-
-// How a location reads: its object's name, then the segments below it.
-const placeOf = (S, id) => (pathOf(S, id) ?? [id]).map((p, i) => i ? segmentOf(S, p) : nameOf(S, p)).join(' › ');
 
 const argKey = args => JSON.stringify(args.map(a => JSON.stringify([normal(a.edge), a.at])).sort());
 // A record's argumentation key, worked out once per record.
@@ -462,47 +383,31 @@ function removeRecord(S, id) {
   delete S.recs[id];
 }
 
-// A relation's name and list names belong to its form (model.html §2): its specification's shape, with every
-// node label erased, and its sort. Names given without a form fall back on the relation's output type and
-// edge labels, its signature. Records don't change, so each one's is worked out once.
-const typeOf = r => isField(r) ? 'field' : isTag(r) ? 'tag' : 'choice';
+// A relation's name and lists are its Name notes', which cover parameterizations: a record has the name whose
+// covers have its parameterization, or else the one for its output type and edge labels, its signature.
 const signature = (type, edges) => `${type}:${edges.map(normal).sort().join('|')}`;
 const sigCache = new WeakMap();
 function signatureOf(r) {
   if (!sigCache.has(r)) sigCache.set(r, signature(typeOf(r), r.args.map(a => a.edge)));
   return sigCache.get(r);
 }
-// A record's form, keyed as model.js keys forms: [sort, ...[edge, shape of its location]], sorted. A record
-// whose location isn't there yet, being a computed record not yet worked out, has no form yet (null).
-const argShapes = (S, r) => {
-  const out = [];
-  for (const a of argsOf(r)) {
-    const shape = shapeOfRecord(S, a.at);
-    if (shape === null) return null;
-    out.push(JSON.stringify([normal(a.edge), shape]));
+// A record's parameterization key; null while a location, a computed record, isn't there yet.
+function paramOfRecord(S, r) {
+  let p = S.paramOf.get(r);
+  if (p === undefined) {
+    const parts = [];
+    for (const a of argsOf(r)) {
+      const s = specOf(S, a.at);
+      if (s === null) return null;
+      parts.push(kept(specParts, `${normal(a.edge)}\n${s}`, () => JSON.stringify([normal(a.edge), s])));
+    }
+    S.paramOf.set(r, p = JSON.stringify(parts.sort()));
   }
-  return out.sort();
-};
-function shapeOfRecord(S, id) {
-  const r = S.recs[id];
-  if (!r) return null;
-  if (isObject(r)) return '•';
-  if (!S.shapes.has(r)) {
-    const args = argShapes(S, r);
-    if (!args) return null;
-    S.shapes.set(r, JSON.stringify(['∘', ...args]));
-  }
-  return S.shapes.get(r);
+  return p;
 }
-function formOfRecord(S, r) {
-  if (!S.forms.has(r)) {
-    const args = argShapes(S, r);
-    if (!args) return null;
-    S.forms.set(r, JSON.stringify([isField(r) ? r.field : isChoice(r) ? 'choice' : 'tag', ...args]));
-  }
-  return S.forms.get(r);
-}
-const relationOf = (S, r) => S.P.reg.byForm.get(formOfRecord(S, r)) ?? S.P.reg.bySig.get(signatureOf(r));
+const relationOf = (S, r) => S.P.reg.byParam.get(paramOfRecord(S, r)) ?? S.P.reg.bySig.get(signatureOf(r));
+// Whether a record is of a relation name's: one with covers covers its parameterization.
+const ofRelation = (S, rel, r) => !rel.covers || rel.covers.has(paramOfRecord(S, r));
 const listNameOf = (rel, from, listed) => rel?.lists.get(`${normal(from)}|${normal(listed)}`) ?? listed;
 
 // While a ground is worked out (see ground), the records its group gave from its stage on are out of sight.
@@ -555,14 +460,14 @@ function listHere(S, id, n) {
 }
 
 // The lists of relatives a relation record makes: for each argument, seen from each other argument, the
-// list's name, normalized, and the edge label it also answers to. Worked out once per record, once its form
-// is known (see formOfRecord).
+// list's name, normalized, and the edge label it also answers to. Worked out once per record, once its
+// parameterization is known.
 function listsOf(S, r) {
   if (S.recLists.has(r)) return S.recLists.get(r);
   const rel = relationOf(S, r);
   const out = [];
   r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: normal(listNameOf(rel, own.edge, other.edge)), alias: normal(other.edge) }); }));
-  if (formOfRecord(S, r) !== null) S.recLists.set(r, out);
+  if (paramOfRecord(S, r) !== null) S.recLists.set(r, out);
   return out;
 }
 const argEdges = new WeakMap();
@@ -1198,8 +1103,8 @@ function callRelation(c, rel, a) {
   if (watching(S, 'calls', rel.n)) depend(S, 'calls', rel.n, `${rel.n}|${pairs}`);
   for (const rid of S.relsByCall.get(`${rel.sig}|${pairs}`) ?? []) {
     const r = S.recs[rid];
-    // Records with the relation's edges but of another form are another relation.
-    if (rel.form && formOfRecord(S, r) !== rel.form) continue;
+    // Records with the relation's edges but another parameterization are another relation.
+    if (!ofRelation(S, rel, r)) continue;
     if (fitsCall(S, r, ids) && inSight(S, rid)) return recOf(rid);
   }
   // A row that gave an error there passes it on.
@@ -1245,15 +1150,14 @@ const fitsCall = (S, r, ids) => r.args.every(x => {
 
 // Parses a definition's rows and what it covers. Problems are kept on it as `error`, { message, row, pos }.
 function prepareDef(def, names) {
-  const d = { ...def, error: null, covers: [], params: [], edges: [def.name], rows: [], labels: new Set() };
+  const d = { ...def, error: null, covers: def.covers ?? [], params: [], edges: [def.name], rows: [], labels: new Set() };
   let at = null;
   try {
-    d.covers = coversOf(def);
     d.params = d.covers.map(paramsOf);
-    d.isRelation = def.args ? true : d.params.some(ps => ps.length > 1);
-    // A relation's edges as written, in its own order: from its name, or else from what it covers.
+    d.isRelation = d.params.some(ps => ps.length > 1);
+    // A relation's edges in its own order: its own, or its name's, or else as it covers them.
     const named = (names?.relations ?? []).find(r => same(r.name, def.name));
-    if (d.isRelation) d.edges = def.args?.map(a => a.edge) ?? named?.edges ?? d.params[0]?.map(p => p.edge) ?? [];
+    if (d.isRelation) d.edges = def.edges ?? named?.edges ?? d.params[0]?.map(p => p.edge) ?? [];
     const written = (def.rows ?? []).map(row => ({ row, f: splitFormula(row.formula) }));
     d.type = def.type ?? (written.length && written.every(x => x.f.kind === 'implies') ? 'tag' : 'field');
     d.rows = written.map(({ row, f }, i) => {
@@ -1308,19 +1212,21 @@ function namesProvided(d, reg) {
   return out;
 }
 
+// The relations by name, by what they cover, and by signature; a relation a definition gives but no Name note
+// names goes by the definition's name.
 function registry(names, defs) {
-  const rels = (names?.relations ?? []).map(r => ({ ...r }));
+  const rels = [...names?.relations ?? []];
   for (const d of defs) if (d.isRelation && !rels.some(r => same(r.name, d.name)))
-    rels.push({ name: d.name, type: d.type, edges: d.edges, form: d.form, lists: {} });
-  const reg = { byName: new Map(), byForm: new Map(), bySig: new Map() };
+    rels.push({ name: d.name, type: d.type, edges: d.edges, covers: d.covers, lists: {} });
+  const reg = { byName: new Map(), byParam: new Map(), bySig: new Map() };
   for (const r of rels) {
     const lists = new Map();
     for (const [from, listed] of Object.entries(r.lists ?? {}))
       for (const [to, name] of Object.entries(listed)) lists.set(`${normal(from)}|${normal(to)}`, name);
-    const rel = { name: r.name, n: normal(r.name), type: r.type, edges: r.edges, form: r.form, lists, sig: signature(r.type, r.edges) };
-    reg.byName.set(normal(r.name), rel);
-    if (r.form) reg.byForm.set(r.form, rel);
-    else reg.bySig.set(signature(r.type, r.edges), rel);
+    const rel = { name: r.name, n: normal(r.name), type: r.type, edges: r.edges, lists, sig: signature(r.type, r.edges), covers: r.covers && new Set(r.covers) };
+    reg.byName.set(rel.n, rel);
+    for (const p of r.covers ?? []) reg.byParam.set(p, rel);
+    if (!reg.bySig.has(rel.sig)) reg.bySig.set(rel.sig, rel);
   }
   return reg;
 }
@@ -1484,9 +1390,8 @@ const onlyTrue = n => (n.k === 'lit' && n.v === true) || (n.k === 'call' && n.na
 
 // ---- Candidates ----
 
-// A record's underlying specification, as model.js's specKey() gives it; null while something it's located
+// A record's specification key, as Tree.key gives it for its specification; null while something it's located
 // at isn't there.
-const rootLabel = r => isTag(r) ? `tag:${r.tag}` : isChoice(r) ? `choice:${normal(r.choice)}` : `field:${r.field}`;
 function specOf(S, id) {
   if (S.specs.has(id)) return S.specs.get(id);
   const r = S.recs[id];
@@ -1522,12 +1427,7 @@ function kept(map, k, make) {
 function defOf(S, id) {
   const r = S.recs[id];
   if (!r || isObject(r)) return null;
-  if (r.computed) return S.P.byId.get(r.computed);
-  if (!S.params.has(id)) {
-    const spec = specOf(S, id);
-    S.params.set(id, spec && !spec.startsWith('kind:') ? S.P.coverOf.get(JSON.stringify(JSON.parse(spec).slice(1))) ?? null : null);
-  }
-  return S.params.get(id);
+  return r.computed ? S.P.byId.get(r.computed) : S.P.coverOf.get(paramOfRecord(S, r)) ?? null;
 }
 
 // A computed record's id comes from its argumentation, so it stays the same from one working-out to the next.
@@ -1936,7 +1836,7 @@ function relatedAt(S, rel, ids, freeEdge, asCondition, label) {
   let exact = asCondition;
   for (const rid of S.byEdge.get(`${rel.sig}|${edge}=${obj}`) ?? []) {
     const r = S.recs[rid];
-    if ((rel.form && formOfRecord(S, r) !== rel.form) || (checked && !fitsCall(S, r, ids))) continue;
+    if (!ofRelation(S, rel, r) || (checked && !fitsCall(S, r, ids))) continue;
     const { objs, edges } = S.indexed.get(rid), y = objs[edges.indexOf(freeEdge)];
     if (!y || seen.has(y)) continue;
     seen.add(y);
@@ -1956,9 +1856,9 @@ function relatedAt(S, rel, ids, freeEdge, asCondition, label) {
 function stateFor(P, entered) {
   const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), byObject: new Map(), byEdge: new Map(),
     relsByCall: new Map(), indexed: new Map(), seq: 0, listNames: new Map(), specs: new Map(), bySpec: new Map(), enteredByKey: new Map(),
-    enteredByEdges: null, params: new Map(), holds: new Map(), stage: new Map(), rows: new Map(), dep: null, watch: null, reads: null,
-    forgetting: true, done: 0, cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(),
-    forms: new WeakMap(), listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(),
+    enteredByEdges: null, holds: new Map(), stage: new Map(), rows: new Map(), dep: null, watch: null, reads: null,
+    forgetting: true, done: 0, cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), paramOf: new WeakMap(),
+    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(),
     cut: null, probe: null, count: null };
   // Every entered record is in before any is indexed, so each is indexed by the objects it belongs to
   // whatever order they come in.
@@ -2011,7 +1911,7 @@ function againBelow(S, id) {
       S.bySpec.set(spec, S.bySpec.get(spec).filter(x => x !== rid));
       S.specs.delete(rid);
     }
-    S.params.delete(rid);
+    S.paramOf.delete(r);
     specOf(S, rid);
     againBelow(S, rid);
   }
@@ -2121,9 +2021,10 @@ function blocksOf(S, group) {
   return blocks;
 }
 
-// The candidate with these records, or null if it uses one object twice and its definition doesn't allow that.
+// The candidate with these records, or null if it's a tag's and uses one object twice: a thing doesn't stand to
+// itself as a tag relation says two things stand. A value relation, like look-through, can measure a thing against itself.
 function candidateIn(b, picks) {
-  if (!b.d.self) for (let i = 1; i < picks.length; i++) for (let j = 0; j < i; j++) if (b.objects[i][picks[i]] === b.objects[j][picks[j]]) return null;
+  if (b.d.type === 'tag') for (let i = 1; i < picks.length; i++) for (let j = 0; j < i; j++) if (b.objects[i][picks[i]] === b.objects[j][picks[j]]) return null;
   const args = picks.map((k, j) => ({ edge: b.edges[j], at: b.pools[j][k] }));
   const key = `[${b.keyOrder.map(j => kept(b.keyParts[j], picks[j], () => JSON.stringify(JSON.stringify([b.normals[j], args[j].at])))).join(',')}]`;
   const id = b.idOrder ? `fx:${b.idOrder.map(j => `${b.normals[j]}=${args[j].at}`).join('&')}` : computedId(args);
@@ -3017,30 +2918,6 @@ function renameName(text, from, to) {
   return out + s.slice(last);
 }
 
-// Carries a relabeled edge or entry through the definitions and the names: their rows, an entry definition's
-// name, a relation's edges and list keys, and the keys of what they cover. Returns new copies.
-function relabel(definitions, names, from, to) {
-  const swap = s => same(s, from) ? to : s;
-  // Keys spell edge labels too: a parameterization's pairs [edge, location key], and a form's [edge, shape].
-  const pairs = (list, inner) => list.map(s => { const [e, k] = JSON.parse(s); return JSON.stringify([e === normal(from) ? normal(to) : e, inner(k)]); }).sort();
-  const specKey = k => k.startsWith('kind:') ? k : (([head, ...rest]) => JSON.stringify([head, ...pairs(rest, specKey)]))(JSON.parse(k));
-  const paramKey = k => JSON.stringify(pairs(JSON.parse(k), specKey));
-  const shapeKey = k => k === '•' ? k : JSON.stringify(['∘', ...pairs(JSON.parse(k).slice(1), shapeKey)]);
-  const formKey = k => k === 'object' ? k : (([sort, ...rest]) => JSON.stringify([sort, ...pairs(rest, shapeKey)]))(JSON.parse(k));
-  const defs = definitions.map(d => ({
-    ...d,
-    ...(d.covers && { covers: d.covers.map(paramKey) }),
-    ...(d.form && { form: formKey(d.form) }),
-    name: d.covers && paramsOf(d.covers[0] ?? '[]').length > 1 ? d.name : swap(d.name),
-    rows: (d.rows ?? []).map(r => ({ ...r, formula: renameName(r.formula, from, to) })),
-  }));
-  const rels = (names?.relations ?? []).map(r => ({
-    ...r, edges: r.edges.map(swap), ...(r.form && { form: formKey(r.form) }),
-    lists: Object.fromEntries(Object.entries(r.lists ?? {}).map(([k, v]) => [swap(k), Object.fromEntries(Object.entries(v).map(([k2, n]) => [swap(k2), n]))])),
-  }));
-  return { definitions: defs, names: { ...names, relations: rels } };
-}
-
 // ---- What the page uses ----
 
 // Works out the computed state from the entered records, the definitions and the names: see the header.
@@ -3128,10 +3005,7 @@ function formatValue(R, v, { percent = false } = {}) {
 
 return {
   computeState, ground, groundText, evaluateRow, diff, check, suggest, evaluateAt, formatValue,
-  renameName, relabel, optionsWritten, coversOf, locationKey, parameterizationKey, computedId, argKey, splitFormula, tidyArrow,
-  place: (R, id) => placeOf(R.state, id), nameOf: (R, id) => nameOf(R.state, id),
-  formOf: (R, id) => formOfRecord(R.state, R.state.recs[id]),
-  isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
+  renameName, optionsWritten, computedId, splitFormula, tidyArrow, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
 };
 
 })();

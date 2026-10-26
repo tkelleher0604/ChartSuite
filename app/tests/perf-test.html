@@ -10,28 +10,29 @@
 </head>
 <body>
 <pre id="out">running…</pre>
-<script src="../core/common.js"></script>
-<script src="../core/model.js"></script>
-<script src="../core/sample.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
+<script src="../sample/calder-ridge.js"></script>
 <script src="grown.js"></script>
 <script>
-// How long the formulas take to work out as a chart grows: the sample a chart starts from, with its
-// definitions (app/sample/definitions.json), and with more of a fund complex added (see grown.js). `#n=200`
-// (the default) sets the most entities added; the page works out the sample with none, a quarter, half and
-// all of them, three times each, and keeps the best. The targets: the sample in under 50 ms, 100 more
-// entities in under 500, and 200 more in under 500 too. Then the redline: one edit worked out and compared
-// with the state before it, as the preview does on every keystroke, in under 50 ms on the sample.
-// Run it in Chrome with --allow-file-access-from-files, so it can read the definitions. Nothing is saved.
+// How long the formulas take to work out as a chart grows: the sample as of a day, with its Formula notes,
+// and with more of a fund complex added (see grown.js). `#n=200` (the default) sets the most entities added;
+// the page works out the sample with none, a quarter, half and all of them, three times each, and keeps the
+// best. The targets: the sample in under 50 ms, and 100 and 200 more entities in under 500. Then the
+// redline: one edit worked out and compared with the state before it, as the preview does on every
+// keystroke, in under 50 ms on the sample.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
 
 // The best of three workings-out, keeping only what's reported, so one run's records don't weigh on the next.
 function timeIt(n) {
-  const recs = grown(SAMPLE, n);
+  const recs = grown(SAMPLE_INPUTS.recs, n);
   let best = null;
   for (let i = 0; i < 3; i++) {
-    const R = Formulas.computeState(recs, DEFINITIONS, NAMES);
+    const R = workOut(recs);
     if (!best || R.ms < best.ms) best = { ms: R.ms, steps: R.steps, computed: Object.keys(R.computed).length };
   }
   return best;
@@ -39,14 +40,12 @@ function timeIt(n) {
 
 // Ruling out the feeder's control of the fund, worked out and diffed against the sample as it was.
 function redline() {
-  const recs = structuredClone(SAMPLE);
-  const before = Formulas.computeState(recs, DEFINITIONS, NAMES);
-  const edited = { ...recs, x_rebut: { args: [{ edge: 'Controller', at: 'feeder' }, { edge: 'Controlled', at: 'fund' }], tag: false } };
+  const before = workOut();
+  const edited = { ...SAMPLE_INPUTS.recs, x_rebut: { args: [{ edge: 'Controller', at: 'feeder' }, { edge: 'Controlled', at: 'fund' }], tag: false } };
   let best = Infinity, d = null;
   for (let i = 0; i < 3; i++) {
     const t = performance.now();
-    const after = Formulas.computeState(edited, DEFINITIONS, NAMES);
-    d = Formulas.diff(before, after);
+    d = Formulas.diff(before, workOut(edited));
     best = Math.min(best, performance.now() - t);
   }
   return { ms: best, d };
