@@ -223,10 +223,12 @@ function mount(el) {
   // Only the cells on screen, and a margin round it, are drawn, as X6 draws a big graph (`virtual`), so a chart
   // of hundreds of boxes costs what a screenful does; the rest wait in the model, drawn as they come on screen.
   // The canvas says where the screen is the moment the view moves, in place of X6's own, which waits for a
-  // pause; and a canvas that can't be seen draws everything, as it can't say.
+  // pause; and a canvas that can't be seen draws everything, as it can't say. The screen's size is the one last
+  // read (see seen), as reading it again once anything has moved would lay the window out again.
   graph.virtualRender.stopListening();
   const AROUND = 120;
-  const onScreen = () => graph.renderer.setRenderArea(root.clientWidth > 0 && root.clientHeight > 0 ? graph.getGraphArea().inflate(AROUND, AROUND) : undefined);
+  let size = { w: 0, h: 0 };
+  const onScreen = () => graph.renderer.setRenderArea(size.w > 0 && size.h > 0 ? graph.graphToLocal(0, 0, size.w, size.h).inflate(AROUND, AROUND) : undefined);
   // What can be selected: a mark this view draws (a cell another view drew is kept hidden; see cellsTo).
   const selectable = c => { const k = c.getData()?.kind; return !!k && k !== 'page' && k !== 'label' && c.isVisible(); };
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
@@ -1050,7 +1052,7 @@ function mount(el) {
   const READS = 0.6;
   let framed = READS, left = null, quiet = false;
   const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } onScreen(); };
-  const seen = () => root.clientWidth > 0 && root.clientHeight > 0;
+  const seen = () => { size = { w: root.clientWidth, h: root.clientHeight }; return size.w > 0 && size.h > 0; };
   const LEVELS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
   const extent = ms => {
     const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]), x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y));
@@ -1082,7 +1084,7 @@ function mount(el) {
     } else graph.zoomTo(k);
     zoomLevel.value = graph.zoom();
   }
-  const resized = new ResizeObserver(() => { showHandles(null); if (framed || left) settle(); onScreen(); });
+  const resized = new ResizeObserver(() => { showHandles(null); seen(); if (framed || left) settle(); onScreen(); });
   resized.observe(root);
   // Frames these records' marks (an entry lights the box or line it's in), as the formula bar asks when it
   // steps down to a reason: closer, up to 100%, where they're small on screen; out as far as they need.
