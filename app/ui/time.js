@@ -142,8 +142,8 @@ const Time = (() => {
 
   // ---- The ruler: at the view's foot, a tick for each of the chart's days; dragging scrubs ----
   const CAP = 1096;   // a longer gap is drawn as three years, with a break
-  // Its width, so a year's label with no room after its line sits before it.
-  const width = signal(0), sized = new ResizeObserver(([e]) => { width.value = e.contentRect.width; });
+  // Its width: a year's label sits after its line, and where it has no room there, the line stands alone.
+  const width = signal(0), measure = new ResizeObserver(es => { for (const e of es) if (e.target.isConnected) width.value = e.contentRect.width; });
   function Ruler() {
     const t = Shell.time.value, today = Log.today(), evs = events.value;
     const [hot, setHot] = useState(null);
@@ -185,9 +185,9 @@ const Time = (() => {
       show(days[Math.max(0, Math.min(days.length - 1, i + d))]);
     };
     const cur = t?.asOf ?? today, tip = hot ?? cur, its = items.get(tip) ?? [], tx = pos[days.indexOf(tip)] / span;
-    return html`<div class="scrub" ref=${el => { ref.current = el; if (el) sized.observe(el); }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
+    return html`<div class="scrub" ref=${el => { ref.current = el; if (el) { measure.disconnect(); measure.observe(el); } }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
         onPointerDown=${down} onPointerMove=${e => { if (!e.buttons) setHot(nearest(e)); }} onPointerLeave=${() => setHot(null)} onKeyDown=${key}>
-      ${years.map(([y, p]) => html`<span class=${'yr' + (width.value && (width.value - 32) * (1 - p / span) < 36 ? ' l' : '')} style=${`left:${at(p)}`}>${y}</span>`)}
+      ${years.map(([y, p]) => html`<span class="yr" style=${`left:${at(p)}`}>${width.value && (width.value - 32) * (1 - p / span) < 36 ? '' : y}</span>`)}
       ${breaks.map(p => html`<span class="brk" style=${`left:${at(p)}`} />`)}
       ${days.map((d, i) => html`<i class=${d === cur ? 'on' : d === hot ? 'hot' : d === today ? 'now' : ''} style=${`left:${at(pos[i])}`} />`)}
       <span class=${'scrub-tip' + (tx < .2 ? ' l' : tx > .8 ? ' r' : '')} style=${`left:${at(pos[days.indexOf(tip)])}`}>

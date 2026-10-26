@@ -70,6 +70,8 @@ const App = (() => {
     if (readOnly.peek()) return Shell.toast('Can’t change the past');
     const c = chart.peek(), s = stacks.peek()[c] ?? { undo: [], redo: [] }, [from, to] = back ? ['undo', 'redo'] : ['redo', 'undo'];
     const r = s[from].length ? book.peek().reverse(s[from].at(-1), who()) : null;
+    // A change kept from before a reload that never reached the workbook is passed over.
+    if (r === null && s[from].length) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back); }
     if (!r) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
     if (typeof r === 'string') return Shell.toast(r);
     keep(c, { [from]: s[from].slice(0, -1), [to]: [...s[to], r.id] });

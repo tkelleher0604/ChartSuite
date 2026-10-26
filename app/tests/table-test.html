@@ -352,8 +352,10 @@ async function run() {
   check('While another day shows, the title bar’s date says which, filled, with an × back to today, and no band repeats it', $('.titlebar .asof.past .dd')?.textContent === 'As of July 1, 2024'
     && !!$('.titlebar .asof.past .btn.icon[aria-label="Today"]') && !$('.band') && getComputedStyle($('.titlebar .asof.past')).backgroundColor !== 'rgba(0, 0, 0, 0)', $('.titlebar .asof')?.outerHTML);
   check('The ruler shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); await tick(60);
   const ruler = $('.scrub').getBoundingClientRect();
-  check('Each year’s label stays inside the ruler', $$('.scrub > .yr').every(y => y.getBoundingClientRect().right <= ruler.right - 16 + 0.5), $$('.scrub > .yr').map(y => `${y.textContent} ${Math.round(y.getBoundingClientRect().right)}`).join(' ') + ` of ${ruler.right}`);
+  check('Each year’s label stays inside the ruler, or its line stands alone', $$('.scrub > .yr').filter(y => y.textContent).every(y => y.getBoundingClientRect().right <= ruler.right - 16 + 0.5),
+    $$('.scrub > .yr').map(y => `${y.textContent} ${Math.round(y.getBoundingClientRect().right)} ${y.style.left}`).join(' ') + ` of ${ruler.left}–${ruler.right}, ${$('.scrub').clientWidth}`);
   [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);
   check('Or any day from the calendar', Shell.time.peek()?.asOf === '2024-07-15');
   Shell.closeAll(); await tick();
