@@ -10,7 +10,7 @@
 .rec-needs:hover:not(:disabled) { color: var(--warn); text-decoration: underline; text-underline-offset: 3px; }
 .rec-needs[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
 /* The address named no kind here. */
-.rec-unknown { flex: none; margin: -4px 0 14px; color: var(--text-2); font-size: 13px; }
+.rec-unknown { flex: none; margin: -4px 0 14px; color: var(--text-2); font-size: var(--fs-dense); }
 
 /* One line: the search, the filters (wrapping only when several are set), and the View menu at the end. */
 .rec-bar { display: flex; flex: none; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
@@ -18,7 +18,7 @@
 .rec-search .input { width: 224px; }
 .rec-filters { flex: 1 1 0; min-width: 0; min-height: 30px; }
 .rec-filters .filter-chip { flex: none; margin-top: 1px; }
-.rec-clear { height: 30px; margin-left: 4px; font-size: 12.5px; }
+.rec-clear { height: 30px; margin-left: 4px; font-size: var(--fs-dense); }
 .rec-bar-end { display: flex; flex: none; align-items: center; gap: 8px; }
 .rec-bar-end .btn { height: 30px; }
 .rec-bar-end .btn .icon { width: 14px; height: 14px; margin-right: -3px; color: var(--text-3); }
@@ -41,8 +41,8 @@
 
 /* Headings (shell.css's): a click sorts, the chevron opens the column's menu, and a drag moves it. */
 .rec-head-cell.is-computed .th-text { font-style: italic; }
-.rec-fx { flex: none; font-size: 11px; font-style: italic; font-weight: 600; color: var(--computed); letter-spacing: .02em; }
-.rec-head-cell .req-mark { flex: none; margin-left: -1px; color: var(--warn); font-weight: 600; }
+.rec-fx { flex: none; font-size: var(--fs-caption); font-style: italic; font-weight: 600; color: var(--computed); letter-spacing: .02em; }
+.rec-head-cell .req-mark { flex: none; margin-left: -1px; }
 th.is-movable .th-sort:active { cursor: grabbing; }
 th.is-dragging .th-in { opacity: .45; }
 th.is-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
@@ -50,7 +50,7 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 /* Row numbers give the eye a place to start; hovering or ticking a row turns its number into its box. */
 .rec-sel { padding: 0 !important; text-align: center; user-select: none; }
-.rec-num { color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.rec-num { color: var(--text-3); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
 .rec-num .icon { width: 13px; height: 13px; vertical-align: -2px; }
 .row-check { display: none; width: 14px; height: 14px; margin: 0; vertical-align: -2px; accent-color: var(--accent); cursor: pointer; }
 .rec-table thead .row-check, .rec-table tbody tr:hover .row-check, .rec-table tr[aria-selected="true"] .row-check, .rec-table.has-checked .row-check { display: inline-block; }
@@ -83,8 +83,8 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 /* What a formula worked out is in italics (shell.css); what's blank and required says so, in amber, as
    something to do. */
-.rec-req { color: var(--warn); font-size: 12px; font-weight: 500; }
-.rec-cell .req-mark { margin-left: 5px; color: var(--warn); font-weight: 600; vertical-align: middle; }
+.rec-req { color: var(--warn); font-size: var(--fs-small); font-weight: 500; }
+.rec-cell .req-mark { margin-left: 5px; vertical-align: middle; }
 
 /* Relatives as chips, as many as fit, then how many more. A chip's name comes before its detail. */
 .rec-chips { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
@@ -95,31 +95,31 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .rec-sides { display: contents; }
 .rec-sides .chip-text { flex: 0 0 auto; max-width: 180px; }
 .rec-sides .chip-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.rec-more { flex: none; padding-left: 2px; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rec-more { flex: none; padding-left: 2px; color: var(--text-3); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
 
 /* Typing in a cell: the box fills it, with what's wrong under it. */
 .rec-table td.is-editing { overflow: visible; padding: 0; }
 .rec-input { display: block; width: 100%; height: 37px; padding: 0 10px; border: 0; border-radius: 0; background: var(--surface); box-shadow: inset 0 0 0 2px var(--focus); color: var(--text); font: inherit; outline: none; }
 .num .rec-input { text-align: right; }
 .rec-input::placeholder { color: var(--text-3); }
-.rec-error { position: absolute; top: calc(100% + 2px); left: 0; z-index: 4; width: max-content; max-width: 340px; padding: 5px 9px; border-radius: var(--radius-sm); background: var(--danger-solid); color: #fff; font-size: 12px; line-height: 16px; white-space: normal; box-shadow: var(--shadow-pop); }
+.rec-error { position: absolute; top: calc(100% + 2px); left: 0; z-index: 4; width: max-content; max-width: 340px; padding: 5px 9px; border-radius: var(--radius-sm); background: var(--danger-solid); color: #fff; font-size: var(--fs-small); line-height: 16px; white-space: normal; box-shadow: var(--shadow-pop); }
 
 /* The last row: a new row being named, or the way to start one. */
 .rec-table .rec-draft td { background: var(--surface); }
 .rec-table .rec-draft:hover td { background: var(--surface); }
-.rec-draft-hint { color: var(--text-3); font-size: 12px; }
+.rec-draft-hint { color: var(--text-3); font-size: var(--fs-small); }
 .rec-draft-hint span + span { margin-left: 16px; }
 .rec-draft-hint kbd { margin-right: 4px; }
 .rec-table .rec-add td { height: 38px; padding: 0; overflow: visible; }
 .rec-table tbody .rec-add:hover td { background: none; }
-.rec-add-btn { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 8px; height: 37px; padding: 0 16px; border: 0; background: none; color: var(--text-3); font-size: 13px; font-weight: 500; }
+.rec-add-btn { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 8px; height: 37px; padding: 0 16px; border: 0; background: none; color: var(--text-3); font-size: var(--fs-dense); font-weight: 500; }
 .rec-add-btn:hover { color: var(--text); }
 .rec-add-btn .icon { width: 14px; height: 14px; }
 
 /* ---- A choice's options: placed under its cell once drawn ---- */
 .rec-pop.pop { position: fixed; top: 0; left: 0; z-index: 40; outline: none; }
 .rec-pop.is-opening { animation: shell-drop .15s var(--ease); }
-.rec-pop-note { padding: 8px; color: var(--text-3); font-size: 12.5px; }
+.rec-pop-note { padding: 8px; color: var(--text-3); font-size: var(--fs-dense); }
 .rec-pop-search { display: block; width: calc(100% - 4px); margin: 2px 2px 6px; }
 .rec-choice-pop { max-width: 340px; padding: 4px; }
 .rec-options { max-height: min(280px, 50vh); overflow-y: auto; }
@@ -127,7 +127,7 @@ th.is-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 /* ---- Rows ticked for bulk actions ---- */
 .rec-actionbar { position: absolute; bottom: 28px; left: 50%; z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 16px; translate: -50% 0;
-  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-dialog); font-size: 13px; animation: shell-rise .2s var(--ease); }
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-dialog); font-size: var(--fs-dense); animation: shell-rise .2s var(--ease); }
 .rec-actionbar-count { margin-right: 8px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rec-actionbar .btn .icon { width: 14px; height: 14px; margin-right: -3px; color: var(--text-3); }
 .rec-delete { color: var(--danger); }

@@ -26,16 +26,8 @@ const DEMO_HOST = new URL(SharePoint.DEMO.site).host;
 // Read as core/documents.js reads it, for every page that lists documents.
 const { ROLES, CONCERNS, isDocField, isDocObject, entryFor, entrySpec, optionsOf, holdersOf, concernsRelation, subjectsOf,
   titleOf, fileNameOf, linkKey, documentRows, rowById } = Documents;
-// How a status reads: as text, since most documents are in force and needn't call for the eye. Only a
-// draft, which needs doing, is marked, in amber; one no longer current (superseded, terminated, expired,
-// withdrawn) is faint. In italics where a formula gave it.
-const PAST = new Set(['superseded', 'terminated', 'expired', 'withdrawn']);
-function statusText(cell) {
-  if (!cell) return '';
-  const text = same(cell.text, 'draft') ? Parts.badge(cell.text, 'warn') : esc(cell.text);
-  const cls = ['docs-status', PAST.has(norm(cell.text)) ? 'is-past' : '', cell.computed ? 'computed-text' : ''].filter(Boolean).join(' ');
-  return `<span class="${cls}"${cell.computed ? ' title="Worked out by formula"' : ''}>${text}</span>`;
-}
+// How a status reads (Parts.docStatus): as text, only a draft marked, and one no longer current faint.
+const statusText = Parts.docStatus;
 
 // What each object owns, directly or through what it owns, by the relation named Ownership, whose first
 // edge is the owner's (as the chart's Tidy layout reads ownership too). Read once for each set of records.
@@ -277,7 +269,7 @@ function page() {
   if (ui.selected && !(ui.tab === 'unlinked' ? fileById(ui.selected) : rowById(ui.selected))) ui.selected = null;
   for (const id of ui.facets.subject) if (!records[id]) ui.facets.subject.delete(id);
   // Until the library can be read, what it holds isn't counted.
-  const counts = { linked: rows.length, unlinked: !lib.signedIn ? '' : lib.files.state === 'ok' ? files.length : null, broken: lib.signedIn ? broken.length : '' };
+  const counts = { linked: rows.length, unlinked: !lib.signedIn ? undefined : lib.files.state === 'ok' ? files.length : null, broken: lib.signedIn ? broken.length : undefined };
   const body = ui.tab === 'linked' ? linkedView(rows) : ui.tab === 'unlinked' ? unlinkedView(files) : brokenView(broken);
   const pane = !ui.selected ? '' : ui.tab === 'unlinked' ? filePane(fileById(ui.selected)) : docPane(rowById(ui.selected));
   ui.entering = false;
@@ -286,10 +278,7 @@ function page() {
       <div class="docs-head">
         <div class="page-head"><div class="page-head-text"><h2 class="page-title">Documents</h2>
           <p class="page-sub">What each file in the library is, and which records it concerns. The files themselves stay in SharePoint.</p></div></div>
-        <div class="tabs" role="tablist" aria-label="Documents">${TABS.map(([id, label]) => {
-          const n = counts[id];
-          return `<button class="tab" role="tab" aria-selected="${ui.tab === id}" data-cmd="docs.tab" data-tab="${id}">${label}<span class="tab-count${id === 'broken' && n ? ' is-alert' : ''}">${n ?? '…'}</span></button>`;
-        }).join('')}</div>
+        ${Parts.tabs(TABS.map(([id, label]) => ({ id, label, count: counts[id], alert: id === 'broken' })), { current: ui.tab, cmd: 'docs.tab', label: 'Documents' })}
       </div>
       ${body}
     </div>
@@ -359,7 +348,7 @@ function linkedView(rows) {
       <td class="c-name"><div class="c-name-in"><a class="row-link" href="${Shell.recordHref(row.record)}" title="${esc(row.name)}">${esc(row.name)}</a>${flag}</div></td>
       <td class="c-type">${cellText(row.type)}</td>
       <td class="c-subjects">${subjectChips(row.subjects)}</td>
-      <td class="c-date tnum">${row.date ? `<span class="${row.date.computed ? 'computed-text' : ''}" title="${esc(formatDate(row.date.iso))}${row.date.computed ? ', worked out by formula' : ''}">${Parts.date(row.date.iso)}</span>` : ''}</td>
+      <td class="c-date">${row.date ? Parts.dateCell(row.date.iso, { computed: row.date.computed }) : ''}</td>
       <td class="c-status">${statusText(row.status)}</td>
       <td class="c-where" title="${esc(whereText(row.url))}">${esc(whereShort(row.url))}</td></tr>`;
   }).join(''));
@@ -391,7 +380,7 @@ function unlinkedView(files) {
       <td class="c-name"><div class="c-name-in"><span class="docs-file-name" title="${esc(f.name)}">${esc(titleOf(f.name))}</span></div></td>
       <td class="c-type">${esc(columnText(f.fields?.DocumentType))}</td>
       <td class="c-where c-folder" title="${esc(folderText(f.path))}">${esc(folderText(f.path))}</td>
-      <td class="c-date tnum">${f.lastModified ? Parts.date(f.lastModified.slice(0, 10)) : ''}</td>
+      <td class="c-date">${f.lastModified ? Parts.dateCell(f.lastModified.slice(0, 10)) : ''}</td>
       <td class="c-act"><button class="btn btn-sm" data-cmd="docs.link-file" data-id="${esc(f.id)}" title="Link it, with the details its name and the library’s columns give">Link</button></td></tr>`).join('')) + capped;
 }
 
@@ -534,7 +523,7 @@ function versionsSection(item) {
   const list = ui.allVersions ? v.list : v.list.slice(0, 4);
   return section('Versions', `<ol class="versions">${list.map((x, i) => `<li class="version">
       <span class="version-id tnum">${esc(x.id)}</span>
-      <span class="version-what">${x.lastModified ? `<span class="tnum">${Parts.date(x.lastModified.slice(0, 10))}</span>` : ''}${x.lastModifiedBy ? `<span class="faint"> · ${esc(x.lastModifiedBy)}</span>` : ''}</span>
+      <span class="version-what">${x.lastModified ? Parts.dateCell(x.lastModified.slice(0, 10)) : ''}${x.lastModifiedBy ? `<span class="faint"> · ${esc(x.lastModifiedBy)}</span>` : ''}</span>
       ${i === 0 ? Parts.badge('Current', 'faint') : '<span></span>'}</li>`).join('')}</ol>
     ${v.list.length > list.length ? `<button class="link-btn pane-more" data-cmd="docs.versions">Show all ${v.list.length}</button>` : ''}`, v.list.length > 1 ? `${v.list.length} in SharePoint` : '');
 }
@@ -868,7 +857,7 @@ function browseHtml(d) {
     ? `<span class="dd-crumb is-here">${esc(f.name)}</span>` : `<button class="dd-crumb" data-cmd="docs.dd-folder" data-index="${i}">${esc(f.name)}</button>`).join(`<span class="dd-crumb-sep">›</span>`);
   const row = it => {
     const doc = !it.isFolder && linkedTo(it);
-    const meta = it.isFolder ? '' : `<span class="dd-item-meta tnum">${it.lastModified ? Parts.date(it.lastModified.slice(0, 10)) : ''}</span>`;
+    const meta = it.isFolder ? '' : `<span class="dd-item-meta">${it.lastModified ? Parts.dateCell(it.lastModified.slice(0, 10)) : ''}</span>`;
     const where = searching && it.path ? `<span class="dd-item-path">${esc(folderText(it.path))}</span>` : '';
     if (doc && d.mode !== 'relink') return `<div class="dd-item is-linked" title="Linked as ${esc(doc.name)}">${glyph(it.kind)}<span class="dd-item-text"><span class="dd-item-name">${esc(it.name)}</span>${where}</span><span class="dd-item-tag">Linked</span>${meta}</div>`;
     return `<button class="dd-item" data-cmd="${it.isFolder ? 'docs.dd-open' : 'docs.dd-file'}" data-id="${esc(it.id)}">${glyph(it.kind)}<span class="dd-item-text"><span class="dd-item-name">${esc(it.name)}</span>${where}</span>${meta}${it.isFolder ? icon('chevron-right', 'dd-item-chevron') : ''}</button>`;
@@ -1080,7 +1069,9 @@ Shell.on('docs.dd-file', el => {
   if (file) chooseFile(file);
 });
 Shell.on('docs.dd-paste', usePasted);
-Shell.on('docs.dd-upload', () => ui.dialog?.handle.el.querySelector('[data-docs-upload]')?.click());
+// The computer's own file chooser, from the dialog's hidden file box.
+const runUpload = () => ui.dialog?.handle.el.querySelector('[data-docs-upload]')?.click();
+Shell.on('docs.dd-upload', runUpload);
 Shell.on('docs.dd-to', el => {
   const f = ui.dialog.form, chosen = uploadFolder(f);
   const pick = to => { f.to = to; drawDialog(); document.getElementById('dd-to')?.focus(); };
@@ -1219,12 +1210,13 @@ Shell.onChartChange(() => { ui.selected = null; for (const s of Object.values(ui
 Shell.start({
   area: 'documents',
   title: 'Documents',
-  actions: () => `${sourceButton()}<button class="btn btn-sm btn-primary" data-cmd="docs.link">Link document</button>`,
+  actions: sourceButton,
+  create: { label: 'Link document', cmd: 'docs.link' },
   render: () => { keep(); return page(); },
   after: () => { restore(); load(); },
   keys: [['↑ ↓, or J K', 'Move through the documents'], ['Enter', 'Open the document’s record'], ['Esc', 'Close the preview']],
   commands: () => [
-    { title: 'Link document', keywords: 'add file sharepoint index', run: () => openDialog({ mode: 'link', step: 'browse' }) },
+    { title: 'Upload a document from this computer', keywords: 'add file link sharepoint', run: () => { openDialog({ mode: 'link', step: 'browse' }); runUpload(); } },
     { title: 'Show files not linked', keywords: 'reconcile library unlinked sharepoint', run: () => setTab('unlinked') },
     { title: 'Show broken links', keywords: 'reconcile missing moved deleted', run: () => setTab('broken') },
   ],

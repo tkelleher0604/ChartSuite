@@ -441,7 +441,7 @@
     const sort = ui.prefs.sort?.key === c.key ? ui.prefs.sort.dir : 0;
     const cls = ['rec-head-cell', c.isName ? 'is-sticky rec-name' : '', isNumeric(c) ? 'num' : '', c.computedBy || c.computed ? 'is-computed' : '',
       !c.isName && !c.rel && !c.parent ? 'is-movable' : ''].filter(Boolean).join(' ');
-    const extra = `${c.required ? '<span class="req-mark" aria-hidden="true">*</span>' : ''}${c.computedBy || c.computed ? '<span class="rec-fx" aria-hidden="true">fx</span>' : ''}`;
+    const extra = `${c.required ? Parts.required() : ''}${c.computedBy || c.computed ? '<span class="rec-fx" aria-hidden="true">fx</span>' : ''}`;
     return Parts.columnHead({ label: c.label, sort, cmd: 'records.sort', menu: 'records.head', data: { col: c.key }, cls, extra, title: columnTitle(c) });
   }
 
@@ -504,7 +504,7 @@
       if (cell.error) { html = Parts.formulaError(cell.error.code); title = `${cell.error.msg} (${c.computedBy?.name ?? 'a formula'})`; }
       else if (cell.missing) {
         cls.push('is-missing');
-        html = c.type === 'tag' ? `${checkbox(null, tagAttrs)}<span class="req-mark" aria-hidden="true">*</span>` : '<span class="rec-req">Required</span>';
+        html = c.type === 'tag' ? `${checkbox(null, tagAttrs)}${Parts.required(`${c.label} is required`)}` : '<span class="rec-req">Required</span>';
         title = `${c.label} is required`;
       }
       else if (cell.covered) title = 'Worked out by formula, which gives nothing here';
@@ -521,8 +521,8 @@
         : `<a class="row-link" href="${Shell.recordHref(obj)}">${esc(cell.text)}</a>`;
     } else if (cell.r.field === 'date') {
       // A date reads short in a row, as in every list scanned by date, and in full on hover.
-      html = `<span${cell.computed ? ' class="computed-text"' : ''}>${Parts.date(cell.r.value)}</span>`;
-      if (cell.computed) title = `${cell.text}, worked out by formula`;
+      html = Parts.dateCell(cell.r.value, { computed: cell.computed });
+      title = '';
     } else {
       html = looksLikeId(cell.text) ? `<span class="ident">${Parts.output(cell.id)}</span>` : Parts.output(cell.id);
       if (cell.r.field === 'document') title = cell.r.value;
@@ -1481,9 +1481,9 @@
   });
 
   // ---- Keys ----
-  // Every key the table acts on, it claims (preventDefault), and the shell leaves a claimed key be: typing
-  // over a cell can start with G, which would otherwise begin the shell's G then a letter. The shell keeps
-  // Ctrl+K, ?, / and undo and redo, which no value starts with.
+  // The page hears keys before the shell, and every key the table acts on, it claims (preventDefault),
+  // which the shell then leaves be: any letter, digit or mark typed over a cell starts editing it, G, ? and
+  // / included. With no cell selected, they're the shell's.
 
   function editorKeys(e) {
     const step = { Enter: [e.shiftKey ? -1 : 1, 0], Tab: [0, e.shiftKey ? -1 : 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.key];
@@ -1539,6 +1539,9 @@
       move(mod ? dr * 1e6 : dr, mod ? dc * 1e6 : dc);
       return showActive();
     }
+    // The rest act on the cell only while the keyboard is in the table: with the focus elsewhere (after a
+    // click beside it), keys are the page's and the shell's again.
+    if (!e.target.closest?.('.rec-table')) return;
     if (e.key === 'Enter' && mod) { e.preventDefault(); Shell.visited(a.row); location.href = Shell.recordHref(a.row); return; }
     if (mod || e.altKey) return;
     const jump = { Home: [0, -1e6], End: [0, 1e6], PageUp: [-10, 0], PageDown: [10, 0] }[e.key];
@@ -1553,7 +1556,7 @@
       return render();
     }
     // Typing over a cell that can be edited starts editing it with what's typed, as in a spreadsheet.
-    if (e.key.length === 1 && !' ?/'.includes(e.key) && (c.type === 'field' || c.type === 'choice') && editable(readPass().cell(a.row, c), c)) {
+    if (e.key.length === 1 && e.key !== ' ' && (c.type === 'field' || c.type === 'choice') && editable(readPass().cell(a.row, c), c)) {
       e.preventDefault();
       act(a.row, c, { text: e.key });
     }
@@ -1667,15 +1670,14 @@
     area: 'records',
     kind: hashText(),
     title: () => { ensureKind(); return kindPlural(); },
-    actions: () => `<button class="btn btn-sm" data-cmd="records.export">Export CSV</button>
-      <button class="btn btn-sm btn-primary" data-cmd="records.new">${icon('plus')}New ${esc(word())}</button>`,
+    actions: () => '<button class="btn btn-sm" data-cmd="records.export">Export CSV</button>',
+    create: () => { ensureKind(); return { label: `New ${word()}`, cmd: 'records.new' }; },
     render: pageHtml,
     after,
-    keys: [['Arrows, Tab', 'Move between cells'], ['Enter or F2', 'Edit the cell, or open its options'], ['A letter or digit', 'Type over the cell'],
+    keys: [['Arrows, Tab', 'Move between cells'], ['Enter or F2', 'Edit the cell, or open its options'], ['Any letter or digit', 'Type over the cell'],
       ['Space', 'Attest a tag, or rule it out'], ['Delete', 'Clear the cell'], [`${MOD}+Enter`, 'Open the row’s record'],
       [`${MOD}+C`, 'Copy the cell, or the ticked rows'], [`${MOD}+V`, 'Paste cells, as copied from Excel'], ['Esc', 'Cancel, or untick the rows']],
     commands: () => [
-      { title: `New ${word()}`, keywords: 'add create row record', run: startDraft },
       { title: `Export ${kindPlural().toLowerCase()} as CSV`, keywords: 'download excel spreadsheet', run: exportCsv },
       { title: 'Show or hide columns', keywords: 'view columns fields', run: () => openView(document.querySelector('[data-cmd="records.view"]')) },
       ...(anyFilter() ? [{ title: 'Clear filters', keywords: 'search reset', run: clearFilters }] : []),
