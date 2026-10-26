@@ -18,8 +18,7 @@
 // blank where required, or in error.
 //
 // Hooks for parts written alongside it:
-//   Scene.settingsOf(id, view) → [{ label, value, from }], each format property of a mark and where it comes
-//                              from; until it lands, Look reads the notes
+//   Scene.settingsOf(id, view) → { [property]: { value, note } }, as the chart last drew the mark
 //   A view's layout is the choice Layout (Chart, Table) at its View object, with the choice Rows at Table.
 
 const Inspector = (() => {
@@ -411,19 +410,14 @@ function Relatives({ id }) {
         onBlur=${() => setLinking(false)} /></div></div>` : null}</${Section}>` : null}`;
 }
 
-// Look: each format property of the mark, and where it comes from. Scene says; until it lands, the notes
-// at the record decide, with the box's properties also from what's located in it, the later style winning.
-const BOX = new Set(['Shape', 'Fill', 'Outline', 'Weight', 'Dash']);
+// Look: each format property a note decides for the mark, as the chart drew it, and where it comes from:
+// this box (or line) alone, a style and its output, or the chart's default.
 function lookOf(id, v) {
-  if (typeof Scene !== 'undefined' && Scene.settingsOf) return Scene.settingsOf(id, v);
-  const n = N(), rank = new Map(n.styles(v).map((s, i) => [s.key, i])), out = {};
-  for (const x of within(id)) for (const [label, r] of Object.entries(n.formats(tree(x), v))) {
-    if (label === 'Shown' || (x !== id && !BOX.has(label))) continue;
-    const own = r.note.pattern.id === id, k = own ? Infinity : r.note.view ? rank.get(T.key(T.bare(r.note.pattern))) ?? -1 : -2;
-    const style = styleName(T.bare(r.note.pattern)), cap = caption(r.note.pattern, {});
-    if (!out[label] || k >= out[label].k) out[label] = { k, value: r.value, from: own ? (recs()[id].args ? 'This line' : 'This box') : !r.note.view ? 'Default' : cap === style ? style : `${style} · ${cap}` };
-  }
-  return Object.entries(out).map(([label, x]) => ({ label, value: x.value, from: x.from }));
+  const from = n => n.pattern.id === id ? (recs()[id].args ? 'This line' : 'This box') : !n.view ? 'Default'
+    : (s => { const c = caption(n.pattern, {}); return c === s ? s : `${s} · ${c}`; })(styleName(T.bare(n.pattern)));
+  return Object.entries(globalThis.Scene?.settingsOf(id, v) ?? {})
+    .filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
+    .map(([label, s]) => ({ label, value: s.value, from: from(s.note) }));
 }
 function Look({ id }) {
   const v = viewId.value, t = tree(id), n = N(), pos = recs()[id].kind ? n.position(t, v) : null;
