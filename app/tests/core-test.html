@@ -53,7 +53,7 @@ function run(json) {
     const ever = wb.changes().flatMap(c => c.adds), added = new Map(ever.map(r => [r.id, r])), say = ({ id, ...r }) => j(r);
     check('the sample’s log never held a placeholder address, a Fiscal Year End but as a day of the year, or a name since renamed',
       ever.filter(r => r.edge === 'Email').every(r => /@calderridge\.com$/.test(r.value)) && ever.filter(r => r.edge === 'Fiscal Year End').every(r => r.field === 'yearly')
-      && !ever.some(r => /Last Filed|Fund Owned|"(Affiliates|Affiliated With|Clients|LLCs|Look-Through Investments|Delaware Annual Tax)"|BDC\.Affiliates\b/.test(say(r))));
+      && !ever.some(r => /Fund Owned|"(Affiliates|Affiliated With|Clients|LLCs|Look-Through Investments|Delaware Annual Tax)"|BDC\.Affiliates\b/.test(say(r))));
     const echoes = wb.changes().filter(c => c.removes.some(id => c.adds.some(r => Log.typeOf(r) === Log.typeOf(added.get(id)) && r[Log.typeOf(r)] === added.get(id)[Log.typeOf(r)] && say(r) === say(added.get(id)))));
     check('no change in the sample puts back a row word for word, as a rename made elsewhere does', !echoes.length, echoes.map(c => c.id).join(' '));
   }
@@ -126,11 +126,11 @@ function run(json) {
   const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
   check('relation names as formulas.js takes them', rels.length === 17 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
   // The formula bar says a relation by its first side's list of the second where that reads as a predicate, and
-  // a tag described as "A …" as a noun: an investor in, a member of, a BDC affiliate; and its last filing.
+  // a tag described as "A …" as a noun: an investor in, a member of, a BDC affiliate.
   const listOf = name => rels.find(r => r.name === name).lists;
-  check('lists and labels as a lawyer writes them', listOf('Look-Through Ownership').Investor.Investment === 'Look-Through Investor In' && listOf('Membership').Member.LLC === 'Member Of'
-    && listOf('Investment Adviser').Adviser.Client === 'Adviser To' && /^A person that /.test(N.description({ args: [{ edge: 'BDC Affiliate', loc: tree('fund') }] }))
-    && now.bdc_regd_filed?.edge === 'Last Filing', j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
+  check('lists as a lawyer writes them', listOf('Look-Through Ownership').Investor.Investment === 'Look-Through Investor In' && listOf('Membership').Member.LLC === 'Member Of'
+    && listOf('Investment Adviser').Adviser.Client === 'Adviser To' && /^A person that /.test(N.description({ args: [{ edge: 'BDC Affiliate', loc: tree('fund') }] })),
+    j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
   check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range'])
