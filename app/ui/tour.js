@@ -69,7 +69,8 @@ const Tour = (() => {
           <p><b>${step.act}</b> ${step.say}</p>
           <div class="acts"><button class="skip" onClick=${() => { at.value = STEPS.length; }}>Skip</button></div>
         </div>`
-      : html`<form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap onSubmit=${e => { e.preventDefault(); finish(false); }}>
+      : html`<form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
+          onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>
           <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything.</p>
           <label>Your name<input value=${name} onInput=${e => setName(e.target.value)} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus({ preventScroll: true }))} /></label>
           <div class="acts"><button type="button" class="btn" onClick=${() => finish(true)}>Start blank</button><button class="btn primary">Keep this chart</button></div>
