@@ -147,7 +147,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
 
-**Launch.** The dappled wall shows once per opened tab and dims into the page. On the very first launch a tour of five steps follows, each advanced by doing what it teaches: select a box; drag to another; select an italic value; flip a tag; switch views.
+**Launch.** The dappled wall shows once per opened tab and dims into the page. On the very first launch a tour of five steps follows, each advanced by doing what it teaches: select a box; drag to another; select an italic value; point at a tag; switch views.
 
 ## Part 3. The look and the words
 
