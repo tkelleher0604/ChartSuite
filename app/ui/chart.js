@@ -1596,7 +1596,6 @@ Shell.onChartChange(() => {
 Shell.start({
   area: 'chart',
   title: () => chartInUse().name,
-  sidebar: false,
   actions: () => `<button class="btn btn-sm btn-ghost" data-action="undo" title="Undo (${undoKey})">Undo</button>
     <button class="btn btn-sm btn-ghost" data-action="redo" title="Redo (${redoKey})">Redo</button>
     <button class="btn btn-sm" data-cmd="chart.export" title="Export the chart as PDF, PowerPoint or SVG">Export…</button>

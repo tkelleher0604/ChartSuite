@@ -1,7 +1,7 @@
 // The shell every page of the app shares: the sidebar, the page's top bar, the command palette, menus,
 // dialogs and toasts, and the keys that work everywhere. A page loads the core, then this, then its own
 // script, which starts the shell with what the page shows:
-//   Shell.start({ area, title, crumbs, actions, create, render, after, commands, undo, keys, sidebar })
+//   Shell.start({ area, title, crumbs, actions, create, render, after, commands, undo, keys })
 // - area: the sidebar item that's current: 'home', 'chart', 'documents', 'calendar', 'history', 'schema',
 //   'settings', or 'records' (with `kind` naming the kind, or a function giving it);
 // - title: the page's title in the top bar, shown there once the page's own heading (its .page-title) has
@@ -14,8 +14,8 @@
 // - commands: what the page adds to the palette, [{ title, hint, keywords, run }], or a function giving them;
 // - undo: false where the page handles the undo keys itself (the pages with the record panel);
 // - keys: the page's own shortcuts, [[keys, what they do]] or a function giving them, for the ? sheet: keys as
-//   pressed (Shift+1, G then A);
-// - sidebar: false where the page starts without the sidebar (a canvas); its own choice is kept from then on.
+//   pressed (Shift+1, G then A).
+// A canvas (the chart) says so on its <html>, data-canvas, so it starts without the sidebar from the first paint.
 // The shell's keys come after the page's: a key the page has used (preventDefault) is left to it. An
 // address with ?do=<handler> runs that handler once the page is drawn, as the palette asks from elsewhere.
 // Clicks on an element with data-cmd run the handler registered under that name with Shell.on(name, fn),
@@ -697,14 +697,15 @@ const Shell = (() => {
     if (name !== null && clean(name)) { setCurrentUser(name); render(); }
     if (typeof Tour === 'object') toast('New here? A two-minute tour shows each area.', { action: { label: 'Take the tour', run: () => Tour.start() } });
   }
-  // The sidebar is shown or hidden on every page alike, as last chosen (prefs.sidebar), except on a page that
-  // starts without it (Shell.start's `sidebar: false`, for a canvas), which keeps a choice of its own
-  // (prefs.sidebarByPage, by the page's file, which prepaint.js reads before the first paint).
+  // The sidebar is shown or hidden on every page alike, as last chosen (prefs.sidebar), except on a canvas (a
+  // page whose <html> has data-canvas, as the chart's does), which starts without it and keeps a choice of its
+  // own (prefs.sidebarByPage, by the page's file). prepaint.js reads the same before the first paint.
   const pageFile = () => location.pathname.split('/').pop() || 'index.html';
-  const sidebarShown = () => page?.sidebar === false ? prefs.sidebarByPage?.[pageFile()] ?? false : prefs.sidebar !== false;
+  const canvas = 'canvas' in document.documentElement.dataset;
+  const sidebarShown = () => canvas ? prefs.sidebarByPage?.[pageFile()] ?? false : prefs.sidebar !== false;
   function toggleSidebar() {
     const shown = !sidebarShown();
-    if (page?.sidebar === false) prefs.sidebarByPage = { ...prefs.sidebarByPage, [pageFile()]: shown };
+    if (canvas) prefs.sidebarByPage = { ...prefs.sidebarByPage, [pageFile()]: shown };
     else prefs.sidebar = shown;
     savePrefs();
     applySidebar();
