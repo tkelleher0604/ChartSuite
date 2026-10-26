@@ -172,8 +172,12 @@ async function run() {
 
   // Two boxes
   Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
-  const rr = $$('.rr').filter(r => r.querySelector('.nm')?.textContent === 'Ownership');
-  check('two boxes list every relation they could be in', rr.length >= 2 && $$('.rr .nm').some(x => x.textContent === 'Investment Adviser'), $$('.rr .nm').map(x => x.textContent).join(', '));
+  check('two boxes say what holds between them, each as a sentence', $$('.rr .nm').some(x => x.textContent === 'Fund III Blocker is a close affiliate of the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
+  const more = $$('.sect > .fold').find(f => f.textContent === 'Add a relation');
+  if (more?.getAttribute('aria-expanded') === 'false') { more.click(); await tick(); }
+  const rr = $$('.rr').filter(r => r.querySelector('.nm')?.textContent === 'Fund III Blocker is an owner of the BDC');
+  check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser of /.test(x.textContent))
+    && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
   rr[0].querySelector('.tag').click(); await tick();
   const own = Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
   check('ticking one relates them', !!own, JSON.stringify(own?.[1]));
@@ -206,6 +210,14 @@ async function run() {
   check('blank required entries feed attention', blanks.length > 0, blanks.length);
   blanks[0]?.go(); await tick(60);
   check('…and going to one shows it, marked', !!$('i.req'));
+  // An error is no record: going to one selects the record it's at, its formula asked why
+  const fye = Object.keys(st()).find(k => st()[k].at === 'mgmt' && st()[k].edge === 'Fiscal Year End');
+  App.change(tx => tx.remove(fye)); await tick(60);
+  const errs = Shell.parts.value.attention.items().filter(i => i.kind === 'error'), asked = [], offAsk = Shell.on('why-open', d => asked.push(d));
+  errs[0]?.go(); await tick(60); offAsk();
+  check('going to an error selects the record it’s at, and asks its formula why', errs.length > 0 && Shell.selection.value[0] === 'mgmt' && asked.length === 1 && !!App.computed.value.errors.find(e => e.id === asked[0]),
+    `${errs.length} errors; ${Shell.selection.value}; ${asked}`);
+  Shell.parts.value.undo.undo(); await tick(60);
 
   // The view
   Shell.select([]); await tick();
@@ -225,9 +237,14 @@ async function run() {
   const affiliated = N().notes('Formula').find(n => n.note === 'def_affiliated');
   Shell.select([Shell.general(affiliated.pattern)]); await tick(80);
   const clauses = $$('.statute .st-clause');
-  check('a definition in general: its Description, clause by clause, beside its rows', clauses.length === 6 && /controlling, controlled by/.test(clauses[2].querySelector('.st-law').textContent)
-    && $('.statute .st-lead')?.textContent.startsWith('“Affiliated person”'), clauses.map(c => c.querySelector('.st-label').textContent).join(' '));
-  check('… each clause counting the records it gives', clauses.every((c, i) => i === 5 || /^\d+$/.test(c.querySelector('.st-n').textContent)), clauses.map(c => c.querySelector('.st-n').textContent).join(' '));
+  check('a definition in general: its Description, clause by clause, beside its rows', clauses.length === 6 && /controlling, controlled by/.test(clauses[2].querySelector('.st-law').value)
+    && $('.statute .st-lead')?.value.startsWith('“Affiliated person”'), clauses.map(c => c.querySelector('.st-label').textContent).join(' '));
+  check('… said there and only there', !rowOf('Description'));
+  check('… each clause counting the records it gives, in its list’s words', clauses.every((c, i) => i === 5 || /^\d+ affiliated persons?$|^1 affiliate$/.test(c.querySelector('.st-n').textContent)), clauses.map(c => c.querySelector('.st-n').textContent).join(' | '));
+  const law = clauses[3].querySelector('.st-law');
+  await type(law, 'any officer, director, partner or employee of such other person;'); law.blur(); await tick();
+  check('… and a clause’s words typed over change the Description there', /^\(D\) any officer, director, partner or employee of such other person;$/m.test(N().description(affiliated.pattern))
+    && N().description(affiliated.pattern).startsWith('“Affiliated person”'), N().description(affiliated.pattern));
   check('… a top-level OR on a line of its own', clauses[2].querySelectorAll('.st-set > div').length === 3);
   $('.statute .st-set').click(); await tick(80);
   check('… and its rows in the bar, to edit, open where a clause is clicked', document.querySelectorAll('.fxbar .fx-row').length === affiliated.value.length);
@@ -240,7 +257,7 @@ async function run() {
 
   // A ruled-out relation is no relative: said once, plainly, on the side its edges name first
   Shell.select(['blocker']); await tick(60);
-  check('a ruled-out relation is no relative, and is said plainly', /^Not a remote affiliate of .+: close affiliate \(§57\(b\)\)/.test($('.nots')?.textContent.trim())
+  check('a ruled-out relation is no relative, and is said plainly, as what rules it out', $$('.nots .row').map(r => r.textContent.trim()).includes('Close affiliate of the BDC (§57(b))')
     && !$$('.sect > .fold').some(s => s.textContent === 'Remote Affiliate Of'), $('.nots')?.textContent);
   check('… and a relative says what the relation does', $$('.row.rel').some(r => /% · \d+% voting$/.test(r.querySelector('.v').textContent.trim())), $$('.row.rel .v').map(v => v.textContent.trim()).join(' | '));
 
