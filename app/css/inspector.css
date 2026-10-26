@@ -1,16 +1,16 @@
 /* The inspector, on dendra.css's rows: a label column and a value column, values typed over in place. */
 
-/* The label column narrows with the panel, so a value keeps room for a long date; a longer label wraps. */
-.inspector { --label: clamp(112px, 36cqi, 152px); }
+/* The label column narrows with the panel, so a value keeps room for a long date; narrower still, a label
+   sits over its value. */
+.inspector { --label: clamp(112px, 44cqi, 172px); }
 .insp { padding-bottom: 32px; }
-.ih { padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
+.ih { position: relative; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
 .ih > .path { margin-bottom: 4px; }
 .ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; }
 .ih-title > .and { font-weight: 400; color: var(--ink-3); }
 /* A title wraps, as many lines as it takes. A tag's title has its box before it, as a checkbox row has. */
 .cellbox.title .hug { flex: 1; }
 .cellbox.title .cell { font: var(--t15); }
-.ih { position: relative; }
 .ih-tag { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 8px; }
 .ih-tag > .cellbox { position: static; min-height: 0; }
 .ih:hover .btn.ver { opacity: 1; }
@@ -49,7 +49,7 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
    value. (A relative is a name and its role, as a list's row is.) */
 @container (max-width: 340px) {
   .row:not(.chk, .out, .rel) { grid-template-columns: minmax(0, 1fr); }
-  .row:not(.chk, .out, .rel, .src, .draft) > .k:not(.wide) { padding: 6px 0 0 calc(var(--depth, 0) * 16px); font: var(--t12); color: var(--ink-3); }
+  .row:not(.chk, .out, .rel, .src, .draft) > .k:not(.wide) { padding: 4px 0 0 calc(var(--depth, 0) * 16px); font: var(--t12); color: var(--ink-3); }
   .row:not(.chk, .out, .rel) > .v { padding-left: calc(var(--depth, 0) * 16px); }
 }
 
@@ -95,8 +95,8 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .tag.peek { opacity: .8; }
 .tag:disabled { pointer-events: none; }
 .tag[aria-disabled="true"] { opacity: .4; }
-.row:has(.tag.peek.no) > .k .lbl, .rr:has(.tag.peek.no) > .nm { color: var(--no); text-decoration: line-through; }
-.row:has(.tag.peek.yes) > .k .lbl, .rr:has(.tag.peek.yes) > .nm { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
+.row:has(.tag.peek.no) > .k .lbl, .rr:has(.tag.peek.no) > .nm, .ih-tag:has(.tag.peek.no) > .nm { color: var(--no); text-decoration: line-through; }
+.row:has(.tag.peek.yes) > .k .lbl, .rr:has(.tag.peek.yes) > .nm, .ih-tag:has(.tag.peek.yes) > .nm { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
 
 /* Quiet actions at a value's right, shown on hover or focus as the grip is: its other values counted
    ("2 earlier"), and a due date's filing, a button. Each sits over the value's end, not beside it, so the

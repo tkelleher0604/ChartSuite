@@ -588,7 +588,7 @@ function RecordView({ id }) {
     ? html`<${Head} path=${[{ label: r.kind, go: () => select([general({ kind: r.kind })]) }, ...(first ? [{ label: recs()[first.id].choice, go: () => select([first.id]) }] : [])]}>
         <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: N().segmentOf(recs(), x), go: () => select([x]) }))}>
-        ${'tag' in r ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span>${name}</span></h2>` : null}</${Head}>`;
+        ${'tag' in r ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm">${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   return html`<div class="insp">${head}
     <div class="rows">
