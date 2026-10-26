@@ -326,6 +326,9 @@ function Answers({ g }) {
     onClick=${() => App.change(tx => tx.keep(x.row.id), { say: `Kept ${T.outputText(x.row)}` })}>${T.outputText(x.row)}<span class="who">${x.who}</span></button>`)}</span>`;
 }
 
+// A tag is its box, before its name; but where two people gave it at once, its two answers, beside it.
+const boxed = id => 'tag' in recs()[id] && !disagreeing.value.get(id);
+
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
   // An error where the value would be: what it needs, in words ("Needs Fiscal Year End"), its code on hover;
@@ -379,7 +382,7 @@ function Label({ it, fx }) {
 // A tag is a checkbox row, its box before its name, as the two-box panel draws one; its entries beneath it.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
-  const tag = r ? 'tag' in r : !it.error && kindAt(tree(at), it.edge).type === 'tag';
+  const tag = r ? boxed(it.id) : !it.error && kindAt(tree(at), it.edge).type === 'tag';
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
   const k = html`<div class="k"><${Label} it=${it} fx=${f} /></div>`, v = html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
   return html`<div class="ent" data-drag=${r ? at : null}>
@@ -588,13 +591,13 @@ function RecordView({ id }) {
     ? html`<${Head} path=${[{ label: r.kind, go: () => select([general({ kind: r.kind })]) }, ...(first ? [{ label: recs()[first.id].choice, go: () => select([first.id]) }] : [])]}>
         <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: N().segmentOf(recs(), x), go: () => select([x]) }))}>
-        ${'tag' in r ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm">${name}</span></h2>` : null}</${Head}>`;
+        ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm">${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   return html`<div class="insp">${head}
     <div class="rows">
       ${sides.map(a => html`<div class="row" key=${a.edge}><div class="k">${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)}>${nameOf(objectOf(a.at))}</${Go}>
         ${a.at !== objectOf(a.at) ? html`<span class="muted"> › ${T.pathOf(recs(), a.at).slice(1).map(x => N().segmentOf(recs(), x)).join(' › ')}</span>` : null}</div></div>`)}
-      ${r.kind || 'tag' in r ? null : html`<div class="row" data-key=${id}><div class="k"><span class="lbl">${name}</span></div>
+      ${r.kind || boxed(id) ? null : html`<div class="row" data-key=${id}><div class="k"><span class="lbl">${name}</span></div>
         <div class="v ctl"><${Output} id=${id} slot=${r} label=${name} /></div></div>`}
       ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} />`}
     </div>

@@ -373,6 +373,11 @@ async function run() {
   check('a value with two answers shows both, each with who gave it', answers.length === 2 && answers.some(b => b.textContent.includes('22-2222222') && b.textContent.includes('Bob Diaz')), answers.map(b => b.textContent).join(' | '));
   answers.find(b => b.textContent.includes('Bob Diaz'))?.click(); await tick(60);
   check('… and choosing one keeps it', !$('.answers') && st().fund_ein.value === '22-2222222' && !App.wb.disagreements(C).length);
+  const base2 = App.wb.changes(), ann2 = Log.open(base2), bob2 = Log.open(base2);
+  for (const [w, who, tag] of [[ann2, 'Ann Lee', false], [bob2, 'Bob Diaz', true]]) { const tx = w.edit({ chart: C, who }); tx.update('fund_good', { tag }); tx.commit(); }
+  App.wb.merge(ann2).merge(bob2); await tick(60);
+  check('… a tag given two ways at once shows both beside its name, not a box', !rowOf('Good Standing')?.classList.contains('chk') && rowOf('Good Standing')?.querySelectorAll('.answers .btn').length === 2,
+    rowOf('Good Standing')?.outerHTML.slice(0, 300));
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {
