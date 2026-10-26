@@ -95,11 +95,14 @@ function blanksAt(at) {
   return out;
 }
 
+// Where an error stands, as the entry its value would be: the record it's at, and its label.
+const placeOf = e => e.args?.length === 1 ? e.args[0] : e.at ? { at: e.at, edge: App.definitions.value.find(d => d.id === e.def)?.name } : null;
+
 // A record's entries, the errors where a formula would put one, and blank required ones; in Order, Name first.
 function slots(at) {
   const r = recs(), own = !!r[at]?.kind, slot = (edge, x) => ({ edge, ...x, t: { args: [{ edge, loc: tree(at) }] } });
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
-  const errors = App.computed.value.errors.filter(e => e.args?.length === 1 && e.args[0].at === at && !entryNamed(at, e.args[0].edge)).map(e => slot(e.args[0].edge, { error: e }));
+  const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
   return [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity }))
     .sort((a, b) => a.o - b.o || a.edge.localeCompare(b.edge));
@@ -202,7 +205,7 @@ function drag(e, onDrop, onClick) {
 
 // A value typed over: Enter or leaving keeps it, Esc puts it back. While it differs, the new text is
 // redlined in blue and the old struck in red. A document shows its name, and its address to edit. `label`
-// names it; `due` marks a date overdue or due soon. A title wraps, as many lines as it takes.
+// names it; `due` marks a date overdue or due soon. Text, and a title, wrap, as many lines as they take.
 function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', title, label, due, children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
   // What's typed, null while not typing; kept in a ref too, as a blur can come after the record has gone.
@@ -222,9 +225,9 @@ function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', title, labe
     if (e.key === 'Enter') { e.preventDefault(); done(); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); type(null); setBad(false); e.target.blur(); }
   };
-  const Box = title ? 'textarea' : 'input';
+  const wrap = title || (r?.field ?? datatype) === 'text', Box = wrap ? 'textarea' : 'input';
   return html`<label class=${'cellbox' + (title ? ' title' : '') + cls}><span class=${'hug' + (over ? ' over' : '') + (due && text === null ? ' ' + due : '')}>
-    <${Box} ref=${ref} rows=${title ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && text === null ? ' fx' : '') + (dirty && T.clean(text) ? ' add' : '') + (bad ? ' bad' : '')}
+    <${Box} ref=${ref} rows=${wrap ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && text === null ? ' fx' : '') + (dirty && T.clean(text) ? ' add' : '') + (bad ? ' bad' : '')}
       value=${text ?? shown} placeholder=${ph} disabled=${App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null}
       aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph}
       data-tour=${fx ? 'computed' : null} onFocus=${() => { type(raw); if (fx) emit('why-open', id); }}
@@ -304,7 +307,7 @@ function Answers({ g }) {
 
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
-  if (slot?.error) return html`<button class="err errv" onClick=${() => emit('why-open', slot.error.id)}>${slot.error.error.code}</button>`;
+  if (slot?.error) return html`<button class="err errv" onClick=${() => emit('why-open', slot.error.id)}>${slot.error.error.code}${slot.error.error.msg ? html`<span class="msg">${slot.error.error.msg}</span>` : null}</button>`;
   const g = id && disagreeing.value.get(id);
   if (g) return html`<${Answers} g=${g} />`;
   const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && over(id);
@@ -867,7 +870,7 @@ const attention = computed(() => {
     if (due) items.push({ kind: due, go: go(id) });
     if (!('field' in r)) for (const b of blanksAt(id)) items.push({ kind: 'blank', go: go(id, b.edge) });
   }
-  for (const e of w.errors) items.push({ kind: 'error', go: go(e.args?.[0]?.at ?? e.at, e.args?.length === 1 ? e.args[0].edge : null, e.id) });
+  for (const e of w.errors) { const p = placeOf(e) ?? e.args?.[0]; items.push({ kind: 'error', go: go(p?.at, p?.edge, e.id) }); }
   return items;
 });
 

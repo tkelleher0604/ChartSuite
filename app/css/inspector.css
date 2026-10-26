@@ -50,7 +50,8 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .cellbox > .del { flex: 0 1 auto; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cellbox.off .cell { color: var(--ink-3); }
 /* Text that wraps (a title, prose): as tall as its lines. */
-textarea.cell { field-sizing: content; width: calc(100% + 7px); max-width: none; height: auto; min-height: var(--row); padding: 4px 6px; line-height: 20px; resize: none; overflow: hidden; white-space: pre-wrap; }
+textarea.cell { field-sizing: content; height: auto; min-height: var(--row); padding: 4px 6px; line-height: 20px; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cellbox.title .cell, textarea.cell.prose { width: calc(100% + 7px); max-width: none; }
 .hug.over::after { top: 4px; right: -1px; }
 .cellbox > .unit { margin-left: -6px; color: var(--ink-3); }
 .cellbox:has(> .unit) .cell { min-width: 2ch; }
@@ -62,9 +63,9 @@ textarea.cell { field-sizing: content; width: calc(100% + 7px); max-width: none;
 .hug:has(> .cell.date) { flex: none; max-width: none; }
 .cell.date { max-width: none; }
 
-/* A choice: its option and a chevron, opening the options. */
-.sel { height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 0 6px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); text-align: left; cursor: default; }
-.sel > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A choice: its option, wrapping where it must, and a chevron, opening the options. */
+.sel { min-height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 0 6px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); text-align: left; cursor: default; }
+.sel > span { padding-block: 3px; line-height: 20px; overflow-wrap: anywhere; }
 .sel:hover:not(:disabled) { border-color: var(--rule); }
 .sel:disabled::after { visibility: hidden; }
 .sel.fx > span { font-style: italic; }
@@ -79,10 +80,11 @@ textarea.cell { field-sizing: content; width: calc(100% + 7px); max-width: none;
 
 /* Quiet actions at a value's right, shown on hover or focus as the grip is: its other values counted
    ("2 earlier"), and a due date's filing, a button. Each sits over the value's end, not beside it, so the
-   value keeps its whole width. */
+   value keeps its whole width; while the value is typed, they keep out of the way. */
 .btn.ver { position: absolute; right: 0; top: 4px; height: 20px; padding: 0 6px; font: var(--t12); color: var(--ink-2); background: var(--surface); opacity: 0; transition: opacity var(--quick) var(--ease); }
 .row:hover .btn.ver { background: linear-gradient(var(--hover), var(--hover)) var(--surface); }
-.row:is(:hover, :focus-within) .btn.ver { opacity: 1; }
+.row:hover .btn.ver, .btn.ver:focus { opacity: 1; }
+.cellbox:has(.cell:focus) > .btn.ver { opacity: 0; pointer-events: none; }
 .btn.ver.filed { border-color: var(--edge); }
 .btn.ver:hover { color: var(--ink); }
 .filing { display: grid; gap: 8px; width: 220px; }
@@ -158,7 +160,8 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr > .ctl .btn.ver { display: none; }
 .rr > .nm { padding: 4px 0; color: var(--ink); overflow-wrap: anywhere; }
 .rr.ruled > .nm { color: var(--ink-3); }
-.rr > .nm .sel { display: inline-flex; height: 22px; margin: -2px 0 -2px -2px; padding: 0 4px; vertical-align: baseline; }
+.rr > .nm .sel { display: inline-flex; min-height: 0; height: 22px; margin: -2px 0 -2px -2px; padding: 0 4px; vertical-align: baseline; }
+.rr > .nm .sel > span { padding-block: 0; }
 .rr > .val { display: flex; align-items: center; min-width: 0; max-width: 160px; }
 .rr > .val .cell { min-width: 6ch; }
 .rr > .why { grid-column: 2 / -1; margin-top: -4px; padding-bottom: 6px; font: var(--t12); color: var(--ink-3); }
@@ -168,6 +171,11 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr.new > .form > .cell { width: calc(100% + 7px); }
 .rr.new > .add-entry { grid-column: 2 / -1; justify-self: start; }
 
+
+/* An error where a value would be: its code, and in words what's wrong; clicked, the bar says why. */
+button.errv { margin-left: -7px; padding: 4px 6px; border: 0; border-radius: var(--r); background: none; font-weight: 600; text-align: left; cursor: default; }
+button.errv:hover { background: var(--hover); }
+button.errv > .msg { margin-left: 8px; font-weight: 400; color: var(--ink-2); }
 
 /* Two answers to one value: each with who gave it; choosing one keeps it. */
 .answers { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; margin-left: -7px; }

@@ -85,7 +85,7 @@ async function run() {
   check('entries at entries show below them', !!rowOf('Tax Classification') && rowOf('Tax Classification').style.getPropertyValue('--depth') === '1');
 
   // Typing a value
-  await type(rowOf('EIN').querySelector('input'), '92-4810338');
+  await type(rowOf('EIN').querySelector('.cell'), '92-4810338');
   check('typing a value corrects it', st().fund_ein?.value === '92-4810338' && last().adds.some(r => r.record === 'fund_ein'), st().fund_ein?.value);
   await type(rowOf('Formation Date').querySelector('input'), '3/1/2023');
   check('a date typed any way is kept as a day', st().fund_formed?.value === '2023-03-01', st().fund_formed?.value);
@@ -200,7 +200,7 @@ async function run() {
 
   // Time: with a day shown, an edit takes effect from it
   Shell.select(['fund']); Shell.at({ asOf: '2026-01-01' }); await tick();
-  await type(rowOf('EIN').querySelector('input'), '92-0000001');
+  await type(rowOf('EIN').querySelector('.cell'), '92-0000001');
   check('with a day shown, an edit takes effect from it', last().adds.some(r => r.record === 'fund_ein' && r.since === '2026-01-01'));
   check('a record with other values counts them (“1 earlier”)', rowOf('EIN').querySelector('.ver')?.textContent === '1 earlier', App.wb.item(C, 'fund_ein').length + ' rows; ' + rowOf('EIN').querySelector('.v').innerHTML);
   Shell.at(null); await tick();
@@ -217,6 +217,7 @@ async function run() {
   errs[0]?.go(); await tick(60); offAsk();
   check('going to an error selects the record it’s at, and asks its formula why', errs.length > 0 && Shell.selection.value[0] === 'mgmt' && asked.length === 1 && !!App.computed.value.errors.find(e => e.id === asked[0]),
     `${errs.length} errors; ${Shell.selection.value}; ${asked}`);
+  check('… where the error shows in place of the value, focused', document.activeElement?.matches('.insp .errv') && $$('.errv').length === errs.length, document.activeElement?.outerHTML.slice(0, 120));
   Shell.parts.value.undo.undo(); await tick(60);
 
   // The view
@@ -285,7 +286,7 @@ async function run() {
   // As it stood, nothing can be changed
   const before = App.wb.changes().length, then = App.wb.changes()[40];
   Shell.select(['fund']); Shell.at({ stood: then.id, at: then.when }); await tick(60);
-  check('as it stood, the inspector’s values are read-only', !!rowOf('EIN') && rowOf('EIN').querySelector('input').disabled);
+  check('as it stood, the inspector’s values are read-only', !!rowOf('EIN') && rowOf('EIN').querySelector('.cell').disabled);
   check('… and any change is refused', App.change(tx => tx.update('fund_ein', { value: '00-0000000' })) === null && App.wb.changes().length === before);
   Shell.at(null); await tick(40);
 
@@ -326,7 +327,7 @@ const ACTS = {
   add: () => $('.add-entry').click(),
   menu: () => { const g = rowOf('Jurisdiction').querySelector('.grip'); g.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })); dispatchEvent(new PointerEvent('pointerup')); },
   peek: () => rowOf('Good Standing').querySelector('.tag').dispatchEvent(new PointerEvent('pointerenter')),
-  type: () => { const i = rowOf('EIN').querySelector('input'); i.focus(); setTimeout(() => { i.value = '92-4810999'; i.dispatchEvent(new Event('input', { bubbles: true })); }, 30); },
+  type: () => { const i = rowOf('EIN').querySelector('.cell'); i.focus(); setTimeout(() => { i.value = '92-4810999'; i.dispatchEvent(new Event('input', { bubbles: true })); }, 30); },
   choose: () => rowOf('Jurisdiction').querySelector('.sel').click(),
   draft: () => { $('.add-entry').click(); setTimeout(() => pick('Value'), 30); },
 };
