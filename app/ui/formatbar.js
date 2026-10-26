@@ -14,7 +14,8 @@ const { signal, effect } = preactSignals;
 const FONTS = Scene.FONTS;
 // Sizes and weights are shown and chosen as the slide has them: the page's, drawn smaller by its scale.
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32];
-const WEIGHTS = [0.5, 0.75, 1, 1.5, 2, 3];
+// PowerPoint's own weights, so the file, the bar and the inspector say one number.
+const WEIGHTS = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6];
 // PowerPoint's colors, so a swatch means the same in both: its theme's columns (Background 1, Text 1 and the
 // six accents), each with its tints and shades in PowerPoint's rows, then its standard colors.
 const THEME = [

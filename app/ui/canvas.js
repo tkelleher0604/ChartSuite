@@ -904,14 +904,18 @@ function mount(el) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, r = red && quick ? red : null, s = styled && quick ? styled : null;
     const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek();
     const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id); };
-    // A relation the view hides, lit or stepped through, whose two boxes a line drawn here already joins, is
-    // lit on that line, not routed a second time beside it. (One a redline adds is drawn, as what would change.)
+    // A relation the view hides, lit or stepped through, whose two boxes a line drawn here already joins (one
+    // lit, of two), is lit on that line, not routed a second time beside it. (One a redline adds is drawn, as
+    // what would change.)
     const joins = new Map(), pair = (a, b) => [a, b].sort().join(' ');
-    for (const m of base?.byId.values() ?? []) if (m.type === 'line' && !joins.has(pair(m.from, m.to))) joins.set(pair(m.from, m.to), m.merged ?? m.id);
+    for (const m of base?.byId.values() ?? []) if (m.type === 'line') {
+      const k = pair(m.from, m.to), was = joins.get(k);
+      if (!was || (!hl?.map.has(was.record) && hl?.map.has(m.record))) joins.set(k, m);
+    }
     standIns = new Map();
     for (const id of [...asked, ...(hl ? hl.map.keys() : [])]) {
       const x = st[id], line = hidden(id) && x.args?.length === 2 && joins.get(pair(...x.args.map(a => Tree.objectOf(st, a.at))));
-      if (line) standIns.set(id, line);
+      if (line) standIns.set(id, line.merged ?? line.id);
     }
     const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(id => hidden(id) && !standIns.has(id)).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
