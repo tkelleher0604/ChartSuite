@@ -67,8 +67,8 @@
 .dc-edit.new:empty::before { content: attr(data-ph); color: #8a8f8a; font-weight: 400; }
 
 /* ---- The format bar ---- */
-.fb { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.fb > .sep { width: 1px; height: 16px; margin: 0 6px; background: var(--rule); flex: none; }
+.fb { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 8px 0 7px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.fb > .sep { width: 1px; height: 16px; margin: 0 8px; background: var(--rule); flex: none; }
 .fb .btn { height: 28px; padding: 0 8px; border-color: transparent; background: transparent; flex: none; }
 .fb .btn:hover:not(:disabled) { border-color: transparent; }
 .fb .btn.icon { width: 28px; }
@@ -96,7 +96,7 @@
 .palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid rgb(0 0 0 / .14); border-radius: 3px; cursor: default; }
 .palette > button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .palette > button.none { background: linear-gradient(to top right, transparent calc(50% - .75px), var(--no) calc(50% - .75px), var(--no) calc(50% + .75px), transparent calc(50% + .75px)), #fff; }
-.picker { display: grid; gap: 10px; min-width: 200px; }
+.picker { display: grid; gap: 8px; min-width: 200px; }
 .picker > .row { display: flex; align-items: center; gap: 8px; }
 .picker > .row > .k { width: 56px; color: var(--ink-3); font: var(--t12); }
 .picker .seg { display: flex; gap: 2px; padding: 2px; border-radius: var(--r); background: var(--hover); }
@@ -111,7 +111,7 @@
 .shapes > button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; place-items: center; }
 .shapes > button:hover { background: var(--hover); color: var(--ink); }
 .shapes svg { width: 18px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.2; overflow: visible; }
-.pop-head { font: var(--t12); color: var(--ink-3); margin: 2px 0 6px; }
+.pop-head { font: var(--t12); color: var(--ink-3); margin: 0 0 8px; }
 
 /* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. */
 .ex { display: grid; gap: 12px; }

@@ -168,8 +168,8 @@ function Bar() {
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
     <span class="sep" />
-    <button class=${'btn dd scope' + (scope?.own ? ' own' : '')} data-fb="scope" disabled=${none} aria-label=${none ? 'Applies to' : null} onClick=${e => Shell.menu(e.currentTarget, s.scopes.map(x => ({ label: x.label, detail: x.detail, checked: x === scope, run: () => { chosen.value = x.key; } })))}>
-      <span>${scope?.label ?? ''}</span></button>
+    ${none ? null : html`<button class=${'btn dd scope' + (scope?.own ? ' own' : '')} data-fb="scope" onClick=${e => Shell.menu(e.currentTarget, s.scopes.map(x => ({ label: x.label, detail: x.detail, checked: x === scope, run: () => { chosen.value = x.key; } })))}>
+      <span>${scope?.label}</span></button>`}
     <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => set('Font', f) })))}>
       <span>${any ? value('Font') : 'Arial'}</span></button>
     <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: value('Size') === z, run: () => set('Size', z) })))}>

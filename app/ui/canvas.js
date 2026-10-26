@@ -28,14 +28,15 @@ const rowOf = id => { const r = App.shown.peek().item(App.chart.peek(), id)[0]; 
 const nameOf = id => App.notes.peek().nameOf(App.state.peek(), id);
 const viewName = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
 
-// The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first.
+// The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first; in a
+// chart with none yet, an Entity.
 function kinds(scene = App.scene.peek()) {
-  if (!scene) return [];
   const st = App.state.peek(), N = App.notes.peek(), count = new Map();
-  for (const m of scene.marks) if (m.type === 'box') { const k = st[m.record]?.kind; if (k) count.set(k, (count.get(k) ?? 0) + 1); }
+  for (const m of scene?.marks ?? []) if (m.type === 'box') { const k = st[m.record]?.kind; if (k) count.set(k, (count.get(k) ?? 0) + 1); }
   const all = new Set([...count.keys(), ...Object.values(App.schema.peek()).filter(s => !s.args && s.kind && !Tree.isView(s)).map(s => s.kind)]);
-  return [...all].filter(k => count.has(k) || N.value('Shown', { kind: k }, scene.view) !== false)
+  const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
     .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
+  return ks.length ? ks : ['Entity'];
 }
 // The kind last added, while it can be; or the most drawn.
 const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return ks.includes(k) ? k : ks[0]; };
@@ -1003,7 +1004,8 @@ function mount(el) {
 // The other parts call the canvas shown through the shell (Shell.parts.value.canvas).
 const call = name => (...a) => active.peek()?.[name](...a);
 Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); },
-  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point'), zoomTo: call('zoomTo') });
+  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point'), zoomTo: call('zoomTo'),
+  kinds: () => kinds().map(k => ({ label: k, run: () => call('create')(k) })) });
 const here = () => !!active.value;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: '$mod+Digit0', enabled: here, run: () => call('zoom')('fit') });
