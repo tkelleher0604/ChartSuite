@@ -55,8 +55,11 @@ function swatch(kind, f) {
   return sw;
 }
 // An output's swatch where no mark says what it is: a relation's is a line, a box's a box, and an entry's a box
-// where its formats draw one, or else a text.
-const swatchOf = (p, f) => swatch(p.args?.length > 1 ? 'line' : !p.args || KEYED.box.some(k => k in f) ? 'box' : 'text', f);
+// where its formats draw one, or else a text; but one that draws a frame and gives its mark no look is a frame.
+function swatchOf(p, f) {
+  const kind = p.args?.length > 1 ? 'line' : !p.args || KEYED.box.some(k => k in f) ? 'box' : 'text';
+  return swatch(!none(f.Frame) && !KEYED[kind].some(k => k !== 'Shown' && k in f) ? 'frame' : kind, f);
+}
 const FONTS = { Arial: "Arial, 'Liberation Sans', Helvetica, sans-serif", Calibri: 'Calibri, Carlito, sans-serif',
   'Times New Roman': "'Times New Roman', 'Liberation Serif', Times, serif", Georgia: 'Georgia, Gelasio, serif' };
 const fontFamily = f => FONTS[f] ?? `'${f}', sans-serif`;
@@ -543,7 +546,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
   // The key is of what the view draws: what's revealed for a while doesn't change it.
-  const legendRows = legend(N, view, styles, [...boxes, ...lines].filter(m => !m.revealed));
+  const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
   // How far down a chart placed by hand starts, under the page's title and date (see push), as a preview keeps it.
   let floor = last?.floor ?? -Infinity;
@@ -882,37 +885,39 @@ function outputName(N, p) {
   return name;
 }
 
-// The legend's rows: for each style and output from which a drawn box or line takes a property
-// that tells marks apart, a swatch in that output's format, and its caption. Outputs of one style that
-// look alike share a row.
-function legend(N, view, styles, marks) {
-  const used = new Map();
-  for (const m of marks) for (const label of KEYED[m.type] ?? []) {
-    const note = m.settings?.[label]?.note;
-    if (!note || note.view !== view || idsIn(note.pattern).size) continue;
-    const k = key(note.pattern);
-    if (!used.has(k)) used.set(k, { pattern: note.pattern, style: key(bare(note.pattern)), kind: m.type });
-  }
-  const rows = [];
-  styles.forEach((s, order) => {
-    const mine = [...used.values()].filter(u => u.style === s.key);
+// How a view's styles group their outputs, the one rule the Key, Styles and the format bar's scope all go
+// by: a style's outputs that look alike, by their swatch and whether they're shown (and a frame's by its
+// caption, which is drawn on it), are one group, in the view's order of its styles. An output that only shows
+// or hides is a filter, and in none. A group goes by its first output, which stays the same while the group
+// does; it's captioned by a Caption note at one of its outputs, or else by them, two at most, or else by the
+// style's name. `only`, a set of output keys, takes those outputs alone, as the Key takes what's drawn.
+// → [{ style, order, key, outputs: [pattern], swatch, caption, off }]
+function groupsOf(N, view, only = null) {
+  const out = [];
+  N.styles(view).forEach((s, order) => {
     const groups = new Map();
-    for (const u of mine) {
-      const sw = swatch(u.kind, s.outputs.find(o => key(o.pattern) === key(u.pattern))?.formats ?? {});
-      const sk = JSON.stringify([u.kind, ...KEYED[u.kind].map(k => sw[k])]);
-      const g = groups.get(sk) ?? groups.set(sk, { style: s.key, order, outputs: [], swatch: sw }).get(sk);
-      g.outputs.push(u.pattern);
+    for (const o of s.outputs) {
+      if ((only && !only.has(key(o.pattern))) || !Object.keys(o.formats).some(k => k !== 'Shown')) continue;
+      const sw = swatchOf(o.pattern, o.formats), off = o.formats.Shown === false;
+      const k = JSON.stringify([sw, off, sw.kind === 'frame' && captionOf(N, o.pattern, view)]);
+      (groups.get(k) ?? groups.set(k, { style: s.key, order, outputs: [], swatch: sw, off }).get(k)).outputs.push(o.pattern);
     }
     for (const g of groups.values()) {
-      // A row goes by its first output, which stays the same while the row does.
-      g.key = key(g.outputs[0]);
-      // Its caption: a Caption note's at one of its outputs; or the outputs, two at most, else the style's name.
       const own = g.outputs.map(p => N.resolve('Caption', p, view)).find(c => c && g.outputs.some(p => key(p) === key(c.note.pattern)));
-      g.caption = own ? own.value : g.outputs.length > 2 ? styleName(N, s.pattern) : g.outputs.map(p => outputName(N, p)).join(', ');
-      rows.push(g);
+      out.push({ ...g, key: key(g.outputs[0]), caption: own ? own.value : g.outputs.length > 2 ? styleName(N, s.pattern) : g.outputs.map(p => outputName(N, p)).join(', ') });
     }
   });
-  return rows;
+  return out;
+}
+// The legend's rows: the groups of the outputs from which a drawn box or line takes a property that tells
+// marks apart, each a swatch in their format and a caption.
+function legend(N, view, marks) {
+  const used = new Set();
+  for (const m of marks) for (const label of KEYED[m.type] ?? []) {
+    const note = m.settings?.[label]?.note;
+    if (note && note.view === view && !idsIn(note.pattern).size) used.add(key(note.pattern));
+  }
+  return groupsOf(N, view, used).map(({ off, ...g }) => g);
 }
 
 // ---- Free shapes ----
@@ -1131,7 +1136,7 @@ const styleName = (N, p) => p.args ? N.name(p) : 'Type';
 const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v / (page?.scale ?? 1);
 
 return {
-  of, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  of, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   toSlide, fromSlide, DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
 };
 })();

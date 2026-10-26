@@ -135,6 +135,10 @@ function run() {
     check('the legend has a row for each output a drawn mark takes its look from', !!row(lg, choice('Main Fund')) && !!row(lg, choice('Limited Partnership')) && !!row(lg, owns) && !!row(lg, choice('Portfolio Company')),
       lg.rows.map(r => r.caption.text).join(' | '));
     check('outputs that look alike share a row', row(lg, choice('Main Fund')) === row(lg, choice('Feeder Fund')));
+    const groups = Scene.groupsOf(wb.notes(C), MAIN), funds = groups.find(g => g.outputs.some(choice('Main Fund')));
+    check('Styles, the Key and the scope group by one rule: a style’s outputs that look alike, the Key’s rows those of them drawn', funds.outputs.length === 6 && funds.caption === 'Funds'
+      && lg.rows.every(r => groups.some(g => g.style === r.style && j(g.swatch) === j(r.swatch) && r.outputs.every(o => g.outputs.some(p => Tree.key(p) === Tree.key(o))))),
+      j(groups.map(g => [g.caption, g.outputs.length])));
     check('no row for a look nothing drawn takes', !row(lg, choice('Business Development Company')) || s.marks.some(m => m.type === 'box' && m.settings.Fill.note?.pattern.out?.choice === 'Business Development Company'));
     check('a row’s swatch is drawn in its output’s format', row(lg, choice('Main Fund')).swatch.Fill === '#dae3f3' && row(lg, choice('Limited Partnership')).swatch.Shape === 'triangle'
       && row(lg, owns).swatch.kind === 'line');
