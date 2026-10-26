@@ -9,6 +9,7 @@ A guide to showing Rboreal to colleagues: how to set up, a ten-minute walkthroug
 3. Give your name when the welcome asks for it, so the history shows it beside your changes.
 4. Pick the theme you'll present in (Light reads best on a projector), and make the window full screen (F11).
 5. Keep the chart page in a second tab, so you can switch to it without waiting.
+6. To rehearse, or to hand the app to colleagues afterwards: **Take the tour** in the palette (Ctrl+K) walks through every area in two minutes.
 
 ## The story in one sentence
 
@@ -23,7 +24,7 @@ A guide to showing Rboreal to colleagues: how to set up, a ten-minute walkthroug
 | 3–4 | **Export…** | PowerPoint for one view: "Native shapes, so it's editable in the deck, and drawn from the same data, so it's never out of date." Mention PDF. |
 | 4–5 | **A record** (Ctrl+K, "Fund III") | Details on the left, relations, documents, dates and history on the right. Open a computed value's **Why**: "Every computed value says what it means and why it's there." **Export profile** gives a one-entity PDF. |
 | 5–6 | **Records › Entities** | "It's a spreadsheet." Edit a cell, then paste a few rows from Excel; filter and sort. "Every edit is recorded, and every number that depends on it updates." |
-| 6–7 | **Documents** | "SharePoint keeps the files; Rboreal knows what each one is and which entities it concerns." Show the preview pane (read live from the library), **Link document**, and the **Not linked** tab: "files in the library no record points to." |
+| 6–7 | **Documents** | "SharePoint keeps the files; Rboreal knows what each one is and which entities it concerns." Show the preview pane (read live from the library), **Link document** (browse the library, paste a link, or upload a file from the computer straight into the right folder), and the **Not linked** tab: "files in the library no record points to." |
 | 7–8 | **Calendar** | Overdue, this week, next 30 days. **Export to Outlook** for the team's calendars. |
 | 8–9 | **History** | Filter to Corvane: "Who changed its ownership, and when." Open an entry, show before and after, and **Restore this**: "nothing is ever erased; taking a change back is itself recorded." |
 | 9–10 | **Schema** and **Settings** | The Schema: "the team's vocabulary, in plain words, with the rules that compute it." Settings: "the workbook can live in a SharePoint library, under SharePoint's own permissions and version history." Show **Have Margaret save it** to stage a conflict, and the three ways out. |
