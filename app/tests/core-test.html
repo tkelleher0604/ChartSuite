@@ -125,6 +125,12 @@ function run(json) {
     && def('def_private_fund').name === 'Private Fund');
   const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
   check('relation names as formulas.js takes them', rels.length === 17 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
+  // The formula bar says a relation by its first side's list of the second where that reads as a predicate, and
+  // a tag described as "A …" as a noun: an investor in, a member of, a BDC affiliate; and its last filing.
+  const listOf = name => rels.find(r => r.name === name).lists;
+  check('lists and labels as a lawyer writes them', listOf('Look-Through Ownership').Investor.Investment === 'Look-Through Investor In' && listOf('Membership').Member.LLC === 'Member Of'
+    && listOf('Investment Adviser').Adviser.Client === 'Adviser To' && /^A person that /.test(N.description({ args: [{ edge: 'BDC Affiliate', loc: tree('fund') }] }))
+    && now.bdc_regd_filed?.edge === 'Last Filing', j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
   check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range'])
