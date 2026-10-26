@@ -53,8 +53,8 @@ const places = {
       const f = await (await access(book)).getFile();
       return f.lastModified === known ? stamp(f) : f.size ? { ...stamp(f), text: await f.text() } : null;
     },
-    // A file can't be written on condition, so it's checked before the write, and again just before the
-    // write replaces it.
+    // A file can't be written on condition, so it's checked before the write, again just before the write
+    // replaces it, and read back after: another write can land in between, and then this one is made again.
     async write(book, body, version) {
       const h = await access(book), f = await h.getFile();
       if (version == null ? f.size > 0 : f.lastModified !== version) throw stale();
@@ -62,7 +62,9 @@ const places = {
       await w.write(body);
       if ((await h.getFile()).lastModified !== f.lastModified) { await w.abort(); throw stale(); }
       await w.close();
-      return stamp(await h.getFile());
+      const now = await h.getFile();
+      if (await now.text() !== body) throw stale();
+      return stamp(now);
     },
   },
   sharepoint: {
