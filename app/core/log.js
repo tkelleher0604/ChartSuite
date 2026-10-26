@@ -133,7 +133,7 @@ function open(data) {
   }
 
   // The reverse of a change removes what it added and adds fresh copies of what it removed, while what it
-  // added is all still as it left it. Undo reverses your latest change not yet undone; Redo your latest undo.
+  // added is all still as it left it. Undo and Redo, a window's own, are reverses; so is Restore.
   const canReverse = id => { const c = changes.get(id); return !!c && c.adds.every(r => twin(c.chart, r)); };
   function reverse(id, who) {
     const c = changes.get(id);
@@ -141,17 +141,6 @@ function open(data) {
     if (!canReverse(id)) return 'It has changed since.';
     return apply({ id: newId(), who, when: now(), chart: c.chart, removes: c.adds.map(r => twin(c.chart, r)),
       adds: c.removes.map(rid => ({ ...added.get(rid), id: newId() })), reverses: c.id });
-  }
-  // An author's undo and redo stacks in a chart, replayed from the log: a reverse of the top of either is
-  // an undo or a redo; any other change is an edit, and clears the redo stack.
-  function stacks(who, c) {
-    const undo = [], redo = [];
-    for (const x of list()) if (x.who === who && x.chart === c) {
-      if (x.reverses && undo.at(-1)?.id === x.reverses) redo.push(undo.pop() && x);
-      else if (x.reverses && redo.at(-1)?.id === x.reverses) undo.push(redo.pop() && x);
-      else { undo.push(x); redo.length = 0; }
-    }
-    return { undo, redo };
   }
 
   // Items with rows in the log and none live, with the change that removed them, which Restore reverses.
@@ -288,14 +277,12 @@ function open(data) {
   }
 
   const wb = {
-    apply, edit, asOf, schema, canReverse, reverse, stacks, deleted, disagreements,
+    apply, edit, asOf, schema, canReverse, reverse, deleted, disagreements,
     changes: list,
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,
     item: (c, id) => [...chart(c).items.get(id) ?? []].sort((a, b) => (a.since ?? '').localeCompare(b.since ?? '')),
     notes: c => chart(c).notes,
-    undo: (who, c) => { const x = stacks(who, c).undo.at(-1); return x ? reverse(x.id, who) : null; },
-    redo: (who, c) => { const x = stacks(who, c).redo.at(-1); return x ? reverse(x.id, who) : null; },
     // Their changes and these, together; for a file or SharePoint, read theirs, merge, write back.
     merge(other) { const fresh = changesOf(other).filter(take); if (fresh.length) changed(fresh); return wb; },
     // The log as it stood at a moment: the changes made by then.

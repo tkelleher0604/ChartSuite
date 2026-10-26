@@ -63,7 +63,7 @@ Changing:
   - With none ("Today"): setting corrects the version in force, keeping its period, and removing deletes, taking along the item's dependents, the notes at it, and a view's notes and shapes.
   - `rename` reaches every tree narrower than p: records (all versions), specifications, notes' patterns, list names and a table's rows. Wherever a name changes (a label, a kind, an option, or a Name note's value: a relation's name or a list's), every Formula row citing it is renamed too, where formulas.js offers `renameName`. `moveUp` reaches the same trees.
 - `wb.apply(change)`: the change, or why not. Refused if it removes a row that isn't live, or newly breaks the timeline (two records with one argumentation valid on a common day), a location, or the schema's conditions.
-- `wb.undo(who, chart)`, `wb.redo(who, chart)`, `wb.reverse(changeId, who)` (Restore), `wb.canReverse(changeId)`, `wb.stacks(who, chart)` → `{ undo, redo }`. A change can be reversed while rows equal to the ones it added are live, so undoing several changes to one record works.
+- `wb.reverse(changeId, who)`, the reverse of a change, and `wb.canReverse(changeId)`: what Undo and Redo, which a window keeps for itself, and Restore make. A change can be reversed while rows equal to the ones it added are live, so reversing several changes to one record in turn works.
 - `wb.merge(other)`: takes in another log's changes (a workbook, JSON or an array): the union. `wb.subscribe(fn)` → unsubscribe; `fn(changes)` runs after each apply or merge.
 - `JSON.stringify(wb)` saves; `Log.open(text)` loads.
 

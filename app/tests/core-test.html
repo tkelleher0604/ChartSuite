@@ -171,31 +171,21 @@ function run(json) {
     check('a record added with a day shown starts on it', id && !w.asOf(C, '2023-08-31').own_halcyon && w.asOf(C, '2023-09-01').own_halcyon);
   }
 
-  // ---- Undo, redo, restore ----
+  // ---- Reversing, which Undo, Redo and Restore do ----
   {
-    const w = fresh(), target = () => w.asOf(C, TODAY).fund_target.value;
-    commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: 800000000 }));
-    w.undo(WHO, C);
-    const undone = target();
-    w.redo(WHO, C);
-    const redone = target();
-    w.undo(WHO, C);
-    check('undo and redo', undone === 750000000 && redone === 800000000 && target() === 750000000);
-    const steps = [];
-    [1, 2, 3].forEach(n => commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: n })));
-    for (let i = 0; i < 3; i++) { w.undo(WHO, C); steps.push(target()); }
-    for (let i = 0; i < 3; i++) { w.redo(WHO, C); steps.push(target()); }
-    for (let i = 0; i < 3; i++) w.undo(WHO, C);
-    check('undo and redo step through several changes to one record', j(steps) === j([2, 1, 750000000, 1, 2, 3]) && target() === 750000000, j(steps));
-    commit(w, tx => tx.set('fund_ein', { ...now.fund_ein, value: '92-0000000' }));
-    check('redo is gone once you change something', w.stacks(WHO, C).redo.length === 0 && w.redo(WHO, C) === null);
-    commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: 900000000 }), { who: 'Ann Lee' });
-    w.undo(WHO, C);
-    check('your undo takes back your change, not another author’s', w.asOf(C, TODAY).fund_ein.value === '92-4810337' && target() === 900000000
-      && w.undo('Ann Lee', C) && target() === 750000000);
-    commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund III' }));
+    const w = fresh(), target = () => w.asOf(C, TODAY).fund_target.value, back = c => w.reverse(c.id, WHO);
+    const c0 = commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: 800000000 }));
+    const u0 = back(c0), undone = target(), r0 = back(u0), redone = target();
+    back(r0);
+    check('a reverse takes a change back, and its own reverse puts it back', undone === 750000000 && redone === 800000000 && target() === 750000000 && u0.reverses === c0.id);
+    const steps = [], made = [1, 2, 3].map(n => commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: n })));
+    const undos = [...made].reverse().map(c => { const u = back(c); steps.push(target()); return u; });
+    const redos = [...undos].reverse().map(u => { const r = back(u); steps.push(target()); return r; });
+    [...redos].reverse().forEach(back);
+    check('reverses step through several changes to one record, and back', j(steps) === j([2, 1, 750000000, 1, 2, 3]) && target() === 750000000, j(steps));
+    const mine = commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund III' }));
     commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund 3' }), { who: 'Ann Lee' });
-    check('a change can’t be undone once it has changed since', typeof w.undo(WHO, C) === 'string' && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
+    check('a change can’t be reversed once it has changed since', typeof back(mine) === 'string' && !w.canReverse(mine.id) && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
     const del = w.deleted(C).find(d => d.item === 'fund_agent');
     // The registered agents once kept as text, the per-entity Annual Tax Due and Amount, now one for each tax
     // year, and the positions views no longer draw.
@@ -205,12 +195,12 @@ function run(json) {
     w.reverse(del.change, WHO);
     check('restoring an older change brings it back', w.asOf(C, TODAY).fund_agent?.value === 'The Corporation Trust Company' && !w.deleted(C).some(d => d.item === 'fund_agent'));
     const rows = w.rows(C).length;
-    commit(w, tx => tx.remove('northpine'));
+    const removal = commit(w, tx => tx.remove('northpine'));
     const gone = w.asOf(C, TODAY);
     check('removing takes what depends on it, its notes too', !gone.northpine && !gone.northpine_name && !gone.own_fund_npine_pct && !gone.pos_chen_npine
       && !w.notes(C).position(tree('northpine'), 'view_main'));
-    w.undo(WHO, C);
-    check('one undo brings all of it back', w.rows(C).length === rows && w.asOf(C, TODAY).own_fund_npine_pct?.value === 0.64 && w.notes(C).position(tree('northpine'), 'view_main'));
+    back(removal);
+    check('one reverse brings all of it back', w.rows(C).length === rows && w.asOf(C, TODAY).own_fund_npine_pct?.value === 0.64 && w.notes(C).position(tree('northpine'), 'view_main'));
   }
 
   // ---- Checks on a change ----
@@ -225,7 +215,9 @@ function run(json) {
 
   // ---- Renaming and moving ----
   {
-    const w = fresh(), ownForm = { args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] };
+    const w = fresh(), ownForm = { args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] }, first = w.changes().length;
+    // The latest changes taken back, the latest first.
+    const back = n => w.changes().slice(-n).reverse().forEach(c => w.reverse(c.id, WHO));
     commit(w, tx => tx.rename({ args: [{ edge: 'Percentage', loc: ownForm }] }, 'Percentage', 'Interest'));
     const st = w.asOf(C, TODAY), M = w.notes(C), S2 = w.schema(C);
     check('renaming relabels every record like it, every version', st.own_fund_blkr_pct.edge === 'Interest' && w.item(C, 'own_fund_corvane_pct').every(r => r.edge === 'Interest'));
@@ -243,7 +235,7 @@ function run(json) {
     const M4 = w.notes(C), o = Tree.treeOf(w.asOf(C, TODAY), 'own_us_fund');
     check('renaming an edge of a relation, its list name and order following', o.args.some(a => a.edge === 'Holder') && M4.name(o) === 'Ownership'
       && M4.listName(o, 'Holder') === 'Owners' && j(M4.edges(o)) === j(['Holder', 'Owned']));
-    for (let i = 0; i < 4; i++) w.undo(WHO, C);
+    back(w.changes().length - first);
     const canon = st => j(Object.keys(st).sort().map(k => [k, st[k]]));
     const notesOf = x => canon(Object.fromEntries(x.rows(C).filter(r => 'note' in r).map(r => [r.note, [r.pattern, r.param]])));
     const recDiff = Object.keys(now).filter(k => j(w.asOf(C, TODAY)[k]) !== j(now[k]));
@@ -256,7 +248,7 @@ function run(json) {
     const st4 = w.asOf(C, TODAY), moved = Tree.treeOf(st4, 'mgmt_managed');
     check('moving an entry up a level moves it, its specification and its notes', st4.mgmt_managed.at === 'mgmt' && w.schema(C)[Tree.key(Tree.specOf(moved))]
       && !w.schema(C)[Tree.key(Tree.specOf(tree('mgmt_managed')))] && w.notes(C).description(moved) === 'Run by its managers.');
-    w.undo(WHO, C);
+    back(1);
     check('and undoing it moves them back', w.asOf(C, TODAY).mgmt_managed.at === 'mgmt_type' && w.notes(C).description(tree('mgmt_managed')) === 'Run by its managers.');
   }
 
