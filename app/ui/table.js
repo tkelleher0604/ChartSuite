@@ -196,6 +196,7 @@ const Table = (() => {
   const typing = (type, v) => v === null || v === undefined ? '' : type === 'date' ? Tree.formatDate(v) : type === 'document' ? String(v) : text(type, v);
   const YES = /^(yes|y|true|x|✓|✔|1)$/i, NO = /^(no|n|false|0)$/i;
   const meta = cell => cell.getRow().getData()._m[cell.getField()];
+  const LIST = { autocomplete: true, listOnEmpty: true, placeholderEmpty: 'No match', placeholderLoading: '' };   // Tabulator's dropdowns, worded as the shell's menus
 
   function formatter(c) {
     return cell => {
@@ -244,10 +245,11 @@ const Table = (() => {
   function columnDefs(m) {
     const defs = m.cols.filter(c => c.shown).map(c => {
       const f = 'f' + m.cols.indexOf(c), editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of';
-      const values = [...new Map(m.data.map(r => [r[f], r[f]]).filter(([v]) => v !== null)).keys()]
-        .sort((a, b) => typeof a === 'number' ? a - b : String(a).localeCompare(String(b)))
-        .map(v => ({ label: text(c.type, v) || (c.type === 'tag' ? '' : String(v)), value: v }));
-      if (m.data.some(r => r[f] === null)) values.push({ label: 'Blank', value: BLANK });
+      // A heading's filter offers the values the column has now, as they read, and Blank where it has one.
+      const values = () => {
+        const vs = [...new Set(current.data.map(r => r[f]).filter(v => v !== null))].sort((a, b) => typeof a === 'number' ? a - b : String(a).localeCompare(String(b)));
+        return [...vs.map(v => ({ label: text(c.type, v), value: v })), ...(current.data.some(r => r[f] === null) ? [{ label: 'Blank', value: BLANK }] : [])];
+      };
       return {
         title: c.title, field: f, minWidth: c.type === 'tag' ? 56 : 72, maxInitialWidth: 340,
         titleFormatter: c.parent ? () => `<span class="up">${esc(c.parent)}</span>${esc(c.title)}` : undefined,
@@ -256,9 +258,9 @@ const Table = (() => {
         formatter: formatter(c),
         editable: cell => !readOnly() && (c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? 'list' : editor(c, put),
-        editorParams: c.type === 'choice' ? { values: c.options, autocomplete: true, freetext: true, listOnEmpty: true, allowEmpty: true }
-          : c.type === 'edge' ? () => ({ values: objects(m, c), autocomplete: true, listOnEmpty: true }) : undefined,
-        headerFilter: 'list', headerFilterParams: { values, autocomplete: true, listOnEmpty: true, clearable: true },
+        editorParams: c.type === 'choice' ? { ...LIST, values: c.options, freetext: true, allowEmpty: true }
+          : c.type === 'edge' ? () => ({ ...LIST, values: objects(m, c) }) : undefined,
+        headerFilter: 'list', headerFilterParams: { ...LIST, valuesLookup: values, clearable: true },
         headerFilterFunc: (want, v) => want === BLANK ? v === null || v === '' : v === want,
         headerFilterEmptyCheck: v => v === undefined || v === null || v === '',
         accessorClipboard: v => plain(c.type, v), accessorDownload: v => csvSafe(plain(c.type, v)),

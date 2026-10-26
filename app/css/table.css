@@ -23,9 +23,10 @@
 
 /* Filtering: a dropdown in the heading, as Excel's; a column filtered is underlined in the accent. */
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter { position: absolute; right: 4px; bottom: 5px; width: 20px; margin: 0; }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input { width: 20px; height: 20px; padding: 0 !important; border: 0; border-radius: var(--r); color: transparent; background: transparent var(--chev) no-repeat center; cursor: default; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input { width: 20px !important; height: 20px; padding: 0 !important; border: 0; border-radius: var(--r); color: transparent; background: transparent var(--chev) no-repeat center; cursor: default; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:hover { background-color: var(--press); }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:focus { position: absolute; right: 0; bottom: -2px; width: 180px; height: 24px; padding: 0 22px 0 8px !important; color: var(--ink); background-color: var(--surface); box-shadow: 0 0 0 1px var(--accent); background-position: right 7px center; cursor: text; z-index: 2; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter:focus-within { left: 4px; width: auto; bottom: 3px; z-index: 2; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:focus { width: 100% !important; height: 24px; padding: 0 22px 0 6px !important; color: var(--ink); background-color: var(--surface); box-shadow: 0 0 0 1px var(--accent); background-position: right 7px center; cursor: text; outline: none; }
 .grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) { box-shadow: inset 0 -2px var(--accent); }
 .grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) .tabulator-col-title { color: var(--accent-ink); }
 .grid .tabulator .tabulator-header-filter .tabulator-edit-list-clear { display: none; }
