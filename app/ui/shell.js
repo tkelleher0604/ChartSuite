@@ -517,7 +517,7 @@ const Shell = (() => {
     return items;
   }
   function TitleBar() {
-    const u = part('undo'), ex = many('export'), t = time.value;
+    const u = part('undo'), t = time.value;
     return html`<header class="titlebar" data-region="bars">
       <div class="left"><button class="btn ghost dd chartmenu" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
@@ -526,7 +526,7 @@ const Shell = (() => {
         <span class="sep" />
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
-        <button class="btn primary dd" aria-haspopup="menu" disabled=${!ex.length} onClick=${e => menu(e.currentTarget, ex.map(x => ({ label: x.name, run: x.run })), { placement: 'bottom-end' })}>Export</button>
+        <button class="btn primary" aria-haspopup="dialog" onClick=${() => Export.open()}>Export</button>
       </div>
     </header>`;
   }

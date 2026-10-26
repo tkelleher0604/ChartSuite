@@ -64,7 +64,7 @@ function run() {
       && t.byId.get('aiv').settings.Fill.note.pattern.args[0].edge === 'Good Standing', j(t.byId.get('aiv').settings.Fill.value));
     check('a text takes its own style’s properties, and its box’s where none', (() => {
       const juris = t.byId.get('fund').texts.find(x => x.id === 'fund_juris'), name = t.byId.get('fund').texts.find(x => x.id === 'fund_name');
-      return juris.look.Size === 8 && juris.text === '(Delaware)' && name.look.Bold === true && name.look.Font === 'Arial';
+      return juris.settings.Size.value === 8 && juris.text === '(Delaware)' && name.look.Bold === true && name.look.Font === 'Arial';
     })());
   }
 
@@ -105,9 +105,18 @@ function run() {
     const long = scene(wb), feeder = long.byId.get('feeder'), ls = feeder.texts[0].lines;
     check('a word wider than its box is hyphenated, and its box doesn’t stretch the others in its tier', ls.some(l => l.cut && l.text.endsWith('-')) && ls.every(l => l.w <= feeder.w)
       && j(tier(long)) === j(tier(s)), j(ls.map(l => l.text)));
-    edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: 'Calder Ridge Capital Partners III (Cayman), L.P., '.repeat(5) }));
-    const cut = scene(wb).byId.get('feeder').texts[0].lines;
-    check('a text too long for its box is cut short at six lines', cut.length === 6 && cut.at(-1).text.endsWith('…'), j(cut.map(l => l.text)));
+    const below = sc => sc.marks.filter(m => m.type === 'box' && s.byId.get(m.id).y > s.byId.get('feeder').y + s.byId.get('feeder').h);
+    const full = 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., a Cayman Islands exempted company';
+    edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: full }));
+    const grown = scene(wb), big = grown.byId.get('feeder'), all = big.texts[0].lines;
+    check('a text too long for its box is never cut: every word is drawn', all.map(l => l.text).join(' ').replace(/ /g, ' ') === full && !all.some(l => l.cut || /…$/.test(l.text)), j(all.map(l => l.text)));
+    const clash = grown.marks.filter(m => m.type === 'box').flatMap((a, i, bs) => bs.slice(i + 1).filter(b => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h).map(b => [a.id, b.id]));
+    const drops = below(grown).map(b => b.y - s.byId.get(b.id).y);
+    check('… its box grows, and the ranks below it move down together, so that no box overlaps another', big.h > s.byId.get('feeder').h * 1.5 && !clash.length
+      && drops.length > 3 && drops.every(d => d > 20 && Math.abs(d - drops[0]) < 0.5), j({ clash, drops: drops.map(Math.round) }));
+    const balanced = s.byId.get('blocker').texts[0].lines.map(l => l.text);
+    check('a suffix keeps to the word before it, and a name’s lines are balanced', j(balanced) === j(['Calder Ridge', 'III Blocker, Inc.'])
+      && s.marks.filter(m => m.type === 'box').every(b => !b.texts.some(it => it.lines.some(l => /^(Inc\.|LLC|L\.P\.|Ltd\.)$/.test(l.text)))), j(balanced));
   }
 
   // ---- The legend ----
@@ -168,16 +177,16 @@ function run() {
   {
     const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
     const entered = wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'fund').value;
-    check('an entered position wins', fund.x === entered.x && fund.y === entered.y && fund.w === 176 && entered.x === 639 && fund.entered, j(entered));
+    check('an entered position wins', fund.x === entered.x && fund.y === entered.y && fund.w === 176 && entered.w === 176 && fund.entered, j(entered));
     edit(wb, tx => tx.remove(wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'blocker').note));
     const t = scene(wb), b = t.byId.get('blocker');
     const clash = t.marks.filter(m => m.type === 'box' && m.id !== 'blocker').some(m => b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
     const f = t.byId.get('fund'), h = t.byId.get('halvard');
-    check('a box with no entered position is laid out among the entered ones, clear of them', !b.entered && !clash && f.x === 639, j({ x: b.x, y: b.y }));
+    check('a box with no entered position is laid out among the entered ones, clear of them', !b.entered && !clash && f.x === entered.x, j({ x: b.x, y: b.y }));
     check('and near what it’s linked to: below its owner, above what it owns', b.y > f.y + f.h && b.y + b.h < h.y && Math.abs(b.x + b.w / 2 - (f.x + f.w / 2)) < 400, j({ x: b.x, y: b.y }));
     edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note); });
     const u = scene(wb), boxes = u.marks.filter(m => m.type === 'box');
-    check('Tidy clears the view’s entered positions, and the layout places every box', boxes.every(m => !m.entered) && u.byId.get('fund').x !== 639);
+    check('Tidy clears the view’s entered positions, and the layout places every box', boxes.every(m => !m.entered) && u.byId.get('fund').x !== entered.x);
     check('the layout ranks lines by Above: owners over what they own', u.marks.filter(m => m.type === 'line' && m.record.startsWith('own_')).every(l => u.byId.get(l.from).y + u.byId.get(l.from).h <= u.byId.get(l.to).y + 1));
     check('every box is on the page', boxes.every(m => m.x >= 0 && m.y >= 0 && m.x + m.w <= u.page.w && m.y + m.h <= u.page.h), j(u.page));
     check('every line is routed, with its points on its boxes', u.marks.filter(m => m.type === 'line').every(l => l.points.length >= 2));
@@ -238,6 +247,60 @@ function run() {
     const c = scene(wb, 'view_control'), bdc = c.byId.get('bdc');
     check('positions with Connector None are written in the entity’s box, by role, not drawn', bdc.texts.some(it => it.text === 'Directors: Margaret A. Chen, Priya N. Raman')
       && bdc.texts.some(it => it.text === 'Officer: David R. Okafor') && !c.marks.some(m => m.type === 'line' && m.record.startsWith('pos_')), j(bdc.texts.map(it => it.text)));
+    const caption = funds.caption.look, nameLook = f.byId.get('fund').texts[0].look;
+    check('a frame’s caption is set as the names it heads are: their size, bold, #404040', caption.Size === nameLook.Size && caption.Bold && caption.Color === '#404040', j(caption));
+  }
+
+  // ---- The sheet: a twentieth of the chart's size, the furniture at the sheet's, every point a half ----
+  {
+    const wb = fresh(), sc = ['view_main', 'view_40act', 'view_fund3', 'view_control'].map(v => scene(wb, v));
+    const on = (s, v) => Scene.toSlide(s.page, v), sheetOf = (s, m) => ({ x: on(s, m.x), y: on(s, m.y), w: on(s, m.w), h: on(s, m.h) });
+    check('a chart is drawn at a twentieth of its size, 0.8 or more on every sample view', sc.every(s => Math.abs(s.page.scale * 20 - Math.round(s.page.scale * 20)) < 1e-9 && s.page.scale >= 0.8
+      && Math.abs(s.page.w * s.page.scale - 1280) < 0.01 && Math.abs(s.page.h * s.page.scale - 720) < 0.01), j(sc.map(s => s.page.scale)));
+    const furniture = s => { const sh = s.marks.filter(m => m.type === 'shape'); return { title: sh.find(m => m.role === 'title'), date: sh.find(m => m.role === 'date'), key: sh.find(m => m.geometry === 'legend') }; };
+    const is = (a, b) => Math.abs(a - b) < 1e-9;
+    check('the title, its date and the Key are 20, 11 and 8 pt on every slide', sc.every(s => { const f = furniture(s); return is(on(s, f.title.look.Size), 20) && is(on(s, f.date.look.Size), 11) && is(on(s, f.key.look.Size), 8); }),
+      j(sc.map(s => { const f = furniture(s); return [f.title, f.date, f.key].map(m => on(s, m.look.Size)); })));
+    const texts = s => s.marks.flatMap(m => [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]);
+    const halves = sc.flatMap(s => texts(s).map(it => on(s, it.look.Size))).filter(p => Math.abs(p * 2 - Math.round(p * 2)) > 1e-6);
+    check('every text is drawn at a whole or half point', !halves.length, j(halves.slice(0, 5)));
+    const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
+      return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });
+    check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));
+    check('the chart starts 24 pt under the date', placed.every(p => p.top >= p.d.y + p.d.h - 4.8 + 32 - 0.5), j(placed.map(p => [p.top, p.d.y + p.d.h - 4.8 + 32])));
+    const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    check('the Key is beside the title where it fits there: 40 Act, top right', Math.abs(placed[1].k.x + placed[1].k.w - 1232) < 1 && Math.abs(placed[1].k.y - 48) < 0.5, j(placed[1].k));
+    check('… or 24 pt under the chart, right-aligned to it, at the foot of what’s over it', [0, 2, 3].every(i => {
+      const p = placed[i], over = p.chart.filter(r => r.x < p.k.x + p.k.w && r.x + r.w > p.k.x);
+      return Math.abs(p.k.x + p.k.w - p.right) < 1 && p.k.y >= Math.max(...over.map(r => r.y + r.h)) + 32 - 0.5 && p.k.y + p.k.h <= 672.5;
+    }), j([0, 2, 3].map(i => [placed[i].k, placed[i].right])));
+    check('nothing drawn overlaps the title, the date or the Key', placed.every(p => !p.chart.some(r => meets(r, p.t) || meets(r, p.d) || meets(r, p.k))));
+
+    // Line jumps: Structure's rails from Chen and Okafor cross each other's drops.
+    const s = sc[0], jumped = s.marks.filter(m => m.type === 'line' && m.runs), gap = 8 / s.page.scale;
+    const gaps = jumped.flatMap(l => l.runs.slice(1).map((r, i) => [l.runs[i].at(-1), r[0]]));
+    const ups = s.marks.filter(m => m.type === 'line').flatMap(l => l.points.slice(1).map((p, i) => [l.points[i], p])).filter(([a, b]) => Math.abs(a[0] - b[0]) < 0.5);
+    check('where a solid line runs across another, it breaks 3 pt either side of the crossing', jumped.length >= 2 && gaps.every(([a, b]) => Math.abs(a[1] - b[1]) < 0.01 && Math.abs(Math.abs(b[0] - a[0]) - gap) < 0.01
+      && ups.some(([p, q]) => Math.abs(p[0] - (a[0] + b[0]) / 2) < 0.5 && Math.min(p[1], q[1]) < a[1] && Math.max(p[1], q[1]) > a[1])), j(jumped.map(l => l.id)));
+    check('… the dashed ones crossing it run on unbroken', s.marks.filter(m => m.type === 'line' && m.settings.Dash.value !== 'solid').every(l => !l.runs));
+    const labels = sc.flatMap(s => { const ls = s.marks.filter(m => m.type === 'line' && m.labelAt && m.label).map(l => ({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h }));
+      return ls.flatMap((a, i) => ls.slice(i + 1).filter(b => meets({ x: a.x - 10.6, y: a.y - 10.6, w: a.w + 21.2, h: a.h + 21.2 }, b)).map(b => [a, b])); });
+    check('labels stay 8 pt apart', !labels.length, j(labels.slice(0, 2)));
+
+    // A reveal keeps the chart still: what it adds goes round what's there, on the page.
+    const R = computed(wb), st = R.records, base = scene(wb, MAIN);
+    const hidden = Object.keys(st).filter(id => st[id].computed && st[id].args?.length === 2 && !base.byId.has(id) && st[id].args.every(a => base.byId.get(a.at)?.type === 'box'));
+    const shown = Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, reveal: hidden.slice(0, 3) });
+    const kept = base.marks.filter(m => m.type === 'line').every(l => j(shown.byId.get(l.id)?.points) === j(l.points) && j(shown.byId.get(l.id)?.labelAt) === j(l.labelAt));
+    const added = hidden.slice(0, 3).map(id => shown.byId.get(id)).filter(Boolean);
+    const through = added.filter(l => shown.marks.some(b => b.type === 'box' && b.id !== l.from && b.id !== l.to
+      && l.points.slice(1).some((p, i) => { const q = l.points[i]; return Math.max(p[0], q[0]) > b.x + 1 && Math.min(p[0], q[0]) < b.x + b.w - 1 && Math.max(p[1], q[1]) > b.y + 1 && Math.min(p[1], q[1]) < b.y + b.h - 1; })));
+    check('a reveal keeps every route and label where it was, and the page as it was', hidden.length && kept && shown.page.scale === base.page.scale
+      && j([furniture(shown).key.x, furniture(shown).key.y]) === j([furniture(base).key.x, furniture(base).key.y]), j({ hidden: hidden.slice(0, 3), kept }));
+    check('… and routes what it reveals around the boxes', added.length === Math.min(3, hidden.length) && !through.length, j(through.map(l => [l.id, l.points])));
+    const year = Object.keys(st).find(id => st[id].kind === 'Tax Year' && !base.byId.has(id));
+    const lone = Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, reveal: [year] }).byId.get(year);
+    check('… and places a box it reveals on the page', lone && lone.x >= 0 && lone.y >= 0 && lone.x + lone.w <= base.page.w && lone.y + lone.h <= base.page.h, j(lone && [lone.x, lone.y, base.page.w, base.page.h]));
   }
 
   // ---- A new box among entered ones ----
