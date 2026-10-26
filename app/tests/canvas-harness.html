@@ -136,6 +136,7 @@ const H = (() => {
     // Drag from a box's handle to another box; with `hold`, stop short of letting go.
     relate: async (from, to, hold) => {
       await STEPS.select(from);
+      await STEPS.edge(from);
       const h = document.querySelector('.dc-handle.s'), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2];
       const m = cv().scene().byId.get(to), q = cv().graph.localToClient(m.x + m.w / 2, m.y + m.h / 2);
       h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: p0[0], clientY: p0[1], button: 0 }));
@@ -144,6 +145,52 @@ const H = (() => {
       await wait(60);
     },
     hover: async id => { const [x, y] = center(id); mouse('mouseover', x, y); mouse('mouseenter', x, y); mouse('mousemove', x, y); await wait(60); },
+    // The pointer just inside a box's bottom edge, where its relate handles show.
+    edge: async id => {
+      const [x] = center(id), m = cv().scene().byId.get(id), y = cv().graph.localToClient(0, m.y + m.h).y - 4;
+      cv().root.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y, buttons: 0 }));
+      await wait(60);
+    },
+    // A right-click on a mark, or on the page at x×y.
+    // (Headless Chrome resizes the window before its screenshot, which would close a menu at a point.)
+    menu: async (id, at) => {
+      const open = () => {
+        const [x, y] = id === 'page' ? at.split('x').map(Number) : center(id);
+        mouse('mousedown', x, y, undefined, { button: 2, buttons: 2 }); mouse('mouseup', x, y, undefined, { button: 2, buttons: 0 });
+        mouse('contextmenu', x, y, undefined, { button: 2, buttons: 0 });
+        setTimeout(() => document.getAnimations().forEach(a => a.finish()), 30);
+      };
+      open();
+      addEventListener('resize', () => { open(); queueMicrotask(() => queueMicrotask(() => document.getAnimations().forEach(a => a.finish()))); });
+      await wait(120);
+    },
+    // Drag from a box's bottom handle to a point on screen, x×y.
+    out: async (from, to) => {
+      await STEPS.edge(from);
+      const h = document.querySelector('.dc-handle.s'), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2], q = to.split('x').map(Number);
+      h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: p0[0], clientY: p0[1], button: 0 }));
+      for (let i = 1; i <= 6; i++) { dispatchEvent(new PointerEvent('pointermove', { clientX: p0[0] + (q[0] - p0[0]) * i / 6, clientY: p0[1] + (q[1] - p0[1]) * i / 6 })); await wait(16); }
+      const el = document.elementFromPoint(...q);
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: q[0], clientY: q[1], button: 0 }));
+      addEventListener('resize', e => e.stopImmediatePropagation(), true);
+      await wait(120);
+    },
+    // A menu's item, by its label.
+    pick: async label => { [...document.querySelectorAll('.float .menu-item')].find(e => e.textContent.includes(label.replace(/_/g, ' ')))?.click(); await wait(120); },
+    pmenu: async () => { Shell.menu({ x: 300, y: 300 }, [{ label: 'Point menu', run() {} }, { label: 'Second', run() {} }]); await wait(120); },
+    // The box selected owns another, as the inspector would record it.
+    owns: async (to, pct) => {
+      const from = Shell.selection.peek()[0];
+      App.change(tx => { const o = tx.add('record', { args: [{ edge: 'Owner', at: from }, { edge: 'Owned', at: to }], tag: true }); if (pct) tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: +pct / 100 }); });
+      await wait(120);
+    },
+    // A double-click on the page at x×y, and a name typed.
+    add: async (at, name) => {
+      const [x, y] = at.split('x').map(Number);
+      mouse('dblclick', x, y);
+      await wait(80);
+      if (name) await STEPS.type(name);
+    },
   };
   // A view dressed as a board would see it: a title, and a key.
   function dress() {
@@ -186,10 +233,15 @@ const H = (() => {
   let mounts = 0;
   preactSignals.effect(() => { if (Canvas.active.value) mounts++; else if (mounts) ERRS.push('canvas destroyed: ' + new Error().stack.split('\n').slice(2, 12).join(' | ')); });
   function report() {
+    document.getAnimations().forEach(a => a.finish());
     const sc = cv()?.scene(), d = document.createElement('pre');
     d.id = 'report'; d.hidden = true;
-    d.textContent = JSON.stringify({ errors: ERRS, view: sc?.view, marks: sc?.marks.length, ms: sc?.ms, selection: Shell.selection.peek(), page: sc?.page, mounts, said });
+    const menu = [...document.querySelectorAll('.float .menu-item .label')].map(e => e.textContent);
+    d.textContent = JSON.stringify({ errors: ERRS, view: sc?.view, marks: sc?.marks.length, ms: sc?.ms, selection: Shell.selection.peek(), page: sc?.page, mounts, said,
+      ...(menu.length && { menu }), toast: document.querySelector('.toast')?.textContent ?? null });
     document.body.appendChild(d);
+    // With &show, the report on screen, and again a moment later.
+    if (q.has('show')) { d.hidden = false; d.style.cssText = 'position:fixed;left:8px;bottom:40px;z-index:9;background:#ffe;color:#000;font:11px monospace;max-width:900px;white-space:pre-wrap;margin:0'; setInterval(() => { d.textContent = `menus ${[...document.querySelectorAll('.float')].map(f => f.style.cssText + ' ' + getComputedStyle(f).opacity + ' open:' + f.matches(':popover-open') + ' ' + JSON.stringify(f.getBoundingClientRect()))} ${new Date().toISOString()}\n` + d.textContent.split('\n').slice(-1)[0]; }, 200); }
     document.title = ERRS.length ? 'errors' : 'ready';
   }
   Shell.ready.then(() => run().catch(e => { ERRS.push(e.message + ' ' + e.stack); report(); }));
