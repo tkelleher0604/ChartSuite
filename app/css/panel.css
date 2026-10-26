@@ -177,6 +177,7 @@ a.list-row:hover { background: var(--hover); }
 @container panel (max-width: 600px) {
   .panel-head, .rows { --label-col: 44%; --indent: 14px; }
   .panel-head { padding: 12px 12px 14px 24px; }
+  .relate-body { padding: 0 6px 14px 18px; }
   .rows.is-tree { padding-left: 20px; }
   .grip { left: -18px; }
   .row { grid-template-columns: var(--label-col) minmax(0, 1fr); }
@@ -203,16 +204,15 @@ a.list-row:hover { background: var(--hover); }
   .rel-row { grid-template-columns: repeat(calc(var(--cols) + 1), minmax(0, 1fr)); }
 }
 
-/* Relating two things (relate.js). The two sides head the first two columns; each row gives each side's
-   role in a kind of relation, then the relation's output, recorded or not. */
+/* Relating two things (relate.js). The two sides, as chips on one line, head the first two columns; each row
+   gives each side's role in a kind of relation, then the relation's output, recorded or not. The body keeps
+   the head's edges, so the columns line up under the chips. */
 .relate-sides, .relate-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 8.5rem; column-gap: 12px; }
-.relate-sides { align-items: stretch; margin-top: 14px; }
-.relate-side { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
-.relate-side-name { font-size: var(--fs-body); line-height: 19px; font-weight: 600; overflow-wrap: anywhere; }
-.relate-side-name:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
-.relate-side-kind { font-size: var(--fs-small); line-height: 16px; color: var(--text-3); }
-.relate-side .btn { align-self: flex-start; }
-.relate-body { padding: 0 10px 14px 10px; }
+.relate-sides { align-items: center; margin-top: 12px; }
+.relate-side { display: flex; align-items: center; min-width: 0; }
+.relate-side.is-picker { grid-column: 2 / -1; flex-wrap: wrap; gap: 4px 8px; }
+.relate-side-hint { font-size: var(--fs-small); color: var(--text-3); }
+.relate-body { padding: 0 10px 14px 22px; }
 .relate-section { margin: 16px 0 2px; font-size: var(--fs-small); font-weight: 500; color: var(--text-3); }
 .relate-row { position: relative; align-items: center; min-height: 42px; padding: 5px 0; border-top: 1px solid var(--border); }
 .relate-row.is-more { min-height: 34px; border-top: 0; }
@@ -242,8 +242,6 @@ a.list-row:hover { background: var(--hover); }
 .relate-hint { flex: 1 1 8rem; font-size: var(--fs-small); color: var(--text-3); }
 .relate-formula { flex: none; font-size: var(--fs-dense); color: var(--accent-text); }
 .relate-formula:hover { text-decoration: underline; text-underline-offset: 3px; }
-.relate-side.is-picker { grid-column: 2 / -1; align-items: flex-start; }
-.relate-colhead { align-self: end; padding: 0 0 2px; font-size: var(--fs-small); font-weight: 500; color: var(--text-3); }
 .relate-span { grid-column: 1 / 3; }
 .relate-extras.is-inline { padding: 0; }
 

@@ -100,10 +100,14 @@ function roleCell(edge, side, loc) {
   return `<div class="relate-c"><span class="relate-role">${esc(edge)}</span>${via}</div>`;
 }
 
-// The parameters beyond the two sides: for a recorded relation, its other arguments; otherwise pickers.
+// The line beneath a row, for what the two sides' columns leave out: for a recorded relation, its other
+// arguments and its details (like an Admission Date); otherwise pickers for the other arguments.
 function extraArgs(row, recorded) {
-  if (recorded) return recorded.rest.length ? `<div class="relate-extras">${recorded.rest.map(x =>
-    `<span class="relate-extra"><span class="relate-role">${esc(x.edge)}</span> ${locationHtml(x.at)}</span>`).join('')}</div>` : '';
+  if (recorded) {
+    const more = recorded.rest.map(x => `<span class="relate-extra"><span class="relate-role">${esc(x.edge)}</span> ${locationHtml(x.at)}</span>`).join('')
+      + relationDetails(recorded.id);
+    return more ? `<div class="relate-extras">${more}</div>` : '';
+  }
   const k = row.kind;
   const rest = k.args.map((arg, n) => ({ arg, n })).filter(({ n }) => n !== row.i && n !== row.j);
   if (!rest.length) return '';
@@ -148,7 +152,7 @@ function relateRow(row, a, b) {
   if (row.needs)
     return `<div class="relate-row is-unavailable">${roles}<div class="relate-c relate-needs" title="${esc(row.needs)}">${esc(row.needs)}</div></div>`;
   const recorded = row.existing.map(ex => `<div class="relate-row">${roles}
-      <div class="relate-out">${relationOutput(ex.id, relationNameOf(ex.id))}${relationDetails(ex.id)}<span class="relate-acts">${openRelation(ex.id)}</span></div>
+      <div class="relate-out">${relationOutput(ex.id, relationNameOf(ex.id))}<span class="relate-acts">${openRelation(ex.id)}</span></div>
       ${extraArgs(row, ex)}</div>`).join('');
   // A two-parameter relation is recorded at most once per pair; with more parameters, more can be added,
   // on a line that's just the pickers for the other parameters, beside the output.
@@ -172,10 +176,12 @@ function sidePicker(a) {
     ${open ? `<div class="pop menu menu-left" role="menu">${items}</div>` : ''}</span>`;
 }
 
+// A side as a chip heading its column of roles: its object, by the part of the name that tells it apart, and
+// where under the object the side is, when it isn't the object itself.
 function sideHead(side) {
   const obj = objectOf(side);
-  const below = side === obj ? '' : ` › ${pathTo(side).slice(1).map(segmentText).join(' › ')}`;
-  return `<div class="relate-side"><a class="relate-side-name" href="${esc(panelHref(side))}">${esc(objectName(obj))}</a><span class="relate-side-kind">${esc(records[obj].kind + below)}</span></div>`;
+  const below = side === obj ? '' : pathTo(side).slice(1).map(segmentText).join(' › ');
+  return `<div class="relate-side">${Parts.chip(obj, { detail: below, href: panelHref(side) })}</div>`;
 }
 
 // The locations a side can put a new relation at: the side, or for an object, its choices and tags.
@@ -217,8 +223,8 @@ function relateView({ a, b }) {
   const head = `<div class="panel-head relate-head">
     <div class="title-row"><div class="title-block"><h1>Relate</h1><div class="subtitle">${b ? 'Every relation these two can be in' : 'Choose what to relate this to'}</div></div>
       <div class="head-actions">${done}</div></div>
-    <div class="relate-sides">${sideHead(a)}${b ? `${sideHead(b)}<div class="relate-colhead">Recorded</div>`
-      : `<div class="relate-side is-picker">${sidePicker(a)}<span class="relate-side-kind">${panelOptions.engaged ? 'or click a box on the chart' : 'any object'}</span></div>`}</div>
+    <div class="relate-sides">${sideHead(a)}${b ? sideHead(b)
+      : `<div class="relate-side is-picker">${sidePicker(a)}<span class="relate-side-hint">${panelOptions.engaged ? 'or click a box on the chart' : 'any object'}</span></div>`}</div>
   </div>`;
   if (!b) return [head, ''];
   relate.rows = relateRows(a, b);

@@ -33,7 +33,7 @@
 .record-panel .panel-head.is-page { padding: 14px 0 6px 4px; border-bottom: 0; }
 .record-panel .panel-head.is-page .args { margin-top: 0; }
 .record-panel .relate-head { padding: 14px 0 12px 10px; }
-.record-panel .relate-body { padding: 0 0 14px; }
+.record-panel .relate-body { padding: 0 0 14px 10px; }
 .record-panel :is(.row, .rel-value).is-revealed { animation: record-reveal 2s var(--ease); }
 @keyframes record-reveal { 0%, 45% { background: var(--selected); } 100% { background: transparent; } }
 .record-notice { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 2px; padding: 8px 12px; border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: var(--fs-dense); }

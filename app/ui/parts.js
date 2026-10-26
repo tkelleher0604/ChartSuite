@@ -5,11 +5,12 @@
 // Loaded after shell.js. Styles are in shell.css.
 
 const Parts = (() => {
-  // An object, named, linking to its page, with one detail after the name (Fund III · 64%). Hovering
-  // says what it is, since legal names collide. A computed relation's chip is dashed.
-  function chip(id, { detail = '', computed = false } = {}) {
+  // An object, named, linking to its page (or `href`, as the record panel links within itself), with one
+  // detail after the name (Fund III · 64%). Hovering says what it is, since legal names collide. A computed
+  // relation's chip is dashed.
+  function chip(id, { detail = '', computed = false, href = Shell.recordHref(id) } = {}) {
     if (!records[id]) return '';
-    return `<a class="chip${computed ? ' is-computed' : ''}" href="${Shell.recordHref(id)}" title="${esc(objectName(id))} · ${esc(Shell.subtitleOf(id))}${computed ? ' · worked out by formula' : ''}">
+    return `<a class="chip${computed ? ' is-computed' : ''}" href="${esc(href)}" title="${esc(objectName(id))} · ${esc(Shell.subtitleOf(id))}${computed ? ' · worked out by formula' : ''}">
       <span class="chip-text">${name(id)}</span>${detail ? `<span class="chip-detail">${esc(detail)}</span>` : ''}</a>`;
   }
   // An object's name as a link to its page, for a table's first column.

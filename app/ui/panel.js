@@ -451,8 +451,10 @@ const row = (depth, label, value, actions, cls = '') =>
 //   { title, message, yes, apply }. By default it's in the panel's own bar; a page that may have the panel
 //   out of sight asks in a dialog instead;
 // - createInHead: whether the Schema view's head offers New definition. The Schema page has it as its
-//   create action, in the top bar, instead.
-const panelOptions = { engaged: null, page: false, href: hash => `#${hash}`, ask: null, createInHead: true };
+//   create action, in the top bar, instead;
+// - root: what the panel shows when its address names nothing, as a view gives it ([head, body], and the
+//   rows' class if it has one). By default, every kind (allView); beside the chart, the view in use.
+const panelOptions = { engaged: null, page: false, href: hash => `#${hash}`, ask: null, createInHead: true, root: null };
 
 // A link to one of the panel's views, by its address. Going to one goes where its link would.
 const panelHref = hash => panelOptions.href(hash);
@@ -1241,17 +1243,18 @@ function currentView() {
 }
 
 // Draws the panel into #panel. The page's render() calls this, then draws its own parts. It draws the view
-// the hash names, or another a page gives it (a record's page always shows the record it's about).
+// the hash names, or another a page gives it (a record's page always shows the record it's about). A view
+// gives its head and body, and may give its rows' class (a record's are a tree).
 function renderPanel(view = currentView()) {
   listbox.input = null;
   startVisit(shownHash);
   const kind = view.kind && (Object.values(records).find(r => isObject(r) && same(r.kind, view.kind))?.kind ?? view.kind);
-  const [head, body] = view.relate ? relateView(view.relate) : view.deleted ? deletedView() : view.schema ? schemaView(view.schema)
-    : view.formula ? definitionView(view.formula)
-    : view.id ? recordView(view.id) : kind ? kindView(kind) : allView();
+  const [head, body, rows = view.id ? 'is-tree' : ''] = view.relate ? relateView(view.relate) : view.deleted ? deletedView()
+    : view.schema ? schemaView(view.schema) : view.formula ? definitionView(view.formula)
+    : view.id ? recordView(view.id) : kind ? kindView(kind) : (panelOptions.root ?? allView)();
   const pending = ui.pending ? `<div class="pending" role="alertdialog"><span class="pending-text">${esc(ui.pending.message)}</span>
     <button class="btn btn-primary" data-action="pending-yes">${esc(ui.pending.yes ?? 'Change it')}</button><button class="btn" data-action="pending-no">Cancel</button></div>` : '';
-  document.getElementById('panel').innerHTML = `${head}<div class="rows${view.id ? ' is-tree' : ''}">${pending}${body}</div>`;
+  document.getElementById('panel').innerHTML = `${head}<div class="${rows ? `rows ${rows}` : 'rows'}">${pending}${body}</div>`;
 }
 
 // Puts focus where the last change left it: a form's box, or a drag handle moved from the keyboard.

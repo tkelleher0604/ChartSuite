@@ -663,7 +663,9 @@ function showTextMenu(anchor) {
   }, 'chart:show-text', { search: 'Find an entry' });
 }
 
-function viewPanelHtml() {
+// The panel beside the chart with nothing selected (its root): the view in use, what in it needs attention, its
+// legend, what it shows and filters, and the records by kind.
+function viewPanel() {
   const v = viewInUse();
   const head = panelHead({ title: esc(v.name), sub: `View of ${esc(chartInUse().name)} · As of ${esc(Parts.date(todayIso()))}` });
   const section = (title, html) => html ? `<section class="vp-section"><h2 class="vp-head">${title}</h2>${html}</section>` : '';
@@ -674,8 +676,8 @@ function viewPanelHtml() {
   const filter = `<div class="vp-line">${f ? `<code class="vp-filter">${esc(Formulas.splitFormula(f).body.trim())}</code>` : '<span>Every box</span>'}
     <button class="link-btn" data-action="view-filter">${f ? 'Change' : 'Add a condition'}</button></div>
     ${f ? `<div class="vp-note">Shows ${drawnObjects().length} of ${count(total, 'box')}</div>` : ''}`;
-  return head + `<div class="rows view-panel">${section('Needs attention', attention)}${section('Legend', viewLegendHtml())}
-    ${section('Shows', viewShowsHtml())}${section('Filter', filter)}${section('Records', allView()[1])}</div>`;
+  return [head, `${section('Needs attention', attention)}${section('Legend', viewLegendHtml())}
+    ${section('Shows', viewShowsHtml())}${section('Filter', filter)}${section('Records', allView()[1])}`, 'view-panel'];
 }
 
 function renderChart() {
@@ -1528,6 +1530,7 @@ window.addEventListener('resize', () => { if (chart.presenting) fitToScreen(); e
 // ---- The page ----
 
 panelOptions.engaged = currentEngaged;
+panelOptions.root = viewPanel;
 
 // Everything the chart page draws besides the shell, after each change.
 function drawPage() {
@@ -1538,9 +1541,9 @@ function drawPage() {
   document.getElementById('panel').hidden = prefs.panel === false;
   renderRibbon();
   renderChart();
-  // With nothing selected the panel is about the view, whose legend is read off the chart just drawn.
-  if (readHash()) renderPanel();
-  else document.getElementById('panel').innerHTML = viewPanelHtml();
+  // With nothing selected the panel is about the view (panelOptions.root), whose legend is read off the chart
+  // just drawn.
+  renderPanel();
   restoreFocus();
   announce();
   if (chart.fitPending) { chart.fitPending = false; lookAtChart(); }
