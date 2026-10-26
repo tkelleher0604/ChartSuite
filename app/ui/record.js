@@ -228,7 +228,7 @@ const RecordPage = (() => {
       const meta = [d.type && text(d.type), d.date && text({ ...d.date, text: Parts.date(d.date.iso) }, 'tnum'),
         d.version && `${esc(records[d.version.id].edge)} ${text(d.version)}`]
         .filter(Boolean).map(m => `<span class="record-meta">${m}</span>`).join('<wbr><span class="record-sep">·</span>');
-      const open = d.link ? `<a class="btn btn-sm btn-ghost" href="${esc(d.link)}" target="_blank" rel="noopener" title="${esc(Documents.fileNameOf(d.link))}">Open${icon('external-link')}</a>` : '';
+      const open = d.link ? `<a class="btn btn-sm btn-ghost" href="${esc(SharePoint.openUrl(d.link))}" target="_blank" rel="noopener" title="${esc(Documents.fileNameOf(d.link))}">Open${icon('external-link')}</a>` : '';
       return `<div class="record-doc">${Parts.file(d.url?.kind, d.link ? '' : 'is-empty')}
           <div class="record-doc-text"><a class="record-doc-name" href="${esc(Shell.recordHref(d.record))}">${esc(d.name)}</a>
             ${meta ? `<div class="record-doc-meta">${meta}</div>` : ''}</div>
@@ -406,7 +406,7 @@ const RecordPage = (() => {
     const address = isObject(r) && addressOf(id);
     const shown = !hiddenHere().has(id);
     return [
-      address && `<a class="btn btn-sm btn-primary" href="${esc(address)}" target="_blank" rel="noopener" title="${esc(documentName(address))}">Open document${icon('external-link')}</a>`,
+      address && `<a class="btn btn-sm btn-primary" href="${esc(SharePoint.openUrl(address))}" target="_blank" rel="noopener" title="${esc(documentName(address))}">Open document${icon('external-link')}</a>`,
       shown ? `<a class="btn btn-sm" href="chart.html#${encodeURIComponent(id)}" title="Select it on the chart">Open on chart</a>`
         : `<button class="btn btn-sm" disabled title="The ${esc(viewInUse().name)} view doesn’t draw it">Open on chart</button>`,
       isObject(r) && `<button class="btn btn-sm" data-cmd="record.export"${page.exporting ? ' disabled' : ''} title="A PDF of its entries and relations">${page.exporting ? 'Exporting…' : 'Export profile'}</button>`,

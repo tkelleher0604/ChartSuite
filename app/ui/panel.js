@@ -881,7 +881,7 @@ function entryRow(id, depth) {
     label += `<span class="label-text" title="${esc(r.edge)}">${esc(r.edge)}</span>`;
     value = `<button class="value-btn${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" data-live="${id}">${esc(displayValue(r))}</button>`;
     // A document is edited like any value, and opened from beside it.
-    if (r.field === 'document') value += `<a class="icon-btn is-small doc-open" href="${esc(r.value)}" target="_blank" rel="noopener" aria-label="Open ${esc(displayValue(r))}" title="Open ${esc(displayValue(r))}">${icon('external-link')}</a>`;
+    if (r.field === 'document') value += `<a class="icon-btn is-small doc-open" href="${esc(SharePoint.openUrl(r.value))}" target="_blank" rel="noopener" aria-label="Open ${esc(displayValue(r))}" title="Open ${esc(displayValue(r))}">${icon('external-link')}</a>`;
   } else if (isChoice(r)) {
     label += `<a class="label-text" href="${esc(panelHref(id))}" title="Open ${esc(r.edge)}">${esc(r.edge)}</a>`;
     value = `<button class="select${computed ? ' is-computed' : ''}" data-action="edit-cell" data-id="${id}" aria-haspopup="listbox" title="Change ${esc(r.edge)}">
@@ -1018,7 +1018,16 @@ function relationView(id) {
   return [panelHead({ title, sub, actions: isField(r) ? '' : addMenu(id), extra }), body];
 }
 
+// The kinds a chart with nothing in it yet offers to start from.
+const STARTING_KINDS = ['Entity', 'Individual'];
+
+// A kind's objects, and New to add one. A kind the chart doesn't have, as an address cut short or mistyped
+// may name, says so rather than offer to start it; only an empty chart starts its kinds here.
 function kindView(kind) {
+  const kinds = kindsInState();
+  if (!kinds.some(k => same(k, kind)) && !(!kinds.length && STARTING_KINDS.some(k => same(k, kind))))
+    return [panelHead({ crumbs: allLink(), title: esc(kind), sub: 'No such kind' }),
+      `<div class="empty">This chart has no ${esc(kind)}. Its kinds are listed under <a class="link" href="${esc(panelHref(''))}">All</a>.</div>`];
   const ids = objectsOfKind(kind);
   const f = ui.form;
   const form = f?.type === 'object' ? `<div class="form-block"><div class="list-row">
@@ -1040,7 +1049,7 @@ function allView() {
   const head = panelHead({ title: 'All', sub: kinds.length ? 'Browse records by kind' : 'Nothing here yet. Start with a kind.' });
   const deleted = archive.length ? listRow('deleted', 'Deleted', String(archive.length)) : '';
   const schemaRow = listRow('schema', 'Schema', `${count(formsOfSchema().length, 'form')}${definitions.length ? ` · ${count(definitions.length, 'definition')}` : ''}`);
-  return [head, (kinds.length ? kinds : ['Entity', 'Individual']).map(k => listRow(kindHash(k), plural(k), String(countOfKind(k)))).join('') + schemaRow + deleted];
+  return [head, (kinds.length ? kinds : STARTING_KINDS).map(k => listRow(kindHash(k), plural(k), String(countOfKind(k)))).join('') + schemaRow + deleted];
 }
 
 const ago = when => {
