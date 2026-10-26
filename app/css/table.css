@@ -1,5 +1,5 @@
 /* Table views and the time: the grid (on dendra.css's Tabulator restyle), the date control's calendar, the
-   strip under the view, and History in the inspector's place. Tokens are dendra.css's. */
+   ruler under the view, and History in the inspector's place. Tokens are dendra.css's. */
 
 /* ---- The grid, and under it the bar of a paste pending ---- */
 /* With nothing selected, the grid has the inspector's width too (shell.js's .alone); the inspector glides back
@@ -10,6 +10,7 @@
 .view > .host.grid { display: flex; flex-direction: column; background: var(--surface); }
 .grid > .cells { flex: 1; min-height: 0; }
 .grid > .cells > .tabulator { height: 100%; }
+.grid .tabulator .tabulator-tableholder .tabulator-table { min-width: 100%; }   /* rows to the edge, whatever the columns */
 .grid .tabulator .tabulator-tableholder:focus-visible { outline: none; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
 .grid .tabulator .tabulator-header .tabulator-col { background: var(--paper); border-right-color: var(--rule); }
@@ -34,9 +35,14 @@
 
 /* Filtering: a dropdown in the heading, as Excel's; a column filtered is underlined in the accent. */
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter { position: absolute; right: 4px; bottom: 4px; width: 20px; margin: 0; }
+/* A column of figures has its heading flush right over them, and its filter and sort on the heading's other side. */
+.grid .tabulator .tabulator-header .tabulator-col:is(.c-number, .c-percent, .c-money) .tabulator-col-title { padding: 0 0 0 22px; }
+.grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable:is(.c-number, .c-percent, .c-money) .tabulator-col-title { padding: 0 0 0 38px; }
+.grid .tabulator .tabulator-header .tabulator-col:is(.c-number, .c-percent, .c-money) .tabulator-col-content .tabulator-col-sorter { left: 26px; right: auto; }
+.grid .tabulator .tabulator-header .tabulator-col:is(.c-number, .c-percent, .c-money) .tabulator-header-filter { left: 4px; right: auto; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input { width: 20px !important; height: 20px; padding: 0 !important; border: 0; border-radius: var(--r); color: transparent; background: transparent var(--chev) no-repeat center; cursor: default; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:hover { background-color: var(--press); }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter:focus-within { left: 4px; width: auto; bottom: 2px; z-index: 2; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter:focus-within { left: 4px; right: 4px; width: auto; bottom: 2px; z-index: 2; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:focus { width: 100% !important; height: 24px; padding: 0 22px 0 6px !important; color: var(--ink); background-color: var(--surface); box-shadow: 0 0 0 1px var(--accent); background-position: right 7px center; cursor: text; outline: none; }
 .grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) { box-shadow: inset 0 -2px var(--accent); }
 .grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) .tabulator-col-title { color: var(--accent-ink); }
@@ -137,24 +143,14 @@
 .dayrow .it > b { font-weight: 500; color: var(--ink); }
 .date-keep { display: flex; align-items: center; gap: 8px; margin: -12px; padding: 10px 12px; border-top: 1px solid var(--rule); color: var(--ink-2); }
 
-/* ---- The strip, across the view: the band at its top, the ruler at its foot, the view's host between ---- */
-.view > .strip { top: 0; display: flex; flex-direction: column; pointer-events: none; }
-.view > .strip > * { pointer-events: auto; }
-.view:has(> .strip > .band) > .host { top: 32px; }
-.view:has(> .strip:not(:has(> .scrub))) > .host { bottom: 0; }
-.band { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 32px; padding: 0 4px 0 16px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--accent-ink); font-weight: 500; }
-.band > .btn { height: 24px; padding: 0 10px; color: var(--accent-ink); }
-.view > .strip > .scrub { margin-top: auto; }
-
-/* The ruler: the chart's days as ticks */
-.scrub { position: relative; height: 32px; background: var(--paper); border-top: 1px solid var(--rule); user-select: none; touch-action: none; outline-offset: -2px; }
+/* ---- The ruler, at the view's foot: the chart's days as ticks ---- */
+.scrub { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 32px; background: var(--paper); border-top: 1px solid var(--rule); user-select: none; touch-action: none; outline-offset: -2px; }
 .scrub::before { content: ""; position: absolute; left: 16px; right: 16px; top: 11px; height: 1px; background: var(--rule-2); }
 .scrub > i { position: absolute; top: 6px; width: 1px; height: 11px; margin-left: -.5px; background: var(--ink-3); }
 .scrub > i.hot { background: var(--ink); }
 .scrub > i.now { top: 4px; height: 15px; background: var(--ink); }
 .scrub > i.on { top: 3px; width: 3px; height: 17px; margin-left: -1.5px; border-radius: 1px; background: var(--accent); }
-.scrub > .yr { position: absolute; top: 11px; padding: 3px 0 0 4px; border-left: 1px solid var(--rule-2); font: var(--t12); line-height: 14px; color: var(--ink-3); pointer-events: none; }
+.scrub > .yr { position: absolute; top: 11px; height: 17px; padding: 3px 0 0 4px; border-left: 1px solid var(--rule-2); font: var(--t12); line-height: 14px; color: var(--ink-3); pointer-events: none; }
 .scrub > .brk { position: absolute; top: 7px; width: 6px; height: 9px; margin-left: -3px; background: var(--paper); border-left: 1px solid var(--ink-3); border-right: 1px solid var(--ink-3); transform: skewX(-24deg); }
 .scrub-tip { position: absolute; bottom: 38px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; transform: translateX(-50%); padding: 4px 8px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); white-space: nowrap; pointer-events: none; box-shadow: var(--shadow-pop); }
 .scrub-tip.l { transform: translateX(-12px); }

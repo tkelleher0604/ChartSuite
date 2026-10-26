@@ -335,17 +335,27 @@ async function run() {
   check('Dates says whose in words: AIV-1, tax year 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
   // The list of days opens on the day shown, or the last of the chart's days before it.
   Shell.at({ asOf: '2024-01-15' }); await tick(60);
-  $('.titlebar .asof').click(); await tick(200);
+  $('.titlebar .asof .dd').click(); await tick(200);
   const dl = $('.date-pop .date-days'), near = [...dl.querySelectorAll('[data-day]')].find(b => b.dataset.day <= '2024-01-15');
   check('As of a day, the list of days opens there', !!near && near.offsetTop >= dl.scrollTop && near.offsetTop < dl.scrollTop + dl.clientHeight, `${near?.dataset.day} at ${near?.offsetTop}, list at ${dl?.scrollTop}`);
+  const typedDay = $('.date-pop .date-top input');
+  typedDay.value = 'December 31, 2023'; typedDay.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  typedDay.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(100);
+  check('A day typed and entered is shown, and the calendar closes', Shell.time.peek()?.asOf === '2023-12-31' && !$('.date-pop'), JSON.stringify(Shell.time.peek()));
   Shell.closeAll(); Shell.at(null); await tick(60);
-  $('.titlebar .asof').click(); await tick(100);
+  check('As of today, the date is plain, with no way back to need', !$('.titlebar .asof.past') && !$('.titlebar .asof [aria-label="Today"]') && $('.titlebar .asof').textContent === 'As of today');
+  $('.titlebar .asof .dd').click(); await tick(100);
   check('The date control opens a calendar beside the chart’s days', !!$('.date-pop .cal-grid') && $$('.date-pop .dayrow').length >= Time.events.peek().length);
   const list = [...$('.date-pop .date-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');
   list.slice(y2024).find(b => b.querySelector?.('.d')?.textContent === 'Jul 1').click(); await tick(100);
   check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('July 1, 2024'));
-  check('While another day shows, a band over the view says which', $('.view > .strip > .band')?.textContent === 'As of July 1, 2024Today', $('.view > .strip > .band')?.textContent);
-  check('The strip shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
+  check('While another day shows, the title bar’s date says which, filled, with an × back to today, and no band repeats it', $('.titlebar .asof.past .dd')?.textContent === 'As of July 1, 2024'
+    && !!$('.titlebar .asof.past .btn.icon[aria-label="Today"]') && !$('.band') && getComputedStyle($('.titlebar .asof.past')).backgroundColor !== 'rgba(0, 0, 0, 0)', $('.titlebar .asof')?.outerHTML);
+  check('The ruler shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); await tick(60);
+  const ruler = $('.scrub').getBoundingClientRect();
+  check('Each year’s label stays inside the ruler, or its line stands alone', $$('.scrub > .yr').filter(y => y.textContent).every(y => y.getBoundingClientRect().right <= ruler.right - 16 + 0.5),
+    $$('.scrub > .yr').map(y => `${y.textContent} ${Math.round(y.getBoundingClientRect().right)} ${y.style.left}`).join(' ') + ` of ${ruler.left}–${ruler.right}, ${$('.scrub').clientWidth}`);
   [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);
   check('Or any day from the calendar', Shell.time.peek()?.asOf === '2024-07-15');
   Shell.closeAll(); await tick();
@@ -362,8 +372,96 @@ async function run() {
   Shell.show(own); await tick(60);
   check('Coming back to it shows its day', Shell.time.peek()?.asOf === '2024-07-01');
   Time.keep(own, null); await tick(60);
-  $('.view > .strip > .band .btn').click(); await tick(60);
-  check('Its Today comes back to today, and the band goes', Shell.time.peek() === null && !$('.band'));
+  $('.titlebar .asof [aria-label="Today"]').click(); await tick(60);
+  check('Its × comes back to today, and the date is plain again', Shell.time.peek() === null && !$('.titlebar .asof.past'));
+
+  // ---- Undo is the window's, not a name's ----
+  const ein = () => st().fund_ein?.value, ein0 = ein();
+  App.change(tx => tx.update('fund_ein', { value: '92-1111111' }), { say: 'Changed EIN' }); await tick(60);
+  localStorage.setItem('dendra.name', 'Pat Example');
+  check('Named mid-session, what was done before is still there to undo', Shell.parts.peek().undo.canUndo() && App.who() === 'Pat Example');
+  undo(); await tick(60);
+  check('… and Undo takes it back', ein() === ein0, ein());
+  check('Undo’s toast offers Redo', /^Undid: /.test($('.toast span')?.textContent) && $('.toast button')?.textContent === 'Redo', $('.toast')?.textContent);
+  $('.toast button').click(); await tick(60);
+  check('… which puts it back, and its own toast offers Undo', ein() === '92-1111111' && /^Redid: /.test($('.toast span')?.textContent) && $('.toast button')?.textContent === 'Undo', $('.toast')?.textContent);
+  undo(); await tick(60);
+  localStorage.setItem('dendra.name', 'Dana Jordan');
+
+  // ---- The selection keeps only what's there ----
+  let temp = null;
+  App.change(tx => { temp = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: temp, edge: 'Name', field: 'text', value: 'Temporary Holdings, LLC' }); }); await tick(60);
+  Shell.select([temp]); await tick(60);
+  undo(); await tick(100);
+  check('A record a change takes away leaves the selection, and the address', !Shell.selection.peek().includes(temp) && !decodeURIComponent(location.hash).includes(temp), Shell.selection.peek().join());
+  Shell.select([fund]); Shell.at({ asOf: '2020-01-01' }); await tick(100);
+  check('One only not there on the day shown stays selected', Shell.selection.peek().join() === fund && !(fund in st()));
+  Shell.at(null); Shell.select([]); await tick(60);
+
+  // ---- F8 goes to the worst first, wherever the chart has it (the inspector's attention, stood in for) ----
+  const visits = [], needs = ['blank', 'soon', 'overdue', 'blank', 'error'].map((kind, i) => ({ kind, go: () => visits.push(kind + i) }));
+  const unneed = Shell.register('attention', { items: () => needs }); await tick(60);
+  for (let i = 0; i < needs.length; i++) Shell.parts.peek().action.find(a => a.id === 'attend').run();
+  check('F8 goes to what’s overdue, then errors, then what’s due soon, then blanks', visits.join() === 'overdue2,error4,soon1,blank0,blank3', visits.join());
+  check('… and the status bar counts them in that order', $$('.status .counts .btn').map(b => b.textContent).join(' · ') === '1 overdue · 1 error · 1 due soon · 2 blank', $$('.status .counts .btn').map(b => b.textContent).join(' · '));
+  unneed(); await tick(60);
+
+  // ---- Find: each kind under its head (the inspector's records, stood in for, each by its names and kind) ----
+  const unfind = Shell.register('find', { items: () => Object.keys(st()).filter(id => Tree.isObject(st()[id]) && !Tree.isView(st()[id])).map(id => {
+    const name = App.notes.peek().nameOf(st(), id), short = App.notes.peek().shortOf(st(), id);
+    return { key: id, label: name, names: short !== name ? [short] : [], detail: st()[id].kind, run: () => Shell.select([id]) };
+  }) });
+  const found = async q => {
+    Shell.find(q); await tick(120);
+    const out = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent + (e.querySelector('.detail') ? ` |${e.querySelector('.detail').textContent}` : ''));
+    return out;
+  };
+  let got = await found('fund iii');
+  check('Find puts each kind under its head, the best first, and no answer says its kind', got[0] === '#Entities' && got[1] === 'Calder Ridge Capital Partners III, L.P.' && got.includes('#Views') && !got.some(x => x.includes(' |')), got.slice(0, 8).join(' / '));
+  check('… a record before a view of the same name, so Enter goes to the record', got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Fund III'), got.slice(0, 8).join(' / '));
+  Shell.closeAll(); await tick();
+  got = await found('calder iii');
+  check('… a name with fewer words after the match first: the fund before its blockers', got.indexOf('Calder Ridge Capital Partners III, L.P.') >= 0 && got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Calder Ridge III AIV-1 Blocker, Inc.')
+    && got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Calder Ridge III Blocker, Inc.'), got.slice(0, 10).join(' / '));
+  Shell.closeAll(); await tick();
+  got = await found('close affiliate');
+  const under = (head, label) => { let e = $$('.findpal .menu-head').find(h => h.textContent === head); while ((e = e?.nextElementSibling) && !e.classList.contains('menu-head')) if (e.querySelector('.label')?.textContent === label) return e; return null; };
+  check('… the definitions', !!under('Definitions', 'Close Affiliate'), got.join(' / '));
+  under('Definitions', 'Close Affiliate')?.click(); await tick(80);
+  check('… one opens as its pattern in general', !!Shell.pattern(Shell.selection.peek()[0]) && App.notes.peek().resolve('Formula', Shell.pattern(Shell.selection.peek()[0]))?.value.length > 0, Shell.selection.peek().join());
+  Shell.select([]); Shell.closeAll(); await tick();
+  got = await found('dark');
+  check('… and actions, Light and Dark among them', got.includes('#Actions') && got.includes('Dark'), got.join(' / '));
+  Shell.closeAll(); await tick();
+  got = await found('?');
+  check('The keys listed don’t start with Find, or with themselves', !['Find', 'Keyboard shortcuts'].includes(got[0]) && !got.includes('Find'), got.slice(0, 3).join(' / '));
+  Shell.closeAll(); unfind(); await tick();
+
+  // ---- Tables fill their width; figures' headings sit over them ----
+  Shell.show(own); await tick(100);
+  Shell.select([Table.grid.getRows()[0].getData().id]); await tick(500);
+  const holderBox = () => { const h = Table.grid.rowManager.element; return h.getBoundingClientRect().left + h.clientWidth; };
+  const lastRight = () => $$('.grid .tabulator-header .tabulator-col').at(-1).getBoundingClientRect().right;
+  check('With the inspector open, a table still fills its width', !$('.main.alone') && lastRight() >= holderBox() - 1, `${lastRight()} of ${holderBox()}`);
+  const textRight = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().right; };
+  const pctTitle = column('Percentage').getElement().querySelector('.tabulator-col-title'), pctCell = Table.grid.getRows()[0].getCells().find(c => c.getColumn() === column('Percentage')).getElement();
+  check('A column of figures has its heading flush right over them', Math.abs(textRight(pctTitle) - textRight(pctCell)) <= 1.5, `${textRight(pctTitle)} over ${textRight(pctCell)}`);
+  Shell.select([]); Shell.show(views().find(v => v.name === 'Documents').id); await tick(500);
+  const docCols = Table.grid.getColumns().filter(c => c.isVisible() && c.getDefinition().title);
+  check('Documents’ Name takes what’s left over', docCols.every(c => column('Name').getWidth() >= c.getWidth()) && lastRight() >= holderBox() - 1, docCols.map(c => `${c.getDefinition().title} ${c.getWidth()}`).join(', ') + ` in ${holderBox()}`);
+
+  // ---- + › Chart: from the styles of the chart shown, or else the first ----
+  Shell.show(own); await tick(60);
+  const n1 = N(), firstChart = views().find(v => v.layout === 'chart').id;
+  await addTable(null, 'Chart');
+  const nv = Shell.view.peek(), notesIn = v => App.wb.rows(C()).filter(r => 'note' in r && r.view === v), shapesIn = v => App.wb.rows(C()).filter(r => 'shape' in r && r.view === v);
+  check('+ › Chart starts from the first chart’s styles and Shown, not where it put things, as one change', N() === n1 + 1 && views().find(v => v.id === nv)?.layout === 'chart'
+    && App.notes.peek().resolve('Shown', { kind: 'Document' }, nv)?.note.view === nv && !notesIn(nv).some(r => r.label === 'Position')
+    && notesIn(nv).length === notesIn(firstChart).filter(r => r.label !== 'Position').length, `${notesIn(nv).length} of ${notesIn(firstChart).length}`);
+  const chartName = App.wb.charts().find(c => c.chart === C()).name;
+  check('… on a page with a title and an as-of line', shapesIn(nv).length === 2 && shapesIn(nv).some(s => s.text === chartName) && shapesIn(nv).some(s => /^="As of " & TEXT\(@AsOf/.test(s.text)), JSON.stringify(shapesIn(nv)));
+  undo(); await tick(100);
+  Shell.show(own); await tick(60);
 
   // ---- History ----
   Shell.select([]);
@@ -383,7 +481,8 @@ async function run() {
     && App.state.peek() !== before && Object.values(App.state.peek()).some(x => x.at && st()[x.at]?.args?.some(a => a.at === corvane)));
   check('As it stood, the table can’t be edited', Table.grid.getRows()[0].getCells().every(x => !x.getColumn().getDefinition().editable || !x.getColumn().getDefinition().editable(x)));
   check('The change picked can be undone, by name', $('.hist-row[aria-selected="true"] .btn')?.textContent === 'Undo this change');
-  check('As it stood, the band says when', /^As it stood \w+ \d+, \d{4}, \d+:\d\d [AP]MToday$/.test($('.view > .strip > .band')?.textContent ?? ''), $('.view > .strip > .band')?.textContent);
+  check('As it stood, the title bar’s date says when, filled, with its × back to now', /^As it stood \w+ \d+, \d{4}, \d+:\d\d [AP]M$/.test($('.titlebar .asof.past .dd')?.textContent ?? '')
+    && !!$('.titlebar .asof.past [aria-label="Today"]'), $('.titlebar .asof')?.textContent);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
   check('Esc comes back to now, keeping History open', Shell.time.peek() === null && !!$('.inspector .hist'));
   Shell.select([fund]); await tick(60);
@@ -402,6 +501,25 @@ async function run() {
   undo(); await tick(60);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
   check('Esc then closes History', !$('.inspector .hist'));
+
+  // ---- A new chart: made, not an edit to undo ----
+  const C0 = C(), charts0 = App.wb.charts().length;
+  Shell.parts.peek().action.find(a => a.id === 'chart.new').run(); await tick(200);
+  const C1 = C(), name1 = App.wb.charts().find(c => c.chart === C1)?.name;
+  check('New chart makes a chart, and shows it', C1 !== C0 && App.wb.charts().length === charts0 + 1 && name1 === 'Untitled');
+  check('… with nothing to undo', !Shell.parts.peek().undo.canUndo());
+  undo(); await tick(100);
+  check('… so Undo straight after leaves it whole', C() === C1 && App.wb.charts().some(c => c.chart === C1) && views().length > 0 && /Nothing to undo/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
+  const kept = views().map(v => v.name);
+  check('It keeps the views, but not one named after the old chart’s records', !kept.includes('Fund III') && ['Structure', '40 Act', 'Entities'].every(n => kept.includes(n)), kept.join());
+  const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
+  check('Each of its pages has a title, its name, and an as-of line', pages.length > 0 && pages.every(v => furniture(v).some(s => s.text === name1) && furniture(v).some(s => /^="As of " & TEXT\(@AsOf/.test(s.text))),
+    pages.map(v => `${v.name}: ${furniture(v).map(s => s.text).join(' | ')}`).join(' / '));
+  App.change(tx => tx.note('Name', { id: views()[0].id, kind: 'View' }, 'Overview'), { dated: false }); await tick(60);
+  check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Structure'));
+  Shell.parts.peek().workbook.open(C0); await tick(200);
+  check('Back on the first chart, its Undo is its own', C() === C0 && Shell.parts.peek().undo.canUndo());
+  check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
 }
 
 function report() {

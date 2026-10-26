@@ -229,6 +229,23 @@ const Table = (() => {
 
   // ---- The grid ----
   let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null, bar = null;
+  // The grid fills its width, whatever the inspector leaves it. Each column is as wide as what it holds, to a
+  // cap; where there's room, what's cut short has it first, the least cut first, so the most come out whole,
+  // and what's left goes to the widest column of words. A column the user has sized keeps its width.
+  const WORDS = /\bc-(text|edge|choice|document)\b/, sized = new WeakSet();   // sized here, so free to size again
+  Tabulator.extendModule('layout', 'modes', { fitDataSlack(columns) {
+    const shown = columns.filter(c => c.visible), free = shown.filter(c => !c.widthFixed || sized.has(c)), full = new Map();
+    for (const c of free) {
+      const cap = c.maxInitialWidth;
+      c.maxInitialWidth = null; c.reinitializeWidth(); c.maxInitialWidth = cap;
+      full.set(c, c.getWidth());
+      if (c.getWidth() > cap) c.setWidthActual(cap);
+    }
+    let room = this.table.rowManager.element.clientWidth - shown.reduce((w, c) => w + c.getWidth(), 0);
+    const give = (c, d) => { if (c && d > 0) { c.setWidth(c.getWidth() + d); sized.add(c); room -= d; } };
+    for (const c of [...free].sort((a, b) => (full.get(a) - a.getWidth()) - (full.get(b) - b.getWidth()))) give(c, Math.min(room, full.get(c) - c.getWidth()));
+    give(free.filter(c => WORDS.test(c.definition.cssClass)).reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null), room);
+  } });
 
   function columnDefs(m) {
     const defs = m.cols.filter(c => c.shown).map(c => {
@@ -285,11 +302,8 @@ const Table = (() => {
     built = { view: m.view, sig: signature(m) };
     reds = new Set();
     flight = null;
-    // The grid fills the width: its last column stretches to the edge where it's words, and its rows where
-    // it's a number or a tag, which would stand off alone.
-    const last = m.cols.filter(c => c.shown).at(-1)?.type;
     const t = table = new Tabulator(host, {
-      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: NUMERIC.has(last) || last === 'tag' ? 'fitDataFill' : 'fitDataStretch',
+      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: 'fitDataSlack',
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,
@@ -320,6 +334,7 @@ const Table = (() => {
     t.on('rangeChanged', range => pick(range));
     t.on('rangeAdded', range => pick(range));
     t.on('columnMoved', () => placeColumns());
+    t.on('columnResized', col => sized.delete(col._column));
     t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu(e, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
     t.on('renderComplete', regain);
