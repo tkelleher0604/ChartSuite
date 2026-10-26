@@ -101,6 +101,7 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 .style > .row > .k.sname > a { cursor: default; }
 .row.out { grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; padding-left: 34px; }
 .row.out > .k { display: flex; align-items: center; padding: 0; min-height: var(--row); }
+.row.out .oname { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; color: var(--ink-3); }
 svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; }
 svg.sw.off { opacity: .35; }
 :root[data-theme="dark"] svg.sw { background: var(--page); border-radius: 3px; box-shadow: 0 0 0 2px var(--page); }

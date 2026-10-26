@@ -435,13 +435,19 @@ function Swatch({ p, f }) {
 function Styles({ v, only }) {
   const n = N(), all = n.styles(v), list = only ? all.filter(s => T.narrower(only, s.pattern) || T.narrower(s.pattern, only)) : all;
   const order = (from, i) => App.change(tx => moved(all, from, i).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v })));
-  // A caption typed as the output reads anyway is no caption.
-  const cap = (o, text) => App.change(tx => tx.note('Caption', o.pattern, text && text !== Scene.captionOf(n, o.pattern) ? text : undefined, { view: v }));
+  // A caption typed as the output's own name is no caption.
+  const cap = (o, text) => App.change(tx => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v }));
+  // An output captioned otherwise shows under its caption: Main Fund · Funds.
+  const output = o => {
+    const own = Scene.outputName(n, o.pattern), caption = Scene.captionOf(n, o.pattern, v);
+    return html`<div class="row out" key=${T.key(o.pattern)}><div class="k"><${Swatch} p=${o.pattern} f=${o.formats} /></div>
+      <div class="v ctl">${caption === own ? null : html`<span class="oname">${own} ·</span>`}<${Field} r=${{ field: 'text', value: caption }} datatype="text"
+        cls=${o.formats.Shown === false ? ' off' : ''} put=${out => cap(o, out?.value ?? '')} /></div></div>`;
+  };
   return list.map(s => html`<div class="ent style" data-drag=${only ? null : 'style'} key=${s.key}>
     <div class="row" style="--depth:0">${only || App.readOnly.value ? null : html`<button class="grip" aria-label=${`Move ${Scene.styleName(n, s.pattern)}`} onPointerDown=${e => drag(e, order)}>${GRIP}</button>`}
       <div class="k sname"><a onClick=${() => select([general(s.pattern)])}>${Scene.styleName(n, s.pattern)}</a></div></div>
-    ${s.outputs.map(o => html`<div class="row out" key=${T.key(o.pattern)}><div class="k"><${Swatch} p=${o.pattern} f=${o.formats} /></div>
-      <div class="v ctl"><${Field} r=${{ field: 'text', value: Scene.captionOf(n, o.pattern, v) }} datatype="text" cls=${o.formats.Shown === false ? ' off' : ''} put=${out => cap(o, out?.value ?? '')} /></div></div>`)}
+    ${s.outputs.map(output)}
   </div>`);
 }
 

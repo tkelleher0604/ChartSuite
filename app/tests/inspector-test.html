@@ -206,6 +206,8 @@ async function run() {
   // The view
   Shell.select([]); await tick();
   check('nothing selected shows the view and its styles', $('.ih .cell')?.value === 'Structure' && $$('.style').length > 3 && $$('svg.sw').length > 5, $$('.style .sname').map(s => s.textContent).join(', '));
+  const outs = $$('.row.out').map(r => `${r.querySelector('.oname')?.textContent ?? ''}${r.querySelector('.cell').value}`);
+  check('an output captioned otherwise shows under its caption', outs.includes('Main Fund ·Funds') && outs.includes('Corporation') && outs.includes('Exempted Company ·Corporation'), outs.join(' | '));
   const firstStyle = $$('.style .sname')[0].textContent, s2 = $$('.style')[1], grip = $$('.style')[0].querySelector('.grip');
   const y = el => el.getBoundingClientRect().top + 4;
   grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(grip) }));
