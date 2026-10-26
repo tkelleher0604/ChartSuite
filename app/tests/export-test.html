@@ -28,6 +28,7 @@
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const C = 'calder-ridge', DAY = '2026-10-26', WHO = 'Dana Jordan', EMU = 9525;
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const j = x => JSON.stringify(x);
 
 function writeNote(tx, N, label, pattern, view, value) {
@@ -69,6 +70,9 @@ async function run() {
       tx.add('shape', { view, geometry: 'legend', x: 48, y: 1200, w: 520, title: 'Key', columns: 2 });
       tx.add('shape', { view, geometry: 'text', x: 640, y: 1200, w: 640, h: 30, text: 'Calder Ridge Capital Partners III, L.P.', format: { Size: 20, Bold: true } });
     }
+    // A picture, and an arrow drawn by hand.
+    tx.add('shape', { view: views[0], geometry: 'picture', x: 1300, y: 1200, w: 60, h: 40, src: `data:image/png;base64,${PNG}` });
+    tx.add('shape', { view: views[0], geometry: 'line', points: [[1400, 1220], [1500, 1220], [1500, 1260]], format: { Arrow: 'end' } });
     // A document known by its address, dated: the calendar names it by its file alone.
     const doc = tx.add('record', { kind: 'Document' });
     tx.add('record', { at: doc, edge: 'Name', field: 'text', value: '\\\\fs01\\Legal\\Calder Ridge\\Side Letter - Halcyon.pdf' });
@@ -88,7 +92,7 @@ async function run() {
   // ---- PowerPoint ----
   {
     const t0 = performance.now();
-    const blob = await Export.write('pptx', scenes, 'Calder Ridge Fund III structure');
+    const blob = await Export.write('pptx', scenes, 'Calder Ridge Fund III structure', WHO);
     const ms = performance.now() - t0;
     check('a deck of every view is written through the hook, not downloaded', files.at(-1)?.blob === blob && files.at(-1).name === 'Calder Ridge Fund III structure.pptx', files.at(-1)?.name);
     check('a deck of four views in under 2 s, libraries loaded on first use', ms < 2000 && typeof PptxGenJS === 'function', `${ms.toFixed(0)} ms`);
@@ -140,7 +144,7 @@ async function run() {
     const prsts = new Set(cxns.map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst')));
     const elbows = cxns.filter(c => tags(c, 'a:stCxn').length).map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst'));
     check('lines are elbow connectors, as the scene’s Connector says; the key’s swatches straight', elbows.every(p => /^bentConnector[234]$/.test(p))
-      && cxns.filter(c => !tags(c, 'a:stCxn').length).every(c => tags(c, 'a:prstGeom')[0].getAttribute('prst') === 'straightConnector1'), [...prsts].join(' '));
+      && cxns.filter(c => !tags(c, 'a:stCxn').length && name(c) !== 'Line').every(c => tags(c, 'a:prstGeom')[0].getAttribute('prst') === 'straightConnector1'), [...prsts].join(' '));
     const gp = cxns.find(c => name(c) === 'General Partner');
     check('a dashed line stays dashed, at its weight', tags(gp, 'a:prstDash')[0].getAttribute('val') === 'dash' && tags(gp, 'a:ln')[0].getAttribute('w') === String(0.75 * 12700));
     const labels = lines(main).filter(l => l.labelAt && l.texts.length).flatMap(l => l.texts.map(it => it.text));
@@ -152,6 +156,11 @@ async function run() {
     check('the legend is shapes: its frame and title, a swatch and a caption for each row', sps.some(sp => name(sp) === 'Key' && textOf(sp)[0] === 'Key')
       && legend.rows.every(r => sps.some(sp => textOf(sp)[0] === r.caption.text)) && legend.rows.length > 4, legend.rows.length);
     check('a free text shape is itself', sps.some(sp => textOf(sp)[0] === 'Calder Ridge Capital Partners III, L.P.' && tags(sp, 'a:rPr')[0].getAttribute('sz') === '2000'));
+    const arrow = cxns.find(c => name(c) === 'Line');
+    check('a free line is a connector, its arrowhead at its end; a picture is a picture', arrow && tags(arrow, 'a:tailEnd').length && !tags(arrow, 'a:stCxn').length
+      && tags(arrow, 'a:prstGeom')[0].getAttribute('prst') === 'bentConnector2' && tags(doc, 'p:pic').length === 1 && Object.keys(zip.files).some(f => /^ppt\/media\/.+\.png$/.test(f)));
+    const core = await zip.file('docProps/core.xml').async('string');
+    check('the deck is titled for the chart, by whoever exported it', core.includes('<dc:title>Calder Ridge Fund III structure</dc:title>') && core.includes(`<dc:creator>${WHO}</dc:creator>`));
   }
 
   // ---- PDF ----
@@ -178,6 +187,7 @@ async function run() {
     const absent = want.filter(t => !shown.includes(t));   // WinAnsi, which TextDecoder's latin1 reads
     check('every line of text is in it, as the scene breaks it', !absent.length && shown.length >= want.length, absent.slice(0, 5).join(' | ') || `${shown.length} lines`);
     check('in the standard fonts, Helvetica for Arial', /\/BaseFont \/Helvetica-Bold/.test(raw) && !/\/FontFile/.test(raw));
+    check('a picture is in it', /\/Subtype \/Image/.test(raw));
   }
 
   // ---- The calendar ----

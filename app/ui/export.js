@@ -10,11 +10,11 @@
 // What the canvas shows only on screen (computed italics and dashes, the redline) is no part of the scene.
 // PptxGenJS, jsPDF and svg2pdf.js load the first time they're needed.
 //
-// Export.write('pptx' | 'pdf', scenes, name) → a Blob, also saved; Export.svg(scene, { pdf, frame }) → SVG
-// markup; Export.calendar(R, chart, name) → the .ics Blob, also saved, R being Formulas.computeState's result.
+// Export.write('pptx' | 'pdf', scenes, name, author?) → a Blob, also saved; Export.svg(scene, { pdf, frame })
+// → SVG markup; Export.calendar(R, chart, name) → the .ics Blob, also saved, R being Formulas.computeState's.
 // Export.onFile, if set, takes each finished file (blob, name) instead of the browser downloading it.
 const Export = (() => {
-const PT = Scene.PT, PX = 9525;                         // pixels a point; EMU a pixel
+const PT = Scene.PT;                                    // pixels a point
 const n = v => +v.toFixed(2);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const look = m => m.look ?? Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
@@ -306,8 +306,8 @@ function cxn(id, name, ps, s, ends, { X, Y, k }) {
 // ---- Writing a file ----
 
 const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Chart';
-async function write(format, scenes, name) {
-  const blob = format === 'pdf' ? await pdf(scenes, name) : await pptx(scenes, name, api.author ?? '');
+async function write(format, scenes, name, author = '') {
+  const blob = format === 'pdf' ? await pdf(scenes, name) : await pptx(scenes, name, author);
   save(blob, `${fileName(name)}.${format}`);
   return blob;
 }
@@ -345,7 +345,7 @@ function calendar(R, chart, name, stamp = new Date()) {
   return blob;
 }
 
-const api = { write, svg, calendar, onFile: null, author: null };
+const api = { write, svg, calendar, onFile: null };
 
 // ---- In the window: the Export menu, and its dialog ----
 
@@ -390,8 +390,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
     const all = choice.which === 'all';
-    api.author = App.who();
-    write(choice.format, all ? scenes : [here], all ? chartName() : fileName(chartName(), here.name))
+    write(choice.format, all ? scenes : [here], all ? chartName() : fileName(chartName(), here.name), App.who())
       .catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
   Shell.register('export', { name: 'PowerPoint…', run: () => open('pptx') });
