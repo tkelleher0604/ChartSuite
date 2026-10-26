@@ -231,6 +231,18 @@ async function run() {
     check('one view is a slide of its own sheet’s size', Object.keys(zip.files).filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f)).length === 1
       && Math.abs(+sz.getAttribute('cx') - scenes[3].page.sheet.w * EMU) < 2 && files.at(-1).name === `Calder Ridge Fund III structure - ${scenes[3].name}.pptx`, files.at(-1).name);
   }
+
+  // ---- On Letter ----
+  {
+    const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [main], 'Letter', WHO, 'letter')).arrayBuffer());
+    const box = /\/MediaBox \[([^\]]+)\]/.exec(raw)[1].trim().split(/\s+/).map(Number);
+    check('on Letter, a PDF page is 11 × 8.5 in, so it prints without shrinking', Math.abs(box[2] - 792) < 0.1 && Math.abs(box[3] - 612) < 0.1, box.join(' '));
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [main], 'Letter', WHO, 'letter')), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
+    const doc = xml(await zip.file('ppt/slides/slide1.xml').async('string')), k = Math.min(1056 / main.page.w, 816 / main.page.h), f = main.byId.get('fund');
+    const fund = tags(doc, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === f.texts[0].text), off = tags(fund, 'a:off')[0];
+    check('… and a slide on Letter holds its page in the middle, as large as it fits', Math.abs(+sz.getAttribute('cx') - 1056 * EMU) < 2 && Math.abs(+sz.getAttribute('cy') - 816 * EMU) < 2
+      && Math.abs(+off.getAttribute('y') - ((816 - main.page.h * k) / 2 + f.y * k) * EMU) < 2, `${sz.getAttribute('cx')} × ${sz.getAttribute('cy')}`);
+  }
 }
 
 Promise.resolve().then(run)

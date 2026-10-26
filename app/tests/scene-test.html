@@ -100,6 +100,14 @@ function run() {
     check('a box’s texts go in their entries’ order, the name first', name.id === 'fund_name' && name.lines.length > 1 && fund.texts[1].id === 'fund_juris');
     const forty = scene(wb, 'view_40act');
     check('a computed record is marked, for the canvas to set it in italics', forty.marks.some(m => m.type === 'line' && m.computed) && !s.byId.get('own_us_fund').computed);
+    const tier = sc => sc.marks.filter(m => m.shape === 'triangle' && m.id !== 'feeder').map(m => m.h);
+    edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: 'Calder Ridge Beteiligungsverwaltungsgesellschaft mbH' }));
+    const long = scene(wb), feeder = long.byId.get('feeder'), ls = feeder.texts[0].lines;
+    check('a word wider than its box is hyphenated, and its box doesn’t stretch the others in its tier', ls.some(l => l.cut && l.text.endsWith('-')) && ls.every(l => l.w <= feeder.w)
+      && j(tier(long)) === j(tier(s)), j(ls.map(l => l.text)));
+    edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: 'Calder Ridge Capital Partners III (Cayman), L.P., '.repeat(5) }));
+    const cut = scene(wb).byId.get('feeder').texts[0].lines;
+    check('a text too long for its box is cut short at six lines', cut.length === 6 && cut.at(-1).text.endsWith('…'), j(cut.map(l => l.text)));
   }
 
   // ---- The legend ----
@@ -220,7 +228,11 @@ function run() {
     const drawn = toFunds.filter(l => f.marks.includes(l));
     check('a box’s lines to every box in a frame land on the frame, drawn as one', toFunds.length === 5 && toFunds.every(l => j(l.points) === j(toFunds[0].points) && Math.abs(l.points.at(-1)[0] - funds.x) < 0.5)
       && drawn.length === 1 && toFunds.every(l => l === drawn[0] || l.merged === drawn[0].id), j(toFunds.map(l => [l.id, l.merged])));
-    check('a relation’s frame frames its lower end: the remote affiliate', j(frames.find(m => m.caption.text === 'Remote affiliate (§57(e))').members) === j(['pension']));
+    const remote = frames.find(m => m.caption.text === 'Remote affiliate (§57(e))'), pension = f.byId.get('pension');
+    check('a relation’s frame frames its lower end: the remote affiliate', j(remote.members) === j(['pension']));
+    check('a frame round one box alone is its caption, 4 pt over the box, not a second outline', remote.lone && Math.abs(remote.y + remote.h - pension.y) < 6 && remote.x === pension.x);
+    const panels = frames.filter(m => !m.lone);
+    check('frames stacked in a column share their left and right sides', new Set(panels.map(m => `${m.x}|${m.w}`)).size === 1, j(panels.map(m => [m.x, m.w])));
     check('the hub is a normal width', f.byId.get('bdc').w === 220);
 
     const c = scene(wb, 'view_control'), bdc = c.byId.get('bdc');
