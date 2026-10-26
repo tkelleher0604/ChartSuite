@@ -65,6 +65,16 @@ const Tour = (() => {
     const mine = all.filter(el => el.closest(`[data-region="${step.in}"]`));
     return mine.find(inView) ?? all.find(inView) ?? mine[0] ?? all[0];
   }
+  // Where nothing shows what a step points at in the inspector, the first box, in reading order, whose record
+  // holds one is selected first: a value a formula gives, or a tag. Selecting changes nothing in the record.
+  const HOLDS = { computed: (st, R, id) => !!R.computed[id] && !('tag' in st[id]), tag: (st, R, id) => 'tag' in st[id] };
+  function offer(step) {
+    const holds = HOLDS[step.target], sc = App.scene.peek(), st = App.state.peek(), R = App.computed.peek(), ix = Tree.index(st);
+    if (!holds || !sc || find(step)) return;
+    const holding = id => (ix.entries.get(id) ?? []).some(e => holds(st, R, e) || holding(e));
+    const box = sc.marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y || a.x - b.x).find(m => holding(m.record));
+    if (box) Shell.select([box.record], { replace: true });
+  }
   // Brought into the middle of the pane that scrolls it.
   function reveal(el) {
     for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
@@ -95,7 +105,8 @@ const Tour = (() => {
       prev.current = i;
       for (const el of [h, c]) el.classList.toggle('glide', gliding);
       const still = gliding && setTimeout(() => [h, c].forEach(el => el.classList.remove('glide')), 240);
-      // Brought into view as the step starts; scrolled away after, it's none.
+      // Brought into view as the step starts, a box selected first if it must be; scrolled away after, it's none.
+      if (step) offer(step);
       let shown = false;
       const tick = () => {
         let el = step && find(step);

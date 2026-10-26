@@ -21,7 +21,8 @@
 //                  id or null, menu(id) → items }          the sheet tabs           (app.js)
 //   'workbook'   { charts() → [{ id, name }], current() → id, open(id), menu() → items }   the chart menu (app.js)
 //   'undo'       { undo(), redo(), canUndo(), canRedo() }                                    (app.js)
-//   'time'       { When({ close }), Strip() }   the date's popover, the strip under the view  (time.js)
+//   'time'       { When({ close }), Ruler(), today() }   the date's popover, the ruler under the view, and
+//                back to today from another day or the past                                  (time.js)
 //   'attention'  { items() → [{ kind: 'overdue' | 'blank' | 'error', go() }] }   counted; F8   (inspector.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order? } (the chart
@@ -45,7 +46,7 @@
 // dated }) → the change, every edit's one way in; App.restore(changeId); App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
-// and confirm() on <dialog>; toast(text, { undo }); keys(map, opts) on tinykeys, and keyLabel(key) as shown;
+// and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key) as shown;
 // aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer joins;
 // drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name); store.get/set,
 // this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or { label, detail?,
@@ -144,7 +145,7 @@ const Shell = (() => {
   effect(() => { const vs = views.value; if (vs.length && !current.value) show(vs[0].id, { replace: true }); });
 
   // ---- Theme, and the inspector's width ----
-  const theme = signal(document.documentElement.dataset.theme || 'light');
+  const theme = signal(document.documentElement.dataset.theme || 'light'), THEMES = [['Light', 'light'], ['Dark', 'dark']];
   function setTheme(t, keep = true) { theme.value = t; document.documentElement.dataset.theme = t; if (keep) store.set('theme', t); }
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => { if (!store.get('theme')) setTheme(e.matches ? 'dark' : 'light', false); });
   // The inspector: as the user left it, or 30% of the window between 300 and 384 px, so a small screen keeps its chart.
@@ -299,8 +300,10 @@ const Shell = (() => {
   const uf = new uFuzzy({ intraMode: 1 });
   const norm = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
   // Ranked as uFuzzy ranks their names (a label, and any others), except that a name typed exactly comes
-  // first, and what's within a thing (AIV-1 › Signatories, of its key) comes straight after it, or after
-  // every thing found if it isn't.
+  // first, a name with fewer words after what matched before one with more (Fund III before Fund III
+  // Blocker), and what's within a thing (AIV-1 › Signatories, of its key) straight after it, or after every
+  // thing found if it isn't.
+  const words = s => (s.match(/\S*[\p{L}\p{N}]\S*/gu) ?? []).length;
   function rank(items, q, limit = 50) {
     const names = x => [x.label, ...(x.names || [])], hay = [], of = [];
     items.forEach((x, i) => names(x).forEach((n, k) => { hay.push(n); of.push([i, k]); }));
@@ -310,9 +313,9 @@ const Shell = (() => {
     const best = new Map();   // each item at its best-ranked name, highlighted if that's its label
     for (const [h, ranges] of order ? order.map(o => [info.idx[o], info.ranges[o]]) : idxs.map(h => [h])) {
       const [i, k] = of[h];
-      if (!best.has(i)) best.set(i, { ...items[i], ranges: k ? null : ranges });
+      if (!best.has(i)) best.set(i, { ...items[i], ranges: k ? null : ranges, after: ranges ? words(hay[h].slice(Math.max(...ranges))) : 0 });
     }
-    const found = [...best.values()], within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q), out = new Set();
+    const found = [...best.values()].sort((a, b) => a.after - b.after), within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q), out = new Set();
     const add = x => { if (out.has(x)) return; out.add(x); if (x.key !== undefined) found.filter(y => y.of === x.key).forEach(add); };
     found.filter(x => names(x).some(n => norm(n) === typed)).forEach(add);
     found.filter(x => !within(x)).forEach(add);
@@ -459,11 +462,11 @@ const Shell = (() => {
     actions: [{ label: 'Cancel', value: false, focus: !!o.danger }, { label: o.ok || 'OK', value: true, primary: !o.danger, danger: !!o.danger }],
   });
 
-  // ---- Toasts: a verb, an object and Undo ----
+  // ---- Toasts: a verb, an object and Undo, or Redo once it's undone ----
   const toasts = signal([]);
   let tid = 0;
   function toast(text, o = {}) {
-    const t = { id: ++tid, text, undo: o.undo, timer: 0 };
+    const t = { id: ++tid, text, act: o.undo ? ['Undo', o.undo] : o.redo ? ['Redo', o.redo] : null, timer: 0 };
     const dismiss = () => { clearTimeout(t.timer); toasts.value = toasts.peek().filter(x => x !== t); };
     t.arm = () => { clearTimeout(t.timer); t.timer = setTimeout(dismiss, o.ms || 6000); };
     t.dismiss = dismiss;
@@ -474,11 +477,19 @@ const Shell = (() => {
   }
   const Toasts = () => html`<div class="toasts" aria-live="polite">${toasts.value.map(t => html`
     <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
-      <span>${t.text}</span>${t.undo ? html`<button onClick=${() => { t.dismiss(); t.undo(); }}>Undo</button>` : null}</div>`)}</div>`;
+      <span>${t.text}</span>${t.act ? html`<button onClick=${() => { t.dismiss(); t.act[1](); }}>${t.act[0]}</button>` : null}</div>`)}</div>`;
 
-  // ---- Find: views, records, lists and actions, ranked as you type; "=" works a formula out; "?" lists
-  // the keys ----
+  // ---- Find: records, lists, definitions, views and actions, ranked as you type, each under its kind's head;
+  // "=" works a formula out; "?" lists the keys ----
   let findButton = null;
+  // Each kind under its head, the heads in the order of the best each has; what's within a thing under that
+  // thing's. An answer doesn't say its kind again.
+  function headed(found, all = found) {
+    const keyed = new Map(all.filter(x => x.key !== undefined).map(x => [x.key, x])), heads = new Map();
+    const kind = x => x.of !== undefined && keyed.has(x.of) ? kind(keyed.get(x.of)) : x.detail ?? '';
+    for (const x of found) { const k = kind(x); if (!heads.has(k)) heads.set(k, []); heads.get(k).push({ ...x, detail: null }); }
+    return [...heads].flatMap(([k, xs]) => [...(k ? [{ head: Tree.plural(k) }] : []), ...xs]);
+  }
   function answers(q) {
     if (q.startsWith('=')) {
       const ev = part('evaluate');
@@ -488,16 +499,18 @@ const Shell = (() => {
       if (r?.error) return [{ label: r.error, danger: true }];
       return r?.items ?? [{ label: String(r?.value ?? '') }];
     }
-    const acts = many('action').map(a => ({ id: a.id, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
-    if (q.startsWith('?')) { const ks = acts.filter(a => a.keys); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
-    const vs = views.value.map(v => ({ label: v.name, detail: q ? 'View' : null, run: () => show(v.id) })), can = acts.filter(a => !a.disabled && a.id !== 'find');
-    if (!q) return [...(vs.length ? [{ head: 'Views' }, ...vs] : []), ...(can.length ? [{ head: 'Actions' }, ...can] : [])];
-    return rank([...vs, ...many('find').flatMap(s => s.items()), ...can], q);
+    const acts = many('action').filter(a => a.id !== 'find').map(a => ({ id: a.id, label: a.name, detail: 'Action', keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
+    // The keys, but not the two ways here.
+    if (q.startsWith('?')) { const ks = acts.filter(a => a.keys && a.id !== 'keys').map(a => ({ ...a, detail: null })); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
+    const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
+    if (!q) return headed([...vs, ...can]);
+    const all = [...many('find').flatMap(s => s.items()), ...vs, ...can];
+    return headed(rank(all, q), all);
   }
   const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32 }); };
 
   // ---- The title bar ----
-  // The day shown, in the words the band under the view uses.
+  // The day shown. Another day, or the log as it stood, fills the date in the accent, with an × back to today.
   const fmtTime = t => !t ? 'As of today' : t.asOf ? 'As of ' + Tree.formatDate(t.asOf)
     : 'As it stood' + (t.at ? ` ${Tree.formatDate(Tree.isoOf(new Date(t.at)))}, ${new Date(t.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '');
   const chartName = computed(() => { const wb = part('workbook'); return wb ? wb.charts().find(c => c.id === wb.current())?.name : null; });
@@ -506,7 +519,7 @@ const Shell = (() => {
   function chartMenu() {
     const wb = part('workbook'), items = [];
     if (wb) items.push(...wb.charts().map(c => ({ label: c.name, checked: c.id === wb.current(), run: () => wb.open(c.id) })), ...wb.menu(), '-');
-    const themes = { order: 30, seg: [['Light', 'light'], ['Dark', 'dark']].map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
+    const themes = { order: 30, seg: THEMES.map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
     const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
     for (const it of [...acts, themes].sort((a, b) => a.order - b.order)) {
       if (it.seg && items.length && items[items.length - 1] !== '-') items.push('-');
@@ -517,12 +530,13 @@ const Shell = (() => {
     return items;
   }
   function TitleBar() {
-    const u = part('undo'), ex = many('export'), t = time.value;
+    const u = part('undo'), ex = many('export'), t = time.value, tp = part('time');
     return html`<header class="titlebar" data-region="bars">
       <div class="left"><button class="btn ghost dd chartmenu" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
-        ${part('time') ? html`<button class=${'btn ghost dd asof' + (t ? ' past' : '')} aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>` : null}
+        ${tp ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${tp.When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${t
+          ? html`<button class="btn icon" aria-label="Today" data-tip="Today" onClick=${() => tp.today()}>${icon('x')}</button>` : null}</span>` : null}
         <span class="sep" />
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
@@ -574,7 +588,7 @@ const Shell = (() => {
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
         ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
-        ${part('time') ? html`<div class="strip">${h(part('time').Strip)}</div>` : null}
+        ${part('time') ? h(part('time').Ruler) : null}
       </div>
       <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${resize} onDblClick=${() => wide.value ? narrow() : widen()} />
       <aside class="inspector" aria-label="Inspector" data-region="inspector" tabindex="-1"><${Host} kind="inspector" hidden=${!!aside.value} />${aside.value ? html`<div class="host aside">${h(aside.value)}</div>` : null}</aside>
@@ -621,11 +635,12 @@ const Shell = (() => {
     </div><button class="btn icon" aria-label="New view" data-tip="New view" onClick=${add}>${icon('plus')}</button>`;
   }
 
-  // ---- The status bar: what needs attention, counted; F8 steps through it ----
-  const KINDS = [['overdue', n => `${n} overdue`], ['soon', n => `${n} due soon`], ['blank', n => `${n} blank`], ['error', n => n === 1 ? '1 error' : `${n} errors`]];
+  // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
+  const KINDS = [['overdue', n => `${n} overdue`], ['error', n => n === 1 ? '1 error' : `${n} errors`], ['soon', n => `${n} due soon`], ['blank', n => `${n} blank`]];
+  const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   let stepAt = -1;
   function attend(d = 1, kind) {
-    const items = (part('attention')?.items() || []).filter(it => !kind || it.kind === kind);
+    const items = (part('attention')?.items() || []).filter(it => !kind || it.kind === kind).sort((a, b) => worst(a) - worst(b));
     if (!items.length) return;
     stepAt = kind ? 0 : (stepAt + d + items.length) % items.length;
     items[stepAt].go();
@@ -668,6 +683,8 @@ const Shell = (() => {
     { id: 'pane.prev', name: 'Previous pane', keys: 'Shift+F6', inputs: true, run: () => region(-1) },
     { id: 'attend', name: 'Next problem', keys: 'F8', enabled: problems, run: () => attend(1) },
     { id: 'attend.prev', name: 'Previous problem', keys: 'Shift+F8', enabled: problems, run: () => attend(-1) },
+    // Light and Dark, which the chart menu sets side by side.
+    ...THEMES.map(([name, t]) => ({ id: 'theme.' + t, name, run: () => setTheme(t) })),
   ].forEach(a => register('action', a));
   keys({
     '$mod+Shift+KeyZ': () => part('undo') ? part('undo').redo() : false,

@@ -1,7 +1,6 @@
 // The time (dendra.md, Time and Change; Part 2, Time): the chart's own days, named as the chart says them; the
-// date control's calendar; the strip across the view, a band at its top while another day or the past is
-// shown and a ruler at its foot that scrubs through those days; a view keeping a date (its As Of note); and
-// History, the log read back in the inspector's place.
+// date control's calendar; a ruler at the view's foot that scrubs through those days while another day is
+// shown; a view keeping a date (its As Of note); and History, the log read back in the inspector's place.
 const Time = (() => {
   const { html, signal, computed } = Shell;
   const { useEffect, useLayoutEffect, useRef, useState } = preactHooks;
@@ -61,8 +60,9 @@ const Time = (() => {
     for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) add(r.value, [r.edge, whose(recs, r.at, N)]);
     return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([day, m]) => ({ day, items: [...m.values()] }));
   });
-  // The shell draws the date's popover and the strip under the view from these.
-  Shell.register('time', { When, Strip });
+  // The shell draws the date's popover and the ruler under the view from these, and comes back to today, from
+  // a day or from the log as it stood, by the last.
+  Shell.register('time', { When, Ruler, today: () => Shell.time.peek()?.stood ? now() : show(null) });
 
   // ---- A view keeping a date ----
   const kept = id => App.views.peek().find(v => v.id === id)?.keeps ?? null;
@@ -98,7 +98,7 @@ const Time = (() => {
       </div>
     </div>`;
   }
-  function When() {
+  function When({ close }) {
     const t = Shell.time.value, today = Log.today(), day = t?.asOf ?? today, evs = events.value;
     const [month, setMonth] = useState(day.slice(0, 7));
     const [text, setText] = useState(null);
@@ -114,10 +114,11 @@ const Time = (() => {
     const marked = new Set(evs.map(e => e.day));
     const years = [...new Set(evs.map(e => e.day.slice(0, 4)))].sort().reverse();
     const view = App.views.value.find(v => v.id === Shell.view.value);
+    // A day typed and entered is shown, and the calendar closes on it.
     const typed = e => {
       if (e.key !== 'Enter') return;
       const d = Tree.parseDate(e.target.value);
-      if (d) show(d); else e.target.classList.add('bad');
+      if (d) { show(d); close(); } else e.target.classList.add('bad');
     };
     return html`<div class="date-pop">
       <div class="date-top">
@@ -139,17 +140,10 @@ const Time = (() => {
     </div>`;
   }
 
-  // ---- The strip: across the view, a band and a ruler ----
-  function Strip() { const t = Shell.time.value; return html`${t ? html`<${Band} t=${t} />` : null}<${Ruler} />`; }
-  // While the window shows a day other than today, or the log as it stood, a band under the bars says which,
-  // with the way back.
-  function Band({ t }) {
-    const when = t.at ?? App.wb.changes().find(c => c.id === t.stood)?.when;
-    const said = t.asOf ? `As of ${Tree.formatDate(t.asOf)}` : `As it stood ${when ? `${Tree.formatDate(Tree.isoOf(new Date(when)))}, ${clock(when)}` : ''}`;
-    return html`<div class="band" role="status"><span>${said}</span><button class="btn ghost" onClick=${() => t.stood ? now() : show(null)}>Today</button></div>`;
-  }
-  // A ruler at the view's foot with a tick for each of the chart's days; dragging scrubs.
+  // ---- The ruler: at the view's foot, a tick for each of the chart's days; dragging scrubs ----
   const CAP = 1096;   // a longer gap is drawn as three years, with a break
+  // Its width, so a year's label with no room after its line sits before it.
+  const width = signal(0), sized = new ResizeObserver(([e]) => { width.value = e.contentRect.width; });
   function Ruler() {
     const t = Shell.time.value, today = Log.today(), evs = events.value;
     const [hot, setHot] = useState(null);
@@ -191,9 +185,9 @@ const Time = (() => {
       show(days[Math.max(0, Math.min(days.length - 1, i + d))]);
     };
     const cur = t?.asOf ?? today, tip = hot ?? cur, its = items.get(tip) ?? [], tx = pos[days.indexOf(tip)] / span;
-    return html`<div class="scrub" ref=${ref} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
+    return html`<div class="scrub" ref=${el => { ref.current = el; if (el) sized.observe(el); }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
         onPointerDown=${down} onPointerMove=${e => { if (!e.buttons) setHot(nearest(e)); }} onPointerLeave=${() => setHot(null)} onKeyDown=${key}>
-      ${years.map(([y, p]) => html`<span class="yr" style=${`left:${at(p)}`}>${y}</span>`)}
+      ${years.map(([y, p]) => html`<span class=${'yr' + (width.value && (width.value - 32) * (1 - p / span) < 36 ? ' l' : '')} style=${`left:${at(p)}`}>${y}</span>`)}
       ${breaks.map(p => html`<span class="brk" style=${`left:${at(p)}`} />`)}
       ${days.map((d, i) => html`<i class=${d === cur ? 'on' : d === hot ? 'hot' : d === today ? 'now' : ''} style=${`left:${at(pos[i])}`} />`)}
       <span class=${'scrub-tip' + (tx < .2 ? ' l' : tx > .8 ? ' r' : '')} style=${`left:${at(pos[days.indexOf(tip)])}`}>

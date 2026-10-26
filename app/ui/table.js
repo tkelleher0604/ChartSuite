@@ -229,6 +229,17 @@ const Table = (() => {
 
   // ---- The grid ----
   let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null, bar = null;
+  // The grid fills its width, whatever the inspector leaves it: each column as wide as what it holds, to a cap,
+  // and what's left over to its widest column of words, where a long name or title is likeliest cut. A column
+  // the user has sized keeps its width.
+  const WORDS = /\bc-(text|edge|choice|document)\b/, slack = new WeakSet();
+  Tabulator.extendModule('layout', 'modes', { fitDataSlack(columns) {
+    const shown = columns.filter(c => c.visible);
+    for (const c of shown) if (!c.widthFixed || slack.has(c)) c.reinitializeWidth();
+    const room = this.table.rowManager.element.clientWidth - shown.reduce((w, c) => w + c.getWidth(), 0);
+    const to = shown.filter(c => !c.widthFixed && WORDS.test(c.definition.cssClass)).reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null);
+    if (to && room > 0) { to.setWidth(to.getWidth() + room); slack.add(to); }
+  } });
 
   function columnDefs(m) {
     const defs = m.cols.filter(c => c.shown).map(c => {
@@ -285,11 +296,8 @@ const Table = (() => {
     built = { view: m.view, sig: signature(m) };
     reds = new Set();
     flight = null;
-    // The grid fills the width: its last column stretches to the edge where it's words, and its rows where
-    // it's a number or a tag, which would stand off alone.
-    const last = m.cols.filter(c => c.shown).at(-1)?.type;
     const t = table = new Tabulator(host, {
-      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: NUMERIC.has(last) || last === 'tag' ? 'fitDataFill' : 'fitDataStretch',
+      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: 'fitDataSlack',
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,
@@ -320,6 +328,7 @@ const Table = (() => {
     t.on('rangeChanged', range => pick(range));
     t.on('rangeAdded', range => pick(range));
     t.on('columnMoved', () => placeColumns());
+    t.on('columnResized', col => slack.delete(col._column));
     t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu(e, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
     t.on('renderComplete', regain);

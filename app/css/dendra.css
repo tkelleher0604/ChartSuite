@@ -225,8 +225,13 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .chartmenu > .name { overflow: hidden; text-overflow: ellipsis; }
 .find { height: var(--row); width: 100%; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--surface); color: var(--ink-3); cursor: text; }
 .find:hover { border-color: var(--rule-2); }
-.asof { color: var(--ink-2); }
-.asof.past { color: var(--accent-ink); font-weight: 500; }
+/* The day shown; another day, or the log as it stood, is a chip filled in the accent, its × back to today. */
+.asof { display: flex; align-items: center; border-radius: var(--r); }
+.asof > .btn { color: var(--ink-2); }
+.asof.past { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.asof.past > .btn { color: var(--accent-ink); font-weight: 500; }
+.asof.past > .btn.dd { padding-right: 4px; }
+.asof.past > .btn.icon { width: 24px; height: 24px; margin-right: 2px; }
 .titlebar .sep { width: 1px; height: 16px; margin: 0 4px; background: var(--rule); }
 .titlebar .btn.primary { margin-left: 4px; }
 
@@ -250,9 +255,8 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 /* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
 .view > .void { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .view > .void > .btn { pointer-events: auto; }
-/* The time's strip, under the view while it shows. */
-.view > .strip { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; }
-.view:has(> .strip:not(:empty)) > .host { bottom: 32px; }
+/* The time's ruler, under the view while it shows (table.css). */
+.view:has(> .scrub) > .host { bottom: 32px; }
 .inspector > .host { min-height: 100%; }
 /* What takes the inspector's place (History) fills it, and scrolls itself. */
 .inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }
