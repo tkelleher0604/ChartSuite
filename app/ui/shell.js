@@ -293,6 +293,7 @@ const Shell = (() => {
       ...['system', 'light', 'dark'].map(t => ({ title: `Theme: ${t[0].toUpperCase()}${t.slice(1)}`, keywords: 'appearance dark mode', run: () => setTheme(t) })),
       { title: 'Show or hide the sidebar', meta: `${modKey}+\\`, run: toggleSidebar },
       { title: 'Keyboard shortcuts', meta: '?', keywords: 'keys help', run: showKeys },
+      ...(typeof Tour === 'object' ? [{ title: 'Take the tour', keywords: 'help guide introduction', run: () => Tour.start() }] : []),
     ];
   }
 
@@ -694,6 +695,7 @@ const Shell = (() => {
     prefs.welcomed = true;
     savePrefs();
     if (name !== null && clean(name)) { setCurrentUser(name); render(); }
+    if (typeof Tour === 'object') toast('New here? A two-minute tour shows each area.', { action: { label: 'Take the tour', run: () => Tour.start() } });
   }
   // The sidebar is shown or hidden on every page alike, as last chosen (prefs.sidebar), except on a page that
   // starts without it (Shell.start's `sidebar: false`, for a canvas), which keeps a choice of its own

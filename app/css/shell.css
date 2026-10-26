@@ -320,3 +320,11 @@ th:hover .th-menu, .th-menu:focus-visible, .th-menu[aria-expanded="true"] { opac
 .banner { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px 10px 20px; border-bottom: 1px solid var(--danger-border); background: var(--danger-soft); font-size: var(--fs-dense); }
 .banner-text { flex: 1 1 24rem; }
 #banner:empty { display: none; }
+
+/* The guided tour: a card at the foot of the page, beside the sidebar, and a ring on what a step points at. */
+.tour { position: fixed; bottom: calc(var(--toasts-bottom, 16px) + 8px); left: calc(var(--sidebar-w) + 24px); z-index: 94; width: min(380px, calc(100vw - 48px)); padding: 16px 18px 14px; border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-dialog); animation: shell-rise .2s var(--ease); }
+.tour-step { color: var(--text-3); font-size: var(--fs-caption); font-weight: 500; }
+.tour-title { margin: 4px 0 6px; font-size: var(--fs-title-sm); font-weight: 600; }
+.tour-text { margin: 0; color: var(--text-2); font-size: var(--fs-dense); line-height: 20px; }
+.tour-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.tour-target { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
