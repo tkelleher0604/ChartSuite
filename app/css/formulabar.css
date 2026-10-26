@@ -1,0 +1,140 @@
+/* The formula bar and a definition's page (ui/formulabar.js). A formula is set in the interface's face, not
+   monospace, so it reads as language; functions and keywords in small capitals, so the user's names carry the
+   line. Range Finder takes dendra.css's --rf-1 … --rf-6; the redline, .add and .del. */
+
+/* The chart's page stays white in both themes, so what the bar outlines on it takes the light theme's hues. */
+:root { --rf-page-1: #1f6fa8; --rf-page-2: #187a74; --rf-page-3: #a3570f; --rf-page-4: #a63a68; --rf-page-5: #5c6a17; --rf-page-6: #6e5a43; --no-page: #c2372b; }
+
+/* ---- The bar ---- */
+.fxbar { padding: 4px 12px 6px; max-height: 40vh; overflow: auto; }
+.fxbar.none { min-height: 36px; display: flex; align-items: center; padding-block: 0; }
+.fx-head { display: flex; align-items: center; gap: 8px; min-height: 28px; min-width: 0; }
+.fx-back { height: 24px; padding: 0 6px 0 0; gap: 0; margin-right: 4px; color: var(--ink-2); font-weight: 400; }
+.fx-back > svg { transform: rotate(90deg); }
+.fx-back > span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.fx-out { position: relative; display: inline-flex; align-items: center; flex: none; min-height: 20px; }
+.fx-out > .tag:not(:disabled) { cursor: pointer; }
+.fx-out.err { color: var(--no); font-weight: 600; }
+.fx-name { flex: none; border: 0; padding: 0; background: none; font-weight: 600; color: var(--ink); white-space: nowrap; }
+button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
+.fx-name.btn { height: 24px; padding: 0 6px; margin: 0 -2px 0 -6px; }
+.fx-args { min-width: 0; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-args > .to { padding: 0 6px; color: var(--ink-3); }
+.fx-arg.fx-rf { font-weight: 500; }
+.fx-end { margin-left: auto; padding-left: 16px; display: flex; align-items: center; gap: 12px; flex: none; font: var(--t12); color: var(--ink-3); white-space: nowrap; }
+.fx-link { border: 0; padding: 0; background: none; font: inherit; color: var(--ink-2); text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; }
+.fx-link:hover { color: var(--ink); text-decoration-style: solid; }
+.fx-delta { display: flex; gap: 16px; font: var(--t13); color: var(--ink-2); }
+.fx-delta b { font-weight: 600; }
+.fx-delta .plus { color: var(--accent-ink); }
+.fx-delta .minus { color: var(--no); }
+.fx-delta .changed { color: var(--due); font-weight: 500; }
+.fx-acts { display: flex; gap: 8px; }
+.fxbar .fx-acts { gap: 0; margin-right: -6px; }
+.fx-ok { color: var(--accent-ink); }
+
+/* The output: a value typed over in place, like a cell. */
+.fx-value, .fx-text { height: 22px; padding: 0 4px; margin: 0 -4px; font-weight: 500; }
+.fx-text { display: inline-flex; align-items: center; }
+.fx-value:hover:not(:focus) { border-color: var(--rule); }
+/* A tag's pending state: dashed, in the colour it would take. */
+.tag.pend { border-style: dashed; background: transparent; }
+.tag.pend.yes { border-color: var(--yes); }
+.tag.pend.yes::after { border-color: var(--yes); }
+.tag.pend.no { border-color: var(--no); }
+.tag.pend.no::before, .tag.pend.no::after { background: var(--no); }
+
+/* ---- The rows: a label column, then the formula; the rest of a row's cells only while editing ---- */
+.fx-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto auto; padding-left: 22px; }
+.fx-row { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: start; }
+.fx-row > .fx-label { grid-column: 1; max-width: 200px; padding: 3px 16px 3px 0; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-row > input.fx-label { height: 24px; margin: 0 12px 0 -5px; padding: 0 4px; font-weight: 500; field-sizing: content; min-width: 3ch; }
+.fx-row > input.fx-label:hover:not(:focus) { border-color: var(--rule); }
+.fx-row > .fx-cm { grid-column: 2; min-width: 0; }
+.fx-row > .fx-would { grid-column: 3; padding: 3px 0 3px 16px; color: var(--ink-2); white-space: nowrap; }
+.fx-row > .fx-would > .tag { vertical-align: -2px; }
+.fx-row > .fx-x { grid-column: 4; width: 24px; height: 24px; margin-left: 8px; opacity: 0; }
+.fx-row:hover > .fx-x, .fx-row > .fx-x:focus-visible { opacity: 1; }
+.fx-row.alt > .fx-label { font-weight: 400; color: var(--ink-2); }
+.fx-row.alt .CodeMirror { color: var(--ink-2); }
+.fx-row.grey > .fx-label { font-weight: 400; color: var(--ink-3); }
+.fx-row.gone > .fx-label, .fx-cm.gone { color: var(--no); text-decoration: line-through; }
+.fx-cm.gone { padding: 3px 0; }
+.fx-others { grid-column: 1 / -1; padding: 3px 0 2px; color: var(--ink-3); }
+.fx-others > button { border: 0; padding: 0; background: none; color: inherit; }
+.fx-others > button:hover { color: var(--ink); }
+.fx-others > button + button::before { content: "·"; padding: 0 8px; color: var(--rule-2); }
+.fx-more { grid-column: 1 / -1; }
+.fx-add { width: 24px; height: 24px; margin-left: -6px; color: var(--ink-3); }
+
+/* A grip, shown on hover, to drag a row to another place. */
+.fx-grip { position: absolute; left: -16px; top: 5px; width: 8px; height: 14px; cursor: grab; opacity: 0;
+  background: radial-gradient(circle, var(--ink-3) 1px, transparent 1.3px) 0 0 / 4px 4px; }
+:is(.fx-row, .fx-clause):hover > .fx-grip { opacity: 1; }
+:is(.fx-row, .fx-clause).dragging { opacity: .4; }
+:is(.fx-row, .fx-clause).drop-before::before, :is(.fx-row, .fx-clause).drop-after::after { content: ""; position: absolute; left: -16px; right: 0; height: 2px; background: var(--accent); }
+:is(.fx-row, .fx-clause).drop-before::before { top: -1px; }
+:is(.fx-row, .fx-clause).drop-after::after { bottom: -1px; }
+
+/* ---- A formula, in CodeMirror and set statically: the same face and tokens ---- */
+:is(.fxbar, .fx-page) .CodeMirror { height: auto; background: transparent; color: inherit; font: 13px/18px var(--sans); }
+:is(.fxbar, .fx-page) .CodeMirror-lines { padding: 3px 0; }
+:is(.fxbar, .fx-page) .CodeMirror pre.CodeMirror-line { padding: 0; }
+.fx-cm.grey .CodeMirror { color: var(--ink-3); }
+:is(.fxbar, .fx-page) .cm-builtin, :is(.fxbar, .fx-page) .cm-keyword, :is(.fxbar, .fx-page) .cm-atom { color: inherit; font-weight: 400; font-variant: all-small-caps; letter-spacing: .04em; }
+:is(.fxbar, .fx-page) .cm-variable, :is(.fxbar, .fx-page) .cm-variable-2, :is(.fxbar, .fx-page) .cm-number { color: inherit; }
+:is(.fxbar, .fx-page) .cm-string { color: var(--ink-2); }
+:is(.fxbar, .fx-page) :is(.cm-operator, .cm-arrow) { color: var(--ink-3); }
+.fx-cm.grey .cm-string { color: inherit; }
+.CodeMirror-hint.fx-hint.function { font-variant: all-small-caps; letter-spacing: .04em; }
+
+/* Range Finder: each name in its hue; the part under the pointer tinted, its value just after it. */
+:is(.fxbar, .fx-page) .fx-rf { font-weight: 500; }
+:is(.fxbar, .fx-page) .fx-c1 { color: var(--rf-1); }
+:is(.fxbar, .fx-page) .fx-c2 { color: var(--rf-2); }
+:is(.fxbar, .fx-page) .fx-c3 { color: var(--rf-3); }
+:is(.fxbar, .fx-page) .fx-c4 { color: var(--rf-4); }
+:is(.fxbar, .fx-page) .fx-c5 { color: var(--rf-5); }
+:is(.fxbar, .fx-page) .fx-c6 { color: var(--rf-6); }
+.fx-hov { border-radius: 2px; background: color-mix(in srgb, currentColor 11%, transparent); box-shadow: inset 0 -1.5px 0 currentColor; }
+.fx-val { display: inline-block; margin: 0 2px 0 4px; padding: 0 6px; border-left: 2px solid currentColor; color: var(--ink);
+  background: color-mix(in srgb, currentColor 9%, var(--surface)); font: 500 12px/18px var(--sans); white-space: nowrap; vertical-align: top; }
+.fx-val:not([class*="fx-c"]) { border-left-color: var(--ink-3); background: var(--hover); }
+.fx-loop { text-decoration: underline 2px var(--no); text-underline-offset: 3px; }
+
+/* ---- A definition's page, in the inspector's place, widened, with the chart still beside it ---- */
+.shell > .main:not(.wide):has(> .fx-page) { grid-template-columns: minmax(0, 1fr) 1px clamp(560px, 58vw, 920px); }
+.fx-page { grid-row: 1; grid-column: 3; z-index: 3; min-width: 0; min-height: 0; overflow: auto; background: var(--surface); animation: rise var(--calm) var(--ease); }
+.fx-doc { max-width: 920px; padding: 28px 40px 56px; }
+.fx-doc-head { display: flex; align-items: baseline; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
+.fx-doc-head > h1 { flex: 1; min-width: 0; }
+.fx-doc-head > .btn { align-self: center; margin-right: -8px; }
+.fx-count { font: var(--t15); font-weight: 400; color: var(--ink-2); }
+.fx-sig { display: flex; flex-wrap: wrap; gap: 4px 28px; padding: 10px 0 12px; border-bottom: 1px solid var(--rule); color: var(--ink); }
+.fx-sig .k { margin-right: 8px; font: var(--t12); color: var(--ink-3); }
+.fx-lead { max-width: 68ch; margin: 18px 0 2px; line-height: 20px; }
+.fx-clauses { display: grid; grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1.3fr) max-content; column-gap: 24px; margin-top: 8px; }
+.fx-clause { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.fx-clause > .fx-grip { left: -22px; top: 15px; }
+.fx-clause > .fx-label { max-width: 120px; font-weight: 600; line-height: 20px; }
+.fx-clause:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--rf-1) 7%, transparent), transparent 70%); box-shadow: inset 2px 0 0 var(--rf-1); }
+.fx-clause.unwritten .fx-law { color: var(--ink-2); }
+.fx-clause.gone :is(.fx-label, .fx-law) { color: var(--ink-3); }
+.fx-law { line-height: 20px; }
+.fx-forms > * + * { margin-top: 10px; }
+.fx-set { line-height: 20px; cursor: text; border-radius: 2px; }
+.fx-set:hover { box-shadow: 0 0 0 4px var(--hover); background: var(--hover); }
+.fx-set > .cont { padding-left: 1.6em; }
+.fx-set.gone { color: var(--no); text-decoration: line-through; }
+.fx-edit { margin: -3px 0; }
+.fx-unwritten { border: 0; padding: 0; background: none; color: var(--ink-3); line-height: 20px; }
+.fx-unwritten:hover { color: var(--ink); }
+.fx-n { justify-self: end; height: 20px; border: 0; padding: 0; background: none; color: var(--ink-2); }
+button.fx-n:hover { text-decoration: underline; text-underline-offset: 3px; }
+.fx-clause:hover > .fx-n { color: var(--rf-1); font-weight: 600; }
+.fx-doc-pend { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.fx-doc-pend > .fx-acts { margin-left: auto; }
+.fx-uses { display: grid; grid-template-columns: max-content 1fr; gap: 6px 20px; margin: 24px 0 0; font: var(--t12); }
+.fx-uses > dt { color: var(--ink-3); }
+.fx-uses > dd { margin: 0; color: var(--ink-2); }
+.fx-uses .sep { padding: 0 8px; color: var(--rule-2); }

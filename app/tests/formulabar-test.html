@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Formula bar test</title>
+<script>
+  // The window with the formula bar, on the sample, without the launch screen or the tour. ?theme=dark for
+  // the dark theme; ?case=… sets up one of the cases below, for a screenshot; ?checks runs the checks and
+  // prints them. Run it in Chrome with --allow-file-access-from-files. Nothing is kept: the workbook lives in
+  // the browser profile, so use a fresh one.
+  (() => {
+    const q = new URLSearchParams(location.search);
+    document.documentElement.dataset.theme = q.get('theme') === 'dark' ? 'dark' : 'light';
+    try { sessionStorage.setItem('dendra.launched', '1'); localStorage.setItem('dendra.toured', '1'); } catch {}
+  })();
+</script>
+<link rel="stylesheet" href="../../vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="../../vendor/codemirror/show-hint.css">
+<link rel="stylesheet" href="../../vendor/codemirror/lint.css">
+<link rel="stylesheet" href="../css/dendra.css">
+<link rel="stylesheet" href="../css/formulabar.css">
+<style>
+  /* The stand-in chart: a white page of boxes and lines, as the canvas will draw the scene. */
+  .si { width: 100%; height: 100%; display: block; background: var(--side); }
+  .si text { font: 11px Arial, sans-serif; fill: #1b1e1d; }
+  .si .box rect { fill: #fff; stroke: #1b1e1d; stroke-width: 1; }
+  .si .line path.l { fill: none; stroke: #1b1e1d; stroke-width: 1; }
+  .si .hit { fill: none; stroke: transparent; stroke-width: 10; cursor: pointer; }
+  .si .box { cursor: pointer; }
+  .si .faint { opacity: .16; }
+  .si .lab { font-size: 10px; fill: #4f5451; }
+  .si .fxl { font-style: italic; }
+  #out { position: fixed; z-index: 99; right: 8px; bottom: 40px; max-width: 760px; max-height: 70vh; overflow: auto; margin: 0; padding: 10px 12px;
+    background: #111; color: #e6e4df; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+  #out .fail { color: #ff8a80; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<pre id="out" hidden></pre>
+
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/dexie/dexie.min.js"></script>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../../vendor/codemirror/codemirror.js"></script>
+<script src="../../vendor/codemirror/simple.js"></script>
+<script src="../../vendor/codemirror/show-hint.js"></script>
+<script src="../../vendor/codemirror/lint.js"></script>
+<script src="../../vendor/codemirror/matchbrackets.js"></script>
+
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/store.js"></script>
+<script src="../sample/calder-ridge.js"></script>
+
+<script src="../ui/shell.js"></script>
+<script src="../ui/app.js"></script>
+<script src="../ui/formulabar.js"></script>
+<script>
+// ---- A stand-in for the canvas, until app/ui/canvas.js lands ----
+// People, entities and investor groups as boxes laid out by ELK, the relations entered between them as lines,
+// and the two calls the formula bar makes: highlight, which draws what it names (computed lines too) and
+// dims the rest, and redline. A click selects; shift-click adds to the selection.
+const StandIn = (() => {
+  const NS = 'http://www.w3.org/2000/svg', KINDS = new Set(['Entity', 'Individual', 'Investor Group']);
+  const FROM = ['owner', 'gp', 'member', 'holder', 'adviser'];
+  const INK = '#1b1e1d', BLUE = '#2c4c7c', RED = '#c2372b';
+  const hl = Shell.signal(null), rl = Shell.signal(null), placed = Shell.signal(null);
+  let host = null, done;
+  const ready = new Promise(r => { done = r; });
+  const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs ?? {})) if (v != null) e.setAttribute(k, v); parent?.appendChild(e); return e; };
+  const wrap = s => { const out = [''], words = s.split(' '); for (const w of words) { if (out.at(-1) && (out.at(-1) + ' ' + w).length > 24) out.push(w); else out[out.length - 1] = (out.at(-1) + ' ' + w).trim(); } return out; };
+
+  async function lay() {
+    const recs = App.entered.peek(), name = id => Tree.objectName(recs, id);
+    const boxes = Object.keys(recs).filter(id => KINDS.has(recs[id].kind));
+    const drawn = new Set(boxes);
+    const lines = [];
+    for (const [id, r] of Object.entries(recs)) {
+      if (r.args?.length !== 2) continue;
+      let [a, b] = r.args.map(x => Tree.objectOf(recs, x.at));
+      if (!FROM.includes(Tree.norm(r.args[0].edge))) [a, b] = [b, a];
+      if (drawn.has(a) && drawn.has(b) && a !== b) lines.push({ id, a, b });
+    }
+    const size = id => { const ls = wrap(name(id)); return { width: Math.round(Math.max(...ls.map(l => l.length)) * 6 + 22), height: ls.length > 1 ? 40 : 28 }; };
+    const out = await new ELK().layout({
+      id: 'root', children: boxes.map(id => ({ id, ...size(id) })), edges: lines.map(l => ({ id: l.id, sources: [l.a], targets: [l.b] })),
+      layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'DOWN', 'elk.edgeRouting': 'ORTHOGONAL', 'elk.spacing.nodeNode': '16',
+        'elk.layered.spacing.nodeNodeBetweenLayers': '44', 'elk.layered.spacing.edgeNodeBetweenLayers': '12', 'elk.layered.spacing.edgeEdgeBetweenLayers': '8' },
+    });
+    placed.value = { nodes: new Map(out.children.map(c => [c.id, c])), routes: new Map(out.edges.map(e => [e.id, e.sections?.[0]])), lines, w: out.width, h: out.height };
+    done();
+  }
+
+  // Where a straight line from one box's centre to another's leaves the first box.
+  function rim(n, toward) {
+    const cx = n.x + n.width / 2, cy = n.y + n.height / 2, dx = toward.x - cx, dy = toward.y - cy;
+    const t = Math.min(Math.abs(n.width / 2 / (dx || 1e-9)), Math.abs(n.height / 2 / (dy || 1e-9)));
+    return { x: cx + dx * t, y: cy + dy * t };
+  }
+  const centre = n => ({ x: n.x + n.width / 2, y: n.y + n.height / 2 });
+
+  function draw() {
+    const P = placed.value, H = hl.value, L = rl.value, sel = new Set(Shell.selection.value), R = App.computed.value;
+    if (!host || !P) return;
+    const recs = { ...R.records, ...(L?.records ?? {}) }, C = H?.colors ?? {}, strong = new Set(H?.strong ?? []);
+    const appear = new Set(L?.appear ?? []), go = new Set(L?.go ?? []), changed = L?.changed ?? {};
+    const lit = id => C[id] ?? (appear.has(id) ? BLUE : go.has(id) ? RED : null);
+    const faint = id => (H?.dim || L) && !lit(id) && !sel.has(id);
+    const pad = 24, svg = el('svg', { class: 'si', viewBox: `${-pad} ${-pad} ${P.w + 2 * pad} ${P.h + 2 * pad}`, preserveAspectRatio: 'xMidYMid meet' });
+    const defs = el('defs', {}, svg);
+    const arrow = color => { const id = 'a' + color.replace(/[^0-9a-z]/gi, ''); if (!svg.getElementById(id)) el('path', { d: 'M0 0L8 4L0 8z', fill: color }, el('marker', { id, viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 6, markerHeight: 6, orient: 'auto' }, defs)); return `url(#${id})`; };
+    el('rect', { x: -pad, y: -pad, width: P.w + 2 * pad, height: P.h + 2 * pad, fill: '#fff' }, svg);
+    const labelOf = id => {
+      const r = recs[id];
+      if ('choice' in r) return { id, text: r.choice };
+      const pct = Object.entries(recs).find(([, x]) => x.at === id && x.field === 'percent');
+      return pct ? { id: pct[0], text: Tree.format('percent', pct[1].value) } : null;
+    };
+    const label = (g, at, lab, color) => {
+      const t = el('text', { x: at.x + 4, y: at.y + 3, class: 'lab', fill: C[lab.id] ?? color ?? null }, g);
+      const ch = changed[lab.id];
+      if (ch) { el('tspan', { fill: RED, 'text-decoration': 'line-through' }, t).textContent = ch.before; el('tspan', { fill: BLUE, dx: 4 }, t).textContent = ch.after; }
+      else t.textContent = lab.text;
+    };
+    const lines = el('g', {}, svg), boxes = el('g', {}, svg), over = el('g', {}, svg);
+    const shown = new Set();
+    for (const l of P.lines) {
+      const s = P.routes.get(l.id);
+      if (!s || !recs[l.id]) continue;
+      shown.add(l.id);
+      const pts = [s.startPoint, ...(s.bendPoints ?? []), s.endPoint];
+      const color = lit(l.id), g = el('g', { class: 'line' + (faint(l.id) ? ' faint' : ''), 'data-id': l.id }, color ? over : lines);
+      const d = 'M' + pts.map(p => `${p.x} ${p.y}`).join('L');
+      el('path', { class: 'l', d, stroke: color ?? (sel.has(l.id) ? BLUE : null), 'stroke-width': color ? (strong.has(l.id) ? 2.6 : 1.8) : sel.has(l.id) ? 2 : null, 'stroke-dasharray': go.has(l.id) ? '5 4' : null }, g);
+      el('path', { class: 'hit', d }, g);
+      const lab = labelOf(l.id), long = pts.slice(1).map((p, i) => [pts[i], p]).sort((x, y) => Math.abs(y[1].y - y[0].y) - Math.abs(x[1].y - x[0].y))[0];
+      if (lab) label(g, { x: long[0].x, y: (long[0].y + long[1].y) / 2 }, lab, color);
+    }
+    // Lines the view doesn't draw, while the bar names them, or the redline does: computed ones, dashed.
+    for (const id of new Set([...Object.keys(C), ...appear, ...go])) {
+      const r = recs[id];
+      if (shown.has(id) || r?.args?.length !== 2) continue;
+      const [a, b] = r.args.map(x => P.nodes.get(Tree.objectOf(recs, x.at)));
+      if (!a || !b || a === b) continue;
+      const color = lit(id), p = rim(a, centre(b)), q = rim(b, centre(a)), mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
+      const nx = -(q.y - p.y), ny = q.x - p.x, k = 0.18, c = { x: mx + nx * k, y: my + ny * k };
+      const g = el('g', { class: 'line', 'data-id': id }, over);
+      const d = `M${p.x} ${p.y}Q${c.x} ${c.y} ${q.x} ${q.y}`;
+      el('path', { class: 'l', d, stroke: color, 'stroke-width': strong.has(id) ? 2.4 : 1.6, 'stroke-dasharray': '6 4', 'marker-end': arrow(color) }, g);
+      el('path', { class: 'hit', d }, g);
+      if (go.has(id)) { const x = (p.x + 2 * c.x + q.x) / 4, y = (p.y + 2 * c.y + q.y) / 4; el('path', { d: `M${x - 5} ${y - 5}l10 10m0-10l-10 10`, stroke: RED, 'stroke-width': 1.8 }, g); }
+    }
+    for (const [id, n] of P.nodes) {
+      const color = lit(id), g = el('g', { class: 'box' + (faint(id) ? ' faint' : ''), 'data-id': id, transform: `translate(${n.x} ${n.y})` }, boxes);
+      el('rect', { width: n.width, height: n.height, rx: 2, stroke: color ?? (sel.has(id) ? BLUE : null), 'stroke-width': color ? (strong.has(id) ? 2.4 : 1.6) : sel.has(id) ? 2 : null }, g);
+      const ls = wrap(Tree.objectName(recs, id));
+      ls.forEach((t, i) => { el('text', { x: n.width / 2, y: n.height / 2 + (i - (ls.length - 1) / 2) * 13 + 4, 'text-anchor': 'middle' }, g).textContent = t; });
+    }
+    host.replaceChildren(svg);
+  }
+
+  function click(e) {
+    const hit = e.target.closest?.('[data-id]'), sel = Shell.selection.peek();
+    if (!hit) return Shell.select([]);
+    const id = hit.dataset.id;
+    Shell.select(e.shiftKey ? [...sel.filter(x => x !== id), id] : [id]);
+  }
+
+  Shell.effect(() => { if (Object.keys(App.entered.value).length && !placed.peek()) lay(); });
+  Shell.effect(draw);
+  return {
+    ready,
+    mount(el) { host = el; host.addEventListener('pointerdown', click); draw(); return () => { host = null; }; },
+    highlight(colors, o) { hl.value = colors ? { colors, ...o } : null; },
+    redline(r) { rl.value = r; },
+    placed, hl, rl,
+  };
+})();
+if (!Shell.parts.peek().canvas) Shell.register('canvas', StandIn);
+
+// ---- Cases, each set up for a screenshot ----
+const q = new URLSearchParams(location.search);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const CLOSE_NP = 'fx:bdc=bdc_ics&close affiliate=northpine', AP_NP_CHEN = 'fx:affiliate=northpine&person=chen', FEEDER_FUND = 'fx:controlled=fund&controller=feeder';
+async function ready() {
+  for (let i = 0; i < 400 && !Object.keys(App.entered.peek()).length; i++) await wait(10);
+  await StandIn.ready;
+  await wait(60);
+}
+const cmOf = key => document.querySelector(`.fxbar [data-key="${key}"] .CodeMirror`)?.CodeMirror;
+const citedKey = () => FormulaBar.model.peek().rows.find(r => r.cited).key;
+// The pointer over the n-th occurrence of some text in a row's formula.
+function hoverOn(key, text, n = 0) {
+  const cm = cmOf(key), v = cm.getValue();
+  let i = -1;
+  for (let k = 0; k <= n; k++) i = v.indexOf(text, i + 1);
+  const p = cm.charCoords(cm.posFromIndex(i), 'window');
+  cm.getWrapperElement().dispatchEvent(new MouseEvent('mousemove', { clientX: p.left + 2, clientY: (p.top + p.bottom) / 2, bubbles: true }));
+}
+// Typing into a row: the cursor after some text, then the text typed.
+function typeIn(key, after, text, replace = 0) {
+  const cm = cmOf(key), i = cm.getValue().indexOf(after) + after.length;
+  cm.focus();
+  cm.setCursor(cm.posFromIndex(i));
+  cm.replaceRange(text, cm.posFromIndex(i), cm.posFromIndex(i + replace), '+input');
+}
+// The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
+function describeAffiliated() {
+  const N = App.notes.peek(), f = N.notes('Formula').find(n => n.note === 'def_affiliated');
+  const text = ['“Affiliated person” of another person means—',
+    '(A) any person directly or indirectly owning, controlling, or holding with power to vote, 5 per centum or more of the outstanding voting securities of such other person;',
+    '(B) any person 5 per centum or more of whose outstanding voting securities are directly or indirectly owned, controlled, or held with power to vote, by such other person;',
+    '(C) any person directly or indirectly controlling, controlled by, or under common control with, such other person;',
+    '(D) any officer, director, partner, copartner, or employee of such other person;',
+    '(E) if such other person is an investment company, any investment adviser thereof or any member of an advisory board thereof; and',
+    '(F) if such other person is an unincorporated investment company not having a board of directors, the depositor thereof.'].join('\n');
+  const old = N.notes('Description').find(n => JSON.stringify(n.pattern) === JSON.stringify(f.pattern));
+  const tx = App.edit();
+  if (old) tx.set(old.note, { label: 'Description', pattern: f.pattern, value: text }); else tx.add('note', { label: 'Description', pattern: f.pattern, value: text });
+  tx.commit();
+}
+// An ownership loop of 10% fund holdings, which the 3(c)(1) count can't settle.
+function makeLoop() {
+  const tx = App.edit();
+  tx.add('record', { at: 'northpine', edge: 'Investment Company Status', choice: '3(c)(7) Fund' });
+  const own = tx.add('record', { args: [{ edge: 'Owner', at: 'northpine' }, { edge: 'Owned', at: 'fund' }], tag: true });
+  tx.add('record', { at: own, edge: 'Percentage', field: 'percent', value: 0.2 });
+  tx.commit();
+  return App.computed.peek().errors.find(e => e.error.code === '#CIRCULAR!' && e.def === 'def_3c1' && e.at && Tree.objectOf(App.state.peek(), e.at) === 'fund')
+    ?? App.computed.peek().errors.find(e => e.error.code === '#CIRCULAR!');
+}
+
+const cases = {
+  async close() { Shell.select([CLOSE_NP]); },
+  async hover() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), '@'); },
+  async hoverlist() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), 'Personnel'); },
+  async step() { Shell.select([CLOSE_NP]); await wait(80); Shell.select([AP_NP_CHEN]); },
+  async type() { Shell.select([FEEDER_FUND]); await wait(80); typeIn('r2', '> ', '3', 1); },
+  async tag() { Shell.select([FEEDER_FUND]); await wait(80); document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); },
+  async value() {
+    Shell.select(['own_fdr_fund_pct']); await wait(80);
+    const i = document.querySelector('.fx-value'); i.focus(); i.value = '20%'; i.dispatchEvent(new Event('input', { bubbles: true }));
+  },
+  async whynot() { Shell.select(['pension', 'bdc']); await wait(80); hoverOn('r1', 'Personnel'); },
+  async override() { Shell.select(['bdc_tax']); },
+  async circular() { const e = makeLoop(); await wait(30); Shell.select([e.id]); },
+  async page() { describeAffiliated(); await wait(30); Shell.select([AP_NP_CHEN]); await wait(60); FormulaBar.open('def_affiliated'); await wait(60); document.querySelectorAll('.fx-clause')[3]?.dispatchEvent(new PointerEvent('pointerenter')); },
+  async point() {
+    Shell.select([FEEDER_FUND]); await wait(80);
+    typeIn('r2', '> 25%', ' AND ');
+    await wait(30);
+    Shell.select(['own_fdr_fund']);
+  },
+  async delete() { Shell.select([FEEDER_FUND]); await wait(80); document.querySelector('.fxbar .fx-others button').click(); await wait(30); document.querySelector('.fxbar [data-key="r3"] .fx-x').dispatchEvent(new PointerEvent('pointerenter')); },
+};
+
+// ---- Checks ----
+const results = [];
+const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: String(detail ?? '') });
+async function checks() {
+  const M = () => FormulaBar.model.peek(), F = () => FormulaBar.finder.peek(), R = () => App.computed.peek();
+  check('the bar reads App.computed', R().records[CLOSE_NP] && R().computed[CLOSE_NP]?.def === 'def_close');
+
+  Shell.select([CLOSE_NP]); await wait(40);
+  let m = M(), f = F();
+  check('a computed record: its name, arguments and output', m.title === 'Close Affiliate' && m.args.map(a => a.id).join() === 'northpine,bdc' && m.out.tag === true && m.computed, `${m.title} ${m.args?.map(a => a.id)}`);
+  const cited = m.rows.find(r => r.cited);
+  check('the cited row is the ground, the other holding row is ink, the rest grey', cited?.label === '(b)(1) affiliates' && m.rows.filter(r => r.ink).length === 2 && m.rows.some(r => !r.ink),
+    m.rows.map(r => `${r.label}:${r.cited ? 'cited' : r.ink ? 'ink' : 'grey'}`).join(' '));
+  check('each name in the cited row takes a colour', [...f.colors.values()].length >= 4, [...f.colors].map(([n, c]) => cited.formula.slice(n.from, n.to) + ':' + c).join(' '));
+  const lev = id => f.map.get(id)?.level;
+  check('Range Finder: the BDC, its personnel and Northpine are outlined', lev('bdc') !== undefined && f.map.has('pos_raman_bdc') && f.map.has('okafor'), [...f.map.keys()].slice(0, 12).join(' '));
+  check('witnesses are strong: Chen, her Director line, and the Affiliated Person line', lev('chen') === 0 && lev('pos_chen_bdc') === 0 && lev(AP_NP_CHEN) === 0, `${lev('chen')} ${lev('pos_chen_bdc')} ${lev(AP_NP_CHEN)}`);
+  check('the others searched are lighter', lev('raman') === 1 && lev('pos_raman_bdc') === 1, `${lev('raman')} ${lev('pos_raman_bdc')}`);
+  const deep = [...f.map].filter(([, x]) => x.level === 2).map(([id]) => id);
+  check('deeper reasons, lighter, down to entered records', deep.length > 3 && deep.some(id => !R().computed[id] && R().records[id]?.args), deep.slice(0, 10).join(' '));
+  check('the canvas is asked to highlight', StandIn.hl.peek()?.colors?.[AP_NP_CHEN] && StandIn.hl.peek().dim);
+
+  // Hovering part of the formula
+  hoverOn(cited.key, '@'); await wait(30);
+  let val = document.querySelector('.fx-val');
+  check('hovering @ shows its value here, just after it', val?.textContent === 'Margaret A. Chen', val?.textContent);
+  hoverOn(cited.key, 'Personnel'); await wait(30);
+  val = document.querySelector('.fx-val');
+  check('hovering a list shows its items', /Chen/.test(val?.textContent) && /Raman/.test(val?.textContent), val?.textContent);
+  check('what the hovered part means pulses on the chart', (StandIn.hl.peek()?.pulse ?? []).includes('pos_raman_bdc'));
+  FormulaBar.hover.value = null;
+
+  // Stepping down, and back
+  Shell.select([AP_NP_CHEN]); await wait(40);
+  m = M();
+  check('stepping down to a computed record in the highlight', m.title === 'Affiliated Person' && document.querySelector('.fx-back')?.textContent.includes('Close Affiliate'), document.querySelector('.fx-back')?.textContent);
+  FormulaBar.back(); await wait(40);
+  check('the chevron goes back', Shell.selection.peek()[0] === CLOSE_NP && !document.querySelector('.fx-back'));
+
+  // Why not
+  Shell.select(['pension', 'bdc']); await wait(40);
+  m = M();
+  check('two objects in no computed relation show its rows, all grey', m.absent && m.title === 'Close Affiliate' && m.rows.length && m.rows.every(r => !r.ink) && m.rows.every(r => r.ev), `${m.title} ${m.absent}`);
+  check('with every relation they could be in to pick from', m.options.some(o => o.d.name === 'Remote Affiliate' && o.id) && m.options.some(o => o.d.name === 'Affiliated Person'), m.options.map(o => `${o.d.name}:${o.a}>${o.b}:${o.on}`).join(' '));
+  hoverOn('r0', 'Personnel'); await wait(30);
+  check('a grey row shows its values on hover too', /Chen/.test(document.querySelector('.fx-val')?.textContent ?? ''), document.querySelector('.fx-val')?.textContent);
+  FormulaBar.hover.value = null;
+
+  // Overrides
+  Shell.select(['bdc_tax']); await wait(40);
+  m = M();
+  check('an entered value under a formula shows both, with the amber corner', m.covered && document.querySelector('.fx-out.over') && document.querySelector('.fx-would')?.textContent === 'C Corporation', document.querySelector('.fx-would')?.textContent);
+
+  // The redline: hovering a tag
+  Shell.select([FEEDER_FUND]); await wait(40);
+  let t0 = performance.now();
+  document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
+  const ms = performance.now() - t0;
+  let p = FormulaBar.pending.peek();
+  check('hovering a tag previews ruling it out: Control −5', p?.deltas.find(d => d.name === 'Control')?.minus === 5 && /Control\s*−5/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
+  check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === 5);
+  check('the preview is fast enough per keystroke', ms < 120, `${ms.toFixed(0)} ms`);
+  document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
+  check('leaving it ends the preview', !FormulaBar.pending.peek() && !StandIn.rl.peek());
+
+  // Typing a value
+  Shell.select(['own_fdr_fund_pct']); await wait(40);
+  const input = document.querySelector('.fx-value');
+  input.value = '20%'; input.dispatchEvent(new Event('input', { bubbles: true })); await wait(10);
+  p = FormulaBar.pending.peek();
+  check('typing a value previews its redline: the feeder, and whoever controlled the fund through it, lose control', p?.deltas.find(d => d.name === 'Control')?.minus >= 5 && p.diff.go.includes(FEEDER_FUND) && p.diff.change.includes('own_fdr_fund_pct'), JSON.stringify(p?.deltas));
+  check('and a changed value reads ~~28.4%~~ 20%', StandIn.rl.peek()?.changed?.own_fdr_fund_pct?.before === '28.4%' && StandIn.rl.peek().changed.own_fdr_fund_pct.after === '20%');
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(10);
+  check('Esc discards it', !FormulaBar.pending.peek() && App.entered.peek().own_fdr_fund_pct.value === 0.284);
+
+  // Typing a formula, then Enter
+  Shell.select([FEEDER_FUND]); await wait(40);
+  typeIn('r2', '> ', '3', 1); await wait(20);
+  p = FormulaBar.pending.peek();
+  check('typing a formula previews it: 35% rules out the feeder', p?.from === 'bar' && p.deltas.find(d => d.name === 'Control')?.minus >= 5, JSON.stringify(p?.deltas));
+  check('Commit and Discard show while it is pending', document.querySelectorAll('.fxbar .fx-acts .btn').length === 2);
+  const v0 = App.version.peek();
+  FormulaBar.commitEdit(); await wait(30);
+  const row = App.notes.peek().notes('Formula').find(n => n.note === 'def_control').value[2].formula;
+  check('Enter commits it as one change', App.version.peek() === v0 + 1 && /> 35%/.test(row) && !R().records[FEEDER_FUND], row);
+  Shell.parts.peek().undo.undo(); await wait(30);
+  check('and Undo takes it back', /> 25%/.test(App.notes.peek().notes('Formula').find(n => n.note === 'def_control').value[2].formula) && R().records[FEEDER_FUND]);
+
+  // Deleting a row
+  Shell.select([FEEDER_FUND]); await wait(40);
+  document.querySelector('.fxbar .fx-others button').click(); await wait(20);
+  check('a grey label opens every row, in order', document.querySelectorAll('.fxbar .fx-row').length === 4);
+  document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
+  p = FormulaBar.pending.peek();
+  check('hovering a row’s delete previews what goes', p?.deltas.find(d => d.name === 'Control')?.minus > 0, JSON.stringify(p?.deltas));
+  document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
+  check('and leaving it, nothing', !FormulaBar.pending.peek());
+
+  // Completion and squiggles
+  check('completion comes from suggest()', Formulas.suggest('← Controlled.Ow', 15, { computed: R(), def: 'def_control', at: FEEDER_FUND }).list.some(x => x.name === 'Owners'));
+  typeIn('r2', '> 25%', ' AND Bogus'); await wait(250);
+  check('squiggles come from check()', document.querySelector('.fxbar .CodeMirror-lint-mark-error'), document.querySelector('.fxbar .CodeMirror-lint-mark-error')?.textContent);
+  FormulaBar.discard(); await wait(20);
+
+  // Point mode
+  typeIn('r2', '> 25%', ' AND '); await wait(20);
+  Shell.select(['own_fdr_fund']); await wait(40);
+  const reached = FormulaBar.reaching('own_fdr_fund', M());
+  check('point mode: a click on a line offers the names that reach it', reached.includes('Ownership(Controller, Controlled)') && reached.some(x => /Owners|Holdings/.test(x)), reached.join(' | '));
+  check('and the selection is put back', Shell.selection.peek()[0] === FEEDER_FUND);
+  FormulaBar.discard(); await wait(20);
+  check('Esc discards an edit', !FormulaBar.draft.peek() && !FormulaBar.pending.peek());
+
+  // A definition's page
+  describeAffiliated(); await wait(20);
+  FormulaBar.open('def_affiliated'); await wait(60);
+  const page = document.querySelector('.fx-page');
+  const clauses = [...page.querySelectorAll('.fx-clause')];
+  check('a definition’s page opens in the inspector’s place', page && page.querySelector('h1')?.textContent === 'Affiliated Person' && /^\d+$/.test(page.querySelector('.fx-count')?.textContent), page?.querySelector('.fx-count')?.textContent);
+  check('its Description, clause by clause, beside the rows', clauses.length === 6 && /controlling, controlled by/.test(clauses[2].querySelector('.fx-law').textContent) && page.querySelector('.fx-lead')?.textContent.startsWith('“Affiliated person”'),
+    clauses.map(c => c.querySelector('.fx-label').textContent).join(' '));
+  check('each row counts the records it attests', clauses.every((c, i) => i === 5 || /^\d+$/.test(c.querySelector('.fx-n').textContent)), clauses.map(c => c.querySelector('.fx-n').textContent).join(' '));
+  clauses[2].dispatchEvent(new PointerEvent('pointerenter')); await wait(20);
+  check('hovering a row lights its records on the chart', Object.keys(StandIn.hl.peek()?.colors ?? {}).length === Number(clauses[2].querySelector('.fx-n').textContent));
+  clauses[2].dispatchEvent(new PointerEvent('pointerleave'));
+  check('a top-level OR breaks onto its own line', clauses[2].querySelectorAll('.fx-set > div').length === 3);
+  check('Uses and Used by', /Control/.test(page.querySelector('.fx-uses')?.textContent) && /Close Affiliate/.test(page.querySelector('.fx-uses')?.textContent), page.querySelector('.fx-uses')?.textContent);
+  FormulaBar.close(); await wait(20);
+  check('and closes', !document.querySelector('.fx-page'));
+
+  // #CIRCULAR!
+  const e = makeLoop(); await wait(30);
+  Shell.select([e.id]); await wait(40);
+  m = M(); f = F();
+  check('#CIRCULAR!: the loop outlined in red', m.out.error?.code === '#CIRCULAR!' && [...f.map.values()].some(x => x.c === 'loop') && f.map.has('northpine'), [...f.map].map(([id, x]) => id + ':' + x.c).join(' '));
+  check('and the name that closes it underlined', document.querySelector('.fxbar .fx-loop'), document.querySelector('.fxbar .fx-loop')?.textContent);
+
+  // Find's =
+  const ev = Shell.parts.peek().evaluate;
+  const r1 = ev('=Controlled.Owners', [FEEDER_FUND]), r2 = ev('=SUM(Controlled.Owners.Percentage)', [FEEDER_FUND]);
+  check('Find’s = works a formula out at the selection', r1.items?.length >= 2 && /%$/.test(r2.value ?? ''), `${r1.items?.map(x => x.label).join(', ')} | ${r2.value}`);
+}
+
+(async () => {
+  await ready();
+  try {
+    if (q.has('checks')) await checks();
+    else if (q.get('case')) await cases[q.get('case')]?.();
+  } catch (e) { results.push({ name: 'threw', ok: false, detail: e.stack }); }
+  if (q.has('checks') || results.length) {
+    const out = document.getElementById('out');
+    out.hidden = false;
+    const failed = results.filter(r => !r.ok).length;
+    out.innerHTML = `${results.length - failed}/${results.length} passed\n` + results.map(r => `<span class="${r.ok ? '' : 'fail'}">${r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail && !r.ok ? '\n     ' + r.detail.replace(/</g, '&lt;') : ''}</span>`).join('\n');
+  }
+})();
+</script>
+</body>
+</html>
