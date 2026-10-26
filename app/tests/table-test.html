@@ -288,7 +288,11 @@ async function run() {
   await answer('Owner', 'Owned');
   check('Matched, the row is found by its names', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '50%') && !$$('.grid .tabulator-row.red-add').length);
   press('Escape'); await tick(150);
-  check('Esc leaves it unmade', !$('.pastebar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
+  Table.grid.addRange(first.getCells()[1]); await tick(40);
+  paste('U.S. Investors\tFund III\t50%\r\n'); await tick(150);
+  check('Without headings, a row that gives its names finds its row by them, not by place', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && Table.grid.getRows()[0].getData().f2 === firstPct);
+  press('Escape'); await tick(150);
+  check('Esc leaves it unmade',!$('.pastebar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
 
   // A relation ruled out: a red ✗ in the margin, its words intact.
   await addTable('Relations', 'Signing Authority');

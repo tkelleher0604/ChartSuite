@@ -602,7 +602,7 @@ const Table = (() => {
   }
 
   // A plan: [{ row: id or null, key: [names], cells: [[column, raw]] }], with the columns rows are found by.
-  // By name: each pasted row is the table's row whose names it gives, or a new one.
+  // By name: each pasted row (under its headings) is the table's row whose names it gives, or a new one.
   function byName(m, grid, head) {
     const st = App.state.peek(), N = App.notes.peek(), keys = keysOf(m, head);
     const missing = m.isKind ? (keys.length ? null : 'Name') : keys.find(k => !head.includes(k))?.title;
@@ -618,14 +618,17 @@ const Table = (() => {
     });
     return { keys, plan };
   }
-  // By place: the cells fill the grid from the active cell; past the last row, a name makes a new one.
+  // By place: the cells fill the grid from the active cell; past the last row, a name makes a new one. Rows
+  // that give the names a row is found by (a Name, a relation's sides) and more find it by them instead.
   function byPlace(m, grid) {
-    const keys = keysOf(m, m.cols), active = table.modules.selectRange?.getActiveCell()?.getComponent(), shown = table.getColumns().filter(c => c.getField());
-    const rows = table.getRows('active').map(r => r.getData().id);
-    const r0 = active ? Math.max(0, rows.indexOf(active.getRow().getData().id)) : rows.length;
+    const active = table.modules.selectRange?.getActiveCell()?.getComponent(), shown = table.getColumns().filter(c => c.getField());
     const c0 = active ? Math.max(0, shown.findIndex(c => c.getField() === active.getField())) : 0;
+    const head = grid[0].map((_, j) => shown[c0 + j] ? m.cols[+shown[c0 + j].getField().slice(1)] : null), ks = keysOf(m, head);
+    if (!m.isDatatype && ks.length && ks.every(k => head.includes(k)) && head.some(c => c && !ks.includes(c))) return byName(m, [head, ...grid], head);
+    const keys = keysOf(m, m.cols), rows = table.getRows('active').map(r => r.getData().id);
+    const r0 = active ? Math.max(0, rows.indexOf(active.getRow().getData().id)) : rows.length;
     const plan = grid.map((r, i) => {
-      const cells = r.map((raw, j) => shown[c0 + j] && [m.cols[+shown[c0 + j].getField().slice(1)], raw]).filter(Boolean);
+      const cells = r.map((raw, j) => head[j] && [head[j], raw]).filter(Boolean);
       const row = rows[r0 + i] ?? null, name = m.isKind && cells.find(([c]) => keys.includes(c));
       return row ? { row, key: [], cells } : name ? { row: null, key: [clean(name[1])], cells: cells.filter(([c]) => !keys.includes(c)) } : { row: null, key: [], cells };
     });
@@ -691,7 +694,7 @@ const Table = (() => {
   function stage(m, r) {
     if (typeof r === 'string') return Shell.toast(r);
     const x = changeOf(m, r);
-    if (!Object.keys(x.records).length) return x.skipped && Shell.toast(`Left out ${count(x.skipped, 'value')}`);
+    if (!Object.keys(x.records).length) return Shell.toast(x.skipped ? `Left out ${count(x.skipped, 'value')}` : 'Nothing new to paste');
     const made = x.made.map(([, name]) => name), noun = m.noun;
     const added = [x.rows.length && count(x.rows.length, noun), ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
     const say = [x.values && `Pasted ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
