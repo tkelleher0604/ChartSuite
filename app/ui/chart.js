@@ -945,8 +945,8 @@ const zoomStep = dir => dir > 0 ? ZOOMS.find(z => z > chart.zoom + 0.001) ?? ZOO
 function fitToScreen(most = ZOOM_MAX) {
   const stage = stageEl();
   const sheet = document.getElementById('sheet');
-  const pad = chart.presenting ? 24 : 32;
-  setZoom(Math.min(most, (stage.clientWidth - 2 * pad) / sheet.offsetWidth, (stage.clientHeight - 2 * pad) / sheet.offsetHeight));
+  const pad = getComputedStyle(stage), across = parseFloat(pad.paddingLeft) + parseFloat(pad.paddingRight), down = parseFloat(pad.paddingTop) + parseFloat(pad.paddingBottom);
+  setZoom(Math.min(most, (stage.clientWidth - across) / sheet.offsetWidth, (stage.clientHeight - down) / sheet.offsetHeight));
   stage.scrollLeft = (stage.scrollWidth - stage.clientWidth) / 2;
   stage.scrollTop = (stage.scrollHeight - stage.clientHeight) / 2;
 }
@@ -1492,9 +1492,11 @@ function stopPresenting() {
   Object.assign(stageEl(), { scrollLeft: was.left, scrollTop: was.top });
 }
 
-// The view's name, and how to move on, for a moment at the foot of the screen.
+// The view's name, and how to move on, for a moment at the foot of the screen; and at the top, for as long
+// as it's shown, the chart's title, the view and the date, as an export carries them.
 let captionTimer = 0;
 function caption() {
+  document.getElementById('present-title').innerHTML = `<strong>${esc(chartTitle())}</strong><span>${esc(viewInUse().name)} · As of ${esc(longDate())}</span>`;
   const el = document.getElementById('caption');
   const n = views.findIndex(v => v.id === viewId);
   el.innerHTML = `<span class="present-pill"><strong>${esc(viewInUse().name)}</strong>${views.length > 1 ? `<span>${n + 1} of ${views.length}</span><span>← → views</span>` : ''}<span>Esc to exit</span></span>`;

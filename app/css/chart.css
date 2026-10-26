@@ -362,6 +362,11 @@ body.is-relating .ribbon-body { opacity: .45; pointer-events: none; }
 :root.is-presenting .node-line.is-engaged { background: none; box-shadow: none; }
 :root.is-presenting .wire-text.is-engaged { text-decoration: none; }
 :root.is-presenting .sheet { background-image: none; cursor: default; }
+.present-title { position: absolute; top: 18px; left: 28px; z-index: 8; display: none; flex-direction: column; gap: 2px; pointer-events: none; }
+.present-title strong { font-size: var(--fs-title-sm); font-weight: 600; color: var(--text); }
+.present-title span { font-size: var(--fs-small); color: var(--text-2); }
+:root.is-presenting .present-title { display: flex; }
+:root.is-presenting .stage { padding-top: 64px; }
 .present-caption { position: absolute; bottom: 24px; left: 50%; z-index: 8; display: none; translate: -50% 0; opacity: 0; transition: opacity .3s var(--ease); pointer-events: none; }
 :root.is-presenting .present-caption { display: block; }
 .present-caption.is-shown { opacity: 1; }
