@@ -111,6 +111,7 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 .row.out > .k { display: flex; align-items: center; padding: 0; min-height: var(--row); }
 svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; }
 svg.sw.off { opacity: .35; }
+:root[data-theme="dark"] svg.sw { background: var(--page); border-radius: 3px; box-shadow: 0 0 0 2px var(--page); }
 
 /* Two records: a row for each relation they're in or could be in, with each side's role. */
 .relate { padding: 8px 0 16px; }

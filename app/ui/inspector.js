@@ -506,7 +506,7 @@ function Swatch({ p, f }) {
     : html`<rect x="1.5" y="1.5" width="25" height="13" rx=${f.Shape === 'rounded' ? 3.5 : 0} ...${st} />`;
   return html`<svg class=${'sw' + (f.Shown === false ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">
     ${line ? html`<path d="M2 8H26" fill="none" stroke=${f.Outline ?? f.Color ?? '#3f4441'} stroke-width=${Math.min(f.Weight ?? 1.25, 3)} stroke-dasharray=${DASH[f.Dash] ?? null} />` : box ? shape : null}
-    ${text || !(line || box) ? html`<text x="14" y="12" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill=${f.Color ?? '#1b1e1d'}
+    ${!line && (text || !box) ? html`<text x="14" y="12" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill=${f.Color ?? '#1b1e1d'}
       font-weight=${f.Bold ? 700 : 400} font-style=${f.Italic ? 'italic' : 'normal'}>Aa</text>` : null}</svg>`;
 }
 function Styles({ v, only }) {
