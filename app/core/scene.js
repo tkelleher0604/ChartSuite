@@ -387,8 +387,15 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
   for (const m of marksInOrder) { delete m.cand; delete m.ends; }
-  return { chart, view, day, page, marks: marksInOrder, byId, styles, ms: now() - started };
+  const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, ms: now() - started };
+  if (!opts.redline && !opts.reveal) latest.set(view, scene);
+  return scene;
 }
+// The scene last worked out for each view, for what asks about a mark without working one out.
+const latest = new Map();
+// A mark's settings in the scene last worked out for its view: { [property]: { value, note } }, the note
+// null where nothing in the chart gives the value; a text's for a record shown as text; null if not drawn.
+const settingsOf = (id, view) => latest.get(view)?.byId.get(id)?.settings ?? null;
 
 const pick = (o, ks) => Object.fromEntries(ks.filter(k => o[k]).map(k => [k, o[k]]));
 // The middle of the side of a box that faces a point.
@@ -596,7 +603,7 @@ const boxOf = (state, id) => { const r = state[id]; return !r ? null : isObject(
 const styleName = (N, s) => !s.pattern.args ? 'Kind' : s.pattern.args.length > 1 ? N.name(s.pattern) : s.pattern.args[0].edge;
 
 const api = {
-  of, reflow, path, dash, measure, breakLines, reach, outputPattern, captionOf, styleName, fontFamily,
+  of, settingsOf, reflow, path, dash, measure, breakLines, reach, outputPattern, captionOf, styleName, fontFamily,
   DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
   // The chart as of a day, worked out: the formula engine sets this. Until it does, what's entered.
   state: (wb, chart, day) => wb.asOf(chart, day),
