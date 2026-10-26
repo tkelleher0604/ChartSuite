@@ -20,7 +20,7 @@ button.lk.muted { color: var(--ink-3); }
 /* A row's depth in the tree, and its grip: drag to reorder, click for its menu. A label too long for its
    column ends in an ellipsis, the whole of it in its title. */
 .row { position: relative; }
-.row > .k { padding-left: calc(var(--depth, 0) * 14px); }
+.row > .k { padding-left: calc(var(--depth, 0) * 16px); }
 .row > .k:not(.wide, :has(.cell)), .row > .k:not(.wide) > .lk { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row > .k:not(.wide) > .lk { display: block; max-width: 100%; }
 .row > .v.ctl { display: flex; align-items: center; gap: 2px; padding: 0; min-height: var(--row); }
@@ -28,7 +28,7 @@ button.lk.muted { color: var(--ink-3); }
 .row > .k:has(> .cellbox, > .cell) { padding-top: 0; padding-bottom: 0; }
 .lbl { cursor: default; }
 .ruled > .k .lbl { color: var(--ink-3); }
-.grip { position: absolute; left: calc(var(--depth, 0) * 14px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
+.grip { position: absolute; left: calc(var(--depth, 0) * 16px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
 .grip > svg { width: 14px; height: 14px; }
 .row:hover > .grip, .grip:focus-visible { opacity: 1; }
 .grip:hover { color: var(--ink); background: var(--hover); }
@@ -49,7 +49,7 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .cell.bad, .cell[aria-invalid="true"] { border-color: var(--no); box-shadow: 0 0 0 1px var(--no); }
 .cellbox > .del { flex: 0 1 auto; min-width: 0; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cellbox.off .cell { color: var(--ink-3); }
-textarea.cell.desc { field-sizing: fixed; width: calc(100% + 7px); height: auto; min-height: var(--row); padding: 4px 6px; line-height: 18px; resize: none; overflow: hidden; white-space: pre-wrap; }
+textarea.cell.desc { field-sizing: fixed; width: calc(100% + 7px); height: auto; min-height: var(--row); padding: 4px 6px; line-height: 20px; resize: none; overflow: hidden; white-space: pre-wrap; }
 .hug.over::after { top: 4px; right: -1px; }
 .cellbox > .unit { margin-left: -6px; color: var(--ink-3); }
 .cellbox:has(> .unit) .cell { min-width: 2ch; }
@@ -60,7 +60,7 @@ textarea.cell.desc { field-sizing: fixed; width: calc(100% + 7px); height: auto;
 .date { white-space: nowrap; }
 
 /* A choice: its option and a chevron, opening the options. */
-.sel { height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 0 6px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); text-align: left; cursor: default; }
+.sel { height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 0 6px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); text-align: left; cursor: default; }
 .sel > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sel:hover:not(:disabled) { border-color: var(--rule); }
 .sel:disabled::after { visibility: hidden; }

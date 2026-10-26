@@ -40,7 +40,14 @@ const App = (() => {
   const state = computed(() => result.value.records);
 
   // ---- Changing ----
-  const undo = () => !readOnly.peek() && book.peek().undo(who(), chart.peek());
+  // Undo and Redo say what they took back or put back, by the change that made it.
+  const origin = c => { const all = book.peek().changes(); while (c?.reverses) c = all.find(x => x.id === c.reverses); return c; };
+  const stepped = (r, verb, back) => {
+    if (r && typeof r !== 'string') Shell.toast(`${verb}: ${Time.describe(origin(r))}`, { undo: back });
+    return r;
+  };
+  const undo = () => !readOnly.peek() && stepped(book.peek().undo(who(), chart.peek()), 'Undid', () => redo());
+  const redo = () => !readOnly.peek() && stepped(book.peek().redo(who(), chart.peek()), 'Redid', () => undo());
   // One change, by the user: refused while the past is shown; dated from the day shown unless `dated` is false
   // (a view isn't a fact about the world). `say`, a string or a function of the change, is toasted with Undo.
   function change(fn, { say, dated = true } = {}) {
@@ -91,7 +98,7 @@ const App = (() => {
       ...(books.value.length ? ['-'] : []), { label: 'New workbook', run: blank }] }],
   });
   Shell.register('undo', {
-    undo, redo: () => !readOnly.peek() && book.peek().redo(who(), chart.peek()),
+    undo, redo,
     canUndo: () => (version.value, !readOnly.value && book.value.stacks(who(), chart.value).undo.length > 0),
     canRedo: () => (version.value, !readOnly.value && book.value.stacks(who(), chart.value).redo.length > 0),
   });
