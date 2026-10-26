@@ -76,7 +76,7 @@ The language is formulas.md's, less REACH, LOOKTHROUGH, IMPLIEDBY, IFS, NEXTDATE
 
 A **view** is an object of the kind View. Its notes say how it presents the chart as of its day (today, unless it keeps one). It has a **layout**: a **chart**, drawn on a page of a size; or a **table** whose rows are the records of one kind, one relation, or every entry of one datatype.
 
-**Marks.** In a chart, a record of the computed state has a **mark**: an object a **box**; a relation with two locations a **line**; any other record a **text**, in the box or on the line of its nearest location that has one. Marks nest as records do.
+**Marks.** In a chart, a record of the computed state has a **mark**: an object a **box**; a relation with two locations a **line**; any other record a **text**, in the box or on the line of its nearest location that has one. Marks nest as records do. A relation whose Connector is None is a text instead, in the box at its lower end (the side not Above), by role: "Directors: Margaret A. Chen, Priya N. Raman".
 
 **Styles.** A **style** in a view is a pattern p with a map from p's outputs to **formats**: the view's format notes at "p with output o", for each output o. This is the user's definition. A format given at a record sets each property on the nearest mark, up the tree, that has it: Fill given at Entity Type: Limited Partnership fills that entity's box.
 
@@ -84,13 +84,15 @@ A **view** is an object of the kind View. Its notes say how it presents the char
 
 **Shown** is a property of every mark. A mark is **drawn** when it is shown and the marks it sits in or joins are drawn. A style showing or hiding by output is a view's filter; a condition worth filtering by is a tag of the chart, computed or entered.
 
-**Frames.** A format may draw a frame, a box or a bracket around the boxes it lands on, labeled by its caption: Jurisdiction: Cayman Islands draws "Offshore". Frames nest in the order of the styles.
+**Frames.** A format may draw a frame, a box or a bracket around the boxes it lands on, labeled by its caption: Jurisdiction: Cayman Islands draws "Offshore". Outputs of one style captioned alike share a frame, and a relation's frames the box at its lower end. Frames nest in the order of the styles.
 
 **Free shapes.** A view's page also holds shapes bound to no record: text, a line or arrow, a picture, a frame. A text may be a formula (`="As of " & TEXT(@AsOf, "mmmm d, yyyy")`).
 
 **The legend** is a shape bound to the view's styles. Its rows are, for each style and each output from which a drawn mark takes a format, a swatch drawn in that format and its **caption** (the output, unless a Caption note says otherwise). It is moved, sized, formatted and edited like any shape.
 
-**The layout** works out every position not entered, together: drawn boxes and their sizes, frames as clusters, the lines that rank boxes (a line's Above names the edge drawn on top, as Owner), and the routes of lines. **Tidy** removes a view's entered positions.
+**The layout** works out every position not entered, together: drawn boxes and their sizes, frames as clusters, the lines that rank boxes (a line's Above names the edge drawn on top, as Owner), and the routes of lines. **Tidy** removes a view's entered positions. A box placed among entered ones goes beside its relatives, on no line it isn't on. Boxes in a rank share a height, and triangles of a width a size. A box's lines of one look to every box in a frame land on the frame as one. Arrow Auto draws an arrowhead where a line doesn't run down from its Above side.
+
+**The page** keeps its size's proportions, a 16:9 slide unless a Page note says otherwise, and grows as a whole to hold what's drawn, so the chart is drawn smaller to fit the slide.
 
 **The scene** is the drawn marks and free shapes, each setting valued and each text broken into lines. It depends on the computed state and the view and nothing else, and the canvas, PDF and PowerPoint each draw it and nothing else.
 

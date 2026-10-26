@@ -13,7 +13,9 @@
 const Scene = (() => {
 const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, same } = Tree;
 
-// A page is a slide unless the view's Page note says otherwise, and grows to hold what's drawn.
+// A page is a slide unless the view's Page note says otherwise. It keeps its size's proportions, and grows
+// as a whole to hold what's drawn: a 16:9 slide stays 16:9, and its `scale` says by how much the chart is
+// drawn smaller to fit the slide itself.
 const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
 const MARGIN = 48;
@@ -29,11 +31,13 @@ const DEFAULTS = {
 };
 const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
-// What a legend row shows: the properties of a box, line or frame that tell marks apart.
-const KEYED = { box: ['Shape', 'Fill', 'Outline', 'Weight', 'Dash'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow'], frame: ['Frame'] };
+// What a legend row shows: the properties of a box or line that tell marks apart. A frame's caption says
+// on the chart what it is, so the legend leaves frames out.
+const KEYED = { box: ['Shape', 'Fill', 'Outline', 'Weight', 'Dash'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow'] };
 const FONTS = { Arial: "Arial, 'Liberation Sans', Helvetica, sans-serif", Calibri: 'Calibri, Carlito, sans-serif',
   'Times New Roman': "'Times New Roman', 'Liberation Serif', Times, serif", Georgia: 'Georgia, Gelasio, serif' };
 const fontFamily = f => FONTS[f] ?? `'${f}', sans-serif`;
+const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
 
 // ---- Geometry: PowerPoint's preset shapes, by plain names, as paths in a w × h frame ----
 
@@ -57,8 +61,10 @@ function path(shape, w, h) {
     default: return `M0,0 H${n(w)} V${n(h)} H0 Z`;
   }
 }
-// Where a shape's text goes: the share of its width a line may take, and how its block sits.
+// Where a shape's text goes: the share of its width a line may take, and how its block sits. A triangle's
+// text sits at its base, each line as wide as the triangle is where the line sits (see pyramid).
 const TEXT_AREA = { oval: 0.78, diamond: 0.56, hexagon: 0.8, octagon: 0.8, pentagon: 0.7, chevron: 0.6, arrow: 0.6, triangle: 0.62 };
+const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
 
 // ---- Text ----
 
@@ -118,6 +124,36 @@ function stack(item, x0, width, y) {
 const blockHeight = items => items.reduce((h, it) => h + it.lines.length * lineHeight(it.look), 0);
 const widest = items => Math.max(0, ...items.flatMap(it => it.lines.map(l => l.w)));
 
+// A triangle's text, set at its base: each line no wider than the triangle is at the line's top, less an
+// inset. Of the ways to break it, the one that needs the shortest triangle (and then the fewest lines);
+// a triangle whose width nobody entered widens before its text takes more than four lines.
+// → { w, h, lines: [lines of each text] }, h the least height that holds it, at least half the width.
+function pyramid(texts, w, widen) {
+  // No narrower than its longest word, which would be cut.
+  const word = Math.max(32, ...texts.flatMap(it => String(it.text ?? '').split(/\s+/).map(s => measure(s, it.look))));
+  for (;;) {
+    let best = null;
+    for (let f = 0.94; f > 0.3; f -= 0.04) {
+      const a = w * f - 2 * INSET;
+      if (a < word && best) break;
+      const lines = texts.map(it => linesOf(it, Math.max(word, a)));
+      const rows = texts.flatMap((it, i) => lines[i].map(l => ({ w: l.w, lh: lineHeight(it.look) })));
+      // A line's top sits D above the base; there the triangle is w (h − D) / h wide.
+      let h = w * 0.5, d = BASE;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        d += rows[i].lh;
+        const q = (rows[i].w + 2 * INSET) / w;
+        h = Math.max(h, q < 0.98 ? d / (1 - q) : Infinity);
+      }
+      if (!best || h < best.h - 0.5 || (h < best.h + 0.5 && rows.length < best.n)) best = { h, lines, n: rows.length };
+    }
+    if (!widen || w >= 360 || (best.n <= 4 && best.h <= w * 0.9)) return { w, h: Math.ceil(best.h), lines: best.lines };
+    w += 20;
+  }
+}
+// A role named for more than one: Director, Directors.
+const plural = (s, n) => n < 2 || /s$/i.test(s) ? s : `${s}s`;
+
 // What a record says as a line of text: a value as it reads, an option, a tag by its label.
 function textOf(r, format, name) {
   if (format === 'none') return '';
@@ -162,24 +198,34 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const boxOf = id => { const r = state[id]; return !r ? null : isObject(r) ? id : r.at ? boxOf(r.at) : null; };
 
   // Marks: an object a box; a relation with two locations a line between their boxes; any other record a
-  // text, in the mark of its nearest location (a relation of more than two, in each of their boxes).
+  // text, in the mark of its nearest location (a relation of more than two, in each of their boxes). A
+  // relation whose Connector is None draws no line: it's written in the box at its lower end, the side not
+  // Above, as its role and who holds it (Directors: Margaret A. Chen, Priya N. Raman).
   const marks = new Map(), own = new Map();
   const addMark = m => { marks.set(m.id, m); (own.get(m.record) ?? own.set(m.record, []).get(m.record)).push(m); return m; };
   const ids = Object.keys(state).filter(id => !isViewItem(id) && tree(id));
+  // What each record's notes give, landing on the nearest mark up the tree that has the property.
+  const formats = new Map(ids.map(id => [id, N.formats(tree(id), view)]));
+  // A two-sided relation's ends as its line runs, from its Above side, the edge drawn on top, to the other.
+  const endsOf = (id, ends) => {
+    const r = state[id], above = formats.get(id).Above?.value ?? N.edges(tree(id))[0];
+    const top = above && boxOf(r.args.find(a => same(a.edge, above))?.at);
+    return top && top === ends[1] ? [ends[1], ends[0]] : ends;
+  };
   for (const id of ids) if (isObject(state[id])) addMark({ id, type: 'box', record: id, cand: {} });
   for (const id of ids) {
     const r = state[id];
     if (isObject(r)) continue;
     const ends = r.args?.length === 2 ? r.args.map(a => boxOf(a.at)) : null;
-    if (ends && ends[0] && ends[1] && ends[0] !== ends[1]) addMark({ id, type: 'line', record: id, ends, cand: {} });
+    if (ends && ends[0] && ends[1] && ends[0] !== ends[1]) {
+      if (formats.get(id).Connector?.value !== 'none') addMark({ id, type: 'line', record: id, ends, cand: {} });
+      else { const [from, to] = endsOf(id, ends); addMark({ id: `${id}@${to}`, type: 'text', record: id, host: to, listed: from, cand: {} }); }
+    }
     else if (r.at) addMark({ id, type: 'text', record: id, cand: {} });
     else for (const b of new Set(argsOf(r).map(a => boxOf(a.at)).filter(Boolean))) addMark({ id: `${id}@${b}`, type: 'text', record: id, host: b, cand: {} });
   }
   // The mark a mark sits in: a text's location's, up to a box or line.
   const up = m => m.type !== 'text' ? null : m.host ? own.get(m.host)?.[0] : own.get(state[m.record].at)?.[0] ?? null;
-
-  // What each record's notes give, landing on the nearest mark up the tree that has the property.
-  const formats = new Map(ids.map(id => [id, N.formats(tree(id), view)]));
   const offer = (m, label, res, record, depth) => {
     const r = rankOf(res.note, depth), c = m.cand[label];
     if (!c || beats(r, c.rank)) m.cand[label] = { value: res.value, note: res.note, record, rank: r };
@@ -187,7 +233,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const land = (record, label, res, accept) => {
     for (const start of own.get(record) ?? []) {
       let m = start, depth = 0;
-      while (m && !(HAS[m.type].has(label) && accept(m))) { m = up(m); depth++; }
+      // A relation written in a box keeps what's given for its line to itself.
+      while (m && !(HAS[m.type].has(label) && accept(m))) { m = m.listed ? null : up(m); depth++; }
       if (m) offer(m, label, res, record, depth);
     }
   };
@@ -245,7 +292,21 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     const old = red?.changed?.get?.(m.record);
     return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, N.name(tree(m.record))),
       was: typeof old === 'string' ? old : old ? textOf(old, t.Format, N.name(tree(m.record))) : undefined,
-      computed: !!r.computed, redline: isRed(m.record) };
+      computed: !!r.computed, redline: isRed(m.record),
+      ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', N.name(tree(m.record))), name: Tree.objectName(state, m.listed) } }) };
+  };
+  // A box's relations written in it, one text for each role: the role, for more than one in the plural, and
+  // who holds it, by surname, each name kept on one line. They follow the box's own texts.
+  const surname = s => s.trim().split(/\s+/).pop().toLowerCase();
+  const gather = items => {
+    const mine = items.filter(it => !it.listed), roles = groupBy(items.filter(it => it.listed), it => `${it.listed.role}|${JSON.stringify(it.look)}`);
+    const merged = [...roles.values()].sort((a, b) => a[0].listed.role < b[0].listed.role ? -1 : 1).map(its => {
+      const names = its.map(it => it.listed.name).sort((a, b) => surname(a) < surname(b) ? -1 : surname(a) > surname(b) ? 1 : 0)
+        .map(n => n.trim().replace(/ +/g, ' ')), role = its[0].listed.role;
+      return { ...its[0], text: role ? `${plural(role, names.length)}: ${names.join(', ')}` : names.join(', '), records: its.map(it => it.id), listed: undefined, was: undefined,
+        computed: its.every(it => it.computed), redline: its.find(it => it.redline)?.redline ?? null };
+    });
+    return [...mine, ...merged];
   };
 
   const boxes = [], lines = [];
@@ -261,65 +322,71 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     const host = container(m);
     if (host?.texts) host.texts.push(textItem(m, host));
   }
+  for (const b of boxes) b.texts = gather(b.texts);
 
   // A box's size: its width entered or its shape's own, and as tall as its text needs, its lines broken to
-  // fit the shape where they sit (low in a triangle, inside an oval).
+  // fit the shape where they sit (at a triangle's base, inside an oval). Triangles of one width are one
+  // size, the tallest any of them needs.
   const positions = new Map();
   for (const b of boxes) {
     const pos = N.position(tree(b.record), view);
     if (pos) positions.set(b.id, pos);
     b.entered = !!pos;
-    const shape = b.settings.Shape.value, w = pos?.w ?? (shape === 'triangle' ? 230 : 200);
-    const share = TEXT_AREA[shape] ?? 1, inset = 9.6, avail = Math.max(32, w * share - 2 * inset);
-    for (const it of b.texts) it.lines = linesOf(it, avail);
-    b.texts = b.texts.filter(it => it.lines.length);
-    const tb = blockHeight(b.texts), top = 4.8;
-    let h, y;
+    const shape = b.settings.Shape.value;
+    let w = pos?.w ?? (shape === 'triangle' ? 230 : 200), h;
     if (shape === 'triangle') {
-      const q = Math.min(0.92, (widest(b.texts) + 2 * inset) / w);
-      h = Math.max(w * 0.5, (tb + top + 3) / (1 - q));
-      y = h - top - 3 - tb;
-    } else if (shape === 'oval' || shape === 'diamond') {
-      h = Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * top);
-      y = (h - tb) / 2;
+      const fit = pyramid(b.texts, w, !pos?.w);
+      b.texts.forEach((it, i) => { it.lines = fit.lines[i]; });
+      ({ w, h } = fit);
     } else {
-      h = Math.max(44, tb + 2 * top + 8);
-      y = (h - tb) / 2;
+      const avail = Math.max(32, w * (TEXT_AREA[shape] ?? 1) - 2 * INSET);
+      for (const it of b.texts) it.lines = linesOf(it, avail);
+      const tb = blockHeight(b.texts.filter(it => it.lines.length));
+      h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
     }
-    if (pos?.h > h) { y += (pos.h - h) / 2; h = pos.h; }
-    const x0 = (w - avail) / 2;
-    for (const it of b.texts) y = stack(it, x0, avail, y);
-    Object.assign(b, { w, h, shape });
+    b.texts = b.texts.filter(it => it.lines.length);
+    Object.assign(b, { w, h: Math.max(h, pos?.h ?? 0), shape });
+  }
+  for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => Math.round(b.w)).values()) {
+    const h = Math.max(...ts.map(b => b.h));
+    for (const b of ts) b.h = h;
   }
 
   // Frames: each style giving a box's record, or a record in it, a Frame adds a step to the box's path,
-  // and every beginning of a path is a frame around the boxes whose paths begin so. They nest in the
-  // order of the styles and never overlap.
+  // and every beginning of a path is a frame around the boxes whose paths begin so. A relation's Frame
+  // frames the box at its lower end, the side not Above. Outputs of one style captioned alike share a
+  // frame: Main Fund and Feeder Fund both captioned Funds draw one. They nest in the order of the styles
+  // and never overlap.
   const drawnBoxes = new Map(boxes.map(b => [b.record, b]));
   const steps = new Map();
   for (const id of ids) {
-    const res = formats.get(id).Frame;
-    const b = drawnBoxes.get(boxOf(id));
+    const res = formats.get(id).Frame, r = state[id];
+    const ends = !boxOf(id) && r.args?.length === 2 ? r.args.map(a => boxOf(a.at)) : null;
+    const b = drawnBoxes.get(ends ? endsOf(id, ends)[1] : boxOf(id));
     if (!res || !b || res.value === 'none' || idsIn(res.note.pattern).size || !res.note.view) continue;
     const at = styleAt.get(key(bare(res.note.pattern))) ?? -1, s = steps.get(b.id) ?? steps.set(b.id, new Map()).get(b.id);
-    if (!s.has(at)) s.set(at, { at, output: res.note.pattern, note: res.note, kind: res.value });
+    if (!s.has(at)) s.set(at, { at, output: res.note.pattern, note: res.note, kind: res.value, caption: captionOf(N, res.note.pattern, view) });
   }
   const frames = new Map();
   for (const [bid, s] of steps) {
     let parent = null, path = '';
     for (const step of [...s.values()].sort((a, b) => a.at - b.at)) {
-      path += `/${key(step.output)}`;
+      path += `/${step.at}:${step.caption}`;
       const id = `frame:${path}`;
-      if (!frames.has(id)) frames.set(id, { id, type: 'frame', parent, kind: step.kind, output: step.output, note: step.note, members: [], frames: [] });
+      if (!frames.has(id)) frames.set(id, { id, type: 'frame', parent, kind: step.kind, output: step.output, outputs: [], note: step.note, text: step.caption, members: [], frames: [] });
+      const f = frames.get(id);
+      if (!f.outputs.some(o => key(o) === key(step.output))) f.outputs.push(step.output);
       if (parent) { const p = frames.get(parent); if (!p.frames.includes(id)) p.frames.push(id); }
       parent = id;
     }
     frames.get(parent).members.push(bid);
   }
+  // A frame's caption: small and grey, at its top left, in the chart's face.
   for (const f of frames.values()) {
     f.settings = { Frame: { value: f.kind, note: f.note } };
-    const t = { ...TEXT, Size: 9, Italic: true, Align: 'left' };
-    f.caption = { id: f.id, type: 'text', look: t, text: captionOf(N, f.output, view) };
+    const t = { ...TEXT, Size: 8, Bold: true, Color: '#595959', Align: 'left' };
+    f.caption = { id: f.id, type: 'text', look: t, text: f.text };
+    delete f.text;
     f.caption.lines = breakLines(f.caption.text, t, 400);
     f.label = f.caption.lines.length * lineHeight(t);
   }
@@ -327,11 +394,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it.
   for (const l of lines) {
-    const r = state[l.record], t = tree(l.record), names = N.edges(t);
-    const above = l.settings.Above.value ?? names[0];
-    const at = e => boxOf(r.args.find(a => same(a.edge, e))?.at);
-    const top = above && at(above);
-    [l.from, l.to] = top && top === l.ends[1] ? [l.ends[1], l.ends[0]] : l.ends;
+    const r = state[l.record], t = tree(l.record);
+    [l.from, l.to] = endsOf(l.record, l.ends);
     l.ranks = l.settings.Above.value !== 'none';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
       text: lineText(r, l.settings.Format.value, N.name(t)), computed: l.computed, redline: l.redline };
@@ -339,22 +403,38 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
     let y = 0;
     for (const it of l.texts) y = stack(it, 0, 0, y);
-    l.label = l.texts.length ? { w: widest(l.texts), h: y, text: l.texts.map(it => it.text).join('\n'), shared: l.texts.length === 1 && l.texts[0] === own && !isField(r) } : null;
+    const lastLine = l.texts.at(-1)?.lines.at(-1);
+    l.label = l.texts.length ? { w: widest(l.texts), h: y, base: lastLine?.y ?? y, text: l.texts.map(it => it.text).join('\n'), shared: l.texts.length === 1 && l.texts[0] === own && !isField(r) } : null;
     l.trunk = ['Outline', 'Weight', 'Dash', 'Arrow'].map(k => l.settings[k].value).join('|');
     l.straight = l.settings.Connector.value === 'straight';
   }
 
-  // The layout: entered positions win; ELK places the rest, frames as clusters, ranked by the lines.
+  // The layout: entered positions win; ELK places the rest, frames as clusters, ranked by the lines, and
+  // a box placed among entered ones keeps clear of the boxes, lines and free shapes already there.
   const page = pageOf(N, view);
+  const shapeRows = wb.rows(chart).filter(r => 'shape' in r && r.view === view);
   const placed = Layout.arrange({
-    boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h })),
+    boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape })),
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to })),
+    lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
+    obstacles: shapeRows.filter(r => !['line', 'group'].includes(r.geometry)).map(r => ({ x: r.x ?? 0, y: r.y ?? 0, w: r.w ?? 200, h: Math.max(r.h ?? 52, r.geometry === 'legend' ? 120 : 0) })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
     entered: positions, page,
   });
   for (const b of boxes) Object.assign(b, placed.get(b.id));
+  // Boxes in a rank, their tops level, are one height: the tallest of them.
+  for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) {
+    const h = Math.max(...rank.map(b => b.h));
+    for (const b of rank) b.h = h;
+  }
+  for (const b of boxes) setText(b);
   frameBounds(frames, boxes);
-  routes(boxes, lines).forEach((r, i) => Object.assign(lines[i], r));
+  routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
+  // Arrow Auto: an arrowhead where the line doesn't run down from its Above side.
+  for (const l of lines) if (l.settings.Arrow.value === 'auto') l.settings.Arrow = { value: l.down ? 'none' : 'end', note: l.settings.Arrow.note };
+  // Lines landing on one frame along one route are drawn once: the first stands for the rest, which stay
+  // known by id, `merged` into it.
+  for (const ls of groupBy(lines.filter(l => l.landed), l => `${l.trunk}|${JSON.stringify(l.points)}`).values()) for (const l of ls.slice(1)) l.merged = ls[0].id;
 
   // Free shapes: the view's own, each with its own formats.
   const geo = new Map(boxes.map(b => [b.id, b]));
@@ -375,20 +455,21 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   }
   for (const g of shapes.filter(s => s.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
-  // The page holds what's drawn.
+  // The page holds what's drawn, keeping its size's proportions.
   const all = [...boxes, ...frames.values(), ...shapes];
   const right = Math.max(0, ...all.map(m => m.x + m.w), ...lines.flatMap(l => l.points.map(p => p[0]))) + MARGIN;
   const bottom = Math.max(0, ...all.map(m => m.y + m.h), ...lines.flatMap(l => l.points.map(p => p[1]))) + MARGIN;
-  page.w = Math.max(page.w, Math.ceil(right)); page.h = Math.max(page.h, Math.ceil(bottom));
+  const grow = Math.max(1, right / page.w, bottom / page.h);
+  Object.assign(page, { w: Math.ceil(page.w * grow), h: Math.ceil(page.h * grow), scale: 1 / grow });
 
   const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
   const marksInOrder = [
     ...[...frames.values()].sort((a, b) => depthOf(frames, a) - depthOf(frames, b)),
-    ...lines.sort((a, b) => layer(a) - layer(b)),
+    ...lines.filter(l => !l.merged).sort((a, b) => layer(a) - layer(b)),
     ...boxes.sort((a, b) => layer(a) - layer(b)),
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
-  for (const m of marksInOrder) { delete m.cand; delete m.ends; }
+  for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.ends; }
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, ms: now() - started };
   if (!opts.redline && !opts.reveal) latest.set(view, scene);
   return scene;
@@ -398,6 +479,15 @@ const latest = new Map();
 // A mark's settings in the scene last worked out for its view: { [property]: { value, note } }, the note
 // null where nothing in the chart gives the value; a text's for a record shown as text; null if not drawn.
 const settingsOf = (id, view) => latest.get(view)?.byId.get(id)?.settings ?? null;
+
+// A box's texts placed in it, once its height is known: at a triangle's base, 7 pt up; in the middle of
+// anything else.
+function setText(b) {
+  const tb = blockHeight(b.texts);
+  const avail = b.shape === 'triangle' ? b.w - 2 * INSET : Math.max(32, b.w * (TEXT_AREA[b.shape] ?? 1) - 2 * INSET);
+  let y = b.shape === 'triangle' ? b.h - BASE - tb : (b.h - tb) / 2;
+  for (const it of b.texts) y = stack(it, (b.w - avail) / 2, avail, y);
+}
 
 // The middle of the side of a box that faces a point.
 function edgePoint(g, [x, y]) {
@@ -423,19 +513,22 @@ function lineText(r, format, name) {
 // canvas draws while a drag goes on. The scene itself is left as it was.
 function reflow(scene, rects) {
   const boxes = scene.marks.filter(m => m.type === 'box').map(b => ({ ...b, ...rects.get(b.id) }));
-  const lines = scene.marks.filter(m => m.type === 'line');
-  const routed = routes(boxes, lines).map((r, i) => ({ id: lines[i].id, ...r }));
+  // Every line, those merged into another too, so they land on their frames as before.
+  const lines = [...scene.byId.values()].filter(m => m.type === 'line');
   const frames = new Map(scene.marks.filter(m => m.type === 'frame')
     .map(f => [f.id, { ...f, caption: { ...f.caption, lines: f.caption.lines.map(l => ({ ...l })) } }]));
   frameBounds(frames, boxes);
+  const routed = routes(boxes, lines, frames).map((r, i) => ({ id: lines[i].id, ...r }));
   return { lines: routed, frames: [...frames.values()] };
 }
-// The routes of lines between boxes: each line's points and its label's place, the router's working left
-// behind.
-function routes(boxes, lines) {
-  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label }));
-  Layout.route(new Map(boxes.map(b => [b.id, b])), copies);
-  return copies.map(c => ({ points: c.points, labelAt: c.labelAt }));
+// The routes of lines between boxes: each line's points, its label's place, and whether it runs down from
+// its Above side; the router's working left behind. Lines may land on frames (Layout.route says when).
+function routes(boxes, lines, frames = new Map()) {
+  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label, arrow: l.settings?.Arrow?.value }));
+  const all = f => [...f.members, ...f.frames.flatMap(id => all(frames.get(id)))];
+  const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: all(f), depth: depthOf(frames, f) }));
+  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs });
+  return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, ...(c.landed && { landed: c.landed }) }));
 }
 
 // A frame around its members and the frames inside it, with room for its caption; a bracket over them.
@@ -498,8 +591,9 @@ function legend(N, view, styles, marks) {
     for (const g of groups.values()) {
       // A row goes by its first output, which stays the same while the row does.
       g.key = key(g.outputs[0]);
+      // Its caption: a Caption note's at one of its outputs; or the outputs, two at most, else the style's name.
       const own = g.outputs.map(p => N.resolve('Caption', p, view)).find(c => c && g.outputs.some(p => key(p) === key(c.note.pattern)));
-      g.caption = own ? own.value : g.outputs.map(p => outputText(N, p)).join(', ');
+      g.caption = own ? own.value : g.outputs.length > 2 ? styleName(N, s) : g.outputs.map(p => outputText(N, p)).join(', ');
       rows.push(g);
     }
   });
