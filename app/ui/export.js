@@ -110,8 +110,11 @@ function textRows(el, toSheet) {
   };
 }
 
-// The text width of a run, for placing labels and fitting bounds.
+// The text width of a run, for placing labels and fitting bounds. Inter's italic, for what a formula works
+// out, is a face of its own, loaded only once something uses it, so it's asked for now, before anything is
+// measured in it.
 const measureCanvas = document.createElement('canvas').getContext('2d');
+document.fonts?.load('italic 12px Inter').catch(() => {});
 function textWidth(text, f) {
   measureCanvas.font = `${f.italic ? 'italic ' : ''}${f.bold ? 600 : 400} ${f.size}px ${f.font ?? 'Inter'}, sans-serif`;
   return measureCanvas.measureText(text).width;
