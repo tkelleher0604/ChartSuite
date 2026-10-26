@@ -307,7 +307,10 @@ function Answers({ g }) {
 
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
-  if (slot?.error) return html`<button class="err errv" onClick=${() => emit('why-open', slot.error.id)}>${slot.error.error.code}${slot.error.error.msg ? html`<span class="msg">${slot.error.error.msg}</span>` : null}</button>`;
+  // An error where the value would be: what it needs, in words ("Needs Fiscal Year End"), its code on hover;
+  // with no words, its code, in red. Clicked, the bar says why.
+  if (slot?.error) { const { code, msg } = slot.error.error, say = msg?.replace(/\.$/, '');
+    return html`<button class=${'errv' + (say ? '' : ' err')} data-tip=${say ? code : null} aria-label=${say ? `${say} (${code})` : null} onClick=${() => emit('why-open', slot.error.id)}>${say || code}</button>`; }
   const g = id && disagreeing.value.get(id);
   if (g) return html`<${Answers} g=${g} />`;
   const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && over(id);

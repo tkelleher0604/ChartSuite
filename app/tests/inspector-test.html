@@ -217,7 +217,8 @@ async function run() {
   errs[0]?.go(); await tick(60); offAsk();
   check('going to an error selects the record it’s at, and asks its formula why', errs.length > 0 && Shell.selection.value[0] === 'mgmt' && asked.length === 1 && !!App.computed.value.errors.find(e => e.id === asked[0]),
     `${errs.length} errors; ${Shell.selection.value}; ${asked}`);
-  check('… where the error shows in place of the value, focused', document.activeElement?.matches('.insp .errv') && $$('.errv').length === errs.length, document.activeElement?.outerHTML.slice(0, 120));
+  check('… where the error shows in place of the value, focused, saying what it needs', document.activeElement?.matches('.insp .errv') && $$('.errv').length === errs.length
+    && $$('.errv').every(b => b.textContent === 'Needs Fiscal Year End' && b.dataset.tip?.startsWith('#')), $$('.errv').map(b => `${b.textContent} [${b.dataset.tip}]`).join(' | '));
   Shell.parts.value.undo.undo(); await tick(60);
 
   // The view

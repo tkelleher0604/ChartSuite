@@ -172,10 +172,10 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr.new > .add-entry { grid-column: 2 / -1; justify-self: start; }
 
 
-/* An error where a value would be: its code, and in words what's wrong; clicked, the bar says why. */
-button.errv { margin-left: -7px; padding: 4px 6px; border: 0; border-radius: var(--r); background: none; font-weight: 600; text-align: left; cursor: default; }
+/* An error where a value would be: what it needs, quietly, or its code in red. */
+button.errv { margin-left: -7px; padding: 4px 6px; border: 0; border-radius: var(--r); background: none; color: var(--ink-2); text-align: left; cursor: default; }
+button.errv.err { color: var(--no); font-weight: 600; }
 button.errv:hover { background: var(--hover); }
-button.errv > .msg { margin-left: 8px; font-weight: 400; color: var(--ink-2); }
 
 /* Two answers to one value: each with who gave it; choosing one keeps it. */
 .answers { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; margin-left: -7px; }
