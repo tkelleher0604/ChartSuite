@@ -346,17 +346,17 @@ const FormulaBar = (() => {
 
   // A new subject: a click on a computed record within the highlight steps down, keeping the way back; and the
   // tour hears that a computed record's reasons are shown.
-  let lit = { key: '', map: new Map() }, goingBack = false;
+  let last = { key: '', map: new Map() }, goingBack = false;
   effect(() => {
     const key = subjectKey.value;
-    if (key === lit.key) return;
+    if (key === last.key) return;
     const m = model.peek();
     hover.value = null; expanded.value = false; pick.value = null;
     if (draft.peek()) { draft.value = null; preview(null); }
     if (goingBack) goingBack = false;
-    else if (m?.computed && lit.map.has(m.id)) trail.value = [...trail.peek(), { id: lit.id, title: lit.title }];
+    else if (m?.computed && last.map.has(m.id)) trail.value = [...trail.peek(), { id: last.id, title: last.title }];
     else trail.value = [];
-    lit = { key, id: m?.id, title: m?.title, map: finder.peek().map };
+    last = { key, id: m?.id, title: m?.title, map: finder.peek().map };
     if (m?.computed) { saying = true; emit('why-open', m.id); saying = false; }
   });
   function back() {
