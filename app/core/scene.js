@@ -178,6 +178,11 @@ function textOf(r, format, name) {
 // ---- The scene ----
 
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
+// Where each view's boxes were when it was last drawn as it is, which its previews keep.
+const laidOut = new Map();
+// What a scene works out from a record's tree and the notes alone, its formats and its edges' order, kept by
+// record from one scene to the next while the notes, the view and the records its tree runs through stand.
+const worked = new WeakMap();
 
 function of(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
@@ -186,6 +191,24 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const state = red?.state ? { ...opts.state, ...red.state } : opts.state;
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
   const tree = id => treeOf(state, id);
+  const notesAre = `${view}|${wb.rows(chart).filter(r => 'note' in r).map(r => r.id).join()}`, stands = new Map();
+  const standing = id => {
+    if (!stands.has(id)) {
+      const r = state[id], w = r && worked.get(r);
+      stands.set(id, false);
+      stands.set(id, !!w && w.notes === notesAre && argsOf(r).every((a, i) => state[a.at] === w.locs[i] && standing(a.at)));
+    }
+    return stands.get(id);
+  };
+  const work = id => {
+    if (standing(id)) return worked.get(state[id]);
+    const r = state[id], w = { notes: notesAre, locs: argsOf(r).map(a => state[a.at]), formats: N.formats(tree(id), view) };
+    worked.set(r, w);
+    stands.set(id, true);
+    return w;
+  };
+  // Something else worked out from a record's tree and the notes, once.
+  const once = (id, k, f) => { const w = work(id); return k in w ? w[k] : (w[k] = f()); };
 
   // A note's rank where it reaches a mark: in the view before none; one record's own (entered) before a
   // style's; a later style before an earlier; and through the mark's own record before a deeper one.
@@ -197,7 +220,11 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const beats = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
 
-  const boxOf = id => { const r = state[id]; return !r || Tree.isView(r) ? null : isObject(r) ? id : r.at ? boxOf(r.at) : null; };
+  const boxAt = new Map();
+  const boxOf = id => {
+    if (!boxAt.has(id)) { const r = state[id]; boxAt.set(id, !r || Tree.isView(r) ? null : isObject(r) ? id : r.at ? boxOf(r.at) : null); }
+    return boxAt.get(id);
+  };
 
   // Marks: an object a box; a relation with two locations a line between their boxes; any other record a
   // text, in the mark of its nearest location (a relation of more than two, in each of their boxes). A
@@ -206,13 +233,13 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // app's own and never drawn.
   const marks = new Map(), own = new Map();
   const addMark = m => { marks.set(m.id, m); (own.get(m.record) ?? own.set(m.record, []).get(m.record)).push(m); return m; };
-  const ids = Object.keys(state).filter(id => !Tree.isView(state[id]) && tree(id));
+  const ids = Object.keys(state).filter(id => !Tree.isView(state[id]) && (standing(id) || tree(id)));
   // What each record's notes give, landing on the nearest mark up the tree that has the property.
-  const formats = new Map(ids.map(id => [id, N.formats(tree(id), view)]));
+  const formats = new Map(ids.map(id => [id, work(id).formats]));
   // A two-sided relation's ends as its line runs, from its Above side, the edge drawn on top, to the other.
   const endsOf = (id, ends) => {
-    const r = state[id], above = formats.get(id).Above?.value ?? N.edges(tree(id))[0];
-    const top = above && boxOf(r.args.find(a => same(a.edge, above))?.at);
+    const at = once(id, 'above', () => { const above = formats.get(id).Above?.value ?? N.edges(tree(id))[0]; return above && state[id].args.find(a => same(a.edge, above))?.at; });
+    const top = at && boxOf(at);
     return top && top === ends[1] ? [ends[1], ends[0]] : ends;
   };
   for (const id of ids) if (isObject(state[id])) addMark({ id, type: 'box', record: id, cand: {} });
@@ -280,7 +307,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // The texts drawn in each box and on each line, in their entries' order. A text's properties reach it
   // through its own record and through its box's (or line's); as everywhere, the later style wins, and its
   // own where they tie. Format, how a value reads, is each record's own.
-  const orderOf = id => Tree.pathOf(state, id).slice(1).map(x => [N.order(tree(x)) ?? Infinity, Tree.norm(state[x].edge ?? '')]);
+  const orders = new Map();
+  const orderOf = id => orders.get(id) ?? orders.set(id, Tree.pathOf(state, id).slice(1).map(x => [once(x, 'order', () => N.order(tree(x))) ?? Infinity, Tree.norm(state[x].edge ?? '')])).get(id);
   const byOrder = (a, b) => {
     const p = orderOf(a.record), q = orderOf(b.record);
     for (let i = 0; i < Math.min(p.length, q.length); i++) if (p[i][0] !== q[i][0]) return p[i][0] - q[i][0]; else if (p[i][1] !== q[i][1]) return p[i][1] < q[i][1] ? -1 : 1;
@@ -294,12 +322,12 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     }
     settle(m, DEFAULTS.text);
     for (const label of TEXT_PROPS) if (!m.cand[label] && label !== 'Format') m.settings[label] = host.settings[label];
-    const r = state[m.record], t = look(m.settings);
+    const r = state[m.record], t = look(m.settings), name = once(m.record, 'name', () => N.name(tree(m.record)));
     const old = red?.changed?.get?.(m.record);
-    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, N.name(tree(m.record))),
-      was: typeof old === 'string' ? old : old ? textOf(old, t.Format, N.name(tree(m.record))) : undefined,
+    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name),
+      was: typeof old === 'string' ? old : old ? textOf(old, t.Format, name) : undefined,
       computed: !!r.computed, redline: isRed(m.record),
-      ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', N.name(tree(m.record))), name: N.nameOf(state, m.listed) } }) };
+      ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', name), name: N.nameOf(state, m.listed) } }) };
   };
   // A box's relations written in it, one text for each role: the role, for more than one in the plural, and
   // who holds it, by surname, each name kept on one line. They follow the box's own texts.
@@ -420,10 +448,13 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   }
 
   // The layout: entered positions win; ELK places the rest, frames as clusters, ranked by the lines, and
-  // a box placed among entered ones keeps clear of the boxes, lines and free shapes already there.
+  // a box placed among entered ones keeps clear of the boxes, lines and free shapes already there. A
+  // preview (a redline, or records revealed) keeps every box where the view was last drawn.
   const page = pageOf(N, view);
   const shapeRows = wb.rows(chart).filter(r => 'shape' in r && r.view === view);
+  const preview = !!(red || opts.reveal?.length), drawnAs = `${chart}|${view}`;
   const placed = Layout.arrange({
+    keep: preview ? laidOut.get(drawnAs) : null,
     boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape })),
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to })),
     lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
@@ -431,6 +462,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
     entered: positions, page,
   });
+  if (!preview) laidOut.set(drawnAs, placed);
   for (const b of boxes) Object.assign(b, placed.get(b.id));
   // Boxes in a rank, their tops level, are one height: the tallest of them.
   for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) {
