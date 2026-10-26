@@ -215,12 +215,12 @@ async function run() {
   const jul1 = Time.events.peek().find(e => e.day === '2024-07-01');
   check('Each day is said in the chart’s words', jul1?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul1?.items));
   $('.titlebar .asof').click(); await tick(100);
-  check('The date control opens a calendar beside the chart’s days', !!$('.when2 .cal-grid') && $$('.when2 .dayrow').length >= Time.events.peek().length);
-  const list = [...$('.when2 .when-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');
+  check('The date control opens a calendar beside the chart’s days', !!$('.date-pop .cal-grid') && $$('.date-pop .dayrow').length >= Time.events.peek().length);
+  const list = [...$('.date-pop .date-days').children], y2024 = list.findIndex(x => x.classList.contains('yr') && x.textContent === '2024');
   list.slice(y2024).find(b => b.querySelector?.('.d')?.textContent === 'Jul 1').click(); await tick(100);
   check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('Jul 1, 2024'));
   check('The strip shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
-  [...$$('.when2 .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);
+  [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);
   check('Or any day from the calendar', Shell.time.peek()?.asOf === '2024-07-15');
   Shell.closeAll(); await tick();
   const s = $('.scrub'), r = s.getBoundingClientRect();

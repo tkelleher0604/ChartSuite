@@ -8,7 +8,7 @@
 // the view shows that day. History's Restore reverses a change; Esc comes back to now.
 
 const Time = (() => {
-  const { html, signal, computed, effect } = Shell;
+  const { html, signal, computed } = Shell;
   const { useEffect, useLayoutEffect, useRef, useState } = preactHooks;
   const { render } = preact;
   const { nameOf, shortOf, whose, sides } = Table.words;
@@ -106,14 +106,14 @@ const Time = (() => {
       const d = Tree.parseDate(e.target.value);
       if (d) show(d); else e.target.classList.add('bad');
     };
-    return html`<div class="when2">
-      <div class="when-top">
+    return html`<div class="date-pop">
+      <div class="date-top">
         <button class="btn" aria-pressed=${!t} onClick=${() => show(null)}>Today</button>
         <input value=${text ?? Tree.formatDate(day)} spellcheck="false" onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); }} onKeyDown=${typed} />
       </div>
-      <div class="when-body">
+      <div class="date-body">
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />
-        <div class="when-days" ref=${listRef}>
+        <div class="date-days" ref=${listRef}>
           ${years.map(y => html`<div class="yr">${y}</div>
             ${y < today.slice(0, 4) ? html`<button class="dayrow end" aria-pressed=${day === `${y}-12-31`} onClick=${() => show(`${y}-12-31`)}><span class="d">Dec 31</span><span class="w muted">Year-end</span></button>` : null}
             ${evs.filter(e => e.day.startsWith(y)).reverse().map(e => html`<button class="dayrow" aria-pressed=${e.day === day} onClick=${() => show(e.day)}>
@@ -122,7 +122,7 @@ const Time = (() => {
             </button>`)}`)}
         </div>
       </div>
-      ${t?.asOf && view ? html`<label class="when-keep"><input type="checkbox" checked=${kept(view.id) === t.asOf} onChange=${e => keep(view.id, e.target.checked ? t.asOf : null)} />Keep in ${view.name}</label>` : null}
+      ${t?.asOf && view ? html`<label class="date-keep"><input type="checkbox" checked=${kept(view.id) === t.asOf} onChange=${e => keep(view.id, e.target.checked ? t.asOf : null)} />Keep in ${view.name}</label>` : null}
     </div>`;
   }
   // The title bar's date opens this calendar in place of the shell's own.
@@ -141,23 +141,22 @@ const Time = (() => {
     const ref = useRef();
     if (!(t?.asOf || opened.value) || !evs.length) return null;
     const days = [...new Set([...evs.map(e => e.day), today, ...(t?.asOf ? [t.asOf] : [])])].sort(), items = new Map(evs.map(e => [e.day, e.items]));
-    const pos = [0], breaks = [];
+    // Days are placed by how far apart they are, a long gap shortened and marked with a break; Jan 1 of each
+    // year inside an unbroken gap is labeled.
+    const pos = [0], breaks = [], years = [];
     for (let i = 1; i < days.length; i++) {
       const gap = (dayOf(days[i]) - dayOf(days[i - 1])) / 864e5;
       pos.push(pos[i - 1] + Math.min(gap, CAP));
-      if (gap > CAP) breaks.push((pos[i - 1] + pos[i]) / 2);
-    }
-    const span = pos.at(-1) || 1, at = p => `calc(16px + (100% - 32px) * ${p / span})`;
-    const years = [];
-    for (let i = 1; i < days.length; i++) {
-      const gap = (dayOf(days[i]) - dayOf(days[i - 1])) / 864e5;
-      if (gap > CAP) continue;
+      if (gap > CAP) { breaks.push((pos[i - 1] + pos[i]) / 2); continue; }
       for (let y = +days[i - 1].slice(0, 4) + 1; y <= +days[i].slice(0, 4); y++)
         years.push([y, pos[i - 1] + (dayOf(`${y}-01-01`) - dayOf(days[i - 1])) / 864e5]);
     }
+    const span = pos.at(-1) || 1, at = p => `calc(16px + (100% - 32px) * ${p / span})`;
     const nearest = e => {
       const r = ref.current.getBoundingClientRect(), p = (e.clientX - r.left - 16) / Math.max(1, r.width - 32) * span;
-      return days.reduce((a, d, i) => Math.abs(pos[i] - p) < Math.abs(pos[days.indexOf(a)] - p) ? d : a, days[0]);
+      let best = 0;
+      pos.forEach((x, i) => { if (Math.abs(x - p) < Math.abs(pos[best] - p)) best = i; });
+      return days[best];
     };
     const down = e => {
       if (e.button !== 0) return;
@@ -176,13 +175,13 @@ const Time = (() => {
       e.preventDefault();
       show(days[Math.max(0, Math.min(days.length - 1, i + d))]);
     };
-    const cur = t?.asOf ?? today, tip = hot ?? cur, its = items.get(tip) ?? [];
+    const cur = t?.asOf ?? today, tip = hot ?? cur, its = items.get(tip) ?? [], tx = pos[days.indexOf(tip)] / span;
     return html`<div class="scrub" ref=${ref} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
         onPointerDown=${down} onPointerMove=${e => { if (!e.buttons) setHot(nearest(e)); }} onPointerLeave=${() => setHot(null)} onKeyDown=${key}>
       ${years.map(([y, p]) => html`<span class="yr" style=${`left:${at(p)}`}>${y}</span>`)}
       ${breaks.map(p => html`<span class="brk" style=${`left:${at(p)}`} />`)}
       ${days.map((d, i) => html`<i class=${d === cur ? 'on' : d === hot ? 'hot' : d === today ? 'now' : ''} style=${`left:${at(pos[i])}`} />`)}
-      <span class="scrub-tip" style=${`left:${at(pos[days.indexOf(tip)])}`}>
+      <span class=${'scrub-tip' + (tx < .2 ? ' l' : tx > .8 ? ' r' : '')} style=${`left:${at(pos[days.indexOf(tip)])}`}>
         <b>${tip === today ? 'Today' : short(tip)}</b>${its[0] ? html` · ${its[0].what}${its[0].of ? ` · ${its[0].of}` : ''}${its.length > 1 ? ` · ${its.length - 1} more` : ''}` : null}
       </span>
     </div>`;
