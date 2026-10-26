@@ -128,11 +128,15 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .shapes svg { width: 18px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.2; overflow: visible; }
 .pop-head { font: var(--t12); color: var(--ink-3); margin: 0 0 8px; }
 
-/* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. */
+/* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. More
+   than one go two across, two rows of them in view, each page as large as that allows (--a its width over its
+   height). */
 .ex { display: grid; gap: 12px; }
 .ex-pick { display: flex; gap: 8px; }
 .ex-well { height: min(56vh, 520px); overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
 .ex-well.full { grid-template-columns: max-content; }
+.ex-well.many { grid-template-columns: repeat(2, minmax(0, 1fr)); container-type: size; }
+.ex-well.many .ex-page { width: min(100%, (50cqh - 28px) * var(--a)); justify-self: center; }
 .ex-page { margin: 0; display: grid; gap: 4px; }
 .ex-page > button { display: block; padding: 0; border: 0; border-radius: 0; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); cursor: zoom-in; }
 .ex-page img { display: block; width: 100%; height: auto; }
