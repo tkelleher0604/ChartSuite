@@ -14,7 +14,7 @@ A **dated record** is a record together with a nonempty period, its **validity**
 
 A record of a timeline **holds** on a day d if it is valid on d and each of its locations holds on d. The records that hold on d are **the chart as of d**. Sanity check: the chart as of d is a state. It is closed under locations by the definition of holding, and two of its records with one argumentation would both be valid on d.
 
-A record's **start** is the first day it holds, and its **end** the first day after that on which it doesn't. A kind or relation may name them (see Notes): an Entity's are Formation Date and Dissolution Date, a General Partner's Admission Date and Withdrawal Date.
+A kind or relation may name a date entry at it as its **start** and another as its **end** (see Notes): an Entity's are Formation Date and Dissolution Date, a General Partner's Admission Date and Withdrawal Date. A record's validity is then its own period narrowed to the days from its start, if it has one, and before its end. So Formation Date stays an ordinary field, and a fund is in the chart as of a day only once it's formed.
 
 ### Change
 
