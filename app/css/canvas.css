@@ -29,6 +29,14 @@
 .dc-marks { pointer-events: none; }
 .dc-hl { fill: none; stroke: var(--rf-1); stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .dc-hl.line { stroke-width: 5px; stroke-opacity: .45; stroke-linejoin: round; }
+.dc-hl.strong { stroke-width: 3px; }
+.dc-hl.line.strong { stroke-width: 7px; stroke-opacity: .55; }
+.dc-hl.deep { stroke-opacity: .5; stroke-dasharray: 4 3; }
+.dc-hl.line.deep { stroke-opacity: .25; stroke-dasharray: none; }
+.dc-hl.pulse { animation: dc-pulse 700ms var(--ease) 2; }
+@keyframes dc-pulse { 50% { stroke-width: 6px; stroke-opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dc-hl.pulse { animation: none; } }
+.dc.pointing .x6-node, .dc.pointing .x6-edge { cursor: crosshair; }
 .dc-row, .dc-group { fill: none; stroke: var(--accent); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .dc-group { stroke-dasharray: 4 3; }
 .dc-relating { fill: none; stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }

@@ -5,16 +5,18 @@
 // a drag from a box's edge to another box, to relate them.
 //
 // Canvas.mount(el, source) → a canvas. The source holds signals { wb, chart, view, day, state, selection }
-// and edit(opts) → a transaction, select(keys), emit(name, detail); Canvas.fromApp() is the window's.
-// Selection keys are mark ids: a box's or a line's record, a free shape's id, a frame's, and a legend row
-// as `legend id#row key`. The canvas:
-//   scene(), selected() → marks, select(keys)
-//   highlight(Map id → color | null, { dim }), redline({ appear, go, changed, state } | null), reveal(ids | null)
+// and edit(opts) → a transaction, select(keys), emit(name, detail), on(name, fn); Canvas.fromApp() is the
+// window's. Selection keys are mark ids: a box's or a line's record, a free shape's id, a frame's, and a
+// legend row as `legend id#row key`. The canvas:
+//   scene(), selected() → marks, keys(), select(keys)
+//   highlight({ [id]: color } | null, { dim, strong, deep, pulse }), redline({ appear, go, changed, records }
+//     | null), reveal(ids | null): the states the formula bar asks for (formulabar.js says how)
 //   insert(geometry, opts) → id, remove(), copy(), cut(), paste(), duplicate(), nudge(dx, dy)
 //   align('left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'), distribute('across' | 'down'),
 //   match('width' | 'height'), order('front' | 'forward' | 'backward' | 'back'), group(), ungroup()
-//   edit(key), tidy(), zoom(k | 'fit' | 'in' | 'out'), on(event, fn), destroy()
-// It emits 'change' (a scene was drawn), 'zoom' and, on the source, 'relate-open' ({ from, to }).
+//   edit(key), tidy(), zoom(k | 'fit' | 'in' | 'out'), on('change' | 'zoom', fn), destroy()
+// On the source's bus it emits 'relate-open' ([a, b]) after a drag from one box to another; 'point' (a
+// record id) for a click while 'point-mode' is on; 'why-open' (its id) for a click on a lit computed line.
 const Canvas = (() => {
 const { Graph, Selection, Transform, Snapline } = X6;
 const { signal, effect, computed } = preactSignals;
@@ -154,6 +156,7 @@ function mount(el, src) {
   const fire = (name, d) => subs.get(name)?.forEach(f => f(d));
 
   let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, row = null, dragging = null, syncing = false;
+  let pointing = false, hold = false;
   const cellSig = new Map();
   const zooms = new Map();
 
@@ -165,7 +168,7 @@ function mount(el, src) {
     interacting: view => {
       const k = view.cell.getData()?.kind;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape', edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: k !== 'page' && k !== 'label' };
+      return { nodeMovable: !pointing && k !== 'page' && k !== 'label' };
     },
   });
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: true,
@@ -178,6 +181,7 @@ function mount(el, src) {
   const grips = () => {
     const cs = sel.getSelectedCells();
     if (cs.length === 1 && resizable(cs[0])) { if (!transform.widgets.has(cs[0])) transform.createWidget(cs[0]); } else transform.clearWidgets();
+    showHandles();
   };
   graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5 }));
 
@@ -266,18 +270,36 @@ function mount(el, src) {
   });
   const stopSel = effect(() => { const keys = src.selection.value; if (scene && !syncing) { if (!keys.some(k => k.includes('#'))) row = null; syncSelection(); paintStates(); } });
 
+  // While a formula's row is edited (point mode), a click on a box or line names its record to the formula
+  // bar and selects nothing. A click on a computed line the bar has lit shows its reasons there.
+  const offPoint = src.on?.('point-mode', on => { pointing = !!on; root.classList.toggle('pointing', pointing); showHandles(); });
+  function pointed(cell) {
+    const d = cell.getData() ?? {}, m = scene?.byId.get(d.kind === 'label' ? d.mark : cell.id);
+    if (!m || (m.type !== 'box' && m.type !== 'line')) return false;
+    if (pointing) src.emit?.('point', m.record);
+    else if (m.type === 'line' && m.computed && hl?.map.has(m.record)) src.emit?.('why-open', m.record);
+    else return false;
+    hold = true;
+    sel.disable();
+    addEventListener('mouseup', () => setTimeout(() => { hold = false; sel.enable(); }), { once: true });
+    return true;
+  }
+  graph.on('edge:mousedown', ({ edge }) => pointed(edge));
+
   // A click on the page clears the selection, and a drag across it is the marquee; a click on a line's
   // label is a click on its line; a second click on a legend selects the row under it.
   graph.on('node:mousedown', ({ e, node }) => {
     const k = node.getData()?.kind;
     root.focus({ preventScroll: true });
     if (k === 'page') { if (!e.shiftKey) sel.clean(); sel.startRubberband(e); return; }
+    if (pointed(node)) return;
     if (k === 'label' || e.shiftKey || e.ctrlKey || e.metaKey) return;
     if (!sel.isSelected(node)) { syncing = true; sel.reset(cellsFor([groupOf(node.id)?.id ?? node.id])); syncing = false; src.select(keysOfSelection()); }
   });
   graph.on('blank:mousedown', () => root.focus({ preventScroll: true }));
   graph.on('node:click', ({ e, node }) => {
     const k = node.getData()?.kind;
+    if (hold) return;
     if (k === 'label') {
       const line = graph.getCellById(node.getData().mark);
       if (line) { if (e.shiftKey) sel.isSelected(line) ? sel.unselect(line) : sel.select(line); else sel.reset(line); }
@@ -473,7 +495,8 @@ function mount(el, src) {
   });
 
   // ---- Relating: drag from a box's edge to another box ----
-  let hoverBox = null;
+  // The handles sit on the box under the pointer, or else the box selected alone.
+  let hoverBox = null, relateBox = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
     h.className = `dc-handle ${side}`;
@@ -481,21 +504,24 @@ function mount(el, src) {
     over.appendChild(h);
     return h;
   });
-  function showHandles(m) {
-    hoverBox = m;
-    if (!m || sel.getSelectedCells().length > 1) { root.classList.remove('relating-on'); return; }
+  function showHandles(hovered = hoverBox) {
+    hoverBox = hovered;
+    const cs = sel.getSelectedCells(), alone = cs.length === 1 && scene?.byId.get(cs[0].id);
+    const m = relateBox = hoverBox ?? (alone?.type === 'box' ? alone : null);
+    if (!m || pointing || cs.length > 1) { root.classList.remove('relating-on'); return; }
     // The middles of its sides, on its outline: a triangle's slopes, a diamond's corners.
     const inset = m.shape === 'triangle' ? m.w / 4 : 0;
-    const a = graph.localToGraph(m.x + inset, m.y), b = graph.localToGraph(m.x + m.w - inset, m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-    const at = { n: [cx, a.y], e: [b.x, cy], s: [cx, b.y], w: [a.x, cy] };
+    // They stand a little off it, clear of the resize handles.
+    const a = graph.localToGraph(m.x + inset, m.y), b = graph.localToGraph(m.x + m.w - inset, m.y + m.h), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, o = 12;
+    const at = { n: [cx, a.y - o], e: [b.x + o, cy], s: [cx, b.y + o], w: [a.x - o, cy] };
     handles.forEach(h => { const [x, y] = at[h.classList[1]]; h.style.left = `${x}px`; h.style.top = `${y}px`; });
     root.classList.add('relating-on');
   }
   graph.on('node:mouseenter', ({ node }) => { const m = scene.byId.get(node.id); if (m?.type === 'box' && !dragging) showHandles(m); });
   graph.on('node:mouseleave', ({ e }) => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
-  graph.on('scale translate', () => { if (hoverBox) showHandles(hoverBox); paintStates(); fire('zoom', graph.zoom()); });
+  graph.on('scale translate', () => { showHandles(); paintStates(); fire('zoom', graph.zoom()); });
   function startRelate(e, side) {
-    const from = hoverBox;
+    const from = relateBox;
     if (!from) return;
     e.preventDefault(); e.stopPropagation();
     const line = document.createElementNS(NS, 'path');
@@ -514,7 +540,7 @@ function mount(el, src) {
       removeEventListener('pointermove', move); removeEventListener('pointerup', up);
       line.remove(); paintStates();
       const p = graph.clientToLocal(ev.clientX, ev.clientY);
-      if (target) { src.select([from.id, target.id]); src.emit?.('relate-open', { from: from.id, to: target.id }); }
+      if (target) { src.select([from.id, target.id]); src.emit?.('relate-open', [from.id, target.id]); }
       else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12) insert('line', { points: [start, [p.x, p.y]], ends: [from.id, null] });
     };
     addEventListener('pointermove', move); addEventListener('pointerup', up);
@@ -539,18 +565,21 @@ function mount(el, src) {
     };
     const hosts = new Map();
     for (const m of scene.marks) for (const it of m.texts ?? []) hosts.set(it.id, m);
+    // A record not drawn as text lights the box or line it sits in.
+    const markFor = id => { const st = src.state.value; for (let x = id; x; x = st[x]?.at) { const m = scene.byId.get(x); if (m) return m; } return null; };
     const lit = new Set();
     for (const [id, color] of [...(hl?.map ?? []), ...(extra ?? [])]) {
-      const m = scene.byId.get(id);
+      const m = markFor(id);
       if (!m) continue;
+      const cls = 'dc-hl' + (hl?.strong.has(id) ? ' strong' : '') + (hl?.deep.has(id) ? ' deep' : '') + (hl?.pulse.has(id) ? ' pulse' : '');
       if (m.type === 'text') {
-        const h = hosts.get(id);
+        const h = hosts.get(m.id);
         if (!h) continue;
         lit.add(h.id);
         const o = h.type === 'line' ? h.labelAt ?? { x: 0, y: 0 } : h;
         const ys = m.lines.map(l => l.y), xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0));
-        outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - px(m.look.Size), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * px(m.look.Size) * 1.2 }, color, 'dc-hl', 1.5);
-      } else { lit.add(id); outline(m, color); }
+        outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - px(m.look.Size), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * px(m.look.Size) * 1.2 }, color, cls, 1.5);
+      } else { lit.add(m.id); outline(m, color, cls); }
     }
     // A selected legend row, and an entered or selected group.
     const lg = row && scene.byId.get(row.legend), r = lg?.rows?.find(x => x.key === row.key);
@@ -569,24 +598,34 @@ function mount(el, src) {
       v.container.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id));
     }
   }
-  function highlight(map, { dim = false } = {}) {
-    hl = map && map.size ? { map: new Map(map), dim } : null;
-    const hidden = hl ? [...hl.map.keys()].filter(id => !scene?.byId.has(id) && src.state.value[id]) : [];
-    const next = hidden.length ? hidden : null;
-    if (JSON.stringify(next) !== JSON.stringify(revealIds)) { revealIds = next; draw(); } else paintStates();
+  // Range Finder (transparency.md §3.1): colors { [record id]: CSS colour }, each record outlined in its
+  // colour; strong, the witnesses, heavier; deep, deeper reasons, the same hue lighter; pulse, what a hovered
+  // part of a formula means. With dim, the rest fades. null clears it.
+  function highlight(colors, { dim = false, strong = [], deep = [], pulse = [] } = {}) {
+    const map = colors instanceof Map ? colors : new Map(Object.entries(colors ?? {}));
+    hl = map.size ? { map, dim, strong: new Set(strong), deep: new Set(deep), pulse: new Set(pulse) } : null;
+    show();
   }
+  // A pending change, as comparison software shows one: what would appear in blue, what would go in red and
+  // struck through, and a changed value's old text struck before its new. records: the state it would leave,
+  // so what doesn't exist yet can be drawn. null clears it.
   function redline(r) {
-    if (!r) { red = null; draw(); return; }
-    const now = src.state.value, then = r.state ?? now;
-    const set = x => x instanceof Set ? x : new Set(x ?? []);
-    const appear = r.appear ? set(r.appear) : new Set(Object.keys(then).filter(id => !now[id]));
-    const go = r.go ? set(r.go) : new Set(Object.keys(now).filter(id => !then[id]));
-    const changed = r.changed ? new Map(r.changed instanceof Map ? r.changed : Object.entries(r.changed))
-      : new Map(Object.keys(then).filter(id => now[id] && JSON.stringify(now[id]) !== JSON.stringify(then[id])).map(id => [id, now[id]]));
-    red = { state: r.state ?? null, appear, go, changed };
-    draw();
+    const now = src.state.peek();
+    red = r ? { state: r.records ?? null, appear: new Set(r.appear ?? []), go: new Set(r.go ?? []),
+      changed: new Map(Object.entries(r.changed ?? {}).map(([id, c]) => [id, now[id] ?? c?.before ?? c])) } : null;
+    show();
   }
-  function reveal(ids) { revealIds = ids && [...ids].length ? [...ids] : null; draw(); }
+  // Boxes and lines the view hides are drawn while they're highlighted, redlined, or asked for. (An entry
+  // isn't: it lights what it sits in, so no box changes size under the pointer.)
+  let asked = [], redDrawn = null;
+  function reveal(ids) { asked = ids ? [...ids] : []; show(); }
+  function show() {
+    const st = red?.state ? { ...src.state.peek(), ...red.state } : src.state.peek();
+    const drawable = id => { const r = st[id]; return r && (Tree.isObject(r) || r.args?.length === 2); };
+    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(red ? [...red.appear, ...red.go, ...red.changed.keys()] : [])])].filter(drawable).sort();
+    const next = ids.length ? ids : null;
+    if (JSON.stringify(next) !== JSON.stringify(revealIds) || red !== redDrawn) { revealIds = next; redDrawn = red; draw(); } else paintStates();
+  }
 
   // ---- Commands ----
   const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
@@ -766,7 +805,7 @@ function mount(el, src) {
     scene: () => scene, graph, root, selected, select: keys => src.select(keys), keys: keysOfSelection,
     highlight, redline, reveal, insert, remove, copy, cut, paste, duplicate, nudge, align, distribute, match, order, group, ungroup,
     edit: key => edit(key), tidy, zoom, zoomLevel: () => graph.zoom(), on, source: src, writeNote,
-    destroy() { stopDraw(); stopSel(); unbind(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null; },
+    destroy() { stopDraw(); stopSel(); unbind(); offPoint?.(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null; },
   };
   active.value = canvas;
   return canvas;
@@ -784,12 +823,16 @@ function fromApp() {
   return {
     wb: App.shown, chart: App.chart, day: App.day, state: App.state, version: App.version,
     view: computed(() => Shell.view.value ?? firstView.value),
-    selection: Shell.selection, select: keys => Shell.select(keys), edit: opts => App.edit(opts), emit: Shell.emit,
+    selection: Shell.selection, select: keys => Shell.select(keys), edit: opts => App.edit(opts), emit: Shell.emit, on: Shell.on,
   };
 }
 
-if (typeof Shell !== 'undefined' && typeof App !== 'undefined')
-  Shell.register('canvas', { mount(el) { const c = mount(el, fromApp()); return () => c.destroy(); } });
+// The window's part. The other parts call the canvas shown through it (Shell.parts.value.canvas).
+if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
+  const call = name => (...a) => active.peek()?.[name](...a);
+  Shell.register('canvas', { mount(el) { const c = mount(el, fromApp()); return () => c.destroy(); },
+    highlight: call('highlight'), redline: call('redline'), reveal: call('reveal') });
+}
 
 return { mount, fromApp, active, writeNote, payload, keyParts };
 })();

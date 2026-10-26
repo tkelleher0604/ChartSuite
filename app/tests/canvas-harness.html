@@ -99,24 +99,30 @@ const H = (() => {
     open: async which => { document.querySelector(`.fb [data-fb="${which}"]`)?.click(); await wait(120); },
     wait: async ms => wait(+ms),
     // Range Finder: these records outlined in these hues, the rest dimmed; hidden ones drawn for a while.
-    hl: async (...pairs) => { cv().highlight(new Map(pairs.map(p => p.split('=')).map(([id, n]) => [id, `var(--rf-${n})`])), { dim: true }); await wait(80); },
-    // A pending change, redlined: a percentage changed, a line gone, a record appearing.
+    // As the formula bar asks, through the shell's part: hl:fund=1:own_us_fund=2 — an id's hue; a name in
+    // front of =, with *, is a witness; with ~, a deeper reason; with !, pulsing.
+    hl: async (...pairs) => {
+      const colors = {}, strong = [], deep = [], pulse = [];
+      for (const p of pairs) { const [k, n] = p.split('='), id = k.replace(/^[*~!]/, ''); colors[id] = `var(--rf-${n})`; ({ '*': strong, '~': deep, '!': pulse })[k[0]]?.push(id); }
+      Shell.parts.peek().canvas.highlight(colors, { dim: true, strong, deep, pulse });
+      await wait(80);
+    },
+    // A pending change, redlined as the formula bar asks: a percentage changed, a line gone, one appearing.
     red: async () => {
       const now = App.state.peek(), then = { ...now };
       then.own_us_fund_pct = { ...now.own_us_fund_pct, value: 0.65 };
       delete then.own_fund_blkr; delete then.own_fund_blkr_pct;
       then.own_x = { args: [{ edge: 'Owner', at: 'inv_nonus' }, { edge: 'Owned', at: 'fund' }], tag: true };
       then.own_x_pct = { at: 'own_x', edge: 'Percentage', field: 'percent', value: 0.069 };
-      cv().redline({ state: then });
+      Shell.parts.peek().canvas.redline({ appear: ['own_x', 'own_x_pct'], go: ['own_fund_blkr', 'own_fund_blkr_pct'], changed: { own_us_fund_pct: { before: '71.6%', after: '65%' } }, records: then });
       await wait(80);
     },
+    point: async on => { Shell.emit('point-mode', on !== 'off'); await wait(30); },
     key: async (k, mods = '') => { const o = { key: k, code: k.length === 1 ? `Key${k.toUpperCase()}` : k, bubbles: true, ctrlKey: mods.includes('c'), shiftKey: mods.includes('s') }; cv().root.focus(); cv().root.dispatchEvent(new KeyboardEvent('keydown', o)); await wait(60); },
     dbl: async id => { const [x, y] = center(id); mouse('dblclick', x, y); await wait(80); },
     // Drag from a box's handle to another box; with `hold`, stop short of letting go.
     relate: async (from, to, hold) => {
-      const [x, y] = center(from), el = at(x, y);
-      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
-      await wait(60);
+      await STEPS.select(from);
       const h = document.querySelector('.dc-handle.s'), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2];
       const m = cv().scene().byId.get(to), q = cv().graph.localToClient(m.x + m.w / 2, m.y + m.h / 2);
       h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: p0[0], clientY: p0[1], button: 0 }));
@@ -160,12 +166,15 @@ const H = (() => {
     for (const s of (q.get('do') || '').split(',').filter(Boolean)) { const [name, ...args] = s.split(':'); await STEPS[name]?.(...args); }
     report();
   }
+  // What the canvas said on the bus.
+  const said = [];
+  for (const name of ['relate-open', 'point', 'why-open']) Shell.on(name, d => said.push([name, d]));
   let mounts = 0;
   preactSignals.effect(() => { if (Canvas.active.value) mounts++; else if (mounts) ERRS.push('canvas destroyed: ' + new Error().stack.split('\n').slice(2, 12).join(' | ')); });
   function report() {
     const sc = cv()?.scene(), d = document.createElement('pre');
     d.id = 'report'; d.hidden = true;
-    d.textContent = JSON.stringify({ errors: ERRS, view: sc?.view, marks: sc?.marks.length, ms: sc?.ms, selection: Shell.selection.peek(), page: sc?.page, mounts });
+    d.textContent = JSON.stringify({ errors: ERRS, view: sc?.view, marks: sc?.marks.length, ms: sc?.ms, selection: Shell.selection.peek(), page: sc?.page, mounts, said });
     document.body.appendChild(d);
     document.title = ERRS.length ? 'errors' : 'ready';
   }
