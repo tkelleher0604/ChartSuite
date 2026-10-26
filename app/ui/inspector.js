@@ -39,6 +39,14 @@ const article = w => /^[aeiou]/i.test(w) ? 'an' : 'a';
 const lower = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
 const upper = s => s.replace(/^./, c => c.toUpperCase());
 const termOf = at => { const o = objectOf(at), s = shortOf(o); return s !== nameOf(o) ? s.replace(/^The /, 'the ') : s; };
+// Why a formula gives a record: the row the formula bar says decided it, by its clause cited in full
+// (§2(a)(3)(C)), so both panes give one reason; `label` is that row's own.
+function because(id) {
+  const g = FormulaBar.reason?.(id);
+  if (g) return { label: g.label, cite: g.cite ?? g.label };
+  const c = App.computed.value.computed[id];
+  return c?.label ? { label: c.label, cite: FormulaBar.citeOf?.(c.def, c.label) ?? c.label } : null;
+}
 
 // A date a formula gives is overdue once the day shown is past it, and due soon within 30 days of it.
 const later = (iso, days) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days); return T.isoOf(d); };
@@ -98,14 +106,22 @@ function blanksAt(at) {
 // Where an error stands, as the entry its value would be: the record it's at, and its label.
 const placeOf = e => e.args?.length === 1 ? e.args[0] : e.at ? { at: e.at, edge: App.definitions.value.find(d => d.id === e.def)?.name } : null;
 
-// A record's entries, the errors where a formula would put one, and blank required ones; in Order, Name first.
-function slots(at) {
+// A record's entries, the errors where a formula would put one, and blank required ones (or, `all`, every
+// entry it could have and hasn't); in Order, Name first.
+function slots(at, all) {
   const r = recs(), own = !!r[at]?.kind, slot = (edge, x) => ({ edge, ...x, t: { args: [{ edge, loc: tree(at) }] } });
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
-  return [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity }))
+  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at })) : [];
+  return [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity }))
     .sort((a, b) => a.o - b.o || a.edge.localeCompare(b.edge));
+}
+// The specifications of entries a record could have and hasn't, Name aside, one an edge.
+function unentered(at) {
+  const t = tree(at), have = new Set(entriesAt(at).map(e => T.norm(recs()[e].edge))), known = new Map();
+  for (const s of Object.values(App.schema.value)) if (s.args?.length === 1 && !have.has(T.norm(s.args[0].edge)) && !T.same(s.args[0].edge, 'Name') && T.narrower(t, s.args[0].loc)) known.set(T.norm(s.args[0].edge), s);
+  return [...known.values()];
 }
 
 // A document is an object with a link among its entries.
@@ -283,7 +299,8 @@ function Filed({ id }) {
   const slot = !App.readOnly.value && filingOf(id);
   if (!slot) return null;
   const open = e => Shell.popover(e.currentTarget, close => html`<${Filing} due=${id} slot=${slot} close=${close} />`, { placement: 'bottom-end', onClose: () => FormulaBar.preview(null) });
-  return html`<button class="btn ghost ver filed" aria-label=${`Record ${slot.edge}`} aria-haspopup="dialog" onClick=${open}>${/paid/i.test(slot.edge) ? 'Paid…' : 'Filed…'}</button>`;
+  // Overdue or due soon, it's what someone came for: always shown.
+  return html`<button class=${'btn ghost ver filed' + (dueOf(id) ? ' due' : '')} aria-label=${`Record ${slot.edge}`} aria-haspopup="dialog" onClick=${open}>${/paid/i.test(slot.edge) ? 'Paid…' : 'Filed…'}</button>`;
 }
 function Filing({ due, slot, close }) {
   const [text, setText] = useState(T.formatDate(App.day.peek(), 'short')), value = T.parse('date', T.clean(text) || '-');
@@ -333,10 +350,8 @@ function entryMenu(anchor, id) {
   ]);
 }
 function addItems(at, anchor) {
-  const t = tree(at), have = new Set(entriesAt(at).map(e => T.norm(recs()[e].edge))), known = new Map();
-  for (const s of Object.values(App.schema.value)) if (s.args?.length === 1 && !have.has(T.norm(s.args[0].edge)) && !T.same(s.args[0].edge, 'Name') && T.narrower(t, s.args[0].loc)) known.set(T.norm(s.args[0].edge), s);
-  const start = (type, edge) => () => { draft.value = { at, type, ...(edge && { edge, ...kindAt(t, edge) }) }; };
-  const items = [...known.values()].sort((a, b) => a.args[0].edge.localeCompare(b.args[0].edge)).map(s => ({ label: s.args[0].edge, detail: typeName(s),
+  const t = tree(at), start = (type, edge) => () => { draft.value = { at, type, ...(edge && { edge, ...kindAt(t, edge) }) }; };
+  const items = unentered(at).sort((a, b) => a.args[0].edge.localeCompare(b.args[0].edge)).map(s => ({ label: s.args[0].edge, detail: typeName(s),
     run: 'tag' in s.out ? () => addEntry(at, s.args[0].edge, { tag: true }) : start('field' in s.out ? 'field' : 'choice', s.args[0].edge) }));
   const others = () => [...T.index(recs()).kinds].flatMap(([, ids]) => ids).filter(x => !T.isView(recs()[x]) && x !== objectOf(at))
     .map(x => ({ label: nameOf(x), detail: recs()[x].kind, run: () => select([at, x]) })).sort((a, b) => a.label.localeCompare(b.label));
@@ -357,14 +372,16 @@ function Label({ it, fx }) {
 }
 
 // An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value.
+// A tag is a checkbox row, its box before its name, as the two-box panel draws one; its entries beneath it.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
+  const tag = r ? 'tag' in r : !it.error && kindAt(tree(at), it.edge).type === 'tag';
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
+  const k = html`<div class="k"><${Label} it=${it} fx=${f} /></div>`, v = html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
   return html`<div class="ent" data-drag=${r ? at : null}>
-    <div class=${'row' + (r?.tag === false ? ' ruled' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`} onKeyDown=${keyMenu}>
+    <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? ' ruled' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`} onKeyDown=${keyMenu}>
       ${r ? html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, (from, i) => reorder(at, moved(sibs(), from, i)), g => entryMenu(g, it.id))}>${GRIP}</button>` : null}
-      <div class="k"><${Label} it=${it} fx=${f} /></div>
-      <div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>
+      ${tag ? [v, k] : [k, v]}
     </div>
     ${r && !('field' in r) ? html`<${Entries} at=${it.id} depth=${depth + 1} />` : null}
   </div>`;
@@ -382,19 +399,19 @@ function Draft({ d, depth }) {
   };
   const key = e => { if (e.key === 'Escape') { e.stopPropagation(); draft.value = null; } };
   const nameKey = e => { if (e.key !== 'Enter') return; e.preventDefault(); if (!named()) return; if (k.type === 'tag') finish({ tag: true }); else box.current.querySelector('.v input, .v button')?.focus(); };
-  return html`<div class="row draft" ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>
-    <div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" aria-label="Name" value=${edge}
-      ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onInput=${e => setEdge(e.target.value)} onKeyDown=${nameKey} onBlur=${named} />`}</div>
-    <div class="v ctl">${k.type === 'tag' ? html`<span class="cellbox"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${T.clean(edge) || 'Tag'} onClick=${() => finish({ tag: true })} /></span>`
+  const tag = k.type === 'tag', name = html`<div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" aria-label="Name" value=${edge}
+      ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onInput=${e => setEdge(e.target.value)} onKeyDown=${nameKey} onBlur=${named} />`}</div>`;
+  const value = html`<div class="v ctl">${tag ? html`<span class="cellbox"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${T.clean(edge) || 'Tag'} onClick=${() => finish({ tag: true })} /></span>`
       : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
       : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label="New option" onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
-      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>
-  </div>`;
+      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>`;
+  return html`<div class=${'row draft' + (tag ? ' chk' : '')} ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>${tag ? [value, name] : [name, value]}</div>`;
 }
 
-function Entries({ at, depth }) {
+// A record's entries; `offer`ed, with every entry it could have and hasn't, each blank, to fill at once.
+function Entries({ at, depth, offer }) {
   const d = draft.value;
-  return html`${slots(at).map(it => html`<${Entry} key=${it.id ?? it.edge} it=${it} at=${at} depth=${depth} />`)}
+  return html`${slots(at, offer).map(it => html`<${Entry} key=${it.id ?? it.edge} it=${it} at=${at} depth=${depth} />`)}
     ${d?.at === at ? html`<${Draft} key=${JSON.stringify(d)} d=${d} depth=${depth} />` : null}`;
 }
 
@@ -406,16 +423,17 @@ function Section({ title, n, shut = false, act, id, children }) {
 }
 const plus = (label, run) => App.readOnly.value ? null : html`<button class="btn icon" aria-label=${label} data-tip=${label} onClick=${run}>${icon('plus')}</button>`;
 
-// What a relation with a relative says: its role (its option or value, else the reason a formula gives it),
-// then at most three facts: a check that fails, in red ("Capacity Held: No"); the others in it ("via GP
-// III"); words, options and values recorded at it (a second percentage saying which, "0% voting"); dates (a
-// start or an end saying so). Words that say the role more fully ("Director (Chair)") are the role. The
-// document that evidences it is a link, to open.
+// What a relation with a relative says: its role (its option or value, else the reason a formula gives it,
+// as the formula bar gives it), then at most three facts: a check that fails, in red ("Capacity Held: No");
+// the others in it ("via GP III"); words, options and values recorded at it (a second percentage saying
+// which, "0% voting", where it says something else); dates (a start or an end saying so). Words that say the
+// role more fully ("Director (Chair)") are the role. The document that evidences it is a link, to open.
 function detail(it) {
   const rel = recs()[it.rid], firsts = new Map(), at = slots(it.rid).filter(s => s.id).map(s => [s.id, recs()[s.id]]);
   const value = f => { const v = T.format(f.field, f.value), first = firsts.get(f.field);
-    if (!first) { firsts.set(f.field, f.edge); return v; }
-    const own = f.edge.split(/\s+/).filter(w => !first.split(/\s+/).some(x => T.same(x, w))).join(' ');
+    if (!first) { firsts.set(f.field, { edge: f.edge, v }); return v; }
+    if (v === first.v) return null;
+    const own = f.edge.split(/\s+/).filter(w => !first.edge.split(/\s+/).some(x => T.same(x, w))).join(' ');
     return `${v} ${(own || f.edge).toLowerCase()}`; };
   const words = [...at.filter(([, e]) => 'choice' in e).map(([, e]) => e.choice), ...at.filter(([, e]) => e.field === 'text').map(([, e]) => e.value)];
   let role = 'choice' in rel ? rel.choice : 'field' in rel ? T.format(rel.field, rel.value) : at.some(([, e]) => 'choice' in e) ? words[0] : null;
@@ -423,10 +441,10 @@ function detail(it) {
   const facts = [...at.filter(([, e]) => e.tag === false).map(([, e]) => ({ text: `${e.edge}: No`, no: true })),
     ...it.rest.map(a => ({ text: `${lower(a.edge)} ${termOf(a.at)}` })),
     ...words.filter(w => !(role && T.same(w, role))).map(text => ({ text })),
-    ...at.filter(([, e]) => 'field' in e && !['text', 'date', 'document'].includes(e.field)).map(([, e]) => ({ text: value(e) })),
+    ...at.filter(([, e]) => 'field' in e && !['text', 'date', 'document'].includes(e.field)).map(([, e]) => ({ text: value(e) })).filter(f => f.text),
     ...at.filter(([, e]) => e.field === 'date').map(([e, f]) => ({ date: e, text: `${N().isStart(tree(e)) ? 'since' : N().isEnd(tree(e)) ? 'until' : lower(f.edge)} ${short(f.value)}` }))];
   const ev = relatives(it.rid).docs.find(d => linkOf(d.obj));
-  return { role: role ?? (facts.length ? null : App.computed.value.computed[it.rid]?.label), facts: facts.slice(0, 3),
+  return { role: role ?? (facts.length ? null : because(it.rid)?.cite), facts: facts.slice(0, 3),
     doc: ev && { name: nameOf(ev.obj), href: SharePoint.href(recs()[linkOf(ev.obj)].value) } };
 }
 const fact = (f, first) => { const text = first ? upper(f.text) : f.text; return f.date ? dated(f.date, text) : f.no ? html`<span class="no">${text}</span>` : text; };
@@ -440,13 +458,14 @@ function sentence(edges, side, { choice, not } = {}) {
   return html`${side(e0, true)} is ${not ? 'not ' : ''}${article(r)} ${lower(r)} of ${side(e1)}${rest.map(e => html`, ${lower(e)} ${side(e)}`)}`;
 }
 // A relation ruled out, said plainly: "Not a remote affiliate of the BDC". Where a formula rules it out
-// because another relation holds between the two, that one is said, with the clause that rules: "Close
-// affiliate of the BDC (§57(b))".
+// because another relation holds between the two, that one is said after it, with the clause that rules:
+// "Not a remote affiliate: a close affiliate of the BDC (§57(b))".
 function notText(it, held) {
-  const why = App.computed.value.computed[it.rid]?.label ?? '', [, head, clause] = /^(.*?)\s*(\(.*\))?$/.exec(why);
+  const why = because(it.rid), [, head, clause] = /^(.*?)\s*(\(.*\))?$/.exec(why?.label ?? ''), cite = why && why.cite !== why.label ? `(${why.cite})` : clause;
   const by = held.find(x => x.obj === it.obj && T.same(nameOf(x.rid), head)), rest = (by ?? it).rest.map(a => `, ${lower(a.edge)} ${termOf(a.at)}`).join('');
-  return by ? `${upper(lower(by.mine))} of ${termOf(it.obj)}${rest}${clause ? ' ' + clause : ''}`
-    : `Not ${article(it.mine)} ${lower(it.mine)} of ${termOf(it.obj)}${rest}${why ? `: ${lower(why)}` : ''}`;
+  const not = `Not ${article(it.mine)} ${lower(it.mine)}`;
+  return by ? `${not}: ${article(by.mine)} ${lower(by.mine)} of ${termOf(it.obj)}${rest}${cite ? ' ' + cite : ''}`
+    : `${not} of ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
 }
 
 function Relatives({ id }) {
@@ -489,11 +508,21 @@ function Relatives({ id }) {
         onBlur=${() => { linking.value = null; }} /></div></div>` : null}</${Section}>` : null}`;
 }
 
-// Look: each format property set for a mark, its value and where it comes from; shown once there is one.
-const val = v => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${v.toUpperCase()}`
-  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : typeof v === 'number' ? `${v} pt` : String(v).replace(/^./, c => c.toUpperCase());
-const LookSection = ({ look, reset }) => look.length ? html`<${Section} title="Look" act=${reset}>
-  ${look.map(x => html`<div class="row" key=${x.label}><div class="k">${x.label}</div><div class="v look"><span class="val">${val(x.value)}</span><span class="from">${x.from}</span></div></div>`)}</${Section}>` : null;
+// Look: each format property set for a mark and its value, under where it comes from, said once, as an entry's
+// entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code only for one of the user's own; a size or a
+// weight is the slide's, to the half point, as the format bar has it. Format is what a text says: its Label.
+const LABELS = { Format: 'Label' };
+const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
+const val = (label, v) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
+  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' || label === 'Weight' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
+  : label === 'Shape' ? SHAPES[v] ?? upper(String(v)) : upper(String(v));
+function LookSection({ look, reset }) {
+  if (!look.length) return null;
+  const from = [...new Set(look.map(x => x.from))];
+  return html`<${Section} title="Look" act=${reset}>${from.map(f => html`
+    ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
+    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${LABELS[x.label] ?? x.label}</div><div class="v">${val(x.label, x.value)}</div></div>`)}`)}</${Section}>`;
+}
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
 // scale), so the numbers are the ones PowerPoint shows: typed over to move it.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
@@ -505,13 +534,15 @@ const resetting = (own, labels, say) => App.readOnly.value || !own.some(x => lab
   : html`<button class="btn ghost reset" onClick=${() => App.change(tx => own.filter(x => labels(x.label)).forEach(x => tx.remove(x.note)), { say })}>Reset</button>`;
 
 // A record's look, as the view's scene has it: each property a note decides, from this box (or line) alone, a
-// style and its output, or the chart's default; and its place, where one is entered.
+// style's output (by its caption, the style's name first where the caption doesn't say it), or the chart's
+// default, in that order; and its place, where one is entered.
 function Look({ id }) {
   const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), pos = recs()[id].kind ? n.position(t, v) : null;
+  const rank = x => x.pattern.id === id ? 0 : x.view ? 1 : 2;
   const from = x => x.pattern.id === id ? (recs()[id].args ? 'This line' : 'This box') : !x.view ? 'Default'
-    : (s => { const c = Scene.captionOf(n, x.pattern, v); return T.same(c, s) ? s : `${s} · ${c}`; })(Scene.styleName(n, T.bare(x.pattern)));
+    : (s => { const c = Scene.captionOf(n, x.pattern, v); return T.norm(c).startsWith(T.norm(s)) ? c : `${s}: ${c}`; })(Scene.styleName(n, T.bare(x.pattern)));
   const look = Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
-    .map(([label, s]) => ({ label, value: s.value, from: from(s.note) }));
+    .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })).sort((a, b) => a.rank - b.rank);
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && x.pattern.id === id);
   const move = (k, x) => App.change(tx => tx.note('Position', t, { ...pos, [k]: x }, { view: v }), { dated: false });
   return html`<${LookSection} look=${look} reset=${resetting(own, l => l !== 'Position', 'Reset the look')} />
@@ -519,12 +550,16 @@ function Look({ id }) {
 }
 
 // ---- The views of a selection ----
+// A header: its eyebrow, where it says more than the title does, and the title, or `children` in its place.
 function Head({ path = [], title, children }) {
+  const said = path.length && !(path.length === 1 && T.same(path[0].label, title));
   return html`<header class="ih">
-    ${path.length ? html`<nav class="path">${path.map(p => p.go ? html`<button class="lk" onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
+    ${said ? html`<nav class="path">${path.map(p => p.go ? html`<button class="lk" onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
     ${children ?? html`<h2 class="ih-title">${title}</h2>`}</header>`;
 }
-const AddRow = ({ at }) => App.readOnly.value ? null : html`<div class="row addrow"><div class="k"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, addItems(at, e.currentTarget))}>${icon('plus')}Add</button></div></div>`;
+// Add: what a record (at `at`), or a panel's own `items`, can have that it hasn't.
+const AddRow = ({ at, items = anchor => addItems(at, anchor) }) => App.readOnly.value ? null
+  : html`<div class="row addrow"><div class="k wide"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, items(e.currentTarget))}>${icon('plus')}Add</button></div></div>`;
 
 function RecordView({ id }) {
   const r = recs()[id];
@@ -542,18 +577,21 @@ function RecordView({ id }) {
     return html`<div class="empty"><span>${rows.length ? `Not in the chart as of ${short(App.day.value)}` : 'Deleted'}</span>
       ${rows.length && Shell.time.value ? html`<button class="btn" onClick=${() => Shell.at(null)}>Today</button>` : null}</div>`;
   }
-  const path = T.pathOf(recs(), id), first = slots(id).find(s => s.id && 'choice' in recs()[s.id]);
+  const path = T.pathOf(recs(), id), first = slots(id).find(s => s.id && 'choice' in recs()[s.id]), name = r.kind ? null : nameOf(id);
+  // An object's title is its Name, typed over (cleared, it stays); a relation's or an entry's is what it is,
+  // with its tag's box before it, as the formula bar has it.
   const head = r.kind
     ? html`<${Head} path=${[{ label: r.kind, go: () => select([general({ kind: r.kind })]) }, ...(first ? [{ label: recs()[first.id].choice, go: () => select([first.id]) }] : [])]}>
-        <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
-    : html`<${Head} title=${nameOf(id)} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: N().segmentOf(recs(), x), go: () => select([x]) }))} />`;
+        <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
+    : html`<${Head} title=${name} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: N().segmentOf(recs(), x), go: () => select([x]) }))}>
+        ${'tag' in r ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span>${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   return html`<div class="insp">${head}
     <div class="rows">
       ${sides.map(a => html`<div class="row" key=${a.edge}><div class="k">${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)}>${nameOf(objectOf(a.at))}</${Go}>
         ${a.at !== objectOf(a.at) ? html`<span class="muted"> › ${T.pathOf(recs(), a.at).slice(1).map(x => N().segmentOf(recs(), x)).join(' › ')}</span>` : null}</div></div>`)}
-      ${r.kind ? null : html`<div class=${'row' + (r.tag === false ? ' ruled' : '')} data-key=${id}><div class="k"><span class="lbl">${nameOf(id)}</span></div>
-        <div class="v ctl"><${Output} id=${id} slot=${r} label=${nameOf(id)} /></div></div>`}
+      ${r.kind || 'tag' in r ? null : html`<div class="row" data-key=${id}><div class="k"><span class="lbl">${name}</span></div>
+        <div class="v ctl"><${Output} id=${id} slot=${r} label=${name} /></div></div>`}
       ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} />`}
     </div>
     <${Relatives} id=${id} />
@@ -580,23 +618,28 @@ function Styles({ v, only }) {
   // Dragged among those listed; the rest keep their places in the view's order.
   const order = (from, i) => { const q = moved(list, from, i), keys = new Set(list.map(s => s.key));
     App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
-  // A caption typed as the output's own name is no caption.
-  const cap = (o, text) => App.change(tx => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v }));
-  // An output captioned otherwise, not just in case, shows beside its caption: Main Fund · Funds.
-  const output = o => {
-    const own = Scene.outputName(n, o.pattern), caption = Scene.captionOf(n, o.pattern, v);
-    return html`<div class="row out" key=${T.key(o.pattern)}><div class="k"><${Swatch} sw=${Scene.swatchOf(o.pattern, o.formats)} off=${o.formats.Shown === false} /></div>
-      <div class="v ctl">${T.same(caption, own) ? null : html`<span class="oname">${own} ·</span>`}<${Field} r=${{ field: 'text', value: caption }} datatype="text" label=${own}
-        cls=${o.formats.Shown === false ? ' off' : ''} put=${out => cap(o, out?.value ?? '')} /></div></div>`;
+  // A caption typed as an output's own name is no caption.
+  const cap = (os, text) => App.change(tx => os.forEach(o => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v })));
+  // A style's outputs drawn alike and captioned alike are one row, as in the Key: its swatch, its caption (the
+  // Key's word, typed over), and beneath, the outputs, where they say other than the caption.
+  const rowsOf = s => [...s.outputs.reduce((m, o) => { const sw = Scene.swatchOf(o.pattern, o.formats), caption = Scene.captionOf(n, o.pattern, v), k = JSON.stringify([caption, sw, o.formats.Shown === false]);
+    (m.get(k) ?? m.set(k, { caption, sw, off: o.formats.Shown === false, os: [] }).get(k)).os.push(o); return m; }, new Map()).values()];
+  const grip = () => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`;
+  const output = (g, lone) => {
+    const names = g.os.map(o => Scene.outputName(n, o.pattern)), said = names.length > 1 || !T.same(names[0], g.caption);
+    return html`<div class=${'row out' + (lone ? ' lone' : '')} key=${T.key(g.os[0].pattern)}>${lone ? grip() : null}<div class="k"><${Swatch} sw=${g.sw} off=${g.off} /></div>
+      <div class="v"><${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
+        ${said ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
-  return list.map(s => html`<div class="ent style" data-drag=${only ? null : 'style'} key=${s.key}>
-    <div class="row" style="--depth:0">${only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`}
-      <div class="k sname"><${Go} to=${general(s.pattern)}>${Scene.styleName(n, s.pattern)}</${Go}></div></div>
-    ${s.outputs.map(output)}
-  </div>`);
+  // A style whose one row is captioned as the style is named is that row alone: Name, not Name over Name.
+  return list.map(s => { const rows = rowsOf(s), name = Scene.styleName(n, s.pattern), lone = rows.length === 1 && rows[0].os.length === 1 && T.same(rows[0].caption, name) && T.same(Scene.outputName(n, rows[0].os[0].pattern), name);
+    return html`<div class="ent style" data-drag=${only ? null : 'style'} key=${s.key}>
+      ${lone ? output(rows[0], true) : html`<div class="row" style="--depth:0">${grip()}<div class="k sname"><${Go} to=${general(s.pattern)}>${name}</${Go}></div></div>${rows.map(g => output(g))}`}
+    </div>`; });
 }
 
-// The view: its name, its layout and its rows (its own notes), and its styles in their order.
+// The view: its layout and its rows (its own notes), and its styles in their order. Its name is its tab's,
+// and the formula bar's.
 function ViewPanel() {
   const v = viewShown();
   if (!v) return null;
@@ -604,8 +647,6 @@ function ViewPanel() {
   const rowsName = all.find(l => JSON.stringify(l.rows) === JSON.stringify(v.rows))?.name;
   const layout = value => App.change(tx => tx.note('Layout', t, value), { dated: false });
   return html`<div class="insp">
-    <${Head} path=${[{ label: 'View' }]}><${Field} r=${{ field: 'text', value: v.name }} datatype="text" ph="Name" title
-      put=${out => out && Shell.parts.peek().views.rename(v.id, out.value)} /></${Head}>
     <div class="rows">
       <div class="row"><div class="k">Layout</div><div class="v ctl"><${Choice} fixed label="Layout" r=${{ choice: v.layout === 'table' ? 'Table' : 'Chart' }} options=${['Chart', 'Table']}
         put=${out => layout(out.choice === 'Table' ? { rows: v.rows } : undefined)} /></div></div>
@@ -622,7 +663,7 @@ function ShapeView({ id, part }) {
   const row = App.shown.value.item(App.chart.value, id).at(-1), m = App.scene.value?.byId.get(id), n = N(), v = App.scene.value?.view, still = App.readOnly.value;
   const set = (changes, say) => App.change(tx => tx.update(id, changes), { dated: false, say });
   const g = row.geometry ?? 'rect', name = SHAPES[g] ?? g[0].toUpperCase() + g.slice(1), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
-  const look = Object.entries(row.format ?? {}).map(([label, value]) => ({ label, value, from: 'This shape' }));
+  const look = Object.entries(row.format ?? {}).map(([label, value]) => ({ label, value, from: null }));
   const reset = still || !look.length ? null : html`<button class="btn ghost reset" onClick=${() => set({ format: {} }, 'Reset the look')}>Reset</button>`;
   // The Key's rows, those drawn and then those hidden, each a box to show or hide it.
   const hidden = (row.hide ?? []).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
@@ -630,7 +671,7 @@ function ShapeView({ id, part }) {
   const rows = key ? [...(m?.rows ?? []).map(r => ({ key: r.key, caption: r.caption.text, swatch: r.swatch })), ...hidden] : [];
   const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
   return html`<div class="insp">
-    <${Head} path=${key ? [{ label: name }] : []} title=${name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title
+    <${Head} path=${key ? [{ label: name }] : []} title=${key ? row.title ?? 'Key' : name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title
       put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>
     <div class="rows">
       ${worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
@@ -645,11 +686,12 @@ function ShapeView({ id, part }) {
   </div>`;
 }
 
-// Prose typed over in place, its box growing with it: kept on leaving, put back with Esc.
-function Prose({ text, put, label, cls = 'desc' }) {
+// Prose typed over in place, its box growing with it: kept on leaving, put back with Esc. `auto` focuses
+// it; `done` hears that it was left as it was.
+function Prose({ text, put, label, cls = 'desc', auto, done }) {
   const [typed, setTyped] = useState(null), now = useRef(null), type = t => { now.current = t; setTyped(t); };
-  return html`<textarea class=${'cell prose ' + cls} rows="1" value=${typed ?? text} disabled=${App.readOnly.value} aria-label=${label}
-    onInput=${e => type(e.target.value)} onBlur=${() => { const t = now.current; type(null); if (t !== null && T.clean(t) !== T.clean(text)) put(t.trim()); }}
+  return html`<textarea class=${'cell prose ' + cls} rows="1" value=${typed ?? text} disabled=${App.readOnly.value} aria-label=${label} ref=${el => auto && el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
+    onInput=${e => type(e.target.value)} onBlur=${() => { const t = now.current; type(null); if (t !== null && T.clean(t) !== T.clean(text)) put(t.trim()); else done?.(); }}
     onKeyDown=${e => { if (e.key === 'Escape') { e.stopPropagation(); type(null); e.target.blur(); } }} />`;
 }
 
@@ -658,7 +700,7 @@ function Prose({ text, put, label, cls = 'desc' }) {
 // offered). A side fills a relation's parameter through itself or a record located in it that fits there (a
 // fund is a GP's Fund Owned through its Entity Type).
 function RelateView({ a, b }) {
-  const r = recs(), n = N(), [picks, setPicks] = useState({}), [form, setForm] = useState(null), still = App.readOnly.value;
+  const r = recs(), n = N(), [picks, setPicks] = useState({}), [form, setForm] = useState(null), [adding, setAdding] = useState(false), [fresh, setFresh] = useState(null), none = useRef(null), still = App.readOnly.value;
   if (!r[a] || !r[b]) return html`<div class="empty">Not in the chart</div>`;
   const ca = within(a).filter(x => !('field' in r[x])), cb = within(b).filter(x => !('field' in r[x])), inB = new Set(cb), held = new Map(), open = new Map();
   for (const x of ca) for (const rid of relationsAt(x)) {
@@ -677,26 +719,28 @@ function RelateView({ a, b }) {
   const pick = (e, x, p) => menu(e.currentTarget, Object.keys(r).filter(y => !('field' in r[y]) && T.narrower(tree(y), p.loc)).map(y => ({ label: nameOf(objectOf(y)), run: () => setPicks({ ...picks, [x.key + p.edge]: y }) })), { search: true });
   const side = (at, first) => first ? shortOf(objectOf(at)) : termOf(at);
 
-  // What holds: a tag's box first, the sentence (italic where a formula gives it, and why beneath), a value
-  // after it; and what's recorded at it, as the record's own entries are.
-  const heldRow = x => { const rel = r[x.id], f = fx(x.id), at = e => rel.args.find(g => T.same(g.edge, e)).at, why = f && App.computed.value.computed[x.id]?.label;
+  // What holds: a tag's box first, the sentence (italic where a formula gives it, and why beneath, as the
+  // formula bar says it), a value after it; and what's recorded at it, as the record's own entries are, one
+  // just related with every entry it could have, to fill at once.
+  const heldRow = x => { const rel = r[x.id], f = fx(x.id), at = e => rel.args.find(g => T.same(g.edge, e)).at, why = f && because(x.id)?.cite;
     return html`<div class=${'rr' + (rel.tag === false ? ' ruled' : '')} key=${x.id} data-key=${x.id}>
         <span class="ctl">${'tag' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
         <${Go} to=${x.id} cls=${'nm' + (f ? ' fx' : '')}>${sentence(n.edges(tree(x.id)), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false })}</${Go}>
         <span class="val">${'field' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
         ${why ? html`<span class="why">${why}</span>` : null}
       </div>
-      ${f ? null : html`<div class="rr-at" key=${x.id + '@'}><${Entries} at=${x.id} depth=${0} /></div>`}`; };
+      ${f ? null : html`<div class="rr-at" key=${x.id + '@'}><${Entries} at=${x.id} depth=${0} offer=${x.key === fresh} /></div>`}`; };
   // What could: a tag's box to tick, or an option or value to give; a further side, picked in the sentence.
+  const relate = (x, slot, out) => { setFresh(x.key); put(null, slot, out); };
   const openRow = x => { const slot = slotOf(x), tag = 'tag' in x.s.out, fill = e => T.same(e, x.ea) ? x.la : T.same(e, x.eb) ? x.lb : null;
     const say = (e, first) => { if (fill(e)) return side(fill(e), first);
       const p = x.rest.find(q => T.same(q.edge, e)), y = picks[x.key + p.edge];
       return html`<button class=${'sel dd' + (y ? '' : ' ph')} aria-label=${`${p.edge}: ${y ? nameOf(objectOf(y)) : 'none'}`} onClick=${ev => pick(ev, x, p)}><span>${y ? shortOf(objectOf(y)) : lower(p.edge)}</span></button>`; };
     return html`<div class="rr" key=${x.key} data-key=${x.key}>
-      <span class="ctl">${!tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => { put(null, slot, { tag: true }); emit('tag-flip', slot); }} />` : html`<span class="tag" aria-disabled="true" />`}</span>
+      <span class="ctl">${!tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => { relate(x, slot, { tag: true }); emit('tag-flip', slot); }} />` : html`<span class="tag" aria-disabled="true" />`}</span>
       <span class="nm">${sentence(n.edges(x.s), say)}</span>
-      <span class="val">${tag || !slot ? null : 'choice' in x.s.out ? html`<${Choice} options=${x.options} label=${x.name} ph=${x.name} put=${out => put(null, slot, out)} />`
-        : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => put(null, slot, out)} />`}</span>
+      <span class="val">${tag || !slot ? null : 'choice' in x.s.out ? html`<${Choice} options=${x.options} label=${x.name} ph=${x.name} put=${out => relate(x, slot, out)} />`
+        : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => out && relate(x, slot, out)} />`}</span>
     </div>`; };
   const make = () => {
     const [name, ra, rb] = ['name', 'ra', 'rb'].map(k => T.clean(form[k]));
@@ -711,14 +755,17 @@ function RelateView({ a, b }) {
   const order = (x, y) => fx(x.id) - fx(y.id) || x.name.localeCompare(y.name);
   const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => x.name.localeCompare(y.name) || (y.la === a) - (x.la === a));
   const name = x => html`<${Go} to=${x}>${nameOf(objectOf(x))}${x !== objectOf(x) ? html`<span class="muted"> › ${n.segmentOf(r, x)}</span>` : null}</${Go}>`;
+  // What else could hold, once asked for; at once where nothing did.
+  const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
+  none.current ??= !holds.length;
   return html`<div class="insp">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length ? html`<div class="relate">${holds.map(heldRow)}</div>` : null}
-    ${still ? null : html`<${Section} title="Add a relation" shut=${holds.length > 0}><div class="relate">
+    ${still ? null : !adding && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class="rr new"><span class="ctl"><span class="tag yes" /></span><span class="form">${inp('name', 'Name')}${inp('ra', 'Role')}${inp('rb', 'Role')}</span></div>`
-        : html`<div class="rr new"><span /><button class="btn ghost add-entry" onClick=${() => setForm({ name: '', ra: '', rb: '' })}>${icon('plus')}New relation</button></div>`}
-    </div></${Section}>`}
+        : ghost('New relation', () => setForm({ name: '', ra: '', rb: '' }))}
+    </div>`}
   </div>`;
 }
 
@@ -794,9 +841,11 @@ function Statute({ def, p, law }) {
 }
 
 // An entry, relation or kind in general: what it's called and means, its options, whether it's required,
-// a start or an end, where it's at, its definition, and its styles.
-function GeneralView({ p }) {
+// a start or an end, where it's at, its definition, and its styles. Seen as a `style` (a frame selected), it
+// says so. A Description or a Formula not yet written is added from Add.
+function GeneralView({ p, style }) {
   const n = N(), S = App.schema.value, specs = n.fitting(S, p), kind = !p.args, rel = p.args?.length > 1, s0 = specs[0], still = App.readOnly.value;
+  const [describing, setDescribing] = useState(false);
   const type = kind ? 'kind' : !s0 ? null : 'field' in s0.out ? 'field' : 'choice' in s0.out ? 'choice' : 'tag';
   const name = n.name(p), def = !kind && n.resolve('Formula', p)?.note, dated = type === 'field' && s0.out.field === 'date', dp = { out: { field: 'date' }, args: p.args };
   // Where the Description is the statute the Formula sets out, it's said there, clause by clause, and only there.
@@ -809,18 +858,20 @@ function GeneralView({ p }) {
     : [['At', [...new Set(specs.map(s => where(s.args[0].loc)))].join('\n')]];
   const below = kind ? [...new Map(Object.values(S).filter(s => s.args?.length === 1 && s.args[0].loc.kind && T.same(s.args[0].loc.kind, p.kind)).map(s => [T.norm(s.args[0].edge), s])).values()] : [];
   const addFormula = () => { if (App.change(tx => tx.note('Formula', p, [{ label: '', formula: type === 'tag' ? '← ' : '= ' }]))) FormulaBar.focus('r0'); };
-  const v = viewShown()?.layout === 'chart' ? Shell.view.value : null;
+  const v = viewShown()?.layout === 'chart' ? Shell.view.value : null, described = !law?.any && (describing || !!n.description(p));
+  const adds = still ? [] : [...(law?.any || described ? [] : [{ label: 'Description', run: () => setDescribing(true) }]), ...(def || kind ? [] : [{ label: 'Formula', run: addFormula }])];
   return html`<div class="insp">
-    <${Head} path=${kind || rel ? [] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Tag') }]}>
+    <${Head} title=${name} path=${style ? [{ label: 'Style' }] : kind || rel ? [] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Tag') }]}>
       <${Field} r=${{ field: 'text', value: name }} datatype="text" label="Name" title put=${out => out && setName(out.value)} /></${Head}>
     <div class="rows">
-      ${law?.any ? null : html`<div class="row"><div class="k">Description</div><div class="v ctl"><${Prose} text=${n.description(p) ?? ''} label="Description"
-        put=${text => App.change(tx => tx.note('Description', p, text || undefined))} /></div></div>`}
+      ${described ? html`<div class="row"><div class="k">Description</div><div class="v ctl"><${Prose} text=${n.description(p) ?? ''} label="Description" auto=${describing}
+        put=${text => { setDescribing(false); App.change(tx => tx.note('Description', p, text || undefined)); }} done=${() => setDescribing(false)} /></div></div>` : null}
       ${ats.map(([k, x]) => html`<div class="row" key=${k}><div class="k">${k}</div><div class="v lines">${x}</div></div>`)}
       ${rel ? n.edges(p).map(e => html`<div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
       ${kind || rel ? null : html`<div class="row"><div class="k">Required</div><div class="v ctl"><input type="checkbox" aria-label="Required" checked=${n.required(p)} disabled=${still} onChange=${e => flag('Required', p, e.target.checked)} /></div></div>`}
       ${dated ? ['Start', 'End'].map(l => html`<div class="row" key=${l}><div class="k">${l}</div><div class="v ctl"><input type="checkbox" aria-label=${l} checked=${l === 'Start' ? n.isStart(dp) : n.isEnd(dp)} disabled=${still} onChange=${e => flag(l, dp, e.target.checked)} /></div></div>`) : null}
+      ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
     ${type === 'choice' ? html`<${Section} title="Options" n=${options.length}>
       ${options.map(o => html`<div class="ent" data-drag="opt" key=${o}><div class="row" style="--depth:0">${still ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, reorderOpts)}>${GRIP}</button>`}
@@ -829,8 +880,7 @@ function GeneralView({ p }) {
     ${below.length ? html`<${Section} title="Entries" n=${below.length}>
       ${below.sort((x, y) => (n.order(x) ?? Infinity) - (n.order(y) ?? Infinity) || x.args[0].edge.localeCompare(y.args[0].edge)).map(s => html`<div class="row" key=${T.key(s)}>
         <div class="k"><${Go} to=${general(T.bare(s))}>${s.args[0].edge}</${Go}></div><div class="v muted">${typeName(s)}</div></div>`)}</${Section}>` : null}
-    ${def ? html`<${Section} title="Formula"><${Statute} def=${def} p=${p} law=${law} /></${Section}>`
-      : kind ? null : html`<${Section} title="Formula" act=${plus('Add a formula', addFormula)} />`}
+    ${def ? html`<${Section} title="Formula"><${Statute} def=${def} p=${p} law=${law} /></${Section}>` : null}
     ${v && stylesOf(v, p).length ? html`<${Section} title="Styles"><${Styles} v=${v} only=${p} /></${Section}>` : null}
   </div>`;
 }
@@ -850,7 +900,7 @@ function Inspector() {
   if (sel.length > 2) return html`<${Many} ids=${sel} />`;
   // A frame is drawn by a style: selecting it shows the entry the style is of, with its styles.
   const frame = sel.length === 1 && sel[0].startsWith('frame:') && App.scene.value?.byId.get(sel[0]);
-  if (frame?.output) return html`<${GeneralView} key=${sel[0]} p=${T.bare(frame.output)} />`;
+  if (frame?.output) return html`<${GeneralView} key=${sel[0]} p=${T.bare(frame.output)} style />`;
   if (sel.length === 1) {
     const [id, part] = sel[0].split('#'), rid = id.split('@')[0], rows = App.shown.value.item(App.chart.value, rid);
     if (rows.at(-1) && 'shape' in rows.at(-1)) return html`<${ShapeView} key=${rid} id=${rid} part=${part} />`;
