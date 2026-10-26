@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra store test</title>
+<style>
+  body { margin: 0; padding: 20px; background: #fafafa; color: #18181b; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .fail { color: #b42318; }
+  iframe { display: none; }
+  @media (prefers-color-scheme: dark) { body { background: #111113; color: #e4e4e7; } .fail { color: #f97066; } }
+</style>
+</head>
+<body>
+<pre id="out">Running…</pre>
+<script src="stand-ins.js"></script>
+<script>
+  // Graph and MSAL are the stand-ins'; nothing here reaches the network.
+  window.graph = fakeGraph(window.fetch.bind(window));
+  window.fetch = graph.fetch;
+  window.msal = FakeMsal;
+  localStorage.setItem('dendra.name', 'Dana Jordan');
+</script>
+<script src="../../vendor/dexie/dexie.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/sharepoint.js"></script>
+<script src="../core/store.js"></script>
+<script src="../sample/calder-ridge.js"></script>
+<script>
+// Checks of the store (core/store.js) and the SharePoint connector (core/sharepoint.js), against the
+// stand-ins in stand-ins.js. Other tabs, and other people's browsers, are pages of store-tab.html, each with
+// its own Store. Run it in a fresh browser profile with file access allowed (Chrome's
+// --allow-file-access-from-files): it keeps workbooks in this browser, and a file in its private file system.
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const C = 'calder-ridge';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 5000) => { for (let t = 0; t <= ms; t += 20) { if (await f()) return true; await sleep(20); } return false; };
+const rejects = p => p.then(() => null, e => e);
+// A headless run's virtual time races past IndexedDB, which answers in real time; reading a local file
+// now and then spends some, so that it can.
+const pump = setInterval(() => { try { const x = new XMLHttpRequest(); x.open('GET', '../sample/calder-ridge.js', false); x.send(); } catch {} }, 1);
+const db = new Dexie('dendra');
+db.version(1).stores({ changes: '[book+id], book', books: 'id, opened' });
+
+const set = (wb, id, value, who = 'Dana Jordan') => { const tx = wb.edit({ chart: C, who }); tx.set(id, { ...wb.asOf(C)[id], value }); return tx.commit(); };
+let made = 0;
+const add = (wb, who = 'Dana Jordan') => {
+  const tx = wb.edit({ chart: C, who }), id = tx.add('record', { kind: 'Entity' });
+  tx.add('record', { at: id, edge: 'Name', field: 'text', value: `${who}’s entity ${++made}` });
+  return tx.commit();
+};
+const has = (wb, ...cs) => cs.every(c => wb.changes().some(x => x.id === c.id));
+const ids = wb => wb.changes().map(c => c.id).sort().join();
+const saved = st => st.text.startsWith('Saved ·');
+async function tab() {
+  const f = document.createElement('iframe');
+  f.src = 'store-tab.html';
+  document.body.append(f);
+  await new Promise(r => { f.onload = r; });
+  return f.contentWindow;
+}
+
+function links() {
+  const SP = 'https://contoso.sharepoint.com';
+  const CASES = [
+    ['a modern link that spells out the path', `${SP}/:w:/r/sites/FundLegal/Shared%20Documents/Calder%20Ridge%20Fund%20III/Board%20Consents/Blocker%20Board%20Resolutions%20-%20Halvard%20Acquisition.docx?d=w1234&csf=1&web=1`,
+      { system: 'sharepoint', site: '/sites/FundLegal', library: 'Shared Documents', folder: 'Calder Ridge Fund III/Board Consents', name: 'Blocker Board Resolutions - Halvard Acquisition.docx', kind: 'word', sharing: false, short: 'Blocker Board Resolutions - Halvard Acquisition.docx' }],
+    ['a sharing link to a PDF', `${SP}/:b:/s/FundLegal/EaBcD123xyz?e=AbC12`, { system: 'sharepoint', site: '/sites/FundLegal', name: null, kind: 'pdf', sharing: true, short: 'PDF in SharePoint' }],
+    ['a sharing link to a folder', `${SP}/:f:/s/FundLegal/Ek9QxYz?e=1`, { sharing: true, kind: 'folder', short: 'Folder in SharePoint' }],
+    ['Excel for the web', `${SP}/:x:/r/sites/FundLegal/_layouts/15/Doc.aspx?sourcedoc=%7B1234%7D&file=Close%20and%20Remote%20Affiliate%20Analysis.xlsx&action=default`,
+      { site: '/sites/FundLegal', library: null, name: 'Close and Remote Affiliate Analysis.xlsx', kind: 'excel' }],
+    ['a direct path to a PDF', `${SP}/sites/FundLegal/Shared%20Documents/Calder%20Ridge%20Capital%20BDC/Regulatory/Form%20N-54A.pdf`,
+      { site: '/sites/FundLegal', library: 'Shared Documents', folder: 'Calder Ridge Capital BDC/Regulatory', name: 'Form N-54A.pdf', kind: 'pdf' }],
+    ['a team site', `${SP}/teams/Deals/Documents/Project%20Halvard/SPA.docx`, { site: '/teams/Deals', library: 'Documents', folder: 'Project Halvard', name: 'SPA.docx', kind: 'word' }],
+    ['a library view of a folder', `${SP}/sites/FundLegal/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FFundLegal%2FShared%20Documents%2FCalder%20Ridge%20Fund%20III%2FTax&viewid=abc`,
+      { site: '/sites/FundLegal', library: 'Shared Documents', folder: 'Calder Ridge Fund III/Tax', name: null, kind: 'folder', short: 'Tax' }],
+    ['a library view of a file', `${SP}/sites/FundLegal/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FFundLegal%2FShared%20Documents%2FSide%20Letters%2FMFN%20Election.docx&parent=%2Fsites`,
+      { folder: 'Side Letters', name: 'MFN Election.docx', kind: 'word' }],
+    ['a library’s own view', `${SP}/sites/FundLegal/Shared%20Documents/Forms/AllItems.aspx`, { library: 'Shared Documents', folder: '', name: null, kind: 'folder', short: 'Shared Documents' }],
+    ['the root site’s library', `${SP}/Shared%20Documents/Policies/Code%20of%20Ethics.pdf`, { site: null, library: 'Shared Documents', folder: 'Policies', name: 'Code of Ethics.pdf' }],
+    ['a folder named for a partnership', `${SP}/sites/FundLegal/Shared%20Documents/Calder%20Ridge%20Capital%20Partners%20III,%20L.P`, { name: null, kind: 'folder', short: 'Calder Ridge Capital Partners III, L.P' }],
+    ['OneDrive for Business', 'https://contoso-my.sharepoint.com/personal/mchen_contoso_com/Documents/Drafts/Consent%20v3.docx',
+      { system: 'onedrive', site: '/personal/mchen_contoso_com', library: 'Documents', folder: 'Drafts', kind: 'word', short: 'Consent v3.docx' }],
+    ['a OneDrive sharing link', 'https://contoso-my.sharepoint.com/:p:/g/personal/dokafor_contoso_com/EQxYz?e=1', { system: 'onedrive', kind: 'powerpoint', sharing: true, site: '/personal/dokafor_contoso_com', short: 'Presentation in OneDrive' }],
+    ['an email kept in a library', `${SP}/sites/FundLegal/Shared%20Documents/Correspondence/Officer%20Appointment.msg`, { kind: 'email', name: 'Officer Appointment.msg' }],
+    ['an upper-case extension', `${SP}/sites/FundLegal/Shared%20Documents/Minutes.DOCX`, { kind: 'word', name: 'Minutes.DOCX' }],
+    ['on-premises SharePoint', 'https://sp.lawfirm.local/sites/Funds/_layouts/15/Doc.aspx?sourcedoc={x}&file=Opinion.docx', { system: 'sharepoint', host: 'sp.lawfirm.local', site: '/sites/Funds', name: 'Opinion.docx', kind: 'word' }],
+    ['an EDGAR filing', 'https://www.sec.gov/Archives/edgar/data/1987654/000198765425000003/form-d.pdf', { system: 'edgar', name: 'form-d.pdf', kind: 'pdf', id: '0001987654-25-000003', short: 'EDGAR 0001987654-25-000003' }],
+    ['an EDGAR filing’s index', 'https://www.sec.gov/Archives/edgar/data/1987654/000198765425000003/0001987654-25-000003-index.htm', { system: 'edgar', name: null, id: '0001987654-25-000003' }],
+    ['an EDGAR filer', 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001987654', { system: 'edgar', name: null, short: 'EDGAR CIK 0001987654' }],
+    ['NetDocuments', 'https://vault.netvoyage.com/neWeb2/goid.aspx?id=4810-1234-5678', { system: 'netdocuments', name: null, short: 'NetDocuments 4810-1234-5678' }],
+    ['iManage', 'iwl:dms=cloudimanage.com&&lib=Active&&num=1234567&&ver=2', { system: 'imanage', short: 'iManage 1234567v2' }],
+    ['iManage Work', 'https://cloudimanage.com/work/link/d/Active!1234567.2', { system: 'imanage', id: '1234567v2' }],
+    ['a file share', '\\\\fileserver\\Legal\\Fund III\\LPA.pdf', { system: 'file', host: 'fileserver', folder: 'Legal/Fund III', name: 'LPA.pdf', kind: 'pdf', short: 'LPA.pdf' }],
+    ['a page on the web', 'https://www.example.com/deal/closing.html', { system: 'web', name: null, short: 'www.example.com' }],
+    ['a file on the web', 'https://www.example.com/files/opinion.pdf', { system: 'web', name: 'opinion.pdf', kind: 'pdf' }],
+    ['not a link', 'not a link', { system: null, short: 'not a link' }],
+  ];
+  for (const [what, link, want] of CASES) {
+    const got = SharePoint.parse(link), wrong = Object.entries(want).filter(([k, v]) => got[k] !== v);
+    check(`a link: ${what}`, !wrong.length, wrong.map(([k, v]) => `${k}: ${JSON.stringify(got[k])}, wanted ${JSON.stringify(v)}`).join('; '));
+  }
+  check('a file share opens as a file: address', SharePoint.href('\\\\fileserver\\Legal\\Fund III\\LPA.pdf') === 'file://fileserver/Legal/Fund%20III/LPA.pdf', SharePoint.href('\\\\fileserver\\Legal\\Fund III\\LPA.pdf'));
+}
+
+async function browser() {
+  const wb = await Store.open({ sample: SAMPLE });
+  check('a first launch opens the sample, kept in this browser', wb === Store.wb && wb.changes().length === SAMPLE.changes.length
+    && Store.where().type === 'browser' && Store.where().name === 'Calder Ridge Fund III structure', JSON.stringify(Store.where()));
+  const [book] = await Store.books();
+  check('… and keeps it here, a change to a row', await until(async () => await db.changes.where('book').equals(book.id).count() === SAMPLE.changes.length));
+  check('who, signed out of Microsoft, is the name set once', Store.who() === 'Dana Jordan', Store.who());
+  const heard = [], stop = Store.subscribe(st => heard.push(st.text));
+  const c = set(wb, 'fund_ein', '11-1111111');
+  check('a change is kept at once, without writing the rest again', await until(async () => (await db.changes.where('book').equals(book.id).toArray()).some(r => r.id === c.id && r.change.adds[0].value === '11-1111111')));
+  stop();
+  check('the status says so', saved(Store.status()) && Store.status().text === 'Saved · just now' && heard.includes('Saved · just now'), heard.join(' | '));
+
+  const again = await Store.open({ id: book.id });
+  check('reopened, the workbook is as it was', again !== wb && JSON.stringify(again) === JSON.stringify(wb));
+  check('… and Undo still knows the last change', again.undo('Dana Jordan', C)?.reverses === c.id && again.asOf(C).fund_ein.value === '92-4810337');
+  const t = await tab(), twb = await t.Store.open();
+  check('a new tab opens the workbook last open', t.Store.where().name === 'Calder Ridge Fund III structure' && ids(twb) === ids(again));
+  const d = set(twb, 'fund_ein', '22-2222222', 'Ann Lee');
+  check('a change in another tab is heard here at once', await until(() => has(again, d)) && again.asOf(C).fund_ein.value === '22-2222222');
+  const e = add(again);
+  check('… and one here, there', await until(() => has(twb, e)));
+  check('… and each is kept once', await until(async () => await db.changes.where('book').equals(book.id).count() === again.changes().length));
+  check('the sample has no disagreements', !Store.disagreements().length, JSON.stringify(Store.disagreements()));
+  return t;
+}
+
+function disagreements() {
+  const wb = Store.wb, base = wb.changes();
+  const ann = Log.open(base), bob = Log.open(base);
+  const a = set(ann, 'own_fund_npine_pct', 0.7, 'Ann Lee'), b = set(bob, 'own_fund_npine_pct', 0.65, 'Bob Diaz');
+  wb.merge(ann).merge(bob);
+  const ds = Store.disagreements(), rows = ds[0]?.rows ?? [];
+  check('two people changing one percentage at once disagree', ds.length === 1 && rows.length === 2 && rows.map(r => `${r.who} ${r.row.value}`).sort().join() === 'Ann Lee 0.7,Bob Diaz 0.65'
+    && rows.every(r => r.change && r.when) && ds[0].chart === C, JSON.stringify(ds));
+  wb.apply({ id: Log.newId(), who: 'Dana Jordan', when: new Date().toISOString(), chart: C, removes: [rows.find(r => r.who === 'Bob Diaz').row.id], adds: [] });
+  check('… and keeping one settles it', !Store.disagreements().length && wb.asOf(C).own_fund_npine_pct.value === 0.7);
+
+  const cy = Log.open(wb.changes()), di = Log.open(wb.changes());
+  set(cy, 'gp_ein', '33-3333333', 'Cy Park');
+  set(di, 'gp_ein', '33-3333333', 'Di Ng');
+  wb.merge(cy).merge(di);
+  check('two people typing the same value don’t', !Store.disagreements().length, JSON.stringify(Store.disagreements()));
+
+  const ed = Log.open(wb.changes()), fay = Log.open(wb.changes());
+  const del = ed.edit({ chart: C, who: 'Ed Moss' });
+  del.remove('own_fund_npine');
+  del.commit();
+  set(fay, 'own_fund_npine_pct', 0.6, 'Fay Wu');
+  wb.merge(ed).merge(fay);
+  check('a record deleted while its percentage changed: the change is kept aside, and nothing disagrees', !Store.disagreements().length && !wb.asOf(C).own_fund_npine
+    && wb.rows(C).some(r => r.record === 'own_fund_npine_pct' && r.value === 0.6), JSON.stringify(Store.disagreements()));
+
+  const gil = Log.open(wb.changes()), hal = Log.open(wb.changes());
+  for (const [w, who, value] of [[gil, 'Gil Roy', '5493001KJTIIGC8Y1R12'], [hal, 'Hal Ito', '5493001KJTIIGC8Y1R99']]) {
+    const tx = w.edit({ chart: C, who });
+    tx.add('record', { at: 'fund', edge: 'LEI', field: 'text', value });
+    tx.commit();
+  }
+  wb.merge(gil).merge(hal);
+  const lei = Store.disagreements();
+  check('two people adding one entry at once disagree', lei.length === 1 && lei[0].rows.map(r => r.who).sort().join() === 'Gil Roy,Hal Ito', JSON.stringify(lei));
+}
+
+async function files() {
+  const disk = { text: '', modified: Date.now() };
+  showSaveFilePicker = async () => new FakeHandle(disk);
+  await Store.saveAs('file');
+  const there = JSON.parse(disk.text);
+  check('saved as a file, which is the log', await until(() => saved(Store.status())) && Store.where().type === 'file' && Store.where().name === 'Calder Ridge'
+    && there.dendra === 1 && there.changes.map(c => c.id).sort().join() === ids(Store.wb), `${Store.status().text} ${JSON.stringify(Store.where())}`);
+  check('… a change to a line', disk.text.split('\n').length === Store.wb.changes().length + 3);
+  const c = add(Store.wb);
+  check('a change waits a moment, then is saved there', Store.status().text === 'Saving…' && await until(() => saved(Store.status())) && JSON.parse(disk.text).changes.some(x => x.id === c.id));
+
+  // Two other people, each in a browser of their own, open the file too.
+  const bob = await tab(), cy = await tab();
+  bob.showOpenFilePicker = async () => [new FakeHandle(disk)];
+  cy.showOpenFilePicker = async () => [new FakeHandle(disk)];
+  const bwb = await bob.Store.openFile(), cwb = await cy.Store.openFile();
+  check('another person opens the file', bob.Store.where().type === 'file' && ids(bwb) === ids(Store.wb) && ids(cwb) === ids(Store.wb));
+  const people = [Store, bob.Store, cy.Store], mine = [];
+  for (const [p, who] of [[Store, 'Dana Jordan'], [bob.Store, 'Bob Diaz'], [cy.Store, 'Cy Park']]) for (let i = 0; i < 3; i++) mine.push(add(p.wb, who));
+  const writes = disk.writes;
+  for (let round = 0; round < 6 && !(people.every(p => ids(p.wb) === ids(Store.wb)) && JSON.parse(disk.text).changes.length === Store.wb.changes().length); round++)
+    await Promise.all(people.map(p => p.sync()));
+  const final = JSON.parse(disk.text);
+  check('three people saving to one file at once lose nothing', mine.every(m => final.changes.some(x => x.id === m.id)) && people.every(p => has(p.wb, ...mine))
+    && await until(() => people.every(p => saved(p.status()))), `${disk.writes - writes} writes, ${disk.aborted ?? 0} caught just in time; `
+    + `${people.map(p => `${p.wb.changes().length} ${p.status().text}`).join(', ')}`);
+
+  // Opened again without leave to save, as on the next launch: one click allows it.
+  const h = new FakeHandle(disk);
+  h.permission = h.grant = 'prompt';
+  showOpenFilePicker = async () => [h];
+  await Store.openFile();
+  check('a file without leave to save asks for it, keeping changes here', await until(() => Store.status().fix === 'allow') && Store.status().text === 'Needs access · kept here', Store.status().text);
+  const d = add(Store.wb);
+  h.grant = 'granted';
+  check('… and one click saves them', saved(await Store.fix()) && JSON.parse(disk.text).changes.some(x => x.id === d.id));
+
+  // A real file (in the browser's private file system), whose handle this browser keeps for the next launch.
+  const real = await (await navigator.storage.getDirectory()).getFileHandle('Reopened.dendra.json', { create: true });
+  showSaveFilePicker = async () => real;
+  await Store.saveAs('file');
+  const next = await tab(), nwb = await next.Store.open();
+  check('the next launch reopens the file, from the handle kept', next.Store.where().type === 'file' && next.Store.where().name === 'Reopened' && ids(nwb) === ids(Store.wb), JSON.stringify(next.Store.where()));
+  const e = set(nwb, 'fund_target', 800000000, 'Bob Diaz');
+  check('… and saves to it', await until(async () => saved(next.Store.status()) && (await (await real.getFile()).text()).includes(e.id)), next.Store.status().text);
+
+  const copy = await Store.openFile(new File([disk.text], 'Copy.dendra.json'));
+  check('a file given (dropped, say) opens as a copy in this browser', Store.where().type === 'browser' && Store.where().name === 'Copy' && copy.changes().length === JSON.parse(disk.text).changes.length);
+  const wrong = await rejects(Store.openFile(new File(['{"charts":[]}'], 'Old.json')));
+  check('… and one that isn’t a workbook is refused', wrong?.message === 'Old.json isn’t a Dendra workbook.' && Store.where().name === 'Copy', wrong?.message);
+}
+
+async function sharepoint() {
+  const folder = graph.add(graph.root, 'Dendra'), letters = graph.add(graph.root, 'Side Letters');
+  const doc = graph.add(letters, 'Side Letter - Halcyon University Endowment.pdf', '%PDF', 'Priya Raman');
+  graph.add(letters, 'MFN Election Form - Fund III.docx', 'docx', 'Priya Raman');
+  SharePoint.configure({ tenant: 'tenant-id', client: 'client-id', library: `https://${graph.host}/sites/FundLegal/Shared%20Documents/Dendra` });
+  await SharePoint.ready();
+  check('settings are kept in this browser', SharePoint.configured() && JSON.parse(localStorage.getItem('dendra.sharepoint')).client === 'client-id');
+  check('signed out, nobody is', SharePoint.account() === null && Store.who() === 'Dana Jordan');
+  await SharePoint.signIn();
+  check('signed in, who is the Microsoft account', Store.who() === 'Ann Lee' && FakeMsal.config.auth.authority === 'https://login.microsoftonline.com/tenant-id'
+    && FakeMsal.config.auth.clientId === 'client-id', Store.who());
+
+  const lib = await SharePoint.library();
+  check('the library is the folder the settings name', lib.id === folder.id && lib.drive === graph.drive && lib.folder, JSON.stringify(lib));
+  const top = await SharePoint.browse({ drive: graph.drive, id: graph.root.id });
+  check('browse: a folder’s contents, folders first', top.map(x => x.name).join('|') === 'Dendra|Side Letters', top.map(x => x.name).join('|'));
+  const found = await SharePoint.search('halcyon');
+  check('search', found.length === 1 && found[0].name === doc.name);
+  const it = await SharePoint.item(graph.link(doc));
+  check('a link’s item: its name, version, and who changed it when', it.name === doc.name && it.version === '1.0' && it.by === 'Priya Raman' && it.modified === doc.modified
+    && it.kind === 'pdf' && it.link === graph.link(doc) && it.id === doc.id, JSON.stringify(it));
+
+  // Into the library, from a new workbook in this browser.
+  await Store.open({ id: 'dana', sample: SAMPLE });
+  await Store.saveAs('library', 'Calder Ridge');
+  const file = graph.find('Dendra/Calder Ridge.dendra.json');
+  check('saved into the library, as a new file', file && JSON.parse(file.text).changes.length === Store.wb.changes().length && Store.where().type === 'sharepoint'
+    && graph.log.some(l => l === 'PUT /drives/b!fundlegal/items/' + folder.id + ':/Calder Ridge.dendra.json:/content 201') && await until(() => saved(Store.status())), graph.log.filter(l => l.startsWith('PUT')).join(' | '));
+
+  // Margaret saves between Dana's read and her write.
+  let theirs = null;
+  graph.before = () => { const w = Log.open(JSON.parse(file.text)); theirs = add(w, 'Margaret Chen'); graph.save(file, JSON.stringify(w)); };
+  graph.log.length = 0;
+  const mine = add(Store.wb);
+  await Store.sync();
+  check('a write someone beat is refused, read again, and made', graph.log.filter(l => l.startsWith('PUT')).map(l => l.split(' ').at(-1)).join() === '412,200', graph.log.join(' | '));
+  const now = JSON.parse(file.text);
+  check('… and nothing is lost', now.changes.some(c => c.id === mine.id) && now.changes.some(c => c.id === theirs.id) && has(Store.wb, theirs) && await until(() => saved(Store.status())), Store.status().text);
+
+  // Two more people save workbooks of their own under that name: each joins the file.
+  const bob = await tab(), cy = await tab();
+  for (const [p, id] of [[bob, 'bob'], [cy, 'cy']]) { await p.Store.open({ id, sample: SAMPLE }); await p.Store.saveAs('library', 'Calder Ridge'); }
+  check('saving as a workbook already there joins it', has(bob.Store.wb, mine, theirs) && has(cy.Store.wb, mine, theirs)
+    && [...graph.items.values()].filter(x => x.name === 'Calder Ridge.dendra.json').length === 1);
+  graph.latency = 3;
+  const eve = await tab(), fay = await tab();
+  await eve.Store.open({ id: 'eve', sample: SAMPLE });
+  await fay.Store.open({ id: 'fay', sample: SAMPLE });
+  const e1 = add(eve.Store.wb, 'Eve Park'), f1 = add(fay.Store.wb, 'Fay Wu');
+  graph.log.length = 0;
+  await Promise.all([eve.Store.saveAs('library', 'New Fund'), fay.Store.saveAs('library', 'New Fund')]);
+  const nf = JSON.parse(graph.find('Dendra/New Fund.dendra.json')?.text ?? '{"changes":[]}');
+  check('two people making one new file at once: one makes it, and the other joins it', graph.log.some(l => /New Fund.* 201$/.test(l)) && graph.log.some(l => /New Fund.* 409$/.test(l))
+    && [e1, f1].every(c => nf.changes.some(x => x.id === c.id)), graph.log.filter(l => l.startsWith('PUT')).join(' | '));
+  graph.log.length = 0;
+  const people = [Store, bob.Store, cy.Store], made = [];
+  for (const [p, who] of [[Store, 'Dana Jordan'], [bob.Store, 'Bob Diaz'], [cy.Store, 'Cy Park']]) for (let i = 0; i < 3; i++) made.push(add(p.wb, who));
+  for (let round = 0; round < 6 && !(people.every(p => ids(p.wb) === ids(Store.wb)) && JSON.parse(file.text).changes.length === Store.wb.changes().length); round++)
+    await Promise.all(people.map(p => p.sync()));
+  const all = JSON.parse(file.text);
+  check('three people saving to the library at once lose nothing', made.every(m => all.changes.some(c => c.id === m.id)) && people.every(p => has(p.wb, ...made))
+    && await until(() => people.every(p => saved(p.status()))), `${graph.log.filter(l => l.endsWith(' 412')).length} writes refused, `
+    + `${graph.log.filter(l => l.startsWith('PUT') && l.endsWith(' 200')).length} made; ${people.map(p => p.status().text).join(', ')}`);
+  const a = set(bob.Store.wb, 'fund_target', 760000000, 'Bob Diaz'), b = set(cy.Store.wb, 'fund_target', 770000000, 'Cy Park');
+  await Promise.all([bob.Store.sync(), cy.Store.sync()]);
+  await Store.sync();
+  const ds = Store.disagreements();
+  check('two people changing one value at once: saved, and found to disagree', has(Store.wb, a, b) && ds.length === 1 && ds[0].rows.map(r => r.who).sort().join() === 'Bob Diaz,Cy Park', JSON.stringify(ds));
+  graph.latency = 0;
+
+  // Someone saves; the next look brings it in.
+  const w = Log.open(JSON.parse(file.text)), m = add(w, 'Margaret Chen');
+  graph.save(file, JSON.stringify(w));
+  check('the page is visible, so it looks every so often', document.visibilityState === 'visible', document.visibilityState);
+  check('a change saved elsewhere comes in at the next look', await until(() => has(Store.wb, m), 25000));
+
+  graph.offline = true;
+  add(Store.wb);
+  await Store.sync();
+  check('offline, changes are kept here', Store.status().text === 'Offline · kept here', Store.status().text);
+  graph.offline = false;
+  dispatchEvent(new Event('online'));
+  check('… and saved once back online', await until(() => saved(Store.status())), Store.status().text);
+
+  await SharePoint.signOut();
+  add(Store.wb);
+  await Store.sync();
+  check('signed out, changes are kept here', Store.status().text === 'Signed out · kept here' && Store.status().fix === 'sign-in' && Store.who() === 'Dana Jordan', Store.status().text);
+  check('… and saved on signing in', saved(await Store.fix()) && Store.who() === 'Ann Lee');
+
+  const t = await tab(), twb = await t.Store.openLibrary(graph.link(file));
+  check('a workbook opens from its link in the library', t.Store.where().type === 'sharepoint' && t.Store.where().name === 'Calder Ridge' && ids(twb) === ids(Store.wb));
+
+  // The File Picker, in a window of its own: here a frame, which the test speaks for.
+  const frame = document.createElement('iframe');
+  document.body.append(frame);
+  const win = frame.contentWindow, opened = window.open;
+  let posted = null;
+  win.HTMLFormElement.prototype.submit = function () { posted = { action: this.action, token: this.querySelector('input').value }; };
+  window.open = () => win;
+  const picking = SharePoint.pick();
+  window.open = opened;
+  await until(() => posted);
+  const options = JSON.parse(new URL(posted?.action ?? 'https://x').searchParams.get('filePicker') ?? '{}');
+  check('the picker opens at the library, with a token for SharePoint', posted?.action.startsWith(`https://${graph.host}/_layouts/15/FilePicker.aspx?`)
+    && options.entry.sharePoint.byPath.web === `https://${graph.host}/sites/FundLegal` && options.entry.sharePoint.byPath.list === 'Shared Documents'
+    && options.entry.sharePoint.byPath.folder === 'Dendra' && posted.token === `token for https://${graph.host}/.default`, posted?.action);
+  const heard = [];
+  win.eval(`window.port = (() => { const ch = new MessageChannel();
+    parent.postMessage({ type: 'initialize', channelId: ${JSON.stringify(options.messaging?.channelId)} }, '*', [ch.port2]); return ch.port1; })()`);
+  win.port.onmessage = e => heard.push(e.data);
+  await until(() => heard.some(m => m.type === 'activate'));
+  win.port.postMessage({ type: 'command', id: 'a1', data: { command: 'authenticate', resource: `https://${graph.host}`, type: 'SharePoint' } });
+  await until(() => heard.some(m => m.type === 'result' && m.id === 'a1'));
+  check('… and answers its requests for tokens', heard.find(m => m.id === 'a1' && m.type === 'result')?.data.token === `token for https://${graph.host}/.default`
+    && heard.some(m => m.type === 'acknowledge' && m.id === 'a1'), JSON.stringify(heard));
+  win.port.postMessage({ type: 'command', id: 'p1', data: { command: 'pick', items: [{ id: doc.id, name: doc.name, parentReference: { driveId: graph.drive } }] } });
+  const picked = await Promise.race([picking, sleep(5000).then(() => 'timed out')]);
+  check('what’s picked comes back as items', picked?.length === 1 && picked[0].name === doc.name && picked[0].link === graph.link(doc) && picked[0].version === '1.0', JSON.stringify(picked));
+  check('Graph is asked for what Dendra needs, and no more', ['User.Read', 'Files.ReadWrite.All', 'Sites.Read.All'].every(x => FakeMsal.scopes.includes(x))
+    && FakeMsal.scopes.every(x => /^(User\.Read|Files\.ReadWrite\.All|Sites\.Read\.All|https:\/\/.*\/\.default)$/.test(x)), [...new Set(FakeMsal.scopes)].join(' '));
+}
+
+(async () => {
+  links();
+  await browser();
+  disagreements();
+  await files();
+  await sharepoint();
+})().catch(e => check('runs', false, e.stack ?? e))
+  .finally(() => {
+    clearInterval(pump);
+    const failed = out.filter(c => !c.ok);
+    const line = c => `${c.ok ? 'pass' : 'FAIL'}  ${c.name}${c.detail ? `  (${c.detail})` : ''}`;
+    document.getElementById('out').innerHTML = [`${out.length - failed.length} passed, ${failed.length} failed`, '',
+      ...failed.map(c => `<span class="fail">${line(c).replace(/</g, '&lt;')}</span>`), ...(failed.length ? [''] : []),
+      ...out.filter(c => c.ok).map(line).map(s => s.replace(/</g, '&lt;'))].join('\n');
+  });
+</script>
+</body>
+</html>
