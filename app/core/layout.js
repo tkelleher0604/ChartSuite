@@ -147,34 +147,28 @@ const span = ([a, b]) => ({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w:
 
 // Every box's position. Entered ones stand, and in a preview, so do the rest of the boxes it had (`keep`,
 // the view's positions as last drawn): only what the preview adds is placed, roughly, and ELK isn't asked.
-// With none standing, ELK's layout sits across the middle of the page, 24 pt below any shapes across its top
-// (a title and its date), or its margin. With some, each other box goes beside its relatives: in the row of
-// the boxes that share them (a new owner among the owners of what it owns), or between rows, at the nearest
-// place that's clear of every box, shape and line it isn't on. Worked out again only when what it reads
-// changes.
+// With none standing, ELK's layout, where the page will put it (see Scene's page). With some, each other box
+// goes beside its relatives: in the row of the boxes that share them (a new owner among the owners of what it
+// owns), or between rows, at the nearest place that's clear of every box, shape and line it isn't on, and,
+// where `bounds` is given (a preview's page, which stays as it was), on it. Worked out again only when what it
+// reads changes.
 // boxes: [{ id, w, h, shape }]; links: the ranking lines { from, to }; lines: every line { id, from, to,
 // trunk, straight }, to route among the boxes already placed; obstacles: free shapes' rects.
 const arranged = keeping();
 function arrange(a) {
-  const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null } = a;
+  const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), [page.w, page.h, page.margin], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep)]), () => arranging(a));
+    at(entered), page.margin, lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
 }
-function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null }) {
+function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
   const out = new Map();
   for (const b of boxes) { const p = entered.get(b.id) ?? keep?.get(b.id); if (p) out.set(b.id, { x: p.x, y: p.y }); }
   const rest = boxes.filter(b => !out.has(b.id));
   if (!rest.length) return out;
   const ups = groupBy(links, l => l.to), downs = groupBy(links, l => l.from);
   const at = keep && out.size ? rough(boxes, ups, downs, out) : place({ boxes, links, clusters }), size = new Map(boxes.map(b => [b.id, b]));
-  if (!out.size) {
-    const r = Math.max(...boxes.map(b => at.get(b.id).x + b.w));
-    const band = Math.max(0, ...obstacles.filter(o => o.y < page.h / 3).map(o => o.y + o.h + 32));
-    const m = page.margin, dx = Math.max(m, (page.w - r) / 2), dy = Math.max(m, band);
-    for (const b of boxes) out.set(b.id, { x: at.get(b.id).x + dx, y: at.get(b.id).y + dy });
-    return out;
-  }
+  if (!out.size) return new Map(boxes.map(b => [b.id, { ...at.get(b.id) }]));
   const known = [...out.keys()];
   const shift = ids => [0, 1].map(k => ids.reduce((s, id) => s + (k ? out.get(id).y - at.get(id).y : out.get(id).x - at.get(id).x), 0) / ids.length);
   const all = shift(known);
@@ -186,9 +180,10 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const meets = (r, [a, b], pad) => Math.max(a[0], b[0]) >= r.x - pad && Math.min(a[0], b[0]) <= r.x + r.w + pad && Math.max(a[1], b[1]) >= r.y - pad && Math.min(a[1], b[1]) <= r.y + r.h + pad;
   const apart = (p, q, gx, gy) => p.x >= q.x + q.w + gx || p.x + p.w + gx <= q.x || p.y >= q.y + q.h + gy || p.y + p.h + gy <= q.y;
   const placedBoxes = [...geo.values()], nearBoxes = grid(placedBoxes), nearShapes = grid(obstacles), nearSegs = grid(segs.map(span));
-  const around = (p, gx, gy) => ({ x: p.x - gx, y: p.y - gy, w: p.w + 2 * gx, h: p.h + 2 * gy });
-  const clear = p => p.x >= page.margin / 2 && p.y >= page.margin / 2 && !nearBoxes.any(around(p, 16, 24), i => !apart(p, placedBoxes[i], 16, 24))
-    && !nearShapes.any(around(p, 16, 16), i => !apart(p, obstacles[i], 16, 16)) && !nearSegs.any(around(p, 8, 8), i => meets(p, segs[i], 8));
+  const wide = (p, gx, gy) => ({ x: p.x - gx, y: p.y - gy, w: p.w + 2 * gx, h: p.h + 2 * gy }), m = page.margin;
+  const within = p => !bounds || (p.x + p.w <= bounds.w - m / 2 && p.y + p.h <= bounds.h - m / 2);
+  const clear = p => p.x >= m / 2 && p.y >= m / 2 && within(p) && !nearBoxes.any(wide(p, 16, 24), i => !apart(p, placedBoxes[i], 16, 24))
+    && !nearShapes.any(wide(p, 16, 16), i => !apart(p, obstacles[i], 16, 16)) && !nearSegs.any(wide(p, 8, 8), i => meets(p, segs[i], 8));
   const linked = (id, dir) => [...new Set((dir === 'down' ? downs.get(id)?.map(l => l.to) : ups.get(id)?.map(l => l.from)) ?? [])];
   for (const b of rest.sort((a, c) => at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
@@ -206,6 +201,8 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     const between = (lo, hi) => { const mid = (lo + hi - b.h) / 2; for (let y = lo + 24; y <= hi - 24 - b.h; y += 8) rows.push({ y, cost: 120 + Math.abs(y - mid) * 0.5 }); rows.push({ y: mid, cost: 120 }); };
     if (kids.length) { const top = Math.min(...kids.map(id => geo.get(id).y)); between(sib ? sib.y + sib.h : top - b.h - 96, top); }
     if (parents.length) { const bottom = Math.max(...parents.map(id => geo.get(id).y + geo.get(id).h)); between(bottom, sib ? sib.y : bottom + b.h + 96); }
+    // On a page that stays as it is, any row on it, nearest first, where none near its relatives is clear.
+    if (bounds) for (let y = m / 2; y <= bounds.h - m / 2 - b.h; y += 24) rows.push({ y, cost: 240 + Math.abs(y - y0) * 0.5 });
     let best = null;
     for (const row of rows) {
       const y = Math.max(page.margin / 2, row.y), ideal = cx - b.w / 2;
@@ -216,7 +213,7 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
         if (clear(q)) { best = { ...q, cost }; break; }
       }
     }
-    const p = best ?? { x: Math.max(page.margin, x0), y: Math.max(page.margin, y0), w: b.w, h: b.h };
+    const p = best ?? { x: Math.max(m, bounds ? Math.min(x0, bounds.w - m - b.w) : x0), y: Math.max(m, bounds ? Math.min(y0, bounds.h - m - b.h) : y0), w: b.w, h: b.h };
     geo.set(b.id, { id: b.id, x: p.x, y: p.y, w: b.w, h: b.h, shape: b.shape });
     nearBoxes.add(geo.get(b.id), placedBoxes.push(geo.get(b.id)) - 1);
     out.set(b.id, { x: p.x, y: p.y });
@@ -545,14 +542,17 @@ function arrivals(t, starts, after = []) {
 // it meets (below the bottom, going up); on a level last leg, above it, just past the arrowhead. Where that
 // place is taken by another label, a box or a line, the label steps away from what it reaches, a line's
 // height at a time; only where all of those are taken does it look elsewhere: along its lane, or beside its
-// longest leg. Each place costs what it covers (boxes most, then other labels, then lines it crosses) and
-// how far down that order it is; the cheapest wins.
-function placeLabels(geo, lines, all = lines) {
+// longest leg. Each place costs what it covers (boxes most, then other labels, or what's within 8 pt of them,
+// then lines it crosses) and how far down that order it is; the cheapest wins. `taken`: labels already placed,
+// which stay where they are.
+const APART = 32 / 3;
+function placeLabels(geo, lines, all = lines, taken = []) {
   // What a box covers: a triangle its lower half, and the middle of its upper half.
   const boxes = [...geo.values()].filter(b => b.shape !== 'frame').flatMap(b => b.shape !== 'triangle' ? [b]
     : [{ x: b.x, y: b.y + b.h / 2, w: b.w, h: b.h / 2 }, { x: b.x + b.w / 4, y: b.y, w: b.w / 2, h: b.h / 2 }]), placed = [];
   const segs = all.flatMap(l => (l.points ?? []).slice(1).map((p, i) => ({ l, a: l.points[i], b: p })));
   const nearBoxes = grid(boxes), nearSegs = grid(segs.map(s => span([s.a, s.b]))), nearPlaced = grid([]);
+  for (const r of taken) nearPlaced.add(r, placed.push(r) - 1);
   const meets = (r, a, b) => {
     const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])], [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
     return x1 >= r.x && x0 <= r.x + r.w && y1 >= r.y && y0 <= r.y + r.h;
@@ -611,18 +611,113 @@ function placeLabels(geo, lines, all = lines) {
     }
     let best = null;
     spots.forEach((s, i) => {
-      const r = { x: s.x, y: s.y, w, h };
+      const r = { x: s.x, y: s.y, w, h }, room = { x: s.x - APART, y: s.y - APART, w: w + 2 * APART, h: h + 2 * APART };
       let cost = i * 2;
       for (const k of nearBoxes.near(r)) cost += overlap(r, boxes[k]) * 4;
-      for (const k of nearPlaced.near(r)) cost += overlap(r, placed[k]) * 6;
+      for (const k of nearPlaced.near(room)) cost += overlap(room, placed[k]) * 6;
       for (const k of nearSegs.near(r)) if (segs[k].l !== l && meets(r, segs[k].a, segs[k].b)) cost += 40;
       if (!best || cost < best.cost) best = { ...s, cost };
     });
     l.labelAt = { x: best.x, y: best.y };
-    const taken = { x: best.x, y: best.y, w, h };
-    nearPlaced.add(taken, placed.push(taken) - 1);
+    const mine = { x: best.x, y: best.y, w, h };
+    nearPlaced.add(mine, placed.push(mine) - 1);
   }
 }
 
-return { place, arrange, route, keepIn, OPTIONS };
+// ---- A line routed around what's drawn ----
+
+// A line added to a drawing that stays as it is, a highlight's or a redline's: square, from the side of its box
+// that faces the other to the side of the other that faces it, 6 pt clear of every other box and of what
+// `avoid` holds (labels and captions), crossing the lines already drawn (`segs`) rather than running along
+// them, with as few turns as it can, on the page (`page`, { w, h, margin }) where one is given. Found on the
+// grid of the places where something drawn begins or ends, and the gutters halfway between, as an orthogonal
+// connector router searches it, within 120 pt of the two boxes, or failing that 360. → its points, or null where
+// there's no way within reach.
+function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160 } = {}) {
+  const s = geo.get(from), t = geo.get(to);
+  if (!s || !t || s === t) return null;
+  const C = 8, BEND = 24, ALONG = 4, CROSS = 6, m = page ? page.margin / 2 : -Infinity;
+  const reach = { x: Math.max(m, Math.min(s.x, t.x) - far), y: Math.max(m, Math.min(s.y, t.y) - far),
+    r: Math.min(page ? page.w - m : Infinity, Math.max(s.x + s.w, t.x + t.w) + far), d: Math.min(page ? page.h - m : Infinity, Math.max(s.y + s.h, t.y + t.h) + far) };
+  const walls = [...[...geo.values()].filter(g => g.shape !== 'frame'), ...avoid]
+    .filter(g => g.x < reach.r && g.x + g.w > reach.x && g.y < reach.d && g.y + g.h > reach.y).map(g => ({ x: g.x - C, y: g.y - C, r: g.x + g.w + C, d: g.y + g.h + C }));
+  const blocked = (x, y) => x < reach.x - 0.01 || x > reach.r + 0.01 || y < reach.y - 0.01 || y > reach.d + 0.01
+    || walls.some(w => x > w.x + 0.01 && x < w.r - 0.01 && y > w.y + 0.01 && y < w.d - 0.01);
+  // Each box's four ports: where a line meets its side, a step out from it, and the way out.
+  const ports = g => { const cx = g.x + g.w / 2, cy = g.y + g.h / 2; return [
+    { at: [cx, edgeY(g, cx, false)], out: [cx, g.y - C], dir: 0 }, { at: [sideX(g, cy, true), cy], out: [g.x + g.w + C, cy], dir: 1 },
+    { at: [cx, edgeY(g, cx, true)], out: [cx, g.y + g.h + C], dir: 2 }, { at: [sideX(g, cy, false), cy], out: [g.x - C, cy], dir: 3 }]; };
+  const STEP = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  const starts = ports(s).filter(p => !blocked(...p.out)), ends = ports(t).filter(p => !blocked(...p.out));
+  const coords = (k, extra) => {
+    const vs = [...new Set([...walls.flatMap(w => k ? [w.y, w.d] : [w.x, w.r]), ...extra, k ? reach.y : reach.x, k ? reach.d : reach.r].map(v => Math.round(v * 4) / 4))].sort((a, b) => a - b);
+    return [...new Set([...vs, ...vs.slice(1).map((v, i) => (v + vs[i]) / 2)])].sort((a, b) => a - b);
+  };
+  const xs = coords(0, [...starts, ...ends].map(p => p.out[0])), ys = coords(1, [...starts, ...ends].map(p => p.out[1]));
+  if (xs.length * ys.length > 40000 || !starts.length || !ends.length) return null;
+  const X = new Map(xs.map((v, i) => [v, i])), Y = new Map(ys.map((v, i) => [v, i])), node = (i, j) => i * ys.length + j;
+  // What a step costs beyond its length: running along a line drawn, or across one.
+  const level = segs.filter(([a, b]) => Math.abs(a[1] - b[1]) < 0.5), upright = segs.filter(([a, b]) => Math.abs(a[0] - b[0]) < 0.5);
+  const toll = (x0, y0, x1, y1) => {
+    let c = 0;
+    const [lo, hi] = x0 === x1 ? [Math.min(y0, y1), Math.max(y0, y1)] : [Math.min(x0, x1), Math.max(x0, x1)];
+    for (const [a, b] of x0 === x1 ? upright : level) {
+      const [p, q] = x0 === x1 ? [a[0], x0] : [a[1], y0];
+      if (Math.abs(p - q) > 2) continue;
+      const [u, v] = x0 === x1 ? [Math.min(a[1], b[1]), Math.max(a[1], b[1])] : [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+      c += Math.max(0, Math.min(hi, v) - Math.max(lo, u)) * ALONG;
+    }
+    for (const [a, b] of x0 === x1 ? level : upright) {
+      const across = x0 === x1 ? a[1] : a[0], [u, v] = x0 === x1 ? [Math.min(a[0], b[0]), Math.max(a[0], b[0])] : [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+      if (across > lo && across < hi && (x0 === x1 ? x0 : y0) > u && (x0 === x1 ? x0 : y0) < v) c += CROSS;
+    }
+    return c;
+  };
+  const goal = new Map(ends.map(p => [node(X.get(Math.round(p.out[0] * 4) / 4), Y.get(Math.round(p.out[1] * 4) / 4)), p]));
+  const h = (i, j) => Math.min(...ends.map(p => Math.abs(xs[i] - p.out[0]) + Math.abs(ys[j] - p.out[1])));
+  // A* over (node, heading), its frontier a binary heap.
+  const heap = [], best = new Map(), from_ = new Map();
+  const push = (f, k) => { heap.push([f, k]); for (let i = heap.length - 1; i > 0;) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], end = heap.pop(); if (heap.length) { heap[0] = end; for (let i = 0; ;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  const toward = (p, g) => { const [dx, dy] = STEP[p.dir]; return dx * (centerX(g) - p.at[0]) + dy * (g.y + g.h / 2 - p.at[1]) > 0 ? 0 : 2 * BEND; };
+  for (const p of starts) {
+    const i = X.get(Math.round(p.out[0] * 4) / 4), j = Y.get(Math.round(p.out[1] * 4) / 4), k = node(i, j) * 4 + p.dir, g = C + toward(p, t);
+    if (g < (best.get(k) ?? Infinity)) { best.set(k, g); from_.set(k, { start: p }); push(g + h(i, j), k); }
+  }
+  let done = null;
+  while (heap.length) {
+    const [f, k] = pop(), g = best.get(k), n = k >> 2, dir = k & 3, i = Math.floor(n / ys.length), j = n % ys.length;
+    if (f - h(i, j) > g + 1e-6) continue;
+    const end = goal.get(n);
+    if (end) {
+      const last = g + (dir === (end.dir + 2) % 4 ? 0 : BEND) + toward(end, s);
+      if (!done || last < done.cost) done = { cost: last, k, end };
+      continue;
+    }
+    if (done && f >= done.cost) break;
+    for (let d = 0; d < 4; d++) {
+      if (d === (dir + 2) % 4) continue;
+      const ni = i + STEP[d][0], nj = j + STEP[d][1];
+      if (ni < 0 || nj < 0 || ni >= xs.length || nj >= ys.length) continue;
+      const [x0, y0, x1, y1] = [xs[i], ys[j], xs[ni], ys[nj]];
+      if (blocked(x1, y1) || blocked((x0 + x1) / 2, (y0 + y1) / 2)) continue;
+      const nk = node(ni, nj) * 4 + d, ng = g + Math.abs(x1 - x0) + Math.abs(y1 - y0) + (d === dir ? 0 : BEND) + toll(x0, y0, x1, y1);
+      if (ng < (best.get(nk) ?? Infinity)) { best.set(nk, ng); from_.set(nk, { k }); push(ng + h(ni, nj), nk); }
+    }
+  }
+  if (!done) return far < 480 ? around(geo, from, to, { avoid, segs, page, far: 480 }) : null;
+  const ps = [done.end.at, done.end.out];
+  let k = done.k;
+  for (;;) {
+    const n = k >> 2, step = from_.get(k);
+    ps.push([xs[Math.floor(n / ys.length)], ys[n % ys.length]]);
+    if (step.start) { ps.push(step.start.at); break; }
+    k = step.k;
+  }
+  // Points where the way doesn't turn go.
+  const way = ps.reverse().map(([x, y]) => [Math.round(x * 4) / 4, Math.round(y * 4) / 4]).filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);
+  return way.filter((p, i) => i === 0 || i === way.length - 1 || !((p[0] === way[i - 1][0] && p[0] === way[i + 1][0]) || (p[1] === way[i - 1][1] && p[1] === way[i + 1][1])));
+}
+
+return { place, arrange, route, around, labels: placeLabels, keepIn, OPTIONS };
 })();
