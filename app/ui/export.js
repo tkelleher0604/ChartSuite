@@ -260,7 +260,7 @@ function slide(p, scene, { k, ox, oy }) {
       shape(m, 'rect', { ...s, Dash: 'solid' }, m.texts, { x: 12, width: m.w - 24 }, 'top', m.title || 'Legend');
       for (const r of m.rows) {
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h };
-        if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none' }, null, r.caption.text);
+        if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, r.caption.text);
         else if (sw.kind === 'frame') shape(box, 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: FRAME.Weight, Dash: 'dashed' }, [], null);
         else shape(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box, sw.Shape ?? 'rect', sw, [], null);
         label([r.caption], m.x + r.caption.lines[0].x, m.y, r.w - r.sw.w - 12);   // as layoutLegend breaks it
@@ -315,19 +315,29 @@ async function write(format, scenes, name) {
 // ---- The calendar ----
 
 // Every date in the chart as worked out, one all-day event each: what it's the date of, and why it falls
-// where it does, the ground on one line. Addresses are given by their file's name alone.
+// where it does, the ground on one line. An address, which ends what it's in (a name, or a part of the
+// ground), is given by its file's name alone.
 function calendar(R, chart, name, stamp = new Date()) {
   const st = R.records, objName = id => { const r = st[id]; return !r ? '' : Tree.isObject(r) ? Tree.objectName(st, id) : Tree.argsOf(r).map(a => objName(Tree.objectOf(st, a.at))).join(' – '); };
-  const plain = s => String(s).replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\)\S+/gi, Tree.documentName);
-  const text = s => plain(s).replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
-  const fold = line => (line.match(/.{1,74}/g) ?? ['']).join('\r\n ');
+  const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, Tree.documentName)).join(' · ');
+  const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
+  // Lines of at most 75 octets, each continued after a space.
+  const utf8 = new TextEncoder(), fold = line => {
+    let out = '', n = 0;
+    for (const ch of line) {
+      const b = utf8.encode(ch).length;
+      if (n + b > 75) { out += '\r\n '; n = 1; }
+      out += ch; n += b;
+    }
+    return out;
+  };
   const day = iso => iso.replace(/-/g, ''), next = iso => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return day(d.toISOString().slice(0, 10)); };
   const now = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const events = Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
-    const path = Tree.pathOf(st, id), what = path.slice(1).map(x => st[x].edge).filter(Boolean).join(' › ');
-    const why = r.computed ? Formulas.groundText(R, id) : '';
+    const path = Tree.pathOf(st, id), what = path.slice(1).map(x => st[x].choice ?? st[x].edge).filter(Boolean).join(' › ');
+    const why = r.computed ? plain(Formulas.groundText(R, id)) : '';
     return ['BEGIN:VEVENT', `UID:${chart}.${id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(r.value)}`, `DTEND;VALUE=DATE:${next(r.value)}`,
-      `SUMMARY:${text(`${objName(path[0])}: ${what}`)}`, ...(why ? [`DESCRIPTION:${text(why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT'];
+      `SUMMARY:${text(`${plain(objName(path[0]))}: ${what}`)}`, ...(why ? [`DESCRIPTION:${text(why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT'];
   });
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Dendra//Dendra//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${text(name)}`, ...events.flat(), 'END:VCALENDAR'];
   const blob = new Blob([ics.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar' });
