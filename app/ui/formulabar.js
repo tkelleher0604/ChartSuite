@@ -39,6 +39,8 @@ const FormulaBar = (() => {
   const defOf = id => id ? defs.peek().get(id) : undefined;
   const defOfRecord = (Rv, id) => defOf(Rv.computed[id]?.def ?? Rv.covered[id]?.def);
   const noteOf = id => N().notes('Formula').find(n => n.note === id && !n.view);
+  // A definition's rows as kept, each keyed by its place.
+  const kept = def => (defOf(def)?.rows ?? []).map((r, i) => ({ key: 'r' + i, label: r.label, formula: r.formula }));
   const errorOf = (Rv, id) => Rv.errors.find(e => e.id === id);
   const argKey = args => args.map(a => `${norm(a.edge)}=${a.at}`).sort().join('&');
   // How records read here: an object by its Name; anything else as a step on its path.
@@ -182,8 +184,7 @@ const FormulaBar = (() => {
     const P = m.def;
     if (!P) return [];
     const drafted = dr?.def === P.id;
-    const texts = drafted ? dr.rows : P.rows.map((r, i) => ({ key: 'r' + i, label: r.label, formula: r.formula }));
-    const rows = texts.map((t, i) => ({ ...t, i, ev: t.gone ? null : Formulas.evaluateRow(Rv, P.id, t.formula, m.at) }));
+    const rows = (drafted ? dr.rows : kept(P.id)).map((t, i) => ({ ...t, i, ev: t.gone ? null : Formulas.evaluateRow(Rv, P.id, t.formula, m.at) }));
     const implied = rows.every(r => /^\s*(←|<-)/.test(r.formula));
     const gives = r => r.ev && !Formulas.isError(r.ev.value) && r.ev.value !== null && r.ev.value !== undefined && !(Array.isArray(r.ev.value) && !r.ev.value.length);
     const loops = (Rv.loops[P.id] ?? []).filter(() => !drafted);
@@ -406,7 +407,6 @@ const FormulaBar = (() => {
   }
 
   // ---- Editing a definition: a draft of its rows, redlined as it changes ----
-  const kept = def => (noteOf(def)?.value ?? []).map((r, i) => ({ key: 'r' + i, label: r.label, formula: r.formula }));
   const draftOf = def => { const d = draft.peek(); return d?.def === def ? d : { def, rows: kept(def) }; };
   const rowsChange = d => ({ rows: { [d.def]: d.rows.filter(r => !r.gone).map(({ label, formula }) => ({ label, formula })) } });
   const unchanged = d => JSON.stringify(rowsChange(d).rows[d.def]) === JSON.stringify(kept(d.def).map(({ label, formula }) => ({ label, formula })));
