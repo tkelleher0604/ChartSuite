@@ -515,9 +515,10 @@ function Relatives({ id }) {
         onBlur=${() => { linking.value = null; }} /></div></div>` : null}</${Section}>` : null}`;
 }
 
-// Look: each format property set for a mark and its value, under where it comes from, said once, as an entry's
-// entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code only for one of the user's own; a size or a
-// weight is the slide's, to the half point, as the format bar has it. Format is what a text says: its Label.
+// Look: each format property set for a mark and its value, under where it comes from, said once, as an
+// entry's entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code
+// only for one of the user's own; a size or a weight is the slide's, to the half point, as the format bar has
+// it. Format is what a text says: its Label.
 const LABELS = { Format: 'Label' };
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
 const val = (label, v) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
