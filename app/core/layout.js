@@ -118,13 +118,14 @@ function rows(boxes, links) {
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
 
 // A grid of rects, for finding what's near a place without looking at everything: near(r) gives the
-// indexes, in order, of every rect that could touch r.
+// indexes, in order, of every rect that could touch r; any(r, f), whether f holds for any of them.
 function grid(rects, size = 96) {
   const cells = new Map(), cell = v => Math.floor(v / size);
-  const each = (r, f) => { for (let i = cell(r.x); i <= cell(r.x + r.w); i++) for (let j = cell(r.y); j <= cell(r.y + r.h); j++) f(`${i},${j}`); };
+  const each = (r, f) => { for (let i = cell(r.x); i <= cell(r.x + r.w); i++) for (let j = cell(r.y); j <= cell(r.y + r.h); j++) if (f(i * 100003 + j)) return true; return false; };
   const g = {
-    add(r, k) { each(r, c => (cells.get(c) ?? cells.set(c, []).get(c)).push(k)); },
+    add(r, k) { each(r, c => { (cells.get(c) ?? cells.set(c, []).get(c)).push(k); }); },
     near(r) { const out = new Set(); each(r, c => { for (const k of cells.get(c) ?? []) out.add(k); }); return [...out].sort((a, b) => a - b); },
+    any: (r, f) => each(r, c => cells.get(c)?.some(f)),
   };
   rects.forEach((r, k) => g.add(r, k));
   return g;
@@ -173,8 +174,8 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const apart = (p, q, gx, gy) => p.x >= q.x + q.w + gx || p.x + p.w + gx <= q.x || p.y >= q.y + q.h + gy || p.y + p.h + gy <= q.y;
   const placedBoxes = [...geo.values()], nearBoxes = grid(placedBoxes), nearShapes = grid(obstacles), nearSegs = grid(segs.map(span));
   const around = (p, gx, gy) => ({ x: p.x - gx, y: p.y - gy, w: p.w + 2 * gx, h: p.h + 2 * gy });
-  const clear = p => p.x >= page.margin / 2 && p.y >= page.margin / 2 && nearBoxes.near(around(p, 16, 24)).every(i => apart(p, placedBoxes[i], 16, 24))
-    && nearShapes.near(around(p, 16, 16)).every(i => apart(p, obstacles[i], 16, 16)) && nearSegs.near(around(p, 8, 8)).every(i => !meets(p, segs[i], 8));
+  const clear = p => p.x >= page.margin / 2 && p.y >= page.margin / 2 && !nearBoxes.any(around(p, 16, 24), i => !apart(p, placedBoxes[i], 16, 24))
+    && !nearShapes.any(around(p, 16, 16), i => !apart(p, obstacles[i], 16, 16)) && !nearSegs.any(around(p, 8, 8), i => meets(p, segs[i], 8));
   const linked = (id, dir) => [...new Set((dir === 'down' ? downs.get(id)?.map(l => l.to) : ups.get(id)?.map(l => l.from)) ?? [])];
   for (const b of rest.sort((a, c) => at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));

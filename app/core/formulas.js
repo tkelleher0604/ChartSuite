@@ -2947,11 +2947,13 @@ function changesSince(R, P, entered) {
 }
 const rowsOf = d => d.rowsKey ??= JSON.stringify(d.rows.map(r => r.text));
 // Of the latest workings-out, the one to start from: the fewest definitions with other rows, then the fewest
-// records changed.
+// records changed. The latest that was started from one given (the app's own) is kept apart from the two
+// latest others (a preview's), so previews never push it out.
 const recent = [];
+let followed = null;
 function closest(P, entered) {
   let best = null;
-  for (const R of recent) {
+  for (const R of [followed, ...recent]) {
     const changed = changesSince(R, P, entered);
     if (!changed) continue;
     const rows = P.groups.reduce((n, g, i) => n + g.defs.filter((d, j) => rowsOf(d) !== rowsOf(R.state.P.groups[i].defs[j])).length, 0);
@@ -3033,7 +3035,7 @@ function keepStep(S, i, O) {
 
 // Works out the computed state from the entered records, the definitions and the names: see core/README.md.
 // `from`, an earlier working-out, is where it starts (see reworking), or where it can't, the closest of the
-// latest two; none with null.
+// latest (see closest); none with null.
 function computeState(entered, definitions, names, from) {
   const started = now();
   const defs = definitions.map(d => prepareDef(d, names));
@@ -3081,7 +3083,8 @@ function computeState(entered, definitions, names, from) {
   const uses = Object.fromEntries(defs.map(d => [d.id, [...d.dependsOn ?? []].filter(e => e !== d).map(e => e.id)]));
   const R = { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside, uses,
     order: P.groups.map(g => g.defs.map(d => d.id)), steps: S.steps, ms: now() - started, state: S };
-  if (recent.unshift(R) > 2) recent.pop();
+  if (from) followed = R;
+  else if (recent.unshift(R) > 2) recent.pop();
   return R;
 }
 const push2 = (obj, key, value) => (obj[key] ??= []).push(value);
