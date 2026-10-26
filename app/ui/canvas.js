@@ -940,21 +940,23 @@ function mount(el) {
     const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]), x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y));
     return { x, y, w: Math.max(...ext.map(m => m.x + m.w)) - x, h: Math.max(...ext.map(m => m.y + m.h)) - y };
   };
-  // Shows a rect as large as fits within pad of the edges, between lo and hi: in the middle, or from its
-  // top where it's taller than the window.
-  function showRect(r, pad, lo, hi) {
+  // Shows a rect as large as fits within pad of the edges, between lo and hi: in the middle; or, where
+  // it's too big, from its top, centred on `at` but never past its sides.
+  function showRect(r, pad, lo, hi, at = r.x + r.w / 2) {
     const W = root.clientWidth, H = root.clientHeight;
     const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi);
-    quietly(() => { graph.zoomTo(s); graph.translate((W - r.w * s) / 2 - r.x * s, r.h * s > H - 2 * pad ? pad - r.y * s : (H - r.h * s) / 2 - r.y * s); });
+    const tx = r.w * s > W - 2 * pad ? clamp(W / 2 - at * s, W - pad - (r.x + r.w) * s, pad - r.x * s) : (W - r.w * s) / 2 - r.x * s;
+    quietly(() => { graph.zoomTo(s); graph.translate(tx, r.h * s > H - 2 * pad ? pad - r.y * s : (H - r.h * s) / 2 - r.y * s); });
     zoomLevel.value = graph.zoom();
   }
   // The view as it's to be, once it can be seen: as it was left, or framed on the chart (its boxes, lines
-  // and frames, not the page's margins, title and key) or on the page.
+  // and frames, not the page's margins, title and key), which is read from its first rank; or on the page.
   function settle() {
     if (!scene || !seen()) return;
     const page = { x: 0, y: 0, w: scene.page.w, h: scene.page.h }, chart = scene.marks.filter(m => m.type !== 'shape');
+    const boxes = chart.filter(m => m.type === 'box'), top = Math.min(...boxes.map(b => b.y)), first = extent(boxes.filter(b => b.y < top + 24));
     if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
-    else if (framed === 'chart' && chart.length) showRect(extent(chart), 32, READS, 1);
+    else if (framed === 'chart' && boxes.length) showRect(extent(chart), 32, READS, 1, first.x + first.w / 2);
     else if (framed) showRect(page, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), LEAST, 2);
   }
   function zoom(k) {
