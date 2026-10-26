@@ -192,7 +192,7 @@ function put(id, slot, out) {
   });
 }
 const flipped = id => ({ tag: !(recs()[id]?.tag ?? false) });
-const flip = (id, slot) => { put(id, slot, flipped(id)); emit('tag-flip', id ?? slot); };
+const flip = (id, slot) => put(id, slot, flipped(id));
 // The change a tag's flip would make, as the formula bar redlines one.
 const flipChange = (id, slot) => ({ records: { [entered(id) ? id : 'fx-pending']: withOut(id, slot, flipped(id)) } });
 const remove = id => App.change(tx => tx.remove(id), { say: `Deleted ${recs()[id].args ? nameOf(id) : recs()[id].edge ?? nameOf(id)}` });
@@ -830,7 +830,7 @@ function RelateView({ a, b }) {
       const p = x.rest.find(q => T.same(q.edge, e)), y = picks[x.key + p.edge];
       return html`<button class=${'sel dd' + (y ? '' : ' ph')} aria-label=${`${p.edge}: ${y ? nameOf(objectOf(y)) : 'none'}`} onClick=${ev => pick(ev, x, p)}><span>${y ? bound(shortOf(objectOf(y))) : '…'}</span></button>`; };
     return html`<div class="rr" key=${x.key} data-key=${x.key}>
-      <span class="ctl">${!tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => { relate(x, slot, { tag: true }); emit('tag-flip', slot); }} />` : html`<span class="tag" aria-disabled="true" />`}</span>
+      <span class="ctl">${!tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => relate(x, slot, { tag: true })} />` : html`<span class="tag" aria-disabled="true" />`}</span>
       <span class="nm">${sentence(x.s, n.edges(x.s), say, chosen ? { choice: '…', role: role(x.name, null, x.options, o => relate(x, slot, { choice: o })) } : {})}</span>
       <span class="val">${tag || !slot || chosen ? null : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => out && relate(x, slot, out)} />`}</span>
     </div>`; };
