@@ -322,6 +322,38 @@ const Shell = (() => {
   const marked = (label, ranges) => !ranges ? label : uFuzzy.highlight(label, ranges, (p, m) => m ? html`<b>${p}</b>` : p, [], (a, p) => { a.push(p); });
   const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled && (it.run || it.items);
 
+  // A menu's search field: plain text, set as the formula bar sets it, so after "=" a function's name is in
+  // small capitals. It keeps its text itself, and the caret where it was.
+  let FN = null;
+  const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const typeset = q => !q.startsWith('=') ? esc(q)
+    : esc(q).replace(FN ??= new RegExp(`\\b(${Formulas.FUNCTION_NAMES.join('|')})(?=\\s*\\()`, 'gi'), '<span class="fn">$1</span>');
+  function caretIn(el) {
+    const s = getSelection();
+    if (!s.rangeCount || !el.contains(s.focusNode)) return null;
+    const r = document.createRange();
+    r.selectNodeContents(el); r.setEnd(s.focusNode, s.focusOffset);
+    return r.toString().length;
+  }
+  function caretAt(el, n) {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let t; (t = w.nextNode());) { if (n <= t.length) return getSelection().collapse(t, n); n -= t.length; }
+    getSelection().collapse(el, el.childNodes.length);
+  }
+  function Field({ q, onQuery, at }) {
+    const ref = useRef();
+    useLayoutEffect(() => {
+      const el = ref.current, markup = typeset(q);
+      if (el.innerHTML === markup) return;
+      const n = caretIn(el);
+      el.innerHTML = markup;
+      if (n !== null) caretAt(el, n);
+    }, [q]);
+    const read = e => { if (!e.isComposing) onQuery(e.currentTarget.textContent.replace(/[\n ]/g, ' ')); };
+    return html`<div class="menu-find" ref=${ref} contenteditable="plaintext-only" role="searchbox" aria-label="Find" aria-activedescendant=${at} spellcheck="false" data-placeholder="Find"
+      onInput=${read} onCompositionEnd=${read} onKeyDown=${e => { if (e.key === 'Enter') e.preventDefault(); }} onFocus=${e => caretAt(e.currentTarget, Infinity)} />`;
+  }
+
   // A menu; with `search`, a field that ranks its items, or that `items(query)` answers.
   function Menu({ f }) {
     const [q, setQ] = useState(f.query ?? '');
@@ -364,8 +396,7 @@ const Shell = (() => {
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
     return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
-      ${f.search ? html`<input class="menu-find" placeholder="Find" aria-label="Find" aria-activedescendant=${at} value=${q} spellcheck="false" autocomplete="off"
-        onInput=${e => { setQ(e.target.value); setAct(-1); }} />` : null}
+      ${f.search ? html`<${Field} q=${q} at=${at} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
         : it.seg ? html`<div class="menu-seg" role="group">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
