@@ -51,14 +51,13 @@ const shortOf = id => { const s = entryNamed(id, 'Short Name'); return s ? recs(
 const still = () => !!Shell.time.value?.stood;
 const general = p => '~' + JSON.stringify(p);
 const patternOf = id => { const t = tree(id); return t.args ? T.bare(T.specOf(t)) : { kind: t.kind }; };
+// A tree with every label removed but its edges: what renaming an edge or option reaches.
 const loose = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: loose(a.loc) })) } : {};
-const wide = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: wide(a.loc) })) } : t.kind !== undefined ? { kind: t.kind } : {};
 const short = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const outText = r => 'field' in r ? T.format(r.field, r.value) : 'choice' in r ? r.choice : r.tag ? 'Attested' : 'Ruled out';
 const typeName = s => 'field' in s.out ? T.DATATYPES[s.out.field] : 'choice' in s.out ? 'Choice' : 'Tag';
 const segment = r => 'choice' in r ? `${r.edge}: ${r.choice}` : r.tag === false ? `Not ${r.edge}` : r.edge;
-const where = s => s.kind !== undefined ? s.kind : !s.args ? '' : s.args.length > 1 ? N().name(s)
-  : `${where(s.args[0].loc)} › ${s.out?.choice !== undefined ? `${s.args[0].edge}: ${s.out.choice}` : s.out?.tag === false ? `Not ${s.args[0].edge}` : s.args[0].edge}`;
+const where = s => s.kind !== undefined ? s.kind : !s.args ? '' : s.args.length > 1 ? N().name(s) : `${where(s.args[0].loc)} › ${segment({ edge: s.args[0].edge, ...s.out })}`;
 const viewObjects = computed(() => (T.index(App.entered.value).kinds.get('view') ?? []).slice()
   .sort((a, b) => (App.notes.value.order(T.treeOf(App.entered.value, a)) ?? Infinity) - (App.notes.value.order(T.treeOf(App.entered.value, b)) ?? Infinity)));
 const viewId = computed(() => Shell.view.value ?? Shell.parts.value.views?.list()[0]?.id ?? viewObjects.value[0] ?? null);
@@ -130,7 +129,7 @@ function change(fn, say) {
 // A record, or a blank one, with another output. Typing over a computed record enters it; clearing an
 // entered one removes it, and lets a formula stand.
 const entered = id => !!id && !!recs()[id] && !recs()[id].computed;
-const withOut = (id, slot, out) => { const r = id ? recs()[id] : slot; return { ...(r.args ? { args: r.args } : { at: r.at, edge: r.edge }), ...out }; };
+const withOut = (id, slot, out) => { const r = recs()[id] ?? slot; return { ...(r.args ? { args: r.args } : { at: r.at, edge: r.edge }), ...out }; };
 function put(id, slot, out) {
   change(tx => {
     if (!out) return entered(id) && tx.remove(id);
@@ -218,26 +217,28 @@ const moved = (list, from, i) => { const l = list.slice(); l.splice(i, 0, l.spli
 // redlined in blue and the old struck in red. A document shows its file name, and its address to edit.
 function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
-  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), skip = useRef(false);
+  // What's typed, null while not typing; kept in a ref too, as a blur can come after the record has gone.
+  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null);
+  const type = t => { typed.current = t; setText(t); };
   useLayoutEffect(() => { if (auto) ref.current?.focus(); }, []);
   const dirty = text !== null && T.clean(text) !== raw;
   const done = () => {
-    if (skip.current) { skip.current = false; return; }
-    if (!dirty) return setText(null);
-    const t = T.clean(text), dt = datatype ?? T.classify(t), v = t ? T.parse(dt, t) : null;
+    const t = typed.current === null ? null : T.clean(typed.current);
+    if (t === null || t === raw) return type(null);
+    const dt = datatype ?? T.classify(t), v = t ? T.parse(dt, t) : null;
     if (v === undefined) return setBad(true);
-    setText(null);
+    type(null);
     put(t ? { field: dt, value: v } : null);
   };
   const key = e => {
     if (e.key === 'Enter') { e.preventDefault(); done(); }
-    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); skip.current = true; setText(null); setBad(false); e.target.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); type(null); setBad(false); e.target.blur(); }
   };
   return html`<label class=${'cellbox' + cls}><span class=${'hug' + (over ? ' over' : '')}>
     <input ref=${ref} class=${'cell' + (fx && text === null ? ' fx' : '') + (dirty && T.clean(text) ? ' add' : '') + (bad ? ' bad' : '')}
       value=${text ?? shown} placeholder=${ph} disabled=${still()} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null}
-      data-tour=${fx ? 'computed' : null} onFocus=${() => { setText(raw); if (fx) emit('why-open', id); }}
-      onInput=${e => { setText(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${done} /></span>
+      data-tour=${fx ? 'computed' : null} onFocus=${() => { type(raw); if (fx) emit('why-open', id); }}
+      onInput=${e => { type(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${done} /></span>
     ${dirty && raw ? html`<s class="del">${shown}</s>` : null}
     ${doc && r && text === null ? html`<a class="btn icon open" href=${href(r.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
     ${text === null ? children : null}
@@ -374,7 +375,7 @@ function Relatives({ id }) {
   const { lists, docs } = relatives(id), obj = !!recs()[id].kind, w = worked(), [linking, setLinking] = useState(false);
   const add = (e, items) => {
     const it = items[0], own = within(id), have = new Set(items.map(x => x.obj)), seen = new Set(), out = [];
-    for (const s of N().fitting(App.schema.value, wide(tree(it.rid)))) {
+    for (const s of N().fitting(App.schema.value, loose(tree(it.rid)))) {
       const sm = s.args.length === 2 && s.args.find(a => T.same(a.edge, it.mine)), sl = sm && s.args.find(a => a !== sm), at = sm && own.find(x => T.narrower(tree(x), sm.loc));
       if (at) for (const x of Object.keys(recs())) if (!('field' in recs()[x]) && !seen.has(x) && !have.has(objectOf(x)) && objectOf(x) !== id && T.narrower(tree(x), sl.loc)) {
         seen.add(x);
@@ -460,7 +461,7 @@ function Head({ path = [], title, children }) {
 const AddRow = ({ at }) => still() ? null : html`<div class="row addrow"><div class="k"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, addItems(at, e.currentTarget))}>${icon('plus')}Add</button></div></div>`;
 
 function RecordView({ id }) {
-  const r = recs()[id], w = worked();
+  const r = recs()[id];
   useLayoutEffect(() => {
     const a = aim.peek();
     if (!a) return;
@@ -474,7 +475,7 @@ function RecordView({ id }) {
     return html`<div class="empty"><span>${rows.length ? `Not in the chart as of ${short(App.day.value)}` : 'Deleted'}</span>
       ${rows.length && Shell.time.value ? html`<button class="btn" onClick=${() => Shell.at(null)}>Today</button>` : null}</div>`;
   }
-  const path = T.pathOf(recs(), id), obj = path[0], first = slots(id).find(s => s.id && 'choice' in recs()[s.id]);
+  const path = T.pathOf(recs(), id), first = slots(id).find(s => s.id && 'choice' in recs()[s.id]);
   const head = r.kind
     ? html`<${Head} path=${[{ label: r.kind, go: () => select([general({ kind: r.kind })]) }, ...(first ? [{ label: recs()[first.id].choice, go: () => select([first.id]) }] : [])]}>
         <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" cls=" title" put=${out => put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`

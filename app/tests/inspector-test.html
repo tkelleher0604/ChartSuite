@@ -102,6 +102,18 @@ async function run() {
   await pick('Business Development Company');
   check('choosing an option sets it', st().fund_ics.choice === 'Business Development Company', st().fund_ics.choice);
 
+  // Computed values: italic; typing over one enters it, and clearing that lets the formula stand
+  const whys = [], offWhy = Shell.on('why-open', d => whys.push(d));
+  const count = () => Object.entries(st()).find(([, r]) => r.at === 'fund_juris' && r.edge === 'Annual Tax Amount');
+  const cnt = rowOf('Annual Tax Amount').querySelector('input'), was = count();
+  check('a computed value is italic', cnt.classList.contains('fx') && App.computed.value.computed[was[0]]);
+  await type(cnt, '$500');
+  check('clicking a computed value asks why', whys.includes(was[0]));
+  check('typing over a computed value enters it, with an amber corner', count()[1].value === 500 && !App.computed.value.computed[count()[0]] && !!rowOf('Annual Tax Amount').querySelector('.hug.over'));
+  await type(rowOf('Annual Tax Amount').querySelector('input'), '');
+  check('clearing an entered value lets the formula stand', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
+  offWhy();
+
   // Adding an entry, with its specification
   $('.add-entry').click(); await tick();
   await pick('Tag');
@@ -206,7 +218,7 @@ function report() {
     results.map(r => `<div class="${r.ok ? '' : 'fail'}">${r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.ok || !r.detail ? '' : ` — ${String(r.detail).slice(0, 300).replace(/</g, '&lt;')}`}</div>`).join('');
   document.querySelector('.view').appendChild(out);
 }
-window.onerror = (m, s, l) => { results.push({ name: `error: ${m} (${(s || '').split('/').pop()}:${l})`, ok: false }); };
+window.onerror = (m, s, l, c, e) => { results.push({ name: `error: ${m} (${(s || '').split('/').pop()}:${l})`, ok: false, detail: `after “${results.at(-1)?.name}”: ${e?.stack}` }); };
 // ?act=… leaves the inspector in a passing state, for looking at.
 const ACTS = {
   add: () => $('.add-entry').click(),
