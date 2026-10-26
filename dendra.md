@@ -125,7 +125,7 @@ The window has three coordinates, and every screen is a setting of them:
 
 **The format bar** shows on a chart. A scope chip names what a change applies to: the style that reaches the selection ("Feeder Fund"), or "This box". Its menu lists every style that reaches the selection.
 
-**The formula bar** shows the selection's output and its definition's rows, those that hold in ink and the rest grey. Each name in a row takes a color, and what it means here is outlined on the chart in that color; deeper reasons are the same hue, lighter, down to entered records, even ones the view hides. Hovering part of a formula shows its value here. Clicking a computed line steps down to its reason. The definition is edited here.
+**The formula bar** is one row, as Excel's is: the selection's output, its name, and the row that gave it; with nothing selected, the view's name. Its definition's rows drop over the view (the chevron, or Ctrl+Shift+U), those that hold in ink and the rest grey. Each name in a row takes a color, and what it means here is outlined on the chart in that color; deeper reasons are the same hue, lighter, down to entered records, even ones the view hides. Hovering part of a formula shows its value here. Clicking a computed line steps down into the clause its parent cited, with a breadcrumb back. The definition is edited here.
 
 **The view.** Views are sheet tabs, dragged to reorder. A chart view is a page of shapes: select, marquee, move, resize, guides, align, order, group, nudge, copy and paste, the format painter, as in PowerPoint. Dragging from a box's edge to another box lists every relation the two could be in. A table view is a grid edited like Excel, pasting included.
 
@@ -155,7 +155,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Computed** is italic, a computed tag's box is outlined, and a computed line in the default style is dashed: on screen only, like Excel's trace arrows. An entered value a formula also covers keeps a small amber corner. Errors show in place.
 
-**Type.** IBM Plex Sans for the interface, Plex Mono for formulas; four sizes; weights 400, 500, 600. The chart's text is the document's: Arial by default, which PowerPoint and the PDF draw alike.
+**Type.** IBM Plex Sans throughout, formulas included, with their functions in small capitals; four sizes; weights 400, 500, 600. The chart's text is the document's: Arial by default, which PowerPoint and the PDF draw alike.
 
 **Color.** Warm paper and ink, hairlines rather than cards or shadows, and one slate-navy accent for the primary action, the selection and focus. Green attested, red ruled out or overdue, amber needs attention. Dark is tuned on its own; the chart's page stays white.
 
