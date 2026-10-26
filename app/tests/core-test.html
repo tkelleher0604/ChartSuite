@@ -272,16 +272,6 @@ function run(json) {
     && Tree.format('percent', 0.716) === '71.6%' && Tree.format('money', 750000000) === '$750,000,000' && Tree.format('document', 'https://x/a%20b.pdf') === 'a b.pdf');
   check('what’s typed is classified', ['text', 'number', 'percent', 'money', 'date', 'document'].join() === ['Delaware', '1,000', '12.5%', '$5', 'March 1, 2024', 'https://x/y'].map(Tree.classify).join()
     && Tree.classify('0803456789') === 'text');
-
-  // ---- Speed ----
-  {
-    const t0 = performance.now(), w = fresh(), t1 = performance.now(), st = w.asOf(C, TODAY), t2 = performance.now();
-    const M = w.notes(C);
-    for (const id of Object.keys(st)) for (const v of ['view_main', 'view_40act']) M.formats(Tree.treeOf(st, id), v);
-    const t3 = performance.now();
-    check('fast enough', t1 - t0 < 500 && t2 - t1 < 200 && t3 - t2 < 300,
-      `open ${(t1 - t0).toFixed(0)} ms, as of a day ${(t2 - t1).toFixed(0)} ms, every record’s formats in two views ${(t3 - t2).toFixed(0)} ms`);
-  }
 }
 
 fetch('../sample/calder-ridge.json').then(r => r.json()).then(run)

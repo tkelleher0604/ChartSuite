@@ -27,12 +27,12 @@ const rootLabel = r => isTag(r) ? `tag:${r.tag}` : isChoice(r) ? `choice:${norm(
 
 // A set of records is never changed in place, so what's worked out from one is kept with it.
 const perRecs = new WeakMap();
-const kept = (recs, name) => { let m = perRecs.get(recs); if (!m) perRecs.set(recs, m = {}); return m[name] ??= new Map(); };
+const kept = (recs, name, make) => { let m = perRecs.get(recs); if (!m) perRecs.set(recs, m = {}); return m[name] ??= make(); };
 const remember = (cache, t, make) => { let v = cache.get(t); if (v === undefined) cache.set(t, v = make()); return v; };
 
 // A record's tree, or null while a location is missing.
 function treeOf(recs, id) {
-  const m = kept(recs, 'tree');
+  const m = kept(recs, 'tree', () => new Map());
   if (!m.has(id)) {
     const r = recs[id];
     let t = null;
@@ -47,19 +47,15 @@ function treeOf(recs, id) {
 }
 
 // Entries and relations by the record they're located at, and objects by kind.
-function index(recs) {
-  const m = kept(recs, 'index');
-  if (!m.size) {
-    const entries = new Map(), relations = new Map(), kinds = new Map();
-    for (const [id, r] of Object.entries(recs)) {
-      if (r.at) push(entries, r.at, id);
-      if (r.args) for (const at of new Set(r.args.map(a => a.at))) push(relations, at, id);
-      if (isObject(r)) push(kinds, norm(r.kind), id);
-    }
-    m.set(0, { entries, relations, kinds });
+const index = recs => kept(recs, 'index', () => {
+  const entries = new Map(), relations = new Map(), kinds = new Map();
+  for (const [id, r] of Object.entries(recs)) {
+    if (r.at) push(entries, r.at, id);
+    if (r.args) for (const at of new Set(r.args.map(a => a.at))) push(relations, at, id);
+    if (isObject(r)) push(kinds, norm(r.kind), id);
   }
-  return m.get(0);
-}
+  return { entries, relations, kinds };
+});
 
 // The records located at these, at any depth, and these.
 function dependents(recs, ids) {

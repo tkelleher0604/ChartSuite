@@ -33,11 +33,9 @@ function rawOf(items) {
 function schemaOf(rows) {
   const items = new Map(), trees = [];
   for (const r of rows) if ('record' in r) push(items, r.record, r); else if ('spec' in r) trees.push(r.tree);
-  const raw = rawOf(items);
-  for (const [id, rs] of items) for (const r of rs) {
-    const t = Tree.treeOf(rs.length > 1 ? { ...raw, [id]: recordOf(r) } : raw, id);
-    if (t) trees.push(Tree.specOf(t));
-  }
+  const raw = rawOf(items), own = r => 'kind' in r ? { kind: r.kind }
+    : { out: 'field' in r ? { field: r.field } : 'choice' in r ? { choice: r.choice } : { tag: r.tag } };
+  for (const [id, rs] of items) { const t = Tree.treeOf(raw, id); if (t) for (const r of rs) trees.push({ ...Tree.specOf(t), ...own(r) }); }
   return Tree.schema(trees);
 }
 
@@ -128,7 +126,7 @@ function open(data) {
       if (!('kind' in r) && byArgs.get(argKey(r)).some(x => x.record !== r.record && overlap(x, r)))
         return 'args' in r ? 'That relation is already recorded.' : `${r.edge} is already recorded here.`;
     }
-    const now = Tree.schemaError(schemaOf(after));
+    const now = c.adds.some(r => 'record' in r || 'spec' in r) && Tree.schemaError(schemaOf(after));
     return now && now !== Tree.schemaError(schema(c.chart)) ? now : null;
   }
   function apply(c) {
@@ -242,7 +240,7 @@ function open(data) {
     changes: list,
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,
-    item: (c, id) => [...chart(c).items.get(id) ?? []].sort((a, b) => (a.since ?? '') < (b.since ?? '') ? -1 : 1),
+    item: (c, id) => [...chart(c).items.get(id) ?? []].sort((a, b) => (a.since ?? '').localeCompare(b.since ?? '')),
     notes: c => chart(c).notes,
     undo: (who, c) => { const x = stacks(who, c).undo.at(-1); return x ? reverse(x.id, who) : null; },
     redo: (who, c) => { const x = stacks(who, c).redo.at(-1); return x ? reverse(x.id, who) : null; },
