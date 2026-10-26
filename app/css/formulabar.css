@@ -45,13 +45,9 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .tag.pend.no { border-color: var(--no); }
 .tag.pend.no::before, .tag.pend.no::after { background: var(--no); }
 
-/* Inline, after a hairline as Excel's formula follows its Name Box: why, in words, where it fits; or else the
-   row's label, then its formula, one line, fading where it runs out of room, a click opening the rows to edit
-   it. Where no row gave it, the rows' labels. */
+/* Inline, after a hairline as Excel's formula follows its Name Box: why, in words, cut short where it runs
+   out of room; an error, in its words; or else the rows' labels. A click opens the rows. */
 .fx-inline { flex: 1 1 0; min-width: 160px; height: 24px; display: flex; align-items: center; gap: 12px; margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--rule); overflow: hidden; }
-.fx-inline > .fx-label { flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-.fx-inline > .fx-cm { flex: 1 1 0; min-width: 0; mask-image: linear-gradient(to left, transparent, #000 32px); }
-.fx-inline .CodeMirror, .fx-inline .CodeMirror-lines { cursor: text; }
 .fx-labels { gap: 0; color: var(--ink); }
 .fx-labels > button { border: 0; padding: 0; background: none; color: inherit; }
 .fx-labels > button.grey { color: var(--ink-3); }
@@ -61,7 +57,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 /* ---- Why, in words: the facts that fired, as a sentence, in the bar's row where it fits and over the rows ----
    Each fact is a quiet button, its point in weight (italic where a formula gave it) and in the hue its records
    are outlined in on the chart; the clause that gave each, in ink-3. */
-.fx-inline > .fx-why { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.fx-inline > .fx-why { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fxbar .fx-why b { font-weight: 600; }
 .fx-why b.fx { font-style: italic; }
 .fx-cite { color: var(--ink-3); }
@@ -74,6 +70,8 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 /* ---- The rows, over the view: a label column, then the formula; delete and reorder on hover ---- */
 .fx-panel { position: absolute; z-index: 10; top: calc(100% + 1px); left: 0; width: var(--fx-w, 100%); max-height: min(40vh, 400px); overflow: auto;
   padding: 8px 16px 4px 16px; white-space: normal; background: var(--surface); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow-pop); clip-path: inset(0 0 -32px 0); }
+/* While a row is edited, the panel holds just it, so the chart it points at stays in view. */
+.fx-panel.editing > :is(.fx-said, .fx-foot), .fx-panel.editing .fx-row:not(.editing) { display: none; }
 .fx-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; row-gap: 2px; }
 .fx-row { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: start; }
 .fx-row > .fx-label { grid-column: 1; max-width: 240px; padding: 2px 24px 2px 0; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -92,6 +90,8 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-row.editing > .fx-cm .CodeMirror { background: var(--surface); border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 1px var(--accent); }
 .fx-row.editing .CodeMirror-focused { outline: none; }   /* the row's ring is the focus ring; one, not two */
 .fx-row.editing .CodeMirror { color: var(--ink); }
+/* Why a row can't be made yet, once Enter asks, under it. */
+.fx-problem { grid-column: 2; margin: 0 2px 4px; font: var(--t12); color: var(--no); }
 /* A row whose delete is under the pointer reads as it would go. */
 .fx-row:has(> .fx-x:hover) :is(.fx-label, .CodeMirror) { color: var(--no); text-decoration: line-through; }
 .fx-foot { display: flex; align-items: center; min-height: 28px; font: var(--t12); color: var(--ink-3); }

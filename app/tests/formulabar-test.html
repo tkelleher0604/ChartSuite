@@ -284,9 +284,9 @@ async function checks() {
     m.rows.map(r => `${r.label}:${r.cited ? 'cited' : r.ink ? 'ink' : 'grey'}`).join(' '));
   check('each name in the cited row takes a colour', [...f.colors.values()].length >= 4, [...f.colors].map(([n, c]) => cited.formula.slice(n.from, n.to) + ':' + c).join(' '));
   const lev = id => f.map.get(id)?.[1];
-  check('Range Finder: the BDC, its personnel and Northpine are outlined', lev('bdc') !== undefined && f.map.has('pos_raman_bdc') && f.map.has('okafor'), [...f.map.keys()].slice(0, 12).join(' '));
+  check('Range Finder: the BDC and Northpine are outlined', lev('bdc') !== undefined && lev('northpine') !== undefined, [...f.map.keys()].slice(0, 12).join(' '));
   check('witnesses are strong: Chen, her Director line, and the Affiliated Person line', lev('chen') === 0 && lev('pos_chen_bdc') === 0 && lev(AP_NP_CHEN) === 0, `${lev('chen')} ${lev('pos_chen_bdc')} ${lev(AP_NP_CHEN)}`);
-  check('the others searched are lighter', lev('raman') === 1 && lev('pos_raman_bdc') === 1, `${lev('raman')} ${lev('pos_raman_bdc')}`);
+  check('the rest of a list it reads isn’t: the chart shows the path cited', !f.map.has('raman') && !f.map.has('pos_raman_bdc') && !f.map.has('okafor'), `${lev('raman')} ${lev('pos_raman_bdc')} ${lev('okafor')}`);
   const deep = [...f.map].filter(([, x]) => x[1] === 2).map(([id]) => id);
   check('deeper reasons, lighter, down to entered records', deep.length > 3 && deep.some(id => !R().computed[id] && R().records[id]?.args), deep.slice(0, 10).join(' '));
   check('the canvas is asked to highlight', StandIn.hl.peek()?.colors?.[AP_NP_CHEN] && StandIn.hl.peek().dim);
@@ -298,19 +298,31 @@ async function checks() {
     && FormulaBar.citeOf('def_control', 'Presumed: more than 25% of voting securities') === '§2(a)(9), presumed', FormulaBar.citeOf('def_affiliated', '(C)'));
   check('reason() is nothing for an entered record', FormulaBar.reason('pos_chen_bdc') === null);
 
-  // Hovering part of the formula
+  // One row, whatever it shows: the chart under it never moves
+  const tall = () => document.querySelector('.fxbar').offsetHeight;
+  check('the bar is one row of 36 px, why said inline, never the formula', tall() === 36 && !document.querySelector('.fx-panel') && document.querySelector('.fx-inline .fx-why')
+    && !document.querySelector('.fx-inline .CodeMirror') && !document.querySelector('.fx-row'), tall());
+
+  // Hovering part of the formula, in the rows
+  await openRows();
   hoverOn(cited.key, '@'); await wait(30);
   let val = document.querySelector('.fx-val');
   check('hovering @ shows its value here, just after it', val?.textContent === 'Margaret A. Chen', val?.textContent);
   hoverOn(cited.key, 'Personnel'); await wait(30);
   val = document.querySelector('.fx-val');
   check('hovering a list shows its items', /Chen/.test(val?.textContent) && /Raman/.test(val?.textContent), val?.textContent);
-  check('what the hovered part means pulses on the chart', (StandIn.hl.peek()?.pulse ?? []).includes('pos_raman_bdc'));
-  FormulaBar.hover.value = null;
-
-  // One row, whatever it shows: the chart under it never moves
-  const tall = () => document.querySelector('.fxbar').offsetHeight;
-  check('the bar is one row of 36 px, with the cited row inline', tall() === 36 && !document.querySelector('.fx-panel') && cmOf(cited.key) && !document.querySelector('.fx-row'), tall());
+  check('what the hovered part means pulses on the chart, the whole list', (StandIn.hl.peek()?.pulse ?? []).includes('pos_raman_bdc') && StandIn.hl.peek().colors.pos_raman_bdc?.[1] === 0);
+  FormulaBar.hover.value = null; await wait(10);
+  check('… and leaving it, the path again', !StandIn.hl.peek()?.colors.pos_raman_bdc);
+  document.querySelector('.fx-open').click(); await wait(30);
+  // A sentence too long for the row is cut short, never swapped for the formula
+  Shell.select(['fx:controlled=halvard&controller=chen']); await wait(60);
+  const cut = document.querySelector('.fx-inline > .fx-why');
+  check('a sentence too long for the row is cut short with an ellipsis', cut && cut.scrollWidth > cut.clientWidth && getComputedStyle(cut).textOverflow === 'ellipsis'
+    && !document.querySelector('.fx-inline .CodeMirror'), cut?.textContent);
+  check('… and the chart shows the path it cites, not every company Chen controls', F().map.has('fx:controlled=fund&controller=chen') && F().map.has('fx:controlled=halvard&controller=fund')
+    && !['northpine', 'corvane', 'feeder', 'fx:controlled=northpine&controller=chen'].some(id => F().map.has(id)), [...F().map.keys()].join(' '));
+  Shell.select([CLOSE_NP]); await wait(40);
 
   // Stepping down, as a click on a lit line does, and back
   Shell.emit('why-open', AP_NP_CHEN); await wait(40);
@@ -331,10 +343,10 @@ async function checks() {
   Shell.select([REMOTE_NS]); await wait(40);
   await openRows();
   check('why, in words: Northstar’s 7% makes it an affiliated person, so a remote affiliate',
-    said() === 'Northstar Teachers’ Retirement System is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person (§2(a)(3)(A)), so it is a remote affiliate (§57(e)(1)(A)).', said());
+    said() === 'Northstar Teachers’ Retirement System is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person of the BDC (§2(a)(3)(A)), so it is a remote affiliate of the BDC (§57(e)(1)(A)).', said());
   Shell.select([CLOSE_BLK]); await wait(40);
   check('… and the Blocker a close affiliate, through Chen, a director who controls it',
-    said() === 'Margaret A. Chen is Director of the BDC and a controller of Fund III Blocker (§2(a)(9), presumed), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
+    said() === 'Margaret A. Chen is a director of the BDC and a controller of Fund III Blocker (§2(a)(9), presumed), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
   const facts = [...document.querySelectorAll('.fx-said .fx-fact.go')];
   check('each fact is a button; hovered, its records pulse on the chart', facts.length === 3 && (facts[1].dispatchEvent(new PointerEvent('pointerenter')), (StandIn.hl.peek()?.pulse ?? []).length > 0));
   facts[1].dispatchEvent(new PointerEvent('pointerleave'));
@@ -342,12 +354,33 @@ async function checks() {
   check('a computed fact clicked steps down into it, by the clause cited', M().title === 'Affiliated Person' && M().clause === '(C)' && /^Close Affiliate/.test(document.querySelector('.fx-crumb')?.textContent ?? ''),
     `${M().title} ${M().clause}`);
   FormulaBar.back(); await wait(40);
+  // Words: a role with its article, a verb a list names, one subject said once, a default with its facts
+  Shell.select(['fx:capacity held=sign_chen_fund']); await wait(40);
+  check('a role with its article, after a clause with more to say', /^Margaret A\. Chen .*Fund III, via GP III, with a capacity of Managing Member and is a managing member of GP III, so Capacity Held is Yes \(Managing member\)\.$/.test(said() ?? ''), said());
+  Shell.select(['fx:tax classification=northpine_type']); await wait(40);
+  check('a default, said with the facts the rows before it read', said() === 'Northpine Software, LLC’s entity type is Limited Liability Company, so its tax classification is Partnership (Otherwise).', said());
+  Shell.select(['fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris']); await wait(40);
+  check('every fact said, about one subject together, none left as "and 2 more"', /^Fund III’s entity type is Limited Partnership, its vehicle type is Main Fund, its jurisdiction is Delaware, its annual tax paid is .+? and the tax year is 2026, so/.test(said() ?? ''), said());
+  // The rule, not the sample's words: an owner's list of what it owns named "Investor In" says so
+  const own = App.notes.peek().notes('Name').find(n => n.value === 'Ownership' && !n.param && n.pattern.args?.length === 2);
+  App.change(tx => tx.note('Name', own.pattern, 'Investor In', { param: 'Owned' })); await wait(40);
+  Shell.select([REMOTE_NS]); await wait(40);
+  check('a list named as a predicate is said with it: is an investor in', /^Northstar Teachers’ Retirement System is an investor in the BDC with a voting percentage of 7%/.test(said() ?? ''), said());
+  Shell.parts.peek().undo.undo(); await wait(40);
 
-  // Why not
+  // Two objects: what holds between them; picked, why not
   Shell.select(['pension', 'bdc']); await wait(40);
   m = M();
-  check('two objects in no computed relation show its rows, all grey', m.absent && m.title === 'Close Affiliate' && m.rows.length && m.rows.every(r => !r.ink) && m.rows.every(r => r.ev), `${m.title} ${m.absent}`);
-  check('with every relation they could be in to pick from', m.options.some(o => o.d.name === 'Remote Affiliate' && o.id) && m.options.some(o => o.d.name === 'Affiliated Person'), m.options.map(o => `${o.d.name}:${o.a}>${o.b}:${o.on}`).join(' '));
+  check('two objects: the most derived relation that holds between them, never one that doesn’t', m.title === 'Remote Affiliate' && m.out?.tag === true && !m.absent
+    && document.querySelector('.fxbar .fx-out .tag.yes'), `${m.title} ${m.out?.tag}`);
+  check('with every relation they could be in to pick from', m.options.some(o => o.d.name === 'Close Affiliate' && !o.id) && m.options.some(o => o.d.name === 'Affiliated Person'), m.options.map(o => `${o.d.name}:${o.a}>${o.b}:${o.on}`).join(' '));
+  Shell.select(['chen', 'okafor']); await wait(40);
+  check('… and where none holds, nothing: the view’s name', !M() && document.querySelector('.fx-view'), M()?.title);
+  Shell.select(['pension', 'bdc']); await wait(40);
+  document.querySelector('.fxbar .fx-name').click(); await wait(40);
+  [...document.querySelectorAll('.menu .menu-item')].find(x => x.querySelector('.label')?.textContent === 'Close Affiliate' && /^Northstar/.test(x.querySelector('.detail')?.textContent ?? ''))?.click(); await wait(40);
+  m = M();
+  check('picked, a relation they aren’t in shows its rows, all grey (why not)', m.absent && m.title === 'Close Affiliate' && m.rows.length && m.rows.every(r => !r.ink) && m.rows.every(r => r.ev), `${m.title} ${m.absent}`);
   await openRows();
   check('the chevron drops the rows over the view, and the bar keeps its height', document.querySelectorAll('.fx-panel .fx-row').length === m.rows.length && tall() === 36, tall());
   hoverOn('r0', 'Personnel'); await wait(30);
@@ -358,6 +391,7 @@ async function checks() {
   Shell.select(['bdc_tax']); await wait(40);
   m = M();
   check('an entered value under a formula shows both, with the amber corner', m.covered && document.querySelector('.fx-out.over') && document.querySelector('.fx-would')?.textContent === 'C Corporation', document.querySelector('.fx-would')?.textContent);
+  check('… and says what the rows would give, and why', said() === 'The BDC’s entity type is Corporation, so its tax classification would be C Corporation (Corporation).', said());
 
   // The redline: hovering a tag
   Shell.select([OKAFOR_GP]); await wait(40);
@@ -411,6 +445,18 @@ async function checks() {
   typeIn('r2', '> 25%', ' AND Bogus'); await wait(250);
   check('squiggles come from check()', document.querySelector('.fxbar .CodeMirror-lint-mark-error'), document.querySelector('.fxbar .CodeMirror-lint-mark-error')?.textContent);
   FormulaBar.discard(); await wait(20);
+  // An unfinished row: squiggled where it runs out, Done and Discard, and Enter says why
+  typeIn('r2', '> 25%', ' AND ((( SUM('); await wait(250);
+  const end = [...document.querySelectorAll('.fx-row.editing .CodeMirror-lint-mark-error')].at(-1);
+  check('an unfinished row is squiggled at its end', end?.textContent === '(', end?.textContent);
+  check('… with Discard and Done, though nothing can be previewed yet', [...document.querySelectorAll('.fxbar .fx-acts .btn')].map(b => b.textContent).join() === 'Discard,Done');
+  FormulaBar.commitEdit(); await wait(20);
+  const why2 = document.querySelector('.fx-row.editing .fx-problem')?.textContent;
+  check('… and Enter says why, under the row, and makes nothing', why2 === Formulas.check(cmOf('r2').getValue()).problems[0]?.message && FormulaBar.draft.peek() && /SUM\($/.test(App.definitions.peek().find(d => d.id === 'def_control').rows[2].formula) === false, why2);
+  check('while a row is edited, the panel holds just it, so the chart it points at stays in view',
+    document.querySelector('.fx-panel.editing') && [...document.querySelectorAll('.fx-panel .fx-row')].filter(r => r.offsetHeight).length === 1 && !document.querySelector('.fx-said')?.offsetHeight);
+  FormulaBar.discard(); await wait(20);
+  check('Discard ends it, the rows all back', !document.querySelector('.fx-problem') && [...document.querySelectorAll('.fx-panel .fx-row')].filter(r => r.offsetHeight).length === 4);
 
   // Point mode
   typeIn('r2', '> 25%', ' AND '); await wait(20);
