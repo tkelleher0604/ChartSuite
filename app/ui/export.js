@@ -422,8 +422,8 @@ function dates(R, N) {
     return `${short(at[p])}${words}${term(at[q])}${more.map(e => `, ${e.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase())} ${term(at[e])}`).join('')}`;
   };
   return Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
-    // What it's the date of, then whose: Annual Tax Due 2025 · Calder Ridge Capital Partners III AIV-1, L.P.;
-    // Start Date · Margaret A. Chen signs for the Manager. A relation of one side is that side's, by name.
+    // What it's the date of, then whose: Formation Date · Calder Ridge Capital Partners III, L.P.; Start Date ·
+    // Margaret A. Chen signs for the Manager. A relation of one side is that side's, by name.
     const path = Tree.pathOf(st, id), sides = Tree.isObject(st[path[0]]) ? [] : N.sides(st, path[0]).filter(Boolean);
     let what = path.slice(1).map(x => N.segmentOf(st, x)).join(' › ');
     if (sides.length === 1 && !Tree.norm(what).includes(Tree.norm(N.nameOf(st, path[0])))) what = `${N.nameOf(st, path[0])} ${what}`;
