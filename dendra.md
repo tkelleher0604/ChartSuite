@@ -43,9 +43,10 @@ A **note** is an entry located at a pattern, and optionally also at a view, labe
 | Required | that a blank one needs attention |
 | Start, End | which entries are the start and end of what they're at |
 | Formula | how its records are worked out (see Definitions) |
-| Shown, Caption, Position, and the format properties | how a view draws them (see Views) |
+| Shown, Caption, Position, and the format properties | how a view draws them (see Views): Shape, Fill, Outline, Weight, Dash, Frame, Layer, Arrow, Connector, Above, Font, Size, Bold, Italic, Underline, Color, Align, Format |
+| Layout, As Of, Page | on a View object: its layout, the day it keeps, its page (with its Name and Order, the view's own notes) |
 
-**The narrowest decides.** For a record r and a label, of the notes with that label whose pattern r fits, the narrowest decides. A note at a view is narrower, in that view, than the same note at no view. Where notes reach one mark through different records, the view's order of its styles decides, the later winning.
+**The narrowest decides.** For a record r and a label, of the notes with that label whose pattern r fits, the narrowest decides. In a view, every note at the view decides before any note at no view. Where notes reach one mark through different records, the view's order of its styles decides, the later winning.
 
 Renaming relabels every tree in the chart, records, schema and the patterns of notes alike, so nothing needs re-keying. Moving an entry up a level is one substitution in every tree.
 
@@ -74,7 +75,7 @@ The language is formulas.md's, less REACH, LOOKTHROUGH, IMPLIEDBY, IFS, NEXTDATE
 
 ### Views
 
-A **view** is an object of the kind View. Its notes say how it presents the chart as of its day (today, unless it keeps one). It has a **layout**: a **chart**, drawn on a page of a size; or a **table** whose rows are the records of one kind, one relation, or every entry of one datatype.
+A **view** is an object of the kind View. Its notes say how it presents the chart as of its day (today, unless it keeps one): its own (Name, Order, Layout, As Of, Page), and the notes in it. A view is the app's, not a fact about the world, so it's never dated. It has a **layout**: a **chart**, drawn on a page of a size; or a **table** whose rows are the records of one kind, one relation, or every entry of one datatype.
 
 **Marks.** In a chart, a record of the computed state has a **mark**: an object a **box**; a relation with two locations a **line**; any other record a **text**, in the box or on the line of its nearest location that has one. Marks nest as records do.
 
@@ -102,7 +103,7 @@ A **workbook** is a list of named charts, each with its own schema and timeline,
 
 The window has three coordinates, and every screen is a setting of them:
 - **the view**: what you are looking at;
-- **the selection**: what you are asking about;
+- **the selection**: what you are asking about, as keys: a record's id, a free shape's, `legend#row` for a legend's row, `frame:/…` for a frame, `id@box` for a relation's text in one box, and `~pattern` for an entry, relation or kind in general;
 - **the time**: today, a day in the world's time, or a moment in the log.
 
 ```
@@ -118,7 +119,7 @@ The window has three coordinates, and every screen is a setting of them:
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The title bar** holds the chart menu (charts, History, settings, light and dark, the tour), Find, the date, Undo and Redo, and Export.
+**The title bar** holds the chart menu (the workbook's charts and a new one, the workbooks this browser keeps, files, History, Settings, light and dark, the tour), Find, the date, Undo and Redo, and Export.
 
 **The format bar** shows on a chart. A scope chip names what a change applies to: the style that reaches the selection ("Feeder Fund"), or "This box". Its menu lists every style that reaches the selection.
 
@@ -134,15 +135,15 @@ The window has three coordinates, and every screen is a setting of them:
 | a box or a row | the record: its entries as a tree, then its relatives by list, then its documents; its look and position |
 | a line | the relation: its sides, its output, what's at it |
 | two boxes | every relation the two are in or could be in |
-| a column heading, a legend row, an entry's label | that entry or relation in general: its name, meaning, options, required, start and end, formula, styles |
+| a column heading, a legend row, an entry's label | that entry or relation in general: its name, meaning, options, required, start and end, styles, and its definition set out as the statute it encodes (each clause's words beside its rows, and what it gives) |
 
-Widened, the inspector is the record's page.
+Widened, the inspector is the record's page. Where two people gave one value at once, it shows both answers, each with who gave it; keeping one settles it. History, when open, takes its place.
 
 **Pending changes are redlined** before they are made, as lawyers' comparison software shows them: what would appear in blue, what would go struck through in red. Hovering a tag, typing a value, typing a formula and deleting a row all preview this way; Enter commits, Esc discards.
 
 **Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. History lists the log and shows every view as it stood after a change, with Restore.
 
-**Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. Ctrl+[ goes to what a value read, Ctrl+] to what reads it. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
+**Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
 
 **Launch.** The dappled wall shows once per opened tab and dims into the page. On the very first launch a tour of five steps follows, each advanced by doing what it teaches: select a box; drag to another; select an italic value; flip a tag; switch views.
 
