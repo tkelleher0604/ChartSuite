@@ -214,6 +214,8 @@ async function ready() {
   await wait(60);
 }
 const cmOf = key => document.querySelector(`.fxbar [data-key="${key}"] .CodeMirror`)?.CodeMirror;
+// The definition's rows, opened over the view by the chevron, which keeps them open.
+async function openRows() { if (!FormulaBar.open.peek()) { document.querySelector('.fx-open').click(); await wait(30); } }
 const citedKey = () => FormulaBar.model.peek().rows.find(r => r.cited).key;
 // The pointer over the n-th occurrence of some text in a row's formula.
 function hoverOn(key, text, n = 0) {
@@ -245,23 +247,24 @@ const cases = {
   async close() { Shell.select([CLOSE_NP]); },
   async hover() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), '@'); },
   async hoverlist() { Shell.select([CLOSE_NP]); await wait(80); hoverOn(citedKey(), 'Personnel'); },
-  async step() { Shell.select([CLOSE_NP]); await wait(80); Shell.select([AP_NP_CHEN]); },
-  async type() { Shell.select([OKAFOR_GP]); await wait(80); typeIn('r2', '> ', '6', 1); },
+  async step() { Shell.select([CLOSE_NP]); await wait(80); Shell.emit('why-open', AP_NP_CHEN); },
+  async rows() { Shell.select([CLOSE_NP]); await wait(80); await openRows(); },
+  async type() { Shell.select([OKAFOR_GP]); await wait(80); await openRows(); typeIn('r2', '> ', '6', 1); },
   async tag() { Shell.select([OKAFOR_GP]); await wait(80); document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); },
   async value() {
     Shell.select(['own_okfr_gp_pct']); await wait(80);
     const i = document.querySelector('.fx-value'); i.focus(); i.value = '20%'; i.dispatchEvent(new Event('input', { bubbles: true }));
   },
-  async whynot() { Shell.select(['pension', 'bdc']); await wait(80); hoverOn('r1', 'Personnel'); },
+  async whynot() { Shell.select(['pension', 'bdc']); await wait(80); await openRows(); hoverOn('r1', 'Personnel'); },
   async override() { Shell.select(['bdc_tax']); },
   async circular() { const e = makeLoop(); await wait(30); Shell.select([e.id]); },
   async point() {
-    Shell.select([OKAFOR_GP]); await wait(80);
+    Shell.select([OKAFOR_GP]); await wait(80); await openRows();
     typeIn('r2', '> 25%', ' AND ');
     await wait(30);
     FormulaBar.point('own_okfr_gp');
   },
-  async delete() { Shell.select([OKAFOR_GP]); await wait(80); document.querySelector('.fxbar .fx-others button').click(); await wait(30); document.querySelector('.fxbar [data-key="r3"] .fx-x').dispatchEvent(new PointerEvent('pointerenter')); },
+  async delete() { Shell.select([OKAFOR_GP]); await wait(80); await openRows(); document.querySelector('.fxbar [data-key="r3"] .fx-x').dispatchEvent(new PointerEvent('pointerenter')); },
 };
 
 // ---- Checks ----
@@ -296,18 +299,31 @@ async function checks() {
   check('what the hovered part means pulses on the chart', (StandIn.hl.peek()?.pulse ?? []).includes('pos_raman_bdc'));
   FormulaBar.hover.value = null;
 
-  // Stepping down, and back
-  Shell.select([AP_NP_CHEN]); await wait(40);
+  // One row, whatever it shows: the chart under it never moves
+  const tall = () => document.querySelector('.fxbar').offsetHeight;
+  check('the bar is one row of 36 px, with the cited row inline', tall() === 36 && !document.querySelector('.fx-panel') && cmOf(cited.key) && !document.querySelector('.fx-row'), tall());
+
+  // Stepping down, as a click on a lit line does, and back
+  Shell.emit('why-open', AP_NP_CHEN); await wait(40);
   m = M();
-  check('stepping down to a computed record in the highlight', m.title === 'Affiliated Person' && document.querySelector('.fx-back')?.textContent.includes('Close Affiliate'), document.querySelector('.fx-back')?.textContent);
+  check('stepping down: into the clause the parent cited, (C), not the first that holds', m.title === 'Affiliated Person' && m.clause === '(C)' && m.rows.find(r => r.cited)?.label === '(C)',
+    `${m.title} ${m.clause} ${m.rows.find(r => r.cited)?.label}`);
+  check('the breadcrumb names where it came from', [...document.querySelectorAll('.fx-crumb')].map(b => b.textContent).join(' › ') === 'Close Affiliate', document.querySelector('.fx-crumb')?.textContent);
   FormulaBar.back(); await wait(40);
-  check('the chevron goes back', Shell.selection.peek()[0] === CLOSE_NP && !document.querySelector('.fx-back'));
+  check('and steps back to it', M().id === CLOSE_NP && !document.querySelector('.fx-crumb'));
+
+  // Nothing selected: the view's name, as Excel's Name Box names the cell
+  Shell.select([]); await wait(40);
+  check('nothing selected: the view’s name, in the same row', document.querySelector('.fx-view')?.textContent === Shell.parts.peek().views.list().find(v => v.id === Shell.view.peek())?.name && tall() === 36,
+    document.querySelector('.fxbar')?.textContent);
 
   // Why not
   Shell.select(['pension', 'bdc']); await wait(40);
   m = M();
   check('two objects in no computed relation show its rows, all grey', m.absent && m.title === 'Close Affiliate' && m.rows.length && m.rows.every(r => !r.ink) && m.rows.every(r => r.ev), `${m.title} ${m.absent}`);
   check('with every relation they could be in to pick from', m.options.some(o => o.d.name === 'Remote Affiliate' && o.id) && m.options.some(o => o.d.name === 'Affiliated Person'), m.options.map(o => `${o.d.name}:${o.a}>${o.b}:${o.on}`).join(' '));
+  await openRows();
+  check('the chevron drops the rows over the view, and the bar keeps its height', document.querySelectorAll('.fx-panel .fx-row').length === m.rows.length && tall() === 36, tall());
   hoverOn('r0', 'Personnel'); await wait(30);
   check('a grey row shows its values on hover too', /Chen/.test(document.querySelector('.fx-val')?.textContent ?? ''), document.querySelector('.fx-val')?.textContent);
   FormulaBar.hover.value = null;
@@ -345,7 +361,9 @@ async function checks() {
   typeIn('r2', '> ', '6', 1); await wait(20);
   p = FormulaBar.pending.peek();
   check('typing a formula previews it: 65% rules out Okafor’s half of GP III', p?.from === 'bar' && p.deltas.find(d => d.name === 'Control')?.minus >= 5, JSON.stringify(p?.deltas));
-  check('Commit and Discard show while it is pending', document.querySelectorAll('.fxbar .fx-acts .btn').length === 2);
+  check('Done and Discard show while it is pending', [...document.querySelectorAll('.fxbar .fx-acts .btn')].map(b => b.textContent).join() === 'Discard,Done');
+  check('the row being edited is a field, what was typed redlined', document.querySelector('.fx-row.editing .CodeMirror .add')?.textContent === '6' && document.querySelector('.fx-row.editing .CodeMirror .del')?.textContent === '2',
+    document.querySelector('.fx-row.editing')?.textContent);
   const v0 = App.version.peek();
   FormulaBar.commitEdit(); await wait(30);
   const row = App.notes.peek().notes('Formula').find(n => n.note === 'def_control').value[2].formula;
@@ -355,8 +373,7 @@ async function checks() {
 
   // Deleting a row
   Shell.select([OKAFOR_GP]); await wait(40);
-  document.querySelector('.fxbar .fx-others button').click(); await wait(20);
-  check('a grey label opens every row, in order', document.querySelectorAll('.fxbar .fx-row').length === 4);
+  check('the rows stay open, every row in order', document.querySelectorAll('.fxbar .fx-row').length === 4);
   document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
   p = FormulaBar.pending.peek();
   check('hovering a row’s delete previews what goes', p?.deltas.find(d => d.name === 'Control')?.minus > 0, JSON.stringify(p?.deltas));
@@ -396,6 +413,13 @@ async function checks() {
   m = M(); f = F();
   check('#CIRCULAR!: the loop outlined in red', m.out.error?.code === '#CIRCULAR!' && [...f.map.values()].some(x => x[0] === 'loop') && f.map.has('blocker'), [...f.map].map(([id, x]) => id + ':' + x[0]).join(' '));
   check('and the name that closes it underlined', document.querySelector('.fxbar .fx-loop'), document.querySelector('.fxbar .fx-loop')?.textContent);
+
+  // Ctrl+Shift+U, Excel's expand: the rows closed, and open again
+  const expand = () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'U', code: 'KeyU', ctrlKey: true, shiftKey: true }));
+  expand(); await wait(20);
+  const shut = !document.querySelector('.fx-panel');
+  expand(); await wait(20);
+  check('Ctrl+Shift+U collapses the rows and expands them again', shut && !!document.querySelector('.fx-panel') && tall() === 36);
 
   // Find's =
   const ev = Shell.parts.peek().evaluate;
