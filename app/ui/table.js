@@ -24,16 +24,6 @@ const Table = (() => {
   const readOnly = () => !!Shell.time.peek()?.stood;
   const BLANK = '\u0000blank';
 
-  // The chart as shown, read so that any change redraws what read it (App.version, since the workbook object
-  // itself stays the same). The computed state is the entered one until the engine lands: swap it here.
-  const now = {
-    wb: () => (App.version.value, App.shown.value),
-    entered: () => now.wb().asOf(App.chart.value, App.day.value),
-    state: () => now.entered(),
-    schema: () => now.wb().schema(App.chart.value),
-    notes: () => now.wb().notes(App.chart.value),
-  };
-
   // ---- The chart's words ----
   const entryAt = (st, at, edge) => at && (Tree.index(st).entries.get(at) ?? []).find(id => same(st[id].edge, edge));
   const nameOf = (st, id) => Tree.objectName(st, id);
@@ -53,7 +43,7 @@ const Table = (() => {
 
   // ---- Views ----
   const views = () => {
-    const st = now.entered(), N = now.notes();
+    const st = App.entered.value, N = App.notes.value;
     return (Tree.index(st).kinds.get('view') ?? []).map(id => ({ id, name: nameOf(st, id), order: N.order(viewTree(id)) ?? Infinity, layout: N.value('Layout', viewTree(id)) }))
       .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
   };
@@ -61,7 +51,7 @@ const Table = (() => {
 
   // What a table's rows can be, for the + menu: each kind, each relation, and the dates and the documents.
   function layouts() {
-    const S = now.schema(), N = now.notes(), rels = new Map(), kinds = new Set();
+    const S = App.schema.value, N = App.notes.value, rels = new Map(), kinds = new Set();
     for (const t of Object.values(S)) {
       if (!t.args) { if (t.kind && !same(t.kind, 'View')) kinds.add(t.kind); }
       else if (t.args.length > 1) { const p = strip(t); rels.set(Tree.key(p), p); }
@@ -102,44 +92,50 @@ const Table = (() => {
   }
 
   function model(view) {
-    const st = now.state(), entered = now.entered(), N = now.notes(), S = now.schema();
+    const st = App.state.value, entered = App.entered.value, N = App.notes.value, S = App.schema.value;
     const rows = viewOf(view)?.layout?.rows;
     if (!rows) return null;
     const isDatatype = typeof rows === 'string', isKind = !isDatatype && !rows.args;
-    let cols = [], ids;
     const order = (p, path) => path.map((_, i) => N.order(below(p, path.slice(0, i + 1))) ?? Infinity);
+    const lead = [], trail = [];   // columns that keep their place: a datatype's value and entry first, Of last
+    let cols = [], ids, base = null, up = false;
 
     if (isDatatype) {
+      // Every entry of the datatype. Where each is at an object of one kind (every link at a Document), the
+      // kind's other entries are columns too; otherwise one column says what each is of.
       ids = Object.keys(st).filter(id => st[id].field === rows);
-      cols = [
-        { key: '$value', title: Tree.DATATYPES[rows], type: rows, fixed: true },
-        { key: '$entry', title: 'Entry', type: 'text', fixed: true },
-        { key: '$of', title: 'Of', type: 'text', fixed: true },
-      ];
+      const labels = new Set(ids.map(id => norm(st[id].edge ?? ''))), kinds = new Set(ids.map(id => st[st[id].at]?.kind ?? null));
+      const kind = kinds.size === 1 && [...kinds][0];
+      lead.push({ key: '$value', title: Tree.DATATYPES[rows], type: rows, shown: true });
+      if (labels.size !== 1) lead.push({ key: '$entry', title: 'Entry', type: 'text', shown: true });
+      if (kind) { base = { kind }; up = true; } else trail.push({ key: '$of', title: 'Of', type: 'text', shown: true });
     } else {
-      const isRow = isKind ? loc => !loc.args && same(loc.kind, rows.kind) : loc => loc.args?.length > 1 && Tree.narrower(loc, rows);
+      base = isKind ? { kind: rows.kind } : rows;
       ids = isKind ? Tree.index(st).kinds.get(norm(rows.kind)) ?? []
         : Object.keys(st).filter(id => st[id].args?.length > 1 && Tree.fits(st, id, rows));
       // A relation's sides come first, each a column whose notes are the relation's at that edge.
       if (!isKind) {
         const specs = Object.values(S).filter(t => t.args?.length > 1 && Tree.narrower(t, rows));
-        cols.push(...N.edges(rows).map((edge, i) => ({ key: '@' + norm(edge), edge, title: edge, type: 'edge', pattern: rows, param: edge, base: [i] })));
-        const out = typed({ key: '$out', title: N.name(rows), base: [Infinity] }, specs);
+        cols.push(...N.edges(rows).map((edge, i) => ({ key: '@' + norm(edge), edge, title: edge, type: 'edge', pattern: rows, param: edge, base: [-1, i] })));
+        const out = typed({ key: '$out', title: N.name(rows), base: [-1, 1e9] }, specs);
         if (out.type !== 'tag') cols.push(out);
       }
-      for (const c of entryColumns(S, isRow)) {
-        const pattern = below(isKind ? { kind: rows.kind } : rows, c.path);
-        cols.push(typed({ ...c, pattern, title: c.path.at(-1), parent: c.path.slice(0, -1).join(' › '), base: order(isKind ? { kind: rows.kind } : rows, c.path) }, c.specs));
-      }
+    }
+    if (base) {
+      const isRow = base.args ? loc => loc.args?.length > 1 && Tree.narrower(loc, base) : loc => !loc.args && same(loc.kind, base.kind);
+      const own = up && ids.length && norm(st[ids[0]].edge);
+      for (const c of entryColumns(S, isRow)) if (!(up && c.path.length === 1 && norm(c.path[0]) === own))
+        cols.push(typed({ ...c, up, pattern: below(base, c.path), title: c.path.at(-1), parent: c.path.slice(0, -1).join(' › '), base: order(base, c.path) }, c.specs));
       // In the view, Order places a column and Shown shows it; by default every entry at the row shows.
       for (const c of cols) {
         const o = c.pattern && N.resolve('Order', c.pattern, view, c.param);
         c.place = o?.note.view === view ? o.value : Infinity;
-        c.shown = c.pattern ? N.value('Shown', c.pattern, view, c.param) ?? (c.param || c.path.length === 1) : true;
+        c.shown = !c.pattern || (N.value('Shown', c.pattern, view, c.param) ?? (!!c.param || c.path.length === 1));
       }
-      const lex = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? -1) - (b[i] ?? -1); if (d) return d; } return 0; };
+      const lex = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? -2) - (b[i] ?? -2); if (d) return d; } return 0; };
       cols.sort((a, b) => a.place - b.place || lex(a.base, b.base) || a.key.localeCompare(b.key));
     }
+    cols = [...lead, ...cols, ...trail];
 
     // Each cell: the record there, if any, and where one would go.
     const cellOf = (row, c) => {
@@ -151,7 +147,7 @@ const Table = (() => {
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
       if (c.key === '$entry') return { v: st[row].args ? N.name(Tree.treeOf(st, row)) : st[row].edge };
       if (c.key === '$of') return { v: st[row].args ? sides(st, row, N, shortOf).join(' → ') : whose(st, st[row].at, N) };
-      let at = row;
+      let at = c.up ? st[row].at : row;
       for (const e of c.path.slice(0, -1)) at = entryAt(st, at, e);
       const id = entryAt(st, at, c.path.at(-1));
       return { id, at, v: valueOf(st[id]) };
@@ -178,7 +174,7 @@ const Table = (() => {
       groups = [...(keys.includes('overdue') ? ['overdue'] : []), ...ahead, ...past];
       const at = new Map(groups.map((g, i) => [g, i]));
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b.f0.localeCompare(a.f0) : a.f0.localeCompare(b.f0)));
-    } else if (cols[0]) data.sort((a, b) => String(a.f0 ?? '').localeCompare(String(b.f0 ?? '')));
+    } else if (cols[0]) data.sort((a, b) => text(cols[0].type, a.f0).localeCompare(text(cols[0].type, b.f0)));
 
     const noun = isDatatype ? Tree.DATATYPES[rows].toLowerCase() : isKind ? rows.kind.toLowerCase() : 'row';
     return { view, rows, isKind, isDatatype, cols, data, groups, noun };
@@ -267,7 +263,7 @@ const Table = (() => {
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
   // The objects a relation's side can be at: those of the kinds the schema has there.
   function objects(m, c) {
-    const st = now.state(), S = now.schema(), kinds = new Set();
+    const st = App.state.value, S = App.schema.value, kinds = new Set();
     for (const t of Object.values(S)) if (t.args?.length > 1 && Tree.narrower(t, m.rows)) for (const a of t.args) if (same(a.edge, c.edge) && a.loc.kind) kinds.add(norm(a.loc.kind));
     return [...kinds].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => nameOf(st, id)).sort();
   }
@@ -343,10 +339,10 @@ const Table = (() => {
   }
   const typeIn = (c, r) => r ? ('choice' in r ? 'choice' : 'tag' in r ? 'tag' : r.field) : c.type;
   const columnOf = cell => current.cols[+cell.getField().slice(1)];
-  const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell); return !clean(raw) || c.type === 'edge' || !!value(typeIn(c, m.id && now.state()[m.id]), clean(raw)); };
+  const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell); return !clean(raw) || c.type === 'edge' || !!value(typeIn(c, m.id && App.state.value[m.id]), clean(raw)); };
   // A value typed or chosen in a cell, as one change: a correction, or with a day shown, from that day on.
   function put(cell, raw) {
-    const c = columnOf(cell), m = meta(cell), st = now.state(), r = m.id && st[m.id], entered = m.id in now.entered();
+    const c = columnOf(cell), m = meta(cell), st = App.state.value, r = m.id && st[m.id], entered = m.id in App.entered.value;
     if (c.type === 'edge') return edit(tx => side(tx, st, cell.getRow().getData().id, c.edge, raw));
     const s = clean(raw);
     if (!s) return !entered || edit(tx => tx.remove(m.id));
@@ -362,8 +358,8 @@ const Table = (() => {
     return v === undefined ? null : { field: type, value: v };
   };
   function write(tx, m, c, out) {
-    const st = now.state(), r = m.id && st[m.id];
-    if (m.id && m.id in now.entered()) {
+    const st = App.state.value, r = m.id && st[m.id];
+    if (m.id && m.id in App.entered.value) {
       const { since, before, ...rest } = r;
       const { field, value: v, choice, tag, ...where } = rest;
       return tx.set(m.id, { ...where, ...out });
@@ -386,14 +382,14 @@ const Table = (() => {
   // A tag's box: blank, attested, ruled out, and blank again; over a formula, entering wins and clearing
   // gives the formula back.
   function flip(cell) {
-    const m = meta(cell), c = columnOf(cell), v = cell.getValue(), entered = m.id in now.entered();
+    const m = meta(cell), c = columnOf(cell), v = cell.getValue(), entered = m.id in App.entered.value;
     if (!m.at || readOnly()) return;
     edit(tx => v === true ? write(tx, m, c, { tag: false }) : v === false && entered ? tx.remove(m.id) : write(tx, m, c, { tag: true }));
     Shell.emit('tag-flip', m.id);
   }
   // Clears the cells of the range: the values entered there go, as one change.
   function clear() {
-    const ids = new Set(), entered = now.entered();
+    const ids = new Set(), entered = App.entered.value;
     for (const r of table.getRanges()) for (const cell of r.getCells().flat()) {
       const m = cell.getField() && meta(cell);
       if (m?.id && m.id in entered && columnOf(cell).type !== 'edge' && columnOf(cell).key !== '$out') ids.add(m.id);
@@ -425,7 +421,7 @@ const Table = (() => {
   function paste(textIn) {
     const m = current, grid = tsv(textIn);
     if (!m || !grid.length || readOnly()) return;
-    const st = now.state(), entered = now.entered();
+    const st = App.state.value, entered = App.entered.value;
     // A row is found by its key: an object by its Name (or Short Name), a relation by the names at its sides.
     const keys = m.isKind ? m.cols.filter(c => c.path?.length === 1 && same(c.title, 'Name')) : m.cols.filter(c => c.type === 'edge');
     const names = (d, k) => {
@@ -485,7 +481,7 @@ const Table = (() => {
           if (!clean(raw) || (!p.row && c.key === '$out')) continue;
           if (c.key === '$entry' || c.key === '$of' || c.type === 'edge') { skipped++; continue; }
           const path = c.key === '$value' || c.key === '$out' ? null : c.path;
-          let at = row;
+          let at = c.up ? st[row]?.at : row;
           if (path) for (const e of path.slice(0, -1)) at = at && childAt(at, e);
           const id = path ? at && childAt(at, path.at(-1)) : row, r = id && st[id];
           const out = at && value(typeIn(c, r), clean(raw));
@@ -507,7 +503,7 @@ const Table = (() => {
   }
   // The kind most of a relation's sides are, for a new object on that side.
   function kindAt(m, edge) {
-    const st = now.state(), n = new Map();
+    const st = App.state.value, n = new Map();
     for (const d of m.data) { const a = st[d.id].args.find(x => same(x.edge, edge)), k = a && st[Tree.objectOf(st, a.at)]?.kind; if (k) n.set(k, (n.get(k) ?? 0) + 1); }
     return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Entity';
   }
@@ -515,7 +511,7 @@ const Table = (() => {
   // ---- Columns: Show/Hide and Order are notes in the view ----
   // The column's own note in the view, written over or added.
   function note(tx, label, c, view, value) {
-    const r = now.notes().resolve(label, c.pattern, view, c.param), n = { label, pattern: c.pattern, view, value, ...(c.param && { param: c.param }) };
+    const r = App.notes.value.resolve(label, c.pattern, view, c.param), n = { label, pattern: c.pattern, view, value, ...(c.param && { param: c.param }) };
     r?.note.view === view && Tree.key(r.note.pattern) === Tree.key(c.pattern) ? tx.set(r.note.note, n) : tx.add('note', n);
   }
   const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), () => `${on ? 'Showed' : 'Hid'} ${c.title}`, { day: null });
@@ -534,7 +530,7 @@ const Table = (() => {
     ]);
   }
   function rowMenu(e, row) {
-    const st = now.state(), ids = [...new Set([row.getData().id, ...[...picked].filter(id => table.getRow(id))])].filter(id => id in now.entered());
+    const st = App.state.value, ids = [...new Set([row.getData().id, ...[...picked].filter(id => table.getRow(id))])].filter(id => id in App.entered.value);
     if (!ids.length || readOnly()) return;
     const what = ids.length === 1 ? (current.isKind ? nameOf(st, ids[0]) : count(1, current.noun)) : count(ids.length, current.noun);
     Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Delete', danger: true, run: () => edit(tx => ids.forEach(id => tx.remove(id)), () => `Deleted ${what}`) }]);
@@ -579,7 +575,7 @@ const Table = (() => {
       el = host;
       el.classList.add('grid');
       const offs = [
-        effect(() => { now.state(); now.notes(); now.schema(); Shell.time.value; refresh(); }),
+        effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
         effect(() => { Shell.selection.value; if (!picking) { mark(); const id = Shell.selection.value[0]; if (id && table?.getRow(id)) table.scrollToRow(id, 'nearest', false).catch(() => {}); } }),
         // A grid drawn while its slot was hidden is measured again once it shows.
         effect(() => { Shell.view.value; requestAnimationFrame(() => { if (table && ready && el?.offsetParent) table.redraw(); }); }),
@@ -622,7 +618,7 @@ const Table = (() => {
     requestAnimationFrame(() => document.querySelector('.sheets .sheet[aria-selected="true"]')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
   }
   function order(tx, id, i) {
-    const n = now.notes().resolve('Order', viewTree(id))?.note;
+    const n = App.notes.value.resolve('Order', viewTree(id))?.note;
     if (n && Tree.key(n.pattern) === Tree.key(viewTree(id))) { if (n.value !== i) tx.set(n.note, { label: 'Order', pattern: viewTree(id), value: i }); }
     else tx.add('note', { label: 'Order', pattern: viewTree(id), value: i });
   }
@@ -642,7 +638,7 @@ const Table = (() => {
   Shell.register('views', {
     list: () => views().map(v => ({ id: v.id, name: v.name, layout: v.layout ? 'table' : 'chart' })),
     rename: (id, name) => {
-      const st = now.entered(), n = entryAt(st, id, 'Name');
+      const st = App.entered.value, n = entryAt(st, id, 'Name');
       undated(tx => n ? tx.set(n, { at: id, edge: 'Name', field: 'text', value: name }) : tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }));
     },
     move: (id, i) => {

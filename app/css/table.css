@@ -35,9 +35,8 @@
 .grid .tabulator-row.picked .tabulator-cell.rn { color: var(--accent-ink); font-weight: 500; }
 
 .grid .tabulator-row { min-height: var(--row); }
-.grid .tabulator-row.picked, .grid .tabulator-row.picked:hover { background: var(--selected); }
-.grid .tabulator-row.picked .tabulator-cell.tabulator-frozen { background: var(--selected); }
 .grid .tabulator-row .tabulator-cell.tabulator-frozen:not(.rn) { background: var(--surface); }
+.grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell.tabulator-frozen { background: var(--selected); }
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator-row .tabulator-cell.fx { font-style: italic; }
 .grid .tabulator-row .tabulator-cell.due { color: var(--no); }
@@ -45,7 +44,9 @@
 .grid .tabulator-row .tabulator-cell.over::after { top: 0; right: 0; }
 .grid .tabulator-row .tabulator-cell.c-number, .grid .tabulator-row .tabulator-cell.c-percent, .grid .tabulator-row .tabulator-cell.c-money { font-variant-numeric: tabular-nums; }
 .grid .tabulator-row .tabulator-cell.c-tag { text-overflow: clip; }
-.grid .tabulator-row .tabulator-cell .tag { margin: 0 1px; vertical-align: -2px; cursor: default; }
+.grid .tabulator-row .tabulator-cell .tag { display: inline-block; margin: 2px 1px 0; vertical-align: top; cursor: default; }
+.grid .tabulator-row .tabulator-cell .tag.yes::after { display: block; margin: 1px auto 0; }
+.grid .tabulator-row .tabulator-cell .tag.no::before, .grid .tabulator-row .tabulator-cell .tag.no::after { left: 1.5px; top: 4.7px; }
 .grid .tabulator-row .tabulator-cell a { color: var(--accent-ink); }
 .grid .tabulator-row.ruled .tabulator-cell:not(.rn) { color: var(--ink-3); }
 .grid .tabulator-row.ruled .tabulator-cell.c-edge { text-decoration: line-through; text-decoration-color: var(--no); }
