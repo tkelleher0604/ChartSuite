@@ -213,12 +213,16 @@ function parse(datatype, raw) {
   return datatype === 'percent' ? n / 100 : n;
 }
 // How a value reads: 71.6%, $750,000,000, 1,000, February 14, 2023, and a document by what its link names.
+// A formatter is costly to make and values are formatted by the thousand, so each kind is made once.
+const numberFormats = new Map();
+const numberFormat = (min, max) => numberFormats.get(min * 10 + max)
+  ?? numberFormats.set(min * 10 + max, new Intl.NumberFormat('en-US', { minimumFractionDigits: min, maximumFractionDigits: max })).get(min * 10 + max);
 function format(datatype, v) {
   if (v === null || v === undefined) return '';
   if (datatype === 'date') return formatDate(v);
   if (datatype === 'document') return linkOf(v).short;
   if (typeof v !== 'number') return String(v);
-  const n = (x, min = 0, max = 2) => x.toLocaleString('en-US', { minimumFractionDigits: min, maximumFractionDigits: max });
+  const n = (x, min = 0, max = 2) => numberFormat(min, max).format(x);
   // A percentage as precise as it was entered, to four places: 26.696%.
   if (datatype === 'percent') return `${n(v * 100, 0, 4)}%`;
   if (datatype === 'money') return `${v < 0 ? '-' : ''}$${n(Math.abs(v), Number.isInteger(v) ? 0 : 2)}`;
