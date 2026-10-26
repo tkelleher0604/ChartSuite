@@ -425,6 +425,8 @@ function Entries({ at, depth, offer }) {
 // ---- Relatives, documents and look: sections, each folding under its heading ----
 function Section({ title, n, shut = false, act, id, children }) {
   const [open, setOpen] = useState(!shut);
+  // Aimed at, as Find aims at a list, it opens.
+  if (!open && aim.value === id) setOpen(true);
   return html`<section class=${open ? 'open' : ''} data-key=${id}><h3 class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
     ${n ? html`<span class="n">${n}</span>` : null}${act}</h3>${open ? children : null}</section>`;
 }
