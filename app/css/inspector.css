@@ -149,6 +149,7 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr.ruled > .nm { color: var(--ink-3); }
 .rr > .val { display: flex; align-items: center; gap: 4px; }
 .rr > .val > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rr > .val .cellbox, .rr > .val .hug { width: 100%; }
 .rr > .val .cell, .rr > .val .sel { margin-left: 0; width: 100%; field-sizing: fixed; font: var(--t12); border-color: var(--rule); }
 .rr > .val .sel { justify-content: space-between; }
 .rr > .val .sel.ph > span { color: var(--ink-3); }
