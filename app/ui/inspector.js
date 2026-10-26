@@ -1,6 +1,6 @@
 // The inspector (dendra.md, Part 2): the panel on the right, showing whatever is selected. Nothing: the view.
-// A record: its entries as a tree, its relatives by list, its documents, and on a chart its look. Two: every
-// relation they are or could be in. An entry, relation or kind in general: what it's called and means, and its
+// A record: its entries as a tree, its relatives by list, its documents, and on a chart its look. Two: what
+// holds between them, in sentences, and what else could. An entry, relation or kind in general: what it's called and means, and its
 // definition, set out as the statute it encodes, whose rows the formula bar edits. A free shape: its text, look
 // and place; the Key, its title, columns and rows.
 const Inspector = (() => {
