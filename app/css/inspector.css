@@ -108,6 +108,7 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .btn.ver.filed { border-color: var(--edge); }
 /* Overdue or due soon, a due date's filing is what someone came for: always shown, after the date. */
 .btn.ver.filed.due { position: static; flex: none; margin-left: auto; opacity: 1; }
+.cellbox:has(> .btn.ver.filed.due) { flex-wrap: wrap; }
 .btn.ver:hover { color: var(--ink); }
 .filing { display: grid; gap: 8px; width: 220px; }
 .filing > .field { display: grid; gap: 4px; font: var(--t12); color: var(--ink-2); }
