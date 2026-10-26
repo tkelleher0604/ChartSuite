@@ -343,7 +343,7 @@ function indexRecord(S, id, r, known) {
 // elsewhere, can share a call's key, so a call still checks what it finds. The objects are kept, to take
 // it back out by.
 function indexByObjects(S, id, r, known) {
-  const objs = known?.objs ?? r.args.map(a => objectOf(S, a.at)), sig = signatureOf(r), edges = known?.edges ?? r.args.map(a => normal(a.edge));
+  const objs = known?.objs ?? r.args.map(a => objectOf(S, a.at)), sig = known?.sig ?? signatureOf(r), edges = known?.edges ?? r.args.map(a => normal(a.edge));
   const call = known?.call || `${sig}|${edges.map((e, i) => `${e}=${objs[i]}`).sort().join('&')}`;
   for (const obj of distinct(objs)) {
     if (!S.byObject.has(obj)) S.byObject.set(obj, new Map());
@@ -351,13 +351,13 @@ function indexByObjects(S, id, r, known) {
   }
   edges.forEach((e, i) => push(S.byEdge, `${sig}|${e}=${objs[i]}`, id));
   push(S.relsByCall, call, id);
-  S.indexed.set(id, { objs, edges, call, seq: S.seq++ });
+  S.indexed.set(id, { objs, edges, sig, call, key: known?.key ?? null, seq: S.seq++ });
   const names = listNamesOf(S, sig);
   for (const e of edges) names.add(e);
 }
 const pull = (map, key, id) => { const list = map?.get(key); if (list) map.set(key, list.filter(x => x !== id)); };
 function unindexByObjects(S, id, r) {
-  const { objs, edges, call } = S.indexed.get(id), sig = signatureOf(r);
+  const { objs, edges, sig, call } = S.indexed.get(id);
   for (const obj of distinct(objs)) pull(S.byObject.get(obj), sig, id);
   edges.forEach((e, i) => pull(S.byEdge, `${sig}|${e}=${objs[i]}`, id));
   pull(S.relsByCall, call, id);
@@ -1823,12 +1823,12 @@ function relatedAt(S, rel, ids, freeEdge, labels) {
   for (const rid of S.byEdge.get(`${rel.sig}|${edge}=${obj}`) ?? []) {
     const r = S.recs[rid];
     if ((rel.form && formOfRecord(S, r) !== rel.form) || (checked && !fitsCall(S, r, ids))) continue;
-    const { objs, edges } = S.indexed.get(rid), y = objs[edges.indexOf(freeEdge)];
+    const { objs, edges, key } = S.indexed.get(rid), y = objs[edges.indexOf(freeEdge)];
     if (!y || seen.has(y)) continue;
     seen.add(y);
     if (!labels) out.push(y);
     else if (!isTag(r)) { out.push(y); exact = false; }
-    else if (r.tag === true && labels.some(l => S.prov.get(keyOf(r))?.has(l))) out.push(y);
+    else if (r.tag === true && labels.some(l => S.prov.get(key ?? keyOf(r))?.has(l))) out.push(y);
   }
   for (const failure of S.failed.get(`rel|${obj}|${rel.n}`) ?? []) {
     const a = failure.args.find(x => normal(x.edge) === freeEdge), y = a && objectOf(S, a.at);
@@ -1882,7 +1882,7 @@ function stateFor(P, entered) {
     relsByCall: new Map(), indexed: new Map(), seq: 0, listNames: new Map(), specs: new Map(), bySpec: new Map(), enteredByKey: new Map(),
     prov: new Map(), rows: new Map(), lazy: null, dep: null, watch: null, reads: null, forgetting: true, settled: false, done: 0,
     cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(), forms: new WeakMap(),
-    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap() };
+    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(), provenances: new Map() };
   // Every entered record is in before any is indexed, so each is indexed by the objects it belongs to
   // whatever order they come in.
   Object.assign(S.recs, entered);
@@ -1899,12 +1899,10 @@ function stateFor(P, entered) {
 // with the block's other records: its signature, edges and specification, and the order of its call's
 // key (see keyedBlock).
 function addComputed(S, id, r, cand, b, picks) {
-  keyCache.set(r, cand.key);
   let known;
   if (b?.sig && picks) {
-    sigCache.set(r, b.sig);
     const objs = picks.map((k, j) => b.objects[j][k]);
-    known = { objs, edges: b.normals, call: b.idOrder && `${b.sig}|${b.idOrder.map(j => `${b.normals[j]}=${objs[j]}`).join('&')}` };
+    known = { objs, edges: b.normals, sig: b.sig, key: cand.key, call: b.idOrder && `${b.sig}|${b.idOrder.map(j => `${b.normals[j]}=${objs[j]}`).join('&')}` };
   }
   addRecord(S, id, r, known);
   // Its specification is its block's for its output; it's kept only where a definition is located, since
@@ -2365,6 +2363,13 @@ function labelsOf(t) {
   return out;
 }
 const sameLabels = (a, b) => a.length === b.length && a.every((l, i) => l === b[i]);
+// A candidate's provenance, which IMPLIEDBY reads: the labels that hold there, normalized, as a set shared
+// by every candidate with the same ones.
+function provenance(S, labels) {
+  const key = labels.map(normal).join('\n');
+  if (!S.provenances.has(key)) S.provenances.set(key, new Set(labels.map(normal)));
+  return S.provenances.get(key);
+}
 const resultKey = res => res ? JSON.stringify(res.error ? ['error', res.error.code] : res.none ? ['none'] : ['out', res.out]) : '';
 
 const EVALUATE = Symbol('work out'), FOUND = 1, HELD = 2, STILL = 3;
@@ -2463,7 +2468,7 @@ function attemptStep(S, group, blocked) {
         if (sameLabels(labels, t.labels)) return;
         t.was ??= t.labels;
         t.labels = labels;
-        S.prov.set(t.cand.key, new Set(labels.map(normal)));
+        S.prov.set(t.cand.key, provenance(S, labels));
         if (changed.at(-1) !== t) changed.push(t);
       });
     }
