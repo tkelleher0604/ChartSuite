@@ -386,6 +386,21 @@ const FormulaBar = (() => {
     const head = lower(m[1]), last = head.split(' ').at(-1);
     return { head, prep: m[2] ? ` ${m[2].toLowerCase()} ` : ' ', form: /ed$/.test(last) ? 'participle' : /[^s]s$/.test(last) ? 'verb' : 'noun' };
   }
+  // Which of a relation's names says it, between its sides a and b (see factOf): the first side's list of the
+  // second; its own name (`name`, a record's where there is one); a tag's second side's list of the first,
+  // said of the second (`flip`); or else the role the first side's list names, one of it.
+  function predicateOf(t, a, b, { tag = true, name = N().name(t) } = {}) {
+    const n = N(), p = predicate(n.listName(t, b)) ?? predicate(name, true), flip = !p && tag && predicate(n.listName(t, a));
+    return p ?? (flip ? { ...flip, flip } : { head: lower(singular(n.listName(t, a))), prep: ' of ', form: 'noun', role: true });
+  }
+  // A relation in words, for a pane that says its sides itself: [the side said first, the words, the other].
+  // An option says the role: is a director of.
+  function phrase(t, a, b, { choice, not = false } = {}) {
+    const q = predicateOf(t, a, b), w = choice ? { head: lower(choice), form: 'noun', prep: q.form === 'noun' && !q.flip ? q.prep : ' of ' } : q;
+    const words = w.form === 'noun' ? ` is ${not ? 'not ' : ''}${article(w.head)} ${w.head}` : w.form === 'participle' ? ` is ${not ? 'not ' : ''}${w.head}`
+      : not ? ` does not ${w.head.replace(/s\b/, '')}` : ` ${w.head}`;
+    return w.flip && !choice ? [b, words + w.prep, a] : [a, words + w.prep, b];
+  }
 
   // A record as a clause: whom it's about (an object, possessive or not), what's said of it, and of whom. Its
   // segments are text, a name (an object's id) or a term, the clause's point, italic where a formula gave it.
@@ -405,8 +420,9 @@ const FormulaBar = (() => {
     if (r.args) {
       const [a, b, ...rest] = n.sides(recs, id), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
       // Each side's list of the other: Holdings, and Owners.
-      const mine = t && b ? n.listName(t, b.edge) : '', theirs = t && b ? n.listName(t, a.edge) : a.edge, yes = r.tag !== false;
-      const p = B ? predicate(mine) ?? predicate(n.nameOf(recs, id), true) : null, flip = B && !p && 'tag' in r ? predicate(theirs) : null;
+      const theirs = t && b ? n.listName(t, a.edge) : a.edge, yes = r.tag !== false;
+      const q = !B ? null : t ? predicateOf(t, a.edge, b.edge, { tag: 'tag' in r, name: n.nameOf(recs, id) }) : predicate(n.nameOf(recs, id), true);
+      const p = q && !q.flip && !q.role ? q : null, flip = q?.flip ? q : null;
       const of = B ? [p?.form === 'noun' && !('field' in r) ? p.prep : ' of ', { name: B }] : [];
       c.post = [...rest.flatMap(x => [`, ${lower(x.edge)} `, { name: Tree.objectOf(recs, x.at) }]), ...(rest.length && withs.length ? [','] : []), ...withs];
       if ('field' in r) return Object.assign(c, { subj: A, poss: true, pre: [` ${lower(n.nameOf(recs, id))}`], obj: of, post: [be(), term(id, Tree.outputText(r)), ...c.post] });
@@ -1062,5 +1078,5 @@ const FormulaBar = (() => {
   Shell.register('formulabar', Bar);
   Shell.register('action', { id: 'formulas', name: 'Expand formula bar', keys: '$mod+Shift+KeyU', run: toggle });
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, light: ids => { lit.value = ids; },
-    reason, citeOf, model, finder, pending, draft, hover, open };
+    reason, citeOf, phrase, model, finder, pending, draft, hover, open };
 })();

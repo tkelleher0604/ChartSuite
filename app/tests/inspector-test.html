@@ -216,6 +216,11 @@ async function run() {
   const ghost = label => $$('.rr .add-entry').find(b => b.textContent === label);
   check('… where something holds, what else could is behind Add a relation, an action', !!ghost('Add a relation') && !$$('.sect > .fold').some(f => f.textContent === 'Add a relation'));
   ghost('Add a relation')?.click(); await tick();
+  // In the formula bar's words: an owner's list of what it owns named "Investor In" says so here too
+  const ownList = App.notes.peek().notes('Name').find(n => n.value === 'Ownership' && !n.param && n.pattern.args?.length === 2);
+  App.change(tx => tx.note('Name', ownList.pattern, 'Investor In', { param: 'Owned' })); await tick(60);
+  check('… each said in the formula bar’s words', $$('.rr .nm').some(x => x.textContent === 'Fund III Blocker is an investor in the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
+  Shell.parts.value.undo.undo(); await tick(60);
   const rr = $$('.rr').filter(r => r.querySelector('.nm')?.textContent === 'Fund III Blocker is an owner of the BDC');
   check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser of /.test(x.textContent))
     && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
