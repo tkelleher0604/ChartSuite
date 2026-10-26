@@ -139,7 +139,7 @@ let app = null, me = null;
 function msalApp() {
   if (!app) {
     const s = settings();
-    if (!s.tenant || !s.client) return Promise.reject(new SharePointError('SharePoint isn’t set up.', 0));
+    if (!s.tenant || !s.client || typeof msal === 'undefined') return Promise.reject(new SharePointError('SharePoint isn’t set up.', 0));
     const pca = new msal.PublicClientApplication({
       auth: { clientId: s.client, authority: `https://login.microsoftonline.com/${s.tenant}`, redirectUri: location.origin + location.pathname },
       cache: { cacheLocation: 'localStorage' },

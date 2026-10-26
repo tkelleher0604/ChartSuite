@@ -221,13 +221,14 @@ async function session(book, seed) {
     } catch (e) { problem = describe(e); } finally { tell(); }
   }
 
-  const poll = setInterval(() => { if (document.visibilityState === 'visible') sync(); }, LOOK_EVERY);
+  // Every so often the status is said again, since it says how long ago, and others' changes looked for.
+  const poll = setInterval(() => { tell(); if (document.visibilityState === 'visible') sync(); }, LOOK_EVERY);
   // Back online, or back to the tab, others' changes come in; leaving it, a change waiting goes now.
   addEventListener('online', sync);
   document.addEventListener('visibilitychange', sync);
 
   self = {
-    wb, book, where, sync,
+    wb, where, sync,
     status() {
       if (local) return local;
       if (problem) return problem;
