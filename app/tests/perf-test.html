@@ -10,10 +10,13 @@
 </head>
 <body>
 <pre id="out">running…</pre>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
 <script src="../core/tree.js"></script>
 <script src="../core/notes.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/scene.js"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="grown.js"></script>
 <script>
@@ -23,8 +26,9 @@
 // and keeps the best. The targets: the sample in under 50 ms, and 100 and 200 more entities in under 500.
 // Then edits at the most, each worked out again from the working-out before, as the app does: each must
 // agree with the same chart worked out from nothing, in every record, value, stage, row, error and ground,
-// and one that reaches few formulas must take under 100 ms. Then the redline: one edit worked out and
-// compared with the state before it, as the preview does on every keystroke, in under 50 ms on the sample.
+// and one that reaches few formulas must take under 100 ms. Then scenes of it after edits, which must agree
+// with scenes drawn afresh. Then the redline: one edit worked out and compared with the state before it, as
+// the preview does on every keystroke, in under 50 ms on the sample.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
@@ -85,6 +89,33 @@ function edits(n) {
   return lines;
 }
 
+// The chart grown by n, in a workbook, drawn after each of three edits as the app draws it, from the scene
+// before (keeping what it worked out from records that stand), and drawn afresh from the log reopened: the
+// two must agree, and the scene after an edit to a value take under 200 ms.
+function scenes(n) {
+  const wb = Log.open(SAMPLE), C = CHART, V = 'view_main';
+  const edit = f => { const tx = wb.edit({ chart: C, who: 'perf' }); f(tx); const c = tx.commit(); if (typeof c === 'string') throw new Error(c); };
+  const work = (w, from) => { const S = w.schema(C), N = w.notes(C); return Formulas.computeState(w.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }, from); };
+  const draw = (w, R) => Scene.of(w, C, V, DAY, { state: R.records, computed: R });
+  const drawn = s => JSON.stringify({ page: s.page, marks: s.marks, styles: s.styles });
+  edit(tx => { for (const [id, r] of Object.entries(grown({}, n))) if (id.startsWith('x_')) tx.add('record', r, id); });
+  let R = work(wb, null);
+  draw(wb, R);
+  const lines = [];
+  for (const [what, f] of [['a value (an EIN)', tx => tx.update('fund_ein', { value: '92-1111111' })],
+    ['a name', tx => tx.update('feeder_name', { value: 'Calder Ridge Capital Partners III (Cayman Islands), L.P.' })],
+    ['a good standing', tx => tx.update('fund_good', { tag: false })]]) {
+    edit(f);
+    R = work(wb, R);
+    const t = performance.now(), kept = draw(wb, R), ms = performance.now() - t;
+    const again = Log.open(JSON.stringify(wb)), fresh = draw(again, work(again, null));
+    check(`At +${n}, the scene after ${what} agrees with one drawn afresh`, drawn(kept) === drawn(fresh), `${kept.marks.length} marks`);
+    if (what.startsWith('a value')) check(`At +${n}, the scene after ${what} is drawn in under 200 ms`, ms < 200, `${ms.toFixed(0)} ms`);
+    lines.push(`+${n}, the scene after ${what}: ${ms.toFixed(0)} ms`);
+  }
+  return lines;
+}
+
 // Ruling out Okafor's presumed control of GP III, worked out and diffed against the sample as it was.
 function redline() {
   const before = workOut();
@@ -111,7 +142,7 @@ function run() {
   }
   for (const [size, target, what] of [[0, 50, 'the sample'], [100, 500, '100 more entities'], [200, 500, '200 more entities']])
     if (times.has(size)) check(`Works out ${what} in under ${target} ms`, times.get(size) < target, `${times.get(size).toFixed(0)} ms`);
-  lines.push('', ...edits(n));
+  lines.push('', ...edits(n), '', ...scenes(n));
   const r = redline();
   check('Previews a ruling-out on the sample, worked out and compared, in under 50 ms', r.ms < 50,
     `${r.ms.toFixed(1)} ms: ${r.d.appear.length} appear, ${r.d.go.length} go, ${r.d.change.length} change`);

@@ -51,20 +51,25 @@ function keeping() {
 }
 
 // Positions for every box, top left at 0, 0: { id → { x, y } }. Laid out again only when what it reads
-// changes: the boxes and their sizes, the lines that rank them, and the frames. Should ELK fail, the
-// boxes are set out in rows by rank, so a chart is always drawn.
+// changes: the boxes and their sizes, the lines that rank them, and the frames; and where a store is given
+// (keepIn: { get, set } of text), not even after a reload, the latest six being kept there. Should ELK fail,
+// the boxes are set out in rows by rank, so a chart is always drawn.
 const placed = keeping();
+let store = null;
+const keepIn = s => { store = s; };
+const laidBefore = () => { try { return JSON.parse(store?.get('layouts') ?? '[]'); } catch { return []; } };
 function place({ boxes, links, clusters }) {
   const quick = boxes.length + links.length > BIG;
   const k = JSON.stringify([OPTIONS, quick, boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h)]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
   return placed(k, () => {
-    const started = now();
+    const before = laidBefore().find(([key]) => key === k);
+    if (before) return new Map(before[1].map(([id, x, y]) => [id, { x, y }]));
     let out = null;
     for (const options of quick ? [{ ...OPTIONS, ...QUICK }] : [OPTIONS, { ...OPTIONS, ...QUICK }]) {
       try { out = elkPlace(boxes, links, clusters, options); break; } catch { /* the next way, or rows */ }
     }
     out ??= rows(boxes, links);
-    out.ms = now() - started;
+    store?.set('layouts', JSON.stringify([[k, [...out].map(([id, p]) => [id, p.x, p.y])], ...laidBefore().filter(([key]) => key !== k)].slice(0, 6)));
     return out;
   });
 }
@@ -115,7 +120,6 @@ function rows(boxes, links) {
   }
   return out;
 }
-const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
 
 // A grid of rects, for finding what's near a place without looking at everything: near(r) gives the
 // indexes, in order, of every rect that could touch r; any(r, f), whether f holds for any of them.
@@ -597,5 +601,5 @@ function placeLabels(geo, lines, all = lines) {
   }
 }
 
-return { place, arrange, route, OPTIONS };
+return { place, arrange, route, keepIn, OPTIONS };
 })();

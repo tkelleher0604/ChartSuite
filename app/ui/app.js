@@ -9,6 +9,8 @@ const App = (() => {
   const chart = signal(null);
   let unsubscribe = null;
   function use(wb) {
+    // The layouts this browser keeps, so a reload lays out again nothing it laid out before.
+    if (typeof Layout !== 'undefined') Layout.keepIn(store);
     // Another workbook: nothing of the last one is selected, and it shows as it is now.
     if (unsubscribe) { Shell.select([], { replace: true }); Shell.at(null, { replace: true }); unsubscribe(); }
     unsubscribe = wb.subscribe(() => { version.value++; });
