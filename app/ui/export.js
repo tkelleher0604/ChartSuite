@@ -783,9 +783,9 @@ async function exportRecordPdf(objectId, { asOf = todayIso() } = {}) {
 // the "as of" date, and whether the legend and a title slide come along; on the right a live preview of
 // every page or slide, drawn from the same layout the file is made from, each saying the size its text
 // prints at. Its choices are remembered while the page is open.
-// Text is kept at MIN_TEXT or larger by default, splitting a view that can't fit a page at that size into
-// parts; shrinking each view onto one page is the other choice, and the dialog says how small that makes
-// the text.
+// Each view goes on one page or slide by default, as a deck wants it, and the dialog says how small that
+// makes the text; the other choice keeps text at MIN_TEXT or larger, splitting a view that can't fit a page
+// at that size into parts.
 
 const FORMATS_OUT = [['pdf', 'PDF'], ['pptx', 'PowerPoint'], ['svg', 'SVG']];
 const exportUi = {
@@ -795,7 +795,8 @@ const exportUi = {
   size: 'letter',         // a PDF's page
   slide: 'wide',          // a deck's slides
   orientation: 'auto',
-  fit: 'split',           // 'split' keeps text at MIN_TEXT over more pages; 'page' shrinks each view to one
+  fit: 'page',            // 'page' shrinks each view to one page or slide, as a deck wants it; 'split' keeps text at
+                          // MIN_TEXT over more pages, which the dialog offers when a page would print smaller
   legend: null,           // null follows the chart's own legend switch
   cover: null,            // a deck's title slide: null has one for every view, and none for one view
   asOf: '',
