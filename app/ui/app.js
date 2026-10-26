@@ -80,14 +80,24 @@ const App = (() => {
   // ---- The chart menu: the workbook's charts, a new one, and the workbooks this browser keeps ----
   const books = signal([]);
   const listBooks = () => Store.books().then(bs => { books.value = bs; });
-  // A chart of nothing but one view, added to a workbook.
+  // A new chart, added to a workbook: the chart shown without its records. It keeps the schema, and the views
+  // with every note that isn't at one of the records: the definitions, names, descriptions and styles. With
+  // no chart shown, one view.
   function startChart(wb) {
-    const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name)));
+    const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name))), from = chart.peek(), src = book.peek();
     let name = 'Untitled', i = 2;
     while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
     const tx = wb.edit({ chart: c, who: who() });
     tx.add('chart', { name }, c);
-    tx.note('Name', viewTree(tx.add('record', { kind: 'View' })), 'Chart');
+    if (!from) tx.note('Name', viewTree(tx.add('record', { kind: 'View' })), 'Chart');
+    else {
+      const rows = src.rows(from), views = new Map();
+      for (const tree of Object.values(src.schema(from))) tx.add('spec', { tree });
+      for (const r of rows) if ('record' in r && Tree.isView(r) && !views.has(r.record)) views.set(r.record, tx.add('record', { kind: 'View' }));
+      const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: views.get(t.id) };
+      for (const r of rows) if ('note' in r && (!r.view || views.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => views.has(id)))
+        tx.note(r.label, moved(r.pattern), r.value, { view: views.get(r.view), param: r.param });
+    }
     return tx.commit();
   }
   function newChart() {
@@ -97,7 +107,7 @@ const App = (() => {
     chart.value = c.chart;
     Shell.select([]);
   }
-  const blank = () => { const wb = Log.open([]); startChart(wb); return opened(Store.open({ id: Log.newId(), sample: wb })); };
+  const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })); };
   Shell.register('workbook', {
     charts: () => (version.value, book.value.charts().map(c => ({ id: c.chart, name: c.name }))),
     current: () => chart.value,
