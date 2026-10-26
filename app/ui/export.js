@@ -165,11 +165,14 @@ const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot' };
 // The page's own texts, by the names PowerPoint's Selection Pane gives them (the title's until it's made the
 // slide's title placeholder); any other shape, as a box is, by what it says.
 const ROLE = { title: '·title·', date: 'Date' };
+// How much wider or narrower than the scene measures it PowerPoint may set a line, and more: within 1%, in
+// PowerPoint, of Arial from 6.5 to 20 pt, kerned as the scene's are.
+const SLACK = 1.015;
 // The widths PowerPoint can wrap a text at and break it into the scene's lines: from its widest line to the
 // narrowest that would take in more of the next, PowerPoint breaking after a hyphen too where the scene breaks
 // only at spaces, and never at the no-break space that keeps a suffix to its name. The width wanted, kept
-// inside that range clear of its ends; null if the range is too narrow to rely on, or the scene broke a text
-// where PowerPoint wouldn't, when the scene's breaks are written as line breaks.
+// inside that range clear of its ends by the slack; null if the range is too narrow for that, or the scene
+// broke a text where PowerPoint wouldn't, when the scene's breaks are written as line breaks.
 function wrapAt(items, want) {
   let lo = 0, hi = Infinity;
   for (const it of items) {
@@ -185,8 +188,7 @@ function wrapAt(items, want) {
       });
     }
   }
-  const m = Math.min(2, (hi - lo) / 2);
-  return hi - lo < 1 ? null : Math.min(Math.max(want, lo + m), hi - m);
+  return lo * SLACK > hi / SLACK ? null : Math.min(Math.max(want, lo * SLACK), hi / SLACK);
 }
 // Of a line's arrowheads, those a piece of it has: its start's on its first, its end's on its last.
 const arrowOf = (a, first, last) => {
@@ -211,6 +213,9 @@ async function pptx(scenes, title, author) {
   const edit = async (f, change) => zip.file(f, change(await zip.file(f).async('string')));
   const slides = await Promise.all(finish.map((done, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(done)));
   slides.forEach((x, i) => zip.file(`ppt/slides/slide${i + 1}.xml`, x));
+  // Type kerned at every size, as the scene measures it, so a line the scene fits fits: PowerPoint's own
+  // default kerns only from 12 pt.
+  for (const f of ['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml']) await edit(f, x => x.replaceAll('kern="1200"', 'kern="100"'));
   const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean);
   await edit('ppt/slideLayouts/slideLayout1.xml', x => x.replace('<p:cSld name="DEFAULT">', `<p:cSld name="${first ? 'Title Only' : 'Blank'}">`)
     .replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${first ? layoutTitle(first) : ''}</p:spTree>`));
@@ -259,7 +264,7 @@ function slide(p, scene, { k, ox, oy }) {
   // `hug` makes it as narrow as it can be. A text the scene hyphenated is written line by line.
   const column = (items, col, hug) => {
     const cut = items.some(it => it.lines.some(l => l.cut));
-    const w = cut ? null : wrapAt(items, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) + 2, a = items[0].look.Align;
+    const w = cut ? null : wrapAt(items, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) * SLACK, a = items[0].look.Align;
     return { x: a === 'left' ? col.x : a === 'right' ? col.x + col.width - width : col.x + (col.width - width) / 2, width, broken: w === null };
   };
   // Texts as paragraphs: one for each record's text (and each line it was typed on), in its own look, its
@@ -419,7 +424,7 @@ function dates(R, N) {
   return Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
     // What it's the date of, then whose: Annual Tax Due 2025 · Calder Ridge Capital Partners III AIV-1, L.P.;
     // Start Date · Margaret A. Chen signs for the Manager. A relation of one side is that side's, by name.
-    const path = Tree.pathOf(st, id), sides = Tree.isObject(st[path[0]]) ? [] : N.sides(st, path[0]);
+    const path = Tree.pathOf(st, id), sides = Tree.isObject(st[path[0]]) ? [] : N.sides(st, path[0]).filter(Boolean);
     let what = path.slice(1).map(x => N.segmentOf(st, x)).join(' › ');
     if (sides.length === 1 && !Tree.norm(what).includes(Tree.norm(N.nameOf(st, path[0])))) what = `${N.nameOf(st, path[0])} ${what}`;
     const whose = sides.length > 1 ? sentence(path[0], sides) : plain(N.nameOf(st, Tree.objectOf(st, sides[0]?.at ?? path[0])));

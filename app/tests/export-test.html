@@ -126,7 +126,8 @@ async function run() {
       && Math.abs(+ext.getAttribute('cx') - f.w * k * EMU) < 2, `${off.getAttribute('x')}, ${off.getAttribute('y')}`);
 
     // Lines break where the scene breaks them: PowerPoint's column for each box, and its rule of breaking, in
-    // the page's own pixels.
+    // the page's own pixels, PowerPoint setting a line as much as 1% wider or narrower than the scene measures
+    // it (as it does, kerned: Arial from 6.5 to 20 pt, measured in PowerPoint).
     const wrong = [];
     for (const b of boxes(main)) {
       const sp = shapeOf(b), body = tags(sp, 'a:bodyPr')[0], prst = tags(sp, 'a:prstGeom')[0].getAttribute('prst');
@@ -134,11 +135,15 @@ async function run() {
       const width = w * (r - l) - (+body.getAttribute('lIns') + +body.getAttribute('rIns')) / EMU / k;
       tags(sp, 'a:p').forEach((p, i) => {
         const it = b.texts[i], broken = tags(p, 'a:br').length > 0;
-        const got = broken ? tags(p, 'a:t').map(t => t.textContent) : pptLines(tags(p, 'a:t').map(t => t.textContent).join(''), it.look, width);
-        if (j(got) !== j(it.lines.map(l => l.text)) || got.some(t => Scene.measure(t, it.look) > width)) wrong.push(`${b.id}: ${j(got)} for ${j(it.lines.map(l => l.text))} at ${width.toFixed(1)}`);
+        for (const set of [width / 1.01, width * 1.01]) {
+          const got = broken ? tags(p, 'a:t').map(t => t.textContent) : pptLines(tags(p, 'a:t').map(t => t.textContent).join(''), it.look, set);
+          if (j(got) !== j(it.lines.map(l => l.text)) || got.some(t => Scene.measure(t, it.look) > width / 1.01)) wrong.push(`${b.id}: ${j(got)} for ${j(it.lines.map(l => l.text))} at ${set.toFixed(1)}`);
+        }
       });
     }
-    check('PowerPoint breaks every box’s text into the scene’s lines, after hyphens too', !wrong.length, wrong.join('; '));
+    check('PowerPoint breaks every box’s text into the scene’s lines, after hyphens too, set 1% wider or narrower', !wrong.length, wrong.join('; '));
+    const kerns = (await Promise.all(['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml'].map(f => zip.file(f).async('string')))).join('').match(/kern="\d+"/g);
+    check('… its type kerned at every size, as the scene measures it, not only from 12 pt', kerns.length > 9 && kerns.every(x => x === 'kern="100"'), [...new Set(kerns)].join(' '));
     {
       const body = tags(fund, 'a:bodyPr')[0], w = +tags(fund, 'a:ext')[0].getAttribute('cx') / EMU / k, col = main.byId.get('fund').column;
       const width = w / 2 - (+body.getAttribute('lIns') + +body.getAttribute('rIns')) / EMU / k;
