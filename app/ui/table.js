@@ -2,16 +2,16 @@
 // of one kind (Entities), one relation (Ownership), or every entry of one datatype (Dates, Documents); its
 // columns are what's located at the rows. This part also feeds the sheet tabs from the chart's View objects.
 //
-// A view is a View object. Its Name entry names it, an Order note at it places its tab, and a Layout note at
-// it says what a table's rows are: { rows: pattern }, a kind ({ kind }) or a relation (its edges with every
-// other label removed), or { rows: datatype }. With no Layout note it's a chart. In the view, a Shown note at
-// a column's pattern shows or hides the column, and Order notes place the columns.
+// A view is a View object, and the inspector's convention says what it is with entries there: Name; Layout,
+// the choice Chart or Table; and at Table, Rows, the choice of a kind (Entity), a relation (Ownership), or
+// Dates or Documents. An Order note at the View object places its tab. In a table view, a Shown note at a
+// column's pattern shows or hides the column, and Order notes place the columns.
 //
 // Every edit, paste or deletion is one change through App.edit, so one Undo takes it back. While History shows
 // the chart as it stood, the grid is read-only.
 
 const Table = (() => {
-  const { effect } = Shell;
+  const { effect, computed } = Shell;
   const { clean, norm, same } = Tree;
 
   const viewTree = id => ({ id, kind: 'View' });
@@ -42,15 +42,10 @@ const Table = (() => {
   }
 
   // ---- Views ----
-  const views = () => {
-    const st = App.entered.value, N = App.notes.value;
-    return (Tree.index(st).kinds.get('view') ?? []).map(id => ({ id, name: nameOf(st, id), order: N.order(viewTree(id)) ?? Infinity, layout: N.value('Layout', viewTree(id)) }))
-      .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-  };
-  const viewOf = id => views().find(v => v.id === id);
-
-  // What a table's rows can be, for the + menu: each kind, each relation, and the dates and the documents.
-  function layouts() {
+  // What a table's rows can be: each kind, each relation, and the dates and the documents. Each has the
+  // Rows option that names it, the name a new tab takes, and its rows: { kind }, a relation's edges with
+  // every other label removed, or a datatype.
+  const layoutsNow = computed(() => {
     const S = App.schema.value, N = App.notes.value, rels = new Map(), kinds = new Set();
     for (const t of Object.values(S)) {
       if (!t.args) { if (t.kind && !same(t.kind, 'View')) kinds.add(t.kind); }
@@ -58,11 +53,22 @@ const Table = (() => {
     }
     const byName = (a, b) => a.name.localeCompare(b.name);
     return {
-      kinds: [...kinds].map(kind => ({ name: plural(kind), rows: { kind } })).sort(byName),
-      relations: [...rels.values()].map(p => ({ name: N.name(p), rows: p })).sort(byName),
-      datatypes: ['date', 'document'].map(d => ({ name: plural(Tree.DATATYPES[d]), rows: d })),
+      kinds: [...kinds].map(kind => ({ option: kind, name: plural(kind), rows: { kind } })).sort(byName),
+      relations: [...rels.values()].map(p => ({ option: N.name(p), name: N.name(p), rows: p })).sort(byName),
+      datatypes: ['date', 'document'].map(d => ({ option: plural(Tree.DATATYPES[d]), name: plural(Tree.DATATYPES[d]), rows: d })),
     };
-  }
+  });
+  const layouts = () => layoutsNow.value;
+  const rowsNamed = option => { const l = layouts(); return option && [...l.datatypes, ...l.kinds, ...l.relations].find(x => same(x.option, option))?.rows; };
+  const viewsNow = computed(() => {
+    const st = App.entered.value, N = App.notes.value;
+    return (Tree.index(st).kinds.get('view') ?? []).map(id => {
+      const lay = entryAt(st, id, 'Layout'), table = !!lay && same(st[lay].choice, 'Table'), rows = table && entryAt(st, lay, 'Rows');
+      return { id, name: nameOf(st, id), order: N.order(viewTree(id)) ?? Infinity, table, rows: rows ? rowsNamed(st[rows].choice) ?? null : null };
+    }).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  });
+  const views = () => viewsNow.value;
+  const viewOf = id => views().find(v => v.id === id);
 
   // ---- The model: a table's columns and rows, worked out from the state shown ----
   // A column of entries is a path of edges from the row down, with every specification there.
@@ -92,8 +98,8 @@ const Table = (() => {
   }
 
   function model(view) {
-    const st = App.state.value, entered = App.entered.value, N = App.notes.value, S = App.schema.value;
-    const rows = viewOf(view)?.layout?.rows;
+    const st = App.state.value, C = App.computed.value, N = App.notes.value, S = App.schema.value;
+    const rows = viewOf(view)?.rows;
     if (!rows) return null;
     const isDatatype = typeof rows === 'string', isKind = !isDatatype && !rows.args;
     const order = (p, path) => path.map((_, i) => N.order(below(p, path.slice(0, i + 1))) ?? Infinity);
@@ -157,8 +163,9 @@ const Table = (() => {
       cols.forEach((c, i) => {
         const m = cellOf(id, c), r = m.id && st[m.id], f = 'f' + i;
         row[f] = m.v ?? null;
-        const fx = !!r && !(m.id in entered), formula = r && !Tree.isObject(r) && N.resolve('Formula', Tree.treeOf(st, m.id));
-        row._m[f] = { id: m.id, at: m.at, fx, over: !fx && !!formula, due: !!formula && r.field === 'date' && r.value < today };
+        // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
+        const fx = !!C.computed?.[m.id], over = !!C.covered?.[m.id];
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || over) && r.field === 'date' && r.value < today };
       });
       row._ruled = st[id].tag === false;
       return row;
@@ -319,9 +326,11 @@ const Table = (() => {
 
   function refresh() {
     const view = Shell.view.value, v = viewOf(view);
-    if (!el || !v?.layout) return;
+    if (!el || !v?.table) return;
     const m = model(view);
     current = m;
+    // A table whose rows aren't chosen yet: the inspector's Rows chooses them.
+    if (!m) { table?.destroy(); table = null; built = null; el.innerHTML = '<div class="empty">No rows</div>'; return; }
     if (!table || built.view !== view || built.sig !== signature(m)) return build(m);
     if (!ready) return table.on('tableBuilt', () => refresh());
     // Rows keep their place while they're edited; a sort or a filter applies again only when asked.
@@ -592,7 +601,7 @@ const Table = (() => {
   // Export: what the table shows, as CSV, while a table is shown.
   let unexport = null;
   effect(() => {
-    const on = !!viewOf(Shell.view.value)?.layout;
+    const on = !!viewOf(Shell.view.value)?.table;
     if (on && !unexport) unexport = Shell.register('export', { name: 'CSV', run: () => {
       const chart = Shell.parts.peek().workbook?.charts().find(c => c.id === App.chart.peek())?.name;
       table?.download('csv', `${[chart, viewOf(Shell.view.peek())?.name].filter(Boolean).join(' – ')}.csv`, { bom: true });
@@ -602,15 +611,18 @@ const Table = (() => {
 
   // ---- The sheet tabs: the View objects, in their Order ----
   const fresh = name => { const names = new Set(views().map(v => norm(v.name))); let n = name, i = 2; while (names.has(norm(n))) n = `${name} ${i++}`; return n; };
-  // A new view, after the one it copies or at the end. A copy takes the original's notes and shapes.
-  function addView(name, layout, from) {
+  // A new view, after the one it copies or at the end: a chart, or a table of the rows `option` names. A copy
+  // takes the original's entries (but its Name), notes and shapes.
+  function addView(name, option, from) {
     let id;
-    const vs = views(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, mine = viewTree(from);
+    const vs = views(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, mine = viewTree(from), st = App.entered.value;
+    const copy = (src, to, tx) => { for (const e of Tree.index(st).entries.get(src) ?? []) if (!same(st[e].edge, 'Name')) { const { since, before, at: _, ...r } = st[e]; copy(e, tx.add('record', { at: to, ...r }), tx); } };
     edit(tx => {
       id = tx.add('record', { kind: 'View' });
       tx.add('record', { at: id, edge: 'Name', field: 'text', value: fresh(name) });
       [...vs.slice(0, at), { id }, ...vs.slice(at)].forEach((v, i) => order(tx, v.id, i + 1));
-      if (layout) tx.add('note', { label: 'Layout', pattern: viewTree(id), value: layout });
+      if (option) tx.add('record', { at: tx.add('record', { at: id, edge: 'Layout', choice: 'Table' }), edge: 'Rows', choice: option });
+      if (from) copy(from, id, tx);
       if (from) for (const { id: _, ...r } of App.wb.rows(App.chart.peek())) {
         if ('shape' in r && r.view === from) { const { shape: __, ...s } = r; tx.add('shape', { ...s, view: id }); }
         else if ('note' in r && r.view === from) { const { note: __, ...n } = r; tx.add('note', { ...n, view: id }); }
@@ -630,7 +642,7 @@ const Table = (() => {
   const undated = (fn, say) => edit(fn, say && (() => say), { day: null });
   function addMenu() {
     const anchor = document.querySelector('.foot > .btn.icon[aria-label="New view"]');
-    const { kinds, relations, datatypes } = layouts(), as = l => ({ label: l.name, run: () => addView(l.name, { rows: l.rows }) });
+    const { kinds, relations, datatypes } = layouts(), as = l => ({ label: l.name, run: () => addView(l.name, l.option) });
     Shell.menu(anchor, [
       { label: 'Chart', run: () => addView('Chart') },
       '-',
@@ -641,7 +653,7 @@ const Table = (() => {
   }
 
   Shell.register('views', {
-    list: () => views().map(v => ({ id: v.id, name: v.name, layout: v.layout ? 'table' : 'chart' })),
+    list: () => views().map(v => ({ id: v.id, name: v.name, layout: v.table ? 'table' : 'chart' })),
     rename: (id, name) => {
       const st = App.entered.value, n = entryAt(st, id, 'Name');
       undated(tx => n ? tx.set(n, { at: id, edge: 'Name', field: 'text', value: name }) : tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }));
@@ -655,7 +667,7 @@ const Table = (() => {
     menu: id => {
       const v = viewOf(id), m = current?.view === id ? current : null;
       return [
-        ...(v?.layout && m ? [{ label: 'Columns', items: columnItems(m) }] : []),
+        ...(v?.table && m ? [{ label: 'Columns', items: columnItems(m) }] : []),
         { label: 'Duplicate', run: () => addView(v.name, null, id) },
         { label: 'Delete', danger: true, disabled: views().length < 2, run: () => {
           const next = views().find(x => x.id !== id);

@@ -261,7 +261,6 @@ const Time = (() => {
       case 'Formula': return gone ? `Deleted the formula of ${of}` : i.was.length ? `Changed the formula of ${of}` : `Defined ${of}`;
       case 'Name': return gone ? `Unnamed ${of}` : i.was.length ? `Renamed ${latestOf(i.was).value} to ${n.value}` : `Named ${of} ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
-      case 'Layout': return null;
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
       default: return `Changed ${n.label}${n.pattern.id !== undefined || isView ? ' of ' : ' for '}${of}${inView}`;
     }
