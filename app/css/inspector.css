@@ -1,23 +1,33 @@
 /* The inspector, on dendra.css's rows: a label column and a value column, values typed over in place. */
 
+.inspector { --label: 152px; }
 .insp { padding-bottom: 32px; }
-.ih { padding: 18px 20px 14px; border-bottom: 1px solid var(--rule); }
-.ih > .path { margin-bottom: 2px; }
-.ih a, .rows a, .relate a, .styles a, section a { cursor: default; }
-.ih a:hover, .rows a:hover, .relate a:hover, section a:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--rule-2); }
+.ih { padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
+.ih > .path { margin-bottom: 4px; }
 .ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; }
 .ih.two { display: grid; gap: 4px; }
 .cellbox.title .cell { font: var(--t15); }
 @container (min-width: 640px) { .ih { padding-top: 28px; } .ih-title, .cellbox.title .cell { font: var(--t22); } .cellbox.title .cell { height: 36px; } }
 
-/* A row's depth in the tree, and its grip: drag to reorder, click for its menu. */
+/* A name that selects what it names: set as text, a button to the keyboard. */
+:where(button.lk) { display: inline; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: inherit; cursor: default; overflow-wrap: anywhere; }
+button.lk:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--rule-2); }
+button.lk:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; border-radius: 2px; }
+button.lk.fx { font-style: italic; }
+button.lk.muted { color: var(--ink-3); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* A row's depth in the tree, and its grip: drag to reorder, click for its menu. A label too long for its
+   column ends in an ellipsis, the whole of it in its title. */
 .row { position: relative; }
 .row > .k { padding-left: calc(var(--depth, 0) * 14px); }
+.row > .k:not(.wide, :has(.cell)), .row > .k:not(.wide) > .lk { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row > .k:not(.wide) > .lk { display: block; max-width: 100%; }
 .row > .v.ctl { display: flex; align-items: center; gap: 2px; padding: 0; min-height: var(--row); }
 .row > .k.wide { grid-column: 1 / -1; }
 .row > .k:has(> .cellbox, > .cell) { padding-top: 0; padding-bottom: 0; }
 .lbl { cursor: default; }
-.ruled > .k .lbl, .ruled > .k a { color: var(--ink-3); }
+.ruled > .k .lbl { color: var(--ink-3); }
 .grip { position: absolute; left: calc(var(--depth, 0) * 14px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
 .grip > svg { width: 14px; height: 14px; }
 .row:hover > .grip, .grip:focus-visible { opacity: 1; }
@@ -41,6 +51,13 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .cellbox.off .cell { color: var(--ink-3); }
 textarea.cell.desc { field-sizing: fixed; width: calc(100% + 7px); height: auto; min-height: var(--row); padding: 4px 6px; line-height: 18px; resize: none; overflow: hidden; white-space: pre-wrap; }
 .hug.over::after { top: 4px; right: -1px; }
+.cellbox > .unit { margin-left: -6px; color: var(--ink-3); }
+.cellbox:has(> .unit) .cell { min-width: 2ch; }
+
+/* Dates a formula gives: red once overdue, amber when due soon; never broken across lines. */
+.overdue, .hug.overdue > .cell, span.no { color: var(--no); }
+.soon, .hug.soon > .cell { color: var(--due); }
+.date { white-space: nowrap; }
 
 /* A choice: its option and a chevron, opening the options. */
 .sel { height: var(--row); max-width: calc(100% + 7px); margin-left: -7px; padding: 0 6px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); text-align: left; cursor: default; }
@@ -54,13 +71,18 @@ textarea.cell.desc { field-sizing: fixed; width: calc(100% + 7px); height: auto;
 .tag.peek { opacity: .8; }
 .tag:disabled { pointer-events: none; }
 .tag[aria-disabled="true"] { opacity: .4; }
-.tag.mini { width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
-.tag.mini::before, .tag.mini::after { width: 6px; height: 1.4px; }
 .row:has(.tag.peek.no) > .k .lbl, .rr:has(.tag.peek.no) > .nm { color: var(--no); text-decoration: line-through; }
 .row:has(.tag.peek.yes) > .k .lbl, .rr:has(.tag.peek.yes) > .nm { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
 
-.ver { width: 20px; height: 20px; flex: none; color: var(--ink-3); }
-.ver > svg { width: 14px; height: 14px; }
+/* Quiet actions at a value's right: its other values counted ("2 earlier"), and a due date's filing. */
+.btn.ver { height: 20px; margin-left: auto; padding: 0 4px; flex: none; font: var(--t12); color: var(--ink-3); }
+.btn.ver:hover { color: var(--ink); }
+.row.rel > .v { display: flex; align-items: baseline; gap: 4px; }
+.row.rel > .v > .lk { flex: 0 1 auto; min-width: 0; }
+.filing { display: grid; gap: 8px; width: 220px; }
+.filing > .field { display: grid; gap: 4px; font: var(--t12); color: var(--ink-2); }
+.filing .cell { margin: 0; width: 100%; border-color: var(--rule-2); background: var(--surface); color: var(--ink); font: var(--t13); }
+.filing > .meta { white-space: nowrap; }
 .btn.icon.open { width: 24px; height: 24px; flex: none; color: var(--ink-3); }
 .btn.icon.open > svg { width: 14px; height: 14px; }
 .addrow .add-entry, .rr .add-entry { height: 24px; margin: 2px 0 0 -7px; padding: 0 7px 0 4px; gap: 4px; color: var(--ink-3); }
@@ -80,13 +102,13 @@ textarea.cell.desc { field-sizing: fixed; width: calc(100% + 7px); height: auto;
 .sect > .btn.icon > svg { width: 14px; height: 14px; }
 .sect > .reset { height: 20px; margin: 0 -6px 0 0; padding: 0 6px; font: var(--t12); color: var(--ink-2); }
 section.open > :last-child { margin-bottom: 8px; }
-.row.rel > .k a { color: var(--ink); }
-.row.rel > .v > a { color: var(--ink-2); }
-.row.rel > .v > a:hover { color: var(--ink); }
-.via > a { color: var(--ink); }
-.doc { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 8px; padding: 5px 16px 5px 20px; }
-.doc > a:first-child { color: var(--ink); }
-.doc > .open { margin: -3px 0; }
+.row.rel > .v > .lk { color: var(--ink-2); }
+.row.rel > .v > .lk:hover { color: var(--ink); }
+/* What a record is not, said plainly under its entries. */
+.nots { padding: 8px 0; border-top: 1px solid var(--rule); color: var(--ink-2); }
+.nots .lk:hover { color: var(--ink); }
+.doc { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 8px; padding: 4px 16px 4px 20px; }
+.doc > .open { margin: -2px 0; }
 .doc > .meta { grid-column: 1; }
 .doc:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
 .v.look { display: flex; align-items: baseline; gap: 8px; }
@@ -98,28 +120,38 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 /* Styles: each style's name, then its outputs, each a swatch drawn as on the page and its caption. */
 .styles { padding: 4px 0 8px; }
 .style > .row > .k.sname { grid-column: 1 / -1; font-weight: 500; color: var(--ink); }
-.style > .row > .k.sname > a { cursor: default; }
 .row.out { grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; padding-left: 34px; }
 .row.out > .k { display: flex; align-items: center; padding: 0; min-height: var(--row); }
 .row.out .oname { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 4px; color: var(--ink-3); }
 svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; }
 svg.sw.off { opacity: .35; }
-:root[data-theme="dark"] svg.sw { background: var(--page); border-radius: 3px; box-shadow: 0 0 0 2px var(--page); }
+/* In dark, a swatch is drawn as the page's colours turned to the panel's, as are colour chips' edges. */
+:root[data-theme="dark"] svg.sw { filter: invert(.88) hue-rotate(180deg); }
+:root[data-theme="dark"] i.chip { border-color: var(--ink-3); }
 
-/* Two records: a row for each relation they're in or could be in, with each side's role. */
+/* A Key's rows, each shown or hidden by its box. */
+label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; align-items: center; }
+.keyrow > .k { display: flex; align-items: center; gap: 10px; padding: 0; }
+.keyrow > .v { padding: 4px 0; }
+.keyrow:has(input:not(:checked)) > .v { color: var(--ink-3); }
+.keyrow.on { background: var(--selected); }
+
+/* Two records: a row for each relation they're in or could be in: its name, each side's role in the order of
+   the header's two names, and its value. */
 .relate { padding: 8px 0 16px; }
-.rr { display: grid; grid-template-columns: 14px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: var(--row); padding: 0 20px; }
+.rr { display: grid; grid-template-columns: 14px minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, .8fr); column-gap: 8px; align-items: center; min-height: var(--row); padding: 0 16px 0 20px; }
 .rr:not(.head):hover { background-image: linear-gradient(var(--hover), var(--hover)); }
-.rr.head { min-height: 24px; font: 500 var(--t12); color: var(--ink-3); }
-.rr > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.rr.head { align-items: end; padding-bottom: 4px; font: 500 var(--t12); color: var(--ink-3); }
+.rr.head > span { white-space: normal; overflow-wrap: anywhere; }
+.rr > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t12); color: var(--ink-2); }
 .rr > .ctl { display: flex; overflow: visible; }
-.rr > .nm { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr > .nm { display: block; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr.ruled > .nm { color: var(--ink-3); }
-.rr > .more { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 16px; padding-bottom: 4px; overflow: visible; }
-.relv { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.relv > .cellbox { flex: none; width: 104px; }
-.relv .cell, .relv .sel { margin-left: 0; width: 104px; border-color: var(--rule); }
-.relv .sel { justify-content: space-between; }
+.rr > .val { display: flex; align-items: center; gap: 4px; }
+.rr > .val > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rr > .val .cell, .rr > .val .sel { margin-left: 0; width: 100%; field-sizing: fixed; font: var(--t12); border-color: var(--rule); }
+.rr > .val .sel { justify-content: space-between; }
+.rr > .val .sel.ph > span { color: var(--ink-3); }
 .rr.new > .cell { width: 100%; margin-left: -7px; }
 .rr.new > .add-entry { grid-column: 2 / -1; justify-self: start; }
 

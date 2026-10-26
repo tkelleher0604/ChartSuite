@@ -158,8 +158,8 @@ async function run() {
   check('Undo brings it back', !!st().fund_fye);
 
   // Relatives by list
-  check('relatives show by list, each a link', $$('.sect > .fold').map(s => s.textContent).includes('Owners') && $$('.row.rel .k a').some(a => a.textContent === 'Offshore Feeder'));
-  $$('.row.rel .k a').find(a => a.textContent === 'Offshore Feeder').click(); await tick();
+  check('relatives show by list, each a link', $$('.sect > .fold').map(s => s.textContent).includes('Owners') && $$('.row.rel .k .lk').some(a => a.textContent === 'Offshore Feeder'));
+  $$('.row.rel .k .lk').find(a => a.textContent === 'Offshore Feeder').click(); await tick();
   check('a relative’s link selects it', Shell.selection.value[0] === 'feeder');
 
   // Pasting a link
@@ -167,7 +167,7 @@ async function run() {
   const dt = new DataTransfer(); dt.setData('text/plain', 'https://contoso.sharepoint.com/sites/FundLegal/Shared%20Documents/Blocker%20Consent.pdf');
   document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); await tick();
   const doc = Object.entries(st()).find(([, r]) => r.edge === 'Link' && r.value.endsWith('Blocker%20Consent.pdf'));
-  check('pasting a link links a document', doc && Object.values(st()).some(r => r.args?.some(a => a.at === doc[1].at) && r.args.some(a => a.at === 'blocker')), $$('section .row.rel .k a').map(a => a.textContent).join(' | '));
+  check('pasting a link links a document', doc && Object.values(st()).some(r => r.args?.some(a => a.at === doc[1].at) && r.args.some(a => a.at === 'blocker')), $$('section .row.rel .k .lk').map(a => a.textContent).join(' | '));
 
   // Two boxes
   Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
@@ -197,7 +197,7 @@ async function run() {
   Shell.select(['fund']); Shell.at({ asOf: '2026-01-01' }); await tick();
   await type(rowOf('EIN').querySelector('input'), '92-0000001');
   check('with a day shown, an edit takes effect from it', last().adds.some(r => r.record === 'fund_ein' && r.since === '2026-01-01'));
-  check('a record with other values has a chevron listing them', !!rowOf('EIN').querySelector('.ver'), App.wb.item(C, 'fund_ein').length + ' rows; ' + rowOf('EIN').querySelector('.v').innerHTML);
+  check('a record with other values counts them (“1 earlier”)', rowOf('EIN').querySelector('.ver')?.textContent === '1 earlier', App.wb.item(C, 'fund_ein').length + ' rows; ' + rowOf('EIN').querySelector('.v').innerHTML);
   Shell.at(null); await tick();
 
   // Required, and attention
