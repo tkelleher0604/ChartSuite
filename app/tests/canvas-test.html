@@ -288,7 +288,8 @@ async function run() {
   }
   check('every box’s handles sit on its outline, clear of the lines at it', !busy.length, busy.join(' '));
   Shell.select(['fund']); await tick(80);
-  const gripped = await handlesOn(tri), grips = [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].map(fy => [tri.x + tri.w * fx, tri.y + tri.h * fy]));
+  const gripped = await handlesOn(tri), z0 = g.zoom(), grips = [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => (fx !== 0.5 || fy !== 0.5) && (fx !== 0.5 || tri.w * z0 >= 40) && (fy !== 0.5 || tri.h * z0 >= 40))
+    .map(fy => [tri.x + tri.w * fx, tri.y + tri.h * fy]));
   check('… and clear of its grips when it’s selected', gripped.every(({ p }) => grips.every(q => Math.hypot(p[0] - q[0], p[1] - q[1]) * g.zoom() >= 15.9)), gripped.map(x => `${x.side} ${x.p.map(Math.round)}`).join('; '));
   Shell.select(['halvard']); await tick(80);
   const [one] = await handlesOn(tri), hr = one?.h.getBoundingClientRect();

@@ -710,13 +710,15 @@ function mount(el) {
     const now = [m, scene, z, t.tx, t.ty, gripped];
     if (placed && same(placed, now)) return root.classList.add('relating-on');
     placed = now;
-    // What's near the box: the lines' legs, and its grips, at its corners and the middles of its sides.
+    // What's near the box: the lines' legs, and its grips, at its corners and the middles of its sides long
+    // enough to have one (see grips).
     const r = CLEAR / z, segs = [];
     for (const k of scene.marks) if (k.points) k.points.slice(1).forEach((p, i) => {
       const q = k.points[i];
       if (Math.max(p[0], q[0]) >= m.x - r && Math.min(p[0], q[0]) <= m.x + m.w + r && Math.max(p[1], q[1]) >= m.y - r && Math.min(p[1], q[1]) <= m.y + m.h + r) segs.push([q, p]);
     });
-    const dots = gripped ? [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => fx !== 0.5 || fy !== 0.5).map(fy => [m.x + m.w * fx, m.y + m.h * fy])) : [];
+    const dots = !gripped ? [] : [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => (fx !== 0.5 || fy !== 0.5) && (fx !== 0.5 || m.w * z >= 40) && (fy !== 0.5 || m.h * z >= 40))
+      .map(fy => [m.x + m.w * fx, m.y + m.h * fy]));
     const clear = p => segs.every(([a, b]) => toSegment(p, a, b) * z >= CLEAR) && dots.every(d => Math.hypot(p[0] - d[0], p[1] - d[1]) * z >= CLEAR);
     for (const h of handles) {
       const side = h.classList[1], p = ALONG.map(f => sidePoint(m, side, f)).find(p => p && clear(p));
