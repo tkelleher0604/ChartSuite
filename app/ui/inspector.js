@@ -746,7 +746,7 @@ function RelateView({ a, b }) {
   const openRow = x => { const slot = slotOf(x), tag = 'tag' in x.s.out, fill = e => T.same(e, x.ea) ? x.la : T.same(e, x.eb) ? x.lb : null;
     const say = (e, first) => { if (fill(e)) return side(fill(e), first);
       const p = x.rest.find(q => T.same(q.edge, e)), y = picks[x.key + p.edge];
-      return html`<button class=${'sel dd' + (y ? '' : ' ph')} aria-label=${`${p.edge}: ${y ? nameOf(objectOf(y)) : 'none'}`} onClick=${ev => pick(ev, x, p)}><span>${y ? shortOf(objectOf(y)) : lower(p.edge)}</span></button>`; };
+      return html`<button class=${'sel dd' + (y ? '' : ' ph')} aria-label=${`${p.edge}: ${y ? nameOf(objectOf(y)) : 'none'}`} onClick=${ev => pick(ev, x, p)}><span>${y ? shortOf(objectOf(y)) : '…'}</span></button>`; };
     return html`<div class="rr" key=${x.key} data-key=${x.key}>
       <span class="ctl">${!tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => { relate(x, slot, { tag: true }); emit('tag-flip', slot); }} />` : html`<span class="tag" aria-disabled="true" />`}</span>
       <span class="nm">${sentence(x.s, n.edges(x.s), say)}</span>
