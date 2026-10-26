@@ -495,7 +495,7 @@ const caption = (p, f) => f.Caption ?? (p.kind !== undefined ? p.kind : p.out?.c
 const DASH = { dashed: '4 3', dotted: '1.2 2.4' };
 // An output's look, drawn as on the page: a box, a line, or text.
 function Swatch({ p, f }) {
-  const text = ['Color', 'Bold', 'Italic', 'Size', 'Font', 'Format'].some(k => k in f), line = p.args?.length > 1, box = !line && (!p.args || Object.keys(f).some(k => BOX.has(k)));
+  const text = ['Color', 'Bold', 'Italic', 'Size', 'Font', 'Format'].some(k => k in f), line = p.args?.length > 1, box = !line && (!p.args || ['Shape', 'Fill', 'Outline', 'Weight', 'Dash'].some(k => k in f));
   const st = { fill: f.Fill ?? '#ffffff', stroke: f.Outline ?? '#3f4441', 'stroke-width': Math.min(f.Weight ?? 1, 2.5), 'stroke-dasharray': DASH[f.Dash] ?? null };
   const shape = f.Shape === 'oval' ? html`<ellipse cx="14" cy="8" rx="12.5" ry="6.5" ...${st} />` : f.Shape === 'triangle' ? html`<path d="M14 1.5 26.5 14.5H1.5Z" ...${st} />`
     : html`<rect x="1.5" y="1.5" width="25" height="13" rx=${f.Shape === 'rounded' ? 3.5 : 0} ...${st} />`;
