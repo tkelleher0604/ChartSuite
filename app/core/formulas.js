@@ -2969,7 +2969,12 @@ function reworking(R, changed, P, entered) {
   // The names the change reaches: the changed records', and those located at them; and names the schema
   // now has, or no longer has, somewhere.
   const touched = new Set();
-  for (const recs of [was, entered]) for (const id of Tree.dependents(recs, changed.filter(x => recs[x]))) namesOfRecord(recs[id], P.reg, touched);
+  let alone = true;
+  for (const recs of [was, entered]) {
+    const here = changed.filter(x => recs[x]), reached = Tree.dependents(recs, here);
+    alone &&= reached.size === here.length;
+    for (const id of reached) namesOfRecord(recs[id], P.reg, touched);
+  }
   for (const k of ['lists', 'values']) for (const [a, b] of [[O.P.known[k], P.known[k]], [P.known[k], O.P.known[k]]]) for (const n of a) if (!b.has(n)) touched.add(n);
   const kinds = [...touched].some(n => n.startsWith('kind:'));
   const reads = P.groups.map(g => readsOf(g, P.reg));
@@ -2987,9 +2992,9 @@ function reworking(R, changed, P, entered) {
   };
   return {
     keep,
-    // Whether the change is only to values no group reads: then every group comes back as it was, and the
-    // indexes, which go by where records are and not by their values, stand.
-    valuesOnly: () => changed.every(id => { const a = was[id], b = entered[id]; return a && b && isField(a) && isField(b) && !a.args && !b.args && a.at === b.at && a.edge === b.edge && a.field === b.field; })
+    // Whether the change is only to the outputs of entries nothing is located at, which no group reads: then
+    // every group comes back as it was, and the indexes, which go by where records are, stand.
+    inPlace: () => alone && changed.every(id => { const a = was[id], b = entered[id]; return a && b && !isObject(a) && !isObject(b) && !a.args && !b.args && a.at === b.at && a.edge === b.edge; })
       && P.groups.every((_, i) => keep(i)),
     // A group worked out again that now gives something else reaches the names its records are found under;
     // where no later group reads them, it's not compared.
@@ -3000,12 +3005,27 @@ function reworking(R, changed, P, entered) {
     },
   };
 }
-// The state `O` left, with these entered records in place of its own, which changed only in values no group
-// reads (see valuesOnly): its records in the order a working-out from nothing gives them, and its indexes.
-function swapped(O, P, entered) {
+// The state `O` left, with these entered records in place of its own, which changed only in their outputs
+// (see inPlace): its records in the order a working-out from nothing gives them, and its indexes, but for the
+// specification of an entry whose output's kind changed (a tag ruled out, another option), worked out again
+// into copies of the lists it's in.
+function swapped(O, P, entered, changed) {
   const recs = Object.assign({}, entered);
   for (const id in O.recs) if (!(id in recs)) recs[id] = O.recs[id];
-  return { ...O, P, entered, recs, memo: new Map(), cf: new Map(), listBits: new WeakMap(), cut: null, probe: null, count: null, came: [], done: P.groups.length,
+  let specs = O.specs, bySpec = O.bySpec;
+  for (const id of changed) {
+    if (rootLabel(O.recs[id]) === rootLabel(entered[id]) || !O.specs.has(id)) continue;
+    if (specs === O.specs) { specs = new Map(specs); bySpec = new Map(bySpec); }
+    const was = specs.get(id);
+    specs.delete(id);
+    bySpec.set(was, bySpec.get(was).filter(x => x !== id));
+    const now = specOf({ recs, specs, bySpec: new Map() }, id);
+    if (now === null) continue;
+    const list = [...bySpec.get(now) ?? []], k = list.findIndex(x => recs[x]?.computed);
+    list.splice(k < 0 ? list.length : k, 0, id);
+    bySpec.set(now, list);
+  }
+  return { ...O, P, entered, recs, specs, bySpec, memo: new Map(), cf: new Map(), listBits: new WeakMap(), cut: null, probe: null, count: null, came: [], done: P.groups.length,
     steps: P.groups.map(g => ({ defs: g.defs.map(d => d.id), ms: 0, rounds: 0, tried: 0, evals: 0, kept: true })) };
 }
 // Group i put back as `O` left it.
@@ -3054,7 +3074,7 @@ function computeState(entered, definitions, names, from) {
   P.frame = frameOf(defs, names);
   const given = from && changesSince(from, P, entered), base = given ? { R: from, changed: given } : from === null ? null : closest(P, entered);
   const again = base && reworking(base.R, base.changed, P, entered);
-  const S = again?.valuesOnly() ? swapped(base.R.state, P, entered) : stateFor(P, entered);
+  const S = again?.inPlace() ? swapped(base.R.state, P, entered, base.changed) : stateFor(P, entered);
   for (; S.done < P.groups.length; S.done++) {
     const i = S.done;
     S.came = [];
