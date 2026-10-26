@@ -190,7 +190,8 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr > .val .cell { min-width: 6ch; }
 .rr > .why { grid-column: 2 / -1; margin-top: -4px; padding-bottom: 6px; font: var(--t12); color: var(--ink-3); }
 .sel .ph, .rr .sel.ph > span { color: var(--ink-3); }
-.rr-at > .ent > .row, .rr-at > .row { padding-left: 42px; }
+.rr-at .row { padding-left: 42px; }
+.rr-at .row.chk { padding-left: calc(42px + var(--depth, 0) * 16px); }
 .rr.new > .form { grid-column: 2 / -1; display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 4px; }
 .rr.new > .form > .cell { width: calc(100% + 7px); }
 .rr.new > .add-entry { grid-column: 1 / -1; justify-self: start; }
