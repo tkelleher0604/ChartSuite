@@ -339,7 +339,7 @@ async function run() {
   check('… its filing always shown, not only on hover', filing?.classList.contains('due') && getComputedStyle(filing).opacity === '1');
   formD.querySelector('.btn.ver').click(); await tick(80);
   const filed = FormulaBar.pending.peek();
-  check('Filed… records the entry the rule reads, redlining where the due date moves', document.querySelector('.filing .field span')?.textContent === 'Last Filed'
+  check('Filed… records the entry the rule reads, redlining where the due date moves', document.querySelector('.filing .field span')?.textContent === 'Last Filing'
     && filed?.diff.change.some(id => id.startsWith('fx:form d due')), JSON.stringify(filed?.diff));
   key(document.querySelector('.filing input'), 'Escape'); await tick();
   check('… and Esc leaves it as it was', !document.querySelector('.filing') && !FormulaBar.pending.peek());

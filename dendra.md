@@ -41,6 +41,7 @@ A **note** is an entry located at a pattern, and optionally also at a view, labe
 | Name, Description | what a kind, entry or relation is called and means; on a parameter, the name of its list of relatives (Owners, Holdings) |
 | Order | where an entry sits among its location's entries |
 | Required | that a blank one needs attention |
+| Check | that one ruled out needs attention: on a definition, that it checks something |
 | Start, End | which entries are the start and end of what they're at |
 | Formula | how its records are worked out (see Definitions) |
 | Shown, Caption, Position, and the format properties | how a view draws them (see Views): Shape, Fill, Outline, Weight, Dash, Frame, Layer, Arrow, Connector, Above, Font, Size, Bold, Italic, Underline, Color, Align, Format |

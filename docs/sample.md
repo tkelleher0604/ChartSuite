@@ -1,6 +1,6 @@
 # The sample
 
-The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 145 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would.
+The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 136 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would.
 
 ## What's in it
 
@@ -25,7 +25,7 @@ Opened as of today, the chart has 885 entered records. The definitions work out 
   - the Cayman annual return and fee, audited accounts, CRS and FATCA.
 
   Each moves to the business day before a weekend where the rule says "on or before".
-- **Checks:** formation documents and governing agreements on file, **Percentages In Range** for every ownership, and **Capacity Held**. That one flags David R. Okafor, who signs through GP III without managing it.
+- **Checks**, definitions whose every ruled-out record is a problem: formation documents and governing agreements on file, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag twelve: David R. Okafor's four signing authorities through GP III, which he doesn't manage, and eight formation documents and governing agreements not on file.
 
 ## Views
 
@@ -48,4 +48,4 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page.
 
 ## How it's kept
 
-The sample was converted from the earlier app's, and revised since by scripts that append changes through the Log API, never by editing past changes. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).
+The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, and the people's addresses. So every change in History is one of the three people's, and the chart as it stood after each works out as it did. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).

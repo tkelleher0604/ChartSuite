@@ -122,6 +122,7 @@ function index(rows) {
     description: t => value('Description', t),
     order: t => value('Order', t),
     required: t => value('Required', t) === true,
+    check: t => value('Check', t) === true,
     isStart: t => value('Start', t) === true,
     isEnd: t => value('End', t) === true,
     shown: (t, view) => value('Shown', t, view),
