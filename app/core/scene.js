@@ -521,7 +521,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
       obstacles: obstaclesOf(shapeRows, boxes, sheet),
       clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
-      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze), page: sheet, bounds: last?.page ?? null,
+      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: sheet, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level).
@@ -533,6 +533,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     return furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy, placing: onPaper });
   };
   let at = lay(1);
+  const heights = new Map(boxes.map(b => [b.id, b.h]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at.
   if (onPaper && boxes.length) {
@@ -631,13 +632,24 @@ function push(boxes, frames) {
   });
 }
 // Entered places on a paper narrower than their page: each box's middle `f` times as far from the chart's
-// left, the box `f` times as wide.
-function squeezed(positions, boxes, f) {
-  const x0 = Math.min(...[...positions.values()].map(p => p.x));
-  const width = new Map(boxes.map(b => [b.id, b.w]));
+// left, the box `f` times as wide. A rank whose names wrap more grows up into the space over it, down to 40 pt
+// from the rank above, and the rest of what it grew moves every rank under it down (`was`, each box's height on
+// its page), so that the space between ranks stays as it was where it's no more than that.
+function squeezed(positions, boxes, f, was) {
+  const x0 = Math.min(...[...positions.values()].map(p => p.x)), by = new Map(boxes.map(b => [b.id, b]));
+  const ranks = groupBy([...positions].filter(([id]) => by.has(id)), ([, p]) => Math.round(p.y / 4));
+  let shift = 0, floor = -Infinity;
+  const at = new Map([...ranks.keys()].sort((a, b) => a - b).map(r => {
+    const ids = ranks.get(r).map(([id]) => id), top = Math.min(...ranks.get(r).map(([, p]) => p.y));
+    const now = Math.max(...ids.map(id => by.get(id).h)), then = Math.max(...ids.map(id => was.get(id) ?? by.get(id).h)), grew = Math.max(0, now - then);
+    const up = Math.min(grew, Math.max(0, top + shift - floor - 53)), moved = shift - up;
+    shift += grew - up;
+    floor = top + moved + now;
+    return [r, moved];
+  }));
   return new Map([...positions].map(([id, p]) => {
-    const w = width.get(id) ?? 0, was = p.w ?? w / f;
-    return [id, { ...p, x: x0 + (p.x + was / 2 - x0) * f - w / 2 }];
+    const w = by.get(id)?.w ?? 0, wide = p.w ?? w / f;
+    return [id, { ...p, x: x0 + (p.x + wide / 2 - x0) * f - w / 2, y: p.y + (at.get(Math.round(p.y / 4)) ?? shift) }];
   }));
 }
 // A mark moved by (dx, dy), with everything placed in it.

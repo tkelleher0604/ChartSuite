@@ -262,8 +262,10 @@ async function run() {
     const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [main], 'Letter', WHO)).arrayBuffer());
     const box = /\/MediaBox \[([^\]]+)\]/.exec(raw)[1].trim().split(/\s+/).map(Number);
     check('on Letter, a PDF page is 11 × 8.5 in, so it prints without shrinking', Math.abs(box[2] - 792) < 0.1 && Math.abs(box[3] - 612) < 0.1, box.join(' '));
-    const names = letter.map(s => Math.min(...s.marks.filter(m => m.type === 'box').map(b => Scene.toSlide(s.page, b.texts[0].look.Size))));
-    check('… laid out for the paper, not shrunk to it: no name prints under 7.5 pt, Structure’s at 8', names.every(p => p >= 7.5) && names[0] >= 8, names.join(', '));
+    const smallest = s => Math.min(...s.marks.filter(m => m.type === 'box').map(b => Scene.toSlide(s.page, b.texts[0].look.Size)));
+    const names = letter.map(smallest), shrunk = views.map(v => smallest(Scene.of(sample, C, v, DAY, { state: R.records, computed: R })) * Math.min(1056 / 1280, 816 / 720));
+    check('… laid out for the paper, not shrunk to it: every view’s names print larger than its slide’s would, none under 7 pt', names.every((p, i) => p > shrunk[i] && p >= 7),
+      `${names.join(', ')} against ${shrunk.map(p => p.toFixed(2)).join(', ')}`);
     const zip = await JSZip.loadAsync(await Export.write('pptx', [main], 'Letter', WHO)), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
     const doc = xml(await zip.file('ppt/slides/slide1.xml').async('string')), k = main.page.scale;
     const title = tags(doc, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === 'Title'), off = title && tags(title, 'a:off')[0];
