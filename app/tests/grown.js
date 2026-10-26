@@ -1,13 +1,13 @@
 // What the formula tests share: the sample's log, as formulas.js takes it on a day, a chart grown from it for
 // testing how the engine scales, and definitions written as Notes gives them.
 
-// The sample as of a day: its entered records, and its Formula notes and relation names as formulas.js takes
-// them. The day is fixed, so the counts the tests check don't move.
+// The sample as of a day: its entered records, and its Formula notes, relation names and schema as formulas.js
+// takes them, as the app gives them. The day is fixed, so the counts the tests check don't move.
 const DAY = '2026-10-26';
 const WB = Log.open(SAMPLE), CHART = WB.charts()[0].chart;
 function sampleAsOf(day = DAY) {
   const S = WB.schema(CHART), N = WB.notes(CHART);
-  return { recs: WB.asOf(CHART, day), definitions: N.definitions(S), names: { relations: N.relations(S) } };
+  return { recs: WB.asOf(CHART, day), definitions: N.definitions(S), names: { relations: N.relations(S), schema: S } };
 }
 const SAMPLE_INPUTS = sampleAsOf();
 const workOut = (recs = SAMPLE_INPUTS.recs, definitions = SAMPLE_INPUTS.definitions, names = SAMPLE_INPUTS.names) =>
