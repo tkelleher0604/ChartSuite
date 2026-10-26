@@ -511,6 +511,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // The key is of what the view draws: what's revealed for a while doesn't change it.
   const legendRows = legend(N, view, styles, [...boxes, ...lines].filter(m => !m.revealed));
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
+  // How far down a chart placed by hand starts, under the page's title and date (see push), as a preview keeps it.
+  let floor = last?.floor ?? -Infinity;
   const lay = squeeze => {
     for (const b of boxes) size(b, squeeze);
     for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => Math.round(b.w)).values()) level(ts);
@@ -526,13 +528,20 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     for (const b of boxes) Object.assign(b, placed.get(b.id));
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level).
     for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) level(rank);
-    push(boxes, frames);
+    push(boxes, frames, floor, lines.filter(l => l.ranks));
     frameBounds(frames, boxes);
     routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
     if (last) still(last, boxes, lines, frames);
     return furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy, placing: onPaper });
   };
   let at = lay(1);
+  // A chart placed by hand that's drawn smaller than it was placed for, so that the title and date reach down
+  // into it, moves down under them, as far as the scale it's then drawn at needs.
+  const top = () => Math.min(...boxes.map(b => b.y), ...[...frames.values()].map(f => f.y));
+  for (let i = 0; i < 3 && !last && !onPaper && boxes.some(b => b.entered) && top() * at.s < at.top - 0.5; i++) {
+    floor = at.top / at.s;
+    at = lay(1);
+  }
   const heights = new Map(boxes.map(b => [b.id, b.h]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at.
@@ -587,7 +596,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
-    page, places: at.places,
+    page, places: at.places, floor,
   });
 
   const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
@@ -607,29 +616,37 @@ function shapeOf(row, scene) {
   return m;
 }
 
-// Boxes that go together share a height, the tallest of them; but a box whose text had to be hyphenated
-// doesn't set it, and stands taller alone if it must, rather than stretch the rest.
+// Boxes that go together share a height, the tallest of them; but a box whose text had to be hyphenated, or
+// whose name runs past six lines, doesn't set it, and stands taller alone rather than stretch the rest.
 function level(ms) {
-  const h = Math.max(0, ...ms.filter(b => !b.texts.some(it => it.lines.some(l => l.cut))).map(b => b.h));
+  const h = Math.max(0, ...ms.filter(b => !b.texts.some(it => it.lines.some(l => l.cut)) && !(b.texts[0]?.lines.length > 6)).map(b => b.h));
   for (const b of ms) if (b.h < h) b.h = h;
 }
-// Where a box has grown into the boxes below it, they move down, and with them everything as low: ranks stay
-// level, 12 pt apart from the tallest box over them, with room for the frames between, and nothing overlaps.
-function push(boxes, frames) {
+// Where a box has grown into the rank below it, or the page's title and date reach down to the chart's top
+// (`floor`), the rank moves down as far as it must, and each rank under it as far as that makes it: ranks stay
+// level, 12 pt under the tallest box over them, or 30 pt where a line runs down from one to the other with no
+// frame between, with room for the frames between, and a rank that's clear stays where it is. A triangle under a
+// box is its middle half.
+function push(boxes, frames, floor = -Infinity, links = []) {
   const chain = new Map();
   for (const f of frames.values()) for (const id of f.members) { const c = []; for (let g = f; g; g = g.parent && frames.get(g.parent)) c.push(g); chain.set(id, c); }
   const below = f => f.kind === 'bracket' || f.lone ? 0 : 10, above = f => f.kind === 'bracket' ? f.label + 12 : f.lone ? f.label + 5.3 : f.label + 10;
-  const sorted = [...boxes].sort((a, b) => a.y - b.y);
-  sorted.forEach((b, i) => {
-    const fb = chain.get(b.id) ?? [];
-    for (const c of sorted.slice(i + 1)) {
-      if (c.y <= b.y + 0.5 || c.x >= b.x + b.w || b.x >= c.x + c.w) continue;
-      const fc = chain.get(c.id) ?? [];
-      const room = fb.filter(f => !fc.includes(f)).reduce((sum, f) => sum + below(f), 0) + fc.filter(f => !fb.includes(f)).reduce((sum, f) => sum + above(f), 0);
-      const d = b.y + b.h + room + 16 - c.y;
-      if (d > 0.5) { const top = c.y - 0.5; for (const o of boxes) if (o.y >= top) o.y += d; }
+  const joined = new Set(links.map(l => `${l.from}>${l.to}`)), over = [];
+  for (const rank of [...groupBy(boxes, b => Math.round(b.y / 4)).values()].sort((a, b) => a[0].y - b[0].y)) {
+    let d = 0;
+    for (const c of rank) {
+      const fc = chain.get(c.id) ?? [], [x0, x1] = c.shape === 'triangle' ? [c.x + c.w / 4, c.x + c.w * 3 / 4] : [c.x, c.x + c.w];
+      d = Math.max(d, floor + fc.reduce((sum, f) => sum + above(f), 0) - c.y);
+      for (const b of over) {
+        if (x0 >= b.x + b.w || b.x >= x1) continue;
+        const fb = chain.get(b.id) ?? [];
+        const room = fb.filter(f => !fc.includes(f)).reduce((sum, f) => sum + below(f), 0) + fc.filter(f => !fb.includes(f)).reduce((sum, f) => sum + above(f), 0);
+        d = Math.max(d, b.y + b.h + room + (!room && joined.has(`${b.id}>${c.id}`) ? 40 : 16) - c.y);
+      }
     }
-  });
+    if (d > 0.5) for (const c of rank) c.y += d;
+    over.push(...rank);
+  }
 }
 // Entered places on a paper narrower than their page: each box's middle `f` times as far from the chart's
 // left, the box `f` times as wide. A rank whose names wrap more grows up into the space over it, down to 40 pt
@@ -966,8 +983,8 @@ function obstaclesOf(rows, boxes, sheet) {
 // title if it's clear there of the title, the date and the chart, or else 24 pt under the chart, right-aligned
 // to it, at the foot of what's above it there; failing all of them, what fits the chart. Where the page sets the
 // chart, the Key beside the title takes the room there, its captions wrapping, and the chart starts 24 pt under
-// it. A preview keeps the page as it was. → { s, dx, dy, shapes, places: rowId → { x, y } }, everything in the
-// page's pixels.
+// it. A preview keeps the page as it was. → { s, dx, dy, shapes, places: rowId → { x, y }, top }, in the page's
+// pixels but `top`, how far down the sheet the chart may start.
 function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placing }) {
   const W = sheet.w, H = sheet.h, M = MARGIN;
   // What the chart draws, each as a rect.
@@ -1024,7 +1041,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       places.set(key.row, under);
     }
     for (const [id, p] of places) places.set(id, { x: p.x / s, y: p.y / s });
-    return { s, dx, dy, shapes, places };
+    return { s, dx, dy, shapes, places, top };
   };
   if (last) {
     const kept = at(last.page.scale, true);

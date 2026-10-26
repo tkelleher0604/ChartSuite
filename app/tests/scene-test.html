@@ -111,9 +111,12 @@ function run() {
     const grown = scene(wb), big = grown.byId.get('feeder'), all = big.texts[0].lines;
     check('a text too long for its box is never cut: every word is drawn', all.map(l => l.text).join(' ').replace(/ /g, ' ') === full && !all.some(l => l.cut || /…$/.test(l.text)), j(all.map(l => l.text)));
     const clash = grown.marks.filter(m => m.type === 'box').flatMap((a, i, bs) => bs.slice(i + 1).filter(b => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h).map(b => [a.id, b.id]));
-    const drops = below(grown).map(b => b.y - s.byId.get(b.id).y);
-    check('… its box grows, and the ranks below it move down together, so that no box overlaps another', big.h > s.byId.get('feeder').h * 1.5 && !clash.length
-      && drops.length > 3 && drops.every(d => d > 20 && Math.abs(d - drops[0]) < 0.5), j({ clash, drops: drops.map(Math.round) }));
+    const drops = below(grown).map(b => [Math.round(s.byId.get(b.id).y / 4), b.y - s.byId.get(b.id).y]), level = [...new Set(drops.map(([r]) => r))].every(r => new Set(drops.filter(d => d[0] === r).map(d => Math.round(d[1]))).size === 1);
+    check('… its box grows, and the ranks below it move down, each level, so that no box overlaps another', big.h > s.byId.get('feeder').h * 1.5 && !clash.length
+      && drops.length > 3 && drops.every(([, d]) => d > 20) && level, j({ clash, drops: drops.map(([r, d]) => [r, Math.round(d)]) }));
+    const k = grown.page.scale, date = grown.marks.find(m => m.role === 'date'), chartTop = Math.min(...grown.marks.filter(m => m.type === 'box').map(m => m.y)) * k;
+    check('… the other triangles keep their size, and the chart, drawn smaller, moves down under the title and date', j(tier(grown)) === j(tier(s))
+      && k < s.page.scale && chartTop >= (date.y + date.h) * k - 4.8 + 32 - 0.5, j({ scale: k, chartTop, under: (date.y + date.h) * k - 4.8 + 32 }));
     const balanced = s.byId.get('blocker').texts[0].lines.map(l => l.text);
     check('a suffix keeps to the word before it, and a name’s lines are balanced', j(balanced) === j(['Calder Ridge', 'III Blocker, Inc.'])
       && s.marks.filter(m => m.type === 'box').every(b => !b.texts.some(it => it.lines.some(l => /^(Inc\.|LLC|L\.P\.|Ltd\.)$/.test(l.text)))), j(balanced));
