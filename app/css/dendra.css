@@ -273,6 +273,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .settings > div.field { grid-template-columns: 1fr auto; align-items: center; }
 .settings > div.field > span:first-child { grid-column: 1 / -1; }
 .settings .who { font: var(--t13); color: var(--ink); }
+.settings > div.field > .btn { justify-self: start; }
 
 
 .foot { height: var(--foot); display: flex; align-items: stretch; min-width: 0; border-top: 1px solid var(--rule); background: var(--paper); user-select: none; }

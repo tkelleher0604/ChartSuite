@@ -536,7 +536,8 @@ function clausesOf(rows, text) {
     if (own) { groups.push({ label: own[1], rows: [], law: own[2] }); continue; }
     (any ? tail : lead).push(p);
   }
-  return { lead, groups, tail };
+  // A Description no clause takes is the Description's alone, shown above.
+  return any ? { lead, groups, tail } : { lead: [], groups, tail: [] };
 }
 // A row set as a statute sets a clause: a top-level OR or AND on a line of its own with a hanging indent,
 // functions and keywords in small capitals, other definitions' names as links. Clicked, it's edited in the bar.
