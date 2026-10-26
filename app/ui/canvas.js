@@ -61,25 +61,12 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
   const clear = (x, y) => !(bands && x < chart.r + gap && x + w + gap > chart.x && y < chart.d + gap && y + h + gap > chart.y)
     && !rects.some(r => x < r.x + r.w + gap && x + w + gap > r.x && y < r.y + r.h + gap && y + h + gap > r.y)
     && !segs.some(([a, b]) => Math.max(a[0], b[0]) >= x - g && Math.min(a[0], b[0]) <= x + w + g && Math.max(a[1], b[1]) >= y - g && Math.min(a[1], b[1]) <= y + h + g);
-  const x0 = m, y0 = m, x1 = page.w - m - w, y1 = page.h - m - h;
-  if (x1 >= x0 && y1 >= y0) {
-    // Rings outward from the place wanted, the nearest clear place in the first ring that has one.
-    const step = Math.max(8, Math.ceil(Math.max(page.w, page.h) / 160)), cx = clamp(near.x - w / 2, x0, x1), cy = clamp(near.y - h / 2, y0, y1);
-    for (let d = 0, reach = Math.ceil(Math.max(page.w, page.h) / step); d <= reach; d++) {
-      let best = null;
-      for (let i = -d; i <= d; i++) for (const j of Math.abs(i) === d ? range(-d, d) : [-d, d]) {
-        const x = cx + i * step, y = cy + j * step;
-        if (x < x0 || x > x1 || y < y0 || y > y1 || !clear(x, y)) continue;
-        const dist = Math.hypot(i, j);
-        if (!best || dist < best.dist) best = { x, y, dist };
-      }
-      if (best) return { x: best.x, y: best.y };
-    }
-  }
-  const bottom = Math.max(0, ...scene.marks.map(k => k.y + k.h));
-  return { x: clamp(near.x - w / 2, x0, page.w - m - w), y: bottom + gap * 2 };
+  const x0 = m, y0 = m, x1 = page.w - m - w, y1 = page.h - m - h, cx = clamp(near.x - w / 2, x0, x1), cy = clamp(near.y - h / 2, y0, y1);
+  const step = Math.max(8, Math.ceil(Math.max(page.w, page.h) / 160)), spots = [];
+  for (let x = x0; x <= x1; x += step) for (let y = y0; y <= y1; y += step) spots.push({ x, y, d: Math.hypot(x - cx, y - cy) });
+  const best = spots.sort((a, b) => a.d - b.d).find(p => clear(p.x, p.y));
+  return best ?? { x: cx, y: Math.max(0, ...scene.marks.map(k => k.y + k.h)) + gap * 2 };
 }
-const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
 // ---- Drawing: each mark as X6 cells ----
 
@@ -937,7 +924,7 @@ function mount(el) {
     } else graph.zoomTo(k);
     zoomLevel.value = graph.zoom();
   }
-  const resized = new ResizeObserver(() => { if (fitted && scene) requestAnimationFrame(() => fitted && zoom('fit')); });
+  const resized = new ResizeObserver(() => { showHandles(null); if (fitted && scene) requestAnimationFrame(() => fitted && zoom('fit')); });
   resized.observe(root);
   // Frames these records' marks (an entry lights the box or line it's in), as the formula bar asks when it
   // steps down to a reason: closer, up to 100%, where they're small on screen; out as far as they need.
@@ -948,23 +935,11 @@ function mount(el) {
     if (!ms.length) return;
     const ext = ms.flatMap(m => m.points ? m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 })) : [m]);
     const x = Math.min(...ext.map(m => m.x)), y = Math.min(...ext.map(m => m.y)), w = Math.max(...ext.map(m => m.x + m.w)) - x, h = Math.max(...ext.map(m => m.y + m.h)) - y;
-    const r = root.getBoundingClientRect(), pad = 56, z = graph.zoom();
-    const s = clamp(Math.min((r.width - 2 * pad) / Math.max(w, 1), (r.height - 2 * pad) / Math.max(h, 1), 1), 0.1, 4);
-    const a = graph.localToGraph(x, y), b = graph.localToGraph(x + w, y + h);
-    const seen = a.x >= pad / 2 && a.y >= pad / 2 && b.x <= r.width - pad / 2 && b.y <= r.height - pad / 2;
-    if (seen && z >= Math.min(s, 0.75) * 0.95) return;
-    glide(s, r.width / 2 - (x + w / 2) * s, r.height / 2 - (y + h / 2) * s);
-  }
-  // Moves the view to a zoom and translation, over a fifth of a second unless motion is reduced.
-  function glide(s, tx, ty) {
-    const s0 = graph.zoom(), t0 = graph.translate(), t1 = performance.now(), ms = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220;
-    const step = now => {
-      const k = ms ? Math.min(1, (now - t1) / ms) : 1, e = 1 - (1 - k) ** 3, z = s0 + (s - s0) * e;
-      graph.scale(z, z, 0, 0);
-      graph.translate(t0.tx + (tx - t0.tx) * e, t0.ty + (ty - t0.ty) * e);
-      if (k < 1) requestAnimationFrame(step); else { fitted = false; zoomLevel.value = graph.zoom(); }
-    };
-    requestAnimationFrame(step);
+    // Where they're all on screen already, and legible, the view stays.
+    const r = root.getBoundingClientRect(), a = graph.localToGraph(x, y), b = graph.localToGraph(x + w, y + h);
+    if (a.x >= 24 && a.y >= 24 && b.x <= r.width - 24 && b.y <= r.height - 24 && graph.zoom() >= 0.7) return;
+    graph.zoomToRect({ x, y, width: Math.max(w, 1), height: Math.max(h, 1) }, { padding: 56, maxScale: 1 });
+    zoomLevel.value = graph.zoom();
   }
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
