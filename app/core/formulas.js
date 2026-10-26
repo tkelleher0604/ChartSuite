@@ -1,35 +1,63 @@
 // Formulas: records worked out from other records, the way a spreadsheet works out cells (see formulas.md).
+// Nothing here touches the page.
 //
-// Formulas.computeState(entered, definitions, names) works out a chart's computed state from its entered
-// records. Formulas.evaluateAt(computed, text, at) works out one expression at a record, for a scratch box.
-// Nothing here touches the page, so the panel and the chart can use it the way the formula lab does.
-// It needs common.js (norm, same, clean) and model.js (the record predicates, argsOf, formatDate).
+// ---- What it takes (app/core/README.md) ----
+// The entered records as of one day, a state, in the core's shapes; and from the chart's Notes reader:
+//   definitions   Notes.definitions(schema): [{ id, name, covers, rows: [{ label, formula }], type, datatype,
+//                 options, edges }], one per Formula note. covers holds parameterization keys (Tree.paramKey). A
+//                 row's formula starts with = (gives a value) or ← (`<-` as typed), short for = IF(c, TRUE).
+//   names         { relations: Notes.relations(schema) }: [{ name, type, edges, lists: { [from edge]:
+//                 { [listed edge]: list name } }, covers }]. A relation's arguments go in its edges' order.
+// From Tree it uses norm and clean, the record predicates (isObject … argsOf, typeOf, rootLabel) and formatDate.
 //
-// A definition is a computed entry or relation: what it covers, and its formula. It's plain JSON, to live
-// in the state beside the styles and required entries:
-//   { id, name, type: 'field' | 'choice' | 'tag', datatype (for a field), self (may relate a thing to itself),
-//     covers: [parameterization, ...]            model.js parameterization() keys, so rekey() can move them
-//     formula: '= …'                             a value formula; or, for a tag,
-//     implications: [{ label, formula: '← …' }] }
-// An entry's name is its edge label. A relation's name is its pilot name (below), and its parameters go
-// in that relation's order. Instead of `covers`, a definition can give locations, which are easier to write:
-//   at: [location, ...]                          an entry: where it can be located
-//   args: [{ edge, at: [location, ...] }]        a relation: its parameters, in order
-// A location is a path from a kind, like 'Entity › Entity Type: Limited Partnership'. Each segment is a
-// choice ('Edge: Option'), an attested tag ('Edge') or a ruled-out one ('Not Edge').
-//
-// `names` holds the pilot's names for relations and their lists of relatives (formulas.md, "Names for
-// relations and lists"), keyed by output type and edge labels:
-//   { relations: [{ name, type, edges: [...], lists: { [from edge]: { [listed edge]: list name } } }] }
-// A list without a name goes by the edge label of the role it lists.
+// ---- The API ----
+// computeState(entered, definitions, names) → R, the computed state:
+//   records     entered and computed. A computed one has `computed`, its definition's id, and an id from its
+//               argumentation (computedId), the same from one working-out to the next.
+//   computed    { [id]: { def, row, label, holds, stage } }: the row that gave it (its index and label), every
+//               row that holds there (indexes; for a tag), and its stage, the round it first appeared in.
+//   covered     { [entered id]: { def, row, label, holds, value, agrees } }: what the rows give where an entry
+//               stands, which wins (row zero).
+//   errors      [{ def, id, args | at, error }], error being { code, msg }. defErrors: { [def]: { message, row, pos } }.
+//   loops       { [def]: [{ row, from, to, monotone }] }: where each row reads its own loop, for underlining.
+//   rows        all of it per definition; keptAside, order, steps, ms; and state, the engine's own.
+// ground(R, id) → why a record is there, as records, not words, for unfolding one level at a time:
+//   { id, def, entered, stage, rows: [{ row, label, stage, parts }] }. rows[0] is the ground: the row that gave
+//   it, or for a tag whose rows are all ←, the holding row of least stage; the others hold too. A part is
+//   { id, from, to, items? }: a record read (id null where what was read was nothing), the span of the formula
+//   that read it, and for an item counted or found, what it was counted or found with. A computed record in
+//   a part has a ground of its own; under a computed tag, each comes from an earlier group or round.
+// groundText(R, id) → the ground on one line, for exports: "Formation Date February 11, 2025 · Annual Tax Paid —".
+// evaluateRow(R, def, row, at) → { value, names: [{ from, to, ids }], parts: [{ from, to, values }] }: a row
+//   (its index, or a formula as typed) worked out at a record (its id, or { [edge]: object id } for a pair that
+//   has none): each name with the records it resolves to there, and each part's values (several inside FILTER).
+// diff(before, after) → { appear, go, change }: the record ids that would appear, go, or change output.
+// check(text, { computed, def }) → { kind, problems: [{ from, to, message }] }, for an editor's squiggles.
+// suggest(text, cursor, { computed, def, at }) → { from, to, list: [{ text, name, kind }] }, for completion.
+// evaluateAt(R, text, at, def) works an expression out at a record; formatValue(R, v) shows a value.
+// renameName(text, from, to) renames in a formula, for Log's renames; optionsWritten(text), the options a row
+// writes, for declaring them. Spans are character offsets into the row's formula, prefix included.
 
 const Formulas = (() => {
+const { isObject, isField, isTag, isChoice, isRelation, argsOf, typeOf, rootLabel, clean } = Tree;
+
+// Names compared as the core compares labels, kept once worked out: the same few are compared over and over.
+const normals = new Map();
+function normal(s) {
+  let n = normals.get(s);
+  if (n === undefined) {
+    if (normals.size > 50000) normals.clear();
+    normals.set(s, n = Tree.norm(s));
+  }
+  return n;
+}
+const same = (a, b) => normal(String(a ?? '')) === normal(String(b ?? ''));
 
 // ---- Values ----
-// BLANK is null. Numbers, text and TRUE/FALSE stand for themselves. A record is { t: 'rec', id, link }, with
-// `link` the relation record it was reached through when it came from a list of relatives. A relation call
-// that finds nothing gives a record whose id is null, which reads as BLANK. A date is { t: 'date', iso },
-// a list is an array, and an error is { t: 'err', code, msg }.
+// BLANK, nothing, is null. Numbers, text and TRUE/FALSE stand for themselves. A record is { t: 'rec', id, link },
+// with `link` the relation record it was reached through when it came from a list of relatives. A relation
+// call that finds nothing gives a record whose id is null, which is nothing. A date is { t: 'date', iso }, a
+// list is an array, and an error is { t: 'err', code, msg }.
 
 const err = (code, msg) => ({ t: 'err', code, msg });
 const isErr = v => v?.t === 'err';
@@ -37,18 +65,7 @@ const isRec = v => v?.t === 'rec';
 const isDate = v => v?.t === 'date';
 const recOf = (id, link = null) => ({ t: 'rec', id, link });
 const circular = () => err('#CIRCULAR!', 'This depends on itself.');
-
-// Names and labels compared without regard to case (common.js's norm), kept once worked out: the same few
-// are compared over and over as a chart is worked out.
-const normals = new Map();
-function normal(s) {
-  let n = normals.get(s);
-  if (n === undefined) {
-    if (normals.size > 50000) normals.clear();
-    normals.set(s, n = norm(s));
-  }
-  return n;
-}
+const isNothing = v => v === null || v === undefined || (Array.isArray(v) && !v.length) || (isRec(v) && v.id === null);
 
 // Numbers as the chart stores them: 1,000, $750,000,000, 71.6%.
 function readNumber(s) {
@@ -59,6 +76,8 @@ function readNumber(s) {
 }
 
 // ---- Reading formulas ----
+// Every node keeps its span in the formula as typed (from, to), so the formula bar can colour a name and say
+// what a part comes to.
 
 class FormulaError extends Error {
   constructor(message, pos) { super(message); this.pos = pos; }
@@ -68,69 +87,71 @@ const KEYWORDS = new Set(['AND', 'OR', 'NOT', 'IN', 'TRUE', 'FALSE']);
 
 // Numbers take `$` and `%` as typed in the chart. A thousands comma only counts after a `$`, since
 // `IF(x, 1,000)` would otherwise be ambiguous.
-function tokenize(src) {
+function tokenize(src, offset = 0) {
   const toks = [];
   let i = 0, m;
+  const at = (tok, length) => { tok.pos = i + offset; tok.end = i + length + offset; toks.push(tok); i += length; };
   while (i < src.length) {
     const rest = src.slice(i);
     if (/^\s/.test(rest)) { i++; continue; }
     if ((m = /^\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?/.exec(rest)) || (m = /^(?:\d+(?:\.\d+)?|\.\d+)%?/.exec(rest))) {
-      toks.push({ k: 'num', v: readNumber(m[0]), pct: m[0].endsWith('%'), pos: i });
-      i += m[0].length;
+      at({ k: 'num', v: readNumber(m[0]), pct: m[0].endsWith('%') }, m[0].length);
     } else if (rest[0] === '"') {
       let j = i + 1, s = '';
       for (;;) {
-        if (j >= src.length) throw new FormulaError('A text in quotes isn’t closed.', i);
+        if (j >= src.length) throw new FormulaError('A text in quotes isn’t closed.', i + offset);
         if (src[j] === '"') { if (src[j + 1] === '"') { s += '"'; j += 2; continue; } break; }
         s += src[j++];
       }
-      toks.push({ k: 'str', v: s, pos: i });
-      i = j + 1;
+      at({ k: 'str', v: s }, j + 1 - i);
     } else if (rest[0] === '[') {
       const j = src.indexOf(']', i);
-      if (j < 0) throw new FormulaError('A name in brackets isn’t closed.', i);
-      toks.push({ k: 'name', v: clean(src.slice(i + 1, j)), pos: i, end: j + 1 });
-      i = j + 1;
+      if (j < 0) throw new FormulaError('A name in brackets isn’t closed.', i + offset);
+      at({ k: 'name', v: clean(src.slice(i + 1, j)) }, j + 1 - i);
     } else if ((m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(rest))) {
       const w = m[0].toUpperCase();
-      toks.push(KEYWORDS.has(w) ? { k: 'kw', v: w, pos: i } : { k: 'name', v: m[0], pos: i, end: i + m[0].length });
-      i += m[0].length;
+      at(KEYWORDS.has(w) ? { k: 'kw', v: w } : { k: 'name', v: m[0] }, m[0].length);
     } else if ((m = /^(<>|<=|>=|[-+*/&=<>(),.{}:@])/.exec(rest))) {
-      toks.push({ k: 'op', v: m[0], pos: i });
-      i += m[0].length;
-    } else throw new FormulaError(`“${rest[0]}” isn’t part of a formula.`, i);
+      at({ k: 'op', v: m[0] }, m[0].length);
+    } else throw new FormulaError(`“${rest[0]}” isn’t part of a formula.`, i + offset);
   }
-  toks.push({ k: 'end', pos: src.length });
+  toks.push({ k: 'end', pos: src.length + offset, end: src.length + offset });
   return toks;
 }
 
 // Precedence, loosest first: OR, AND, NOT, comparisons and IN, &, + and -, * and /, unary minus, then dots
 // and calls. A name directly followed by parentheses is a call: a function, or a relation by its name.
-function parseExpression(src) {
-  const toks = tokenize(src);
+function parseExpression(src, offset = 0) {
+  const toks = tokenize(src, offset);
   let p = 0;
   const peek = () => toks[p];
   const next = () => toks[p++];
   const isOp = v => peek().k === 'op' && peek().v === v;
   const isKw = v => peek().k === 'kw' && peek().v === v;
-  const expect = v => { if (!isOp(v)) throw new FormulaError(`Expected “${v}”.`, peek().pos); next(); };
+  const expect = v => { if (!isOp(v)) throw new FormulaError(`Expected “${v}”.`, peek().pos); return next(); };
+  const span = (node, from, to) => Object.assign(node, { from, to });
   const CMP = ['=', '<>', '<', '>', '<=', '>='];
+  const binary = (k, a, b, op) => span(op ? { k, op, a, b } : { k, a, b }, a.from, b.to);
 
-  const or = () => { let a = and(); while (isKw('OR')) { next(); a = { k: 'or', a, b: and() }; } return a; };
-  const and = () => { let a = not(); while (isKw('AND')) { next(); a = { k: 'and', a, b: not() }; } return a; };
-  const not = () => isKw('NOT') ? (next(), { k: 'not', x: not() }) : cmp();
+  const or = () => { let a = and(); while (isKw('OR')) { next(); a = binary('or', a, and()); } return a; };
+  const and = () => { let a = not(); while (isKw('AND')) { next(); a = binary('and', a, not()); } return a; };
+  const not = () => { if (!isKw('NOT')) return cmp(); const t = next(), x = not(); return span({ k: 'not', x }, t.pos, x.to); };
   const cmp = () => {
     let a = concat();
     for (;;) {
-      if (peek().k === 'op' && CMP.includes(peek().v)) { const op = next().v; a = { k: 'cmp', op, a, b: concat() }; }
-      else if (isKw('IN')) { next(); a = { k: 'in', a, b: concat() }; }
+      if (peek().k === 'op' && CMP.includes(peek().v)) { const op = next().v; a = binary('cmp', a, concat(), op); }
+      else if (isKw('IN')) { next(); a = binary('in', a, concat()); }
       else return a;
     }
   };
-  const concat = () => { let a = add(); while (isOp('&')) { next(); a = { k: 'bin', op: '&', a, b: add() }; } return a; };
-  const add = () => { let a = mul(); while (isOp('+') || isOp('-')) { const op = next().v; a = { k: 'bin', op, a, b: mul() }; } return a; };
-  const mul = () => { let a = unary(); while (isOp('*') || isOp('/')) { const op = next().v; a = { k: 'bin', op, a, b: unary() }; } return a; };
-  const unary = () => isOp('-') || isOp('+') ? { k: 'neg', op: next().v, x: unary() } : postfix();
+  const concat = () => { let a = add(); while (isOp('&')) { next(); a = binary('bin', a, add(), '&'); } return a; };
+  const add = () => { let a = mul(); while (isOp('+') || isOp('-')) { const op = next().v; a = binary('bin', a, mul(), op); } return a; };
+  const mul = () => { let a = unary(); while (isOp('*') || isOp('/')) { const op = next().v; a = binary('bin', a, unary(), op); } return a; };
+  const unary = () => {
+    if (!isOp('-') && !isOp('+')) return postfix();
+    const t = next(), x = unary();
+    return span({ k: 'neg', op: t.v, x }, t.pos, x.to);
+  };
   const postfix = () => {
     let x = primary();
     for (;;) {
@@ -138,10 +159,11 @@ function parseExpression(src) {
         next();
         const t = next();
         if (t.k !== 'name') throw new FormulaError('Expected a name after the dot.', t.pos);
-        x = { k: 'dot', x, name: t.v, n: normal(t.v) };
+        x = span({ k: 'dot', x, name: t.v, n: normal(t.v), at: t.pos }, x.from, t.end);
       } else if (isOp('(') && x.k === 'name') {
         next();
-        x = { k: 'call', name: x.name, args: callArgs() };
+        const args = callArgs();
+        x = span({ k: 'call', name: x.name, args, nameTo: x.to }, x.from, toks[p - 1].end);
       } else return x;
     }
   };
@@ -162,16 +184,15 @@ function parseExpression(src) {
   };
   const primary = () => {
     const t = next();
-    if (t.k === 'num' || t.k === 'str') return { k: 'lit', v: t.v, pct: t.pct };
-    if (t.k === 'kw' && (t.v === 'TRUE' || t.v === 'FALSE')) return { k: 'lit', v: t.v === 'TRUE' };
-    if (t.k === 'name') return { k: 'name', name: t.v, n: normal(t.v) };
-    if (t.k === 'op' && t.v === '@') return { k: 'at' };
+    if (t.k === 'num' || t.k === 'str') return span({ k: 'lit', v: t.v, pct: t.pct }, t.pos, t.end);
+    if (t.k === 'kw' && (t.v === 'TRUE' || t.v === 'FALSE')) return span({ k: 'lit', v: t.v === 'TRUE' }, t.pos, t.end);
+    if (t.k === 'name') return span({ k: 'name', name: t.v, n: normal(t.v) }, t.pos, t.end);
+    if (t.k === 'op' && t.v === '@') return span({ k: 'at' }, t.pos, t.end);
     if (t.k === 'op' && t.v === '(') { const x = or(); expect(')'); return x; }
     if (t.k === 'op' && t.v === '{') {
       const items = [];
       if (!isOp('}')) for (;;) { items.push(or()); if (!isOp(',')) break; next(); }
-      expect('}');
-      return { k: 'arr', items };
+      return span({ k: 'arr', items }, t.pos, expect('}').end);
     }
     if (t.k === 'end') throw new FormulaError('The formula ends too soon.', t.pos);
     throw new FormulaError(`Didn’t expect “${t.v}” here.`, t.pos);
@@ -182,56 +203,32 @@ function parseExpression(src) {
   return ast;
 }
 
-// A formula's kind from how it starts: `=` for a value formula, `←` (or `<-` as typed) for an implication.
+// A row's kind from how it starts: `=` gives a value, `←` (or `<-` as typed) is short for = IF(c, TRUE). The
+// body's offset is where it starts in the text, so spans count from the start of the row's formula.
 function splitFormula(text) {
-  const s = String(text ?? '').trim();
-  if (s.startsWith('←')) return { kind: 'implies', body: s.slice(1) };
-  if (s.startsWith('<-')) return { kind: 'implies', body: s.slice(2) };
-  if (s.startsWith('=')) return { kind: 'value', body: s.slice(1) };
-  return { kind: null, body: s };
+  const s = String(text ?? '');
+  const m = /^(\s*)(←|<-|=)?/.exec(s);
+  const kind = m[2] === '=' ? 'value' : m[2] ? 'implies' : null;
+  return { kind, body: s.slice(m[0].length), offset: m[0].length };
 }
 
 // Typing `<-` at the start of a formula turns it into `←`.
 const tidyArrow = text => String(text ?? '').replace(/^(\s*)<-/, '$1←');
 
-// ---- Locations and parameterizations ----
-// Keys follow model.js: a location's specification is specKey(), and a parameterization is a sorted list of
-// [edge, location specification] pairs, each serialized.
-
-// 'Entity › Entity Type: Limited Partnership' as a kind and the segments below it.
-function parseLocation(text) {
-  const [kind, ...segs] = String(text).split(/\s*[›>]\s*/).map(clean).filter(Boolean);
-  return {
-    text: clean(text), kind,
-    segs: segs.map(s => {
-      let m;
-      if ((m = /^(.+?):\s*(.+)$/.exec(s))) return { edge: m[1], choice: m[2] };
-      if ((m = /^not\s+(.+)$/i.exec(s))) return { edge: m[1], tag: false };
-      return { edge: s, tag: true };
-    }),
-  };
+// Formulas parsed already, by their text: the same definitions are worked out after every edit.
+const parsedCache = new Map();
+function parseCached(body, offset) {
+  const key = `${offset}|${body}`;
+  if (!parsedCache.has(key)) {
+    if (parsedCache.size > 500) parsedCache.clear();
+    parsedCache.set(key, parseExpression(body, offset));
+  }
+  return parsedCache.get(key);
 }
 
-// A location's specification key, as model.js's specKey() would give it for a record there.
-function locationKey(text) {
-  const loc = parseLocation(text);
-  let key = `kind:${normal(loc.kind)}`;
-  for (const s of loc.segs)
-    key = JSON.stringify([s.choice !== undefined ? `choice:${normal(s.choice)}` : `tag:${s.tag}`, JSON.stringify([normal(s.edge), key])]);
-  return key;
-}
-
-const parameterizationKey = params => JSON.stringify(params.map(p => JSON.stringify([normal(p.edge), p.spec])).sort());
-
-// The parameterizations a definition written with locations covers: for a relation, every combination of
-// its parameters' locations.
-function coversOf(def) {
-  if (def.covers) return def.covers;
-  if (!def.args) return (def.at ?? []).map(at => parameterizationKey([{ edge: def.name, spec: locationKey(at) }]));
-  let combos = [[]];
-  for (const a of def.args) combos = combos.flatMap(c => (a.at ?? []).map(at => [...c, { edge: a.edge, spec: locationKey(at) }]));
-  return combos.map(parameterizationKey);
-}
+// ---- Keys ----
+// Tree's: a specification's key is its root label and its [edge, location key] pairs, sorted; a
+// parameterization's, those pairs.
 
 // A parameterization key as its parameters: [{ edge, spec }], edges normalized.
 const paramsOf = key => JSON.parse(key).map(s => { const [edge, spec] = JSON.parse(s); return { edge, spec }; });
@@ -244,9 +241,7 @@ function edgesInSpec(spec, out = new Set()) {
   return out;
 }
 
-// The parameterizations of the specifications a specification key runs through, itself included: a
-// specification's key is its root label and its parameterization's pairs, sorted as a parameterization
-// key sorts them.
+// The parameterizations of the specifications a specification key runs through, itself included.
 function paramsInSpec(spec, out = new Set()) {
   if (spec.startsWith('kind:')) return out;
   const [, ...args] = JSON.parse(spec);
@@ -268,37 +263,21 @@ function objectOf(S, id) {
   return null;
 }
 
-// The records from the object down to `id`, or null if the path runs through a relation.
-function pathOf(S, id) {
-  const path = [];
-  for (let cur = id, n = 0; cur && n < 64; n++) {
-    const r = S.recs[cur];
-    if (!r) return null;
-    path.unshift(cur);
-    if (isObject(r)) return path;
-    cur = r.at;
-  }
-  return null;
-}
-
 function nameOf(S, id) {
   const r = S.recs[id];
   if (!r) return '(deleted)';
   if (!isObject(r)) return segmentOf(S, id);
-  const nameId = (S.byAt.get(id) ?? []).find(e => isField(S.recs[e]) && same(S.recs[e].edge, 'Name'));
+  const nameId = S.byAtName.get(`${id}|name`);
   return nameId ? String(S.recs[nameId].value) : `${r.kind} ${id}`;
 }
 
 function segmentOf(S, id) {
   const r = S.recs[id];
   if (isObject(r)) return nameOf(S, id);
-  if (isRelation(r)) return r.args.map(a => a.edge).join(' · ');
+  if (isRelation(r)) return r.args.map(a => nameOf(S, objectOf(S, a.at))).join(' → ');
   if (isTag(r)) return `${r.tag ? '' : 'Not '}${r.edge}`;
   return isChoice(r) ? `${r.edge}: ${r.choice}` : r.edge;
 }
-
-// How a location reads: its object's name, then the segments below it.
-const placeOf = (S, id) => (pathOf(S, id) ?? [id]).map((p, i) => i ? segmentOf(S, p) : nameOf(S, p)).join(' › ');
 
 const argKey = args => JSON.stringify(args.map(a => JSON.stringify([normal(a.edge), a.at])).sort());
 // A record's argumentation key, worked out once per record.
@@ -317,10 +296,10 @@ const distinct = xs => xs.filter((x, i) => xs.indexOf(x) === i);
 // Whether an id is an object's: a computed record a record is located at may not be there yet.
 const isObjectAt = (S, id) => !!S.recs[id] && isObject(S.recs[id]);
 
-// Lookups kept from before (see remembered) are let go when a record comes or goes, unless the step being
-// worked out keeps track of what each one read (see runStep).
+// Lookups kept from before (see remembered) are let go when a record comes or goes, unless the group being
+// worked out keeps track of what each read (see runGroup).
 function addRecord(S, id, r, known) {
-  if (S.forgetting) S.memo?.clear();
+  if (S.forgetting) S.memo.clear();
   S.recs[id] = r;
   indexRecord(S, id, r, known);
 }
@@ -351,7 +330,7 @@ function indexByObjects(S, id, r, known) {
   }
   edges.forEach((e, i) => push(S.byEdge, `${sig}|${e}=${objs[i]}`, id));
   push(S.relsByCall, call, id);
-  S.indexed.set(id, { objs, edges, sig, call, key: known?.key ?? null, seq: S.seq++ });
+  S.indexed.set(id, { objs, edges, sig, call, seq: S.seq++ });
   const names = listNamesOf(S, sig);
   for (const e of edges) names.add(e);
 }
@@ -375,8 +354,7 @@ function listNamesOf(S, sig) {
   return S.listNames.get(sig);
 }
 
-// The relation records at an object that can make a list called `n` (or every one), in the order they
-// came in.
+// The relation records at an object that can make a list called `n` (or every one), in the order they came in.
 function relationsFor(S, obj, n = null) {
   let out = null, merged = false;
   for (const [sig, rids] of S.byObject.get(obj) ?? []) if (rids.length && (n === null || listNamesOf(S, sig).has(n))) {
@@ -387,11 +365,11 @@ function relationsFor(S, obj, n = null) {
   return out ?? [];
 }
 
-// Takes a record back out, as when a step is worked out again.
+// Takes a record back out.
 function removeRecord(S, id) {
   const r = S.recs[id];
   if (!r) return;
-  if (S.forgetting) S.memo?.clear();
+  if (S.forgetting) S.memo.clear();
   if (r.at) {
     pull(S.byAt, r.at, id);
     if (S.byAtName.get(`${r.at}|${normal(r.edge)}`) === id) S.byAtName.delete(`${r.at}|${normal(r.edge)}`);
@@ -405,69 +383,52 @@ function removeRecord(S, id) {
   delete S.recs[id];
 }
 
-// A relation's pilot name and list names belong to its form (model.html §2): its specification's shape,
-// with every node label erased, and its sort. Names given without a form fall back on the relation's
-// output type and edge labels, its signature. Records don't change, so each one's is worked out once.
+// A relation's name and lists are its Name notes', which cover parameterizations: a record has the name whose
+// covers have its parameterization, or else the one for its output type and edge labels, its signature.
 const signature = (type, edges) => `${type}:${edges.map(normal).sort().join('|')}`;
 const sigCache = new WeakMap();
 function signatureOf(r) {
   if (!sigCache.has(r)) sigCache.set(r, signature(typeOf(r), r.args.map(a => a.edge)));
   return sigCache.get(r);
 }
-// A record's form, keyed as model.js keys forms: [sort, ...[edge, shape of its location]], sorted. A
-// record's shape depends on its locations' shapes, and a location can move between one working-out and the
-// next, so shapes and forms are kept per state. A record whose location isn't there yet, being a computed
-// record not yet worked out, has no form yet (null), and that isn't kept.
-const argShapes = (S, r) => {
-  const out = [];
-  for (const a of argsOf(r)) {
-    const shape = shapeOfRecord(S, a.at);
-    if (shape === null) return null;
-    out.push(JSON.stringify([normal(a.edge), shape]));
+// A record's parameterization key; null while a location, a computed record, isn't there yet.
+function paramOfRecord(S, r) {
+  let p = S.paramOf.get(r);
+  if (p === undefined) {
+    const parts = [];
+    for (const a of argsOf(r)) {
+      const s = specOf(S, a.at);
+      if (s === null) return null;
+      parts.push(kept(specParts, `${normal(a.edge)}\n${s}`, () => JSON.stringify([normal(a.edge), s])));
+    }
+    S.paramOf.set(r, p = JSON.stringify(parts.sort()));
   }
-  return out.sort();
-};
-function shapeOfRecord(S, id) {
-  const r = S.recs[id];
-  if (!r) return null;
-  if (isObject(r)) return '•';
-  if (!S.shapes.has(r)) {
-    const args = argShapes(S, r);
-    if (!args) return null;
-    S.shapes.set(r, JSON.stringify(['∘', ...args]));
-  }
-  return S.shapes.get(r);
+  return p;
 }
-function formOfRecord(S, r) {
-  if (!S.forms.has(r)) {
-    const args = argShapes(S, r);
-    if (!args) return null;
-    S.forms.set(r, JSON.stringify([isField(r) ? r.field : isChoice(r) ? 'choice' : 'tag', ...args]));
-  }
-  return S.forms.get(r);
-}
-const relationOf = (S, r) => S.P.reg.byForm.get(formOfRecord(S, r)) ?? S.P.reg.bySig.get(signatureOf(r));
+const relationOf = (S, r) => S.P.reg.byParam.get(paramOfRecord(S, r)) ?? S.P.reg.bySig.get(signatureOf(r));
+// Whether a record is of a relation name's: one with covers covers its parameterization.
+const ofRelation = (S, rel, r) => !rel.covers || rel.covers.has(paramOfRecord(S, r));
 const listNameOf = (rel, from, listed) => rel?.lists.get(`${normal(from)}|${normal(listed)}`) ?? listed;
+
+// While a ground is worked out (see ground), the records its group gave from its stage on are out of sight.
+const inSight = (S, id) => !S.cut || !S.cut.defs.has(S.recs[id]?.computed) || S.stage.get(id) < S.cut.limit;
 
 // ---- Looking names up ----
 
-// While a formula is worked out, the entries and relation records it reads are noted, to say why its
-// record is there (see reading).
-const note = (S, id) => { if (S.reads) S.reads.ids.push(id); };
-
-// While a step with implications is worked out (see settleStep), a lookup by a name the step's own
-// definitions give records under notes its key, found or not: that's what the formula being worked out
-// depends on, since one of the step's candidates could turn up there. `kind` is how it was looked for:
-// 'entry' (at a location, by name), 'lists' (a list of relatives at a location), 'calls' (a relation call,
-// by callKey), and, for finding candidates (see holdsWhere), 'rel' (a relation's records with one argument
-// given, by relation name, edge and object), 'held' (the same, holding a label) and 'inverse' (whose list
-// of a name an object is on). candidateKeys gives the keys under which a candidate could turn up.
+// While a looping group is worked out, a lookup by a name the group's own definitions give records under
+// notes its key, found or not: that's what the row being worked out depends on, since one of the group's
+// candidates could turn up there. `kind` is how it was looked for: 'entry' (at a location, by name), 'lists'
+// (a list of relatives at a location), 'calls' (a relation call, by its arguments' objects), and, for finding
+// candidates (see holdsWhere), 'rel' (a relation's records with one argument given). candidateKeys gives the
+// keys under which a candidate could turn up.
 function depend(S, kind, name, key) {
-  if (S.reads && S.dep?.[kind].has(name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); }
+  if (watching(S, kind, name)) { S.reads.keys.push(`${kind}|${key}`); S.dep.watched.add(kind); if (VALUE_KINDS.has(kind)) S.dep.watchedValues.add(kind); }
 }
+// Whether a lookup is to be noted: where a key is costly to spell, it's spelled only then.
+const watching = (S, kind, name) => !!S.reads && !!S.dep?.[kind].has(name);
 
-// What a name gives where nothing has it: an empty list for a list the schema has somewhere, BLANK for
-// any other name the schema has somewhere, and an error for a name it doesn't have at all.
+// What a name gives where nothing has it: an empty list for a list the schema has somewhere, nothing for any
+// other name the schema has somewhere, and an error for a name it doesn't have at all.
 function missing(S, name) {
   const n = normal(name);
   if (S.P.known.lists.has(n)) return [];
@@ -478,9 +439,8 @@ function missing(S, name) {
 // The relatives listed under `n` at a location: the other arguments' objects, each remembering the relation
 // record that links it. A ruled-out tag doesn't make a relative. Null if no relation here gives that list.
 // An object also has the lists of relations whose parameter sits below it, the way a relation call fills a
-// parameter through the object's record there: a fund's General Partners, though the relation is located
-// at its Entity Type. A list answers to its name and also to the edge label it lists, so a formula written
-// before the list was named keeps working.
+// parameter through the object's record there: a fund's General Partners, though the relation is located at
+// its Entity Type. A list answers to its name and also to the edge label it lists.
 const listAt = (S, id, n) => remembered(S, `list|${id}|${n}`, () => { depend(S, 'lists', n, `${id}|${n}`); return listHere(S, id, n); });
 function listHere(S, id, n) {
   let hit = false;
@@ -488,26 +448,26 @@ function listHere(S, id, n) {
   const onObject = isObject(S.recs[id]);
   for (const rid of onObject ? relationsFor(S, id, n) : S.relsAt.get(id) ?? []) {
     const r = S.recs[rid];
+    if (!inSight(S, rid)) continue;
     for (const { own, other, list, alias } of listsOf(S, r)) {
       if ((list !== n && alias !== n) || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
       hit = true;
       if (isTag(r) && r.tag !== true) continue;
-      items.push(recOf(objectOf(S, other.at), rid));
-      note(S, rid);
+      items.push(recOf(objectOf(S, other.at) ?? other.at, rid));
     }
   }
   return hit ? items : null;
 }
 
 // The lists of relatives a relation record makes: for each argument, seen from each other argument, the
-// list's name, normalized. And its arguments by normalized edge label. Worked out once per record, once
-// its form is known (see formOfRecord).
+// list's name, normalized, and the edge label it also answers to. Worked out once per record, once its
+// parameterization is known.
 function listsOf(S, r) {
   if (S.recLists.has(r)) return S.recLists.get(r);
   const rel = relationOf(S, r);
   const out = [];
   r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: normal(listNameOf(rel, own.edge, other.edge)), alias: normal(other.edge) }); }));
-  if (formOfRecord(S, r) !== null) S.recLists.set(r, out);
+  if (paramOfRecord(S, r) !== null) S.recLists.set(r, out);
   return out;
 }
 const argEdges = new WeakMap();
@@ -518,9 +478,34 @@ function argByEdge(r, n) {
 
 const ambiguous = name => err('#NAME?', `${name} could mean more than one thing here.`);
 
-// A name on the relation record a relative was reached through: its arguments by edge label, its output
-// by the relation's name, and the entries located at it. Where a relation is named like one of its edges
-// (Close Affiliate), the edge wins; a relation call still reaches its output.
+// The entry called `n` at a record, if in sight, or what its formula gave there where that was an error.
+function entryAt(S, id, n, found) {
+  if (watching(S, 'entry', n)) depend(S, 'entry', n, `${id}|${n}`);
+  const entry = S.byAtName.get(`${id}|${n}`);
+  if (entry && inSight(S, entry)) found.push(recOf(entry));
+  else if (S.failed.has(`${id}|${n}`)) found.push(S.failed.get(`${id}|${n}`));
+}
+
+// On a tag a definition covers, a row's label: TRUE where the tag is attested and a row with that label holds.
+function labelOn(S, id, n) {
+  const r = S.recs[id];
+  if (!r || !isTag(r)) return null;
+  const d = defOf(S, id);
+  if (!d?.labels.has(n)) return null;
+  return { v: r.tag === true && holdsLabel(S, r, n) };
+}
+
+// Whether a row with this label holds at a record's candidate; while a ground is worked out, whether it held
+// before the stage in sight.
+function holdsLabel(S, r, n) {
+  const t = S.holds.get(keyOf(r));
+  if (!t?.rows.some(i => t.d.rows[i].n === n)) return false;
+  return !S.cut?.defs.has(t.d.id) || t.labels?.get(n) < S.cut.limit;
+}
+
+// A name on the relation record a relative was reached through: its arguments by edge label, its output by
+// the relation's name, the entries located at it, and its rows' labels. Where a relation is named like one of
+// its edges (Close Affiliate), the edge wins; a relation call still reaches its output.
 function linkLookup(S, rid, n, name) {
   const r = S.recs[rid];
   if (!r) return null;
@@ -528,33 +513,23 @@ function linkLookup(S, rid, n, name) {
   const arg = argByEdge(r, n);
   if (arg) found.push(recOf(objectOf(S, arg.at)));
   else if (relationOf(S, r)?.n === n) found.push(recOf(rid));
-  depend(S, 'entry', n, `${rid}|${n}`);
-  const pending = forceEntry(S, rid, n);
-  if (pending) return { v: pending };
-  const entry = S.byAtName.get(`${rid}|${n}`);
-  if (entry) { found.push(recOf(entry)); note(S, entry); }
-  else if (S.failed.has(`${rid}|${n}`)) found.push(S.failed.get(`${rid}|${n}`));
+  entryAt(S, rid, n, found);
   if (found.length > 1) return { v: ambiguous(name) };
-  return found.length ? { v: found[0] } : null;
+  return found.length ? { v: found[0] } : labelOn(S, rid, n);
 }
 
-// A name on one record: its entries by label, its lists of relatives by name, and a relation record's
-// arguments by edge label.
+// A name on one record: its entries by label, its lists of relatives by name, a relation record's arguments
+// by edge label, and a tag's rows' labels.
 function ownLookup(S, id, n, name) {
   const found = [];
-  depend(S, 'entry', n, `${id}|${n}`);
-  const pending = forceEntry(S, id, n) ?? forceLists(S, id, n);
-  if (pending) return { v: pending };
-  const entry = S.byAtName.get(`${id}|${n}`);
-  if (entry) { found.push(recOf(entry)); note(S, entry); }
-  else if (S.failed.has(`${id}|${n}`)) found.push(S.failed.get(`${id}|${n}`));
+  entryAt(S, id, n, found);
   const list = listAt(S, id, n);
   if (list) found.push(list);
   const r = S.recs[id];
   const arg = isRelation(r) && argByEdge(r, n);
   if (arg) found.push(recOf(objectOf(S, arg.at)));
   if (found.length > 1) return { v: ambiguous(name) };
-  return found.length ? { v: found[0] } : null;
+  return found.length ? { v: found[0] } : labelOn(S, id, n);
 }
 
 // A dot: on a list, the name on each item; on a record reached through a relation, the relation first;
@@ -583,8 +558,8 @@ function lookupOn(S, v, name, n = normal(name)) {
   return missing(S, name);
 }
 
-// A name on its own: a LET name; in a relation's formula, one of its arguments, as an object; in an
-// entry's formula, a name on its location, looked up the path.
+// A name on its own: a LET name; in a relation's formula, one of its arguments, as an object; in an entry's
+// formula, a name on its location, looked up the path.
 function lookupBare(c, name, n = normal(name)) {
   for (let l = c.lets; l; l = l.up) if (l.n === n) return l.v;
   if (c.self.args) return c.self.args.has(n) ? recOf(c.self.args.get(n)) : err('#NAME?', `${name} isn’t one of this relation’s arguments.`);
@@ -593,7 +568,7 @@ function lookupBare(c, name, n = normal(name)) {
 
 // ---- Turning values into one value ----
 
-// Where one value is expected: a list of one is its item, an empty list is BLANK, and a record is its
+// Where one value is expected: a list of one is its item, an empty list is nothing, and a record is its
 // output, except that an object stands for itself.
 function scalar(S, v) {
   if (Array.isArray(v)) {
@@ -631,8 +606,9 @@ function asRec(S, v) {
 const flatten = v => Array.isArray(v) ? v.flatMap(flatten) : [v];
 // A list without lists in it is kept as it is, not copied, so what's worked out once from a list that's
 // kept (objectIds) is found again.
-const toList = v => isErr(v) ? v : v === null ? [] : !Array.isArray(v) ? [v] : v.some(Array.isArray) ? v.flatMap(flatten) : v;
+const toList = v => isErr(v) ? v : v === null || v === undefined ? [] : !Array.isArray(v) ? [v] : v.some(Array.isArray) ? v.flatMap(flatten) : v;
 
+// In a condition, nothing is FALSE.
 function truth(S, v) {
   v = scalar(S, v);
   if (isErr(v) || typeof v === 'boolean') return v;
@@ -658,14 +634,14 @@ function toText(S, v) {
   if (v === null) return '';
   if (typeof v === 'number') return String(tidyNumber(v));
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
-  if (isDate(v)) return formatDate(v.iso);
+  if (isDate(v)) return Tree.formatDate(v.iso);
   if (isRec(v)) return nameOf(S, v.id);
   return String(v);
 }
 
 function describe(S, v) {
-  if (v === null) return 'BLANK';
-  if (isRec(v)) return v.id === null ? 'BLANK' : nameOf(S, v.id);
+  if (v === null) return 'nothing';
+  if (isRec(v)) return v.id === null ? 'nothing' : nameOf(S, v.id);
   if (Array.isArray(v)) return `a list of ${v.length}`;
   if (typeof v === 'string') return `“${v}”`;
   return toText(S, v);
@@ -675,7 +651,7 @@ function describe(S, v) {
 
 const near = (a, b) => Math.abs(a - b) <= 1e-12 * Math.max(1, Math.abs(a), Math.abs(b));
 
-// As in Excel, BLANK equals 0, empty text and FALSE. Objects are equal only to themselves, and text
+// As in Excel, nothing equals 0, empty text and FALSE. Objects are equal only to themselves, and text
 // compares without regard to case.
 function equal(a, b) {
   if (isRec(a) || isRec(b)) return isRec(a) && isRec(b) && a.id === b.id;
@@ -687,7 +663,7 @@ function equal(a, b) {
   return a === b;
 }
 
-// BLANK takes the least value of the other side's kind, as in Excel: 0, empty text, FALSE, or a date
+// Nothing takes the least value of the other side's kind, as in Excel: 0, empty text, FALSE, or a date
 // before every date.
 const EARLIEST = { t: 'date', iso: '0000-01-01' };
 function ordering(S, a, b) {
@@ -720,10 +696,17 @@ const dayOf = v => Date.UTC(...v.iso.split('-').map((x, i) => Number(x) - (i ===
 const fromDay = n => ({ t: 'date', iso: isoOf(new Date(n * 864e5)) });
 
 // ---- Working out expressions ----
-// A context `c` holds the state S, `self` (a relation's arguments by edge, as objects, or an entry's
-// location), `at` for `@`, and any LET names.
+// A context `c` holds the state S, `def`, `self` (a relation's arguments by edge, as objects, or an entry's
+// location), `at` for `@`, and any LET names. While the formula bar asks (see evaluateRow), S.probe hears
+// every part's value.
 
 function ev(node, c) {
+  const v = evNode(node, c);
+  if (c.S.probe) c.S.probe(node, v);
+  return v;
+}
+
+function evNode(node, c) {
   const S = c.S;
   switch (node.k) {
     case 'lit': return node.v;
@@ -737,7 +720,9 @@ function ev(node, c) {
     case 'dot': return lookupOn(S, ev(node.x, c), node.name, node.n);
     case 'call': return call(node, c);
     case 'neg': {
-      const x = toNumber(S, ev(node.x, c));
+      const v = scalar(S, ev(node.x, c));
+      if (v === null || isErr(v)) return v;
+      const x = toNumber(S, v);
       return isErr(x) || node.op === '+' ? x : -x;
     }
     case 'not': {
@@ -751,22 +736,25 @@ function ev(node, c) {
       return truth(S, ev(node.b, c));
     }
     case 'cmp': return compare(S, node.op, ev(node.a, c), ev(node.b, c));
-    case 'in': {
-      const a = scalar(S, ev(node.a, c));
-      if (isErr(a)) return a;
-      const list = toList(ev(node.b, c));
-      if (isErr(list)) return list;
-      if (isRec(a)) { const ids = objectIds(S, list); if (ids) return ids.has(a.id); }
-      for (const x of list) { const s = scalar(S, x); if (isErr(s)) return s; if (equal(a, s)) return true; }
-      return false;
-    }
+    case 'in': return among1(S, ev(node.a, c), ev(node.b, c));
     case 'bin': return arithmetic(S, node.op, ev(node.a, c), ev(node.b, c));
   }
   return err('#VALUE!', 'Unknown expression.');
 }
 
-// A long list of objects, like REACH's, as the set of their ids, for IN: worked out once per list, since a
-// lookup gives the same list until the state changes. An object is in it just when its id is.
+// `x IN list`: whether x is one of the list's items.
+function among1(S, x, l) {
+  const a = scalar(S, x);
+  if (isErr(a)) return a;
+  const list = toList(l);
+  if (isErr(list)) return list;
+  if (isRec(a)) { const ids = objectIds(S, list); if (ids) return ids.has(a.id); }
+  for (const y of list) { const s = scalar(S, y); if (isErr(s)) return s; if (equal(a, s)) return true; }
+  return false;
+}
+
+// A long list of objects as the set of their ids, for IN: worked out once per list, since a lookup gives the
+// same list until the state changes. An object is in it just when its id is.
 const listIds = new WeakMap();
 function objectIds(S, list) {
   if (list.length < 8) return null;
@@ -774,6 +762,7 @@ function objectIds(S, list) {
   return listIds.get(list);
 }
 
+// Nothing drops out of a sum and wipes out a product.
 function arithmetic(S, op, a, b) {
   if (op === '&') {
     const x = toText(S, a), y = toText(S, b);
@@ -783,11 +772,22 @@ function arithmetic(S, op, a, b) {
   if (isErr(a)) return a;
   b = scalar(S, b);
   if (isErr(b)) return b;
+  if (a === null || b === null) {
+    if (op === '*' || op === '/' || (a === null && b === null)) return null;
+    if (b === null) return a;
+    if (op === '+') return b;
+    const y = toNumber(S, b);
+    return isErr(y) ? y : -y;
+  }
   // Dates subtract to a number of days, and move by a number of days.
   if (isDate(a) && isDate(b) && op === '-') return dayOf(a) - dayOf(b);
   if (isDate(a) && (op === '+' || op === '-')) {
     const n = toNumber(S, b);
     return isErr(n) ? n : fromDay(dayOf(a) + (op === '+' ? n : -n));
+  }
+  if (isDate(b) && op === '+') {
+    const n = toNumber(S, a);
+    return isErr(n) ? n : fromDay(dayOf(b) + n);
   }
   const x = toNumber(S, a), y = toNumber(S, b);
   if (isErr(x)) return x;
@@ -816,9 +816,8 @@ function numbersOf(a, c) {
   return out;
 }
 
-// MIN and MAX: of numbers, or of dates (the earliest or latest), skipping blanks and text. With nothing
-// to compare, BLANK, which counts as 0 where a number is wanted, as Excel's 0 does, and as no date at all
-// where a date is.
+// MIN and MAX: of numbers, or of dates (the earliest or latest), skipping nothing and text. Of nothing,
+// nothing.
 function extremeOf(name, a, c, sign) {
   const items = flatArgs(a, c);
   if (isErr(items)) return items;
@@ -833,27 +832,19 @@ function extremeOf(name, a, c, sign) {
   return dates.reduce((m, d) => (sign > 0 ? d.iso > m.iso : d.iso < m.iso) ? d : m);
 }
 
-// The name a step argument gives, for REACH and LOOKTHROUGH.
-const stepName = x => x.k === 'name' ? x.name : null;
+const withAt = (c, at) => ({ S: c.S, def: c.def, self: c.self, at, lets: c.lets });
 
 // The functions in formulas.md's table. Each gets its argument nodes, so that IF, FILTER and the like can
 // work out only what they need, and with `@` set to each item.
 const FUNCTIONS = {
+  // IF with no third argument gives nothing where its condition fails: so `← c`, which is IF(c, TRUE),
+  // never rules anything out.
   IF(a, c) {
     const bad = arity('IF', a, 2, 3);
     if (bad) return bad;
     const t = truth(c.S, ev(a[0].x, c));
     if (isErr(t)) return t;
-    return t ? ev(a[1].x, c) : a[2] ? ev(a[2].x, c) : false;
-  },
-  IFS(a, c) {
-    if (!a.length || a.length % 2) return err('#VALUE!', 'IFS takes pairs of a condition and a value.');
-    for (let i = 0; i < a.length; i += 2) {
-      const t = truth(c.S, ev(a[i].x, c));
-      if (isErr(t)) return t;
-      if (t) return ev(a[i + 1].x, c);
-    }
-    return null;
+    return t ? ev(a[1].x, c) : a[2] ? ev(a[2].x, c) : null;
   },
   AND(a, c) {
     for (const x of a) for (const v of toList(ev(x.x, c))) { const t = truth(c.S, v); if (isErr(t) || !t) return t; }
@@ -878,28 +869,20 @@ const FUNCTIONS = {
     if (isRec(v)) return v.id === null || !c.S.recs[v.id];
     return v === null;
   },
-  ISRULEDOUT(a, c) {
-    const bad = arity('ISRULEDOUT', a, 1);
-    if (bad) return bad;
-    const v = asRec(c.S, ev(a[0].x, c));
-    if (isErr(v)) return v;
-    const r = v?.id ? c.S.recs[v.id] : null;
-    return !!r && isTag(r) && r.tag === false;
-  },
+  // COUNT counts every item that's something, so COUNT of nothing is 0.
   COUNT(a, c) {
     const items = flatArgs(a, c);
-    return isErr(items) ? items : items.filter(x => x !== null).length;
+    return isErr(items) ? items : items.filter(x => !isNothing(x)).length;
   },
   SUM(a, c) {
     const xs = numbersOf(a, c);
-    return isErr(xs) ? xs : xs.reduce((s, x) => s + x, 0);
+    return isErr(xs) ? xs : xs.length ? xs.reduce((s, x) => s + x, 0) : null;
   },
   MIN(a, c) { return extremeOf('MIN', a, c, -1); },
   MAX(a, c) { return extremeOf('MAX', a, c, 1); },
   AVERAGE(a, c) {
     const xs = numbersOf(a, c);
-    if (isErr(xs)) return xs;
-    return xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : err('#DIV/0!', 'Nothing to average.');
+    return isErr(xs) ? xs : xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
   },
   UNIQUE(a, c) {
     const items = flatArgs(a, c);
@@ -965,10 +948,10 @@ const FUNCTIONS = {
     const bad = arity('KIND', a, 1);
     if (bad) return bad;
     const v = asRec(c.S, ev(a[0].x, c));
-    if (isErr(v) || !v?.id) return v?.id ? v : isErr(v) ? v : null;
-    return c.S.recs[objectOf(c.S, v.id)]?.kind ?? null;
+    if (isErr(v)) return v;
+    return v?.id ? c.S.recs[objectOf(c.S, v.id)]?.kind ?? null : null;
   },
-  // The object whose Name is the text, without regard to case: BLANK if there's none, an error if several.
+  // The object whose Name is the text, without regard to case: nothing if there's none, an error if several.
   OBJECT(a, c) {
     const bad = arity('OBJECT', a, 1);
     if (bad) return bad;
@@ -978,54 +961,10 @@ const FUNCTIONS = {
       if (!isObject(c.S.recs[id])) return false;
       depend(c.S, 'entry', 'name', `${id}|name`);
       const nameId = c.S.byAtName.get(`${id}|name`);
-      if (!nameId) return false;
-      note(c.S, nameId);
-      return same(c.S.recs[nameId].value, name);
+      return !!nameId && same(c.S.recs[nameId].value, name);
     }));
     if (hits.length > 1) return err('#VALUE!', `More than one thing is called ${name}.`);
     return hits.length ? recOf(hits[0]) : null;
-  },
-  // Everything reached from the start by following the named list one or more times.
-  REACH(a, c) {
-    const bad = arity('REACH', a, 2);
-    if (bad) return bad;
-    const step = stepName(a[1].x);
-    if (!step) return err('#VALUE!', 'REACH’s second argument names a list, like [Controlled Companies].');
-    const starts = toList(ev(a[0].x, c));
-    if (isErr(starts)) return starts;
-    const queue = [];
-    for (const s of starts) { const r = asRec(c.S, s); if (isErr(r)) return r; if (r?.id) queue.push(r.id); }
-    const stepN = a[1].x.n;
-    return remembered(c.S, `reach|${queue.join(',')}|${stepN}`, () => {
-      const seen = new Set(), out = [];
-      while (queue.length) {
-        const items = toList(lookupOn(c.S, recOf(queue.shift()), step, stepN));
-        if (isErr(items)) return items;
-        for (const item of items) {
-          if (!isRec(item) || !item.id || seen.has(item.id)) continue;
-          seen.add(item.id);
-          out.push(recOf(item.id));
-          queue.push(item.id);
-        }
-      }
-      return out;
-    });
-  },
-  // The sum, over every way of getting from `from` to `to` by following the list, of the product of the
-  // factor along the way. Loops make infinitely many ways; the sum is taken to its limit.
-  LOOKTHROUGH(a, c) {
-    const bad = arity('LOOKTHROUGH', a, 4);
-    if (bad) return bad;
-    const step = stepName(a[2].x), factor = stepName(a[3].x);
-    if (!step || !factor) return err('#VALUE!', 'LOOKTHROUGH’s third and fourth arguments name a list and a factor, like Holdings and Percentage.');
-    const stepN = a[2].x.n, factorN = a[3].x.n;
-    const from = asRec(c.S, ev(a[0].x, c)), to = asRec(c.S, ev(a[1].x, c));
-    if (isErr(from)) return from;
-    if (isErr(to)) return to;
-    if (!from?.id || !to?.id) return null;
-    const total = lookThrough(c.S, from.id, step, stepN, factor, factorN);
-    if (isErr(total)) return total;
-    return total.has(to.id) ? total.get(to.id) : null;
   },
   // The expression, worked out as if x and everything depending on it weren't in the chart.
   WITHOUT(a, c) {
@@ -1036,30 +975,17 @@ const FUNCTIONS = {
     if (!x?.id) return ev(a[1].x, c);
     return ev(a[1].x, { ...c, S: counterfactual(c.S, x.id, c.def) });
   },
-  // Whether the tag is attested, and one of the implications with these labels holds there.
-  IMPLIEDBY(a, c) {
-    if (a.length < 2) return err('#VALUE!', 'IMPLIEDBY takes a tag and one or more labels.');
-    const v = asRec(c.S, ev(a[0].x, c));
-    if (isErr(v)) return v;
-    const r = v?.id ? c.S.recs[v.id] : null;
-    if (!r) return false;
-    if (!isTag(r)) return err('#VALUE!', 'IMPLIEDBY asks about a tag.');
-    if (r.tag !== true) return false;
-    const held = c.S.prov.get(keyOf(r)) ?? new Set();
-    for (const x of a.slice(1)) {
-      const label = toText(c.S, ev(x.x, c));
-      if (isErr(label)) return label;
-      if (held.has(normal(label))) return true;
-    }
-    return false;
-  },
   TODAY(a) { return arity('TODAY', a, 0) ?? { t: 'date', iso: isoOf(new Date()) }; },
+  // A date of nothing is nothing.
   DATE(a, c) {
     const bad = arity('DATE', a, 3);
     if (bad) return bad;
-    const [y, m, d] = a.map(x => toNumber(c.S, ev(x.x, c)));
-    const e = [y, m, d].find(isErr);
-    return e ?? { t: 'date', iso: isoOf(new Date(Date.UTC(y, m - 1, d))) };
+    const parts = a.map(x => scalar(c.S, ev(x.x, c)));
+    const e = parts.find(isErr);
+    if (e) return e;
+    if (parts.some(x => x === null)) return null;
+    const [y, m, d] = parts.map(x => toNumber(c.S, x));
+    return [y, m, d].find(isErr) ?? { t: 'date', iso: isoOf(new Date(Date.UTC(y, m - 1, d))) };
   },
   YEAR(a, c) { return datePart(a, c, 'YEAR', 0); },
   MONTH(a, c) { return datePart(a, c, 'MONTH', 1); },
@@ -1067,24 +993,8 @@ const FUNCTIONS = {
   // As in Excel: the date some months on, kept within the month it lands in; and the last day of that month.
   EDATE(a, c) { return monthsOn(a, c, 'EDATE', false); },
   EOMONTH(a, c) { return monthsOn(a, c, 'EOMONTH', true); },
-  // The next date with a month and day, on or after a date (today, if none is given): when an annual
-  // deadline next falls. February 29 falls on February 28 in other years.
-  NEXTDATE(a, c) {
-    const bad = arity('NEXTDATE', a, 2, 3);
-    if (bad) return bad;
-    const [m, d] = a.slice(0, 2).map(x => toNumber(c.S, ev(x.x, c)));
-    const e = [m, d].find(isErr);
-    if (e) return e;
-    const from = a[2] ? scalar(c.S, ev(a[2].x, c)) : { t: 'date', iso: isoOf(new Date()) };
-    if (isErr(from)) return from;
-    if (!isDate(from)) return err('#VALUE!', 'NEXTDATE’s third argument is a date.');
-    const at = y => { const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); return isoOf(new Date(Date.UTC(y, m - 1, Math.min(d, last)))); };
-    const y = Number(from.iso.slice(0, 4));
-    return { t: 'date', iso: at(y) >= from.iso ? at(y) : at(y + 1) };
-  },
-  // As in Excel, without holidays: the date some working days (Monday to Friday) after a date, or before
-  // it for a negative count. WORKDAY(d - 1, 1) is the first working day on or after d, where a deadline
-  // that falls on a weekend moves to.
+  // As in Excel, without holidays: the date some working days (Monday to Friday) after a date, or before it
+  // for a negative count. WORKDAY(d - 1, 1) is the first working day on or after d.
   WORKDAY(a, c) {
     const bad = arity('WORKDAY', a, 2);
     if (bad) return bad;
@@ -1107,6 +1017,7 @@ const FUNCTIONS = {
     const bad = arity('YEARFRAC', a, 2);
     if (bad) return bad;
     const [x, y] = a.map(n => scalar(c.S, ev(n.x, c)));
+    if (x === null || y === null) return null;
     if (!isDate(x) || !isDate(y)) return err('#VALUE!', 'YEARFRAC takes two dates.');
     return Math.abs(dayOf(y) - dayOf(x)) / 365;
   },
@@ -1117,39 +1028,7 @@ const FUNCTIONS = {
   LOWER(a, c) { return textFn(a, c, 'LOWER', 1, 1, t => t.toLowerCase()); },
   TRIM(a, c) { return textFn(a, c, 'TRIM', 1, 1, t => clean(t)); },
 };
-
-// LOOKTHROUGH from one record: for each record reached by following the list, the sum over every way of
-// getting there of the product of the factor along the way. The same from a start for every `to`, so it's
-// kept as a lookup is (see remembered).
-function lookThrough(S, from, step, stepN, factor, factorN) {
-  return remembered(S, `through|${from}|${step}|${factor}`, () => {
-    const out = new Map(), queue = [from], seen = new Set([from]);
-    while (queue.length) {
-      const u = queue.shift(), edges = [];
-      const items = toList(lookupOn(S, recOf(u), step, stepN));
-      if (isErr(items)) return items;
-      for (const item of items) {
-        if (!isRec(item) || !item.id) continue;
-        const f = toNumber(S, lookupOn(S, item, factor, factorN));
-        if (isErr(f)) return f;
-        edges.push([item.id, f]);
-        if (!seen.has(item.id)) { seen.add(item.id); queue.push(item.id); }
-      }
-      out.set(u, edges);
-    }
-    const total = new Map();
-    let wave = new Map([[from, 1]]);
-    for (let k = 0; wave.size; k++) {
-      if (k > 10000) return err('#VALUE!', 'The look-through doesn’t settle: a loop multiplies to 100% or more.');
-      const next = new Map();
-      for (const [u, w] of wave) for (const [v, f] of out.get(u) ?? []) next.set(v, (next.get(v) ?? 0) + w * f);
-      let size = 0;
-      for (const [v, w] of next) { total.set(v, (total.get(v) ?? 0) + w); size = Math.max(size, Math.abs(w)); }
-      wave = size < 1e-15 ? new Map() : next;
-    }
-    return total;
-  });
-}
+const isFunction = name => Object.hasOwn(FUNCTIONS, name.toUpperCase());
 
 function eachItem(a, c, use) {
   const list = toList(ev(a[0].x, c));
@@ -1195,7 +1074,7 @@ function textFn(a, c, name, min, max, fn) {
 }
 
 function call(node, c) {
-  if (node.fn === undefined) node.fn = FUNCTIONS[node.name.toUpperCase()] ?? null;
+  if (node.fn === undefined) node.fn = isFunction(node.name) ? FUNCTIONS[node.name.toUpperCase()] : null;
   if (node.fn) return node.fn(node.args, c);
   const rel = c.S.P.reg.byName.get(normal(node.name));
   if (rel) return callRelation(c, rel, node.args);
@@ -1215,19 +1094,20 @@ function callRelation(c, rel, a) {
     if (!v?.id) return recOf(null);
     ids.set(edge, v.id);
   }
-  // The call's key (see callKey) and the records it can find (see indexByObjects) share their arguments.
-  const pairs = [...ids].map(([edge, g]) => `${edge}=${objectOf(S, g)}`).sort().join('&');
-  const key = `${rel.n}|${pairs}`;
-  depend(S, 'calls', rel.n, key);
-  const pending = forceRelation(S, key);
-  if (pending) return pending;
+  let pairs;
+  if (ids.size === 2) {
+    const it = ids.entries(), [e1, g1] = it.next().value, [e2, g2] = it.next().value;
+    const p = `${e1}=${objectOf(S, g1)}`, q = `${e2}=${objectOf(S, g2)}`;
+    pairs = p < q ? `${p}&${q}` : `${q}&${p}`;
+  } else pairs = [...ids].map(([edge, g]) => `${edge}=${objectOf(S, g)}`).sort().join('&');
+  if (watching(S, 'calls', rel.n)) depend(S, 'calls', rel.n, `${rel.n}|${pairs}`);
   for (const rid of S.relsByCall.get(`${rel.sig}|${pairs}`) ?? []) {
     const r = S.recs[rid];
-    // Records with the relation's edges but of another form are another relation.
-    if (rel.form && formOfRecord(S, r) !== rel.form) continue;
-    if (fitsCall(S, r, ids)) { note(S, rid); return recOf(rid); }
+    // Records with the relation's edges but another parameterization are another relation.
+    if (!ofRelation(S, rel, r)) continue;
+    if (fitsCall(S, r, ids) && inSight(S, rid)) return recOf(rid);
   }
-  // A value formula that gave an error there passes it on.
+  // A row that gave an error there passes it on.
   for (const failure of S.failed.get(`rel|${objectOf(S, ids.values().next().value)}|${rel.n}`) ?? [])
     if (fitsCall(S, failure, ids)) return failure.error;
   return recOf(null);
@@ -1258,53 +1138,40 @@ function argsGiven(rel, a) {
   return given.size === rel.edges.length ? given : err('#VALUE!', `Give each of ${rel.name}’s arguments once.`);
 }
 
-// Whether a record (or a value formula's failure, with its args) is the one a call with these arguments
-// finds: an object given fills a parameter through its record there, and any other record fills it as is.
-// An argument given as undefined is left open.
+// Whether a record (or a row's failure, with its args) is the one a call with these arguments finds: an object
+// given fills a parameter through its record there, and any other record fills it as is. An argument given as
+// undefined is left open.
 const fitsCall = (S, r, ids) => r.args.every(x => {
   const g = ids.get(normal(x.edge));
   return g === undefined || (isObject(S.recs[g]) ? objectOf(S, x.at) === g : x.at === g);
 });
 
-
 // ---- Definitions, and the order they're worked out in ----
 
-const typeOfDef = d => d.type === 'field' ? 'field' : d.type === 'choice' ? 'choice' : 'tag';
-
-// Formulas parsed already, by their text: the same definitions are worked out after every edit.
-const parsedCache = new Map();
-function parseCached(body) {
-  if (!parsedCache.has(body)) {
-    if (parsedCache.size > 500) parsedCache.clear();
-    parsedCache.set(body, parseExpression(body));
-  }
-  return parsedCache.get(body);
-}
-
-// Parses a definition's formulas and what it covers. Problems are kept on it as `error`.
+// Parses a definition's rows and what it covers. Problems are kept on it as `error`, { message, row, pos }.
 function prepareDef(def, names) {
-  const d = { ...def, error: null, covers: [], params: [], edges: [def.name] };
+  const d = { ...def, error: null, covers: def.covers ?? [], params: [], edges: [def.name], rows: [], labels: new Set() };
+  let at = null;
   try {
-    d.covers = coversOf(def);
     d.params = d.covers.map(paramsOf);
-    d.isRelation = def.args ? true : d.params.some(ps => ps.length > 1);
-    // A relation's edges as written, in its own order: from its locations, or else from its pilot name.
+    d.isRelation = d.params.some(ps => ps.length > 1);
+    // A relation's edges in its own order: its own, or its name's, or else as it covers them.
     const named = (names?.relations ?? []).find(r => same(r.name, def.name));
-    if (d.isRelation) d.edges = def.args?.map(a => a.edge) ?? named?.edges ?? d.params[0]?.map(p => p.edge) ?? [];
-    if (def.implications?.length && d.type === 'tag') {
-      d.imps = def.implications.map(i => {
-        const f = splitFormula(i.formula);
-        if (f.kind !== 'implies') throw new FormulaError(`The implication “${i.label}” should start with ←.`, 0);
-        return { label: clean(i.label), ast: parseCached(f.body) };
-      });
-    } else {
-      const f = splitFormula(def.formula);
-      if (f.kind === 'implies') throw new FormulaError(d.type === 'tag' ? 'Write a tag’s implications as separate rows.' : 'Only a tag can be implied; start this formula with =.', 0);
-      if (f.kind !== 'value') throw new FormulaError('A formula starts with = (or ← for a tag’s implication).', 0);
-      d.ast = parseCached(f.body);
-    }
+    if (d.isRelation) d.edges = def.edges ?? named?.edges ?? d.params[0]?.map(p => p.edge) ?? [];
+    const written = (def.rows ?? []).map(row => ({ row, f: splitFormula(row.formula) }));
+    d.type = def.type ?? (written.length && written.every(x => x.f.kind === 'implies') ? 'tag' : 'field');
+    d.rows = written.map(({ row, f }, i) => {
+      at = { row: i, pos: 0 };
+      if (!f.kind) throw new FormulaError('A row’s formula starts with = or ←.', 0);
+      if (f.kind === 'implies' && d.type !== 'tag') throw new FormulaError('Only a tag can be implied; start this row with =.', 0);
+      return { i, label: clean(row.label), n: normal(clean(row.label)), implies: f.kind === 'implies', ast: parseCached(f.body, f.offset), text: String(row.formula) };
+    });
+    at = null;
+    if (!d.rows.length) throw new FormulaError('A definition has at least one row.', 0);
+    d.allImplied = d.type === 'tag' && d.rows.every(r => r.implies);
+    d.labels = new Set(d.rows.map(r => r.n).filter(Boolean));
   } catch (e) {
-    d.error = e instanceof FormulaError ? e.message : String(e);
+    d.error = { message: e instanceof FormulaError ? e.message : String(e), row: at?.row ?? null, pos: e.pos ?? 0 };
   }
   return d;
 }
@@ -1319,11 +1186,11 @@ function namesIn(ast, own) {
   const walk = (n, w) => {
     if (!n) return;
     const add = name => { refs.add(normal(name)); if (w) inWithout.add(normal(name)); };
-    if (n.k === 'name') { if (!own.has(normal(n.name))) add(n.name); return; }
+    if (n.k === 'name') { if (!own.has(n.n)) add(n.name); return; }
     if (n.k === 'dot') { walk(n.x, w); add(n.name); return; }
     if (n.k === 'call') {
-      const f = n.name.toUpperCase();
-      if (!FUNCTIONS[f]) add(n.name);
+      const f = isFunction(n.name) && n.name.toUpperCase();
+      if (!f) add(n.name);
       n.args.forEach((x, i) => walk(x.x, w || (f === 'WITHOUT' && i === 1)));
       return;
     }
@@ -1334,8 +1201,8 @@ function namesIn(ast, own) {
   return { refs, inWithout };
 }
 
-// What a definition provides names for: its own name, and for a relation, its lists of relatives, which
-// also answer to the edge labels they list.
+// What a definition provides names for: its own name, and for a relation, its lists of relatives, which also
+// answer to the edge labels they list.
 function namesProvided(d, reg) {
   const out = new Set([normal(d.name)]);
   if (d.isRelation) {
@@ -1345,24 +1212,27 @@ function namesProvided(d, reg) {
   return out;
 }
 
+// The relations by name, by what they cover, and by signature; a relation a definition gives but no Name note
+// names goes by the definition's name.
 function registry(names, defs) {
-  const rels = (names?.relations ?? []).map(r => ({ ...r }));
+  const rels = [...names?.relations ?? []];
   for (const d of defs) if (d.isRelation && !rels.some(r => same(r.name, d.name)))
-    rels.push({ name: d.name, type: typeOfDef(d), edges: d.edges, form: d.form, lists: {} });
-  const reg = { byName: new Map(), byForm: new Map(), bySig: new Map() };
+    rels.push({ name: d.name, type: d.type, edges: d.edges, covers: d.covers, lists: {} });
+  const reg = { byName: new Map(), byParam: new Map(), bySig: new Map() };
   for (const r of rels) {
     const lists = new Map();
     for (const [from, listed] of Object.entries(r.lists ?? {}))
       for (const [to, name] of Object.entries(listed)) lists.set(`${normal(from)}|${normal(to)}`, name);
-    const rel = { name: r.name, n: normal(r.name), type: r.type, edges: r.edges, form: r.form, lists, sig: signature(r.type, r.edges) };
-    reg.byName.set(normal(r.name), rel);
-    if (r.form) reg.byForm.set(r.form, rel);
-    else reg.bySig.set(signature(r.type, r.edges), rel);
+    const rel = { name: r.name, n: normal(r.name), type: r.type, edges: r.edges, lists, sig: signature(r.type, r.edges), covers: r.covers && new Set(r.covers) };
+    reg.byName.set(rel.n, rel);
+    for (const p of r.covers ?? []) reg.byParam.set(p, rel);
+    if (!reg.bySig.has(rel.sig)) reg.bySig.set(rel.sig, rel);
   }
   return reg;
 }
 
-// Every name the schema has somewhere, so a name missing at one record can read as BLANK there.
+// Every name the schema has somewhere, so a name missing at one record can be nothing there. Rows' labels
+// count, since a tag's rows can be cited by label.
 function knownNames(entered, defs, reg) {
   const lists = new Set(), values = new Set();
   const addRelation = (type, edges, rel = reg.bySig.get(signature(type, edges))) => {
@@ -1375,17 +1245,19 @@ function knownNames(entered, defs, reg) {
     else if (r.edge) values.add(normal(r.edge));
   }
   for (const d of defs) {
-    if (d.isRelation) addRelation(typeOfDef(d), d.edges);
+    if (d.isRelation) addRelation(d.type, d.edges);
     else values.add(normal(d.name));
     for (const ps of d.params) for (const p of ps) edgesInSpec(p.spec).forEach(e => values.add(e));
+    d.labels.forEach(l => values.add(l));
   }
   for (const rel of reg.byName.values()) addRelation(rel.type, rel.edges, rel);
   return { lists, values };
 }
 
-// Groups definitions that depend on each other, dependencies first (Tarjan's algorithm), whatever order
-// they're listed in. A definition depends on those providing the names its formulas use, and on those
-// covering the specifications its locations run through, whose records it's located at.
+// Groups definitions that read each other, what they read first (Tarjan's algorithm), whatever order they're
+// listed in. A definition depends on those providing the names its rows use, and on those covering the
+// specifications its locations run through, whose records it's located at. A group loops if it reads itself;
+// then its loops are checked to be monotone (see loopReads).
 function plan(defs, reg) {
   const provides = new Map(), covering = new Map();
   for (const d of defs) for (const n of namesProvided(d, reg)) push(provides, n, d);
@@ -1393,10 +1265,9 @@ function plan(defs, reg) {
   const deps = new Map();
   for (const d of defs) {
     const own = new Set(d.isRelation ? d.edges.map(normal) : []);
-    const asts = d.error ? [] : d.imps ? d.imps.map(i => i.ast) : [d.ast];
     const refs = new Set(), inWithout = new Set();
-    for (const ast of asts) {
-      const found = namesIn(ast, own);
+    for (const row of d.error ? [] : d.rows) {
+      const found = namesIn(row.ast, own);
       found.refs.forEach(n => refs.add(n));
       found.inWithout.forEach(n => inWithout.add(n));
     }
@@ -1423,19 +1294,104 @@ function plan(defs, reg) {
     }
   };
   for (const d of defs) if (!index.has(d)) visit(d);
-  order.forEach((group, i) => group.forEach(d => { d.step = i; }));
+  const groups = order.map((defs, i) => {
+    defs.forEach(d => { d.step = i; });
+    const loops = defs.length > 1 || defs[0].dependsOn.has(defs[0]);
+    const g = { defs, loops, monotone: true, reads: [] };
+    if (loops) {
+      g.reads = loopReads(defs, reg);
+      g.monotone = g.reads.every(x => x.monotone);
+    }
+    return g;
+  });
   // WITHOUT can't read what's being worked out alongside it: that's always a loop.
-  for (const group of order) for (const d of group)
-    if (!d.error && group.some(e => d.withoutReads.has(e)))
-      d.error = 'WITHOUT reads something that depends on this, which is a loop (#CIRCULAR!).';
-  return order;
+  for (const g of groups) for (const d of g.defs)
+    if (!d.error && g.defs.some(e => d.withoutReads.has(e)))
+      d.error = { message: 'WITHOUT reads something that depends on this, which is a loop (#CIRCULAR!).', row: null, pos: 0 };
+  return groups;
 }
+
+// ---- Loops ----
+// A group that reads itself is worked out round by round from nothing, and settles at its least solution if
+// nothing on its loop can go down when what it reads goes up: a tag goes up when attested, a number when it
+// grows. That's checked here on the syntax: every place a row reads the group's own names must be monotone.
+// The reads are kept, so the formula bar can underline them.
+
+// For each function, which of its arguments a loop may run through. LET is handled on its own.
+const MONOTONE_ARGS = {
+  AND: true, OR: true, COUNT: true, SUM: true, MIN: true, MAX: true, FILTER: true, ANY: true, EACH: true, UNIQUE: true,
+  IF: [false, true, true], ALL: [false, true],
+};
+
+// Every place a group's rows read the group: [{ def, row, from, to, monotone }].
+function loopReads(group, reg) {
+  const names = new Set(group.flatMap(d => [...namesProvided(d, reg)]));
+  const labels = new Set(group.flatMap(d => [...d.labels]));
+  const out = [];
+  for (const d of group) {
+    if (d.error) continue;
+    const own = new Set(d.isRelation ? d.edges.map(normal) : []);
+    d.rows.forEach((row, ri) => {
+      const found = [];
+      const read = (from, to, ok) => found.push({ def: d.id, row: ri, from, to, monotone: ok });
+      // `ok` is whether the place is monotone; `lets` maps a LET name to whether its value reads the loop.
+      const walk = (n, ok, lets) => {
+        switch (n.k) {
+          case 'name':
+            if (lets.has(n.n)) { if (lets.get(n.n)) read(n.from, n.to, ok); }
+            else if (!own.has(n.n) && names.has(n.n)) read(n.from, n.to, ok);
+            return;
+          case 'dot':
+            walk(n.x, ok, lets);
+            if (names.has(n.n) || labels.has(n.n)) read(n.at, n.to, ok);
+            return;
+          case 'call': {
+            const f = isFunction(n.name) && n.name.toUpperCase();
+            if (!f) {
+              if (names.has(normal(n.name))) read(n.from, n.nameTo, ok);
+              n.args.forEach(x => walk(x.x, ok, lets));
+            } else if (f === 'LET') {
+              const inner = new Map(lets);
+              for (let i = 0; i + 1 < n.args.length; i += 2) {
+                const before = found.length;
+                walk(n.args[i + 1].x, ok, inner);
+                if (n.args[i].x.k === 'name') inner.set(n.args[i].x.n, found.length > before);
+              }
+              if (n.args.length) walk(n.args.at(-1).x, ok, inner);
+            } else {
+              const m = MONOTONE_ARGS[f];
+              n.args.forEach((x, i) => walk(x.x, ok && (m === true || !!(m && m[i])), lets));
+            }
+            return;
+          }
+          case 'and': case 'or': walk(n.a, ok, lets); walk(n.b, ok, lets); return;
+          case 'cmp': walk(n.a, ok && (n.op === '>' || n.op === '>='), lets); walk(n.b, false, lets); return;
+          case 'in': walk(n.a, false, lets); walk(n.b, ok, lets); return;
+          case 'bin': { const up = ok && (n.op === '+' || n.op === '*'); walk(n.a, up, lets); walk(n.b, up, lets); return; }
+          case 'not': case 'neg': walk(n.x, false, lets); return;
+          case 'arr': n.items.forEach(x => walk(x, ok, lets)); return;
+        }
+      };
+      walk(row.ast, true, new Map());
+      if (found.length) {
+        // The output is the first row that gives something, so a row on the loop must not be able to take over
+        // from a later one with another value: past it, every row only attests. And a row that can give FALSE
+        // can go down.
+        const whole = { def: d.id, row: ri, from: row.ast.from, to: row.ast.to, monotone: false };
+        if (d.type === 'tag' && !row.implies && !onlyTrue(row.ast)) out.push(whole);
+        else if (d.rows.slice(ri + 1).some(later => !(row.implies && later.implies))) out.push(whole);
+      }
+      out.push(...found);
+    });
+  }
+  return out;
+}
+const onlyTrue = n => (n.k === 'lit' && n.v === true) || (n.k === 'call' && n.name.toUpperCase() === 'IF' && n.args.length === 2 && n.args[1].x.k === 'lit' && n.args[1].x.v === true);
 
 // ---- Candidates ----
 
-// A record's underlying specification, as model.js's specKey() gives it; null while something it's
-// located at isn't there.
-const rootLabel = r => isTag(r) ? `tag:${r.tag}` : isChoice(r) ? `choice:${normal(r.choice)}` : `field:${r.field}`;
+// A record's specification key, as Tree.key gives it for its specification; null while something it's located
+// at isn't there.
 function specOf(S, id) {
   if (S.specs.has(id)) return S.specs.get(id);
   const r = S.recs[id];
@@ -1466,49 +1422,62 @@ function kept(map, k, make) {
   return v;
 }
 
+// The definition covering a record: its own, for a computed one; for an entered one, the one covering its
+// parameterization.
+function defOf(S, id) {
+  const r = S.recs[id];
+  if (!r || isObject(r)) return null;
+  return r.computed ? S.P.byId.get(r.computed) : S.P.coverOf.get(paramOfRecord(S, r)) ?? null;
+}
+
 // A computed record's id comes from its argumentation, so it stays the same from one working-out to the next.
 const computedId = args => `fx:${args.map(a => `${normal(a.edge)}=${a.at}`).sort().join('&')}`;
-
-// The argumentations a definition could give an output at: for each parameterization it covers, every way
-// of filling its parameters with records of their locations' specifications, skipping ways that use one
-// object twice unless the definition allows it.
-function candidatesOf(S, d) {
-  const out = [];
-  for (const params of d.params) {
-    const ordered = d.isRelation ? [...params].sort((a, b) => edgeIndex(d, a.edge) - edgeIndex(d, b.edge)) : params;
-    const pools = ordered.map(p => S.bySpec.get(p.spec) ?? []);
-    const fill = (i, picked) => {
-      if (i === pools.length) {
-        const args = ordered.map((p, k) => ({ edge: writtenEdge(d, p.edge), at: picked[k] }));
-        out.push({ key: argKey(args), args, at: d.isRelation ? undefined : picked[0], id: computedId(args) });
-        return;
-      }
-      for (const id of pools[i]) {
-        if (!d.self && picked.some(p => objectOf(S, p) === objectOf(S, id))) continue;
-        fill(i + 1, [...picked, id]);
-      }
-    };
-    fill(0, []);
-  }
-  return out;
-}
 
 function contextFor(S, d, cand) {
   if (d.isRelation) return { S, def: d, self: { args: new Map(cand.args.map(a => [normal(a.edge), objectOf(S, a.at)])) }, at: null, lets: null };
   return { S, def: d, self: { loc: cand.at }, at: recOf(cand.at), lets: null };
 }
 
+// A candidate from its arguments, with the edges as the definition writes them.
+function candidateFrom(d, args) {
+  const named = args.map(a => ({ edge: writtenEdge(d, normal(a.edge)), at: a.at }));
+  return { key: argKey(named), args: named, at: d.isRelation ? undefined : named[0].at, id: computedId(named) };
+}
+
+// The candidate at a record of a definition's (an entry's location, or a relation's record), or, for a
+// relation, at objects by edge, filling each parameter through the object's record of its location.
+function candidateAt(S, d, at) {
+  if (typeof at === 'string') {
+    const r = S.recs[at];
+    if (r && !isObject(r) && defOf(S, at) === d) return candidateFrom(d, argsOf(r));
+    if (!d.isRelation && S.recs[at]) return candidateFrom(d, [{ edge: d.name, at }]);
+    return null;
+  }
+  if (!at || !d.isRelation) return null;
+  const given = new Map(Object.entries(at).map(([edge, id]) => [normal(edge), id]));
+  for (const params of d.params) {
+    const args = [];
+    for (const p of params) {
+      const g = given.get(p.edge);
+      const hit = g && (S.bySpec.get(p.spec) ?? []).find(id => id === g || objectOf(S, id) === g);
+      if (!hit) break;
+      args.push({ edge: p.edge, at: hit });
+    }
+    if (args.length === params.length) return candidateFrom(d, args);
+  }
+  return null;
+}
+
 function makeRecord(d, cand, out) {
   const base = d.isRelation ? { args: cand.args } : { at: cand.at, edge: d.name };
-  const type = typeOfDef(d);
-  if (type === 'tag') return { ...base, tag: out, computed: d.id };
-  if (type === 'choice') return { ...base, choice: out, computed: d.id };
+  if (d.type === 'tag') return { ...base, tag: out, computed: d.id };
+  if (d.type === 'choice') return { ...base, choice: out, computed: d.id };
   return { ...base, field: d.datatype ?? 'number', value: isDate(out) ? out.iso : out, computed: d.id };
 }
 
 // The texts a formula can give as its value: written in a place its value comes from, which is the formula
-// itself, a branch of IF or IFS, or the end of LET. Text it only compares, like "Corporation" in
-// `@ = "Corporation"`, isn't among them.
+// itself, a branch of IF, or the end of LET. Text it only compares, like "Corporation" in `@ = "Corporation"`,
+// isn't among them.
 function givenTexts(ast) {
   const out = [];
   const walk = n => {
@@ -1517,39 +1486,40 @@ function givenTexts(ast) {
     if (n.k !== 'call') return;
     const f = n.name.toUpperCase(), a = n.args.map(x => x.x);
     if (f === 'IF') a.slice(1).forEach(walk);
-    else if (f === 'IFS') a.filter((_, i) => i % 2 === 1).forEach(walk);
     else if (f === 'LET') walk(a.at(-1));
   };
   walk(ast);
   return out;
 }
 function optionsWritten(text) {
-  try { return givenTexts(parseExpression(splitFormula(text).body)); } catch { return []; }
+  const f = splitFormula(text);
+  if (f.kind === 'implies') return [];
+  try { return givenTexts(parseExpression(f.body, f.offset)); } catch { return []; }
 }
 
-// The options a choice's formula may give: those its schema has (`knownOptions`, where the caller knows
-// them; otherwise those its entries have already), and any its formula gives as written.
+// The options a choice's rows may give: those the core knows (`options`; otherwise those its entries have
+// already), and any its rows give as written.
 function optionsOf(S, d) {
-  if (!d.options) {
+  if (!d.knownOptions) {
     const opts = [];
     const add = o => { if (!opts.some(x => same(x, o))) opts.push(o); };
-    if (d.knownOptions) d.knownOptions.forEach(add);
+    if (d.options) d.options.forEach(add);
     else for (const r of Object.values(S.entered)) if (isChoice(r) && !r.args && same(r.edge, d.name)) add(r.choice);
-    givenTexts(d.ast).forEach(add);
-    d.options = opts;
+    d.rows.forEach(row => givenTexts(row.ast).forEach(add));
+    d.knownOptions = opts;
   }
-  return d.options;
+  return d.knownOptions;
 }
 
-// A value formula's result as an output for the definition: { out }, { none } for BLANK, or { error }.
+// What a row gives, as an output for its definition: { out }, { none } for nothing, or { error }.
+const NONE = { none: true }, TRUE_OUT = { out: true };
 function asOutput(S, d, v) {
   v = scalar(S, v);
   if (isErr(v)) return { error: v };
-  if (v === null) return { none: true };
-  const type = typeOfDef(d);
+  if (v === null) return NONE;
   const wrong = what => ({ error: err('#VALUE!', `${describe(S, v)} isn’t ${what}.`) });
-  if (type === 'tag') return typeof v === 'boolean' ? { out: v } : wrong('TRUE or FALSE');
-  if (type === 'choice') {
+  if (d.type === 'tag') return typeof v === 'boolean' ? { out: v } : wrong('TRUE or FALSE');
+  if (d.type === 'choice') {
     if (typeof v !== 'string') return wrong('an option');
     const option = optionsOf(S, d).find(o => same(o, v));
     return option ? { out: option } : { error: err('#OPTION?', `“${v}” isn’t one of ${d.name}’s options.`) };
@@ -1559,60 +1529,40 @@ function asOutput(S, d, v) {
   return typeof v === 'number' ? { out: v } : wrong('a number');
 }
 
-// ---- Where a formula can hold ----
+// ---- Where a row can give something ----
 // A relation's candidates are every way of filling its parameters, and for a relation between two kinds of
-// object most of them come to nothing: an implication doesn't hold there, a value formula gives BLANK. So
-// where a formula's form says where it can come to something, a step finds its candidates there, the way a
-// database joins tables, instead of trying every pair.
+// object most of them come to nothing. So where a row's form says where it can come to something, a group
+// finds its candidates there, the way a database joins tables, instead of trying every pair.
 //
-// For one argument, the free one, given the others: a support is the set of objects outside of which the
-// formula is sure to come to nothing, exactly FALSE or BLANK and no error, as { bits, exact }, the objects
-// being bits by their numbers in the state (see numberOf). Where it's exact, an implication is sure to hold
-// just there, so there's nothing to work out. A support is worked out with the same lookups the formula
-// would make, so it's worked out again when what they found changes (see settleStep). Where the form
-// doesn't tell, there's no support (null), and every candidate is tried. holdsWhere and the rest compile a
-// formula to a function from the given arguments (in a context, as ev takes) to a support, or to null.
-//
-// They compile it for a step (see supportContext): the relations it works out, which of their labels
-// settle in its first round, and which have no entered records. What a support works out it works out once
-// for every value of the free argument, and once for a whole round of the step, so it may use only what's
-// steady (see steady).
+// For one argument, the free one, given the others: a support is the set of objects outside of which the row
+// is sure to give nothing, as { bits, exact }, the objects being bits by their numbers in the state (see
+// numberOf). Where it's exact, a ← row is sure to hold just there, so there's nothing to work out. A support
+// is worked out with the same lookups the row would make, so it's worked out again when what they found
+// changes. Where the form doesn't tell, there's no support (null), and every candidate is tried. holdsWhere
+// and givesWhere compile a formula to a function from the given arguments (in a context, as ev takes) to a
+// support, or to null.
 
 const AT = { at: true };   // `@` as the free variable: the item a condition is asked of
 const isVar = (n, v) => v === AT ? n.k === 'at' : n.k === 'name' && n.n === v.name;
 const isCall = (n, f) => n.k === 'call' && n.name.toUpperCase() === f;
 const ITEM_FUNCTIONS = new Set(['FILTER', 'ANY', 'ALL', 'EACH']);
-const parts = n => [n.x, n.a, n.b, ...(n.items ?? []), ...(n.args ?? []).map(x => x.x)].filter(x => x && typeof x === 'object');
-const withAt = (c, at) => ({ S: c.S, def: c.def, self: c.self, at, lets: c.lets });
+const childrenOf = n => [n.x, n.a, n.b, ...(n.items ?? []), ...(n.args ?? []).map(x => x.x)].filter(x => x && typeof x === 'object');
 
 // Whether an expression uses the free variable: an argument by its name, or `@` outside the conditions of
 // FILTER and the like, where it means their items.
 function uses(n, v) {
   if (isVar(n, v)) return true;
   if (v === AT && n.k === 'call' && ITEM_FUNCTIONS.has(n.name.toUpperCase())) return !!n.args[0] && uses(n.args[0].x, v);
-  return parts(n).some(x => uses(x, v));
+  return childrenOf(n).some(x => uses(x, v));
 }
 
-// Whether an expression comes out the same all through a round. It reads no OBJECT, which reads Names that
-// no formula names; and no IMPLIEDBY, whose answer can change within a round, unless of a relation another
-// step works out, or of one this step works out with labels that are settled by the time its records are
-// there (see supportContext).
-function steady(K, n) {
-  if (n.k === 'call') {
-    const f = n.name.toUpperCase(), tag = n.args[0]?.x;
-    if (f === 'OBJECT') return false;
-    if (f === 'IMPLIEDBY' && (tag?.k !== 'call' || FUNCTIONS[tag.name.toUpperCase()]
-      || K.own.has(normal(tag.name)) && !(K.quiet.has(normal(tag.name)) && n.args.slice(1).every(x => x.x.k === 'lit'
-        && typeof x.x.v === 'string' && K.settles.get(normal(tag.name))?.get(normal(x.x.v)) !== false)))) return false;
-  }
-  return parts(n).every(x => steady(K, x));
-}
-
-const callsTo = (n, f) => isCall(n, f) || parts(n).some(x => callsTo(x, f));
+// Whether an expression comes out the same all through a round: it reads no OBJECT, which reads Names that no
+// formula names.
+const steady = (K, n) => !isCall(n, 'OBJECT') && childrenOf(n).every(x => steady(K, x));
 
 // Whether LET gives a name another meaning somewhere in an expression.
 const binds = (n, name) => isCall(n, 'LET') && n.args.some((x, i) => i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name' && x.x.n === name)
-  || parts(n).some(x => binds(x, name));
+  || childrenOf(n).some(x => binds(x, name));
 
 // Sets of objects as bits. Each object (or other record) a support names gets a number in the state.
 function numberOf(S, id) {
@@ -1627,20 +1577,21 @@ function bitsOf(S, ids) {
   for (const k of ks) bits[k >> 5] |= 1 << (k & 31);
   return bits;
 }
-const hasBit = (bits, k) => (k >> 5) < bits.length && ((bits[k >> 5] >>> (k & 31)) & 1) === 1;
 // Adds b's bits to a, making a longer where b is: returns a, or its longer copy.
 function addBits(a, b) {
   if (b.length > a.length) { const longer = new Uint32Array(b.length); longer.set(a); a = longer; }
   for (let i = 0; i < b.length; i++) a[i] |= b[i];
   return a;
 }
-function* idsIn(S, bits) {
-  for (let w = 0; w < bits.length; w++) for (let x = bits[w]; x; x &= x - 1) yield S.numbered[(w << 5) + 31 - Math.clz32(x & -x)];
-}
 
 const NOWHERE = { bits: new Uint32Array(0), exact: true };
 const union = (a, b) => a && b && { bits: !a.bits.length ? b.bits : !b.bits.length ? a.bits : addBits(Uint32Array.from(a.bits), b.bits), exact: a.exact && b.exact };
 const loose = s => s && { bits: s.bits, exact: false };
+function meet(a, b) {
+  const bits = new Uint32Array(Math.min(a.bits.length, b.bits.length));
+  for (let i = 0; i < bits.length; i++) bits[i] = a.bits[i] & b.bits[i];
+  return { bits, exact: false };
+}
 
 // Where a condition can be TRUE.
 function holdsWhere(K, n, v) {
@@ -1651,8 +1602,8 @@ function holdsWhere(K, n, v) {
       const a = holdsWhere(K, n.a, v), b = holdsWhere(K, n.b, v);
       return a && b && (c => { const s = a(c); return s && union(s, b(c)); });
     }
-    // AND stops at a FALSE, so it can hold only where its first side can; or, where that's worked out
-    // once, only where its second side can.
+    // AND stops at a FALSE, so it can hold only where its first side can; or, where that's worked out once,
+    // only where its second side can.
     case 'and': {
       if (uses(n.a, v)) { const a = holdsWhere(K, n.a, v); return a && (c => loose(a(c))); }
       if (!steady(K, n.a)) return null;
@@ -1661,20 +1612,80 @@ function holdsWhere(K, n, v) {
     }
     case 'in': return isVar(n.a, v) && !uses(n.b, v) && steady(K, n.b) ? c => among(c.S, ev(n.b, c)) : null;
     case 'cmp': return comparedWhere(K, n, v);
+    // A dot on a relation call is nothing where the call finds nothing; citing one of its rows by label, as
+    // [Affiliated Person](Person, Affiliate).[(A)] does, holds just where that row holds.
+    case 'dot': {
+      if (n.x.k !== 'call') return null;
+      const cited = K.P.defs.some(d => d.isRelation && !d.error && same(d.name, n.x.name) && d.labels.has(n.n));
+      return relatedWhere(K, n.x, v, cited, cited ? n.n : null);
+    }
     case 'call': {
-      const f = n.name.toUpperCase(), a = n.args;
-      if (f === 'ANY' && a.length === 2 && !uses(a[0].x, v) && steady(K, a[0].x)) {
+      const a = n.args;
+      if (isCall(n, 'ANY') && a.length === 2 && !uses(a[0].x, v) && steady(K, a[0].x)) {
         const h = holdsWhere(K, a[1].x, v);
         return h && (c => acrossItems(c, a[0].x, h));
       }
-      // IMPLIEDBY reads its labels only where its tag is there; where they're written out, they say
-      // just where it holds, once they've settled.
-      if (f === 'IMPLIEDBY' && a.length >= 2 && a[0].x.k === 'call')
-        return relatedWhere(K, a[0].x, v, a.slice(1).every(x => x.x.k === 'lit' && typeof x.x.v === 'string') ? a.slice(1).map(x => normal(x.x.v)) : null);
-      return relatedWhere(K, n, v, null);
+      return relatedWhere(K, n, v, true);
     }
   }
   return null;
+}
+
+// Where an expression can give something: outside, it's sure to give nothing, and no error. Nothing drops out
+// of a sum, so a sum gives something where either side does; it wipes out a product, so a product gives
+// something only where both sides do.
+function givesWhere(K, n, v) {
+  if (!uses(n, v)) return steady(K, n) && (c => { const x = ev(n, c); return !isErr(x) && isNothing(x) ? NOWHERE : null; });
+  switch (n.k) {
+    case 'dot': { const x = givesWhere(K, n.x, v); return x && (c => loose(x(c))); }
+    case 'bin': {
+      const a = givesWhere(K, n.a, v), b = givesWhere(K, n.b, v);
+      if (n.op === '+' || n.op === '-') return a && b && (c => { const s = a(c); return s && loose(union(s, b(c))); });
+      if (n.op === '*' || n.op === '/') return (a || b) && (c => {
+        const s = a ? a(c) : null, t = b ? b(c) : null;
+        return s && t ? meet(s, t) : loose(s ?? t);
+      });
+      return null;
+    }
+    case 'call': {
+      const f = isFunction(n.name) && n.name.toUpperCase(), a = n.args.map(x => x.x);
+      if (!f) return relatedWhere(K, n, v, false);
+      if (f === 'IF' && a.length >= 2) {
+        const [cond, yes, no] = a;
+        if (!uses(cond, v)) {
+          if (!steady(K, cond)) return null;
+          const y = givesWhere(K, yes, v), z = no && givesWhere(K, no, v);
+          return c => {
+            const t = truth(c.S, ev(cond, c));
+            if (isErr(t)) return null;
+            return t ? (y ? y(c) : null) : no ? (z ? z(c) : null) : NOWHERE;
+          };
+        }
+        if (!no) { const h = holdsWhere(K, cond, v); return h && (c => loose(h(c))); }
+        const y = givesWhere(K, yes, v), z = givesWhere(K, no, v);
+        return y && z && (c => { const s = y(c); return s && loose(union(s, z(c))); });
+      }
+      if (f === 'SUM' || f === 'MIN' || f === 'MAX') {
+        const each = a.map(x => itemsGiveWhere(K, x, v));
+        return each.every(Boolean) && (c => {
+          let out = NOWHERE;
+          for (const g of each) if (!(out = union(out, g(c)))) return null;
+          return loose(out);
+        });
+      }
+    }
+  }
+  return null;
+}
+
+// Where an argument of SUM and the like has an item that's something: EACH over a list worked out once, with
+// the free variable in its expression; a FILTER; or the argument itself.
+function itemsGiveWhere(K, n, v) {
+  if (isCall(n, 'EACH') && n.args.length === 2 && !uses(n.args[0].x, v) && steady(K, n.args[0].x)) {
+    const g = givesWhere(K, n.args[1].x, v);
+    return g && (c => loose(acrossItems(c, n.args[0].x, g)));
+  }
+  return filledWhere(K, n, v) || givesWhere(K, n, v);
 }
 
 // `x IN list`, with x the free variable: TRUE just for the objects on the list, unless an item errs. A list
@@ -1695,14 +1706,16 @@ function among(S, v) {
   return { bits, exact: true };
 }
 
-// The union of a condition's supports with `@` as each item of a list worked out once: where ANY can hold,
-// or FILTER can keep something.
+// The union of a condition's supports with `@` as each item of a list worked out once: where ANY can hold, or
+// FILTER can keep something.
 function acrossItems(c, list, h) {
   const items = toList(ev(list, c));
   if (isErr(items)) return null;
   let bits = new Uint32Array(0), exact = true;
+  const ci = withAt(c, null);
   for (const item of items) {
-    const s = h(withAt(c, item));
+    ci.at = item;
+    const s = h(ci);
     if (!s) return null;
     exact &&= s.exact;
     bits = addBits(bits, s.bits);
@@ -1729,63 +1742,37 @@ function comparedWhere(K, n, v) {
   });
 }
 
-// Where a list can have something in it: outside, it's sure to be empty, or BLANK, and no error.
+// Where a list can have something in it: outside, it's sure to be empty, or nothing, and no error.
 function filledWhere(K, n, v) {
   if (!uses(n, v)) return steady(K, n) && (c => { const l = toList(ev(n, c)); return isErr(l) || l.length ? null : NOWHERE; });
   // A dot over FILTER's list maps it, so it's empty where that is.
   if (n.k === 'dot' && isCall(n.x, 'FILTER')) return filledWhere(K, n.x, v);
   if (!isCall(n, 'FILTER') || n.args.length !== 2) return null;
   const [list, cond] = n.args.map(x => x.x);
-  if (!uses(list, v)) {
-    const h = steady(K, list) && holdsWhere(K, cond, v);
-    return h && (c => loose(acrossItems(c, list, h)));
-  }
-  // FILTER(y.List, cond), y being the free variable: an object is on y's list just where y is on that
-  // object's list seen from the other side, so FILTER can keep something only for the objects on the lists
-  // of those its condition can hold for.
-  if (v === AT || list.k !== 'dot' || !isVar(list.x, v) || uses(cond, v)) return null;
-  const h = holdsWhere(K, cond, AT);
-  return h && (c => {
-    if (!listedOnly(c.S, list.n)) return null;
-    const s = h(c);
-    if (!s) return null;
-    const ids = [];
-    for (const o of idsIn(c.S, s.bits)) ids.push(...listing(c.S, o, list.n));
-    return { bits: bitsOf(c.S, ids), exact: false };
-  });
+  const h = !uses(list, v) && steady(K, list) && holdsWhere(K, cond, v);
+  return h && (c => loose(acrossItems(c, list, h)));
 }
 
-// Whether an object's `n` is sure to be its list of relatives of that name: no entry, worked out or not,
-// is called that at an object, and the name is a list's somewhere, so where there are none it's empty.
-function listedOnly(S, n) {
-  if (!S.listedOnly.has(n)) S.listedOnly.set(n, S.P.known.lists.has(n) && !S.dep?.entry.has(n)
-    && ![...S.byAtName.keys(), ...S.failed.keys()].some(k => k.endsWith(`|${n}`) && isObjectAt(S, k.slice(0, -n.length - 1))));
-  return S.listedOnly.get(n);
-}
-
-// The objects whose list of relatives called `n` has o on it, kept as a lookup is.
-const listing = (S, o, n) => remembered(S, `listing|${o}|${n}`, () => {
-  depend(S, 'inverse', n, `${o}|${n}`);
-  const out = [];
-  for (const rid of relationsFor(S, o, n)) {
-    const r = S.recs[rid];
-    if (isTag(r) && r.tag !== true) continue;
-    for (const { own, other, list, alias } of listsOf(S, r))
-      if ((list === n || alias === n) && objectOf(S, other.at) === o) { const y = objectOf(S, own.at); if (y) out.push(y); }
-  }
-  return out;
-});
-
-// A relation call with the free variable as one argument finds a record only among those the other
-// arguments are in, so, as a condition or for IMPLIEDBY, it can hold only for their objects at its edge.
-// For IMPLIEDBY with its labels written out (`labels`), only where the record found has one of them.
-function relatedWhere(K, n, v, labels) {
-  const rel = !FUNCTIONS[n.name.toUpperCase()] && K.P.reg.byName.get(normal(n.name));
+// A relation call with the free variable as one argument finds a record only among those the other arguments
+// are in, so it can give something only for their objects at its edge. As a condition, a tag relation's call
+// holds just where its record is attested; citing one of its rows by label, just where that row holds too.
+function relatedWhere(K, n, v, asCondition, label = null) {
+  const rel = !isFunction(n.name) && K.P.reg.byName.get(normal(n.name));
   const given = rel && givenArgs(rel, n.args);
   if (!given || isErr(given)) return null;
   const free = [...given].filter(([, x]) => uses(x, v)), others = [...given].filter(([, x]) => !uses(x, v));
   if (free.length !== 1 || !isVar(free[0][1], v) || !others.length || !others.every(([, x]) => steady(K, x))) return null;
-  const freeEdge = free[0][0];
+  const freeEdge = free[0][0], tail = `|${freeEdge}|${asCondition}|${label}`;
+  // Kept as a lookup is, since many supports share it.
+  if (others.length === 1) {
+    const [edge, x] = others[0];
+    return c => {
+      const r = asRec(c.S, ev(x, c));
+      if (isErr(r)) return null;
+      if (!r?.id) return NOWHERE;
+      return remembered(c.S, `related|${rel.n}|${edge}=${r.id}${tail}`, () => relatedAt(c.S, rel, new Map([[edge, r.id]]), freeEdge, asCondition, label));
+    };
+  }
   return c => {
     const ids = new Map();
     for (const [edge, x] of others) {
@@ -1794,41 +1781,29 @@ function relatedWhere(K, n, v, labels) {
       if (!r?.id) return NOWHERE;
       ids.set(edge, r.id);
     }
-    return relatedAt(c.S, rel, ids, freeEdge, labels && settledLabels(K, c.S, rel, labels));
+    return remembered(c.S, `related|${rel.n}|${[...ids].map(([e, id]) => `${e}=${id}`).join('&')}${tail}`, () => relatedAt(c.S, rel, ids, freeEdge, asCondition, label));
   };
 }
 
-// IMPLIEDBY's labels, where they say for good whether it holds: those of a relation another step works
-// out; or of one this step does, if the implications that give them don't read anything the step works
-// out, and so come out for good in its first round: once that's done, or before, where the relation is
-// quiet and has no records yet for IMPLIEDBY to find.
-function settledLabels(K, S, rel, labels) {
-  if (!K.own.has(rel.n)) return labels;
-  return (S.settled || K.quiet.has(rel.n)) && labels.every(l => K.settles.get(rel.n)?.get(l) !== false) ? labels : null;
-}
-
-// The objects at one edge of a relation's records whose other arguments are as given, the first such
-// record for each being the one a call finds; or, where a value formula gave an error there, the call's
-// error. With `labels`, just where IMPLIEDBY would hold for those labels.
-function relatedAt(S, rel, ids, freeEdge, labels) {
+// The objects at one edge of a relation's records whose other arguments are as given, the first such record
+// for each being the one a call finds; or, where a row gave an error there, the call's error.
+function relatedAt(S, rel, ids, freeEdge, asCondition, label) {
   const [edge, g] = ids.entries().next().value;
   const obj = objectOf(S, g);
-  // With labels, it changes only where one of them comes or goes (see candidateKeys).
-  if (labels) for (const l of labels) { depend(S, 'held', rel.n, `${rel.n}|${edge}=${obj}|${l}`); S.dep?.cited.add(`${rel.n}|${l}`); }
-  else depend(S, 'rel', rel.n, `${rel.n}|${edge}=${obj}`);
+  depend(S, 'rel', rel.n, `${rel.n}|${edge}=${obj}`);
   const out = [], seen = new Set();
   // Every record here has the first argument given; the others are checked.
   const checked = ids.size > 1 || !isObject(S.recs[g]);
-  let exact = !!labels;
+  let exact = asCondition;
   for (const rid of S.byEdge.get(`${rel.sig}|${edge}=${obj}`) ?? []) {
     const r = S.recs[rid];
-    if ((rel.form && formOfRecord(S, r) !== rel.form) || (checked && !fitsCall(S, r, ids))) continue;
-    const { objs, edges, key } = S.indexed.get(rid), y = objs[edges.indexOf(freeEdge)];
+    if (!ofRelation(S, rel, r) || (checked && !fitsCall(S, r, ids))) continue;
+    const { objs, edges } = S.indexed.get(rid), y = objs[edges.indexOf(freeEdge)];
     if (!y || seen.has(y)) continue;
     seen.add(y);
-    if (!labels) out.push(y);
-    else if (!isTag(r)) { out.push(y); exact = false; }
-    else if (r.tag === true && labels.some(l => S.prov.get(key ?? keyOf(r))?.has(l))) out.push(y);
+    if (!asCondition) out.push(y);
+    else if (!isTag(r) || (label && S.byAtName.has(`${rid}|${label}`))) { out.push(y); exact = false; }
+    else if (r.tag === true && (!label || holdsLabel(S, r, label))) out.push(y);
   }
   for (const failure of S.failed.get(`rel|${obj}|${rel.n}`) ?? []) {
     const a = failure.args.find(x => normal(x.edge) === freeEdge), y = a && objectOf(S, a.at);
@@ -1837,52 +1812,15 @@ function relatedAt(S, rel, ids, freeEdge, labels) {
   return { bits: bitsOf(S, out), exact };
 }
 
-// Where a value formula can give something other than BLANK. LOOKTHROUGH gives BLANK where there's no way
-// from one argument to the other.
-function givesWhere(K, n, v) {
-  if (!uses(n, v)) return steady(K, n) && (c => scalar(c.S, ev(n, c)) === null ? NOWHERE : null);
-  if (!isCall(n, 'LOOKTHROUGH') || n.args.length !== 4) return null;
-  const [from, to, step, factor] = n.args.map(x => x.x);
-  if (!isVar(to, v) || uses(from, v) || !steady(K, from) || !stepName(step) || !stepName(factor)) return null;
-  return c => {
-    const r = asRec(c.S, ev(from, c));
-    if (isErr(r)) return null;
-    if (!r?.id) return NOWHERE;
-    const total = lookThrough(c.S, r.id, step.name, step.n, factor.name, factor.n);
-    return isErr(total) ? null : { bits: bitsOf(c.S, total.keys()), exact: false };
-  };
-}
-
-// A step's context for compiling supports (see holdsWhere): the relations it works out; which of their
-// labels are settled once its first round is done, those whose implications use no name the step's
-// definitions give, so they came out for good in that round; and which are quiet, having no entered
-// records, so that there's nothing for IMPLIEDBY to find until the end of that round.
-function supportContext(S, group) {
-  S.enteredSigs ??= new Set(Object.values(S.entered).filter(r => r.args).map(signatureOf));
-  const quiet = new Set(group.filter(d => d.isRelation && !S.enteredSigs.has(signature(typeOfDef(d), d.edges))).map(d => normal(d.name)));
-  const names = new Set(group.flatMap(d => [...namesProvided(d, S.P.reg)]));
-  const settles = new Map();
-  for (const d of group) if (d.isRelation && d.imps) {
-    const labels = new Map(), own = new Set(d.edges.map(normal));
-    for (const imp of d.imps) {
-      const { refs } = namesIn(imp.ast, own);
-      // OBJECT reads Names without naming them.
-      const alone = ![...refs].some(n => names.has(n)) && !(names.has('name') && callsTo(imp.ast, 'OBJECT'));
-      labels.set(normal(imp.label), labels.get(normal(imp.label)) !== false && alone);
-    }
-    settles.set(normal(d.name), labels);
-  }
-  return { P: S.P, own: new Set(group.filter(d => d.isRelation).map(d => normal(d.name))), settles, quiet };
-}
-
 // ---- Working out the state ----
 
 function stateFor(P, entered) {
   const S = { P, entered, recs: {}, byAt: new Map(), byAtName: new Map(), relsAt: new Map(), byObject: new Map(), byEdge: new Map(),
     relsByCall: new Map(), indexed: new Map(), seq: 0, listNames: new Map(), specs: new Map(), bySpec: new Map(), enteredByKey: new Map(),
-    prov: new Map(), rows: new Map(), lazy: null, dep: null, watch: null, reads: null, forgetting: true, settled: false, done: 0,
-    cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), shapes: new WeakMap(), forms: new WeakMap(),
-    listedOnly: new Map(), pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(), provenances: new Map(), enteredSigs: null };
+    enteredByEdges: null, holds: new Map(), stage: new Map(), rows: new Map(), dep: null, watch: null, reads: null,
+    forgetting: true, done: 0, cf: new Map(), memo: new Map(), steps: [], failed: new Map(), recLists: new WeakMap(), paramOf: new WeakMap(),
+    pairLists: new Map(), numbers: new Map(), numbered: [], listBits: new WeakMap(),
+    cut: null, probe: null, count: null };
   // Every entered record is in before any is indexed, so each is indexed by the objects it belongs to
   // whatever order they come in.
   Object.assign(S.recs, entered);
@@ -1894,19 +1832,18 @@ function stateFor(P, entered) {
   return S;
 }
 
-// A computed record comes into the state, or goes, as a step works it out (again). The candidate it's
-// worked out at comes with it, with its block and its records there (picks), which tell what it shares
-// with the block's other records: its signature, edges and specification, and the order of its call's
-// key (see keyedBlock).
-function addComputed(S, id, r, cand, b, picks) {
+// A computed record comes into the state, or goes, as its group works it out. The candidate it's worked out
+// at comes with it, with its block and its records there (picks), which tell what it shares with the
+// block's other records: its signature, edges and specification, and the order of its call's key.
+function addComputed(S, id, r, b, picks) {
   let known;
   if (b?.sig && picks) {
     const objs = picks.map((k, j) => b.objects[j][k]);
-    known = { objs, edges: b.normals, sig: b.sig, key: cand.key, call: b.idOrder && `${b.sig}|${b.idOrder.map(j => `${b.normals[j]}=${objs[j]}`).join('&')}` };
+    known = { objs, edges: b.normals, sig: b.sig, call: b.idOrder && `${b.sig}|${b.idOrder.map(j => `${b.normals[j]}=${objs[j]}`).join('&')}` };
   }
   addRecord(S, id, r, known);
   // Its specification is its block's for its output; it's kept only where a definition is located, since
-  // that's where a step looks for candidates (see blocksOf), and worked out again if it's wanted elsewhere.
+  // that's where a group looks for candidates (see blocksOf), and worked out again if it's wanted elsewhere.
   const root = rootLabel(r);
   let spec = b?.specs.get(root);
   if (!spec) { spec = specOf(S, id); if (b && spec) b.specs.set(root, spec); }
@@ -1935,39 +1872,25 @@ function againBelow(S, id) {
       S.bySpec.set(spec, S.bySpec.get(spec).filter(x => x !== rid));
       S.specs.delete(rid);
     }
+    S.paramOf.delete(r);
     specOf(S, rid);
     againBelow(S, rid);
   }
 }
 
-// Works out one step: a group of definitions that read each other. Value formulas alone are worked out on
-// demand; with implications among them, the step goes in rounds (see settleStep).
-//
-// What the step's lookups find is kept for the step (see remembered). A step of implications alone keeps
-// track of what each lookup read, and at the end of each round lets go of those that read something the
-// round changed. A value formula that doesn't read what it gives keeps them all. Anything else lets go of
-// them all whenever a record comes or goes, as a spreadsheet recalculates.
+// Works out one group. What its lookups find is kept for the group (see remembered): records come and go only
+// between rounds, and a looping group lets go, at the end of each round, of the lookups that read something
+// the round changed.
 function runStep(S, i) {
   const started = now();
-  const group = S.P.order[i].filter(d => !d.error);
-  S.count = { evals: 0, rounds: 0, attempts: 0, tried: 0 };
+  S.count = { evals: 0, rounds: 0, tried: 0 };
   S.memo.clear();
-  S.listedOnly.clear();
-  if (group.some(d => d.imps)) {
-    S.forgetting = group.some(d => !d.imps);
-    settleStep(S, group);
-  } else {
-    S.forgetting = !aloof(S.P, group);
-    settleValues(S, group);
-  }
+  S.forgetting = false;
+  runGroup(S, i);
   S.forgetting = true;
   S.memo.clear();
-  S.steps.push({ defs: S.P.order[i].map(d => d.id), ms: now() - started, ...S.count });
+  S.steps.push({ defs: S.P.groups[i].defs.map(d => d.id), ms: now() - started, ...S.count });
 }
-
-// Whether a step is one value formula that can't read what it gives: it names none of it, and gives no
-// Names, which OBJECT reads.
-const aloof = (P, group) => group.length === 1 && !group[0].dependsOn.has(group[0]) && !namesProvided(group[0], P.reg).has('name');
 
 function runUpTo(S, limit) {
   for (; S.done < limit; S.done++) runStep(S, S.done);
@@ -1976,36 +1899,14 @@ function runUpTo(S, limit) {
 const now = () => typeof performance === 'object' ? performance.now() : Date.now();
 
 // ---- What a formula read ----
-// A formula is worked out with what it reads noted (see reading). What it read is kept as a trace: the ids
-// it read itself, the keys it depends on within a step (see depend), and the traces of what it was made
-// of, so a lookup used many times is kept once. The ids are spelled out (readIds) only for the records
-// someone asks about. Within a step, a trace that depends on keys is watched for them, directly or
-// through what it was part of (see watch and affected), so a change finds what it changes.
-
-const NO_READS = { ids: [], keys: [], parts: [] };
-function readIds(trace) {
-  const out = new Set(), seen = new Set(), stack = [trace];
-  while (stack.length) {
-    const t = stack.pop();
-    if (seen.has(t)) continue;
-    seen.add(t);
-    for (const id of t.ids) out.add(id);
-    stack.push(...t.parts);
-  }
-  return [...out];
-}
-// The keys a trace depends on, at any depth.
-function keysOf(trace, out = new Set(), seen = new Set()) {
-  if (seen.has(trace)) return out;
-  seen.add(trace);
-  for (const k of trace.keys) out.add(k);
-  for (const p of trace.parts) keysOf(p, out, seen);
-  return out;
-}
+// A row is worked out with what it reads noted (see reading). What it read is kept as a trace: the keys it
+// depends on within a looping group (see depend), and the traces of what it was made of, so a lookup used many
+// times is kept once. A trace that depends on keys is watched for them, directly or through what it was part
+// of (see watch and affected), so a change finds what it changes.
 
 function reading(S, fn) {
   const outer = S.reads;
-  const trace = S.reads = { ids: [], keys: [], parts: [] };
+  const trace = S.reads = { keys: [], parts: [] };
   try { return { v: fn(), reads: trace }; }
   finally {
     S.reads = outer;
@@ -2023,8 +1924,8 @@ function watch(S, trace) {
   for (const p of trace.parts) if (p.live) (p.up ??= []).push(trace);
 }
 
-// The traces a change to these keys reaches, through what they're part of. A lookup kept for the step
-// that's reached is let go of; the traces of what's being worked out are returned. The keys are done with.
+// The traces a change to these keys reaches, through what they're part of. A lookup kept for the group that's
+// reached is let go of; the traces of what's being worked out are returned. The keys are done with.
 function affected(S, keys) {
   const out = [], seen = new Set(), stack = [];
   for (const k of keys) {
@@ -2060,23 +1961,12 @@ function safeEv(ast, c) {
   catch (e) { return err('#VALUE!', e instanceof RangeError ? 'This goes around too many times.' : String(e)); }
 }
 
-// A property worked out when it's first read, and kept: what a record read is spelled out only for the
-// records someone asks about.
-function lazily(obj, name, fn) {
-  Object.defineProperty(obj, name, { enumerable: true, configurable: true, get() {
-    const value = fn();
-    Object.defineProperty(obj, name, { value, enumerable: true, configurable: true, writable: true });
-    return value;
-  } });
-  return obj;
-}
+// ---- Candidates, as a group finds them ----
 
-// ---- Candidates, as a step finds them ----
-
-// A definition's candidates for one parameterization it covers, as a block: its parameters in the
-// relation's order, the records each can be filled with (pools, as they stand when the step starts), and
-// each record's object. A candidate is one record from each pool, as indexes; its ordinal is its place in
-// candidatesOf's order, so candidates found in any order are worked out in that order.
+// A definition's candidates for one parameterization it covers, as a block: its parameters in the relation's
+// order, the records each can be filled with (pools, as they stand when the group starts), and each record's
+// object. A candidate is one record from each pool, as indexes; its ordinal is its place among all of them,
+// so candidates found in any order are worked out in one order.
 function blocksOf(S, group) {
   const blocks = [];
   let base = 0;
@@ -2091,10 +1981,10 @@ function blocksOf(S, group) {
   return blocks;
 }
 
-// The candidate with these records, or null if it uses one object twice and its definition doesn't allow
-// that; and its ordinal.
+// The candidate with these records, or null if it's a tag's and uses one object twice: a thing doesn't stand to
+// itself as a tag relation says two things stand. A value relation, like look-through, can measure a thing against itself.
 function candidateIn(b, picks) {
-  if (!b.d.self) for (let i = 1; i < picks.length; i++) for (let j = 0; j < i; j++) if (b.objects[i][picks[i]] === b.objects[j][picks[j]]) return null;
+  if (b.d.type === 'tag') for (let i = 1; i < picks.length; i++) for (let j = 0; j < i; j++) if (b.objects[i][picks[i]] === b.objects[j][picks[j]]) return null;
   const args = picks.map((k, j) => ({ edge: b.edges[j], at: b.pools[j][k] }));
   const key = `[${b.keyOrder.map(j => kept(b.keyParts[j], picks[j], () => JSON.stringify(JSON.stringify([b.normals[j], args[j].at])))).join(',')}]`;
   const id = b.idOrder ? `fx:${b.idOrder.map(j => `${b.normals[j]}=${args[j].at}`).join('&')}` : computedId(args);
@@ -2102,12 +1992,11 @@ function candidateIn(b, picks) {
 }
 
 // argKey and computedId sort their pairs, [edge, location] and edge=location, and a block's edges alone
-// decide the order: two pairs differ first within their edges (or, for computedId, at the = after the
-// shorter, unless an edge has = or & in it). So a block works the order out once, and a key's pairs once
-// for each record of a pool.
+// decide the order (unless an edge has = or & in it). So a block works the order out once, and a key's pairs
+// once for each record of a pool.
 function keyedBlock(b) {
   b.normals = b.edges.map(normal);
-  b.sig = b.d.isRelation && signature(typeOfDef(b.d), b.edges);
+  b.sig = b.d.isRelation && signature(b.d.type, b.edges);
   b.specs = new Map();
   const order = by => b.normals.map((_, j) => j).sort((x, y) => by(x) < by(y) ? -1 : by(x) > by(y) ? 1 : 0);
   b.keyOrder = order(j => JSON.stringify([b.normals[j], '']));
@@ -2131,33 +2020,46 @@ function anchorsOf(b, free) {
 const anchorContext = (b, free, anchor) => ({ S: null, def: b.d, at: null, lets: null,
   self: { args: new Map(anchor.flatMap((k, j) => j === free ? [] : [[normal(b.edges[j]), b.objects[j][k]]])) } });
 
-// The free parameter's records for a support's objects, as indexes into its pool; all of them where
-// there's no support.
+// The free parameter's records for a support's objects, as indexes into its pool; all of them where there's
+// no support.
 function picksFor(S, b, free, s) {
   if (!s) return b.pools[free].map((_, k) => k);
-  b.numbers[free] ??= b.objects[free].map(obj => obj ? numberOf(S, obj) : -1);
-  const out = [];
-  b.numbers[free].forEach((k, i) => { if (k >= 0 && hasBit(s.bits, k)) out.push(i); });
-  return out;
-}
-
-function everyCandidate(b) {
-  const out = [];
-  for (const anchor of anchorsOf(b, b.pools.length - 1)) for (const k of picksFor(null, b, b.pools.length - 1, null)) {
-    anchor[b.pools.length - 1] = k;
-    const cand = candidateIn(b, anchor);
-    if (cand) out.push({ d: b.d, b, picks: [...anchor], cand, ordinal: ordinalIn(b, anchor) });
+  // The pool's records by their objects' numbers, so a support's objects find theirs.
+  if (!b.numbers[free]) {
+    b.numbers[free] = new Map();
+    b.objects[free].forEach((obj, i) => { if (obj) push(b.numbers[free], numberOf(S, obj), i); });
+  }
+  const out = [], at = b.numbers[free];
+  for (let w = 0; w < s.bits.length; w++) for (let x = s.bits[w]; x; x &= x - 1) {
+    const ks = at.get((w << 5) + 31 - Math.clz32(x & -x));
+    if (ks) out.push(...ks);
   }
   return out;
 }
 
-// For each implication of a block, or its value formula: the parameter left free, and the support given
-// the others (see holdsWhere), where its form gives one and `find` allows; else every candidate is tried.
-function plansOf(K, b, find) {
-  return (b.d.imps ? b.d.imps.map(i => i.ast) : [b.d.ast]).map(ast => {
-    if (find && b.d.isRelation) for (let free = 0; free < b.edges.length; free++) {
+// Where entered records stand in a block, as picks: a row is worked out there too, to say what it would give.
+function enteredPicks(S, b) {
+  if (!S.enteredByEdges) {
+    S.enteredByEdges = new Map();
+    for (const id of S.enteredByKey.values()) push(S.enteredByEdges, argsOf(S.entered[id]).map(a => normal(a.edge)).sort().join('|'), id);
+  }
+  const at = b.pools.map(pool => new Map(pool.map((id, k) => [id, k])));
+  const out = [];
+  for (const id of S.enteredByEdges.get([...b.normals].sort().join('|')) ?? []) {
+    const args = argsOf(S.entered[id]);
+    const picks = b.normals.map((edge, j) => at[j].get(args.find(a => normal(a.edge) === edge)?.at));
+    if (picks.every(k => k !== undefined)) out.push(picks);
+  }
+  return out;
+}
+
+// For each row of a block: the parameter left free, and the support given the others (see holdsWhere), where
+// its form gives one; else every candidate is tried.
+function plansOf(K, b) {
+  return b.d.rows.map(row => {
+    if (b.d.isRelation) for (let free = 0; free < b.edges.length; free++) {
       const v = { name: normal(b.edges[free]) };
-      const where = !binds(ast, v.name) && (b.d.imps ? holdsWhere(K, ast, v) : givesWhere(K, ast, v));
+      const where = !binds(row.ast, v.name) && (row.implies ? holdsWhere(K, row.ast, v) : givesWhere(K, row.ast, v));
       if (where) return { free, where };
     }
     return { free: b.edges.length - 1, where: null };
@@ -2171,16 +2073,15 @@ function supportAt(S, where, ctx) {
 
 // The keys under which a candidate could turn up in a lookup (see depend): an entry at its location by its
 // name; a relation in each list of relatives it makes, from each argument's record and object, under the
-// list's name and the edge label it lists, and in whose lists each object is; by the call that finds it;
-// and by each argument, for finding candidates (see relatedAt).
-function candidateKeys(S, d, cand, kinds = null, turned = []) {
-  const want = kind => !kinds || kinds.has(kind);
+// list's name and the edge label it lists, and in whose lists each object is; by the call that finds it; and
+// by each argument, for finding candidates (see relatedAt).
+function candidateKeys(S, d, cand, kinds) {
+  const want = kind => kinds.has(kind);
   if (!d.isRelation) return want('entry') ? [`entry|${cand.at}|${normal(d.name)}`] : [];
   const n = normal(d.name), objs = cand.args.map(a => objectOf(S, a.at)), keys = [];
   if (want('calls')) keys.push(`calls|${n}|${cand.args.map((a, i) => `${normal(a.edge)}=${objs[i]}`).sort().join('&')}`);
   if (want('rel')) cand.args.forEach((a, i) => keys.push(`rel|${n}|${normal(a.edge)}=${objs[i]}`));
-  if (want('held')) cand.args.forEach((a, i) => turned.forEach(l => { if (S.dep?.cited.has(`${n}|${l}`)) keys.push(`held|${n}|${normal(a.edge)}=${objs[i]}|${l}`); }));
-  if (!want('lists') && !want('inverse')) return keys;
+  if (!want('lists')) return keys;
   const lists = listsByPair(S, d);
   cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
     if (i !== j) for (const list of lists.get(`${normal(own.edge)}|${normal(other.edge)}`)) {
@@ -2188,7 +2089,6 @@ function candidateKeys(S, d, cand, kinds = null, turned = []) {
         keys.push(`lists|${own.at}|${list}`);
         if (objs[i] !== own.at) keys.push(`lists|${objs[i]}|${list}`);
       }
-      if (want('inverse')) keys.push(`inverse|${objs[j]}|${list}`);
     }
   }));
   return keys;
@@ -2206,391 +2106,286 @@ function listsByPair(S, d) {
   return S.pairLists.get(d);
 }
 
-// The names under which a step's own candidates can be looked for, by how (see depend).
+// The names under which a group's own candidates can be looked for, by how (see depend).
 function relevance(S, group) {
-  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), held: new Set(), inverse: new Set(), watched: new Set(), cited: new Set() };
+  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), watched: new Set(), watchedValues: new Set() };
   for (const d of group) {
     if (!d.isRelation) { dep.entry.add(normal(d.name)); continue; }
     dep.calls.add(normal(d.name));
     dep.rel.add(normal(d.name));
-    dep.held.add(normal(d.name));
-    for (const names of listsByPair(S, d).values()) for (const n of names) { dep.lists.add(n); dep.inverse.add(n); }
+    for (const names of listsByPair(S, d).values()) for (const n of names) dep.lists.add(n);
   }
   return dep;
 }
 
-// Candidates by the keys they could turn up under, for working value formulas out on demand and for
-// finding loops (see loopsIn).
-function indexCandidates(S, jobs) {
-  const idx = new Map();
-  for (const { d, cand } of jobs) for (const k of candidateKeys(S, d, cand)) push(idx, k, cand.key);
-  return idx;
-}
-
-// A relation call by what it would find: the relation's name, and each argument's edge with its object.
-const callKey = (S, name, pairs) => `${normal(name)}|${pairs.map(([edge, at]) => `${normal(edge)}=${objectOf(S, at)}`).sort().join('&')}`;
-
-// ---- Value formulas ----
-
-// Value formulas' candidates, ready to be worked out on demand: all but those where an entered record stands.
-// A `blocked` one was found on a loop (see settleStep), and gives #CIRCULAR!.
-function lazyValues(S, jobs, blocked = new Set()) {
-  const todo = jobs.filter(j => !S.enteredByKey.has(j.cand.key));
-  return { cands: new Map(todo.map(j => [j.cand.key, { ...j, state: 'todo', blocked: blocked.has(j.cand.key) }])), idx: indexCandidates(S, todo) };
-}
-
-// Value formulas are worked out on demand, so a record can read the same definition's records elsewhere,
-// as a spreadsheet cell reads other cells. Asking for a record that's being worked out is a loop. A value
-// formula that can't read what it gives (see aloof) is worked out only where its support says it can give
-// something, and where an entered record stands.
-function settleValues(S, group) {
-  const jobs = blocksOf(S, group).flatMap(b => S.forgetting ? everyCandidate(b) : foundValues(S, b));
-  S.lazy = lazyValues(S, jobs);
-  S.count.tried += S.lazy.cands.size;
-  for (const key of S.lazy.cands.keys()) force(S, key);
-  valueOverlaps(S, jobs);
-  S.lazy = null;
-}
-
-// A value formula's candidates where its support says it can give something, and where an entered record
-// stands, which is marked as agreeing with it or not; in candidatesOf's order.
-function foundValues(S, b) {
-  const [{ free, where }] = plansOf(supportContext(S, [b.d]), b, true);
-  if (!where) return everyCandidate(b);
-  const found = new Map();
-  const take = picks => { const ordinal = ordinalIn(b, picks); if (found.has(ordinal)) return; const cand = candidateIn(b, picks); if (cand) found.set(ordinal, { d: b.d, b, picks: [...picks], cand, ordinal }); };
-  for (const anchor of anchorsOf(b, free)) {
-    for (const k of picksFor(S, b, free, supportAt(S, where, anchorContext(b, free, anchor)))) { anchor[free] = k; take(anchor); }
-  }
-  const at = b.pools.map(pool => new Map(pool.map((id, k) => [id, k])));
-  for (const id of S.enteredByKey.values()) {
-    const r = S.entered[id];
-    if (r.args?.length !== b.edges.length) continue;
-    const picks = b.edges.map((edge, j) => at[j].get(r.args.find(a => same(a.edge, edge))?.at));
-    if (picks.every(k => k !== undefined)) take(picks);
-  }
-  return [...found.values()].sort((x, y) => x.ordinal - y.ordinal);
-}
-
-// What a value formula gives where an entered record stands, to mark it as agreeing or differing.
-function valueOverlaps(S, jobs) {
-  for (const { d, cand } of jobs) {
-    const enteredId = S.enteredByKey.get(cand.key);
-    if (!enteredId || d.imps) continue;
-    const { v, reads } = reading(S, () => safeEv(d.ast, contextFor(S, d, cand)));
-    const res = asOutput(S, d, v);
-    const mark = res.error || res.none ? null : equal(scalar(S, recOf(enteredId)), res.out) ? 'agrees' : 'differs';
-    addRow(S, d, { ...cand, entered: enteredId, formula: res.error ?? res.out ?? null, mark }, reads);
-  }
-}
-
-function force(S, key) {
-  const job = S.lazy?.cands.get(key);
-  if (!job || job.state === 'done') return null;
-  if (job.state === 'busy') return circular();
-  job.state = 'busy';
-  const { v, reads } = job.blocked ? { v: circular(), reads: NO_READS } : reading(S, () => safeEv(job.d.ast, contextFor(S, job.d, job.cand)));
-  const res = asOutput(S, job.d, v);
-  Object.assign(job, { state: 'done', res, reads, failed: [] });
-  if (res.error) {
-    addRow(S, job.d, { ...job.cand, error: res.error }, reads);
-    // Whatever reads the record reads the error instead.
-    if (!job.d.isRelation) {
-      S.failed.set(`${job.cand.at}|${normal(job.d.name)}`, res.error);
-      job.failed.push([`${job.cand.at}|${normal(job.d.name)}`]);
-    } else for (const obj of new Set(job.cand.args.map(a => objectOf(S, a.at)))) {
-      const failure = { args: job.cand.args, error: res.error };
-      push(S.failed, `rel|${obj}|${normal(job.d.name)}`, failure);
-      job.failed.push([`rel|${obj}|${normal(job.d.name)}`, failure]);
-    }
-  } else if (!res.none) {
-    addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out), job.cand, job.b, job.picks);
-    job.added = true;
-    addRow(S, job.d, { ...job.cand, value: res.out }, reads);
-  }
-  return null;
-}
-
-// Takes back what a value formula gave at a candidate, so it can be worked out again.
-function unforce(S, job) {
-  if (job.added) removeComputed(S, job.cand.id);
-  for (const [key, failure] of job.failed ?? []) {
-    if (!failure) S.failed.delete(key);
-    else S.failed.set(key, S.failed.get(key).filter(x => x !== failure));
-  }
-  Object.assign(job, { state: 'todo', added: false, failed: [], res: null, reads: null });
-}
-
-function forceMany(S, keys) {
-  for (const k of keys ?? []) { const e = force(S, k); if (e) return e; }
-  return null;
-}
-const forceEntry = (S, at, n) => S.lazy?.idx.size ? forceMany(S, S.lazy.idx.get(`entry|${at}|${n}`)) : null;
-const forceLists = (S, at, n) => S.lazy?.idx.size ? forceMany(S, S.lazy.idx.get(`lists|${at}|${n}`)) : null;
-const forceRelation = (S, key) => S.lazy?.idx.size ? forceMany(S, S.lazy.idx.get(`calls|${key}`)) : null;
-
-// ---- Steps with implications ----
-// Implications only ever attest, so a step with implications starts with nothing attested by them, attests
-// whatever some implication holds for, and goes round again until a round changes nothing: the fewest
-// attestations they support. Any value formulas in the step are worked out afresh each round, on demand,
-// from what's attested so far.
+// ---- A group, round by round ----
+// A group starts from nothing. In each round, every row whose candidate's inputs changed in the round before
+// is worked out again, reading the state as the round before left it, and then the outputs change together:
+// the round in which a record first appears is its stage. Where nothing changes, the group is done. A group
+// that doesn't loop is done in one round. A loop is monotone (see loopReads), so its records only go up, to
+// its least solution; a number that keeps growing past ROUNDS rounds, or anything that goes down, is circular.
 //
-// Each implication is worked out at the candidates its support allows (see holdsWhere), or at every one
-// where there's none, and where the step has value formulas too, whose loops need every candidate to find.
-// Where a support is exact, the implication holds just there, with nothing to work out. Within the step,
-// every lookup notes the keys it depends on (see depend), so a round works out again only the
-// implications, and the supports, whose inputs changed. The same notes find loops per record: once the
-// step settles, a value formula's record on a loop through the step's records is circular, and so are the
-// others on that loop, and the step is worked out again with them left out, giving #CIRCULAR!, so nothing
-// is built on them. A loop through implications alone isn't circular. An implication's record that some
-// implication held for, and none does any more, came from a loop through something like NOT, and is
-// circular too.
-function settleStep(S, group) {
-  const blocked = new Set();
-  for (let attempt = 0; ; attempt++) {
-    S.count.attempts++;
-    const run = attemptStep(S, group, blocked);
-    const loops = attempt < 4 ? loopsIn(S, run) : [];
-    if (!loops.length) return finishStep(S, run);
-    undoStep(S, group, run);
-    loops.forEach(k => blocked.add(k));
-  }
-}
+// The output at a candidate is the entered record's, if one stands there (row zero); otherwise what the first
+// row that gives something gives, an error included. For a tag whose rows are all ←, any row that holds.
 
-// The labels of the implications that hold at a tag's candidate, in the definition's order.
-function labelsOf(t) {
-  const out = [];
-  t.d.imps.forEach((imp, i) => { if (t.results[i]?.v === true && !out.includes(imp.label)) out.push(imp.label); });
-  return out;
-}
-const sameLabels = (a, b) => a.length === b.length && a.every((l, i) => l === b[i]);
-// A candidate's provenance, which IMPLIEDBY reads: the labels that hold there, normalized, as a set shared
-// by every candidate with the same ones.
-function provenance(S, labels) {
-  const key = labels.map(normal).join('\n');
-  if (!S.provenances.has(key)) S.provenances.set(key, new Set(labels.map(normal)));
-  return S.provenances.get(key);
-}
-const resultKey = res => res ? JSON.stringify(res.error ? ['error', res.error.code] : res.none ? ['none'] : ['out', res.out]) : '';
-
+const ROUNDS = 1000;
 const EVALUATE = Symbol('work out'), FOUND = 1, HELD = 2, STILL = 3;
-function attemptStep(S, group, blocked) {
+// A field's value changing is read where the record is read; its coming or going, wherever it's looked for.
+const VALUE_KINDS = new Set(['entry', 'lists', 'calls']);
+
+function runGroup(S, i) {
+  const g = S.P.groups[i];
+  const group = g.defs.filter(d => !d.error);
+  if (!group.length) return;
+  if (g.loops && !g.monotone) return circularGroup(S, group);
+  const loops = g.loops;
   const blocks = blocksOf(S, group);
-  const find = group.every(d => d.imps), K = supportContext(S, group);
-  S.dep = relevance(S, group);
-  S.watch = new Map();
-  S.settled = false;
-  const valueJobs = blocks.filter(b => !b.d.imps).flatMap(everyCandidate);
-  S.lazy = lazyValues(S, valueJobs, blocked);
-  const values = [...S.lazy.cands.values()];
+  const K = { P: S.P };
+  S.dep = loops ? relevance(S, group) : null;
+  S.watch = loops ? new Map() : null;
   // Candidates by ordinal, made when first wanted.
-  const size = blocks.reduce((n, b) => Math.max(n, b.base + b.strides[0] * b.pools[0].length), 0);
-  const tags = [], slots = size <= 1 << 22 ? new Int32Array(size).fill(-1) : new Map();
-  const tagAt = (b, ordinal, picks) => {
+  const size = blocks.reduce((n, b) => Math.max(n, b.base + (b.pools.length ? b.strides[0] * b.pools[0].length : 0)), 0);
+  const cands = [], slots = size <= 1 << 22 ? new Int32Array(size).fill(-1) : new Map();
+  const candAt = (b, ordinal, picks) => {
     let k = slots instanceof Map ? slots.get(ordinal) ?? -1 : slots[ordinal];
     if (k < 0) {
       const at = picks(), cand = candidateIn(b, at);
-      k = tags.push(cand && { d: b.d, b, picks: at, cand, ordinal, ctx: null, results: b.d.imps.map(() => null), labels: [], derived: false,
-        blocked: blocked.has(cand.key), pending: null }) - 1;
+      k = cands.push(cand && { d: b.d, b, picks: at, cand, ordinal, ctx: null, results: b.d.rows.map(() => null), out: NONE, rows: [],
+        entered: S.enteredByKey.get(cand.key) ?? null, blocked: false, pending: null }) - 1;
       if (slots instanceof Map) slots.set(ordinal, k); else slots[ordinal] = k;
       if (cand) S.count.tried++;
     }
-    return tags[k];
+    return cands[k];
   };
-  // The candidates with implications to work out this round, each with what's pending: an implication to
-  // work out (EVALUATE), or, as a support said, holding or not (true or false). The latest word wins.
+  // The candidates with rows to work out this round, each with what's pending: a row to work out (EVALUATE),
+  // or, as an exact support said, holding or not (true or false). The latest word wins.
   let queue = [];
-  const enqueue = (t, i, known = EVALUATE) => {
+  const enqueue = (t, ri, known = EVALUATE) => {
     if (!t || t.blocked) return;
     if (!t.pending) { t.pending = []; queue.push(t); }
-    t.pending[i] = known;
+    t.pending[ri] = known;
   };
-  // A finder works an implication's support out for one choice of the other arguments' objects, and queues
-  // the implication where it newly allows, in each block with those objects (its targets). A target keeps,
-  // for each record of the free parameter's pool, whether the implication has been queued there to be
-  // worked out (FOUND), or held there as an exact support said (HELD).
-  const seek = g => {
+  // A finder works a row's support out for one choice of the other arguments' objects, and queues the row
+  // where it newly allows, in each block with those objects (its targets). A target keeps, for each record of
+  // the free parameter's pool, whether the row has been queued there to be worked out (FOUND), or held there
+  // as an exact support said (HELD).
+  const seek = f => {
     let s = null;
-    if (g.where) {
-      const run = reading(S, () => supportAt(S, g.where, g.ctx));
+    if (f.where) {
+      const run = reading(S, () => supportAt(S, f.where, f.ctx));
       s = run.v;
-      g.reads = run.reads;
-      g.reads.job = g;
+      f.reads = run.reads;
+      f.reads.job = f;
     }
-    for (const x of g.targets) {
-      const at = k => tagAt(x.b, x.ordinal + k * x.b.strides[x.free], () => { const picks = [...x.anchor]; picks[x.free] = k; return picks; });
+    for (const x of f.targets) {
+      const at = k => candAt(x.b, x.ordinal + k * x.b.strides[x.free], () => { const picks = [...x.anchor]; picks[x.free] = k; return picks; });
       if (s && !s.exact && x.held.length) {
         // No longer exact: what it said held is worked out instead.
-        for (const k of x.held) { x.state[k] = FOUND; enqueue(at(k), g.i); }
+        for (const k of x.held) { x.state[k] = FOUND; enqueue(at(k), f.ri); }
         x.held = [];
       }
       const picks = picksFor(S, x.b, x.free, s);
       if (s?.exact) {
         const held = picks.filter(k => x.state[k] !== FOUND);
-        for (const k of held) { if (x.state[k] !== HELD) enqueue(at(k), g.i, true); x.state[k] = STILL; }
-        for (const k of x.held) if (x.state[k] === HELD) { enqueue(at(k), g.i, false); x.state[k] = 0; }
+        for (const k of held) { if (x.state[k] !== HELD) enqueue(at(k), f.ri, true); x.state[k] = STILL; }
+        for (const k of x.held) if (x.state[k] === HELD) { enqueue(at(k), f.ri, false); x.state[k] = 0; }
         for (const k of held) x.state[k] = HELD;
         x.held = held;
-      } else for (const k of picks) if (x.state[k] !== FOUND) { x.state[k] = FOUND; enqueue(at(k), g.i); }
+      } else for (const k of picks) if (x.state[k] !== FOUND) { x.state[k] = FOUND; enqueue(at(k), f.ri); }
     }
-    if (!s) g.where = null;
+    if (!s) f.where = null;
   };
   const plans = new Map(), finders = new Map();
-  for (const b of blocks) if (b.d.imps) {
-    if (!plans.has(b.d)) plans.set(b.d, plansOf(K, b, find));
-    plans.get(b.d).forEach(({ free, where }, i) => {
+  for (const b of blocks) {
+    if (!plans.has(b.d)) plans.set(b.d, plansOf(K, b));
+    plans.get(b.d).forEach(({ free, where }, ri) => {
       for (const anchor of anchorsOf(b, free)) {
-        const key = `${b.d.id}|${i}|${anchor.map((k, j) => j === free ? '' : b.objects[j][k]).join('|')}`;
-        if (!finders.has(key)) finders.set(key, { i, where, ctx: where && anchorContext(b, free, anchor), targets: [], reads: null });
+        const key = `${b.d.id}|${ri}|${anchor.map((k, j) => j === free ? '' : b.objects[j][k]).join('|')}`;
+        if (!finders.has(key)) finders.set(key, { ri, where, ctx: where && anchorContext(b, free, anchor), targets: [], reads: null });
         finders.get(key).targets.push({ b, free, anchor, ordinal: ordinalIn(b, anchor), state: new Uint8Array(b.pools[free].length), held: [] });
       }
     });
+    for (const picks of enteredPicks(S, b)) {
+      const t = candAt(b, ordinalIn(b, picks), () => picks);
+      b.d.rows.forEach((_, ri) => enqueue(t, ri));
+    }
   }
   finders.forEach(seek);
-  let outputs = null, factsChanged = false;
-  for (let round = 0; round < 1000 && (queue.length || (factsChanged && values.length)); round++) {
+  let capped = false;
+  for (let round = 1; queue.length; round++) {
     S.count.rounds++;
-    for (const job of values) unforce(S, job);
-    for (const d of group) if (!d.imps) S.rows.delete(d.id);
+    if (round > ROUNDS) capped = true;
     const changed = [];
     for (const t of queue.sort((x, y) => x.ordinal - y.ordinal)) {
       const pending = t.pending;
       t.pending = null;
-      pending.forEach((known, i) => {
-        if (known !== EVALUATE) t.results[i] = { v: known, reads: null };
-        else {
-          S.count.evals++;
-          t.ctx ??= contextFor(S, t.d, t.cand);
-          const { v, reads } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, t.ctx)));
-          Object.assign(reads, { job: t, imp: i });
-          t.results[i] = { v, reads };
-        }
-        const labels = labelsOf(t);
-        if (sameLabels(labels, t.labels)) return;
-        t.was ??= t.labels;
-        t.labels = labels;
-        S.prov.set(t.cand.key, provenance(S, labels));
-        if (changed.at(-1) !== t) changed.push(t);
-      });
+      for (let ri = 0; ri < pending.length; ri++) {
+        const known = pending[ri];
+        if (known === undefined) continue;
+        if (known !== EVALUATE) { t.results[ri] = { r: known ? TRUE_OUT : NONE, reads: null }; continue; }
+        S.count.evals++;
+        t.ctx ??= contextFor(S, t.d, t.cand);
+        const { v, reads } = reading(S, () => rowGives(S, t, ri));
+        reads.job = t;
+        reads.row = ri;
+        t.results[ri] = { r: v, reads };
+      }
+      const next = outcome(t);
+      if (!sameOut(t.out, next.out) || !sameRows(t.rows, next.rows)) changed.push([t, next]);
     }
     queue = [];
-    S.settled = true;
-    for (const job of values) force(S, job.cand.key);
-    // A value formula's output that differs from last round's changes what read it then.
-    const now = new Map(values.map(job => [job.cand.key, resultKey(job.res)]));
-    const changedValues = outputs ? values.filter(job => outputs.get(job.cand.key) !== now.get(job.cand.key)) : [];
-    outputs = now;
-    factsChanged = changed.length > 0 || changedValues.length > 0;
-    for (const t of changed) if (t.labels.length && !t.derived && !S.enteredByKey.has(t.cand.key)) {
-      t.derived = true;
-      addComputed(S, t.cand.id, makeRecord(t.d, t.cand, true), t.cand, t.b, t.picks);
+    // The outputs change together, after the round.
+    const keys = [];
+    for (const [t, next] of changed) {
+      if (loops && !t.entered && (capped || wentDown(t.out, next.out))) { t.blocked = true; next.out = { error: circular() }; }
+      const kinds = settle(S, t, next, round);
+      if (S.watch && kinds) keys.push(...candidateKeys(S, t.d, t.cand, kinds === true ? S.dep.watched : S.dep.watchedValues));
     }
-    if (!factsChanged) continue;
-    // The labels that came or went at each candidate, normalized as IMPLIEDBY compares them.
-    const turned = t => [...new Set([...t.was, ...t.labels])].filter(l => t.was.includes(l) !== t.labels.includes(l)).map(normal);
-    const keys = [...changed.flatMap(t => candidateKeys(S, t.d, t.cand, S.dep.watched, S.dep.watched.has('held') ? turned(t) : [])),
-      ...changedValues.flatMap(x => candidateKeys(S, x.d, x.cand, S.dep.watched))];
-    for (const t of changed) t.was = undefined;
+    if (!S.watch || !keys.length) continue;
     const again = [];
     for (const trace of affected(S, keys)) {
       const job = trace.job;
-      if (trace.imp === undefined) { if (job.reads === trace && job.where) again.push(job); }
-      else if (job.results[trace.imp]?.reads === trace) enqueue(job, trace.imp);
+      if (trace.row === undefined) { if (job.reads === trace && job.where) again.push(job); }
+      else if (job.results[trace.row]?.reads === trace) enqueue(job, trace.row);
     }
     again.forEach(seek);
   }
-  return { tags: tags.filter(Boolean).sort((x, y) => x.ordinal - y.ordinal), values, valueJobs };
+  finishGroup(S, cands);
+  S.dep = S.watch = null;
 }
 
-// The candidates on loops through a value formula: in the graph of what depends on what among the step's
-// candidates, each strongly connected group that loops and has a value formula's candidate in it. With
-// value formulas in the step, every candidate was tried, and the graph has them all.
-function loopsIn(S, run) {
-  if (!run.values.length) return [];
-  const idx = indexCandidates(S, [...run.tags, ...run.valueJobs]);
-  const on = trace => new Set([...keysOf(trace)].flatMap(k => idx.get(k) ?? []));
-  const edges = new Map(), values = new Set();
-  for (const t of run.tags) if (!t.blocked) edges.set(t.cand.key, new Set(t.results.flatMap(r => r?.reads ? [...on(r.reads)] : [])));
-  for (const job of run.values) if (!job.blocked) { edges.set(job.cand.key, job.reads ? on(job.reads) : new Set()); values.add(job.cand.key); }
-  const index = new Map(), low = new Map(), stack = [], onStack = new Set(), out = [];
-  let counter = 0;
-  const visit = v => {
-    index.set(v, counter); low.set(v, counter); counter++;
-    stack.push(v); onStack.add(v);
-    for (const w of edges.get(v)) {
-      if (!edges.has(w)) continue;
-      if (!index.has(w)) { visit(w); low.set(v, Math.min(low.get(v), low.get(w))); }
-      else if (onStack.has(w)) low.set(v, Math.min(low.get(v), index.get(w)));
+// What a row gives at a candidate.
+function rowGives(S, t, ri) {
+  const row = t.d.rows[ri];
+  if (row.implies) {
+    const v = truth(S, safeEv(row.ast, t.ctx));
+    return isErr(v) ? { error: v } : v ? TRUE_OUT : NONE;
+  }
+  return asOutput(S, t.d, safeEv(row.ast, t.ctx));
+}
+
+// A candidate's output from its rows' results, and the rows that hold there (for a tag).
+const NO_ROWS = [];
+function outcome(t) {
+  const d = t.d, rs = t.results;
+  let rows = NO_ROWS, first = -1, error = -1;
+  for (let i = 0; i < rs.length; i++) {
+    const r = rs[i]?.r;
+    if (!r || r.none) continue;
+    if (first < 0) first = i;
+    if (r.error && error < 0) error = i;
+    if (r.out === true && d.type === 'tag') (rows === NO_ROWS ? rows = [] : rows).push(i);
+  }
+  if (t.blocked) return { out: { error: circular() }, rows };
+  if (d.allImplied) {
+    if (rows.length) return { out: TRUE_OUT, rows, row: rows[0] };
+    return error >= 0 ? { out: rs[error].r, rows, row: error } : { out: NONE, rows };
+  }
+  return first >= 0 ? { out: rs[first].r, rows, row: first } : { out: NONE, rows };
+}
+
+const sameOut = (a, b) => a.none ? !!b.none : a.error ? !!b.error && a.error.code === b.error.code
+  : b.out !== undefined && (typeof a.out === 'number' && typeof b.out === 'number' ? near(a.out, b.out) : isDate(a.out) ? isDate(b.out) && a.out.iso === b.out.iso : a.out === b.out);
+const sameRows = (a, b) => a.length === b.length && a.every((r, i) => r === b[i]);
+
+// Whether an output went down: anything to nothing, a tag no longer attested, a number smaller, or a value
+// replaced by another.
+function wentDown(a, b) {
+  if (a.none || a.error || b.error) return false;
+  if (b.none) return true;
+  if (typeof a.out === 'number' && typeof b.out === 'number') return b.out < a.out && !near(a.out, b.out);
+  if (isDate(a.out) && isDate(b.out)) return b.out.iso < a.out.iso;
+  return a.out !== b.out;
+}
+
+// A candidate's new output comes into the state: its record added, changed or taken out, its error where
+// readers find it, and the rows that hold there. Returns the kinds of lookup that can find the change: all of
+// them (true) where a record came, went or changed sort, or only which rows hold; those that read a field's
+// value where only that changed; or none, where an entry stands and the rows holding didn't change.
+function settle(S, t, next, round) {
+  const before = t.out, rowsChanged = !sameRows(t.rows, next.rows);
+  t.out = next.out;
+  t.row = next.row;
+  if (rowsChanged) {
+    t.rows = next.rows;
+    S.holds.set(t.cand.key, t);
+    // Where a row is cited by label, each label keeps the round it first held in, for grounds.
+    if (t.d.cited) {
+      const labels = t.labels ?? new Map(), holding = new Set(next.rows.map(i => t.d.rows[i].n).filter(Boolean));
+      for (const l of labels.keys()) if (!holding.has(l)) labels.delete(l);
+      for (const l of holding) if (!labels.has(l)) labels.set(l, round);
+      t.labels = labels;
     }
-    if (low.get(v) !== index.get(v)) return;
-    const group = [];
-    let w;
-    do { w = stack.pop(); onStack.delete(w); group.push(w); } while (w !== v);
-    if ((group.length > 1 || edges.get(v).has(v)) && group.some(k => values.has(k))) out.push(...group);
-  };
-  for (const v of edges.keys()) if (!index.has(v)) visit(v);
-  return out;
-}
-
-// Takes back everything a step worked out, to work it out again.
-function undoStep(S, group, run) {
-  for (const job of run.values) unforce(S, job);
-  for (const t of run.tags) {
-    if (t.derived) removeComputed(S, t.cand.id);
-    S.prov.delete(t.cand.key);
   }
-  for (const d of group) S.rows.delete(d.id);
-  S.dep = S.lazy = S.watch = null;
-}
-
-// What each implication that held read, by label. Where an exact support said it held, it's worked out to
-// see what it reads, as explain works implications out.
-function readsByLabel(S, t) {
-  const reads = {};
-  t.results.forEach((r, i) => {
-    if (r?.v !== true) return;
-    const label = t.d.imps[i].label;
-    const trace = r.reads ?? reading(S, () => truth(S, safeEv(t.d.imps[i].ast, contextFor(S, t.d, t.cand)))).reads;
-    reads[label] = [...new Set([...(reads[label] ?? []), ...readIds(trace)])];
-  });
-  return reads;
-}
-
-// The rows a settled step leaves, for its implications and where entered records stand; its value formulas
-// left theirs as they were worked out.
-function finishStep(S, run) {
-  for (const t of run.tags) {
-    const { d, cand, labels } = t;
-    const errors = t.results.flatMap((r, i) => r && isErr(r.v) ? [{ label: d.imps[i].label, error: r.v }] : []);
-    const enteredId = S.enteredByKey.get(cand.key);
-    if (t.blocked) addRow(S, d, { ...cand, error: circular() });
-    else if (t.derived && !labels.length) {
-      removeComputed(S, cand.id);
-      S.prov.delete(cand.key);
-      addRow(S, d, { ...cand, error: circular(), errors });
-    } else if (enteredId) {
-      const tag = S.entered[enteredId].tag;
-      if (labels.length || errors.length)
-        addRow(S, d, { ...cand, entered: enteredId, formula: labels.length ? true : null, labels, errors, reads: readsByLabel(S, t),
-          mark: labels.length ? tag ? 'also implied' : 'overrides' : null });
-    } else if (labels.length) addRow(S, d, { ...cand, value: true, labels, errors }, () => readsByLabel(S, t));
-    else if (errors.length) addRow(S, d, { ...cand, error: errors[0].error, errors });
+  if (t.entered || sameOut(before, next.out)) return rowsChanged || null;
+  if (before.error) unfail(S, t);
+  if (next.out.error) fail(S, t, next.out.error);
+  const id = t.cand.id, had = before.out !== undefined, has = next.out.out !== undefined;
+  if (had && has && t.d.type === 'field') {
+    S.recs[id].value = isDate(next.out.out) ? next.out.out.iso : next.out.out;
+    return VALUE_KINDS;
   }
-  valueOverlaps(S, run.valueJobs);
-  S.dep = S.lazy = S.watch = null;
+  if (had) removeComputed(S, id);
+  if (has) {
+    addComputed(S, id, makeRecord(t.d, t.cand, next.out.out), t.b, t.picks);
+    if (!S.stage.has(id)) S.stage.set(id, round);
+  }
+  return true;
 }
 
-// A row of a definition's records, with what its formula read (`reads`, a trace or a function giving it by
-// label) spelled out when it's first asked for (see lazily).
-function addRow(S, d, row, reads) {
-  const out = { def: d.id, ...row };
-  if (reads) lazily(out, 'reads', typeof reads === 'function' ? reads : () => readIds(reads));
-  push(S.rows, d.id, out);
+// A row's error where readers of the record find it instead.
+function fail(S, t, error) {
+  const d = t.d;
+  if (!d.isRelation) { S.failed.set(`${t.cand.at}|${normal(d.name)}`, error); return; }
+  t.failures = [];
+  for (const obj of new Set(t.cand.args.map(a => objectOf(S, a.at)))) {
+    const failure = { args: t.cand.args, error };
+    push(S.failed, `rel|${obj}|${normal(d.name)}`, failure);
+    t.failures.push([`rel|${obj}|${normal(d.name)}`, failure]);
+  }
+}
+function unfail(S, t) {
+  if (!t.d.isRelation) { S.failed.delete(`${t.cand.at}|${normal(t.d.name)}`); return; }
+  for (const [key, failure] of t.failures ?? []) S.failed.set(key, S.failed.get(key).filter(x => x !== failure));
+  t.failures = [];
 }
 
-// WITHOUT: the chart as if `id` and everything depending on it weren't there, with what was worked out
-// in earlier steps worked out again: only the steps the definition's WITHOUT reads from, or every earlier
-// step for an expression outside a definition. Kept per record and set of steps.
+// What a group leaves, per candidate: a computed record, an error, or where an entry stands, what the rows
+// would give there.
+function finishGroup(S, cands) {
+  for (const t of cands.filter(Boolean).sort((x, y) => x.ordinal - y.ordinal)) {
+    const { d, cand, out } = t;
+    const base = { def: d.id, key: cand.key, id: cand.id, ...(d.isRelation ? { args: cand.args } : { at: cand.at }) };
+    const said = t.row === undefined ? {} : { row: t.row, label: d.rows[t.row].label };
+    if (t.entered) {
+      if (!out.none) addRow(S, d, { ...base, entered: t.entered, ...said, holds: t.rows, ...(out.error ? { error: out.error } : { formula: out.out }) });
+    } else if (out.error) addRow(S, d, { ...base, ...said, error: out.error, holds: t.rows });
+    else if (!out.none) addRow(S, d, { ...base, ...said, value: out.out, holds: t.rows, stage: S.stage.get(cand.id) });
+  }
+}
+
+const addRow = (S, d, row) => push(S.rows, d.id, row);
+
+// A group whose loop isn't monotone: every candidate where no entry stands is circular.
+function circularGroup(S, group) {
+  for (const b of blocksOf(S, group)) {
+    const picks = b.pools.map(() => 0);
+    const walk = j => {
+      if (j < b.pools.length) { for (let k = 0; k < b.pools[j].length; k++) { picks[j] = k; walk(j + 1); } return; }
+      const cand = candidateIn(b, picks);
+      if (!cand || S.enteredByKey.has(cand.key)) return;
+      const t = { d: b.d, cand };
+      fail(S, t, circular());
+      addRow(S, b.d, { def: b.d.id, key: cand.key, id: cand.id, ...(b.d.isRelation ? { args: cand.args } : { at: cand.at }), error: circular() });
+    };
+    walk(0);
+  }
+}
+
+// ---- WITHOUT ----
+// The chart as if `id` and everything depending on it weren't there, with what was worked out in earlier
+// groups worked out again: only the groups the definition's WITHOUT reads from, or every earlier group for an
+// expression outside a definition. Kept per record and set of groups.
 function counterfactual(S, id, d) {
   const steps = neededSteps(S.P, d, S.done);
   const key = `${id}@${steps.join(',')}`;
@@ -2621,13 +2416,323 @@ function neededSteps(P, d, limit) {
   return [...new Set([...want].map(e => e.step))].filter(i => i < limit).sort((a, b) => a - b);
 }
 
-// ---- Names, for an editor ----
+// ---- Grounds ----
+// The ground of an expression where it gives something, by cases: for a record it reads, that record; for
+// AND, a comparison or arithmetic, the grounds of its parts (less what dropped out of a sum); for IF, those of
+// its condition and the branch taken; for OR and ANY, the ground of one part that holds, of least stage; for
+// FILTER, SUM, COUNT and EACH, each item counted, with the ground of its condition or value; for MAX and MIN,
+// the item chosen and every argument that was nothing. gv works an expression out with its ground, as
+// { v, g }, g being a list of parts (see ground).
 
-// The names that can follow a dot on a value: on a record reached through a relation, the relation's;
-// then the record's own, and those up its path.
+// The parts a value read at a node: the record linking each item of a list of relatives, or the record
+// itself; one with no id where it read nothing. An object isn't a part: it's what the parts are about.
+function partFor(S, y, n) {
+  const at = id => [{ id, from: n.from, to: n.to }];
+  if (isRec(y)) return y.link ? at(y.link) : y.id === null ? at(null) : y.id && !isObject(S.recs[y.id]) ? at(y.id) : [];
+  return y === null || y === undefined ? at(null) : [];
+}
+function partsFor(S, v, n) {
+  if (isErr(v)) return [];
+  if (Array.isArray(v)) return v.length ? v.flatMap(y => partFor(S, y, n)) : partFor(S, null, n);
+  return partFor(S, v, n);
+}
+// An item counted or found, as one part: its own record, with what it was counted or found with beneath.
+const nest = g => g.length ? [{ ...g[0], items: g.slice(1) }] : [];
+
+// How late a ground's records came, for choosing among grounds: the latest stage among the records of the
+// group being grounded (others came before it started).
+function rankOf(c, g) {
+  let r = 0;
+  for (const p of g) {
+    if (p.id && c.groundDefs?.has(c.S.recs[p.id]?.computed)) r = Math.max(r, c.S.stage.get(p.id) ?? 0);
+    if (p.items) r = Math.max(r, rankOf(c, p.items));
+  }
+  return r;
+}
+
+function gv(n, c) {
+  const S = c.S;
+  switch (n.k) {
+    case 'lit': case 'at': return { v: ev(n, c), g: [] };
+    case 'arr': { const xs = n.items.map(x => gv(x, c)); return { v: ev(n, c), g: xs.flatMap(x => x.g) }; }
+    case 'name': {
+      for (let l = c.lets; l; l = l.up) if (l.n === n.n) return { v: l.v, g: l.g ?? [] };
+      const v = ev(n, c);
+      return { v, g: c.self.args?.has(n.n) ? [] : partsFor(S, v, n) };
+    }
+    case 'dot': {
+      const x = gv(n.x, c), v = lookupOn(S, x.v, n.name, n.n);
+      return { v, g: [...x.g, ...partsFor(S, v, n)] };
+    }
+    case 'call': return isFunction(n.name) ? gfn(n, c) : (() => {
+      const args = n.args.map(a => gv(a.x, c)), v = ev(n, c);
+      return { v, g: [...args.flatMap(a => a.g), ...partsFor(S, v, n)] };
+    })();
+    case 'neg': case 'not': { const x = gv(n.x, c); return { v: ev(n, c), g: x.g }; }
+    case 'and': {
+      const a = gv(n.a, c), ta = truth(S, a.v);
+      if (isErr(ta) || ta === false) return { v: ta, g: a.g };
+      const b = gv(n.b, c), tb = truth(S, b.v);
+      return { v: tb, g: tb === true ? [...a.g, ...b.g] : b.g };
+    }
+    case 'or': {
+      const a = gv(n.a, c), ta = truth(S, a.v);
+      if (isErr(ta)) return { v: ta, g: a.g };
+      const b = gv(n.b, c), tb = truth(S, b.v);
+      if (ta === true) return { v: true, g: tb === true && rankOf(c, b.g) < rankOf(c, a.g) ? b.g : a.g };
+      return { v: tb, g: tb === true ? b.g : [...a.g, ...b.g] };
+    }
+    case 'cmp': { const a = gv(n.a, c), b = gv(n.b, c); return { v: compare(S, n.op, a.v, b.v), g: [...a.g, ...b.g] }; }
+    case 'in': {
+      const a = gv(n.a, c), L = listGround(n.b, c), v = among1(S, a.v, L.v);
+      if (v !== true) return { v, g: [...a.g, ...(L.items.length ? L.items.flatMap(it => it.g) : L.g)] };
+      const x = scalar(S, a.v);
+      return { v, g: [...a.g, ...L.items.filter(it => equal(x, scalar(S, it.v))).flatMap(it => it.g)] };
+    }
+    case 'bin': {
+      const a = gv(n.a, c), b = gv(n.b, c), v = arithmetic(S, n.op, a.v, b.v);
+      const sum = n.op === '+' || n.op === '-';
+      return { v, g: [...(sum && isNothing(scalar(S, a.v)) ? [] : a.g), ...(sum && isNothing(scalar(S, b.v)) ? [] : b.g)] };
+    }
+  }
+  return { v: ev(n, c), g: [] };
+}
+
+// A list's items, each with its ground: for a list of relatives, the record linking each one; through FILTER,
+// with the ground of its condition; through a dot or EACH, with what was read for it.
+function listGround(n, c) {
+  const S = c.S;
+  if ((isCall(n, 'FILTER') || isCall(n, 'EACH')) && n.args.length === 2) {
+    const L = listGround(n.args[0].x, c);
+    if (isErr(L.v)) return L;
+    const items = [];
+    for (const it of L.items) {
+      const x = gv(n.args[1].x, withAt(c, it.v));
+      if (isCall(n, 'FILTER')) {
+        const t = truth(S, x.v);
+        if (isErr(t)) return { v: t, items: [], g: x.g };
+        if (t) items.push({ v: it.v, g: [...it.g, ...x.g] });
+      } else {
+        if (isErr(x.v)) return { v: x.v, items: [], g: x.g };
+        for (const y of Array.isArray(x.v) ? flatten(x.v) : [x.v]) items.push({ v: y, g: [...it.g, ...x.g] });
+      }
+    }
+    return { v: items.map(x => x.v), items, g: L.g };
+  }
+  if (n.k === 'dot') {
+    const L = listGround(n.x, c);
+    if (isErr(L.v)) return L;
+    const items = [];
+    for (const it of L.items) {
+      const y = lookupOn(S, it.v, n.name, n.n);
+      if (isErr(y)) return { v: y, items: [], g: L.g };
+      for (const z of Array.isArray(y) ? y : [y]) items.push({ v: z, g: [...it.g, ...partFor(S, z, n)] });
+    }
+    return { v: items.map(x => x.v), items, g: L.g.length || L.items.length ? L.g : partFor(S, null, n) };
+  }
+  const x = n.k === 'name' || n.k === 'at' ? null : gv(n, c);
+  const v = x ? x.v : n.k === 'name' ? gv(n, c).v : ev(n, c);
+  const list = toList(v);
+  if (isErr(list)) return { v: list, items: [], g: x?.g ?? [] };
+  const lets = n.k === 'name' && (() => { for (let l = c.lets; l; l = l.up) if (l.n === n.n) return l; return null; })();
+  const items = list.map(item => ({ v: item, g: x && list.length === 1 ? x.g : lets ? lets.g ?? [] : partFor(S, item, n) }));
+  return { v: list, items, g: list.length ? [] : x?.g.length ? x.g : partFor(S, null, n) };
+}
+
+// Functions, with their grounds.
+function gfn(n, c) {
+  const S = c.S, f = n.name.toUpperCase(), a = n.args;
+  switch (f) {
+    case 'IF': {
+      if (a.length < 2) break;
+      const cond = gv(a[0].x, c), t = truth(S, cond.v);
+      if (isErr(t)) return { v: t, g: cond.g };
+      const branch = t ? a[1] : a[2];
+      if (!branch) return { v: null, g: cond.g };
+      const b = gv(branch.x, c);
+      return { v: b.v, g: [...cond.g, ...b.g] };
+    }
+    case 'NOT': case 'ISBLANK': case 'KIND': {
+      const xs = a.map(x => gv(x.x, c));
+      return { v: ev(n, c), g: xs.flatMap(x => x.g) };
+    }
+    case 'COUNT': case 'SUM': case 'AVERAGE': {
+      const v = ev(n, c);
+      if (isErr(v)) return { v, g: [] };
+      const items = a.flatMap(x => listGround(x.x, c).items);
+      const counted = items.filter(it => f === 'COUNT' ? !isNothing(it.v) : typeof scalar(S, it.v) === 'number');
+      return { v, g: counted.flatMap(it => nest(it.g)) };
+    }
+    case 'MIN': case 'MAX': {
+      const v = ev(n, c);
+      if (isErr(v)) return { v, g: [] };
+      const per = a.map(x => listGround(x.x, c));
+      const chosen = per.flatMap(L => L.items).find(it => { const s = scalar(S, it.v); return s !== null && equal(s, v); });
+      const nothing = per.filter(L => L.items.every(it => isNothing(it.v))).flatMap(L => L.items.length ? L.items.flatMap(it => it.g) : L.g);
+      return { v, g: [...(chosen ? chosen.g : []), ...nothing] };
+    }
+    case 'FILTER': case 'EACH': {
+      const L = listGround(n, c);
+      return { v: L.v, g: L.items.flatMap(it => nest(it.g)) };
+    }
+    case 'ANY': case 'ALL': {
+      if (a.length !== 2) break;
+      const v = ev(n, c);
+      if (isErr(v)) return { v, g: [] };
+      const L = listGround(a[0].x, c);
+      const found = [];
+      for (const it of L.items) {
+        const x = gv(a[1].x, withAt(c, it.v));
+        if ((truth(S, x.v) === true) === (f === 'ANY' || v === true)) found.push([...it.g, ...x.g]);
+      }
+      if (f === 'ANY' && v === true) {
+        const best = found.reduce((m, g) => !m || rankOf(c, g) < rankOf(c, m) ? g : m, null);
+        return { v, g: nest(best ?? []) };
+      }
+      return { v, g: found.flatMap(nest) };
+    }
+    case 'LET': {
+      if (a.length < 3 || a.length % 2 === 0) break;
+      let lets = c.lets;
+      for (let i = 0; i < a.length - 1; i += 2) {
+        if (a[i].x.k !== 'name') break;
+        const x = gv(a[i + 1].x, { ...c, lets });
+        if (isErr(x.v)) return x;
+        lets = { n: normal(a[i].x.name), v: x.v, g: x.g, up: lets };
+      }
+      return gv(a.at(-1).x, { ...c, lets });
+    }
+    case 'WITHOUT': {
+      if (a.length !== 2) break;
+      const x = asRec(S, ev(a[0].x, c));
+      if (isErr(x)) return { v: x, g: [] };
+      return gv(a[1].x, x?.id ? { ...c, S: counterfactual(S, x.id, c.def) } : c);
+    }
+  }
+  const xs = a.map(x => gv(x.x, c));
+  return { v: ev(n, c), g: xs.flatMap(x => x.g) };
+}
+
+// Why a record at one of a definition's candidates is there, or would be: see the header.
+function ground(R, id) {
+  const S = R.state, r = S.recs[id];
+  const d = r && defOf(S, id);
+  if (!d || d.error) return null;
+  const computed = r.computed === d.id;
+  const stage = computed ? S.stage.get(id) ?? null : null;
+  const g = S.P.groups[d.step];
+  const groundDefs = new Set(g.defs.map(e => e.id));
+  // An attestation on a loop is grounded in what came before it, so unfolding grounds always ends.
+  S.cut = computed && g.loops && isTag(r) && r.tag === true && stage ? { defs: groundDefs, limit: stage } : null;
+  S.memo.clear();
+  try {
+    const cand = candidateFrom(d, argsOf(r));
+    const c = { ...contextFor(S, d, cand), groundDefs };
+    const rows = [];
+    for (const row of d.rows) {
+      const x = gv(row.ast, c);
+      if (row.implies ? truth(S, x.v) !== true : asOutput(S, d, x.v).none) continue;
+      rows.push({ row: row.i, label: row.label, stage: rankOf(c, x.g), parts: x.g });
+      if (!d.allImplied) break;
+    }
+    if (d.allImplied) rows.sort((x, y) => x.stage - y.stage);
+    return { id, def: d.id, entered: !computed, stage, rows };
+  } finally {
+    S.cut = null;
+    S.memo.clear();
+  }
+}
+
+// A ground on one line, for exports: each record its row read, by the name that read it, with its output.
+function groundText(R, id) {
+  const g = ground(R, id), S = R.state;
+  const row = g?.rows[0];
+  if (!row) return '';
+  const text = S.P.byId.get(g.def).rows[row.row].text;
+  const nameIn = p => {
+    const src = text.slice(p.from, p.to).trim();
+    const m = /\[([^\]]*)\]\s*$/.exec(src) ?? /([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(src) ?? /^\[?([^\](]*)\]?\s*\(/.exec(src);
+    return m ? clean(m[1]) : src;
+  };
+  return row.parts.map(p => `${nameIn(p)} ${p.id ? outputText(S, p.id) : '—'}`).join(' · ');
+}
+
+// A record's output as text: a field's value as its datatype reads, an object or relation by name.
+function outputText(S, id) {
+  const r = S.recs[id];
+  if (!r) return '—';
+  if (isObject(r)) return nameOf(S, id);
+  const value = isTag(r) ? (r.tag ? 'Yes' : 'No') : isChoice(r) ? r.choice
+    : r.field === 'date' ? Tree.formatDate(r.value) : r.field === 'percent' ? `${tidyNumber(r.value * 100)}%`
+    : r.field === 'money' ? `$${Number(r.value).toLocaleString('en-US')}` : String(r.value);
+  return isRelation(r) ? `${segmentOf(S, id)}${isTag(r) ? '' : ` ${value}`}` : value;
+}
+
+// ---- The formula bar ----
+
+// A row worked out at a record, with each name's records and each part's values: see the header.
+function evaluateRow(R, defId, row, at) {
+  const S = R.state, d = S.P.byId.get(defId);
+  if (!d || (typeof row === 'number' && !d.rows[row])) return null;
+  let ast, implies;
+  if (typeof row === 'number') ({ ast, implies } = d.rows[row]);
+  else {
+    const f = splitFormula(row);
+    implies = f.kind === 'implies';
+    try { ast = parseExpression(f.body, f.offset); } catch (e) { return { value: err('#SYNTAX', e.message), names: [], parts: [] }; }
+  }
+  const cand = candidateAt(S, d, at);
+  if (!cand) return null;
+  const parts = new Map(), names = new Map();
+  const add = (map, from, to, xs) => {
+    const key = `${from}:${to}`;
+    if (!map.has(key)) map.set(key, { from, to, [map === parts ? 'values' : 'ids']: [] });
+    map.get(key)[map === parts ? 'values' : 'ids'].push(...xs);
+  };
+  const idsOf = v => isErr(v) ? [] : toList(v).flatMap(x => isRec(x) ? [x.id, x.link].filter(Boolean) : []);
+  S.memo.clear();
+  S.probe = (node, v) => {
+    add(parts, node.from, node.to, [v]);
+    if (node.k === 'name' || node.k === 'at') add(names, node.from, node.to, idsOf(v));
+    else if (node.k === 'dot') add(names, node.at, node.to, idsOf(v));
+    else if (node.k === 'call' && !isFunction(node.name)) add(names, node.from, node.nameTo, idsOf(v));
+  };
+  let value;
+  try {
+    const c = contextFor(S, d, cand), v = safeEv(ast, c);
+    value = implies ? truth(S, v) : v;
+  } finally {
+    S.probe = null;
+    S.memo.clear();
+  }
+  for (const x of names.values()) x.ids = distinct(x.ids);
+  return { value, names: [...names.values()], parts: [...parts.values()] };
+}
+
+// ---- Comparing two workings-out ----
+
+const sameRecord = (x, y) => x === y || (typeOf(x) === typeOf(y) && (isTag(x) ? x.tag === y.tag : isChoice(x) ? same(x.choice, y.choice)
+  : x.field === y.field && (typeof x.value === 'number' && typeof y.value === 'number' ? near(x.value, y.value) : x.value === y.value)));
+
+// What would appear, go, and change output between two computed states, by record id.
+function diff(before, after) {
+  const A = before.records, B = after.records, appear = [], go = [], change = [];
+  for (const id in B) {
+    const x = A[id];
+    if (!x) appear.push(id);
+    else if (!isObject(x) && !sameRecord(x, B[id])) change.push(id);
+  }
+  for (const id in A) if (!(id in B)) go.push(id);
+  return { appear, go, change };
+}
+
+// ---- For an editor ----
+
+// The names that can follow a dot on a value: on a record reached through a relation, the relation's; then
+// the record's own, and those up its path; and a tag's rows' labels.
 function namesOnValue(S, v) {
   const out = new Map();
-  const add = (name, kind) => { if (!out.has(normal(name))) out.set(normal(name), { name, kind }); };
+  const add = (name, kind) => { if (name && !out.has(normal(name))) out.set(normal(name), { name, kind }); };
   for (const x of toList(v).slice(0, 20)) {
     if (!isRec(x) || !x.id) continue;
     const link = x.link && S.recs[x.link];
@@ -2636,21 +2741,23 @@ function namesOnValue(S, v) {
       const rel = relationOf(S, link);
       if (rel) add(rel.name, 'output');
       for (const e of S.byAt.get(x.link) ?? []) add(S.recs[e].edge, 'entry');
+      defOf(S, x.link)?.rows.forEach(r => add(r.label, 'label'));
     }
     for (let id = x.id; id && S.recs[id]; id = S.recs[id].at) {
       for (const e of S.byAt.get(id) ?? []) add(S.recs[e].edge, 'entry');
       for (const rid of isObject(S.recs[id]) ? relationsFor(S, id) : S.relsAt.get(id) ?? []) {
         const r = S.recs[rid], rel = relationOf(S, r);
-        r.args.forEach((own, i) => { if (own.at === id) r.args.forEach((other, j) => { if (i !== j) add(listNameOf(rel, own.edge, other.edge), 'list'); }); });
+        r.args.forEach((own, i) => { if (own.at === id || objectOf(S, own.at) === id) r.args.forEach((other, j) => { if (i !== j) add(listNameOf(rel, own.edge, other.edge), 'list'); }); });
       }
       if (isRelation(S.recs[id])) S.recs[id].args.forEach(a => add(a.edge, 'argument'));
+      if (isTag(S.recs[id])) defOf(S, id)?.rows.forEach(r => add(r.label, 'label'));
     }
   }
   return [...out.values()];
 }
 
-// Where a dot chain ending at the cursor starts: the tokens before it, back over names, @, dots, and
-// balanced parentheses.
+// Where a dot chain ending at the cursor starts: the tokens before it, back over names, @, dots, and balanced
+// parentheses.
 function chainStart(toks, end) {
   let i = end, depth = 0;
   while (i > 0) {
@@ -2663,27 +2770,133 @@ function chainStart(toks, end) {
   return i;
 }
 
+// The definition and the record an editor works at: the definition's, at its first candidate or `at`.
+function editorContext(ctx) {
+  const R = ctx?.computed, S = R?.state;
+  if (!S) return null;
+  const d = ctx.def ? S.P.byId.get(ctx.def) : null;
+  let cand = d && ctx.at ? candidateAt(S, d, ctx.at) : null;
+  if (d && !cand) for (const params of d.params) {
+    const args = params.map(p => ({ edge: p.edge, at: S.bySpec.get(p.spec)?.[0] }));
+    if (args.every(a => a.at)) { cand = candidateFrom(d, args); break; }
+  }
+  const c = cand ? contextFor(S, d, cand) : { S, def: d, self: { loc: ctx.at ?? null }, at: ctx.at ? recOf(ctx.at) : null, lets: null };
+  return { S, d, c };
+}
+
+// Checks a formula as typed: its kind ('value', 'implies' or null), and its problems, each with a span: what
+// doesn't parse, and given a computed state, names the chart doesn't have.
+function check(text, ctx = {}) {
+  const f = splitFormula(text);
+  const problems = [];
+  if (!f.kind) problems.push({ from: 0, to: Math.min(1, String(text ?? '').length), message: 'A formula starts with = or ←.' });
+  let ast;
+  try { ast = parseExpression(f.body, f.offset); }
+  catch (e) {
+    const pos = e.pos ?? f.offset;
+    problems.push({ from: pos, to: pos + 1, message: e.message });
+    return { kind: f.kind, problems };
+  }
+  const E = editorContext(ctx);
+  if (E) {
+    const { S, d } = E, known = S.P.known;
+    if (f.kind === 'implies' && d && d.type !== 'tag') problems.push({ from: 0, to: f.offset, message: 'Only a tag can be implied; start this row with =.' });
+    const own = new Set(d?.isRelation ? d.edges.map(normal) : []);
+    const lets = new Set();
+    const walk = n => {
+      if (!n) return;
+      if (isCall(n, 'LET')) n.args.forEach((x, i) => { if (i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name') lets.add(x.x.n); });
+      const unknown = (name, from, to) => problems.push({ from, to, message: `Nothing is called ${name}.` });
+      const has = nm => known.values.has(nm) || known.lists.has(nm) || S.P.reg.byName.has(nm) || lets.has(nm);
+      if (n.k === 'name' && !own.has(n.n) && !has(n.n) && !(d?.isRelation)) unknown(n.name, n.from, n.to);
+      else if (n.k === 'name' && d?.isRelation && !own.has(n.n) && !lets.has(n.n)) problems.push({ from: n.from, to: n.to, message: `${n.name} isn’t one of this relation’s arguments.` });
+      if (n.k === 'dot' && !has(n.n)) unknown(n.name, n.at, n.to);
+      if (n.k === 'call' && !isFunction(n.name) && !S.P.reg.byName.has(normal(n.name))) problems.push({ from: n.from, to: n.nameTo, message: `There’s no function or relation called ${n.name}.` });
+      childrenOf(n).forEach(walk);
+    };
+    walk(ast);
+  }
+  return { kind: f.kind, problems };
+}
+
+// Names that could go at the cursor, for completion: after a dot, the names on what's before it, worked out at
+// one of the definition's candidates (or at `at`); otherwise its arguments or its location's names, the
+// relations, and the functions. Each is { text, name, kind }, text being what to put in, filtered by what's
+// typed so far, which `from` and `to` span.
+function suggest(text, cursor, ctx = {}) {
+  const s = String(text ?? '');
+  cursor ??= s.length;
+  const before = s.slice(0, cursor);
+  const m = /(\[[^\]]*|[A-Za-z_][A-Za-z0-9_]*)$/.exec(before);
+  const typed = m?.[1] ?? '';
+  const after = /^(?:[^\]\[(),.]*\]|[A-Za-z0-9_]*)/.exec(s.slice(cursor))?.[0] ?? '';
+  const from = cursor - typed.length, to = cursor + (typed.startsWith('[') || /^[A-Za-z0-9_]/.test(after) ? after.length : 0);
+  const partial = normal(typed.replace(/^\[/, ''));
+  const bracket = name => !typed.startsWith('[') && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !KEYWORDS.has(name.toUpperCase()) ? name : `[${name}]`;
+  const functions = Object.keys(FUNCTIONS).map(f => ({ name: f, kind: 'function' }));
+  const E = editorContext(ctx);
+  let names = functions;
+  if (E) {
+    const { S, d, c } = E;
+    const f = splitFormula(before);
+    let toks = null;
+    try { toks = tokenize(f.body.slice(0, f.body.length - typed.length), f.offset).slice(0, -1); } catch { toks = null; }
+    if (toks?.at(-1)?.k === 'op' && toks.at(-1).v === '.') {
+      const start = chainStart(toks, toks.length - 1);
+      const src = s.slice(toks[start]?.pos ?? f.offset, toks.at(-1).pos);
+      let v = null;
+      try { v = safeEv(parseExpression(src), c); } catch { v = null; }
+      names = namesOnValue(S, v);
+    } else {
+      names = [
+        ...(d?.isRelation ? d.edges.map(e => ({ name: e, kind: 'argument' })) : c.self.loc ? namesOnValue(S, recOf(c.self.loc)) : []),
+        ...[...S.P.reg.byName.values()].map(r => ({ name: r.name, kind: 'relation' })),
+        ...functions,
+      ];
+    }
+  }
+  const list = names.filter(x => normal(x.name).startsWith(partial))
+    .map(x => ({ ...x, text: x.kind === 'function' ? `${x.name}(` : bracket(x.name) }));
+  return { from, to, list };
+}
+
+// Renames a name wherever a formula mentions it, keeping the rest as typed: for a relabeled edge or entry, as
+// Excel renames a table column in its formulas.
+function renameName(text, from, to) {
+  const s = String(text ?? '');
+  const start = /^\s*(=|←|<-)?/.exec(s)[0].length;
+  const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(to) && !KEYWORDS.has(to.toUpperCase());
+  let toks;
+  try { toks = tokenize(s.slice(start), start); } catch { return s; }
+  let out = '', last = 0;
+  for (const t of toks) {
+    if (t.k !== 'name' || !same(t.v, from)) continue;
+    out += s.slice(last, t.pos) + (bare ? to : `[${to}]`);
+    last = t.end;
+  }
+  return out + s.slice(last);
+}
+
 // ---- What the page uses ----
 
-// Works out the computed state from the entered records, the definitions and the pilot names. Returns:
-// - records: the effective records, entered and computed. A computed one has `computed`, its definition's
-//   id, and an id from its argumentation (computedId), which stays put from one working-out to the next.
-// - computed: per computed record, { def, labels, reads }: the implications that held and what they read
-//   (by label), or for a value formula the records it read.
-// - covered: per entered record a formula also covers, { def, mark, formula, labels }, where mark is
-//   'agrees', 'differs', 'also implied' or 'overrides', and formula is what the formula gives there.
-// - errors: per candidate whose formula gives an error, { def, id, args, error }.
-// - rows: all of that per definition, for a list of its records; defErrors: problems with a whole
-//   definition; keptAside: entered records whose location isn't computed now; ms: how long it took.
+// Works out the computed state from the entered records, the definitions and the names: see the header.
 function computeState(entered, definitions, names) {
-  const started = typeof performance === 'object' ? performance.now() : Date.now();
+  const started = now();
   const defs = definitions.map(d => prepareDef(d, names));
   const reg = registry(names, defs);
-  // The specifications definitions are located at, where a step looks for candidates (see blocksOf).
-  const P = { defs, reg, known: knownNames(entered, defs, reg), located: new Set(defs.flatMap(d => d.params.flat().map(p => p.spec))) };
-  P.order = plan(defs, reg);
+  // The specifications definitions are located at, where a group looks for candidates (see blocksOf).
+  const P = { defs, reg, byId: new Map(defs.map(d => [d.id, d])), coverOf: new Map(),
+    located: new Set(defs.flatMap(d => d.params.flat().map(p => p.spec))) };
+  for (const d of defs) if (!d.error) for (const p of d.covers) P.coverOf.set(p, d);
+  // A definition whose rows some row cites by label, after a dot.
+  const dotted = new Set();
+  const dots = n => { if (n.k === 'dot') dotted.add(n.n); childrenOf(n).forEach(dots); };
+  for (const d of defs) if (!d.error) d.rows.forEach(r => dots(r.ast));
+  for (const d of defs) d.cited = [...d.labels].some(l => dotted.has(l));
+  P.known = knownNames(entered, defs, reg);
+  P.groups = plan(defs, reg);
   const S = stateFor(P, entered);
-  runUpTo(S, P.order.length);
+  runUpTo(S, P.groups.length);
   const keptAside = Object.keys(S.entered).filter(id => S.recs[id] && argsOf(S.recs[id]).some(a => !S.recs[a.at]));
   // The state's own records, where none is kept aside; nothing changes them once they're worked out.
   let records = S.recs;
@@ -2694,272 +2907,55 @@ function computeState(entered, definitions, names) {
   }
   const computed = {}, covered = {}, errors = [];
   for (const rows of S.rows.values()) for (const row of rows) {
-    if (row.error) errors.push({ def: row.def, id: row.id, args: row.args, error: row.error });
-    else if (row.entered) covered[row.entered] = { def: row.def, mark: row.mark, formula: row.formula, labels: row.labels ?? [] };
-    // What it read is spelled out when it's asked for.
-    else if (S.recs[row.id]) computed[row.id] = { def: row.def, labels: row.labels ?? [], get reads() { return row.reads ?? []; } };
+    const said = { def: row.def, row: row.row ?? null, label: row.label ?? null, holds: row.holds ?? [] };
+    if (row.entered) covered[row.entered] = { ...said, value: row.error ?? row.formula ?? null, agrees: !row.error && sameValue(S, row.entered, row.formula) };
+    else if (row.error) errors.push({ def: row.def, id: row.id, ...(row.args ? { args: row.args } : { at: row.at }), error: row.error });
+    else if (S.recs[row.id]) computed[row.id] = { ...said, stage: row.stage };
   }
   const defErrors = Object.fromEntries(defs.filter(d => d.error).map(d => [d.id, d.error]));
-  const ms = (typeof performance === 'object' ? performance.now() : Date.now()) - started;
-  return { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, keptAside,
-    order: P.order.map(g => g.map(d => d.id)), steps: S.steps, ms, state: S };
+  const loops = {};
+  for (const g of P.groups) for (const x of g.reads) push2(loops, x.def, { row: x.row, from: x.from, to: x.to, monotone: x.monotone });
+  return { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside,
+    order: P.groups.map(g => g.defs.map(d => d.id)), steps: S.steps, ms: now() - started, state: S };
 }
+const push2 = (obj, key, value) => (obj[key] ??= []).push(value);
 
-// ---- Saying why ----
-// Why a record is there, in a few words for each implication that holds: the comparison that decided it,
-// the item ANY found, the clause IMPLIEDBY cited. That's shorter than everything the formula read, which
-// for REACH can be most of the chart.
-
-// A formula rebuilt from its parts, for quoting.
-function unparse(n) {
-  const nm = s => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : `[${s}]`;
-  const wrap = (x, inside) => x.k === 'or' && inside === 'and' ? `(${unparse(x)})` : unparse(x);
-  switch (n.k) {
-    case 'lit': return typeof n.v === 'string' ? `"${n.v}"` : typeof n.v === 'boolean' ? (n.v ? 'TRUE' : 'FALSE')
-      : n.pct ? `${tidyNumber(n.v * 100)}%` : String(tidyNumber(n.v));
-    case 'arr': return `{${n.items.map(unparse).join(', ')}}`;
-    case 'at': return '@';
-    case 'name': return nm(n.name);
-    case 'dot': return `${unparse(n.x)}.${nm(n.name)}`;
-    case 'call': return `${nm(n.name)}(${n.args.map(a => (a.label ? `${nm(a.label)}: ` : '') + unparse(a.x)).join(', ')})`;
-    case 'neg': return `${n.op}${unparse(n.x)}`;
-    case 'not': return `NOT ${unparse(n.x)}`;
-    case 'and': return `${wrap(n.a, 'and')} AND ${wrap(n.b, 'and')}`;
-    case 'or': return `${unparse(n.a)} OR ${unparse(n.b)}`;
-    case 'cmp': case 'bin': return `${unparse(n.a)} ${n.op} ${unparse(n.b)}`;
-    case 'in': return `${unparse(n.a)} IN ${unparse(n.b)}`;
-  }
-  return '';
-}
-
-// A value as an explanation shows it: an object by its name, a number as a percentage where the formula
-// wrote its other side as one.
-function shown(S, v, pct) {
-  v = scalar(S, v);
-  if (isErr(v)) return v.code;
-  if (typeof v === 'number') return pct ? `${tidyNumber(v * 100)}%` : String(tidyNumber(v));
-  return describe(S, v);
-}
-
-// An expression read as words where it names things: the relation's arguments and @ by name, and a dot as
-// a possessive, so Controlled.[General Partners] reads "Calder Ridge Capital Partners III, L.P.’s General Partners".
-function phrase(n, c) {
-  const S = c.S;
-  if (n.k === 'at') return c.at ? describe(S, c.at) : '@';
-  if (n.k === 'name') {
-    const id = c.self.args?.get(normal(n.name));
-    return id ? nameOf(S, id) : unparse(n);
-  }
-  if (n.k === 'dot') return `${phrase(n.x, c)}’s ${n.name}`;
-  if (n.k === 'call' && n.name.toUpperCase() === 'REACH' && n.args.length === 2)
-    return `${phrase(n.args[0].x, c)}’s ${unparse(n.args[1].x).replace(/^\[|\]$/g, '')}, directly or indirectly`;
-  if (n.k === 'call' && n.name.toUpperCase() === 'FILTER' && n.args.length === 2)
-    return `${phrase(n.args[0].x, c)} with ${unparse(n.args[1].x).replace(/@\./g, '')}`;
-  if (n.k === 'call' && S.P.reg.byName.has(normal(n.name)))
-    return `${n.name}: ${n.args.map(a => phrase(a.x, c)).join(' → ')}`;
-  return unparse(n);
-}
-
-// Whether an expression names one of the relation's arguments, which as a value is just its name.
-const isArgument = (n, c) => n.k === 'name' && !!c.self.args?.has(normal(n.name));
-
-// Why a condition holds, in context c. It's only asked of conditions that do hold.
-function why(n, c) {
-  const S = c.S;
-  const holds = x => truth(S, ev(x, c)) === true;
-  switch (n.k) {
-    case 'or': return holds(n.a) ? why(n.a, c) : why(n.b, c);
-    case 'and': return `${why(n.a, c)}; ${why(n.b, c)}`;
-    case 'not': return n.x.k === 'call' && S.P.reg.byName.has(normal(n.x.name))
-      ? `${phrase(n.x, c)} isn’t attested` : `not ${unparse(n.x)}`;
-    case 'in': {
-      const value = shown(S, ev(n.a, c));
-      const subject = (n.a.k === 'name' || n.a.k === 'dot') && !isArgument(n.a, c) ? `${phrase(n.a, c)} ` : '';
-      return `${subject}${value} is among ${phrase(n.b, c)}`;
-    }
-    case 'cmp': {
-      const pct = !!(n.a.pct || n.b.pct);
-      const [x, lit] = n.b.k === 'lit' ? [n.a, n.b] : n.a.k === 'lit' ? [n.b, n.a] : [null, null];
-      if (!x) return `${shown(S, ev(n.a, c), pct)} ${n.op} ${shown(S, ev(n.b, c), pct)}`;
-      const value = shown(S, ev(x, c), pct);
-      const subject = x.k === 'dot' || x.k === 'name' || x.k === 'at' ? `${phrase(x, c)} is ` : '';
-      if (n.op === '=' && subject) return `${subject}${value}`;
-      return subject ? `${subject}${value}, ${n.op} ${unparse(lit)}` : `${value} ${n.op} ${unparse(lit)}`;
-    }
-    case 'call': {
-      const f = n.name.toUpperCase(), a = n.args;
-      if (f === 'ANY' && a.length === 2) {
-        for (const item of toList(ev(a[0].x, c))) {
-          const ci = withAt(c, item);
-          if (truth(S, ev(a[1].x, ci)) === true) return `through ${describe(S, item)}: ${why(a[1].x, ci)}`;
-        }
-        return unparse(n);
-      }
-      if (f === 'WITHOUT' && a.length === 2) {
-        const x = asRec(S, ev(a[0].x, c));
-        if (!x?.id) return why(a[1].x, c);
-        return `leaving out ${nameOf(S, x.id)}, ${why(a[1].x, { ...c, S: counterfactual(S, x.id, c.def) })}`;
-      }
-      if (f === 'IMPLIEDBY' && a.length >= 2) {
-        const v = asRec(S, ev(a[0].x, c));
-        const r = v?.id ? S.recs[v.id] : null;
-        const held = r ? S.prov.get(keyOf(r)) ?? new Set() : new Set();
-        const labels = a.slice(1).map(x => toText(S, ev(x.x, c))).filter(l => typeof l === 'string' && held.has(normal(l)));
-        return `${relationText(S, a[0].x, r)} by ${labels.join(', ')}`;
-      }
-      if (S.P.reg.byName.has(normal(n.name))) {
-        const v = asRec(S, ev(n, c));
-        return `${relationText(S, n, v?.id ? S.recs[v.id] : null)} is attested`;
-      }
-      return unparse(n);
-    }
-  }
-  return phrase(n, c);
-}
-
-// A relation record as words: its name, then its arguments' objects in order.
-function relationText(S, callNode, r) {
-  const name = callNode.k === 'call' ? callNode.name : 'Relation';
-  return r?.args ? `${name}: ${r.args.map(x => nameOf(S, objectOf(S, x.at))).join(' → ')}` : name;
-}
-
-function safeWhy(n, c) {
-  try { return why(n, c); } catch { return null; }
-}
-
-// For a computed record, or an entered one a formula covers: [{ label, text }], one for each implication
-// that holds there, or for a value formula the branch of an IF or IFS that gave its output.
-function explain(computed, id) {
-  const S = computed.state;
+// Whether an entered record's output is what the rows give.
+function sameValue(S, id, out) {
   const r = S.recs[id];
-  const defId = r?.computed ?? computed.covered?.[id]?.def;
-  const d = defId && S.P.defs.find(x => x.id === defId);
-  if (!d || d.error) return [];
-  const c = contextFor(S, d, d.isRelation ? { args: r.args } : { at: r.at });
-  if (d.imps) return d.imps.filter(imp => truth(S, safeEv(imp.ast, c)) === true)
-    .map(imp => ({ label: imp.label, text: safeWhy(imp.ast, c) }));
-  const top = d.ast;
-  if (top?.k === 'call' && ['IF', 'IFS'].includes(top.name.toUpperCase())) {
-    const conds = top.name.toUpperCase() === 'IF' ? [top.args[0]] : top.args.filter((_, i) => i % 2 === 0);
-    const hit = conds.find(x => truth(S, safeEv(x.x, c)) === true);
-    if (hit) return [{ label: null, text: hit.x.k === 'lit' ? 'none of the conditions before it held' : safeWhy(hit.x, c) }];
-    if (!hit && top.name.toUpperCase() === 'IF') return [{ label: null, text: `not ${unparse(top.args[0].x)}` }];
-  }
-  return [];
+  if (out === undefined || out === null) return false;
+  if (isTag(r)) return r.tag === out;
+  if (isChoice(r)) return typeof out === 'string' && same(r.choice, out);
+  return equal(scalar(S, recOf(id)), out);
 }
 
-// Works out an expression at a record, as if it were the formula of an entry located there, or of the
-// given definition at one of its candidates (`at` being the candidate's computed id or argumentation key).
-function evaluateAt(computed, text, at, defId) {
-  const S = computed.state;
-  let ast;
-  try { ast = parseExpression(splitFormula(text).body); }
-  catch (e) { return err('#SYNTAX', e.message); }
-  const d = defId && S.P.defs.find(x => x.id === defId);
-  if (d?.isRelation) {
-    const cand = candidatesOf(S, d).find(c => c.id === at || c.key === at);
-    return cand ? safeEv(ast, contextFor(S, d, cand)) : err('#VALUE!', 'That isn’t one of the definition’s candidates.');
-  }
-  return safeEv(ast, { S, self: { loc: at }, at: at ? recOf(at) : null, lets: null });
-}
-
-// Checks a formula as typed: its kind ('value' or 'implies'), and the first problem with a position.
-function check(text) {
+// Works out an expression at a record, as if it were the formula of an entry located there, or of the given
+// definition at one of its candidates (`at` being a record there, or objects by edge).
+function evaluateAt(R, text, at, defId) {
+  const S = R.state;
   const f = splitFormula(text);
-  const offset = String(text ?? '').length - String(text ?? '').trimStart().length + (f.kind === 'implies' && String(text).trim().startsWith('<-') ? 2 : f.kind ? 1 : 0);
-  try { parseExpression(f.body); return { kind: f.kind, error: null }; }
-  catch (e) { return { kind: f.kind, error: { message: e.message, pos: (e.pos ?? 0) + offset } }; }
-}
-
-// Renames a name wherever a formula mentions it, keeping the rest as typed: for a relabeled edge or
-// entry, as Excel renames a table column in its formulas.
-function renameName(text, from, to) {
-  const s = String(text ?? '');
-  const start = /^\s*(=|←|<-)?/.exec(s)[0].length;
-  const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(to) && !KEYWORDS.has(to.toUpperCase());
-  let toks;
-  try { toks = tokenize(s.slice(start)); } catch { return s; }
-  let out = '', last = 0;
-  for (const t of toks) {
-    if (t.k !== 'name' || !same(t.v, from)) continue;
-    out += s.slice(last, start + t.pos) + (bare ? to : `[${to}]`);
-    last = start + t.end;
-  }
-  return out + s.slice(last);
-}
-
-// Carries a relabeled edge or entry through the definitions and the pilot names: their formulas, an
-// entry definition's name, a relation's edges and list keys, and any locations written out. Definitions'
-// `covers` are parameterization keys, which model.js's rekey() moves as it moves styles. Returns new copies.
-function relabel(definitions, names, from, to) {
-  const swap = s => same(s, from) ? to : s;
-  const inLocation = text => String(text).split(/\s*›\s*/).map((seg, i) => {
-    if (!i) return seg;
-    const m = /^(not\s+)?(.+?)(:\s*.+)?$/i.exec(seg);
-    return `${m[1] ?? ''}${swap(m[2])}${m[3] ?? ''}`;
-  }).join(' › ');
-  // Keys spell edge labels too: a parameterization's pairs [edge, location key], and a form's [edge, shape].
-  const pairs = (list, inner) => list.map(s => { const [e, k] = JSON.parse(s); return JSON.stringify([e === normal(from) ? normal(to) : e, inner(k)]); }).sort();
-  const specKey = k => k.startsWith('kind:') ? k : (([head, ...rest]) => JSON.stringify([head, ...pairs(rest, specKey)]))(JSON.parse(k));
-  const paramKey = k => JSON.stringify(pairs(JSON.parse(k), specKey));
-  const shapeKey = k => k === '•' ? k : JSON.stringify(['∘', ...pairs(JSON.parse(k).slice(1), shapeKey)]);
-  const formKey = k => k === 'object' ? k : (([sort, ...rest]) => JSON.stringify([sort, ...pairs(rest, shapeKey)]))(JSON.parse(k));
-  const defs = definitions.map(d => ({
-    ...d,
-    ...(d.covers && { covers: d.covers.map(paramKey) }),
-    ...(d.form && { form: formKey(d.form) }),
-    name: d.args || d.covers && paramsOf(d.covers[0] ?? '[]').length > 1 ? d.name : swap(d.name),
-    ...(d.formula !== undefined && { formula: renameName(d.formula, from, to) }),
-    ...(d.implications && { implications: d.implications.map(i => ({ ...i, formula: renameName(i.formula, from, to) })) }),
-    ...(d.at && { at: d.at.map(inLocation) }),
-    ...(d.args && { args: d.args.map(a => ({ edge: swap(a.edge), at: a.at.map(inLocation) })) }),
-  }));
-  const rels = (names?.relations ?? []).map(r => ({
-    ...r, edges: r.edges.map(swap), ...(r.form && { form: formKey(r.form) }),
-    lists: Object.fromEntries(Object.entries(r.lists ?? {}).map(([k, v]) => [swap(k), Object.fromEntries(Object.entries(v).map(([k2, n]) => [swap(k2), n]))])),
-  }));
-  return { definitions: defs, names: { ...names, relations: rels } };
-}
-
-// Names that could go at the cursor, for autocomplete: after a dot, the names on what's before it, worked
-// out at one of the definition's candidates (or at `at`); otherwise its arguments or its location's names,
-// the relations, and the functions. Each is { name, kind }, filtered by what's typed so far.
-function suggest(computed, defId, textBefore, at) {
-  const S = computed.state;
-  const d = defId && S.P.defs.find(x => x.id === defId);
-  const body = splitFormula(textBefore).kind ? splitFormula(textBefore).body : String(textBefore ?? '');
-  const m = /(\[[^\]]*|[A-Za-z_][A-Za-z0-9_]*)?$/.exec(body);
-  const partial = (m[1] ?? '').replace(/^\[/, '');
-  let toks;
-  try { toks = tokenize(body.slice(0, body.length - (m[1] ?? '').length)).slice(0, -1); } catch { return []; }
-  const cand = d ? candidatesOf(S, d)[0] : null;
-  const c = cand ? contextFor(S, d, cand) : { S, self: { loc: at }, at: at ? recOf(at) : null, lets: null };
-  let names;
-  if (toks.at(-1)?.k === 'op' && toks.at(-1).v === '.') {
-    const start = chainStart(toks, toks.length - 1);
-    const src = body.slice(toks[start]?.pos ?? 0, toks.at(-1).pos);
-    let v;
-    try { v = safeEv(parseExpression(src), c); } catch { v = null; }
-    names = namesOnValue(S, v);
-  } else {
-    names = [
-      ...(d?.isRelation ? d.edges.map(e => ({ name: e, kind: 'argument' })) : c.self.loc ? namesOnValue(S, recOf(c.self.loc)) : []),
-      ...[...S.P.reg.byName.values()].map(r => ({ name: r.name, kind: 'relation' })),
-      ...Object.keys(FUNCTIONS).map(f => ({ name: f, kind: 'function' })),
-    ];
-  }
-  return names.filter(x => normal(x.name).startsWith(normal(partial)));
+  let ast;
+  try { ast = parseExpression(f.body, f.offset); }
+  catch (e) { return err('#SYNTAX', e.message); }
+  const d = defId && S.P.byId.get(defId);
+  let v;
+  if (d?.isRelation) {
+    const cand = candidateAt(S, d, at);
+    if (!cand) return err('#VALUE!', 'That isn’t one of the definition’s candidates.');
+    v = safeEv(ast, contextFor(S, d, cand));
+  } else v = safeEv(ast, { S, def: d ?? null, self: { loc: at }, at: at ? recOf(at) : null, lets: null });
+  return f.kind === 'implies' ? truth(S, v) : v;
 }
 
 // How a value reads. Numbers can be shown as percentages.
-function formatValue(computed, v, { percent = false } = {}) {
-  const S = computed.state;
+function formatValue(R, v, { percent = false } = {}) {
+  const S = R.state;
   if (isErr(v)) return v.code;
-  if (Array.isArray(v)) return v.length ? v.map(x => formatValue(computed, x, { percent })).join('; ') : '(empty list)';
+  if (Array.isArray(v)) return v.length ? v.map(x => formatValue(R, x, { percent })).join('; ') : '(empty list)';
   if (isRec(v)) {
     if (v.id === null) return '(blank)';
     const o = output(S, v.id);
-    return isRec(o) ? nameOf(S, o.id) : formatValue(computed, o, { percent });
+    return isRec(o) ? nameOf(S, o.id) : formatValue(R, o, { percent });
   }
   if (v === null || v === undefined) return '(blank)';
   if (typeof v === 'number') return percent ? `${tidyNumber(v * 100)}%` : String(tidyNumber(v));
@@ -2967,11 +2963,8 @@ function formatValue(computed, v, { percent = false } = {}) {
 }
 
 return {
-  computeState, evaluateAt, explain, check, suggest, renameName, relabel, formatValue, optionsWritten,
-  coversOf, locationKey, parameterizationKey, computedId, splitFormula, tidyArrow, argKey,
-  place: (computed, id) => placeOf(computed.state, id), nameOf: (computed, id) => nameOf(computed.state, id),
-  formOf: (computed, id) => formOfRecord(computed.state, computed.state.recs[id]),
-  isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
+  computeState, ground, groundText, evaluateRow, diff, check, suggest, evaluateAt, formatValue,
+  renameName, optionsWritten, computedId, splitFormula, tidyArrow, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
 };
 
 })();
