@@ -314,25 +314,27 @@ function push(map, key, value) {
 }
 
 const distinct = xs => xs.filter((x, i) => xs.indexOf(x) === i);
+// Whether an id is an object's: a computed record a record is located at may not be there yet.
+const isObjectAt = (S, id) => !!S.recs[id] && isObject(S.recs[id]);
 
 // Lookups kept from before (see remembered) are let go when a record comes or goes, unless the step being
 // worked out keeps track of what each one read (see runStep).
-function addRecord(S, id, r) {
+function addRecord(S, id, r, known) {
   if (S.forgetting) S.memo?.clear();
   S.recs[id] = r;
-  indexRecord(S, id, r);
+  indexRecord(S, id, r, known);
 }
 
 // A record is indexed by where it's located and its name there; a relation record by each record it's
-// located at and by its objects (see indexByObjects).
-function indexRecord(S, id, r) {
+// located at, but an object, which has its relations by signature, and by its objects (see indexByObjects).
+function indexRecord(S, id, r, known) {
   if (r.at) {
     push(S.byAt, r.at, id);
     S.byAtName.set(`${r.at}|${normal(r.edge)}`, id);
   }
   if (r.args) {
-    for (const at of distinct(r.args.map(a => a.at))) push(S.relsAt, at, id);
-    indexByObjects(S, id, r);
+    for (const at of distinct(r.args.map(a => a.at))) if (!isObjectAt(S, at)) push(S.relsAt, at, id);
+    indexByObjects(S, id, r, known);
   }
 }
 
@@ -340,9 +342,9 @@ function indexRecord(S, id, r) {
 // signature with each argument's edge and object. Records of another form, or located below their objects
 // elsewhere, can share a call's key, so a call still checks what it finds. The objects are kept, to take
 // it back out by.
-function indexByObjects(S, id, r) {
-  const objs = r.args.map(a => objectOf(S, a.at)), sig = signatureOf(r), edges = r.args.map(a => normal(a.edge));
-  const call = `${sig}|${edges.map((e, i) => `${e}=${objs[i]}`).sort().join('&')}`;
+function indexByObjects(S, id, r, known) {
+  const objs = known?.objs ?? r.args.map(a => objectOf(S, a.at)), sig = signatureOf(r), edges = known?.edges ?? r.args.map(a => normal(a.edge));
+  const call = known?.call || `${sig}|${edges.map((e, i) => `${e}=${objs[i]}`).sort().join('&')}`;
   for (const obj of distinct(objs)) {
     if (!S.byObject.has(obj)) S.byObject.set(obj, new Map());
     push(S.byObject.get(obj), sig, id);
@@ -373,10 +375,11 @@ function listNamesOf(S, sig) {
   return S.listNames.get(sig);
 }
 
-// The relation records at an object that can make a list called `n`, in the order they came in.
-function relationsFor(S, obj, n) {
+// The relation records at an object that can make a list called `n` (or every one), in the order they
+// came in.
+function relationsFor(S, obj, n = null) {
   let out = null, merged = false;
-  for (const [sig, rids] of S.byObject.get(obj) ?? []) if (rids.length && listNamesOf(S, sig).has(n)) {
+  for (const [sig, rids] of S.byObject.get(obj) ?? []) if (rids.length && (n === null || listNamesOf(S, sig).has(n))) {
     merged = !!out;
     out = out ? out.concat(rids) : rids;
   }
@@ -394,7 +397,7 @@ function removeRecord(S, id) {
     if (S.byAtName.get(`${r.at}|${normal(r.edge)}`) === id) S.byAtName.delete(`${r.at}|${normal(r.edge)}`);
   }
   if (r.args) {
-    for (const at of distinct(r.args.map(a => a.at))) pull(S.relsAt, at, id);
+    for (const at of distinct(r.args.map(a => a.at))) if (!isObjectAt(S, at)) pull(S.relsAt, at, id);
     unindexByObjects(S, id, r);
   }
   const spec = S.specs.get(id);
@@ -1756,7 +1759,7 @@ function filledWhere(K, n, v) {
 // is called that at an object, and the name is a list's somewhere, so where there are none it's empty.
 function listedOnly(S, n) {
   if (!S.listedOnly.has(n)) S.listedOnly.set(n, S.P.known.lists.has(n) && !S.dep?.entry.has(n)
-    && ![...S.byAtName.keys(), ...S.failed.keys()].some(k => k.endsWith(`|${n}`) && isObject(S.recs[k.slice(0, -n.length - 1)])));
+    && ![...S.byAtName.keys(), ...S.failed.keys()].some(k => k.endsWith(`|${n}`) && isObjectAt(S, k.slice(0, -n.length - 1))));
   return S.listedOnly.get(n);
 }
 
@@ -1796,11 +1799,12 @@ function relatedWhere(K, n, v, labels) {
 }
 
 // IMPLIEDBY's labels, where they say for good whether it holds: those of a relation another step works
-// out, or of one this step does once its first round is done, if the implications that give them don't read
-// anything the step works out, and so came out for good in that round.
+// out; or of one this step does, if the implications that give them don't read anything the step works
+// out, and so come out for good in its first round: once that's done, or before, where the relation is
+// quiet and has no records yet for IMPLIEDBY to find.
 function settledLabels(K, S, rel, labels) {
   if (!K.own.has(rel.n)) return labels;
-  return S.settled && labels.every(l => K.settles.get(rel.n)?.get(l) !== false) ? labels : null;
+  return (S.settled || K.quiet.has(rel.n)) && labels.every(l => K.settles.get(rel.n)?.get(l) !== false) ? labels : null;
 }
 
 // The objects at one edge of a relation's records whose other arguments are as given, the first such
@@ -1810,7 +1814,7 @@ function relatedAt(S, rel, ids, freeEdge, labels) {
   const [edge, g] = ids.entries().next().value;
   const obj = objectOf(S, g);
   // With labels, it changes only where one of them comes or goes (see candidateKeys).
-  if (labels) for (const l of labels) depend(S, 'held', rel.n, `${rel.n}|${edge}=${obj}|${l}`);
+  if (labels) for (const l of labels) { depend(S, 'held', rel.n, `${rel.n}|${edge}=${obj}|${l}`); S.dep?.cited.add(`${rel.n}|${l}`); }
   else depend(S, 'rel', rel.n, `${rel.n}|${edge}=${obj}`);
   const out = [], seen = new Set();
   // Every record here has the first argument given; the others are checked.
@@ -1891,15 +1895,24 @@ function stateFor(P, entered) {
 }
 
 // A computed record comes into the state, or goes, as a step works it out (again). The candidate it's
-// worked out at comes with it, with its block, which knows what all its records share: their signature,
-// and their specification for each output.
-function addComputed(S, id, r, cand, b) {
+// worked out at comes with it, with its block and its records there (picks), which tell what it shares
+// with the block's other records: its signature, edges and specification, and the order of its call's
+// key (see keyedBlock).
+function addComputed(S, id, r, cand, b, picks) {
   keyCache.set(r, cand.key);
-  if (b?.sig) sigCache.set(r, b.sig);
-  addRecord(S, id, r);
-  const root = rootLabel(r), spec = b?.specs.get(root);
-  if (spec) { S.specs.set(id, spec); push(S.bySpec, spec, id); }
-  else { const own = specOf(S, id); if (b && own) b.specs.set(root, own); }
+  let known;
+  if (b?.sig && picks) {
+    sigCache.set(r, b.sig);
+    const objs = picks.map((k, j) => b.objects[j][k]);
+    known = { objs, edges: b.normals, call: b.idOrder && `${b.sig}|${b.idOrder.map(j => `${b.normals[j]}=${objs[j]}`).join('&')}` };
+  }
+  addRecord(S, id, r, known);
+  // Its specification is its block's for its output; it's kept only where a definition is located, since
+  // that's where a step looks for candidates (see blocksOf), and worked out again if it's wanted elsewhere.
+  const root = rootLabel(r);
+  let spec = b?.specs.get(root);
+  if (!spec) { spec = specOf(S, id); if (b && spec) b.specs.set(root, spec); }
+  else if (S.P.located.has(spec)) { S.specs.set(id, spec); push(S.bySpec, spec, id); }
   againBelow(S, id);
 }
 function removeComputed(S, id) {
@@ -2135,7 +2148,7 @@ function everyCandidate(b) {
   for (const anchor of anchorsOf(b, b.pools.length - 1)) for (const k of picksFor(null, b, b.pools.length - 1, null)) {
     anchor[b.pools.length - 1] = k;
     const cand = candidateIn(b, anchor);
-    if (cand) out.push({ d: b.d, b, cand, ordinal: ordinalIn(b, anchor) });
+    if (cand) out.push({ d: b.d, b, picks: [...anchor], cand, ordinal: ordinalIn(b, anchor) });
   }
   return out;
 }
@@ -2168,7 +2181,7 @@ function candidateKeys(S, d, cand, kinds = null, turned = []) {
   const n = normal(d.name), objs = cand.args.map(a => objectOf(S, a.at)), keys = [];
   if (want('calls')) keys.push(`calls|${n}|${cand.args.map((a, i) => `${normal(a.edge)}=${objs[i]}`).sort().join('&')}`);
   if (want('rel')) cand.args.forEach((a, i) => keys.push(`rel|${n}|${normal(a.edge)}=${objs[i]}`));
-  if (want('held')) cand.args.forEach((a, i) => turned.forEach(l => keys.push(`held|${n}|${normal(a.edge)}=${objs[i]}|${l}`)));
+  if (want('held')) cand.args.forEach((a, i) => turned.forEach(l => { if (S.dep?.cited.has(`${n}|${l}`)) keys.push(`held|${n}|${normal(a.edge)}=${objs[i]}|${l}`); }));
   if (!want('lists') && !want('inverse')) return keys;
   const lists = listsByPair(S, d);
   cand.args.forEach((own, i) => cand.args.forEach((other, j) => {
@@ -2197,7 +2210,7 @@ function listsByPair(S, d) {
 
 // The names under which a step's own candidates can be looked for, by how (see depend).
 function relevance(S, group) {
-  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), held: new Set(), inverse: new Set(), watched: new Set() };
+  const dep = { entry: new Set(), lists: new Set(), calls: new Set(), rel: new Set(), held: new Set(), inverse: new Set(), watched: new Set(), cited: new Set() };
   for (const d of group) {
     if (!d.isRelation) { dep.entry.add(normal(d.name)); continue; }
     dep.calls.add(normal(d.name));
@@ -2246,7 +2259,7 @@ function foundValues(S, b) {
   const [{ free, where }] = plansOf(supportContext(S, [b.d]), b, true);
   if (!where) return everyCandidate(b);
   const found = new Map();
-  const take = picks => { const ordinal = ordinalIn(b, picks); if (found.has(ordinal)) return; const cand = candidateIn(b, picks); if (cand) found.set(ordinal, { d: b.d, b, cand, ordinal }); };
+  const take = picks => { const ordinal = ordinalIn(b, picks); if (found.has(ordinal)) return; const cand = candidateIn(b, picks); if (cand) found.set(ordinal, { d: b.d, b, picks: [...picks], cand, ordinal }); };
   for (const anchor of anchorsOf(b, free)) {
     for (const k of picksFor(S, b, free, supportAt(S, where, anchorContext(b, free, anchor)))) { anchor[free] = k; take(anchor); }
   }
@@ -2292,7 +2305,7 @@ function force(S, key) {
       job.failed.push([`rel|${obj}|${normal(job.d.name)}`, failure]);
     }
   } else if (!res.none) {
-    addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out), job.cand, job.b);
+    addComputed(S, job.cand.id, makeRecord(job.d, job.cand, res.out), job.cand, job.b, job.picks);
     job.added = true;
     addRow(S, job.d, { ...job.cand, value: res.out }, reads);
   }
@@ -2346,9 +2359,15 @@ function settleStep(S, group) {
 }
 
 // The labels of the implications that hold at a tag's candidate, in the definition's order.
-const labelsOf = t => t.d.imps.reduce((out, imp, i) => t.results[i]?.v === true && !out.includes(imp.label) ? [...out, imp.label] : out, []);
+function labelsOf(t) {
+  const out = [];
+  t.d.imps.forEach((imp, i) => { if (t.results[i]?.v === true && !out.includes(imp.label)) out.push(imp.label); });
+  return out;
+}
+const sameLabels = (a, b) => a.length === b.length && a.every((l, i) => l === b[i]);
 const resultKey = res => res ? JSON.stringify(res.error ? ['error', res.error.code] : res.none ? ['none'] : ['out', res.out]) : '';
 
+const EVALUATE = Symbol('work out'), FOUND = 1, HELD = 2, STILL = 3;
 function attemptStep(S, group, blocked) {
   const blocks = blocksOf(S, group);
   const find = group.every(d => d.imps), K = supportContext(S, group);
@@ -2358,23 +2377,32 @@ function attemptStep(S, group, blocked) {
   const valueJobs = blocks.filter(b => !b.d.imps).flatMap(everyCandidate);
   S.lazy = lazyValues(S, valueJobs, blocked);
   const values = [...S.lazy.cands.values()];
-  const width = Math.max(1, ...group.map(d => d.imps?.length ?? 0));
-  const tags = new Map();
-  let queue = new Map();
-  // A tag's candidate, made when first wanted.
-  const tagAt = (b, picks) => {
-    const ordinal = ordinalIn(b, picks);
-    if (!tags.has(ordinal)) {
-      const cand = candidateIn(b, picks);
-      tags.set(ordinal, cand && { d: b.d, b, cand, ordinal, ctx: null, results: b.d.imps.map(() => null), labels: [], derived: false, blocked: blocked.has(cand.key) });
+  // Candidates by ordinal, made when first wanted.
+  const size = blocks.reduce((n, b) => Math.max(n, b.base + b.strides[0] * b.pools[0].length), 0);
+  const tags = [], slots = size <= 1 << 22 ? new Int32Array(size).fill(-1) : new Map();
+  const tagAt = (b, ordinal, picks) => {
+    let k = slots instanceof Map ? slots.get(ordinal) ?? -1 : slots[ordinal];
+    if (k < 0) {
+      const at = picks(), cand = candidateIn(b, at);
+      k = tags.push(cand && { d: b.d, b, picks: at, cand, ordinal, ctx: null, results: b.d.imps.map(() => null), labels: [], derived: false,
+        blocked: blocked.has(cand.key), pending: null }) - 1;
+      if (slots instanceof Map) slots.set(ordinal, k); else slots[ordinal] = k;
       if (cand) S.count.tried++;
     }
-    return tags.get(ordinal);
+    return tags[k];
   };
-  // Queues an implication at a candidate: to be worked out, or, where `known`, holding or not as a support said.
-  const enqueue = (t, i, known) => { if (t && !t.blocked) queue.set(t.ordinal * width + i, [t, i, known]); };
+  // The candidates with implications to work out this round, each with what's pending: an implication to
+  // work out (EVALUATE), or, as a support said, holding or not (true or false). The latest word wins.
+  let queue = [];
+  const enqueue = (t, i, known = EVALUATE) => {
+    if (!t || t.blocked) return;
+    if (!t.pending) { t.pending = []; queue.push(t); }
+    t.pending[i] = known;
+  };
   // A finder works an implication's support out for one choice of the other arguments' objects, and queues
-  // the implication where it newly allows, in each block with those objects (its targets).
+  // the implication where it newly allows, in each block with those objects (its targets). A target keeps,
+  // for each record of the free parameter's pool, whether the implication has been queued there to be
+  // worked out (FOUND), or held there as an exact support said (HELD).
   const seek = g => {
     let s = null;
     if (g.where) {
@@ -2384,19 +2412,20 @@ function attemptStep(S, group, blocked) {
       g.reads.job = g;
     }
     for (const x of g.targets) {
-      const at = k => { const picks = [...x.anchor]; picks[x.free] = k; return tagAt(x.b, picks); };
-      if (s && !s.exact && x.held.size) {
+      const at = k => tagAt(x.b, x.ordinal + k * x.b.strides[x.free], () => { const picks = [...x.anchor]; picks[x.free] = k; return picks; });
+      if (s && !s.exact && x.held.length) {
         // No longer exact: what it said held is worked out instead.
-        for (const k of x.held) { x.found.add(k); enqueue(at(k), g.i); }
-        x.held.clear();
+        for (const k of x.held) { x.state[k] = FOUND; enqueue(at(k), g.i); }
+        x.held = [];
       }
       const picks = picksFor(S, x.b, x.free, s);
       if (s?.exact) {
-        const now = new Set(picks.filter(k => !x.found.has(k)));
-        for (const k of now) if (!x.held.has(k)) enqueue(at(k), g.i, true);
-        for (const k of x.held) if (!now.has(k)) enqueue(at(k), g.i, false);
-        x.held = now;
-      } else for (const k of picks) if (!x.found.has(k)) { x.found.add(k); enqueue(at(k), g.i); }
+        const held = picks.filter(k => x.state[k] !== FOUND);
+        for (const k of held) { if (x.state[k] !== HELD) enqueue(at(k), g.i, true); x.state[k] = STILL; }
+        for (const k of x.held) if (x.state[k] === HELD) { enqueue(at(k), g.i, false); x.state[k] = 0; }
+        for (const k of held) x.state[k] = HELD;
+        x.held = held;
+      } else for (const k of picks) if (x.state[k] !== FOUND) { x.state[k] = FOUND; enqueue(at(k), g.i); }
     }
     if (!s) g.where = null;
   };
@@ -2407,34 +2436,38 @@ function attemptStep(S, group, blocked) {
       for (const anchor of anchorsOf(b, free)) {
         const key = `${b.d.id}|${i}|${anchor.map((k, j) => j === free ? '' : b.objects[j][k]).join('|')}`;
         if (!finders.has(key)) finders.set(key, { i, where, ctx: where && anchorContext(b, free, anchor), targets: [], reads: null });
-        finders.get(key).targets.push({ b, free, anchor, found: new Set(), held: new Set() });
+        finders.get(key).targets.push({ b, free, anchor, ordinal: ordinalIn(b, anchor), state: new Uint8Array(b.pools[free].length), held: [] });
       }
     });
   }
   finders.forEach(seek);
   let outputs = null, factsChanged = false;
-  for (let round = 0; round < 1000 && (queue.size || (factsChanged && values.length)); round++) {
+  for (let round = 0; round < 1000 && (queue.length || (factsChanged && values.length)); round++) {
     S.count.rounds++;
     for (const job of values) unforce(S, job);
     for (const d of group) if (!d.imps) S.rows.delete(d.id);
     const changed = [];
-    for (const [t, i, known] of [...queue.values()].sort((x, y) => x[0].ordinal - y[0].ordinal || x[1] - y[1])) {
-      if (known !== undefined) t.results[i] = { v: known, reads: null };
-      else {
-        S.count.evals++;
-        t.ctx ??= contextFor(S, t.d, t.cand);
-        const { v, reads } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, t.ctx)));
-        Object.assign(reads, { job: t, imp: i });
-        t.results[i] = { v, reads };
-      }
-      const labels = labelsOf(t);
-      if (labels.join('\n') === t.labels.join('\n')) continue;
-      t.was ??= t.labels;
-      t.labels = labels;
-      S.prov.set(t.cand.key, new Set(labels.map(normal)));
-      if (changed.at(-1) !== t) changed.push(t);
+    for (const t of queue.sort((x, y) => x.ordinal - y.ordinal)) {
+      const pending = t.pending;
+      t.pending = null;
+      pending.forEach((known, i) => {
+        if (known !== EVALUATE) t.results[i] = { v: known, reads: null };
+        else {
+          S.count.evals++;
+          t.ctx ??= contextFor(S, t.d, t.cand);
+          const { v, reads } = reading(S, () => truth(S, safeEv(t.d.imps[i].ast, t.ctx)));
+          Object.assign(reads, { job: t, imp: i });
+          t.results[i] = { v, reads };
+        }
+        const labels = labelsOf(t);
+        if (sameLabels(labels, t.labels)) return;
+        t.was ??= t.labels;
+        t.labels = labels;
+        S.prov.set(t.cand.key, new Set(labels.map(normal)));
+        if (changed.at(-1) !== t) changed.push(t);
+      });
     }
-    queue = new Map();
+    queue = [];
     S.settled = true;
     for (const job of values) force(S, job.cand.key);
     // A value formula's output that differs from last round's changes what read it then.
@@ -2444,12 +2477,12 @@ function attemptStep(S, group, blocked) {
     factsChanged = changed.length > 0 || changedValues.length > 0;
     for (const t of changed) if (t.labels.length && !t.derived && !S.enteredByKey.has(t.cand.key)) {
       t.derived = true;
-      addComputed(S, t.cand.id, makeRecord(t.d, t.cand, true), t.cand, t.b);
+      addComputed(S, t.cand.id, makeRecord(t.d, t.cand, true), t.cand, t.b, t.picks);
     }
     if (!factsChanged) continue;
     // The labels that came or went at each candidate, normalized as IMPLIEDBY compares them.
     const turned = t => [...new Set([...t.was, ...t.labels])].filter(l => t.was.includes(l) !== t.labels.includes(l)).map(normal);
-    const keys = [...changed.flatMap(t => candidateKeys(S, t.d, t.cand, S.dep.watched, turned(t))),
+    const keys = [...changed.flatMap(t => candidateKeys(S, t.d, t.cand, S.dep.watched, S.dep.watched.has('held') ? turned(t) : [])),
       ...changedValues.flatMap(x => candidateKeys(S, x.d, x.cand, S.dep.watched))];
     for (const t of changed) t.was = undefined;
     const again = [];
@@ -2460,7 +2493,7 @@ function attemptStep(S, group, blocked) {
     }
     again.forEach(seek);
   }
-  return { tags: [...tags.values()].filter(Boolean).sort((x, y) => x.ordinal - y.ordinal), values, valueJobs };
+  return { tags: tags.filter(Boolean).sort((x, y) => x.ordinal - y.ordinal), values, valueJobs };
 }
 
 // The candidates on loops through a value formula: in the graph of what depends on what among the step's
@@ -2600,7 +2633,7 @@ function namesOnValue(S, v) {
     }
     for (let id = x.id; id && S.recs[id]; id = S.recs[id].at) {
       for (const e of S.byAt.get(id) ?? []) add(S.recs[e].edge, 'entry');
-      for (const rid of S.relsAt.get(id) ?? []) {
+      for (const rid of isObject(S.recs[id]) ? relationsFor(S, id) : S.relsAt.get(id) ?? []) {
         const r = S.recs[rid], rel = relationOf(S, r);
         r.args.forEach((own, i) => { if (own.at === id) r.args.forEach((other, j) => { if (i !== j) add(listNameOf(rel, own.edge, other.edge), 'list'); }); });
       }
@@ -2640,13 +2673,19 @@ function computeState(entered, definitions, names) {
   const started = typeof performance === 'object' ? performance.now() : Date.now();
   const defs = definitions.map(d => prepareDef(d, names));
   const reg = registry(names, defs);
-  const P = { defs, reg, known: knownNames(entered, defs, reg) };
+  // The specifications definitions are located at, where a step looks for candidates (see blocksOf).
+  const P = { defs, reg, known: knownNames(entered, defs, reg), located: new Set(defs.flatMap(d => d.params.flat().map(p => p.spec))) };
   P.order = plan(defs, reg);
   const S = stateFor(P, entered);
   runUpTo(S, P.order.length);
   const keptAside = Object.keys(S.entered).filter(id => S.recs[id] && argsOf(S.recs[id]).some(a => !S.recs[a.at]));
-  const aside = new Set(keptAside), records = {};
-  for (const id in S.recs) if (!aside.has(id)) records[id] = S.recs[id];
+  // The state's own records, where none is kept aside; nothing changes them once they're worked out.
+  let records = S.recs;
+  if (keptAside.length) {
+    const aside = new Set(keptAside);
+    records = {};
+    for (const id in S.recs) if (!aside.has(id)) records[id] = S.recs[id];
+  }
   const computed = {}, covered = {}, errors = [];
   for (const rows of S.rows.values()) for (const row of rows) {
     if (row.error) errors.push({ def: row.def, id: row.id, args: row.args, error: row.error });
