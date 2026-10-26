@@ -1,9 +1,10 @@
 // The tour: five steps, each done by doing what it teaches, then one card. It runs by itself on the very
 // first launch, once the launch screen is gone, if a chart is drawn; after that, from Tour in the chart menu or
 // Find. Enter skips a step, Skip goes to the last card, and Esc ends it. A step waits for its event on the
-// shell's bus, or, pointing, for the pointer to rest on what it points at and leave. It points at what the
-// parts mark with data-tour. The tour changes nothing in the record: a click on what a pointing step points at
-// only points, and what a step opened closes once the next step is under way.
+// shell's bus; or for what it points at to be clicked, or focused from the keys; or, pointing, for the pointer
+// to rest on what it points at and leave. It points at what the parts mark with data-tour. The tour changes
+// nothing in the record: a click on what a pointing step points at only points, what a step opened closes once
+// the next step is under way, and the selection it ends on is the one it began on.
 const Tour = (() => {
   const { html, signal, on, store } = Shell;
   const { render } = preact;
@@ -19,25 +20,28 @@ const Tour = (() => {
   const STEPS = [
     { event: 'select', target: 'box', act: 'Click a box.', say: 'Every box is a record.', when: s => s?.length },
     { event: 'relate-open', target: 'box', act: 'Drag from one box’s edge to another.', say: 'See how they’re related, or relate them.' },
-    { event: 'why-open', target: 'computed', act: 'Click an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', ends: unask },
+    { click: true, target: 'computed', act: 'Click an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', ends: unask },
     { point: true, target: 'tag', in: 'inspector', act: 'Point at a tag.', say: 'Green is attested, red ruled out. Pointing shows what switching it would change.' },
     { event: 'view-switch', target: 'sheet', act: 'Switch view.', say: 'Views share the records; each has its own styles. Export any of them.' },
   ];
   const at = signal(-1); // the step shown; STEPS.length is the last card
-  let unlayer = null, rest = null;
+  let unlayer = null, rest = null, began = [];
 
   function start() {
     store.set('toured', '1');
     Shell.closeAll();
-    if (at.peek() < 0) unlayer = Shell.layer(end);
+    if (at.peek() < 0) { unlayer = Shell.layer(end); began = Shell.selection.peek(); }
     at.value = 0;
   }
-  // What a step opened stays while the next step is read, and closes once that one is begun or done.
+  // What a step opened stays while the next step is read, and closes once that one is begun or done. Once the
+  // last is done, or skipped, everything the steps opened is closed, and the selection is the one begun on.
   let opened = null;
   const settle = () => { const f = opened; opened = null; f?.(); };
   const leave = () => { rest = null; settle(); opened = STEPS[at.peek()]?.ends ?? null; };
-  const next = () => { if (at.peek() >= 0 && at.peek() < STEPS.length) { leave(); at.value = at.peek() + 1; } };
-  function end() { if (at.peek() < 0) return; leave(); settle(); at.value = -1; unlayer(); }
+  const done = () => { leave(); settle(); Shell.select(began, { replace: true }); };
+  const next = () => { const i = at.peek(); if (i < 0 || i >= STEPS.length) return; if (i < STEPS.length - 1) leave(); else done(); at.value = i + 1; };
+  const skip = () => { done(); at.value = STEPS.length; };
+  function end() { if (at.peek() < 0) return; if (at.peek() < STEPS.length) done(); at.value = -1; unlayer(); }
   for (const [i, s] of STEPS.entries()) if (s.event) on(s.event, d => { if (at.peek() === i && (!s.when || s.when(d))) next(); });
   Shell.launched.then(() => { if (store.get('toured') !== '1' && Shell.parts.peek().canvas) start(); });
   document.addEventListener('keydown', e => {
@@ -45,17 +49,23 @@ const Tour = (() => {
     next();
     e.preventDefault(); e.stopPropagation();
   }, true);
+  // What the step shown points at, if the event's target is in it and the step is done that way.
+  const aimed = (e, how) => { const s = STEPS[at.peek()]; return s?.[how] ? e.target.closest?.(`[data-tour="${s.target}"]`) : null; };
+  // A clicking step is done once what it points at is clicked, or focused from the keys, and the click goes on.
+  addEventListener('focusin', e => { if (aimed(e, 'click')) next(); }, true);
   // A pointing step is begun when the pointer reaches what it points at, and done once it has rested there
   // and left, or on a click there, which goes no further.
-  const pointed = e => { const s = STEPS[at.peek()]; return s?.point ? e.target.closest?.(`[data-tour="${s.target}"]`) : null; };
-  addEventListener('pointerover', e => { const el = pointed(e); if (el && rest?.el !== el) { settle(); rest = { el, since: e.timeStamp }; } }, true);
+  addEventListener('pointerover', e => { const el = aimed(e, 'point'); if (el && rest?.el !== el) { settle(); rest = { el, since: e.timeStamp }; } }, true);
   addEventListener('pointerout', e => {
     if (!rest || rest.el.contains(e.relatedTarget)) return;
     const rested = e.timeStamp - rest.since > 500;
     rest = null;
     if (rested) next();
   }, true);
-  addEventListener('click', e => { if (pointed(e)) { e.preventDefault(); e.stopPropagation(); next(); } }, true);
+  addEventListener('click', e => {
+    if (aimed(e, 'click')) next();
+    else if (aimed(e, 'point')) { e.preventDefault(); e.stopPropagation(); next(); }
+  }, true);
 
   // What a step points at: the first of its kind in view, inside every pane that scrolls it, and in the
   // step's pane if one is there.
@@ -134,7 +144,7 @@ const Tour = (() => {
       ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite">
           <div class="step">${i + 1} / ${STEPS.length}</div>
           <p><b>${step.act}</b> ${step.say}</p>
-          <div class="acts"><button class="skip" onClick=${() => { leave(); at.value = STEPS.length; }}>Skip</button></div>
+          <div class="acts"><button class="skip" onClick=${skip}>Skip</button></div>
         </div>`
       : html`<form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
           onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>

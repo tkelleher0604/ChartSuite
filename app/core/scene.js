@@ -4,11 +4,13 @@
 // The only page it touches is a canvas, to measure text. Units are CSS pixels, 96 to the inch, as the browser
 // and X6 draw them; a Size or a Weight is in points, as Office gives them, each PT pixels.
 //
-// Scene.of(wb, chart, view, day, { state, computed?, reveal, redline, paper? }) →
+// Scene.of(wb, chart, view, day, { state, computed?, reveal, redline, paper?, ahead? }) →
 //   { chart, view, day, page: { size, w, h, scale, margin, sheet }, marks, byId, styles, legend, ms }
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
 // text is a formula. `paper`, a size in PAGES, draws the view on that paper in place of its own page (see the
-// page). `marks` are in drawing order: frames, lines, boxes, then free shapes, each by its Layer.
+// page). `ahead` lays out a state a change previewed would leave, so it's drawn at once when the change is
+// made, and isn't kept as how the view was drawn. `marks` are in drawing order: frames, lines, boxes, then
+// free shapes, each by its Layer.
 // A box, line or frame has `settings`: { [property]: { value, note } }, the note null where nothing in the
 // chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
 // from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
@@ -185,8 +187,20 @@ function snap(it, s) {
 // shortest triangle, or one with fewer lines that's no more than a line taller; a triangle whose width nobody
 // entered widens, by half at most, before its text takes more than four lines.
 // → { w, h, width, lines: [lines of each text] }, h the least height that holds it, at least half the width,
-// and width what its lines are broken to.
+// and width what its lines are broken to. Kept by what it reads, the latest few thousand, as the next scene
+// sets the same triangles again.
+const pyramids = new Map();
 function pyramid(texts, w, widen) {
+  const k = JSON.stringify([w, widen, texts.map(it => [it.text, it.was, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic])]);
+  let p = pyramids.get(k);
+  if (!p) {
+    p = fitPyramid(texts, w, widen);
+    if (pyramids.size > 4000) pyramids.clear();
+    pyramids.set(k, p);
+  }
+  return { ...p, lines: p.lines.map(ls => ls.map(l => ({ ...l }))) };
+}
+function fitPyramid(texts, w, widen) {
   const most = widen ? w * 1.5 : w;
   for (;;) {
     // No narrower than its longest word, leaving out a word wider than three quarters of the base, which is
@@ -253,29 +267,48 @@ const now = () => (typeof performance === 'object' ? performance.now() : Date.no
 // How each view was last drawn as it is, which its previews keep: its boxes, lines, page and furniture.
 const laidOut = new Map();
 // What a scene works out from a record's tree and the notes alone, its formats and its edges' order, kept by
-// record from one scene to the next while the notes, the view and the records its tree runs through stand.
-const worked = new WeakMap();
+// record from one scene to the next while the notes, the view and the records its tree runs through stand: a
+// store of them for each of the latest views and states of the notes, so views shown in turn each keep theirs.
+const worked = new Map();
+function workedIn(notesAre) {
+  const w = worked.get(notesAre) ?? new WeakMap();
+  worked.delete(notesAre);
+  worked.set(notesAre, w);
+  if (worked.size > 12) worked.delete(worked.keys().next().value);
+  return w;
+}
+// Each view's scene as last drawn, and what it was drawn from, which is all a scene reads: the state, the
+// notes, the view's free shapes, its day and its paper. Drawn again from the same, it's the same.
+const drawnFrom = new Map();
 
 function of(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
   const red = opts.redline ?? null;
+  const rows = wb.rows(chart), notesAre = `${view}|${rows.filter(r => 'note' in r).map(r => r.id).join()}`;
+  const shapeRows = rows.filter(r => 'shape' in r && r.view === view);
+  const preview = !!(red || opts.reveal?.length), drawnAs = `${chart}|${view}`;
+  const from = [opts.state, opts.computed ?? null, notesAre, shapeRows.map(r => r.id).join(), day], whence = `${drawnAs}|${opts.paper ?? ''}`;
+  if (!preview) {
+    const d = drawnFrom.get(whence);
+    if (d && d.from.every((x, i) => x === from[i])) { if (d.laid) laidOut.set(drawnAs, d.laid); return d.scene; }
+  }
   // A redline draws what's in the chart now together with what would be: both, marked.
   const state = red?.state ? { ...opts.state, ...red.state } : opts.state;
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
   const tree = id => treeOf(state, id);
-  const notesAre = `${view}|${wb.rows(chart).filter(r => 'note' in r).map(r => r.id).join()}`, stands = new Map();
+  const kept = workedIn(notesAre), stands = new Map();
   const standing = id => {
     if (!stands.has(id)) {
-      const r = state[id], w = r && worked.get(r);
+      const r = state[id], w = r && kept.get(r);
       stands.set(id, false);
-      stands.set(id, !!w && w.notes === notesAre && argsOf(r).every((a, i) => state[a.at] === w.locs[i] && standing(a.at)));
+      stands.set(id, !!w && argsOf(r).every((a, i) => state[a.at] === w.locs[i] && standing(a.at)));
     }
     return stands.get(id);
   };
   const work = id => {
-    if (standing(id)) return worked.get(state[id]);
-    const r = state[id], w = { notes: notesAre, locs: argsOf(r).map(a => state[a.at]), formats: N.formats(tree(id), view) };
-    worked.set(r, w);
+    if (standing(id)) return kept.get(state[id]);
+    const r = state[id], w = { locs: argsOf(r).map(a => state[a.at]), formats: N.formats(tree(id), view) };
+    kept.set(r, w);
     stands.set(id, true);
     return w;
   };
@@ -467,9 +500,10 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const steps = new Map();
   for (const id of ids) {
     const res = formats.get(id).Frame, r = state[id];
+    if (!res || res.value === 'none' || idsIn(res.note.pattern).size || !res.note.view) continue;
     const ends = !boxOf(id) && r.args?.length === 2 ? r.args.map(a => boxOf(a.at)) : null;
     const b = drawnBoxes.get(ends ? endsOf(id, ends)[1] : boxOf(id));
-    if (!res || !b || res.value === 'none' || idsIn(res.note.pattern).size || !res.note.view) continue;
+    if (!b) continue;
     const at = styleAt.get(key(bare(res.note.pattern))) ?? -1, s = steps.get(b.id) ?? steps.set(b.id, new Map()).get(b.id);
     if (!s.has(at)) s.set(at, { at, output: res.note.pattern, note: res.note, kind: res.value, caption: captionOf(N, res.note.pattern, view) });
   }
@@ -506,9 +540,8 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // redline, or records revealed) keeps the view as it was last drawn: its boxes, its lines where their boxes
   // stand, its page and its furniture; what it adds goes on the page, around what's drawn.
   const sheet = pageOf(N, view, opts.paper);
-  const shapeRows = wb.rows(chart).filter(r => 'shape' in r && r.view === view);
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
-  const preview = !!(red || opts.reveal?.length), drawnAs = `${chart}|${view}`, last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
+  const last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
   // The key is of what the view draws: what's revealed for a while doesn't change it.
   const legendRows = legend(N, view, styles, [...boxes, ...lines].filter(m => !m.revealed));
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
@@ -595,12 +628,13 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
-  if (!preview && !opts.paper) laidOut.set(drawnAs, {
+  const laid = !preview && !opts.paper && !opts.ahead ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
     page, places: at.places, floor,
-  });
+  } : null;
+  if (laid) laidOut.set(drawnAs, laid);
 
   const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
   const marksInOrder = [
@@ -610,7 +644,9 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; if (m.type !== 'shape') delete m.ends; }
-  return { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
+  const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
+  if (!preview && !opts.ahead) drawnFrom.set(whence, { from, scene, laid });
+  return scene;
 }
 // A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.
 function shapeOf(row, scene) {

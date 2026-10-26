@@ -23,20 +23,20 @@
 //   'undo'       { undo(), redo(), canUndo(), canRedo() }                                    (app.js)
 //   'time'       { When({ close }), Ruler(), today() }   the date's popover, the ruler under the view, and
 //                back to today from another day or the past                                  (time.js)
-//   'attention'  { items() → [{ kind: 'overdue' | 'error' | 'soon' | 'blank', go() }] }   counted and
-//                stepped through by F8, in that order, the worst first                       (inspector.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
 // window (in fields too, with inputs) and listed by ? ; 'find' { items() → menu items }, Find's records,
 // lists and definitions, an item with its kind (detail: 'Entity', which heads it), any other names it goes by
 // (names: […]) and a key, and what's within it (a list, "AIV-1 › Signatories") with of: that key; 'export'
-// { name, run }; 'status' { render() }.
+// { name, run }; 'status' { render() }; 'attention' { items() → [{ kind: 'overdue' | 'error' | 'soon' |
+// 'blank', go() }] }, what needs attention, counted in the status bar and stepped through by F8 in that
+// order, the worst first (inspector.js: deadlines, blanks and errors; app.js: checks failed, as errors).
 //
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar
 //   view-switch   another view is shown; its id         the shell        → the tour, time.js
-//   why-open      a computed record's reasons asked     inspector, canvas, formula bar → the bar, the tour
+//   why-open      a computed record's reasons asked     inspector, canvas, formula bar, app → the bar
 //   tag-flip      a tag was attested or ruled out       inspector, table, formula bar  → the tour
 //   relate-open   two boxes' relations asked for [a, b] the canvas       → the inspector, the tour
 // Anything else one part asks of another is a call: FormulaBar.preview(change), App.change(fn), Canvas.zoom.
@@ -76,7 +76,7 @@ const Shell = (() => {
   const ready = new Promise(r => { isReady = r; }), launched = new Promise(r => { isLaunched = r; });
 
   // ---- The registry ----
-  const MANY = new Set(['action', 'find', 'export', 'status']);
+  const MANY = new Set(['action', 'find', 'export', 'status', 'attention']);
   const reg = signal({});
   const part = kind => reg.value[kind];
   const many = kind => reg.value[kind] || [];
@@ -191,12 +191,15 @@ const Shell = (() => {
   const tabbables = box => [...box.querySelectorAll(TABBABLE)].filter(shown);
   const REGIONS = ['bars', 'view', 'inspector', 'tabs'], lastIn = {};
   document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) lastIn[r.dataset.region] = e.target; });
+  const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
+  // A region given the keys: where it last had them, or else its first control, or itself.
+  function enter(n) {
+    const last = lastIn[n];
+    (last?.isConnected && shown(last) && !last.disabled ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
+  }
   function region(d) {
-    const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
     const live = REGIONS.filter(n => els(n).length), here = live.indexOf(document.activeElement?.closest?.('[data-region]')?.dataset.region);
-    if (!live.length) return;
-    const n = live[here < 0 ? (d > 0 ? 0 : live.length - 1) : (here + d + live.length) % live.length], last = lastIn[n];
-    (last?.isConnected && shown(last) && !last.disabled ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0]).focus();
+    if (live.length) enter(live[here < 0 ? (d > 0 ? 0 : live.length - 1) : (here + d + live.length) % live.length]);
   }
   addEventListener('keydown', e => {
     const box = e.key === 'Tab' && !e.defaultPrevented && document.activeElement?.closest?.('dialog[open], .float .pop, [data-trap]');
@@ -283,9 +286,10 @@ const Shell = (() => {
       const el = ref.current;
       el.showPopover?.();
       const stop = place(f.anchor, el, f.placement || 'bottom-start', f.gap);
-      // A menu takes the keys; a popover, its first control, unless what it draws took focus itself.
+      // A menu takes the keys; a popover, the control it marks autofocus, or else its first, unless what it
+      // draws took focus itself.
       if (f.kind === 'menu') (el.querySelector('.menu-find') || el.querySelector('.menu'))?.focus({ preventScroll: true });
-      else if (!el.contains(document.activeElement)) tabbables(el)[0]?.focus({ preventScroll: true });
+      else if (!el.contains(document.activeElement)) (el.querySelector('[autofocus]') ?? tabbables(el)[0])?.focus({ preventScroll: true });
       return stop;
     }, []);
     return html`<div class="float in" popover="manual" ref=${ref}>
@@ -302,11 +306,19 @@ const Shell = (() => {
   const uf = new uFuzzy({ intraMode: 1 });
   const norm = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
   // Ranked as uFuzzy ranks their names (a label, and any others), except that a name typed exactly comes
-  // first, a name with fewer words after what matched before one with more (Fund III before Fund III
-  // Blocker), and what's within a thing (AIV-1 › Signatories, of its key) straight after it, or after every
-  // thing found if it isn't.
+  // first; a name with fewer words around what matched before one with more (Fund III before Fund III
+  // Blocker, Northpine Software before a document naming Northpine); between those alike, a record related
+  // to more others first (the fund before its general partner); and what's within a thing (AIV-1 ›
+  // Signatories, of its key) straight after it, or after every thing found if it isn't.
   const words = s => (s.match(/\S*[\p{L}\p{N}]\S*/gu) ?? []).length;
+  function relatives(id) {
+    const st = App.state.peek(), out = new Set();
+    for (const r of Tree.index(st).relations.get(id) ?? []) for (const a of st[r].args) out.add(Tree.objectOf(st, a.at));
+    out.delete(id);
+    return out.size;
+  }
   function rank(items, q, limit = 50) {
+    const known = new Map(), related = x => x.key === undefined || typeof App === 'undefined' ? 0 : known.get(x.key) ?? known.set(x.key, relatives(x.key)).get(x.key);
     const names = x => [x.label, ...(x.names || [])], hay = [], of = [];
     items.forEach((x, i) => names(x).forEach((n, k) => { hay.push(n); of.push([i, k]); }));
     let [idxs, info, order] = uf.search(hay, q);   // in order, ranked and highlighted
@@ -315,9 +327,10 @@ const Shell = (() => {
     const best = new Map();   // each item at its best-ranked name, highlighted if that's its label
     for (const [h, ranges] of order ? order.map(o => [info.idx[o], info.ranges[o]]) : idxs.map(h => [h])) {
       const [i, k] = of[h];
-      if (!best.has(i)) best.set(i, { ...items[i], ranges: k ? null : ranges, after: ranges ? words(hay[h].slice(Math.max(...ranges))) : 0 });
+      if (!best.has(i)) best.set(i, { ...items[i], ranges: k ? null : ranges, extra: ranges ? words(hay[h].slice(0, Math.min(...ranges))) + words(hay[h].slice(Math.max(...ranges))) : 0 });
     }
-    const found = [...best.values()].sort((a, b) => a.after - b.after), within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q), out = new Set();
+    const found = [...best.values()].sort((a, b) => a.extra - b.extra || related(b) - related(a));
+    const within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q), out = new Set();
     const add = x => { if (out.has(x)) return; out.add(x); if (x.key !== undefined) found.filter(y => y.of === x.key).forEach(add); };
     found.filter(x => names(x).some(n => norm(n) === typed)).forEach(add);
     found.filter(x => !within(x)).forEach(add);
@@ -481,8 +494,8 @@ const Shell = (() => {
     <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
       <span>${t.text}</span>${t.act ? html`<button onClick=${() => { t.dismiss(); t.act[1](); }}>${t.act[0]}</button>` : null}</div>`)}</div>`;
 
-  // ---- Find: records, lists, definitions, views and actions, ranked as you type, each under its kind's head;
-  // "=" works a formula out; "?" lists the keys ----
+  // ---- Find: records, lists, definitions, what needs attention, views and actions, ranked as you type, each
+  // under its kind's head; "=" works a formula out; "?" lists the keys ----
   let findButton = null;
   // Each kind under its head, the heads in the order of the best each has; what's within a thing under that
   // thing's. An answer doesn't say its kind again.
@@ -506,10 +519,12 @@ const Shell = (() => {
     if (q.startsWith('?')) { const ks = acts.filter(a => a.keys && a.id !== 'keys').map(a => ({ ...a, detail: null })); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
     const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
     if (!q) return headed([...vs, ...can]);
-    const all = [...many('find').flatMap(s => s.items()), ...vs, ...can];
+    const all = [...many('find').flatMap(s => s.items()), ...counted(), ...vs, ...can];
     return headed(rank(all, q), all);
   }
-  const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32 }); };
+  // A result chosen keeps the focus it gave itself (a field, a dialog); otherwise the view has the keys.
+  const land = () => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) enter('view'); });
+  const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32, onClose: land }); };
 
   // ---- The title bar ----
   // The day shown. Another day, or the log as it stood, fills the date in the accent, with an × back to today.
@@ -638,21 +653,26 @@ const Shell = (() => {
   }
 
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
-  const KINDS = [['overdue', n => `${n} overdue`], ['error', n => n === 1 ? '1 error' : `${n} errors`], ['soon', n => `${n} due soon`], ['blank', n => `${n} blank`]];
+  // Each kind as the bar says it, and the words Find reaches it by besides: a deadline is settled by Paid… or
+  // Filed… (inspector.js).
+  const KINDS = [['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
+    ['soon', n => `${n} due soon`, ['Paid', 'Filed']], ['blank', n => `${n} blank`, []]];
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
+  const needs = () => many('attention').flatMap(a => a.items());
   let stepAt = -1;
   function attend(d = 1, kind) {
-    const items = (part('attention')?.items() || []).filter(it => !kind || it.kind === kind).sort((a, b) => worst(a) - worst(b));
+    const items = needs().filter(it => !kind || it.kind === kind).sort((a, b) => worst(a) - worst(b));
     if (!items.length) return;
     stepAt = kind ? 0 : (stepAt + d + items.length) % items.length;
     items[stepAt].go();
   }
+  const counts = () => { const items = needs(); return KINDS.map(([k, say, names]) => ({ k, say, names, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
+  // In Find, each count goes where the bar's does.
+  const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => attend(1, c.k) }));
   function Status() {
-    const items = part('attention')?.items() || [];
-    const counts = KINDS.map(([k, say]) => [k, say, items.filter(it => it.kind === k).length]).filter(c => c[2]);
     // The counts are announced as they change; how the workbook is kept, which ages by the minute, isn't.
     return html`<div class="status">
-      <span class="counts" role="status">${counts.map(([k, say, n], i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + k} onClick=${() => attend(1, k)}>${say(n)}</button>`)}</span>
+      <span class="counts" role="status">${counts().map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} onClick=${() => attend(1, c.k)}>${c.say(c.n)}</button>`)}</span>
       ${many('status').map(s => s.render())}
     </div>`;
   }
@@ -670,9 +690,11 @@ const Shell = (() => {
     <${Toasts} /><${Tip} />`;
 
   // The shell's own actions and keys.
-  const problems = () => !!part('attention')?.items().length;
+  const problems = () => needs().length > 0;
   [
     { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
+    // What the title bar's Export does, for Find.
+    { id: 'export', name: 'Export', enabled: () => typeof Export !== 'undefined', run: () => Export.open() },
     { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
     // With nothing to undo, Undo says so.
     { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo'), run: () => part('undo').undo() },

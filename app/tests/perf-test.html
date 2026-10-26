@@ -30,7 +30,8 @@
 // with scenes drawn afresh. Then what a person does at the most, as the app does it: hovering a tag previews
 // ruling it out in under 150 ms, and the ruling, or an edit to a value, is committed and worked out in under
 // 300 (the scene each draws is reported). Then the redline: one edit worked out and compared with the state before it, as the preview does
-// on every keystroke, in under 50 ms on the sample.
+// on every keystroke, in under 50 ms on the sample. Then the window itself, edited, ruled in and switched,
+// until the canvas shows it (see inWindow).
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
@@ -153,6 +154,66 @@ function actions(n) {
   return lines;
 }
 
+// The window itself, as a person works in it: the canvas test's window (canvas-harness.html, the sample in
+// memory) in a frame, on the sample and grown by n. An edit to a value; clicking the U.S. investors' ownership
+// tag in the formula bar to rule it out, after pointing at it, the redline asked of the canvas as the formula
+// bar asks it, and the chart it would leave laid out ahead as the canvas does once the window is idle; and
+// showing another view, and the first again. Under a virtual time budget the clock stands still while anything
+// runs once the page has loaded, so the window is timed as it loads, in its load event: each step a listener of
+// its own, timed from the moment it's made until the next listener, by when the microtasks it queued (the
+// panes drawn again) have run and the canvas shows it. The best of three; at the most, each must take under
+// 300 ms. A ruling made with no preview before it is reported beside. → the lines to report, once it has run.
+function inWindow(n) {
+  const f = document.createElement('iframe');
+  Object.assign(f.style, { position: 'fixed', left: '0', top: '0', width: '1440px', height: '900px', visibility: 'hidden' });
+  f.src = 'canvas-harness.html';
+  document.body.appendChild(f);
+  const W = () => f.contentWindow, App = () => W().eval('App'), Shell = () => W().eval('Shell'), canvas = () => Shell().parts.peek().canvas;
+  const tag = () => W().document.querySelector('.fx-out button.tag'), views = () => App().views.peek().filter(v => v.layout === 'chart');
+  const steps = [], took = {};
+  const step = (k, act) => steps.push([k, act]);
+  // Pointing at the tag: its ruling worked out and redlined, as the formula bar asks; the window idle at once.
+  const point = () => {
+    const A = App(), F = W().eval('Formulas'), entered = A.entered.peek(), R = A.computed.peek();
+    const R2 = F.computeState({ ...entered, own_us_fund: { ...entered.own_us_fund, tag: false } }, A.definitions.peek(), { relations: A.relations.peek(), schema: A.schema.peek() }, R);
+    const d = F.diff(R, R2);
+    W().requestIdleCallback = idle => idle({ timeRemaining: () => 50, didTimeout: false });
+    canvas().redline({ appear: d.appear, go: d.go, changed: {}, records: R2.records });
+  };
+  const round = at => {
+    for (let i = 0; i < 3; i++) {
+      step(`${at} edit`, () => App().change(tx => tx.update('fund_ein', { value: `92-${2000000 + i}` })));
+      step(null, () => Shell().select(['own_us_fund']));
+      step(null, point);
+      // The click takes the redline away, as the formula bar does as it commits.
+      step(`${at} click`, () => { canvas().redline(null); tag().click(); });
+      step(null, () => { Shell().parts.peek().undo.undo(); Shell().select([]); });
+      step(`${at} show`, () => Shell().show(views()[1].id));
+      step(`${at} show back`, () => Shell().show(views()[0].id));
+    }
+  };
+  round('sample');
+  step(null, () => App().change(tx => { for (const [id, r] of Object.entries(grown({}, n))) if (id.startsWith('x_')) tx.add('record', r, id); }));
+  round('grown');
+  step('unpreviewed', () => App().change(tx => tx.update('x_own7', { tag: false })));
+  let t = 0, last = null;
+  for (let i = 0; i <= steps.length; i++) addEventListener('load', () => {
+    if (last) took[last] = Math.min(took[last] ?? Infinity, performance.now() - t);
+    if (i === steps.length) return;
+    [last] = steps[i];
+    t = performance.now();
+    steps[i][1]();
+  });
+  return () => {
+    const ms = x => `${x.toFixed(0)} ms`, show = at => Math.max(took[`${at} show`], took[`${at} show back`]);
+    for (const [what, k] of [['an edit to a value', 'edit'], ['clicking a tag to rule it out', 'click']])
+      check(`At +${n}, in the window, ${what} is drawn in under 300 ms`, took[`grown ${k}`] < 300, `${ms(took[`grown ${k}`])}, on the sample ${ms(took[`sample ${k}`])}`);
+    check(`At +${n}, in the window, showing another view, and the first again, are each drawn in under 300 ms`, show('grown') < 300, `${ms(show('grown'))}, on the sample ${ms(show('sample'))}`);
+    return [`In the window, the sample: an edit ${ms(took['sample edit'])}, a ruling ${ms(took['sample click'])}, a view shown ${ms(show('sample'))}`,
+      `In the window, +${n}: an edit ${ms(took['grown edit'])}, a ruling ${ms(took['grown click'])} (${ms(took.unpreviewed)} unpreviewed), a view shown ${ms(show('grown'))}`];
+  };
+}
+
 // Ruling out Okafor's presumed control of GP III, worked out and diffed against the sample as it was.
 function redline() {
   const before = workOut();
@@ -167,7 +228,7 @@ function redline() {
 }
 
 function run() {
-  const n = Number(new URLSearchParams(location.hash.slice(1)).get('n') ?? 200);
+  const n = Number(new URLSearchParams(location.hash.slice(1)).get('n') ?? 200), timed = inWindow(n);
   const lines = [];
   const times = new Map();
   for (const size of [...new Set([0, Math.round(n / 4), Math.round(n / 2), n])]) {
@@ -183,10 +244,13 @@ function run() {
   const r = redline();
   check('Previews a ruling-out on the sample, worked out and compared, in under 50 ms', r.ms < 50,
     `${r.ms.toFixed(1)} ms: ${r.d.appear.length} appear, ${r.d.go.length} go, ${r.d.change.length} change`);
-  const failed = out.filter(x => !x.ok).length;
-  document.title = `perf test: ${out.length - failed} pass, ${failed} fail`;
-  document.getElementById('out').innerHTML = `${document.title}\n\n${lines.map(esc).join('\n')}\n\n` + out.map(x =>
-    `<span class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail ? `  [${esc(x.detail)}]` : ''}</span>`).join('\n');
+  addEventListener('load', () => {
+    try { lines.push('', ...timed()); } catch (e) { check('the window is timed', false, e.stack); }
+    const failed = out.filter(x => !x.ok).length;
+    document.title = `perf test: ${out.length - failed} pass, ${failed} fail`;
+    document.getElementById('out').innerHTML = `${document.title}\n\n${lines.map(esc).join('\n')}\n\n` + out.map(x =>
+      `<span class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail ? `  [${esc(x.detail)}]` : ''}</span>`).join('\n');
+  });
 }
 
 try { run(); } catch (e) { document.getElementById('out').textContent = `${e.message}\n${e.stack}`; }
