@@ -738,7 +738,7 @@ const Table = (() => {
     return html`<div class="pastebar" role="region" aria-label="Paste">
       <span class="what">${parts.map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
       ${day ? html`<span class="when">From ${Tree.formatDate(day, 'short')}</span>` : null}
-      <button class="btn" onClick=${cancel}>Cancel</button>
+      <button class="btn" onClick=${cancel}>Discard</button>
       <button class="btn primary" onClick=${commit}>Paste</button>
     </div>`;
   }
