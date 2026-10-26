@@ -7,17 +7,17 @@
 .h-search .input::-webkit-search-cancel-button { cursor: pointer; }
 .h-toolbar .filter-chip { white-space: nowrap; }
 .filter-chip.h-dates { gap: 6px; padding: 0 6px 0 10px; }
-.h-dates input { height: 22px; padding: 0 2px; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text); font-family: inherit; font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.h-dates input { height: 22px; padding: 0 2px; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text); font-family: inherit; font-size: var(--fs-dense); font-weight: 500; font-variant-numeric: tabular-nums; }
 .h-dates input:focus { outline: 2px solid var(--focus); outline-offset: 0; }
-.h-clear { margin-left: 4px; font-size: 12.5px; color: var(--accent-text); }
+.h-clear { margin-left: 4px; font-size: var(--fs-dense); color: var(--accent-text); }
 .h-clear:hover:not(:disabled) { color: var(--accent-hover); }
 .h-clear[hidden] { display: none; }
-.page-head .h-tally { padding-bottom: 2px; font-size: 12.5px; color: var(--text-3); }
+.page-head .h-tally { padding-bottom: 2px; font-size: var(--fs-dense); color: var(--text-3); }
 
 /* ---- Days ---- */
 .h-day { margin-top: 18px; }
-.h-day-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 10px 8px 6px; background: var(--surface); font-size: 13px; font-weight: 600; line-height: 20px; }
-.h-day-count { font-size: 12px; font-weight: 400; color: var(--text-3); }
+.h-day-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 10px 8px 6px; background: var(--surface); font-size: var(--fs-dense); font-weight: 600; line-height: 20px; }
+.h-day-count { font-size: var(--fs-small); font-weight: 400; color: var(--text-3); }
 .h-list { margin: 0; padding: 0; list-style: none; }
 
 /* ---- An entry: who, what and when on one line; opened, the records it changed ---- */
@@ -27,14 +27,14 @@
 .h-entry.opens > .h-head { cursor: pointer; }
 .h-entry:not(.is-open) > .h-head:hover { background: var(--hover); }
 .h-head > .avatar { margin-top: -1px; }
-.h-line { min-width: 0; margin: 0; font-size: 13px; line-height: 20px; color: var(--text-2); overflow-wrap: anywhere; }
+.h-line { min-width: 0; margin: 0; font-size: var(--fs-dense); line-height: 20px; color: var(--text-2); overflow-wrap: anywhere; }
 .h-who { color: var(--text); font-weight: 500; }
-.h-line .badge { height: 18px; margin-left: 2px; padding: 0 7px; font-size: 11px; vertical-align: 1px; }
+.h-line .badge { height: 18px; margin-left: 2px; padding: 0 7px; font-size: var(--fs-caption); vertical-align: 1px; }
 .h-ref { color: var(--text); font-weight: 500; }
 .h-ref:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 .h-gone { color: var(--text); }
 .h-on { color: var(--text-3); }
-.h-when { padding-top: 1px; font-size: 12px; line-height: 18px; white-space: nowrap; }
+.h-when { padding-top: 1px; font-size: var(--fs-small); line-height: 18px; white-space: nowrap; }
 .h-toggle { display: grid; place-items: center; width: 24px; height: 20px; padding: 0; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text-3); }
 button.h-toggle:hover { background: var(--pressed); color: var(--text); }
 .h-toggle .icon { width: 14px; height: 14px; transition: transform .15s var(--ease); }
@@ -43,7 +43,7 @@ button.h-toggle:hover { background: var(--pressed); color: var(--text); }
 /* The records a change touched: where each is, and what became of it. */
 .h-detail { padding: 0 12px 12px 42px; }
 .h-changes { border-radius: var(--radius-sm); background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
-.h-change { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 4px 16px; padding: 7px 12px; font-size: 13px; line-height: 20px; }
+.h-change { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 4px 16px; padding: 7px 12px; font-size: var(--fs-dense); line-height: 20px; }
 .h-change + .h-change { border-top: 1px solid var(--border); }
 .h-where { min-width: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .h-what { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; overflow-wrap: anywhere; }
@@ -56,17 +56,17 @@ button.h-toggle:hover { background: var(--pressed); color: var(--text); }
 .h-tag { display: inline-flex; align-items: center; gap: 6px; }
 .h-tag .box { width: 14px; height: 14px; }
 .h-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding-top: 10px; }
-.h-note { font-size: 12px; line-height: 17px; color: var(--text-3); }
-.h-error { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--danger); }
+.h-note { font-size: var(--fs-small); line-height: 17px; color: var(--text-3); }
+.h-error { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); color: var(--danger); }
 .h-error .icon { width: 14px; height: 14px; }
 
 /* A run of like changes, folded under its first. */
-.h-run { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 0 8px 8px 42px; font-size: 12.5px; }
-.h-run .link-btn { font-size: 12.5px; color: var(--text-2); }
+.h-run { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 0 8px 8px 42px; font-size: var(--fs-dense); }
+.h-run .link-btn { font-size: var(--fs-dense); color: var(--text-2); }
 .h-run .link-btn:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
-.h-run .faint { font-size: 12px; }
+.h-run .faint { font-size: var(--fs-small); }
 
-.h-more { display: flex; align-items: center; gap: 12px; margin: 20px 0 0 8px; font-size: 12.5px; }
+.h-more { display: flex; align-items: center; gap: 12px; margin: 20px 0 0 8px; font-size: var(--fs-dense); }
 #history-body > .empty-state { margin-top: 16px; }
 
 @media (max-width: 760px) {

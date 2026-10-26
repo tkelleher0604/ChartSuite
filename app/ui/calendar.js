@@ -302,6 +302,15 @@ Shell.on('cal.day', el => moveDay(el.dataset.day));
 Shell.on('cal.month', el => moveDay(monthsOn(cal.day, Number(el.dataset.step))));
 Shell.on('cal.today', () => moveDay(Agenda.isoToday()));
 Shell.on('cal.export', exportToOutlook);
+// Overdue deadlines, asked for from anywhere (the palette's Show overdue deadlines): the agenda, every date
+// in it, at its Overdue group, the first focused.
+function showOverdue() {
+  show({ view: 'agenda', ...NO_FILTERS });
+  const group = document.querySelector('.cal-group.is-overdue') ?? document.querySelector('.cal-agenda');
+  group?.scrollIntoView({ block: 'start' });
+  group?.querySelector('.ev-row')?.focus({ preventScroll: true });
+}
+Shell.on('cal.overdue', showOverdue);
 
 window.addEventListener('hashchange', () => { readAddress(); render(); });
 // Another chart's records are another chart's: its filters start afresh.
@@ -314,6 +323,7 @@ Shell.start({
   actions: () => `<button class="btn btn-sm" data-cmd="cal.export"${Agenda.events().length ? '' : ' disabled'} title="Save the dates shown as an .ics file for Outlook">Export to Outlook</button>`,
   render: renderCalendar,
   commands: () => [
+    { title: 'Show overdue deadlines', keywords: 'late past due dates deadlines filings', run: showOverdue },
     { title: 'Export to Outlook', keywords: 'ics calendar download', run: exportToOutlook },
     { title: cal.view === 'month' ? 'Show the agenda' : 'Show a month', keywords: 'calendar view', run: () => show({ view: cal.view === 'month' ? 'agenda' : 'month' }) },
     { title: 'Go to today', keywords: 'calendar month', run: () => show({ view: 'month', day: Agenda.isoToday() }) },

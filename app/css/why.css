@@ -2,7 +2,7 @@
    decided it, and the formula with what it read, folded underneath. Its host places it; tokens only. */
 
 .why { padding: 8px 12px 9px; border-left: 2px solid var(--computed-border); border-radius: 0 var(--radius) var(--radius) 0; background: var(--computed-soft);
-  color: var(--text-2); font-size: 12.5px; line-height: 18px; }
+  color: var(--text-2); font-size: var(--fs-dense); line-height: 18px; }
 .why p { margin: 0; }
 .why-standing { color: var(--text); }
 .why-standing + .why-desc { margin-top: 4px; }
@@ -13,7 +13,7 @@
 .why a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .why-facts { display: grid; gap: 2px; margin: 5px 0 0; padding: 0; list-style: none; color: var(--text); overflow-wrap: anywhere; }
 .why-facts li { position: relative; padding-left: 12px; }
-.why-facts li::before { content: ""; position: absolute; top: 8px; left: 2px; width: 4px; height: 4px; border-radius: 50%; background: var(--computed-border); }
+.why-facts li::before { content: ""; position: absolute; top: 8px; left: 2px; width: 4px; height: 4px; border-radius: var(--radius-full); background: var(--computed-border); }
 .why-facts a { color: inherit; font-weight: 500; }
 .why-clause { color: var(--text-2); font-weight: 500; }
 
@@ -30,8 +30,8 @@
 .why-label { color: var(--text-3); }
 .why-text { min-width: 0; overflow-wrap: anywhere; }
 .why-text a { color: var(--text-2); }
-.why-formula { font: 12px/18px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.why-formula { font: var(--fs-small)/18px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .why-sep { margin: 0 6px; color: var(--text-3); }
 .why-more-count { color: var(--text-3); }
 .why-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
-.why-actions .link-btn { font-size: 12.5px; color: var(--accent-text); }
+.why-actions .link-btn { font-size: var(--fs-dense); color: var(--accent-text); }

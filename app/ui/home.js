@@ -161,7 +161,7 @@ function attentionHtml() {
 // …", and a reset "Reset …", but a restore reads as the change it makes.
 const SOURCES = { undo: 'Undo', redo: 'Redo', reset: 'Reset', import: 'Import', restore: 'Restore' };
 const SAID = { undo: /^Undid\b/, redo: /^Redid\b/, reset: /^Reset\b/, import: /^Imported\b/ };
-const sourceBadge = h => h.source && !SAID[h.source]?.test(h.summary) ? `<span class="home-source">${esc(SOURCES[h.source] ?? h.source)}</span>` : '';
+const sourceBadge = h => h.source && !SAID[h.source]?.test(h.summary) ? `<span class="home-source">${Parts.badge(SOURCES[h.source] ?? h.source)}</span>` : '';
 
 // A change in the history's words, except that one that only counts the records it added, as a paste is
 // recorded ("Added 25 records"), names the objects it added instead: Added 5 individuals: Hannah Liu,
@@ -254,7 +254,7 @@ function renderHome() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   return `<div class="content home">
     <div class="home-head">
-      <h2 class="home-greeting">${esc(greeting())}</h2>
+      <h2 class="page-title home-greeting">${esc(greeting())}</h2>
       <p class="home-sub"><span class="home-chart">${esc(chartInUse().name)}</span><span class="home-dot-sep">·</span><time datetime="${Agenda.isoToday()}">${esc(today)}</time></p>
     </div>
     <div class="home-grid">
@@ -274,6 +274,14 @@ Shell.on('home.view', el => {
   switchView(el.dataset.view);
   location.href = 'chart.html';
 });
+// What's missing, asked for from anywhere (the palette's Show what's missing): the checks that don't hold
+// and the required entries left blank, brought into view, the first of them focused.
+function showMissing() {
+  const group = document.querySelector('.home-att.is-checks, .home-att.is-blank') ?? document.getElementById('home-attention');
+  group?.scrollIntoView({ block: 'start' });
+  group?.querySelector('a')?.focus({ preventScroll: true });
+}
+Shell.on('home.missing', showMissing);
 
 Shell.start({
   area: 'home',
@@ -281,6 +289,7 @@ Shell.start({
   actions: () => `<a class="btn btn-sm" href="chart.html">Open the chart</a>`,
   render: renderHome,
   commands: () => [
+    { title: 'Show what’s missing', keywords: 'required blank checks attention needs', run: showMissing },
     { title: 'Open the chart', run: () => { location.href = 'chart.html'; } },
     { title: 'Open the calendar', keywords: 'dates deadlines due', run: () => { location.href = 'calendar.html'; } },
     ...views.map(v => ({ title: `Open the chart on ${v.name}`, keywords: 'view chart', run: () => { switchView(v.id); location.href = 'chart.html'; } })),

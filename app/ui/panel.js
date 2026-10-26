@@ -449,8 +449,10 @@ const row = (depth, label, value, actions, cls = '') =>
 //   record's id, or kind:…, relate:…, definition:…; see currentView). By default, to that view, here;
 // - ask: how to put a question that comes from leaving, not from something done in the panel, given
 //   { title, message, yes, apply }. By default it's in the panel's own bar; a page that may have the panel
-//   out of sight asks in a dialog instead.
-const panelOptions = { engaged: null, page: false, href: hash => `#${hash}`, ask: null };
+//   out of sight asks in a dialog instead;
+// - createInHead: whether the Schema view's head offers New definition. The Schema page has it as its
+//   create action, in the top bar, instead.
+const panelOptions = { engaged: null, page: false, href: hash => `#${hash}`, ask: null, createInHead: true };
 
 // A link to one of the panel's views, by its address. Going to one goes where its link would.
 const panelHref = hash => panelOptions.href(hash);
@@ -606,7 +608,7 @@ function relationDetails(id) {
 function detailBlank(at, d) {
   const edit = !ui.relEdit?.id && ui.relEdit?.at === at && same(ui.relEdit.label, d.label) ? ui.relEdit : null;
   if (!edit) return `<button class="rel-value is-blank${d.required ? ' is-required' : ''}" data-action="detail-add" data-id="${at}" data-label="${esc(d.label)}" data-datatype="${d.datatype}"
-    title="${d.required ? `${esc(d.label)} is required. Add it` : `Add its ${esc(d.label)}`}">${esc(d.label)}${d.required ? '<span class="req-mark" title="Required">*</span>' : ''}</button>`;
+    title="${d.required ? `${esc(d.label)} is required. Add it` : `Add its ${esc(d.label)}`}">${esc(d.label)}${d.required ? Parts.required() : ''}</button>`;
   return `<input class="input rel-input" data-rel-edit="${at}" value="${esc(edit.text)}" placeholder="${esc(d.label)}" autocomplete="off" spellcheck="false" data-autofocus>`
     + (edit.error ? `<span class="rel-error">${esc(edit.error)}</span>` : '');
 }
@@ -817,7 +819,7 @@ function renameScope(action, scope, every, count, title) {
 
 // A required entry that's blank: its label flagged with an asterisk, and a prompt to fill it in.
 function requiredRow(at, param, req, depth) {
-  const label = `<span class="twisty"></span><span class="label-text">${esc(req.label)}<span class="req-mark" title="Required">*</span></span>`;
+  const label = `<span class="twisty"></span><span class="label-text">${esc(req.label)}${Parts.required()}</span>`;
   const data = `data-action="fill-required" data-id="${at}" data-param="${esc(param)}"`;
   const value = req.type === 'tag' ? checkbox(null, data)
     : `<button class="value-btn req-blank" ${data}>${req.type === 'choice' ? 'Choose an option' : req.datatype === 'date' ? 'Enter a date' : 'Enter a value'}</button>`;
@@ -890,7 +892,7 @@ function entryRow(id, depth) {
   }
   // A collapsed entry with something required blank below it says so.
   if (!isField(r) && !ui.expanded.has(id) && missingUnder(id).length)
-    label += `<span class="req-mark is-below" title="Something required below is blank">*</span>`;
+    label += `<span class="req-below">${Parts.required('Something required below is blank')}</span>`;
   // A computed entry isn't edited or deleted here; its formula is, from the explanation under it.
   const actions = (isField(r) ? '' : addMenu(id, true)) + (computed ? ''
     : `<button class="icon-btn" data-action="edit" data-id="${id}" aria-label="${isTag(r) ? 'Rename' : 'Edit'} ${esc(r.edge)}" title="${isTag(r) ? 'Rename' : 'Edit'}">${icon('pencil')}</button>${deleteButton(id)}`);
@@ -1100,15 +1102,13 @@ function schemaView({ filter = 'all' }) {
   const used = usage();
   const unused = new Set(unusedSpecs());
   const covered = coveredForms();
-  // The subsets of the one list, as tabs, each with how many forms it holds.
+  // The subsets of the one list, as tabs (Parts.tabs), each with how many forms it holds.
   const keeps = { all: () => true, computed: f => covered.has(f), unused: f => indexOf().byForm.get(f).some(k => unused.has(k)) };
-  const filters = `<div class="tabs schema-filters" role="tablist" aria-label="Show">${SCHEMA_FILTERS.map(([value, text]) => {
-    const n = formsOfSchema().filter(keeps[value]).length;
-    return `<button class="tab" role="tab" data-action="open" data-hash="schema${value === 'all' ? '' : `:${value}`}" aria-selected="${filter === value}">${text}${n ? `<span class="tab-count">${n}</span>` : ''}</button>`;
-  }).join('')}</div>`;
+  const filters = `<div class="schema-filters">${Parts.tabs(SCHEMA_FILTERS.map(([id, label]) => ({ id, label, count: formsOfSchema().filter(keeps[id]).length })),
+    { current: filter, cmd: 'schema.subset', label: 'Show' })}</div>`;
   const removeAll = filter === 'unused' && unused.size ? `<button class="btn" data-action="schema-remove" data-keys="${esc(JSON.stringify([...unused]))}" title="Remove every specification nothing has">Remove unused (${unused.size})</button>` : '';
   const open = ui.menu === 'schema-new';
-  const add = `<span class="menu-anchor"><button class="btn" data-action="menu" data-menu="schema-new" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}New definition${icon('chevron-down')}</button>
+  const add = !panelOptions.createInHead ? '' : `<span class="menu-anchor"><button class="btn" data-action="menu" data-menu="schema-new" aria-haspopup="menu" aria-expanded="${open}">${icon('plus')}New definition${icon('chevron-down')}</button>
     ${open ? `<div class="pop menu" role="menu">${newDefinitionItems()}</div>` : ''}</span>`;
   const head = panelHead({ crumbs: allLink(), title: 'Schema', sub: 'Every kind of entry and relation in this chart: what it means, where it’s used, and which a formula works out',
     actions: removeAll || add, extra: filters });
@@ -1139,7 +1139,7 @@ function schemaFormRow(f, { used, unused, covered }) {
   const n = keys.reduce((s, k) => s + users(k), 0);
   const key = `schema|${f}`;
   const open = ui.expanded.has(key);
-  const badges = (f === 'object' ? '' : `<span class="schema-sort">${esc(sortText(f))}</span>`) + (covered.has(f) ? '<span class="schema-badge is-computed">Computed</span>' : '');
+  const badges = (f === 'object' ? '' : `<span class="schema-sort">${esc(sortText(f))}</span>`) + (covered.has(f) ? Parts.badge('Computed', 'computed') : '');
   return `<div class="schema-form"><button class="schema-head" data-action="toggle" data-id="${esc(key)}" aria-expanded="${open}">${icon('chevron-right', 'schema-twist')}
       <span class="list-title">${esc(d.label)}</span>${badges}<span class="schema-desc">${esc(d.where)}</span>
       <span class="list-meta${errors ? ' is-error' : ''}">${errors ? count(errors, 'error') : count(n, 'record')}</span></button>
@@ -2114,35 +2114,34 @@ function objectOfHash(hash) {
 
 const listing = items => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 
-// Leaving an object's panels while something required in it is blank asks first, if this visit changed
-// the object: something was entered, edited or deleted in it, or it was just added. A visit that only
-// looked doesn't ask; the asterisks say what's blank. The hash has already changed by the time we hear of
-// it, so it's put back while the question is open. Moving between an object's own records, to fill things
-// in, doesn't count as leaving.
+// Leaving an object's panels asks first if this visit left something required blank: blank now, and not
+// when the visit began, as when an entry was cleared, or a position added without its Start Date. An
+// object just added had everything blank before the visit, so leaving it unfilled asks too. A visit that
+// only looked doesn't ask; the asterisks say what's blank. The hash has already changed by the time we hear
+// of it, so it's put back while the question is open. Moving between an object's own records, to fill
+// things in, doesn't count as leaving.
 let shownHash = location.hash;
 let leaving = null;
-// The object being visited, and the newest change in the history before the visit began: the one before
-// it was added, if it was just added.
+// The object being visited, and what required was blank in it when the visit began (missingUnder), as
+// keys of where and what; nothing, if it was just added, by the newest change.
 let visit = null;
+const missingKeys = obj => new Set(missingUnder(obj).map(m => `${m.at}|${m.param}`));
 function startVisit(hash) {
   const obj = objectOfHash(hash);
   if (!obj || visit?.obj === obj) return;
-  // Just added: the newest change added it.
   const added = historyLog[0]?.changes?.some(c => c.id === obj && !c.before);
-  visit = { obj, since: historyLog[added ? 1 : 0]?.id ?? null };
+  visit = { obj, before: added ? new Set() : missingKeys(obj) };
 }
-// Whether the history has a change to the object since the visit began.
-function changedThisVisit(obj) {
-  const since = visit?.obj === obj ? visit.since : historyLog[0]?.id;
-  const changed = new Set(historyOf(obj).map(h => h.id));
-  for (const h of historyLog) { if (h.id === since) return false; if (changed.has(h.id)) return true; }
-  return false;
+// What this visit left blank in the object.
+function madeBlank(obj) {
+  const before = visit?.obj === obj ? visit.before : missingKeys(obj);
+  return missingUnder(obj).filter(m => !before.has(`${m.at}|${m.param}`));
 }
 
 window.addEventListener('hashchange', () => {
   const from = shownHash, to = location.hash;
   const obj = objectOfHash(from);
-  const missing = obj && leaving !== to && objectOfHash(to) !== obj && changedThisVisit(obj) ? missingUnder(obj) : [];
+  const missing = obj && leaving !== to && objectOfHash(to) !== obj ? madeBlank(obj) : [];
   if (missing.length) {
     history.replaceState(null, '', from || location.pathname);
     const labels = [...new Set(missing.map(m => m.label))];
@@ -2169,3 +2168,6 @@ window.addEventListener('hashchange', () => {
 // An undo or redo the shell makes (from a toast or the palette) closes the panel's forms, as the panel's own
 // undo does, since what they were editing may have changed.
 if (typeof Shell === 'object') Shell.onUndo(clearForms);
+
+// The Schema view's tabs (Parts.tabs) go to its subsets.
+if (typeof Shell === 'object') Shell.on('schema.subset', el => panelGo(el.dataset.tab === 'all' ? 'schema' : `schema:${el.dataset.tab}`));

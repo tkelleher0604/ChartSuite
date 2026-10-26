@@ -19,10 +19,10 @@
 .record-cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 40px; align-items: start; }
 .record-details, .record-side, .record-single { position: relative; min-width: 0; }
 .record-bar { align-items: center; }
-.record-bar-title { display: flex; align-items: center; height: 38px; margin: 0; padding: 0 10px; font-size: 14px; font-weight: 500; color: var(--text); }
+.record-bar-title { display: flex; align-items: center; height: 38px; margin: 0; padding: 0 10px; font-size: var(--fs-body); font-weight: 500; color: var(--text); }
 .record-tabs { align-items: center; }
 .record-bar-actions { display: inline-flex; align-items: center; margin-left: auto; }
-.record-bar-actions .btn { height: 28px; padding: 0 10px 0 8px; font-size: 12.5px; }
+.record-bar-actions .btn { height: 28px; padding: 0 10px 0 8px; font-size: var(--fs-dense); }
 .record-pane { padding-top: 6px; }
 .record-pane > .empty-state { margin-top: 12px; }
 
@@ -36,34 +36,34 @@
 .record-panel .relate-body { padding: 0 0 14px; }
 .record-panel :is(.row, .rel-value).is-revealed { animation: record-reveal 2s var(--ease); }
 @keyframes record-reveal { 0%, 45% { background: var(--selected); } 100% { background: transparent; } }
-.record-notice { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 2px; padding: 8px 12px; border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: 13px; }
+.record-notice { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 2px; padding: 8px 12px; border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: var(--fs-dense); }
 .record-notice .icon { width: 15px; height: 15px; margin-top: 2px; }
 
 /* ---- Relations: a list name, and its relatives as chips ---- */
 .record-lists { display: grid; gap: 2px; padding-top: 8px; }
 .record-list { display: grid; gap: 6px; min-width: 0; padding: 8px 0 8px 10px; }
 .record-list-label { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.record-list-name { flex: none; color: var(--text-2); font-size: 13px; font-weight: 500; line-height: 20px; }
-.record-list-note { min-width: 0; overflow: hidden; color: var(--text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.record-list-name { flex: none; color: var(--text-2); font-size: var(--fs-dense); font-weight: 500; line-height: 20px; }
+.record-list-note { min-width: 0; overflow: hidden; color: var(--text-3); font-size: var(--fs-small); text-overflow: ellipsis; white-space: nowrap; }
 .record-list .chips { min-width: 0; }
 .record-rel { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; max-width: 100%; min-width: 0; }
 .record-rel > .chip { min-width: 0; }
 /* A relation with more sides keeps to a line of its own, its names giving way before it wraps. */
 .record-rel:has(.record-via) { flex-basis: 100%; flex-wrap: nowrap; }
 .record-rel:has(.record-via) > .chip { flex: 0 1 auto; }
-.record-via { flex: none; color: var(--text-3); font-size: 12px; }
-.record-summary { max-width: 100%; padding: 1px 0; overflow: hidden; border: 0; background: none; color: var(--text-3); font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.record-via { flex: none; color: var(--text-3); font-size: var(--fs-small); }
+.record-summary { max-width: 100%; padding: 1px 0; overflow: hidden; border: 0; background: none; color: var(--text-3); font-size: var(--fs-dense); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .record-summary:hover { color: var(--text-2); }
 
 /* ---- Documents ---- */
 /* What's missing among them: the checks that don't hold, amber, with the way to link a document. */
-.record-wanting { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0 6px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--warn-soft); font-size: 13px; }
+.record-wanting { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0 6px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--warn-soft); font-size: var(--fs-dense); }
 .record-wanting-text { flex: 1; min-width: 0; }
 .record-wanting p { margin: 0; color: var(--text); }
 .record-wanting p + p { margin-top: 6px; }
 .record-wanting a { font-weight: 500; }
 .record-wanting a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.record-wanting-desc { display: block; color: var(--text-2); font-size: 12.5px; }
+.record-wanting-desc { display: block; color: var(--text-2); font-size: var(--fs-dense); }
 .record-wanting .btn { flex: none; }
 .record-docs { padding-top: 4px; }
 .record-doc { display: flex; align-items: center; gap: 12px; padding: 10px 0 10px 10px; }
@@ -71,14 +71,14 @@
 .record-doc-text { flex: 1; min-width: 0; }
 .record-doc-name { font-weight: 500; overflow-wrap: anywhere; }
 .record-doc-name:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
-.record-doc-meta { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: 1px; color: var(--text-2); font-size: 12.5px; }
+.record-doc-meta { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: 1px; color: var(--text-2); font-size: var(--fs-dense); }
 .record-doc .btn { flex: none; }
 .record-doc .btn .icon { width: 14px; height: 14px; color: var(--text-3); }
 .record-sep { margin: 0 6px; color: var(--text-3); }
 .record-meta { white-space: nowrap; }
 
 /* ---- Dates: the agenda's groups and rows (agenda.css) ---- */
-.record-group { margin: 14px 0 2px 10px; font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.record-group { margin: 14px 0 2px 10px; font-size: var(--fs-small); font-weight: 500; color: var(--text-3); }
 .record-group.is-overdue { color: var(--danger); }
 .record-dates > .record-group:first-child { margin-top: 10px; }
 
@@ -86,21 +86,20 @@
 .hist-list { margin: 0; padding: 4px 0 0; list-style: none; }
 .hist { padding: 12px 0 12px 10px; }
 .hist + .hist { border-top: 1px solid var(--border); }
-.hist-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.hist-head { display: flex; align-items: center; gap: 8px; font-size: var(--fs-dense); }
 .hist-who { font-weight: 500; }
-.hist-source { padding: 0 6px; border-radius: var(--radius-xs); background: var(--pressed); color: var(--text-2); font-size: 11px; line-height: 17px; }
-.hist-summary { margin: 4px 0 0 30px; font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
+.hist-summary { margin: 4px 0 0 30px; font-size: var(--fs-dense); line-height: 19px; overflow-wrap: anywhere; }
 .hist-changes { display: grid; gap: 2px; margin: 5px 0 0 30px; }
-.hist-change { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 10px; font-size: 12.5px; line-height: 18px; }
+.hist-change { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 10px; font-size: var(--fs-dense); line-height: 18px; }
 .hist-what { min-width: 0; color: var(--text-3); overflow-wrap: anywhere; }
 .hist-diff { min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .hist-diff del { color: var(--text-3); text-decoration-color: var(--text-3); }
 .hist-diff ins { color: var(--text); text-decoration: none; }
 .hist-arrow { margin: 0 6px; color: var(--text-3); }
 .hist-note { margin-right: 6px; color: var(--text-2); }
-.hist-more { color: var(--text-3); font-size: 12px; }
+.hist-more { color: var(--text-3); font-size: var(--fs-small); }
 .record-foot { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 0 10px; }
-.record-foot .link-btn { font-size: 12.5px; color: var(--accent-text); }
+.record-foot .link-btn { font-size: var(--fs-dense); color: var(--accent-text); }
 
 /* ---- Nothing here ---- */
 .record-missing { max-width: 560px; padding-top: 72px; }

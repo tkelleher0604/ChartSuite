@@ -260,7 +260,8 @@ const RecordPage = (() => {
       const rel = records[top] ? relationNameOf(top) : relationLabel(t);
       what = [`${rel} · ${t.args.filter(a => x.head(a.at) !== id).map(a => name(x.head(a.at))).join(', ')}`, ...labels].join(' › ');
     }
-    const out = rec => esc(outputPhrase(rec));
+    // A date in a row is short, with the full date on hover.
+    const out = rec => isField(rec) && rec.field === 'date' ? Parts.dateCell(rec.value) : esc(outputPhrase(rec));
     let diff;
     if (isObject(r)) diff = `<span class="hist-note">${c.before ? 'Deleted' : 'Created'}</span>`;
     else if (!c.before) diff = isTag(r) ? `<span class="hist-note">Added${r.tag ? '' : ', ruled out'}</span>` : `<span class="hist-note">Added</span><ins>${out(r)}</ins>`;
@@ -280,7 +281,7 @@ const RecordPage = (() => {
     if (!list.length) return Parts.empty({ title: 'No changes yet', desc: 'Changes to this record show up here, with who made them and when.' });
     const shown = page.historyAll ? list : list.slice(0, HISTORY_SHOWN);
     const items = shown.map(x => `<li class="hist">
-        <div class="hist-head">${Parts.avatar(x.h.who)}<span class="hist-who">${esc(x.h.who)}</span>${Parts.when(x.h.when)}${sourceOf(x.h) ? `<span class="hist-source">${esc(sourceOf(x.h))}</span>` : ''}</div>
+        <div class="hist-head">${Parts.avatar(x.h.who)}<span class="hist-who">${esc(x.h.who)}</span>${Parts.when(x.h.when)}${sourceOf(x.h) ? Parts.badge(sourceOf(x.h)) : ''}</div>
         <div class="hist-summary">${esc(x.h.summary)}</div>
         <div class="hist-changes">${x.changes.slice(0, 8).map(c => changeHtml(c, x, id)).join('')}${x.changes.length > 8 ? `<div class="hist-more">and ${count(x.changes.length - 8, 'more change')}</div>` : ''}</div>
       </li>`).join('');

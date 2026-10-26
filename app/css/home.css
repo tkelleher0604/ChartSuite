@@ -3,7 +3,7 @@
 
 .home { container: home / inline-size; }
 .home-head { margin-bottom: 28px; }
-.home-greeting { margin: 0; font-size: 28px; font-weight: 600; line-height: 36px; letter-spacing: -.021em; }
+.home-greeting { margin: 0; font-size: var(--fs-display); font-weight: 600; line-height: 36px; letter-spacing: -.021em; }
 .home-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; margin: 4px 0 0; color: var(--text-2); }
 .home-chart { color: var(--text); font-weight: 500; }
 .home-dot-sep { color: var(--text-3); }
@@ -18,75 +18,75 @@
 
 /* ---- Needs attention ---- */
 .home-att + .home-att { margin-top: 18px; }
-.home-att-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 2px; padding: 0 10px; font-size: 12.5px; font-weight: 500; line-height: 22px; color: var(--text-2); }
+.home-att-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 2px; padding: 0 10px; font-size: var(--fs-dense); font-weight: 500; line-height: 22px; color: var(--text-2); }
 .home-att-count { color: var(--text-3); }
 .home-att.is-overdue .home-att-head { color: var(--danger); }
 .home-att.is-overdue .home-att-count { color: var(--danger); opacity: .75; }
-.home-more { margin: 4px 10px 0; font-size: 12.5px; }
+.home-more { margin: 4px 10px 0; font-size: var(--fs-dense); }
 /* Something to do that has no date (a check that doesn't hold, a required entry left blank, a formula's
    error): the columns a date and its distance take hold only an error's code; what it is follows an amber
    dot, and a description, where there is one, goes under it. */
-.home-flag-mark { grid-column: 1 / 3; grid-row: 1; white-space: nowrap; font-size: 12.5px; }
+.home-flag-mark { grid-column: 1 / 3; grid-row: 1; white-space: nowrap; font-size: var(--fs-dense); }
 .home-flag.is-error .home-flag-mark { color: var(--danger); }
 .home-flag .ev-what { display: flex; align-items: center; gap: 8px; }
 .home-flag .ev-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.home-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--warn-solid); }
-.home-code { font: 500 12px/18px ui-monospace, "Cascadia Code", Consolas, monospace; }
+.home-dot { width: 6px; height: 6px; flex: none; border-radius: var(--radius-full); background: var(--warn-solid); }
+.home-code { font: 500 var(--fs-small)/18px ui-monospace, "Cascadia Code", Consolas, monospace; }
 .home-flag-desc { grid-column: 3 / -1; grid-row: 2; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-  margin: 1px 0 3px 14px; color: var(--text-3); font-size: 12px; line-height: 16px; }
-.home-flag-others { flex: none; margin-left: 6px; color: var(--text-3); font-size: 12.5px; white-space: nowrap; }
+  margin: 1px 0 3px 14px; color: var(--text-3); font-size: var(--fs-small); line-height: 16px; }
+.home-flag-others { flex: none; margin-left: 6px; color: var(--text-3); font-size: var(--fs-dense); white-space: nowrap; }
 button.home-flag-others:hover { color: var(--text); }
 /* Its places wrap rather than cut names short, since like names (Fund III and Fund III-A) need their ends. */
 .home-flag :is(.ev-whose, .home-places) { flex-wrap: wrap; row-gap: 4px; }
 /* Where it's missing: one place after another, a relation's two sides with the role between them. */
 .home-places { grid-area: whose; display: flex; align-items: center; gap: 4px 12px; min-width: 0; overflow: hidden; }
 .home-places > .ev-whose { flex: 0 1 auto; }
-.home-rel-role { flex: none; margin: 0 2px 0 -2px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
+.home-rel-role { flex: none; margin: 0 2px 0 -2px; color: var(--text-2); font-size: var(--fs-dense); white-space: nowrap; }
 /* Where whose it is goes under what it is (agenda.css), the description comes between them. */
 @container ev-list (max-width: 760px) {
   .home-flag.has-desc :is(.ev-whose, .home-places) { grid-row: 3; }
   .home-flag-desc { margin-bottom: 2px; }
 }
 @container ev-list (max-width: 560px) { .home-flag-desc { grid-column: 2 / -1; } }
-.home-clear { display: flex; align-items: flex-start; gap: 12px; padding: 12px 10px; font-size: 13px; }
-.home-clear-mark { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--success-soft); color: var(--success-text); }
+.home-clear { display: flex; align-items: flex-start; gap: 12px; padding: 12px 10px; font-size: var(--fs-dense); }
+.home-clear-mark { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: var(--radius-full); background: var(--success-soft); color: var(--success-text); }
 .home-clear-mark .icon { width: 14px; height: 14px; }
 .home-clear-title { font-weight: 500; }
 
 /* ---- Recent changes ---- */
 .home-list { display: flex; flex-direction: column; }
-.home-change { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; border-radius: var(--radius-sm); font-size: 13px; }
+.home-change { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; border-radius: var(--radius-sm); font-size: var(--fs-dense); }
 .home-change + .home-change { box-shadow: 0 -1px 0 var(--border); }
 .home-change:hover, .home-change:hover + .home-change { box-shadow: none; }
 .home-change:hover { background: var(--hover); }
 .home-change-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-source { margin-right: 6px; padding: 1px 6px; border-radius: var(--radius-xs); background: var(--pressed); color: var(--text-2); font-size: 11.5px; font-weight: 500; }
-.home-change-meta { display: flex; flex: none; align-items: baseline; gap: 8px; font-size: 12px; }
+.home-source { margin-right: 6px; }
+.home-change-meta { display: flex; flex: none; align-items: baseline; gap: 8px; font-size: var(--fs-small); }
 .home-who { color: var(--text-2); }
 
 /* ---- Recently viewed ---- */
 .home-recent { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 16px; }
 .home-recent-item { display: flex; flex-direction: column; min-width: 0; padding: 6px 10px; border-radius: var(--radius-sm); }
 .home-recent-item:hover { background: var(--hover); }
-.home-recent-name { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.home-recent-sub { overflow: hidden; color: var(--text-3); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.home-recent-name { overflow: hidden; font-size: var(--fs-dense); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.home-recent-sub { overflow: hidden; color: var(--text-3); font-size: var(--fs-small); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- The side: the chart at a glance, and what's coming up ---- */
 .home-card { overflow: hidden; }
 .home-card .card-head { min-height: 42px; }
-.home-card .card-head .link-btn { margin-left: auto; font-size: 12.5px; }
+.home-card .card-head .link-btn { margin-left: auto; font-size: var(--fs-dense); }
 /* The chart's views, each opening the chart on it. */
 .home-views { padding: 6px 0; border-bottom: 1px solid var(--border); }
-.home-view { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 16px; font-size: 13px; font-weight: 500; }
+.home-view { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 16px; font-size: var(--fs-dense); font-weight: 500; }
 .home-view:hover { background: var(--hover); }
 .home-view-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-view-note { color: var(--text-3); font-size: 12px; font-weight: 400; }
+.home-view-note { color: var(--text-3); font-size: var(--fs-small); font-weight: 400; }
 .home-view-chevron { width: 14px; height: 14px; flex: none; color: var(--text-3); }
 .home-counts { padding: 6px 0; }
-.home-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; padding: 0 16px; font-size: 13px; }
+.home-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; padding: 0 16px; font-size: var(--fs-dense); }
 a.home-count:hover { background: var(--hover); }
 .home-count .tnum { color: var(--text-2); }
-.home-card-foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12.5px; }
+.home-card-foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: var(--fs-dense); }
 
 /* The agenda's rows (agenda.css), set in from the card's edges as its head is. */
 .home-next { padding: 4px 6px 6px; }

@@ -5,8 +5,8 @@
 /* The head: the page's title, what it is, and its actions. The top bar has the path. */
 .schema-page .crumbs { display: none; }
 .schema-page .panel-head { padding: 0 0 18px; }
-.schema-page .panel-head h1 { font-size: 24px; line-height: 32px; letter-spacing: -.019em; }
-.schema-page .subtitle { margin-top: 2px; font-size: 14px; color: var(--text-2); }
+.schema-page .panel-head h1 { font-size: var(--fs-title-lg); line-height: 32px; letter-spacing: -.019em; }
+.schema-page .subtitle { margin-top: 2px; font-size: var(--fs-body); color: var(--text-2); }
 .schema-page .schema-filters { margin-top: 14px; }
 .schema-page .panel-head:has(> .schema-filters) { padding-bottom: 0; }
 .schema-page .rows { padding: 6px 0 0; }
@@ -14,13 +14,13 @@
 .schema-page .pending { margin: 10px 0 8px; }
 
 /* A change the panel couldn't make, said above it. */
-.schema-notice:not(:empty) { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; padding: 9px 12px; border: 1px solid var(--danger-border); border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: 13px; }
+.schema-notice:not(:empty) { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; padding: 9px 12px; border: 1px solid var(--danger-border); border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); font-size: var(--fs-dense); }
 .schema-notice .icon { width: 15px; height: 15px; }
 
 /* A form's row, opened: its rules read whole, and its list names sit by what they name. */
 .schema-page .schema-body { grid-template-columns: 7rem minmax(0, 1fr); padding: 4px 10px 16px 26px; }
 .schema-page .schema-spec:has(.schema-rule) { align-items: flex-start; }
-.schema-page .schema-rule { padding: 1px 0; overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 20px; color: var(--text); }
+.schema-page .schema-rule { padding: 1px 0; overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-dense); line-height: 20px; color: var(--text); }
 .schema-rule-line { display: block; padding-left: 1.4em; text-indent: -1.4em; }
 .schema-rule-line + .schema-rule-line { margin-top: 4px; }
 .schema-page .names-list { grid-template-columns: 17rem minmax(0, 15rem); }
@@ -28,10 +28,10 @@
 /* A definition's view: formulas as code to read, still edited where they stand. */
 .schema-page .fx-editor { grid-template-columns: 9rem minmax(0, 1fr); gap: 14px 12px; padding: 20px 0 6px 22px; }
 .schema-page .fx-editor + .fx-foot { padding: 0 0 14px calc(9rem + 34px); }
-.schema-page .input.fx-input { min-height: 34px; padding: 7px 10px; border-color: var(--border); background: var(--bg); font-size: 13px; line-height: 20px; }
+.schema-page .input.fx-input { min-height: 34px; padding: 7px 10px; border-color: var(--border); background: var(--bg); font-size: var(--fs-dense); line-height: 20px; }
 .schema-page .input.fx-input:hover { border-color: var(--border-strong); }
 .schema-page .input.fx-input:focus { border-color: var(--accent); background: var(--surface); }
 .schema-page .fx-imp { gap: 8px; }
 .schema-page .fx-imp .input.fx-label, .schema-page .fx-grip { height: 34px; }
 .schema-page .fx-imp .icon-btn { margin-top: 5px; }
-.schema-page .fx-results { padding: 2px 0 20px 22px; font-size: 13px; line-height: 20px; }
+.schema-page .fx-results { padding: 2px 0 20px 22px; font-size: var(--fs-dense); line-height: 20px; }

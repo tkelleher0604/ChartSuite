@@ -27,8 +27,14 @@
     location.replace(to);
     return false;
   }
-  // The panel's links lead where outward says, as it draws them (panelOptions.href).
+  // The panel's links lead where outward says, as it draws them (panelOptions.href). New definition is the
+  // page's create action, in the top bar, rather than in the panel's head.
   panelOptions.href = hash => outward(hash) ?? `#${hash}`;
+  panelOptions.createInHead = false;
+  Shell.on('schema.new', el => Shell.menu(el, [
+    { label: 'Entry', desc: 'A field, choice or tag, computed at every location like one', run: () => { location.hash = 'definition:new:entry'; } },
+    { label: 'Relation', desc: 'Computed between objects', run: () => { location.hash = 'definition:new:relation'; } },
+  ], 'schema-new'));
 
   // ---- What the page says about a change ----
   // A change made here is confirmed in a toast, in the panel's words for it or else the history's, with
@@ -74,10 +80,13 @@
     undo: false,
     title: () => viewed().title,
     crumbs: () => viewed().crumbs,
+    create: { label: 'New definition', cmd: 'schema.new' },
     render: () => `<div class="content schema-page"><div class="schema-notice" id="schema-notice" role="alert"></div><div class="panel schema-panel" id="panel"></div></div>`,
     after() {
       if (!settle()) return;
       renderPanel();
+      // The panel's title is this page's heading, which the top bar names once it's scrolled away.
+      document.querySelector('#panel .panel-head h1')?.classList.add('page-title');
       spreadRules();
       restoreFocus();
       document.getElementById('schema-notice').innerHTML = ui.notice ? `${icon('alert-triangle')}<span>${esc(ui.notice)}</span>` : '';

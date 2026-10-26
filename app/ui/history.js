@@ -149,6 +149,8 @@
   function valueHtml(r) {
     if (isTag(r)) return `<span class="h-tag">${box(r.tag)}${r.tag ? 'Attested' : 'Ruled out'}</span>`;
     if (isField(r) && r.field === 'document') return `<a class="link" href="${esc(r.value)}" target="_blank" rel="noopener">${esc(displayValue(r))}</a>`;
+    // A date in a row is short, with the full date on hover.
+    if (isField(r) && r.field === 'date') return Parts.dateCell(r.value);
     return `<span class="${isField(r) ? 'tnum' : ''}">${esc(outputPhrase(r))}</span>`;
   }
 
