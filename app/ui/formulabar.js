@@ -342,6 +342,21 @@ const FormulaBar = (() => {
     while (k && a.slice(-k).join() !== b.slice(0, k).join()) k--;
     return `§${sec[1]}${a.join('')}${b.slice(k).join('')}`;
   }
+  // A clause's own words: the paragraph of its Description that starts with the row's label, as the definition's
+  // page sets it beside the row, less the label and the joining word at its end ("…, or").
+  function wordsOf(def, label) {
+    const n = noteOf(def), l = Tree.clean(label).toLowerCase();
+    const p = l && String((n && N().description(n.pattern)) ?? '').split('\n').map(x => x.trim()).find(x => x.toLowerCase().startsWith(l) && !/\w/.test(x[l.length] ?? ' '));
+    return p ? p.slice(l.length).replace(/^[\s.:—–-]+/, '').replace(/[\s,;]*(?:\b(?:or|and))?[\s,;]*$/, '') || null : null;
+  }
+  // The one row that decided a computed record, the one its sentence cites (its ground's holding row of least
+  // stage): its label, its citation, and the statute's words for it, where the Description gives them.
+  function reason(id) {
+    const Rv = R.value, c = Rv.computed[id];
+    if (!c) return null;
+    const label = reasonOf(Rv, id)?.label ?? c.label ?? '';
+    return { label, cite: citeOf(c.def, label), words: wordsOf(c.def, label) };
+  }
   // The number a row compares what it reads with, said: (5% or more), (more than 25%).
   function thresholdOf(text) {
     let toks, depth = 0, at = -1;
@@ -978,5 +993,5 @@ const FormulaBar = (() => {
   Shell.register('formulabar', Bar);
   Shell.register('action', { id: 'formulas', name: 'Expand formula bar', keys: '$mod+Shift+KeyU', run: toggle });
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, light: ids => { lit.value = ids; },
-    model, finder, pending, draft, hover, open };
+    reason, citeOf, model, finder, pending, draft, hover, open };
 })();

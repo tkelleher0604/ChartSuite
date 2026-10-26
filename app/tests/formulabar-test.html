@@ -290,6 +290,13 @@ async function checks() {
   const deep = [...f.map].filter(([, x]) => x[1] === 2).map(([id]) => id);
   check('deeper reasons, lighter, down to entered records', deep.length > 3 && deep.some(id => !R().computed[id] && R().records[id]?.args), deep.slice(0, 10).join(' '));
   check('the canvas is asked to highlight', StandIn.hl.peek()?.colors?.[AP_NP_CHEN] && StandIn.hl.peek().dim);
+  // One reason, for every pane that gives one: the row the bar cites, its citation and the statute's words
+  const why = FormulaBar.reason(CLOSE_NP);
+  check('reason(): the cited row, its citation, and its words from the Description', why?.label === cited.label && why.cite === '§57(b)(1)' && /^or any person/.test(why.words ?? ''),
+    JSON.stringify(why));
+  check('citeOf(): a clause letter under its section', FormulaBar.citeOf('def_affiliated', '(C)') === '§2(a)(3)(C)' && FormulaBar.citeOf('def_remote', '(e)(1)(A)') === '§57(e)(1)(A)'
+    && FormulaBar.citeOf('def_control', 'Presumed: more than 25% of voting securities') === '§2(a)(9), presumed', FormulaBar.citeOf('def_affiliated', '(C)'));
+  check('reason() is nothing for an entered record', FormulaBar.reason('pos_chen_bdc') === null);
 
   // Hovering part of the formula
   hoverOn(cited.key, '@'); await wait(30);
