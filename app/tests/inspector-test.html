@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra inspector test</title>
+<script>
+  // ?theme=dark or light; ?wide widens the inspector; ?run runs the checks below, which edit the sample in memory.
+  const Q = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = Q.get('theme') || 'light';
+  try { localStorage.clear(); localStorage.setItem('dendra.toured', '1'); localStorage.setItem('dendra.name', 'Dana Jordan'); } catch {}
+</script>
+<link rel="stylesheet" href="../css/dendra.css">
+<link rel="stylesheet" href="../css/inspector.css">
+<style>
+  .results { position: absolute; inset: 0; overflow: auto; padding: 20px 24px; font: 12px/18px var(--mono); color: var(--ink-2); }
+  .results .fail { color: var(--no); }
+  .results b { color: var(--ink); font-weight: 500; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/msal/msal-browser.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/sharepoint.js"></script>
+<script>
+// The workbook opened at once, in memory: Store keeps it in IndexedDB, which this page leaves alone.
+const Store = { open: () => Promise.resolve(Log.open(SAMPLE)), who: () => '', status: () => ({ text: '' }), subscribe: () => () => {} };
+</script>
+<script src="../sample/calder-ridge.js"></script>
+<script src="../ui/shell.js"></script>
+<script src="../ui/app.js"></script>
+<script src="../ui/inspector.js"></script>
+<script>
+// The sheet tabs stand in for the views part, which the canvas and tables register in the app.
+Shell.register('views', {
+  list: () => (App.version.value, (Tree.index(App.entered.value).kinds.get('view') ?? []).map(id => ({ id, name: Tree.objectName(App.entered.value, id), layout: 'chart' }))),
+  rename: (id, name) => { const tx = App.edit(), n = (Tree.index(App.entered.value).entries.get(id) ?? []).find(e => App.entered.value[e].edge === 'Name'); tx.set(n, { at: id, edge: 'Name', field: 'text', value: name }); tx.commit(); },
+  move: () => {},
+});
+// ?wide widens the inspector; ?y=… scrolls it, for looking at.
+if (Q.has('wide')) addEventListener('DOMContentLoaded', () => setTimeout(Shell.widen, 0));
+if (Q.has('y')) Shell.on('ready', () => setTimeout(() => { document.querySelector('.inspector').scrollTop = +Q.get('y'); }, 200));
+
+// ---- The checks: each drives the inspector as a person would, then reads the log ----
+const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
+const tick = (ms = 30) => new Promise(r => setTimeout(r, ms));
+const $ = s => document.querySelector('.inspector ' + s), $$ = s => [...document.querySelectorAll('.inspector ' + s)];
+const rowOf = label => $$('.row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === label);
+const st = () => App.state.value, last = () => App.wb.changes().at(-1);
+const N = () => App.notes.value;
+const key = (el, k, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...o }));
+const type = async (el, text) => { el.focus(); await tick(); el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(); key(el, 'Enter'); await tick(); };
+const pick = async label => { const it = [...document.querySelectorAll('.float .menu-item')].find(x => x.querySelector('.label').textContent === label); it?.click(); await tick(); return !!it; };
+const tags = [];
+Shell.on('tag-flip', d => tags.push(d));
+
+async function run() {
+  while (!App.chart.value) await tick(50);
+  const C = App.chart.value, n0 = App.wb.changes().length;
+  Shell.select(['fund']); await tick();
+  check('a record shows its name and path', $('.ih .cell')?.value === 'Calder Ridge Capital Partners III, L.P.' && $('.ih .path')?.textContent.includes('Entity'), $('.ih')?.textContent);
+  check('entries follow Order, with Name as the title', $$('.rows > .ent > .row > .k').slice(0, 3).map(k => k.textContent.trim()).join() === 'Short Name,Vehicle Type,Entity Type', $$('.rows > .ent > .row > .k').slice(0, 3).map(k => k.textContent.trim()).join());
+  check('entries at entries show below them', !!rowOf('Tax Classification') && rowOf('Tax Classification').style.getPropertyValue('--depth') === '1');
+
+  // Typing a value
+  await type(rowOf('EIN').querySelector('input'), '92-4810338');
+  check('typing a value corrects it', st().fund_ein?.value === '92-4810338' && last().adds.some(r => r.record === 'fund_ein'), st().fund_ein?.value);
+  await type(rowOf('Formation Date').querySelector('input'), '3/1/2023');
+  check('a date typed any way is kept as a day', st().fund_formed?.value === '2023-03-01', st().fund_formed?.value);
+  const bad = rowOf('Target Commitments').querySelector('input'); await type(bad, 'lots');
+  check('a value its datatype can’t read stays, marked, and changes nothing', bad.getAttribute('aria-invalid') === 'true' && st().fund_target.value === 750000000);
+  key(bad, 'Escape'); await tick();
+
+  // Flipping a tag
+  const erisa = rowOf('ERISA Plan Assets').querySelector('.tag');
+  check('a ruled-out tag is red and crossed', erisa.classList.contains('no'));
+  const previews = [], off = Shell.on('preview', d => previews.push(d));
+  erisa.dispatchEvent(new PointerEvent('pointerenter')); await tick();
+  check('hovering a tag previews the other state, and the change', erisa.classList.contains('yes') && erisa.classList.contains('peek')
+    && previews[0]?.removes[0] === 'fund_erisa' && previews[0].adds[0].tag === true, JSON.stringify(previews));
+  off();
+  erisa.click(); await tick();
+  check('clicking a tag switches it', st().fund_erisa.tag === true && tags.includes('fund_erisa'));
+
+  // A choice from its dropdown
+  rowOf('Investment Company Status').querySelector('.sel').click(); await tick();
+  const opts = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  check('a choice’s dropdown lists its options and New option', opts.includes('3(c)(7) Fund') && opts.at(-1) === 'New option', opts.join(', '));
+  await pick('Business Development Company');
+  check('choosing an option sets it', st().fund_ics.choice === 'Business Development Company', st().fund_ics.choice);
+
+  // Computed values: italic; typing over one enters it, and clearing that lets the formula stand
+  const whys = [], offWhy = Shell.on('why-open', d => whys.push(d));
+  const count = () => Object.entries(st()).find(([, r]) => r.at === 'fund_juris' && r.edge === 'Annual Tax Amount');
+  const cnt = rowOf('Annual Tax Amount').querySelector('input'), was = count();
+  check('a computed value is italic', cnt.classList.contains('fx') && App.computed.value.computed[was[0]]);
+  await type(cnt, '$500');
+  check('clicking a computed value asks why', whys.includes(was[0]));
+  check('typing over a computed value enters it, with an amber corner', count()[1].value === 500 && !App.computed.value.computed[count()[0]] && !!rowOf('Annual Tax Amount').querySelector('.hug.over'));
+  await type(rowOf('Annual Tax Amount').querySelector('input'), '');
+  check('clearing an entered value lets the formula stand', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
+  offWhy();
+
+  // Adding an entry, with its specification
+  $('.add-entry').click(); await tick();
+  await pick('Tag');
+  await type($('.draft input'), 'Side Letters');
+  const added = Object.entries(st()).find(([, r]) => r.at === 'fund' && r.edge === 'Side Letters');
+  check('adding a tag records it attested, with its specification', added && added[1].tag === true && last().adds.some(r => 'spec' in r));
+  $('.add-entry').click(); await tick();
+  await pick('Field');
+  await type($('.draft input'), 'Closing Date');
+  await type($('.draft .v input'), 'June 30, 2024');
+  const field = Object.values(st()).find(r => r.at === 'fund' && r.edge === 'Closing Date');
+  check('adding a field reads its datatype from its value', field?.field === 'date' && field.value === '2024-06-30', JSON.stringify(field));
+
+  // Reordering by dragging
+  const ein = rowOf('EIN'), short = rowOf('Short Name'), g = ein.querySelector('.grip');
+  const at = el => el.getBoundingClientRect().top + 4;
+  g.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: at(ein), pointerId: 1 }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: at(ein) - 10 }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: at(short) }));
+  dispatchEvent(new PointerEvent('pointerup', { clientY: at(short) })); await tick();
+  check('dragging an entry reorders it, by Order', N().order(Tree.treeOf(st(), 'fund_ein')) === 1 && $$('.rows > .ent > .row > .k')[0].textContent.trim() === 'EIN',
+    $$('.rows > .ent > .row > .k').slice(0, 3).map(k => k.textContent.trim()).join());
+
+  // Deleting never asks, and undoes
+  rowOf('Fiscal Year End').querySelector('.grip').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: 0 }));
+  dispatchEvent(new PointerEvent('pointerup', { clientY: 0 })); await tick();
+  await pick('Delete');
+  check('deleting removes it at once, with a toast to undo', !st().fund_fye && document.querySelector('.toast')?.textContent.includes('Deleted Fiscal Year End'));
+  document.querySelector('.toast button').click(); await tick();
+  check('Undo brings it back', !!st().fund_fye);
+
+  // Relatives by list
+  check('relatives show by list, each a link', $$('.sect > .fold').map(s => s.textContent).includes('Owners') && $$('.row.rel .k a').some(a => a.textContent === 'Offshore Feeder'));
+  $$('.row.rel .k a').find(a => a.textContent === 'Offshore Feeder').click(); await tick();
+  check('a relative’s link selects it', Shell.selection.value[0] === 'feeder');
+
+  // Pasting a link
+  Shell.select(['blocker']); await tick();
+  const dt = new DataTransfer(); dt.setData('text/plain', 'https://contoso.sharepoint.com/sites/FundLegal/Shared%20Documents/Blocker%20Consent.pdf');
+  document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); await tick();
+  const doc = Object.entries(st()).find(([, r]) => r.edge === 'Link' && r.value.endsWith('Blocker%20Consent.pdf'));
+  check('pasting a link links a document', doc && Object.values(st()).some(r => r.args?.some(a => a.at === doc[1].at) && r.args.some(a => a.at === 'blocker')), $$('section .row.rel .k a').map(a => a.textContent).join(' | '));
+
+  // Two boxes
+  Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
+  const rr = $$('.rr').filter(r => r.querySelector('.nm')?.textContent === 'Ownership');
+  check('two boxes list every relation they could be in', rr.length >= 2 && $$('.rr .nm').some(x => x.textContent === 'Investment Adviser'), $$('.rr .nm').map(x => x.textContent).join(', '));
+  rr[0].querySelector('.tag').click(); await tick();
+  const own = Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
+  check('ticking one relates them', !!own, JSON.stringify(own?.[1]));
+  $$('.rr .add-entry')[0].click(); await tick();
+  const [nm, ra, rb] = $$('.rr.new input');
+  for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
+  key(rb, 'Enter'); await tick();
+  check('New relation makes one, and names it', Object.values(st()).some(r => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc') && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right');
+
+  // A line
+  Shell.select(['own_us_fund']); await tick();
+  check('a line shows its sides and what’s at it', !!rowOf('Owner') && rowOf('Owner').textContent.includes('U.S. Investors') && !!rowOf('Percentage'), $('.rows')?.textContent);
+
+  // An entry in general
+  Shell.select(['fund']); await tick();
+  rowOf('Jurisdiction').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
+  check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
+  const req = rowOf('Required')?.querySelector('input');
+  check('…with Required', req?.checked === true);
+
+  // Time: with a day shown, an edit takes effect from it
+  Shell.select(['fund']); Shell.at({ asOf: '2026-01-01' }); await tick();
+  await type(rowOf('EIN').querySelector('input'), '92-0000001');
+  check('with a day shown, an edit takes effect from it', last().adds.some(r => r.record === 'fund_ein' && r.since === '2026-01-01'));
+  check('a record with other values has a chevron listing them', !!rowOf('EIN').querySelector('.ver'), App.wb.item(C, 'fund_ein').length + ' rows; ' + rowOf('EIN').querySelector('.v').innerHTML);
+  Shell.at(null); await tick();
+
+  // Required, and attention
+  const blanks = Shell.parts.value.attention.items().filter(i => i.kind === 'blank');
+  check('blank required entries feed attention', blanks.length > 0, blanks.length);
+  blanks[0]?.go(); await tick(60);
+  check('…and going to one shows it, marked', !!$('i.req'));
+
+  // The view
+  Shell.select([]); await tick();
+  check('nothing selected shows the view and its styles', $('.ih .cell')?.value === 'Structure' && $$('.style').length > 3 && $$('svg.sw').length > 5, $$('.style .sname').map(s => s.textContent).join(', '));
+  const firstStyle = $$('.style .sname')[0].textContent, s2 = $$('.style')[1], grip = $$('.style')[0].querySelector('.grip');
+  const y = el => el.getBoundingClientRect().top + 4;
+  grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(grip) }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: y(s2) + 40 }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: s2.getBoundingClientRect().bottom - 2 }));
+  dispatchEvent(new PointerEvent('pointerup', {})); await tick();
+  check('dragging a style reorders the view’s styles', $$('.style .sname')[0].textContent !== firstStyle && $$('.style .sname')[1].textContent === firstStyle, $$('.style .sname').map(s => s.textContent).join(', '));
+
+  const mine = App.wb.changes().slice(n0);
+  check('every edit is one change in the log, by the user', mine.length >= 14 && mine.every(c => c.who === 'Dana Jordan' && c.chart === C), mine.length);
+}
+
+function report() {
+  const failed = results.filter(r => !r.ok);
+  document.title = failed.length ? `FAIL ${failed.length}` : `PASS ${results.length}`;
+  const out = document.createElement('div');
+  out.className = 'results';
+  out.innerHTML = `<b>${failed.length ? `${failed.length} of ${results.length} failed` : `All ${results.length} passed`}</b><br><br>` +
+    results.map(r => `<div class="${r.ok ? '' : 'fail'}">${r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.ok || !r.detail ? '' : ` — ${String(r.detail).slice(0, 300).replace(/</g, '&lt;')}`}</div>`).join('');
+  document.querySelector('.view').appendChild(out);
+}
+window.onerror = (m, s, l, c, e) => { results.push({ name: `error: ${m} (${(s || '').split('/').pop()}:${l})`, ok: false, detail: `after “${results.at(-1)?.name}”: ${e?.stack}` }); };
+// ?act=… leaves the inspector in a passing state, for looking at.
+const ACTS = {
+  add: () => $('.add-entry').click(),
+  menu: () => { const g = rowOf('Jurisdiction').querySelector('.grip'); g.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })); dispatchEvent(new PointerEvent('pointerup')); },
+  peek: () => rowOf('Good Standing').querySelector('.tag').dispatchEvent(new PointerEvent('pointerenter')),
+  type: () => { const i = rowOf('EIN').querySelector('input'); i.focus(); setTimeout(() => { i.value = '92-4810999'; i.dispatchEvent(new Event('input', { bubbles: true })); }, 30); },
+  choose: () => rowOf('Jurisdiction').querySelector('.sel').click(),
+  draft: () => { $('.add-entry').click(); setTimeout(() => pick('Field'), 30); },
+};
+if (ACTS[Q.get('act')]) Shell.on('ready', () => setTimeout(ACTS[Q.get('act')], 100));
+if (Q.has('run')) Shell.on('ready',() => setTimeout(() => run().catch(e => check(`threw: ${e.message}`, false, e.stack)).finally(report), 50));
+</script>
+</body>
+</html>
