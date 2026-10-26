@@ -270,7 +270,9 @@ async function sharepoint() {
   graph.log.length = 0;
   await Promise.all([eve.Store.saveAs('library', 'New Fund'), fay.Store.saveAs('library', 'New Fund')]);
   const nf = JSON.parse(graph.find('Dendra/New Fund.dendra.json')?.text ?? '{"changes":[]}');
-  check('two people making one new file at once: one makes it, and the other joins it', graph.log.some(l => /New Fund.* 201$/.test(l)) && graph.log.some(l => /New Fund.* 409$/.test(l))
+  // The other joins it whether its write was refused (409) or it found the file there first.
+  check('two people making one new file at once: one makes it, and the other joins it', graph.log.filter(l => /New Fund.* 201$/.test(l)).length === 1
+    && [...graph.items.values()].filter(x => x.name === 'New Fund.dendra.json').length === 1
     && [e1, f1].every(c => nf.changes.some(x => x.id === c.id)), graph.log.filter(l => l.startsWith('PUT')).join(' | '));
   graph.log.length = 0;
   const people = [Store, bob.Store, cy.Store], made = [];

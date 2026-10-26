@@ -13,7 +13,12 @@
 .dc .x6-graph-svg-stage text { user-select: none; }
 .dc .x6-node, .dc .x6-edge { cursor: default; }
 .dc .x6-edge path:first-child { cursor: default; }
-.dc-dim { opacity: .22; transition: opacity var(--quick) var(--ease); }
+/* What a highlight leaves out fades: a line whole; a box or shape its outline and text but never its fill,
+   so no line behind a box shows through its name. */
+.dc .x6-cell, .dc .x6-node * { transition: opacity var(--quick) var(--ease), stroke-opacity var(--quick) var(--ease); }
+.x6-edge.dc-dim { opacity: .22; }
+.x6-node.dc-dim > * { stroke-opacity: .22; }
+.x6-node.dc-dim :is(text, image) { opacity: .22; }
 
 /* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
    small on screen for its side handles shows only its corners. */
@@ -32,25 +37,28 @@
 .dc .x6-widget-transform.short .x6-widget-transform-resize:is([data-position="left"], [data-position="right"]) { display: none !important; }
 .dc .x6-widget-snapline line { stroke: #e8432a !important; stroke-width: 1px !important; shape-rendering: crispEdges; }
 .dc .x6-widget-transform-rotate { display: none !important; }
-.dc-sel { fill: none; stroke: var(--accent); stroke-width: 2px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
-/* Marks drawn over the chart: Range Finder's outlines, a legend row, a group, a relation being drawn. The
-   page stays white in both themes, so the outlines on it take the light theme's hues: 2 px, a witness 3 px,
-   a deeper reason 1 px and lighter; no halos. */
+/* Marks drawn on the chart: Range Finder's outlines, a legend row's, a group's, a selected line's, and a
+   relation being drawn. The page stays white in both themes, so the outlines on it take the light theme's
+   hues: 2 px, a witness 3 px, a deeper reason 1 px and lighter; no halos. A box or a text is outlined over
+   the chart; a line is traced where it lies, under the boxes, so a line lit never crosses a name. */
 :root { --rf-page-1: #1f6fa8; --rf-page-2: #187a74; --rf-page-3: #a3570f; --rf-page-4: #a63a68; --rf-page-5: #5c6a17; --rf-page-6: #6e5a43; --no-page: #c2372b; }
 .dc-marks { pointer-events: none; }
-.dc-hl { fill: none; stroke: var(--rf-page-1); stroke-width: 2px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.dc-hl.h2 { stroke: var(--rf-page-2); } .dc-hl.h3 { stroke: var(--rf-page-3); } .dc-hl.h4 { stroke: var(--rf-page-4); }
-.dc-hl.h5 { stroke: var(--rf-page-5); } .dc-hl.h6 { stroke: var(--rf-page-6); }
-.dc-hl.hloop { stroke: var(--no-page); } .dc-hl.haccent { stroke: var(--accent); }
-.dc-hl.strong { stroke-width: 3px; }
-.dc-hl.deep { stroke-width: 1px; stroke-opacity: .5; }
-.dc-hl.pulse { animation: dc-pulse 700ms var(--ease) 2; }
-@keyframes dc-pulse { 50% { stroke-opacity: .3; } }
-@media (prefers-reduced-motion: reduce) { .dc-hl.pulse { animation: none; } }
-.dc.pointing .x6-node, .dc.pointing .x6-edge, .dc.relating .x6-node, .dc.relating .x6-graph-svg { cursor: crosshair; }
-.dc-row, .dc-group { fill: none; stroke: var(--accent); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.dc-hl { --hue: var(--rf-page-1); --w: 2px; --o: 1; }
+.dc-hl.h2 { --hue: var(--rf-page-2); } .dc-hl.h3 { --hue: var(--rf-page-3); } .dc-hl.h4 { --hue: var(--rf-page-4); }
+.dc-hl.h5 { --hue: var(--rf-page-5); } .dc-hl.h6 { --hue: var(--rf-page-6); }
+.dc-hl.hloop { --hue: var(--no-page); } .dc-hl.haccent { --hue: var(--accent); }
+.dc-hl.strong { --w: 3px; }
+.dc-hl.deep { --w: 1px; --o: .5; }
+.dc-row, .dc-group { --hue: var(--accent); --w: 1px; --o: 1; }
+.dc-sel { --hue: var(--accent); --w: 2px; --o: 1; }
+path:is(.dc-hl, .dc-row, .dc-group), .x6-edge:is(.dc-hl, .dc-row, .dc-sel) > path + path {
+  fill: none; stroke: var(--hue); stroke-width: var(--w); stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dc-group { stroke-dasharray: 4 3; }
+path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms var(--ease) 2; }
+@keyframes dc-pulse { 50% { stroke-opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: none; } }
+.dc.pointing .x6-node, .dc.pointing .x6-edge, .dc.relating .x6-node, .dc.relating .x6-graph-svg { cursor: crosshair; }
 .dc-relating { fill: none; stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 
 /* The handles a relation is drawn from, off the middle of each side of the box whose edge the pointer nears. */
@@ -73,8 +81,10 @@
 .fb .btn { height: 28px; padding: 0 8px; border-color: transparent; background: transparent; flex: none; }
 .fb .btn:hover:not(:disabled) { border-color: transparent; }
 .fb .btn.icon { width: 28px; }
-.fb .scope { border-color: var(--rule-2); background: var(--surface); max-width: 220px; font-weight: 500; }
-.fb .scope > span { overflow: hidden; text-overflow: ellipsis; }
+/* The scope chip gives way first when the bar is short of room, so the zoom never leaves the window; its
+   name is then cut short, and shown whole on hover. */
+.fb .scope { flex: 0 1 auto; min-width: 56px; max-width: 220px; border-color: var(--rule-2); background: var(--surface); font-weight: 500; }
+.fb .scope > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fb .scope.own { color: var(--ink-2); font-weight: 400; }
 .fb .font { width: 132px; justify-content: space-between; }
 .fb .size { width: 52px; justify-content: space-between; }
@@ -82,9 +92,10 @@
 .fb .letter.b { font-weight: 700; }
 .fb .letter.i { font-style: italic; }
 .fb .letter.u { text-decoration: underline; text-underline-offset: 2px; }
-/* Narrower than the bar's full width, Align, Order and Group are one Arrange menu. */
+/* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
+.slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
-@media (max-width: 1180px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb .font { width: 112px; } }
+@container (max-width: 1180px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb .font { width: 112px; } }
 .fb .well { position: relative; display: inline-grid; place-items: center; width: 16px; height: 16px; }
 .fb .well > i { position: absolute; left: 1px; right: 1px; bottom: 0; height: 3px; border-radius: 1px; box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .25); }
 :root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }

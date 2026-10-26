@@ -83,6 +83,21 @@ async function run() {
   check('a record shows its name and path', $('.ih .cell')?.value === 'Calder Ridge Capital Partners III, L.P.' && $('.ih .path')?.textContent.includes('Entity'), $('.ih')?.textContent);
   check('entries follow Order, with Name as the title', $$('.rows > .ent > .row > .k').slice(0, 3).map(k => k.textContent.trim()).join() === 'Short Name,Vehicle Type,Entity Type', $$('.rows > .ent > .row > .k').slice(0, 3).map(k => k.textContent.trim()).join());
   check('entries at entries show below them', !!rowOf('Tax Classification') && rowOf('Tax Classification').style.getPropertyValue('--depth') === '1');
+  const lei = rowOf('LEI Registered'), parts = el => [...el.children].filter(c => !c.matches('.grip'));
+  check('a tag is a checkbox row: its box, then its name, its entries beneath it', lei?.classList.contains('chk') && !!parts(lei)[0].querySelector('.tag') && parts(lei)[1].matches('.k')
+    && !rowOf('EIN').classList.contains('chk') && rowOf('Last Renewed')?.style.getPropertyValue('--depth') === '1');
+  const tracks = el => getComputedStyle(el).gridTemplateColumns.split(' ').length;
+  document.querySelector('.main').style.setProperty('--insp', '320px'); await tick(60);
+  check('narrow, a row sets its label over its value, and a tag stays a checkbox row', tracks(rowOf('EIN')) === 1 && tracks(rowOf('Formation Date')) === 1 && tracks(rowOf('LEI Registered')) === 2,
+    `${getComputedStyle(rowOf('EIN')).gridTemplateColumns} / ${getComputedStyle(rowOf('LEI Registered')).gridTemplateColumns}`);
+  document.querySelector('.main').style.removeProperty('--insp'); await tick(60);
+  check('… and wide, beside it', tracks(rowOf('EIN')) === 2);
+  const chev = rowOf('Vehicle Type').querySelector('.sel');
+  check('a choice’s chevron follows its last word', getComputedStyle(chev, '::after').content === 'none' && getComputedStyle(chev.querySelector('span'), '::after').content !== 'none');
+  const title = $('.ih .cell'), changes = App.wb.changes().length;
+  await type(title, '');
+  check('clearing a record’s title keeps its Name, and puts the title back', st().fund_name?.value === 'Calder Ridge Capital Partners III, L.P.' && $('.ih .cell').value === st().fund_name.value && App.wb.changes().length === changes,
+    `${JSON.stringify(st().fund_name)} ${$('.ih .cell').value}`);
 
   // Typing a value
   await type(rowOf('EIN').querySelector('.cell'), '92-4810338');
@@ -163,6 +178,18 @@ async function run() {
   $$('.row.rel .k .lk').find(a => a.textContent === 'Offshore Feeder').click(); await tick();
   check('a relative’s link selects it', Shell.selection.value[0] === 'feeder');
 
+  // The look: by where it comes from, said once; colors by PowerPoint's names (the format bar's, here a
+  // stand-in where it's missing), a code only for one of the user's own; sizes as the slide has them
+  const fb = typeof FormatBar === 'undefined' ? (globalThis.FormatBar = {}) : FormatBar, ownName = fb.colorName;
+  fb.colorName ??= hex => ({ '#dae3f3': 'Blue, Accent 1, Lighter 80%' })[hex.toLowerCase()] ?? null;
+  App.change(tx => tx.note('Fill', Tree.treeOf(st(), 'fund'), '#123456', { view: Shell.view.peek() })); Shell.select(['fund']); await tick(60);
+  const looks = () => { const sec = $$('section').find(s => s.querySelector('.fold')?.textContent === 'Look'); return sec ? [...sec.querySelectorAll('.row')].map(r => r.textContent.trim()) : []; };
+  check('the look says where each property comes from once, this box’s own first, a color of one’s own by its code', looks()[0] === 'This box' && looks()[1] === 'Fill#123456'
+    && looks().includes('Entity Type: Limited partnership') && !$('.from'), looks().join(' | '));
+  Shell.parts.value.undo.undo(); await tick(60);
+  check('… and a theme color by its name', looks().includes('Vehicle Type: Funds') && looks().includes('FillBlue, Accent 1, Lighter 80%'), looks().join(' | '));
+  if (!ownName) delete fb.colorName;
+
   // Pasting a link
   Shell.select(['blocker']); await tick();
   const dt = new DataTransfer(); dt.setData('text/plain', 'https://contoso.sharepoint.com/sites/FundLegal/Shared%20Documents/Blocker%20Consent.pdf');
@@ -173,15 +200,33 @@ async function run() {
   // Two boxes
   Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
   check('two boxes say what holds between them, each as a sentence', $$('.rr .nm').some(x => x.textContent === 'Fund III Blocker is a close affiliate of the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
-  const more = $$('.sect > .fold').find(f => f.textContent === 'Add a relation');
-  if (more?.getAttribute('aria-expanded') === 'false') { more.click(); await tick(); }
+  // Why a formula gives each is the formula bar's reason, cited in full (here a stand-in where the bar's is missing)
+  const ownReason = FormulaBar.reason;
+  FormulaBar.reason ??= id => App.computed.peek().computed[id] ? { label: App.computed.peek().computed[id].label, cite: `§57(${id.length})`, words: '' } : null;
+  Shell.select([]); await tick(); Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
+  const given = $$('.rr[data-key]').filter(r => r.querySelector('.why'));
+  check('… why a formula gives one, as the formula bar gives it', given.length > 0 && given.every(r => r.querySelector('.why').textContent === FormulaBar.reason(r.dataset.key).cite),
+    given.map(r => r.querySelector('.why').textContent).join(' | '));
+  Shell.select(['chen']); await tick(60);
+  [...$$('.sect > .fold')].find(f => f.textContent === 'Affiliated Person Of')?.click(); await tick(60);
+  const roles = $$('.row.rel .v .lk.fx').map(x => x.textContent);
+  check('… and so does a relative’s caption', roles.length > 3 && roles.every(t => t.startsWith('§')), roles.slice(0, 4).join(' | '));
+  if (!ownReason) delete FormulaBar.reason;
+  Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
+  const ghost = label => $$('.rr .add-entry').find(b => b.textContent === label);
+  check('… where something holds, what else could is behind Add a relation, an action', !!ghost('Add a relation') && !$$('.sect > .fold').some(f => f.textContent === 'Add a relation'));
+  ghost('Add a relation')?.click(); await tick();
   const rr = $$('.rr').filter(r => r.querySelector('.nm')?.textContent === 'Fund III Blocker is an owner of the BDC');
   check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser of /.test(x.textContent))
     && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
   rr[0].querySelector('.tag').click(); await tick();
   const own = Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
   check('ticking one relates them', !!own, JSON.stringify(own?.[1]));
-  $$('.rr .add-entry')[0].click(); await tick();
+  const offered = $$('.rr-at .row > .k').map(k => k.textContent.trim()), pct = $$('.rr-at .row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === 'Percentage')?.querySelector('input');
+  check('… and offers its entries at once, the first to type into', offered.includes('Percentage') && offered.includes('Voting Percentage') && document.activeElement === pct, offered.join(', '));
+  await type(pct, '2%');
+  check('… a value typed there recorded at the relation', Object.values(st()).some(r => r.at === own?.[0] && r.edge === 'Percentage' && r.value === 0.02));
+  ghost('New relation').click(); await tick();
   const [nm, ra, rb] = $$('.rr.new input');
   for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
   key(rb, 'Enter'); await tick();
@@ -190,6 +235,7 @@ async function run() {
   // A line
   Shell.select(['own_us_fund']); await tick();
   check('a line shows its sides and what’s at it', !!rowOf('Owner') && rowOf('Owner').textContent.includes('U.S. Investors') && !!rowOf('Percentage'), $('.rows')?.textContent);
+  check('… its tag’s box before its title, and no row saying it again', !!$('.ih .ih-tag .tag.yes') && $('.ih .ih-tag').textContent.trim() === 'Ownership' && !$$('.rows .row > .k').some(k => k.textContent.trim() === 'Ownership'), $('.ih')?.innerHTML);
 
   // An entry in general
   Shell.select(['fund']); await tick();
@@ -197,6 +243,15 @@ async function run() {
   check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
   const req = rowOf('Required')?.querySelector('input');
   check('…with Required', req?.checked === true);
+  Shell.select(['fund']); await tick();
+  rowOf('EIN').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
+  check('an entry in general hides a Description not yet written, and an empty Formula', $('.ih .cell')?.value === 'EIN' && !rowOf('Description') && !$$('.sect > .fold').some(s => s.textContent === 'Formula'));
+  $('.addrow .add-entry').click(); await tick();
+  const offers = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  await pick('Description');
+  check('… and offers both from Add; Description, chosen, opens to type', offers.includes('Description') && offers.includes('Formula') && document.activeElement === rowOf('Description')?.querySelector('textarea'), offers.join(', '));
+  document.activeElement?.blur(); await tick();
+  check('… and left empty, goes again', !rowOf('Description'));
 
   // Time: with a day shown, an edit takes effect from it
   Shell.select(['fund']); Shell.at({ asOf: '2026-01-01' }); await tick();
@@ -223,16 +278,20 @@ async function run() {
 
   // The view
   Shell.select([]); await tick();
-  check('nothing selected shows the view and its styles', $('.ih .cell')?.value === 'Structure' && $$('.style').length > 3 && $$('svg.sw').length > 5, $$('.style .sname').map(s => s.textContent).join(', '));
-  const outs = $$('.row.out').map(r => `${r.querySelector('.oname')?.textContent ?? ''}${r.querySelector('.cell').value}`);
-  check('an output captioned otherwise shows under its caption', outs.includes('Main Fund ·Funds') && outs.includes('Corporation') && outs.includes('Exempted Company ·Corporation'), outs.join(' | '));
-  const firstStyle = $$('.style .sname')[0].textContent, s2 = $$('.style')[1], grip = $$('.style')[0].querySelector('.grip');
+  // A style by its name, or a style that is its one row by that row's caption.
+  const styleNames = () => $$('.style').map(s => s.querySelector('.sname')?.textContent ?? s.querySelector('.cell').value);
+  check('nothing selected shows the view’s layout and its styles, its name left to its tab', !$('.ih') && !!rowOf('Layout') && $$('.style').length > 3 && $$('svg.sw').length > 5, styleNames().join(', '));
+  const outs = $$('.row.out').map(r => `${r.querySelector('.cell').value}/${r.querySelector('.oname')?.textContent ?? ''}`);
+  check('a style’s row: its caption, then the outputs it stands for, where they say otherwise', outs.includes('Investors/Investor Group') && outs.includes('Individual/')
+    && outs.includes('Funds/Main Fund, Business Development Company') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
+  check('… and a style that is its one row, that row alone', $$('.style').some(s => !s.querySelector('.sname') && s.querySelector('.row.out.lone .cell')?.value === 'Name'), styleNames().join(', '));
+  const firstStyle = styleNames()[0], s2 = $$('.style')[1], grip = $$('.style')[0].querySelector('.grip');
   const y = el => el.getBoundingClientRect().top + 4;
   grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(grip) }));
   dispatchEvent(new PointerEvent('pointermove', { clientY: y(s2) + 40 }));
   dispatchEvent(new PointerEvent('pointermove', { clientY: s2.getBoundingClientRect().bottom - 2 }));
   dispatchEvent(new PointerEvent('pointerup', {})); await tick();
-  check('dragging a style reorders the view’s styles', $$('.style .sname')[0].textContent !== firstStyle && $$('.style .sname')[1].textContent === firstStyle, $$('.style .sname').map(s => s.textContent).join(', '));
+  check('dragging a style reorders the view’s styles', styleNames()[0] !== firstStyle && styleNames()[1] === firstStyle, styleNames().join(', '));
 
   // A definition in general: one screen, its Formula set out as the statute it encodes
   describeAffiliated();
@@ -259,15 +318,20 @@ async function run() {
 
   // A ruled-out relation is no relative: said once, plainly, on the side its edges name first
   Shell.select(['blocker']); await tick(60);
-  check('a ruled-out relation is no relative, and is said plainly, as what rules it out', $$('.nots .row').map(r => r.textContent.trim()).includes('Close affiliate of the BDC (§57(b))')
-    && !$$('.sect > .fold').some(s => s.textContent === 'Remote Affiliate Of'), $('.nots')?.textContent);
-  check('… and a relative says what the relation does', $$('.row.rel').some(r => /% · \d+% voting$/.test(r.querySelector('.v').textContent.trim())), $$('.row.rel .v').map(v => v.textContent.trim()).join(' | '));
+  check('a ruled-out relation is no relative, and is said plainly, as what rules it out', $$('.nots .row').map(r => r.textContent.trim()).includes('Not a remote affiliate: a close affiliate of the BDC (§57(b))')
+    && !$$('.sect > .fold').some(s => s.textContent === 'Remote Affiliate Of'), $$('.nots .row').map(r => r.textContent.trim()).join(' | '));
+  const says = () => $$('.row.rel .v').map(v => v.textContent.trim());
+  check('… and a relative says what the relation does, a percentage once where its vote is the same', says().includes('100%') && !says().some(s => /^(\S+) · \1 voting$/.test(s)), says().join(' | '));
+  Shell.select(['fund']); await tick(60);
+  check('… and its vote beside it where that differs', says().some(s => /^[\d.]+% · \d+% voting$/.test(s)), says().join(' | '));
 
   // A date a formula gives: amber within 30 days, red once past; a due date offers its filing
   Shell.select(['bdc']); Shell.at({ asOf: '2026-10-26' }); await tick(60);
   const formD = rowOf('Form D Due');
   check('a due date within 30 days is amber, and says so', !!formD?.querySelector('.hug.soon') && /due soon$/.test(formD.querySelector('input').getAttribute('aria-label')));
   check('… and attention counts it', Shell.parts.value.attention.items().some(i => i.kind === 'soon'));
+  const filing = formD.querySelector('.btn.ver.filed');
+  check('… its filing always shown, not only on hover', filing?.classList.contains('due') && getComputedStyle(filing).opacity === '1');
   formD.querySelector('.btn.ver').click(); await tick(80);
   const filed = FormulaBar.pending.peek();
   check('Filed… records the entry the rule reads, redlining where the due date moves', document.querySelector('.filing .field span')?.textContent === 'Last Filed'
@@ -280,6 +344,16 @@ async function run() {
   const legend = App.wb.rows(C).find(r => 'shape' in r && r.geometry === 'legend' && r.view === Shell.view.peek());
   Shell.select([legend.shape]); await tick(60);
   check('a Key shows its title, columns and rows to show or hide', $('.ih .cell')?.value === (legend.title ?? 'Key') && $$('.keyrow input[type="checkbox"]').length > 3, $('.insp')?.textContent.slice(0, 200));
+  check('… with no eyebrow saying its title again', !$('.ih .path'), $('.ih')?.textContent);
+  const size = $$('.row').find(r => r.querySelector(':scope > .k')?.textContent === 'Size');
+  check('… its size the slide’s, to the half point', size?.querySelector('.v').textContent === `${Math.round(Scene.toSlide(App.scene.peek().page, App.scene.peek().byId.get(legend.shape).look.Size) * 2) / 2} pt`, size?.textContent);
+  // A frame is a style's: it says so
+  const here = Shell.view.peek(), v40 = App.views.peek().find(v => v.name === '40 Act');
+  Shell.show(v40.id); await tick(200);
+  const frame = App.scene.peek()?.marks.find(m => m.type === 'frame' && m.output);
+  Shell.select([frame.id]); await tick(60);
+  check('a frame shows the style that draws it, called so', $('.ih .path')?.textContent === 'Style' && !!$('.ih .cell'), $('.ih')?.textContent);
+  Shell.show(here); await tick(200);
 
   const mine = App.wb.changes().slice(n0);
   check('every edit is one change in the log, by the user', mine.length >= 14 && mine.every(c => c.who === 'Dana Jordan' && c.chart === C), mine.length);
@@ -299,6 +373,11 @@ async function run() {
   check('a value with two answers shows both, each with who gave it', answers.length === 2 && answers.some(b => b.textContent.includes('22-2222222') && b.textContent.includes('Bob Diaz')), answers.map(b => b.textContent).join(' | '));
   answers.find(b => b.textContent.includes('Bob Diaz'))?.click(); await tick(60);
   check('… and choosing one keeps it', !$('.answers') && st().fund_ein.value === '22-2222222' && !App.wb.disagreements(C).length);
+  const base2 = App.wb.changes(), ann2 = Log.open(base2), bob2 = Log.open(base2);
+  for (const [w, who, tag] of [[ann2, 'Ann Lee', false], [bob2, 'Bob Diaz', true]]) { const tx = w.edit({ chart: C, who }); tx.update('fund_good', { tag }); tx.commit(); }
+  App.wb.merge(ann2).merge(bob2); await tick(60);
+  check('… a tag given two ways at once shows both beside its name, not a box', !rowOf('Good Standing')?.classList.contains('chk') && rowOf('Good Standing')?.querySelectorAll('.answers .btn').length === 2,
+    rowOf('Good Standing')?.outerHTML.slice(0, 300));
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {

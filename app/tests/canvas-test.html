@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra canvas test</title>
+<script>
+  try { sessionStorage.setItem('dendra.launched', '1'); localStorage.clear(); localStorage.setItem('dendra.toured', '1'); } catch {}
+</script>
+<link rel="stylesheet" href="../../vendor/tabulator/tabulator.min.css">
+<link rel="stylesheet" href="../../vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="../../vendor/codemirror/show-hint.css">
+<link rel="stylesheet" href="../../vendor/codemirror/lint.css">
+<link rel="stylesheet" href="../css/dendra.css">
+<link rel="stylesheet" href="../css/canvas.css">
+<link rel="stylesheet" href="../css/inspector.css">
+<link rel="stylesheet" href="../css/formulabar.css">
+<link rel="stylesheet" href="../css/table.css">
+<style>
+  #out { position: fixed; z-index: 99; left: 8px; top: 8px; max-width: 900px; max-height: 90vh; overflow: auto; margin: 0; padding: 10px 12px;
+    background: #111; color: #e6e4df; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+  #out .fail { color: #ff8a80; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<pre id="out">Running…</pre>
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/x6/x6.min.js"></script>
+<script src="../../vendor/tabulator/tabulator.min.js"></script>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../../vendor/codemirror/codemirror.js"></script>
+<script src="../../vendor/codemirror/simple.js"></script>
+<script src="../../vendor/codemirror/show-hint.js"></script>
+<script src="../../vendor/codemirror/lint.js"></script>
+<script src="../../vendor/codemirror/matchbrackets.js"></script>
+<script src="../../vendor/msal/msal-browser.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/sharepoint.js"></script>
+<script>
+// The workbook opened at once, in memory: nothing is kept.
+const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana Jordan', status: () => ({ text: '' }), subscribe: () => () => {}, books: async () => [], where: () => null,
+  openFile: async () => null, saveAs: async () => null, download() {}, fix() {} };
+</script>
+<script src="../sample/calder-ridge.js"></script>
+<script src="../ui/shell.js"></script>
+<script src="../ui/app.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/scene.js"></script>
+<script src="../ui/canvas.js"></script>
+<script src="../ui/formatbar.js"></script>
+<script src="../ui/inspector.js"></script>
+<script src="../ui/table.js"></script>
+<script src="../ui/time.js"></script>
+<script src="../ui/formulabar.js"></script>
+<script src="../ui/export.js"></script>
+<script>
+// Checks of the canvas (canvas.js) and the format bar (formatbar.js) in the window, on the sample, each
+// driven as a person would: how a view opens, the scope a format goes to and its live preview, sizes in
+// slide points, the keys, and how a highlight draws. The window is set to each size it's checked at.
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+const cv = () => Canvas.active.peek(), sc = () => cv().scene();
+const charts = () => App.views.peek().filter(v => v.layout === 'chart');
+const show = async v => { Shell.show(v.id); await until(() => sc()?.view === v.id); await tick(120); };
+// The window at a size, as a screen of that size lays it out.
+const size = async (w, h) => { Object.assign($('.shell').style, { right: 'auto', bottom: 'auto', width: `${w}px`, height: `${h}px` }); await tick(160); };
+// The page as the canvas shows it: its corners on screen, and the root's size.
+function onScreen() {
+  const g = cv().graph, p = sc().page, a = g.localToGraph(0, 0), b = g.localToGraph(p.w, p.h);
+  return { a, b, W: cv().root.clientWidth, H: cv().root.clientHeight, z: g.zoom() };
+}
+const key = (k, o = {}) => { const e = new KeyboardEvent('keydown', { key: k, code: o.code ?? k, bubbles: true, cancelable: true, ...o }); cv().root.dispatchEvent(e); };
+const menuItems = () => $$('.float .menu-item').map(txt);
+const closeMenus = async () => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); await tick(); };
+
+async function run() {
+  await until(() => App.views.peek().length && sc(), 15000);
+  await tick(300);
+  const main = charts()[0];
+
+  // ---- The opening frame: the whole page where it fits at 60% or more; else 60% from its top left ----
+  // Each view is opened from another at each size, so it's framed for that size as it opens, whether or
+  // not this browser lays the window out again before the next check.
+  for (const [w, h] of [[1024, 768], [1280, 800], [1440, 900], [1920, 1080]]) {
+    await size(w, h);
+    const bad = [], order = charts();
+    if (order[0].id === Shell.view.peek()) order.push(order.shift());
+    for (const v of order) {
+      await show(v);
+      const { a, b, W, H, z } = onScreen(), fits = b.x <= W + 0.5 && b.y <= H + 0.5;
+      if (a.x < -0.5 || a.y < -0.5 || z < 0.6 - 1e-6 || (!fits && z > 0.6 + 1e-6)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);
+    }
+    check(`at ${w}×${h} every view opens on its whole page, or at 60% from its top left`, !bad.length, bad.join('; '));
+  }
+  await size(1440, 900);
+  await show(main);
+  const whole = () => { const { a, b, W, H } = onScreen(); return a.x >= -0.5 && a.y >= -0.5 && b.x <= W + 0.5 && b.y <= H + 0.5; };
+  cv().zoom('fit'); await tick(120);
+  check('Fit shows the whole page', whole());
+  const pageWas = sc().page.h;
+  Shell.at({ asOf: '2023-12-31' }); await until(() => sc().page.h !== pageWas || sc().day === '2023-12-31'); await tick(200);
+  check('as of a past day, the page is framed again, its title and as-of line in view', whole(), JSON.stringify(onScreen()));
+  Shell.at(null); await tick(200);
+  check('… and as of today', whole());
+
+  // ---- The scope: the selection, as in PowerPoint; its menu, the styles that reach it, by their reach ----
+  const chip = () => txt($('[data-fb="scope"]'));
+  Shell.select(['northpine']); await tick(120);
+  check('one box selected, a format goes to “This box”', chip() === 'This box', chip());
+  Shell.select(['northpine', 'halvard', 'fund']); await tick(120);
+  check('three, to “These 3 boxes”', chip() === 'These 3 boxes', chip());
+  const line = sc().marks.find(m => m.type === 'line' && !m.computed);
+  Shell.select([line.id]); await tick(120);
+  check('a line, to “This line”', chip() === 'This line', chip());
+  Shell.select(['northpine']); await tick(120);
+  $('[data-fb="scope"]').click(); await tick(120);
+  const items = menuItems();
+  check('its menu offers the selection, then each style that reaches it with its reach', items[0] === 'This box' && items.slice(1).every(t => /^All .+ \(\d+\)/.test(t)) && items.some(t => t.startsWith('All Portfolio companies (4)')), items.join(' | '));
+  await closeMenus();
+  const pcs = sc().marks.filter(m => m.type === 'box' && App.state.peek()[m.record]?.kind === 'Entity' && JSON.stringify(m.settings.Fill.note?.pattern ?? {}).includes('Portfolio Company')).map(m => m.id);
+  const fills = () => Object.fromEntries(pcs.map(id => [id, App.scene.peek().byId.get(id).settings.Fill.value]));
+  const was = fills();
+  FormatBar.apply('Fill', '#fff2cc'); await tick(120);
+  const now = fills();
+  check('a fill with one box selected fills that box alone', now.northpine === '#fff2cc' && pcs.filter(id => id !== 'northpine').every(id => now[id] === was[id]) && pcs.length === 4, JSON.stringify(now));
+  $('[data-fb="scope"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e).startsWith('All Portfolio companies'))?.click(); await tick(120);
+  check('choosing a style names it on the chip', chip().startsWith('All Portfolio companies'), chip());
+  FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
+  check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
+  Shell.select(['halvard']); await tick(120);
+  check('another selection is formatted as itself again', chip() === 'This box', chip());
+
+  // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
+  const changes = App.wb.changes().length, fillOf = id => sc().byId.get(id).settings.Fill.value;
+  $('[data-fb="fill"]').click(); await tick(120);
+  const swatch = $$('.float .palette > button').find(b => b.getAttribute('aria-label') === 'Blue, Accent 1, Lighter 60%');
+  swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
+  check('pointing at a swatch draws the box in it', fillOf('halvard') === '#b4c7e7' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#b4c7e7', fillOf('halvard'));
+  check('… and changes nothing', App.wb.changes().length === changes);
+  $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
+  check('leaving the swatches ends the preview', fillOf('halvard') === App.scene.peek().byId.get('halvard').settings.Fill.value);
+  swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
+  cv().nudge(1, 0); await tick(120);
+  check('a change to the chart ends a preview of it as it was', sc() === App.scene.peek() && fillOf('halvard') !== '#b4c7e7');
+  $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(40);
+  swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
+  await closeMenus(); await tick(80);
+  check('closing the palette ends it too', sc() === App.scene.peek() && App.wb.changes().length === changes + 1);
+  $('[data-fb="size"]').click(); await tick(120);
+  const sizeOf = () => sc().byId.get('halvard').texts[0].look.Size;
+  $$('.float .menu-item').find(e => txt(e) === '20').dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(80);
+  check('pointing at a size in its menu draws the text at it', Math.abs(sizeOf() - Scene.fromSlide(App.scene.peek().page, 20)) < 0.05, sizeOf());
+  document.body.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(80);
+  check('… until the pointer leaves it', sc() === App.scene.peek());
+  await closeMenus();
+
+  // ---- Sizes in slide points, on the half-point grid; a frame shows its caption's ----
+  const shown = () => +txt($('[data-fb="size"]'));
+  check('the format bar shows a size in slide points, to the half point', shown() * 2 === Math.round(shown() * 2) && Math.abs(shown() - Scene.toSlide(sc().page, sizeOf())) <= 0.25, `${shown()} for ${Scene.toSlide(sc().page, sizeOf())}`);
+  const v40 = charts().find(v => v.name === '40 Act');
+  if (v40) {
+    await show(v40);
+    const frame = sc().marks.find(m => m.type === 'frame');
+    Shell.select([frame.id]); await tick(120);
+    check('a frame selected shows its caption’s font and size', txt($('[data-fb="font"]')) === frame.caption.look.Font && +txt($('[data-fb="size"]')) > 0, `${txt($('[data-fb="font"]'))} ${txt($('[data-fb="size"]'))}`);
+    Shell.select([]); await show(main);
+  } else check('a view with frames', false);
+
+  // ---- Tidy is with the arrangement, not the zoom ----
+  Shell.select(['halvard']); await tick(80);
+  $('[data-fb="zoom"]').click(); await tick(120);
+  const zoomItems = menuItems();
+  await closeMenus();
+  $('[data-fb="arrange"]').click(); await tick(120);
+  const arrange = menuItems();
+  await closeMenus();
+  check('Tidy is beside Align and Order, and not among the zoom levels', !zoomItems.includes('Tidy') && arrange.includes('Tidy') && !!$('[data-fb="tidy"]') && $('[data-fb="tidy"]').previousElementSibling?.dataset.fb === 'group', zoomItems.join(', '));
+
+  // ---- At 1024 the chip gives way, and the zoom stays in the window ----
+  await size(1024, 768);
+  Shell.select(['gp']); await tick(120);
+  $('[data-fb="scope"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e).startsWith('All Limited liability company'))?.click(); await tick(120);
+  const zr = $('[data-fb="zoom"]').getBoundingClientRect(), shell = $('.shell').getBoundingClientRect(), span = $('[data-fb="scope"] > span');
+  check('at 1024 the zoom stays in the window', zr.right <= shell.right + 0.5 && zr.width > 0, `${zr.right} of ${shell.right}`);
+  $('[data-fb="scope"]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+  check('a scope cut short is named whole on hover', span.scrollWidth <= span.clientWidth || $('[data-fb="scope"]').dataset.tip === txt(span), `${span.scrollWidth} ${span.clientWidth} ${$('[data-fb="scope"]').dataset.tip}`);
+  await size(1440, 900);
+
+  // ---- Colors by PowerPoint's names ----
+  const names = [['#DAE3F3', 'Blue, Accent 1, Lighter 80%'], ['E2F0D9', 'Green, Accent 6, Lighter 80%'], ['#f2f2f2', 'White, Background 1, Darker 5%'], ['#595959', 'Black, Text 1, Lighter 35%'],
+    ['#C00000', 'Dark Red'], ['#7f7f7f', 'Black, Text 1, Lighter 50%'], ['#ffc000', 'Gold, Accent 4'], ['#000000', 'Black, Text 1'], ['#123456', null]];
+  const bad = names.filter(([c, n]) => FormatBar.colorName(c) !== n);
+  check('FormatBar.colorName gives PowerPoint’s name for a theme color, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
+  $('[data-fb="fill"]').click(); await tick(120);
+  const tips = $$('.float .palette > button').slice(0, 3).map(b => b.dataset.tip);
+  await closeMenus();
+  check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Blue, Accent 1', tips.join(' | '));
+
+  // ---- A highlight: lines lit where they lie, under the boxes; a box dimmed keeps its fill ----
+  const ln = sc().marks.find(m => m.type === 'line' && m.from && m.to);
+  Shell.parts.peek().canvas.highlight({ [ln.record]: [2, 1], [ln.from]: [1, 0] }, { dim: true }); await tick(120);
+  document.getAnimations().forEach(a => a.finish());
+  const edge = $(`.dc [data-cell-id="${ln.id}"]`), other = sc().marks.find(m => m.type === 'box' && m.id !== ln.from && m.id !== ln.to);
+  const body = $(`.dc [data-cell-id="${other.id}"] > path`), text = $(`.dc [data-cell-id="${other.id}"] text`);
+  check('a line lit is traced where it lies, not drawn over the boxes', edge.classList.contains('dc-hl') && edge.classList.contains('h2') && !$$('.dc-marks path').some(p => p.getAttribute('d')?.startsWith('M') && p.classList.contains('h2')));
+  check('a dimmed box keeps its fill, and fades its outline and text', getComputedStyle(body).fillOpacity === '1' && +getComputedStyle(body).strokeOpacity < 0.5 && +getComputedStyle(text).opacity < 0.5
+    && getComputedStyle(body.parentNode).opacity === '1', `${getComputedStyle(body).fillOpacity} ${getComputedStyle(body).strokeOpacity} ${getComputedStyle(text).opacity}`);
+  const order = [...$('.x6-graph-svg-stage').children].map(e => e.getAttribute('data-cell-id'));
+  check('lines are drawn under the boxes', sc().marks.filter(m => m.type === 'line' && !m.merged).every(l => order.indexOf(l.id) < Math.min(...sc().marks.filter(m => m.type === 'box').map(b => order.indexOf(b.id)))));
+  Shell.parts.peek().canvas.highlight(null); await tick(80);
+
+  // ---- The keys: Tab through the boxes in reading order; the arrows nudge ----
+  Shell.select([]); await tick(60);
+  cv().root.focus();
+  const reading = (() => { const rows = []; for (const b of sc().marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y)) { const r = rows.at(-1); if (r && b.y < r[0].y + r[0].h / 2) r.push(b); else rows.push([b]); } return rows.flatMap(r => r.sort((a, b) => a.x - b.x)).map(b => b.id); })();
+  key('Tab'); await tick(60);
+  const first = Shell.selection.peek()[0];
+  key('Tab'); await tick(60);
+  const second = Shell.selection.peek()[0];
+  key('Tab', { shiftKey: true }); await tick(60);
+  check('Tab selects the first box in reading order, then the next; Shift+Tab goes back', first === reading[0] && second === reading[1] && Shell.selection.peek()[0] === reading[0], `${first} ${second} ${Shell.selection.peek()[0]}`);
+  const x0 = sc().byId.get(first).x;
+  key('ArrowRight'); await tick(120);
+  check('an arrow key nudges the box selected', Math.abs(sc().byId.get(first).x - x0 - 1) <= 0.5, `${x0} → ${sc().byId.get(first).x}`);
+  Shell.select([]); cv().root.focus();
+  key('Tab', { shiftKey: true }); await tick(60);
+  check('Shift+Tab from nothing selects the last box', Shell.selection.peek()[0] === reading.at(-1));
+
+  // ---- A triangle's relate handles sit off its frame, clear of the lines on its slopes ----
+  const tri = sc().marks.find(m => m.type === 'box' && m.shape === 'triangle'), g = cv().graph, r = cv().root.getBoundingClientRect();
+  const ta = g.localToGraph(tri.x, tri.y), tb = g.localToGraph(tri.x + tri.w, tri.y + tri.h);
+  cv().root.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: r.left + tb.x + 4, clientY: r.top + (ta.y + tb.y) / 2 }));
+  await tick(60);
+  const hx = side => parseFloat($(`.dc-handle.${side}`).style.left);
+  check('a triangle’s side handles sit outside its frame', hx('e') > tb.x && hx('w') < ta.x, `${hx('w')} ${ta.x} ${tb.x} ${hx('e')}`);
+
+  // ---- Deleting as of a past day says from when ----
+  Shell.at({ asOf: '2025-06-30' }); await tick(200);
+  Shell.select(['halvard']); await tick(80);
+  cv().root.focus(); key('Delete', { shiftKey: true }); await tick(120);
+  const toast = txt($$('.toast').at(-1));
+  check('a record deleted as of a past day says so', /^Deleted Halvard.* as of Jun 30, 2025/.test(toast), toast);
+  Shell.at(null); await tick(100);
+}
+
+window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);
+Shell.ready.then(() => run())
+  .catch(e => check('runs', false, e.stack ?? e))
+  .finally(() => {
+    const failed = out.filter(c => !c.ok);
+    const line = c => `${c.ok ? 'pass' : 'FAIL'}  ${c.name}${c.detail && !c.ok ? `  (${c.detail})` : ''}`;
+    document.title = `canvas test: ${out.length - failed.length} pass, ${failed.length} fail`;
+    $('#out').innerHTML = [`${out.length - failed.length} passed, ${failed.length} failed`, '',
+      ...failed.map(c => `<span class="fail">${line(c).replace(/</g, '&lt;')}</span>`), ...(failed.length ? [''] : []),
+      ...out.filter(c => c.ok).map(line).map(s => s.replace(/</g, '&lt;'))].join('\n');
+  });
+</script>
+</body>
+</html>
