@@ -45,8 +45,9 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .tag.pend.no { border-color: var(--no); }
 .tag.pend.no::before, .tag.pend.no::after { background: var(--no); }
 
-/* Inline, after a hairline as Excel's formula follows its Name Box: the row's label, then its formula, one line,
-   fading where it runs out of room; a click opens the rows to edit it. Where no row gave it, the rows' labels. */
+/* Inline, after a hairline as Excel's formula follows its Name Box: why, in words, where it fits; or else the
+   row's label, then its formula, one line, fading where it runs out of room, a click opening the rows to edit
+   it. Where no row gave it, the rows' labels. */
 .fx-inline { flex: 1 1 0; min-width: 160px; height: 24px; display: flex; align-items: center; gap: 12px; margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--rule); overflow: hidden; }
 .fx-inline > .fx-label { flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .fx-inline > .fx-cm { flex: 1 1 0; min-width: 0; mask-image: linear-gradient(to left, transparent, #000 32px); }
@@ -61,8 +62,7 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
    Each fact is a quiet button, its point in weight (italic where a formula gave it) and in the hue its records
    are outlined in on the chart; the clause that gave each, in ink-3. */
 .fx-inline > .fx-why { flex: 1 1 0; min-width: 0; overflow: hidden; }
-.fx-why b { font-weight: 600; }
-.fxbar .fx-why b.fx-rf { font-weight: 600; }
+.fxbar .fx-why b { font-weight: 600; }
 .fx-why b.fx { font-style: italic; }
 .fx-cite { color: var(--ink-3); }
 .fx-fact.go { border-radius: 2px; cursor: pointer; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
