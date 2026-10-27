@@ -440,6 +440,8 @@ async function checks() {
   // Words: a role with its article, a verb a list names, one subject said once, a default with its facts
   check('a role with its article, after a clause with more to say; a tag that isn’t a noun, as a condition its name says: the capacity is held',
     /^Margaret A\. Chen .*Fund III, via GP III, with a capacity of Managing Member and is a managing member of GP III, so the capacity is held\.$/.test(await saidOf(['fx:capacity held=sign_chen_fund']) ?? ''), said());
+  check('… its sides as the place rule says them, none twice: signs for the Manager, not “via the Manager” too',
+    await saidOf(['fx:capacity held=sign_chen_mgmt']) === 'Margaret A. Chen signs for the Manager with a capacity of Managing Member and is a managing member of the Manager, so the capacity is held.', said());
   // Ruled out: why turns on the condition that failed, after "but", and never on a fact that didn't decide it
   check('a check ruled out says the condition that failed, turning on “but”: he is a member, not a managing member, of GP III',
     await saidOf(['fx:capacity held=sign_okfr_fund']) === 'David R. Okafor signs for Fund III, via GP III, with a capacity of Managing Member, but is a member, not a managing member, of GP III, so the capacity is not held.', said());

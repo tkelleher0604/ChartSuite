@@ -589,13 +589,14 @@ const FormulaBar = (() => {
     const c = { id: [id, ...reads].find(fx) ?? id, ids: [id, ...reads], subj: null, poss: false, pre: [], obj: [], post: [] };
     const withs = reads.flatMap(e => { const x = recs[e]; return 'tag' in x ? [` ${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [` with ${article(x.edge)} ${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
     if (r.args) {
-      const [a, b, ...rest] = n.sides(recs, id), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
+      // The sides past the second as the place rule says them (Notes.placed): each after its label, none twice.
+      const [a, b] = n.sides(recs, id), rest = n.placed(recs, id).slice(2), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
       // Each side's list of the other: Holdings, and Owners.
       const theirs = t && b ? n.listName(t, a.edge) : a.edge, yes = r.tag !== false;
       const q = !B ? null : t ? predicateOf(t, a.edge, b.edge, { tag: 'tag' in r, name: n.nameOf(recs, id) }) : predicate(n.nameOf(recs, id), true);
       const p = q && !q.flip && !q.role ? q : null, flip = q?.flip ? q : null;
       const of = B ? [p?.form === 'noun' && !('field' in r) ? p.prep : ' of ', { name: B }] : [];
-      c.post = [...rest.flatMap(x => [`, ${lower(x.edge)} `, { name: Tree.objectOf(recs, x.at) }]), ...(rest.length && withs.length ? [','] : []), ...withs];
+      c.post = [...rest.flatMap(s => [s.join, { name: s.id }]), ...(rest.length && withs.length ? [','] : []), ...withs];
       if ('field' in r) return Object.assign(c, { subj: A, poss: true, pre: [` ${lower(n.nameOf(recs, id))}`], obj: of, post: [be(), term(id, Tree.outputText(r)), ...c.post] });
       const says = q => q.form === 'noun' ? [be(yes), `${article(q.head)} `, term(id, q.head)] : q.form === 'participle' ? [be(yes), term(id, q.head)]
         : yes ? (would ? [' would ', term(id, q.head.replace(/s\b/, ''))] : [' ', term(id, q.head)]) : [would ? ' would not ' : ' does not ', term(id, q.head.replace(/s\b/, ''))];
