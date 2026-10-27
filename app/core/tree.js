@@ -10,7 +10,13 @@
 const Tree = (() => {
 
 const clean = s => String(s ?? '').trim().replace(/\s+/g, ' ');
-const norm = s => clean(s).toLowerCase();
+// Names are few and compared often: each one's normal form kept, the latest few thousand.
+const normal = new Map();
+const norm = s => {
+  let n = normal.get(s);
+  if (n === undefined) { if (normal.size > 4000) normal.clear(); normal.set(s, n = clean(s).toLowerCase()); }
+  return n;
+};
 const same = (a, b) => norm(a) === norm(b);
 const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
 

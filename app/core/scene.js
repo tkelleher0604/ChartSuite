@@ -16,7 +16,7 @@
 // A box, line or frame has `settings`: { [property]: { value, note } }, the note null where nothing in the
 // chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
 // from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
-// are broken to. A line another crosses has `runs`, the pieces it's drawn in (see jumps); one that had to go
+// are set in, as PowerPoint sets them (see setText). A line another crosses has `runs`, the pieces it's drawn in (see jumps); one that had to go
 // round what's drawn is `around` (`astray` where it couldn't keep its sides, `blocked` where it found no way), and
 // one whose label found no free place `crowded` (see Layout.route). A free shape has its
 // row's formats, with no notes, and a free line the boxes it's glued to; one whose row's `role` is title or
@@ -95,6 +95,18 @@ function path(shape, w, h) {
 // Where a shape's text goes: the share of its width a line may take, and how its block sits. A triangle's
 // text sits at its base, each line as wide as the triangle is where the line sits (see pyramid).
 const TEXT_AREA = { oval: 0.78, diamond: 0.56, hexagon: 0.8, octagon: 0.8, pentagon: 0.7, chevron: 0.6, arrow: 0.6, triangle: 0.62 };
+// Where PowerPoint sets the text of a shape whose text the scene sets across its width, in a w × h frame: how far
+// in from its left and right (`x`), its top and its bottom, PowerPoint's text rect for the preset. A rounded
+// rectangle's is in from its corners, by their radius (a sixth of the shorter side) times 1 − √½; a
+// parallelogram's and a trapezoid's by their slant; a cylinder's under its top. So a line set left starts
+// where PowerPoint starts it, and a block sits where PowerPoint sets it.
+const TEXT_RECT = {
+  rounded: (w, h) => { const x = 0.16667 * 0.29289 * Math.min(w, h); return { x, top: x, bottom: x }; },
+  parallelogram: (w, h) => { const q = (1 + 1.25 * Math.min(w, h) / w) / 12; return { x: q * w, top: q * h, bottom: q * h }; },
+  trapezoid: (w, h) => { const x = Math.min(w, h) / 6; return { x, top: x * h / w, bottom: 0 }; },
+  cylinder: (w, h) => { const y = Math.min(w, h) / 8; return { x: 0, top: 2 * y, bottom: y }; },
+};
+const textRect = (shape, w, h) => TEXT_RECT[shape]?.(w, h) ?? { x: 0, top: 0, bottom: 0 };
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
 // A box's width where none is entered: about 100 pt, so that a chart's names wrap rather than its page
 // widens; a triangle's a little more, its text sitting in its lower half.
@@ -383,14 +395,23 @@ function unmoved(scene, before, after, formatsOf) {
   return [...changed].every(id => !scene.byId.has(id) && inert(before, id) && inert(after, id)) && unlocated(before) && unlocated(after);
 }
 
-const of =(...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
+// What a scene reads of a chart's rows, as they stand: its notes, by their ids, and each view's free shapes.
+const rowsRead = new WeakMap();
+function readRows(rows, view) {
+  let r = rowsRead.get(rows);
+  if (!r) rowsRead.set(rows, r = { notes: rows.filter(x => 'note' in x).map(x => x.id).join(), shapes: new Map() });
+  if (!r.shapes.has(view)) r.shapes.set(view, rows.filter(x => 'shape' in x && x.view === view));
+  return r;
+}
+
+const of = (...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
 // The steps: the marks, from the records; then for each layout tried, ELK's part of it, and the rest of it
 // with its routes; then the page.
 function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
   const red = opts.redline ?? null;
-  const rows = wb.rows(chart), notesAre = `${view}|${rows.filter(r => 'note' in r).map(r => r.id).join()}`;
-  const shapeRows = rows.filter(r => 'shape' in r && r.view === view);
+  const rows = wb.rows(chart), read = readRows(rows, view), notesAre = `${view}|${read.notes}`;
+  const shapeRows = read.shapes.get(view);
   const preview = !!(red || opts.reveal?.length), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const from = [opts.state, notesAre, shapeRows.map(r => r.id).join(), [...said.values()].join('\n'), day], whence = `${drawnAs}|${opts.paper ?? ''}`;
@@ -943,11 +964,12 @@ function move(m, dx, dy) {
 }
 
 // A box's texts placed in it, once its height is known: at a triangle's base, 7 pt up; in the middle of
-// anything else. Its `column` is the width its lines were broken to (a triangle's, its pyramid's).
+// anything else. Its `column` is where its lines are set: the width they were broken to (a triangle's, its
+// pyramid's), set in as PowerPoint sets in its text rect (see TEXT_RECT).
 function setText(b) {
-  const tb = blockHeight(b.texts), width = Math.max(32, b.w * (TEXT_AREA[b.shape] ?? 1) - 2 * INSET);
+  const tb = blockHeight(b.texts), r = textRect(b.shape, b.w, b.h), width = Math.max(32, b.w * (TEXT_AREA[b.shape] ?? 1) - 2 * INSET) - 2 * r.x;
   if (b.shape !== 'triangle') b.column = { x: (b.w - width) / 2, width };
-  let y = b.shape === 'triangle' ? b.h - BASE - tb : (b.h - tb) / 2;
+  let y = b.shape === 'triangle' ? b.h - BASE - tb : r.top + (b.h - r.top - r.bottom - tb) / 2;
   for (const it of b.texts) y = stack(it, b.column.x, b.column.width, y);
 }
 // A line's label: its texts stacked from its top left, as wide as the widest line. It's `shared` where it's
@@ -1199,11 +1221,12 @@ function freeShape(row, text, u = 1) {
   if (text && !['line', 'picture', 'group', 'legend'].includes(m.geometry)) {
     const inset = 9.6 * u, share = TEXT_AREA[m.geometry] ?? 1, lines = breakLines(text, t, m.auto ? Infinity : Math.max(16 * u, m.w * share - 2 * inset), !!row.role);
     if (m.auto) m.w = Math.ceil(widest([{ lines }]) + 2 * inset + 1);
-    const avail = Math.max(16 * u, m.w * share - 2 * inset);
+    // Set in as PowerPoint sets in its text rect (see TEXT_RECT).
+    const r = textRect(m.geometry, m.w, m.h), avail = Math.max(16 * u, m.w * share - 2 * inset) - 2 * r.x;
     const it = { id: shape, type: 'text', look: t, settings: m.settings, text, lines };
     const tb = blockHeight([it]);
     if (m.geometry === 'text') m.h = m.auto ? tb + 9.6 * u : Math.max(m.h, tb + 9.6 * u);
-    stack(it, (m.w - avail) / 2, avail, m.geometry === 'frame' ? 5 * u : m.geometry === 'text' ? 4.8 * u : (m.h - tb) / 2);
+    stack(it, (m.w - avail) / 2, avail, m.geometry === 'frame' ? 5 * u : m.geometry === 'text' ? 4.8 * u : r.top + (m.h - r.top - r.bottom - tb) / 2);
     m.texts.push(it);
     m.column = { x: (m.w - avail) / 2, width: avail };
   }

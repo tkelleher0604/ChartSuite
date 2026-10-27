@@ -140,10 +140,12 @@ function open(data) {
   function check(c) {
     if (c.removes.some(id => !live.has(id))) return 'It has changed since.';
     const d = chart(c.chart), gone = new Set(c.removes), after = [...d.rows.filter(r => !gone.has(r.id)), ...c.adds];
-    const items = new Set(after.map(itemOf)), byArgs = new Map();
-    for (const r of after) if ('record' in r && !('kind' in r)) push(byArgs, argKey(r), r);
+    const there = id => c.adds.some(r => itemOf(r) === id) || (d.items.get(id) ?? []).some(r => !gone.has(r.id));
+    // The records an added one could share its argumentation with: those at one of its locations.
+    const near = new Set(c.adds.filter(r => 'record' in r).flatMap(r => Tree.argsOf(r).map(a => a.at))), byArgs = new Map();
+    for (const r of after) if ('record' in r && !('kind' in r) && (r.at ? near.has(r.at) : r.args.some(a => near.has(a.at)))) push(byArgs, argKey(r), r);
     for (const r of c.adds) if ('record' in r) {
-      if (Tree.argsOf(r).some(a => !items.has(a.at))) return 'Something it’s at no longer exists.';
+      if (Tree.argsOf(r).some(a => !there(a.at))) return 'Something it’s at no longer exists.';
       if (!('kind' in r) && byArgs.get(argKey(r)).some(x => x.record !== r.record && overlap(x, r)))
         return 'args' in r ? 'That relation is already recorded.' : `${r.edge} is already recorded here.`;
     }
