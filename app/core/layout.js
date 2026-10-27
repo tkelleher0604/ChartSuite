@@ -36,6 +36,8 @@ const OPTIONS = {
 // Network simplex takes seconds there, and recurses once for each box and line, past what the stack holds.
 const QUICK = { 'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF', 'elk.layered.thoroughness': '1', 'elk.layered.crossingMinimization.greedySwitch.type': 'OFF' };
 const BIG = 120;   // boxes and lines
+// The room a chart has on a slide, where no other is given: within its margins, under its title and date.
+const ROOM = { w: 1184, h: 538 };
 
 // Distances, in pixels: lanes at least 15 pt apart, so 12 pt on a slide that draws the page at 0.8; a lane
 // passing over a triangle's apex, or a junction, at least 16 pt clear of it; a line's last leg at least this
@@ -55,53 +57,222 @@ function keeping() {
 }
 
 // Positions for every box, top left at 0, 0: { id → { x, y } }. Laid out again only when what it reads
-// changes: the boxes and their sizes, the lines that rank them, and the frames; and where a store is given
-// (keepIn: { get, set } of text), not even after a reload, the latest six being kept there. Should ELK fail,
-// the boxes are set out in rows by rank, so a chart is always drawn.
+// changes: the boxes, their sizes and classes, the lines that rank them, and the frames; and where a store is
+// given (keepIn: { get, set } of text), not even after a reload, the latest six being kept there. Should ELK
+// fail, the boxes are set out in rows by rank, so a chart is always drawn.
 const placed = keeping();
 let store = null;
 const keepIn = s => { store = s; };
 const laidBefore = () => { try { return JSON.parse(store?.get('layouts') ?? '[]'); } catch { return []; } };
-function place({ boxes, links, clusters }) {
+function place({ boxes, links, clusters, room = ROOM }) {
   const quick = boxes.length + links.length > BIG;
-  const k = JSON.stringify([OPTIONS, quick, boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h)]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
+  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
   return placed(k, () => {
     const before = laidBefore().find(([key]) => key === k);
     if (before) return new Map(before[1].map(([id, x, y]) => [id, { x, y }]));
     let out = null;
     for (const options of quick ? [{ ...OPTIONS, ...QUICK }] : [OPTIONS, { ...OPTIONS, ...QUICK }]) {
-      try { out = elkPlace(boxes, links, clusters, options); break; } catch { /* the next way, or rows */ }
+      try { out = elkPlace(boxes, links, clusters, options, room); break; } catch { /* the next way, or rows */ }
     }
     out ??= rows(boxes, links);
     store?.set('layouts', JSON.stringify([[k, [...out].map(([id, p]) => [id, p.x, p.y])], ...laidBefore().filter(([key]) => key !== k)].slice(0, 6)));
     return out;
   });
 }
-function elkPlace(boxes, links, clusters, options) {
-  const root = { id: '·root', layoutOptions: options, children: [], edges: [] }, node = new Map([[null, root]]);
-  for (const c of clusters) node.set(c.id, { id: c.id, children: [], layoutOptions: { 'elk.padding': `[top=${c.top},left=10,bottom=10,right=10]` } });
-  for (const c of clusters) node.get(c.parent ?? null).children.push(node.get(c.id));
+// The tier of each box, its row counted from the top, as a structure chart sets them: what nothing ranks over
+// in the top row, so investors sit in one row above the funds; each other box a row under the lowest box
+// that ranks it, or level with one of its own class that does (boxes a style fills alike, in one frame or in
+// none, like a feeder fund and the fund it invests in, are peers, joined side to side). A class sits in one
+// tier wherever the lines allow it: those of its members that rank anything go down to the lowest of them,
+// unless that moves one under another; one that ranks nothing stays under what ranks it. The last line of
+// a loop, as a search from the top meets it, ranks nothing. And tiers are as few as the lines allow: a tier
+// joins the one under it where all it ranks there it ranks by lines of another look than the chart's own
+// (ownership's, the look most lines have), which meet a box's side, and the chart is drawn no smaller for it.
+// A tier too wide for the room wraps, as a line of text does: its frames that rank nothing outside them go on
+// rows of their own under it, as many as draw the chart largest, a column of panels.
+// → { tier: { id → tier }, wraps: [[each frame's boxes in a column, a row each]] }
+function tiers(boxes, links, room = ROOM, clusters = []) {
+  // Each box's outermost frame; boxes filled alike are of one class only in one frame, or in none.
+  const parent = new Map(clusters.map(c => [c.id, c.parent])), framed = new Map(clusters.flatMap(c => c.members.map(m => [m, c.id])));
+  const outer = id => { let f = framed.get(id); while (f && parent.get(f)) f = parent.get(f); return f ?? null; };
+  const cls = new Map(boxes.map(b => [b.id, b.class ? `${b.class}|${outer(b.id) ?? ''}` : null])), down = new Map(boxes.map(b => [b.id, []]));
+  const looks = groupBy(links, l => l.trunk), main = [...looks.entries()].sort((a, b) => b[1].length - a[1].length)[0]?.[0];
+  const strict = new Set(links.filter(l => l.trunk === main).map(l => `${l.from}>${l.to}`));
+  for (const l of links) if (down.has(l.from) && down.has(l.to) && l.from !== l.to && !down.get(l.from).includes(l.to)) down.get(l.from).push(l.to);
+  // A search from the top, in the order given: what it finishes last comes first, and a line back up a path
+  // it's on is a loop's.
+  const state = new Map(), order = [], ups = new Map(boxes.map(b => [b.id, []]));
+  for (const b of boxes) {
+    if (state.has(b.id)) continue;
+    const stack = [[b.id, 0]];
+    state.set(b.id, 1);
+    while (stack.length) {
+      const top = stack[stack.length - 1], [id, i] = top, next = down.get(id)[i];
+      if (next === undefined) { stack.pop(); state.set(id, 2); order.push(id); continue; }
+      top[1]++;
+      if (state.get(next) === 1) continue;
+      ups.get(next).push(id);
+      if (!state.has(next)) { state.set(next, 1); stack.push([next, 0]); }
+    }
+  }
+  order.reverse();
+  const len = (u, v) => cls.get(u) && cls.get(u) === cls.get(v) ? 0 : 1;
+  const settle = t => { for (const v of order) for (const u of ups.get(v)) if (t.get(u) + len(u, v) > t.get(v)) t.set(v, t.get(u) + len(u, v)); return t; };
+  let tier = settle(new Map(boxes.map(b => [b.id, 0])));
+  const classes = [...groupBy(boxes.filter(b => cls.get(b.id) && down.get(b.id).length), b => cls.get(b.id)).values()].map(bs => bs.map(b => b.id)).filter(ms => ms.length > 1);
+  for (let again = true, n = 0; again && n < 2 * classes.length + 2; n++) {
+    again = false;
+    for (const ms of classes) {
+      const t = Math.max(...ms.map(id => tier.get(id)));
+      if (ms.every(id => tier.get(id) === t)) continue;
+      const tried = settle(new Map([...tier, ...ms.map(id => [id, t])]));
+      if (ms.every(id => tried.get(id) === t)) { tier = tried; again = true; }
+    }
+  }
+  // Each tier as what's side by side in it: a box, or a frame's boxes there, framed (its outermost frame's).
+  const pad = new Map(clusters.map(c => [c.id, c.top]));
+  const units = bs => [...groupBy(bs, b => outer(b.id) ?? b.id).entries()].map(([k, ms]) => {
+    const f = outer(ms[0].id), w = ms.reduce((w, b) => w + b.w + GAP.across, -GAP.across), h = Math.max(...ms.map(b => b.h));
+    return { ms, framed: !!f, w: f ? w + 20 + GAP.across : w, h: f ? h + pad.get(f) + 10 : h };
+  });
+  let rows = [...groupBy(boxes, b => tier.get(b.id)).entries()].sort((a, b) => a[0] - b[0]).map(([, bs]) => bs);
+  const fitOf = rs => fit(rs.map(units), room);
+  for (let t = 0; t < rows.length - 1; t++) {
+    const here = new Set(rows[t].map(b => b.id)), next = rows[t + 1];
+    if (next.some(b => [...here].some(id => strict.has(`${id}>${b.id}`)))) continue;
+    const merged = [...rows.slice(0, t), [...rows[t], ...next], ...rows.slice(t + 2)];
+    if (fitOf(merged) >= fitOf(rows)) rows = merged, t--;
+  }
+  // A box that only lines of another look rank from the tier over it sits in that tier, beside what ranks it,
+  // where the chart is drawn no smaller for it.
+  for (let t = 1; t < rows.length; t++) for (const b of [...rows[t]]) {
+    const over = new Set(rows[t - 1].map(x => x.id)), here = new Set(rows[t].map(x => x.id)), ins = links.filter(l => l.to === b.id && over.has(l.from));
+    if (!ins.length || ins.some(l => strict.has(`${l.from}>${l.to}`)) || links.some(l => l.to === b.id && here.has(l.from))) continue;
+    const moved = rows.map((r, i) => i === t ? r.filter(x => x !== b) : i === t - 1 ? [...r, b] : r);
+    if (moved[t].length && fitOf(moved) >= fitOf(rows)) rows = moved;
+  }
+  // A tier of frames, each ranking nothing outside it, too wide for the room is a column of them instead, where
+  // that draws the chart larger.
+  const wraps = [];
+  for (let t = 0; t < rows.length; t++) {
+    const us = units(rows[t]), free = us.filter(u => u.framed && u.ms.every(b => down.get(b.id).every(id => u.ms.some(m => m.id === id))));
+    if (free.length < 2) continue;
+    const fixed = us.filter(u => !free.includes(u)).flatMap(u => u.ms), column = [...rows.slice(0, t), [...fixed, ...free[0].ms], ...free.slice(1).map(u => u.ms), ...rows.slice(t + 1)];
+    if (fitOf(column) <= fitOf(rows)) continue;
+    rows = column;
+    wraps.push(free.map(u => u.ms.map(b => b.id)));
+    t += free.length - 1;
+  }
+  return { tier: new Map(rows.flatMap((bs, t) => bs.map(b => [b.id, t]))), wraps };
+}
+// How large rows would be drawn in a room, roughly: each row as wide as what's in it side by side, and as tall as
+// its tallest, with the gaps the layout leaves. rows: lists of { w, h }.
+function fit(rows, room) {
+  const w = Math.max(...rows.map(us => us.reduce((w, u) => w + u.w + GAP.across, -GAP.across)));
+  const h = rows.reduce((h, us) => h + Math.max(...us.map(u => u.h)) + GAP.down, -GAP.down);
+  return Math.min(room.w / w, room.h / h);
+}
+// ELK lays the tiers out as rows, each given its place (see tiers), and orders and places what's in each. Ranking
+// lines that run level aren't ELK's to place, but keep their boxes together: each set of boxes so joined, in one
+// frame, is one block to ELK, they side by side in it (see lineUp), its lines meeting it where its boxes are.
+function elkPlace(boxes, links, clusters, options, room) {
+  const { tier, wraps } = tiers(boxes, links, room, clusters), K = 1e5, first = new Map();
+  for (const c of [...clusters].reverse()) first.set(c.id, Math.min(...c.members.map(m => tier.get(m) ?? Infinity), ...clusters.filter(d => d.parent === c.id).map(d => first.get(d.id))));
+  const topOf = id => id == null ? 0 : first.get(id);
   const home = new Map(clusters.flatMap(c => c.members.map(m => [m, c.id])));
-  const ids = new Set(boxes.map(b => b.id));
-  for (const b of boxes) node.get(home.get(b.id) ?? null).children.push({ id: b.id, width: b.w, height: b.h });
-  const seen = new Set();
-  links.forEach((l, i) => {
-    const e = `${l.from}>${l.to}`;
-    if (!ids.has(l.from) || !ids.has(l.to) || seen.has(e)) return;
+  const ids = new Set(boxes.map(b => b.id)), ranked = links.filter(l => ids.has(l.from) && ids.has(l.to) && l.from !== l.to);
+  // The blocks: boxes joined by level lines, within one frame; each box's place in its block.
+  const block = new Map(boxes.map(b => [b.id, b.id])), find = id => block.get(id) === id ? id : find(block.get(id));
+  const level = ranked.filter(l => tier.get(l.from) === tier.get(l.to) && home.get(l.from) === home.get(l.to));
+  for (const l of level) block.set(find(l.to), find(l.from));
+  // Deep branches first, so that ELK, where nothing else decides, sets them to the left, and what reaches least
+  // far down to the right, where the Key goes under the chart.
+  const below = new Map(), reach = id => {
+    if (!below.has(id)) { below.set(id, tier.get(id)); below.set(id, Math.max(tier.get(id), ...ranked.filter(l => l.from === id && tier.get(l.to) > tier.get(id)).map(l => reach(l.to)))); }
+    return below.get(id);
+  };
+  const deep = bs => Math.max(...bs.map(b => reach(b.id)));
+  const blocks = [...groupBy(boxes, b => find(b.id)).values()].map(bs => lineUp(bs, level)).sort((a, b) => deep(b) - deep(a)), inBlock = new Map();
+  for (const bs of blocks) bs.reduce((x, b) => { inBlock.set(b.id, { block: bs, x }); return x + b.w + GAP.across; }, 0);
+  const nodeOf = id => inBlock.get(id).block.length > 1 ? `·blk:${inBlock.get(id).block[0].id}` : id;
+  const root = { id: '·root', layoutOptions: { ...options, 'elk.layered.layering.strategy': 'INTERACTIVE', 'elk.layered.cycleBreaking.strategy': 'INTERACTIVE', 'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES' }, children: [], edges: [] }, node = new Map([[null, root]]);
+  for (const c of clusters) node.set(c.id, { id: c.id, x: 0, y: (first.get(c.id) - topOf(c.parent)) * K, width: 1, height: 1, children: [],
+    layoutOptions: { 'elk.padding': `[top=${c.top},left=10,bottom=10,right=10]`, 'elk.layered.layering.strategy': 'INTERACTIVE' } });
+  for (const c of clusters) node.get(c.parent ?? null).children.push(node.get(c.id));
+  blocks.forEach((bs, i) => {
+    const w = bs.reduce((w, b) => w + b.w + GAP.across, -GAP.across), h = Math.max(...bs.map(b => b.h)), n = { id: nodeOf(bs[0].id), x: i, y: (tier.get(bs[0].id) - topOf(home.get(bs[0].id))) * K, width: w, height: h };
+    if (bs.length > 1) Object.assign(n, { layoutOptions: { 'elk.portConstraints': 'FIXED_POS' }, ports: bs.flatMap(b => [['n', 0, 'NORTH'], ['s', h, 'SOUTH']]
+      .map(([k, y, side]) => ({ id: `${n.id}|${b.id}|${k}`, x: inBlock.get(b.id).x + b.w / 2, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': side } }))) });
+    node.get(home.get(bs[0].id) ?? null).children.push(n);
+  });
+  const end = (id, k) => inBlock.get(id).block.length > 1 ? `${nodeOf(id)}|${id}|${k}` : id, seen = new Set();
+  ranked.forEach((l, i) => {
+    const [s, t] = [end(l.from, 's'), end(l.to, 'n')], e = `${s}>${t}`;
+    if (seen.has(e) || tier.get(l.from) >= tier.get(l.to)) return;
     seen.add(e);
-    root.edges.push({ id: `·e${i}`, sources: [l.from], targets: [l.to] });
+    root.edges.push({ id: `·e${i}`, sources: [s], targets: [t] });
   });
   run(root);
-  const out = new Map();
+  const at = new Map(), out = new Map();
   const walk = (n, ox, oy) => {
     for (const c of n.children ?? []) {
       const x = ox + (c.x ?? 0), y = oy + (c.y ?? 0);
-      if (ids.has(c.id)) out.set(c.id, { x, y });
+      at.set(c.id, { x, y });
       walk(c, x, y);
     }
   };
   walk(root, 0, 0);
+  for (const b of boxes) { const p = at.get(nodeOf(b.id)); out.set(b.id, { x: p.x + inBlock.get(b.id).x, y: p.y }); }
+  // A tier's boxes top-aligned, as ELK sets them on their middles.
+  for (const bs of groupBy(boxes, b => tier.get(b.id)).values()) { const y = Math.min(...bs.map(b => out.get(b.id).y)); for (const b of bs) out.get(b.id).y = y; }
+  // A column of frames has them under one another from one left, 12 pt apart, as panels; the first stays where
+  // ELK put it unless it's alone in its tier, and what's under the column comes up with it. What reaches into
+  // them from above stands over their left, its middle 12 pt short of it, so its lines run down its side and
+  // into each, where nothing else in its tier is in the way.
+  const size = new Map(boxes.map(b => [b.id, b])), outer = id => { let f = home.get(id); while (f && node.get(f).parent) f = node.get(f).parent; return f; };
+  for (const c of clusters) node.get(c.id).parent = c.parent;
+  for (const column of wraps) {
+    const alone = boxes.every(b => tier.get(b.id) !== tier.get(column[0][0]) || column[0].includes(b.id)), them = new Set(column.flat());
+    const leftOf = ids => Math.min(...ids.map(id => out.get(id).x)), left = alone ? Math.min(...column.map(leftOf)) : leftOf(column[0]);
+    for (const ids of column) { const dx = left - leftOf(ids); for (const id of ids) out.get(id).x += dx; }
+    let up = 0;
+    const first = tier.get(column[0][0]), over = boxes.filter(b => tier.get(b.id) === first - 1);
+    column.reduce((bottom, ids) => {
+      const f = outer(ids[0]), top = at.get(f).y, dy = (bottom ?? top) + (bottom === null ? 0 : 16) - top;
+      for (const id of ids) out.get(id).y += dy;
+      up = dy;
+      return top + dy + node.get(f).height;
+    }, alone && over.length ? Math.max(...over.map(b => out.get(b.id).y + b.h)) + 16 : null);
+    const last = tier.get(column.at(-1)[0]);
+    for (const b of boxes) if (tier.get(b.id) > last) out.get(b.id).y += up;
+    for (const h of boxes.filter(b => !them.has(b.id) && ranked.some(l => l.from === b.id && them.has(l.to)))) {
+      // With what it's joined to level in its tier after it.
+      const row = [h, ...boxes.filter(b => tier.get(b.id) === tier.get(h.id) && ranked.some(l => l.from === h.id && l.to === b.id))];
+      const x = left - 10 - 16 - h.w / 2, w = row.reduce((w, b) => w + b.w + 3 * GAP.across, -3 * GAP.across);
+      if (boxes.some(b => !row.includes(b) && tier.get(b.id) === tier.get(h.id) && out.get(b.id).x < x + w + GAP.across && out.get(b.id).x + size.get(b.id).w + GAP.across > x)) continue;
+      row.reduce((x, b) => { out.get(b.id).x = x; return x + b.w + 3 * GAP.across; }, x);
+    }
+  }
   return out;
+}
+// A block's boxes side by side, in the order of the level lines that join them: along them where they make a
+// path, each line's upper end first; else out from the box with the most, alternately right and left.
+function lineUp(bs, level) {
+  if (bs.length < 2) return bs;
+  const ids = new Set(bs.map(b => b.id)), by = new Map(bs.map(b => [b.id, b])), near = new Map(bs.map(b => [b.id, []]));
+  for (const l of level) if (ids.has(l.from) && ids.has(l.to)) { near.get(l.from).push(l.to); near.get(l.to).push(l.from); }
+  for (const [id, ns] of near) near.set(id, [...new Set(ns)]);
+  const seen = new Set(), row = [];
+  if (bs.every(b => near.get(b.id).length <= 2)) {
+    const ends = bs.filter(b => near.get(b.id).length < 2);
+    for (let id = (ends.find(b => level.some(l => l.from === b.id && ids.has(l.to))) ?? ends[0] ?? bs[0]).id; id && !seen.has(id); id = near.get(id).find(n => !seen.has(n))) { seen.add(id); row.push(by.get(id)); }
+    return row.length === bs.length ? row : bs;
+  }
+  const hub = bs.reduce((a, b) => near.get(b.id).length > near.get(a.id).length ? b : a), left = [], right = [];
+  seen.add(hub.id);
+  const out = (id, side) => { for (const n of near.get(id)) if (!seen.has(n)) { seen.add(n); const s = side ?? (right.length <= left.length ? right : left); s.push(by.get(n)); out(n, s); } };
+  out(hub.id, null);
+  return [...left.reverse(), hub, ...right, ...bs.filter(b => !seen.has(b.id))];
 }
 // Boxes in rows by rank, each a step below everything that ranks it (a box in a loop, in the top row), left to
 // right in the order given.
@@ -170,8 +341,8 @@ const arranged = keeping();
 function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
-  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape]), links.map(l => [l.from, l.to]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), page.margin, lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
+  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
+    at(entered), page.margin, page.room && [page.room.w, page.room.h], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
   const out = new Map();
@@ -179,7 +350,7 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const rest = boxes.filter(b => !out.has(b.id));
   if (!rest.length) return out;
   const ups = groupBy(links, l => l.to), downs = groupBy(links, l => l.from);
-  const at = keep && out.size ? rough(boxes, ups, downs, out) : place({ boxes, links, clusters }), size = new Map(boxes.map(b => [b.id, b]));
+  const at = keep && out.size ? rough(boxes, ups, downs, out) : place({ boxes, links, clusters, room: page.room }), size = new Map(boxes.map(b => [b.id, b]));
   if (!out.size) return new Map(boxes.map(b => [b.id, { ...at.get(b.id) }]));
   const known = [...out.keys()];
   const shift = ids => [0, 1].map(k => ids.reduce((s, id) => s + (k ? out.get(id).y - at.get(id).y : out.get(id).x - at.get(id).x), 0) / ids.length);
