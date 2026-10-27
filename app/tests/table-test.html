@@ -588,12 +588,20 @@ async function run() {
   check('Names stay whole, and the grid scrolls across', across() && !cut().length && column('Name').getWidth() > 200, `${widths()}; cut: ${[...new Set(cut())].join()}`);
   const sr = Table.grid.modules.selectRange, gridEl = Table.grid.rowManager.element, behind = [];
   Table.grid.addRange(Table.grid.getRows('active')[2].getCells().at(-1)); gridEl.scrollLeft = gridEl.scrollWidth; await tick(40);
+  const arrow = (key, keyCode) => gridEl.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, keyCode, bubbles: true, cancelable: true }));
   for (let i = 1; i < Table.grid.getColumns().length; i++) {
-    sr.navigate(false, false, 'left'); await tick();
+    arrow('ArrowLeft', 37); await tick();
     const a = sr.getActiveCell(), pin = $('.grid .tabulator-row .tabulator-cell.pin').getBoundingClientRect().right;
     if (a && !a.getElement().classList.contains('pin') && a.getElement().getBoundingClientRect().left < pin - 1) behind.push(a.column.definition.title);
   }
   check('The arrows walk the active cell back across, never behind the column that stays put', !behind.length && sr.getActiveCell()?.column.definition.title === 'Name', behind.join());
+  const past = [];
+  for (let i = 1; i < Table.grid.getColumns().length; i++) {
+    arrow('ArrowRight', 39); await tick();
+    const a = sr.getActiveCell()?.getElement().getBoundingClientRect(), right = gridEl.getBoundingClientRect().left + gridEl.clientWidth;
+    if (a && a.right > right + 1) past.push(sr.getActiveCell().column.definition.title);
+  }
+  check('… and on across, each whole in view', !past.length && gridEl.scrollLeft > 0, past.join());
   // Scrolled across, it stops at a column's edge, clear of the first column.
   const scroller = Table.grid.rowManager.element, pinW = () => Table.grid.getColumns().find(c => c.getField()).getWidth();
   const edges = () => Table.grid.getRows('active')[0].getCells().filter(c => c.getField() && !c.getElement().classList.contains('pin')).map(c => c.getElement().offsetLeft - 48 - pinW());

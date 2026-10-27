@@ -318,7 +318,9 @@ const Table = (() => {
         accessorClipboard: v => plain(c.type, v), accessorDownload: v => csvSafe(plain(c.type, v)),
       };
     });
-    if (defs[0]) defs[0].cssClass += ' pin';   // kept in view by table.css, not frozen: Tabulator's range selection takes only the row numbers frozen
+    // Kept in view by table.css, not frozen: Tabulator's range selection takes only the row numbers frozen. Its
+    // rows are as tall as a name wrapped takes.
+    if (defs[0]) Object.assign(defs[0], { cssClass: defs[0].cssClass + ' pin', variableHeight: true });
     return defs;
   }
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
@@ -872,8 +874,20 @@ const Table = (() => {
     picked = now;
   }
 
+  // Moved across by the keys, the active cell comes whole into view with the grid at a column's edge, where it
+  // stops as it scrolls (table.css): its own edge, if it's past the left or wider than the room; past the right,
+  // the first edge that shows it.
+  function across() {
+    const a = table.modules.selectRange?.getActiveCell()?.getElement(), h = holder();
+    if (!a || !h || a.classList.contains('pin')) return;
+    const at = parseFloat(getComputedStyle(a).scrollMarginLeft) || 48, left = a.offsetLeft - at, need = a.offsetLeft + a.offsetWidth - h.clientWidth;
+    if (h.scrollLeft > left || need > left) h.scrollLeft = left;
+    else if (h.scrollLeft < need) h.scrollLeft = [...a.parentElement.children].filter(c => c.classList.contains('tabulator-cell') && !c.matches('.pin, .tabulator-row-header'))
+      .map(c => c.offsetLeft - at).find(x => x >= need) ?? h.scrollWidth;
+  }
   function keydown(e) {
     if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || current?.red) return;
+    if (/^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) return across();
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent();
     if (!cell) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); clear(); }

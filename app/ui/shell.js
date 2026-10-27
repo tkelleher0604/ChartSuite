@@ -648,7 +648,7 @@ const Shell = (() => {
       setOver(el.scrollWidth > el.clientWidth + 1);
     };
     useLayoutEffect(more);
-    useLayoutEffect(() => { const ro = new ResizeObserver(more); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, [!!vp]);
+    useLayoutEffect(() => { const ro = new ResizeObserver(() => requestAnimationFrame(more)); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, [!!vp]);
     if (!vp) return html`<div class="sheets" />`;
     const down = (e, v) => {
       if (e.button !== 0 || editing.peek()) return;
