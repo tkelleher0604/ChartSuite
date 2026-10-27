@@ -577,12 +577,13 @@ function Relatives({ id }) {
 
 // Look: each format property set for a mark and its value, under where it comes from, said once, as an
 // entry's entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code
-// only for one of the user's own; a size or a weight is the slide's, to the half point, as the format bar has
-// it. Format is what a text says: its Label.
+// only for one of the user's own; a size or a weight is the slide's, as the format bar has it, a size to the
+// half point and a weight as PowerPoint gives it. Format is what a text says: its Label.
 const LABELS = { Format: 'Label' };
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
 const val = (label, v) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
-  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' || label === 'Weight' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
+  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
+  : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
   : label === 'Shape' ? SHAPES[v] ?? upper(String(v)) : upper(String(v));
 function LookSection({ look, reset }) {
   if (!look.length) return null;
@@ -679,8 +680,6 @@ function Swatch({ sw, off }) {
     : html`<path d=${Scene.path(sw.Shape ?? 'rect', 25, 13)} transform="translate(1.5 1.5)" fill=${sw.Fill === 'none' ? 'none' : sw.Fill} stroke=${stroke}
         stroke-width=${Math.min(sw.Weight * Scene.PT, 2.5)} stroke-dasharray=${dash} />`}</svg>`;
 }
-// An output's swatch, as the legend draws it; one that draws a frame, the frame.
-const swatchOf = o => { const sw = Scene.swatchOf(o.pattern, o.formats); return sw.kind === 'text' && o.formats.Frame && o.formats.Frame !== 'none' ? Scene.swatch('frame', o.formats) : sw; };
 // A view's styles (those reaching `only`, if given), each with the outputs it formats: an output that only
 // shows or hides is a filter, which the legend doesn't key and nor does this.
 const stylesOf = (v, only) => N().styles(v).filter(s => !only || T.narrower(only, s.pattern) || T.narrower(s.pattern, only))
@@ -692,20 +691,12 @@ function Styles({ v, only }) {
     App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
   // A caption typed as an output's own name is no caption.
   const cap = (os, text) => App.change(tx => os.forEach(o => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v })));
-  // A style's outputs that look alike are one row, as in the Key: its swatch, its caption (the Key's word,
-  // typed over, which captions each), and beneath, the outputs, where they say other than the caption. The
-  // rule is Scene.groupsOf's, [{ style, outputs, swatch, caption, off }]; till Scene has it, the Key's, here:
-  // by swatch and Shown (a frame's caption is drawn on it, so part of its look), captioned by a Caption at
-  // one of them, or by them, two at most, or by the style's name.
-  const rowsOf = s => {
-    const given = Scene.groupsOf?.(n, v)?.filter(g => g.style === s.key);
-    if (given?.length) return given.map(g => ({ caption: g.caption, sw: g.swatch, off: !!g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
-    const groups = new Map();
-    for (const o of s.outputs) { const sw = swatchOf(o), off = o.formats.Shown === false, k = JSON.stringify([sw, off, sw.kind === 'frame' && Scene.captionOf(n, o.pattern, v)]);
-      (groups.get(k) ?? groups.set(k, { sw, off, os: [] }).get(k)).os.push(o); }
-    return [...groups.values()].map(g => { const own = g.os.map(o => n.resolve('Caption', o.pattern, v)).find(c => c && g.os.some(o => T.key(o.pattern) === T.key(c.note.pattern)));
-      return { ...g, caption: own ? own.value : g.os.length > 2 ? Scene.styleName(n, s.pattern) : g.os.map(o => Scene.outputName(n, o.pattern)).join(', ') }; });
-  };
+  // A style's outputs that look alike are one row, as in the Key, by Scene.groupsOf's rule: its swatch, its
+  // caption (the Key's word, typed over, which captions each), and beneath, the outputs, where they say other
+  // than the caption.
+  const groups = Scene.groupsOf(n, v);
+  const rowsOf = s => groups.filter(g => g.style === s.key)
+    .map(g => ({ caption: g.caption, sw: g.swatch, off: g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
   const grip = () => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`;
   const output = (g, lone) => {
     const names = g.os.map(o => Scene.outputName(n, o.pattern)), said = names.length > 1 || !T.same(names[0], g.caption);

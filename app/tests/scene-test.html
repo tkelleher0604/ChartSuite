@@ -135,6 +135,10 @@ function run() {
     check('the legend has a row for each output a drawn mark takes its look from', !!row(lg, choice('Main Fund')) && !!row(lg, choice('Limited Partnership')) && !!row(lg, owns) && !!row(lg, choice('Portfolio Company')),
       lg.rows.map(r => r.caption.text).join(' | '));
     check('outputs that look alike share a row', row(lg, choice('Main Fund')) === row(lg, choice('Feeder Fund')));
+    const groups = Scene.groupsOf(wb.notes(C), MAIN), funds = groups.find(g => g.outputs.some(choice('Main Fund')));
+    check('Styles, the Key and the scope group by one rule: a style’s outputs that look alike, the Key’s rows those of them drawn', funds.outputs.length === 6 && funds.caption === 'Funds'
+      && lg.rows.every(r => groups.some(g => g.style === r.style && j({ ...g.swatch, Weight: 0 }) === j({ ...r.swatch, Weight: 0 }) && r.outputs.every(o => g.outputs.some(p => Tree.key(p) === Tree.key(o))))),
+      j(groups.map(g => [g.caption, g.outputs.length])));
     check('no row for a look nothing drawn takes', !row(lg, choice('Business Development Company')) || s.marks.some(m => m.type === 'box' && m.settings.Fill.note?.pattern.out?.choice === 'Business Development Company'));
     check('a row’s swatch is drawn in its output’s format', row(lg, choice('Main Fund')).swatch.Fill === '#dae3f3' && row(lg, choice('Limited Partnership')).swatch.Shape === 'triangle'
       && row(lg, owns).swatch.kind === 'line');
@@ -148,7 +152,7 @@ function run() {
     check('a Caption note captions a row', lt.rows.some(r => r.caption.text === 'Fund vehicle'));
     check('rows follow the outputs in use: hide every portfolio company and its row goes', !row(lt, choice('Portfolio Company')) && lt.rows.length === lg.rows.length - 1,
       `${lg.rows.length} then ${lt.rows.length}`);
-    check('the legend is a shape: placed, sized and formatted as one', lt.x === 40 && lt.y === 700 && lt.w === 300 && lt.h > 40 && lt.look.Outline === '#7f7f7f');
+    check('the legend is a shape: placed with the chart, sized and formatted as one', lt.x - t.page.offset.x === 40 && lt.y - t.page.offset.y === 700 && lt.w === 300 && lt.h > 40 && lt.look.Outline === '#7f7f7f');
     edit(wb, (tx, N) => { for (const v of ['Main Fund', 'Business Development Company']) note(tx, N, 'Caption', VT(v), MAIN, undefined); });
     const u = scene(wb).byId.get(key);
     check('more than two outputs of one look, with no caption, go by the style’s name', row(u, choice('Main Fund')).caption.text === 'Vehicle Type', row(u, choice('Main Fund')).caption.text);
@@ -181,20 +185,65 @@ function run() {
   {
     const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
     const entered = wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'fund').value;
-    check('an entered position wins', fund.x === entered.x && fund.y === entered.y && fund.w === 176 && entered.w === 176 && fund.entered, j(entered));
+    check('an entered position wins, set on the page by its offset', Math.abs(fund.x - s.page.offset.x - entered.x) < 1e-6 && Math.abs(fund.y - s.page.offset.y - entered.y) < 1e-6 && fund.w === 176 && entered.w === 176 && fund.entered, j(entered));
     edit(wb, tx => tx.remove(wb.notes(C).notes('Position').find(n => n.view === MAIN && n.pattern.id === 'blocker').note));
     const t = scene(wb), b = t.byId.get('blocker');
     const clash = t.marks.filter(m => m.type === 'box' && m.id !== 'blocker').some(m => b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
     const f = t.byId.get('fund'), h = t.byId.get('halvard');
-    check('a box with no entered position is laid out among the entered ones, clear of them', !b.entered && !clash && f.x === entered.x, j({ x: b.x, y: b.y }));
+    check('a box with no entered position is laid out among the entered ones, clear of them', !b.entered && !clash && Math.abs(f.x - t.page.offset.x - entered.x) < 1e-6, j({ x: b.x, y: b.y }));
     check('and near what it’s linked to: below its owner, above what it owns', b.y > f.y + f.h && b.y + b.h < h.y && Math.abs(b.x + b.w / 2 - (f.x + f.w / 2)) < 400, j({ x: b.x, y: b.y }));
     edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note); });
     const u = scene(wb), boxes = u.marks.filter(m => m.type === 'box');
     check('Tidy clears the view’s entered positions, and the layout places every box', boxes.every(m => !m.entered) && u.byId.get('fund').x !== entered.x);
-    check('the layout ranks lines by Above: owners over what they own', u.marks.filter(m => m.type === 'line' && m.record.startsWith('own_')).every(l => u.byId.get(l.from).y + u.byId.get(l.from).h <= u.byId.get(l.to).y + 1));
+    const peers = (a, b) => a.y === b.y && a.settings.Fill.value === b.settings.Fill.value && !!a.settings.Fill.note;
+    check('the layout ranks lines by Above: owners over what they own, or beside it where both are filled alike', u.marks.filter(m => m.type === 'line' && m.record.startsWith('own_'))
+      .every(l => u.byId.get(l.from).y + u.byId.get(l.from).h <= u.byId.get(l.to).y + 1 || peers(u.byId.get(l.from), u.byId.get(l.to))));
     check('every box is on the page', boxes.every(m => m.x >= 0 && m.y >= 0 && m.x + m.w <= u.page.w && m.y + m.h <= u.page.h), j(u.page));
     check('every line is routed, with its points on its boxes', u.marks.filter(m => m.type === 'line').every(l => l.points.length >= 2));
     check('other views keep their positions', scene(wb, 'view_fund3').byId.get('fund').entered);
+  }
+  {
+    // Tidy on every sample view: the layout alone, as a new chart gets it.
+    const tidied = v => { const wb = fresh(); edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); }); return scene(wb, v); };
+    const [main, forty, fund3, control] = ['view_main', 'view_40act', 'view_fund3', 'view_control'].map(tidied);
+    const tops = (s, f) => new Set(s.marks.filter(m => m.type === 'box' && f(m)).map(m => Math.round(m.y)));
+    const investors = s => s.marks.filter(m => m.type === 'box' && m.record.startsWith('inv_'));
+    const funds = s => s.marks.filter(m => m.type === 'box' && m.shape === 'triangle');
+    check('Tidy sets the investors in one row above the funds, and the funds in one tier', [main, fund3].every(s => tops(s, m => m.record.startsWith('inv_')).size === 1
+      && tops(s, m => m.shape === 'triangle').size === 1 && Math.max(...investors(s).map(m => m.y + m.h)) < Math.min(...funds(s).map(m => m.y))),
+      j([main, fund3].map(s => [[...tops(s, m => m.record.startsWith('inv_'))], [...tops(s, m => m.shape === 'triangle')]])));
+    const panels = forty.marks.filter(m => m.type === 'frame' && !m.lone);
+    check('… lays 40 Act’s frames out as a column of panels, one over another, sharing their sides', panels.length === 4 && new Set(panels.map(f => Math.round(f.x))).size === 1
+      && panels.every((f, i) => panels.every((g, k) => i === k || f.y + f.h <= g.y || g.y + g.h <= f.y)), j(panels.map(f => [f.caption.text, Math.round(f.x), Math.round(f.y)])));
+    const scales = [main, forty, fund3, control].map(s => s.page.scale);
+    check('… and draws every sample view at 0.65 or more on its slide', scales.every(s => s >= 0.65), j(scales));
+    // The same records, in another order in the state, draw the same picture; so Undo, which puts what it
+    // brings back at the end, restores the layout exactly.
+    const wb = fresh();
+    edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note); });
+    const R = computed(wb), said = s => j(s.marks.map(m => [m.id, m.x, m.y, m.w, m.h, m.points]));
+    const before = said(Scene.of(wb, C, MAIN, DAY, { state: R.records, computed: R }));
+    const turned = Object.fromEntries(Object.entries(R.records).reverse());
+    check('the same records in another order draw the same picture', said(Scene.of(wb, C, MAIN, DAY, { state: turned, computed: R })) === before);
+    const own = Object.keys(wb.asOf(C, DAY)).sort().find(id => wb.asOf(C, DAY)[id].tag && wb.asOf(C, DAY)[id].args?.some(a => a.edge === 'Owner'));
+    const ruling = edit(wb, tx => tx.update(own, { tag: false })), undo = wb.reverse(ruling.id, WHO);
+    if (typeof undo === 'string') throw new Error(undo);
+    const back = computed(wb);
+    check('… so Undo of a ruling draws the layout as it was', said(Scene.of(wb, C, MAIN, DAY, { state: back.records, computed: back })) === before
+      && Object.keys(back.records).join() !== Object.keys(R.records).join(), own);
+  }
+  {
+    // As of a day before the later funds were formed, Structure keeps today's places, and the page sets what's
+    // left of the chart across its middle: only the white space moves.
+    const wb = fresh(), now = scene(wb), then = '2023-06-30';
+    const N = wb.notes(C), S = wb.schema(C), past = Formulas.computeState(wb.asOf(C, then), N.definitions(S), { relations: N.relations(S) });
+    const p = Scene.of(wb, C, MAIN, then, { state: past.records, computed: past }), boxes = p.marks.filter(m => m.type === 'box');
+    const chart = [...boxes, ...p.marks.filter(m => m.type === 'frame')], sheet = r => r * p.page.scale;
+    const left = sheet(Math.min(...chart.map(m => m.x))), right = sheet(Math.max(...chart.map(m => m.x + m.w)));
+    const kept = boxes.every(b => Math.abs(b.x - p.page.offset.x - (now.byId.get(b.id).x - now.page.offset.x)) < 1e-6 && Math.abs(b.y - p.page.offset.y - (now.byId.get(b.id).y - now.page.offset.y)) < 1e-6);
+    const key = p.marks.find(m => m.geometry === 'legend'), k = key && sheet(key.y) < 60 ? sheet(key.x) : null;
+    check('a chart placed by hand sits across the middle of its page, or as far left as the Key beside the title needs, as of any day, its places kept',
+      boxes.length < now.marks.filter(m => m.type === 'box').length && kept && (Math.abs(left - (1280 - right)) < 24 || (k !== null && left >= 47.5 && left < 1280 - right)), j({ left, right, k, kept }));
   }
 
   // ---- Exhibits: tiers, routes, labels, frames, the page ----
@@ -268,16 +317,32 @@ function run() {
     const texts = s => s.marks.flatMap(m => [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]);
     const halves = sc.flatMap(s => texts(s).map(it => on(s, it.look.Size))).filter(p => Math.abs(p * 2 - Math.round(p * 2)) > 1e-6);
     check('every text is drawn at a whole or half point', !halves.length, j(halves.slice(0, 5)));
+    const weighed = sc.flatMap(s => s.marks.filter(m => m.type === 'box' || m.type === 'line' || m.type === 'frame').map(m => [m.id, on(s, m.settings.Weight.value), m.settings.Weight.note?.value ?? 0.75]));
+    check('every line is drawn at the weight it was given on the slide, whatever the chart’s scale: 0.75 where nothing says', weighed.every(([, w, given]) => Math.abs(w - given) < 1e-9),
+      j(weighed.filter(([, w, given]) => Math.abs(w - given) >= 1e-9).slice(0, 4)));
+    // A size picked in the slide's points is the size on the slide, though the box grows and the chart is drawn
+    // smaller for it: the page's size found as the format bar finds it.
+    const picked = [10, 12, 14].map(v => {
+      const w = fresh(), R = computed(w), t0 = Tree.treeOf(R.records, 'fund'), at = t => {
+        const id = `·t${t}`, rows =[...w.rows(C), { id, note: id, label: 'Size', pattern: t0, view: MAIN, value: t }], notes = Notes.index(rows.filter(r => 'note' in r));
+        return { ...w, rows: () => rows, notes: () => notes };
+      };
+      const t = Math.round(Scene.toPage(v, scene(w).page.scale, x => Scene.of(at(x), C, MAIN, DAY, { state: R.records, computed: R, ahead: true }).page.scale) * 100) / 100;
+      edit(w, (tx, N) => note(tx, N, 'Size', t0, MAIN, t));
+      const s = scene(w);
+      return [v, on(s, s.byId.get('fund').texts[0].look.Size), s.page.scale];
+    });
+    check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(([v, got]) => Math.abs(got - v) < 1e-9), j(picked));
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
       return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));
     check('the chart starts 24 pt under the date', placed.every(p => p.top >= p.d.y + p.d.h - 4.8 + 32 - 0.5), j(placed.map(p => [p.top, p.d.y + p.d.h - 4.8 + 32])));
     const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-    check('the Key is beside the title where it fits there: 40 Act, top right', Math.abs(placed[1].k.x + placed[1].k.w - 1232) < 1 && Math.abs(placed[1].k.y - 48) < 0.5, j(placed[1].k));
-    check('… or 24 pt under the chart, right-aligned to it, at the foot of what’s over it', [0, 2, 3].every(i => {
+    check('the Key is beside the title where it fits there: 40 Act and Management and control, top right', [1, 3].every(i => Math.abs(placed[i].k.x + placed[i].k.w - 1232) < 1 && Math.abs(placed[i].k.y - 48) < 0.5), j([1, 3].map(i => placed[i].k)));
+    check('… or 24 pt under the chart, right-aligned to it, at the foot of what’s over it', [0, 2].every(i => {
       const p = placed[i], over = p.chart.filter(r => r.x < p.k.x + p.k.w && r.x + r.w > p.k.x);
       return Math.abs(p.k.x + p.k.w - p.right) < 1 && p.k.y >= Math.max(...over.map(r => r.y + r.h)) + 32 - 0.5 && p.k.y + p.k.h <= 672.5;
-    }), j([0, 2, 3].map(i => [placed[i].k, placed[i].right])));
+    }), j([0, 2].map(i => [placed[i].k, placed[i].right])));
     check('nothing drawn overlaps the title, the date or the Key', placed.every(p => !p.chart.some(r => meets(r, p.t) || meets(r, p.d) || meets(r, p.k))));
 
     // Line jumps: Structure's rails from Chen and Okafor cross each other's drops.

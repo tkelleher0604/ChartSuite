@@ -1,19 +1,21 @@
 // The format bar: one bar over the chart, in place of the ribbon. Insert adds a box of one of the chart's
 // kinds, or a shape, a text box, a line or the key. A scope chip names what a change applies to: the
-// selection, as in PowerPoint ("This box", "These 3 boxes"); its menu offers each style that reaches it, by
-// its reach ("All Funds (6)"). A change writes format notes: for the selection, at each record's own tree in
-// the view; for a style, at its output's pattern in the view. A free shape keeps its formats in its row.
-// Selecting a legend row engages its style, so the legend is the other way to restyle. A choice pointed at
-// is drawn on the chart as it would be, PowerPoint's live preview, until the pointer leaves it.
+// selection, as in PowerPoint ("This box", "These 3 boxes"); its menu offers, under each style that reaches
+// it, the groups of the style's outputs that do, as the Key says them, with their reach ("Funds (6)"). A
+// change writes format notes: for the selection, at each record's own tree in the view; for a group, at each
+// of its outputs' patterns in the view. A free shape keeps its formats in its row. Selecting a legend row
+// engages its group, so the legend is the other way to restyle. A choice pointed at, Tidy's too, is drawn on
+// the chart as it would be, PowerPoint's live preview, until the pointer leaves it.
 const FormatBar = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
 const { signal, effect } = preactSignals;
 
 const FONTS = Scene.FONTS;
-// Sizes and weights are shown and chosen as the slide has them: the page's, drawn smaller by its scale.
+// Sizes and weights are shown and chosen as the slide has them: a size the page's, drawn smaller by its scale;
+// a weight the slide's own, one of PowerPoint's.
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32];
-const WEIGHTS = [0.5, 0.75, 1, 1.5, 2, 3];
+const WEIGHTS = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6];
 // PowerPoint's colors, so a swatch means the same in both: its theme's columns (Background 1, Text 1 and the
 // six accents), each with its tints and shades in PowerPoint's rows, then its standard colors.
 const THEME = [
@@ -61,18 +63,19 @@ function scopesOf(c) {
   const bound = marks.filter(m => m.type === 'box' || m.type === 'line');
   if (marks.some(m => m.type === 'frame')) {
     const f = marks.find(m => m.type === 'frame');
-    return { marks, scopes: [{ key: 'frame', caption: f.caption.text, captions: new Set([f.caption.text]), outputs: [f.output], style: Tree.key(Tree.bare(f.output)) }] };
+    return { marks, scopes: [{ key: 'frame', caption: f.caption.text, outputs: f.outputs, style: Tree.key(Tree.bare(f.output)) }] };
   }
   const own = { key: 'own', label: these(marks), own: true };
   if (!bound.length) return { marks, group, scopes: [own] };
-  const by = new Map();
+  // Each style that reaches the selection, by the groups of its outputs that the Key and Styles go by too
+  // (Scene.groupsOf), each group that reaches it a scope; an output in none (a filter), alone.
+  const groups = Scene.groupsOf(App.notes.peek(), sc.view), by = new Map();
   for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek())) {
-    const s = by.get(r.style) ?? by.set(r.style, { key: r.style, style: r.style, order: r.order, name: r.name, outputs: [], captions: new Set() }).get(r.style);
-    if (!s.outputs.some(o => Tree.key(o) === Tree.key(r.output))) s.outputs.push(r.output);
-    s.captions.add(r.caption);
+    const k = Tree.key(r.output), g = groups.find(g => g.style === r.style && g.outputs.some(p => Tree.key(p) === k)) ?? { outputs: [r.output], caption: r.caption };
+    const key = `${r.style} ${Tree.key(g.outputs[0])}`;
+    if (!by.has(key)) by.set(key, { key, style: r.style, order: r.order, name: r.name, caption: g.caption, outputs: g.outputs });
   }
-  const styles = [...by.values()].sort((a, b) => b.order - a.order).map(s => ({ ...s, caption: s.captions.size === 1 ? [...s.captions][0] : s.name }));
-  return { marks, group, scopes: [own, ...styles] };
+  return { marks, group, scopes: [own, ...[...by.values()].sort((a, b) => b.order - a.order)] };
 }
 // The selection, as a scope: "This box", "These 3 boxes", "This line", "These 2 shapes".
 function these(ms) {
@@ -92,18 +95,12 @@ function reachOf(sc) {
     }
   return by;
 }
-// A style's outputs that a change to it reaches: those of the view captioned as the selection's are, which
-// share its frame and its row in the Key; a row's own.
-function outputsOf(c, s) {
-  if (s.key === 'row') return s.outputs;
-  const outs = [...reachOf(c.scene()).get(s.style)?.values() ?? []].filter(o => s.captions.has(o.caption));
-  return outs.length ? outs.map(o => o.output) : s.outputs;
-}
-// A style, as a scope, by how many of the view's marks it reaches: "All Funds (6)".
+// A scope as it's named: the selection ("This box"), or a group of a style's outputs as the Key says it, with
+// how many of the view's marks it reaches: "Funds (6)".
 function named(c, s) {
   if (s.own) return s.label;
-  const outs = reachOf(c.scene()).get(s.style), keys = outputsOf(c, s).map(o => Tree.key(o));
-  return `All ${s.caption} (${new Set(keys.flatMap(k => [...outs?.get(k)?.marks ?? []])).size})`;
+  const outs = reachOf(c.scene()).get(s.style);
+  return `${s.caption} (${new Set(s.outputs.flatMap(o => [...outs?.get(Tree.key(o))?.marks ?? []])).size})`;
 }
 // The scope a change goes to: the one chosen, or else the selection itself.
 const chosen = signal(null);
@@ -117,7 +114,7 @@ function write(tx, c, label, value) {
   const { marks, scopes } = scopesOf(c), scope = scopeOf(scopes);
   if (!scope) return;
   const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id);
-  if (scope.outputs) for (const p of outputsOf(c, scope)) tx.note(label, p, value, { view });
+  if (scope.outputs) for (const p of scope.outputs) tx.note(label, p, value, { view });
   else for (const m of marks) {
     if (m.type === 'box' || m.type === 'line') tx.note(label, tree(m.record), value, { view });
     else if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, [label]: value } });
@@ -132,14 +129,19 @@ function apply(label, value) {
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
 // A choice pointed at, drawn on the chart as it would be: the change written, uncommitted, on the chart's
-// rows, and the canvas asked to draw from them. With nothing, the chart is drawn as it is again. Each note
-// tried is new, so nothing worked out from another is kept for it.
+// rows, and the canvas asked to draw from them; or, for Tidy, the chart laid out afresh. With nothing, the
+// chart is drawn as it is again. Each note tried is new, so nothing worked out from another is kept for it.
 let tried = null, n = 0;
 function preview(label, value) {
   const c = Canvas.active.peek(), key = label === undefined || App.readOnly.peek() ? null : JSON.stringify([label, value]);
   if (!c || key === tried) return;
   tried = key;
   if (!key) return c.restyle(null);
+  if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
+  c.restyle(trying(c, label, value));
+}
+// The chart with a change written on its rows, uncommitted.
+function trying(c, label, value) {
   const wb = App.shown.peek(), same = (r, l, k, view) => 'note' in r && r.label === l && (r.view ?? null) === (view ?? null) && !r.param && Tree.key(r.pattern) === k;
   let rows = wb.rows(App.chart.peek());
   write({
@@ -151,7 +153,15 @@ function preview(label, value) {
     update(id, changes) { rows = rows.map(r => r.shape === id ? { ...r, ...changes } : r); },
   }, c, label, value);
   const notes = Notes.index(rows.filter(r => 'note' in r));
-  c.restyle({ ...wb, rows: () => rows, notes: () => notes });
+  return { ...wb, rows: () => rows, notes: () => notes };
+}
+// A size picked is the size on the slide, though the chart's scale changes with it: the page's size that, at the
+// scale the chart is then drawn at, is the one picked (Scene.toPage).
+function sized(v) {
+  const c = Canvas.active.peek(), sc = c?.scene();
+  if (!sc) return put(v);
+  const scaleAt = t => Scene.of(trying(c, 'Size', t), App.chart.peek(), sc.view, sc.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }).page.scale;
+  return Math.round(Scene.toPage(v, sc.page.scale, scaleAt) * 100) / 100;
 }
 // A setting's value on the selection: its first mark's, or its first text's for a text property (a frame's,
 // its caption's).
@@ -264,10 +274,19 @@ function Bar() {
     { label: 'Send backward', keys: '$mod+[', run: () => c.order('backward') }, { label: 'Send to back', keys: '$mod+Shift+[', run: () => c.order('back') },
   ];
   const grouping = s.group ? { label: 'Ungroup', keys: '$mod+Shift+G', run: () => c.ungroup() } : { label: 'Group', keys: '$mod+G', disabled: placeable < 2, run: () => c.group() };
-  // Tidy lays the whole view out again, with nothing to do where nothing in it was placed by hand.
-  const view = c.scene().view, tidy = { label: 'Tidy', disabled: App.readOnly.peek() || !App.notes.peek().notes('Position').some(n => n.view === view), run: () => c.tidy() };
-  const scopes = () => s.scopes.flatMap((x, i) => [...(i === 1 && s.scopes[0].own ? ['-'] : []),
-    { label: named(c, x), detail: x.own || x.name === x.caption ? null : x.name, checked: x === scope, run: () => { chosen.value = x.key; } }]);
+  // Tidy lays the whole view out again, with nothing to do where nothing in it was placed by hand; pointed
+  // at, it's drawn as it would be. Made, the change ends the preview.
+  const view = c.scene().view, tidy = { label: 'Tidy', disabled: App.readOnly.peek() || !App.notes.peek().notes('Position').some(n => n.view === view),
+    run: () => { tried = null; c.tidy(); }, tries: ['Tidy'] };
+  // The selection, then each style's groups under its name; a style whose one group is named as the style is
+  // (Name) is that group alone, and comes first, so no group reads as under another's head.
+  const scopes = () => {
+    const blocks = new Map(), item = x => ({ label: named(c, x), checked: x === scope, run: () => { chosen.value = x.key; } });
+    for (const x of s.scopes.filter(x => !x.own)) (blocks.get(x.style) ?? blocks.set(x.style, []).get(x.style)).push(x);
+    const all = [...blocks.values()], lone = xs => xs.length === 1 && (!xs[0].name || Tree.same(xs[0].caption, xs[0].name)), own = s.scopes.filter(x => x.own);
+    return [...own.map(item), ...(own.length && all.length ? ['-'] : []), ...all.filter(lone).flat().map(item),
+      ...all.filter(xs => !lone(xs)).flatMap(xs => [{ head: xs[0].name }, ...xs.map(item)])];
+  };
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
     <span class="sep" />
@@ -275,7 +294,7 @@ function Bar() {
       <span>${scope && named(c, scope)}</span></button>`}
     <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => offer(e.currentTarget, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => set('Font', f), tries: ['Font', f] })))}>
       <span>${any ? value('Font') : 'Arial'}</span></button>
-    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => offer(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', put(z)), tries: ['Size', put(z)] })))}>
+    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => offer(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', sized(z)), tries: ['Size', put(z)] })))}>
       <span>${any ? shown(value('Size')) : 10}</span></button>
     <button class="btn letter b" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${any && !!value('Bold')} disabled=${none} onClick=${() => toggle('Bold')}>B</button>
     <button class="btn letter i" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${any && !!value('Italic')} disabled=${none} onClick=${() => toggle('Italic')}>I</button>
@@ -286,7 +305,7 @@ function Bar() {
     <button class="btn dd" aria-label="Fill" data-tip="Fill" data-fb="fill" disabled=${!boxy} onClick=${e => pop(e, close => html`<${Palette} label="Fill" none close=${close} />`)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none} onClick=${e => pop(e, close => html`<${Palette} label="Outline" none close=${close} />`)}>${glyph.outline(any ? value('Outline') : 'none')}</button>
     <button class="btn dd" aria-label="Line" data-tip="Line" data-fb="line" disabled=${none} onClick=${e => pop(e, () => html`<div class="picker">
-      <div class="row"><span class="k">Weight</span>${seg('Weight', WEIGHTS.map(w => [w, String(w)]), WEIGHTS.find(w => Math.abs(Scene.toSlide(page(), value('Weight')) - w) < 0.07), { as: put })}</div>
+      <div class="row"><span class="k">Weight</span>${seg('Weight', WEIGHTS.map(w => [w, String(w)]), WEIGHTS.find(w => Math.abs(Scene.toSlide(page(), value('Weight')) - w) < 0.01))}</div>
       <div class="row"><span class="k">Dash</span>${seg('Dash', ['solid', 'dashed', 'dotted'].map(d => [d, dashGlyph(d)]), value('Dash'))}</div>
       ${s.marks.some(m => m.type === 'line') ? html`<div class="row"><span class="k">Route</span>${seg('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))}</div>` : null}
       ${scope?.outputs && boxy ? html`<div class="row"><span class="k">Frame</span>${seg('Frame', [['none', 'None'], ['dashed', dashGlyph('dashed')], ['solid', dashGlyph('solid')], ['bracket', 'Bracket']], value('Frame') ?? 'none')}</div>` : null}
@@ -296,7 +315,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn wide" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run}>Tidy</button>
+    <button class="btn wide" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerEnter=${() => preview(...tidy.tries)} onPointerLeave=${() => preview()}>Tidy</button>
     <button class="btn dd narrow" data-fb="arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: none })), '-', grouping, tidy])}>Arrange</button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
       ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: Math.abs(z * 100 - zoom) < 0.5, run: () => c.zoom(z) }))], { placement: 'bottom-end' })}>${zoom}%</button>

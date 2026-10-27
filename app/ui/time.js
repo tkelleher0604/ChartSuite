@@ -217,6 +217,7 @@ const Time = (() => {
     c.adds.forEach(r => put(r, 'now'));
     const all = [...items.values()], touched = new Set(all.filter(i => i.type === 'record').map(i => i.id));
     const rec = i => Log.latest(i.now.length ? i.now : i.was);
+    if (!back && !c.adds.length && all.length > 1 && all.every(i => i.type === 'note' && rec(i).label === 'Position')) return 'Tidied the layout';
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
     const moved = new Set([...made, ...gone].map(i => i.id));

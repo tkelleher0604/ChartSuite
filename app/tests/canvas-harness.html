@@ -92,6 +92,8 @@ const H = (() => {
     await wait(60);
   }
   async function click(x, y, o = {}) { mouse('mousedown', x, y, undefined, o); mouse('mouseup', x, y, undefined, o); mouse('click', x, y, undefined, o); await wait(60); }
+  // A relate handle the box shows, its bottom one where it has one (a side crowded by lines has none).
+  const handle = () => document.querySelector('.dc-handle.s:not([hidden])') ?? document.querySelector('.dc-handle:not([hidden])');
   const STEPS = {
     select: async id => { const [x, y] = center(id); await click(x, y); },
     shift: async id => { const [x, y] = center(id); await click(x, y, { shiftKey: true }); },
@@ -140,7 +142,7 @@ const H = (() => {
     relate: async (from, to, hold) => {
       await STEPS.select(from);
       await STEPS.edge(from);
-      const h = document.querySelector('.dc-handle.s'), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2];
+      const h = handle(), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2];
       const m = cv().scene().byId.get(to), q = cv().graph.localToClient(m.x + m.w / 2, m.y + m.h / 2);
       h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: p0[0], clientY: p0[1], button: 0 }));
       for (let i = 1; i <= 6; i++) { dispatchEvent(new PointerEvent('pointermove', { clientX: p0[0] + (q.x - p0[0]) * i / 6, clientY: p0[1] + (q.y - p0[1]) * i / 6 })); await wait(16); }
@@ -170,7 +172,7 @@ const H = (() => {
     // Drag from a box's bottom handle to a point on screen, x×y.
     out: async (from, to) => {
       await STEPS.edge(from);
-      const h = document.querySelector('.dc-handle.s'), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2], q = to.split('x').map(Number);
+      const h = handle(), r = h.getBoundingClientRect(), p0 = [r.left + r.width / 2, r.top + r.height / 2], q = to.split('x').map(Number);
       h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: p0[0], clientY: p0[1], button: 0 }));
       for (let i = 1; i <= 6; i++) { dispatchEvent(new PointerEvent('pointermove', { clientX: p0[0] + (q[0] - p0[0]) * i / 6, clientY: p0[1] + (q[1] - p0[1]) * i / 6 })); await wait(16); }
       const el = document.elementFromPoint(...q);
