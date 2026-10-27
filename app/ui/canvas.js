@@ -947,7 +947,8 @@ function mount(el) {
       const v = graph.findViewByCell(c);
       if (!v) continue;
       const k = c.getData()?.kind, id = k === 'label' ? c.getData().mark : c.id, el = v.container;
-      el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id));
+      // What a pending change would add or take away isn't dimmed: it's what's being asked about.
+      el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !scene.byId.get(id)?.redline);
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
   }

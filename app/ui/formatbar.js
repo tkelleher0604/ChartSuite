@@ -1,11 +1,11 @@
 // The format bar: one bar over the chart, in place of the ribbon. Insert adds a box of one of the chart's
 // kinds, or a shape, a text box, a line or the key. A scope chip names what a change applies to: the
-// selection, as in PowerPoint ("This box", "These 3 boxes"); its menu offers, under each style that reaches
-// it, the groups of the style's outputs that do, as the Key says them, with their reach ("Funds (6)"). A
-// change writes format notes: for the selection, at each record's own tree in the view; for a group, at each
-// of its outputs' patterns in the view. A free shape keeps its formats in its row. Selecting a legend row
-// engages its group, so the legend is the other way to restyle. A choice pointed at, Tidy's too, is drawn on
-// the chart as it would be, PowerPoint's live preview, until the pointer leaves it.
+// selection, as in PowerPoint ("This box", "These 3 boxes"); its menu offers the Styles rows that reach it,
+// as Styles lists and calls them, with their reach ("Funds (6)"). A change writes format notes: for the
+// selection, at each record's own tree in the view; for a group, at each of its outputs' patterns in the
+// view. A free shape keeps its formats in its row. Selecting a legend row engages its group, so the legend is
+// the other way to restyle. A choice pointed at, Tidy's too, is drawn on the chart as it would be,
+// PowerPoint's live preview, until the pointer leaves it.
 const FormatBar = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
@@ -86,15 +86,12 @@ function scopesOf(c) {
   }
   const own = { key: 'own', label: these(marks), own: true };
   if (!bound.length) return { marks, group, scopes: [own] };
-  // Then the Styles rows that reach the selection, and only those: each with an output that a record in or at a
-  // selected mark fits.
-  const by = new Map();
+  // Then the Styles rows that reach the selection, and only those, in Styles' order: each with an output that a
+  // record in or at a selected mark fits.
+  const reached = new Set();
   for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
-    for (const g of groups) if (g.style === r.style && g.outputs.some(p => Tree.narrower(r.output, p))) {
-      const key = `${g.style} ${g.key}`;
-      if (!by.has(key)) by.set(key, { key, style: g.style, order: g.order, name: g.name, caption: g.caption, outputs: g.outputs });
-    }
-  return { marks, group, scopes: [own, ...[...by.values()].sort((a, b) => b.order - a.order)] };
+    for (const g of groups) if (g.style === r.style && g.outputs.some(p => Tree.narrower(r.output, p))) reached.add(g);
+  return { marks, group, scopes: [own, ...groups.filter(g => reached.has(g)).map(g => ({ ...g, key: `${g.style} ${g.key}` }))] };
 }
 // The selection, as a scope, by what's drawn: "This box", "These 3 boxes", "This line" (the lines drawn as one
 // included), "These 2 shapes".
@@ -251,7 +248,7 @@ const choice = (label, v, close) => ({ onPointerEnter: () => preview(label, v), 
 const NONE = { Fill: 'No fill', Outline: 'No outline' };
 function Palette({ label, none, close }) {
   const v = String(value(label)).toLowerCase(), own = chartColors();
-  const swatch = (c, name) => html`<button style=${`background:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
+  const swatch = (c, name) => html`<button style=${`background-color:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
   // Off the swatches, the chart is drawn in the color typed, while it's being typed.
   const rest = el => { const f = el.querySelector('.hex > input'), c = f === document.activeElement && hexOf(f.value); c ? preview(label, c) : preview(); };
   const typed = e => { const f = e.currentTarget; f.toggleAttribute('aria-invalid', !!f.value.trim() && !hexOf(f.value)); rest(f.closest('.palette')); };
@@ -343,19 +340,18 @@ function Bar() {
   // at, it's drawn as it would be. Made, the change ends the preview.
   const view = c.scene().view, tidy = { label: 'Tidy', disabled: App.readOnly.peek() || !App.notes.peek().notes('Position').some(n => n.view === view),
     run: () => { tried = null; c.tidy(); }, tries: ['Tidy'] };
-  // The selection; each style's groups under its name; then, apart, each style whose one group is named as
-  // the style is (Name), so it reads as under none of the heads; and, where members of the group chosen keep
-  // their own look of what the group is given here, a way to clear it.
+  // The selection; then its Styles rows as Styles lists them, each style's under its name, and apart after them
+  // those under none (Names); and, where members of the group chosen keep their own look of what the group is
+  // given here, a way to clear it.
   const scopes = () => {
-    const blocks = new Map(), item = x => ({ label: named(c, x), checked: x === scope, run: () => { chosen.value = x.key; } });
-    for (const x of s.scopes.filter(x => !x.own)) (blocks.get(x.style) ?? blocks.set(x.style, []).get(x.style)).push(x);
-    const all = [...blocks.values()], lone = xs => xs.length === 1 && (!xs[0].name || Tree.same(xs[0].caption, xs[0].name));
+    const item = x => ({ label: named(c, x), checked: x === scope, run: () => { chosen.value = x.key; } });
+    const rows = s.scopes.filter(x => !x.own), headed = rows.filter(x => x.name);
     const kept = scope?.outputs ? keeping(c, scope, givenTo(view, scope)) : [], whose = kept.length && possessive(keepers(kept));
     const what = listed([...new Set(kept.flatMap(k => k.notes.map(n => n.label)))]);
     const clear = kept.length ? [{ label: `Clear ${whose} own ${what}`, disabled: App.readOnly.peek(),
       run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }] : [];
-    return [s.scopes.filter(x => x.own).map(item), all.filter(xs => !lone(xs)).flatMap(xs => [{ head: xs[0].name }, ...xs.map(item)]), all.filter(lone).flat().map(item), clear]
-      .filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
+    return [s.scopes.filter(x => x.own).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
+      rows.filter(x => !x.name).map(item), clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
