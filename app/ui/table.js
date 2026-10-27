@@ -235,13 +235,26 @@ const Table = (() => {
 
   // ---- The grid ----
   let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null, bar = null;
-  // The grid is laid out as Excel's is. Each column is as wide as what it holds, to a cap, and a tag's column as
-  // narrow as its heading set on two lines; nothing is cut to fit. Where there's room, what's cut short has it
-  // first, the least cut first, so the most come out whole, and what's left goes to the widest column of words.
-  // Where there isn't, the grid scrolls across under its first column, which stays put. A column the user has
-  // sized keeps its width.
-  const WORDS = /\bc-(text|edge|choice|document)\b/, TAG = /\bc-tag\b/, sized = new WeakSet();   // sized here, so free to size again
+  // The grid is laid out as Excel's is. Each column is as wide as what it holds in every row, drawn or not, to a
+  // cap, and a tag's column as narrow as its heading set on two lines; nothing is cut to fit. The first column,
+  // the names, has no cap but half the grid, past which a name goes on to a second line. Where there's room,
+  // what's cut short has it first, the least cut first, so the most come out whole; what's left stays at the
+  // right edge. Where there isn't, the grid scrolls across under its first column, which stays put, a column at
+  // a time. A column the user has sized keeps its width.
+  const TAG = /\bc-tag\b/, PIN = /\bpin\b/, sized = new WeakSet();   // sized here, so free to size again
   const ruler = document.createElement('canvas').getContext('2d');
+  // The widest of a column's values as its cells set them, in every row.
+  function widest(c) {
+    const col = current?.cols[+c.getField().slice(1)], cell = c.cells.find(x => x.element?.isConnected)?.element;
+    if (!col || !cell) return 0;
+    const s = getComputedStyle(cell), f = c.getField(), said = v => col.type === 'document' ? (col.filed ? filed(v) : Tree.format('document', v)) : text(col.type, v);
+    ruler.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+    let w = 0;
+    for (const row of c.table.rowManager.rows) { const v = row.data[f]; if (v !== null && v !== undefined) w = Math.max(w, ruler.measureText(said(v)).width); }
+    return Math.ceil(w + parseFloat(s.paddingLeft) + parseFloat(s.paddingRight) + parseFloat(s.borderRightWidth)) + 2;
+  }
+  // Where a column the grid scrolls to starts: clear of the row numbers and the first column.
+  const pinned = t => t.element.style.setProperty('--pinned', `${48 + (t.getColumns().find(c => c.getField())?.getWidth() ?? 0)}px`);
   // The room a grid has, to the whole pixel below, since its slot is measured as the inspector glides, between
   // pixels; and the room each grid was last laid out in, so one laid out in another is laid out again.
   const widthOf = t => { const h = t.rowManager.element; return Math.floor(h.getBoundingClientRect().width - (h.offsetWidth - h.clientWidth)); };
@@ -256,22 +269,24 @@ const Table = (() => {
     return Math.ceil(line + parseFloat(b.paddingLeft) + parseFloat(b.paddingRight)) + 1;
   }
   Tabulator.extendModule('layout', 'modes', { fitDataSlack(columns) {
-    const shown = columns.filter(c => c.visible), free = shown.filter(c => !c.widthFixed || sized.has(c)), full = new Map();
+    const shown = columns.filter(c => c.visible), free = shown.filter(c => !c.widthFixed || sized.has(c)), full = new Map(), w = widthOf(this.table);
     for (const c of free) {
       if (TAG.test(c.definition.cssClass)) c.setWidthActual(twoLines(c));
       else {
         const cap = c.maxInitialWidth;
         c.maxInitialWidth = null; c.reinitializeWidth(); c.maxInitialWidth = cap;
+        const all = c.getField() ? widest(c) : 0;
+        if (all > c.getWidth()) c.setWidthActual(all);
       }
       full.set(c, c.getWidth());
-      if (c.getWidth() > c.maxInitialWidth) c.setWidthActual(c.maxInitialWidth);
+      const most = PIN.test(c.definition.cssClass) ? Math.floor(w / 2) : c.maxInitialWidth;
+      if (c.getWidth() > most) c.setWidthActual(most);
     }
-    const w = widthOf(this.table);
     laid.set(this.table, w);
     let room = w - shown.reduce((s, c) => s + c.getWidth(), 0);
     const give = (c, d) => { if (c && d > 0) { c.setWidth(c.getWidth() + d); sized.add(c); room -= d; } };
     for (const c of [...free].sort((a, b) => (full.get(a) - a.getWidth()) - (full.get(b) - b.getWidth()))) give(c, Math.min(room, full.get(c) - c.getWidth()));
-    give(free.filter(c => WORDS.test(c.definition.cssClass)).reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null), room);
+    pinned(this.table);
   } });
 
   const drawn = c => c.pasted || (c.shown && (!c.check || c.fails));
@@ -303,7 +318,9 @@ const Table = (() => {
         accessorClipboard: v => plain(c.type, v), accessorDownload: v => csvSafe(plain(c.type, v)),
       };
     });
-    if (defs[0]) defs[0].cssClass += ' pin';   // kept in view by table.css, not frozen: Tabulator's range selection takes only the row numbers frozen
+    // Kept in view by table.css, not frozen: Tabulator's range selection takes only the row numbers frozen. Its
+    // rows are as tall as a name wrapped takes.
+    if (defs[0]) Object.assign(defs[0], { cssClass: defs[0].cssClass + ' pin', variableHeight: true });
     return defs;
   }
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
@@ -365,7 +382,7 @@ const Table = (() => {
     t.on('rangeChanged', range => pick(range));
     t.on('rangeAdded', range => pick(range));
     t.on('columnMoved', () => placeColumns());
-    t.on('columnResized', col => sized.delete(col._column));
+    t.on('columnResized', col => { sized.delete(col._column); pinned(t); });
     t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu(e, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
     t.on('renderComplete', regain);
@@ -439,9 +456,10 @@ const Table = (() => {
   }
   function flash(lit) {
     if (!lit.length || !table) return;
-    const shown = new Set(table.getColumns().map(c => c.getField()).filter(Boolean)), rows = new Map(table.getRows('visible').map(r => [r.getData().id, r]));
+    // The rows, not a grouped grid's month headings.
+    const shown = new Set(table.getColumns().map(c => c.getField()).filter(Boolean)), rows = new Map(table.getRows('active').map(r => [r.getData().id, r]));
     for (const [id, fs] of lit) for (const f of fs) {
-      const e = shown.has(f) && rows.get(id)?.getCell(f)?.getElement();
+      const e = shown.has(f) && rows.get(id)?.getElement().isConnected && rows.get(id).getCell(f)?.getElement();
       if (!e) continue;
       e.classList.remove('lit');
       void e.offsetWidth;   // so the light starts again
@@ -856,8 +874,20 @@ const Table = (() => {
     picked = now;
   }
 
+  // Moved across by the keys, the active cell comes whole into view with the grid at a column's edge, where it
+  // stops as it scrolls (table.css): its own edge, if it's past the left or wider than the room; past the right,
+  // the first edge that shows it.
+  function across() {
+    const a = table.modules.selectRange?.getActiveCell()?.getElement(), h = holder();
+    if (!a || !h || a.classList.contains('pin')) return;
+    const at = parseFloat(getComputedStyle(a).scrollMarginLeft) || 48, left = a.offsetLeft - at, need = a.offsetLeft + a.offsetWidth - h.clientWidth;
+    if (h.scrollLeft > left || need > left) h.scrollLeft = left;
+    else if (h.scrollLeft < need) h.scrollLeft = [...a.parentElement.children].filter(c => c.classList.contains('tabulator-cell') && !c.matches('.pin, .tabulator-row-header'))
+      .map(c => c.offsetLeft - at).find(x => x >= need) ?? h.scrollWidth;
+  }
   function keydown(e) {
     if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || current?.red) return;
+    if (/^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) return across();
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent();
     if (!cell) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); clear(); }

@@ -106,13 +106,15 @@ const App = (() => {
     if (said) Shell.toast(said, { undo });
     return c;
   }
-  // Restore: the reverse of a change, as it stood or deleted, made now.
-  function restore(id, say = 'Restored 1 change') {
-    const c = book.peek().reverse(id, who());
+  // From History: an older change undone or redone (its reverse), or an item deleted restored, made now, and
+  // said as History says it.
+  function remake(c) {
     if (typeof c === 'string') return Shell.toast(c);
     Shell.at(null);
-    if (c) { made(c); Shell.toast(say, { undo }); }
+    if (c) { made(c); Shell.toast(Time.describe(c), { undo }); }
   }
+  const reverse = id => remake(book.peek().reverse(id, who()));
+  const restore = item => remake(book.peek().restore(chart.peek(), item, who()));
 
   // ---- The chart menu: the workbook's charts, a new one, and the workbooks this browser keeps ----
   const books = signal([]);
@@ -148,18 +150,31 @@ const App = (() => {
     tx.add('shape', { view, geometry: 'text', role: 'title', text: title });
     tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")' });
   }
+  // A new chart is named as it begins, in the title bar.
   function newChart() {
     if (readOnly.peek()) return Shell.toast('Can’t change the past');
     const c = startChart(book.peek());
     if (typeof c === 'string') return Shell.toast(c);
     chart.value = c.chart;
     Shell.select([]);
+    Shell.nameChart();
   }
-  const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })); };
+  const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) Shell.nameChart(); }); };
+  // Renaming the chart, as one change: its name, and each page's title that says its name still (one changed by
+  // hand keeps what it says), so its exports are named as it is.
+  function rename(id, name) {
+    const was = book.peek().charts().find(c => c.chart === id)?.name;
+    if (id !== chart.peek() || !name || name === was) return;
+    change(tx => {
+      tx.set(id, { name });
+      for (const r of book.peek().rows(id)) if ('shape' in r && r.role === 'title' && r.text === was) tx.update(r.shape, { text: name });
+    }, { dated: false });
+  }
   Shell.register('workbook', {
     charts: () => (version.value, book.value.charts().map(c => ({ id: c.chart, name: c.name }))),
     current: () => chart.value,
     open: id => { chart.value = id; Shell.select([]); },
+    rename,
     menu: () => [{ label: 'New chart', run: newChart }, { label: 'Workbooks', items: [
       ...books.value.map(b => ({ label: b.name, checked: b.id === Store.where()?.id, run: () => b.id !== Store.where()?.id && opened(Store.open({ id: b.id })) })),
       ...(books.value.length ? ['-'] : []), { label: 'New workbook', run: blank }] }],
@@ -314,6 +329,6 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, state, needs,
-    readOnly, change, restore, views, scene, layouts, addView, who, blank,
+    readOnly, change, reverse, restore, views, scene, layouts, addView, who, blank,
   };
 })();
