@@ -359,8 +359,8 @@ function Filed({ id }) {
 }
 // A filing is a fact of the day it was made: it's recorded from that day, as the sample's are, so the chart
 // as of a day before still has the deadline it had; and it's redlined as of the day shown, where it holds only
-// if made by then. Kept, the selection stays on the record, at its new row: the filing, where the deadline it
-// stood on went with the payment.
+// if made by then. Kept, the selection stays on the record, at the filing's row, or moves to the filing where
+// the deadline selected goes with it.
 function Filing({ due, slot, close }) {
   const [text, setText] = useState(T.formatDate(App.day.peek(), 'short')), value = T.parse('date', T.clean(text) || '-');
   const rec = value ? { at: slot.at, edge: slot.edge, field: 'date', value } : null;

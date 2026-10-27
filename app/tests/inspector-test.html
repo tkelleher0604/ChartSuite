@@ -492,7 +492,11 @@ async function run() {
   check('an overdue tax year offers Paid…', !!taxDue?.querySelector('.hug.overdue') && paying?.textContent === 'Paid…', taxDue?.outerHTML.slice(0, 200));
   paying?.click(); await tick(80);
   check('… which redlines the deadline going', document.querySelector('.filing .field span')?.textContent === 'Annual Tax Paid' && FormulaBar.pending.peek()?.diff.go.includes(dueAt(owed)), JSON.stringify(FormulaBar.pending.peek()?.diff));
-  key(document.querySelector('.filing input'), 'Enter'); await tick(80);
+  const paidOn = document.querySelector('.filing input'), retype = async t => { paidOn.value = t; paidOn.dispatchEvent(new Event('input', { bubbles: true })); await tick(80); };
+  await retype('Nov 30, 2026');
+  check('… but not one made after the day shown, which owes it still', !FormulaBar.pending.peek() && !document.querySelector('.filing s.del'), document.querySelector('.filing .meta')?.innerHTML);
+  await retype('Oct 26, 2026');
+  key(paidOn, 'Enter'); await tick(80);
   const payment = last().adds.find(r => r.edge === 'Annual Tax Paid'), year = payment && last().adds.find(r => r.record === payment.at);
   check('Paid… records the payment at the tax year, entering the year as it stood', payment?.value === '2026-10-26' && last().adds.length === 2 && year?.tag === true
     && JSON.stringify(year.args) === JSON.stringify(App.wb.asOf(C, '2026-10-26')[year.record]?.args) && N().segmentOf(st(), year.record) === 'AIV-1, tax year 2025', JSON.stringify(last().adds));
