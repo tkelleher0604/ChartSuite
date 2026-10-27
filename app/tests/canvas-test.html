@@ -658,20 +658,24 @@ async function run() {
   // Enter makes, its boxes where they'll stand, its routes and its page; and Enter draws that very scene ----
   {
     const off = [], ink = () => cv().graph.getCells().filter(c => c.isVisible() && c.getData()?.kind === 'ink').length;
-    // `goes`: what goes is drawn struck, over the scene, where it is.
+    // `goes`: what goes is drawn struck, over the scene, where it is. No line of the redline runs through the Key.
+    const throughKey = s => { const k = s.marks.find(m => m.geometry === 'legend');
+      return !k ? [] : s.marks.filter(l => l.type === 'line' && l.points.slice(1).some((b, i) => { const a = l.points[i];
+        return Math.max(a[0], b[0]) > k.x + 1 && Math.min(a[0], b[0]) < k.x + k.w - 1 && Math.max(a[1], b[1]) > k.y + 1 && Math.min(a[1], b[1]) < k.y + k.h - 1; })).map(l => l.id); };
     const pending = async (what, begin, enter = () => key('Enter'), goes = false) => {
       await begin(); await tick(160);
-      const red = sc(), base = App.scene.peek(), bad = drawnAsScene(red), n = ink();
+      const red = sc(), base = App.scene.peek(), bad = drawnAsScene(red), n = ink(), keyed = throughKey(red);
       await enter(); await tick(220);
       const after = drawnAsScene();
-      if (red === base || bad.length || (goes && !n) || App.scene.peek() !== red || after.length)
-        off.push(`${what}: ${red === base ? 'no redline; ' : ''}${goes && !n ? 'nothing struck; ' : ''}${bad.slice(0, 2).join(', ')}${App.scene.peek() !== red ? ' Enter drew another scene' : ''} ${after.slice(0, 2).join(', ')}`);
+      if (red === base || bad.length || (goes && !n) || keyed.length || App.scene.peek() !== red || after.length)
+        off.push(`${what}: ${red === base ? 'no redline; ' : ''}${goes && !n ? 'nothing struck; ' : ''}${keyed.length ? `through the Key: ${keyed}; ` : ''}${bad.slice(0, 2).join(', ')}${App.scene.peek() !== red ? ' Enter drew another scene' : ''} ${after.slice(0, 2).join(', ')}`);
       Shell.parts.peek().undo.undo(); await tick(160);
     };
     const tickRow = async (a, b, re) => { Shell.emit('relate-open', [a, b]); await tick(120); $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60);
       $$('.rr').find(r => re.test(txt(r.querySelector('.nm'))))?.querySelector('.ctl .tag')?.click(); await tick(60); };
     await show(charts()[0]);
     await pending('a relation added from today', () => tickRow('pension', 'fund', /is an owner of Fund III$/));
+    await pending('another, Sponsor Holdings → Northpine', () => tickRow('holdco', 'northpine', /is an owner of Northpine Software, LLC$/));
     await pending('a relation added all along', async () => { await tickRow('pension', 'northpine', /is an owner of Northpine Software, LLC$/); $('.pendbar .from .sel')?.click(); await tick(); $$('.float .menu-item').find(x => txt(x) === 'All along')?.click(); });
     await pending('a line deleted until today', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }, undefined, true);
     await pending('a line deleted as never held', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); await tick(60);
@@ -686,7 +690,7 @@ async function run() {
       field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Percentage'); field.focus(); await tick(); field.value = '40%'; field.dispatchEvent(new Event('input', { bubbles: true })); }, enterField);
     await pending('a ruling pointed at and clicked', async () => { cv().root.focus(); Shell.select([]); await tick(60); Shell.select(['own_us_fund']); await tick(120); $('.fx-out button.tag')?.dispatchEvent(new PointerEvent('pointerenter')); },
       () => $('.fx-out button.tag')?.click());
-    check('every kind of pending change is drawn as the scene Enter makes, less its ink, and Enter draws that scene', !off.length, off.join('; '));
+    check('every kind of pending change is drawn as the scene Enter makes, less its ink, no line through the Key, and Enter draws that scene', !off.length, off.join('; '));
     // A click away leaves a change pending, its redline drawn
     await tickRow('pension', 'fund', /is an owner of Fund III$/); await tick(120);
     const red = sc();
