@@ -596,6 +596,15 @@ function run() {
         return [what, v, sl.page.scale, le.page.scale, Math.min(...boxes(le).map(b => b.texts[0].look.Size * le.page.scale))]; }));
     check('… and tidied, with an owner added or with a long name, at 8 pt or no more than a twentieth smaller than on the slide', near.every(([, , sl, le, pt]) => pt >= 8 - 1e-9 || le >= sl - 0.05 - 1e-9),
       j(near.filter(([, , sl, le, pt]) => pt < 8 - 1e-9 && le < sl - 0.05 - 1e-9)));
+    // The labels of drops into one tier sit on one baseline, each at the foot of its drop: every sample view, on the slide and
+    // on Letter, as entered and tidied (design9 10, Okafor's 50% on Letter).
+    const tidiedOf = (v, paper) => { const w = fresh(); edit(w, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); }); const Rw = computed(w); return Scene.of(w, C, v, DAY, { state: Rw.records, computed: Rw, paper }); };
+    const offRow = [...letters, ...slides, ...views.flatMap(v => [null, 'letter'].map(p => tidiedOf(v, p)))].flatMap(s => {
+      const drops = s.marks.filter(m => m.type === 'line' && m.labelAt && (([a, b]) => Math.abs(a[0] - b[0]) < 0.5 && b[1] > a[1])(m.points.slice(-2)));
+      return [...Map.groupBy(drops, l => Math.round(s.byId.get(l.to).y)).values()].filter(ls => (ys => Math.max(...ys) - Math.min(...ys) > 1)(ls.map(l => l.labelAt.y + l.label.h)))
+        .map(ls => `${s.view} ${s.page.size}: ${ls.map(l => `${l.id} ${Math.round(l.labelAt.y + l.label.h)}`).join(', ')}`);
+    });
+    check('… the labels of the drops into one tier on one baseline, as entered and tidied', !offRow.length, j(offRow.slice(0, 3)));
     const rows = letters.flatMap(s => [...Map.groupBy(boxes(s).filter(b => b.shape === 'triangle'), b => Math.round(b.y)).values()]);
     check('… a row of triangles is one size, each name in the fewest lines that fit it there, four at most', rows.every(ts => new Set(ts.map(b => `${b.w}×${b.h}`)).size === 1
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));

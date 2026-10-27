@@ -98,7 +98,13 @@ function bodyMarkup(shape, w, h, s, red, extra = {}) {
     'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter', ...extra } };
 }
 const look = m => m.look ?? Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
-const marker = (on, w) => on ? { name: 'block', width: 5 + w * 3, height: 4 + w * 2.4, offset: 0 } : null;
+// An arrowhead, X6's block, at a line's end; on a route, no longer than the leg it ends (`leg`, its two points), so
+// that X6, shortening the path by it, never takes the path back past the turn into that leg (regress9 8).
+const marker = (on, w, leg = null) => {
+  if (!on) return null;
+  const k = leg ? Math.min(1, Math.hypot(leg[1][0] - leg[0][0], leg[1][1] - leg[0][1]) / (5 + w * 3)) : 1;
+  return { name: 'block', width: (5 + w * 3) * k, height: (4 + w * 2.4) * k, offset: 0 };
+};
 // How strongly a mark the view hides is drawn while it's asked about. A box keeps its fill, so no line
 // behind it shows through its name.
 const FAINT = 0.55;
@@ -144,8 +150,8 @@ function cellsOf(scene) {
         source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] },
         vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
         attrs: { line: { stroke: m.redline === 'appear' ? BLUE : m.redline === 'go' ? RED : paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: dashed,
-          strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight)),
-          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
+          strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2)),
+          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
         zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: m.texts.map(it => textMarkup(it, m.redline)) });
     } else if (m.type === 'frame') {

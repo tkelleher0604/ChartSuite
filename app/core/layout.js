@@ -667,8 +667,13 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   for (const ls of groupBy(arriving, l => `${l.to}|${l.dir === 'down' ? 'top' : 'bottom'}`).values()) {
     const t = G(ls[0].to), start = l => l.sx ?? centerX(G(l.from));
     ls.sort((p, q) => start(p) - start(q));
-    // Room after each drop for its label, which sits right of it, and 12 pt clear of the next one's.
-    const levels = ls.length > 4 ? 3 : 2, xs = arrivals(t, ls.map(start), ls.map(l => l.label ? l.label.w + 4 + 16 : 14), clearOf(t, ls, ls[0].dir === 'down'));
+    // Room after each drop for its label, which sits right of it, and 12 pt clear of the next one's; and after the last,
+    // where a box stands beside this one by where the labels sit, 6 pt clear of that box, so that every label of a row
+    // can sit on its row, at the foot of its drop.
+    const top = ls[0].dir === 'down', last = ls.at(-1).label, [z0, z1] = top ? [t.y - (last?.h ?? 0) - 14, t.y + 8] : [t.y + t.h - 8, t.y + t.h + (last?.h ?? 0) + 14];
+    const by = last && Math.min(Infinity, ...nearSolid.near({ x: t.x + t.w, y: z0, w: last.w + 12, h: z1 - z0 }).map(k => solid[k]).filter(g => g.id !== t.id && g.x >= t.x + t.w - 0.5 && g.y < z1 && g.y + g.h > z0).map(g => g.x - last.w - 4 - 8));
+    const clear = clearOf(t, ls, top), within = Number.isFinite(by) && by < t.x + t.w ? [clear?.[0] ?? t.x, Math.min(clear?.[1] ?? t.x + t.w, by)] : clear;
+    const levels = ls.length > 4 ? 3 : 2, xs = arrivals(t, ls.map(start), ls.map(l => l.label ? l.label.w + 4 + 16 : 14), within && within[1] > within[0] ? within : clear);
     ls.forEach((l, i) => {
       l.apex = t.shape === 'triangle' && l.dir === 'down';
       l.tx = l.apex ? centerX(t) : xs[i];
@@ -959,7 +964,8 @@ function arrivals(t, starts, after = [], clear = null) {
 
 // Labels. A label goes in one place, the same on every line: beside the last leg, just short of what the
 // line reaches, as percentages sit. On a drop, right of it, 3 pt off, its last baseline 4 pt above the top
-// it meets (below the bottom, going up); on a level last leg, above it, just past the arrowhead. Where that
+// it meets (below the bottom, going up), or left of it on that baseline, so a row's labels share one; on a level
+// last leg, above it, just past the arrowhead. Where that
 // place isn't free, the label steps away from what it reaches, a line's height at a time, as far as the leg
 // goes; then it sits over the level leg before, just short of the turn into the last, or under it; then it looks
 // along its lane, or beside its longest legs; and then anywhere beside its route, on either
@@ -1029,7 +1035,11 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
       if (upright(last)) {
         const down = last.b[1] > last.a[1], x = last.b[0] + 4, [top, bottom] = down ? [last.a[1], last.b[1]] : [last.b[1], last.a[1]];
         const y0 = down ? last.b[1] - 5.3 - base : last.b[1] + 5.3;
-        for (let k = 0, y = y0; k < 4 && y + h > top && y < bottom; k++, y = down ? y0 - k * (h + 2) : y0 + k * (h + 2)) yield { x, y };
+        for (let k = 0, y = y0; k < 4 && y + h > top && y < bottom; k++, y = down ? y0 - k * (h + 2) : y0 + k * (h + 2)) {
+          yield { x, y };
+          // (Or, where right isn't free, left of it, on the baseline the labels of the drops beside it sit on.)
+          if (!k) yield { x: last.b[0] - 4 - w, y };
+        }
       } else {
         const tipped = l.arrow === 'end' || l.arrow === 'both' || (l.arrow === 'auto' && !l.down);
         const leftward = last.b[0] < last.a[0], y = last.b[1], pad = 6 + (tipped ? 8 : 0);
