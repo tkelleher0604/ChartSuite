@@ -31,7 +31,7 @@ Opened as of today, the chart has 965 entered records. The definitions work out 
 
 | View | What it shows |
 | --- | --- |
-| Structure | The fund structure, with GP lines, percentages, an Offshore frame and a Key |
+| Structure | The fund structure, with GP lines, percentages and a Key |
 | 40 Act | The BDC's close and remote affiliates, in frames by kind |
 | Fund III | The fund's own investors and holdings |
 | Management and control | The sponsor entities, with their directors and officers as text in the boxes |
