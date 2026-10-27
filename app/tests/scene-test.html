@@ -296,6 +296,13 @@ function run() {
     const drawn = toFunds.filter(l => f.marks.includes(l));
     check('a box’s lines to every box in a frame land on the frame, drawn as one', toFunds.length === 5 && toFunds.every(l => j(l.points) === j(toFunds[0].points) && Math.abs(l.points.at(-1)[0] - funds.x) < 0.5)
       && drawn.length === 1 && toFunds.every(l => l === drawn[0] || l.merged === drawn[0].id), j(toFunds.map(l => [l.id, l.merged])));
+    // Restyling one of them is drawing: it's drawn on the same route in its own look, and nothing moves.
+    const restyled = fresh(), aiv = 'fx:bdc=bdc_ics&close affiliate=aiv';
+    edit(restyled, tx => tx.note('Weight', Tree.treeOf(worked(restyled), aiv), 2.25, { view: 'view_40act' }));
+    const g = scene(restyled, 'view_40act'), boxesOf = sc => j(sc.marks.filter(m => m.type === 'box').map(m => [m.id, m.x, m.y, m.w, m.h]));
+    check('restyling a line moves nothing: the page, its scale and every box stay, and the line keeps its route', g.page.scale === f.page.scale && g.page.w === f.page.w
+      && boxesOf(g) === boxesOf(f) && j(g.byId.get(aiv).points) === j(f.byId.get(aiv).points) && !g.byId.get(aiv).merged && Scene.toSlide(g.page, g.byId.get(aiv).settings.Weight.value) === 2.25,
+      j({ scale: [f.page.scale, g.page.scale], merged: g.byId.get(aiv).merged }));
     const remote = frames.find(m => m.caption.text === 'Remote affiliate (§57(e))'), pension = f.byId.get('pension');
     check('a relation’s frame frames its lower end: the remote affiliate', j(remote.members) === j(['pension']));
     check('a frame round one box alone is its caption, 4 pt over the box, not a second outline', remote.lone && Math.abs(remote.y + remote.h - pension.y) < 6 && remote.x === pension.x);
@@ -327,18 +334,23 @@ function run() {
     check('every line is drawn at the weight it was given on the slide, whatever the chart’s scale: 0.75 where nothing says', weighed.every(([, w, given]) => Math.abs(w - given) < 1e-9),
       j(weighed.filter(([, w, given]) => Math.abs(w - given) >= 1e-9).slice(0, 4)));
     // A size picked in the slide's points is the size on the slide, though the box grows and the chart is drawn
-    // smaller for it: the page's size found as the format bar finds it.
-    const picked = [10, 12, 14].map(v => {
-      const w = fresh(), R = computed(w), t0 = Tree.treeOf(R.records, 'fund'), at = t => {
-        const id = `·t${t}`, rows =[...w.rows(C), { id, note: id, label: 'Size', pattern: t0, view: MAIN, value: t }], notes = Notes.index(rows.filter(r => 'note' in r));
+    // smaller for it: the page's size found as the format bar finds it. Where no scale the chart can keep prints
+    // it so, as near as the page allows, never shrinking the chart more than holding its scale would.
+    const pick = (v, box, view) => {
+      const w = fresh(), R = computed(w), t0 = Tree.treeOf(R.records, box), at = t => {
+        const id = `·t${t}`, rows = [...w.rows(C), { id, note: id, label: 'Size', pattern: t0, view, value: t }], notes = Notes.index(rows.filter(r => 'note' in r));
         return { ...w, rows: () => rows, notes: () => notes };
       };
-      const t = Math.round(Scene.toPage(v, scene(w).page.scale, x => Scene.of(at(x), C, MAIN, DAY, { state: R.records, computed: R, ahead: true }).page.scale) * 100) / 100;
-      edit(w, (tx, N) => note(tx, N, 'Size', t0, MAIN, t));
-      const s = scene(w);
-      return [v, on(s, s.byId.get('fund').texts[0].look.Size), s.page.scale];
-    });
-    check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(([v, got]) => Math.abs(got - v) < 1e-9), j(picked));
+      const r = t => Math.round(t * 100) / 100, s0 = scene(w, view).page.scale, scaleAt = x => Scene.of(at(r(x)), C, view, DAY, { state: R.records, computed: R, ahead: true }).page.scale;
+      const held = scaleAt(v / s0), t = r(Scene.toPage(v, s0, scaleAt));
+      edit(w, (tx, N) => note(tx, N, 'Size', t0, view, t));
+      const s = scene(w, view), got = on(s, s.byId.get(box).texts[0].look.Size);
+      return { v, got, scale: s.page.scale, held, heldPrints: v * held / s0 };
+    };
+    const picked = [10, 12].map(v => pick(v, 'fund', MAIN)), nearest = [[14, 'fund', MAIN], [10, 'fund', 'view_40act'], [24, 'fund', MAIN], [32, 'fund', 'view_fund3']].map(a => pick(...a));
+    check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(p => Math.abs(p.got - p.v) < 1e-9), j(picked));
+    check('… or, where no scale the chart can keep allows it, as near as the page allows, the chart drawn no smaller than holding its scale draws it, and 24 pt or more on a triangle is set',
+      nearest.every(p => p.scale >= p.held - 1e-9 && Math.abs(p.got - p.v) <= Math.abs(p.heldPrints - p.v) + 0.25), j(nearest.map(p => [p.v, p.got, p.scale, p.held])));
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
       return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));
@@ -350,6 +362,18 @@ function run() {
       return Math.abs(p.k.x + p.k.w - p.right) < 1 && p.k.y >= Math.max(...over.map(r => r.y + r.h)) + 32 - 0.5 && p.k.y + p.k.h <= 672.5;
     }), j([0, 2].map(i => [placed[i].k, placed[i].right])));
     check('nothing drawn overlaps the title, the date or the Key', placed.every(p => !p.chart.some(r => meets(r, p.t) || meets(r, p.d) || meets(r, p.k))));
+    // A short chart is set in the middle of the room under the date, as across the sheet: Management and
+    // control, its Key beside the title.
+    const mc = placed[3], s3 = sc[3], ruled = s3.marks.filter(m => m.type === 'line').flatMap(l => l.points.map(([x, y]) => ({ x: on(s3, x), y: on(s3, y), w: 0, h: 0 })));
+    const reach = [...mc.chart, ...ruled], left = Math.min(...reach.map(r => r.x)), right = Math.max(...reach.map(r => r.x + r.w));
+    const under = Math.max(mc.d.y + mc.d.h - 4.8 + 32, mc.k.x < right && mc.k.x + mc.k.w > left ? mc.k.y + mc.k.h + 32 : 0);
+    const top = Math.min(...reach.map(r => r.y)), bottom = Math.max(...reach.map(r => r.y + r.h));
+    check('a short chart sits in the middle of the room under the title, its date and a Key over it', Math.abs((top - under) - (720 - 48 - bottom)) < 1 && top - under > 20,
+      j({ above: top - under, below: 720 - 48 - bottom }));
+    // One output's own caption is its own group's: Management and control captions the BDC alone.
+    const own = Scene.groupsOf(wb.notes(C), 'view_control'), bdcRow = own.find(g => g.caption === 'Business development company'), structure = Scene.groupsOf(wb.notes(C), MAIN);
+    check('a caption at one output captions that output’s group alone, where outputs that look alike are captioned differently', bdcRow?.outputs.length === 1
+      && bdcRow.outputs[0].out.choice === 'Business Development Company' && structure.find(g => g.caption === 'Funds')?.outputs.length === 6, j(own.filter(g => g.swatch.Fill === bdcRow?.swatch.Fill).map(g => [g.caption, g.outputs.length])));
 
     // Line jumps: Structure's rails from Chen and Okafor cross each other's drops.
     const s = sc[0], jumped = s.marks.filter(m => m.type === 'line' && m.runs), gap = 8 / s.page.scale;
@@ -373,6 +397,14 @@ function run() {
     check('a reveal keeps every route and label where it was, and the page as it was', hidden.length && kept && shown.page.scale === base.page.scale
       && j([furniture(shown).key.x, furniture(shown).key.y]) === j([furniture(base).key.x, furniture(base).key.y]), j({ hidden: hidden.slice(0, 3), kept }));
     check('… and routes what it reveals around the boxes', added.length === Math.min(3, hidden.length) && !through.length, j(through.map(l => [l.id, l.points])));
+    // On 40 Act, a box revealed where a frame would take it, and a document revealed beside a frame, leave the
+    // frames and the lines landing on them as they were: drawn as one, on their routes.
+    const forty = scene(wb, 'view_40act'), fortyLines = [...forty.byId.values()].filter(m => m.type === 'line');
+    const stirred = ['macallister', 'doc_tess_consent_on_tessellate', 'pos_mac_caygp'].flatMap(id => {
+      const r = Scene.of(wb, C, 'view_40act', DAY, { state: st, computed: R, reveal: [id] });
+      return fortyLines.filter(l => j(r.byId.get(l.id)?.points) !== j(l.points) || r.byId.get(l.id)?.merged !== l.merged).map(l => `${id}: ${l.id}`);
+    });
+    check('… and leaves lines drawn as one as one, where it reveals a box a frame would take in', fortyLines.some(l => l.merged) && !stirred.length, j(stirred.slice(0, 3)));
     const year = Object.keys(st).find(id => st[id].kind === 'Tax Year' && !base.byId.has(id));
     const lone = Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, reveal: [year] }).byId.get(year);
     check('… and places a box it reveals on the page', lone && lone.x >= 0 && lone.y >= 0 && lone.x + lone.w <= base.page.w && lone.y + lone.h <= base.page.h, j(lone && [lone.x, lone.y, base.page.w, base.page.h]));
@@ -391,6 +423,61 @@ function run() {
     const rows = letters.flatMap(s => [...Map.groupBy(boxes(s).filter(b => b.shape === 'triangle'), b => Math.round(b.y)).values()]);
     check('… a row of triangles is one size, each name in the fewest lines that fit it there, four at most', rows.every(ts => new Set(ts.map(b => `${b.w}×${b.h}`)).size === 1
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));
+  }
+
+  // ---- Nothing drawn over anything ----
+  // Every sample view, on the slide and on Letter, as entered, tidied, with an owner added (Northstar of
+  // Northpine, 5%) and with a 247-character name: no route runs through a box it doesn't end at, or through a
+  // frame's caption; no label sits on a box, a caption or another label; and no line crosses a label.
+  {
+    const LONG = 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., an exempted company incorporated with limited liability in the Cayman Islands';
+    const cases = {
+      'as entered': () => {},
+      tidied: (wb, v) => edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); }),
+      'with an owner added': wb => edit(wb, tx => {
+        const o = tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'northpine' }], tag: true });
+        tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 0.05 });
+      }),
+      'with a long name': wb => edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: LONG })),
+    };
+    // Whether a point is inside a box's shape, more than a pixel in.
+    const inside = (b, x, y) => {
+      if (x <= b.x + 1 || x >= b.x + b.w - 1 || y <= b.y + 1 || y >= b.y + b.h - 1) return false;
+      if (b.shape === 'triangle') return Math.abs(x - b.x - b.w / 2) < b.w / 2 * (y - b.y) / b.h - 1;
+      if (b.shape === 'oval') return ((x - b.x - b.w / 2) / (b.w / 2)) ** 2 + ((y - b.y - b.h / 2) / (b.h / 2)) ** 2 < 0.97;
+      return true;
+    };
+    const along = ([a, b], f) => { const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]))); for (let i = 0; i <= n; i++) if (f(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n)) return true; return false; };
+    const sides = r => [[[r.x, r.y], [r.x + r.w, r.y]], [[r.x + r.w, r.y], [r.x + r.w, r.y + r.h]], [[r.x + r.w, r.y + r.h], [r.x, r.y + r.h]], [[r.x, r.y + r.h], [r.x, r.y]]];
+    const corners = b => b.shape === 'triangle' ? [[b.x + b.w / 2, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]] : [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
+    const within = (r, [x, y]) => x > r.x + 0.5 && x < r.x + r.w - 0.5 && y > r.y + 0.5 && y < r.y + r.h - 0.5;
+    const covers = (r, b) => sides(r).some(s => along(s, (x, y) => inside(b, x, y))) || corners(b).some(p => within(r, p)) || inside(b, r.x + r.w / 2, r.y + r.h / 2);
+    const meets = (a, b) => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+    const routes = [], labels = [], crossed = [];
+    for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) for (const paper of [null, 'letter']) {
+      const wb = fresh();
+      f(wb, v);
+      const R = computed(wb), s = Scene.of(wb, C, v, DAY, { state: R.records, computed: R, paper }), at = `${what}, ${v}, ${paper ?? 'slide'}`;
+      const boxes = s.marks.filter(m => m.type === 'box'), lines = [...s.byId.values()].filter(m => m.type === 'line' && !m.merged);
+      const caps = s.marks.filter(m => m.type === 'frame').map(m => { const c = m.caption, t = c.look, w = Math.max(...c.lines.map(l => l.w));
+        return { x: m.x + Math.min(...c.lines.map(l => l.x - l.w * (t.Align === 'center' ? 0.5 : 0))), y: m.y + c.lines[0].y - t.Size * Scene.PT * 0.93, w, h: c.lines.length * t.Size * Scene.PT * 1.2 }; });
+      const legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
+      const rects = lines.filter(l => l.labelAt && l.label).map(l => ({ l, x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h }));
+      for (const l of lines) for (const g of legs(l)) {
+        const box = boxes.find(b => b.id !== l.from && b.id !== l.to && along(g, (x, y) => inside(b, x, y))), cap = caps.find(c => along(g, (x, y) => within(c, [x, y])));
+        if (box || cap) routes.push(`${at}: ${l.id} through ${box?.id ?? 'a caption'}`);
+      }
+      rects.forEach((r, i) => {
+        const box = boxes.find(b => covers(r, b)), other = rects.find((q, k) => k !== i && meets(r, q)), cap = caps.find(c => meets(r, c));
+        if (box || other || cap) labels.push(`${at}: ${r.l.id} "${r.l.label.text}" on ${box?.id ?? other?.l.id ?? 'a caption'}`);
+        const line = lines.find(l => legs(l).some(g => along(g, (x, y) => within(r, [x, y]))));
+        if (line) crossed.push(`${at}: ${r.l.id} "${r.l.label.text}" crossed by ${line.id}`);
+      });
+    }
+    check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added and with a 247-character name',
+      LONG.length === 247 && !routes.length, j(routes.slice(0, 4)));
+    check('… no label sits on a box, a caption or another label', !labels.length, j(labels.slice(0, 4)));
+    check('… and no line crosses a label', !crossed.length, j(crossed.slice(0, 4)));
   }
 
   // ---- A new box among entered ones ----
