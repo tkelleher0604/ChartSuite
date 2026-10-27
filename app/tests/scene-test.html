@@ -423,12 +423,13 @@ function run() {
       const s = scene(w, view), got = on(s, s.byId.get(box).texts[0].look.Size);
       return { v, got, scale: s.page.scale, held, heldPrints: v * held / s0 };
     };
-    const picked = [10, 12].map(v => pick(v, 'fund', MAIN)), nearest = [[14, 'fund', MAIN], [10, 'fund', 'view_40act'], [24, 'fund', MAIN], [32, 'fund', 'view_fund3']].map(a => pick(...a));
+    const picked = [10, 12].map(v => pick(v, 'fund', MAIN)), nearest = [[14, 'fund', MAIN], [10, 'fund', 'view_40act'], [24, 'fund', MAIN], [32, 'fund', 'view_fund3'], [14, 'fund', 'view_fund3']].map(a => pick(...a));
     check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(p => Math.abs(p.got - p.v) < 1e-9), j(picked));
     check('… or, where no scale the chart can keep allows it, as near as the page allows, the chart drawn no smaller than holding its scale draws it, and 24 pt or more on a triangle is set',
       nearest.every(p => p.scale >= p.held - 1e-9 && Math.abs(p.got - p.v) <= Math.abs(p.heldPrints - p.v) + 0.25), j(nearest.map(p => [p.v, p.got, p.scale, p.held])));
-    // 10 on 40 Act's fund prints 9, as 9 does, and so at 9's scale; 24 on Structure's prints 18 at 0.65, not 0.6.
-    check('… at the largest scale of those that print as near', nearest[1].got === 9 && nearest[1].scale === 0.85 && nearest[2].scale >= 0.65, j(nearest.map(p => [p.v, p.got, p.scale])));
+    // 10 on 40 Act's fund prints 9, as 9 does, and so at 9's scale; 24 on Structure's prints 18 at 0.65, not 0.6; 14 on Fund III's
+    // prints 13 at 0.85, as a page's 15 does, not at 0.8 (regress8).
+    check('… at the largest scale of those that print as near', nearest[1].got === 9 && nearest[1].scale === 0.85 && nearest[2].scale >= 0.65 && nearest[4].got === 13 && nearest[4].scale === 0.85, j(nearest.map(p => [p.v, p.got, p.scale])));
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
       return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));

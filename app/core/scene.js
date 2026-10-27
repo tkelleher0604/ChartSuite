@@ -1516,7 +1516,8 @@ const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v 
 // that would print v at a twentieth from s (or, for a smaller pick, from the scale it then has) down to the scale
 // holding it draws the chart at, the one that prints nearest v at no smaller a scale than that, the larger scale
 // where two are as near; and then of the sizes that print as near, at a twentieth from s down, the one at the
-// largest scale that keeps it: so a pick prints as picked wherever the chart can keep a scale for it, as near as
+// largest scale that keeps it, the least of them first, to the hundredth the format bar writes, as the half point it
+// prints at takes in a quarter of a point under: so a pick prints as picked wherever the chart can keep a scale for it, as near as
 // the page allows otherwise, and never shrinks the chart more than printing as near needs. The scale isn't
 // monotone in the size, as a triangle's lines break anew, so this looks rather than iterates. `scaleAt(t)` is the
 // chart's scale with the page's size t.
@@ -1532,7 +1533,8 @@ function toPage(v, s, scaleAt) {
   const p = printed(best.t, best.at);
   for (const k of SCALES) {
     if (k > Math.max(s, held) + 1e-9 || k <= best.at + 1e-9) continue;
-    if (scaleAt(p / k) >= k - 1e-9) return p / k;
+    const least = Math.ceil((p - 0.25) / k * 100 - 1e-6) / 100;
+    for (const t of [...(printed(least, k) === p ? [least] : []), p / k]) if (scaleAt(t) >= k - 1e-9) return t;
   }
   return best.t;
 }
