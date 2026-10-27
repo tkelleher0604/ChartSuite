@@ -432,6 +432,11 @@ async function checks() {
   const clause = Object.keys(StandIn.hl.peek()?.colors ?? {}).join() === 'bdc';
   Shell.select([REMOTE_NS]); await wait(20); Shell.select([]); await wait(20);
   check('… nor a clause pointed at in the inspector, the selection changed', clause && !StandIn.hl.peek(), JSON.stringify(StandIn.hl.peek()));
+  Shell.select(['fund']); await wait(20);
+  FormulaBar.preview({ records: { 'fx-pending': { at: 'fund', edge: 'Good Standing', tag: false } } }); await wait(10);
+  const asked = !!FormulaBar.pending.peek() && !!StandIn.rl.peek();
+  Shell.select([]); await wait(20);
+  check('… nor a tag pointed at in the inspector: its preview goes with the selection', asked && !FormulaBar.pending.peek() && !StandIn.rl.peek(), `${asked}`);
   // Words: a role with its article, a verb a list names, one subject said once, a default with its facts
   check('a role with its article, after a clause with more to say; a tag that isn’t a noun, as a condition its name says: the capacity is held',
     /^Margaret A\. Chen .*Fund III, via GP III, with a capacity of Managing Member and is a managing member of GP III, so the capacity is held \(Managing member\)\.$/.test(await saidOf(['fx:capacity held=sign_chen_fund']) ?? ''), said());
@@ -546,6 +551,11 @@ async function checks() {
   nm.dispatchEvent(new PointerEvent('pointerenter'));
   check('a long name in the bar ends in an ellipsis, whole on hover, and the bar keeps to its row', nm.scrollWidth > nm.clientWidth && getComputedStyle(nm).textOverflow === 'ellipsis'
     && nm.title === LONG && bar.scrollWidth <= bar.clientWidth, `${nm.scrollWidth} ${nm.clientWidth} ${bar.scrollWidth} ${bar.clientWidth} ${nm.title.length}`);
+  Shell.select(['own_fund_npine']); await wait(40);
+  const args = document.querySelector('.fxbar .fx-args');
+  args.dispatchEvent(new PointerEvent('pointerenter'));
+  check('… and so does a place cut short, by its sides’ names', args.scrollWidth > args.clientWidth && args.title === `${App.notes.peek().nameOf(R().records, 'fund')} → ${LONG}`
+    && document.querySelector('.fxbar').scrollWidth <= document.querySelector('.fxbar').clientWidth, args.title);
   Shell.parts.peek().undo.undo(); await wait(40);
   Shell.select(['bdc']); await wait(40);
   document.querySelector('.fxbar .fx-name').dispatchEvent(new PointerEvent('pointerenter'));

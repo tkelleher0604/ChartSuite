@@ -327,9 +327,9 @@ const FormulaBar = (() => {
       requestAnimationFrame(() => { Shell.parts.peek().canvas?.zoomTo?.(ids); clear(); });
     }
   });
-  // The rows close when the selection changes, unless a row is being edited; and a clause pointed at in the
-  // inspector, gone with what it was in, lights nothing.
-  on('select', () => { if (!editing.peek()) open.value = false; lit.value = null; });
+  // The rows close when the selection changes, unless a row is being edited; and what the inspector pointed at
+  // goes with what it was in: a clause lights nothing, and a tag's preview is redlined no more.
+  on('select', () => { if (!editing.peek()) open.value = false; lit.value = null; if (pending.peek()?.from === 'outside') preview(null); });
   // Back to a record on the breadcrumb, the last by default.
   function back(i = trail.peek().length - 1) {
     const to = trail.peek()[i];
@@ -1060,14 +1060,14 @@ const FormulaBar = (() => {
     const tint = edge => { const c = cited && [...f.colors].find(([n]) => norm(unbracket(cited.formula.slice(n.from, n.to))) === norm(edge)); return c ? ` fx-rf fx-c${c[1]}` : ''; };
     // A tag's checkbox comes first, as a checkbox does before its label; a value after its name and place. A
     // name cut short ends in an ellipsis, and says itself whole on hover.
-    const boxed = !!m.out && 'tag' in m.out, whole = e => { const el = e.currentTarget; el.title = el.scrollWidth > el.clientWidth ? m.title : ''; };
+    const boxed = !!m.out && 'tag' in m.out, whole = text => e => { const el = e.currentTarget; el.title = el.scrollWidth > el.clientWidth ? text : ''; };
     return html`<div class="fxbar" onKeyDown=${onKey}>
       ${trail.value.map((t, i) => html`<button class="fx-crumb" key=${t.id} title=${t.place} onClick=${() => back(i)}>${t.title}${t.clause ? ` ${t.clause}` : ''}</button><span class="fx-sep" aria-hidden="true">›</span>`)}
       ${boxed ? html`<${Output} key=${m.id} m=${m} />` : null}
-      ${m.options ? html`<button class="btn ghost dd fx-name" onPointerEnter=${whole} onClick=${e => pickMenu(e, m)}>${m.title}</button>`
-        : m.def && !m.general ? html`<button class="fx-name" onPointerEnter=${whole} onClick=${() => openDef(m.def.id)}>${m.title}</button>`
-        : html`<span class="fx-name" onPointerEnter=${whole}>${m.title}</span>`}
-      <span class="fx-args">${m.args ? m.args.map(a => html`${a.join ? html`<span class="to">${a.join}</span>` : null}<span class=${'fx-arg' + tint(a.edge)} title=${a.short !== a.name ? a.name : null}>${a.short}</span>`) : m.place}</span>
+      ${m.options ? html`<button class="btn ghost dd fx-name" onPointerEnter=${whole(m.title)} onClick=${e => pickMenu(e, m)}>${m.title}</button>`
+        : m.def && !m.general ? html`<button class="fx-name" onPointerEnter=${whole(m.title)} onClick=${() => openDef(m.def.id)}>${m.title}</button>`
+        : html`<span class="fx-name" onPointerEnter=${whole(m.title)}>${m.title}</span>`}
+      <span class="fx-args" onPointerEnter=${whole(placeText(m, 'name'))}>${m.args ? m.args.map(a => html`${a.join ? html`<span class="to">${a.join}</span>` : null}<span class=${'fx-arg' + tint(a.edge)} title=${a.short !== a.name ? a.name : null}>${a.short}</span>`) : m.place}</span>
       ${boxed ? null : html`<${Output} key=${m.id} m=${m} />`}
       ${m.def && shut ? html`<${Inline} m=${m} />` : null}
       <span class="fx-end">
