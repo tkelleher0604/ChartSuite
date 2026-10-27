@@ -374,8 +374,9 @@ async function run() {
   check('As of opens with the day in its field, selected, so typing replaces it', document.activeElement === typedDay && typedDay.selectionStart === 0 && typedDay.selectionEnd === typedDay.value.length && typedDay.value.length > 0,
     `${document.activeElement?.outerHTML.slice(0, 60)} ${typedDay.selectionStart}–${typedDay.selectionEnd} of ${typedDay.value.length}`);
   typedDay.value = 'December 31, 2023'; typedDay.dispatchEvent(new Event('input', { bubbles: true })); await tick();
-  typedDay.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(100);
-  check('A day typed and entered is shown, and the calendar closes', Shell.time.peek()?.asOf === '2023-12-31' && !$('.date-pop'), JSON.stringify(Shell.time.peek()));
+  const enterKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  typedDay.dispatchEvent(enterKey); await tick(100);
+  check('A day typed and entered is shown, and the calendar closes, its Enter going no further', Shell.time.peek()?.asOf === '2023-12-31' && !$('.date-pop') && enterKey.defaultPrevented, JSON.stringify(Shell.time.peek()));
   Shell.closeAll(); Shell.at(null); await tick(60);
   check('As of today, the date is plain, with no way back to need', !$('.titlebar .asof.past') && !$('.titlebar .asof [aria-label="Today"]') && $('.titlebar .asof').textContent === 'As of today');
   $('.titlebar .asof .dd').click(); await tick(100);
@@ -467,6 +468,13 @@ async function run() {
   Shell.find('overdue'); await tick(120);
   press('Enter', $('.findpal .menu-find')); await tick(120);
   check('… choosing one goes where the status bar’s count does', visits.join() === 'overdue2', visits.join());
+  // A blank F8 went to leaves the keys in its field, and F8 goes on from there.
+  const field = document.createElement('input');
+  $('.inspector').append(field); field.focus();
+  const f8 = new KeyboardEvent('keydown', { key: 'F8', code: 'F8', bubbles: true, cancelable: true });
+  field.dispatchEvent(f8); await tick();
+  check('F8 goes on from a field', f8.defaultPrevented);
+  field.remove();
   unneed(); await tick(60);
 
   // ---- Find: each kind under its head (the inspector's records, stood in for, each by its names and kind) ----
@@ -567,7 +575,7 @@ async function run() {
   const chartName = App.wb.charts().find(c => c.chart === C()).name;
   check('… on a page with a title and an as-of line', shapesIn(nv).length === 2 && shapesIn(nv).some(s => s.role === 'title' && s.text === chartName) && shapesIn(nv).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text)), JSON.stringify(shapesIn(nv)));
   undo(); await tick(100);
-  Shell.show(own); await tick(60);
+  check('Undone, it leaves the view it was made from', Shell.view.peek() === own && !views().some(v => v.id === nv), Shell.view.peek());
 
   // ---- History ----
   Shell.select([]);

@@ -274,10 +274,13 @@ const Table = (() => {
   function columnDefs(m) {
     const defs = m.cols.filter(drawn).map(c => {
       const f = 'f' + m.cols.indexOf(c), editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of';
-      // A heading's filter offers the values the column has now, as they read, and Blank where it has one.
+      // A heading's filter offers the values its column has now, as they read, and Blank where it has one; none
+      // once its grid has given way to another.
       const values = () => {
-        const vs = [...new Set(current.data.map(r => r[f]).filter(v => v !== null))].sort((a, b) => typeof a === 'number' ? a - b : String(a).localeCompare(String(b)));
-        return [...vs.map(v => ({ label: text(c.type, v), value: v })), ...(current.data.some(r => r[f] === null) ? [{ label: 'Blank', value: BLANK }] : [])];
+        const i = current?.view === m.view ? current.cols.findIndex(x => x.key === c.key) : -1, g = 'f' + i;
+        if (i < 0) return [];
+        const vs = [...new Set(current.data.map(r => r[g]).filter(v => v !== null))].sort((a, b) => typeof a === 'number' ? a - b : String(a).localeCompare(String(b)));
+        return [...vs.map(v => ({ label: text(c.type, v), value: v })), ...(current.data.some(r => r[g] === null) ? [{ label: 'Blank', value: BLANK }] : [])];
       };
       const right = NUMERIC.has(c.type) ? 'right' : 'left';
       return {

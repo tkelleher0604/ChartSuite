@@ -114,9 +114,11 @@ const Time = (() => {
     const marked = new Set(evs.map(e => e.day));
     const years = [...new Set(evs.map(e => e.day.slice(0, 4)))].sort().reverse();
     const view = App.views.value.find(v => v.id === Shell.view.value);
-    // The day is typed over as soon as the calendar opens; one entered is shown, and the calendar closes on it.
+    // The day is typed over as soon as the calendar opens; one entered is shown, and the calendar closes on it,
+    // the Enter going no further than the field (not on to the date's button, which would open it again).
     const typed = e => {
       if (e.key !== 'Enter') return;
+      e.preventDefault();
       const d = Tree.parseDate(e.target.value);
       if (d) { show(d); close(); } else e.target.classList.add('bad');
     };
