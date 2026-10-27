@@ -116,8 +116,8 @@ const Table = (() => {
         const m = cellOf(id, c), r = m.id && st[m.id], f = 'f' + i;
         row[f] = m.v ?? null;
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
-        const fx = !!R.computed?.[m.id], over = !!R.covered?.[m.id];
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || over) && r.field === 'date' && r.value < today };
+        const fx = !!R.computed?.[m.id], cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r.field === 'date' && r.value < today };
       });
       row._ruled = st[id].tag === false;
       return row;

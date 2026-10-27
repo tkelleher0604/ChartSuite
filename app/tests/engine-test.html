@@ -24,10 +24,10 @@
 // and the changes the reworked semantics made on purpose: Control gains its fourth row, "Through a
 // controlled company", and Remote Affiliate rules out the BDC's close affiliates under §57(d); and those the
 // legal team's revisions of October 2026 made: the 25% and 5% tests read votes, the 3(c)(1) count only 3(c)(1)
-// funds, each tax year's Delaware tax is its own deadline, and a signatory's capacity is checked. Then the
-// semantics (nothing, loops, stages and grounds), the APIs for the formula bar, the redline and the editor,
-// definitions that reach the ways a group is worked out that the sample's don't, and cases where the engine
-// once went wrong. Nothing is saved.
+// funds, each tax year's Delaware tax is its own deadline, paid at its year, and a signatory's capacity is
+// checked. Then the semantics (nothing, loops, stages and grounds), the APIs for the formula bar, the redline and
+// the editor, definitions that reach the ways a group is worked out that the sample's don't, and cases where the
+// engine once went wrong. Nothing is saved.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
@@ -75,16 +75,16 @@ function theSample() {
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 584 computed records, with no errors: the 561 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
-    total === 584 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 561, `${total} computed, ${R.errors.length} errors`);
+  check(`The sample works out 598 computed records, with no errors: the 575 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
+    total === 598 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 575, `${total} computed, ${R.errors.length} errors`);
   // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
   // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
   // The Delaware annual tax 7 → 8: the AIV owes tax years 2025 and 2026. New: Voting Percentage (24 holdings),
   // Capacity Held (13 signing authorities), the tax years owed (8), CIMA accounts, CRS and FATCA (1 each).
-  // Ownership Adds Up 16 → 11: not ruled out where the other owners aren't charted, at the four portfolio
-  // companies and the BDC.
+  // Annual Tax Amount 8 → 22: each of the 14 tax years paid has its amount too. Ownership Adds Up 16 → 11: not
+  // ruled out where the other owners aren't charted, at the four portfolio companies and the BDC.
   const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 11, def_tax: 6,
-    def_private_fund: 5, def_investment_company: 1, def_annual_tax: 8, def_annual_tax_amount: 8, def_annual_tax_owed: 8, def_franchise_tax: 2, def_annual_return: 2,
+    def_private_fund: 5, def_investment_company: 1, def_annual_tax: 8, def_annual_tax_amount: 22, def_annual_tax_owed: 8, def_franchise_tax: 2, def_annual_return: 2,
     def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
     def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13 };
   const off = Object.keys({ ...want, ...counts }).filter(d => want[d] !== counts[d]);
@@ -183,6 +183,22 @@ function theSample() {
   const june27 = rowsOf(R, 'def_annual_tax').filter(r => r.value?.iso === '2027-06-01');
   check('Seven Delaware annual taxes are due June 1, 2027, $2,800 in all', june27.length === 7
     && rowsOf(R, 'def_annual_tax_amount').filter(a => june27.some(d => d.at === a.at)).reduce((s, a) => s + a.value, 0) === 2800, june27.length);
+  // A payment is recorded at the tax year it settles, which is entered to bear it.
+  const paidAt = Object.values(R.records).filter(r => r.edge === 'Annual Tax Paid'), fundYears = paidAt.filter(r => objOf(R, R.records[r.at].args.find(a => a.edge === 'Taxpayer').at) === 'fund');
+  check('Each payment is at the tax year it settled, 14 in all: Fund III’s for 2023, 2024 and 2025, paid the May after each', paidAt.length === 14 && paidAt.every(r => !R.records[r.at].computed && R.records[r.at].tag === true)
+    && fundYears.map(r => `${yearOf(R, r)} ${r.value}`).sort().join() === '2023 2024-05-29,2024 2025-05-28,2025 2026-05-27', fundYears.map(r => `${yearOf(R, r)} ${r.value}`).join());
+  const dues = (R, obj) => taxRows(R, 'def_annual_tax', obj).filter(r => r.value).map(r => `${yearOf(R, r)} ${r.value.iso}`).sort().join();
+  check('…so a year paid owes nothing, has its amount, and agrees with the rule that it was on the register', dues(R, 'fund') === '2026 2027-06-01'
+    && taxRows(R, 'def_annual_tax_amount', 'fund').filter(r => r.value).map(r => `${yearOf(R, r)} ${r.value}`).sort().join() === '2023 300,2024 300,2025 300,2026 400'
+    && fundYears.every(r => R.covered[r.at]?.def === 'def_annual_tax_owed' && R.covered[r.at].agrees), dues(R, 'fund'));
+  const owes = Object.keys(R.records).find(id => R.records[id].args?.some(a => a.edge === 'Taxpayer' && objOf(R, a.at) === 'aiv') && yearOf(R, R.records[id]) === 2025);
+  const payAiv = withRecords({ x_aiv_2025: { args: R.records[owes].args, tag: true }, x_aiv_2025_paid: { at: 'x_aiv_2025', edge: 'Annual Tax Paid', field: 'date', value: '2026-10-26' } });
+  check('Paying the AIV’s 2025 at its year settles that year alone: 2026 is still due June 1, 2027', dues(payAiv, 'aiv') === '2026 2027-06-01' && !payAiv.errors.length, dues(payAiv, 'aiv'));
+  // As of the days around the payments, each year is due until it's paid: the deadlines read where they always have.
+  const dueOn = day => { const { recs, definitions, names } = sampleAsOf(day); return dues(Formulas.computeState(recs, definitions, names, null), 'fund'); };
+  const around = ['2024-07-01', '2025-05-27', '2025-05-28', '2026-05-26', '2026-05-27'].map(dueOn);
+  check('Fund III’s tax is due a year at a time: 2024’s until May 28, 2025, then 2025’s until May 27, 2026, then 2026’s', JSON.stringify(around)
+    === JSON.stringify(['2024 2025-05-30', '2024 2025-05-30,2025 2026-06-01', '2025 2026-06-01', '2025 2026-06-01,2026 2027-06-01', '2026 2027-06-01']), JSON.stringify(around));
   const due = (def, id) => entryRow(R, def, id)?.value?.iso;
   check('On or before a date on a weekend: the business day before (Fund III’s LEI, Nov 14, 2026; the annual returns, Jan 31, 2027; FATCA, Jul 31, 2027; the Co-Invest Form D, Jun 26, 2027)',
     due('def_lei', 'fund') === '2026-11-13' && due('def_annual_return', 'feeder') === '2027-01-29' && due('def_fatca', 'feeder') === '2027-07-30' && due('def_form_d', 'coinv') === '2027-06-25',
@@ -316,8 +332,9 @@ function grounds() {
   check('A close affiliate ruled out as a remote one: “Close affiliate (§57(b))”, on its Close Affiliate record', rm.rows[0].label === 'Close affiliate (§57(b))'
     && rm.rows[0].parts.some(p => p.id === Formulas.computedId([{ edge: 'Close Affiliate', at: 'northpine' }, { edge: 'BDC', at: 'bdc_ics' }])));
   const owed = rowsOf(R, 'def_annual_tax_owed').find(r => objOf(R, r.args.find(a => a.edge === 'Taxpayer').at) === 'aiv' && yearOf(R, r) === 2025);
-  const text = owed && Formulas.groundText(R, owed.id);
-  check('A deadline’s ground on one line: what set the date, and what was nothing', /Formation Date February 11, 2025/.test(text) && /Annual Tax Paid —/.test(text), text);
+  const text = owed && Formulas.groundText(R, Object.keys(R.records).find(id => R.records[id].at === owed.id && R.records[id].edge === 'Annual Tax Due')), year = owed && Formulas.groundText(R, owed.id);
+  check('A deadline’s ground on one line: what set the date, and what was nothing', /Year 2,?025/.test(text) && /Annual Tax Paid —/.test(text), text);
+  check('…and its tax year’s, the year it’s owed from', /Formation Date February 11, 2025/.test(year) && !/Annual Tax Paid/.test(year), year);
 }
 
 // ---- The formula bar, the redline and the editor ----

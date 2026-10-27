@@ -255,11 +255,11 @@ Due dates are worked out from what's entered, each from when its obligation was 
 
 | Label | Row |
 | --- | --- |
-| Each year on the register, from the year of the last payment | `← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company"} AND Taxpayer.[Vehicle Type] <> "Portfolio Company" AND [Tax Year].Year >= YEAR(MAX(Taxpayer.Jurisdiction.[Annual Tax Paid], Taxpayer.[Formation Date]))` |
+| Each year on the register | `← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company"} AND Taxpayer.[Vehicle Type] <> "Portfolio Company" AND [Tax Year].Year >= YEAR(Taxpayer.[Formation Date])` |
 
-The tax is owed for every year the entity is on the register, and a payment settles the years before the one it's made in. At each, **Annual Tax Due** is `= WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1)`, and **Annual Tax Amount** has two rows, "From tax year 2026", `= IF([Tax Year].Year >= 2026, $400)`, and "Through tax year 2025", `= $300`. From the entity's side its list is **Taxed For**.
+The tax is owed for every year the entity is on the register, and a payment settles the year it's for, so it's recorded at that year: **Annual Tax Paid**, an entry at the year's Annual Tax, which is entered to bear it, as the rule gives it, since an entry is only ever at a record the timeline holds. At each, **Annual Tax Due** is "June 1 after the tax year, until paid", `= IF(ISBLANK([Annual Tax Paid]), WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1))`, and **Annual Tax Amount** has two rows, "From tax year 2026", `= IF([Tax Year].Year >= 2026, $400)`, and "Through tax year 2025", `= $300`. From the entity's side its list is **Taxed For**. A payment's place is its year's: "Fund III, tax year 2025 › Annual Tax Paid".
 
-The AIV, formed February 11, 2025, has paid nothing, so it owes 2025, due June 1, 2026 and overdue, and 2026, due June 1, 2027. With the six that paid for 2025 in May 2026, seven are due June 1, 2027, $2,800 in all. The reason for the AIV's 2025 is the facts that set it, "… Formation Date February 11, 2025 · Annual Tax Paid —": MAX's reason is the date it chose, and every argument that was nothing.
+The AIV, formed February 11, 2025, has paid nothing, so it owes 2025, due June 1, 2026 and overdue, and 2026, due June 1, 2027. With the five that paid for 2025 in May 2026, each at that year, and the co-invest vehicle formed that month, seven are due June 1, 2027, $2,800 in all. The reason the AIV owes 2025 is the facts that set it, "… Formation Date February 11, 2025"; the reason it's due June 1, 2026 is its year, and the payment that was nothing, "Annual Tax Paid —".
 
 **A fiscal year.** Fiscal Year End is a day of the year, December 31, with no year, and a rule reads its month and day. The Form ADV annual updating amendment is due within 90 days after the fiscal year after the one the last annual amendment covered:
 

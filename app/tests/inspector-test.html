@@ -167,6 +167,11 @@ async function run() {
   check('typing over a computed value enters it, with an amber corner', count()[1].value === 0.1 && !App.computed.value.computed[count()[0]] && !!rowOf('Voting Percentage').querySelector('.hug.over'));
   await type(rowOf('Voting Percentage').querySelector('input'), '');
   check('clearing an entered value lets the formula stand', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
+  // An entry saying what the formula gives overrides nothing: it has no corner, as a paid tax year has none.
+  const agree = Object.keys(App.computed.value.covered).find(id => App.computed.value.covered[id].agrees && st()[id]?.args);
+  Shell.select([agree]); await tick(60);
+  check('… an entry that says what its formula gives has no amber corner', !!agree && !$$('.insp .over').length && !$$('.fx-out.over').length, agree);
+  Shell.select(['own_us_fund']); await tick();
   offWhy();
   Shell.select(['fund']); await tick();
 
@@ -449,6 +454,29 @@ async function run() {
     && filed?.diff.change.some(id => id.startsWith('fx:form d due')), JSON.stringify(filed?.diff));
   key(document.querySelector('.filing input'), 'Escape'); await tick();
   check('… and Esc leaves it as it was', !document.querySelector('.filing') && !FormulaBar.pending.peek());
+  // A tax year's payment is recorded at the year it settles: the year, worked out, entered to bear it
+  const taxYear = (who, y) => Object.keys(st()).find(k => st()[k].args && N().segmentOf(st(), k) === `${who}, tax year ${y}`);
+  const dueAt = rel => Object.keys(st()).find(k => st()[k].at === rel && st()[k].edge === 'Annual Tax Due');
+  const owed = taxYear('AIV-1', 2025), nextYear = dueAt(taxYear('AIV-1', 2026));
+  Shell.select([owed]); await tick(60);
+  const taxDue = rowOf('Annual Tax Due'), paying = taxDue?.querySelector('.btn.ver.filed');
+  check('an overdue tax year offers Paid…', !!taxDue?.querySelector('.hug.overdue') && paying?.textContent === 'Paid…', taxDue?.outerHTML.slice(0, 200));
+  paying?.click(); await tick(80);
+  check('… which redlines the deadline going', document.querySelector('.filing .field span')?.textContent === 'Annual Tax Paid' && FormulaBar.pending.peek()?.diff.go.includes(dueAt(owed)), JSON.stringify(FormulaBar.pending.peek()?.diff));
+  key(document.querySelector('.filing input'), 'Enter'); await tick(80);
+  const payment = last().adds.find(r => r.edge === 'Annual Tax Paid'), year = payment && last().adds.find(r => r.record === payment.at);
+  check('Paid… records the payment at the tax year, entering the year as it stood', payment?.value === '2026-10-26' && last().adds.length === 2 && year?.tag === true
+    && JSON.stringify(year.args) === JSON.stringify(App.wb.asOf(C, '2026-10-26')[year.record]?.args) && N().segmentOf(st(), year.record) === 'AIV-1, tax year 2025', JSON.stringify(last().adds));
+  check('… so that year is due no more, and the next still is', !dueAt(taxYear('AIV-1', 2025)) && st()[nextYear]?.value === '2027-06-01', dueAt(taxYear('AIV-1', 2025)));
+  check('… and History says it at the year', Time.describe(last()) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026', Time.describe(last()));
+  Shell.parts.value.undo.undo(); await tick(60);
+  check('… and Undo leaves the year owed again', !!dueAt(taxYear('AIV-1', 2025)) && st()[dueAt(taxYear('AIV-1', 2025))].value === '2026-06-01');
+  // So with anything typed at a year a formula gives: the year is entered as it stands, with it
+  Shell.select([taxYear('AIV-1', 2026)]); await tick(60);
+  await type(rowOf('Annual Tax Amount')?.querySelector('input'), '$450'); await tick(60);
+  check('… and typing over a value at a year enters the year with it', last().adds.length === 2 && last().adds.some(r => r.args && r.tag === true)
+    && last().adds.some(r => r.edge === 'Annual Tax Amount' && r.value === 450 && last().adds.some(y => y.record === r.at)), JSON.stringify(last().adds));
+  Shell.parts.value.undo.undo(); await tick(60);
   Shell.at(null); await tick(40);
 
   // A free shape: its own panel

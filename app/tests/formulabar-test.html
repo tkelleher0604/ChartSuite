@@ -432,7 +432,8 @@ async function checks() {
   await undo();
   check('… and a tag of an object, for it', await saidOf(['fx:ownership adds up=fund']) ==='U.S. Investors is an owner of Fund III with a percentage of 71.6% and Offshore Feeder is an owner of Fund III with a percentage of 28.4%, so Ownership Adds Up holds for Fund III (Owners recorded).', said());
   check('a default, said with the facts the rows before it read', await saidOf(['fx:tax classification=northpine_type']) === 'Northpine Software, LLC’s entity type is Limited Liability Company, so its tax classification is Partnership (Otherwise).', said());
-  check('every fact said, about one subject together, none left as "and 2 more"; a date of what was done, as done then', /^Fund III’s entity type is Limited Partnership, its vehicle type is Main Fund, its jurisdiction is Delaware, it paid its annual tax on .+? and the tax year is 2026, so/.test(await saidOf(['fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris']) ?? ''), said());
+  check('every fact said, about one subject together, none left as "and 2 more"', /^Fund III’s entity type is Limited Partnership, its vehicle type is Main Fund, its formation date is February 14, 2023 and the tax year is 2026, so/.test(await saidOf(['fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris']) ?? ''), said());
+  check('… a date of what was done, as done then', / and it paid its franchise tax on February 24, 2026, so /.test(await saidOf(['fx:franchise tax due=blocker_juris']) ?? ''), said());
   check('… its annual return filed on a day, and Form D last filed on one', /and it filed its annual return on January 20, 2026, so its annual return is due/.test(await saidOf(['fx:annual return due=feeder_juris']) ?? '')
     && /^Offering Open holds for the BDC and the BDC last filed on November 10, 2025, so its Form D is due/.test(await saidOf(['fx:form d due=bdc_regd']) ?? ''), said());
   // No tag is said as "is Yes", nor any value as a bare yes or no, whatever the record
@@ -478,10 +479,10 @@ async function checks() {
   check('… and says what the rows would give, and why', said() === 'The BDC’s entity type is Corporation, so its tax classification would be C Corporation (Corporation).', said());
   check('a value’s place is its object, without the path down to it, where it has one of its kind', M().place === 'The BDC' && (Shell.select(['fx:form pf due=mgmt_pf']), await wait(40), M().place === 'The Manager'), M().place);
   // … and the path where the object has two: a tax paid at its jurisdiction, and one at its entity type
-  Shell.select(['fund_juris_tax']); await wait(40);
+  Shell.select(['blocker_juris_frtax']); await wait(40);
   const once = M().place;
-  App.change(tx => tx.add('record', { at: 'fund_type', edge: 'Annual Tax Paid', field: 'date', value: '2026-01-02' })); await wait(40);
-  check('… and the path down to it where the object has two of its kind', once === 'Fund III' && M().place === 'Fund III › Jurisdiction: Delaware', `${once} | ${M().place}`);
+  App.change(tx => tx.add('record', { at: 'blocker_type', edge: 'Franchise Tax Paid', field: 'date', value: '2026-01-02' })); await wait(40);
+  check('… and the path down to it where the object has two of its kind', once === 'Fund III Blocker' && M().place === 'Fund III Blocker › Jurisdiction: Delaware', `${once} | ${M().place}`);
   Shell.parts.peek().undo.undo(); await wait(40);
 
   // The redline: hovering a tag

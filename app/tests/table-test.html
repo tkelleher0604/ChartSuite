@@ -365,6 +365,8 @@ async function run() {
   check('Each day is said in the chart’s words: whose in words, not arrows', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP, general partner of Offshore Feeder'), JSON.stringify(jul9?.items));
   const whose = Object.fromEntries(Table.model(views().find(v => v.rows === 'date').id).data.map(r => [r.f1 + '|' + r.f2, true]));
   check('Dates says whose in words, a tax year as the place rule says it: AIV-1, tax year 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
+  check('… and a tax paid at the year it settled: Fund III, tax year 2025', whose['Annual Tax Paid|Fund III, tax year 2025'] && whose['Annual Tax Paid|Fund III-A, tax year 2024']
+    && !Object.keys(whose).some(k => /^Annual Tax Paid\|/.test(k) && !/, tax year \d{4}$/.test(k)), Object.keys(whose).filter(k => /^Annual Tax Paid/.test(k)).join(' / '));
   // The list of days opens on the day shown, or the last of the chart's days before it.
   Shell.at({ asOf: '2024-01-15' }); await tick(60);
   $('.titlebar .asof .dd').click(); await tick(200);
@@ -602,8 +604,13 @@ async function run() {
   const okafor = named('David R. Okafor'), manager = named('Calder Ridge Capital Management, LLC');
   const ruling = { id: 'x', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xr', record: 'xc', args: [{ edge: 'Controller', at: okafor }, { edge: 'Controlled', at: manager }], tag: false }] };
   check('A presumption ruled out says so', Time.describe(ruling) === 'Ruled out Control: David R. Okafor → The Manager', Time.describe(ruling));
-  const paid = { id: 'xp', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xpr', record: 'xpc', at: 'aiv_juris', edge: 'Annual Tax Paid', field: 'date', value: '2026-10-26' }] };
-  check('A place is said as the formula bar says it: the entity alone, where it has one entry of that label', Time.describe(paid) === 'Set Annual Tax Paid of AIV-1 to Oct 26, 2026', Time.describe(paid));
+  const filed = { id: 'xf', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xfr', record: 'xfc', at: 'halvard_juris', edge: 'Franchise Tax Paid', field: 'date', value: '2026-10-26' }] };
+  check('A place is said as the formula bar says it: the entity alone, where it has one entry of that label', Time.describe(filed) === 'Set Franchise Tax Paid of Halvard to Oct 26, 2026', Time.describe(filed));
+  // A tax year paid, entered to bear its payment as Paid… enters it: the payment is said, at the year.
+  const owed = Object.keys(st()).find(k => st()[k].args && App.notes.peek().segmentOf(st(), k) === 'AIV-1, tax year 2025');
+  const paid = { id: 'xp', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xpy', record: 'xpt', args: st()[owed].args, tag: true },
+    { id: 'xpr', record: 'xpc', at: 'xpt', edge: 'Annual Tax Paid', field: 'date', value: '2026-10-26' }] };
+  check('… and a payment at the tax year it settles, as the place rule says it', Time.describe(paid) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026', Time.describe(paid));
   const pos = App.wb.rows(C()).filter(r => r.label === 'Position').slice(0, 3), stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: C() };
   const tidied = { ...stamp, id: 'xt', removes: pos.map(r => r.id), adds: [] }, untidied = { ...stamp, id: 'xu', reverses: 'xt', removes: [], adds: pos }, retidied = { ...stamp, id: 'xr', reverses: 'xu', removes: pos.map(r => r.id), adds: [] };
   check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));

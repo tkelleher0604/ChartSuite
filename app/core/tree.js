@@ -229,7 +229,7 @@ function parse(datatype, raw) {
   const n = Number(s.replace(/[$,%]/g, ''));
   return datatype === 'percent' ? n / 100 : n;
 }
-// How a value reads: 71.6%, $750,000,000, 1,000, February 14, 2023, December 31, and a document by what its
+// How a value reads: 71.6%, $750,000,000, 12,500, 2025, February 14, 2023, December 31, and a document by what its
 // link names. A formatter is costly to make and values are formatted by the thousand, so each kind is made once.
 const numberFormats = new Map();
 const numberFormat = (min, max) => numberFormats.get(min * 10 + max)
@@ -243,7 +243,8 @@ function format(datatype, v) {
   // A percentage as precise as it was entered, to four places: 26.696%.
   if (datatype === 'percent') return `${n(v * 100, 0, 4)}%`;
   if (datatype === 'money') return `${v < 0 ? '-' : ''}$${n(Math.abs(v), Number.isInteger(v) ? 0 : 2)}`;
-  return n(v);
+  // A whole number of four figures, a year most often, is set without a comma, as a style guide sets it.
+  return Number.isInteger(v) && Math.abs(v) < 10000 ? String(v) : n(v);
 }
 // How a record's output reads: a value as its datatype reads, an option as itself, a tag Yes or No.
 const outputText = r => isField(r) ? format(r.field, r.value) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Yes' : 'No') : '';
