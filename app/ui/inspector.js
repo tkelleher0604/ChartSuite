@@ -93,7 +93,7 @@ function filingOf(due) {
 // The specifications of entries with this edge at locations like t, and what one takes there.
 const specsAt = (t, edge) => Object.values(App.schema.value).filter(s => s.args?.length === 1 && T.same(s.args[0].edge, edge) && T.narrower(t, s.args[0].loc));
 function optionsOf(specs) {
-  const p = specs[0] && T.bare(specs[0]), rank = o => { const r = N().resolve('Order', { out: { choice: o }, args: p.args }); return r?.note.pattern.out ? r.value : Infinity; };
+  const p = specs[0] && T.bare(specs[0]), rank = o => N().optionOrder({ out: { choice: o }, args: p.args }) ?? Infinity;
   return [...new Set(specs.filter(s => 'choice' in s.out).map(s => s.out.choice))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 function kindAt(t, edge) {

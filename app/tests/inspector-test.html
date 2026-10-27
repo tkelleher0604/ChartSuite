@@ -436,7 +436,7 @@ async function run() {
   check('nothing selected shows the view’s layout and its styles, its name left to its tab', !$('.ih') && !!rowOf('Layout') && $$('.style').length > 3 && $$('svg.sw').length > 5, styleNames().join(', '));
   const outs = $$('.row.out').map(r => `${r.querySelector('.cell').value}/${r.querySelector('.oname')?.textContent ?? ''}`);
   check('a style’s row: its caption, then the outputs it stands for, where it stands for several, as their option list has them', outs.includes('Investors/') && outs.includes('Individual/')
-    && outs.includes('Funds/AIV, Business Development Company, Co-Investment Vehicle, Feeder Fund, Main Fund, Parallel Fund') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
+    && outs.includes('Funds/Main Fund, Parallel Fund, Feeder Fund, AIV, Co-Investment Vehicle, Business Development Company') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
   check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => r.querySelector('.cell').value === 'Investors')?.querySelector('.v').title === 'Investor Group');
   check('a text style uncaptioned is keyed by the texts it sets, as a box style by its boxes: Names, Jurisdictions', outs.includes('Names/') && outs.includes('Jurisdictions/')
     && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(r.querySelector('.cell').value)), outs.join(' | '));
