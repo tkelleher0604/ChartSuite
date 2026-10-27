@@ -544,6 +544,7 @@ function begin(wb, template, o) {
 
 function run(command, o = {}) {
   try {
+    if (!Formulas.attention) refuse('This copy of Dendra is older than the tool (its core has no Formulas.attention): give --app a newer one.');
     if (command === 'new') { const wb = o.workbook ? open(o.workbook) : Log.open([]); return { ok: true, ...begin(wb, o.template ?? refuse('Give a template workbook, --from.'), o) }; }
     const wb = open(o.workbook ?? refuse('Give the workbook.'));
     const f = { vocab, show, check, apply }[command] ?? refuse(`There’s no command ${quote(command)}: vocab, show, check, apply or new.`);
