@@ -232,12 +232,13 @@ function typed(it) {
   return out;
 }
 // Texts as PowerPoint holds them, in a shape anchored at `anchor`: each line where the scene breaks it, so that
-// PowerPoint never wraps it again; in its look at its size on the slide (k times its page's), its lines as far
-// apart as the scene sets them; a paragraph for each line it was typed on; its spaces plain, as typed, so that
-// PowerPoint's Find finds them. Its margins are `inset` inches all round, or PowerPoint's own where that's null.
+// PowerPoint never wraps it again; in its look at its size on the slide (k times its page's, and at least 1 pt,
+// the least PowerPoint opens), its lines as far apart as the scene sets them; a paragraph for each line it was
+// typed on; its spaces plain, as typed, so that PowerPoint's Find finds them. Its margins are `inset` inches
+// all round, or PowerPoint's own where that's null.
 function txBody(items, k, anchor, inset) {
   const ps = items.flatMap(it => {
-    const t = it.look, sz = Math.round(t.Size * k * 100), font = esc(t.Font);
+    const t = it.look, sz = Math.max(100, Math.round(t.Size * k * 100)), font = esc(t.Font);
     const rPr = `<a:rPr lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''} dirty="0">`
       + `<a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
     return typed(it).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * k * 100)}"/></a:lnSpc></a:pPr>`

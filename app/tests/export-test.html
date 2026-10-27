@@ -107,7 +107,7 @@ async function run() {
     const missing = boxes(main).filter(b => { const sp = shapeOf(b); return !sp || tags(sp, 'a:prstGeom')[0]?.getAttribute('prst') !== PRESET[b.shape]; });
     check('every box is a shape of its preset geometry, holding its texts as paragraphs', !missing.length, missing.map(b => b.id).join(', '));
     const fund = shapeOf(main.byId.get('fund')), run = tags(fund, 'a:rPr')[0], latin = tags(fund, 'a:latin')[0];
-    check('a text keeps its font, weight and color, at the size it has on the slide', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.round(1000 * k)) && run.getAttribute('b') === '1'
+    check('a text keeps its font, weight and color, at the size it has on the slide, 1 pt at least', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.max(100, Math.round(1000 * k))) && run.getAttribute('b') === '1'
       && tags(run, 'a:srgbClr')[0].getAttribute('val') === '000000', run.outerHTML.slice(0, 120));
     const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.w * k) / 2, oy = (H - main.page.h * k) / 2;
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
@@ -156,7 +156,8 @@ async function run() {
       && cxns.some(b => tags(b, 'a:endCxn')[0] && at(b, 'a:endCxn') === main.byId.get(l.to).texts[0].text && together(a, b))));
     check('every line is a connector glued to the shapes of the boxes it joins', glued.length === lines(main).length && cxns.length >= lines(main).length, `${glued.length} of ${lines(main).length}`);
     const sizes = [...new Set(tags(doc, 'a:rPr').map(r => +r.getAttribute('sz')))];
-    check('every size in the deck is a whole or half point', sizes.every(z => z % 50 === 0), sizes.join(' '));
+    check('every size in the deck is a whole or half point, and none under 1 pt, which PowerPoint won’t open, however small the chart is drawn', sizes.every(z => z % 50 === 0 && z >= 100)
+      && k * 10 < 1, `${sizes.join(' ')} at ${k}`);
     const prsts = new Set(cxns.map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst')));
     const elbows = cxns.filter(c => tags(c, 'a:stCxn').length).map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst'));
     check('lines are elbow connectors, as the scene’s Connector says; the key’s swatches straight', elbows.every(p => /^bentConnector[234]$/.test(p))
