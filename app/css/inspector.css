@@ -208,6 +208,18 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr.new > .add-entry { grid-column: 1 / -1; justify-self: start; }
 .rr.new:hover { background-image: none; }
 .relate + .relate { border-top: 1px solid var(--rule); }
+/* A relation being added that asks its day: redlined, its box ticked and its sentence in blue, and beneath it
+   the day it holds from. */
+.rr.adding > .nm, .rr.adding > .val { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
+.rr.adding > .nm .sel { text-decoration: inherit; }
+.rr > .when, .rr.new > .when { grid-column: 2 / -1; padding-bottom: 4px; }
+.rr.new > .when { margin-top: 4px; }
+
+/* The day a record added holds from, wherever it's asked (App.From): "From", a menu with All along, and the
+   day, typed over; what's said, the day or All along, in the redline's blue. */
+.from { display: inline-flex; align-items: center; gap: 2px; min-height: var(--row); color: var(--ink-2); }
+.from > .sel { margin: 0 2px 0 -7px; color: inherit; }
+.from .cell.date, .from:not(:has(.cell)) > .sel { color: var(--accent-ink); }
 
 
 /* An error where a value would be: what it needs, quietly, or its code in red. */

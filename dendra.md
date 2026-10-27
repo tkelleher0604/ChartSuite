@@ -16,6 +16,8 @@ A record of a timeline **holds** on a day d if it is valid on d and each of its 
 
 A kind or relation may name a date entry at it as its **start** and another as its **end** (see Notes): an Entity's are Formation Date and Dissolution Date, a General Partner's Admission Date and Withdrawal Date. A record's validity is then its own period narrowed to the days from its start, if it has one, and before its end. So Formation Date stays an ordinary field, and a fund is in the chart as of a day only once it's formed.
 
+So a record added holds from its start, whenever it's recorded: a fund added today is in the chart from its Formation Date, and an object with no start, a person, is in it all along. A relation with none, an ownership or a membership, has only its own period, so the day it begins is said as it's added: the day it began, or none, for what was always so.
+
 ### Change
 
 An **item** is anything in a workbook with an identity: a chart, a specification of its schema (so a kind or an option can exist before any record has it), a record, a note or a free shape. A **row** is a version of an item; a dated record's row carries its validity.
@@ -144,7 +146,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Pending changes are redlined** before they are made, as lawyers' comparison software shows them: what would appear in blue, what would go struck through in red. Hovering a tag, typing a value, typing a formula and deleting a row all preview this way; Enter commits, Esc discards.
 
-**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. A filing or payment recorded beside its deadline takes effect from the day it was made. History lists the log, a change and its Undo as one, struck, and shows every view as it stood after a change, which can be undone from there; and what's deleted, each with Restore.
+**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends. Typing a value corrects it; with a day shown, it changes from that day. A relation added with no start of its own asks its day in its redline, before Enter: From the day shown, typed over, or All along. A filing or payment recorded beside its deadline takes effect from the day it was made. History lists the log, a change and its Undo as one, struck, and shows every view as it stood after a change, which can be undone from there; and what's deleted, each with Restore.
 
 **Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
 

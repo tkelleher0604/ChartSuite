@@ -231,6 +231,7 @@ const draft = signal(null);     // an entry being added: { at, type, edge?, data
 const renaming = signal(null);  // the entry whose label is being typed over
 const aim = signal(null);       // a row or list to bring into view and focus, by its key
 const linking = signal(null);   // the record a link is being typed for
+const relating = signal(null);  // a relation a list's Add began, for the two-box panel to ask its day: { a, b, key, out, rec }
 
 // A name that selects what it names: a button, reached by Tab, set as text. `tip` is said on hover: a
 // reason's own words.
@@ -554,15 +555,23 @@ function notText(it, held) {
     : `${says} ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
 }
 
+// Adding to a list: one picked is related at once where it says nothing more, but its day where it asks one
+// (App.asksDay), which the two-box panel asks of it, as of every relation added there; and its role, there.
 function Relatives({ id }) {
   const { lists, docs, nots } = relatives(id);
   const add = (e, items) => {
     const it = items[0], own = within(id), have = new Set(items.map(x => x.obj)), seen = new Set(), out = [];
     for (const s of N().fitting(App.schema.value, loose(tree(it.rid)))) {
       const sm = s.args.length === 2 && s.args.find(a => T.same(a.edge, it.mine)), sl = sm && s.args.find(a => a !== sm), at = sm && own.find(x => T.narrower(tree(x), sm.loc));
-      if (at) for (const x of Object.keys(recs())) if (!('field' in recs()[x]) && !seen.has(x) && !have.has(objectOf(x)) && objectOf(x) !== id && T.narrower(tree(x), sl.loc)) {
-        seen.add(x);
-        out.push({ label: nameOf(objectOf(x)), run: () => 'tag' in s.out ? App.change(tx => tx.add('record', { args: [{ edge: sm.edge, at }, { edge: sl.edge, at: x }], tag: true })) : select([id, objectOf(x)]) });
+      if (at) for (const x of Object.keys(recs())) if (!('field' in recs()[x]) && !seen.has(objectOf(x)) && !have.has(objectOf(x)) && objectOf(x) !== id && T.narrower(tree(x), sl.loc)) {
+        // Each by its object, related at its first place that fits, as the two-box panel relates it.
+        const b = objectOf(x), lb = within(b).find(y => !('field' in recs()[y]) && T.narrower(tree(y), sl.loc)), rec = { args: [{ edge: sm.edge, at }, { edge: sl.edge, at: lb }], tag: true };
+        seen.add(b);
+        out.push({ label: nameOf(b), run: () => {
+          if ('tag' in s.out && !App.asksDay(rec)) return App.change(tx => tx.add('record', enterAt(tx, rec)));
+          if ('tag' in s.out) relating.value = { a: id, b, key: [sm.edge, sl.edge, at, lb].join('|').toLowerCase(), out: { tag: true }, rec };
+          select([id, b]);
+        } });
       }
     }
     menu(e.currentTarget, out.sort((a, b) => a.label.localeCompare(b.label)), { search: true });
@@ -600,21 +609,23 @@ function Relatives({ id }) {
 // entry's entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code
 // only for one of the user's own; a size or a weight is the slide's, as the format bar has it, a size to the
 // half point and a weight as PowerPoint gives it. Format is what a mark's own text shows, as the scene sets it:
-// a box's and a tag's is its name, whatever the format, unless it's none; what's recorded at it (a line's
-// percentage) is a text of its own, so a line can show no name and still draw its 64%.
-const LABELS = { Format: 'Text' }, TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
+// a box's and a tag's is its name, whatever the format, unless it's none, so there it says whether the name is
+// shown; what's recorded at it (a line's percentage) is a text of its own, so a line can hide its name and
+// still draw its 64%.
+const TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
+const labelOf = (label, named) => label !== 'Format' ? label : named ? 'Name' : 'Text';
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
 const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
   : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
   : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
-  : label === 'Format' ? (named ? (v === 'none' ? 'No name' : 'Name') : TEXTS[v] ?? upper(String(v)))
+  : label === 'Format' ? (named ? (v === 'none' ? 'Hidden' : 'Shown') : TEXTS[v] ?? upper(String(v)))
   : label === 'Shape' ? SHAPES[v] ?? upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))];
   return html`<${Section} title="Look" act=${reset}>${from.map(f => html`
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
-    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${LABELS[x.label] ?? x.label}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
+    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
 }
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
 // scale, and sets the chart across its middle, by its offset), so the numbers are the ones PowerPoint shows:
@@ -798,9 +809,22 @@ function Prose({ text, put, label, cls = 'desc', auto, done }) {
 // Two records: what holds between them, each said as a sentence with what's recorded at it beneath; then,
 // behind Add a relation, what else someone could enter between them (what a formula works out isn't
 // offered). A side fills a relation's parameter through itself or a record located in it that fits there (a
-// fund is a GP's Partnership through its Entity Type).
+// fund is a GP's Partnership through its Entity Type). Every side is said by the place rule (Notes.placed),
+// so none twice.
 function RelateView({ a, b }) {
-  const r = recs(), n = N(), [picks, setPicks] = useState({}), [form, setForm] = useState(null), [adding, setAdding] = useState(false), [fresh, setFresh] = useState(null), none = useRef(null), still = App.readOnly.value;
+  const r = recs(), n = N(), [picks, setPicks] = useState({}), [form, setForm] = useState(null), [fresh, setFresh] = useState(null), none = useRef(null), still = App.readOnly.value;
+  // A relation added that asks its day (App.asksDay) is redlined until Enter, its day asked beneath it: which
+  // (its key), as what (its tick, role or value) and the record it makes. A list's Add may have begun one.
+  const [begun] = useState(() => { const p = relating.peek(); return p?.a === a && p.b === b ? p : null; });
+  const [draft, setDraft] = useState(begun), [day, setDay] = useState(() => App.day.peek()), [adding, setAdding] = useState(!!begun), previewed = useRef(false);
+  useLayoutEffect(() => { if (begun) relating.value = null; }, []);
+  // The chart redlines it where it holds on the day shown: all along, or from that day or before.
+  useLayoutEffect(() => {
+    const p = draft && day !== undefined && (day === null || day <= App.day.peek()) ? { records: { 'fx-relating': draft.rec } } : null;
+    if (p || previewed.current) FormulaBar.preview(p);
+    previewed.current = !!p;
+  }, [draft, day]);
+  useLayoutEffect(() => () => { if (previewed.current) FormulaBar.preview(null); }, []);
   if (!r[a] || !r[b]) return [a, b].some(x => !r[x] && !App.shown.value.item(App.chart.value, x).length) ? null : html`<div class="empty">Not in the chart</div>`;
   const ca = within(a).filter(x => !('field' in r[x])), cb = within(b).filter(x => !('field' in r[x])), inB = new Set(cb), held = new Map(), open = new Map();
   for (const x of ca) for (const rid of relationsAt(x)) {
@@ -831,33 +855,56 @@ function RelateView({ a, b }) {
     return html`<div class=${'rr' + (rel.tag === false ? ' ruled' : '')} key=${x.id} data-key=${x.id}>
         <span class="ctl">${'tag' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />`
           : html`<${TagBox} r=${{ tag: true }} fx=${f} fixed=${f} to=${null} label=${x.name} flip=${() => remove(x.id)} change=${() => ({ records: { [x.id]: null } })} />`}</span>
-        <span class="nm">${sentence(tree(x.id), n.edges(tree(x.id)), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false, role: chosen,
+        <span class="nm">${sentence(tree(x.id), n.placed(r, x.id).map(s => s.edge), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false, role: chosen,
           wrap: words => html`<${Go} to=${x.id} cls=${f ? 'fx' : ''}>${words}</${Go}>` })}</span>
         <span class="val">${'field' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
         ${why ? html`<span class="why" data-tip=${why.words || null}>${why.cite}</span>` : null}
       </div>
       ${f ? null : html`<div class="rr-at" key=${x.id + '@'}><${Entries} at=${x.id} depth=${0} offer=${x.key === fresh} /></div>`}`; };
   // What could: a tag's box to tick, a role to choose in the sentence, or a value to give; a further side,
-  // picked in the sentence.
-  const relate = (x, slot, out) => { setFresh(x.key); put(null, slot, out); };
+  // picked in the sentence. One that asks its day is redlined, its day beneath it (App.From), till Enter keeps
+  // it from that day or Esc drops it; any other is kept at once.
+  const relate = (x, slot, out) => {
+    const rec = withOut(null, slot, out);
+    if (App.asksDay(rec)) { if (draft?.key !== x.key) setDay(App.day.peek()); setDraft({ key: x.key, out, rec }); setForm(null); return; }
+    setFresh(x.key); App.change(tx => tx.add('record', enterAt(tx, rec)));
+  };
+  const keep = () => {
+    if (!draft || day === undefined) return;
+    setDraft(null); setFresh(draft.key);
+    App.change(tx => tx.add('record', enterAt(tx, draft.rec)), { dated: day ?? false });
+  };
+  const drop = row => { setDraft(null); setTimeout(() => row.querySelector('.ctl .tag, .nm .sel')?.focus()); };
+  const asking = e => {
+    if (e.key === 'Enter') { e.preventDefault(); keep(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); drop(e.currentTarget); }
+  };
+  const when = auto => html`<span class="when"><${App.From} day=${day} set=${setDay} auto=${auto} /></span>`;
   const openRow = x => { const slot = slotOf(x), tag = 'tag' in x.s.out, chosen = !tag && slot && 'choice' in x.s.out, fill = e => T.same(e, x.ea) ? x.la : T.same(e, x.eb) ? x.lb : null;
+    const d = draft?.key === x.key && slot ? draft : null;
     const say = (e, first) => { if (fill(e)) return side(fill(e), first);
       const p = x.rest.find(q => T.same(q.edge, e)), y = picks[x.key + p.edge];
       return html`<button class=${'sel dd' + (y ? '' : ' ph')} aria-label=${`${p.edge}: ${y ? nameOf(objectOf(y)) : 'none'}`} onClick=${ev => pick(ev, x, p)}><span>${y ? bound(shortOf(objectOf(y))) : '…'}</span></button>`; };
-    return html`<div class="rr" key=${x.key} data-key=${x.key}>
-      <span class="ctl">${!tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => relate(x, slot, { tag: true })} />` : html`<span class="tag" aria-disabled="true" />`}</span>
-      <span class="nm">${sentence(x.s, n.edges(x.s), say, chosen ? { choice: '…', role: role(x.name, null, x.options, o => relate(x, slot, { choice: o })) } : {})}</span>
-      <span class="val">${tag || !slot || chosen ? null : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => out && relate(x, slot, out)} />`}</span>
+    const said = d && 'choice' in d.out ? { choice: d.out.choice, role: role(x.name, d.out.choice, x.options, o => relate(x, slot, { choice: o })) }
+      : chosen ? { choice: '…', role: role(x.name, null, x.options, o => relate(x, slot, { choice: o })) } : {};
+    return html`<div class=${'rr' + (d ? ' adding' : '')} key=${x.key} data-key=${x.key} onKeyDown=${d ? asking : null}>
+      <span class="ctl">${d ? html`<button class="tag yes" role="checkbox" aria-checked="true" aria-label=${x.name} onClick=${e => drop(e.currentTarget.closest('.rr'))} />`
+        : !tag ? null : slot ? html`<${TagBox} label=${x.name} flip=${() => relate(x, slot, { tag: true })} />` : html`<span class="tag" aria-disabled="true" />`}</span>
+      <span class="nm">${sentence(x.s, slot ? n.placed(r, null, slot.args).map(s => s.edge) : n.edges(x.s), say, said)}</span>
+      <span class="val">${d && 'field' in d.out ? T.format(d.out.field, d.out.value) : tag || !slot || chosen ? null : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => out && relate(x, slot, out)} />`}</span>
+      ${d ? when(true) : null}
     </div>`; };
+  // A relation of a new name, made between the two from the day beneath it, as any relation that asks one.
   const make = () => {
     const [name, ra, rb] = ['name', 'ra', 'rb'].map(k => T.clean(form[k]));
-    if (!name || !ra || !rb || T.same(ra, rb)) return;
+    if (!name || !ra || !rb || T.same(ra, rb) || day === undefined) return;
     const p = { args: [{ edge: ra, loc: {} }, { edge: rb, loc: {} }] };
     if (App.change(tx => { tx.add('record', { args: [{ edge: ra, at: a }, { edge: rb, at: b }], tag: true }); tx.note('Name', p, name);
-      tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); })) setForm(null);
+      tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); }, { dated: day ?? false })) setForm(null);
   };
+  const making = e => { if (e.key === 'Enter') { e.preventDefault(); make(); } else if (e.key === 'Escape') { e.stopPropagation(); setForm(null); } };
   const inp = (k, ph) => html`<input class="cell" placeholder=${ph} aria-label=${ph} value=${form[k]} onInput=${e => setForm({ ...form, [k]: e.target.value })}
-    onKeyDown=${e => { if (e.key === 'Enter') make(); else if (e.key === 'Escape') { e.stopPropagation(); setForm(null); } }} ref=${k === 'name' ? el => el && !el.dataset.on && (el.dataset.on = 1, el.focus()) : null} />`;
+    ref=${k === 'name' ? el => el && !el.dataset.on && (el.dataset.on = 1, el.focus()) : null} />`;
   // What someone entered first, then what a formula gives, and last what's ruled out; each by name, then the
   // first's side first.
   const order = (x, y) => (r[x.id].tag === false) - (r[y.id].tag === false) || fx(x.id) - fx(y.id) || x.name.localeCompare(y.name);
@@ -871,8 +918,8 @@ function RelateView({ a, b }) {
     ${holds.length ? html`<div class="relate">${holds.map(heldRow)}</div>` : null}
     ${still ? null : !adding && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
-      ${form ? html`<div class="rr new"><span class="ctl"><span class="tag yes" /></span><span class="form">${inp('name', 'Name')}${inp('ra', 'Role')}${inp('rb', 'Role')}</span></div>`
-        : ghost('New relation', () => setForm({ name: '', ra: '', rb: '' }))}
+      ${form ? html`<div class="rr new" onKeyDown=${making}><span class="ctl"><span class="tag yes" /></span><span class="form">${inp('name', 'Name')}${inp('ra', 'Role')}${inp('rb', 'Role')}</span>${when(false)}</div>`
+        : ghost('New relation', () => { setDraft(null); setDay(App.day.peek()); setForm({ name: '', ra: '', rb: '' }); })}
     </div>`}
   </div>`;
 }
