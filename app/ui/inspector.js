@@ -717,24 +717,21 @@ function Styles({ v, only }) {
     App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
   // A caption typed as an output's own name is no caption.
   const cap = (os, text) => App.change(tx => os.forEach(o => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v })));
-  // A style's outputs that look alike are one row, as in the Key, by Scene.groupsOf's rule: its swatch, its
-  // caption (the Key's word, typed over, which captions each), and beneath, the outputs it stands for, where
-  // it stands for several; one captioned otherwise is named on hover.
+  // A style's groups (Scene.groupsOf), each a row as the Key has it: its swatch, its caption (the Key's word,
+  // typed over, which captions each output in it), and, where a caption calls it, what it stands for: beneath,
+  // where several, or on hover.
   const groups = Scene.groupsOf(n, v);
   const rowsOf = s => groups.filter(g => g.style === s.key)
-    .map(g => ({ caption: g.caption, sw: g.swatch, off: g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
+    .map(g => ({ caption: g.caption, name: g.name, sw: g.swatch, off: g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
   const grip = () => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`;
-  // A text style uncaptioned is keyed by the texts it sets, as a box style is by the boxes it draws: Names,
-  // as Funds.
   const output = (g, lone) => {
-    const names = g.os.map(o => Scene.outputName(n, o.pattern)), own = names.length === 1 && T.same(names[0], g.caption);
-    const caption = g.sw.kind === 'text' && own ? T.plural(g.caption) : g.caption;
+    const names = g.os.map(o => Scene.outputName(n, o.pattern)), said = g.os.some((o, i) => Scene.captionOf(n, o.pattern, v) !== names[i]);
     return html`<div class=${'row out' + (lone ? ' lone' : '')} key=${T.key(g.os[0].pattern)}>${lone ? grip() : null}<div class="k"><${Swatch} sw=${g.sw} off=${g.off} /></div>
-      <div class="v" title=${names.length === 1 && !own ? names[0] : null}><${Field} r=${{ field: 'text', value: caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
-        ${names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
+      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
+        ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
-  // A style whose one row is captioned as the style is named is that row alone: Name, not Name over Name.
-  return list.map(s => { const rows = rowsOf(s), name = Scene.styleName(n, s.pattern), lone = rows.length === 1 && rows[0].os.length === 1 && T.same(rows[0].caption, name) && T.same(Scene.outputName(n, rows[0].os[0].pattern), name);
+  // A style that is its one group is that row alone: Names, not Name over Names.
+  return list.map(s => { const rows = rowsOf(s), name = Scene.styleName(n, s.pattern), lone = rows.length === 1 && !rows[0].name;
     return html`<div class="ent style" data-drag=${only ? null : 'style'} key=${s.key}>
       ${lone ? output(rows[0], true) : html`<div class="row" style="--depth:0">${grip()}<div class="k sname"><${Go} to=${general(s.pattern)}>${name}</${Go}></div></div>${rows.map(g => output(g))}`}
     </div>`; });
