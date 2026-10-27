@@ -118,14 +118,19 @@ function measure(text, t) {
 // wider than the line.
 const SUFFIX = /, (Inc\.|LLC|L\.L\.C\.|L\.P\.|LP|LLP|Ltd\.|Limited|S\.à r\.l\.|S\.A\.|GmbH|mbH|N\.V\.|B\.V\.|plc)(?=$|[\s:;,)])/g;
 const NUMERAL = / (?=(?:[IVX]+|\d+)(?:-[A-Z0-9]+)?(?:$|[\s,;:)]))/g;
-const bindSuffix = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(/ /g, '\u00a0')}`);
-const bind = text => bindSuffix(text).replace(NUMERAL, '\u00a0');
+const bind = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(/ /g, '\u00a0')}`).replace(NUMERAL, '\u00a0');
+// What's bound, wider than `most`, come apart as little as it must: at its suffix first, then its numeral's
+// binding, and so on. \u2192 its pieces.
+function apart(w, t, most) {
+  if (!w.includes('\u00a0') || measure(w, t) <= most) return [w];
+  const c = w.indexOf(',\u00a0'), i = c >= 0 ? c + 1 : w.indexOf('\u00a0');
+  return [...apart(w.slice(0, i), t, most), ...apart(w.slice(i + 1), t, most)];
+}
 // Text broken into lines no wider than `width`, at spaces where it can be: as few lines as hold it, and,
 // `balanced`, as even as they can be, the least width that keeps them as few, as CSS's text-wrap: balance
-// sets a heading. What's bound wider than the line comes apart at its first binding, and again as it must;
-// where a suffix comes off its word, the lines are `split`. A word wider than the line is hyphenated where it
-// must be, and that line is `cut`, the text no longer what was typed. Kept, the latest few thousand, as the next
-// scene breaks the same texts again.
+// sets a heading. What's bound wider than the line comes apart (see apart), and the lines are `split`. A word
+// wider than the line is hyphenated where it must be, and that line is `cut`, the text no longer what was
+// typed. Kept, the latest few thousand, as the next scene breaks the same texts again.
 const broken = new Map();
 function breakLines(text, t, width, balanced = true) {
   const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${t.Font}|${width}|${balanced}|${text}`;
@@ -134,8 +139,7 @@ function breakLines(text, t, width, balanced = true) {
     ls = [];
     for (const para of bind(text).split('\n')) {
       let split = false;
-      const apart = w => { if (!w.includes('\u00a0') || measure(w, t) <= width) return [w]; const i = w.indexOf('\u00a0'); split ||= w[i - 1] === ','; return [w.slice(0, i), ...apart(w.slice(i + 1))]; };
-      const words = para.split(/ +/).flatMap(apart);
+      const words = para.split(/ +/).flatMap(w => { const ps = apart(w, t, width); split ||= ps.length > 1; return ps; });
       let some = fill(words, t, width);
       if (balanced && some.length > 1 && !some.some(l => l.cut)) {
         let lo = Math.max(...words.map(w => measure(w, t))), hi = width;
@@ -197,11 +201,10 @@ function snap(it, s) {
 // little either side, and holding as many of the words still to set, from the last, as fit it; so the widest
 // lines are the lowest, and a taller triangle takes the fewest lines it can. Its height, the least that holds the
 // text so, found by halving, or the least that holds it in the fewest lines no more than a line taller than
-// that; its numerals kept to their words where that's no more lines, and no more than a line taller. A word
-// wider than three quarters of the base is hyphenated, and its lines are `cut`; what's bound wider than that
-// comes apart first, and where a suffix comes off its word, the lines are `split`. The triangle widens as a box
-// does (see size): up to `wide.lines` while its text takes more than four lines or a suffix comes off its word,
-// and up to `wide.tall` while it's taller than nine tenths its width. → { w, h, lines: [lines of each text] }.
+// that. A word wider than three quarters of the base is hyphenated, and its lines are `cut`; what's bound wider
+// than that comes apart first, and where its pieces take lines of their own, they're `split`. The triangle widens as a box does (see size): up to
+// `wide.lines` while its text takes more than four lines or is split, and up to `wide.tall` while it's taller
+// than nine tenths its width. → { w, h, lines: [lines of each text] }.
 // Kept by what it reads, the latest few thousand, as the next scene sets the same triangles again.
 const pyramids = new Map();
 function pyramid(texts, w, wide) {
@@ -218,41 +221,35 @@ function fitPyramid(texts, w, wide) {
   const step = lineHeight(texts[0]?.look ?? TEXT);
   for (;;) {
     // The least height that holds the text in no more than `n` lines (any, where n is Infinity), by halving.
-    const least = (loose, n = Infinity, lo = w * 0.5) => {
-      const fits = h => { const ls = shaped(texts, w, h, loose); return ls && ls.flat().length <= n; };
+    const least = (n = Infinity, lo = w * 0.5) => {
+      const fits = h => { const ls = shaped(texts, w, h); return ls && ls.flat().length <= n; };
       let hi = w * 40;
       if (fits(lo)) return lo;
       while (hi - lo > 0.5) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
       return hi;
     };
-    // Each way, its numerals kept to their words or not: the shortest, or the fewest lines no more than a line
-    // taller than that.
-    const way = loose => {
-      const h0 = least(loose), n = shaped(texts, w, h0 + step, loose).flat().length, h = least(loose, n, h0);
-      return { h, lines: shaped(texts, w, h, loose), n };
-    };
-    const kept = way(false), free = way(true);
-    const { h, lines, n } = free.n < kept.n || free.h + step < kept.h ? free : kept;
+    // The shortest, or the fewest lines no more than a line taller than that.
+    const h0 = least(), n = shaped(texts, w, h0 + step).flat().length, h = least(n, h0), lines = shaped(texts, w, h);
     const cap = Math.max((n > 4 || lines.flat().some(l => l.split)) && w < wide.lines ? wide.lines : 0, h > w * 0.9 && w < wide.tall ? wide.tall : 0);
     if (!cap) return { w, h: Math.ceil(h), lines };
     w = Math.min(cap, w + 12);
   }
 }
 // A triangle w wide and h tall's texts set bottom up (see pyramid), each paragraph on lines of its own, a
-// redline's struck lines over what it would say; `loose`, with numerals free of their words. → each text's
-// lines, or null where they don't fit.
-function shaped(texts, w, h, loose) {
+// redline's struck lines over what it would say. → each text's lines, or null where they don't fit.
+function shaped(texts, w, h) {
   const out = texts.map(() => []);
   let d = BASE;
   for (let i = texts.length - 1; i >= 0; i--) {
     const it = texts[i], t = it.look, lh = lineHeight(t), most = w * 0.75 - 2 * INSET;
     const paras = (it.was !== undefined && it.was !== it.text ? [[it.was, 'go'], ...(it.text ? [[it.text, 'appear']] : [])] : it.text ? [[it.text]] : [])
-      .flatMap(([text, red]) => (loose ? bindSuffix : bind)(text).split('\n').map(p => ({ red, words: units(p, t, most) })));
+      .flatMap(([text, red]) => bind(text).split('\n').map(p => ({ red, words: units(p, t, most) })));
     for (let p = paras.length - 1; p >= 0; p--) {
       const { words, red } = paras[p], m = words.length, room = k => w * (h - d - (k + 1) * lh) / h - 2 * PAD;
       const said = (a, b) => words.slice(a, b).map(x => x.text).join(' ');
       // As few lines as hold the paragraph, filled bottom up; then, of the ways to set it in so many, the one
-      // whose lines come nearest the triangle's sides, each as full of its room as the rest.
+      // whose lines come nearest the triangle's sides, each as full of its room as the rest, and a line begun
+      // with what's bound to the line above, `split`, only where nothing else holds it.
       let n = 0;
       for (let k = m; k > 0; n++) {
         let j = k - 1;
@@ -267,14 +264,14 @@ function shaped(texts, w, h, loose) {
         if (words.slice(a, b - 1).some(x => x.cut) || !best[k - 1][b]) continue;
         const width = measure(said(a, b), t), r = room(k - 1);
         if (width > r) break;
-        const cost = best[k - 1][b].cost + (1 - width / r) ** 2;
+        const cost = best[k - 1][b].cost + (1 - width / r) ** 2 + (words[a].bound ? n : 0);
         if (!best[k][a] || cost < best[k][a].cost) best[k][a] = { cost, end: b };
       }
       if (!best[n][0]) return null;
       const lines = [];
       for (let k = n, a = 0; k > 0; k--) {
-        const b = best[k][a].end, these = words.slice(a, b), text = said(a, b);
-        lines.push({ text, w: measure(text, t), ...(these.some(x => x.split) && { split: true }), ...(these.at(-1).cut && { cut: true }), ...(red && { red }) });
+        const b = best[k][a].end, text = said(a, b);
+        lines.push({ text, w: measure(text, t), ...(words[a].bound && { split: true }), ...(words[b - 1].cut && { cut: true }), ...(red && { red }) });
         a = b;
       }
       out[i].unshift(...lines);
@@ -283,18 +280,15 @@ function shaped(texts, w, h, loose) {
   }
   return out;
 }
-// A paragraph's words for a triangle, each no wider than `most`: what's bound wider comes apart, at its first
-// binding and then as it must, `split` where a suffix comes off its word; a word still wider is hyphenated, each
-// piece but the last `cut`.
+// A paragraph's words for a triangle, each no wider than `most`: what's bound wider comes apart (see apart),
+// each piece after the first `bound` to the one before; a word still wider is hyphenated, each piece but the
+// last `cut`.
 function units(para, t, most) {
   const out = [];
-  const add = (w, split) => {
-    if (measure(w, t) <= most) return out.push({ text: w, split });
-    const i = w.indexOf('\u00a0');
-    if (i >= 0) return (add(w.slice(0, i), split || w[i - 1] === ','), add(w.slice(i + 1), split || w[i - 1] === ','));
-    fill([w], t, most).forEach((l, k, ls) => out.push({ text: l.text, split, cut: k < ls.length - 1 }));
-  };
-  for (const w of para.split(/ +/).filter(Boolean)) add(w, false);
+  for (const word of para.split(/ +/).filter(Boolean)) apart(word, t, most).forEach((w, k) => {
+    if (measure(w, t) <= most) return out.push({ text: w, bound: k > 0 });
+    fill([w], t, most).forEach((l, j, ls) => out.push({ text: l.text, bound: k > 0 && j === 0, cut: j < ls.length - 1 }));
+  });
   return out;
 }
 
@@ -770,8 +764,8 @@ function shapeOf(row, scene) {
 
 // Boxes that go together share a height, the tallest of them; but a box whose text had to be hyphenated, or
 // whose name runs past six lines, doesn't set it, and stands taller alone rather than stretch the rest. A
-// triangle set taller than its own text needs is set again for the height it has (see pyramid): in the fewest
-// lines, its numerals kept to their words where that takes no more.
+// triangle set taller than its own text needs is set again for the height it has (see pyramid), in the fewest
+// lines.
 const alone = b => b.texts.some(it => it.lines.some(l => l.cut)) || b.texts[0]?.lines.length > 6;
 function level(ms) {
   const h = Math.max(0, ...ms.filter(b => !alone(b)).map(b => b.h));
@@ -779,7 +773,7 @@ function level(ms) {
     if (b.h >= h) continue;
     b.h = h;
     if (b.shape !== 'triangle') continue;
-    const lines = [false, true].map(loose => shaped(b.texts, b.w, h, loose)).filter(Boolean).sort((p, q) => p.flat().length - q.flat().length)[0];
+    const lines = shaped(b.texts, b.w, h);
     if (lines) { b.texts.forEach((it, i) => { it.lines = lines[i]; }); b.column = columnOf(b); }
   }
 }

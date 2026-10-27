@@ -384,9 +384,10 @@ function run() {
     const letters = views.map(v => Scene.of(wb, C, v, DAY, { state: R.records, computed: R, paper: 'letter' })), boxes = s => s.marks.filter(m => m.type === 'box');
     const names = letters.map(s => Math.min(...boxes(s).map(b => b.texts[0].look.Size * s.page.scale)));
     check('on Letter every sample view’s names print at 8 pt or more', names.every(p => p >= 8 - 1e-9), j(names));
-    const said = letters.flatMap(s => boxes(s).flatMap(b => b.texts[0].lines.map(l => l.text.replace(/\s/g, ' '))));
-    check('… no line is a suffix, or a numeral and a suffix, left by its word', !said.some(t => /^(Inc\.|LLC|L\.P\.|Ltd\.|[IVX]+(-[A-Z0-9]+)?, (Inc\.|LLC|L\.P\.|Ltd\.))$/.test(t)),
-      j(said.filter(t => /^(Inc\.|LLC|L\.P\.|Ltd\.|[IVX]+(-[A-Z0-9]+)?, (Inc\.|LLC|L\.P\.|Ltd\.))$/.test(t))));
+    const slides = views.map(v => Scene.of(wb, C, v, DAY, { state: R.records, computed: R }));
+    const said = [...letters, ...slides].flatMap(s => boxes(s).flatMap(b => b.texts[0].lines.map(l => l.text.replace(/\s/g, ' '))));
+    const left = said.filter(t => /^(Inc\.|LLC|L\.P\.|Ltd\.|[IVX]+(-[A-Z0-9]+)?)([ ,]|$)/.test(t));
+    check('… there and on the slide, no line starts with a suffix or a numeral left by its word', said.length && !left.length, j(left));
     const rows = letters.flatMap(s => [...Map.groupBy(boxes(s).filter(b => b.shape === 'triangle'), b => Math.round(b.y)).values()]);
     check('… a row of triangles is one size, each name in the fewest lines that fit it there, four at most', rows.every(ts => new Set(ts.map(b => `${b.w}×${b.h}`)).size === 1
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));
