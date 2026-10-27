@@ -138,12 +138,13 @@ const Shell = (() => {
   const pattern = key => { if (key?.[0] !== '~') return null; try { return JSON.parse(key.slice(1)); } catch { return null; } };
   const back = () => { if (step > 0) history.back(); };
   const forward = () => history.forward();
-  let lastSel = [], lastView = null;
+  let lastSel = [], lastView = null, seen = [];
   effect(() => { const s = selection.value; if (!same(s, lastSel)) { lastSel = s; emit('select', s); } });
-  effect(() => { const v = view.value; if (v !== lastView) { lastView = v; emit('view-switch', v); } });
+  effect(() => { const v = view.value; if (v !== lastView) { lastView = v; seen = [...seen.filter(x => x !== v), v]; emit('view-switch', v); } });
   const views = computed(() => part('views')?.list() || []);
   const current = computed(() => views.value.find(v => v.id === view.value));
-  effect(() => { const vs = views.value; if (vs.length && !current.value) show(vs[0].id, { replace: true }); });
+  // A view that goes (deleted, undone, or not yet made as it stood) leaves the one shown before it.
+  effect(() => { const vs = views.value; if (vs.length && !current.value) show((seen.findLast(id => vs.some(v => v.id === id)) ?? vs[0].id), { replace: true }); });
 
   // ---- Theme, and the inspector's width ----
   const theme = signal(document.documentElement.dataset.theme || 'light'), THEMES = [['Light', 'light'], ['Dark', 'dark']];
@@ -704,8 +705,9 @@ const Shell = (() => {
     { id: 'view.next', name: 'Next view', keys: '$mod+Shift+PageDown', run: () => stepView(1) },
     { id: 'pane.next', name: 'Next pane', keys: 'F6', inputs: true, run: () => region(1) },
     { id: 'pane.prev', name: 'Previous pane', keys: 'Shift+F6', inputs: true, run: () => region(-1) },
-    { id: 'attend', name: 'Next problem', keys: 'F8', enabled: problems, run: () => attend(1) },
-    { id: 'attend.prev', name: 'Previous problem', keys: 'Shift+F8', enabled: problems, run: () => attend(-1) },
+    // F8 goes on from a blank field it brought you to, as F6 does.
+    { id: 'attend', name: 'Next problem', keys: 'F8', inputs: true, enabled: problems, run: () => attend(1) },
+    { id: 'attend.prev', name: 'Previous problem', keys: 'Shift+F8', inputs: true, enabled: problems, run: () => attend(-1) },
     // Light and Dark, which the chart menu sets side by side.
     ...THEMES.map(([name, t]) => ({ id: 'theme.' + t, name, run: () => setTheme(t) })),
   ].forEach(a => register('action', a));

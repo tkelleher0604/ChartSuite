@@ -254,10 +254,7 @@ const App = (() => {
         { label: 'Show', items: shows((_, rows) => change(tx => tx.note('Layout', viewTree(id), rows && { rows }), { dated: false }), v) },
         '-',
         { label: 'Duplicate', run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
-        { label: 'Delete', danger: true, disabled: views.peek().length < 2, run: () => {
-          const next = views.peek().find(x => x.id !== id);
-          if (change(tx => tx.remove(id), { say: `Deleted ${v.name}`, dated: false }) && Shell.view.peek() === id) Shell.show(next.id, { replace: true });
-        } },
+        { label: 'Delete', danger: true, disabled: views.peek().length < 2, run: () => change(tx => tx.remove(id), { say: `Deleted ${v.name}`, dated: false }) },
       ];
     },
   });
