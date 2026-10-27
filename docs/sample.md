@@ -12,13 +12,13 @@ The workbook a first launch opens is Calder Ridge, a fictional private fund mana
 
 **Relations:** ownership (economic and voting percentages), general partners, membership (managing member or member), positions, signing authority (with capacity and evidence), investment adviser, registered agents, and what each document concerns.
 
-Opened as of today, the chart has 942 entered records. The definitions work out 584 more, for 1,526 in all:
+Opened as of today, the chart has 965 entered records. The definitions work out 598 more, for 1,563 in all:
 - **Control** (51) and **Affiliated Person** (289) under §2(a)(9) and §2(a)(3), with the statute's words beside each clause.
 - The BDC's **Close Affiliates** (21) and its one **Remote Affiliate**, under §57.
 - **Look-Through Ownership** (51), and whether **Ownership Adds Up**.
 - **Private Fund**, **Investment Company**, **Tax Classification** and the **3(c)(1) Count**.
 - **Deadlines:**
-  - Delaware annual tax and franchise tax, each tax year its own;
+  - Delaware annual tax, each tax year its own and its payment recorded at it, and franchise tax;
   - Form ADV, Form PF and Form D;
   - CFTC 4.13(a)(3) affirmations;
   - LEI renewals;
@@ -48,4 +48,4 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page.
 
 ## How it's kept
 
-The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, and the people's addresses. The formation documents and governing agreements it lacked are filed with the documents of their time. So every change in History is one of the three people's, made in working hours, and the chart as it stood after each works out as it did, with those documents on file. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).
+The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, and the people's addresses. The formation documents and governing agreements it lacked are filed with the documents of their time. The revision that gave each tax year its own Delaware tax records each payment made before it at the year it settled, from the day it was paid, so the chart as of every day has the deadlines it had. So every change in History is one of the three people's, made in working hours, and the chart as it stood after each works out as it did, with those documents on file. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).

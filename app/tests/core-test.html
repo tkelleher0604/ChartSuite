@@ -48,9 +48,9 @@ function run(json) {
   }));
   // 136 changes, each the legal team's own, the last its revisions after a general counsel's review in October
   // 2026: what the app's building changed is folded into the rows it fixed. Each entity's formation document and
-  // governing agreement is among its 55 documents.
+  // governing agreement is among its 55 documents, and each Delaware annual tax paid is at the tax year it settled.
   const docs = Object.values(now).filter(r => r.kind === 'Document').length;
-  check('the sample is as big as it should be', Object.keys(now).length === 942 && docs === 55 && wb.changes().length === 136,
+  check('the sample is as big as it should be', Object.keys(now).length === 965 && docs === 55 && wb.changes().length === 136,
     `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
   const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
   const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
@@ -153,7 +153,11 @@ function run(json) {
   check('a fund is absent before its Formation Date, with all that’s at it, and its investors before its first sale', !on('2024-09-15', 'fund3a') && !on('2024-09-15', 'fund3a_name')
     && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && !on('2024-09-16', 'own_inv3a_3a') && on('2024-11-15', 'own_inv3a_3a'));
   check('the Blocker was in good standing from its formation', wb.asOf(C, '2023-12-31').blocker_good?.tag === true && wb.asOf(C, TODAY).blocker_good?.tag === true);
-  check('a filing date renews on the day it names', pct('2025-05-27', 'fund_juris_tax') === '2024-05-29' && pct('2025-05-28', 'fund_juris_tax') === '2025-05-28' && pct(TODAY, 'fund_juris_tax') === '2026-05-27');
+  check('a filing date renews on the day it names', pct('2026-02-23', 'blocker_juris_frtax') === '2025-02-26' && pct('2026-02-24', 'blocker_juris_frtax') === '2026-02-24');
+  // A tax year's payment is at that year, from the day it was made; the jurisdiction keeps none.
+  check('a payment holds at its tax year from the day it was made', !on('2025-05-27', 'tax_fund_2024_paid') && pct('2025-05-28', 'tax_fund_2024_paid') === '2025-05-28'
+    && pct(TODAY, 'tax_fund_2023_paid') === '2024-05-29' && pct(TODAY, 'tax_fund_2025_paid') === '2026-05-27' && N.segmentOf(now, 'tax_fund_2025') === 'Fund III, tax year 2025'
+    && N.placeOf(now, 'tax_fund_2025_paid') === 'Fund III, tax year 2025 › Annual Tax Paid' && !Object.values(now).some(r => r.edge === 'Annual Tax Paid' && !now[r.at]?.args), N.placeOf(now, 'tax_fund_2025_paid'));
   // ---- The chart's words, and a view's own notes ----
   check('an object reads by its Name, or its Short Name where room is short', N.nameOf(now, 'fund') === 'Calder Ridge Capital Partners III, L.P.' && N.shortOf(now, 'fund') === 'Fund III');
   check('a view reads by its Name note, and an unnamed object as its kind', N.nameOf(now, 'view_40act') === '40 Act' && Tree.isView(now.view_40act)
@@ -211,10 +215,11 @@ function run(json) {
     commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund 3' }), { who: 'Ann Lee' });
     check('a change can’t be reversed once it has changed since', typeof back(mine) === 'string' && !w.canReverse(mine.id) && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
     const del = w.deleted(C).find(d => d.item === 'fund_agent');
-    // The registered agents once kept as text, the per-entity Annual Tax Due and Amount, now one for each tax
-    // year, and the positions views no longer draw.
-    const dropped = w.deleted(C), others = dropped.filter(d => !['fund_agent', 'gp_agent', 's1b', 'sq'].includes(d.item));
-    check('deleted items are read off the log', dropped.length - others.length === 4 && others.every(d => d.rows.every(r => r.label === 'Position')) && del.rows[0].value === 'The Corporation Trust Company',
+    // The registered agents once kept as text, the per-entity Annual Tax Due, Amount and Paid, now one for each
+    // tax year, and the positions views no longer draw.
+    const PER_ENTITY = ['fund_agent', 'gp_agent', 's1b', 'sq', 'fund_juris_tax', 'gp_juris_tax', 'mgmt_juris_tax', 'holdco_juris_tax', 'fund3a_juris_tax'];
+    const dropped = w.deleted(C), others = dropped.filter(d => !PER_ENTITY.includes(d.item));
+    check('deleted items are read off the log', dropped.length - others.length === 9 && others.every(d => d.rows.every(r => r.label === 'Position')) && del.rows[0].value === 'The Corporation Trust Company',
       j(dropped.map(d => d.item).sort()));
     w.reverse(del.change, WHO);
     check('restoring an older change brings it back', w.asOf(C, TODAY).fund_agent?.value === 'The Corporation Trust Company' && !w.deleted(C).some(d => d.item === 'fund_agent'));

@@ -183,10 +183,16 @@ const disagreeing = computed(() => {
 // entered one removes it, and lets a formula stand.
 const entered = id => !!id && !!recs()[id] && !recs()[id].computed;
 const withOut = (id, slot, out) => { const r = recs()[id] ?? slot; return { ...(r.args ? { args: r.args } : { at: r.at, edge: r.edge }), ...out }; };
+// A record to add, at what it's at entered: an entry is only ever at a record the timeline holds, so one a
+// formula gives is entered as it stands, with what it's at (a tax year owed, entered with its payment).
+function enterAt(tx, r) {
+  const enter = id => { if (!fx(id)) return id; const { computed: _, ...x } = recs()[id]; return tx.add('record', enterAt(tx, x)); };
+  return r.args ? { ...r, args: r.args.map(a => ({ ...a, at: enter(a.at) })) } : r.at ? { ...r, at: enter(r.at) } : r;
+}
 function put(id, slot, out) {
   App.change(tx => {
     if (!out) return entered(id) && tx.remove(id);
-    if (entered(id)) tx.set(id, withOut(id, slot, out)); else tx.add('record', withOut(id, slot, out));
+    if (entered(id)) tx.set(id, withOut(id, slot, out)); else tx.add('record', enterAt(tx, withOut(id, slot, out)));
   });
 }
 const flipped = id => ({ tag: !(recs()[id]?.tag ?? false) });
@@ -197,7 +203,7 @@ const remove = id => App.change(tx => tx.remove(id), { say: `Deleted ${recs()[id
 // Adds an entry, and its specification if the schema hasn't got it.
 function addEntry(at, edge, out) {
   const spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: T.specOf(tree(at)) }] };
-  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); tx.add('record', { at, edge, ...out }); });
+  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); tx.add('record', enterAt(tx, { at, edge, ...out })); });
 }
 const moved = (list, from, i) => { const l = list.slice(); l.splice(i, 0, l.splice(from, 1)[0]); return l; };
 // Reordering writes Order at each sibling's pattern: its edge at its location's specification.
@@ -343,7 +349,7 @@ function Versions({ id }) {
 }
 
 // Beside a due date, its filing: the entry its rule reads, typed in a popover while the formula bar redlines
-// where the due date would move. Enter keeps it.
+// where the due date would move, or go once paid. Enter keeps it, at what the rule reads it at.
 function Filed({ id }) {
   const slot = !App.readOnly.value && filingOf(id);
   if (!slot) return null;
@@ -356,7 +362,7 @@ function Filing({ due, slot, close }) {
   const rec = value ? { at: slot.at, edge: slot.edge, field: 'date', value } : null;
   useLayoutEffect(() => { FormulaBar.preview(rec && { records: { [slot.id ?? 'fx-filing']: rec } }); }, [value]);
   const was = recs()[due], p = FormulaBar.pending.value, next = p?.R2.records[due];
-  const keep = () => { if (!rec) return; close(); App.change(tx => slot.id ? tx.set(slot.id, rec) : tx.add('record', rec), { say: `Recorded ${slot.edge}` }); };
+  const keep = () => { if (!rec) return; close(); App.change(tx => slot.id ? tx.set(slot.id, rec) : tx.add('record', enterAt(tx, rec)), { say: `Recorded ${slot.edge}` }); };
   return html`<div class="filing">
     <label class="field"><span>${slot.edge}</span><input class="cell" value=${text} spellcheck=${false} aria-invalid=${value ? null : 'true'}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
