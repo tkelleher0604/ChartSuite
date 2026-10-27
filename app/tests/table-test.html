@@ -259,7 +259,7 @@ async function run() {
   // ---- The Ownership table, and a closing schedule pasted from Excel ----
   await addTable('Relations', 'Ownership');
   const own = Shell.view.peek(), ownRows = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).length;
-  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Percentages In Range,Voting Percentage', Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
+  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Voting Percentage', Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
   Shell.at({ asOf: '2026-11-02' }); await tick(100);
   n0 = N();
   const rows0 = Table.grid.getRows().length;
@@ -308,7 +308,7 @@ async function run() {
     const n = App.notes.peek().notes('Formula').find(x => x.note === id); if (n) tx.note('Check', n.pattern, true); }), { dated: false });
   await tick(150);
   const checkCells = () => Table.grid.getRows().map(r => r.getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range')?.getElement()).filter(Boolean);
-  check('A check’s column is blank where nothing fails: no empty boxes', checkCells().length > 0 && checkCells().every(e => !e.querySelector('.tag')), checkCells().map(e => e.innerHTML).slice(0, 3).join(' | '));
+  check('A check’s column shows only while a row fails it', !column('Percentages In Range') && Table.model(own).cols.some(c => c.check && c.title === 'Percentages In Range'), Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
   const errorsNow = () => Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error').length, e0 = errorsNow();
   const usRow = Table.grid.getRows().find(r => r.getData().f0 === 'U.S. Investors').getData().id;
   const usPct = (Tree.index(st()).entries.get(usRow) ?? []).find(e => st()[e].edge === 'Percentage');
@@ -322,7 +322,7 @@ async function run() {
   offAsk();
   check('… and going to it selects what it’s at, asking why it fails', Shell.selection.peek().join() === usRow && st()[asked]?.edge === 'Percentages In Range' && st()[asked].tag === false, `${Shell.selection.peek().join()} ${asked}`);
   Shell.select([]); undo(); await tick(150);
-  check('Undone, nothing fails, and nothing is counted', errorsNow() === e0 && checkCells().every(e => !e.querySelector('.tag')));
+  check('Undone, nothing fails, nothing is counted, and the check’s column goes', errorsNow() === e0 && !column('Percentages In Range'));
 
   // A relation ruled out: a red ✗ in the margin, its words intact.
   await addTable('Relations', 'Signing Authority');
@@ -513,7 +513,7 @@ async function run() {
   check('The keys listed don’t start with Find, or with themselves', !['Find', 'Keyboard shortcuts'].includes(got[0]) && !got.includes('Find'), got.slice(0, 3).join(' / '));
   Shell.closeAll(); unfind(); await tick();
 
-  // ---- Tables fill their width and run no further; a heading's menu is at its right edge ----
+  // ---- Tables fill their width; wider, they scroll across under their first column, cutting nothing to fit ----
   // A grid is laid out as it's built, and again when Tabulator's ResizeObserver sees its slot change, which a
   // headless run under a time budget never delivers. So each grid here is built once its slot has settled, with
   // the inspector open or not, and is laid out then, in a window of 1440 × 900.
@@ -534,8 +534,21 @@ async function run() {
   check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.tabulator-header-filter') - edge('Owner', '.tabulator-header-filter')) <= 0.5
     && textRight(pctTitle) <= column('Percentage').getElement().querySelector('.tabulator-header-filter').getBoundingClientRect().left, `${edge('Percentage', '.tabulator-header-filter')} vs ${edge('Owner', '.tabulator-header-filter')}`);
   Shell.show(docsView); await built('Link');
-  const cut = () => Table.grid.getRows('visible').slice(0, 12).flatMap(r => r.getCells()).filter(c => !/c-(text|edge|choice|document)/.test(c.getElement().className) && c.getElement().scrollWidth > c.getElement().clientWidth + 1).map(c => c.getColumn().getDefinition().title);
-  check('Where the columns are wider than the grid, the columns of words give way, and the figures and dates stay whole', Math.abs(lastRight() - holderBox()) <= 1 && !cut().length, `${widths()}; cut: ${[...new Set(cut())].join()}`);
+  // Cut short: a cell narrower than what it holds, other than a long text at the cap.
+  const cut = () => Table.grid.getRows('active').slice(0, 30).flatMap(r => r.getCells()).filter(c => c.getElement().scrollWidth > c.getElement().clientWidth + 1 && c.getColumn().getWidth() < 340).map(c => c.getColumn().getDefinition().title);
+  const across = () => { const h = Table.grid.rowManager.element; return h.scrollWidth > h.clientWidth; };
+  check('Where the columns are wider than the grid, nothing is cut to fit: the grid scrolls across', across() && !cut().length, `${widths()}; cut: ${[...new Set(cut())].join()}`);
+  const pinned = () => { const h = Table.grid.rowManager.element, at = h.getBoundingClientRect().left + 48, row = Table.grid.getRows('active')[0];
+    return [row.getCells()[1].getElement(), $('.grid .tabulator-header .tabulator-col.pin')].map(e => Math.round(e.getBoundingClientRect().left - at)); };
+  Table.grid.rowManager.element.scrollLeft = 400; Table.grid.rowManager.element.dispatchEvent(new Event('scroll')); await tick(60);
+  check('… under its first column, which stays put, its heading with it', Table.grid.rowManager.element.scrollLeft > 0 && pinned().every(d => d === 0), pinned().join());
+  Table.grid.rowManager.element.scrollLeft = 0; Table.grid.rowManager.element.dispatchEvent(new Event('scroll')); await tick(60);
+  // Entities: its names whole, and a tag's column as narrow as its heading set on two lines.
+  Shell.show(views().find(v => v.name === 'Entities').id); await built('Good Standing');
+  const tags = Table.grid.getColumns().filter(c => c.isVisible() && /\bc-tag\b/.test(c.getDefinition().cssClass)), linesIn = c => Math.round(c.getElement().querySelector('.tabulator-col-title').getBoundingClientRect().height / 20);
+  check('A tag’s column is as narrow as its heading set on two lines', tags.length > 3 && tags.every(c => linesIn(c) <= 2 && c.getWidth() >= 56 && c.getWidth() < 130) && tags.some(c => linesIn(c) === 2),
+    tags.map(c => `${c.getDefinition().title} ${c.getWidth()} on ${linesIn(c)}`).join(', '));
+  check('Names stay whole, and the grid scrolls across', across() && !cut().length && column('Name').getWidth() > 200, `${widths()}; cut: ${[...new Set(cut())].join()}`);
   Shell.select([]); await slotSettled(true);
   Shell.show(own); await built('Voting Percentage');
   Shell.show(docsView); await built('Link');

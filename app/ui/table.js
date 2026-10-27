@@ -122,6 +122,8 @@ const Table = (() => {
       row._ruled = st[id].tag === false;
       return row;
     });
+    // A check's column is drawn only while a row fails it, as the inspector shows a check only where it fails.
+    cols.forEach((c, i) => { if (c.check) c.fails = data.some(r => r['f' + i] === false); });
 
     // Dates fall into months, with what's overdue first, then from this month on, then back from it.
     let groups = null;
@@ -233,35 +235,44 @@ const Table = (() => {
 
   // ---- The grid ----
   let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null, bar = null;
-  // The grid fills its width, whatever the inspector leaves it. Each column is as wide as what it holds, to a
-  // cap; where there's room, what's cut short has it first, the least cut first, so the most come out whole,
-  // and what's left goes to the widest column of words. Where there's too little, the columns of words give
-  // way, the widest first, down to one width, so figures and dates stay whole. A column the user has sized
-  // keeps its width.
-  const WORDS = /\bc-(text|edge|choice|document)\b/, sized = new WeakSet();   // sized here, so free to size again
+  // The grid is laid out as Excel's is. Each column is as wide as what it holds, to a cap, and a tag's column as
+  // narrow as its heading set on two lines; nothing is cut to fit. Where there's room, what's cut short has it
+  // first, the least cut first, so the most come out whole, and what's left goes to the widest column of words.
+  // Where there isn't, the grid scrolls across under its first column, which stays put. A column the user has
+  // sized keeps its width.
+  const WORDS = /\bc-(text|edge|choice|document)\b/, TAG = /\bc-tag\b/, sized = new WeakSet();   // sized here, so free to size again
+  const ruler = document.createElement('canvas').getContext('2d');
+  // A heading's width on two lines: the break between its words that leaves the longer line shortest.
+  function twoLines(c) {
+    const t = getComputedStyle(c.getElement().querySelector('.tabulator-col-title')), b = getComputedStyle(c.getElement().querySelector('.tabulator-col-content'));
+    ruler.font = `${t.fontWeight} ${t.fontSize} ${t.fontFamily}`;
+    const words = String(c.definition.title).split(' '), w = ws => ruler.measureText(ws.join(' ')).width;
+    let line = w(words);
+    for (let i = 1; i < words.length; i++) line = Math.min(line, Math.max(w(words.slice(0, i)), w(words.slice(i))));
+    return Math.ceil(line + parseFloat(b.paddingLeft) + parseFloat(b.paddingRight)) + 1;
+  }
   Tabulator.extendModule('layout', 'modes', { fitDataSlack(columns) {
     const shown = columns.filter(c => c.visible), free = shown.filter(c => !c.widthFixed || sized.has(c)), full = new Map();
     for (const c of free) {
-      const cap = c.maxInitialWidth;
-      c.maxInitialWidth = null; c.reinitializeWidth(); c.maxInitialWidth = cap;
+      if (TAG.test(c.definition.cssClass)) c.setWidthActual(twoLines(c));
+      else {
+        const cap = c.maxInitialWidth;
+        c.maxInitialWidth = null; c.reinitializeWidth(); c.maxInitialWidth = cap;
+      }
       full.set(c, c.getWidth());
-      if (c.getWidth() > cap) c.setWidthActual(cap);
+      if (c.getWidth() > c.maxInitialWidth) c.setWidthActual(c.maxInitialWidth);
     }
-    let room = this.table.rowManager.element.clientWidth - shown.reduce((w, c) => w + c.getWidth(), 0);
-    const words = free.filter(c => WORDS.test(c.definition.cssClass)), floor = (c, w) => Math.max(w, c.minWidth || 0);
-    if (room < 0) {
-      const freed = w => words.reduce((s, c) => s + Math.max(0, c.getWidth() - floor(c, w)), 0);
-      let lo = 0, hi = Math.max(0, ...words.map(c => c.getWidth()));
-      while (hi - lo > 1) { const w = (lo + hi) / 2; if (freed(w) >= -room) lo = w; else hi = w; }
-      for (const c of words) if (c.getWidth() > floor(c, lo)) { room += c.getWidth() - Math.floor(floor(c, lo)); c.setWidth(Math.floor(floor(c, lo))); sized.add(c); }
-    }
+    // The room, to the whole pixel below: the slot is measured while the inspector glides, between pixels.
+    const h = this.table.rowManager.element;
+    let room = Math.floor(h.getBoundingClientRect().width - (h.offsetWidth - h.clientWidth)) - shown.reduce((w, c) => w + c.getWidth(), 0);
     const give = (c, d) => { if (c && d > 0) { c.setWidth(c.getWidth() + d); sized.add(c); room -= d; } };
     for (const c of [...free].sort((a, b) => (full.get(a) - a.getWidth()) - (full.get(b) - b.getWidth()))) give(c, Math.min(room, full.get(c) - c.getWidth()));
-    give(words.reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null), room);
+    give(free.filter(c => WORDS.test(c.definition.cssClass)).reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null), room);
   } });
 
+  const drawn = c => c.pasted || (c.shown && (!c.check || c.fails));
   function columnDefs(m) {
-    const defs = m.cols.filter(c => c.shown).map(c => {
+    const defs = m.cols.filter(drawn).map(c => {
       const f = 'f' + m.cols.indexOf(c), editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of';
       // A heading's filter offers the values the column has now, as they read, and Blank where it has one.
       const values = () => {
@@ -361,7 +372,7 @@ const Table = (() => {
     });
   }
   // What the columns are; when it changes, the grid is built again rather than refreshed.
-  const signature = m => JSON.stringify([m.view, m.cols.filter(c => c.shown).map(c => [c.key, c.title, c.type, c.options, c.filed, c.check]), m.groups]);
+  const signature = m => JSON.stringify([m.view, m.cols.filter(drawn).map(c => [c.key, c.title, c.type, c.options, c.filed, c.check]), m.groups]);
 
   let reds = new Set(), seen = null;
   function refresh() {
@@ -375,7 +386,7 @@ const Table = (() => {
     if (p) {
       m = redlined(now, model(view, p.R2, schemaWith(p)));
       // A paste into a column the view hides shows it while the paste is pending.
-      for (const c of m.cols) if (staged.peek()?.cols.has(c.key)) c.shown = true;
+      for (const c of m.cols) if (staged.peek()?.cols.has(c.key)) c.pasted = true;
     }
     current = m;
     if (!table || built.view !== view || built.sig !== signature(m)) { since(now); return build(m); }
@@ -733,7 +744,7 @@ const Table = (() => {
     const added = [x.rows.length && count(x.rows.length, noun), ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
     const say = [x.values && `Pasted ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
       .filter(Boolean).join(', ').replace(/^a/, 'A');
-    const shownCols = new Set(m.cols.filter(c => c.shown).map(c => c.key));
+    const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
     staged.value = { change: { records: x.records }, x, say, cols: new Set([...x.cols].filter(k => !shownCols.has(k))), noun, select: x.rows.length === 1 && x.rows };
     unlayer = Shell.layer(cancel);
     FormulaBar.preview(staged.peek().change, 'paste');

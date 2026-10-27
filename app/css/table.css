@@ -17,6 +17,12 @@
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 4px 8px; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 22px; }
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable .tabulator-col-title { padding-right: 38px; }
+/* A tag's column is as narrow as its heading set on two lines (table.js), and its sort and filter show while
+   the pointer is on it or they're in use, over the heading's corner, on the heading's own ground. */
+.grid .tabulator .tabulator-header .tabulator-col.c-tag .tabulator-col-title { padding-right: 0; white-space: normal; }
+.grid .tabulator .tabulator-header .tabulator-col.c-tag :is(.tabulator-col-content, .tabulator-col-title-holder, .tabulator-col-sorter, .tabulator-header-filter) { background: inherit; }
+.grid .tabulator .tabulator-header .tabulator-col.c-tag .tabulator-col-content .tabulator-col-sorter { right: 24px; }
+.grid .tabulator .tabulator-header .tabulator-col.c-tag:not(:hover, :focus-within, :has(.tabulator-header-filter input:not(:placeholder-shown))) .tabulator-header-filter { opacity: 0; }
 .grid .tabulator-col-title .up { display: block; font-weight: 400; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-range-highlight,
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-range-selected { background: var(--paper) linear-gradient(var(--press), var(--press)); color: var(--ink); }
