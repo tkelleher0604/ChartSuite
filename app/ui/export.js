@@ -81,12 +81,12 @@ function route(points, s, runs = [points]) {
   if (!none(s.Outline) && (s.Arrow === 'start' || s.Arrow === 'both')) out.push(head(points[0], points[1]));
   return out.join('');
 }
-const FRAME = { stroke: '#595959', Weight: 0.75 };
+const FRAME = { stroke: '#595959' };
 const frameDash = kind => kind === 'solid' || kind === 'bracket' ? 'solid' : kind === 'dotted' ? 'dotted' : 'dashed';
 const bracket = (w, h) => `M0.5,${n(h)} V${n(h - 5)} H${n(w - 0.5)} V${n(h)}`;
 function swatch(sw, { x, y, w, h }) {
   if (sw.kind === 'line') return route([[x, y + h / 2], [x + w, y + h / 2]], { ...sw, Arrow: 'none' });
-  if (sw.kind === 'frame') return g(x, y, body('rect', w, h, { Fill: 'none', Outline: FRAME.stroke, Weight: FRAME.Weight, Dash: 'dashed' }));
+  if (sw.kind === 'frame') return g(x, y, body('rect', w, h, { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }));
   const t = sw.Shape === 'triangle';
   return g(x, t ? y - 1 : y, body(sw.Shape ?? 'rect', w, t ? h + 2 : h, sw));
 }
@@ -94,7 +94,7 @@ function markSvg(m, pdf) {
   const s = look(m);
   if (m.type === 'box') return g(m.x, m.y, body(m.shape, m.w, m.h, s) + texts(m.texts, pdf));
   if (m.type === 'line') return route(m.points, s, m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, texts(m.texts, pdf)) : '');
-  if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, FRAME.Weight)}/>`) + texts([m.caption], pdf));
+  if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
   if (m.geometry === 'picture') return g(m.x, m.y, `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
@@ -324,7 +324,7 @@ function slide(p, scene, { k, ox, oy }) {
     if (m.type === 'box') ids.set(m.id, shape(m, m.shape, s, m.texts, m.column, m.shape === 'triangle' ? 'bottom' : 'middle', m.texts[0]?.text));
     else if (m.type === 'line') connector(m.points, s, [m.from, m.to], m.texts[0]?.text, m.labelAt && m.texts.length ? { items: m.texts, x: m.labelAt.x, y: m.labelAt.y } : null, m.runs);
     else if (m.type === 'frame') {
-      const dash = frameDash(m.kind), outline = { Outline: m.lone ? 'none' : FRAME.stroke, Weight: FRAME.Weight, Dash: dash, Fill: 'none' };
+      const dash = frameDash(m.kind), outline = { Outline: m.lone ? 'none' : FRAME.stroke, Weight: s.Weight, Dash: dash, Fill: 'none' };
       if (m.kind === 'bracket') add('addText', paragraphs([m.caption]), { shape: 'custGeom', x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), line: line(outline),
         points: [[0.5, m.h], [0.5, m.h - 5], [m.w - 0.5, m.h - 5], [m.w - 0.5, m.h]].map(([x, y]) => ({ x: L(x), y: L(y) })),
         margin: 0, valign: 'top', wrap: false, objectName: m.caption.text });
@@ -339,7 +339,7 @@ function slide(p, scene, { k, ox, oy }) {
       for (const r of m.rows) {
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h }, name = r.caption.text;
         if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, name);
-        else if (sw.kind === 'frame') shape(box, 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: FRAME.Weight, Dash: 'dashed' }, [], null, 'middle', name);
+        else if (sw.kind === 'frame') shape(box, 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }, [], null, 'middle', name);
         else shape(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box, sw.Shape ?? 'rect', sw, [], null, 'middle', name);
         label([r.caption], m.x + r.caption.column.x, m.y, r.caption.column.width);
       }

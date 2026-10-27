@@ -614,6 +614,10 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   for (const ls of groupBy(lines.filter(l => l.landed), l => `${l.trunk}|${JSON.stringify(l.points)}`).values()) for (const l of ls.slice(1)) l.merged = ls[0].id;
   jumps(lines, 4 / s);
 
+  // A weight is the sheet's, as PowerPoint keeps a line's weight when a group is resized: each is drawn at its
+  // points on the slide, a frame's at 0.75, however much smaller the chart is drawn.
+  for (const m of [...boxes, ...lines]) m.settings.Weight = { ...m.settings.Weight, value: m.settings.Weight.value / s };
+  for (const f of frames.values()) f.settings.Weight = { value: DEFAULTS.box.Weight / s, note: null };
   // Every text at the sheet's half point nearest its size, placed again where it was.
   for (const b of boxes) { b.texts.forEach(it => snap(it, s)); setText(b); }
   for (const l of lines) { l.texts.forEach(it => snap(it, s)); labelOf(l); }
@@ -932,7 +936,7 @@ function legend(N, view, marks) {
 // A free shape, from its row and its text as worked out: its geometry, place, formats and text. Its sizes are
 // the sheet's where its row doesn't give them, `u` pixels of the page to one of the sheet: a text box's 12 pt,
 // a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller.
-// A size its row gives is the page's, as the format bar writes it.
+// A size its row gives is the page's, as the format bar writes it; a weight is always the sheet's (see the scene).
 const SHAPE_DEFAULTS = { Fill: '#ffffff', Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Layer: 0, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12 };
 // The page's own texts: its title, and its date.
@@ -942,7 +946,7 @@ function freeShape(row, text, u = 1) {
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
     ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left' }),
     ...(row.geometry === 'line' && { Arrow: 'none' }) };
-  const t = { ...base, Size: base.Size * u, Weight: base.Weight * u, ...format };
+  const t = { ...base, Size: base.Size * u, ...format, Weight: (format.Weight ?? base.Weight) * u };
   t.Size = half(t.Size, 1 / u);
   const m = { id: shape, type: 'shape', row: id, geometry: row.geometry ?? 'rect', x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
     look: t, settings: Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { value: v, note: null }])), texts: [], ...(row.role && { role: row.role }) };
@@ -981,7 +985,7 @@ function shapeText(row, computed, day) {
 // each up to 120 pt before it wraps.
 function layoutLegend(m, rows, u = 1) {
   const t = m.look, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
-  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption }));
+  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * u } }));
   m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));
   if (m.auto) m.w = Math.ceil(m.columns * (sw + gap + Math.min(160 * u, Math.max(40 * u, ...shown.map(r => measure(r.caption, t)))) + 16 * u) + 2 * pad);
@@ -1144,9 +1148,22 @@ const styleName = (N, p) => p.args ? N.name(p) : 'Type';
 // A size or place on a page as it is on its sheet, the page drawn smaller by its scale: the number the slide
 // has, which is the one shown; and back, for one typed.
 const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v / (page?.scale ?? 1);
+// The page's size for one picked in the slide's points, where the size changes the scale the chart is drawn at,
+// so that it's the size on the slide: v over the scale the chart has with it. `scaleAt(t)` is the chart's scale
+// with the page's size t; tried from the scale it has (`s`), each scale a twentieth and moving one way only as
+// the size does, the scale stands in a step or two.
+function toPage(v, s, scaleAt) {
+  const seen = new Set([s]);
+  for (;;) {
+    const next = scaleAt(v / s);
+    if (Math.abs(next - s) < 1e-9) return v / s;
+    if (seen.has(next)) return v / Math.min(s, next);
+    seen.add(s = next);
+  }
+}
 
 return {
   of, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  toSlide, fromSlide, DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
+  toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
 };
 })();

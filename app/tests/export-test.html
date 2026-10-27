@@ -165,7 +165,7 @@ async function run() {
     check('lines are elbow connectors, as the scene’s Connector says; the key’s swatches straight', elbows.every(p => /^bentConnector[234]$/.test(p))
       && cxns.filter(c => !tags(c, 'a:stCxn').length && name(c) !== 'Line').every(c => tags(c, 'a:prstGeom')[0].getAttribute('prst') === 'straightConnector1'), [...prsts].join(' '));
     const gp = cxns.find(c => name(c) === 'General Partner');
-    check('a dashed line stays dashed, at its weight on the slide', tags(gp, 'a:prstDash')[0].getAttribute('val') === 'dash' && tags(gp, 'a:ln')[0].getAttribute('w') === String(Math.round(0.75 * k * 12700)));
+    check('a dashed line stays dashed, at its weight on the slide, the sheet’s 0.75 pt however small the chart is drawn', tags(gp, 'a:prstDash')[0].getAttribute('val') === 'dash' && tags(gp, 'a:ln')[0].getAttribute('w') === String(Math.round(0.75 * 12700)));
     const labels = lines(main).filter(l => l.labelAt && l.texts.length).flatMap(l => l.texts.map(it => it.text));
     check('each line’s label is a text box beside it', labels.every(t => sps.some(sp => textOf(sp).includes(t))), labels.length);
     const groups = tags(doc, 'p:grpSp').filter(g => name(g) !== 'Key');
