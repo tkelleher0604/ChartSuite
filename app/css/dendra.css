@@ -163,7 +163,7 @@ input.bare { border-color: transparent; background: transparent; }
 .menu-seg > button { flex: 1; height: 24px; border: 0; border-radius: 3px; background: transparent; color: var(--ink-2); }
 .menu-seg > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: 0 0 0 1px var(--edge); }
 .pop { padding: 12px; }
-.tip { padding: 4px 8px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); white-space: nowrap; pointer-events: none; }
+.tip { padding: 4px 8px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); width: max-content; max-width: 320px; text-wrap: pretty; pointer-events: none; }
 .tip kbd { color: inherit; opacity: .65; margin-left: 8px; }
 
 /* ---- Dialogs ---- */
@@ -247,7 +247,6 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .divider::before { content: ""; position: absolute; inset: 0 -4px; }
 .divider:hover, .divider.drag { background: var(--rule-2); }
 .inspector { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--surface); }
-.main.wide .inspector { --label: 220px; }
 .main.wide .inspector > .host { max-width: 880px; margin: 0 auto; padding-top: 16px; }
 .main.anim { transition: grid-template-columns var(--calm) var(--ease); }
 

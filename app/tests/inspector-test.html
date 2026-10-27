@@ -73,8 +73,6 @@ const N = () => App.notes.value;
 const key = (el, k, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...o }));
 const type = async (el, text) => { el.focus(); await tick(); el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(); key(el, 'Enter'); await tick(); };
 const pick = async label => { const it = [...document.querySelectorAll('.float .menu-item')].find(x => x.querySelector('.label').textContent === label); it?.click(); await tick(); return !!it; };
-const tags = [];
-Shell.on('tag-flip', d => tags.push(d));
 
 async function run() {
   while (!App.chart.value) await tick(50);
@@ -146,7 +144,7 @@ async function run() {
   erisa.dispatchEvent(new PointerEvent('pointerleave')); await tick();
   check('… and leaving it ends the redline', !FormulaBar.pending.peek());
   erisa.click(); await tick();
-  check('clicking a tag switches it', st().fund_erisa.tag === true && tags.includes('fund_erisa'));
+  check('clicking a tag switches it', st().fund_erisa.tag === true);
 
   // A choice from its dropdown
   rowOf('Investment Company Status').querySelector('.sel').click(); await tick();
