@@ -47,8 +47,14 @@ function run(json) {
     return t.args ? !('kind' in t) && t.out && t.args.every(a => leafy(a.loc) && !('field' in (a.loc.out ?? {}))) : t.kind !== undefined;
   }));
   // 136 changes, each the legal team's own, the last its revisions after a general counsel's review in October
-  // 2026: what the app's building changed is folded into the rows it fixed.
-  check('the sample is as big as it should be', Object.keys(now).length === 885 && wb.changes().length === 136, `${Object.keys(now).length} records, ${wb.changes().length} changes`);
+  // 2026: what the app's building changed is folded into the rows it fixed. Each entity's formation document and
+  // governing agreement is among its 55 documents.
+  const docs = Object.values(now).filter(r => r.kind === 'Document').length;
+  check('the sample is as big as it should be', Object.keys(now).length === 942 && docs === 55 && wb.changes().length === 136,
+    `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
+  const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
+  const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
+  check('each of its changes is stamped in working hours, New York time', !late.length, late.map(c => `${c.id} ${c.when}`).join(' '));
   {
     const ever = wb.changes().flatMap(c => c.adds), added = new Map(ever.map(r => [r.id, r])), say = ({ id, ...r }) => j(r);
     check('the sample’s log never held a placeholder address, a Fiscal Year End but as a day of the year, or a name since renamed',
@@ -133,8 +139,8 @@ function run(json) {
     j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
-  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_in_range'])
-    && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(tree('fund_good')) && !N.check(patternOf('def_remote')) && !N.check(patternOf('def_formation_on_file')), j(checked));
+  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range'])
+    && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(tree('fund_good')) && !N.check(patternOf('def_remote')), j(checked));
 
   // ---- Time: as of a day ----
   const on = (d, id) => !!wb.asOf(C, d)[id];
