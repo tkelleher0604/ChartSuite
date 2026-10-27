@@ -12,12 +12,11 @@
 .fx-out { position: relative; display: inline-flex; align-items: center; flex: none; min-height: 20px; }
 .fx-out > .tag:not(:disabled) { cursor: pointer; }
 .fx-out.err { color: var(--no); font-weight: 600; }
-.fx-name { flex: none; border: 0; padding: 0; background: none; font-weight: 600; color: var(--ink); }
+.fx-name { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; border: 0; padding: 0; background: none; font-weight: 600; color: var(--ink); }
 button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 .fx-name.btn { height: 24px; padding: 0 6px; margin: 0 -2px 0 -6px; }
 .fx-args { flex: 0 1 auto; min-width: 6ch; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
-.fx-args > .to { padding: 0 6px; color: var(--ink-3); }
-.fx-args > .to.of { padding: 0 4px 0 0; }
+.fx-args > .to { white-space: pre; color: var(--ink-3); }
 .fx-arg.fx-rf { font-weight: 500; }
 .fx-end { margin-left: auto; padding-left: 8px; display: flex; align-items: center; gap: 12px; flex: none; font: var(--t12); color: var(--ink-3); }
 .fx-link { border: 0; padding: 0; background: none; font: inherit; color: var(--ink-2); text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; }

@@ -149,7 +149,7 @@ const FormulaBar = (() => {
     const P = defOf(said?.def ?? err?.def) ?? null;
     const at = rec ? id : err.args ? Object.fromEntries(err.args.map(a => [a.edge, Tree.objectOf(Rv.records, a.at) ?? a.at])) : err.at;
     const m = { id, rec, err, def: P, at, said, clause: s.clause ?? null, computed: !!Rv.computed[id], covered: Rv.covered[id] ?? null,
-      title: P?.name ?? (rec?.args ? N().nameOf(Rv.records, id) : spot.edge), ...argsOf(Rv, spot, P, id) };
+      title: P?.name ?? (rec?.args ? N().nameOf(Rv.records, id) : spot.edge), ...argsOf(Rv, spot, id) };
     m.out = err ? { error: err.error } : outputOf(rec);
     m.rows = rowsOf(m, Rv, dr);
     return m;
@@ -158,15 +158,15 @@ const FormulaBar = (() => {
   // Where a record is, said as far as it needs: its object, or the path down to it where the object has another
   // record of its label (a file number at its jurisdiction and one elsewhere). Counted once per working-out.
   const labelled = new WeakMap();
-  function whereOf(Rv, id) {
-    const recs = Rv.records, at = recs[id].at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, x)}|${norm(recs[x].edge)}`;
+  function whereOf(Rv, r) {
+    const recs = Rv.records, at = r.at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, recs[x].at)}|${norm(recs[x].edge)}`;
     if (!isObj(recs[O]) || at === O) return N().placeOf(recs, at);
     if (!labelled.has(Rv)) {
       const n = new Map();
       for (const x in recs) if (!isObj(recs[x]) && !recs[x].args) n.set(key(x), (n.get(key(x)) ?? 0) + 1);
       labelled.set(Rv, n);
     }
-    return labelled.get(Rv).get(key(id)) > 1 ? N().placeOf(recs, at) : N().shortOf(recs, O);
+    return labelled.get(Rv).get(`${O}|${norm(r.edge)}`) > 1 ? N().placeOf(recs, at) : N().shortOf(recs, O);
   }
 
   // Two objects: the computed relations they could be in, each way round. The one picked shows as its record
@@ -188,24 +188,21 @@ const FormulaBar = (() => {
     const held = options.filter(x => x.id && x.on !== false), first = l => l.findLast(x => x.a === s.pair[0]) ?? l.at(-1);
     const o = options.find(x => x.key === pk) ?? first(held.filter(x => x.on === true)) ?? first(held);
     if (!o) return null;
-    const m = o.id ? describe({ id: o.id }, Rv, dr) : {
-      id: null, def: o.d, at: o.at, absent: true, title: o.d.name, out: { tag: null },
-      args: o.d.edges.map((e, i) => ({ edge: e, id: i ? o.b : o.a, ...namesOf(Rv, i ? o.b : o.a) })),
-    };
+    const m = o.id ? describe({ id: o.id }, Rv, dr) : { id: null, def: o.d, at: o.at, absent: true, title: o.d.name, out: { tag: null }, ...argsOf(Rv, o) };
     if (!o.id) m.rows = rowsOf(m, Rv, dr);
     return { ...m, options, option: o };
   }
 
-  function argsOf(Rv, r, P, id) {
-    if (!r.args) return { place: whereOf(Rv, id) };
-    const by = new Map(r.args.map(a => [norm(a.edge), a.at]));
-    return { args: (P?.edges ?? r.args.map(a => a.edge)).map(e => {
-      const o = Tree.objectOf(Rv.records, by.get(norm(e))) ?? by.get(norm(e));
-      return { edge: e, id: o, ...namesOf(Rv, o) };
-    }) };
+  // Where a record is: an entry's place (see whereOf), or a relation's sides as the place rule says them
+  // (Notes.placed), each by its Short Name, which the bar's one row has room for, and its name; for two objects
+  // in no relation (`pair`), the relation they'd be in.
+  function argsOf(Rv, r, id) {
+    if (!r.args && !r.d) return { place: whereOf(Rv, r) };
+    const own = !!Rv.records[id], args = r.d ? r.d.edges.map((edge, i) => ({ edge, at: i ? r.b : r.a })) : r.args;
+    return { args: N().placed(Rv.records, own ? id : null, own ? undefined : args).map(s => ({ ...s, short: s.text, name: nameOf(Rv, s.id) })) };
   }
-  // An argument by its name, and by its Short Name, which the bar's one row has room for.
-  const namesOf = (Rv, id) => ({ name: nameOf(Rv, id), short: isObj(Rv.records[id]) ? N().shortOf(Rv.records, id) : nameOf(Rv, id) });
+  // A place said in a line: the sides as the place rule joins them, by `as` (their short names, or names).
+  const placeText = (m, as = 'short') => m.args ? m.args.map(a => a.join + a[as]).join('') : m.place;
   const outputOf = r => 'tag' in r ? { tag: r.tag } : { text: Tree.outputText(r), ...('field' in r && { field: r.field, value: r.value }) };
 
   // The rows, as the definition or the draft has them, each worked out here. Ink where it holds (a tag's ←
@@ -334,17 +331,18 @@ const FormulaBar = (() => {
     if (key === last.key) return;
     const m = model.peek(), t = trail.peek(), k = m?.id ? t.findIndex(x => x.id === m.id) : -1;
     const down = k < 0 && !!m?.computed && last.map.has(m.id);
-    hover.value = null; pick.value = null;
+    hover.value = null; touch.value = null; pick.value = null;
     if (draft.peek()) { draft.value = null; preview(null); }
     trail.value = k >= 0 ? t.slice(0, k) : down ? [...t, last.crumb] : [];
-    last = { key, map: finder.peek().map, crumb: m && { id: m.id, title: m.title, clause: m.clause, place: m.args?.map(a => a.short).join(' → ') ?? m.place } };
+    last = { key, map: finder.peek().map, crumb: m && { id: m.id, title: m.title, clause: m.clause, place: placeText(m) } };
     if (down || k >= 0) {
       const ids = [m.id, ...last.map.keys()];
       requestAnimationFrame(() => { Shell.parts.peek().canvas?.zoomTo?.(ids); clear(); });
     }
   });
-  // The rows close when the selection changes, unless a row is being edited.
-  on('select', () => { if (!editing.peek()) open.value = false; });
+  // The rows close when the selection changes, unless a row is being edited; and a clause pointed at in the
+  // inspector, gone with what it was in, lights nothing.
+  on('select', () => { if (!editing.peek()) open.value = false; lit.value = null; });
   // Back to a record on the breadcrumb, the last by default.
   function back(i = trail.peek().length - 1) {
     const to = trail.peek()[i];
@@ -570,6 +568,18 @@ const FormulaBar = (() => {
     const q = predicateOf(t, a, b), w = choice ? { head: lower(choice), form: 'noun', prep: q.form === 'noun' && !q.flip ? q.prep : ' of ' } : q;
     return w.flip && !choice ? [b, verbal(w, not) + w.prep, a] : [a, verbal(w, not) + w.prep, b];
   }
+  // A tag's name read as a condition: what it names (`what`), then what's said of it (`said`), the name split
+  // before a phrase of place (on File, In Range), a verb and its particle (Adds Up, and `verb`, add up), or a
+  // last word that's a participle or an adjective (Registered, Held, Open). What it names is in words, for
+  // initials don't say how they're held: CIMA Registered is registered with CIMA. Null where the name doesn't
+  // read so (Good Standing, U.S. Person).
+  const PLACE = /^(.+?)\s+((?:on|in|at|under|within|past)\s.+)$/i, PARTICLE = /^(.+?)\s+(\S+[^s\s]s\s(?:up|down|out|off|through))$/i, STATE = /^(.+?)\s+(\S+[^e\s]ed|held|paid|open|due)$/i;
+  function conditionOf(name) {
+    const w = Tree.clean(name), place = PLACE.exec(w), m = place ?? PARTICLE.exec(w) ?? STATE.exec(w);
+    if (!m || /\b[A-Z]{2,}\b|[\d.()]/.test(m[1])) return null;
+    const what = m[1].toLowerCase(), said = m[2].toLowerCase(), verb = !place && /s\s\S+$/.test(said) ? said.replace(/s(?=\s)/, '') : null;
+    return { what, said, verb, plural: /[^siu]s$/.test(what) };
+  }
   // A predicate's words, or their negation: is (not) a director; is (not) evidenced; signs, does not sign.
   const verbal = (w, not) => w.form === 'noun' ? ` is ${not ? 'not ' : ''}${article(w.head)} ${w.head}` : w.form === 'participle' ? ` is ${not ? 'not ' : ''}${w.head}`
     : not ? ` does not ${w.head.replace(/s\b/, '')}` : ` ${w.head}`;
@@ -608,11 +618,17 @@ const FormulaBar = (() => {
     }
     const O = Tree.objectOf(recs, id), o = recs[O];
     if ('tag' in r) {
-      // A tag described as "A fund that …" is a noun: Fund III is a private fund. Any other is a condition, by
-      // its name: Ownership Adds Up holds for Fund III.
+      // A tag described as "A fund that …" is a noun: Fund III is a private fund. Any other is a condition, said
+      // as its name says it (see conditionOf), of its object's or else of the one at its relation: Fund III's
+      // ownership adds up; the capacity is not held. A name that doesn't read so is said by itself: Good
+      // Standing holds for Fund III.
       const noun = /^an?\s/i.test(n.description(Tree.treeOf(recs, id) ?? { args: [{ edge: r.edge, loc: {} }] }) ?? '');
-      return Object.assign(c, noun ? { subj: O, pre: [be(r.tag), `${article(r.edge)} `, term(id, lower(r.edge))] }
-        : { pre: [term(id, r.edge), holds(r.tag)], obj: isObj(o) ? [' for ', { name: O }] : [] });
+      if (noun) return Object.assign(c, { subj: O, pre: [be(r.tag), `${article(r.edge)} `, term(id, lower(r.edge))] });
+      const k = conditionOf(r.edge), not = r.tag === false ? 'not ' : '';
+      if (!k) return Object.assign(c, { pre: [term(id, r.edge), holds(r.tag)], obj: isObj(o) ? [' for ', { name: O }] : [] });
+      const says = k.verb ? (would ? [` would ${not}`, term(id, k.verb)] : not ? [' does not ', term(id, k.verb)] : [' ', term(id, k.said)])
+        : [would ? ` would ${not}be ` : ` ${k.plural ? 'are' : 'is'} ${not}`, term(id, k.said)];
+      return Object.assign(c, isObj(o) ? { subj: O, poss: true, pre: [` ${k.what}`, ...says] } : { pre: [`the ${k.what}`, ...says] });
     }
     const v = Tree.outputText(r), named = o && n.nameOf(recs, O);
     // An entry that names its object (a tax year's Year) says what the object is: the tax year is 2026.
@@ -720,19 +736,26 @@ const FormulaBar = (() => {
     }
     return runs.length ? runs : null;
   }
-  // The subject's reasons said in full, and a level shallower for the bar's one row (for a record the rows rule
-  // out, what failed and what follows): why the rows give it, or
-  // where an entry overrides them, what they would give and why. None for a record no row gives, or while its
-  // definition's rows are being edited.
-  const why = computed(() => {
-    const m = model.value, Rv = R.value, dr = draft.value, v = m?.covered?.value;
-    if (!(m?.computed || m?.covered) || !m.rec || m.err || !m.def || dr?.def === m.def.id) return null;
-    if (m.covered && (v === null || v === undefined || Formulas.isError(v))) return null;
-    const would = m.covered && !m.covered.agrees ? asGiven(m.rec, v) : null;
+  // A record's reasons said in full, and a level shallower for the bar's one row (for a record the rows rule
+  // out, what failed and what follows): why the rows give it, or where an entry overrides them, what they would
+  // give and why. None for a record no row gives.
+  function whyOf(Rv, id, clause = null) {
+    const rec = Rv.records[id], c = Rv.covered[id], v = c?.value;
+    if (!rec || !(Rv.computed[id] || c) || !defOfRecord(Rv, id)) return null;
+    if (c && (v === null || v === undefined || Formulas.isError(v))) return null;
+    const would = c && !c.agrees ? asGiven(rec, v) : null;
     try {
-      const full = sentence(Rv, reasons(Rv, m.id, m.clause, true, true, would));
-      return full && { full, short: sentence(Rv, reasons(Rv, m.id, m.clause, false, true, would)) };
+      const full = sentence(Rv, reasons(Rv, id, clause, true, true, would));
+      return full && { full, short: sentence(Rv, reasons(Rv, id, clause, false, true, would)) };
     } catch { return null; }
+  }
+  // The sentence the bar says for a record, in full, as plain text, for other panes and exports; null for a
+  // record no row gives.
+  const sentenceFor = id => { const Rv = R.peek(), w = whyOf(Rv, id); return w ? plain(Rv.records, w.full) : null; };
+  // The subject's, but while its definition's rows are being edited.
+  const why = computed(() => {
+    const m = model.value, dr = draft.value;
+    return !m?.rec || m.err || !m.def || dr?.def === m.def.id ? null : whyOf(R.value, m.id, m.clause);
   });
   // A fact clicked: a computed one steps down into its reasons, by the clause that cited it; an entered one is
   // selected.
@@ -1007,7 +1030,7 @@ const FormulaBar = (() => {
       wrap.addEventListener('mouseleave', () => { if (hover.peek()?.key === props.current.row.key) hover.value = null; });
       cmr.current = cm;
       if (focus) requestAnimationFrame(() => { cm.focus(); cm.setCursor(cm.lineCount(), 0); });
-      return () => wrap.remove();
+      return () => { wrap.remove(); if (hover.peek()?.key === props.current.row.key) hover.value = null; };
     }, []);
     useLayoutEffect(() => {
       const cm = cmr.current, { row, m, colors, would } = props.current, hv = hover.value;
@@ -1048,15 +1071,17 @@ const FormulaBar = (() => {
     if (!m) return html`<div class="fxbar"><span class="fx-view">${App.views.value.find(v => v.id === Shell.view.value)?.name}</span><span class="fx-end"><${Delta} p=${p} /></span></div>`;
     const f = finder.value, cited = m.rows.find(r => r.cited), shut = !open.value || !m.def;
     const tint = edge => { const c = cited && [...f.colors].find(([n]) => norm(unbracket(cited.formula.slice(n.from, n.to))) === norm(edge)); return c ? ` fx-rf fx-c${c[1]}` : ''; };
-    // A tag's checkbox comes first, as a checkbox does before its label; a value after its name and place.
-    const boxed = !!m.out && 'tag' in m.out;
+    // A tag's checkbox comes first, as a checkbox does before its label; a value after its name and place. A
+    // name cut short ends in an ellipsis, and says itself whole on hover.
+    const boxed = !!m.out && 'tag' in m.out, whole = e => { const el = e.currentTarget; el.title = el.scrollWidth > el.clientWidth ? m.title : ''; };
     return html`<div class="fxbar" onKeyDown=${onKey}>
       ${trail.value.map((t, i) => html`<button class="fx-crumb" key=${t.id} title=${t.place} onClick=${() => back(i)}>${t.title}${t.clause ? ` ${t.clause}` : ''}</button><span class="fx-sep" aria-hidden="true">›</span>`)}
-      ${boxed ? html`<${Output} m=${m} />` : null}
-      ${m.options ? html`<button class="btn ghost dd fx-name" onClick=${e => pickMenu(e, m)}>${m.title}</button>`
-        : m.def && !m.general ? html`<button class="fx-name" onClick=${() => openDef(m.def.id)}>${m.title}</button>` : html`<span class="fx-name">${m.title}</span>`}
-      <span class="fx-args">${m.args ? m.args.map((a, i) => html`${!i ? null : /^\d+$/.test(a.short) && R.peek().records[a.id]?.kind ? html`<span class="to of">, ${R.peek().records[a.id].kind.toLowerCase()}</span>` : html`<span class="to">${m.args.length === 2 ? "→" : "·"}</span>`}<span class=${'fx-arg' + tint(a.edge)} title=${a.short !== a.name ? a.name : null}>${a.short}</span>`) : m.place}</span>
-      ${boxed ? null : html`<${Output} m=${m} />`}
+      ${boxed ? html`<${Output} key=${m.id} m=${m} />` : null}
+      ${m.options ? html`<button class="btn ghost dd fx-name" onPointerEnter=${whole} onClick=${e => pickMenu(e, m)}>${m.title}</button>`
+        : m.def && !m.general ? html`<button class="fx-name" onPointerEnter=${whole} onClick=${() => openDef(m.def.id)}>${m.title}</button>`
+        : html`<span class="fx-name" onPointerEnter=${whole}>${m.title}</span>`}
+      <span class="fx-args">${m.args ? m.args.map(a => html`${a.join ? html`<span class="to">${a.join}</span>` : null}<span class=${'fx-arg' + tint(a.edge)} title=${a.short !== a.name ? a.name : null}>${a.short}</span>`) : m.place}</span>
+      ${boxed ? null : html`<${Output} key=${m.id} m=${m} />`}
       ${m.def && shut ? html`<${Inline} m=${m} />` : null}
       <span class="fx-end">
         <${Delta} p=${p} />
@@ -1078,6 +1103,28 @@ const FormulaBar = (() => {
     if (e.key === 'Enter') commitDraft(); else discard();
   }
 
+  // What the pointer lights goes when the pointer leaves it, and when what it points at goes: a sentence closed,
+  // or said anew under a still pointer, a tag or a row no longer shown, never leaves the chart lit.
+  function usePoint(on, off) {
+    const held = useRef(false), last = useRef(off);
+    last.current = off;
+    const leave = () => { if (held.current) { held.current = false; last.current(); } };
+    useLayoutEffect(() => leave, []);
+    return { onPointerEnter: () => { held.current = true; on(); }, onPointerLeave: leave };
+  }
+
+  // A segment of a sentence in words: a sentence's first letter in capitals; a name by its short name, which as
+  // a defined term reads "the BDC" mid-sentence.
+  const upper = s => s[0].toUpperCase() + s.slice(1);
+  const wordOf = (recs, s, start) => typeof s === 'string' ? (start ? upper(s) : s)
+    : s.name ? (start ? N().shortOf(recs, s.name) : N().shortOf(recs, s.name).replace(/^The\b/, 'the')) : start ? upper(s.term) : s.term;
+  // Why, as plain text: the sentence's runs, its citations in parentheses, and a full stop.
+  function plain(recs, runs) {
+    let first = true;
+    const seg = s => { const w = wordOf(recs, s, first); first = false; return w; };
+    return runs.map(r => r.text ? seg(r.text) : r.cite ? ` (${r.cite})` : r.segs.map(seg).join('')).join('') + '.';
+  }
+
   // Why, said: each fact a quiet button (a span, so that it wraps as words do), its point in weight and in the
   // hue its records are outlined in on the chart. Hovered, its records pulse there; clicked, it steps down into
   // its reasons, or selects what was entered.
@@ -1085,21 +1132,23 @@ const FormulaBar = (() => {
     const { map } = finder.value, recs = R.value.records;
     let first = true;
     const seg = s => {
-      const start = first;
+      const w = wordOf(recs, s, first);
       first = false;
-      if (typeof s === 'string') return start ? s[0].toUpperCase() + s.slice(1) : s;
-      if (s.name) {
-        const short = N().shortOf(recs, s.name), full = N().nameOf(recs, s.name);
-        return html`<span title=${short !== full ? full : null}>${start ? short : short.replace(/^The\b/, 'the')}</span>`;
-      }
+      if (typeof s === 'string') return w;
+      if (s.name) { const full = N().nameOf(recs, s.name); return html`<span title=${N().shortOf(recs, s.name) !== full ? full : null}>${w}</span>`; }
       const hue = map.get(s.id)?.[0];
-      return html`<b class=${[s.fx && 'fx', hue && `fx-rf fx-c${hue}`].filter(Boolean).join(' ') || null}>${start ? s.term[0].toUpperCase() + s.term.slice(1) : s.term}</b>`;
+      return html`<b class=${[s.fx && 'fx', hue && `fx-rf fx-c${hue}`].filter(Boolean).join(' ') || null}>${w}</b>`;
     };
-    return html`<span class=${cls} onClick=${onClick}>${runs.map(r => r.text ? seg(r.text)
+    return html`<span class=${cls} onClick=${onClick}>${runs.map((r, i) => r.text ? seg(r.text)
       : r.cite ? html`<span class="fx-cite"> (${r.cite})</span>`
       : r.self ? html`<span class="fx-fact">${r.segs.map(seg)}</span>`
-      : html`<span class="fx-fact go" role="button" tabindex="0" onPointerEnter=${() => { touch.value = r.fact.ids; }} onPointerLeave=${() => { touch.value = null; }}
-          onClick=${e => { e.stopPropagation(); stepTo(r.fact); }} onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); stepTo(r.fact); } }}>${r.segs.map(seg)}</span>`)}.</span>`;
+      : html`<${Fact} key=${i + ':' + r.fact.ids.join()} fact=${r.fact}>${r.segs.map(seg)}</${Fact}>`)}.</span>`;
+  }
+  // A fact that steps down: hovered, its records pulse on the chart, until the pointer leaves it or it goes.
+  function Fact({ fact, children }) {
+    const mine = useRef(null), point = usePoint(() => { touch.value = mine.current = fact.ids; }, () => { if (touch.peek() === mine.current) touch.value = null; });
+    const go = e => { e.preventDefault(); e.stopPropagation(); stepTo(fact); };
+    return html`<span class="fx-fact go" role="button" tabindex="0" ...${point} onClick=${go} onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') go(e); }}>${children}</span>`;
   }
 
   // In the bar's one row: why, said in full where it fits, or else in short, cut short where even that
@@ -1155,7 +1204,7 @@ const FormulaBar = (() => {
   // The output, in its own control: a tag's checkbox, which previews the other state on hover and switches to
   // it on a click, or a value, typed over to enter one; with the amber corner where an entry overrides rows.
   function Output({ m }) {
-    const o = m.out;
+    const o = m.out, point = usePoint(() => m.rec && preview(flipped(m), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
     if (!o) return null;
     if (o.error) return html`<span class="fx-out err">${o.error.code}</span>`;
     const a = after(m);
@@ -1163,8 +1212,7 @@ const FormulaBar = (() => {
       const state = v => v === true ? ' yes' : v === false ? ' no' : '';
       const cls = 'tag' + (a !== undefined ? ' pend' + state(a?.tag) : state(o.tag) + (m.computed ? ' fx' : ''));
       return html`<span class=${'fx-out' + (m.covered && !m.covered.agrees ? ' over' : '')}><button class=${cls} data-tour="tag" aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
-        onPointerEnter=${() => m.rec && preview(flipped(m), 'tag')} onPointerLeave=${() => pending.peek()?.from === 'tag' && previewDraft()}
-        onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
+        ...${point} onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
     }
     if (a !== undefined && a?.value !== m.rec.value && pending.value.from !== 'value')
       return html`<span class="fx-out"><span class="del">${o.text}</span> <span class="add">${a ? Tree.outputText(a) : '—'}</span></span>`;
@@ -1218,14 +1266,15 @@ const FormulaBar = (() => {
     d.minus && html`<b class="minus">${d.minus} fewer</b>`, d.changed && html`<b class="changed">${d.changed} changed</b>`].filter(Boolean).map((x, i) => html`${i ? ', ' : ''}${x}`)}</span>`)}</span>`;
 
   function pickMenu(e, m) {
-    const Rv = R.peek(), nm = id => nameOf(Rv, id);
-    Shell.menu(e.currentTarget, m.options.map(o => ({ label: o.d.name, detail: `${nm(o.a)} → ${nm(o.b)}`, checked: o === m.option, run: () => { pick.value = o.key; } })));
+    const Rv = R.peek();
+    Shell.menu(e.currentTarget, m.options.map(o => ({ label: o.d.name, detail: placeText(argsOf(Rv, o), 'name'), checked: o === m.option, run: () => { pick.value = o.key; } })));
   }
 
   // A row: its label, its formula, and what the rows would give where an entry overrides them.
   function Row({ r, m, colors, editable }) {
     const cls = 'fx-row' + (r.cited ? ' cited' : r.ink ? ' alt' : ' grey') + (r.gone ? ' gone' : '') + (editing.value?.key === r.key ? ' editing' : '') + (editable ? ' editable' : '');
-    const keep = r.gone;
+    const keep = r.gone, point = usePoint(() => !keep && preview(rowsChange({ ...draftOf(m.def.id), rows: draftOf(m.def.id).rows.map(x => x.key === r.key ? { ...x, gone: true } : x) }), 'row'),
+      () => pending.peek()?.from === 'row' && previewDraft());
     const reorder = e => {
       const item = e.currentTarget.closest('.fx-row'), items = [...item.parentElement.querySelectorAll(':scope > .fx-row')];
       Shell.drag(e, { item, items, onDrop: (from, i) => change(m.def.id, rows => { const l = rows.slice(); l.splice(i, 0, l.splice(from, 1)[0]); return l; }) });
@@ -1237,9 +1286,7 @@ const FormulaBar = (() => {
         : html`<span class="fx-label" title=${r.label.length > 28 ? r.label : null}>${r.label}</span>`}
       ${r.gone ? html`<div class="fx-cm gone">${r.formula}</div>` : html`<${Formula} row=${r} m=${m} colors=${colors} grey=${!r.ink} would=${wouldOf(m, r)} focus=${r.key === fresh} />`}
       ${problem.value?.key === r.key ? html`<p class="fx-problem" role="alert">${problem.value.message}</p>` : null}
-      ${editable ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'}
-          onPointerEnter=${() => !keep && preview(rowsChange({ ...draftOf(m.def.id), rows: draftOf(m.def.id).rows.map(x => x.key === r.key ? { ...x, gone: true } : x) }), 'row')}
-          onPointerLeave=${() => previewDraft()}
+      ${editable ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'} ...${point}
           onClick=${() => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, gone: !x.gone } : x))}>${Shell.icon('x')}</button>` : null}
     </div>`;
   }
@@ -1281,5 +1328,5 @@ const FormulaBar = (() => {
   const toggled = shut => shut ? 'Expand formula bar' : 'Collapse formula bar';
   Shell.register('action', { id: 'formulas', get name() { return toggled(!open.peek()); }, keys: '$mod+Shift+KeyU', run: toggle });
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, light: ids => { lit.value = ids; },
-    reason, citeOf, phrase, model, finder, pending, draft, hover, open };
+    reason, citeOf, phrase, sentence: sentenceFor, model, finder, pending, draft, hover, open };
 })();

@@ -9,6 +9,10 @@ const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoi
 const FORMATS = new Set(['Shown', 'Shape', 'Fill', 'Outline', 'Weight', 'Dash', 'Frame', 'Layer', 'Arrow', 'Connector', 'Above',
   'Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color', 'Align', 'Format']);
 const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
+// Words begun mid-sentence, in lower case but for initials (GP, BDC); and the preposition a list's name ends
+// in, as a relation's words say a side: Signs For, for.
+const lower = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
+const PREP = /\s(of|in|for|to|by|with|from|on|at)$/i;
 const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
 const bySchema = new WeakMap();
 
@@ -105,13 +109,27 @@ function index(rows) {
   const shortOf = (recs, id) => { const s = isObject(recs[id] ?? {}) && entryAt(recs, id, 'Short Name'); return s ? String(recs[s].value) : nameOf(recs, id); };
   // A relation's arguments in its edges' order.
   const sides = (recs, id) => { const r = recs[id]; return edges(treeAt(recs, id)).map(e => r.args.find(a => same(a.edge, e))); };
-  // A record as a step on a path: an object by its short name, a relation by its sides', an option with its
-  // label, a tag ruled out with Not. A relation's sides are joined as its line joins them, by an arrow, but a
-  // side named by a number, which alone doesn't say what it is, is said with its kind: AIV-1, tax year 2025.
+  // The place rule: where a relation is, said side by side, each { edge, id, text, join }: the side's object,
+  // by its short name, after the words that join it to the sides before. Two sides are joined as their line
+  // joins them, by an arrow: Fund III → Fund III Blocker. Three or more are said as the panel's sentence says
+  // them, less its verb: the second after the preposition its list's name ends in (Signs For), or else, as
+  // each side after it, after its label: Margaret A. Chen for Fund III, via GP III. A side named by a number,
+  // which alone doesn't say what it is, is said with its kind: AIV-1, tax year 2025. `args`, for a relation
+  // not recorded (an error's, or one two objects aren't in).
+  function placed(recs, id, args) {
+    const t = args ? { args: args.map(a => ({ edge: a.edge, loc: treeOf(recs, a.at) ?? {} })) } : treeAt(recs, id), of = args ?? recs[id].args;
+    const xs = edges(t).map(e => of.find(a => same(a.edge, e))).filter(Boolean);
+    return xs.map((a, i) => {
+      const o = objectOf(recs, a.at) ?? a.at, text = shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && PREP.exec(listName(t, a.edge))?.[1];
+      const join = !i ? '' : /^\d+$/.test(text) && kind ? `, ${kind.toLowerCase()} ` : xs.length === 2 ? ' → ' : prep ? ` ${prep.toLowerCase()} ` : `, ${lower(a.edge)} `;
+      return { edge: a.edge, id: o, text, join };
+    });
+  }
+  // A record as a step on a path: an object by its short name, a relation by its sides as the place rule
+  // says them, an option with its label, a tag ruled out with Not.
   function segmentOf(recs, id) {
-    const r = recs[id], side = (a, i) => { const o = objectOf(recs, a.at), s = shortOf(recs, o);
-      return !i ? s : /^\d+$/.test(s) && recs[o]?.kind ? `, ${recs[o].kind.toLowerCase()} ${s}` : ` → ${s}`; };
-    return !r ? '' : isObject(r) ? shortOf(recs, id) : r.args ? sides(recs, id).map(side).join('')
+    const r = recs[id];
+    return !r ? '' : isObject(r) ? shortOf(recs, id) : r.args ? placed(recs, id).map(s => s.join + s.text).join('')
       : isChoice(r) ? `${r.edge}: ${r.choice}` : isTag(r) && !r.tag ? `Not ${r.edge}` : r.edge;
   }
   // Where a record is: the path down to it, a step at a time.
@@ -119,7 +137,7 @@ function index(rows) {
 
   return {
     resolve, value, name, listName, edges, formats, styles, definitions, relations, fitting,
-    nameOf, shortOf, sides, segmentOf, placeOf,
+    nameOf, shortOf, sides, placed, segmentOf, placeOf,
     notes: label => byLabel.get(label) ?? [],
     description: t => value('Description', t),
     order: t => value('Order', t),
