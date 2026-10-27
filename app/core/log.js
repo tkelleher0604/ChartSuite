@@ -41,6 +41,19 @@ function schemaOf(rows) {
   for (const [id, rs] of items) { const t = Tree.treeOf(raw, id); if (t) for (const r of rs) trees.push({ ...Tree.specOf(t), ...own(r) }); }
   return Tree.schema(trees);
 }
+// Whether rows removed and added leave the schema of a chart's records (`records`, each one's rows) as it was: no
+// specification among them, and each record they touch still there, its versions of the shapes they were, and
+// its latest of the shape it was, so every tree schemaOf takes is as it was. Only values and periods change so.
+const shapeOf = r => JSON.stringify([r.kind, r.field, r.choice, r.tag, r.at, r.edge, r.args]);
+function sameSchema(records, removed, adds) {
+  if ([...removed, ...adds].some(r => 'spec' in r)) return false;
+  const gone = new Set(removed.map(r => r.id)), shapes = rs => new Set(rs.map(shapeOf));
+  for (const id of new Set([...removed, ...adds].filter(r => 'record' in r).map(r => r.record))) {
+    const was = records.get(id) ?? [], now = [...was.filter(r => !gone.has(r.id)), ...adds.filter(r => r.record === id)], a = shapes(was), b = shapes(now);
+    if (!was.length || !now.length || a.size !== b.size || [...a].some(s => !b.has(s)) || shapeOf(latest(was)) !== shapeOf(latest(now))) return false;
+  }
+  return true;
+}
 
 function open(data) {
   if (typeof data === 'string') data = JSON.parse(data);
@@ -48,7 +61,7 @@ function open(data) {
   // Live rows by content: a reverse brings rows back as fresh copies, which are still as a change left them.
   const twins = new Map(), twinKey = (c, r) => `${c}|${contentOf(r)}`;
   const twin = (c, r) => twins.get(twinKey(c, r))?.values().next().value;
-  let cache = new Map(), sorted = null, last = 0;
+  let cache = new Map(), carried = new Map(), sorted = null, last = 0;
 
   function take(c) {
     if (changes.has(c.id)) return false;
@@ -67,7 +80,20 @@ function open(data) {
     last = Math.max(last, Date.parse(c.when) || 0);
     return true;
   }
-  const changed = cs => { cache = new Map(); sorted = null; subs.forEach(f => f(cs)); };
+  // What changes leave as it was is kept: a chart's whole reading, where none is of it; its notes, where none of
+  // its rows they add or remove is a note; and its schema, where a change of it gives its records only other
+  // values or periods.
+  const changed = cs => {
+    const was = cache;
+    cache = new Map(); carried = new Map(); sorted = null;
+    for (const [c, d] of was) {
+      const mine = cs.filter(x => x.chart === c), removed = mine.flatMap(x => x.removes.map(id => added.get(id)).filter(Boolean)), adds = mine.flatMap(x => x.adds);
+      if (!mine.length) cache.set(c, d);
+      else carried.set(c, { notes: [...removed, ...adds].every(r => !('note' in r)) ? d.notes : null,
+        schema: mine.length === 1 && d.schema && sameSchema(d.records, removed, adds) ? d.schema : null });
+    }
+    subs.forEach(f => f(cs));
+  };
   const list = () => sorted ??= [...changes.values()].sort(byTime);
   // Times only go forward here, so one author's changes keep their order even within a millisecond.
   const now = () => new Date(last = Math.max(Date.now(), last + 1)).toISOString();
@@ -76,9 +102,9 @@ function open(data) {
   function chart(c) {
     let d = cache.get(c);
     if (!d) {
-      const rows = [...live.values()].filter(r => chartOf.get(r.id) === c), items = new Map(), recs = new Map();
+      const rows = [...live.values()].filter(r => chartOf.get(r.id) === c), items = new Map(), recs = new Map(), kept = carried.get(c);
       for (const r of rows) { push(items, itemOf(r), r); if ('record' in r) push(recs, r.record, r); }
-      d = { rows, items, records: recs, notes: Notes.index(rows.filter(r => 'note' in r)), days: new Map() };
+      d = { rows, items, records: recs, notes: kept?.notes ?? Notes.index(rows.filter(r => 'note' in r)), days: new Map(), ...kept?.schema && { schema: kept.schema } };
       cache.set(c, d);
     }
     return d;
@@ -121,7 +147,7 @@ function open(data) {
       if (!('kind' in r) && byArgs.get(argKey(r)).some(x => x.record !== r.record && overlap(x, r)))
         return 'args' in r ? 'That relation is already recorded.' : `${r.edge} is already recorded here.`;
     }
-    const now = c.adds.some(r => 'record' in r || 'spec' in r) && Tree.schemaError(schemaOf(after));
+    const now = c.adds.some(r => 'record' in r || 'spec' in r) && !sameSchema(d.records, c.removes.map(id => added.get(id)), c.adds) && Tree.schemaError(schemaOf(after));
     return now && now !== Tree.schemaError(schema(c.chart)) ? now : null;
   }
   function apply(c) {
