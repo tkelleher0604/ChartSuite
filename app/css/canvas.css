@@ -104,13 +104,19 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb:has(.btn:disabled) .btn:disabled { opacity: .4; }
 
 /* The palette and the pickers in the format bar's popovers: PowerPoint's theme colors, its first row apart
-   from the tints and shades under it, as PowerPoint sets it, then its standard colors. */
-.palette { display: grid; grid-template-columns: repeat(8, 20px); gap: 4px; }
-.palette > :nth-child(-n + 8) { margin-bottom: 4px; }
+   from the tints and shades under it, as PowerPoint sets it, then its standard colors and the chart's own; and
+   under them, rows as a menu's: No fill, and More colors with its hex. */
+.palette { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; }
+.palette > :nth-child(-n + 10) { margin-bottom: 4px; }
 .palette > i { grid-column: 1 / -1; height: 4px; }
 .palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid rgb(0 0 0 / .14); border-radius: 3px; cursor: default; }
 .palette > button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
-.palette > button.none { background: linear-gradient(to top right, transparent calc(50% - .75px), var(--no) calc(50% - .75px), var(--no) calc(50% + .75px), transparent calc(50% + .75px)), #fff; }
+.palette > .more { grid-column: 1 / -1; display: grid; margin: 4px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }
+.palette .menu-item { border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }
+.palette .menu-item:is(:hover, :focus-visible, :focus-within) { background: var(--hover); outline: none; }
+.palette .hex { display: flex; align-items: center; gap: 4px; color: var(--ink-3); }
+.palette .hex > input { width: 72px; height: 22px; padding: 0 6px; font: var(--t12); font-variant-numeric: tabular-nums; text-transform: uppercase; }
+.palette .hex > input[aria-invalid] { border-color: var(--no); }
 .picker { display: grid; gap: 8px; min-width: 200px; }
 .picker > .row { display: flex; align-items: center; gap: 8px; }
 .picker > .row > .k { width: 56px; color: var(--ink-3); font: var(--t12); }
