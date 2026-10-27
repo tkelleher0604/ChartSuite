@@ -363,8 +363,27 @@ function workedIn(notesAre) {
 // the view's free shapes and what they say, its day and its paper. Drawn again from the same, it's the same:
 // so a change previewed, once made, is drawn as it was laid out ahead, and its Undo as the chart was before.
 const drawnFrom = new Map();
+// Whether two records say the same, as a record put back by Undo, a fresh copy, says what it said.
+const sameRecord = (a, b) => a === b || (!!a && !!b && Object.keys(a).length === Object.keys(b).length
+  && Object.keys(a).every(k => a[k] === b[k] || (k === 'args' && JSON.stringify(a.args) === JSON.stringify(b.args))));
+// Whether a scene drawn from the state `before` is the scene of `after`: they differ in a few records, each one it
+// neither draws nor styles. Such a record is no object (a box), and no name (drawn where nothing says); no
+// format of the view reaches it, so nothing of it is drawn and nothing lands from it; and nothing is located at
+// it, whose tree, and so whose formats, it's part of. So a value the view doesn't show, edited, leaves the scene
+// as it was. formatsOf(state, id): a record's formats in the view.
+function unmoved(scene, before, after, formatsOf) {
+  const changed = new Set();
+  for (const id in after) if (!sameRecord(before[id], after[id]) && changed.add(id).size > 64) return false;
+  for (const id in before) if (!(id in after) && changed.add(id).size > 64) return false;
+  const inert = (recs, id) => {
+    const r = recs[id];
+    return !r || (!isObject(r) && !(r.at && isObject(recs[r.at] ?? {}) && Tree.norm(r.edge ?? '') === 'name') && !Object.keys(formatsOf(recs, id)).length);
+  };
+  const unlocated = recs => { for (const id in recs) { const r = recs[id]; if ((r.at && changed.has(r.at)) || r.args?.some(a => changed.has(a.at))) return false; } return true; };
+  return [...changed].every(id => !scene.byId.has(id) && inert(before, id) && inert(after, id)) && unlocated(before) && unlocated(after);
+}
 
-const of = (...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
+const of =(...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
 // The steps: the marks, from the records; then for each layout tried, ELK's part of it, and the rest of it
 // with its routes; then the page.
 function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
@@ -376,8 +395,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const from = [opts.state, notesAre, shapeRows.map(r => r.id).join(), [...said.values()].join('\n'), day], whence = `${drawnAs}|${opts.paper ?? ''}`;
   if (!preview) {
-    const d = drawnFrom.get(whence)?.find(d => d.from.every((x, i) => x === from[i]));
-    if (d) { if (d.laid && !opts.ahead) laidOut.set(drawnAs, d.laid); return d.scene; }
+    // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
+    const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
+    const formatsOf = (recs, id) => { const t = treeOf(recs, id); return t ? wb.notes(chart).formats(t, view) : {}; };
+    const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
+    if (d) {
+      if (d.laid && !opts.ahead) laidOut.set(drawnAs, d.laid);
+      drawnFrom.set(whence, [{ ...d, from }, ...ds.filter(x => x !== d)].slice(0, 3));
+      return d.scene;
+    }
   }
   // A redline draws what's in the chart now together with what would be: both, marked.
   const state = red?.state ? { ...opts.state, ...red.state } : opts.state;
@@ -385,16 +411,18 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const tree = id => treeOf(state, id);
   const kept = workedIn(notesAre), stands = new Map();
   const standing = id => {
-    if (!stands.has(id)) {
+    let s = stands.get(id);
+    if (s === undefined) {
       const r = state[id], w = r && kept.get(r);
       stands.set(id, false);
-      stands.set(id, !!w && argsOf(r).every((a, i) => state[a.at] === w.locs[i] && standing(a.at)));
+      s = !!w && w.at.every((at, i) => state[at] === w.locs[i] && standing(at));
+      stands.set(id, s);
     }
-    return stands.get(id);
+    return s;
   };
   const work = id => {
     if (standing(id)) return kept.get(state[id]);
-    const r = state[id], w = { locs: argsOf(r).map(a => state[a.at]), formats: N.formats(tree(id), view) };
+    const r = state[id], at = argsOf(r).map(a => a.at), w = { at, locs: at.map(x => state[x]), formats: N.formats(tree(id), view) };
     kept.set(r, w);
     stands.set(id, true);
     return w;
@@ -436,14 +464,23 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const top = at && boxOf(at);
     return top && top === ends[1] ? [ends[1], ends[0]] : ends;
   };
+  // Records revealed for a while, and those they run through, are drawn (see drawn).
+  const reveal = new Set();
+  const revealUp = id => { const r = state[id]; if (!r || reveal.has(id)) return; reveal.add(id); argsOf(r).forEach(a => revealUp(a.at)); };
+  for (const id of opts.reveal ?? []) revealUp(id);
+  // A line nothing could draw makes no mark: one no note shows, with nothing located at it whose notes might, and
+  // not revealed. Most of the relations a chart works out are such.
+  const located = new Set();
+  for (const id of ids) if (state[id].at) located.add(state[id].at);
   for (const id of ids) if (isObject(state[id])) addMark({ id, type: 'box', record: id, cand: {} });
   for (const id of ids) {
     const r = state[id];
     if (isObject(r)) continue;
     const ends = r.args?.length === 2 ? r.args.map(a => boxOf(a.at)) : null;
     if (ends && ends[0] && ends[1] && ends[0] !== ends[1]) {
-      if (formats.get(id).Connector?.value !== 'none') addMark({ id, type: 'line', record: id, ends, cand: {} });
-      else { const [from, to] = endsOf(id, ends); addMark({ id: `${id}@${to}`, type: 'text', record: id, host: to, listed: from, cand: {} }); }
+      const f = formats.get(id);
+      if (f.Connector?.value === 'none') { const [from, to] = endsOf(id, ends); addMark({ id: `${id}@${to}`, type: 'text', record: id, host: to, listed: from, cand: {} }); }
+      else if (f.Shown || located.has(id) || reveal.has(id)) addMark({ id, type: 'line', record: id, ends, cand: {} });
     }
     else if (r.at) addMark({ id, type: 'text', record: id, cand: {} });
     else for (const b of new Set(argsOf(r).map(a => boxOf(a.at)).filter(Boolean))) addMark({ id: `${id}@${b}`, type: 'text', record: id, host: b, cand: {} });
@@ -470,9 +507,6 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const res = formats.get(id).Shown;
     if (res) land(id, 'Shown', res, m => !filters(res.note) || m.type !== 'text');
   }
-  const reveal = new Set();
-  const revealUp = id => { const r = state[id]; if (!r || reveal.has(id)) return; reveal.add(id); argsOf(r).forEach(a => revealUp(a.at)); };
-  for (const id of opts.reveal ?? []) revealUp(id);
   // Where no note says, a box and its name are shown, and nothing else: a new chart's boxes say what they are.
   const named = m => m.type === 'text' && !m.host && isObject(state[state[m.record].at] ?? {}) && Tree.norm(state[m.record].edge ?? '') === 'name';
   const shownAlone = m => m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m);

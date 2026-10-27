@@ -51,9 +51,10 @@ function treeOf(recs, id) {
 // Entries and relations by the record they're located at, and objects by kind.
 const index = recs => kept(recs, 'index', () => {
   const entries = new Map(), relations = new Map(), kinds = new Map();
-  for (const [id, r] of Object.entries(recs)) {
+  for (const id in recs) {
+    const r = recs[id];
     if (r.at) push(entries, r.at, id);
-    if (r.args) for (const at of new Set(r.args.map(a => a.at))) push(relations, at, id);
+    if (r.args) r.args.forEach((a, i) => { if (r.args.findIndex(b => b.at === a.at) === i) push(relations, a.at, id); });
     if (isObject(r)) push(kinds, norm(r.kind), id);
   }
   return { entries, relations, kinds };
