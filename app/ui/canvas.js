@@ -1041,7 +1041,8 @@ function mount(el) {
   function show(again = false) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
     // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
-    if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day)) red.scene = quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true }) : null;
+    if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day))
+      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true }) : null);
     const r = red?.scene ? red : null;
     const st = App.state.peek(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
@@ -1075,10 +1076,13 @@ function mount(el) {
   let aheadOf = null, longest = 0, soon = null;
   function toward(d) { soon = d ?? null; ahead(); }
   function* on(d, view) { const R = App.workOn(d); yield; return yield* Scene.steps(App.shown.peek(), App.chart.peek(), view, d, { state: R.records, computed: R, ahead: true }); }
-  // A redline not yet laid out (a big chart's) is drawn once it is.
+  // A redline not yet laid out (a big chart's) is drawn once it is, kept by the state it leaves, for the view and the
+  // day, however often it's asked for again meanwhile.
+  const laidAhead = new WeakMap();
   function* redAhead(r, base) {
     const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true });
-    if (red === r && !r.scene) { r.scene = sc; show(); }
+    (laidAhead.get(r.state) ?? laidAhead.set(r.state, new Map()).get(r.state)).set(`${base.view}|${base.day}`, sc);
+    if (red?.state === r.state && !red.scene) show();
   }
   function ahead() {
     const base = App.scene.peek(), r = red && !red.scene ? red : null, wb = styled?.wb ?? App.shown.peek(), state = r?.state ?? (styled ? App.state.peek() : null);
@@ -1096,7 +1100,8 @@ function mount(el) {
       }
       if (live()) later();
     };
-    const later = () => requestAnimationFrame(() => requestIdleCallback(step));
+    // A redline waiting to be drawn takes its steps even where the window is never idle long, a step a frame.
+    const later = () => requestAnimationFrame(() => requestIdleCallback(step, r ? { timeout: 100 } : undefined));
     if (live()) later();
   }
 

@@ -362,7 +362,8 @@ function Choice({ r, options, put, fx, over, id, fixed, label, ph, children }) {
 let clicked = false;
 function TagBox({ r, flip, fx, over, change, label, to, fixed, children }) {
   const [peek, setPeek] = useState(false), on = r?.tag, show = peek ? (to === undefined ? !(on ?? false) : to) : on;
-  const hover = p => { if (p && clicked) return; setPeek(p); FormulaBar.preview(p && change ? change() : null); };
+  // A box that previews nothing (a relation not yet ticked, which its tick begins) leaves the redline to others.
+  const hover = p => { if (p && clicked) return; setPeek(p); if (change) FormulaBar.preview(p ? change() : null); };
   const leave = () => { clicked = false; if (peek) hover(false); };
   const key = e => { if (e.key !== 'Enter') return; e.preventDefault(); onward(e.currentTarget, e.shiftKey ? -1 : 1)?.focus(); };
   return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ' no' : '') + (fx && !peek ? ' fx' : '') + (peek ? ' peek' : '')}
