@@ -72,7 +72,7 @@ The scripts find Dendra's core at `../../../app` (the repository). Installed els
   Entering a deadline would freeze it: paying the tax would no longer move it on. Record what the formulas read instead: the date something was filed or paid, the fiscal year end, the percentages. Override only for something that truly stands over the formula, like a tax classification election, and say so.
 - **Time has two kinds of change.**
   - What was so from the start, or a correction of a mistake, takes no day.
-  - A change in the world on a date takes that day (a GP replaced, a percentage changed at a closing, an entity's good standing lost). The old value then stays true before that day and the new one from it, so the chart as of any past date stays right.
+  - A change in the world on a date takes that day (a GP replaced, a percentage changed at a closing, an entity's good standing lost, and every payment or filing, as Dendra's own Paid… and Filed… record them). The old value then stays true before that day and the new one from it, so the chart as of any past date stays right.
   - Dates that bound a record are entries, not days: Formation Date starts an entity and Dissolution Date ends it. Likewise Admission and Withdrawal Date for a GP, and Start and End Date for a position. `vocab` marks them "starts it" and "ends it".
 - **End what ended; delete only mistakes.** A dissolved entity gets its Dissolution Date. A resigned officer gets an End Date. Removing without a day deletes, as if it had never been. That's right only for a record made in error.
 - **Names exactly as the documents give them.** Use the full legal name, with its punctuation ("Calder Ridge Capital Partners IV, L.P.").
