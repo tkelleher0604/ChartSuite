@@ -844,8 +844,12 @@ function mount(el) {
   const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene?.byId.get(x) ?? scene?.byId.get(standIns.get(x)); if (m) return m; } return null; };
   // The box or line it is, or is in: a text's, the box or line it's written in.
   const hostOf = id => { const m = markFor(id); return m?.type !== 'text' ? m : scene.marks.find(h => h.texts?.includes(m)) ?? null; };
-  // The marks a selection's keys name: a record's or a shape's, a legend's for its row, a relation's text's box.
-  const marksOf = keys => [...new Set(keys.map(k => hostOf(keyParts(k)[0].split('@')[0])).filter(Boolean))];
+  // The marks a selection's keys name: a record's or a shape's, a legend's for its row, a relation's text's
+  // box; a relation drawn nowhere, its sides'.
+  const marksOf = keys => [...new Set(keys.flatMap(k => {
+    const id = keyParts(k)[0].split('@')[0], m = hostOf(id);
+    return m ? [m] : (App.state.peek()[id]?.args ?? []).map(a => hostOf(a.at)).filter(Boolean);
+  }))];
   // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's.
   const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
   function paintStates(extra) {
@@ -975,7 +979,7 @@ function mount(el) {
     const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable();
     let row = { view, geometry, ...opts };
     if (geometry === 'arrow-line') row = { ...row, geometry: 'line', format: { Arrow: 'end' } };
-    if (geometry === 'legend') row = { title: 'Key', columns: 2, w: keyWidth(), ...row };
+    if (geometry === 'legend') row = { title: 'Key', columns: 2, ...row };
     if (geometry === 'text') row.text = opts.text ?? '';
     if (geometry === 'frame' && sel0.length && opts.x === undefined) {
       const b = { x: Math.min(...sel0.map(m => m.x)), y: Math.min(...sel0.map(m => m.y)), r: Math.max(...sel0.map(m => m.x + m.w)), d: Math.max(...sel0.map(m => m.y + m.h)) };
@@ -997,11 +1001,6 @@ function mount(el) {
     Shell.select([id]);
     if (geometry === 'text' && !opts.text) requestAnimationFrame(() => edit(id));
     return id;
-  }
-  // A key as wide as two columns of its captions need, within reason.
-  function keyWidth() {
-    const look = { ...Scene.DEFAULTS.text, Size: 9 }, widest = Math.max(60, ...scene.legend.map(r => Scene.measure(r.caption, look)));
-    return Math.round(24 + 2 * (30 + 8 + Math.min(200, widest) + 12));
   }
   // Delete hides what's selected in this view and deletes a free shape; with `records`, Shift+Delete, it
   // deletes the records too, everywhere, and what's in or on them. Either way a toast says what went.
