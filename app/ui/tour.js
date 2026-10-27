@@ -9,7 +9,7 @@ const Tour = (() => {
   const { html, signal, on, store } = Shell;
   const { render } = preact;
   const { useLayoutEffect, useRef, useState } = preactHooks;
-  const { computePosition, offset, shift } = FloatingUIDOM;
+  const { computePosition, offset, flip, shift } = FloatingUIDOM;
   // A value asked about holds while the selection it was asked under does (formulabar.js), so the same
   // selection again ends it, and the chart's highlight with it.
   function unask() {
@@ -94,16 +94,11 @@ const Tour = (() => {
       return p.scrollBy(r.left + r.width / 2 - (b.left + b.width / 2), r.top + r.height / 2 - (b.top + b.height / 2));
     }
   }
-  // The card sits level with what it points at, beside that thing's pane and never over it: over the
-  // inspector for the chart, over the chart for the inspector, above the tabs and below the bars.
+  // The card sits beside what it points at, level with it, on the side toward the rest of the window: right of a
+  // box on the chart, left of a value in the inspector, above a tab and below a bar; or on the other side, where
+  // there's no room.
   const SIDE = { view: 'right-start', inspector: 'left-start', tabs: 'top-start', bars: 'bottom-start' };
-  function beside(el) {
-    const pane = el.closest('[data-region]'), side = SIDE[pane?.dataset.region] ?? 'right-start';
-    const r = el.getBoundingClientRect(), p = pane?.getBoundingClientRect() ?? r, across = /^(left|right)/.test(side);
-    const x = across ? p : r, y = across ? r : p;
-    const box = { x: x.left, left: x.left, right: x.right, width: x.width, y: y.top, top: y.top, bottom: y.bottom, height: y.height };
-    return [{ getBoundingClientRect: () => box }, side];
-  }
+  const sideOf = el => SIDE[el.closest('[data-region]')?.dataset.region] ?? 'right-start';
 
   function Layer() {
     const i = at.value, hole = useRef(), card = useRef(), prev = useRef(-1), [name, setName] = useState(store.get('name') ?? '');
@@ -126,8 +121,7 @@ const Tour = (() => {
         h.classList.toggle('none', !r);
         Object.assign(h.style, r ? { left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' } : { left: '50%', top: '50%', width: 0, height: 0 });
         if (el) {
-          const [ref, placement] = beside(el);
-          computePosition(ref, c, { strategy: 'fixed', placement, middleware: [offset(16), shift({ padding: 12 })] })
+          computePosition(el, c, { strategy: 'fixed', placement: sideOf(el), middleware: [offset(16), flip({ padding: 12 }), shift({ padding: 12 })] })
             .then(({ x, y }) => { c.style.left = x + 'px'; c.style.top = y + 'px'; });
         } else { c.style.left = (innerWidth - c.offsetWidth) / 2 + 'px'; c.style.top = innerHeight - c.offsetHeight - 72 + 'px'; }
       };
