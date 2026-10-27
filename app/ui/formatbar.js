@@ -55,10 +55,12 @@ function scopesOf(c) {
   const group = picked.length === 1 && picked[0].geometry === 'group' ? picked[0] : null;
   const marks = picked.flatMap(m => m.geometry === 'group' ? m.members.map(id => sc.byId.get(id)).filter(Boolean) : [m]);
   if (!marks.length) return { marks, scopes: [] };
+  // A Key row is its Styles row, all of it, drawn here or not.
   const rowKey = keys.length === 1 ? Canvas.keyParts(keys[0])[1] : null;
   if (rowKey) {
     const r = marks[0].rows?.find(x => x.key === rowKey);
-    if (r) return { marks, row: r, scopes: [{ key: 'row', caption: r.caption.text, outputs: r.outputs, style: r.style }] };
+    const g = r && Scene.groupsOf(App.notes.peek(), sc.view).find(g => g.style === r.style && r.outputs.every(p => g.outputs.some(q => Tree.key(q) === Tree.key(p))));
+    if (r) return { marks, row: r, scopes: [{ key: 'row', caption: g?.caption ?? r.caption.text, outputs: g?.outputs ?? r.outputs, style: r.style }] };
   }
   const bound = marks.filter(m => m.type === 'box' || m.type === 'line');
   if (marks.some(m => m.type === 'frame')) {
