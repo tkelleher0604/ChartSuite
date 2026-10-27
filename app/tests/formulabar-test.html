@@ -392,7 +392,45 @@ async function checks() {
   // Words: a role with its article, a verb a list names, one subject said once, a default with its facts
   check('a role with its article, after a clause with more to say; a tag that isn’t a noun, as a condition that holds',
     /^Margaret A\. Chen .*Fund III, via GP III, with a capacity of Managing Member and is a managing member of GP III, so Capacity Held holds \(Managing member\)\.$/.test(await saidOf(['fx:capacity held=sign_chen_fund']) ?? ''), said());
-  check('… and a tag of an object, for it', await saidOf(['fx:ownership adds up=fund']) === 'U.S. Investors is an owner of Fund III with a percentage of 71.6% and Offshore Feeder is an owner of Fund III with a percentage of 28.4%, so Ownership Adds Up holds for Fund III (Owners recorded).', said());
+  // Ruled out: why turns on the condition that failed, after "but", and never on a fact that didn't decide it
+  check('a check ruled out says the condition that failed, turning on “but”: he is a member, not a managing member, of GP III',
+    await saidOf(['fx:capacity held=sign_okfr_fund']) === 'David R. Okafor signs for Fund III, via GP III, with a capacity of Managing Member, but is a member, not a managing member, of GP III, so Capacity Held does not hold (Managing member).', said());
+  document.querySelector('.fx-open').click(); await wait(30);
+  const inline = document.querySelector('.fx-inline > .fx-why')?.textContent ?? '';
+  check('… and in the bar’s one row, in short where it must be, what failed and what follows', /is a member, not a managing member, of GP III, so Capacity Held does not hold/.test(inline)
+    && (/ but /.test(inline) || inline.startsWith('David R. Okafor is a member')), inline);
+  await openRows();
+  check('… never a fact that didn’t decide it (Chen’s role), nor does the chart outline one', !/Chen/.test(said()) && !F().map.has('chen') && !F().map.has('mem_chen_gp')
+    && F().map.has('okafor') && F().map.has('mem_okfr_gp'), `${said()} | ${[...F().map.keys()].join(', ')}`);
+  // Every record the rows rule out: what failed after "but", or, where a row rules it out where its condition
+  // holds (IF(c, FALSE)), that condition; then "so" and what it isn't.
+  const rowOf = id => App.definitions.peek().find(d => d.id === R().computed[id].def).rows[R().computed[id].row].formula;
+  const whys = [];
+  for (const id of Object.keys(R().computed).filter(id => R().records[id].tag === false)) whys.push([id, await saidOf([id])]);
+  check('every record the rows rule out says why, turning on what failed', whys.length >= 25 && whys.every(([id, s]) => /, so .*(does not hold|is not) .*\.$/.test(s ?? '')
+    && (/,\s*FALSE\)\s*$/.test(rowOf(id)) ? !/, but /.test(s) : / but /.test(s))), whys.filter(([id, s]) => !/ but /.test(s ?? '') && !/,\s*FALSE\)\s*$/.test(rowOf(id))).map(w => w.join(': ')).join(' | ') || whys.length);
+  // … and ruled out each way the sample's checks can be
+  const ent = () => App.entered.peek(), set = (id, o) => App.change(tx => tx.set(id, { ...ent()[id], ...o })), undo = async () => { Shell.parts.peek().undo.undo(); await wait(40); };
+  const capOf = sa => Object.keys(ent()).find(k => ent()[k].at === sa && ent()[k].edge === 'Capacity');
+  const as = async (sa, cap) => { set(capOf(sa), { choice: cap }); await wait(40); const s = await saidOf([`fx:capacity held=${sa}`]); await undo(); return s; };
+  check('… one not among the list sought: not among GP III’s general partners', / with a capacity of General Partner, but is not among GP III’s general partners, so Capacity Held does not hold/.test(await as('sign_okfr_fund', 'General Partner')), said());
+  check('… one in it, but not as wanted: an officer, not a director, of GP III', /^Rebecca A\. Moretti .*with a capacity of Director, but is an officer, not a director, of GP III, so Capacity Held does not hold \(Director or officer\)\.$/.test(await as('sign_mor_fund', 'Director')), said());
+  check('… a list with none: not evidenced by anything', /, but the signing authority is not evidenced by anything, so /.test(await as('sign_okfr_fund', 'Authorized Signatory')), said());
+  const pct = (o, of) => Object.keys(ent()).find(k => ent()[k].edge === 'Percentage' && ['Owner', 'Owned'].every((e, i) => ent()[ent()[k].at]?.args?.some(a => a.edge === e && a.at === [o, of][i])));
+  set(pct('inv_us', 'fund'), { value: 0.7 }); await wait(40);
+  check('… a sum that misses: what it read, what it came to, and what it wanted', /^Fund III’s vehicle type is Main Fund, but U\.S\. Investors is an owner of Fund III with a percentage of 70% and Offshore Feeder .* 28\.4% \(98\.4%, not 100%\), so Ownership Adds Up does not hold for Fund III/.test(await saidOf(['fx:ownership adds up=fund']) ?? ''), said());
+  await undo();
+  set(pct('fund', 'northpine'), { value: 1.64 }); await wait(40);
+  check('… and a row that rules out where its condition holds, said with “so”', await saidOf([Object.keys(R().computed).find(id => R().computed[id].def === 'def_in_range')])
+    === 'Fund III is an owner of Northpine Software, LLC with a percentage of 164% (more than 100%), so Percentages In Range does not hold (Percentage).', said());
+  await undo();
+  set('fund_type', { choice: 'Limited Liability Company' }); await wait(40);
+  check('… none of a list with what was sought: no document with a document type of Certificate of Formation', /, but it has no document with a document type of Certificate of Formation, so Formation Document on File does not hold for Fund III\.$/.test(await saidOf(['fx:formation document on file=fund_type']) ?? ''), said());
+  await undo();
+  set(Object.keys(ent()).find(k => ent()[k].at === 'doc_colp3' && ent()[k].edge === 'Status'), { choice: 'Draft' }); await wait(40);
+  check('… and the nearest, by what it read: its status is Draft, not Executed, Filed or Final', /, but Certificate of Limited Partnership, Fund III’s status is Draft, not Executed, Filed or Final, so /.test(await saidOf(['fx:formation document on file=fund_type']) ?? ''), said());
+  await undo();
+  check('… and a tag of an object, for it', await saidOf(['fx:ownership adds up=fund']) ==='U.S. Investors is an owner of Fund III with a percentage of 71.6% and Offshore Feeder is an owner of Fund III with a percentage of 28.4%, so Ownership Adds Up holds for Fund III (Owners recorded).', said());
   check('a default, said with the facts the rows before it read', await saidOf(['fx:tax classification=northpine_type']) === 'Northpine Software, LLC’s entity type is Limited Liability Company, so its tax classification is Partnership (Otherwise).', said());
   check('every fact said, about one subject together, none left as "and 2 more"; a date of what was done, as done then', /^Fund III’s entity type is Limited Partnership, its vehicle type is Main Fund, its jurisdiction is Delaware, it paid its annual tax on .+? and the tax year is 2026, so/.test(await saidOf(['fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris']) ?? ''), said());
   check('… its annual return filed on a day, and Form D last filed on one', /and it filed its annual return on January 20, 2026, so its annual return is due/.test(await saidOf(['fx:annual return due=feeder_juris']) ?? '')
