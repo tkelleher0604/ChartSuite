@@ -36,19 +36,6 @@ function writeNote(tx, N, label, pattern, view, value) {
   const row = { label, pattern, ...(view && { view }), value };
   if (old) tx.set(old.note, row); else tx.add('note', row);
 }
-// How PowerPoint breaks a paragraph at a width: as much as fits, at a space or after a hyphen, never at a
-// no-break space.
-function pptLines(text, look, width) {
-  const lines = [];
-  let line = '';
-  for (const piece of text.match(/[^ -]*-|[^ -]+| +/g) ?? []) {
-    if (/^ +$/.test(piece) || !line.trim() || Scene.measure((line + piece).replace(/ +$/, ''), look) <= width) line += piece;
-    else { lines.push(line.replace(/ +$/, '')); line = piece; }
-  }
-  return [...lines, line.replace(/ +$/, '')];
-}
-// PowerPoint's text rectangle across a preset, as a share of its width (measured in PowerPoint).
-const ACROSS = { rect: () => [0, 1], roundRect: (w, h) => { const i = Math.min(w, h) * 0.0488155 / w; return [i, 1 - i]; }, ellipse: () => [0.14645, 0.85355], triangle: () => [0.25, 0.75] };
 const xml = s => new DOMParser().parseFromString(s, 'application/xml');
 // How much smaller a page is drawn on its sheet.
 const fitOf = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
@@ -95,7 +82,7 @@ async function run() {
   // ---- PowerPoint ----
   {
     const t0 = performance.now();
-    const blob = await Export.write('pptx', scenes, 'Calder Ridge Fund III structure', WHO);
+    const blob = await Export.write('pptx', scenes, 'Calder Ridge Fund III structure', { author: WHO, R, N: wb.notes(C) });
     const ms = performance.now() - t0;
     check('a deck of every view is written through the hook, not downloaded', files.at(-1)?.blob === blob && files.at(-1).name === 'Calder Ridge Fund III structure.pptx', files.at(-1)?.name);
     check('a deck of four views in under 2 s, libraries loaded on first use', ms < 2000 && typeof PptxGenJS === 'function', `${ms.toFixed(0)} ms`);
@@ -126,30 +113,39 @@ async function run() {
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
       && Math.abs(+ext.getAttribute('cx') - f.w * k * EMU) < 2, `${off.getAttribute('x')}, ${off.getAttribute('y')}`);
 
-    // Lines break where the scene breaks them: PowerPoint's column for each box, and its rule of breaking, in
-    // the page's own pixels, PowerPoint setting a line as much as 1% wider or narrower than the scene measures
-    // it (as it does, kerned: Arial from 6.5 to 20 pt, measured in PowerPoint).
-    const wrong = [];
-    for (const b of boxes(main)) {
-      const sp = shapeOf(b), body = tags(sp, 'a:bodyPr')[0], prst = tags(sp, 'a:prstGeom')[0].getAttribute('prst');
-      const w = +tags(sp, 'a:ext')[0].getAttribute('cx') / EMU / k, h = +tags(sp, 'a:ext')[0].getAttribute('cy') / EMU / k, [l, r] = ACROSS[prst](w, h);
-      const width = w * (r - l) - (+body.getAttribute('lIns') + +body.getAttribute('rIns')) / EMU / k;
-      tags(sp, 'a:p').forEach((p, i) => {
-        const it = b.texts[i], broken = tags(p, 'a:br').length > 0;
-        for (const set of [width / 1.01, width * 1.01]) {
-          const got = broken ? tags(p, 'a:t').map(t => t.textContent) : pptLines(tags(p, 'a:t').map(t => t.textContent).join(''), it.look, set);
-          if (j(got) !== j(it.lines.map(l => l.text)) || got.some(t => Scene.measure(t, it.look) > width / 1.01)) wrong.push(`${b.id}: ${j(got)} for ${j(it.lines.map(l => l.text))} at ${set.toFixed(1)}`);
-        }
-      });
-    }
-    check('PowerPoint breaks every box’s text into the scene’s lines, after hyphens too, set 1% wider or narrower', !wrong.length, wrong.join('; '));
+    // Lines break where the scene breaks them, and PowerPoint never wraps them again: each paragraph's lines
+    // are the scene's, one to each line break, written with plain spaces, as typed.
+    const plain = s => s.replace(/\u00a0/g, ' ');
+    const lined = sp => tags(sp, 'a:p').flatMap(p => { const ls = [''];
+      for (const el of p.children) if (el.localName === 'br') ls.push(''); else if (el.localName === 'r') ls[ls.length - 1] += tags(el, 'a:t')[0].textContent;
+      return ls; }).filter((l, i, all) => l || all.length === 1);
+    const wrong = boxes(main).filter(b => { const sp = shapeOf(b); return tags(sp, 'a:bodyPr')[0].getAttribute('wrap') !== 'none' || j(lined(sp)) !== j(b.texts.flatMap(it => it.lines.map(l => plain(l.text)))); });
+    check('PowerPoint never wraps a box’s text again: it doesn’t wrap, and its lines are the scene’s, each ended by a line break', !wrong.length,
+      wrong.map(b => `${b.id}: ${j(lined(shapeOf(b)))}`).join('; '));
+    const all = await Promise.all(slides.map(f => zip.file(f).async('string').then(xml)));
+    const texted = all.flatMap(d => tags(d, 'p:txBody')).filter(b => tags(b, 'a:t').length);
+    check('… nor any other text, on any slide', texted.length > 100 && texted.every(b => tags(b, 'a:bodyPr')[0].getAttribute('wrap') === 'none'), `${texted.length} texts`);
+    const nbsp = all.flatMap(d => tags(d, 'a:t')).filter(t => /\u00a0/.test(t.textContent));
+    check('its spaces are plain, so PowerPoint’s Find finds a name as it’s typed', !nbsp.length && all.flatMap(d => tags(d, 'a:t')).some(t => t.textContent === 'GP III, LLC' || /GP III, LLC/.test(t.textContent)),
+      nbsp.slice(0, 3).map(t => j(t.textContent)).join(' '));
+    // One margin for every shape: the chart's text inset 0.1 in at its scale all round, as the scene insets a
+    // box's; the page's own shapes PowerPoint's own, written as nothing.
+    const insets = d => [...new Set(tags(d, 'a:bodyPr').map(b => ['lIns', 'tIns', 'rIns', 'bIns'].map(a => b.getAttribute(a) ?? '').join(' ')))];
+    const marginOf = s => Array(4).fill(String(Math.round(0.1 * fitOf(s.page) * 914400))).join(' '), chart = marginOf(main);
+    check('every shape has one margin: the chart’s 0.1 in at its scale, all round, or PowerPoint’s own', all.every((d, i) => insets(d).every(s => s === '   ' || s === marginOf(scenes[i])))
+      && boxes(main).every(b => insets(shapeOf(b))[0] === chart), all.map(insets).map(s => s.join(' / ')).join(' | '));
+    // Paragraphs as the schema orders them: a paragraph's properties once, first; then its runs and breaks.
+    const unordered = all.flatMap(d => tags(d, 'a:p')).filter(p => !/^(pPr,)?((r|br|fld),)*(endParaRPr,)?$/.test([...p.children].map(el => el.localName + ',').join('')));
+    check('every paragraph is in the schema’s order: its properties once and first, then its runs and line breaks, its end last', !unordered.length,
+      unordered.slice(0, 2).map(p => [...p.children].map(el => el.localName).join(' ')).join(' | '));
     const kerns = (await Promise.all(['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml'].map(f => zip.file(f).async('string')))).join('').match(/kern="\d+"/g);
     check('… its type kerned at every size, as the scene measures it, not only from 12 pt', kerns.length > 9 && kerns.every(x => x === 'kern="100"'), [...new Set(kerns)].join(' '));
     {
-      const body = tags(fund, 'a:bodyPr')[0], w = +tags(fund, 'a:ext')[0].getAttribute('cx') / EMU / k, col = main.byId.get('fund').column;
-      const width = w / 2 - (+body.getAttribute('lIns') + +body.getAttribute('rIns')) / EMU / k;
-      const widest = Math.max(...main.byId.get('fund').texts.flatMap(it => it.lines.map(l => l.w)));
-      check('a triangle’s text keeps within the scene’s column, at its base', width >= widest - 0.5 && width <= col.width + 1 && body.getAttribute('anchor') === 'b', `${width.toFixed(1)} for ${widest.toFixed(1)} to ${col.width.toFixed(1)}`);
+      // Set at its base, where the scene sets it 7 pt up, by the chart's margin.
+      const body = tags(fund, 'a:bodyPr')[0], f = main.byId.get('fund'), { bottom } = (its => ({ bottom: its[0].lines[0].y - its[0].look.Size * Scene.PT * 0.93 + its.reduce((h, it) => h + it.lines.length * it.look.Size * Scene.PT * 1.2, 0) }))(f.texts);
+      const lift = +body.getAttribute('bIns') / EMU / k;
+      check('a triangle’s text is set at its base, lifted as the scene lifts it, by the margin every shape has', body.getAttribute('anchor') === 'b' && Math.abs(f.h - bottom - lift) < 0.5,
+        `${(f.h - bottom).toFixed(2)} in the scene, ${lift.toFixed(2)} in PowerPoint`);
     }
 
     const byId = new Map(sps.map(sp => [idOf(sp), sp]));
@@ -168,20 +164,31 @@ async function run() {
     const gp = cxns.find(c => name(c) === 'General partner');
     check('a dashed line stays dashed, at its weight on the slide, the sheet’s 0.75 pt however small the chart is drawn', tags(gp, 'a:prstDash')[0].getAttribute('val') === 'dash' && tags(gp, 'a:ln')[0].getAttribute('w') === String(Math.round(0.75 * 12700)));
     const labels = lines(main).filter(l => l.labelAt && l.texts.length).flatMap(l => l.texts.map(it => it.text));
-    check('each line’s label is a text box beside it', labels.every(t => sps.some(sp => textOf(sp).includes(t))), labels.length);
-    const groups = tags(doc, 'p:grpSp').filter(g => name(g) !== 'Key');
+    const textBox = sp => tags(sp, 'p:cNvSpPr')[0].getAttribute('txBox') === '1';
+    check('each line’s label is a text box beside it', labels.every(t => sps.some(sp => textOf(sp).includes(t) && textBox(sp))), labels.length);
+    const groups = tags(doc, 'p:grpSp').filter(g => tags(g, 'p:cxnSp').length && name(g) !== 'Key');
     check('a line and its label are one group, so they move together', groups.length >= lines(main).filter(l => l.labelAt && l.texts.length).length
-      && groups.every(g => tags(g, 'p:cxnSp').length >= 1 && tags(g, 'p:sp').length <= 1 && tags(g, 'p:cxnSp').every(c => name(c) === name(g))), `${groups.length} groups`);
-    const order = [...tags(doc, 'p:spTree')[0].children].filter(el => el.localName === 'sp').map(name);
-    check('a frame is a shape behind its members, captioned', sps.some(sp => name(sp) === 'Offshore' && textOf(sp)[0] === 'Offshore')
-      && order.indexOf('Offshore') < order.indexOf('Calder Ridge Capital Partners III (Cayman), L.P.') && order.indexOf('Investors') > -1);
+      && groups.every(g => tags(g, 'p:sp').length <= 1 && tags(g, 'p:cxnSp').every(c => name(c) === name(g))), `${groups.length} groups`);
+    // Named as the two-box panel says its relation, both its sides by their short names; its label keeps its text.
+    const st0 = R.records, short = id => wb.notes(C).shortOf(st0, main.byId.get(id).record).toLowerCase();
+    const unsaid = lines(main).filter(l => !cxns.some(c => name(c).toLowerCase().includes(short(l.from)) && name(c).toLowerCase().includes(short(l.to)) && / is (an? |not )/.test(name(c))));
+    const owner = groups.find(g => name(g) === 'U.S. Investors is an owner of Fund III'), its = owner && tags(owner, 'p:sp')[0];
+    check('… named as the two-box panel says its relation, not by its label, which keeps its own text', !unsaid.length && !groups.some(g => /^[\d.]+%$/.test(name(g)))
+      && its && name(its) === textOf(its)[0] && /^[\d.]+%$/.test(textOf(its)[0]), unsaid.map(l => l.id).join(', ') || groups.slice(0, 4).map(name).join(' | '));
+    // A frame: its outline and its caption, one group behind its members; a bracket's outline its path.
+    const top = [...tags(doc, 'p:spTree')[0].children].filter(el => /^(sp|grpSp|cxnSp|pic)$/.test(el.localName)).map(name);
+    const frame = n => tags(doc, 'p:grpSp').find(g => name(g) === n);
+    const framed = n => { const k = frame(n) && [...frame(n).children].filter(el => el.localName === 'sp'); return k?.length === 2 && !textOf(k[0]).length && name(k[0]) === n && textOf(k[1])[0] === n && textBox(k[1]); };
+    check('a frame is its outline and its caption, one group behind its members', framed('Offshore') && framed('Investors') && tags(frame('Investors'), 'a:custGeom').length === 1
+      && top.indexOf('Offshore') > -1 && top.indexOf('Offshore') < top.indexOf('Calder Ridge Capital Partners III (Cayman), L.P.'), top.slice(0, 6).join(' | '));
     const legend = main.marks.find(m => m.geometry === 'legend');
     check('the legend is shapes: its frame and title, a swatch and a caption for each row', sps.some(sp => name(sp) === 'Key' && textOf(sp)[0] === 'Key')
       && legend.rows.every(r => sps.some(sp => textOf(sp)[0] === r.caption.text)) && legend.rows.length > 4, legend.rows.length);
-    // As a person would make it: one group, moved as one, each row's swatch and caption named for the row.
+    // As a person would make it: one group, moved as one, its frame and title, each row's swatch and caption
+    // named for the row.
     const legends = main.marks.filter(m => m.geometry === 'legend'), keys = tags(doc, 'p:grpSp').filter(g => name(g) === 'Key');
     const kids = g => [...g.children].filter(el => el.localName === 'sp' || el.localName === 'cxnSp');
-    const whole = m => keys.find(g => { const k = kids(g); return k.length === 1 + 2 * m.rows.length && name(k[0]) === 'Key' && textOf(k[0])[0] === 'Key'
+    const whole = m => keys.find(g => { const k = kids(g); return k.length === 2 + 2 * m.rows.length && name(k[0]) === 'Key' && !textOf(k[0]).length && name(k[1]) === 'Key' && textOf(k[1])[0] === 'Key'
       && m.rows.every(r => k.filter(el => name(el) === r.caption.text).length === 2 && k.some(el => name(el) === r.caption.text && textOf(el)[0] === r.caption.text)); });
     const rect = el => [tags(el, 'a:off')[0], tags(el, 'a:ext')[0]].flatMap(x => [...x.attributes].map(a => +a.value));
     check('the Key is one group named Key, framed as its frame is, its swatches and captions named for their rows', legends.length && keys.length === legends.length
@@ -227,7 +234,11 @@ async function run() {
     const box = /\/MediaBox \[([^\]]+)\]/.exec(raw)[1].trim().split(/\s+/).map(Number);
     check('each page is its view’s sheet, 13.33 × 7.5 in at 72 points an inch', Math.abs(box[2] - 960) < 0.1 && Math.abs(box[3] - 540) < 0.1, box.join(' '));
     check('its streams are compressed', /\/FlateDecode/.test(raw));
-    check('it has a bookmark for each view', /\/Outlines/.test(raw) && scenes.every(s => raw.includes(`(${s.name})`)));
+    const titled = scenes.map(s => s.marks.find(m => m.role === 'title').texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim());
+    check('it has a bookmark for each page, by the page’s title, as the deck’s outline has', /\/Outlines/.test(raw) && titled.every(t => raw.includes(`/Title (${t.replace(/[()\\]/g, c => `\\${c}`)})`))
+      && !scenes.some(s => raw.includes(`/Title (${s.name})`)), titled.join(' | '));
+    check('its properties name no generator: Dendra produced it, and created it', /\/Producer \(Dendra\)/.test(raw) && /\/Creator \(Dendra\)/.test(raw) && !/jsPDF|svg2pdf/i.test(raw),
+      /\/Producer \([^)]*\)/.exec(raw)?.[0]);
     let text = '';
     for (const m of raw.matchAll(/\/Length (\d+)\s*\/Filter \/FlateDecode\s*>>\s*stream\r?\n/g)) {
       const start = m.index + m[0].length;
@@ -244,36 +255,47 @@ async function run() {
 
   // ---- The calendar ----
   {
-    const blob = Export.calendar(R, wb.notes(C), C, 'Calder Ridge Fund III structure', new Date('2026-10-26T12:00:00Z'));
+    // The dates from the day shown on, as a calendar is for what's coming.
+    const blob = Export.calendar(R, wb.notes(C), C, 'Calder Ridge Fund III structure', DAY);
     check('the calendar is written through the hook, as .ics', files.at(-1)?.blob === blob && files.at(-1).name === 'Calder Ridge Fund III structure.ics' && blob.type === 'text/calendar');
     const ics = await blob.text(), rows = ics.split('\r\n');
-    const dates = Object.values(st).filter(r => r.field === 'date');
-    check('one event for each date in the chart as worked out', (ics.match(/BEGIN:VEVENT/g) ?? []).length === dates.length && rows[0] === 'BEGIN:VCALENDAR' && rows.at(-2) === 'END:VCALENDAR', dates.length);
+    const dates = Object.values(st).filter(r => r.field === 'date'), coming = dates.filter(r => r.value >= DAY);
+    const starts = [...ics.matchAll(/DTSTART;VALUE=DATE:(\d{8})/g)].map(m => m[1]);
+    check('one event for each date in the chart as worked out, from the day shown on, in order', (ics.match(/BEGIN:VEVENT/g) ?? []).length === coming.length && coming.length < dates.length / 2
+      && starts.every((d, i) => d >= DAY.replace(/-/g, '') && (!i || d >= starts[i - 1])) && rows[0] === 'BEGIN:VCALENDAR' && rows.at(-2) === 'END:VCALENDAR', `${coming.length} of ${dates.length}`);
     check('lines end in CRLF and are folded within 75 octets', !/[^\r]\n/.test(ics) && rows.every(r => new TextEncoder().encode(r).length <= 75));
     const unfolded = ics.replace(/\r\n /g, ''), events = unfolded.split('BEGIN:VEVENT').slice(1);
-    const computed = Object.entries(st).filter(([, r]) => r.field === 'date' && r.computed);
+    const computed = Object.entries(st).filter(([, r]) => r.field === 'date' && r.computed && r.value >= DAY);
     const unesc = s => s.replace(/\\([\\;,])/g, '$1');
     const described = computed.filter(([id]) => events.some(e => e.includes(`UID:${C}.${id}@`) && unesc(/DESCRIPTION:(.*)/.exec(e)?.[1] ?? '') === Formulas.groundText(R, id)));
     check('a worked-out date’s description is its ground on one line', computed.length > 5 && described.length === computed.length, `${described.length} of ${computed.length}`);
     const tax = events.find(e => e.includes('Annual Tax Due'));
     const summaries = text => [...text.replace(/\r\n /g, '').matchAll(/^SUMMARY:(.*)\r$/gm)].map(m => unesc(m[1]));
-    check('an event says what it’s the date of, then whose: an object by its name in full', summaries(ics).includes('Formation Date · Calder Ridge Capital Partners III, L.P.'),
-      summaries(ics).find(s => s.startsWith('Formation Date')));
-    // A relation's, as the two-box panel says it: in the formula bar's words where it's there, and each side
-    // once, so one who signs for the Manager via the Manager signs for the Manager.
-    const plainly = summaries(ics);
+    check('an event says what falls due first, then whose: an object by its name in full, without the way down to it', summaries(ics).includes('Annual Return Due: Calder Ridge Capital Partners III (Cayman), L.P.')
+      && !summaries(ics).some(s => s.includes('›')), summaries(ics).find(s => s.startsWith('Annual Return Due')));
+    const year = Object.keys(st).find(id => st[id].args && wb.notes(C).segmentOf(st, id) === 'Fund III, tax year 2026');
+    check('… a tax year as the place rule says it, one way everywhere', year && summaries(ics).includes(`Annual Tax Due: ${wb.notes(C).segmentOf(st, year)}`),
+      summaries(ics).filter(s => /Tax/.test(s)).join(' | '));
+    // Every date there is, for what's said of each: a relation's, as the two-box panel says it, in the formula
+    // bar's words where it's there, and each side once, so one who signs for the Manager via the Manager
+    // signs for the Manager.
+    const plainly = summaries(await Export.calendar(R, wb.notes(C), C, 'Every date', '').text());
     window.FormulaBar = { phrase: (t, a, b, { choice } = {}) => a === 'Signatory' && !choice ? [a, ' signs for ', b] : null };
-    const worded = summaries(await Export.calendar(R, wb.notes(C), C, 'Words', new Date('2026-10-26T12:00:00Z')).text());
+    const worded = summaries(await Export.calendar(R, wb.notes(C), C, 'Words', '').text());
     delete window.FormulaBar;
-    const want = ['Start Date · Margaret A. Chen is a signatory of the Manager', 'Start Date · Margaret A. Chen is a signatory of Fund III, via GP III', 'Start Date · Thomas K. Lindqvist is an employee of the Manager'];
+    check('… and every date there is, from no day', plainly.length === dates.length, plainly.length);
+    const want = ['Start Date: Margaret A. Chen is a signatory of the Manager', 'Start Date: Margaret A. Chen is a signatory of Fund III, via GP III', 'Start Date: Thomas K. Lindqvist is an employee of the Manager'];
     check('… a relation’s, as the two-box panel says it, each side once: the role its first side has, the second, and any other not already said', want.every(w => plainly.includes(w))
       && !plainly.some(s => /signatory of the Manager, via/.test(s)), want.filter(w => !plainly.includes(w)).join(' | ') || plainly.filter(s => /Margaret/.test(s)).join(' | '));
-    check('… in the formula bar’s words where they’re to be had', worded.includes('Start Date · Margaret A. Chen signs for the Manager') && worded.includes('Start Date · Margaret A. Chen signs for Fund III, via GP III')
+    check('… in the formula bar’s words where they’re to be had', worded.includes('Start Date: Margaret A. Chen signs for the Manager') && worded.includes('Start Date: Margaret A. Chen signs for Fund III, via GP III')
       && worded.includes(want[2]), worded.filter(s => /Margaret/.test(s)).join(' | '));
-    check('an all-day event, on its day', /DTSTART;VALUE=DATE:20260601\r?\n?DTEND;VALUE=DATE:20260602/.test(tax.replace(/\r\n/g, '\n')) || (/DTSTART;VALUE=DATE:\d{8}/.test(tax) && /DTEND;VALUE=DATE:\d{8}/.test(tax)));
-    const said = [...unfolded.matchAll(/^(?:SUMMARY|DESCRIPTION):(.*)$/gm)].map(m => unesc(m[1]));
+    // Where two dates would read alike, the way down to each is said as well.
+    const alike = plainly.filter((s, i) => plainly.indexOf(s) !== i);
+    check('… no two alike: where two would read alike, each says the way down to it', !alike.length, alike.slice(0, 3).join(' | '));
+    check('an all-day event, on its day', /DTSTART;VALUE=DATE:\d{8}/.test(tax) && /DTEND;VALUE=DATE:\d{8}/.test(tax) && +/DTEND;VALUE=DATE:(\d{8})/.exec(tax)[1] > +/DTSTART;VALUE=DATE:(\d{8})/.exec(tax)[1]);
+    const said = [...(await files.at(-2).blob.text()).replace(/\r\n /g, '').matchAll(/^(?:SUMMARY|DESCRIPTION):(.*)$/gm)].map(m => unesc(m[1].replace(/\r$/, '')));
     const leaks = said.filter(s => /[=←]|\b[A-Z]{2,}\(|\\|:\/\//.test(s));
-    check('no formula text and no file paths: a document known by its address goes by its file’s name', !leaks.length && said.includes('Document Date · Side Letter - Halcyon.pdf'), leaks.slice(0, 3).join(' | '));
+    check('no formula text and no file paths: a document known by its address goes by its file’s name', !leaks.length && said.includes('Document Date: Side Letter - Halcyon.pdf'), leaks.slice(0, 3).join(' | '));
   }
 
   // ---- One view ----
@@ -290,7 +312,7 @@ async function run() {
     const slides = views.map(v => ({ ...Scene.of(sample, C, v, DAY, { state: R2.records, computed: R2 }), name: sample.notes(C).nameOf(R2.records, v) }));
     const zip = await JSZip.loadAsync(await Export.write('pptx', slides, 'Sample', WHO));
     const docs = await Promise.all(slides.map((_, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(xml)));
-    const named = (d, n) => tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === n);
+    const named = (d, n) => tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === n && tags(sp, 'a:rPr').length);
     const sz = sp => sp && +tags(sp, 'a:rPr')[0].getAttribute('sz');
     const sizes = [...new Set(docs.flatMap(d => tags(d, 'a:rPr').map(r => +r.getAttribute('sz'))))].sort((a, b) => a - b);
     check('every size in the sample’s deck is a whole or half point; its title, date and Key 20, 11 and 8 pt on every slide', sizes.every(z => z % 50 === 0)
