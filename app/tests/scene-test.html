@@ -427,10 +427,13 @@ function run() {
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));
   }
 
-  // ---- Nothing drawn over anything ----
+  // ---- Nothing drawn over anything, and every label on its own line ----
   // Every sample view, on the slide and on Letter, as entered, tidied, with an owner added (Northstar of
   // Northpine, 5%) and with a 247-character name: no route runs through a box it doesn't end at, or through a
-  // frame's caption; no label sits on a box, a caption or another label; and no line crosses a label.
+  // frame's caption; no label sits on a box, a caption or another label; no line crosses a label; and every
+  // label is on its own line, as a reader takes it: its route within 4 pt of it (at the chart's size, as the
+  // layout measures), or the route of a line it's said once for (drawn with no label of its own, saying the
+  // same, from where it leaves its box), and no other line within 4 pt of it.
   {
     const LONG = 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., an exempted company incorporated with limited liability in the Cayman Islands';
     const cases = {
@@ -455,7 +458,15 @@ function run() {
     const within = (r, [x, y]) => x > r.x + 0.5 && x < r.x + r.w - 0.5 && y > r.y + 0.5 && y < r.y + r.h - 0.5;
     const covers = (r, b) => sides(r).some(s => along(s, (x, y) => inside(b, x, y))) || corners(b).some(p => within(r, p)) || inside(b, r.x + r.w / 2, r.y + r.h / 2);
     const meets = (a, b) => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
-    const routes = [], labels = [], crossed = [];
+    // How far a rect is from a segment: exactly for a level or upright one, else to a quarter pixel along it.
+    const off = (r, x, y) => Math.hypot(Math.max(0, r.x - x, x - r.x - r.w), Math.max(0, r.y - y, y - r.y - r.h));
+    const gap = (r, [a, b]) => {
+      if (a[0] === b[0] || a[1] === b[1]) return Math.hypot(Math.max(0, r.x - Math.max(a[0], b[0]), Math.min(a[0], b[0]) - r.x - r.w), Math.max(0, r.y - Math.max(a[1], b[1]), Math.min(a[1], b[1]) - r.y - r.h));
+      const n = Math.ceil(4 * Math.hypot(b[0] - a[0], b[1] - a[1])) || 1;
+      return Math.min(...Array.from({ length: n + 1 }, (_, i) => off(r, a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n)));
+    };
+    const ON = 16 / 3;
+    const routes = [], labels = [], crossed = [], loose = [];
     for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) for (const paper of [null, 'letter']) {
       const wb = fresh();
       f(wb, v);
@@ -474,12 +485,17 @@ function run() {
         if (box || other || cap) labels.push(`${at}: ${r.l.id} "${r.l.label.text}" on ${box?.id ?? other?.l.id ?? 'a caption'}`);
         const line = lines.find(l => legs(l).some(g => along(g, (x, y) => within(r, [x, y]))));
         if (line) crossed.push(`${at}: ${r.l.id} "${r.l.label.text}" crossed by ${line.id}`);
+        const kin = lines.filter(o => o === r.l || (!o.labelAt && o.label?.text === r.l.label.text && j(o.points[0]) === j(r.l.points[0])));
+        const near = ls => Math.min(...ls.flatMap(o => legs(o).map(g => gap(r, g))));
+        const own = near(kin), nearest = lines.filter(o => !kin.includes(o)).map(o => [o.id, near([o])]).sort((p, q) => p[1] - q[1])[0];
+        if (own > ON + 0.01 || (nearest && nearest[1] <= ON)) loose.push(`${at}: ${r.l.id} "${r.l.label.text}" ${own.toFixed(1)} px from its line, ${nearest?.[1].toFixed(1)} from ${nearest?.[0]}`);
       });
     }
     check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added and with a 247-character name',
       LONG.length === 247 && !routes.length, j(routes.slice(0, 4)));
     check('… no label sits on a box, a caption or another label', !labels.length, j(labels.slice(0, 4)));
     check('… and no line crosses a label', !crossed.length, j(crossed.slice(0, 4)));
+    check('… and every label is on its own line: within 4 pt of its route, and no other line within 4 pt of it', !loose.length, j(loose.slice(0, 4)));
   }
 
   // ---- A new box among entered ones ----
