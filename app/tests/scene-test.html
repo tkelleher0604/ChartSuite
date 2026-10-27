@@ -219,7 +219,7 @@ function run() {
     check('… lays 40 Act’s frames out as a column of panels, one over another, sharing their sides', panels.length === 4 && new Set(panels.map(f => Math.round(f.x))).size === 1
       && panels.every((f, i) => panels.every((g, k) => i === k || f.y + f.h <= g.y || g.y + g.h <= f.y)), j(panels.map(f => [f.caption.text, Math.round(f.x), Math.round(f.y)])));
     const scales = [main, forty, fund3, control].map(s => s.page.scale);
-    check('… and draws every sample view at 0.65 or more on its slide', scales.every(s => s >= 0.65), j(scales));
+    check('… and draws every sample view at 0.7 or more on its slide, its names at 7 pt or more', scales.every(s => s >= 0.7), j(scales));
     // The same records, in another order in the state, draw the same picture; so Undo, which puts what it
     // brings back at the end, restores the layout exactly.
     const wb = fresh();

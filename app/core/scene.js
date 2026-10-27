@@ -286,8 +286,8 @@ function units(para, t, most) {
 // on another paper; and while it's taller than it's wide (a triangle, than nine tenths of it), to twice its
 // width at most, so that a long name never shrinks the whole chart. Triangles of one width are one size, the
 // tallest any of them needs (see level).
-function size(b, squeeze, at = null) {
-  const shape = b.settings.Shape.value, own = b.pos?.w, base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box']) * squeeze;
+function size(b, squeeze, at = null, grow = 1) {
+  const shape = b.settings.Shape.value, own = b.pos?.w, base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box'] * grow) * squeeze;
   const wide = { lines: own ?? base * 1.5, tall: base * 2 };
   let w = at ?? base, h;
   if (shape === 'triangle') {
@@ -627,12 +627,12 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const keyRow = shapeRows.find(r => r.geometry === 'legend' && placedBy(r));
   if (keyRow) { const k = freeShape(keyRow, ''); layoutLegend(k, legendRows); room.key = { w: k.w, h: k.h }; }
   let heights = null;
-  const lay = squeeze => {
-    for (const b of boxes) size(b, squeeze);
+  const lay = (squeeze, grow = 1) => {
+    for (const b of boxes) size(b, squeeze, null, grow);
     // Triangles of one width widened as the widest of them is, but for one that stands alone (see level).
     for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => alone(b) ? b.id : Math.round(b.base)).values()) {
       const w = Math.max(...ts.map(b => b.w));
-      for (const b of ts) if (b.w < w) size(b, squeeze, w);
+      for (const b of ts) if (b.w < w) size(b, squeeze, w, grow);
       level(ts);
     }
     const placed = Layout.arrange({
@@ -654,7 +654,17 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (last) still(last, boxes, lines, frames);
     return furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy });
   };
-  let at = lay(1);
+  let at = lay(1), grow = 1;
+  // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
+  // where the chart is tall for its page, its names then take fewer lines.
+  if (!last && boxes.some(b => !b.pos?.w)) {
+    let tried = 1;
+    for (const g of [7 / 6, 4 / 3]) {
+      const next = lay(1, tried = g);
+      if (next.s > at.s) [at, grow] = [next, g];
+    }
+    if (tried !== grow) at = lay(1, grow);
+  }
   heights = new Map(boxes.map(b => [b.id, b.h]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at.
@@ -663,10 +673,10 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
       if (at.s >= target) break;
-      const next = lay(tried = f);
+      const next = lay(tried = f, grow);
       if (next.s > at.s) [at, best] = [next, f];
     }
-    if (tried !== best) at = lay(best);
+    if (tried !== best) at = lay(best, grow);
   }
   const s = at.s;
   // The chart sits on its page where the page puts it, by its `offset`, which a place written from the page
