@@ -419,7 +419,7 @@ async function run() {
   hover(item('Delete')); await previewed();
   check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
   item('Delete').click(); await tick(150);
-  check('… and chosen, deletes it, as one change, said so, the redline gone', N() === n0 + 1 && !(doomed in st()) && /^Deleted 1 ownership/.test($('.toast span')?.textContent ?? '')
+  check('… and chosen, deletes it, as one change, said so, the redline gone', N() === n0 + 1 && !(doomed in st()) && /^Deleted Ownership: /.test($('.toast span')?.textContent ?? '')
     && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek(), $('.toast span')?.textContent);
   undo(); await tick(150);
   // The Delete key deletes the rows selected whole, by their numbers, after the redline: Enter deletes, Esc doesn't.
@@ -434,7 +434,7 @@ async function run() {
   whole(doomed); await tick(40);
   press('Delete', gridKeys); await previewed();
   press('Enter', gridKeys); await tick(150);
-  check('… and Enter deletes it, as one change', N() === n0 + 1 && !(doomed in st()) && !$('.pendbar') && /^Deleted 1 ownership/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  check('… and Enter deletes it, as one change', N() === n0 + 1 && !(doomed in st()) && !$('.pendbar') && /^Deleted Ownership: /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   undo(); await tick(150);
 
   // ---- Dates and Documents ----
@@ -785,6 +785,11 @@ async function run() {
   const tidied = { ...stamp, id: 'xt', removes: pos.map(r => r.id), adds: [] }, untidied = { ...stamp, id: 'xu', reverses: 'xt', removes: [], adds: pos }, retidied = { ...stamp, id: 'xr', reverses: 'xu', removes: pos.map(r => r.id), adds: [] };
   check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));
   const npine = named('Northpine Software, LLC'), boxOf = { id: npine, kind: 'Entity' };
+  // Boxes and lines hidden in a view are said as the chart's Delete says them, so its toast and its Undo agree.
+  const owns = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).slice(0, 2).map(id => Tree.treeOf(st(), id));
+  const hiding = ps => ({ ...stamp, id: 'xh', removes: [], adds: ps.map((p, i) => ({ id: 'xh' + i, note: 'xhn' + i, label: 'Shown', pattern: p, view: 'view_main', value: false })) });
+  const hidings = [hiding([owns[0]]), hiding([boxOf]), hiding(owns)].map(Time.describe).join(' / ');
+  check('A line or a box hidden in a view is said as the chart’s Delete says it, and several counted', hidings === 'Hid the Ownership line in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure', hidings);
   App.change(tx => tx.note('Fill', boxOf, '#fff2cc', { view: 'view_main' }), { dated: false });
   App.change(tx => tx.note('Fill', boxOf, undefined, { view: 'view_main' }), { dated: false });
   const cleared = Time.describe(last());

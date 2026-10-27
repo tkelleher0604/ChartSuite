@@ -822,7 +822,7 @@ const Table = (() => {
   function deletion(ids) {
     const what = ids.length === 1 && current.isKind ? App.notes.peek().nameOf(App.state.peek(), ids[0]) : count(ids.length, current.noun);
     return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, parts: [html`<span class="del">${what}</span>`], verb: 'Delete',
-      make: () => edit(tx => ids.forEach(id => tx.remove(id)), () => `Deleted ${what}`) };
+      make: () => edit(tx => ids.forEach(id => tx.remove(id)), c => Time.describe(c)) };
   }
   // The rows a range takes whole, as the row numbers select them, that were entered and so can be deleted.
   function wholeRows() {
@@ -879,7 +879,7 @@ const Table = (() => {
 
   // ---- Columns: Show/Hide and Order are the column's own notes in the view ----
   const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
-  const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), `${on ? 'Showed' : 'Hid'} ${c.title}`);
+  const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), ch => Time.describe(ch));
   function placeColumns() {
     const m = current, cols = table.getColumns().map(c => c.getField()).filter(Boolean).map(f => m.byField.get(f));
     edit(tx => [...cols, ...m.cols.filter(c => !cols.includes(c))].filter(c => c.pattern).forEach((c, i) => note(tx, 'Order', c, m.view, i + 1)));
