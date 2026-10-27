@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra skill tool test</title>
+<style>
+  body { margin: 0; padding: 20px; background: #fafafa; color: #18181b; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .fail { color: #b42318; }
+  @media (prefers-color-scheme: dark) { body { background: #111113; color: #e4e4e7; } .fail { color: #f97066; } }
+</style>
+</head>
+<body>
+<pre id="out">Running…</pre>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../sample/calder-ridge.js"></script>
+<script src="../../skills/dendra/scripts/tool.js"></script>
+<script>
+// Checks of the skill's tool (skills/dendra/scripts/tool.js), which keeps a workbook from outside the window
+// with the core, on the sample. Nothing is saved.
+const out = [];
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
+const DAY = '2026-10-26', BOOK = JSON.stringify(SAMPLE), run = (cmd, o) => DendraTool.run(cmd, { workbook: BOOK, ...o });
+const apply = (records, o = {}) => run('apply', { plan: JSON.stringify({ who: 'Claude, for Dana Jordan', records, ...o.plan }), ...o });
+
+const FUND = [
+  { kind: 'Entity', entries: { Name: 'Calder Ridge Capital GP IV, LLC', 'Short Name': 'GP IV', 'Formation Date': '2026-02-20',
+    Jurisdiction: { value: 'Delaware', entries: { 'File Number': '7798120' } }, 'Entity Type': 'Limited Liability Company', 'Vehicle Type': 'General Partner' } },
+  { kind: 'Entity', entries: { Name: 'Calder Ridge Capital Partners IV, L.P.', 'Short Name': 'Fund IV', 'Formation Date': 'March 2, 2026',
+    Jurisdiction: 'Delaware', 'Entity Type': 'Limited Partnership', 'Vehicle Type': 'Main Fund' } },
+  { relation: 'General Partner', sides: { GP: 'GP IV', Partnership: 'Fund IV' }, entries: { 'Admission Date': '2026-03-02' } },
+  { relation: 'Ownership', sides: { Owner: 'GP IV', Owned: 'Fund IV' }, entries: { Percentage: '1%' } },
+];
+
+function runAll() {
+  // What can be recorded, in the chart's words.
+  const v = run('vocab', {});
+  check('vocab says what each entry takes, what Dendra works out, and what starts and ends a record', v.ok && /Formation Date: date · required · starts it/.test(v.text)
+    && /Dissolution Date: date · ends it/.test(v.text) && /Private Fund: a checkbox · worked out \(Private Fund\)/.test(v.text)
+    && /Partnership: Entity whose Entity Type is Limited Partnership/.test(v.text) && /Evidenced: a Signing Authority/.test(v.text), v.text.slice(0, 300));
+
+  // What needs attention: the status bar's counts.
+  const c = run('check', { day: DAY });
+  check('check counts what needs attention as the status bar does: 2 overdue · 4 errors · 2 due soon · 5 blank', c.ok && c.text.includes('2 overdue · 4 errors · 2 due soon · 5 blank')
+    && /David R\. Okafor → Fund III → GP III: Capacity Held fails/.test(c.text), c.text.split('\n')[0]);
+
+  // A plan recorded: an LLC and an LP, a general partner at the LP's Entity Type, an ownership.
+  const a = apply(FUND), wb = a.workbook && Log.open(a.workbook);
+  const recs = wb && wb.asOf('calder-ridge', DAY), names = recs ? Object.keys(recs).filter(id => recs[id].edge === 'Name').map(id => recs[id].value) : [];
+  const gp = recs && Object.values(recs).find(r => r.args?.some(x => x.edge === 'GP'));
+  check('apply records a plan as one change, signed, in the chart’s words', a.ok && wb.changes().length === SAMPLE.changes.length + 1 && wb.changes().at(-1).who === 'Claude, for Dana Jordan'
+    && names.includes('Calder Ridge Capital Partners IV, L.P.') && /\+ General Partner: GP IV → Fund IV/.test(a.text), a.text.slice(0, 400));
+  check('… a general partner stands at the partnership’s Entity Type, as the chart’s relation does', gp && recs[gp.args.find(x => x.edge === 'Partnership').at]?.choice === 'Limited Partnership');
+  check('… and says what newly needs attention: the documents not on file, and owners short of 100%', /Fund IV: Formation Document on File fails/.test(a.text) && /Fund IV: Ownership Adds Up fails/.test(a.text));
+  const again = run('apply', { workbook: a.workbook, plan: JSON.stringify({ who: 'Claude, for Dana Jordan', records: FUND }) });
+  check('A plan applied again records nothing: it says what should be true', again.ok && !again.workbook && /nothing to change/.test(again.text), again.text);
+
+  // Found by its Short Name, an object keeps its Name.
+  const kept = run('apply', { workbook: a.workbook, plan: JSON.stringify({ who: 'x', records: [{ kind: 'Entity', entries: { Name: 'Fund IV', 'Good Standing': true } }] }) });
+  const k = Log.open(kept.workbook).asOf('calder-ridge', DAY);
+  check('An object found by its Short Name keeps its Name', kept.ok && Object.values(k).some(r => r.edge === 'Name' && r.value === 'Calder Ridge Capital Partners IV, L.P.')
+    && !Object.values(k).some(r => r.edge === 'Name' && r.value === 'Fund IV'));
+
+  // A change on a day: the old value before it, the new from it.
+  const dated = run('apply', { workbook: a.workbook, plan: JSON.stringify({ who: 'x', records: [{ relation: 'Ownership', sides: { Owner: 'GP IV', Owned: 'Fund IV' }, entries: { Percentage: '0.5%' }, day: '2026-06-30' }] }) });
+  const pct = d => Object.values(Log.open(dated.workbook).asOf('calder-ridge', d)).find(r => r.edge === 'Percentage' && r.value < 0.02)?.value;
+  check('A change on a day keeps the old value before it and the new from it', dated.ok && pct('2026-06-29') === 0.01 && pct('2026-07-01') === 0.005 && /From June 30, 2026:\n {2}~ GP IV → Fund IV › Percentage: 0\.5% \(was 1%\)/.test(dated.text), dated.text);
+
+  // Refusals, each naming what's wrong.
+  const no = (records, re, name) => { const r = apply(records); check(name, !r.ok && !r.workbook && re.test(r.text), r.text); };
+  no([{ kind: 'Entity', entries: { Name: 'Fund III', Jurisdicton: 'Delaware' } }], /no entry “Jurisdicton”.*Did you mean “Jurisdiction”/, 'A misspelt label is refused, with the nearest');
+  no([{ kind: 'Entity', entries: { Name: 'Fund III', 'Entity Type': 'LP' } }], /Did you mean “Limited Partnership”/, '… an option abbreviated, with the one it abbreviates');
+  no([{ kind: 'Entity', entries: { Name: 'Fund III', 'Private Fund': true } }], /worked out by Dendra \(Private Fund\)/, '… what Dendra works out');
+  no([{ relation: 'Ownership', sides: { Owner: 'Fund III', Owned: 'Fund III Blocker' }, entries: { Percentage: 1 } }], /write it as text with its sign/, '… a percentage as a bare number');
+  no([{ relation: 'General Partner', sides: { GP: 'Fund III', Partnership: 'GP III' } }], /Partnership Entity whose Entity Type is Limited Partnership/, '… a general partner of an LLC');
+  no([{ relation: 'Ownership', sides: { Owner: 'Calder Ridge GP 4', Owned: 'Fund III' } }], /There’s no .* named “Calder Ridge GP 4”/, '… a side the chart hasn’t');
+  no([{ kind: 'Entity', entries: { Name: 'Fund III', 'Formation Date': 'sometime in 2026' } }], /isn’t\. Write a date as 2026-03-02/, '… a date that isn’t one');
+  const nobody = run('apply', { plan: JSON.stringify({ records: FUND }) });
+  check('… and a plan that doesn’t say who records it', !nobody.ok && /says who is recording it/.test(nobody.text), nobody.text);
+
+  // A chart begun from the sample: its words and views, none of its records.
+  const n = DendraTool.run('new', { workbook: null, template: BOOK, name: 'Harbor Point Fund I structure', who: 'Claude, for Sam Rivera' }), nb = n.workbook && Log.open(n.workbook);
+  const nc = nb?.charts()[0]?.chart, nrecs = nc ? nb.rows(nc).filter(r => 'record' in r) : [];
+  check('new begins a chart from the sample’s schema, definitions and views, with no records but its views', n.ok && nb.charts().length === 1 && nrecs.every(r => r.kind === 'View') && nrecs.length === 5
+    && nb.notes(nc).notes('Formula').length === Log.open(BOOK).notes('calder-ridge').notes('Formula').length, n.text);
+  const filled = DendraTool.run('apply', { workbook: n.workbook, plan: JSON.stringify({ who: 'x', records: FUND }) });
+  check('… and a plan records in it as in the sample', filled.ok && /\+ Ownership: GP IV → Fund IV/.test(filled.text), filled.text.slice(0, 300));
+}
+
+try { runAll(); } catch (e) { check('The checks ran to the end', false, `${e.message} ${e.stack}`); }
+const failed = out.filter(x => !x.ok).length;
+document.title = `skill test: ${out.length - failed} pass, ${failed} fail`;
+document.getElementById('out').innerHTML = `${esc(document.title)}\n\n` + [...out.filter(x => !x.ok), ...out.filter(x => x.ok)].map(x =>
+  `<span class="${x.ok ? '' : 'fail'}">${x.ok ? 'PASS' : 'FAIL'}  ${esc(x.name)}${x.detail ? `  [${esc(x.detail)}]` : ''}</span>`).join('\n');
+</script>
+</body>
+</html>
