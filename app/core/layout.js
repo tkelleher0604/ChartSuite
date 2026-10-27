@@ -902,13 +902,18 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
     }
     // What a place covers: boxes, captions, labels (hard); lines it crosses; labels within 8 pt.
     const judge = (s, i) => {
-      const r = { x: s.x, y: s.y, w, h }, clear = grow(r, CLEAR_LABEL), poly = corners(r, CLEAR_LABEL), inner = corners(r, -0.5);
+      const r = { x: s.x, y: s.y, w, h }, clear = grow(r, CLEAR_LABEL), [x0, x1, y0, y1] = [r.x + 0.5, r.x + w - 0.5, r.y + 0.5, r.y + h - 0.5];
       let hard = 0, covers = 0;
-      for (const k of nearBoxes.near(clear)) if (depth(poly, hulls[k]) > 0) { hard++; covers += area(clear, boxes[k]) * 4; }
+      for (const k of nearBoxes.near(clear)) if (meets(clear, boxes[k]) && (hulls[k].length === 4 && boxes[k].shape !== 'diamond' || depth(corners(r, CLEAR_LABEL), hulls[k]) > 0)) { hard++; covers += area(clear, boxes[k]) * 4; }
       for (const k of nearAvoid.near(clear)) if (meets(clear, avoid[k])) { hard++; covers += area(clear, avoid[k]) * 4; }
       for (const k of nearPlaced.near(clear)) if (meets(clear, placed[k])) { hard++; covers += area(clear, placed[k]) * 6; }
       let crossed = 0;
-      for (const k of nearSegs.near(r)) if (depth([segs[k].a, segs[k].b], inner) > 0) crossed++;
+      for (const k of nearSegs.near(r)) {
+        const { a, b } = segs[k];
+        if (a[0] === b[0] ? a[0] > x0 && a[0] < x1 && Math.max(a[1], b[1]) > y0 && Math.min(a[1], b[1]) < y1
+          : a[1] === b[1] ? a[1] > y0 && a[1] < y1 && Math.max(a[0], b[0]) > x0 && Math.min(a[0], b[0]) < x1
+          : depth([a, b], corners(r, -0.5)) > 0) crossed++;
+      }
       const room = grow(r, APART), near = nearPlaced.near(room).some(k => meets(room, placed[k]));
       return { ...s, hard, crossed, near, cost: i * 2 + covers + crossed * 40 };
     };

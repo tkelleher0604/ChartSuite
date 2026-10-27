@@ -848,12 +848,13 @@ function push(boxes, frames, links = []) {
 // arrivals need: between each and the next, its label's width and 15 pt (see Layout's arrivals), and 9 pt short
 // of its far side; where that puts it over no other box. A triangle's lines meet at its apex, and it stays.
 function clearTops(boxes, links, given) {
-  const by = new Map(boxes.map(b => [b.id, b])), mid = g => g.x + g.w / 2;
+  const by = new Map(boxes.map(b => [b.id, b])), mid = g => g.x + g.w / 2, into = groupBy(links, l => l.to);
   for (const c of boxes) {
-    const ins = links.filter(l => l.to === c.id && by.has(l.from) && by.get(l.from).y + by.get(l.from).h <= c.y);
-    if (given(c) || c.shape === 'triangle' || !ins.length) continue;
+    if (given(c) || c.shape === 'triangle' || !into.has(c.id)) continue;
+    const ins = into.get(c.id).filter(l => by.has(l.from) && by.get(l.from).y + by.get(l.from).h <= c.y);
+    if (!ins.length) continue;
     const top = Math.max(...ins.map(l => by.get(l.from).y + by.get(l.from).h)) + 8, own = new Set([c.id, ...ins.map(l => l.from)]);
-    const over = boxes.filter(g => !own.has(g.id) && g.y < c.y && g.y + g.h > top && g.x < c.x + c.w && g.x + g.w > c.x);
+    const over = boxes.filter(g => g.y < c.y && g.y + g.h > top && g.x < c.x + c.w && g.x + g.w > c.x && !own.has(g.id));
     if (!over.length) continue;
     const need = ins.slice(1).reduce((n, l) => n + (l.label ? l.label.w + 20 : 14), 12), left = Math.min(...over.map(g => g.x)) - 8, right = Math.max(...over.map(g => g.x + g.w)) + 8;
     if (Math.max(left - c.x, c.x + c.w - right) >= need) continue;
