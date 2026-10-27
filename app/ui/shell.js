@@ -47,15 +47,17 @@
 // entered, schema, notes, definitions, relations, computed (Formulas.computeState's), state, views
 // ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
 // dated }) → the change, every edit's one way in; App.reverse(changeId) and App.restore(item), History's;
-// App.addView; App.who(); App.blank().
+// App.asksDay(record, recs?), whether a record about to be added asks the day it holds from (a relation with no
+// start entry), and App.From({ day, set, auto }), the control that asks it in the redline ("From" a day, or
+// "All along"), wherever a record is added (the inspector, a table's paste); App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)
 // as shown; aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer
 // joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name);
 // store.get/set, this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or
-// { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point? }; one without run or items is shown, not chosen,
-// and one with point(on) shows what it would do while it's pointed at or reached by the keys.
+// { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point? }; one without run or items is
+// shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
 // (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.

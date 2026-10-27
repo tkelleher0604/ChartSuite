@@ -314,7 +314,8 @@ async function run() {
   const rows0 = Table.grid.getRows().length;
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed();
   const bar = $('.pendbar')?.textContent ?? '';
-  check('Pasting into a relation says what it creates, and from what day', /3 values/.test(bar) && /1 new ownership/.test(bar) && /new Entity\s*Halcyon University Endowment/.test(bar) && /From Nov 2, 2026/.test(bar) && N() === n0, bar);
+  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /3 values/.test(bar) && /1 new ownership/.test(bar) && /new Entity\s*Halcyon University Endowment/.test(bar)
+    && /From$/.test($('.pendbar .from')?.textContent.trim()) && $('.pendbar .from input')?.value === 'Nov 2, 2026' && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
   press('Enter'); await tick(150);
   const c = last();
@@ -327,8 +328,33 @@ async function run() {
   check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III from 71.6% to 67.3% as of Nov 2, 2026, and 2 more', Time.describe(c));
   undo(); await tick(150);
   check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
-  // Without headings, cells fill the grid from the active cell.
+  // As of today, a row added that asks its day, an ownership, holds from the day its bar says: today, typed over,
+  // or all along; never on a past day by default.
   Shell.at(null); await tick(100);
+  const halcyon = day => pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', day), fromIn = () => $('.pendbar .from input');
+  const addHalcyon = async () => { paste('Owner\tOwned\tPercentage\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed(); };
+  n0 = N();
+  await addHalcyon();
+  check('As of today, a row pasted that asks its day asks it in its bar, from today', fromIn()?.value === Tree.formatDate(Log.today(), 'short') && N() === n0, $('.pendbar')?.textContent);
+  fromIn().value = 'someday'; fromIn().dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  press('Enter', fromIn()); await tick(100);
+  check('… and isn’t made while what’s typed there isn’t a day', N() === n0 && !!$('.pendbar') && $('.pendbar .btn.primary').disabled);
+  fromIn().value = 'March 3, 2026'; fromIn().dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  press('Enter', fromIn()); await tick(150);
+  check('… made, it holds from that day, and not before', N() === n0 + 1 && halcyon(Log.today()) === 0.06 && halcyon('2026-03-03') === 0.06 && halcyon('2026-03-02') === null && halcyon('2023-12-31') === null,
+    `${halcyon(Log.today())} ${halcyon('2026-03-03')} ${halcyon('2026-03-02')}`);
+  undo(); await tick(150);
+  await addHalcyon();
+  press('Enter', Table.grid.rowManager.element); await tick(150);
+  check('… Enter in the grid makes it from today', N() === n0 + 3 && halcyon(Log.today()) === 0.06 && halcyon('2023-12-31') === null, `${N() - n0} ${halcyon('2023-12-31')}`);
+  undo(); await tick(150);
+  await addHalcyon();
+  $('.pendbar .from .sel').click(); await tick(); item('All along').click(); await tick(60);
+  check('… or all along, chosen in its bar', $('.pendbar .from')?.textContent.trim() === 'All along' && !fromIn());
+  press('Enter', Table.grid.rowManager.element); await tick(150);
+  check('… which holds on every day, 2023 too', halcyon('2023-12-31') === 0.06 && halcyon(Log.today()) === 0.06, halcyon('2023-12-31'));
+  undo(); await tick(150);
+  // Without headings, cells fill the grid from the active cell.
   const us = Table.grid.getRows().find(r => r.getData()['f:@owner'] === 'U.S. Investors');
   Table.grid.addRange(us.getCells().find(x => x.getColumn().getDefinition().title === 'Percentage')); await tick(40);
   n0 = N();

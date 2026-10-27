@@ -537,12 +537,13 @@ const Table = (() => {
   }
 
   // ---- Writing: each edit, paste or deletion one change ----
-  const edit = (fn, say) => !!App.change(fn, { say });
-  // Records entered as one change: a new one under its own id, an entered one set from the day shown.
-  const enter = (records, say) => edit(tx => {
+  const edit = (fn, say, dated) => !!App.change(fn, { say, dated });
+  // Records entered as one change: a new one under its own id, an entered one set from the day shown, or from
+  // the day `dated` gives (App.change).
+  const enter = (records, say, dated) => edit(tx => {
     const entered = App.entered.peek();
     for (const [id, r] of Object.entries(records)) { const { since: _, before: __, ...rec } = r; if (id in entered) tx.update(id, rec); else tx.add('record', rec, id); }
-  }, say);
+  }, say, dated);
   const typeIn = (c, r) => r ? ('choice' in r ? 'choice' : 'tag' in r ? 'tag' : r.field) : c.type;
   const columnOf = cell => current.byField.get(cell.getField());
   const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell); return !clean(raw) || c.type === 'edge' || !!value(typeIn(c, m.id && App.state.value[m.id]), clean(raw)); };
@@ -790,8 +791,10 @@ const Table = (() => {
   }
 
   // ---- A change pending in the grid, a paste or a deletion: redlined, with a bar saying what it does; Enter makes
-  // it, Esc doesn't ----
-  const staged = signal(null);   // { change, parts, verb, make, cols }: what the bar says, its button, and the change made
+  // it, Esc doesn't. A paste that adds a row asking its day (App.asksDay), an ownership say, asks it there, from
+  // the day shown or all along (App.From), and the paste is made from that day, the values it sets with it, as
+  // a closing's schedule is. Until what's typed there is a day, it isn't made ----
+  const staged = signal(null);   // { change, parts, verb, make(day), cols, day? }: what the bar says, its button, and the change made
   let unlayer = null;
   function hold(s) {
     staged.value = { cols: new Set(), ...s };
@@ -811,8 +814,9 @@ const Table = (() => {
     const parts = [x.values && count(x.values, 'value'), x.rows.length && `${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`,
       ...x.made.slice(0, 3).map(([kind, name]) => html`new ${kind} <span class="add">${name}</span>`), x.made.length > 3 && `${x.made.length - 3} more`,
       x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
-    hold({ change: { records: x.records }, parts, verb: 'Paste', cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      make: () => { if (enter(x.records, say) && x.rows.length === 1) Shell.select(x.rows); } });
+    const recs = { ...App.state.peek(), ...x.records }, asks = x.rows.some(id => App.asksDay(x.records[id], recs));
+    hold({ change: { records: x.records }, parts, verb: 'Paste', cols: new Set([...x.cols].filter(k => !shownCols.has(k))), ...(asks && { day: App.day.peek() }),
+      make: day => { if (enter(x.records, say, asks ? day ?? false : undefined) && x.rows.length === 1) Shell.select(x.rows); } });
   }
   // Rows deleted, as one change: the records entered there, and what's at them.
   function deletion(ids) {
@@ -838,21 +842,24 @@ const Table = (() => {
   }
   function commit() {
     const s = staged.peek();
-    if (!s) return;
+    if (!s || s.day === undefined && 'day' in s) return;
     unstage();
     FormulaBar.preview(null);
-    s.make();
+    s.make(s.day);
     back();
   }
-  // The bar under the grid while a change is pending: what it does, the day it takes effect, and the choice.
+  // The bar under the grid while a change is pending: what it does, the day it takes effect (asked, where it
+  // asks one), and the choice.
   function PendingBar() {
     const s = staged.value, p = FormulaBar.pending.value, day = Shell.time.value?.asOf;
     if (!s || p?.change !== s.change) return null;
+    const asks = 'day' in s, typed = e => { if (e.key === 'Enter' && e.target.matches('input')) { e.preventDefault(); commit(); } };
     return html`<div class="pendbar" role="region" aria-label=${s.verb}>
       <span class="what">${s.parts.map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
-      ${day ? html`<span class="when">From ${Tree.formatDate(day, 'short')}</span>` : null}
+      ${asks ? html`<span class="when" onKeyDown=${typed}><${App.From} day=${s.day} set=${d => { staged.value = { ...staged.peek(), day: d }; }} /></span>`
+        : day ? html`<span class="when">From ${Tree.formatDate(day, 'short')}</span>` : null}
       <button class="btn" onClick=${cancel}>Discard</button>
-      <button class="btn primary" onClick=${commit}>${s.verb}</button>
+      <button class="btn primary" disabled=${asks && s.day === undefined} onClick=${commit}>${s.verb}</button>
     </div>`;
   }
   // A change pending goes when what it was worked out from changes: the view, the day, the workbook; or when
