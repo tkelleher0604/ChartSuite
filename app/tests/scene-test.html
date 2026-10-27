@@ -296,6 +296,13 @@ function run() {
     const drawn = toFunds.filter(l => f.marks.includes(l));
     check('a box’s lines to every box in a frame land on the frame, drawn as one', toFunds.length === 5 && toFunds.every(l => j(l.points) === j(toFunds[0].points) && Math.abs(l.points.at(-1)[0] - funds.x) < 0.5)
       && drawn.length === 1 && toFunds.every(l => l === drawn[0] || l.merged === drawn[0].id), j(toFunds.map(l => [l.id, l.merged])));
+    // Restyling one of them is drawing: it's drawn on the same route in its own look, and nothing moves.
+    const restyled = fresh(), aiv = 'fx:bdc=bdc_ics&close affiliate=aiv';
+    edit(restyled, tx => tx.note('Weight', Tree.treeOf(worked(restyled), aiv), 2.25, { view: 'view_40act' }));
+    const g = scene(restyled, 'view_40act'), boxesOf = sc => j(sc.marks.filter(m => m.type === 'box').map(m => [m.id, m.x, m.y, m.w, m.h]));
+    check('restyling a line moves nothing: the page, its scale and every box stay, and the line keeps its route', g.page.scale === f.page.scale && g.page.w === f.page.w
+      && boxesOf(g) === boxesOf(f) && j(g.byId.get(aiv).points) === j(f.byId.get(aiv).points) && !g.byId.get(aiv).merged && Scene.toSlide(g.page, g.byId.get(aiv).settings.Weight.value) === 2.25,
+      j({ scale: [f.page.scale, g.page.scale], merged: g.byId.get(aiv).merged }));
     const remote = frames.find(m => m.caption.text === 'Remote affiliate (§57(e))'), pension = f.byId.get('pension');
     check('a relation’s frame frames its lower end: the remote affiliate', j(remote.members) === j(['pension']));
     check('a frame round one box alone is its caption, 4 pt over the box, not a second outline', remote.lone && Math.abs(remote.y + remote.h - pension.y) < 6 && remote.x === pension.x);
@@ -373,6 +380,14 @@ function run() {
     check('a reveal keeps every route and label where it was, and the page as it was', hidden.length && kept && shown.page.scale === base.page.scale
       && j([furniture(shown).key.x, furniture(shown).key.y]) === j([furniture(base).key.x, furniture(base).key.y]), j({ hidden: hidden.slice(0, 3), kept }));
     check('… and routes what it reveals around the boxes', added.length === Math.min(3, hidden.length) && !through.length, j(through.map(l => [l.id, l.points])));
+    // On 40 Act, a box revealed where a frame would take it, and a document revealed beside a frame, leave the
+    // frames and the lines landing on them as they were: drawn as one, on their routes.
+    const forty = scene(wb, 'view_40act'), fortyLines = [...forty.byId.values()].filter(m => m.type === 'line');
+    const stirred = ['macallister', 'doc_tess_consent_on_tessellate', 'pos_mac_caygp'].flatMap(id => {
+      const r = Scene.of(wb, C, 'view_40act', DAY, { state: st, computed: R, reveal: [id] });
+      return fortyLines.filter(l => j(r.byId.get(l.id)?.points) !== j(l.points) || r.byId.get(l.id)?.merged !== l.merged).map(l => `${id}: ${l.id}`);
+    });
+    check('… and leaves lines drawn as one as one, where it reveals a box a frame would take in', fortyLines.some(l => l.merged) && !stirred.length, j(stirred.slice(0, 3)));
     const year = Object.keys(st).find(id => st[id].kind === 'Tax Year' && !base.byId.has(id));
     const lone = Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, reveal: [year] }).byId.get(year);
     check('… and places a box it reveals on the page', lone && lone.x >= 0 && lone.y >= 0 && lone.x + lone.w <= base.page.w && lone.y + lone.h <= base.page.h, j(lone && [lone.x, lone.y, base.page.w, base.page.h]));

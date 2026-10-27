@@ -580,7 +580,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // and every beginning of a path is a frame around the boxes whose paths begin so. A relation's Frame
   // frames the box at its lower end, the side not Above. Outputs of one style captioned alike share a
   // frame: Main Fund and Feeder Fund both captioned Funds draw one. They nest in the order of the styles
-  // and never overlap.
+  // and never overlap. A box revealed for a while is in none, so the frames stay as they are.
   const drawnBoxes = new Map(boxes.map(b => [b.record, b]));
   const steps = new Map();
   for (const id of ids) {
@@ -588,7 +588,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (!res || res.value === 'none' || idsIn(res.note.pattern).size || !res.note.view) continue;
     const ends = !boxOf(id) && r.args?.length === 2 ? r.args.map(a => boxOf(a.at)) : null;
     const b = drawnBoxes.get(ends ? endsOf(id, ends)[1] : boxOf(id));
-    if (!b) continue;
+    if (!b || b.revealed) continue;
     const at = styleAt.get(key(bare(res.note.pattern))) ?? -1, s = steps.get(b.id) ?? steps.set(b.id, new Map()).get(b.id);
     if (!s.has(at)) s.set(at, { at, output: res.note.pattern, note: res.note, kind: res.value, caption: captionOf(N, res.note.pattern, view) });
   }
@@ -673,9 +673,11 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     // for the lines that come down past what stands over their box.
     const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id));
     spread(boxes, (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0, given);
-    // Boxes in a rank, their tops level, are one height: the tallest of them (see level).
-    for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) level(rank);
-    push(boxes, frames, lines.filter(l => l.ranks));
+    // Boxes in a rank, their tops level, are one height: the tallest of them (see level). A preview keeps every
+    // box as it stood, and what it adds is placed clear of them, and sized among themselves.
+    const added = b => !!last && !last.at.has(b.id);
+    for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => `${Math.round(b.y / 4)}|${added(b)}`).values()) level(rank);
+    push(boxes.filter(b => !added(b)), frames, lines.filter(l => l.ranks));
     // (A line into a frame may land on it, and doesn't come down to its box.)
     const framing = id => [...frames.values()].filter(f => inFrame(frames, f).includes(id)).map(f => f.id).join();
     clearTops(boxes, lines.filter(l => l.ranks && framing(l.from) === framing(l.to)), given);
@@ -969,9 +971,11 @@ function relabel(boxes, lines, frames) {
   for (const c of mine) Object.assign(lines[copies.indexOf(c)], { labelAt: c.labelAt, crowded: c.crowded });
 }
 // A preview's lines: those it had keep their routes and labels where both their boxes (and the frame one lands
-// on) stand as they stood; what it adds is routed around what's drawn, its labels 8 pt clear of the rest.
+// on) stand as they stood, to a hundredth of a pixel, as a frame set round its boxes again on the page comes
+// out; so lines drawn as one stay one. What it adds is routed around what's drawn, its labels clear of the rest.
 function still(last, boxes, lines, frames) {
-  const geo = new Map(boxes.map(b => [b.id, b])), same = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+  const near = (a, b) => Math.abs(a - b) < 0.01, geo = new Map(boxes.map(b => [b.id, b]));
+  const same = (a, b) => !!a && !!b && near(a.x, b.x) && near(a.y, b.y) && near(a.w, b.w) && near(a.h, b.h);
   const added = [];
   for (const l of lines) {
     const was = last.routes.get(l.id);
@@ -1024,7 +1028,8 @@ function jumps(lines, gap) {
 
 // A frame around its members and the frames inside it, with room for its caption; a bracket over them; a
 // lone frame its caption alone, 4 pt above its box. Frames stacked in a column, their left sides within 18 pt,
-// share their left and right sides, where that takes in no other box: a column of panels.
+// share their left and right sides, where that takes in no other box (but one revealed for a while): a column of
+// panels.
 function frameBounds(frames, boxes) {
   const byId = new Map(boxes.map(b => [b.id, b]));
   const done = new Set();
@@ -1049,7 +1054,7 @@ function frameBounds(frames, boxes) {
     const left = Math.min(...column.map(f => f.x)), right = Math.max(...column.map(f => f.x + f.w));
     for (const f of column) {
       const mine = new Set(inFrame(frames, f));
-      if (!boxes.some(b => !mine.has(b.id) && b.x < right && b.x + b.w > left && b.y < f.y + f.h && b.y + b.h > f.y)) Object.assign(f, { x: left, w: right - left });
+      if (!boxes.some(b => !mine.has(b.id) && !b.revealed && b.x < right && b.x + b.w > left && b.y < f.y + f.h && b.y + b.h > f.y)) Object.assign(f, { x: left, w: right - left });
     }
   }
 }
