@@ -415,7 +415,7 @@ function readRows(rows, view) {
 
 const of = (...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
 // The steps: the marks, from the records; then for each layout tried, its boxes sized, ELK's part of it, its
-// routes, and the rest of it; then the page.
+// routes, again each time a gap is deepened for them, and the rest of it; then the page.
 function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
   const red = opts.redline ?? null;
@@ -783,6 +783,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     frameBounds(frames, boxes);
     routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
     for (let n = 0; n < 3 && !last && deepen(boxes, lines); n++) {
+      yield;
       frameBounds(frames, boxes);
       routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
     }

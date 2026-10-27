@@ -95,14 +95,14 @@ function strays(ps, s, t, near, drawn, mates) {
   return false;
 }
 
-// What's worked out from geometry, kept by what it read, the latest 24.
-function keeping() {
+// What's worked out from geometry, kept by what it read, the latest 24 (or `most`).
+function keeping(most = 24) {
   const kept = new Map();
   return (k, make) => {
     if (kept.has(k)) { const v = kept.get(k); kept.delete(k); kept.set(k, v); return v; }
     const v = make();
     kept.set(k, v);
-    if (kept.size > 24) kept.delete(kept.keys().next().value);
+    if (kept.size > most) kept.delete(kept.keys().next().value);
     return v;
   };
 }
@@ -1122,13 +1122,35 @@ function legsDrawn(lines) {
 // places where something drawn begins or ends, and the gutters halfway between, as an orthogonal connector
 // router searches it, within 120 pt of the two boxes, or failing that 360. → its points, or null where there's
 // no way within reach.
-function around(geo, from, to, { avoid = [], segs = [], drawn = null, page = null, far = 160, pad = 8, ports: given = null, strict = true, mates = () => false } = {}) {
+function around(geo, from, to, o = {}) {
+  const way = search(geo, from, to, o);
+  return way === false ? (o.far ?? 160) < 480 && search(geo, from, to, { ...o, far: 480 }) || null : way;
+}
+// A way searched for within reach of two boxes is kept by all the search reads, so that a line whose surroundings
+// stand as they stood is found again at once, as when its label changes, or a box out of its reach. That's the two
+// boxes, the ports given, and what's in reach: every box and caption or label there, as its walls and as what a drop
+// turning under it would seem to leave (see shaded); and the legs of the lines drawn there, in the order their tolls
+// are counted (see legsDrawn), each with whether it shares a box with the line. → as searching gives.
+const ways = keeping(4096), NEAR = 16;
+function search(geo, from, to, { avoid = [], segs = [], drawn = null, page = null, far = 160, pad = 8, ports: given = null, strict = true, mates = () => false } = {}) {
   const s = geo.get(from), t = geo.get(to);
   if (!s || !t || s === t) return null;
-  const C = pad, BEND = 24, ALONG = 4, NEAR = 16, CROSS = 6, m = page ? page.margin / 2 : -Infinity;
+  const m = page ? page.margin / 2 : -Infinity, solids = solidsIn(geo), legs = drawn ?? runs(segs);
   const reach = { x: Math.max(m, Math.min(s.x, t.x) - far), y: Math.max(m, Math.min(s.y, t.y) - far),
     r: Math.min(page ? page.w - m : Infinity, Math.max(s.x + s.w, t.x + t.w) + far), d: Math.min(page ? page.h - m : Infinity, Math.max(s.y + s.h, t.y + t.h) + far) };
-  const solids = solidsIn(geo), inReach = g => g.x < reach.r && g.x + g.w > reach.x && g.y < reach.d && g.y + g.h > reach.y;
+  // (What a step's toll weighs lies within NEAR of it, and what shades a node within a lane over it.)
+  const out = Math.max(NEAR, LANE) + 1, wide = { x: reach.x - out, y: reach.y - out, r: reach.r + out, d: reach.d + out }, meets = g => g.x < wide.r && g.x + g.w > wide.x && g.y < wide.d && g.y + g.h > wide.y;
+  const reads = (list, k) => list.filter(([a, b]) => Math.max(a[k], b[k]) > wide[k ? 'y' : 'x'] && Math.min(a[k], b[k]) < wide[k ? 'd' : 'r']).map(g => [g[0][0], g[0][1], g[1][0], g[1][1], mates(g.line) ? 1 : 0]);
+  const read = JSON.stringify([from, to, [s.x, s.y, s.w, s.h, s.shape], [t.x, t.y, t.w, t.h, t.shape], pad, far, strict, page && [page.margin, page.w, page.h],
+    given && [given.from, given.to].map(ps => ps.map(p => [p.at, p.out, p.dir])),
+    solids.near.near({ x: wide.x, y: wide.y, w: wide.r - wide.x, h: wide.d - wide.y }).map(k => solids.list[k]).filter(meets).map(g => [g.id, g.x, g.y, g.w, g.h]),
+    avoid.filter(meets).map(g => [g.x, g.y, g.w, g.h]), reads(legs.byLevel((wide.y + wide.d) / 2, (wide.d - wide.y) / 2), 0), reads(legs.byUpright((wide.x + wide.r) / 2, (wide.r - wide.x) / 2), 1)]);
+  return ways(read, () => searching(s, t, reach, solids, legs, { avoid, pad, given, strict, mates }));
+}
+// The search itself, within `reach`. → the way's points; false where it found none within reach, and null where it
+// couldn't look, with nowhere to start or end, or a grid too fine.
+function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, mates }) {
+  const BEND = 24, ALONG = 4, CROSS = 6, inReach = g => g.x < reach.r && g.x + g.w > reach.x && g.y < reach.d && g.y + g.h > reach.y;
   const walls = [...solids.near.near({ x: reach.x, y: reach.y, w: reach.r - reach.x, h: reach.d - reach.y }).map(k => solids.list[k]), ...avoid]
     .filter(inReach).map(g => ({ x: g.x - C, y: g.y - C, r: g.x + g.w + C, d: g.y + g.h + C }));
   const blocked = (x, y) => x < reach.x - 0.01 || x > reach.r + 0.01 || y < reach.y - 0.01 || y > reach.d + 0.01
@@ -1139,7 +1161,7 @@ function around(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
     { at: [cx, edgeY(g, cx, true)], out: [cx, g.y + g.h + C], dir: 2 }, { at: [sideX(g, cy, false), cy], out: [g.x - C, cy], dir: 3 }]; };
   const STEP = [[0, -1], [1, 0], [0, 1], [-1, 0]];
   // (A port's step out from its box keeps to the rules too.)
-  const legs = drawn ?? runs(segs), fair = p => !strict || !beside(p.at, p.out, legs, mates);
+  const fair = p => !strict || !beside(p.at, p.out, legs, mates);
   const starts = (given?.from ?? ports(s)).filter(p => !blocked(...p.out) && fair(p)), ends = (given?.to ?? ports(t)).filter(p => !blocked(...p.out) && fair(p));
   const coords = (k, extra) => {
     const vs = [...new Set([...walls.flatMap(w => k ? [w.y, w.d] : [w.x, w.r]), ...extra, k ? reach.y : reach.x, k ? reach.d : reach.r].map(v => Math.round(v * 4) / 4))].sort((a, b) => a - b);
@@ -1155,21 +1177,25 @@ function around(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
   const X = new Map(xs.map((v, i) => [v, i])), Y = new Map(ys.map((v, i) => [v, i])), node = (i, j) => i * ys.length + j;
   // What a step costs beyond its length: running along a line drawn, or within 12 pt of one beside it, or across one;
   // `strict`, a step beside one closer than the rules allow (see BESIDE) is no step. The lines drawn are looked up by
-  // where they run (see runs), each once for each step of the grid, and counted in the order given.
-  const { byLevel, byUpright } = legs;
-  const toll = (x0, y0, x1, y1) => {
+  // where they run (see runs): those beside a step once for each line of the grid, and those across it once for each
+  // gap between two, each only where it reaches into the search; and counted in the order given.
+  const { byLevel, byUpright } = legs, besideCol = [], besideRow = [], acrossCol = [], acrossRow = [];
+  const inReachOf = (list, k) => list.filter(([a, b]) => Math.max(a[k], b[k]) > (k ? reach.y : reach.x) - 1 && Math.min(a[k], b[k]) < (k ? reach.d : reach.r) + 1);
+  const toll = (i, j, ni, nj) => {
+    const x0 = xs[i], y0 = ys[j], x1 = xs[ni], y1 = ys[nj], up = i === ni;
     let c = 0;
-    const [lo, hi] = x0 === x1 ? [Math.min(y0, y1), Math.max(y0, y1)] : [Math.min(x0, x1), Math.max(x0, x1)];
-    for (const g of (x0 === x1 ? byUpright : byLevel)(x0 === x1 ? x0 : y0, NEAR)) {
-      const [a, b] = g, [p, q] = x0 === x1 ? [a[0], x0] : [a[1], y0];
+    const [lo, hi] = up ? [Math.min(y0, y1), Math.max(y0, y1)] : [Math.min(x0, x1), Math.max(x0, x1)];
+    for (const g of up ? (besideCol[i] ??= inReachOf(byUpright(x0, NEAR), 1)) : (besideRow[j] ??= inReachOf(byLevel(y0, NEAR), 0))) {
+      const [a, b] = g, [p, q] = up ? [a[0], x0] : [a[1], y0];
       if (Math.abs(p - q) > NEAR) continue;
       if (strict && alongside([x0, y0], [x1, y1], g, mates)) return Infinity;
-      const [u, v] = x0 === x1 ? [Math.min(a[1], b[1]), Math.max(a[1], b[1])] : [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+      const [u, v] = up ? [Math.min(a[1], b[1]), Math.max(a[1], b[1])] : [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
       c += Math.max(0, Math.min(hi, v) - Math.max(lo, u)) * (Math.abs(p - q) <= 2 ? ALONG : 2);
     }
-    for (const [a, b] of (x0 === x1 ? byLevel : byUpright)((lo + hi) / 2, (hi - lo) / 2 + 1)) {
-      const across = x0 === x1 ? a[1] : a[0], [u, v] = x0 === x1 ? [Math.min(a[0], b[0]), Math.max(a[0], b[0])] : [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
-      if (across > lo && across < hi && (x0 === x1 ? x0 : y0) > u && (x0 === x1 ? x0 : y0) < v) c += CROSS;
+    const gap = up ? Math.min(j, nj) : Math.min(i, ni);
+    for (const [a, b] of up ? (acrossRow[gap] ??= inReachOf(byLevel((lo + hi) / 2, (hi - lo) / 2 + 1), 0)) : (acrossCol[gap] ??= inReachOf(byUpright((lo + hi) / 2, (hi - lo) / 2 + 1), 1))) {
+      const across = up ? a[1] : a[0], [u, v] = up ? [Math.min(a[0], b[0]), Math.max(a[0], b[0])] : [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+      if (across > lo && across < hi && (up ? x0 : y0) > u && (up ? x0 : y0) < v) c += CROSS;
     }
     return c;
   };
@@ -1186,12 +1212,15 @@ function around(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
   // A* over (node, heading), its frontier a binary heap of each one's estimate and key, side by side. Each
   // reached is known by the one it was reached from, or, -1, as where a port starts.
   const fs = [], ks = [], best = new Float64Array(4 * N).fill(Infinity), from_ = new Int32Array(4 * N), port = new Map();
-  const swap = (a, b) => { [fs[a], fs[b]] = [fs[b], fs[a]]; [ks[a], ks[b]] = [ks[b], ks[a]]; };
+  const swap = (a, b) => { const f = fs[a], k = ks[a]; fs[a] = fs[b]; ks[a] = ks[b]; fs[b] = f; ks[b] = k; };
   const push = (f, k) => { fs.push(f); ks.push(k); for (let i = fs.length - 1; i > 0;) { const p = (i - 1) >> 1; if (fs[p] <= fs[i]) break; swap(p, i); i = p; } };
+  // (The least estimate, taken off the frontier, is `top`; its key is given.)
+  let top = 0;
   const pop = () => {
-    const f = fs[0], k = ks[0], lf = fs.pop(), lk = ks.pop();
+    const k = ks[0], lf = fs.pop(), lk = ks.pop();
+    top = fs.length ? fs[0] : lf;
     if (fs.length) { fs[0] = lf; ks[0] = lk; for (let i = 0; ;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < fs.length && fs[l] < fs[m]) m = l; if (r < fs.length && fs[r] < fs[m]) m = r; if (m === i) break; swap(m, i); i = m; } }
-    return [f, k];
+    return k;
   };
   const toward = (p, g) => { const [dx, dy] = STEP[p.dir]; return dx * (centerX(g) - p.at[0]) + dy * (g.y + g.h / 2 - p.at[1]) > 0 ? 0 : 2 * BEND; };
   // `strict`, no turn down from a level run where a box over it would seem to own the drop (see shaded): each node
@@ -1204,7 +1233,7 @@ function around(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
   }
   let done = null;
   while (fs.length) {
-    const [f, k] = pop(), g = best[k], n = k >> 2, dir = k & 3, i = Math.floor(n / ys.length), j = n % ys.length;
+    const k = pop(), f = top, g = best[k], n = k >> 2, dir = k & 3, i = Math.floor(n / ys.length), j = n % ys.length;
     if (f - h(i, j) > g + 1e-6) continue;
     const end = goal.get(n);
     if (end) {
@@ -1223,12 +1252,12 @@ function around(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
       if (clearAt[nn] === 2) continue;
       if (!clearStep[e]) clearStep[e] = blocked((x0 + x1) / 2, (y0 + y1) / 2) ? 2 : 1;
       if (clearStep[e] === 2) continue;
-      if (Number.isNaN(tollOf[e])) tollOf[e] = toll(x0, y0, x1, y1);
+      if (Number.isNaN(tollOf[e])) tollOf[e] = toll(i, j, ni, nj);
       const nk = nn * 4 + d, ng = g + Math.abs(x1 - x0) + Math.abs(y1 - y0) + (d === dir ? 0 : BEND) + tollOf[e];
       if (ng < best[nk]) { best[nk] = ng; from_[nk] = k; push(ng + h(ni, nj), nk); }
     }
   }
-  if (!done) return far < 480 ? around(geo, from, to, { avoid, segs, drawn, page, far: 480, pad, ports: given, strict, mates }) : null;
+  if (!done) return false;
   const ps = [done.end.at, done.end.out];
   let k = done.k;
   for (;;) {
