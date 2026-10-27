@@ -113,9 +113,10 @@ function index(rows) {
   // by its short name, after the words that join it to the sides before. Two sides are joined as their line
   // joins them, by an arrow: Fund III → Fund III Blocker. Three or more are said as the panel's sentence says
   // them, less its verb: the second after the preposition its list's name ends in (Signs For), or else, as
-  // each side after it, after its label: Margaret A. Chen for Fund III, via GP III. A side named by a number,
-  // which alone doesn't say what it is, is said with its kind: AIV-1, tax year 2025. `args`, for a relation
-  // not recorded (an error's, or one two objects aren't in).
+  // each side after it, after its label: Margaret A. Chen for Fund III, via GP III. A side after the second
+  // that's an object already said isn't said again: Margaret A. Chen for The Manager, signing for it directly.
+  // A side named by a number, which alone doesn't say what it is, is said with its kind: AIV-1, tax year 2025.
+  // `args`, for a relation not recorded (an error's, or one two objects aren't in).
   function placed(recs, id, args) {
     const t = args ? { args: args.map(a => ({ edge: a.edge, loc: treeOf(recs, a.at) ?? {} })) } : treeAt(recs, id), of = args ?? recs[id].args;
     const xs = edges(t).map(e => of.find(a => same(a.edge, e))).filter(Boolean);
@@ -123,7 +124,7 @@ function index(rows) {
       const o = objectOf(recs, a.at) ?? a.at, text = shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && xs.length > 2 && PREP.exec(listName(t, a.edge))?.[1];
       const join = !i ? '' : /^\d+$/.test(text) && kind ? `, ${kind.toLowerCase()} ` : xs.length === 2 ? ' → ' : prep ? ` ${prep.toLowerCase()} ` : `, ${lower(a.edge)} `;
       return { edge: a.edge, id: o, text, join };
-    });
+    }).filter((s, i, all) => i < 2 || !all.slice(0, i).some(b => b.id === s.id));
   }
   // A record as a step on a path: an object by its short name, a relation by its sides as the place rule
   // says them, an option with its label, a tag ruled out with Not.

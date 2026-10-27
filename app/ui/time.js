@@ -20,26 +20,15 @@ const Time = (() => {
     if (r.args) return [N.nameOf(recs, id), worded ? whose(recs, id, N) : N.segmentOf(recs, id)];
     return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : N.whereOf(recs, r)];
   }
-  // Whose a record is, in words, for a list of dates: an object by its short name, with what it's under in
-  // parentheses (AIV-1 Blocker (Delaware); The Manager (Registered Investment Adviser)); a relation by its first
-  // side, with its option (Margaret A. Chen (Director), The BDC), then each other side by its list's name where
-  // that's a phrase (GP III, general partner of Fund III; via GP III), or else the kind it names. A side named by
-  // a number alone is said with its kind, as the place rule says it (Notes.segmentOf): AIV-1, tax year 2025.
-  const PHRASE = /\s(of|for|by|to|with)$|^via$/i;
+  // Whose a record is, in words, for a list of dates: an object by its short name, a relation by the place
+  // rule (Notes.segmentOf: Margaret A. Chen → The BDC; AIV-1, tax year 2025), with its option and what it's
+  // under in parentheses (The BDC (Regulation D Offering); Margaret A. Chen → The BDC (Director)).
   function whose(recs, id, N = App.notes.peek()) {
     const [head, ...under] = Tree.pathOf(recs, id), r = recs[head];
     if (!r) return '';
-    const within = (lead, qs) => qs.length ? `${lead} (${qs.join(', ')})` : lead;
     const step = x => { const s = recs[x]; return Tree.isChoice(s) ? s.choice : Tree.isTag(s) && !s.tag ? `not ${s.edge}` : s.edge; };
-    if (!r.args) return within(N.shortOf(recs, head), under.map(step));
-    const t = Tree.treeOf(recs, head), [first, ...others] = N.sides(recs, head).filter(Boolean), obj = a => Tree.objectOf(recs, a.at);
-    if (!first) return N.nameOf(recs, head);
-    const side = a => {
-      const list = t && N.listName(t, a.edge), name = N.shortOf(recs, obj(a)), kind = recs[obj(a)]?.kind ?? '';
-      return /^\d+$/.test(name) && kind ? `${kind.toLowerCase()} ${name}` : list && PHRASE.test(list) ? `${list.toLowerCase()} ${name}`
-        : Tree.same(kind, a.edge) ? `${a.edge.toLowerCase()} ${name}` : name;
-    };
-    return within([within(N.shortOf(recs, obj(first)), Tree.isChoice(r) ? [r.choice] : []), ...others.map(side)].join(', '), under.map(step));
+    const qs = [...(r.args && Tree.isChoice(r) ? [r.choice] : []), ...under.map(step)];
+    return `${r.args ? N.segmentOf(recs, head) : N.shortOf(recs, head)}${qs.length ? ` (${qs.join(', ')})` : ''}`;
   }
   // Every version of every record a log's rows hold, the latest standing for each.
   function recordsOf(rows) {

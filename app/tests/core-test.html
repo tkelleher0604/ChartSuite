@@ -167,6 +167,9 @@ function run(json) {
   check('… two as their line joins them, three as their sentence says them', N.segmentOf(now, 'sign_okfr_fund') === 'David R. Okafor for Fund III, via GP III'
     && j(N.placed(now, 'sign_okfr_fund').map(s => s.join)) === j(['', ' for ', ', via ']) && N.placed(now, null, now.own_fund_blkr.args.slice().reverse()).map(s => s.join + s.text).join('') === N.segmentOf(now, 'own_fund_blkr'),
     N.segmentOf(now, 'sign_okfr_fund'));
+  const direct = Object.keys(now).find(id => now[id].args?.length === 3 && new Set(now[id].args.map(a => a.at)).size === 2);
+  check('… and a side already said isn’t said again: one who signs directly, for The Manager, not via it too', direct && /^[^,]+ for [^,]+$/.test(N.segmentOf(now, direct)) && N.placed(now, direct).length === 2,
+    direct && N.segmentOf(now, direct));
   check('a view’s layout is a note at its View object', j(N.value('Layout', { id: 'mvp9abrp01co8c', kind: 'View' })) === j({ rows: { kind: 'Entity' } }) && N.value('Layout', { id: 'view_main', kind: 'View' }) === undefined);
   {
     const w = fresh(), p = { id: 'view_40act', kind: 'View' };
