@@ -360,7 +360,7 @@ async function run() {
     check('… one all-day event for each date from the day shown on, in order', events.length > 10 && events.every((e, i) => e.day >= day.replace(/-/g, '') && (!i || e.day >= events[i - 1].day) && +e.end > +e.day),
       `${events.length} events`);
     // Each said as the Dates table says it: what falls due, then whose.
-    const table = G('Table').model(A.views.peek().find(v => v.rows === 'date').id), col = key => 'f' + table.cols.findIndex(c => c.key === key);
+    const table = G('Table').model(A.views.peek().find(v => v.rows === 'date').id), col = key => 'f:' + key;
     const rowsSaid = from => table.data.filter(r => /^\d{4}-\d\d-\d\d$/.test(r[col('$value')]) && r[col('$value')] >= from).map(r => `${r[col('$entry')]} · ${r[col('$of')]}`).sort();
     check('each event says what falls due, then whose, as the Dates table says it, one for each of its rows', j(events.map(e => e.summary).sort()) === j(rowsSaid(day))
       && events.some(e => e.summary === 'Next Renewal · The Manager (LEI Registered)') && events.some(e => e.summary === 'Affirmation Due · Fund III (4.13(a)(3) Exemption)'),

@@ -112,51 +112,53 @@ const Table = (() => {
     };
     const today = App.day.value, data = ids.map(id => {
       const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
-      cols.forEach((c, i) => {
-        const m = cellOf(id, c), r = m.id && st[m.id], f = 'f' + i;
+      for (const c of cols) {
+        const m = cellOf(id, c), r = m.id && st[m.id], f = field(c), type = typeIn(c, r);
         row[f] = m.v ?? null;
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
+        // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id], cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r.field === 'date' && r.value < today };
-      });
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r.field === 'date' && r.value < today, ...(type !== c.type && { type }) };
+      }
       row._ruled = st[id].tag === false;
       return row;
     });
     // A check's column is drawn only while a row fails it, as the inspector shows a check only where it fails.
-    cols.forEach((c, i) => { if (c.check) c.fails = data.some(r => r['f' + i] === false); });
+    for (const c of cols) if (c.check) c.fails = data.some(r => r[field(c)] === false);
 
     // Dates fall into months, with what's overdue first, then from this month on, then back from it.
     let groups = null;
+    const f0 = cols[0] && field(cols[0]);
     if (rows === 'date') {
       const month = today.slice(0, 7);
-      for (const r of data) r._g = r._m.f0.due ? 'overdue' : r.f0.slice(0, 7);
+      for (const r of data) r._g = r._m[f0].due ? 'overdue' : r[f0].slice(0, 7);
       const keys = [...new Set(data.map(r => r._g))];
       const ahead = keys.filter(k => k !== 'overdue' && k >= month).sort(), past = keys.filter(k => k !== 'overdue' && k < month).sort().reverse();
       groups = [...(keys.includes('overdue') ? ['overdue'] : []), ...ahead, ...past];
       const at = new Map(groups.map((g, i) => [g, i]));
-      data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b.f0.localeCompare(a.f0) : a.f0.localeCompare(b.f0)));
-    } else if (cols[0]) data.sort((a, b) => text(cols[0].type, a.f0).localeCompare(text(cols[0].type, b.f0)));
+      data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b[f0].localeCompare(a[f0]) : a[f0].localeCompare(b[f0])));
+    } else if (f0) data.sort((a, b) => text(typeOf(cols[0], a), a[f0]).localeCompare(text(typeOf(cols[0], b), b[f0])));
 
     const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
-    return { view, rows, isKind, isDatatype, cols, data, groups, noun };
+    return { view, rows, isKind, isDatatype, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, noun };
   }
+  // A column's field in the grid's rows: its own key, so a column added or hidden beside it never moves it.
+  const field = c => 'f:' + c.key;
 
   // ---- The redline: the grid as a pending change would leave it, beside the grid now ----
   // A row that would appear is blue, one that would go is struck in red, and a value that would change shows
   // the old struck beside the new; the cell keeps what it was as `was`.
   function redlined(now, then) {
-    const was = new Map(now.data.map(r => [r.id, r])), fieldOf = new Map(now.cols.map((c, i) => [c.key, 'f' + i]));
-    const old = (r, c) => fieldOf.has(c.key) ? r[fieldOf.get(c.key)] ?? null : null;
+    const was = new Map(now.data.map(r => [r.id, r]));
     const data = then.data.map(r => {
       const w = was.get(r.id);
       if (!w) return { ...r, _red: 'add' };
       const _m = { ...r._m };
-      then.cols.forEach((c, i) => { const f = 'f' + i, v = old(w, c); if (v !== r[f]) _m[f] = { ..._m[f], was: v }; });
+      for (const c of then.cols) { const f = field(c), v = w[f] ?? null; if (v !== r[f]) _m[f] = { ..._m[f], was: v }; }
       return { ...r, _m };
     });
     const kept = new Set(then.data.map(r => r.id));
-    for (const w of now.data) if (!kept.has(w.id)) data.push({ ...Object.fromEntries(then.cols.map((c, i) => ['f' + i, old(w, c)])), id: w.id, _g: w._g, _red: 'go',
-      _m: Object.fromEntries(then.cols.map((c, i) => ['f' + i, w._m[fieldOf.get(c.key)] ?? {}])) });
+    for (const w of now.data) if (!kept.has(w.id)) data.push({ ...w, _red: 'go' });
     return { ...then, data, red: true };
   }
   const isRed = r => !!r._red || Object.values(r._m).some(m => 'was' in m);
@@ -183,9 +185,9 @@ const Table = (() => {
   function formatter(c) {
     // A tag's box, blank, attested or ruled out; a check's only where it fails.
     const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
-    const shown = (v, m) => c.type === 'tag' ? (!c.check ? box(v, m) : v === false ? box(v, m) : '')
-      : c.type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
-      : esc(text(c.type, v));
+    const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? (!c.check ? box(v, m) : v === false ? box(v, m) : '')
+      : type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
+      : esc(text(type, v));
     return cell => {
       const el = cell.getElement(), m = meta(cell), v = cell.getValue();
       el.tabIndex = -1;   // the grid is one stop in the tab order, and the arrows move within it
@@ -194,16 +196,18 @@ const Table = (() => {
       el.classList.toggle('due', !!m?.due);
       el.classList.toggle('none', c.type !== 'edge' && !c.key.startsWith('$') && !m?.at);
       if (!m || !('was' in m) || c.type === 'tag') return shown(v, m);
-      return [m.was !== null && `<span class="del">${shown(m.was)}</span>`, v !== null && `<span class="add">${shown(v, m)}</span>`].filter(Boolean).join(' ');
+      return [m.was !== null && `<span class="del">${shown(m.was, null, m.type ?? c.type)}</span>`, v !== null && `<span class="add">${shown(v, m)}</span>`].filter(Boolean).join(' ');
     };
   }
+  // The datatype a cell's value reads as: its own, where it isn't its column's.
+  const typeOf = (c, d) => d?._m[field(c)]?.type ?? c.type;
 
   // A text editor, as Excel's: Enter or leaving keeps what's typed, Esc puts it back, and what can't be read
   // stays open, marked.
   let typed0 = null;
   const editor = (c, put) => (cell, onRendered, success, cancel) => {
     const input = document.createElement('input');
-    input.value = typed0 ?? typing(c.type, cell.getValue());
+    input.value = typed0 ?? typing(typeOf(c, cell.getRow().getData()), cell.getValue());
     const first = typed0 !== null;
     typed0 = null;
     onRendered(() => { input.focus(); if (!first) input.select(); });
@@ -245,12 +249,12 @@ const Table = (() => {
   const ruler = document.createElement('canvas').getContext('2d');
   // The widest of a column's values as its cells set them, in every row.
   function widest(c) {
-    const col = current?.cols[+c.getField().slice(1)], cell = c.cells.find(x => x.element?.isConnected)?.element;
+    const col = current?.byField.get(c.getField()), cell = c.cells.find(x => x.element?.isConnected)?.element;
     if (!col || !cell) return 0;
-    const s = getComputedStyle(cell), f = c.getField(), said = v => col.type === 'document' ? (col.filed ? filed(v) : Tree.format('document', v)) : text(col.type, v);
+    const s = getComputedStyle(cell), f = c.getField(), said = (v, type) => type === 'document' ? (col.filed ? filed(v) : Tree.format('document', v)) : text(type, v);
     ruler.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
     let w = 0;
-    for (const row of c.table.rowManager.rows) { const v = row.data[f]; if (v !== null && v !== undefined) w = Math.max(w, ruler.measureText(said(v)).width); }
+    for (const row of c.table.rowManager.rows) { const v = row.data[f]; if (v !== null && v !== undefined) w = Math.max(w, ruler.measureText(said(v, typeOf(col, row.data))).width); }
     return Math.ceil(w + parseFloat(s.paddingLeft) + parseFloat(s.paddingRight) + parseFloat(s.borderRightWidth)) + 2;
   }
   // Where a column the grid scrolls to starts: clear of the row numbers and the first column.
@@ -298,14 +302,13 @@ const Table = (() => {
   const drawn = c => c.pasted || (c.shown && (!c.check || c.fails));
   function columnDefs(m) {
     const defs = m.cols.filter(drawn).map(c => {
-      const f = 'f' + m.cols.indexOf(c), editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of';
+      const f = field(c), editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of';
       // A heading's filter offers the values its column has now, as they read, and Blank where it has one; none
       // once its grid has given way to another.
       const values = () => {
-        const i = current?.view === m.view ? current.cols.findIndex(x => x.key === c.key) : -1, g = 'f' + i;
-        if (i < 0) return [];
-        const vs = [...new Set(current.data.map(r => r[g]).filter(v => v !== null))].sort((a, b) => typeof a === 'number' ? a - b : String(a).localeCompare(String(b)));
-        return [...vs.map(v => ({ label: text(c.type, v), value: v })), ...(current.data.some(r => r[g] === null) ? [{ label: 'Blank', value: BLANK }] : [])];
+        if (current?.view !== m.view || !current.byField.has(f)) return [];
+        const vs = [...new Map(current.data.filter(r => r[f] !== null).map(r => [r[f], typeOf(c, r)]))].sort(([a], [b]) => typeof a === 'number' ? a - b : String(a).localeCompare(String(b)));
+        return [...vs.map(([v, type]) => ({ label: text(type, v), value: v })), ...(current.data.some(r => r[f] === null) ? [{ label: 'Blank', value: BLANK }] : [])];
       };
       const right = NUMERIC.has(c.type) ? 'right' : 'left';
       return {
@@ -321,7 +324,7 @@ const Table = (() => {
         headerFilter: 'list', headerFilterParams: { ...LIST, valuesLookup: values, clearable: true },
         headerFilterFunc: (want, v) => want === BLANK ? v === null || v === '' : v === want,
         headerFilterEmptyCheck: v => v === undefined || v === null || v === '',
-        accessorClipboard: v => plain(c.type, v), accessorDownload: v => csvSafe(plain(c.type, v)),
+        accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
     });
     // Kept in view by table.css, not frozen: Tabulator's range selection takes only the row numbers frozen. Its
@@ -357,7 +360,9 @@ const Table = (() => {
     reds = new Set();
     flight = null;
     const t = table = new Tabulator(host, {
-      index: 'id', data: m.data, columns: columnDefs(m), height: '100%', layout: 'fitDataSlack',
+      // A column is sized at its heading's edge, as Excel's is, and a row is only its cells. A field is a column's
+      // key as it stands, dots and all.
+      index: 'id', data: m.data, columns: columnDefs(m), columnDefaults: { resizable: 'header' }, nestedFieldSeparator: false, height: '100%', layout: 'fitDataSlack',
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,
@@ -382,16 +387,12 @@ const Table = (() => {
         groupHeader: (g, n) => `${g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month')}<span>${n}</span>`,
       }),
     });
-    // Rows are measured together: every row's cells let go of their heights, then every row measured, then every
-    // row's cells set to it, so the grid is laid out once for them all, where Tabulator, measuring each row after
-    // setting the one before, would lay it out again for each.
-    t.rowManager.normalizeHeight = function (force) {
-      const rows = this.activeRows;
-      if (force && !this.table.options.rowHeight) for (const r of rows) r.clearCellHeight();
-      for (const r of rows) r.calcHeight(force);
-      for (const r of rows) r.setCellHeight();
-    };
-    t.on('cellEdited', cell => { const d = m.cols[+cell.getField().slice(1)]; if (d.type === 'choice' || d.type === 'edge') put(cell, cell.getValue() ?? ''); back(); });
+    // Laid out, the grid draws its rows again from where it's scrolled, each drawn row measured at the columns'
+    // new widths and the rest reckoned from them. Tabulator would measure every row, drawn or not, but go on
+    // reckoning the rows it hasn't drawn from the rows first drawn, before the columns were laid out: rows a
+    // narrow first column had wrapped, so the grid ran on three times its rows' height, blank.
+    t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
+    t.on('cellEdited', cell => { const d = columnOf(cell); if (d.type === 'choice' || d.type === 'edge') put(cell, cell.getValue() ?? ''); back(); });
     t.on('cellEditCancelled', () => back());
     t.on('cellClick', (e, cell) => { if (e.target.closest('.tag')) flip(cell); });
     t.on('rangeChanged', range => pick(range));
@@ -443,15 +444,22 @@ const Table = (() => {
     const f = flight = { again: false };
     // Only the rows that say something else are updated, as Tabulator measures every row it's given again.
     const had = new Map(t.getRows().map(row => [row.getData().id, row.getData()])), changed = m.data.filter(r => !sameRow(r, had.get(r.id)));
+    // However it ends, the next update can go; one that failed has left rows that can't be trusted, so the grid
+    // is built again from what's there.
+    let ok = false;
     t.blockRedraw();
     (changed.length ? t.updateOrAddData(changed) : Promise.resolve()).then(() => {
-      if (flight === f) flight = null;
       if (t !== table) return;
       const keep = new Set(m.data.map(r => r.id)), rows = new Map();
       for (const row of t.getRows()) if (!keep.has(row.getData().id)) row.delete(); else rows.set(row.getData().id, row);
       for (const id of new Set([...reds, ...red])) rows.get(id)?.reformat();
       reds = red;
       t.restoreRedraw();
+      ok = true;
+    }).finally(() => {
+      if (flight === f) flight = null;
+      if (t !== table) return;
+      if (!ok) return build(current);
       mark();
       if (first) reveal(first);
       flash(lit);
@@ -469,7 +477,7 @@ const Table = (() => {
     if (!s || s.key !== key || s.version === seen.version) return [];
     const old = new Map(s.data.map(r => [r.id, r])), out = [];
     for (const r of now.data) {
-      const o = old.get(r.id), fs = Object.keys(r).filter(f => /^f\d+$/.test(f) && (!o || o[f] !== r[f]));
+      const o = old.get(r.id), fs = Object.keys(r).filter(f => f.startsWith('f:') && (!o || o[f] !== r[f]));
       if (fs.length) out.push([r.id, fs]);
     }
     return out.length > 60 ? [] : out;   // a sweeping change isn't one to light up cell by cell
@@ -536,7 +544,7 @@ const Table = (() => {
     for (const [id, r] of Object.entries(records)) { const { since: _, before: __, ...rec } = r; if (id in entered) tx.update(id, rec); else tx.add('record', rec, id); }
   }, say);
   const typeIn = (c, r) => r ? ('choice' in r ? 'choice' : 'tag' in r ? 'tag' : r.field) : c.type;
-  const columnOf = cell => current.cols[+cell.getField().slice(1)];
+  const columnOf = cell => current.byField.get(cell.getField());
   const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell); return !clean(raw) || c.type === 'edge' || !!value(typeIn(c, m.id && App.state.value[m.id]), clean(raw)); };
   // A value typed or chosen in a cell, as one change: a correction, or with a day shown, from that day on.
   function put(cell, raw) {
@@ -716,7 +724,7 @@ const Table = (() => {
   function byPlace(m, grid) {
     const active = table.modules.selectRange?.getActiveCell()?.getComponent(), shown = table.getColumns().filter(c => c.getField());
     const c0 = active ? Math.max(0, shown.findIndex(c => c.getField() === active.getField())) : 0;
-    const head = grid[0].map((_, j) => shown[c0 + j] ? m.cols[+shown[c0 + j].getField().slice(1)] : null), ks = keysOf(m, head);
+    const head = grid[0].map((_, j) => shown[c0 + j] ? m.byField.get(shown[c0 + j].getField()) : null), ks = keysOf(m, head);
     if (!m.isDatatype && ks.length && ks.every(k => head.includes(k)) && head.some(c => c && !ks.includes(c))) return byName(m, [head, ...grid], head);
     const keys = keysOf(m, m.cols), rows = table.getRows('active').map(r => r.getData().id);
     const r0 = active ? Math.max(0, rows.indexOf(active.getRow().getData().id)) : rows.length;
@@ -851,12 +859,12 @@ const Table = (() => {
   const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
   const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), `${on ? 'Showed' : 'Hid'} ${c.title}`);
   function placeColumns() {
-    const m = current, cols = table.getColumns().map(c => c.getField()).filter(Boolean).map(f => m.cols[+f.slice(1)]);
+    const m = current, cols = table.getColumns().map(c => c.getField()).filter(Boolean).map(f => m.byField.get(f));
     edit(tx => [...cols, ...m.cols.filter(c => !cols.includes(c))].filter(c => c.pattern).forEach((c, i) => note(tx, 'Order', c, m.view, i + 1)));
   }
   const columnItems = m => m.cols.filter(c => c.pattern).map(c => ({ label: c.parent ? `${c.parent} › ${c.title}` : c.title, checked: c.shown, run: () => show(c, !c.shown) }));
   function columnMenu(e, col) {
-    const m = current, c = col.getField() && m.cols[+col.getField().slice(1)];
+    const m = current, c = m.byField.get(col.getField());
     if (!c) return;
     Shell.menu({ x: e.clientX, y: e.clientY }, [
       { label: 'Sort A to Z', run: () => table.setSort(col.getField(), 'asc') },
@@ -911,9 +919,9 @@ const Table = (() => {
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent();
     if (!cell) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); clear(); }
-    else if (e.key === ' ' && current.cols[+cell.getField()?.slice(1)]?.type === 'tag') { e.preventDefault(); flip(cell); }
+    else if (e.key === ' ' && columnOf(cell)?.type === 'tag') { e.preventDefault(); flip(cell); }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && cell.getField()) {
-      const c = current.cols[+cell.getField().slice(1)];
+      const c = columnOf(cell);
       if (c.type === 'tag' || c.type === 'choice' || c.type === 'edge' || App.readOnly.peek()) return;
       typed0 = e.key;
       e.preventDefault();
