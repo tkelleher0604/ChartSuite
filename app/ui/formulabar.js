@@ -388,6 +388,150 @@ const FormulaBar = (() => {
     return n ? { '>=': `${n} or more`, '>': `more than ${n}`, '<=': `${n} or less`, '<': `less than ${n}` }[toks[at].v] : null;
   }
 
+  // ---- Why not: what failed, where the rows rule a record out ----
+  // A row read as far as it decides truth: IF, LET, AND, OR and NOT, through parentheses, down to its parts; a
+  // part that compares (=, >, IN) or looks through a list (ANY, FILTER) keeps its pieces. Each keeps its text,
+  // its span in the row, and whether it reads `@`.
+  function skeleton(text) {
+    let toks;
+    try { const f = Formulas.splitFormula(text); toks = Formulas.tokenize(f.body, f.offset); } catch { return null; }
+    const op = (t, ...v) => t?.k === 'op' && v.includes(t.v), kw = (t, v) => t?.k === 'kw' && t.v === v, close = new Map(), open = [];
+    toks.forEach((t, i) => { if (op(t, '(', '{')) open.push(i); else if (op(t, ')', '}')) close.set(open.pop(), i); });
+    // toks[a, b), cut where `at` picks a token outside brackets.
+    const cut = (a, b, at) => { const out = []; let s = a; for (let i = a; i < b; i++) { if (close.has(i)) i = close.get(i); else if (at(toks[i])) { out.push([s, i, toks[i]]); s = i + 1; } } return [...out, [s, b]]; };
+    const read = (a, b) => {
+      while (op(toks[a], '(') && close.get(a) === b - 1) { a++; b--; }
+      if (a >= b) return null;
+      const n = { from: toks[a].pos, to: toks[b - 1].end, text: text.slice(toks[a].pos, toks[b - 1].end), at: toks.slice(a, b).some(t => op(t, '@')) };
+      const sub = xs => xs.map(([x, y]) => read(x, y)), f = toks[a].k === 'name' && toks[a].v.toUpperCase();
+      for (const k of ['OR', 'AND']) { const xs = cut(a, b, t => kw(t, k)); if (xs.length > 1) return { ...n, k, kids: sub(xs) }; }
+      if (kw(toks[a], 'NOT')) return { ...n, k: 'NOT', kids: [read(a + 1, b)] };
+      const xs = cut(a, b, t => kw(t, 'IN') || op(t, '=', '<>', '<', '>', '<=', '>='));
+      if (xs.length === 2) return { ...n, k: kw(xs[0][2], 'IN') ? 'IN' : 'CMP', op: xs[0][2].v, kids: sub(xs) };
+      if (op(toks[a + 1], '(') && close.get(a + 1) === b - 1 && ['IF', 'LET', 'ANY', 'FILTER'].includes(f)) return { ...n, k: f, kids: sub(cut(a + 2, b - 1, t => op(t, ','))) };
+      return { ...n, k: 'part' };
+    };
+    return read(0, toks.length - 1);
+  }
+  // A formula asked of the engine at a record, inside the LETs on the way to where it's read: its value, the
+  // records each name read, and where the body asked about starts.
+  function ask(Rv, d, id, lets, body, lead = '=') {
+    const pre = `${lead} ${lets.map(l => `LET(${l.name}, ${l.text}, `).join('')}`;
+    try { const r = Formulas.evaluateRow(Rv, d.id, pre + body + ')'.repeat(lets.length), id); return r && { ...r, at: pre.length }; } catch { return null; }
+  }
+  const either = xs => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}` : xs[0] ?? '';
+  const SOUGHT = '[·]';
+
+  // Why the rows rule a record out. A row gives FALSE where it reaches a condition that fails: what held on the
+  // way there (an IF's condition) is a reason, said first, and what failed follows "but". A row that gives
+  // FALSE itself where its condition holds, IF(c, FALSE), rules the record out because c holds: a reason like
+  // any other, with "so". And the rows before it that would have attested it (← c, or IF(c, TRUE)) gave
+  // nothing because their conditions failed: they follow "but" too. Each is said by what it read: the row's
+  // ground for its own row, and for a row before, the records its names read there.
+  function whyNot(Rv, d, g, id) {
+    const held = [], failed = [], spanned = (ps, n) => ps.filter(p => p.from >= n.from && p.to <= n.to);
+    const truth = (n, lets) => ask(Rv, d, id, lets, n.text, '←')?.value === true;
+    const attests = sk => sk?.k === 'IF' && sk.kids.length === 2 && /^TRUE$/i.test(sk.kids[1]?.text ?? '') ? sk.kids[0] : null;
+    d.rows.forEach((row, i) => {
+      if (i > g.row) return;
+      const sk = skeleton(row.formula), own = i === g.row, cond = own ? sk : Formulas.splitFormula(row.formula).kind === 'implies' ? sk : attests(sk);
+      if (!cond) return;
+      const names = own ? null : Formulas.evaluateRow(Rv, d.id, i, id)?.names ?? [];
+      const within = own ? n => spanned(g.parts, n) : n => spanned(names, n).flatMap(m => m.ids.map(y => ({ id: y })));
+      const no = n => n?.k === 'part' && /^FALSE$/i.test(n.text);
+      // Down to what failed: an IF's branch taken (its condition held, or failed where the other gives FALSE);
+      // a LET's body; AND's part that failed; OR's every part.
+      const walk = (n, lets) => {
+        if (!n || no(n)) return;
+        if (n.k === 'IF') { const [c, t, e] = n.kids; if (truth(c, lets)) { held.push(...leaves(c, lets).map(x => ({ parts: within(x), then: x.k === 'CMP' ? thresholdOf(x.text) : null }))); walk(t, lets); } else walk(no(e) ? c : e, lets); }
+        else if (n.k === 'LET') walk(n.kids.at(-1), [...lets, ...n.kids.slice(0, -1).flatMap((x, k, l) => k % 2 ? [] : [{ name: x.text, text: l[k + 1]?.text }])]);
+        else if (n.k === 'AND') walk(n.kids.find(x => !truth(x, lets)), lets);
+        else if (n.k === 'OR') n.kids.forEach(x => walk(x, lets));
+        else failed.push(...missed(Rv, d, id, n, lets, within));
+      };
+      // What held, by its parts: OR's that held, AND's every one.
+      const leaves = (n, lets) => n.k === 'OR' ? leaves(n.kids.find(x => truth(x, lets)) ?? n.kids[0], lets) : n.k === 'AND' ? n.kids.flatMap(x => leaves(x, lets)) : [n];
+      walk(cond, []);
+    });
+    return { held, failed };
+  }
+
+  // What a failed part read, as reasons are said, with what it wanted beside what it found: "a member, not a
+  // managing member"; "(98.4%, not 100%)". A NOT failed where what it negates held, which is said as it is. A
+  // list that lacked what was sought is said by what came nearest (see nearest).
+  function missed(Rv, d, id, n, lets, within) {
+    if (n.k === 'NOT') return [{ parts: within(n.kids[0]) }];
+    if (n.k === 'ANY' || (n.k === 'IN' && isObj(Rv.records[ask(Rv, d, id, lets, n.kids[0].text)?.value?.id]))) return nearest(Rv, d, id, n, lets);
+    if (n.k !== 'CMP' && n.k !== 'IN') return [{ parts: within(n) }];
+    // The side that read records is what was found; the other, what was wanted.
+    const [x, y] = n.kids, found = within(y).length && !within(x).length ? y : x, wanted = found === x ? y : x, parts = within(found);
+    if (!parts.length) return absent(Rv, d, id, lets, found) ?? [];
+    if (within(wanted).length) return [{ parts: [...parts, ...within(wanted)] }];
+    const v = ask(Rv, d, id, lets, found.text)?.value, w = ask(Rv, d, id, lets, wanted.text)?.value, recs = Rv.records;
+    const pct = /%/.test(wanted.text) || parts.some(p => recs[p.id]?.field === 'percent'), one = parts.length === 1 && !parts[0].items?.length;
+    const said = (n.k === 'IN' || n.op === '=') && v?.t === 'rec' && v.id ? notOf(recs[v.id], w, pct) : null;
+    const op = found === x ? n.op : { '<': '>', '>': '<', '<=': '>=', '>=': '<=' }[n.op] ?? n.op;
+    const miss = { '=': `not ${either([w].flat().map(z => show(z, pct)))}`, IN: `not ${either([w].flat().map(z => show(z, pct)))}`,
+      '>': `${show(w, pct)} or less`, '>=': `less than ${show(w, pct)}`, '<': `${show(w, pct)} or more`, '<=': `more than ${show(w, pct)}` }[n.k === 'IN' ? 'IN' : op];
+    if (said && one) return [{ parts, not: { ids: [v.id], text: said } }];
+    return [{ parts, then: miss && (one ? miss : `${show(v, pct)}, ${miss}`) }];
+  }
+  // What a value isn't, said as the fact says what it is: a role with its article (not a managing member).
+  function notOf(r, w, pct) {
+    const xs = [w].flat().map(z => show(z, pct));
+    return either(r?.args && 'choice' in r ? xs.map(z => `${article(z)} ${lower(z)}`) : xs);
+  }
+
+  // A list that lacked what was sought, said by what came nearest: x IN list, x IN FILTER(list, c), and
+  // ANY(list, c), where c's part @ = x seeks x. Of the list before it was filtered, the items that met its
+  // conditions furthest, each with what it read of the next and what that wanted (he is a member, not a
+  // managing member, of GP III); or where none met the first, that x isn't among the list, or that it has none.
+  function nearest(Rv, d, id, n, lets) {
+    const and = c => !c ? [] : c.k === 'AND' ? c.kids : [c], recs = Rv.records;
+    let x = null, B = n.kids[0], conds = and(n.kids[1]);
+    if (n.k === 'IN') { x = n.kids[0]; B = n.kids[1]; conds = []; if (B.k === 'FILTER') { conds = and(B.kids[1]); B = B.kids[0]; } }
+    else { const k = conds.findIndex(c => c.k === 'CMP' && c.op === '=' && c.kids.some(s => s.text === '@') && c.kids.some(s => !s.at)); if (k >= 0) { x = conds[k].kids.find(s => !s.at); conds = conds.filter((_, i) => i !== k); } }
+    const at = x ? [...lets, { name: SOUGHT, text: x.text }] : lets, all = [...(x ? [{ k: 'CMP', op: '=', text: `@ = ${SOUGHT}` }] : []), ...conds];
+    const filtered = k => `FILTER(${B.text}, ${all.slice(0, k).map(c => `(${c.text})`).join(' AND ')})`;
+    for (let k = all.length - 1; k > 0; k--) {
+      const near = [ask(Rv, d, id, at, filtered(k))?.value ?? []].flat(Infinity).filter(v => v?.t === 'rec' && v.id);
+      if (!near.length) continue;
+      // The next condition at those items: what its side about the item read of it (its status), or else the
+      // item's own place in the list (his membership); and what the other side wanted.
+      const c = all[k], side = c.k === 'CMP' || c.k === 'IN' ? c.kids.find(s => s.at) ?? c : c, other = side !== c ? c.kids.find(s => s !== side) : null;
+      const body = `EACH(${filtered(k)}, ${side.text})`, r = ask(Rv, d, id, at, body), from = (r?.at ?? 0) + body.length - side.text.length - 1;
+      const read = [...new Set((r?.names ?? []).filter(m => m.from >= from && m.to <= from + side.text.length && side.text.slice(m.from - from, m.to - from) !== '@').flatMap(m => m.ids))]
+        .filter(y => recs[y] && !isObj(recs[y]));
+      const ids = read.length ? read : [...new Set(near.map(v => v.link).filter(Boolean))], w = other && !other.at ? ask(Rv, d, id, at, other.text)?.value : undefined;
+      return [{ parts: ids.map(y => ({ id: y })), ...(w !== undefined && (c.k === 'IN' || c.op === '=') && ids.length && { not: { ids, text: notOf(recs[ids.at(-1)], w) } }) }];
+    }
+    const some = [ask(Rv, d, id, lets, B.text)?.value ?? []].flat(Infinity).some(v => v?.t === 'rec' && v.id);
+    return absent(Rv, d, id, at, B, { x: x && ask(Rv, d, id, lets, x.text)?.value?.id, c: !x && some ? all[0] : null }) ?? [];
+  }
+  // A list with none of what was sought, said of whose list it is: x isn't among GP III's general partners;
+  // the signing authority is not evidenced by anything; Fund III-A has no documents, or none with a document
+  // type of Certificate of Limited Partnership.
+  function absent(Rv, d, id, lets, B, { x = null, c = null } = {}) {
+    const m = /^(?:(.*\S)\s*\.\s*)?(?:\[([^\]]+)\]|([A-Za-z_]\w*))$/.exec(B.text.replace(/^COUNT\((.*)\)$/i, '$1').trim());
+    if (!m) return null;
+    const recs = Rv.records, list = m[2] ?? m[3], o = ask(Rv, d, id, lets, m[1] ?? '@')?.value?.id, up = o && Tree.objectOf(recs, o), owner = isObj(recs[up]) ? up : o;
+    if (!recs[owner]) return null;
+    const named = isObj(recs[owner]), p = predicate(list), who = named ? [] : [`the ${lower(N().nameOf(recs, owner))}`];
+    // A list named as a predicate is said with it (is not evidenced by); any other, as what the owner has.
+    let pre, obj = [];
+    if (x && p) [pre, obj] = [[...who, verbal(p, true) + p.prep], [{ name: x }]];
+    else if (x) return [{ clause: { subj: x, pre: [' is not among '], obj: [...(named ? [{ name: owner }, possessive(Rv, owner)] : [`${who[0]}’s`]), ` ${lower(list)}`], post: [] } }];
+    else if (!c) pre = [...who, p ? `${verbal(p, true)}${p.prep}anything` : ` has no ${lower(list)}`];
+    else {
+      const [side, other] = c.kids?.[0]?.at ? c.kids : [...(c.kids ?? [])].reverse(), e = /^@\s*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))$/.exec(side?.text ?? '');
+      const w = e && (c.k === 'IN' || c.op === '=') && !other.at && ask(Rv, d, id, lets, other.text)?.value;
+      if (w === undefined || w === null || w === false || p) return null;
+      const entry = e[1] ?? e[2];
+      pre = [...who, ` has no ${lower(singular(list))} with ${article(entry)} ${lower(entry)} of ${either([w].flat().map(z => show(z)))}`];
+    }
+    return [{ clause: { subj: named ? owner : null, pre, obj, post: [] } }];
+  }
+
   // Words read as a predicate, and how they're said: a noun with "is a" (an investor in), a participle with
   // "is" (is evidenced by), a verb as it is (signs for). Without a preposition, only a verb of one word is one
   // (Concerns), and only where a relation's own name says it.
@@ -408,10 +552,11 @@ const FormulaBar = (() => {
   // An option says the role: is a director of; a role still to choose is "…", as a side still to choose is.
   function phrase(t, a, b, { choice = 'choice' in (t.out ?? {}) ? '…' : null, not = false } = {}) {
     const q = predicateOf(t, a, b), w = choice ? { head: lower(choice), form: 'noun', prep: q.form === 'noun' && !q.flip ? q.prep : ' of ' } : q;
-    const words = w.form === 'noun' ? ` is ${not ? 'not ' : ''}${article(w.head)} ${w.head}` : w.form === 'participle' ? ` is ${not ? 'not ' : ''}${w.head}`
-      : not ? ` does not ${w.head.replace(/s\b/, '')}` : ` ${w.head}`;
-    return w.flip && !choice ? [b, words + w.prep, a] : [a, words + w.prep, b];
+    return w.flip && !choice ? [b, verbal(w, not) + w.prep, a] : [a, verbal(w, not) + w.prep, b];
   }
+  // A predicate's words, or their negation: is (not) a director; is (not) evidenced; signs, does not sign.
+  const verbal = (w, not) => w.form === 'noun' ? ` is ${not ? 'not ' : ''}${article(w.head)} ${w.head}` : w.form === 'participle' ? ` is ${not ? 'not ' : ''}${w.head}`
+    : not ? ` does not ${w.head.replace(/s\b/, '')}` : ` ${w.head}`;
 
   // A record as a clause: whom it's about (an object, possessive or not), what's said of it, and of whom. Its
   // segments are text, a name (an object's id) or a term, the clause's point, italic where a formula gave it.
@@ -477,30 +622,40 @@ const FormulaBar = (() => {
   const asGiven = (r, v) => 'tag' in r ? { ...r, tag: v } : 'choice' in r ? { ...r, choice: v } : { ...r, value: v?.t === 'date' ? v.iso : v };
 
   // A record's reasons as pieces, { join, c: clause, cite?, self? } or { text }: its facts, the one reason
-  // unfolded (if `unfold`) last, then ", so" and what they give with its clause.
+  // unfolded (if `unfold`) last; where the rows rule it out, ", but" and what failed (see whyNot); then ", so"
+  // and what they give with its clause.
   function reasons(Rv, id, clause, unfold, top, would) {
     const g = reasonOf(Rv, id, clause), d = defOfRecord(Rv, id), recs = Rv.records;
     if (!g || !d) return null;
     // What the row reads as @, where that's a value (an entity's Entity Type), is a fact too. A default, a row
     // that reads nothing, gives because the rows before it gave nothing: its facts are what those rows read.
-    const text = d.rows[g.row]?.formula ?? '', groups = new Map(), seen = new Set(), loc = recs[id].at, read = i => Formulas.evaluateRow(Rv, d.id, i, id)?.names ?? [];
+    const text = d.rows[g.row]?.formula ?? '', seen = new Set(), loc = recs[id].at, read = i => Formulas.evaluateRow(Rv, d.id, i, id)?.names ?? [];
     const at = loc && !isObj(recs[loc]) && read(g.row).some(n => text.slice(n.from, n.to) === '@' && n.ids.length === 1 && n.ids[0] === loc) ? [{ id: loc }] : [];
-    const otherwise = !g.parts.length && g.row > 0;
-    const parts = !otherwise ? [...at, ...g.parts] : d.rows.slice(0, g.row).flatMap((_, i) => read(i)).flatMap(x => x.ids.map(y => ({ id: y })));
-    const walk = p => {
-      const r = p.id && recs[p.id];
-      if (r && !isObj(r) && !seen.has(p.id)) {
-        seen.add(p.id);
-        const host = !r.args && recs[r.at]?.args ? r.at : p.id;
-        if (host !== id) {
-          if (!groups.has(host)) groups.set(host, { host, reads: [], p });
-          if (host === p.id) groups.get(host).p = p; else groups.get(host).reads.push(p.id);
+    const no = (would ?? recs[id]).tag === false ? whyNot(Rv, d, g, id) : null, otherwise = !no && !g.parts.length && g.row > 0;
+    const parts = no ? [...at, ...no.held.flatMap(h => h.parts)] : !otherwise ? [...at, ...g.parts] : d.rows.slice(0, g.row).flatMap((_, i) => read(i)).flatMap(x => x.ids.map(y => ({ id: y })));
+    // The records read, each said with the entries read at it, as one fact: a relation with its percentage.
+    const gather = ps => {
+      const groups = new Map(), walk = p => {
+        const r = p.id && recs[p.id];
+        if (r && !isObj(r) && !seen.has(p.id)) {
+          seen.add(p.id);
+          const host = !r.args && recs[r.at]?.args ? r.at : p.id;
+          if (host !== id) {
+            if (!groups.has(host)) groups.set(host, { host, reads: [], p });
+            if (host === p.id) groups.get(host).p = p; else groups.get(host).reads.push(p.id);
+          }
         }
-      }
-      (p.items ?? []).forEach(walk);
+        (p.items ?? []).forEach(walk);
+      };
+      ps.forEach(walk);
+      return [...groups.values()];
     };
-    parts.forEach(walk);
-    const facts = [...groups.values()].map(x => {
+    // What failed is said in full, so a fact it shares with what held is said there.
+    const failed = (no?.failed ?? []).flatMap(f => f.clause ? [{ c: f.clause }] : gather(f.parts).map((x, i, l) => {
+      const c = factOf(Rv, x.host, x.reads);
+      return { c: f.not && [x.host, ...x.reads].some(y => f.not.ids.includes(y)) ? { ...c, not: f.not } : c, then: i === l.length - 1 ? f.then : null };
+    }));
+    const facts = gather(parts).map(x => {
       const cl = clauseOf(Rv, x.host, text, x.p), reason = !!Rv.computed[x.host] && 'tag' in recs[x.host] && !x.reads.length;
       const why = reason && reasonOf(Rv, x.host, cl);
       return { ...x, cl, reason, c: factOf(Rv, x.host, x.reads), cite: why ? citeOf(defOfRecord(Rv, x.host)?.id, why.label) : null };
@@ -515,15 +670,18 @@ const FormulaBar = (() => {
     const more = [...kinds.values()].filter(x => x.n > 3).map(x => `${x.n - 3} more ${x.noun}`);
     const out = shown.map((f, i) => ({ join: !i ? '' : i < shown.length - 1 || more.length || deeper ? ', ' : ' and ', c: f.c, cite: f.cite }));
     // The number compared with follows the fact that carries a number.
-    const t = shown.length && thresholdOf(text), numeric = f => [f.host, ...f.reads].some(x => typeof recs[x].value === 'number');
-    if (t) out[Math.max(0, shown.findLastIndex(numeric))].then = t;
+    const t = shown.length && (no ? no.held.find(h => h.then)?.then : thresholdOf(text)), numeric = f => [f.host, ...f.reads].some(x => typeof recs[x].value === 'number');
+    if (t && (!no || shown.some(numeric))) out[Math.max(0, shown.findLastIndex(numeric))].then = t;
     if (more.length) out.push({ text: ` and ${more.join(' and ')}` });
     if (deeper) out.push({ ...deeper[0], join: !shown.length ? '' : shown.length > 1 ? ', and ' : ' and ' }, ...deeper.slice(1));
+    failed.forEach((f, i) => out.push({ ...f, join: i ? (i < failed.length - 1 ? ', ' : ' and ') : out.length ? ', but ' : '' }));
     out.push({ join: out.length ? ', so ' : '', c: top ? givenOf(Rv, id, would) : factOf(Rv, id), cite: citeOf(d.id, g.label), self: top });
     return out;
   }
+  const possessive = (Rv, id) => /s$/.test(N().shortOf(Rv.records, id)) ? '’' : '’s';
   // The pieces as runs, each clause said after the one before: the same subject again is "it" (a person is
-  // named again), and after "and" isn't said, nor is "is" after a clause that ends at its object.
+  // named again), and after "and" or "but" isn't said, nor is "is" after "and" and a clause that ends at its
+  // object. What a value isn't follows it: is a member, not a managing member, of GP III.
   function sentence(Rv, pieces) {
     const runs = [];
     let prev = null;
@@ -531,13 +689,14 @@ const FormulaBar = (() => {
       if (p.text) { runs.push({ text: p.text }); continue; }
       if (p.join) runs.push({ text: p.join });
       const c = p.c, again = !!c.subj && c.subj === prev?.subj, and = !!p.join && p.join !== ', so ';
-      const of = c.poss ? [/s$/.test(N().shortOf(Rv.records, c.subj)) ? '’' : '’s'] : [];
-      let subj = !c.subj ? [] : again && !isPerson(Rv, c.subj) ? [c.poss ? 'its' : 'it'] : [{ name: c.subj }, ...of], pre = c.pre;
+      let subj = !c.subj ? [] : again && !isPerson(Rv, c.subj) ? [c.poss ? 'its' : 'it'] : [{ name: c.subj }, ...(c.poss ? [possessive(Rv, c.subj)] : [])], pre = c.pre;
       if (again && and && !c.poss && !prev.poss) {
         subj = [];
-        pre = pre[0] === ' is ' && prev.pre[0] === ' is ' && !prev.post.length ? pre.slice(1) : [String(pre[0]).trimStart(), ...pre.slice(1)];
+        pre = pre[0] === ' is ' && prev.pre[0] === ' is ' && !prev.post.length && p.join !== ', but ' ? pre.slice(1) : [String(pre[0]).trimStart(), ...pre.slice(1)];
       }
-      runs.push({ fact: c, self: !!p.self, segs: [...subj, ...pre, ...c.obj, ...c.post].filter(s => s !== '') });
+      const segs = [...subj, ...pre, ...c.obj, ...c.post].filter(s => s !== ''), k = c.not ? segs.findIndex(s => s.term && c.not.ids.includes(s.id)) : -1;
+      if (k >= 0) segs.splice(k + 1, 0, `, not ${c.not.text}${k < segs.length - 1 ? ',' : ''}`);
+      runs.push({ fact: c, self: !!p.self || !c.ids?.length, segs });
       if (p.cite) runs.push({ cite: p.cite });
       if (p.then) runs.push({ text: ` (${p.then})` });
       prev = c;

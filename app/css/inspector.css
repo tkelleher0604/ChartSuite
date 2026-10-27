@@ -175,10 +175,9 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 .row.out > .k { display: flex; align-items: center; height: var(--row); padding: 0; }
 .row.out > .v { padding: 0; }
 .row.out .oname { display: block; margin-top: -4px; padding-bottom: 6px; font: var(--t12); color: var(--ink-3); }
-svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; }
+/* A swatch is the page's own: drawn true, on the page's white, in dark as in light, as a colour chip is. */
+svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; background: var(--page); border-radius: 2px; }
 svg.sw.off { opacity: .35; }
-/* In dark, a swatch is drawn as the page's colours turned to the panel's, as are colour chips' edges. */
-:root[data-theme="dark"] svg.sw { filter: invert(.88) hue-rotate(180deg); }
 :root[data-theme="dark"] i.chip { border-color: var(--ink-3); }
 
 /* A Key's rows, each shown or hidden by its box. */
