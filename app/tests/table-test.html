@@ -249,7 +249,8 @@ async function run() {
   const stop = e => { if (e.target.closest?.('a[download]')) e.preventDefault(); };
   document.addEventListener('click', stop, true);
   const exp = Shell.parts.peek().export.find(x => x.name === 'CSV');
-  exp?.run(); await tick(100);
+  // The file's text is read as the blob gives it, in its own time.
+  exp?.run(); await until(() => csv !== null);
   URL.createObjectURL = make; document.removeEventListener('click', stop, true);
   const lines = (csv ?? '').replace(/^﻿/, '').split(/\r?\n/);
   check('Export offers CSV while a table shows', !!exp);

@@ -112,14 +112,25 @@ function measure(text, t) {
   }
   return w;
 }
-// A corporate suffix keeps to the word before it, joined by a no-break space, which PowerPoint keeps too:
-// "BDC, Inc." and "GP III, LLC", never "Inc." alone on a line; unless the two are wider than the line.
+// A corporate suffix keeps to the word before it, and so does a numeral, roman or arabic, with any "-A" or "-1"
+// it has, each joined by a no-break space, which PowerPoint keeps too: "BDC, Inc.", "Capital GP III, LLC",
+// "Partners III-A, L.P."; never "Inc." or "III" alone at a line's start, unless what they're bound into is
+// wider than the line.
 const SUFFIX = /, (Inc\.|LLC|L\.L\.C\.|L\.P\.|LP|LLP|Ltd\.|Limited|S\.à r\.l\.|S\.A\.|GmbH|mbH|N\.V\.|B\.V\.|plc)(?=$|[\s:;,)])/g;
-const bind = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(/ /g, '\u00a0')}`);
+const NUMERAL = / (?=(?:[IVX]+|\d+)(?:-[A-Z0-9]+)?(?:$|[\s,;:)]))/g;
+const bind = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(/ /g, '\u00a0')}`).replace(NUMERAL, '\u00a0');
+// What's bound, wider than `most`, come apart as little as it must: at its suffix first, then its numeral's
+// binding, and so on. \u2192 its pieces.
+function apart(w, t, most) {
+  if (!w.includes('\u00a0') || measure(w, t) <= most) return [w];
+  const c = w.indexOf(',\u00a0'), i = c >= 0 ? c + 1 : w.indexOf('\u00a0');
+  return [...apart(w.slice(0, i), t, most), ...apart(w.slice(i + 1), t, most)];
+}
 // Text broken into lines no wider than `width`, at spaces where it can be: as few lines as hold it, and,
 // `balanced`, as even as they can be, the least width that keeps them as few, as CSS's text-wrap: balance
-// sets a heading. A word wider than the line is hyphenated where it must be, and that line is `cut`, the text
-// no longer what was typed. Kept, the latest few thousand, as the next scene breaks the same texts again.
+// sets a heading. What's bound wider than the line comes apart (see apart), and the lines are `split`. A word
+// wider than the line is hyphenated where it must be, and that line is `cut`, the text no longer what was
+// typed. Kept, the latest few thousand, as the next scene breaks the same texts again.
 const broken = new Map();
 function breakLines(text, t, width, balanced = true) {
   const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${t.Font}|${width}|${balanced}|${text}`;
@@ -127,14 +138,15 @@ function breakLines(text, t, width, balanced = true) {
   if (!ls) {
     ls = [];
     for (const para of bind(text).split('\n')) {
-      const words = para.split(/ +/).flatMap(w => w.includes('\u00a0') && measure(w, t) > width ? w.split('\u00a0') : [w]);
+      let split = false;
+      const words = para.split(/ +/).flatMap(w => { const ps = apart(w, t, width); split ||= ps.length > 1; return ps; });
       let some = fill(words, t, width);
       if (balanced && some.length > 1 && !some.some(l => l.cut)) {
         let lo = Math.max(...words.map(w => measure(w, t))), hi = width;
         while (hi - lo > 0.5) { const mid = (lo + hi) / 2; if (fill(words, t, mid).length > some.length) lo = mid; else hi = mid; }
         some = fill(words, t, hi);
       }
-      ls.push(...some.map(l => ({ ...l, w: measure(l.text, t) })));
+      ls.push(...some.map(l => ({ ...l, w: measure(l.text, t), ...(split && { split }) })));
     }
     if (broken.size > 4000) broken.clear();
     broken.set(k, ls);
@@ -185,74 +197,134 @@ function snap(it, s) {
   for (const l of it.lines) l.w = measure(l.text, it.look);
 }
 
-// A triangle's text, set at its base: each line no wider than the triangle is at the line's top, less a
-// little either side, the sides opening out below it. Of the ways to break it, the one that needs the
-// shortest triangle, or one with fewer lines that's no more than a line taller; a triangle whose width nobody
-// entered widens, by half at most, before its text takes more than four lines.
-// → { w, h, width, lines: [lines of each text] }, h the least height that holds it, at least half the width,
-// and width what its lines are broken to. Kept by what it reads, the latest few thousand, as the next scene
-// sets the same triangles again.
+// A triangle's text, set at its base, bottom up: each line as wide as the triangle is at the line's top, less a
+// little either side, and holding as many of the words still to set, from the last, as fit it; so the widest
+// lines are the lowest, and a taller triangle takes the fewest lines it can. Its height, the least that holds the
+// text so, found by halving, or the least that holds it in the fewest lines no more than a line taller than
+// that. A word wider than three quarters of the base is hyphenated, and its lines are `cut`; what's bound wider
+// than that comes apart first, and where its pieces take lines of their own, they're `split`. The triangle widens as a box does (see size): up to
+// `wide.lines` while its text takes more than four lines or is split, and up to `wide.tall` while it's taller
+// than nine tenths its width. → { w, h, lines: [lines of each text] }.
+// Kept by what it reads, the latest few thousand, as the next scene sets the same triangles again.
 const pyramids = new Map();
-function pyramid(texts, w, widen) {
-  const k = JSON.stringify([w, widen, texts.map(it => [it.text, it.was, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic])]);
+function pyramid(texts, w, wide) {
+  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.was, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic])]);
   let p = pyramids.get(k);
   if (!p) {
-    p = fitPyramid(texts, w, widen);
+    p = fitPyramid(texts, w, wide);
     if (pyramids.size > 4000) pyramids.clear();
     pyramids.set(k, p);
   }
   return { ...p, lines: p.lines.map(ls => ls.map(l => ({ ...l }))) };
 }
-function fitPyramid(texts, w, widen) {
-  const most = widen ? w * 1.5 : w;
+function fitPyramid(texts, w, wide) {
+  const step = lineHeight(texts[0]?.look ?? TEXT);
   for (;;) {
-    // No narrower than its longest word, leaving out a word wider than three quarters of the base, which is
-    // hyphenated wherever the lines break.
-    const word = Math.max(32, ...texts.flatMap(it => bind(it.text ?? '').split(/ +/).map(s => measure(s, it.look))).filter(x => x <= w * 0.75 - 2 * INSET));
-    const ways = [];
-    for (let f = 0.94; f > 0.3; f -= 0.04) {
-      const a = w * f - 2 * INSET;
-      if (a < word && ways.length) break;
-      const lines = texts.map(it => linesOf(it, Math.max(word, a)));
-      const rows = texts.flatMap((it, i) => lines[i].map(l => ({ w: l.w, lh: lineHeight(it.look) })));
-      // A line's top sits D above the base; there the triangle is w (h − D) / h wide.
-      let h = w * 0.5, d = BASE;
-      for (let i = rows.length - 1; i >= 0; i--) {
-        d += rows[i].lh;
-        const q = (rows[i].w + 2 * PAD) / w;
-        h = Math.max(h, d / (1 - Math.min(q, 0.94)));
-      }
-      ways.push({ h, lines, n: rows.length, width: Math.max(word, a) });
-    }
-    // The shortest, or one with fewer lines no more than a line taller.
-    const least = Math.min(...ways.map(c => c.h)), step = lineHeight(texts[0]?.look ?? TEXT);
-    const best = ways.filter(c => c.h <= least + step).sort((p, q) => p.n - q.n || p.h - q.h)[0];
-    if (w >= most || (best.n <= 4 && best.h <= w * 0.9)) return { w, h: Math.ceil(best.h), width: best.width, lines: best.lines };
-    w = Math.min(most, w + 12);
+    // The least height that holds the text in no more than `n` lines (any, where n is Infinity), by halving.
+    const least = (n = Infinity, lo = w * 0.5) => {
+      const fits = h => { const ls = shaped(texts, w, h); return ls && ls.flat().length <= n; };
+      let hi = w * 40;
+      if (fits(lo)) return lo;
+      while (hi - lo > 0.5) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
+      return hi;
+    };
+    // The shortest, or the fewest lines no more than a line taller than that.
+    const h0 = least(), n = shaped(texts, w, h0 + step).flat().length, h = least(n, h0), lines = shaped(texts, w, h);
+    const cap = Math.max((n > 4 || lines.flat().some(l => l.split)) && w < wide.lines ? wide.lines : 0, h > w * 0.9 && w < wide.tall ? wide.tall : 0);
+    if (!cap) return { w, h: Math.ceil(h), lines };
+    w = Math.min(cap, w + 12);
   }
+}
+// A triangle w wide and h tall's texts set bottom up (see pyramid), each paragraph on lines of its own, a
+// redline's struck lines over what it would say. → each text's lines, or null where they don't fit.
+function shaped(texts, w, h) {
+  const out = texts.map(() => []);
+  let d = BASE;
+  for (let i = texts.length - 1; i >= 0; i--) {
+    const it = texts[i], t = it.look, lh = lineHeight(t), most = w * 0.75 - 2 * INSET;
+    const paras = (it.was !== undefined && it.was !== it.text ? [[it.was, 'go'], ...(it.text ? [[it.text, 'appear']] : [])] : it.text ? [[it.text]] : [])
+      .flatMap(([text, red]) => bind(text).split('\n').map(p => ({ red, words: units(p, t, most) })));
+    for (let p = paras.length - 1; p >= 0; p--) {
+      const { words, red } = paras[p], m = words.length, room = k => w * (h - d - (k + 1) * lh) / h - 2 * PAD;
+      const said = (a, b) => words.slice(a, b).map(x => x.text).join(' ');
+      // As few lines as hold the paragraph, filled bottom up; then, of the ways to set it in so many, the one
+      // whose lines come nearest the triangle's sides, each as full of its room as the rest, and a line begun
+      // with what's bound to the line above, `split`, only where nothing else holds it.
+      let n = 0;
+      for (let k = m; k > 0; n++) {
+        let j = k - 1;
+        if (measure(words[j].text, t) > room(n)) return null;
+        while (j > 0 && !words[j - 1].cut && measure(said(j - 1, k), t) <= room(n)) j--;
+        k = j;
+      }
+      // best[k][a]: the least cost of setting words a… in the bottom k lines, and where the topmost of them ends.
+      const best = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(null));
+      best[0][m] = { cost: 0 };
+      for (let k = 1; k <= n; k++) for (let a = 0; a < m; a++) for (let b = a + 1; b <= m; b++) {
+        if (words.slice(a, b - 1).some(x => x.cut) || !best[k - 1][b]) continue;
+        const width = measure(said(a, b), t), r = room(k - 1);
+        if (width > r) break;
+        const cost = best[k - 1][b].cost + (1 - width / r) ** 2 + (words[a].bound ? n : 0);
+        if (!best[k][a] || cost < best[k][a].cost) best[k][a] = { cost, end: b };
+      }
+      if (!best[n][0]) return null;
+      const lines = [];
+      for (let k = n, a = 0; k > 0; k--) {
+        const b = best[k][a].end, text = said(a, b);
+        lines.push({ text, w: measure(text, t), ...(words[a].bound && { split: true }), ...(words[b - 1].cut && { cut: true }), ...(red && { red }) });
+        a = b;
+      }
+      out[i].unshift(...lines);
+      d += n * lh;
+    }
+  }
+  return out;
+}
+// A paragraph's words for a triangle, each no wider than `most`: what's bound wider comes apart (see apart),
+// each piece after the first `bound` to the one before; a word still wider is hyphenated, each piece but the
+// last `cut`.
+function units(para, t, most) {
+  const out = [];
+  for (const word of para.split(/ +/).filter(Boolean)) apart(word, t, most).forEach((w, k) => {
+    if (measure(w, t) <= most) return out.push({ text: w, bound: k > 0 });
+    fill([w], t, most).forEach((l, j, ls) => out.push({ text: l.text, bound: k > 0 && j === 0, cut: j < ls.length - 1 }));
+  });
+  return out;
 }
 
 // A box's size: its width entered or its shape's own, `squeeze` times that on a paper narrower than its page,
 // and as tall as its text needs, every line of it, broken to fit the shape where it sits (at a triangle's
-// base, inside an oval). A box whose width nobody entered widens, by half at most, before its text takes more
-// than four lines. Triangles of one width are one size, the tallest any of them needs (see level).
-function size(b, squeeze) {
-  const shape = b.settings.Shape.value, own = b.pos?.w, base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box']) * squeeze;
-  let w = base, h;
+// base, inside an oval). It widens before it grows tall: while its text takes more than four lines or a suffix
+// comes off its word, by half at most where nobody sized it, and back to its size where its size is entered,
+// on another paper; and while it's taller than it's wide (a triangle, than nine tenths of it), to twice its
+// width at most, so that a long name never shrinks the whole chart. Triangles of one width are one size, the
+// tallest any of them needs (see level).
+function size(b, squeeze, at = null, grow = 1) {
+  const shape = b.settings.Shape.value, own = b.pos?.w, base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box'] * grow) * squeeze;
+  const wide = { lines: own ?? base * 1.5, tall: base * 2 };
+  let w = at ?? base, h;
   if (shape === 'triangle') {
-    const fit = pyramid(b.texts, w, !own);
+    const fit = pyramid(b.texts, w, wide);
     b.texts.forEach((it, i) => { it.lines = fit.lines[i]; });
     ({ w, h } = fit);
-    b.column = { x: (w - fit.width) / 2, width: fit.width };
   } else {
-    const lay = () => { const avail = Math.max(32, w * (TEXT_AREA[shape] ?? 1) - 2 * INSET); for (const it of b.texts) it.lines = linesOf(it, avail); return b.texts.reduce((n, it) => n + it.lines.length, 0); };
-    for (let n = lay(); !own && n > 4 && w < base * 1.5; n = lay()) w = Math.min(base * 1.5, w + 12);
-    const tb = blockHeight(b.texts.filter(it => it.lines.length));
-    h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
+    const lay = () => {
+      const avail = Math.max(32, w * (TEXT_AREA[shape] ?? 1) - 2 * INSET);
+      for (const it of b.texts) it.lines = linesOf(it, avail);
+      const tb = blockHeight(b.texts.filter(it => it.lines.length));
+      h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
+      // How far it's to widen yet: none, or to a cap.
+      const lines = (b.texts.reduce((n, it) => n + it.lines.length, 0) > 4 || b.texts.some(it => it.lines.some(l => l.split))) && w < wide.lines;
+      return Math.max(lines ? wide.lines : 0, h > w && w < wide.tall ? wide.tall : 0);
+    };
+    for (let cap; (cap = lay());) w = Math.min(cap, w + 12);
   }
   b.texts = b.texts.filter(it => it.lines.length);
-  Object.assign(b, { w, h: Math.max(h, b.pos?.h ?? 0), shape });
+  Object.assign(b, { w, h: Math.max(h, b.pos?.h ?? 0), shape, base });
+  if (shape === 'triangle') b.column = columnOf(b);
 }
+// A triangle's column, where its lines are set, centred: its base, less a little either side.
+const columnOf = b => ({ x: PAD, width: b.w - 2 * PAD });
 
 // What a record says as a line of text: a value as it reads, an option, a tag by its label.
 function textOf(r, format, name) {
@@ -468,16 +540,21 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (host?.texts) host.texts.push(textItem(m, host));
   }
   for (const b of boxes) b.texts = gather(b.texts);
+  // The key is of what the view draws: what's revealed for a while doesn't change it.
+  const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
-  // has none, as what reveals it names it.
+  // has none, as what reveals it names it. A line that says its relation's name says it as the Key does, its
+  // row's caption, so one relation is spelled one way on the page.
+  const captioned = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.caption])));
+  const keyedBy = l => KEYED.line.map(k => l.settings[k].note).find(n => n && captioned.has(key(n.pattern)));
   for (const l of lines) {
-    const r = state[l.record], t = tree(l.record);
+    const r = state[l.record], t = tree(l.record), text = lineText(r, l.settings.Format.value, N.name(t)), keyed = isTag(r) && r.tag && text && keyedBy(l);
     [l.from, l.to] = endsOf(l.record, l.ends);
     l.ranks = l.settings.Above.value !== 'none';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
-      text: lineText(r, l.settings.Format.value, N.name(t)), computed: l.computed, redline: l.redline };
+      text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed, redline: l.redline };
     l.texts = l.revealed ? [] : [own, ...l.texts].filter(it => it.text);
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
     labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r));
@@ -550,8 +627,6 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
   if (last) for (const [id, p] of positions) positions.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y });
-  // The key is of what the view draws: what's revealed for a while doesn't change it.
-  const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
   // Boxes a style fills alike, one row of the Key, are a class: peers the layout sets in one tier where it can.
   // Where the Key has fewer than two such rows, the fill tells nothing apart, and nothing is.
@@ -565,9 +640,14 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const keyRow = shapeRows.find(r => r.geometry === 'legend' && placedBy(r));
   if (keyRow) { const k = freeShape(keyRow, ''); layoutLegend(k, legendRows); room.key = { w: k.w, h: k.h }; }
   let heights = null;
-  const lay = squeeze => {
-    for (const b of boxes) size(b, squeeze);
-    for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => Math.round(b.w)).values()) level(ts);
+  const lay = (squeeze, grow = 1) => {
+    for (const b of boxes) size(b, squeeze, null, grow);
+    // Triangles of one width widened as the widest of them is, but for one that stands alone (see level).
+    for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => alone(b) ? b.id : Math.round(b.base)).values()) {
+      const w = Math.max(...ts.map(b => b.w));
+      for (const b of ts) if (b.w < w) size(b, squeeze, w, grow);
+      level(ts);
+    }
     const placed = Layout.arrange({
       keep: last?.at ?? null,
       boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
@@ -578,6 +658,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
       entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
+    spread(boxes);
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level).
     for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) level(rank);
     push(boxes, frames, lines.filter(l => l.ranks));
@@ -586,7 +667,17 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (last) still(last, boxes, lines, frames);
     return furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy });
   };
-  let at = lay(1);
+  let at = lay(1), grow = 1;
+  // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
+  // where the chart is tall for its page, its names then take fewer lines.
+  if (!last && boxes.some(b => !b.pos?.w)) {
+    let tried = 1;
+    for (const g of [7 / 6, 4 / 3]) {
+      const next = lay(1, tried = g);
+      if (next.s > at.s) [at, grow] = [next, g];
+    }
+    if (tried !== grow) at = lay(1, grow);
+  }
   heights = new Map(boxes.map(b => [b.id, b.h]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at.
@@ -595,10 +686,10 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
       if (at.s >= target) break;
-      const next = lay(tried = f);
+      const next = lay(tried = f, grow);
       if (next.s > at.s) [at, best] = [next, f];
     }
-    if (tried !== best) at = lay(best);
+    if (tried !== best) at = lay(best, grow);
   }
   const s = at.s;
   // The chart sits on its page where the page puts it, by its `offset`, which a place written from the page
@@ -659,7 +750,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     ...boxes.sort((a, b) => layer(a) - layer(b)),
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
-  for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; if (m.type !== 'shape') delete m.ends; }
+  for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; if (m.type !== 'shape') delete m.ends; }
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
   if (!preview && !opts.ahead) drawnFrom.set(whence, { from, scene, laid });
   return scene;
@@ -672,10 +763,28 @@ function shapeOf(row, scene) {
 }
 
 // Boxes that go together share a height, the tallest of them; but a box whose text had to be hyphenated, or
-// whose name runs past six lines, doesn't set it, and stands taller alone rather than stretch the rest.
+// whose name runs past six lines, doesn't set it, and stands taller alone rather than stretch the rest. A
+// triangle set taller than its own text needs is set again for the height it has (see pyramid), in the fewest
+// lines.
+const alone = b => b.texts.some(it => it.lines.some(l => l.cut)) || b.texts[0]?.lines.length > 6;
 function level(ms) {
-  const h = Math.max(0, ...ms.filter(b => !b.texts.some(it => it.lines.some(l => l.cut)) && !(b.texts[0]?.lines.length > 6)).map(b => b.h));
-  for (const b of ms) if (b.h < h) b.h = h;
+  const h = Math.max(0, ...ms.filter(b => !alone(b)).map(b => b.h));
+  for (const b of ms) {
+    if (b.h >= h) continue;
+    b.h = h;
+    if (b.shape !== 'triangle') continue;
+    const lines = shaped(b.texts, b.w, h);
+    if (lines) { b.texts.forEach((it, i) => { it.lines = lines[i]; }); b.column = columnOf(b); }
+  }
+}
+// Where a box has grown wider over one beside it, that one moves aside, 16 pt clear, and each beyond it as far as
+// that makes it.
+function spread(boxes) {
+  const done = [];
+  for (const b of [...boxes].sort((a, c) => a.x - c.x)) {
+    for (let moved = true; moved;) { moved = false; for (const a of done) if (a.y < b.y + b.h && b.y < a.y + a.h && b.x < a.x + a.w && b.x >= a.x) { b.x = a.x + a.w + 21; moved = true; } }
+    done.push(b);
+  }
 }
 // Where a box has grown into the rank below it, the rank moves down as far as it must, and each rank under it
 // as far as that makes it: ranks stay level, 12 pt under the tallest box over them, or 30 pt where a line runs
