@@ -100,24 +100,24 @@ async function run() {
   await tick(300);
   const main = charts()[0];
 
-  // ---- The opening frame: the whole page where it fits at 60% or more; else 60% from its top left ----
+  // ---- The opening frame: the whole page, as PowerPoint opens a slide, at every size ----
   // Each view is opened from another at each size, so it's framed for that size as it opens, whether or
   // not this browser lays the window out again before the next check.
+  const whole = () => { const { a, b, W, H } = onScreen(); return a.x >= -0.5 && a.y >= -0.5 && b.x <= W + 0.5 && b.y <= H + 0.5; };
   for (const [w, h] of [[1024, 768], [1280, 800], [1440, 900], [1920, 1080]]) {
     await size(w, h);
     const bad = [], order = charts();
     if (order[0].id === Shell.view.peek()) order.push(order.shift());
     for (const v of order) {
       await show(v);
-      // (60%, or the page's own scale where that's smaller, so a page is never opened larger than its sheet.)
-      const { a, b, W, H, z } = onScreen(), fits = b.x <= W + 0.5 && b.y <= H + 0.5, least = Math.min(0.6, sc().page.scale);
-      if (a.x < -0.5 || a.y < -0.5 || z < least - 1e-6 || (!fits && z > least + 1e-6)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);
+      // (Within a margin of 28 px at most, across or down.)
+      const { a, b, W, H, z } = onScreen();
+      if (!whole() || (W - (b.x - a.x) > 57 && H - (b.y - a.y) > 57)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);
     }
-    check(`at ${w}×${h} every view opens on its whole page, or at 60% from its top left`, !bad.length, bad.join('; '));
+    check(`at ${w}×${h} every view opens on its whole page, as large as fits`, !bad.length, bad.join('; '));
   }
   await size(1440, 900);
   await show(main);
-  const whole = () => { const { a, b, W, H } = onScreen(); return a.x >= -0.5 && a.y >= -0.5 && b.x <= W + 0.5 && b.y <= H + 0.5; };
   cv().zoom('fit'); await tick(120);
   check('Fit shows the whole page', whole());
   const pageWas = sc().page.h;
@@ -142,8 +142,10 @@ async function run() {
   check('its menu offers the selection, then each group that reaches it, as the Key says it, with its reach', items[0] === 'This box' && items.slice(1).every(t => /^\S.* \(\d+\)$/.test(t) && !t.startsWith('All '))
     && items.includes('Portfolio companies (4)'), menu.join(' | '));
   const pcHead = menu.slice(0, menu.indexOf('Portfolio companies (4)')).filter(t => heads.includes(t)).at(-1);
-  check('… each under its style’s name, and a style named as its one group (Name) is that row alone, ahead of the heads', !!pcHead && pcHead !== 'Portfolio companies'
-    && items.includes('Name (24)') && !heads.includes('Name') && menu.indexOf('Name (24)') < menu.indexOf(heads[0]), menu.join(' | '));
+  const seps = $$('.float .menu-sep, .float .menu-head, .float .menu-item').map(e => e.classList.contains('menu-sep') ? '-' : txt(e));
+  check('… each under its style’s name, and a style named as its one group (Name) is that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
+    && items.includes('Name (24)') && !heads.includes('Name') && menu.indexOf('Name (24)') > menu.indexOf(heads.at(-1))
+    && seps.slice(0, seps.indexOf('Name (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
   await closeMenus();
   // The groups are the Key's: a style's outputs that look alike are one group, Funds, its reach every box of them.
   Shell.select(['fund']); await tick(120);
@@ -165,6 +167,15 @@ async function run() {
   check('choosing a group names it on the chip', chip() === 'Portfolio companies (4)', chip());
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
+  const kept = txt($$('.toast').at(-1)), np = App.notes.peek().nameOf(App.state.peek(), 'northpine'), groupSaid = Time.describe(App.wb.changes().at(-1));
+  check('… which says at once, by the group, that the one keeps its own', kept.startsWith(`Changed Fill for Portfolio companies; ${np} keeps its own`), kept);
+  check('… and History names the change by the group, as the Key does', groupSaid === `Changed Fill for Portfolio companies in ${main.name}`, groupSaid);
+  $('[data-fb="scope"]').click(); await tick(120);
+  const clearIt = $$('.float .menu-item').find(e => txt(e).startsWith('Clear '));
+  check('… and the scope’s menu offers to clear what the one keeps', txt(clearIt) === `Clear ${np}’s own Fill`, menuItems().join(' | '));
+  clearIt?.click(); await tick(120);
+  check('… which gives it the group’s fill', fills().northpine === '#e2f0d9' && txt($$('.toast').at(-1)).startsWith(`Cleared ${np}’s own Fill`), `${fills().northpine} ${txt($$('.toast').at(-1))}`);
+  await closeMenus();
   Shell.select(['halvard']); await tick(120);
   check('another selection is formatted as itself again', chip() === 'This box', chip());
 
@@ -346,9 +357,56 @@ async function run() {
   tidyBtn.click(); await tick(200);
   const tidyToast = txt($$('.toast').at(-1)), { a: ta, z: tz } = onScreen(), said = Time.describe(App.wb.changes().at(-1));
   check('Tidy is one change, “Tidied the layout” in its toast and History, and the view is framed on its page again', tidyToast.startsWith('Tidied the layout') && said === 'Tidied the layout'
-    && App.wb.changes().length === made + 1 && sc() === base() && (whole() || (Math.abs(tz - Math.min(0.6, sc().page.scale)) < 1e-6 && ta.x > -0.5 && ta.y > -0.5)), `${tidyToast} | ${said} | ${tz}`);
+    && App.wb.changes().length === made + 1 && sc() === base() && whole(), `${tidyToast} | ${said} | ${tz}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   check('… and Undo says so too', txt($$('.toast').at(-1)).startsWith('Undid: Tidied the layout'), txt($$('.toast').at(-1)));
+
+  // ---- What's selected from elsewhere (Find, F8, the status bar) is brought on screen at the zoom the view
+  // is at, as Excel's Go To scrolls; a reason the formula bar steps down to is too, and nothing is zoomed ----
+  const inView = id => { const m = sc().byId.get(id), a = g.localToGraph(m.x, m.y), b = g.localToGraph(m.x + m.w, m.y + m.h); return a.x >= 0 && a.y >= 0 && b.x <= cv().root.clientWidth && b.y <= cv().root.clientHeight; };
+  const offScreen = () => sc().marks.find(m => m.type === 'box' && !inView(m.id) && !Shell.selection.peek().includes(m.id));
+  Shell.select([]); cv().zoom(1); await tick(120);
+  const far = offScreen();
+  Shell.select([far?.id]); await tick(120);
+  check('a box selected from elsewhere is brought on screen, at the zoom the view is at', !!far && inView(far.id) && Math.abs(g.zoom() - 1) < 1e-6, `${far?.id} at ${g.zoom()}`);
+  const farther = offScreen();
+  Shell.parts.peek().canvas.zoomTo([farther?.record]); await tick(120);
+  check('… and a reason the formula bar steps down to is brought on screen, never zoomed to', !!farther && inView(farther.id) && Math.abs(g.zoom() - 1) < 1e-6, `${farther?.id} at ${g.zoom()}`);
+  // Okafor's signing for Fund III, via GP III, which this view draws no line for: its three boxes.
+  g.translate(3000, 3000); await tick(60);
+  Shell.select(['sign_okfr_fund']); await tick(120);
+  check('… and a relation the view draws nowhere, by its sides', ['okafor', 'gp', 'fund'].every(inView), ['okafor', 'gp', 'fund'].map(id => `${id} ${inView(id)}`).join(', '));
+  cv().zoom('fit'); await tick(120);
+
+  // ---- A Key or a frame inserted where the page has no room goes under what's drawn, and the page grows
+  // to hold it ----
+  Shell.select([]); await tick(60);
+  const heightWas = sc().page.h, inserted = ['legend', 'frame'].map(gm => { const id = cv().insert(gm), r = App.shown.peek().item(App.chart.peek(), id)[0]; return { gm, id, x: r?.x, y: r?.y }; });
+  await tick(150);
+  const newKey = sc().byId.get(inserted[0].id);
+  check('a Key or a frame inserted on a full page lands under the chart, the page grows to hold it, and it’s brought on screen', inserted.every(r => Number.isFinite(r.x) && Number.isFinite(r.y))
+    && sc().page.h > heightWas && inView(inserted[1].id), JSON.stringify(inserted));
+  check('… a Key at the size its captions need on the sheet, as the page’s own is, however small the chart is drawn for it', newKey.h * sc().page.scale < 200 && sc().page.scale >= 0.4,
+    `${Math.round(newKey.w)}×${Math.round(newKey.h)} at ${sc().page.scale}`);
+  for (let i = 0; i < 2; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
+
+  // ---- A box moved past the page's edge stays where it was put on screen as the page grows round it ----
+  cv().zoom('fit'); await tick(120);
+  Shell.select(['halvard']); await tick(80);
+  const hv = () => sc().byId.get('halvard'), at0 = g.localToGraph(hv().x, hv().y), z0h = g.zoom(), size0 = `${sc().page.w}×${sc().page.h}`;
+  cv().nudge(0, 300); await tick(150);
+  const at1 = g.localToGraph(hv().x, hv().y);
+  check('a box moved past the page’s edge stays where it was put on screen, though the page grows', `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === z0h
+    && Math.abs(at1.x - at0.x) < 0.5 && Math.abs(at1.y - at0.y - 300 * z0h) < 0.5, `${size0} → ${sc().page.w}×${sc().page.h}; moved ${(at1.x - at0.x).toFixed(1)}, ${((at1.y - at0.y) / z0h).toFixed(1)}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  cv().zoom('fit'); await tick(120);
+
+  // ---- A popover opens with the focus on the value the setting has ----
+  Shell.select([line.id]); await tick(120);
+  $('[data-fb="line"]').click(); await tick(150);
+  const focused = document.activeElement;
+  check('the Line popover opens with the focus on the weight the line has', focused?.getAttribute('aria-pressed') === 'true' && focused.closest('.seg') === $('.float .seg'), `${focused?.outerHTML.slice(0, 80)}`);
+  await closeMenus();
 
   // ---- A page drawn very small (as a chart of hundreds of boxes is) opens whole, not at 60% on its blank
   // margin or its title many times its size ----

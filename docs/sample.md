@@ -8,11 +8,11 @@ The workbook a first launch opens is Calder Ridge, a fictional private fund mana
 - 17 entities: the funds (Fund III, the parallel Fund III-A, the Cayman feeder, AIV-1 and the Corvane co-invest), the GPs, the manager, the sponsor holding company, two blockers, three portfolio companies, and a BDC the manager advises.
 - 7 people, and 5 investor groups.
 - 2 service providers.
-- 47 documents.
+- 55 documents, among them the formation document and governing agreement of each Calder Ridge entity.
 
 **Relations:** ownership (economic and voting percentages), general partners, membership (managing member or member), positions, signing authority (with capacity and evidence), investment adviser, registered agents, and what each document concerns.
 
-Opened as of today, the chart has 885 entered records. The definitions work out 584 more, for 1,469 in all:
+Opened as of today, the chart has 942 entered records. The definitions work out 584 more, for 1,526 in all:
 - **Control** (51) and **Affiliated Person** (289) under §2(a)(9) and §2(a)(3), with the statute's words beside each clause.
 - The BDC's **Close Affiliates** (21) and its one **Remote Affiliate**, under §57.
 - **Look-Through Ownership** (51), and whether **Ownership Adds Up**.
@@ -25,7 +25,7 @@ Opened as of today, the chart has 885 entered records. The definitions work out 
   - the Cayman annual return and fee, audited accounts, CRS and FATCA.
 
   Each moves to the business day before a weekend where the rule says "on or before".
-- **Checks**, definitions whose every ruled-out record is a problem: formation documents and governing agreements on file, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag twelve: David R. Okafor's four signing authorities through GP III, which he doesn't manage, and eight formation documents and governing agreements not on file.
+- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each Calder Ridge entity, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage.
 
 ## Views
 
@@ -48,4 +48,4 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page.
 
 ## How it's kept
 
-The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, and the people's addresses. So every change in History is one of the three people's, and the chart as it stood after each works out as it did. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).
+The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, and the people's addresses. The formation documents and governing agreements it lacked are filed with the documents of their time. So every change in History is one of the three people's, made in working hours, and the chart as it stood after each works out as it did, with those documents on file. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).
