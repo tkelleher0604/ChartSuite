@@ -755,7 +755,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   // No route runs through a box it doesn't end at, or through a frame's caption: one that would is found again
   // around what's drawn (see around), from where it leaves its box to where it meets the other, as it would
   // have, or else, `astray`, from and to any side; crossing the other lines rather than running along them;
-  // 6 pt clear, or 2 pt where the gaps are narrower. One with no way at all is `blocked`.
+  // 9 pt clear of the boxes, or 2 pt where the gaps are narrower. One with no way at all is `blocked`.
   const solid = [...geo.values()].filter(g => g.shape !== 'frame'), nearSolid = grid(solid), nearAvoid = grid(avoid);
   const near = { boxes: r => nearSolid.near(r), avoid: r => nearAvoid.near(r) };
   const legsOf = l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p]);
@@ -767,7 +767,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
     const ps = l.points, n = ps.length, first = port(ps[1], ps[0], ps[0]), last = port(ps[n - 2], ps[n - 1], ps[n - 1]);
     const segs = lines.filter(o => o !== l).flatMap(legsOf), clear = way => way && !blockedRoute(way, new Set([l.from, l.to]), solid, avoid, near);
     let way = null, astray = false;
-    for (const [pad, own] of [[8, true], [2.7, true], [8, false], [2.7, false]]) {
+    for (const [pad, own] of [[12, true], [2.7, true], [8, false], [2.7, false]]) {
       const w = around(geo, l.from, l.to, { avoid, segs, pad, ports: own ? { from: [first(pad)], to: [last(pad)] } : null });
       if (clear(w)) { way = w; astray = !own; break; }
     }
@@ -948,7 +948,7 @@ function runs(segs) {
 // through a box: square, from the side of its box that faces the other to the side of the other that faces it
 // (or from and to the `ports` given, { from, to }, each { at, out, dir }: where it meets its box, a step out,
 // and the way out, 0 up, 1 right, 2 down, 3 left), `pad` (6 pt) clear of every other box and of what `avoid`
-// holds (labels and captions), crossing the lines already drawn (`segs`) rather than running along them, with
+// holds (labels and captions), crossing the lines already drawn (`segs`) rather than running along them or close beside them, with
 // as few turns as it can, on the page (`page`, { w, h, margin }) where one is given. Found on the grid of the
 // places where something drawn begins or ends, and the gutters halfway between, as an orthogonal connector
 // router searches it, within 120 pt of the two boxes, or failing that 360. → its points, or null where there's
@@ -956,7 +956,7 @@ function runs(segs) {
 function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160, pad = 8, ports: given = null } = {}) {
   const s = geo.get(from), t = geo.get(to);
   if (!s || !t || s === t) return null;
-  const C = pad, BEND = 24, ALONG = 4, CROSS = 6, m = page ? page.margin / 2 : -Infinity;
+  const C = pad, BEND = 24, ALONG = 4, NEAR = 16, CROSS = 6, m = page ? page.margin / 2 : -Infinity;
   const reach = { x: Math.max(m, Math.min(s.x, t.x) - far), y: Math.max(m, Math.min(s.y, t.y) - far),
     r: Math.min(page ? page.w - m : Infinity, Math.max(s.x + s.w, t.x + t.w) + far), d: Math.min(page ? page.h - m : Infinity, Math.max(s.y + s.h, t.y + t.h) + far) };
   const walls = [...[...geo.values()].filter(g => g.shape !== 'frame'), ...avoid]
@@ -976,17 +976,17 @@ function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160, 
   const xs = coords(0, [...starts, ...ends].map(p => p.out[0])), ys = coords(1, [...starts, ...ends].map(p => p.out[1]));
   if (xs.length * ys.length > 40000 || !starts.length || !ends.length) return null;
   const X = new Map(xs.map((v, i) => [v, i])), Y = new Map(ys.map((v, i) => [v, i])), node = (i, j) => i * ys.length + j;
-  // What a step costs beyond its length: running along a line drawn, or across one. The lines drawn are looked
+  // What a step costs beyond its length: running along a line drawn, or within 12 pt of one beside it, or across one. The lines drawn are looked
   // up by where they run (see runs), each once for each step of the grid, and counted in the order given.
   const { byLevel, byUpright } = runs(segs);
   const toll = (x0, y0, x1, y1) => {
     let c = 0;
     const [lo, hi] = x0 === x1 ? [Math.min(y0, y1), Math.max(y0, y1)] : [Math.min(x0, x1), Math.max(x0, x1)];
-    for (const [a, b] of (x0 === x1 ? byUpright : byLevel)(x0 === x1 ? x0 : y0, 3)) {
+    for (const [a, b] of (x0 === x1 ? byUpright : byLevel)(x0 === x1 ? x0 : y0, NEAR)) {
       const [p, q] = x0 === x1 ? [a[0], x0] : [a[1], y0];
-      if (Math.abs(p - q) > 2) continue;
+      if (Math.abs(p - q) > NEAR) continue;
       const [u, v] = x0 === x1 ? [Math.min(a[1], b[1]), Math.max(a[1], b[1])] : [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
-      c += Math.max(0, Math.min(hi, v) - Math.max(lo, u)) * ALONG;
+      c += Math.max(0, Math.min(hi, v) - Math.max(lo, u)) * (Math.abs(p - q) <= 2 ? ALONG : 2);
     }
     for (const [a, b] of (x0 === x1 ? byLevel : byUpright)((lo + hi) / 2, (hi - lo) / 2 + 1)) {
       const across = x0 === x1 ? a[1] : a[0], [u, v] = x0 === x1 ? [Math.min(a[0], b[0]), Math.max(a[0], b[0])] : [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
