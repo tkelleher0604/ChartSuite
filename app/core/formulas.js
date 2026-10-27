@@ -2994,28 +2994,6 @@ function ground(R, id) {
   }
 }
 
-// A ground on one line, for exports: each record its row read, by the name that read it, with its output.
-function groundText(R, id) {
-  const g = ground(R, id), S = R.state;
-  const row = g?.rows[0];
-  if (!row) return '';
-  const text = S.P.byId.get(g.def).rows[row.row].text;
-  const nameIn = p => {
-    const src = text.slice(p.from, p.to).trim();
-    const m = /\[([^\]]*)\]\s*$/.exec(src) ?? /([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(src) ?? /^\[?([^\](]*)\]?\s*\(/.exec(src);
-    return m ? clean(m[1]) : src;
-  };
-  return row.parts.map(p => `${nameIn(p)} ${p.id ? outputText(S, p.id) : '—'}`).join(' · ');
-}
-
-// A record's output as text: a field's value as its datatype reads, an object or relation by name.
-function outputText(S, id) {
-  const r = S.recs[id];
-  if (!r) return '—';
-  if (isObject(r)) return nameOf(S, id);
-  return isRelation(r) ? `${segmentOf(S, id)}${isTag(r) ? '' : ` ${Tree.outputText(r)}`}` : Tree.outputText(r);
-}
-
 // ---- The formula bar ----
 
 // A row worked out at a record, with each name's records and each part's values: see core/README.md.
@@ -3586,7 +3564,7 @@ function attention(R, N, day) {
 }
 
 return {
-  computeState, ground, groundText, evaluateRow, diff, check, suggest, evaluateAt, text, attention, renameName, computedId, splitFormula, tidyArrow,
+  computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, renameName, computedId, splitFormula, tidyArrow,
   tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
 };
 

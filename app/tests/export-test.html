@@ -24,12 +24,19 @@
 <script>
 // Checks of the exports (export.js) on the sample, dressed with a frame, a bracket, a title and a key: each
 // file is taken through Export.onFile instead of being downloaded, and read back. A deck is unzipped with
-// the JSZip PptxGenJS brings, a PDF's streams inflated, a calendar read line by line. Nothing is saved.
+// the JSZip PptxGenJS brings, a PDF's streams inflated. Then the window on the sample, in a frame: its Export
+// dialog driven as a person drives it, and its calendar read line by line beside its Dates table. Nothing is
+// saved.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const C = 'calder-ridge', DAY = '2026-10-26', WHO = 'Dana Jordan', EMU = 9525;
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const j = x => JSON.stringify(x);
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
+const until = async (ok, ms = 30000) => { for (const t0 = performance.now(); !ok() && performance.now() - t0 < ms;) await tick(20); };
+// A page's title, then its date, as its lines say them.
+const heading = s => ['title', 'date'].flatMap(role => s.marks.filter(m => m.role === role)).flatMap(m => m.texts.flatMap(it => it.lines.map(l => l.text)));
+const titleOf = s => s.marks.find(m => m.role === 'title').texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim();
 
 function writeNote(tx, N, label, pattern, view, value) {
   const k = Tree.key(pattern), old = N.notes(label).find(n => (n.view ?? null) === (view ?? null) && !n.param && Tree.key(n.pattern) === k);
@@ -63,10 +70,6 @@ async function run() {
     // A picture, and an arrow drawn by hand.
     tx.add('shape', { view: views[0], geometry: 'picture', x: 1300, y: 1200, w: 60, h: 40, src: `data:image/png;base64,${PNG}` });
     tx.add('shape', { view: views[0], geometry: 'line', points: [[1400, 1220], [1500, 1220], [1500, 1260]], format: { Arrow: 'end' } });
-    // A document known by its address, dated: the calendar names it by its file alone.
-    const doc = tx.add('record', { kind: 'Document' });
-    tx.add('record', { at: doc, edge: 'Name', field: 'text', value: '\\\\fs01\\Legal\\Calder Ridge\\Side Letter - Halcyon.pdf' });
-    tx.add('record', { at: doc, edge: 'Document Date', field: 'date', value: '2026-03-02' });
     const c = tx.commit();
     if (typeof c === 'string') throw new Error(c);
   }
@@ -221,12 +224,24 @@ async function run() {
       && !/PptxGenJS/i.test(core + await zip.file('docProps/app.xml').async('string')) && !tags(xml(core), 'dc:subject')[0]?.textContent
       && j(parts.slice(-scenes.length)) === j(titles) && parts.includes('Arial') && !parts.includes('Calibri') && tags(app, 'PresentationFormat')[0].textContent === 'Widescreen'
       && +tags(app, 'Words')[0].textContent > 300 && +tags(app, 'Paragraphs')[0].textContent > 100, parts.join(' | '));
+
+    // Read as PowerPoint's Reading Order and a screen reader read it, in the shape tree's order: the title, then
+    // the date, then the chart.
+    const firsts = docs.map(d => [...tags(d, 'p:spTree')[0].children].filter(el => /^(sp|grpSp|cxnSp|pic)$/.test(el.localName)).slice(0, 2).map(name));
+    check('each slide reads its title first, then its date: the first two shapes in its tree', firsts.every(f => j(f) === j(['Title', 'Date'])), firsts.map(f => f.join(', ')).join(' | '));
+    // A line's sentence is its alt text: its group's, where it's grouped with its label or its pieces, else its
+    // connector's. Nothing else says one.
+    const alt = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('descr');
+    const described = [...tags(doc, 'p:grpSp'), ...cxns, ...sps].filter(alt), outer = el => el.localName === 'grpSp' || el.parentNode.localName !== 'grpSp';
+    check('each line’s sentence is its alt text, on its group, or its connector where it’s one alone, and no other shape has any', described.length === lines(main).length
+      && described.every(el => alt(el) === name(el) && / is (an? |not )/.test(alt(el)) && outer(el)) && described.some(el => el.localName === 'grpSp') && described.some(el => el.localName === 'cxnSp'),
+      `${described.length} of ${lines(main).length}: ${described.slice(0, 2).map(alt).join(' | ')}`);
   }
 
   // ---- PDF ----
   {
     const t0 = performance.now();
-    const blob = await Export.write('pdf', scenes, 'Calder Ridge Fund III structure');
+    const blob = await Export.write('pdf', scenes, 'Calder Ridge Fund III structure', { author: WHO });
     const ms = performance.now() - t0;
     check('a PDF of every view is written through the hook', files.at(-1)?.blob === blob && files.at(-1).name === 'Calder Ridge Fund III structure.pdf');
     check('in under 3 s, compressed: a few kilobytes a page', ms < 3000 && blob.size > 4000 && blob.size < 60000 * scenes.length, `${ms.toFixed(0)} ms, ${(blob.size / 1024).toFixed(1)} KB`);
@@ -235,17 +250,22 @@ async function run() {
     const box = /\/MediaBox \[([^\]]+)\]/.exec(raw)[1].trim().split(/\s+/).map(Number);
     check('each page is its view’s sheet, 13.33 × 7.5 in at 72 points an inch', Math.abs(box[2] - 960) < 0.1 && Math.abs(box[3] - 540) < 0.1, box.join(' '));
     check('its streams are compressed', /\/FlateDecode/.test(raw));
-    const titled = scenes.map(s => s.marks.find(m => m.role === 'title').texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim());
+    const titled = scenes.map(titleOf);
     check('it has a bookmark for each page, by the page’s title, as the deck’s outline has', /\/Outlines/.test(raw) && titled.every(t => raw.includes(`/Title (${t.replace(/[()\\]/g, c => `\\${c}`)})`))
       && !scenes.some(s => raw.includes(`/Title (${s.name})`)), titled.join(' | '));
     check('its properties name no generator: Dendra produced it, and created it', /\/Producer \(Dendra\)/.test(raw) && /\/Creator \(Dendra\)/.test(raw) && !/jsPDF|svg2pdf/i.test(raw),
       /\/Producer \([^)]*\)/.exec(raw)?.[0]);
-    let text = '';
+    check('… titled for the chart, by whoever exported it, as File › Properties shows', raw.includes('/Title (Calder Ridge Fund III structure)') && raw.includes(`/Author (${WHO})`),
+      /\/Author \([^)]*\)/.exec(raw)?.[0]);
+    // Each stream's texts, as it shows them: a page's, in the order it draws them.
+    const streams = [];
     for (const m of raw.matchAll(/\/Length (\d+)\s*\/Filter \/FlateDecode\s*>>\s*stream\r?\n/g)) {
-      const start = m.index + m[0].length;
-      text += new TextDecoder('latin1').decode(await inflate(bytes.subarray(start, start + +m[1])));
+      const start = m.index + m[0].length, text = new TextDecoder('latin1').decode(await inflate(bytes.subarray(start, start + +m[1])));
+      streams.push([...text.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)].map(m => m[1].replace(/\\([0-7]{1,3}|.)/g, (_, c) => /^[0-7]+$/.test(c) ? String.fromCharCode(parseInt(c, 8)) : c)));
     }
-    const shown = [...text.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)].map(m => m[1].replace(/\\([0-7]{1,3}|.)/g, (_, c) => /^[0-7]+$/.test(c) ? String.fromCharCode(parseInt(c, 8)) : c));
+    const shown = streams.flat(), pages = streams.filter(s => s.length);
+    check('each page reads its title first, then its date, as a screen reader and a search read it', pages.length === scenes.length
+      && pages.every((p, i) => j(p.slice(0, heading(scenes[i]).length)) === j(heading(scenes[i]))), pages.map(p => p.slice(0, 2).join(' / ')).join(' | '));
     const drawn = m => m.type === 'line' ? (m.labelAt ? m.texts : []) : [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)];
     const want = scenes.flatMap(s => s.marks.flatMap(drawn)).flatMap(it => it.lines.map(l => l.text));
     const absent = want.filter(t => !shown.includes(t));   // WinAnsi, which TextDecoder's latin1 reads
@@ -254,59 +274,17 @@ async function run() {
     check('a picture is in it', /\/Subtype \/Image/.test(raw));
   }
 
-  // ---- The calendar ----
-  {
-    // The dates from the day shown on, as a calendar is for what's coming.
-    const blob = Export.calendar(R, wb.notes(C), C, 'Calder Ridge Fund III structure', DAY);
-    check('the calendar is written through the hook, as .ics', files.at(-1)?.blob === blob && files.at(-1).name === 'Calder Ridge Fund III structure.ics' && blob.type === 'text/calendar');
-    const ics = await blob.text(), rows = ics.split('\r\n');
-    const dates = Object.values(st).filter(r => r.field === 'date'), coming = dates.filter(r => r.value >= DAY);
-    const starts = [...ics.matchAll(/DTSTART;VALUE=DATE:(\d{8})/g)].map(m => m[1]);
-    check('one event for each date in the chart as worked out, from the day shown on, in order', (ics.match(/BEGIN:VEVENT/g) ?? []).length === coming.length && coming.length < dates.length / 2
-      && starts.every((d, i) => d >= DAY.replace(/-/g, '') && (!i || d >= starts[i - 1])) && rows[0] === 'BEGIN:VCALENDAR' && rows.at(-2) === 'END:VCALENDAR', `${coming.length} of ${dates.length}`);
-    check('lines end in CRLF and are folded within 75 octets', !/[^\r]\n/.test(ics) && rows.every(r => new TextEncoder().encode(r).length <= 75));
-    const unfolded = ics.replace(/\r\n /g, ''), events = unfolded.split('BEGIN:VEVENT').slice(1);
-    const computed = Object.entries(st).filter(([, r]) => r.field === 'date' && r.computed && r.value >= DAY);
-    const unesc = s => s.replace(/\\([\\;,])/g, '$1');
-    const described = computed.filter(([id]) => events.some(e => e.includes(`UID:${C}.${id}@`) && unesc(/DESCRIPTION:(.*)/.exec(e)?.[1] ?? '') === Formulas.groundText(R, id)));
-    check('a worked-out date’s description is its ground on one line', computed.length > 5 && described.length === computed.length, `${described.length} of ${computed.length}`);
-    const tax = events.find(e => e.includes('Annual Tax Due'));
-    const summaries = text => [...text.replace(/\r\n /g, '').matchAll(/^SUMMARY:(.*)\r$/gm)].map(m => unesc(m[1]));
-    check('an event says what falls due first, then whose: an object by its name in full, without the way down to it', summaries(ics).includes('Annual Return Due: Calder Ridge Capital Partners III (Cayman), L.P.')
-      && !summaries(ics).some(s => s.includes('›')), summaries(ics).find(s => s.startsWith('Annual Return Due')));
-    const year = Object.keys(st).find(id => st[id].args && wb.notes(C).segmentOf(st, id) === 'Fund III, tax year 2026');
-    check('… a tax year as the place rule says it, one way everywhere', year && summaries(ics).includes(`Annual Tax Due: ${wb.notes(C).segmentOf(st, year)}`),
-      summaries(ics).filter(s => /Tax/.test(s)).join(' | '));
-    // Every date there is, for what's said of each: a relation's, as the two-box panel says it, in the formula
-    // bar's words where it's there, and each side once, so one who signs for the Manager via the Manager
-    // signs for the Manager.
-    const plainly = summaries(await Export.calendar(R, wb.notes(C), C, 'Every date', '').text());
-    window.FormulaBar = { phrase: (t, a, b, { choice } = {}) => a === 'Signatory' && !choice ? [a, ' signs for ', b] : null };
-    const worded = summaries(await Export.calendar(R, wb.notes(C), C, 'Words', '').text());
-    delete window.FormulaBar;
-    check('… and every date there is, from no day', plainly.length === dates.length, plainly.length);
-    check('… a tax paid at the year it settled, said as the place rule says it', plainly.includes('Annual Tax Paid: Fund III, tax year 2025') && plainly.includes('Annual Tax Paid: Fund III-A, tax year 2024')
-      && !plainly.some(s => /^Annual Tax Paid: /.test(s) && !/, tax year \d{4}$/.test(s)), plainly.filter(s => /^Annual Tax Paid/.test(s)).join(' | '));
-    const want = ['Start Date: Margaret A. Chen is a signatory of the Manager', 'Start Date: Margaret A. Chen is a signatory of Fund III, via GP III', 'Start Date: Thomas K. Lindqvist is an employee of the Manager'];
-    check('… a relation’s, as the two-box panel says it, each side once: the role its first side has, the second, and any other not already said', want.every(w => plainly.includes(w))
-      && !plainly.some(s => /signatory of the Manager, via/.test(s)), want.filter(w => !plainly.includes(w)).join(' | ') || plainly.filter(s => /Margaret/.test(s)).join(' | '));
-    check('… in the formula bar’s words where they’re to be had', worded.includes('Start Date: Margaret A. Chen signs for the Manager') && worded.includes('Start Date: Margaret A. Chen signs for Fund III, via GP III')
-      && worded.includes(want[2]), worded.filter(s => /Margaret/.test(s)).join(' | '));
-    // Where two dates would read alike, the way down to each is said as well.
-    const alike = plainly.filter((s, i) => plainly.indexOf(s) !== i);
-    check('… no two alike: where two would read alike, each says the way down to it', !alike.length, alike.slice(0, 3).join(' | '));
-    check('an all-day event, on its day', /DTSTART;VALUE=DATE:\d{8}/.test(tax) && /DTEND;VALUE=DATE:\d{8}/.test(tax) && +/DTEND;VALUE=DATE:(\d{8})/.exec(tax)[1] > +/DTSTART;VALUE=DATE:(\d{8})/.exec(tax)[1]);
-    const said = [...(await files.at(-2).blob.text()).replace(/\r\n /g, '').matchAll(/^(?:SUMMARY|DESCRIPTION):(.*)$/gm)].map(m => unesc(m[1].replace(/\r$/, '')));
-    const leaks = said.filter(s => /[=←]|\b[A-Z]{2,}\(|\\|:\/\//.test(s));
-    check('no formula text and no file paths: a document known by its address goes by its file’s name', !leaks.length && said.includes('Document Date: Side Letter - Halcyon.pdf'), leaks.slice(0, 3).join(' | '));
-  }
-
   // ---- One view ----
   {
-    const blob = await Export.write('pptx', [scenes[3]], `Calder Ridge Fund III structure - ${scenes[3].name}`);
-    const zip = await JSZip.loadAsync(blob), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
+    const one = scenes[3], name = `Calder Ridge Fund III structure - ${one.name}`;
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [one], name)), sz = tags(xml(await zip.file('ppt/presentation.xml').async('string')), 'p:sldSz')[0];
     check('one view is a slide of its own sheet’s size', Object.keys(zip.files).filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f)).length === 1
-      && Math.abs(+sz.getAttribute('cx') - scenes[3].page.sheet.w * EMU) < 2 && files.at(-1).name === `Calder Ridge Fund III structure - ${scenes[3].name}.pptx`, files.at(-1).name);
+      && Math.abs(+sz.getAttribute('cx') - one.page.sheet.w * EMU) < 2 && files.at(-1).name === `${name}.pptx`, files.at(-1).name);
+    // A file of one page is titled as its page is; exported with no name to say by whom, by no one.
+    const core = xml(await zip.file('docProps/core.xml').async('string')), prop = t => tags(core, t)[0]?.textContent;
+    const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [one], name)).arrayBuffer());
+    check('a file of one view is titled as its page is, and with no name set has no author, not “You”', prop('dc:title') === titleOf(one) && prop('dc:creator') === '' && prop('cp:lastModifiedBy') === ''
+      && raw.includes(`/Title (${titleOf(one).replace(/[()\\]/g, c => `\\${c}`)})`) && !/\/Author/.test(raw), `${prop('dc:title')}; ${prop('dc:creator')}; ${/\/Author \([^)]*\)/.exec(raw)?.[0] ?? 'no /Author'}`);
   }
 
   // ---- The sample as it is, on its slides ----
@@ -347,6 +325,96 @@ async function run() {
       && Math.abs(main.page.w * k - 1056) < 0.01 && off && Math.abs(+off.getAttribute('x') / EMU + 9.6 - 48) < 0.5 && Math.abs(+off.getAttribute('y') / EMU + 9.6 - 48) < 0.5,
       `${sz.getAttribute('cx')} × ${sz.getAttribute('cy')}, title at ${off && [+off.getAttribute('x') / EMU, +off.getAttribute('y') / EMU]}`);
     check('… and a PDF of every view on Letter has a page for each', (new TextDecoder('latin1').decode(await (await Export.write('pdf', letter, 'Letter', WHO)).arrayBuffer()).match(/\/Type \/Page\b(?!s)/g) ?? []).length === letter.length);
+  }
+
+  // ---- In the window: the Export dialog, and the calendar beside the Dates table ----
+  // The window on the sample in memory (canvas-harness.html, where no name is set), in a frame. A file is
+  // exported as a person exports it: the dialog opened, what's to go picked, Export clicked.
+  {
+    const f = Object.assign(document.createElement('iframe'), { src: 'canvas-harness.html' });
+    Object.assign(f.style, { position: 'fixed', left: '0', top: '0', width: '1440px', height: '900px', visibility: 'hidden' });
+    document.body.append(f);
+    await new Promise(r => { f.onload = r; });
+    const W = f.contentWindow, G = name => W.eval(name);
+    await until(() => G('App').scene.peek() && G('Shell').view.peek());
+    const A = G('App'), X = G('Export'), got = [];
+    X.onFile = (blob, name) => got.push({ blob, name });
+    const exported = async (format, pick) => {
+      const done = X.open(format), dialog = () => W.document.querySelector('dialog.dlg');
+      await until(() => dialog()?.querySelector('.btn.primary'));
+      if (pick) { pick(dialog()); await tick(100); }
+      dialog().querySelector('.btn.primary').click();
+      await done;
+      return got.at(-1);
+    };
+    const R = A.computed.peek(), st = R.records, N = A.notes.peek(), day = A.day.peek(), chart = A.shown.peek().charts().find(c => c.chart === A.chart.peek()).name;
+    const unesc = s => s.replace(/\\([\\;,])/g, '$1');
+    const eventsOf = ics => ics.replace(/\r\n /g, '').split('BEGIN:VEVENT').slice(1).map(e => ({
+      id: /UID:([^\r]*)@dendra/.exec(e)?.[1].slice(A.chart.peek().length + 1), day: /DTSTART;VALUE=DATE:(\d{8})/.exec(e)?.[1], end: /DTEND;VALUE=DATE:(\d{8})/.exec(e)?.[1],
+      summary: unesc(/^SUMMARY:(.*)\r$/m.exec(e)?.[1] ?? ''), description: /^DESCRIPTION:(.*)\r$/m.exec(e) && unesc(/^DESCRIPTION:(.*)\r$/m.exec(e)[1]) }));
+
+    // The calendar, as the dialog writes it: the dates from the day shown on.
+    const cal = await exported('ics'), ics = await cal.blob.text(), rows = ics.split('\r\n'), events = eventsOf(ics);
+    check('the calendar the Export dialog writes is .ics, named for the chart', cal.name === `${chart}.ics` && cal.blob.type === 'text/calendar' && rows[0] === 'BEGIN:VCALENDAR' && rows.at(-2) === 'END:VCALENDAR', cal.name);
+    check('… its lines ended in CRLF and folded within 75 octets', !/[^\r]\n/.test(ics) && rows.every(r => new TextEncoder().encode(r).length <= 75));
+    check('… one all-day event for each date from the day shown on, in order', events.length > 10 && events.every((e, i) => e.day >= day.replace(/-/g, '') && (!i || e.day >= events[i - 1].day) && +e.end > +e.day),
+      `${events.length} events`);
+    // Each said as the Dates table says it: what falls due, then whose.
+    const table = G('Table').model(A.views.peek().find(v => v.rows === 'date').id), col = key => 'f' + table.cols.findIndex(c => c.key === key);
+    const rowsSaid = from => table.data.filter(r => /^\d{4}-\d\d-\d\d$/.test(r[col('$value')]) && r[col('$value')] >= from).map(r => `${r[col('$entry')]} · ${r[col('$of')]}`).sort();
+    check('each event says what falls due, then whose, as the Dates table says it, one for each of its rows', j(events.map(e => e.summary).sort()) === j(rowsSaid(day))
+      && events.some(e => e.summary === 'Next Renewal · The Manager (LEI Registered)') && events.some(e => e.summary === 'Affirmation Due · Fund III (4.13(a)(3) Exemption)'),
+      events.filter(e => !rowsSaid(day).includes(e.summary)).slice(0, 3).map(e => e.summary).join(' | ') || events.slice(0, 3).map(e => e.summary).join(' | '));
+    // One name for each thing, its short name, as the table says it: never its full legal name.
+    const named = Object.keys(st).filter(id => Tree.isObject(st[id]) && N.nameOf(st, id) !== N.shortOf(st, id)).map(id => N.nameOf(st, id));
+    const twice = named.filter(nm => events.some(e => e.summary.includes(nm) || e.description?.includes(nm)));
+    check('… each thing named one way, by its short name, never by its full name', named.length > 5 && !twice.length, twice.slice(0, 3).join(' | '));
+    // Its description the formula bar's sentence for the date: nothing where the bar says nothing.
+    const bar = G('FormulaBar'), sentence = id => { const s = bar.sentence?.(id); return typeof s === 'string' ? s.trim() : ''; };
+    check('each event’s description is the formula bar’s sentence for its date, and there’s none where the bar says none', events.every(e => (e.description ?? '') === sentence(e.id)),
+      events.filter(e => (e.description ?? '') !== sentence(e.id)).slice(0, 2).map(e => `${e.id}: ${e.description}`).join(' | ') || (bar.sentence ? 'the bar’s' : 'no sentence in the bar yet'));
+    // A sentence: begun with a capital, ended with a stop, in words (a label beside its value has none in lower
+    // case), each fact once, and no Yes, dash or dot between facts.
+    const facts = d => d.split(/, so |, and |, but | and /), sentenced = d => /^[A-Z].*\.$/.test(d) && /\b[a-z]{2,}\b/.test(d) && !/ · |—|\bYes\b/.test(d) && new Set(facts(d)).size === facts(d).length;
+    check('… a sentence, never ground facts run together: no fact twice, no Yes or dash, no label beside a value', events.every(e => !e.description || sentenced(e.description)),
+      events.filter(e => e.description && !sentenced(e.description)).slice(0, 2).map(e => e.description).join(' | '));
+    // The bar's sentence, as the calendar says it, from what the bar says for one date.
+    const pick = events.find(e => e.summary === 'Next Renewal · The Manager (LEI Registered)')?.id, own = Object.getOwnPropertyDescriptor(bar, 'sentence');
+    bar.sentence = id => id === pick ? 'The Manager last renewed on March 10, 2026, so its next renewal is March 10, 2027 (A year on).' : null;
+    const worded = eventsOf(await X.calendar(R, N, A.chart.peek(), 'Words', day).text());
+    if (own) Object.defineProperty(bar, 'sentence', own); else delete bar.sentence;
+    check('… said as the bar says it, on the event for its date alone', worded.find(e => e.id === pick)?.description === 'The Manager last renewed on March 10, 2026, so its next renewal is March 10, 2027 (A year on).'
+      && worded.filter(e => e.description).length === 1, worded.filter(e => e.description).map(e => e.summary).join(' | '));
+
+    // Every date there is, from no day: the table's every row, no two alike.
+    const every = eventsOf(await X.calendar(R, N, A.chart.peek(), 'Every date', '').text()).map(e => e.summary);
+    check('… and from no day, every date there is, as the table has each, no two alike', j([...every].sort()) === j(rowsSaid('')) && new Set(every).size === every.length
+      && every.includes('Annual Tax Paid · Fund III, tax year 2025'), `${every.length} of ${rowsSaid('').length}; ${every.filter((s, i) => every.indexOf(s) !== i).slice(0, 2).join(' | ')}`);
+    // A document known by its address goes by its file's name, and nothing says a formula or a path.
+    A.change(tx => {
+      const doc = tx.add('record', { kind: 'Document' });
+      tx.add('record', { at: doc, edge: 'Name', field: 'text', value: '\\\\fs01\\Legal\\Calder Ridge\\Side Letter - Halcyon.pdf' });
+      tx.add('record', { at: doc, edge: 'Document Date', field: 'date', value: '2026-03-02' });
+    });
+    const said = eventsOf(await X.calendar(A.computed.peek(), A.notes.peek(), A.chart.peek(), 'Every date', '').text()).flatMap(e => [e.summary, e.description ?? '']).filter(Boolean);
+    const leaks = said.filter(s => /[=←]|\b[A-Z]{2,}\(|\\|:\/\//.test(s));
+    check('no formula text and no file paths: a document known by its address goes by its file’s name', !leaks.length && said.includes('Document Date · Side Letter - Halcyon.pdf'), leaks.slice(0, 3).join(' | '));
+    G('Shell').parts.peek().undo.undo();
+
+    // A deck of the view shown, with no name set: titled as its page is, by no one.
+    const deck = await exported('pptx'), zip = await JSZip.loadAsync(new Uint8Array(await deck.blob.arrayBuffer()));
+    const core = xml(await zip.file('docProps/core.xml').async('string')), prop = t => tags(core, t)[0]?.textContent;
+    check('a deck the dialog writes with no name set has no author, not “You”, and is titled as its page is', deck.name.endsWith('.pptx') && prop('dc:creator') === '' && prop('cp:lastModifiedBy') === ''
+      && prop('dc:title') === titleOf(A.scene.peek()), `${deck.name}: ${prop('dc:title')}; by ${j(prop('dc:creator'))}`);
+    // A PDF of every view, with a name set: titled for the chart, by that name.
+    const Store = G('Store'), was = Store.who;
+    Store.who = () => WHO;
+    const doc = await exported('pdf', d => { const s = d.querySelector('select[aria-label="Views"]'); s.value = 'all'; s.dispatchEvent(new W.Event('change', { bubbles: true })); });
+    Store.who = was;
+    const raw = new TextDecoder('latin1').decode(await doc.blob.arrayBuffer());
+    check('a PDF of every view the dialog writes is titled for the chart, by whoever exported it', doc.name === `${chart}.pdf` && raw.includes(`/Title (${chart})`) && raw.includes(`/Author (${WHO})`)
+      && (raw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === A.views.peek().filter(v => v.layout === 'chart').length, `${doc.name}: ${/\/Author \([^)]*\)/.exec(raw)?.[0]}`);
+    f.remove();
   }
 }
 

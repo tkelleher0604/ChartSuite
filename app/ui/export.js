@@ -7,11 +7,19 @@
 //   scene's lines; a line is a connector glued to its boxes, grouped with its label so the two move together
 //   and named as the two-box panel says its relation, and a line broken where another crosses it its pieces;
 //   a frame its outline and caption, grouped, behind its members; the legend one group, a swatch and caption
-//   for each row, named for it; the title the slide's title; free shapes shapes like any other. A deck's
-//   slides share one size, the smallest that holds every sheet, each in the middle of its slide.
+//   for each row, named for it; the title the slide's title; free shapes shapes like any other. A line's
+//   sentence is its alt text as well. A deck's slides share one size, the smallest that holds every sheet,
+//   each in the middle of its slide.
 // - PDF: the scene as SVG, through svg2pdf.js, in the PDF's standard fonts (Helvetica has Arial's widths,
-//   Times Times New Roman's), compressed. Each page is its sheet, bookmarked by its title.
-// - The calendar: the chart's dates from the day shown on, each titled by what falls due, then whose.
+//   Times Times New Roman's), compressed. Each page is its sheet, bookmarked by its title. No font is embedded:
+//   the only sans vendored, IBM Plex, hasn't Arial's widths, so the lines wouldn't fall where the scene sets them.
+// - Each slide and page reads its title first, then its date, then the rest in the scene's order: a screen
+//   reader, PowerPoint's Reading Order and a PDF's text all follow what's written first.
+// - A file of one page is titled as its page is, of more by the chart's name; its author is whoever exported
+//   it, blank where no name is set.
+// - The calendar: the chart's dates from the day shown on, each said as the Dates table says it, what falls
+//   due, then whose (Time.whose), and why it falls then in the formula bar's sentence (FormulaBar.sentence),
+//   where the bar says one.
 // - The Export dialog, which the title bar's Export opens, previews the file: the same SVG, page by page, on
 //   the slides or pages it will have, a click on a page showing it at full size; for a calendar, its dates.
 // What the canvas shows only on screen (computed italics and dashes, the redline) is no part of the scene.
@@ -19,10 +27,11 @@
 //
 // Export.write('pptx' | 'pdf', scenes, name, { author, R, N }?) → a Blob, also saved, R being
 // Formulas.computeState's and N the chart's Notes reader, by which a deck says its lines' relations;
-// Export.svg(scene, { pdf, frame }) → SVG markup; Export.calendar(R, N, chart, name, from?) → the .ics Blob of
-// the dates from `from` (today) on, also saved. Export.onFile, if set, takes each finished file (blob, name)
-// instead of the browser downloading it. In the window, Export.open(format?) opens the dialog: 'pptx', 'pdf'
-// or 'ics', or what the view shown offers (Shell's 'export' parts: a table's CSV).
+// Export.svg(scene, { pdf, frame }) → SVG markup; in the window, where Time is, Export.calendar(R, N, chart,
+// name, from?) → the .ics Blob of the dates from `from` (today) on, also saved. Export.onFile, if set, takes
+// each finished file (blob, name) instead of the browser downloading it. In the window, Export.open(format?)
+// opens the dialog: 'pptx', 'pdf' or 'ics', or what the view shown offers (Shell's 'export' parts: a table's
+// CSV), and → the file once it's written.
 const Export = (() => {
 const PT = Scene.PT;                                    // pixels a point
 const n = v => +v.toFixed(2);
@@ -53,6 +62,12 @@ const top = it => it.lines[0].y - it.look.Size * PT * 0.93;
 const block = items => ({ top: top(items[0]), bottom: top(items[0]) + items.reduce((h, it) => h + it.lines.length * lh(it.look), 0) });
 // How much of a line lies before its x, by its alignment.
 const BEFORE = { left: 0, center: 0.5, right: 1 };
+
+// ---- Reading order ----
+
+// A page's marks as it's read: its title, its date, then the rest as the scene draws them. Nothing overlaps
+// the title or the date, so where they stand in the drawing's order doesn't show.
+const reading = marks => { const first = ['title', 'date'].flatMap(role => marks.filter(m => m.role === role)); return [...first, ...marks.filter(m => !first.includes(m))]; };
 
 // ---- SVG: the PDF, and the preview ----
 
@@ -115,14 +130,14 @@ const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid:
 function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
   const { w, h } = scene.page, k = fit(scene.page), fw = frame.w / k, fh = frame.h / k, x = (w - fw) / 2, y = (h - fh) / 2;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(fw)}" height="${n(fh)}" viewBox="${n(x)} ${n(y)} ${n(fw)} ${n(fh)}">`
-    + `<rect x="${n(x)}" y="${n(y)}" width="${n(fw)}" height="${n(fh)}" fill="#ffffff"/>${scene.marks.map(m => markSvg(m, pdf)).join('')}</svg>`;
+    + `<rect x="${n(x)}" y="${n(y)}" width="${n(fw)}" height="${n(fh)}" fill="#ffffff"/>${reading(scene.marks).map(m => markSvg(m, pdf)).join('')}</svg>`;
 }
 
 // A page's title, as its title shape says it; else its view's name.
 const titleOf = s => s.marks.find(m => m.role === 'title')?.texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim() || s.name || '';
 // A PDF text string: as it is where it's Latin-1, else UTF-16 and marked so, as a title with a curly quote needs.
 const pdfText = s => /^[\x20-\x7e\xa0-\xff]*$/.test(s) ? s : `\xfe\xff${Array.from({ length: s.length }, (_, i) => String.fromCharCode(s.charCodeAt(i) >> 8, s.charCodeAt(i) & 255)).join('')}`;
-async function pdf(scenes, title) {
+async function pdf(scenes, title, author) {
   await LIBS.pdf();
   let doc;
   const holder = Object.assign(document.createElement('div'), { style: 'position:fixed;left:-10000px;top:0;width:0;height:0;overflow:hidden' });
@@ -137,7 +152,7 @@ async function pdf(scenes, title) {
       if (scenes.length > 1) doc.outline.add(null, pdfText(titleOf(s)), { pageNumber: doc.getNumberOfPages() });
     }
   } finally { holder.remove(); }
-  doc.setProperties({ title: pdfText(title), creator: 'Dendra' });
+  doc.setProperties({ title: pdfText(title), author: pdfText(author), creator: 'Dendra' });
   // jsPDF names itself the producer, which Dendra is: said in its place, padded to its length, so that the
   // file's index of where each object starts still holds.
   const was = `/Producer (jsPDF ${window.jspdf.jsPDF.version})`, raw = doc.output().replace(was, '/Producer (Dendra)'.padEnd(was.length));
@@ -158,6 +173,8 @@ const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 // The page's own texts, by the names PowerPoint's Selection Pane gives them; any other shape, as a box is, by
 // what it says.
 const ROLE = { title: 'Title', date: 'Date' };
+// A shape's name, and with `descr` its alt text.
+const cNvPr = (id, name, descr) => `<p:cNvPr id="${id}" name="${esc(name)}"${descr ? ` descr="${esc(descr)}"` : ''}/>`;
 // Of a line's arrowheads, those a piece of it has: its start's on its first, its end's on its last.
 const arrowOf = (a, first, last) => {
   const st = first && (a === 'start' || a === 'both'), en = last && (a === 'end' || a === 'both');
@@ -260,18 +277,19 @@ const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnL
 function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = {}) {
   const nv = title ? '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr>' : `<p:cNvSpPr${box ? ' txBox="1"' : ''}/><p:nvPr/>`;
   const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}"><a:avLst/></a:prstGeom>`;
-  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${esc(name)}"/>${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill)}${'Outline' in s ? ln(s, k) : ''}</p:spPr>${body}</p:sp>`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill)}${'Outline' in s ? ln(s, k) : ''}</p:spPr>${body}</p:sp>`;
 }
 
-// One scene on a slide, its page drawn on its sheet `k` times its size from (ox, oy): every mark in the
-// scene's order, written as PowerPoint writes it. A box's text keeps the scene's lines (see txBody), inset as
+// One scene on a slide, its page drawn on its sheet `k` times its size from (ox, oy): every mark in reading
+// order, written as PowerPoint writes it. A box's text keeps the scene's lines (see txBody), inset as
 // the scene insets it, PowerPoint's own 0.1 in at the chart's scale, all round, as every text of the chart is;
 // the page's own shapes (its title, date, Key and free shapes) have PowerPoint's own margins, as the scene sets
 // them. A text on its own is a text box placed so that its lines fall where the scene sets them. A line is a
 // connector glued to the shapes it joins, so that it follows them when they're moved; what moves as one is
-// grouped: a line and its label, a frame and its caption, the Key. `say` names a line's relation. → what
-// finishes the slide's XML once the deck is written, when every shape has its number (PptxGenJS numbers a
-// slide's shapes in the order they're added, from 2): each stand-in replaced by what it stands for.
+// grouped: a line and its label, a frame and its caption, the Key. `say` names a line's relation, which is its
+// alt text too. → what finishes the slide's XML once the deck is written, when every shape has its number
+// (PptxGenJS numbers a slide's shapes in the order they're added, from 2): each stand-in replaced by what it
+// stands for.
 function slide(p, scene, { k, ox, oy }, say) {
   const sl = p.addSlide(), parts = [], ids = new Map();
   let count = 0;
@@ -290,21 +308,23 @@ function slide(p, scene, { k, ox, oy }, say) {
     shape(r, 'rect', { Fill: 'none' }, first.text, { items, anchor: 't', inset, box: true });
     return r;
   };
-  // What `draw` adds, as one group named `name`, framed round the rects `draw` gives back.
-  const group = (name, draw) => { let rects; put(id => grouped(id, name, rects)); rects = draw(); put(() => '</p:grpSp>'); };
+  // What `draw` adds, as one group named `name` (and with `alt` its alt text), framed round the rects `draw`
+  // gives back.
+  const group = (name, draw, alt) => { let rects; put(id => grouped(id, name, rects, alt)); rects = draw(); put(() => '</p:grpSp>'); };
   // A line, and with `label` ([its texts, where they're placed from]) its label: the two grouped, named as the
   // line is. A line broken where another crosses it is its pieces, grouped: the first glued where it starts,
-  // the last where it ends.
-  const connector = (points, s, ends, name, label, runs = [points]) => {
+  // the last where it ends. Its `alt` text is the group's, or the connector's where it's one.
+  const connector = (points, s, ends, name, { label = null, runs = [points], alt } = {}) => {
+    const one = !label && runs.length === 1;
     const draw = () => {
       put(id => {
         const glued = ends?.map((b, i) => glue(scene.byId.get(b), points, i)) ?? [];
         return runs.map((r, i) => cxn(i ? 200000 + id * 100 + i : id, name, r, { ...s, Arrow: arrowOf(s.Arrow, i === 0, i === runs.length - 1) },
-          [i === 0 ? glued[0] : null, i === runs.length - 1 ? glued[1] : null], { X, Y, k })).join('');
+          [i === 0 ? glued[0] : null, i === runs.length - 1 ? glued[1] : null], { X, Y, k, alt: one ? alt : null })).join('');
       });
       return [...runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
     };
-    if (label || runs.length > 1) group(name, draw); else draw();
+    if (one) draw(); else group(name, draw, alt);
   };
   // The site a line's end is glued to: on the side it leaves or arrives by, the nearer if there are two.
   const glue = (b, ps, end) => {
@@ -316,10 +336,13 @@ function slide(p, scene, { k, ox, oy }, say) {
     return { id, idx: Array.isArray(site) ? site[(side % 2 ? p[1] > b.y + b.h / 2 : p[0] > b.x + b.w / 2) ? 1 : 0] : site };
   };
 
-  for (const m of scene.marks) {
+  for (const m of reading(scene.marks)) {
     const s = look(m);
     if (m.type === 'box') ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : 'ctr', inset: CHART }));
-    else if (m.type === 'line') connector(m.points, s, [m.from, m.to], say(m.record) ?? m.texts[0]?.text ?? 'Line', m.labelAt && m.texts.length ? [m.texts, m.labelAt] : null, m.runs);
+    else if (m.type === 'line') {
+      const said = say(m.record);
+      connector(m.points, s, [m.from, m.to], said ?? m.texts[0]?.text ?? 'Line', { label: m.labelAt && m.texts.length ? [m.texts, m.labelAt] : null, runs: m.runs, alt: said });
+    }
     else if (m.type === 'frame') {
       // Its outline, a rectangle or a bracket, and its caption; round one box alone, its caption alone.
       const caption = () => textBox([m.caption], m.x, m.y, CHART);
@@ -356,10 +379,10 @@ function slide(p, scene, { k, ox, oy }, say) {
 }
 
 // The start of a PowerPoint group, framed round rects (in inches on the slide).
-function grouped(id, name, rects) {
+function grouped(id, name, rects, alt) {
   const x = E(Math.min(...rects.map(r => r.x))), y = E(Math.min(...rects.map(r => r.y)));
   const w = E(Math.max(...rects.map(r => r.x + r.w))) - x, h = E(Math.max(...rects.map(r => r.y + r.h))) - y;
-  return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="${esc(name || 'Line')}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+  return `<p:grpSp><p:nvGrpSpPr>${cNvPr(id, name || 'Line', alt)}<p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
     + `<p:grpSpPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/><a:chOff x="${x}" y="${y}"/><a:chExt cx="${w}" cy="${h}"/></a:xfrm></p:grpSpPr>`;
 }
 
@@ -367,13 +390,13 @@ function grouped(id, name, rects) {
 // three, 2 and 4 for two and four), its legs set by the adjustments, so it stays square when what it joins is
 // moved; a route no connector draws is a freeform. An elbow whose first leg is upright is one whose first leg
 // runs across, turned a quarter.
-function cxn(id, name, ps, s, ends, { X, Y, k }) {
+function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
   const q = ps.map(([x, y]) => [E(X(x)), E(Y(y))]);
   const [x0, y0] = q[0], [x1, y1] = q.at(-1), dx = x1 - x0, dy = y1 - y0, legs = q.length - 1;
   const elbow = s.Connector === 'elbow' && (legs > 1 || !dx || !dy), upright = legs > 1 ? q[1][0] === x0 : elbow && !dx;
   const square = legs === 1 || q.slice(1).every((p, i) => (i % 2 === 0) === upright ? p[0] === q[i][0] : p[1] === q[i][1]);
   const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}`);
-  const nv = (tag, inner) => `<p:nv${tag}Pr><p:cNvPr id="${id}" name="${esc(name || 'Line')}"/><p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
+  const nv = (tag, inner) => `<p:nv${tag}Pr>${cNvPr(id, name || 'Line', alt)}<p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
   if (legs > 4 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
     const x = Math.min(...q.map(p => p[0])), y = Math.min(...q.map(p => p[1])), w = Math.max(...q.map(p => p[0])) - x, h = Math.max(...q.map(p => p[1])) - y;
     return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${line}</p:spPr></p:sp>`;
@@ -393,15 +416,17 @@ function cxn(id, name, ps, s, ends, { X, Y, k }) {
 // ---- Writing a file ----
 
 const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Chart';
+// A file of one page is titled as its page is; of more, by `name`, the chart's.
 async function write(format, scenes, name, { author = '', R = null, N = null } = {}) {
-  const blob = format === 'pdf' ? await pdf(scenes, name) : await pptx(scenes, name, author, rel => R && N ? sentence(R.records, N, rel) : null);
+  const title = scenes.length === 1 ? titleOf(scenes[0]) || name : name;
+  const blob = format === 'pdf' ? await pdf(scenes, title, author) : await pptx(scenes, title, author, rel => R && N ? sentence(R.records, N, rel) : null);
   save(blob, `${fileName(name)}.${format}`);
   return blob;
 }
 
 // ---- The chart's words ----
 
-// A text with an address in it, which ends what it's in (a name, or a part of a ground), said by its file's name.
+// A text with an address in it, which ends what it's in (a name, or a part of one), said by its file's name.
 const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
 // A relation as the two-box panel says it, in the formula bar's words where they're to be had, and each side
 // once: Margaret A. Chen signs for Fund III, via GP III; but Margaret A. Chen signs for the Manager, not via it
@@ -422,24 +447,19 @@ function sentence(st, N, rel) {
 
 // ---- The calendar ----
 
-// The chart's dates from `from` on, as worked out, in order: each its day, what falls due, whose, and why it
-// falls where it does, the ground on one line. Whose: an object by its name in full; a relation by its side's
-// where it has one, else as the two-box panel says it (see sentence); and, where two would read alike, the way
-// down to the date as well.
+// The chart's dates from `from` on, as worked out, in order, each as the Dates table says it: its day, what
+// falls due, and whose (Time.whose), an address by its file's name.
 function dates(R, N, from = '') {
   const st = R.records;
-  const all = Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value) && r.value >= from)
-    .sort((a, b) => a[1].value.localeCompare(b[1].value)).map(([id, r]) => {
-      const path = Tree.pathOf(st, id), head = path[0], sides = Tree.isObject(st[head]) ? [] : N.sides(st, head).filter(Boolean);
-      const whose = sides.length > 1 ? sentence(st, N, head) : plain(N.nameOf(st, Tree.objectOf(st, sides[0]?.at ?? head)));
-      const way = path.slice(sides.length === 1 ? 0 : 1, -1).map(x => x === head ? N.nameOf(st, x) : N.segmentOf(st, x));
-      return { id, day: r.value, what: r.edge, whose, way, why: r.computed ? plain(Formulas.groundText(R, id)) : '' };
-    });
-  const alike = new Map();
-  for (const e of all) alike.set(`${e.what}|${e.whose}`, (alike.get(`${e.what}|${e.whose}`) ?? 0) + 1);
-  return all.map(({ way, ...e }) => alike.get(`${e.what}|${e.whose}`) > 1 ? { ...e, whose: [e.whose, ...way].join(' › ') } : e);
+  return Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value) && r.value >= from)
+    .sort((a, b) => a[1].value.localeCompare(b[1].value))
+    .map(([id, r]) => ({ id, day: r.value, what: N.nameOf(st, id), whose: plain(Time.whose(st, r.at, N)) }));
 }
-// The dates from `from` on, as one all-day event each, for Outlook, titled by what falls due, then whose.
+// A date as the date's popover says it: what falls due, then whose.
+const summary = e => [e.what, e.whose].filter(Boolean).join(' · ');
+// Why a date falls when it does, as the formula bar says it; nothing where the bar says nothing.
+const why = id => { const s = typeof FormulaBar !== 'undefined' && FormulaBar.sentence?.(id); return typeof s === 'string' ? s.trim() : ''; };
+// The dates from `from` on, as one all-day event each, for Outlook, titled by its summary and described by why.
 function calendar(R, N, chart, name, from = Log.today()) {
   const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
   // Lines of at most 75 octets, each continued after a space.
@@ -454,8 +474,8 @@ function calendar(R, N, chart, name, from = Log.today()) {
   };
   const day = iso => iso.replace(/-/g, ''), next = iso => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return day(d.toISOString().slice(0, 10)); };
   const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-  const events = dates(R, N, from).map(e => ['BEGIN:VEVENT', `UID:${chart}.${e.id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(e.day)}`, `DTEND;VALUE=DATE:${next(e.day)}`,
-    `SUMMARY:${text(`${e.what}: ${e.whose}`)}`, ...(e.why ? [`DESCRIPTION:${text(e.why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT']);
+  const events = dates(R, N, from).map(e => ['BEGIN:VEVENT', `UID:${chart}.${e.id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(e.day)}`,
+    `DTEND;VALUE=DATE:${next(e.day)}`, `SUMMARY:${text(summary(e))}`, ...[why(e.id)].filter(Boolean).map(s => `DESCRIPTION:${text(s)}`), 'TRANSP:TRANSPARENT', 'END:VEVENT']);
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Dendra//Dendra//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${text(name)}`, ...events.flat(), 'END:VCALENDAR'];
   const blob = new Blob([ics.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar' });
   save(blob, `${fileName(name)}.ics`);
@@ -490,7 +510,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const all = useMemo(() => dates(App.computed.peek(), App.notes.peek(), App.day.peek()), []), years = [...new Set(all.map(e => e.day.slice(0, 4)))];
     return html`<div class="date-days" style="max-height: none; background: var(--surface); box-shadow: 0 0 0 1px var(--rule-2)">${years.map(y => html`<div class="yr">${y}</div>
       ${all.filter(e => e.day.startsWith(y)).map(e => html`<div class="dayrow"><span class="d">${Tree.formatDate(e.day, 'short').replace(/, \d{4}$/, '')}</span>
-        <span class="w"><span class="it"><b>${e.what}</b>: ${e.whose}</span></span></div>`)}`)}</div>`;
+        <span class="w"><span class="it"><b>${e.what}</b>${e.whose ? html` · ${e.whose}` : null}</span></span></div>`)}`)}</div>`;
   };
   // What's exported, on what size of page, and the file's pages, fitted to the well, two across where there
   // are more, each captioned; a click shows one at full size. A PDF goes on Letter, unless another paper is
@@ -532,9 +552,10 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     if (!go) return;
     if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName(), App.day.peek());
     if (choice.format.startsWith('x')) return others[+choice.format.slice(1)]?.run();
+    // By whoever exports it, blank where no name is set.
     const all = choice.which === 'all';
-    write(choice.format, all ? choice.scenes : choice.scenes.filter(s => s.view === here.id), all ? chartName() : fileName(chartName(), here.name),
-      { author: App.who(), R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
+    return write(choice.format, all ? choice.scenes : choice.scenes.filter(s => s.view === here.id), all ? chartName() : fileName(chartName(), here.name),
+      { author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
   api.open = open;
 }
