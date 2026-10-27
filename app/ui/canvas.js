@@ -1011,7 +1011,10 @@ function mount(el) {
     const geo = new Map([...after.marks.filter(m => m.type === 'box'), ...boxes].map(b => [b.id, b]));
     const stands = id => { const a = before.byId.get(id), b = geo.get(id); return !!a && !!b && near(a.x + dx, b.x) && near(a.y + dy, b.y) && near(a.w, b.w) && near(a.h, b.h); };
     const shift = ps => ps.map(([x, y]) => [x + dx, y + dy]);
-    const way = l => { try { return geo.has(l.from) && geo.has(l.to) ? Layout.around(geo, l.from, l.to, { page: after.page }) : null; } catch { return null; } };
+    // Clear of every box, the Key and the free shapes, and the labels drawn.
+    const avoid = [...after.marks.filter(m => m.type === 'shape' && m.geometry !== 'line' && m.geometry !== 'group'),
+      ...after.marks.filter(m => m.type === 'line' && m.labelAt && m.label).map(m => ({ x: m.labelAt.x, y: m.labelAt.y, w: m.label.w, h: m.label.h }))].map(({ x, y, w, h }) => ({ x, y, w, h }));
+    const way = l => { try { return geo.has(l.from) && geo.has(l.to) ? Layout.around(geo, l.from, l.to, { page: after.page, avoid }) : null; } catch { return null; } };
     const lines = before.marks.filter(m => m.type === 'line' && r.go.has(m.record) && !after.byId.has(m.id)).map(l => {
       if (stands(l.from) && stands(l.to)) return { ...l, points: shift(l.points), runs: l.runs?.map(shift), labelAt: l.labelAt && { x: l.labelAt.x + dx, y: l.labelAt.y + dy } };
       const ps = way(l);

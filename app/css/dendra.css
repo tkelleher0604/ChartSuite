@@ -186,6 +186,9 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .pendbar > .what { flex: 1 1 240px; min-width: 0; color: var(--ink-2); }
 .pendbar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
 .pendbar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
+/* A toast rises over the bar, so neither hides the other. */
+#app:has(.view > .host:not([hidden]) .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
+#app:has(.view > .scrub):has(.view > .host:not([hidden]) .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }
 /* The day a change holds from or until, wherever it's asked (App.From): "From" or "Until", a menu with All along or
    Never held, and the day, typed over; what's said, the day or All along, in the redline's blue. */
 .from { display: inline-flex; align-items: center; gap: 2px; min-height: var(--row); color: var(--ink-2); }

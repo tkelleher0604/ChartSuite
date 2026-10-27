@@ -830,7 +830,8 @@ const Table = (() => {
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
   function deletion(ids) {
     const st = App.state.peek(), N = App.notes.peek();
-    const what = ids.length > 1 || current.isDatatype ? count(ids.length, current.noun) : current.isKind ? N.nameOf(st, ids[0]) : Time.whose(st, ids[0], N);   // a relation by its sides
+    // A relation by its name and its sides, as the chart and History say it.
+    const what = ids.length > 1 || current.isDatatype ? count(ids.length, current.noun) : current.isKind ? N.nameOf(st, ids[0]) : `${N.nameOf(st, ids[0])}: ${Time.whose(st, ids[0], N)}`;
     return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, stage: () => { App.deleting(ids, what, { source: 'rows ' + current.view }); back(); } };
   }
   // The rows a range takes whole, as the row numbers select them, that were entered and so can be deleted.
