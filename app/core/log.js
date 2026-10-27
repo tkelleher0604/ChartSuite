@@ -161,7 +161,7 @@ function open(data) {
   }
 
   // The reverse of a change removes what it added and adds fresh copies of what it removed, while what it
-  // added is all still as it left it. Undo and Redo, a window's own, are reverses; so is Restore.
+  // added is all still as it left it. Undo and Redo, a window's own, are reverses; so is undoing an older one.
   const canReverse = id => { const c = changes.get(id); return !!c && c.adds.every(r => twin(c.chart, r)); };
   function reverse(id, who) {
     const c = changes.get(id);
@@ -171,14 +171,39 @@ function open(data) {
       adds: c.removes.map(rid => ({ ...added.get(rid), id: newId() })), reverses: c.id });
   }
 
-  // Items with rows in the log and none live, with the change that removed them, which Restore reverses.
+  // Items with rows in the log and none live, each with the change that deleted it, the last to remove one of
+  // its rows, and the rows it removed.
+  const deleter = rows => rows.map(r => changes.get(removedBy.get(r.id))).reduce((a, b) => byTime(a, b) < 0 ? b : a);
   function deleted(c) {
     const d = chart(c), gone = new Map();
     for (const r of added.values()) if (chartOf.get(r.id) === c && !d.items.has(itemOf(r))) push(gone, itemOf(r), r);
     return [...gone].map(([item, rows]) => {
-      const change = list().filter(x => rows.some(r => removedBy.get(r.id) === x.id)).at(-1);
+      const change = deleter(rows);
       return { item, type: typeOf(rows[0]), rows: rows.filter(r => removedBy.get(r.id) === change.id), change: change.id };
     });
+  }
+  // Restoring an item deleted brings back what the change that deleted it took of it, and of what was at it then
+  // (the records at it, at any depth, and the notes and shapes at those or in it), as fresh copies, in a change
+  // that removes nothing and says what it restores: the change that deleted it. Whatever else that change did
+  // stands. What was at it and at something still deleted stays deleted, to come back with that; and the item
+  // can't come back without what it's at.
+  function restore(c, item, who) {
+    const d = chart(c), rows = [...added.values()].filter(r => chartOf.get(r.id) === c && itemOf(r) === item);
+    if (!rows.length || d.items.has(item)) return null;
+    const by = deleter(rows), took = by.removes.map(id => added.get(id)).filter(r => !d.items.has(itemOf(r)));
+    const items = new Map();
+    for (const r of took) push(items, itemOf(r), r);
+    const raw = rawOf(items), at = Tree.dependents(raw, [item]), back = new Set([item]), there = id => back.has(id) || d.items.has(id);
+    for (let more = true; more;) {
+      more = false;
+      for (const id of at) if (!back.has(id) && items.get(id).every(r => Tree.argsOf(r).every(a => there(a.at)))) { back.add(id); more = true; }
+    }
+    const comes = r => {
+      if (itemOf(r) === item || 'record' in r) return back.has(itemOf(r));
+      const ids = [...Tree.idsIn(r.pattern ?? {}), ...(r.view ? [r.view] : [])];
+      return ('note' in r || 'shape' in r) && ids.some(id => at.has(id)) && ids.every(there);
+    };
+    return apply({ id: newId(), who, when: now(), chart: c, removes: [], adds: took.filter(comes).map(r => ({ ...r, id: newId() })), restores: by.id });
   }
 
   // Live rows that disagree (dendra.md, Change): versions of one item that differ and are valid on a common
@@ -305,7 +330,7 @@ function open(data) {
   }
 
   const wb = {
-    apply, edit, asOf, schema, canReverse, reverse, deleted, disagreements,
+    apply, edit, asOf, schema, canReverse, reverse, deleted, restore, disagreements,
     changes: list,
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,

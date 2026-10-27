@@ -19,7 +19,8 @@
 //   'formulabar'       a component                under the format bar               (formulabar.js)
 //   'views'      { list() → [{ id, name, layout }], rename(id, name), move(id, i), add(anchor) → Promise of an
 //                  id or null, menu(id) → items }          the sheet tabs           (app.js)
-//   'workbook'   { charts() → [{ id, name }], current() → id, open(id), menu() → items }   the chart menu (app.js)
+//   'workbook'   { charts() → [{ id, name }], current() → id, open(id), rename(id, name), menu() → items }
+//                  the chart menu, and the chart's name in the title bar, renamed there (app.js)
 //   'undo'       { undo(), redo(), canUndo(), canRedo() }                                    (app.js)
 //   'time'       { When({ close }), Ruler(), today() }   the date's popover, the ruler under the view, and
 //                back to today from another day or the past                                  (time.js)
@@ -45,7 +46,8 @@
 // APP (app.js) is the workbook: App.wb; signals chart, version, day, readOnly (in History); computed shown,
 // entered, schema, notes, definitions, relations, computed (Formulas.computeState's), state, views
 // ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
-// dated }) → the change, every edit's one way in; App.restore(changeId); App.addView; App.who(); App.blank().
+// dated }) → the change, every edit's one way in; App.reverse(changeId) and App.restore(item), History's;
+// App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)
@@ -310,7 +312,7 @@ const Shell = (() => {
   // first; a name with fewer words around what matched before one with more (Fund III before Fund III
   // Blocker, Northpine Software before a document naming Northpine); between those alike, a record related
   // to more others first (the fund before its general partner); and what's within a thing (AIV-1 ›
-  // Signatories, of its key) straight after it, or after every thing found if it isn't.
+  // Signatories, of its key) after every thing found, so "blocker" finds both blockers before their lists.
   const words = s => (s.match(/\S*[\p{L}\p{N}]\S*/gu) ?? []).length;
   function relatives(id) {
     const st = App.state.peek(), out = new Set();
@@ -331,12 +333,8 @@ const Shell = (() => {
       if (!best.has(i)) best.set(i, { ...items[i], ranges: k ? null : ranges, extra: ranges ? words(hay[h].slice(0, Math.min(...ranges))) + words(hay[h].slice(Math.max(...ranges))) : 0 });
     }
     const found = [...best.values()].sort((a, b) => a.extra - b.extra || related(b) - related(a));
-    const within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q), out = new Set();
-    const add = x => { if (out.has(x)) return; out.add(x); if (x.key !== undefined) found.filter(y => y.of === x.key).forEach(add); };
-    found.filter(x => names(x).some(n => norm(n) === typed)).forEach(add);
-    found.filter(x => !within(x)).forEach(add);
-    found.forEach(add);
-    return [...out].slice(0, limit);
+    const within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q);
+    return [...new Set([...found.filter(x => names(x).some(n => norm(n) === typed)), ...found.filter(x => !within(x)), ...found])].slice(0, limit);
   }
   const marked = (label, ranges) => !ranges ? label : uFuzzy.highlight(label, ranges, (p, m) => m ? html`<b>${p}</b>` : p, [], (a, p) => { a.push(p); });
   const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled && (it.run || it.items);
@@ -533,10 +531,30 @@ const Shell = (() => {
     : 'As it stood' + (t.at ? ` ${Tree.formatDate(Tree.isoOf(new Date(t.at)))}, ${new Date(t.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '');
   const chartName = computed(() => { const wb = part('workbook'); return wb ? wb.charts().find(c => c.id === wb.current())?.name : null; });
   effect(() => { document.title = chartName.value ? `${chartName.value} – Dendra` : 'Dendra'; });
+  // The chart's name is renamed in place, as a sheet's is: from the chart menu, Find, a double-click on it, or
+  // as a new chart begins. Enter or leaving keeps what's typed, Esc puts it back; another chart shown ends it.
+  const naming = signal(null);
+  const nameChart = () => { const id = part('workbook')?.current(); if (id && !App.readOnly.peek()) { closeAll(); naming.value = id; } };
+  effect(() => { const id = part('workbook')?.current(); if (naming.peek() && naming.peek() !== id) naming.value = null; });
+  let refocus = false;
+  function Naming() {
+    const id = naming.value, was = chartName.peek() ?? '', [text, setText] = useState(was);
+    const done = (keep, value, back) => {
+      if (naming.peek() !== id) return;
+      naming.value = null; refocus = back;
+      const name = Tree.clean(value ?? '');
+      if (keep && name && name !== was) part('workbook').rename(id, name);
+    };
+    return html`<div class="chartmenu naming">${mark}<input class="name" aria-label="Chart name" value=${text} spellcheck="false" style=${`width:${text.length + 2}ch`}
+      ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
+      onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); done(true, e.target.value, true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false, null, true); } }}
+      onBlur=${e => done(true, e.target.value, false)} /></div>`;
+  }
 
   function chartMenu() {
     const wb = part('workbook'), items = [];
-    if (wb) items.push(...wb.charts().map(c => ({ label: c.name, checked: c.id === wb.current(), run: () => wb.open(c.id) })), ...wb.menu(), '-');
+    if (wb) items.push(...wb.charts().map(c => ({ label: c.name, checked: c.id === wb.current(), run: () => wb.open(c.id) })),
+      { label: 'Rename', disabled: App.readOnly.value, run: nameChart }, ...wb.menu(), '-');
     const themes = { order: 30, seg: THEMES.map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
     const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
     for (const it of [...acts, themes].sort((a, b) => a.order - b.order)) {
@@ -550,7 +568,8 @@ const Shell = (() => {
   function TitleBar() {
     const u = part('undo'), t = time.value;
     return html`<header class="titlebar" data-region="bars">
-      <div class="left"><button class="btn ghost dd chartmenu" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, chartMenu)}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button></div>
+      <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu"
+        ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}</div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
         ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${t
@@ -614,43 +633,52 @@ const Shell = (() => {
   }
 
   // ---- The sheet tabs ----
+  // A view's tab is renamed in place: from its menu, Find, a double-click on it, or as a new view begins.
+  const editing = signal(null);
   function Sheets() {
-    const vp = part('views'), list = views.value, ref = useRef();
-    const [editing, setEditing] = useState(null);
+    const vp = part('views'), list = views.value, ref = useRef(), [over, setOver] = useState(false);
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [view.value, list.length]);
-    // Tabs that run on past the edge fade into it.
-    const more = () => { const el = ref.current; el?.toggleAttribute('data-more', el.scrollLeft + el.clientWidth < el.scrollWidth - 1); };
+    // Tabs that run on past an edge fade into it, and then every view is a click away in a list, as Excel's
+    // sheets are; the wheel turns them across.
+    const more = () => {
+      const el = ref.current;
+      if (!el) return;
+      const left = el.scrollLeft > 1, right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      if (left || right) el.dataset.more = left && right ? 'both' : left ? 'left' : 'right'; else delete el.dataset.more;
+      setOver(el.scrollWidth > el.clientWidth + 1);
+    };
     useLayoutEffect(more);
-    useLayoutEffect(() => { const ro = new ResizeObserver(more); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, [!!vp]);
+    useLayoutEffect(() => { const ro = new ResizeObserver(() => requestAnimationFrame(more)); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, [!!vp]);
     if (!vp) return html`<div class="sheets" />`;
     const down = (e, v) => {
-      if (e.button !== 0 || editing) return;
+      if (e.button !== 0 || editing.peek()) return;
       show(v.id);
       drag(e, { item: e.currentTarget, items: [...ref.current.children], axis: 'x', onDrop: (from, i) => vp.move(list[from].id, i) });
     };
-    const commit = (v, name) => { setEditing(null); name = name.trim(); if (name && name !== v.name) vp.rename(v.id, name); };
+    const commit = (v, name) => { editing.value = null; name = name.trim(); if (name && name !== v.name) vp.rename(v.id, name); };
     // A tab's menu, at the pointer, or over the tab from the keyboard.
     const tabMenu = (e, v) => {
       e.preventDefault(); show(v.id);
-      menu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget, [{ label: 'Rename', run: () => setEditing(v.id) }, ...vp.menu(v.id)], { placement: 'top-start' });
+      menu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget, [{ label: 'Rename', run: () => { editing.value = v.id; } }, ...vp.menu(v.id)], { placement: 'top-start' });
     };
     const onKey = e => {
       const k = list.findIndex(x => x.id === view.peek()), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-      if (!d || editing) return;
+      if (!d || editing.peek()) return;
       e.preventDefault();
       const next = list[(k + d + list.length) % list.length];
       show(next.id);
       ref.current.children[list.indexOf(next)]?.focus();
     };
-    const add = e => vp.add(e.currentTarget).then(id => { if (id) { show(id); setEditing(id); } });
-    return html`<div class="sheets" role="tablist" aria-label="Views" ref=${ref} onKeyDown=${onKey} onScroll=${more} onWheel=${e => { if (e.deltaY) ref.current.scrollLeft += e.deltaY; }}>
-      ${list.map(v => editing === v.id
+    const add = e => vp.add(e.currentTarget).then(id => { if (id) { show(id); editing.value = id; } });
+    const all = e => menu(e.currentTarget, list.map(v => ({ label: v.name, checked: v.id === view.peek(), run: () => show(v.id) })), { placement: 'top-end' });
+    return html`<div class="sheets" role="tablist" aria-label="Views" ref=${ref} onKeyDown=${onKey} onScroll=${more} onWheel=${e => { if (e.deltaY && !e.deltaX) { e.preventDefault(); ref.current.scrollLeft += e.deltaY * (e.deltaMode ? 16 : 1); } }}>
+      ${list.map(v => editing.value === v.id
         ? html`<div class="sheet" aria-selected="true"><input aria-label="Name" value=${v.name} style=${`width:${v.name.length + 3}ch`} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
-            onKeyDown=${e => { if (e.key === 'Enter') commit(v, e.target.value); else if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }}
+            onKeyDown=${e => { if (e.key === 'Enter') commit(v, e.target.value); else if (e.key === 'Escape') { e.stopPropagation(); editing.value = null; } }}
             onBlur=${e => commit(v, e.target.value)} /></div>`
         : html`<button key=${v.id} id=${'tab-' + v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} aria-controls="view" tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
-            onPointerDown=${e => down(e, v)} onDblClick=${() => setEditing(v.id)} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
-    </div><button class="btn icon" aria-label="New view" data-tip="New view" onClick=${add}>${icon('plus')}</button>`;
+            onPointerDown=${e => down(e, v)} onDblClick=${() => { editing.value = v.id; }} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
+    </div>${over ? html`<button class="btn icon views" aria-haspopup="menu" aria-label="All views" data-tip="All views" onClick=${all}>${icon('chevron')}</button>` : null}<button class="btn icon" aria-label="New view" data-tip="New view" onClick=${add}>${icon('plus')}</button>`;
   }
 
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
@@ -660,12 +688,12 @@ const Shell = (() => {
     ['soon', n => `${n} due soon`, ['Paid', 'Filed']], ['blank', n => `${n} blank`, []]];
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   const needs = () => many('attention').flatMap(a => a.items());
+  // A count goes to the first of its kind, and F8 goes on from there.
   let stepAt = -1;
   function attend(d = 1, kind) {
-    const items = needs().filter(it => !kind || it.kind === kind).sort((a, b) => worst(a) - worst(b));
-    if (!items.length) return;
-    stepAt = kind ? 0 : (stepAt + d + items.length) % items.length;
-    items[stepAt].go();
+    const items = needs().sort((a, b) => worst(a) - worst(b));
+    stepAt = kind ? items.findIndex(it => it.kind === kind) : items.length ? (stepAt + d + items.length) % items.length : -1;
+    items[stepAt]?.go();
   }
   const counts = () => { const items = needs(); return KINDS.map(([k, say, names]) => ({ k, say, names, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
   // In Find, each count goes where the bar's does.
@@ -702,8 +730,9 @@ const Shell = (() => {
   const problems = () => needs().length > 0;
   [
     { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
-    // What the title bar's Export does, for Find.
-    { id: 'export', name: 'Export', enabled: () => typeof Export !== 'undefined', run: () => Export.open() },
+    // What the title bar's Export does, for Find, by what it makes: a chart's slides or pages, and the dates.
+    ...[['pptx', 'PowerPoint'], ['pdf', 'PDF'], ['ics', 'Calendar']].map(([f, name]) => ({ id: 'export.' + f, name: `Export to ${name}`,
+      enabled: () => typeof Export !== 'undefined' && (f === 'ics' || views.peek().some(v => v.layout === 'chart')), run: () => Export.open(f) })),
     { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
     // With nothing to undo, Undo says so.
     { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo'), run: () => part('undo').undo() },
@@ -712,6 +741,8 @@ const Shell = (() => {
     { id: 'forward', name: 'Forward', keys: 'Alt+ArrowRight', run: forward },
     { id: 'view.prev', name: 'Previous view', keys: '$mod+Shift+PageUp', run: () => stepView(-1) },
     { id: 'view.next', name: 'Next view', keys: '$mod+Shift+PageDown', run: () => stepView(1) },
+    { id: 'chart.rename', name: 'Rename chart', enabled: () => !!part('workbook')?.current() && !App.readOnly.peek(), run: nameChart },
+    { id: 'view.rename', name: 'Rename view', enabled: () => !!current.peek() && !App.readOnly.peek(), run: () => { editing.value = view.peek(); } },
     { id: 'pane.next', name: 'Next pane', keys: 'F6', inputs: true, run: () => region(1) },
     { id: 'pane.prev', name: 'Previous pane', keys: 'Shift+F6', inputs: true, run: () => region(-1) },
     // F8 goes on from a blank field it brought you to, as F6 does.
@@ -750,7 +781,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store, nameChart,
     widen, narrow, wide, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     aside: c => { aside.value = c; },
   };

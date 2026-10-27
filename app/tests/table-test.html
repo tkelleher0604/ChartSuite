@@ -106,6 +106,21 @@ async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
   check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities,Ownership,Dates,Documents', views().map(v => v.name).join());
   check('A view without a Layout note is a chart', views().slice(0, 4).every(v => v.layout === 'chart') && views().slice(4).every(v => v.layout === 'table'));
+  // In a narrow window the tabs run on past the edge, which fades, the wheel turns them across, and every view
+  // is a click away in a list.
+  const strip = () => $('.sheets'), start = Shell.view.peek();
+  Object.assign($('.shell').style, { right: 'auto', width: '720px' });
+  Shell.show(views()[1].id); await tick(80);
+  check('Tabs that run on past the edge fade into it, and every view is listed beside them', strip().dataset.more === 'right' && !!$('.foot .btn.views'), `${strip().dataset.more} ${!!$('.foot .btn.views')}`);
+  strip().dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true })); await tick(40);
+  check('… the wheel turns them across', strip().scrollLeft > 0, strip().scrollLeft);
+  $('.foot .btn.views').click(); await tick(80);
+  const listed = $$('.float .menu-item').map(e => (e.getAttribute('aria-checked') === 'true' ? '✓' : '') + e.textContent.trim());
+  item('Documents').click(); await tick(80);
+  check('… the list names every view, the one shown checked, and shows the one chosen', listed.join() === views().map((v, i) => (i === 1 ? '✓' : '') + v.name).join() && views().find(v => v.id === Shell.view.peek())?.name === 'Documents', listed.join());
+  Object.assign($('.shell').style, { right: '', width: '' });
+  Shell.show(start); await tick(80);
+  check('With room for them all, no list', !$('.foot .btn.views') && !strip().dataset.more, `${strip().dataset.more}`);
 
   // ---- Adding a table view from the + menu ----
   let n0 = N();
@@ -351,6 +366,15 @@ async function run() {
   press('Enter', Table.grid.rowManager.element); await tick(100);
   const act = Table.grid.modules.selectRange.getActiveCell()?.getComponent();
   check('Enter on a cell that can’t be edited moves down, as Excel’s does, and throws nothing', !errors.length && act && act.getRow() !== dr0 && act.getColumn() === whatCol, errors.join(' / '));
+  // A change while the grid is grouped by month lights the cell it made, and throws nothing.
+  const consoleError = console.error, logged = [], rejected = [], onRejected = e => rejected.push(String(e.reason));
+  console.error = (...a) => { logged.push(a.join(' ')); consoleError(...a); };
+  addEventListener('unhandledrejection', onRejected);
+  await Table.grid.scrollToRow('fund_formed', 'center', false); await tick(60);
+  App.change(tx => tx.update('fund_formed', { value: '2023-02-15' })); await until(() => $$('.grid .tabulator-cell.lit').length > 0, 2000);
+  check('A change while Dates is shown lights the cell it made, and throws nothing', $$('.grid .tabulator-cell.lit').length > 0 && !logged.length && !rejected.length, [...logged, ...rejected].join(' / '));
+  console.error = consoleError; removeEventListener('unhandledrejection', onRejected);
+  undo(); await tick(150);
   await addTable(null, 'Documents');
   const docs = Table.model(Shell.view.peek());
   check('Documents has every document link, with the Document’s own entries beside it', docs.data.length === Object.values(st()).filter(r => r.field === 'document').length
@@ -461,6 +485,10 @@ async function run() {
   for (let i = 0; i < needs.length + failing; i++) Shell.parts.peek().action.find(a => a.id === 'attend').run();
   check('F8 goes to what’s overdue, then errors, then what’s due soon, then blanks', visits.join() === 'overdue2,error4,soon1,blank0,blank3', visits.join());
   check('… and the status bar counts them in that order, a check failed as an error', $$('.status .counts .btn').map(b => b.textContent).join(' · ') === `1 overdue · ${failing + 1} errors · 1 due soon · 2 blank`, $$('.status .counts .btn').map(b => b.textContent).join(' · '));
+  visits.length = 0;
+  $$('.status .counts .btn').find(b => b.textContent === '1 due soon').click();
+  Shell.parts.peek().action.find(a => a.id === 'attend').run();
+  check('A count goes to the first of its kind, and F8 goes on from there, in the whole list', visits.join() === 'soon1,blank0', visits.join());
   // Find reaches them by the bar's words, and a deadline by what settles it.
   const problems = async q => { Shell.find(q); await tick(120); const got = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent); Shell.closeAll(); await tick(); return got; };
   let said = await problems('overdue');
@@ -481,9 +509,9 @@ async function run() {
   unneed(); await tick(60);
 
   // ---- Find: each kind under its head (the inspector's records, stood in for, each by its names and kind) ----
-  const unfind = Shell.register('find', { items: () => Object.keys(st()).filter(id => Tree.isObject(st()[id]) && !Tree.isView(st()[id])).map(id => {
+  const unfind = Shell.register('find', { items: () => Object.keys(st()).filter(id => Tree.isObject(st()[id]) && !Tree.isView(st()[id])).flatMap(id => {
     const name = App.notes.peek().nameOf(st(), id), short = App.notes.peek().shortOf(st(), id);
-    return { key: id, label: name, names: short !== name ? [short] : [], detail: st()[id].kind, run: () => Shell.select([id]) };
+    return [{ key: id, label: name, names: short !== name ? [short] : [], detail: st()[id].kind, run: () => Shell.select([id]) }, { label: `${short} › Holdings`, of: id, run: () => Shell.select([id]) }];
   }) });
   const found = async q => {
     Shell.find(q); await tick(120);
@@ -505,11 +533,22 @@ async function run() {
   press('Enter', $('.findpal .menu-find')); await tick(150);
   check('Choosing a result selects it, and leaves the keys in the view', Shell.selection.peek().join() === named('Northpine Software, LLC') && !!document.activeElement?.closest('[data-region="view"]'), document.activeElement?.outerHTML.slice(0, 80));
   Shell.select([]);
-  window.Export = { open: () => { window.Export.opened = true; } };
-  got = await found('export');
+  Shell.closeAll(); await tick();
+  got = await found('blocker');
+  const firstList = got.findIndex(x => x.includes(' › ')), blockers = ['Calder Ridge III AIV-1 Blocker, Inc.', 'Calder Ridge III Blocker, Inc.'].map(x => got.indexOf(x));
+  check('… what’s within a thing after every thing found: “blocker” finds both blockers before their lists', blockers.every(i => i > 0 && i < firstList), got.slice(0, 6).join(' / '));
+  Shell.closeAll(); await tick();
+  window.Export = { open: f => { window.Export.opened = f; } };
+  got = await found('pdf');
   press('Enter', $('.findpal .menu-find')); await tick(120);
-  check('Find reaches Export', got[0] === '#Actions' && got[1] === 'Export' && Export.opened, got.slice(0, 4).join(' / '));
+  check('Find reaches Export by what it makes: “pdf” exports to PDF', got[0] === '#Actions' && got[1] === 'Export to PDF' && Export.opened === 'pdf', got.slice(0, 4).join(' / '));
+  got = await found('powerpoint');
+  press('Enter', $('.findpal .menu-find')); await tick(120);
+  check('… and “powerpoint” to PowerPoint', got[1] === 'Export to PowerPoint' && Export.opened === 'pptx', got.slice(0, 4).join(' / '));
   delete window.Export;
+  Shell.closeAll(); await tick();
+  got = await found('rename');
+  check('… and “rename” renames the chart or the view', got.includes('Rename chart') && got.includes('Rename view'), got.join(' / '));
   Shell.closeAll(); await tick();
   got = await found('close affiliate');
   const under = (head, label) => { let e = $$('.findpal .menu-head').find(h => h.textContent === head); while ((e = e?.nextElementSibling) && !e.classList.contains('menu-head')) if (e.querySelector('.label')?.textContent === label) return e; return null; };
@@ -538,15 +577,17 @@ async function run() {
   const holderBox = () => { const h = Table.grid.rowManager.element; return h.getBoundingClientRect().left + h.clientWidth; };
   const lastRight = () => $$('.grid .tabulator-header .tabulator-col').at(-1).getBoundingClientRect().right;
   const widths = () => Table.grid.getColumns().filter(c => c.isVisible() && c.getDefinition().title).map(c => `${c.getDefinition().title} ${c.getWidth()}`).join(', ') + ` to ${lastRight()} in ${holderBox()}`;
-  check('With the inspector open, a table fills its width, and runs no further', !$('.main.alone') && Math.abs(lastRight() - holderBox()) <= 1, widths());
+  check('With room to spare, a table leaves it at the right edge, as Excel does: an owner beside what it owns', !$('.main.alone') && lastRight() < holderBox() - 40
+    && column('Owner').getWidth() < 400 && column('Owned').getWidth() < 400, widths());
   const textRight = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().right; };
   const edge = (title, sel) => { const c = column(title).getElement(); return c.getBoundingClientRect().right - c.querySelector(sel).getBoundingClientRect().right; };
   const pctTitle = column('Percentage').getElement().querySelector('.tabulator-col-title');
   check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.tabulator-header-filter') - edge('Owner', '.tabulator-header-filter')) <= 0.5
     && textRight(pctTitle) <= column('Percentage').getElement().querySelector('.tabulator-header-filter').getBoundingClientRect().left, `${edge('Percentage', '.tabulator-header-filter')} vs ${edge('Owner', '.tabulator-header-filter')}`);
   Shell.show(docsView); await built('Link');
-  // Cut short: a cell narrower than what it holds, other than a long text at the cap.
-  const cut = () => Table.grid.getRows('active').slice(0, 30).flatMap(r => r.getCells()).filter(c => c.getElement().scrollWidth > c.getElement().clientWidth + 1 && c.getColumn().getWidth() < 340).map(c => c.getColumn().getDefinition().title);
+  // Cut short: a cell of any row narrower than what it holds, other than a long text at the cap; a name, never.
+  const cut = () => Table.grid.getRows('active').flatMap(r => r.getCells()).filter(c => c.getElement().scrollWidth > c.getElement().clientWidth + 1
+    && (c.getColumn().getWidth() < 340 || c.getElement().classList.contains('pin'))).map(c => c.getColumn().getDefinition().title);
   const across = () => { const h = Table.grid.rowManager.element; return h.scrollWidth > h.clientWidth; };
   check('Where the columns are wider than the grid, nothing is cut to fit: the grid scrolls across', across() && !cut().length, `${widths()}; cut: ${[...new Set(cut())].join()}`);
   const pinned = () => { const h = Table.grid.rowManager.element, at = h.getBoundingClientRect().left + 48, row = Table.grid.getRows('active')[0];
@@ -562,17 +603,39 @@ async function run() {
   check('Names stay whole, and the grid scrolls across', across() && !cut().length && column('Name').getWidth() > 200, `${widths()}; cut: ${[...new Set(cut())].join()}`);
   const sr = Table.grid.modules.selectRange, gridEl = Table.grid.rowManager.element, behind = [];
   Table.grid.addRange(Table.grid.getRows('active')[2].getCells().at(-1)); gridEl.scrollLeft = gridEl.scrollWidth; await tick(40);
+  const arrow = (key, keyCode) => gridEl.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, keyCode, bubbles: true, cancelable: true }));
   for (let i = 1; i < Table.grid.getColumns().length; i++) {
-    sr.navigate(false, false, 'left'); await tick();
+    arrow('ArrowLeft', 37); await tick();
     const a = sr.getActiveCell(), pin = $('.grid .tabulator-row .tabulator-cell.pin').getBoundingClientRect().right;
     if (a && !a.getElement().classList.contains('pin') && a.getElement().getBoundingClientRect().left < pin - 1) behind.push(a.column.definition.title);
   }
   check('The arrows walk the active cell back across, never behind the column that stays put', !behind.length && sr.getActiveCell()?.column.definition.title === 'Name', behind.join());
+  const past = [];
+  for (let i = 1; i < Table.grid.getColumns().length; i++) {
+    arrow('ArrowRight', 39); await tick();
+    const a = sr.getActiveCell()?.getElement().getBoundingClientRect(), right = gridEl.getBoundingClientRect().left + gridEl.clientWidth;
+    if (a && a.right > right + 1) past.push(sr.getActiveCell().column.definition.title);
+  }
+  check('… and on across, each whole in view', !past.length && gridEl.scrollLeft > 0, past.join());
+  // Scrolled across, it stops at a column's edge, clear of the first column.
+  const scroller = Table.grid.rowManager.element, pinW = () => Table.grid.getColumns().find(c => c.getField()).getWidth();
+  const edges = () => Table.grid.getRows('active')[0].getCells().filter(c => c.getField() && !c.getElement().classList.contains('pin')).map(c => c.getElement().offsetLeft - 48 - pinW());
+  scroller.scrollLeft = edges()[2] + 30; scroller.dispatchEvent(new Event('scroll')); await tick(80);
+  check('Scrolled across, the grid stops at a column’s edge, clear of the first column, as Excel’s does', getComputedStyle(scroller).scrollSnapType.startsWith('x mandatory')
+    && (edges().includes(scroller.scrollLeft) || scroller.scrollLeft === scroller.scrollWidth - scroller.clientWidth), `${scroller.scrollLeft} of ${edges().join()}`);
+  scroller.scrollLeft = 0; scroller.dispatchEvent(new Event('scroll')); await tick(40);
   Shell.select([]); await slotSettled(true);
   Shell.show(own); await built('Voting Percentage');
   Shell.show(docsView); await built('Link');
-  const docCols = Table.grid.getColumns().filter(c => c.isVisible() && c.getDefinition().title);
-  check('Documents’ Name takes what’s left over', docCols.every(c => column('Name').getWidth() >= c.getWidth()) && lastRight() >= holderBox() - 1, docCols.map(c => `${c.getDefinition().title} ${c.getWidth()}`).join(', ') + ` in ${holderBox()}`);
+  check('Documents cuts no name, nothing selected', !cut().length, `${widths()}; cut: ${[...new Set(cut())].join()}`);
+  // In a window of 1024, with a document selected, the names may take half the grid, and a longer one goes on to a second line.
+  Object.assign($('.shell').style, { width: '1024px', height: '768px' });
+  Shell.show(own); Shell.select([Table.model(docsView).data[0].id]); await slotSettled(false);
+  Shell.show(docsView); await built('Link');
+  const nameCol = Table.grid.getColumns().find(c => c.getField()), tall = Table.grid.getRows('active').filter(r => r.getCells()[0].getElement().offsetHeight > 40);
+  check('… nor at 1024 beside the inspector: a name longer than half the grid goes on to a second line', !cut().length && nameCol.getWidth() <= Math.ceil(Table.grid.rowManager.element.clientWidth / 2) + 1 && tall.length > 0,
+    `${widths()}; ${tall.length} on two lines; cut: ${[...new Set(cut())].join()}`);
+  Shell.select([]);
   Object.assign($('.shell').style, { right: '', bottom: '', width: '', height: '' }); await tick(60);
 
   // ---- + › Chart: from the styles of the chart shown, or else the first ----
@@ -614,6 +677,13 @@ async function run() {
   const pos = App.wb.rows(C()).filter(r => r.label === 'Position').slice(0, 3), stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: C() };
   const tidied = { ...stamp, id: 'xt', removes: pos.map(r => r.id), adds: [] }, untidied = { ...stamp, id: 'xu', reverses: 'xt', removes: [], adds: pos }, retidied = { ...stamp, id: 'xr', reverses: 'xu', removes: pos.map(r => r.id), adds: [] };
   check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));
+  const npine = named('Northpine Software, LLC'), boxOf = { id: npine, kind: 'Entity' };
+  App.change(tx => tx.note('Fill', boxOf, '#fff2cc', { view: 'view_main' }), { dated: false });
+  App.change(tx => tx.note('Fill', boxOf, undefined, { view: 'view_main' }), { dated: false });
+  const cleared = Time.describe(last());
+  undo(); await tick(60);
+  check('A look a box kept of its own, cleared, is said so, and so is its Undo', cleared === 'Cleared Northpine Software, LLC’s own Fill in Structure' && $('.toast span')?.textContent === `Undid: ${cleared}`, `${cleared} / ${$('.toast span')?.textContent}`);
+  undo(); await tick(60);
   const before = st();
   const pick =[...$$('.hist-row')].find(x => x.textContent.includes('Changed Percentage of Fund III → Corvane'));
   pick.click(); await tick(150);
@@ -641,6 +711,15 @@ async function run() {
   check('Restore brings it back, as one change', N() === n0 + 1 && gone().length === k - 1 && !!st().gp_agent);
   undo(); await tick(60);
   check('Undo takes the restore back, and says it undid a restore', !st().gp_agent && /^Undid: Restored /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  await tick(60);
+  check('… and it’s listed as deleted again', gone().includes('Registered Agent · GP III'), gone().join());
+  // One payment a revision removed: restored, it comes back alone, and the revision's tax years stand.
+  const years = () => Object.values(st()).filter(r => r.kind === 'Tax Year').length, y0 = years();
+  n0 = N();
+  $$('.hist-row.gone').find(x => x.querySelector('.what').textContent === 'Annual Tax Paid · Fund III').querySelector('.btn').click(); await tick(150);
+  check('Restoring one payment a revision removed brings back that payment alone, and says so', N() === n0 + 1 && !last().removes.length && years() === y0 && y0 > 0
+    && $('.toast span')?.textContent === 'Restored Annual Tax Paid of Fund III' && !gone().includes('Annual Tax Paid · Fund III') && gone().includes('Annual Tax Paid · GP III'), $('.toast span')?.textContent);
+  undo(); await tick(100);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
   check('Esc then closes History', !$('.inspector .hist'));
 
@@ -659,6 +738,27 @@ async function run() {
   const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
   check('Each of its pages has a title, its name, and an as-of line', pages.length > 0 && pages.every(v => furniture(v).some(s => s.role === 'title' && s.text === name1) && furniture(v).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text))),
     pages.map(v => `${v.name}: ${furniture(v).map(s => s.text).join(' | ')}`).join(' / '));
+  // Named in place in the title bar, as a sheet is: as it begins, from the chart menu, or by a double-click.
+  const naming = () => $('.titlebar .chartmenu.naming input'), type = (el, text) => { el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); };
+  const pageTitles = () => App.wb.rows(C1).filter(r => 'shape' in r && r.role === 'title').map(r => r.text).sort().join(' | ');
+  check('A new chart begins with its name being typed over, in the title bar', naming()?.value === 'Untitled' && document.activeElement === naming(), naming()?.outerHTML);
+  type(naming(), 'Harbor Point Fund I'); press('Enter', naming()); await tick(100);
+  const chartName1 = () => App.wb.charts().find(c => c.chart === C1)?.name;
+  check('Enter names it: the chart, the title bar, the window and its page’s title, so its exports are named so', chartName1() === 'Harbor Point Fund I' && !naming()
+    && $('.titlebar .chartmenu .name').textContent === 'Harbor Point Fund I' && document.title === 'Harbor Point Fund I – Dendra' && pageTitles() === 'Harbor Point Fund I', `${chartName1()} / ${pageTitles()}`);
+  check('… as one change, said so, that one Undo takes back', Time.describe(last()) === 'Renamed Untitled to Harbor Point Fund I' && Shell.parts.peek().undo.canUndo(), Time.describe(last()));
+  // A page whose title was changed by hand keeps it.
+  const second = App.addView('Closing'); await tick(60);
+  const byHand = App.wb.rows(C1).find(r => 'shape' in r && r.view === second && r.role === 'title');
+  App.change(tx => tx.update(byHand.shape, { text: 'Closing structure' }), { dated: false }); await tick(60);
+  $('.titlebar .chartmenu').click(); await tick(60);
+  item('Rename').click(); await tick(60);
+  check('The chart menu’s Rename types over the name in place', naming()?.value === 'Harbor Point Fund I' && document.activeElement === naming());
+  type(naming(), 'Harbor Point Fund I, L.P.'); press('Enter', naming()); await tick(100);
+  check('… and a page’s title changed by hand keeps what it says', chartName1() === 'Harbor Point Fund I, L.P.' && pageTitles() === 'Closing structure | Harbor Point Fund I, L.P.', pageTitles());
+  $('.titlebar .chartmenu').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(60);
+  type(naming(), 'Something else'); press('Escape', naming()); await tick(60);
+  check('A double-click on it types over it too, and Esc puts it back, the keys on it again', chartName1() === 'Harbor Point Fund I, L.P.' && !naming() && document.activeElement === $('.titlebar .chartmenu'), document.activeElement?.outerHTML.slice(0, 60));
   App.change(tx => tx.note('Name', { id: views()[0].id, kind: 'View' }, 'Overview'), { dated: false }); await tick(60);
   check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Chart'));
   Shell.parts.peek().workbook.open(C0); await tick(200);

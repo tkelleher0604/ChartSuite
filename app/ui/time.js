@@ -11,28 +11,14 @@ const Time = (() => {
   const list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   const viewTree = id => ({ id, kind: 'View' });
 
-  // What a record is, as the chart says it: [what, whose], whose by the place rule (see where) or, worded, in
-  // words (see whose).
+  // What a record is, as the chart says it: [what, whose], whose by the place rule (Notes: segmentOf, and
+  // whereOf, an entry's place as far as it needs, as the formula bar says it) or, worded, in words (see whose).
   function said(recs, id, N, worded = false) {
     const r = recs[id];
     if (!r) return ['', ''];
     if (Tree.isObject(r)) return [r.kind, N.nameOf(recs, id)];
     if (r.args) return [N.nameOf(recs, id), worded ? whose(recs, id, N) : N.segmentOf(recs, id)];
-    return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : where(recs, id, N)];
-  }
-  // Where an entry is, said as far as it needs, as the formula bar says it: its object (AIV-1), or the path down
-  // to it where the object has another entry of its label (a file number at its jurisdiction and one elsewhere);
-  // at a relation, the relation's place (AIV-1, tax year 2025).
-  const labelled = new WeakMap();
-  function where(recs, id, N) {
-    const at = recs[id].at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, x)}|${Tree.norm(recs[x].edge)}`;
-    if (!Tree.isObject(recs[O] ?? {}) || at === O) return N.placeOf(recs, at);
-    if (!labelled.has(recs)) {
-      const n = new Map();
-      for (const x in recs) if (recs[x].edge !== undefined && !recs[x].args) n.set(key(x), (n.get(key(x)) ?? 0) + 1);
-      labelled.set(recs, n);
-    }
-    return labelled.get(recs).get(key(id)) > 1 ? N.placeOf(recs, at) : N.shortOf(recs, O);
+    return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : N.whereOf(recs, r)];
   }
   // Whose a record is, in words, for a list of dates: an object by its short name, with what it's under in
   // parentheses (AIV-1 Blocker (Delaware); The Manager (Registered Investment Adviser)); a relation by its first
@@ -241,9 +227,9 @@ const Time = (() => {
   const undone = e => e.chain.length % 2 === 0;
 
   // A change, said from itself: what it did to which items, in the chart's words, what it records read where it
-  // records it. What a reversal brings back is restored.
+  // records it. What a reversal or a restore brings back is restored.
   function describe(c) {
-    const { rows, recs: logged } = ever.peek(), own = recordsOf(c.adds), N = App.notes.peek(), items = new Map(), back = !!c.reverses;
+    const { rows, recs: logged } = ever.peek(), own = recordsOf(c.adds), N = App.notes.peek(), items = new Map(), back = !!(c.reverses || c.restores);
     const recs = Object.keys(own).every(id => id in logged) ? logged : { ...logged, ...own };
     const put = (r, side) => { const type = Log.typeOf(r), k = type + ':' + r[type]; if (!items.has(k)) items.set(k, { type, id: r[type], was: [], now: [] }); items.get(k)[side].push(r); };
     c.removes.map(id => rows.get(id)).filter(Boolean).forEach(r => put(r, 'was'));
@@ -282,14 +268,13 @@ const Time = (() => {
         if ([...Tree.idsIn(n.pattern)].some(id => moved.has(id)) || moved.has(n.view)) continue;
         phrases.push(notePhrase(i, n, recs, N));
       } else if (i.type === 'shape') {
-        if (!moved.has(rec(i).view)) phrases.push(shapePhrase(i, rec(i), recs, N, back));
-      } else if (i.type === 'chart' && i.now.length) phrases.push(`Named the chart ${i.now[0].name}`);
+        // A page's title that follows the chart's name is part of renaming it.
+        if (!moved.has(rec(i).view) && !(rec(i).role === 'title' && all.some(j => j.type === 'chart' && j.was.length && j.now.length))) phrases.push(shapePhrase(i, rec(i), recs, N, back));
+      } else if (i.type === 'chart' && i.now.length) phrases.push(i.was.length ? `Renamed ${i.was[0].name} to ${i.now[0].name}` : `Named the chart ${i.now[0].name}`);
     }
     const ps = [...new Set(phrases.filter(Boolean))];
     return !ps.length ? 'Changed the chart' : ps.length === 1 ? ps[0] : `${ps[0]}, and ${ps.length - 1} more`;
   }
-  // What reversing a change would do, as a change: its rows the other way round.
-  const reversal = c => ({ ...c, reverses: c.id, removes: c.adds.map(r => r.id), adds: c.removes.map(id => ever.peek().rows.get(id)).filter(Boolean) });
   const valueText = r => r.field === 'date' ? short(r.value) : Tree.outputText(r);
   // A record's phrase: a tag attested or ruled out, a value set, changed or cleared, a record added or deleted.
   // A relation that's a fact (Ownership) is added; one a definition works out (Control) is attested.
@@ -335,16 +320,20 @@ const Time = (() => {
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
-      default: return `Changed ${n.label}${at !== undefined ? ' of ' : ' for '}${at === undefined && n.view ? grouped(N, n) ?? of : of}${inView}`;
+      // A look one record kept of its own, cleared, as the format bar says it.
+      default: return gone && at !== undefined && Notes.FORMATS.has(n.label) ? `Cleared ${of.endsWith('s') ? `${of}’` : `${of}’s`} own ${n.label}${inView}`
+        : `Changed ${n.label}${at !== undefined ? ' of ' : ' for '}${at === undefined && n.view ? grouped(N, n) ?? of : of}${inView}`;
     }
   }
 
   // The items deleted and not restored, each with the change that deleted it: things at something also
-  // deleted go with it, only records and definitions are listed, and an addition undone was never there.
+  // deleted go with it, only records and definitions are listed, and an addition undone was never there. A
+  // change adds anew what it adds unless it brings it back: a restore, or the undoing of a change that took it.
   function deleted() {
     const { recs, rows, by, changes } = ever.peek(), N = App.notes.peek(), gone = App.wb.deleted(App.chart.peek());
-    const ids = new Set(gone.map(d => d.item));
-    const undone = d => { const c = changes.find(x => x.id === d.change); return !!c?.reverses && d.rows.every(r => by.get(r.id) === c.reverses); };
+    const ids = new Set(gone.map(d => d.item)), find = id => changes.find(x => x.id === id);
+    const anew = c => !!c && !c.restores && (!c.reverses || (u => !!u?.reverses && anew(find(u.reverses)))(find(c.reverses)));
+    const undone = d => { const c = find(d.change); return !!c?.reverses && anew(find(c.reverses)) && d.rows.every(r => by.get(r.id) === c.reverses); };
     // A deleted view goes by the last name it had.
     const viewName = id => [...rows.values()].filter(r => r.label === 'Name' && r.pattern?.id === id).at(-1)?.value;
     return gone.filter(d => !undone(d) && (d.type === 'record' ? !Tree.argsOf(recs[d.item] ?? {}).some(a => ids.has(a.at)) : d.type === 'note' && d.rows[0]?.label === 'Formula'))
@@ -365,7 +354,6 @@ const Time = (() => {
     if (home && home !== Shell.view.peek() && App.views.peek().some(v => v.id === home)) Shell.show(home, { replace: true });
     home = null;
   }
-  const restore = (id, say) => { App.restore(id, say); now(); };
   const dayLabel = when => {
     const k = Tree.isoOf(new Date(when)), today = Log.today(), y = Tree.isoOf(new Date(Date.now() - 864e5));
     return k === today ? 'Today' : k === y ? 'Yesterday' : short(k);
@@ -399,12 +387,12 @@ const Time = (() => {
           return html`${head}<div class=${'hist-row' + (off ? ' undone' : '')} role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)}>
             <div class="what">${describe(c)}</div>
             <div class="meta">${c.who} · ${clock(c.when)}${off ? ` · undone${last.who !== c.who ? ` by ${last.who}` : ''}` : ''}</div>
-            ${on ? html`<button class="btn" disabled=${!App.wb.canReverse(last.id)} onClick=${ev => { ev.stopPropagation(); restore(last.id, describe(reversal(last))); }}>${off ? 'Redo this change' : 'Undo this change'}</button>` : null}
+            ${on ? html`<button class="btn" disabled=${!App.wb.canReverse(last.id)} onClick=${ev => { ev.stopPropagation(); App.reverse(last.id); now(); }}>${off ? 'Redo this change' : 'Undo this change'}</button>` : null}
           </div>`;
         }) : gone.map(d => html`<div class="hist-row gone">
             <div class="what">${d.text}</div>
             <div class="meta">${d.who} · ${d.when ? dayLabel(d.when) : ''}</div>
-            <button class="btn" onClick=${() => restore(d.change, `Restored ${d.text}`)}>Restore</button>
+            <button class="btn" onClick=${() => { App.restore(d.item); now(); }}>Restore</button>
           </div>`)}
         ${(m === 'all' ? changes : gone).length ? null : html`<div class="empty">${m === 'all' ? 'No changes' : 'Nothing deleted'}</div>`}
       </div>

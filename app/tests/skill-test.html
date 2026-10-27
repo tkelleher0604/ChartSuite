@@ -46,7 +46,7 @@ function runAll() {
   // What needs attention: the status bar's counts.
   const c = run('check', { day: DAY });
   check('check counts what needs attention as the status bar does: 2 overdue · 4 errors · 2 due soon · 5 blank', c.ok && c.text.includes('2 overdue · 4 errors · 2 due soon · 5 blank')
-    && /David R\. Okafor → Fund III → GP III: Capacity Held fails/.test(c.text), c.text.split('\n')[0]);
+    && /David R\. Okafor for Fund III, via GP III: Capacity Held fails/.test(c.text), c.text.split('\n')[0]);
 
   // A plan recorded: an LLC and an LP, a general partner at the LP's Entity Type, an ownership.
   const a = apply(FUND), wb = a.workbook && Log.open(a.workbook);
@@ -78,6 +78,8 @@ function runAll() {
   no([{ relation: 'Ownership', sides: { Owner: 'Fund III', Owned: 'Fund III Blocker' }, entries: { Percentage: 1 } }], /write it as text with its sign/, '… a percentage as a bare number');
   no([{ relation: 'General Partner', sides: { GP: 'Fund III', Partnership: 'GP III' } }], /Partnership Entity whose Entity Type is Limited Partnership/, '… a general partner of an LLC');
   no([{ relation: 'Ownership', sides: { Owner: 'Calder Ridge GP 4', Owned: 'Fund III' } }], /There’s no .* named “Calder Ridge GP 4”/, '… a side the chart hasn’t');
+  no([{ relation: 'Signing Authority', sides: { Signatory: 'Priya N. Raman', Via: 'GP III', 'On Behalf Of': 'Fund III' }, remove: true }],
+    /There’s no Signing Authority Priya N\. Raman for Fund III, via GP III to remove/, '… a relation to remove that isn’t there, named where it would be, as the chart names it');
   no([{ kind: 'Entity', entries: { Name: 'Fund III', 'Formation Date': 'sometime in 2026' } }], /isn’t\. Write a date as 2026-03-02/, '… a date that isn’t one');
   const nobody = run('apply', { plan: JSON.stringify({ records: FUND }) });
   check('… and a plan that doesn’t say who records it', !nobody.ok && /says who is recording it/.test(nobody.text), nobody.text);

@@ -50,11 +50,11 @@ Every legal entity is an **Entity**. People are **Individuals**. A body of inves
 | General Partner | GP → Partnership (an LP or ELP) | Admission Date, Withdrawal Date | LPA; certificate of LP; amendment admitting or withdrawing a GP |
 | Membership | Member (an Individual) → LLC | Managing Member or Member | LLC agreement; written consents |
 | Position | Holder (an Individual) → Company | Director, Officer or Employee; Title, Start Date, End Date | board minutes or consents; incumbency certificate; register of directors |
-| Signing Authority | Signatory → On Behalf Of, Via | Capacity (Managing Member, General Partner, Director, Officer, Authorized Signatory); Start Date; Limit | incumbency certificate; signature blocks; authorizing resolutions |
+| Signing Authority | Signatory, On Behalf Of, Via | Capacity (Managing Member, General Partner, Director, Officer, Authorized Signatory); Start Date; Limit | incumbency certificate; signature blocks; authorizing resolutions |
 | Investment Adviser | Adviser → Client | | investment advisory or management agreement |
 | Registered Agent | Agent (a Service Provider) → Principal | | formation certificate; agent change filings |
 
-- **A signing authority runs through an entity.** Chen signs for Fund III (On Behalf Of) via GP III (Via), as its Managing Member (Capacity). Capacity Held is worked out: it checks Chen holds that capacity at GP III. A failure means the record or the authority is wrong; report it.
+- **A signing authority runs through an entity.** Chen signs for Fund III (On Behalf Of) via GP III (Via), as its Managing Member (Capacity). The tool names it "Margaret A. Chen for Fund III, via GP III". Capacity Held is worked out: it checks Chen holds that capacity at GP III. A failure means the record or the authority is wrong; report it.
 - **Control, Affiliated Person and close or remote affiliate** are worked out from these. Never enter them.
 - **Evidence:** a document that evidences a position or a signing authority is related to it by Evidence, with the relation's id as the Evidenced side.
 
