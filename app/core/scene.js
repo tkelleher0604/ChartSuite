@@ -4,12 +4,14 @@
 // The only page it touches is a canvas, to measure text. Units are CSS pixels, 96 to the inch, as the browser
 // and X6 draw them; a Size or a Weight is in points, as Office gives them, each PT pixels.
 //
-// Scene.of(wb, chart, view, day, { state, computed?, reveal, redline, paper?, ahead? }) →
+// Scene.of(wb, chart, view, day, { state, computed?, reveal, keep, paper?, ahead? }) →
 //   { chart, view, day, page: { size, w, h, scale, margin, sheet }, marks, byId, styles, legend, ms }
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
-// text is a formula. `paper`, a size in PAGES, draws the view on that paper in place of its own page (see the
-// page). `ahead` lays out a state a change previewed would leave, so it's drawn at once when the change is
-// made, and isn't kept as how the view was drawn. `marks` are in drawing order: frames, lines, boxes, then
+// text is a formula. `reveal`, records the view hides, drawn for a while, and `keep`, a restyle's preview, keep the
+// view as it was last drawn (see the layout). `paper`, a size in PAGES, draws the view on that paper in place of its
+// own page (see the page). `ahead` lays out a state a change previewed would leave, so it's drawn at once when the
+// change is made, and isn't kept as how the view was drawn: a redline is that scene, inked by the canvas, as Enter
+// will draw it. `marks` are in drawing order: frames, lines, boxes, then
 // free shapes, each by its Layer.
 // Scene.steps(…), with the same arguments, draws it a step at a time: `next()` takes a step, the last giving
 // the scene; so a scene drawn while the window is idle never holds it up for long (see the canvas).
@@ -192,13 +194,8 @@ function fill(words, t, width, inset = 0) {
   out.push({ text: line });
   return out;
 }
-// A text's lines, all of them; in a redline, what it said struck through above what it would say. One set left that
-// `hangs` hangs (see breakLines).
-const linesOf = (it, width) => {
-  const lines = text => breakLines(text, it.look, width, true, !!it.hangs && it.look.Align === 'left');
-  return it.was !== undefined && it.was !== it.text ? [...lines(it.was).map(l => ({ ...l, red: 'go' })), ...(it.text ? lines(it.text).map(l => ({ ...l, red: 'appear' })) : [])]
-    : it.text ? lines(it.text) : [];
-};
+// A text's lines, all of them. One set left that `hangs` hangs (see breakLines).
+const linesOf = (it, width) => it.text ? breakLines(it.text, it.look, width, true, !!it.hangs && it.look.Align === 'left') : [];
 // A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels.
 const dash = (d, w) => { const p = w * PT; return d === 'dashed' ? `${Math.max(4, p * 4)} ${Math.max(3, p * 3)}` : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
 const lineHeight = t => t.Size * PT * 1.2;
@@ -233,7 +230,7 @@ function snap(it, s, under = false) {
 // Kept by what it reads, the latest few thousand, as the next scene sets the same triangles again.
 const pyramids = new Map();
 function pyramid(texts, w, wide) {
-  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.was, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic])]);
+  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic])]);
   let p = pyramids.get(k);
   if (!p) {
     p = fitPyramid(texts, w, wide);
@@ -263,17 +260,16 @@ function fitPyramid(texts, w, wide) {
     w = Math.min(cap, w + 12);
   }
 }
-// A triangle w wide and h tall's texts set bottom up (see pyramid), each paragraph on lines of its own, a
-// redline's struck lines over what it would say. → each text's lines, or null where they don't fit.
+// A triangle w wide and h tall's texts set bottom up (see pyramid), each paragraph on lines of its own. → each
+// text's lines, or null where they don't fit.
 function shaped(texts, w, h) {
   const out = texts.map(() => []);
   let d = BASE;
   for (let i = texts.length - 1; i >= 0; i--) {
     const it = texts[i], t = it.look, lh = lineHeight(t), most = w * 0.75 - 2 * INSET;
-    const paras = (it.was !== undefined && it.was !== it.text ? [[it.was, 'go'], ...(it.text ? [[it.text, 'appear']] : [])] : it.text ? [[it.text]] : [])
-      .flatMap(([text, red]) => bind(text).split('\n').map(p => ({ red, words: units(p, t, most) })));
+    const paras = it.text ? bind(it.text).split('\n').map(p => units(p, t, most)) : [];
     for (let p = paras.length - 1; p >= 0; p--) {
-      const { words, red } = paras[p], m = words.length, room = k => w * (h - d - (k + 1) * lh) / h - 2 * PAD;
+      const words = paras[p], m = words.length, room = k => w * (h - d - (k + 1) * lh) / h - 2 * PAD;
       const said = (a, b) => words.slice(a, b).map(x => x.text).join(' ');
       // As few lines as hold the paragraph, filled bottom up; then, of the ways to set it in so many, the one
       // whose lines come nearest the triangle's sides, each as full of its room as the rest, and a line begun
@@ -299,7 +295,7 @@ function shaped(texts, w, h) {
       const lines = [];
       for (let k = n, a = 0; k > 0; k--) {
         const b = best[k][a].end, text = said(a, b);
-        lines.push({ text, w: measure(text, t), ...(words[a].bound && { split: true }), ...(words[b - 1].cut && { cut: true }), ...(red && { red }) });
+        lines.push({ text, w: measure(text, t), ...(words[a].bound && { split: true }), ...(words[b - 1].cut && { cut: true }) });
         a = b;
       }
       out[i].unshift(...lines);
@@ -418,10 +414,9 @@ const of = (...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if
 // routes, again each time a gap is deepened for them, and the rest of it; then the page.
 function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
-  const red = opts.redline ?? null;
   const rows = wb.rows(chart), read = readRows(rows, view), notesAre = `${view}|${read.notes}`;
   const shapeRows = read.shapes.get(view);
-  const preview = !!(red || opts.reveal?.length), drawnAs = `${chart}|${view}`;
+  const preview = !!(opts.keep || opts.reveal?.length), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const from = [opts.state, notesAre, shapeRows.map(r => r.id).join(), [...said.values()].join('\n'), day], whence = `${drawnAs}|${opts.paper ?? ''}`;
   if (!preview) {
@@ -435,8 +430,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       return d.scene;
     }
   }
-  // A redline draws what's in the chart now together with what would be: both, marked.
-  const state = red?.state ? { ...opts.state, ...red.state } : opts.state;
+  const state = opts.state;
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
   const tree = id => treeOf(state, id);
   const kept = workedIn(notesAre), stands = new Map();
@@ -561,7 +555,6 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
   };
   const look = s => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v.value]));
-  const isRed = id => !red ? null : red.go?.has?.(id) ? 'go' : red.appear?.has?.(id) ? 'appear' : null;
 
   // The texts drawn in each box and on each line, in their entries' order. A text's properties reach it
   // through its own record and through its box's (or line's); as everywhere, the later style wins, and its
@@ -582,10 +575,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     settle(m, DEFAULTS.text);
     for (const label of TEXT_PROPS) if (!m.cand[label] && label !== 'Format') m.settings[label] = host.settings[label];
     const r = state[m.record], t = look(m.settings), name = once(m.record, 'name', () => N.name(tree(m.record)));
-    const old = red?.changed?.get?.(m.record);
-    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name),
-      was: typeof old === 'string' ? old : old ? textOf(old, t.Format, name) : undefined,
-      computed: !!r.computed, redline: isRed(m.record),
+    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name), computed: !!r.computed,
       ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', name), name: N.nameOf(state, m.listed) } }) };
   };
   // A box's relations written in it, one text for each role: the role, for more than one in the plural, and
@@ -597,8 +587,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const merged = [...roles.values()].sort((a, b) => a[0].listed.role < b[0].listed.role ? -1 : 1).map(its => {
       const names = its.map(it => it.listed.name).sort((a, b) => surname(a) < surname(b) ? -1 : surname(a) > surname(b) ? 1 : 0)
         .map(n => n.trim().replace(/ +/g, '\u00a0')), role = its[0].listed.role;
-      return { ...its[0], text: role ? `${(names.length > 1 ? Tree.plural(role) : role).trim().replace(/ +/g, '\u00a0')}:\u00a0${names.join(', ')}` : names.join(', '), records: its.map(it => it.id), listed: undefined, was: undefined,
-        hangs: true, computed: its.every(it => it.computed), redline: its.find(it => it.redline)?.redline ?? null };
+      return { ...its[0], text: role ? `${(names.length > 1 ? Tree.plural(role) : role).trim().replace(/ +/g, '\u00a0')}:\u00a0${names.join(', ')}` : names.join(', '), records: its.map(it => it.id), listed: undefined,
+        hangs: true, computed: its.every(it => it.computed) };
     });
     return [...mine, ...merged];
   };
@@ -609,7 +599,6 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     (m.type === 'box' ? boxes : lines).push(m);
     m.texts = [];
     m.computed = !!state[m.record].computed;
-    m.redline = isRed(m.record);
     m.revealed = reveal.has(m.record) && !shownAlone(m);
   }
   for (const m of [...marks.values()].filter(m => m.type === 'text' && drawn(m)).sort(byOrder)) {
@@ -631,7 +620,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     [l.from, l.to] = endsOf(l.record, l.ends);
     l.ranks = l.settings.Above.value !== 'none';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
-      text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed, redline: l.redline };
+      text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed };
     l.texts = l.revealed ? [] : [own, ...l.texts].filter(it => it.text);
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
     labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r));
@@ -700,7 +689,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // The layout: entered positions win; ELK places the rest, frames as clusters, ranked by the lines, and a
   // box placed among entered ones keeps clear of the boxes, lines and free shapes already there. Entered places
   // are the chart's own, which the page sets on it (see furnish), so a preview's, kept as drawn, are the page's
-  // less its offset. A preview (a redline, or records revealed) keeps the view as it was last drawn: its boxes,
+  // less its offset. A preview (records revealed, or a restyle) keeps the view as it was last drawn: its boxes,
   // its lines where their boxes stand, its page and its furniture; what it adds goes on the page, around
   // what's drawn.
   const sheet = pageOf(N, view, opts.paper);

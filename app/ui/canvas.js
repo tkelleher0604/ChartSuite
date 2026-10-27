@@ -137,7 +137,7 @@ function cellsOf(scene, ink = null) {
   const cells = [], z = new Map(scene.marks.map((m, i) => [m.id, i * 2]));
   const node = (m, kind, markup, extra = {}) => cells.push({ id: m.id, shape: 'dendra', x: m.x, y: m.y, width: Math.max(1, m.w), height: Math.max(1, m.h),
     zIndex: z.get(m.id), markup, data: { kind, mark: m.id }, ...extra });
-  const red = m => ink?.go.has(m.record) ? 'go' : ink?.appear.has(m.record) ? 'appear' : m.redline;
+  const red = m => ink?.go.has(m.record) ? 'go' : ink?.appear.has(m.record) ? 'appear' : null;
   // A text as the ink has it: a changed one's new lines under its old, struck; one appearing, blue.
   const inkOn = it => {
     const was = ink?.was.get(it.id), lh = px(it.look.Size) * 1.2;
@@ -285,7 +285,7 @@ function mount(el) {
   viewport.appendChild(marks);
 
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
-  // A restyle is drawn as an empty redline is, so its boxes stay where they are, as in every preview; one that
+  // A restyle keeps the view as it was drawn, so its boxes stay where they are, as a highlight does; one that
   // moves them, Tidy's, is laid out afresh, and not kept as how the view was drawn. A redline is the scene the
   // change, made, draws, with its ink (see inked).
   // The page drawn last; and `moving`, while a gesture's change is made (see moveTo).
@@ -295,7 +295,7 @@ function mount(el) {
     if (!base) return;
     const view = base.view, s = styledDrawn, r = !s && redDrawn;
     scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: s && !s.moves ? {} : null, ahead: !!s?.moves }) : r ? r.scene : base;
+      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, keep: !!s && !s.moves, ahead: !!s?.moves }) : r ? r.scene : base;
     ink = r ? inked(r, scene, base) : null;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
       data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
