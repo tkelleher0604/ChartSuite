@@ -393,6 +393,61 @@ function run() {
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));
   }
 
+  // ---- Nothing drawn over anything ----
+  // Every sample view, on the slide and on Letter, as entered, tidied, with an owner added (Northstar of
+  // Northpine, 5%) and with a 247-character name: no route runs through a box it doesn't end at, or through a
+  // frame's caption; no label sits on a box, a caption or another label; and no line crosses a label.
+  {
+    const LONG = 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., an exempted company incorporated with limited liability in the Cayman Islands';
+    const cases = {
+      'as entered': () => {},
+      tidied: (wb, v) => edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); }),
+      'with an owner added': wb => edit(wb, tx => {
+        const o = tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'northpine' }], tag: true });
+        tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 0.05 });
+      }),
+      'with a long name': wb => edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: LONG })),
+    };
+    // Whether a point is inside a box's shape, more than a pixel in.
+    const inside = (b, x, y) => {
+      if (x <= b.x + 1 || x >= b.x + b.w - 1 || y <= b.y + 1 || y >= b.y + b.h - 1) return false;
+      if (b.shape === 'triangle') return Math.abs(x - b.x - b.w / 2) < b.w / 2 * (y - b.y) / b.h - 1;
+      if (b.shape === 'oval') return ((x - b.x - b.w / 2) / (b.w / 2)) ** 2 + ((y - b.y - b.h / 2) / (b.h / 2)) ** 2 < 0.97;
+      return true;
+    };
+    const along = ([a, b], f) => { const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]))); for (let i = 0; i <= n; i++) if (f(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n)) return true; return false; };
+    const sides = r => [[[r.x, r.y], [r.x + r.w, r.y]], [[r.x + r.w, r.y], [r.x + r.w, r.y + r.h]], [[r.x + r.w, r.y + r.h], [r.x, r.y + r.h]], [[r.x, r.y + r.h], [r.x, r.y]]];
+    const corners = b => b.shape === 'triangle' ? [[b.x + b.w / 2, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]] : [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
+    const within = (r, [x, y]) => x > r.x + 0.5 && x < r.x + r.w - 0.5 && y > r.y + 0.5 && y < r.y + r.h - 0.5;
+    const covers = (r, b) => sides(r).some(s => along(s, (x, y) => inside(b, x, y))) || corners(b).some(p => within(r, p)) || inside(b, r.x + r.w / 2, r.y + r.h / 2);
+    const meets = (a, b) => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+    const routes = [], labels = [], crossed = [];
+    for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) for (const paper of [null, 'letter']) {
+      const wb = fresh();
+      f(wb, v);
+      const R = computed(wb), s = Scene.of(wb, C, v, DAY, { state: R.records, computed: R, paper }), at = `${what}, ${v}, ${paper ?? 'slide'}`;
+      const boxes = s.marks.filter(m => m.type === 'box'), lines = [...s.byId.values()].filter(m => m.type === 'line' && !m.merged);
+      const caps = s.marks.filter(m => m.type === 'frame').map(m => { const c = m.caption, t = c.look, w = Math.max(...c.lines.map(l => l.w));
+        return { x: m.x + Math.min(...c.lines.map(l => l.x - l.w * (t.Align === 'center' ? 0.5 : 0))), y: m.y + c.lines[0].y - t.Size * Scene.PT * 0.93, w, h: c.lines.length * t.Size * Scene.PT * 1.2 }; });
+      const legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
+      const rects = lines.filter(l => l.labelAt && l.label).map(l => ({ l, x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h }));
+      for (const l of lines) for (const g of legs(l)) {
+        const box = boxes.find(b => b.id !== l.from && b.id !== l.to && along(g, (x, y) => inside(b, x, y))), cap = caps.find(c => along(g, (x, y) => within(c, [x, y])));
+        if (box || cap) routes.push(`${at}: ${l.id} through ${box?.id ?? 'a caption'}`);
+      }
+      rects.forEach((r, i) => {
+        const box = boxes.find(b => covers(r, b)), other = rects.find((q, k) => k !== i && meets(r, q)), cap = caps.find(c => meets(r, c));
+        if (box || other || cap) labels.push(`${at}: ${r.l.id} "${r.l.label.text}" on ${box?.id ?? other?.l.id ?? 'a caption'}`);
+        const line = lines.find(l => legs(l).some(g => along(g, (x, y) => within(r, [x, y]))));
+        if (line) crossed.push(`${at}: ${r.l.id} "${r.l.label.text}" crossed by ${line.id}`);
+      });
+    }
+    check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added and with a 247-character name',
+      LONG.length === 247 && !routes.length, j(routes.slice(0, 4)));
+    check('… no label sits on a box, a caption or another label', !labels.length, j(labels.slice(0, 4)));
+    check('… and no line crosses a label', !crossed.length, j(crossed.slice(0, 4)));
+  }
+
   // ---- A new box among entered ones ----
   {
     const wb = fresh();
