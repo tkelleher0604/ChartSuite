@@ -14,7 +14,9 @@
 // A box, line or frame has `settings`: { [property]: { value, note } }, the note null where nothing in the
 // chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
 // from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
-// are broken to. A line another crosses has `runs`, the pieces it's drawn in (see jumps). A free shape has its
+// are broken to. A line another crosses has `runs`, the pieces it's drawn in (see jumps); one that had to go
+// round what's drawn is `around` (`astray` where it couldn't keep its sides, `blocked` where it found no way), and
+// one whose label found no free place `crowded` (see Layout.route). A free shape has its
 // row's formats, with no notes, and a free line the boxes it's glued to; one whose row's `role` is title or
 // date is the page's own, as the Key is (see the page and free shapes).
 const Scene = (() => {
