@@ -221,9 +221,9 @@ function Palette({ label, none, close }) {
   const v = String(value(label)).toLowerCase();
   const swatch = (c, name) => html`<button style=${`background:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
   return html`<div class="palette" onPointerLeave=${() => preview()}>${THEME.map((c, i) => swatch(c, THEME_NAMES[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
-    ${none ? html`<button class="none" aria-pressed=${v === 'none'} aria-label="None" data-tip="None" ...${choice(label, 'none', close)} />` : null}</div>`;
+    ${none ? html`<button class="none" aria-pressed=${v === 'none'} autofocus=${v === 'none'} aria-label="None" data-tip="None" ...${choice(label, 'none', close)} />` : null}</div>`;
 }
-const seg =(label, items, v, { as = x => x, close } = {}) => html`<div class="seg" onPointerLeave=${() => preview()}>${items.map(([k, text]) =>
+const seg = (label, items, v, { as = x => x, close } = {}) => html`<div class="seg" onPointerLeave=${() => preview()}>${items.map(([k, text]) =>
   html`<button aria-pressed=${v === k} autofocus=${v === k} ...${choice(label, as(k), close)}>${text}</button>`)}</div>`;
 // A popover of the bar's, whose preview ends as it closes.
 const pop = (e, draw) => Shell.popover(e.currentTarget, close => draw(close), { placement: 'bottom-start', onClose: () => preview() });

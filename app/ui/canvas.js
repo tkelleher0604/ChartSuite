@@ -1258,7 +1258,7 @@ function mount(el) {
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); });
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo: ids => bring(marksOf([].concat(ids ?? []))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
