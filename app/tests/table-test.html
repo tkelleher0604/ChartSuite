@@ -142,6 +142,9 @@ async function run() {
   check('Computed cells are italic', $$('.grid .tabulator-cell.fx').length > 0 && $$('.grid .tabulator-cell.fx').every(el => getComputedStyle(el).fontStyle === 'italic'), $$('.grid .tabulator-cell.fx').length);
   check('Tags are checkboxes, green attested and red ruled out', $$('.grid .c-tag .tag.yes').length > 0 && $$('.grid .c-tag .tag.no').length > 0);
   check('A choice edits as a dropdown of its options', column('Vehicle Type').getDefinition().editor === 'list' && column('Vehicle Type').getDefinition().editorParams.values.includes('Feeder Fund'));
+  const offered = title => column(title).getDefinition().editorParams.values, filtered = title => column(title).getDefinition().headerFilterParams.valuesLookup().map(x => x.label);
+  check('… in their order, as the inspector lists them, then by name; and so in its heading’s filter', offered('Vehicle Type').slice(0, 3).join() === 'Main Fund,Parallel Fund,Feeder Fund' && offered('Entity Type')[0] === 'Limited Partnership'
+    && filtered('Vehicle Type').filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => filtered('Vehicle Type').includes(o)).join(), `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${filtered('Vehicle Type').join()}`);
   check('Header filters are dropdowns', column('Jurisdiction').getDefinition().headerFilter === 'list');
 
   // Show/Hide on a column writes a Shown note in the view.

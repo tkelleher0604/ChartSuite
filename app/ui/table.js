@@ -38,11 +38,14 @@ const Table = (() => {
     }
     return [...cols.values()];
   }
-  // What a column holds, from its specifications: the commonest type, and a choice's options.
-  function typed(c, specs) {
+  // What a column holds, from its specifications: the commonest type, and a choice's options in their order, as
+  // the inspector lists them (an Order at each), and after those by name.
+  function typed(c, specs, N = App.notes.value) {
     const types = specs.map(t => 'field' in t.out ? t.out.field : 'choice' in t.out ? 'choice' : 'tag');
     const type = types.sort((a, b) => types.filter(x => x === b).length - types.filter(x => x === a).length)[0];
-    return { ...c, type, options: [...new Set(specs.filter(t => 'choice' in t.out).map(t => t.out.choice))].sort() };
+    const rank = new Map();
+    for (const t of specs) if ('choice' in t.out) rank.set(t.out.choice, Math.min(rank.get(t.out.choice) ?? Infinity, N.optionOrder(t) ?? Infinity));
+    return { ...c, type, options: [...rank.keys()].sort((a, b) => rank.get(a) - rank.get(b) || a.localeCompare(b)) };
   }
 
   function model(view, R = App.computed.value, S = App.schema.value) {
@@ -307,7 +310,9 @@ const Table = (() => {
       // once its grid has given way to another.
       const values = () => {
         if (current?.view !== m.view || !current.byField.has(f)) return [];
-        const vs = [...new Map(current.data.filter(r => r[f] !== null).map(r => [r[f], typeOf(c, r)]))].sort(([a], [b]) => typeof a === 'number' ? a - b : String(a).localeCompare(String(b)));
+        const at = v => c.options?.includes(v) ? c.options.indexOf(v) : Infinity;   // a choice's in its options' order
+        const vs = [...new Map(current.data.filter(r => r[f] !== null).map(r => [r[f], typeOf(c, r)]))]
+          .sort(([a], [b]) => at(a) - at(b) || (typeof a === 'number' ? a - b : String(a).localeCompare(String(b))));
         return [...vs.map(([v, type]) => ({ label: text(type, v), value: v })), ...(current.data.some(r => r[f] === null) ? [{ label: 'Blank', value: BLANK }] : [])];
       };
       const right = NUMERIC.has(c.type) ? 'right' : 'left';
