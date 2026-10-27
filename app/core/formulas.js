@@ -3327,13 +3327,19 @@ function changesSince(R, P, entered) {
 const rowsOf = d => d.rowsKey ??= JSON.stringify(d.rows.map(r => r.text));
 // Of an earlier working-out given and the latest, the one to start from: the fewest definitions with other
 // rows, then the fewest records changed. So a change made after its preview starts from the preview, which
-// worked it out already. The latest that was started from one given (the app's own) is kept apart from the
-// two latest others (a preview's), so previews never push it out.
-const recent = [];
-let followed = null;
+// worked it out already. The two latest that were started from one given (the app's own: the chart now, and as
+// it was before the last change, which Undo goes back to) are kept apart from the two latest others (a
+// preview's), so previews never push them out.
+const recent = [], followed = [];
+const latest = (R, from) => {
+  const list = from ? followed : recent, i = list.indexOf(R);
+  if (i >= 0) list.splice(i, 1);
+  if (list.unshift(R) > 2) list.pop();
+  return R;
+};
 function closest(P, entered, from) {
   let best = null;
-  for (const R of new Set([from, followed, ...recent])) {
+  for (const R of new Set([from, ...followed, ...recent])) {
     const changed = changesSince(R, P, entered);
     if (!changed) continue;
     const rows = P.groups.reduce((n, g, i) => n + g.defs.filter((d, j) => rowsOf(d) !== rowsOf(R.state.P.groups[i].defs[j])).length, 0);
@@ -3452,8 +3458,8 @@ function keepStep(S, i, O) {
 // ---- What the page uses ----
 
 // Works out the computed state from the entered records, the definitions and the names: see core/README.md.
-// It starts from the closest of `from`, an earlier working-out, and the latest (see closest and reworking);
-// from nothing with null.
+// It starts from the closest of `from`, an earlier working-out, and the latest (see closest and reworking),
+// and gives that one again where nothing it reads has changed since; from nothing with null.
 function computeState(entered, definitions, names, from) {
   const started = now();
   const defs = definitions.map(d => prepareDef(d, names));
@@ -3472,7 +3478,12 @@ function computeState(entered, definitions, names, from) {
   P.frame = frameOf(defs, names);
   const base = from === null ? null : closest(P, entered, from);
   const again = base && reworking(base.R, base.changed, P, entered);
-  const S = again?.inPlace() ? swapped(base.R.state, P, entered, base.changed) : stateFor(P, entered);
+  const inPlace = again?.inPlace();
+  // Where nothing it reads has changed since, it's that working-out: the same records, so what was drawn from
+  // them is drawn again (see Scene.of).
+  const known = k => { const a = base.R.state.P.known[k], b = P.known[k]; return a.size === b.size && [...a].every(n => b.has(n)); };
+  if (inPlace && !base.changed.length && known('lists') && known('values')) return latest(base.R, from);
+  const S = inPlace ? swapped(base.R.state, P, entered, base.changed) : stateFor(P, entered);
   for (; S.done < P.groups.length; S.done++) {
     const i = S.done;
     S.came = [];
@@ -3505,9 +3516,7 @@ function computeState(entered, definitions, names, from) {
   const uses = Object.fromEntries(defs.map(d => [d.id, [...d.dependsOn ?? []].filter(e => e !== d).map(e => e.id)]));
   const R = { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside, uses,
     order: P.groups.map(g => g.defs.map(d => d.id)), steps: S.steps, ms: now() - started, state: S };
-  if (from) followed = R;
-  else if (recent.unshift(R) > 2) recent.pop();
-  return R;
+  return latest(R, from);
 }
 const push2 = (obj, key, value) => (obj[key] ??= []).push(value);
 // What a row says of where it stands; and of the record it gives, made once, since a row kept from one
