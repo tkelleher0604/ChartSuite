@@ -105,6 +105,26 @@ function named(c, s) {
 // The scope a change goes to: the one chosen, or else the selection itself.
 const chosen = signal(null);
 const scopeOf = (scopes, key = chosen.peek()) => scopes.find(s => s.key === key) ?? scopes[0];
+// The marks a group reaches that keep their own value of a property, entered for them alone in the view,
+// which a change for the group leaves as it is (entered wins): each with the notes that decide it.
+function keeping(c, scope, labels) {
+  const sc = c.scene(), outs = reachOf(sc).get(scope?.style), N = App.notes.peek(), out = [];
+  if (!scope?.outputs || !outs) return out;
+  for (const id of new Set(scope.outputs.flatMap(o => [...outs.get(Tree.key(o))?.marks ?? []]))) {
+    const m = sc.byId.get(id), t = Tree.treeOf(App.state.peek(), m.record);
+    const notes = labels.map(l => N.resolve(l, t, sc.view)?.note).filter(n => n && n.view === sc.view && n.pattern.id === m.record);
+    if (notes.length) out.push({ m, notes });
+  }
+  return out;
+}
+// What a group is given in a view: the format properties noted at its outputs.
+const givenTo = (view, scope) => [...new Set(App.notes.peek().styles(view).flatMap(st => st.outputs)
+  .filter(o => scope.outputs.some(p => Tree.key(p) === Tree.key(o.pattern))).flatMap(o => Object.keys(o.formats)))].filter(l => l !== 'Shown' && l !== 'Caption');
+// Who keeps their own: a box by its record's name, or how many.
+const keepers = ks => ks.length === 1 ? App.notes.peek().nameOf(App.state.peek(), ks[0].m.record)
+  : `${ks.length} ${ks.every(k => k.m.type === 'line') ? 'lines' : ks.every(k => k.m.type === 'box') ? 'boxes' : 'marks'}`;
+const possessive = s => s.endsWith('s') ? `${s}’` : `${s}’s`;
+const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
 
 // ---- Making a change ----
 
@@ -124,7 +144,9 @@ function apply(label, value) {
   const c = Canvas.active.peek();
   if (!c) return;
   preview();
-  App.change(tx => write(tx, c, label, value));
+  // A change for a group says at once what of it keeps its own, which the scope's menu then offers to clear.
+  const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]);
+  App.change(tx => write(tx, c, label, value), { say: kept.length ? `Changed ${label} for ${scope.caption}; ${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own` : null });
   // Keys go back to the chart, so the next change can be typed.
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
@@ -193,16 +215,16 @@ const arrowGlyph = a => html`<svg viewBox="0 0 28 10"><path d="M3 5h22" stroke-w
 const shapeGlyph = g => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${Scene.path(g, 18, 14)} /></svg>`;
 
 // The choices of one setting in a popover, each previewed while pointed at: a picked one is made, and
-// closes the popover where `close` is given.
+// closes the popover where `close` is given. The one the setting has takes the focus as it opens.
 const choice = (label, v, close) => ({ onPointerEnter: () => preview(label, v), onClick: () => { close?.(); apply(label, v); } });
 function Palette({ label, none, close }) {
   const v = String(value(label)).toLowerCase();
-  const swatch = (c, name) => html`<button style=${`background:${c}`} aria-pressed=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
+  const swatch = (c, name) => html`<button style=${`background:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
   return html`<div class="palette" onPointerLeave=${() => preview()}>${THEME.map((c, i) => swatch(c, THEME_NAMES[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
-    ${none ? html`<button class="none" aria-pressed=${v === 'none'} aria-label="None" data-tip="None" ...${choice(label, 'none', close)} />` : null}</div>`;
+    ${none ? html`<button class="none" aria-pressed=${v === 'none'} autofocus=${v === 'none'} aria-label="None" data-tip="None" ...${choice(label, 'none', close)} />` : null}</div>`;
 }
 const seg = (label, items, v, { as = x => x, close } = {}) => html`<div class="seg" onPointerLeave=${() => preview()}>${items.map(([k, text]) =>
-  html`<button aria-pressed=${v === k} ...${choice(label, as(k), close)}>${text}</button>`)}</div>`;
+  html`<button aria-pressed=${v === k} autofocus=${v === k} ...${choice(label, as(k), close)}>${text}</button>`)}</div>`;
 // A popover of the bar's, whose preview ends as it closes.
 const pop = (e, draw) => Shell.popover(e.currentTarget, close => draw(close), { placement: 'bottom-start', onClose: () => preview() });
 // A menu of the bar's, whose items with `tries` ([label, value]) are previewed while the pointer is on them;
@@ -278,14 +300,19 @@ function Bar() {
   // at, it's drawn as it would be. Made, the change ends the preview.
   const view = c.scene().view, tidy = { label: 'Tidy', disabled: App.readOnly.peek() || !App.notes.peek().notes('Position').some(n => n.view === view),
     run: () => { tried = null; c.tidy(); }, tries: ['Tidy'] };
-  // The selection, then each style's groups under its name; a style whose one group is named as the style is
-  // (Name) is that group alone, and comes first, so no group reads as under another's head.
+  // The selection; each style's groups under its name; then, apart, each style whose one group is named as
+  // the style is (Name), so it reads as under none of the heads; and, where members of the group chosen keep
+  // their own look of what the group is given here, a way to clear it.
   const scopes = () => {
     const blocks = new Map(), item = x => ({ label: named(c, x), checked: x === scope, run: () => { chosen.value = x.key; } });
     for (const x of s.scopes.filter(x => !x.own)) (blocks.get(x.style) ?? blocks.set(x.style, []).get(x.style)).push(x);
-    const all = [...blocks.values()], lone = xs => xs.length === 1 && (!xs[0].name || Tree.same(xs[0].caption, xs[0].name)), own = s.scopes.filter(x => x.own);
-    return [...own.map(item), ...(own.length && all.length ? ['-'] : []), ...all.filter(lone).flat().map(item),
-      ...all.filter(xs => !lone(xs)).flatMap(xs => [{ head: xs[0].name }, ...xs.map(item)])];
+    const all = [...blocks.values()], lone = xs => xs.length === 1 && (!xs[0].name || Tree.same(xs[0].caption, xs[0].name));
+    const kept = scope?.outputs ? keeping(c, scope, givenTo(view, scope)) : [], whose = kept.length && possessive(keepers(kept));
+    const what = listed([...new Set(kept.flatMap(k => k.notes.map(n => n.label)))]);
+    const clear = kept.length ? [{ label: `Clear ${whose} own ${what}`, disabled: App.readOnly.peek(),
+      run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }] : [];
+    return [s.scopes.filter(x => x.own).map(item), all.filter(xs => !lone(xs)).flatMap(xs => [{ head: xs[0].name }, ...xs.map(item)]), all.filter(lone).flat().map(item), clear]
+      .filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
