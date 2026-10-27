@@ -61,7 +61,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc.pointing .x6-node, .dc.pointing .x6-edge, .dc.relating .x6-node, .dc.relating .x6-graph-svg { cursor: crosshair; }
 .dc-relating { fill: none; stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 
-/* The handles a relation is drawn from, off the middle of each side of the box whose edge the pointer nears. */
+/* The handles a relation is drawn from, on the outline of the box whose edge the pointer nears. */
 .dc-handle { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; border: 1.5px solid var(--accent); cursor: crosshair; opacity: 0; transition: opacity var(--quick) var(--ease); }
 .dc-handle::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
 .dc.relating-on .dc-handle { opacity: 1; }

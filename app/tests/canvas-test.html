@@ -86,6 +86,11 @@ function onScreen() {
   const g = cv().graph, p = sc().page, a = g.localToGraph(0, 0), b = g.localToGraph(p.w, p.h);
   return { a, b, W: cv().root.clientWidth, H: cv().root.clientHeight, z: g.zoom() };
 }
+// Where the title's words start on screen.
+function titleAt() {
+  const t = sc().marks.find(m => m.role === 'title' && m.texts[0]?.lines.length), l = t?.texts[0].lines[0];
+  return t ? cv().graph.localToGraph(t.x + t.column.x, t.y + l.y - t.look.Size * Scene.PT * 0.93) : { x: NaN, y: NaN };
+}
 const key = (k, o = {}) => { const e = new KeyboardEvent('keydown', { key: k, code: o.code ?? k, bubbles: true, cancelable: true, ...o }); cv().root.dispatchEvent(e); };
 const menuItems = () => $$('.float .menu-item').map(txt);
 const closeMenus = async () => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); await tick(); };
@@ -104,8 +109,9 @@ async function run() {
     if (order[0].id === Shell.view.peek()) order.push(order.shift());
     for (const v of order) {
       await show(v);
-      const { a, b, W, H, z } = onScreen(), fits = b.x <= W + 0.5 && b.y <= H + 0.5;
-      if (a.x < -0.5 || a.y < -0.5 || z < 0.6 - 1e-6 || (!fits && z > 0.6 + 1e-6)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);
+      // (60%, or the page's own scale where that's smaller, so a page is never opened larger than its sheet.)
+      const { a, b, W, H, z } = onScreen(), fits = b.x <= W + 0.5 && b.y <= H + 0.5, least = Math.min(0.6, sc().page.scale);
+      if (a.x < -0.5 || a.y < -0.5 || z < least - 1e-6 || (!fits && z > least + 1e-6)) bad.push(`${v.name} at ${Math.round(z * 100)}%, page ${[a.x, a.y, b.x, b.y].map(Math.round)} in ${W}×${H}`);
     }
     check(`at ${w}×${h} every view opens on its whole page, or at 60% from its top left`, !bad.length, bad.join('; '));
   }
@@ -120,7 +126,8 @@ async function run() {
   Shell.at(null); await tick(200);
   check('… and as of today', whole());
 
-  // ---- The scope: the selection, as in PowerPoint; its menu, the styles that reach it, by their reach ----
+  // ---- The scope: the selection, as in PowerPoint; its menu, the groups of the styles that reach it, as the
+  // Key says them, under each style's name, by their reach ----
   const chip = () => txt($('[data-fb="scope"]'));
   Shell.select(['northpine']); await tick(120);
   check('one box selected, a format goes to “This box”', chip() === 'This box', chip());
@@ -131,9 +138,22 @@ async function run() {
   check('a line, to “This line”', chip() === 'This line', chip());
   Shell.select(['northpine']); await tick(120);
   $('[data-fb="scope"]').click(); await tick(120);
-  const items = menuItems();
-  check('its menu offers the selection, then each style that reaches it with its reach', items[0] === 'This box' && items.slice(1).every(t => /^All .+ \(\d+\)/.test(t)) && items.some(t => t.startsWith('All Portfolio companies (4)')), items.join(' | '));
+  const items = menuItems(), heads = $$('.float .menu-head').map(txt), menu = $$('.float .menu-head, .float .menu-item').map(txt);
+  check('its menu offers the selection, then each group that reaches it, as the Key says it, with its reach', items[0] === 'This box' && items.slice(1).every(t => /^\S.* \(\d+\)$/.test(t) && !t.startsWith('All '))
+    && items.includes('Portfolio companies (4)'), menu.join(' | '));
+  const pcHead = menu.slice(0, menu.indexOf('Portfolio companies (4)')).filter(t => heads.includes(t)).at(-1);
+  check('… each under its style’s name, and a style named as its one group (Name) is that row alone, ahead of the heads', !!pcHead && pcHead !== 'Portfolio companies'
+    && items.includes('Name (24)') && !heads.includes('Name') && menu.indexOf('Name (24)') < menu.indexOf(heads[0]), menu.join(' | '));
   await closeMenus();
+  // The groups are the Key's: a style's outputs that look alike are one group, Funds, its reach every box of them.
+  Shell.select(['fund']); await tick(120);
+  $('[data-fb="scope"]').click(); await tick(120);
+  const fundItems = menuItems(), funds = sc().legend.find(r => r.caption === 'Funds');
+  const fundReach = sc().marks.filter(m => m.type === 'box' && Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), m.id, App.state.peek())
+    .some(r => funds?.outputs.some(p => Tree.key(p) === Tree.key(r.output)))).length;
+  check('a box of a group the Key shows as one row is offered that group, by the Key’s caption', !!funds && fundItems.includes(`Funds (${fundReach})`) && fundReach > 2, fundItems.join(' | '));
+  await closeMenus();
+  Shell.select(['northpine']); await tick(120);
   const pcs = sc().marks.filter(m => m.type === 'box' && App.state.peek()[m.record]?.kind === 'Entity' && JSON.stringify(m.settings.Fill.note?.pattern ?? {}).includes('Portfolio Company')).map(m => m.id);
   const fills = () => Object.fromEntries(pcs.map(id => [id, App.scene.peek().byId.get(id).settings.Fill.value]));
   const was = fills();
@@ -141,8 +161,8 @@ async function run() {
   const now = fills();
   check('a fill with one box selected fills that box alone', now.northpine === '#fff2cc' && pcs.filter(id => id !== 'northpine').every(id => now[id] === was[id]) && pcs.length === 4, JSON.stringify(now));
   $('[data-fb="scope"]').click(); await tick(120);
-  $$('.float .menu-item').find(e => txt(e).startsWith('All Portfolio companies'))?.click(); await tick(120);
-  check('choosing a style names it on the chip', chip().startsWith('All Portfolio companies'), chip());
+  $$('.float .menu-item').find(e => txt(e).startsWith('Portfolio companies'))?.click(); await tick(120);
+  check('choosing a group names it on the chip', chip() === 'Portfolio companies (4)', chip());
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
   Shell.select(['halvard']); await tick(120);
@@ -175,6 +195,16 @@ async function run() {
   // ---- Sizes in slide points, on the half-point grid; a frame shows its caption's ----
   const shown = () => +txt($('[data-fb="size"]'));
   check('the format bar shows a size in slide points, to the half point', shown() * 2 === Math.round(shown() * 2) && Math.abs(shown() - Scene.toSlide(sc().page, sizeOf())) <= 0.25, `${shown()} for ${Scene.toSlide(sc().page, sizeOf())}`);
+  // A size picked reads back as picked, though the box grows and the chart's scale drops with it.
+  Shell.select(['fund']); await tick(120);
+  const scaleWas = sc().page.scale;
+  $('[data-fb="size"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e) === '14')?.click(); await tick(200);
+  const fundSize = Scene.toSlide(sc().page, sc().byId.get('fund').texts[0].look.Size);
+  check('a size picked reads back as picked, and prints so, though the chart is drawn smaller for it', shown() === 14 && Math.abs(fundSize - 14) < 0.01 && sc().page.scale < scaleWas,
+    `bar ${shown()}, drawn ${fundSize}, scale ${scaleWas} → ${sc().page.scale}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  Shell.select(['halvard']); await tick(120);
   const v40 = charts().find(v => v.name === '40 Act');
   if (v40) {
     await show(v40);
@@ -198,11 +228,16 @@ async function run() {
   await size(1024, 768);
   Shell.select(['gp']); await tick(120);
   $('[data-fb="scope"]').click(); await tick(120);
-  $$('.float .menu-item').find(e => txt(e).startsWith('All Limited liability company'))?.click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e).startsWith('Limited liability company'))?.click(); await tick(120);
   const zr = $('[data-fb="zoom"]').getBoundingClientRect(), shell = $('.shell').getBoundingClientRect(), span = $('[data-fb="scope"] > span');
   check('at 1024 the zoom stays in the window', zr.right <= shell.right + 0.5 && zr.width > 0, `${zr.right} of ${shell.right}`);
   $('[data-fb="scope"]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   check('a scope cut short is named whole on hover', span.scrollWidth <= span.clientWidth || $('[data-fb="scope"]').dataset.tip === txt(span), `${span.scrollWidth} ${span.clientWidth} ${$('[data-fb="scope"]').dataset.tip}`);
+  $('[data-fb="arrange"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e) === 'Tidy')?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(150);
+  const tidyShown = sc() !== App.scene.peek();
+  await closeMenus(); await tick(100);
+  check('at 1024, pointing at Tidy in Arrange draws it as it would be, and closing the menu ends that', tidyShown && sc() === App.scene.peek());
   await size(1440, 900);
 
   // ---- Colors by PowerPoint's names ----
@@ -245,13 +280,84 @@ async function run() {
   key('Tab', { shiftKey: true }); await tick(60);
   check('Shift+Tab from nothing selects the last box', Shell.selection.peek()[0] === reading.at(-1));
 
-  // ---- A triangle's relate handles sit off its frame, clear of the lines on its slopes ----
-  const tri = sc().marks.find(m => m.type === 'box' && m.shape === 'triangle'), g = cv().graph, r = cv().root.getBoundingClientRect();
-  const ta = g.localToGraph(tri.x, tri.y), tb = g.localToGraph(tri.x + tri.w, tri.y + tri.h);
-  cv().root.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: r.left + tb.x + 4, clientY: r.top + (ta.y + tb.y) / 2 }));
-  await tick(60);
-  const hx = side => parseFloat($(`.dc-handle.${side}`).style.left);
-  check('a triangle’s side handles sit outside its frame', hx('e') > tb.x && hx('w') < ta.x, `${hx('w')} ${ta.x} ${tb.x} ${hx('e')}`);
+  // ---- Relate handles sit on a box's outline, a triangle's on its slopes and base, clear of every line and
+  // of the box's grips; a handle clicked, not dragged, selects its box ----
+  const g = cv().graph, r = cv().root.getBoundingClientRect();
+  const toSeg = ([x, y], [[ax, ay], [bx, by]]) => { const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy, t = l ? Math.min(1, Math.max(0, ((x - ax) * dx + (y - ay) * dy) / l)) : 0; return Math.hypot(x - ax - t * dx, y - ay - t * dy); };
+  const handlesOn = async m => {
+    const a = g.localToGraph(m.x, m.y), b = g.localToGraph(m.x + m.w, m.y + m.h);
+    cv().root.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: r.left + (a.x + b.x) / 2, clientY: r.top + b.y - 3 }));
+    await tick(60);
+    return $$('.dc-handle').filter(h => !h.hidden && cv().root.classList.contains('relating-on')).map(h => { const p = g.graphToLocal(parseFloat(h.style.left), parseFloat(h.style.top)); return { h, side: h.classList[1], p: [p.x, p.y] }; });
+  };
+  const segs = () => sc().marks.filter(m => m.points).flatMap(m => m.points.slice(1).map((p, i) => [m.points[i], p]));
+  const clearOf = hs => hs.every(({ p }) => segs().every(s => toSeg(p, s) * g.zoom() >= 15.9));
+  const tri = sc().byId.get('fund'), hs = await handlesOn(tri), apex = [tri.x + tri.w / 2, tri.y];
+  const onTri = ({ side, p }) => side === 'e' ? toSeg(p, [apex, [tri.x + tri.w, tri.y + tri.h]]) < 0.6 : side === 'w' ? toSeg(p, [apex, [tri.x, tri.y + tri.h]]) < 0.6 : side === 's' && Math.abs(p[1] - tri.y - tri.h) < 0.6;
+  check('a triangle’s relate handles sit on its slopes and base, clear of every line', tri.shape === 'triangle' && hs.length >= 2 && hs.every(onTri) && clearOf(hs), hs.map(x => `${x.side} ${x.p.map(Math.round)}`).join('; '));
+  const boxes = sc().marks.filter(m => m.type === 'box' && m.shape !== 'triangle' && m.shape !== 'oval');
+  const busy = [];
+  for (const m of boxes.slice(0, 12)) {
+    const hs = await handlesOn(m), onRect = ({ side, p }) => side === 'n' || side === 's' ? Math.abs(p[1] - (side === 'n' ? m.y : m.y + m.h)) < 0.6 : Math.abs(p[0] - (side === 'w' ? m.x : m.x + m.w)) < 0.6;
+    if (!hs.every(onRect) || !clearOf(hs)) busy.push(m.id);
+  }
+  check('every box’s handles sit on its outline, clear of the lines at it', !busy.length, busy.join(' '));
+  Shell.select(['fund']); await tick(80);
+  const gripped = await handlesOn(tri), z0 = g.zoom(), grips = [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => (fx !== 0.5 || fy !== 0.5) && (fx !== 0.5 || tri.w * z0 >= 40) && (fy !== 0.5 || tri.h * z0 >= 40))
+    .map(fy => [tri.x + tri.w * fx, tri.y + tri.h * fy]));
+  check('… and clear of its grips when it’s selected', gripped.every(({ p }) => grips.every(q => Math.hypot(p[0] - q[0], p[1] - q[1]) * g.zoom() >= 15.9)), gripped.map(x => `${x.side} ${x.p.map(Math.round)}`).join('; '));
+  Shell.select(['halvard']); await tick(80);
+  const [one] = await handlesOn(tri), hr = one?.h.getBoundingClientRect();
+  if (one) {
+    one.h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: hr.left + 4, clientY: hr.top + 4 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: hr.left + 5, clientY: hr.top + 4 }));
+    await tick(80);
+  }
+  check('a handle clicked, not dragged, selects its box and offers nothing', !!one && Shell.selection.peek().join() === 'fund' && !$('.float .menu-item'), Shell.selection.peek().join());
+  await closeMenus();
+
+  // ---- A Key row selected however it came to be (Back, Find, another part) is the row Delete hides ----
+  const legend = sc().marks.find(m => m.geometry === 'legend'), kr = legend?.rows[0];
+  Shell.select(['halvard']); await tick(60);
+  Shell.select([`${legend.id}#${kr.key}`]); await tick(100);
+  cv().root.focus(); key('Delete'); await tick(120);
+  const hid = txt($$('.toast').at(-1)), still = App.scene.peek().byId.get(legend.id);
+  check('a Key row selected as Back selects it is hidden by Delete, and the Key stays', !!still && still.hide.includes(kr.key) && /^Hid .* in the key/.test(hid), hid);
+  Shell.parts.peek().undo.undo(); await tick(120);
+
+  // ---- A highlight lights a relation the view hides on the line it already draws between the two boxes,
+  // rather than routing a second line beside it ----
+  Shell.select(['gp', 'fund']); await tick(400);
+  const gpl = sc().byId.get('gp_of_fund'), gpCell = gpl && $(`.dc [data-cell-id="${gpl.merged ?? gpl.id}"]`);
+  check('two boxes selected light the line drawn between them, and draw no second route', !sc().marks.some(m => m.revealed) && !!gpCell?.classList.contains('dc-hl') && gpCell.classList.contains('strong'),
+    `${sc().marks.filter(m => m.revealed).map(m => m.id)} ${gpCell?.getAttribute('class')}`);
+  Shell.select([]); await tick(120);
+
+  // ---- Tidy: pointed at, the chart is drawn tidied and nothing changes; made, it's one change, named so
+  // everywhere, and the view is framed on its page again ----
+  const tidyBtn = $('[data-fb="tidy"]'), made = App.wb.changes().length, base = () => App.scene.peek();
+  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(200);
+  const shifted = sc() !== base() && sc().marks.some(m => m.type === 'box' && base().byId.get(m.id) && (base().byId.get(m.id).x !== m.x || base().byId.get(m.id).y !== m.y));
+  check('pointing at Tidy draws the chart as Tidy would lay it out, and changes nothing', shifted && App.wb.changes().length === made);
+  tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(120);
+  check('… and leaving it draws the chart as it is', sc() === base());
+  cv().zoom(2); await tick(80);
+  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
+  tidyBtn.click(); await tick(200);
+  const tidyToast = txt($$('.toast').at(-1)), { a: ta, z: tz } = onScreen(), said = Time.describe(App.wb.changes().at(-1));
+  check('Tidy is one change, “Tidied the layout” in its toast and History, and the view is framed on its page again', tidyToast.startsWith('Tidied the layout') && said === 'Tidied the layout'
+    && App.wb.changes().length === made + 1 && sc() === base() && (whole() || (Math.abs(tz - Math.min(0.6, sc().page.scale)) < 1e-6 && ta.x > -0.5 && ta.y > -0.5)), `${tidyToast} | ${said} | ${tz}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  check('… and Undo says so too', txt($$('.toast').at(-1)).startsWith('Undid: Tidied the layout'), txt($$('.toast').at(-1)));
+
+  // ---- A page drawn very small (as a chart of hundreds of boxes is) opens whole, not at 60% on its blank
+  // margin or its title many times its size ----
+  const pageOf = { id: main.id, kind: 'View' };
+  App.change(tx => tx.note('Page', pageOf, { w: 240, h: 135 }), { dated: false }); await tick(200);
+  { const p = sc().page, { z, W, H } = onScreen(), t = titleAt();
+    check('a page drawn very small opens whole, its title in view', p.scale < 0.2 && z < 0.6 && whole() && t.x >= 0 && t.y >= 0 && t.x < W && t.y < H,
+      `scale ${p.scale}, zoom ${z}, title’s words at ${[t.x, t.y].map(Math.round)}`); }
+  Shell.parts.peek().undo.undo(); await tick(200);
 
   // ---- Deleting as of a past day says from when ----
   Shell.at({ asOf: '2025-06-30' }); await tick(200);
