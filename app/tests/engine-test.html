@@ -338,9 +338,11 @@ function grounds() {
   check('A close affiliate ruled out as a remote one: “Close affiliate (§57(b))”, on its Close Affiliate record', rm.rows[0].label === 'Close affiliate (§57(b))'
     && rm.rows[0].parts.some(p => p.id === Formulas.computedId([{ edge: 'Close Affiliate', at: 'northpine' }, { edge: 'BDC', at: 'bdc_ics' }])));
   const owed = rowsOf(R, 'def_annual_tax_owed').find(r => objOf(R, r.args.find(a => a.edge === 'Taxpayer').at) === 'aiv' && yearOf(R, r) === 2025);
-  const text = owed && Formulas.groundText(R, Object.keys(R.records).find(id => R.records[id].at === owed.id && R.records[id].edge === 'Annual Tax Due')), year = owed && Formulas.groundText(R, owed.id);
-  check('A deadline’s ground on one line: what set the date, and what was nothing', /Year 2,?025/.test(text) && /Annual Tax Paid —/.test(text), text);
-  check('…and its tax year’s, the year it’s owed from', /Formation Date February 11, 2025/.test(year) && !/Annual Tax Paid/.test(year), year);
+  // What a ground read: each record by its label and value, and — for what was nothing.
+  const read = id => (Formulas.ground(R, id)?.rows[0]?.parts ?? []).map(p => p.id ? `${R.records[p.id].edge ?? ''} ${R.records[p.id].value ?? ''}`.trim() : '—');
+  const due = owed && Object.keys(R.records).find(id => R.records[id].at === owed.id && R.records[id].edge === 'Annual Tax Due');
+  check('A deadline’s ground: what set the date, and what was nothing', read(due).includes('Year 2025') && read(due).includes('—'), read(due).join(' · '));
+  check('…and its tax year’s, the year it’s owed from', read(owed.id).includes('Formation Date 2025-02-11') && !read(owed.id).includes('—'), read(owed.id).join(' · '));
 }
 
 // ---- The formula bar, the redline and the editor ----

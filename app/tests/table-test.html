@@ -386,7 +386,7 @@ async function run() {
   check('The days on which something starts or ends, or a date entered says something happened: every version’s, and every date entered, in order', dated.every(d => days.includes(d))
     && entered.every(d => days.includes(d)) && ['2024-07-09', '2024-09-16', '2026-06-15', '2023-02-14'].every(d => days.includes(d)) && days.every((d, i) => !i || days[i - 1] < d), days.length);
   const jul9 = Time.events.peek().find(e => e.day === '2024-07-09');
-  check('Each day is said in the chart’s words: whose in words, not arrows', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP, general partner of Offshore Feeder'), JSON.stringify(jul9?.items));
+  check('Each day is said in the chart’s words: whose by the place rule, as History and the bar say it', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul9?.items));
   const whose = Object.fromEntries(Table.model(views().find(v => v.rows === 'date').id).data.map(r => [r.f1 + '|' + r.f2, true]));
   check('Dates says whose in words, a tax year as the place rule says it: AIV-1, tax year 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
   check('… and a tax paid at the year it settled: Fund III, tax year 2025', whose['Annual Tax Paid|Fund III, tax year 2025'] && whose['Annual Tax Paid|Fund III-A, tax year 2024']

@@ -997,9 +997,11 @@ function GeneralView({ p, style }) {
   </div>`;
 }
 
+// Several selected: each by what it is, a relation by its place (Ownership · Fund III → Fund III Blocker), so a
+// trunk's lines or a frame's are told apart.
 function Many({ ids }) {
   return html`<div class="insp"><${Head} title=${`${ids.length} selected`} /><div class="rows">
-    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${x}>${bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div></div>`;
+    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${x}>${recs()[x].args ? html`${nameOf(x)} · ${segment(x)}` : bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div></div>`;
 }
 
 // What a selection key names: a free shape (or a row of a Key) has its own panel; a relation's text in one box
@@ -1008,8 +1010,8 @@ function Inspector() {
   const sel = Shell.selection.value, p = sel.length === 1 && Shell.pattern(sel[0]);
   if (!App.chart.value) return null;   // opening
   if (p) return html`<${GeneralView} key=${sel[0]} p=${p} />`;
-  if (sel.length === 2) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
-  if (sel.length > 2) return html`<${Many} ids=${sel} />`;
+  if (sel.length === 2 && sel.every(k => T.isObject(recs()[k] ?? {}))) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
+  if (sel.length > 1) return html`<${Many} ids=${sel} />`;
   // A frame is drawn by a style: selecting it shows the entry the style is of, with its styles.
   const frame = sel.length === 1 && sel[0].startsWith('frame:') && App.scene.value?.byId.get(sel[0]);
   if (frame?.output) return html`<${GeneralView} key=${sel[0]} p=${T.bare(frame.output)} style />`;
