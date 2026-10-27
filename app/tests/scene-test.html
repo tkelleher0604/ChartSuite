@@ -359,6 +359,9 @@ function run() {
     const gpRow = s.legend.find(r => r.outputs.some(o => Tree.key(o) === Tree.key(gp[0].settings.Dash.note.pattern)));
     check('a line that says its relation’s name says it as the Key does', gpRow && gp.filter(l => l.labelAt).length && gp.every(l => l.texts[0].text === gpRow.caption) && gpRow.caption === 'General partner',
       j([gpRow?.caption, gp.map(l => l.texts[0]?.text)]));
+    const once = gp.filter(l => l.labelAt);
+    check('… said once for the trunk, on the line that carries it, which names the lines it says it for, its kin', once.length === 1 && j([...once[0].kin].sort()) === j(gp.map(l => l.id).sort())
+      && gp.every(l => l === once[0] || !l.kin), j(gp.map(l => [l.id, l.kin])));
     check('a general partner’s lines meet its partnerships’ sides, not their apexes', gp.length === 4 && gp.every(l => {
       const t = s.byId.get(l.to), [a, b] = l.points.slice(-2);
       return Math.abs(a[1] - b[1]) < 0.5 && b[1] > t.y + t.h * 0.2 && b[1] < t.y + t.h * 0.8;

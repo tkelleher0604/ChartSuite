@@ -3,7 +3,7 @@
 // frames as clusters; entered positions win, and a box placed among them goes beside its relatives, clear
 // of boxes and of lines it isn't on. The trunk router, Dendra's own, routes the lines as structure charts
 // draw them: a box's lines of one look leave it on one trunk and fan out along a lane, and arrive spread
-// across the top of what they reach. Pure: it reads geometry and gives geometry, keeping what it worked out
+// across the top of what they reach; and no line reads as another's (see SHADE). Pure: it reads geometry and gives geometry, keeping what it worked out
 // by what it read (and ELK's layouts in a store, where it's given one).
 const Layout = (() => {
 
