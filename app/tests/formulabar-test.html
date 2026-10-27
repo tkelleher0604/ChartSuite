@@ -573,6 +573,21 @@ async function checks() {
   check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
   document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
   check('leaving it ends the preview', !FormulaBar.pending.peek() && !StandIn.rl.peek());
+  // Keys on the tag are a checkbox's, as in the inspector: reached by the keys, it redlines as when pointed at;
+  // Enter goes on, back to the view, overriding nothing; Space, which clicks it, makes the change on screen
+  const keyTag = document.querySelector('.fx-out .tag'), v1 = App.version.peek();
+  keyTag.focus(); await wait(10);
+  const keyed = FormulaBar.pending.peek()?.from === 'tag' && keyTag.classList.contains('pend') && FormulaBar.pending.peek().change.records['fx-pending']?.tag === false;
+  keyTag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await wait(10);
+  check('the tag reached by the keys redlines as pointed at; Enter goes on to the view, overriding nothing', keyed && App.version.peek() === v1 && document.activeElement?.id === 'view'
+    && !FormulaBar.pending.peek() && R().records[OKAFOR_GP]?.tag === true, `${keyed} ${document.activeElement?.id} ${JSON.stringify(FormulaBar.pending.peek()?.from)}`);
+  keyTag.focus(); await wait(10);
+  const shown = FormulaBar.pending.peek()?.change.records['fx-pending'];
+  keyTag.click(); await wait(20);
+  check('… and Space, which clicks it, makes the change it showed', !!shown && App.version.peek() === v1 + 1 && !FormulaBar.pending.peek()
+    && Object.values(App.entered.peek()).some(r => r.tag === false && JSON.stringify(r.args) === JSON.stringify(shown.args)), JSON.stringify(shown));
+  Shell.parts.peek().undo.undo(); await wait(30);
+  Shell.select([]); Shell.select([OKAFOR_GP]); await wait(40);
   // A big chart waits for a pause in typing, never in hovering: each preview here made to seem slow
   const clock = performance.now, tagBox = document.querySelector('.fx-out .tag');
   let skew = 0;

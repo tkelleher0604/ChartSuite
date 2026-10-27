@@ -1091,13 +1091,14 @@ const FormulaBar = (() => {
   }
 
   // What the pointer lights goes when the pointer leaves it, and when what it points at goes: a sentence closed,
-  // or said anew under a still pointer, a tag or a row no longer shown, never leaves the chart lit.
+  // or said anew under a still pointer, a tag or a row no longer shown, never leaves the chart lit. Reached by
+  // the keys, it lights as when pointed at, until the keys leave it.
   function usePoint(on, off) {
     const held = useRef(false), last = useRef(off);
     last.current = off;
-    const leave = () => { if (held.current) { held.current = false; last.current(); } };
+    const enter = () => { held.current = true; on(); }, leave = () => { if (held.current) { held.current = false; last.current(); } };
     useLayoutEffect(() => leave, []);
-    return { onPointerEnter: () => { held.current = true; on(); }, onPointerLeave: leave };
+    return { onPointerEnter: enter, onPointerLeave: leave, onFocus: e => e.currentTarget.matches(':focus-visible') && enter(), onBlur: leave };
   }
 
   // A segment of a sentence in words: a sentence's first letter in capitals; a name by its short name, which as
@@ -1188,8 +1189,11 @@ const FormulaBar = (() => {
     </div>`;
   }
 
-  // The output, in its own control: a tag's checkbox, which previews the other state on hover and switches to
-  // it on a click, or a value, typed over to enter one; with the amber corner where an entry overrides rows.
+  // The output, in its own control: a tag's checkbox, which previews the other state pointed at or reached by
+  // the keys, and switches to it on a click or Space, as a checkbox's do, committing the change on screen; Enter
+  // goes on, as from a value and as in Excel, back to the view, so no key meant to move on changes it. Or a
+  // value, typed over to enter one. The amber corner where an entry overrides rows.
+  const onward = e => { if (e.key !== 'Enter') return; e.preventDefault(); e.stopPropagation(); document.getElementById('view')?.focus(); };
   function Output({ m }) {
     const o = m.out, point = usePoint(() => m.rec && preview(flipped(m), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
     if (!o) return null;
@@ -1199,7 +1203,7 @@ const FormulaBar = (() => {
       const state = v => v === true ? ' yes' : v === false ? ' no' : '';
       const cls = 'tag' + (a !== undefined ? ' pend' + state(a?.tag) : state(o.tag) + (m.computed ? ' fx' : ''));
       return html`<span class=${'fx-out' + (m.covered && !m.covered.agrees ? ' over' : '')}><button class=${cls} data-tour="tag" aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
-        ...${point} onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
+        ...${point} onKeyDown=${onward} onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
     }
     if (a !== undefined && a?.value !== m.rec.value && pending.value.from !== 'value')
       return html`<span class="fx-out"><span class="del">${o.text}</span> <span class="add">${a ? Tree.outputText(a) : '—'}</span></span>`;
