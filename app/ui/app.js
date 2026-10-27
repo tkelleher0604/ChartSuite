@@ -6,7 +6,14 @@ const App = (() => {
   // Empty until Store has opened the workbook, which the launch screen covers.
   const book = signal(Log.open({ dendra: 1, changes: [] }));
   const version = signal(0);
-  const chart = signal(null);
+  // The chart shown is the one the view shown is of: the address names the view, so a reload, a link, and Back and
+  // Forward each open its chart. Before a view is shown, or with one the workbook hasn't, it's the chart shown last,
+  // or else the first.
+  let lastChart = null;
+  const chart = computed(() => {
+    const wb = book.value, v = Shell.view.value, ids = wb.charts().map(c => c.chart), has = c => ids.includes(c);
+    return lastChart = (v && [lastChart, ...ids].find(c => has(c) && wb.item(c, v).length)) || (has(lastChart) ? lastChart : ids[0] ?? null);
+  });
   let unsubscribe = null;
   function use(wb) {
     // The layouts this browser keeps, so a reload lays out again nothing it laid out before.
@@ -15,7 +22,6 @@ const App = (() => {
     if (unsubscribe) { Shell.select([], { replace: true }); Shell.at(null, { replace: true }); unsubscribe(); }
     unsubscribe = wb.subscribe(() => { version.value++; });
     book.value = wb;
-    if (!wb.charts().some(c => c.chart === chart.peek())) chart.value = wb.charts()[0]?.chart ?? null;
     version.value++;
     listBooks();
   }
@@ -300,19 +306,24 @@ const App = (() => {
     page(tx, first, name);
     return tx.commit();
   }
-  // A chart's page, begun: its title, the chart's name, and under it the day it's as of, which the page sets
-  // at the sheet's size and places, as it does every page's.
+  // A chart's page, begun as every page of the sample is: its title, the chart's name, under it the day it's as
+  // of, and its Key, which the page sets at the sheet's size and places, as it does every page's.
   function page(tx, view, title) {
     tx.add('shape', { view, geometry: 'text', role: 'title', text: title });
     tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")' });
+    tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2 });
+  }
+  // Another chart, at the view last shown in it (lastView), or else its first: a step on the trail, as another view is.
+  function open(id) {
+    const wb = shown.peek(), v = lastView.get(id) ?? viewsIn(wb.asOf(id, day.peek()), wb.notes(id))[0]?.id;
+    if (v) preactSignals.batch(() => { Shell.select([]); Shell.show(v); });
   }
   // A new chart is named as it begins, in the title bar.
   function newChart() {
     if (readOnly.peek()) return Shell.toast('Can’t change the past');
     const c = startChart(book.peek());
     if (typeof c === 'string') return Shell.toast(c);
-    chart.value = c.chart;
-    Shell.select([]);
+    open(c.chart);
     Shell.nameChart();
   }
   const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) Shell.nameChart(); }); };
@@ -329,7 +340,7 @@ const App = (() => {
   Shell.register('workbook', {
     charts: () => (version.value, book.value.charts().map(c => ({ id: c.chart, name: c.name }))),
     current: () => chart.value,
-    open: id => { chart.value = id; Shell.select([]); },
+    open,
     rename,
     menu: () => [{ label: 'New chart', run: newChart }, { label: 'Workbooks', items: [
       ...books.value.map(b => ({ label: b.name, checked: b.id === Store.where()?.id, run: () => b.id !== Store.where()?.id && opened(Store.open({ id: b.id })) })),
@@ -343,16 +354,17 @@ const App = (() => {
 
   // ---- Views: View objects, each described by its own notes, never dated ----
   const viewTree = id => ({ id, kind: 'View' });
-  // Kept while they say the same, so the tabs aren't drawn again for every edit.
-  const viewsNow = computed(() => {
-    const st = entered.value, N = notes.value;
-    return (Tree.index(st).kinds.get('view') ?? []).map(id => {
-      const t = viewTree(id), lay = N.value('Layout', t);
-      return { id, name: N.nameOf(st, id), layout: lay && typeof lay === 'object' ? 'table' : 'chart', rows: lay?.rows ?? null,
-        keeps: N.value('As Of', t) ?? null, order: N.order(t) ?? Infinity };
-    }).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-  });
+  // A chart's views, in their order, from its records and notes; the chart shown's kept while they say the same, so
+  // the tabs aren't drawn again for every edit.
+  const viewsIn = (st, N) => (Tree.index(st).kinds.get('view') ?? []).map(id => {
+    const t = viewTree(id), lay = N.value('Layout', t);
+    return { id, name: N.nameOf(st, id), layout: lay && typeof lay === 'object' ? 'table' : 'chart', rows: lay?.rows ?? null,
+      keeps: N.value('As Of', t) ?? null, order: N.order(t) ?? Infinity };
+  }).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  const viewsNow = computed(() => viewsIn(entered.value, notes.value));
   const views = keptWhile(() => JSON.stringify(viewsNow.value), () => viewsNow.value);
+  const lastView = new Map();
+  effect(() => { const c = chart.value, v = Shell.view.value; if (c && views.value.some(x => x.id === v)) lastView.set(c, v); });
   // The view shown, drawn: what the canvas, the format bar and the inspector's Look read.
   const scene = computed(() => {
     // It reads the workbook's notes and shapes as well as the state (Scene keeps what's drawn from the same).

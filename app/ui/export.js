@@ -5,7 +5,7 @@
 //   scale, and every size with it: a text's points are the points it has on the sheet.
 // - PowerPoint: a box is a shape of the same preset geometry, holding its texts in the same fonts on the
 //   scene's lines; a line is a connector glued to its boxes, grouped with its label so the two move together
-//   and named as the two-box panel says its relation, and a line broken where another crosses it its pieces;
+//   and named as the two-box panel says its relation, one connector even where another crosses it (see cxn);
 //   lines said as one, a line to a frame or a trunk's lines under one label, one group named for them all, a
 //   frame's by its caption (each of the Funds); a frame its outline and caption, grouped, behind its members;
 //   the legend one group, a swatch and caption for each row, named for it; the title the slide's title; free
@@ -178,11 +178,6 @@ const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 const ROLE = { title: 'Title', date: 'Date' };
 // A shape's name, and with `descr` its alt text.
 const cNvPr = (id, name, descr) => `<p:cNvPr id="${id}" name="${esc(name)}"${descr ? ` descr="${esc(descr)}"` : ''}/>`;
-// Of a line's arrowheads, those a piece of it has: its start's on its first, its end's on its last.
-const arrowOf = (a, first, last) => {
-  const st = first && (a === 'start' || a === 'both'), en = last && (a === 'end' || a === 'both');
-  return st && en ? 'both' : st ? 'start' : en ? 'end' : 'none';
-};
 const E = v => Math.round(v * 914400);                 // inches as EMU
 
 // A deck: a slide for each scene, each written in its XML where PptxGenJS can't write it as PowerPoint does
@@ -270,9 +265,9 @@ function txBody(items, k, anchor, inset) {
 }
 const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
 const paint = c => none(c) ? '<a:noFill/>' : `<a:solidFill><a:srgbClr val="${hex(c)}"/></a:solidFill>`;
-// An outline at its weight on the slide (k times its page's), and its arrowheads.
-const ln = (s, k, heads = '') => none(s.Outline) ? '<a:ln><a:noFill/></a:ln>'
-  : `<a:ln w="${Math.round(s.Weight * k * 12700)}" cap="${s.Dash === 'dotted' ? 'rnd' : 'flat'}">${paint(s.Outline)}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/><a:miter lim="800000"/>${heads}</a:ln>`;
+// An outline at its weight on the slide (k times its page's), its arrowheads, and its paint (its colour).
+const ln = (s, k, heads = '', fill = paint(s.Outline)) => none(s.Outline) ? '<a:ln><a:noFill/></a:ln>'
+  : `<a:ln w="${Math.round(s.Weight * k * 12700)}" cap="${s.Dash === 'dotted' ? 'rnd' : 'flat'}">${fill}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/><a:miter lim="800000"/>${heads}</a:ln>`;
 // A path through points q, in EMU within w × h.
 const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${w}" h="${h}" fill="none">`
   + q.map(([x, y], i) => `<a:${i ? 'lnTo' : 'moveTo'}><a:pt x="${x}" y="${y}"/></a:${i ? 'lnTo' : 'moveTo'}>`).join('') + '</a:path></a:pathLst></a:custGeom>';
@@ -333,20 +328,15 @@ function slide(p, scene, { k, ox, oy }, say) {
   // What `draw` adds, as one group named `name` (and with `alt` its alt text), framed round the rects `draw`
   // gives back. → those rects.
   const group = (name, draw, alt) => { let rects; put(id => grouped(id, name, rects, alt)); rects = draw(); put(() => '</p:grpSp>'); return rects; };
-  // A line, and with `label` ([its texts, where they're placed from]) its label: the two grouped, named as the
-  // line is. A line broken where another crosses it is its pieces, grouped: the first glued where it starts,
-  // the last where it ends. Its `alt` text is the group's, or the connector's where it's one. → its rects.
-  const connector = (points, s, ends, name, { label = null, runs = [points], alt } = {}) => {
-    const one = !label && runs.length === 1;
+  // A line, glued where it starts and ends, broken where the scene breaks it (its `runs`); and with `label` ([its
+  // texts, where they're placed from]) its label: the two grouped, named as the line is. Its `alt` text is the
+  // group's, or the connector's where it's alone. → its rects.
+  const connector = (points, s, ends, name, { label = null, runs, alt } = {}) => {
     const draw = () => {
-      put(id => {
-        const glued = ends?.map((b, i) => glue(scene.byId.get(b), points, i)) ?? [];
-        return runs.map((r, i) => cxn(i ? 200000 + id * 100 + i : id, name, r, { ...s, Arrow: arrowOf(s.Arrow, i === 0, i === runs.length - 1) },
-          [i === 0 ? glued[0] : null, i === runs.length - 1 ? glued[1] : null], { X, Y, k, alt: one ? alt : null })).join('');
-      });
-      return [...runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
+      put(id => cxn(id, name, points, s, ends?.map((b, i) => glue(scene.byId.get(b), points, i)), { X, Y, k, alt: label ? null : alt, runs }));
+      return [...points.map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
     };
-    return one ? draw() : group(name, draw, alt);
+    return label ? group(name, draw, alt) : draw();
   };
   // The site a line's end is glued to: on the side it leaves or arrives by, the nearer if there are two.
   const glue = (b, ps, end) => {
@@ -419,17 +409,21 @@ function grouped(id, name, rects, alt) {
 // A route as PowerPoint's connector: straight, or an elbow of one to four legs (bentConnector3 for one or
 // three, 2 and 4 for two and four), its legs set by the adjustments, so it stays square when what it joins is
 // moved; a route no connector draws is a freeform. An elbow whose first leg is upright is one whose first leg
-// runs across, turned a quarter.
-function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
-  const q = ps.map(([x, y]) => [E(X(x)), E(Y(y))]);
+// runs across, turned a quarter. A route the scene breaks where others cross it (its `runs`) is one shape all the
+// same, glued as any other, its outline clear across each break (see clear): so it moves with its boxes as one
+// line, and what it crosses shows through the break at any zoom, whichever is on top.
+function cxn(id, name, ps, s, ends, { X, Y, k, alt, runs = [ps] }) {
+  const at = ([x, y]) => [E(X(x)), E(Y(y))], q = ps.map(at);
   const [x0, y0] = q[0], [x1, y1] = q.at(-1), dx = x1 - x0, dy = y1 - y0, legs = q.length - 1;
   const elbow = s.Connector === 'elbow' && (legs > 1 || !dx || !dy), upright = legs > 1 ? q[1][0] === x0 : elbow && !dx;
   const square = legs === 1 || q.slice(1).every((p, i) => (i % 2 === 0) === upright ? p[0] === q[i][0] : p[1] === q[i][1]);
-  const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}`);
+  const heads = `${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}`;
+  // Each break, from where a run ends to where the next begins, across the slide.
+  const breaks = runs.slice(1).map((r, i) => [at(runs[i].at(-1))[0], at(r[0])[0]]);
   const nv = (tag, inner) => `<p:nv${tag}Pr>${cNvPr(id, name || 'Line', alt)}<p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
   if (legs > 4 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
     const x = Math.min(...q.map(p => p[0])), y = Math.min(...q.map(p => p[1])), w = Math.max(...q.map(p => p[0])) - x, h = Math.max(...q.map(p => p[1])) - y;
-    return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${line}</p:spPr></p:sp>`;
+    return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${ln(s, k, heads, clear(q, breaks, 1, 0, s.Outline, Math.round(s.Weight * k * 12700) / 2))}</p:spPr></p:sp>`;
   }
   const W = Math.abs(upright ? dy : dx), H = Math.abs(upright ? dx : dy);
   const flipH = upright ? dy < 0 : dx < 0, flipV = upright ? dx > 0 : dy < 0;
@@ -440,7 +434,27 @@ function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
   const glue = (tag, e) => e ? `<a:${tag} id="${e.id}" idx="${e.idx}"/>` : '';
   return `<p:cxnSp>${nv('CxnSp', glue('stCxn', ends?.[0]) + glue('endCxn', ends?.[1]))}<p:spPr>`
     + xfrm(Math.round(cx - W / 2), Math.round(cy - H / 2), W, H, `${upright ? ' rot="5400000"' : ''}${flipH ? ' flipH="1"' : ''}${flipV ? ' flipV="1"' : ''}`)
-    + `<a:prstGeom prst="${prst}"><a:avLst>${adj.map((a, i) => `<a:gd name="adj${i + 1}" fmla="val ${Math.round(a * 100000)}"/>`).join('')}</a:avLst></a:prstGeom>${line}</p:spPr></p:cxnSp>`;
+    + `<a:prstGeom prst="${prst}"><a:avLst>${adj.map((a, i) => `<a:gd name="adj${i + 1}" fmla="val ${Math.round(a * 100000)}"/>`).join('')}</a:avLst></a:prstGeom>`
+    + `${ln(s, k, heads, clear(q, breaks, Math.sign(dx) || 1, upright ? 5400000 : 0, s.Outline))}</p:spPr></p:cxnSp>`;
+}
+
+// A route q's paint: `color`, clear across each break. It's a gradient over the route's own extent across the
+// slide, turned `ang` with its shape so it runs across the slide however the shape is turned, and beginning on the
+// side it does (`dir`: -1 where the shape is flipped so its frame runs leftward); a freeform's spread `pad` further
+// either side, half its line's width, as PowerPoint spreads one over its stroke. PowerPoint has no hop, and this
+// one holds at every zoom, on any background, at any weight, whichever line is on top: it won't open a connector
+// of its own path; a dash is counted in widths of the line as drawn, so a break dashed lands elsewhere at each
+// zoom; and a shape laid over a break needs the line it breaks under the one breaking it, which two lines breaking
+// each other can't both be. A break that would clear more of the route than its own stretch, as on an elbow
+// doubling back, stays drawn.
+function clear(q, breaks, dir, ang, color, pad = 0) {
+  const xs = q.map(p => p[0] * dir), lo = Math.min(...xs) - pad, t = x => (x * dir - lo) / (Math.max(...xs) + pad - lo);
+  const legs = q.slice(1).map((p, i) => [t(q[i][0]), t(p[0])].sort((m, n) => m - n));
+  const bands = breaks.map(br => br.map(t).sort((m, n) => m - n)).filter(([m, n]) => legs.filter(([u, v]) => v > m && u < n).length === 1);
+  if (!bands.length) return paint(color);
+  const stop = (pos, through) => `<a:gs pos="${Math.round(pos * 100000)}"><a:srgbClr val="${hex(color)}"${through ? '><a:alpha val="0"/></a:srgbClr>' : '/>'}</a:gs>`;
+  return `<a:gradFill rotWithShape="1"><a:gsLst>${stop(0)}${bands.sort((m, n) => m[0] - n[0]).map(([m, n]) => stop(m) + stop(m, true) + stop(n, true) + stop(n)).join('')}`
+    + `${stop(1)}</a:gsLst><a:lin ang="${ang}" scaled="0"/></a:gradFill>`;
 }
 
 // ---- Writing a file ----
@@ -474,10 +488,20 @@ function clause(st, N, rel) {
     || [a.edge, ` is ${r.tag === false ? 'not ' : ''}${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${lower(role)} of `, b.edge];
   return { p: (p === a.edge ? a : b).id, words, q: (q === a.edge ? a : b).id, rest };
 }
+// A frame's caption mid-sentence, after "the". A caption is set as a heading is, its first word capitalised as a
+// heading's is. One in title case, a single word among them, is said as written, as a defined term is: each of
+// the Funds. One in sentence case, a phrase whose first word is its only capitalised word, is a common noun
+// phrase, said in lower case as the formula bar says a term: each of the portfolio companies and blockers. A
+// capital after the first word marks a name, so that caption is said as written (Calder Ridge entities), and so
+// is a first word in capitals (BDC affiliates).
+const called = c => {
+  const s = c.replace(/^the /i, '');
+  return /^\p{Lu}\p{Ll}/u.test(s) && /\s\p{Ll}/u.test(s) && !/\s\p{Lu}\p{Ll}/u.test(s) ? s[0].toLowerCase() + s.slice(1) : s;
+};
 // Relations said as one, as one line, or a group of them, draws them all (see together), each object by its
 // short name, one of its own begun with The said "the" after the sentence's first word (the BDC). One relation as
 // `clause` says it; several alike but for one side, that side said once for them all: by `caption`, the frame's
-// they land on (each of the Funds), or else in turn (Fund III, Fund III-A and AIV-1); any others, each in turn.
+// they land on (see called), or else in turn (Fund III, Fund III-A and AIV-1); any others, each in turn.
 // → null where none has two sides.
 function sentence(st, N, rels, caption = null) {
   const cs = rels.map(rel => clause(st, N, rel)).filter(Boolean), [c] = cs;
@@ -488,7 +512,7 @@ function sentence(st, N, rels, caption = null) {
   if (alike(one)) return one(c);
   if (cs.some(x => x.text) || p === q || !alike(x => x.words + rest(x))) return [...new Set(cs.map(one))].join('; ');
   const them = [...new Set(cs.map(x => p ? x.q : x.p))].map(term);
-  const all = caption ? `the ${caption.replace(/^the /i, '')}` : them.length > 1 ? `${them.slice(0, -1).join(', ')} and ${them.at(-1)}` : them[0];
+  const all = caption ? `the ${called(caption)}` : them.length > 1 ? `${them.slice(0, -1).join(', ')} and ${them.at(-1)}` : them[0];
   return p ? `${short(c.p)}${c.words}${caption ? `each of ${all}` : all}${rest(c)}` : `Each of ${all}${c.words}${term(c.q)}${rest(c)}`;
 }
 
