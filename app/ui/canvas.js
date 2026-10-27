@@ -408,7 +408,8 @@ function mount(el) {
   });
   // What's selected from elsewhere (Find, F8, the status bar, the inspector, Back) or by Tab is brought on
   // screen, at the zoom the view is at; what's picked on the chart, by a click or the marquee, is there.
-  // What isn't drawn yet, a relation the view hides that its highlight will show, is brought once it is.
+  // What isn't drawn yet, in a view about to be shown or a relation the view hides that its highlight will
+  // show, is brought once it is.
   let picked = [], wanted = null;
   const pick = keys => { picked = keys; Shell.select(keys); };
   const stopSel = effect(() => {
@@ -416,7 +417,7 @@ function mount(el) {
     if (!scene || syncing) return;
     syncSelection(); paintStates();
     wanted = same(keys, picked) ? null : keys;
-    seek();
+    if (App.scene.peek()?.view === scene.view) seek();
   });
   function seek() {
     const ms = wanted ? marksOf(wanted) : [];
