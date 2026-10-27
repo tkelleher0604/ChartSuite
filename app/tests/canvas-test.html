@@ -146,9 +146,14 @@ async function run() {
   check('… each under its style’s name, and a style that is its one group (Names) is that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
     && items.includes('Names (24)') && !heads.includes('Name') && menu.indexOf('Names (24)') > menu.indexOf(heads.at(-1))
     && seps.slice(0, seps.indexOf('Names (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
-  // Exactly the Styles rows that reach the box, by Styles' captions: none for an output no style formats.
-  const rowsReaching = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), 'northpine', App.state.peek())
-    .some(r => r.style === g.style && g.outputs.some(p => Tree.narrower(r.output, p)))).map(g => g.caption);
+  // Exactly the Styles rows that reach the box, by Styles' captions: none for an output no style formats; and as
+  // Styles lists them (Scene.groupsOf's order), under their styles' names, then those under none after them all.
+  const reaching = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), 'northpine', App.state.peek())
+    .some(r => r.style === g.style && g.outputs.some(p => Tree.narrower(r.output, p)))), rowsReaching = reaching.map(g => g.caption);
+  const listedSo = reaching.flatMap((g, i) => [...(g.name && g.style !== reaching[i - 1]?.style ? ['#' + g.name] : []), ...(!g.name && reaching[i - 1]?.name ? ['-'] : []), g.caption]);
+  const menuSays = seps.slice(seps.indexOf('This box') + 2).map(t => heads.includes(t) ? '#' + t : t.replace(/ \(\d+\)$/, ''));
+  check('… in the order Styles lists them, each style’s under its name, and those under none after them all', JSON.stringify(menuSays) === JSON.stringify(listedSo)
+    && listedSo.indexOf('Names') > listedSo.indexOf('Portfolio companies'), `${menuSays.join(' | ')} vs ${listedSo.join(' | ')}`);
   check('… and its groups are exactly the Styles rows that reach the selection, called as Styles calls them', JSON.stringify(items.slice(1).map(t => t.replace(/ \(\d+\)$/, '')).sort()) === JSON.stringify(rowsReaching.sort())
     && !items.some(t => /^(Entity|Good Standing|Delaware) \(/.test(t)), `${items.join(' | ')} vs ${rowsReaching.join(' | ')}`);
   await closeMenus();
@@ -283,6 +288,20 @@ async function run() {
     && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
     && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
     && $$('.float .palette .menu-item').map(txt).join() === 'No fill,More colors#' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${$$('.float .palette .menu-item').map(txt)}`);
+  // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
+  // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
+  const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const contrast = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const menuBg = () => { let el = $('.float .palette'); while (el && getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)') el = el.parentElement; return getComputedStyle(el).backgroundColor; };
+  const themeWas = document.documentElement.dataset.theme, edges = ['light', 'dark'].map(theme => {
+    document.documentElement.dataset.theme = theme;
+    const nearest = swatches.reduce((m, b) => contrast(getComputedStyle(b).backgroundColor, menuBg()) < contrast(getComputedStyle(m).backgroundColor, menuBg()) ? b : m), cs = getComputedStyle(nearest);
+    return { theme, nearest: nearest.dataset.tip, ok: swatches.every(b => getComputedStyle(b).borderTopWidth === '1px' && getComputedStyle(b).backgroundClip === 'padding-box'
+      && getComputedStyle(b).borderTopColor === cs.borderTopColor) && contrast(cs.backgroundColor, menuBg()) < 1.1 && contrast(cs.borderTopColor, menuBg()) > 1.25 && contrast(cs.borderTopColor, cs.backgroundColor) > 1.25,
+      unset: contrast(cs.backgroundColor, menuBg()).toFixed(2), edge: contrast(cs.borderTopColor, menuBg()).toFixed(2), inside: contrast(cs.borderTopColor, cs.backgroundColor).toFixed(2) };
+  });
+  document.documentElement.dataset.theme = themeWas;
+  check('every swatch has one hairline, drawn on the menu, that sets off even those nearest the menu’s colour, in light and in dark', edges.every(e => e.ok), JSON.stringify(edges));
   const hex = $('.float .palette .hex > input');
   hex.focus(); hex.value = '1F5FBF'; hex.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(80);
   check('a color typed by its hex in More colors is drawn as it’s typed, and changes nothing', fillOf('halvard') === '#1f5fbf' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#1f5fbf', fillOf('halvard'));

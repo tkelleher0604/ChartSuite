@@ -108,11 +108,12 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 
 /* The palette and the pickers in the format bar's popovers: PowerPoint's theme colors, its first row apart
    from the tints and shades under it, as PowerPoint sets it, then its standard colors and the chart's own; and
-   under them, rows as a menu's: No fill, and More colors with its hex. */
+   under them, rows as a menu's: No fill, and More colors with its hex. Each swatch has a hairline drawn on the
+   menu, not on its own colour, so White on a light menu and the near-blacks on a dark one keep their edges. */
 .palette { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; }
 .palette > :nth-child(-n + 10) { margin-bottom: 4px; }
 .palette > i { grid-column: 1 / -1; height: 4px; }
-.palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid rgb(0 0 0 / .14); border-radius: 3px; cursor: default; }
+.palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid var(--rule-2); border-radius: 3px; background-clip: padding-box; cursor: default; }
 .palette > button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .palette > .more { grid-column: 1 / -1; display: grid; margin: 4px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }
 .palette .menu-item { border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }

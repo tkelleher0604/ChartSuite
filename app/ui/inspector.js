@@ -722,30 +722,30 @@ function Swatch({ sw, off }) {
 const stylesOf = (v, only) => N().styles(v).filter(s => !only || T.narrower(only, s.pattern) || T.narrower(s.pattern, only))
   .map(s => ({ ...s, outputs: s.outputs.filter(o => Object.keys(o.formats).some(k => k !== 'Shown')) })).filter(s => s.outputs.length);
 function Styles({ v, only }) {
-  const n = N(), all = n.styles(v), list = stylesOf(v, only);
-  // Dragged among those listed; the rest keep their places in the view's order.
-  const order = (from, i) => { const q = moved(list, from, i), keys = new Set(list.map(s => s.key));
+  const n = N(), all = n.styles(v), listed = new Set(stylesOf(v, only).map(s => s.key)), styleAt = new Map(all.map(s => [s.key, s]));
+  // The styles listed, by their groups (Scene.groupsOf) in their order, each group a row as the Key has it: those
+  // under their style's name, then apart, after them all, the styles that are their one row (Names).
+  const blocks = [...Map.groupBy(Scene.groupsOf(n, v).filter(g => listed.has(g.style)), g => g.style)].map(([k, rows]) => ({ s: styleAt.get(k), rows, lone: !rows[0].name }));
+  const parts = [blocks.filter(b => !b.lone), blocks.filter(b => b.lone)];
+  // Dragged among those of its part; the rest keep their places in the view's order.
+  const order = part => (from, i) => { const q = moved(part.map(b => b.s), from, i), keys = new Set(q.map(s => s.key));
     App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
   // A caption typed as an output's own name is no caption.
-  const cap = (os, text) => App.change(tx => os.forEach(o => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v })));
-  // A style's groups (Scene.groupsOf), each a row as the Key has it: its swatch, its caption (the Key's word,
-  // typed over, which captions each output in it), and, where a caption calls it, what it stands for: beneath,
-  // where several, or on hover.
-  const groups = Scene.groupsOf(n, v);
-  const rowsOf = s => groups.filter(g => g.style === s.key)
-    .map(g => ({ caption: g.caption, name: g.name, sw: g.swatch, off: g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
-  const grip = () => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`;
-  const output = (g, lone) => {
-    const names = g.os.map(o => Scene.outputName(n, o.pattern)), said = g.os.some((o, i) => Scene.captionOf(n, o.pattern, v) !== names[i]);
-    return html`<div class=${'row out' + (lone ? ' lone' : '')} key=${T.key(g.os[0].pattern)}>${lone ? grip() : null}<div class="k"><${Swatch} sw=${g.sw} off=${g.off} /></div>
-      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
+  const cap = (ps, text) => App.change(tx => ps.forEach(p => tx.note('Caption', p, text && text !== Scene.outputName(n, p) ? text : undefined, { view: v })));
+  const grip = part => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order(part))}>${GRIP}</button>`;
+  // A row: its swatch, its caption (the Key's word, typed over, which captions each output in it), and, where a
+  // caption calls it, what it stands for: beneath, where several, or on hover. A style's one row, `alone`, is
+  // dragged among that part.
+  const output = (g, alone) => {
+    const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]);
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key}>${alone ? grip(alone) : null}<div class="k"><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.outputs, out?.value ?? '')} />
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
-  return list.map(s => { const rows = rowsOf(s), name = Scene.styleName(n, s.pattern), lone = rows.length === 1 && !rows[0].name;
-    return html`<div class="ent style" data-drag=${only ? null : 'style'} key=${s.key}>
-      ${lone ? output(rows[0], true) : html`<div class="row" style="--depth:0">${grip()}<div class="k sname"><${Go} to=${general(s.pattern)}>${name}</${Go}></div></div>${rows.map(g => output(g))}`}
-    </div>`; });
+  return parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
+    ${lone ? output(rows[0], part) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname"><${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}></div></div>${rows.map(g => output(g))}`}
+  </div>`));
 }
 
 // The view: its layout and its rows (its own notes), and its styles in their order. Its name is its tab's,
