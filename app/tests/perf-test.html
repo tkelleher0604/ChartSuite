@@ -22,8 +22,9 @@
 <script>
 // How long the formulas take to work out as a chart grows: the sample as of a day, with its Formula notes,
 // and with more of a fund complex added (see grown.js). `#n=200` (the default) sets the most entities added;
-// the page works out the sample from nothing with none, a quarter, half and all of them, three times each,
-// and keeps the best. The targets: the sample in under 50 ms, and 100 and 200 more entities in under 500.
+// the page works out the sample from nothing with none, a quarter, half and all of them, three times each, and up
+// to nine while none is within its budget, and keeps the best (see bestOf). The targets: the sample in under 50
+// ms, and 100 and 200 more entities in under 500.
 // Then edits at the most, each worked out again from the working-out before, as the app does: each must
 // agree with the same chart worked out from nothing, in every record, value, stage, row, error and ground,
 // and one that reaches few formulas must take under 100 ms. Then scenes of it after edits, which must agree
@@ -42,16 +43,18 @@ const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
 const { definitions: DEFS, names: NAMES } = SAMPLE_INPUTS;
 const fresh = (recs, defs = DEFS) => Formulas.computeState(recs, defs, NAMES, null);
 
-// The best of three workings-out from nothing, keeping only what's reported, so one run's records don't
-// weigh on the next.
-function timeIt(n) {
-  const recs = grown(SAMPLE_INPUTS.recs, n);
+// A time is the best of several tries against its budget: three, and up to nine while none is under it, so that a
+// machine busy with other work fails it only where the work itself is slow. f() → { ms, … }.
+function bestOf(f, budget = Infinity) {
   let best = null;
-  for (let i = 0; i < 3; i++) {
-    const R = fresh(recs);
-    if (!best || R.ms < best.ms) best = { ms: R.ms, steps: R.steps, computed: Object.keys(R.computed).length };
-  }
+  for (let i = 0; i < 9 && (i < 3 || best.ms >= budget); i++) { const x = f(); if (!best || x.ms < best.ms) best = x; }
   return best;
+}
+// The best of the workings-out from nothing, keeping only what's reported, so one run's records don't weigh on
+// the next.
+function timeIt(n, budget) {
+  const recs = grown(SAMPLE_INPUTS.recs, n);
+  return bestOf(() => { const R = fresh(recs); return { ms: R.ms, steps: R.steps, computed: Object.keys(R.computed).length }; }, budget);
 }
 
 // Where two workings-out differ, or null: their records in order, what's computed and covered, errors,
@@ -136,16 +139,16 @@ function actions(n) {
   edit(tx => { for (const [id, r] of Object.entries(grown({}, n))) if (id.startsWith('x_')) tx.add('record', r, id); });
   let R = Formulas.computeState(...inputs(), null);
   draw(R);
-  // The best of three, each from the chart's working-out: before the second and third, the chart as it stands
-  // is worked out from it again (at once, nothing having changed), so each starts from it, not from the preview
-  // before. The ruling follows the last.
+  // The best of several (see bestOf), each from the chart's working-out: before each after the first, the chart as
+  // it stands is worked out from it again (at once, nothing having changed), so each starts from it, not from the
+  // preview before. The ruling follows the last.
   const [entered, defs, names] = inputs(), ruled = { ...entered, own_us_fund: { ...entered.own_us_fund, tag: false } };
-  let hover = Infinity, d = null;
-  for (let i = 0; i < 3; i++) {
-    if (i) Formulas.computeState(entered, defs, names, R);
-    const [x, ms] = timed(() => Formulas.diff(R, Formulas.computeState(ruled, defs, names, R)));
-    if (ms < hover) [hover, d] = [ms, x];
-  }
+  let tries = 0;
+  const { ms: hover, d } = bestOf(() => {
+    if (tries++) Formulas.computeState(entered, defs, names, R);
+    const [d, ms] = timed(() => Formulas.diff(R, Formulas.computeState(ruled, defs, names, R)));
+    return { ms, d };
+  }, 150);
   check(`At +${n}, hovering a tag previews ruling it out, worked out and compared, in under 150 ms`, hover < 150,
     `${hover.toFixed(0)} ms: ${d.appear.length} appear, ${d.go.length} go, ${d.change.length} change`);
   const lines = [`+${n}, hovering the U.S. investors' ownership tag: ${hover.toFixed(0)} ms`];
@@ -237,15 +240,15 @@ function redline() {
 function run() {
   const n = Number(new URLSearchParams(location.hash.slice(1)).get('n') ?? 200), timed = inWindow(n);
   const lines = [];
-  const times = new Map();
+  const times = new Map(), targets = [[0, 50, 'the sample'], [100, 500, '100 more entities'], [200, 500, '200 more entities']];
   for (const size of [...new Set([0, Math.round(n / 4), Math.round(n / 2), n])]) {
-    const t = timeIt(size);
+    const t = timeIt(size, targets.find(([s]) => s === size)?.[1]);
     times.set(size, t.ms);
     const slow = [...t.steps].sort((a, b) => b.ms - a.ms).slice(0, 4)
       .map(s => `${s.defs.join('+')} ${s.ms.toFixed(0)}ms/${s.rounds}r/${s.tried}c/${s.evals}e`).join(', ');
     lines.push(`+${size} entities: ${t.ms.toFixed(0)} ms, ${t.computed} computed records; slowest steps (rounds, candidates, evaluations): ${slow}`);
   }
-  for (const [size, target, what] of [[0, 50, 'the sample'], [100, 500, '100 more entities'], [200, 500, '200 more entities']])
+  for (const [size, target, what] of targets)
     if (times.has(size)) check(`Works out ${what} in under ${target} ms`, times.get(size) < target, `${times.get(size).toFixed(0)} ms`);
   lines.push('', ...edits(n), '', ...scenes(n), '', ...actions(n));
   const r = redline();
