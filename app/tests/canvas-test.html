@@ -568,25 +568,30 @@ async function run() {
       `scale ${p.scale}, zoom ${z}, title’s words at ${[t.x, t.y].map(Math.round)}`); }
   Shell.parts.peek().undo.undo(); await tick(200);
 
-  // ---- Deleting as of a past day says from when ----
+  // ---- Deleting as of a past day ends it then, by its own end entry, which its redline asks first ----
   Shell.at({ asOf: '2025-06-30' }); await tick(200);
   Shell.select(['halvard']); await tick(80);
   cv().root.focus(); key('Delete', { shiftKey: true }); await tick(120);
+  const asked = txt($('.pendbar')), dayAsked = $('.pendbar .from input')?.value, stillThere = !!App.state.peek().halvard;
+  key('Enter'); await tick(150);
   const toast = txt($$('.toast').at(-1));
-  check('a record deleted as of a past day says so', /^Deleted Halvard.* as of Jun 30, 2025/.test(toast), toast);
+  check('a record deleted as of a past day is redlined first, its bar asking its end entry, that day; then ended by it', /Halvard/.test(asked) && /Dissolution Date/.test(asked) && dayAsked === 'Jun 30, 2025' && stillThere
+    && /^Set Dissolution Date of Halvard.* to Jun 30, 2025/.test(toast) && !App.state.peek().halvard && !!App.wb.asOf(App.chart.peek(), '2025-06-29').halvard, `${asked} / ${toast}`);
   Shell.at(null); await tick(100);
 
   // ---- What's drawn is the scene, however it came to be: after edits, views shown in turn, previews and
   // undoing, each cell shown is where the scene puts it, saying what it says, stacked in its order, and no
   // other cell is shown ----
+  // A redline's ink (what would go, drawn over the scene, and a changed text's old words struck) is no part of the scene,
+  // and is set aside.
   const j = x => JSON.stringify(x);
-  const drawnAsScene = () => {
-    const s = sc(), shown = cv().graph.getCells().filter(c => c.isVisible() && c.id !== '·page'), want = new Map(), bad = [];
+  const drawnAsScene = (s = sc()) => {
+    const shown = cv().graph.getCells().filter(c => c.isVisible() && c.id !== '·page' && c.getData()?.kind !== 'ink'), want = new Map(), bad = [];
     s.marks.forEach((m, i) => {
       if (m.geometry !== 'group') want.set(m.id, [m, i]);
       if (m.type === 'line' && m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) want.set(`${m.id}·label`, [m, i + 0.5]);
     });
-    const texts = ms => JSON.stringify(ms.flatMap(t => t.children?.map(c => c.textContent) ?? []));
+    const texts = ms => JSON.stringify(ms.flatMap(t => t.children?.filter(c => !('data-ink' in (c.attrs ?? {}))).map(c => c.textContent) ?? []));
     for (const c of shown) {
       const [m] = want.get(c.id) ?? [];
       if (!m) bad.push(`${c.id} drawn`);
@@ -625,11 +630,16 @@ async function run() {
       await show(charts()[0]); Shell.select(['own_us_fund']); await tick(120);
       const pct = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Percentage');
       pct?.focus(); await tick();
+      const linesBefore = sc().marks.filter(m => m.type === 'line').map(m => m.id).join();
       idly(() => { pct.value = '65%'; pct.dispatchEvent(new Event('input', { bubbles: true })); });
-      const typed = laid.find(s => s.view === charts()[0].id && txt({ textContent: s.byId.get('own_us_fund')?.texts.map(it => it.text).join(' ') }) === '65%');
+      // The redline drawn is the scene the change, made, draws (on a chart this size, laid out as it's typed).
+      const typed = [sc(), ...laid].find(s => s !== App.scene.peek() && s.view === charts()[0].id && txt({ textContent: s.byId.get('own_us_fund')?.texts.map(it => it.text).join(' ') }) === '65%');
+      const shownLines = cv().graph.getCells().filter(c => c.isEdge() && c.isVisible() && c.getData()?.kind === 'line').map(c => c.id).sort().join();
+      check('… drawing only what the view shows: no line it hides, the look-through it works out among them', !!typed && !typed.marks.some(m => m.revealed) && shownLines === linesBefore.split(',').sort().join()
+        && typed.marks.filter(m => m.type === 'line').map(m => m.id).join() === linesBefore, `${shownLines.length} ${linesBefore.length}`);
       pct?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(160);
       const typedBad = drawnAsScene();
-      check('a value typed in the inspector is laid out ahead while it’s redlined, and Enter draws that scene, as it is', !!typed && sc() === typed && !typedBad.length,
+      check('a value typed in the inspector is laid out while it’s redlined, as Enter will draw it, and Enter draws that scene, as it is', !!typed && sc() === typed && !typedBad.length,
         `${!!typed} ${sc() === typed} ${typedBad.slice(0, 3).join(', ')}`);
       Shell.parts.peek().undo.undo(); Shell.select([]); await tick(160);
       $('.titlebar .asof .dd')?.click(); await tick(120);
@@ -642,6 +652,52 @@ async function run() {
         `${!!day} ${sc() === day} ${App.computed.peek() === R} ${sc().day} ${dayBad.slice(0, 3).join(', ')}`);
       Shell.at(null); await tick(200);
     } finally { Scene.steps = steps0; App.workOn = workOn0; }
+  }
+
+  // ---- A change pending is drawn as Enter will draw it: for every kind, the redline, less its ink, is the scene
+  // Enter makes, its boxes where they'll stand, its routes and its page; and Enter draws that very scene ----
+  {
+    const off = [], ink = () => cv().graph.getCells().filter(c => c.isVisible() && c.getData()?.kind === 'ink').length;
+    // `goes`: what goes is drawn struck, over the scene, where it is. No line of the redline runs through the Key.
+    const throughKey = s => { const k = s.marks.find(m => m.geometry === 'legend');
+      return !k ? [] : s.marks.filter(l => l.type === 'line' && l.points.slice(1).some((b, i) => { const a = l.points[i];
+        return Math.max(a[0], b[0]) > k.x + 1 && Math.min(a[0], b[0]) < k.x + k.w - 1 && Math.max(a[1], b[1]) > k.y + 1 && Math.min(a[1], b[1]) < k.y + k.h - 1; })).map(l => l.id); };
+    const pending = async (what, begin, enter = () => key('Enter'), goes = false) => {
+      await begin(); await tick(160);
+      const red = sc(), base = App.scene.peek(), bad = drawnAsScene(red), n = ink(), keyed = throughKey(red);
+      await enter(); await tick(220);
+      const after = drawnAsScene();
+      if (red === base || bad.length || (goes && !n) || keyed.length || App.scene.peek() !== red || after.length)
+        off.push(`${what}: ${red === base ? 'no redline; ' : ''}${goes && !n ? 'nothing struck; ' : ''}${keyed.length ? `through the Key: ${keyed}; ` : ''}${bad.slice(0, 2).join(', ')}${App.scene.peek() !== red ? ' Enter drew another scene' : ''} ${after.slice(0, 2).join(', ')}`);
+      Shell.parts.peek().undo.undo(); await tick(160);
+    };
+    const tickRow = async (a, b, re) => { Shell.emit('relate-open', [a, b]); await tick(120); $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60);
+      $$('.rr').find(r => re.test(txt(r.querySelector('.nm'))))?.querySelector('.ctl .tag')?.click(); await tick(60); };
+    await show(charts()[0]);
+    await pending('a relation added from today', () => tickRow('pension', 'fund', /is an owner of Fund III$/));
+    await pending('another, Sponsor Holdings → Northpine', () => tickRow('holdco', 'northpine', /is an owner of Northpine Software, LLC$/));
+    await pending('a relation added all along', async () => { await tickRow('pension', 'northpine', /is an owner of Northpine Software, LLC$/); $('.pendbar .from .sel')?.click(); await tick(); $$('.float .menu-item').find(x => txt(x) === 'All along')?.click(); });
+    await pending('a line deleted until today', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }, undefined, true);
+    await pending('a line deleted as never held', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); await tick(60);
+      $('.pendbar .from .sel')?.click(); await tick(); $$('.float .menu-item').find(x => txt(x) === 'Never held')?.click(); }, undefined, true);
+    await pending('a box deleted, by its end entry', async () => { Shell.select(['northpine']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }, undefined, true);
+    let field = null;
+    const enterField = () => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await pending('a start typed past the day shown', async () => { Shell.select(['northpine']); await tick(120);
+      field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Formation Date'); field.focus(); await tick(); field.value = 'March 2, 2027'; field.dispatchEvent(new Event('input', { bubbles: true })); },
+      enterField, true);
+    await pending('a value typed', async () => { Shell.select(['own_us_fund']); await tick(120);
+      field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Percentage'); field.focus(); await tick(); field.value = '40%'; field.dispatchEvent(new Event('input', { bubbles: true })); }, enterField);
+    await pending('a ruling pointed at and clicked', async () => { cv().root.focus(); Shell.select([]); await tick(60); Shell.select(['own_us_fund']); await tick(120); $('.fx-out button.tag')?.dispatchEvent(new PointerEvent('pointerenter')); },
+      () => $('.fx-out button.tag')?.click());
+    check('every kind of pending change is drawn as the scene Enter makes, less its ink, no line through the Key, and Enter draws that scene', !off.length, off.join('; '));
+    // A click away leaves a change pending, its redline drawn
+    await tickRow('pension', 'fund', /is an owner of Fund III$/); await tick(120);
+    const red = sc();
+    Shell.select([]); cv().root.focus(); await tick(160);
+    check('a click away leaves a change pending, its bar and its redline drawn', !!App.pending.peek() && !!$('.dc-pend .pendbar') && sc() === red && sc() !== App.scene.peek(), `${!!App.pending.peek()} ${sc() === red}`);
+    $$('.pendbar .btn').find(b => txt(b) === 'Discard')?.click(); await tick(160);
+    check('… till Discard drops it, and the chart is drawn as it is', !App.pending.peek() && !$('.pendbar') && sc() === App.scene.peek() && !drawnAsScene().length);
   }
 
   const steps = [], step = async (what, f) => { await f(); await tick(120); const bad = drawnAsScene(); if (bad.length) steps.push(`${what}: ${bad.slice(0, 3).join(', ')}`); };

@@ -786,8 +786,9 @@ function Canvas_writeNote(tx, N, { label, pattern, view }, value) {
 // ---- Drawn again ----
 
 // Every chart view drawn as the app draws it, the chart worked out from the working-out before (or from
-// nothing); then the main view redlined with its first ownership ruled out, as the formula bar previews it, and
-// with a few records it hides revealed, each over the view as it was last drawn. → [R, { [what]: scene as JSON }]
+// nothing); then the main view as ruling out its first ownership would leave it, the scene its redline draws, laid
+// out ahead; and with a few records it hides revealed, over the view as it was last drawn. → [R, { [what]: scene as
+// JSON }]
 function drawAll(wb, before = null) {
   const N = wb.notes(C), S = wb.schema(C), defs = N.definitions(S), names = { relations: N.relations(S), schema: S }, entered = wb.asOf(C, DAY);
   const R = Formulas.computeState(entered, defs, names, before), st = R.records, out = {};
@@ -796,8 +797,9 @@ function drawAll(wb, before = null) {
     out[v] = said(Scene.of(wb, C, v, DAY, { state: st, computed: R }));
   const main = Scene.of(wb, C, MAIN, DAY, { state: st, computed: R }), own = Object.keys(entered).sort().find(id => entered[id].tag && entered[id].args?.some(a => a.edge === 'Owner'));
   if (own) {
-    const R2 = Formulas.computeState({ ...entered, [own]: { ...entered[own], tag: false } }, defs, names, before && R), d = Formulas.diff(R, R2);
-    out.redlined = said(Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, redline: { state: R2.records, appear: new Set(d.appear), go: new Set(d.go), changed: new Map(d.change.map(id => [id, st[id]])) } }));
+    const R2 = Formulas.computeState({ ...entered, [own]: { ...entered[own], tag: false } }, defs, names, before && R);
+    // A redline is the scene the change, made, draws, laid out ahead (the canvas inks it).
+    out.redlined = said(Scene.of(wb, C, MAIN, DAY, { state: R2.records, computed: R2, ahead: true }));
   }
   const hidden = Object.keys(st).filter(id => (Tree.isObject(st[id]) || st[id].args?.length === 2) && !Tree.isView(st[id]) && !main.byId.has(id)).sort();
   out.revealed = said(Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, reveal: hidden.filter((_, i) => i % 7 === 0).slice(0, 4) }));

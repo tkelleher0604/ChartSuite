@@ -181,6 +181,20 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .toast > button { height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; }
 .toast > button:hover { background: rgb(255 255 255 / .08); }
 
+/* ---- A change pending: the bar under the view, what it does, when it holds, Discard and its verb ---- */
+.pendbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--rule-2); background: var(--paper); }
+.pendbar > .what { flex: 1 1 240px; min-width: 0; color: var(--ink-2); }
+.pendbar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
+.pendbar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
+/* A toast rises over the bar, so neither hides the other. */
+#app:has(.view > .host:not([hidden]) .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
+#app:has(.view > .scrub):has(.view > .host:not([hidden]) .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }
+/* The day a change holds from or until, wherever it's asked (App.From): "From" or "Until", a menu with All along or
+   Never held, and the day, typed over; what's said, the day or All along, in the redline's blue. */
+.from { display: inline-flex; align-items: center; gap: 2px; min-height: var(--row); color: var(--ink-2); }
+.from > .sel { margin: 0 2px 0 -7px; color: inherit; }
+.from .cell.date, .from:not(:has(.cell)) > .sel { color: var(--accent-ink); }
+
 /* ---- Tabs, inside panels ---- */
 .tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--rule); }
 .tabs > button { height: 32px; padding: 0; border: 0; background: none; color: var(--ink-2); box-shadow: inset 0 -2px 0 transparent; }

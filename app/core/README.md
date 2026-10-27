@@ -47,7 +47,7 @@ Edges keep their labels; argument order doesn't matter.
 
 ## Log
 
-`Log.open(json | changes | workbook?)` → a workbook `wb`. `Log.today()`, `Log.newId()`, `Log.validOn(row, day)`, `Log.typeOf(row)` (its item's type), `Log.latest(rows)` (the version with the latest start).
+`Log.open(json | changes | workbook?)` → a workbook `wb`. `Log.today()`, `Log.newId()`, `Log.validOn(row, day)`, `Log.typeOf(row)` (its item's type), `Log.latest(rows)` (the version with the latest start), `Log.outOn(notes, recs, id, day)` (what a start or end entry keeps out of the chart on a day: what it's at, where it starts after the day or ends by it; else null).
 
 Reading, per chart:
 - `wb.asOf(chart, day = today)`: the chart as of a day, a state. A record holds when its row is valid on the day, the day falls from its start entry and before its end entry (Start and End notes), and its locations hold. Memoized per day; a change keeps what it leaves as it was: a chart's notes where it adds and removes none, its schema where it gives records only other values or periods, and other charts' readings whole.
@@ -58,7 +58,7 @@ Reading, per chart:
 - `wb.disagreements(chart)` → `[{ rows: [{ row, who, when, change }] }]`: live rows that disagree, versions of one item that differ and are valid on a common day, or records of two items with one argumentation; each group earliest first.
 
 Changing:
-- `wb.edit({ chart, who, day?, when? })` → a transaction. `tx.add(type, payload, id?)` → id. `tx.set(id, payload)` makes a new version; `tx.update(id, changes)` makes one from the version in force, changed. `tx.remove(id)`. `tx.note(label, pattern, value, { view, param })` sets the note at exactly that pattern, or removes it when `value` is undefined. `tx.keep(rowId)` settles a disagreement: the rows that disagree with it go. `tx.rename(p, from, to)`. `tx.moveUp(p)`. `tx.commit()` → the change, a sentence saying why not, or null if empty.
+- `wb.edit({ chart, who, day?, when? })` → a transaction. `tx.add(type, payload, id?)` → id. `tx.set(id, payload)` makes a new version; `tx.update(id, changes)` makes one from the version in force, changed. `tx.remove(id)`. `tx.note(label, pattern, value, { view, param })` sets the note at exactly that pattern, or removes it when `value` is undefined. `tx.keep(rowId)` settles a disagreement: the rows that disagree with it go. `tx.rename(p, from, to)`. `tx.moveUp(p)`. `tx.asOf(day)`: the chart as the transaction would leave it, unmade, as `wb.asOf` would read it then, start and end entries and locations included, each record it leaves as it was the very object `wb.asOf` gives. `tx.commit()` → the change, a sentence saying why not, or null if empty.
   - With a `day`: an added record starts on it, setting a record splits its validity there (the old value before, the new from), and removing ends a record and its dependents there.
   - With none ("Today"): setting corrects the version in force, keeping its period, and removing deletes, taking along the item's dependents, the notes at it, and a view's notes and shapes.
   - `rename` reaches every tree narrower than p: records (all versions), specifications, notes' patterns, list names and a table's rows. Wherever a name changes (a label, a kind, an option, or a Name note's value: a relation's name or a list's), every Formula row citing it is renamed too, where formulas.js offers `renameName`. `moveUp` reaches the same trees.

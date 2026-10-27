@@ -48,11 +48,14 @@
 // view shown is of, so the address opens it), shown, entered, schema, notes, definitions, relations, computed
 // (Formulas.computeState's), state, views
 // ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
-// dated }) → the change, every edit's one way in, and App.would(fn(tx), { dated }), the records it would leave on
-// the day shown, unmade, which its redline previews; App.reverse(changeId) and App.restore(item), History's;
+// dated, ids }) → the change, every edit's one way in, and App.would(fn(tx), { dated, ids }), the chart it would
+// leave as of the day shown, unmade, which its redline previews; App.reverse(changeId) and App.restore(item), History's;
 // App.asksDay(record, recs?), whether a record about to be added asks the day it holds from (a relation with no
-// start entry), and App.From({ day, set, auto }), the control that asks it in the redline ("From" a day, or
-// "All along"), wherever a record is added (the inspector, a table's paste); App.workOn(day), another day's working-out,
+// start entry), App.endOf(id), how deleting one ends it (by its end entry, on a day said, or as a value), and
+// App.From({ day, set, auto, until }), the control that asks either ("From" a day or "All along"; "Until" a day or
+// "Never held"); App.pending, the one change pending, begun by App.stage(…) or App.deleting(ids, what), made by
+// App.commit() and dropped by App.discard(), and App.Pending, its bar, which the canvas and a table show under the
+// view; App.workOn(day), another day's working-out,
 // as showing it would work it out; App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
