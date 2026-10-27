@@ -173,6 +173,7 @@
 .hist-row:hover { background: var(--hover); }
 .hist-row[aria-selected="true"] { background: var(--selected); box-shadow: inset 2px 0 var(--accent); }
 .hist-row > .what { overflow-wrap: anywhere; }
+.hist-row.undone > .what { color: var(--ink-3); text-decoration: line-through; }
 .hist-row > .meta { font: var(--t12); color: var(--ink-3); }
 .hist-row > .btn { margin-top: 8px; }
 .hist-row.gone { padding-right: 104px; }

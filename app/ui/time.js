@@ -11,19 +11,34 @@ const Time = (() => {
   const list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   const viewTree = id => ({ id, kind: 'View' });
 
-  // What a record is, as the chart says it: [what, whose], whose as a step (Fund III → Northpine) or, worded,
-  // in words (see whose).
+  // What a record is, as the chart says it: [what, whose], whose by the place rule (see where) or, worded, in
+  // words (see whose).
   function said(recs, id, N, worded = false) {
     const r = recs[id];
     if (!r) return ['', ''];
     if (Tree.isObject(r)) return [r.kind, N.nameOf(recs, id)];
     if (r.args) return [N.nameOf(recs, id), worded ? whose(recs, id, N) : N.segmentOf(recs, id)];
-    return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : N.placeOf(recs, r.at)];
+    return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : where(recs, id, N)];
+  }
+  // Where an entry is, said as far as it needs, as the formula bar says it: its object (AIV-1), or the path down
+  // to it where the object has another entry of its label (Fund III › Jurisdiction: Delaware); at a relation, the
+  // relation's place (AIV-1, tax year 2025).
+  const labelled = new WeakMap();
+  function where(recs, id, N) {
+    const at = recs[id].at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, x)}|${Tree.norm(recs[x].edge)}`;
+    if (!Tree.isObject(recs[O] ?? {}) || at === O) return N.placeOf(recs, at);
+    if (!labelled.has(recs)) {
+      const n = new Map();
+      for (const x in recs) if (recs[x].edge !== undefined && !recs[x].args) n.set(key(x), (n.get(key(x)) ?? 0) + 1);
+      labelled.set(recs, n);
+    }
+    return labelled.get(recs).get(key(id)) > 1 ? N.placeOf(recs, at) : N.shortOf(recs, O);
   }
   // Whose a record is, in words, for a list of dates: an object by its short name, with what it's under in
   // parentheses (AIV-1 Blocker (Delaware); The Manager (Registered Investment Adviser)); a relation by its first
   // side, with its option (Margaret A. Chen (Director), The BDC), then each other side by its list's name where
-  // that's a phrase (GP III, general partner of Fund III; via GP III) or the kind it names (AIV-1, tax year 2025).
+  // that's a phrase (GP III, general partner of Fund III; via GP III), or else the kind it names. A side named by
+  // a number alone is said with its kind, as the place rule says it (Notes.segmentOf): AIV-1, tax year 2025.
   const PHRASE = /\s(of|for|by|to|with)$|^via$/i;
   function whose(recs, id, N = App.notes.peek()) {
     const [head, ...under] = Tree.pathOf(recs, id), r = recs[head];
@@ -34,8 +49,9 @@ const Time = (() => {
     const t = Tree.treeOf(recs, head), [first, ...others] = N.sides(recs, head).filter(Boolean), obj = a => Tree.objectOf(recs, a.at);
     if (!first) return N.nameOf(recs, head);
     const side = a => {
-      const list = t && N.listName(t, a.edge), name = N.shortOf(recs, obj(a));
-      return list && PHRASE.test(list) ? `${list.toLowerCase()} ${name}` : Tree.same(recs[obj(a)]?.kind ?? '', a.edge) ? `${a.edge.toLowerCase()} ${name}` : name;
+      const list = t && N.listName(t, a.edge), name = N.shortOf(recs, obj(a)), kind = recs[obj(a)]?.kind ?? '';
+      return /^\d+$/.test(name) && kind ? `${kind.toLowerCase()} ${name}` : list && PHRASE.test(list) ? `${list.toLowerCase()} ${name}`
+        : Tree.same(kind, a.edge) ? `${a.edge.toLowerCase()} ${name}` : name;
     };
     return within([within(N.shortOf(recs, obj(first)), Tree.isChoice(r) ? [r.choice] : []), ...others.map(side)].join(', '), under.map(step));
   }
@@ -209,6 +225,20 @@ const Time = (() => {
     for (const ch of wb.changes()) for (const r of ch.adds) { rows.set(r.id, r); by.set(r.id, ch.id); if (ch.chart === c) mine.push(r); }
     return { rows, by, recs: recordsOf(mine), changes: wb.changes().filter(ch => ch.chart === c) };
   });
+  // History's entries: each change, with the changes that took it back and put it back again. An Undo is one
+  // entry with what it undid, struck, and a Redo puts it back; a change reversed after others have been made
+  // since (a Restore) is an entry of its own. Each entry is { change, chain }: the change first, then each
+  // reversal of the one before it, the last of them standing in the log.
+  const entries = computed(() => {
+    const out = [], by = new Map();
+    for (const c of ever.value.changes) {
+      const e = c.reverses && by.get(c.reverses), at = e ? out.indexOf(e) : -1;
+      if (e && out.slice(at + 1).every(undone)) { e.chain.push(c); by.set(c.id, e); }
+      else { const n = { change: c, chain: [c] }; out.push(n); by.set(c.id, n); }
+    }
+    return out;
+  });
+  const undone = e => e.chain.length % 2 === 0;
 
   // A change, said from itself: what it did to which items, in the chart's words. What a reversal brings
   // back is restored.
@@ -219,7 +249,11 @@ const Time = (() => {
     c.adds.forEach(r => put(r, 'now'));
     const all = [...items.values()], touched = new Set(all.filter(i => i.type === 'record').map(i => i.id));
     const rec = i => Log.latest(i.now.length ? i.now : i.was);
-    if (!back && !c.adds.length && all.length > 1 && all.every(i => i.type === 'note' && rec(i).label === 'Position')) return 'Tidied the layout';
+    // Tidy takes a view's positions away, and undoing it puts them back.
+    if (all.length > 1 && all.every(i => i.type === 'note' && rec(i).label === 'Position')) {
+      if (!c.adds.length) return 'Tidied the layout';
+      if (back && !c.removes.length) return 'Restored the layout';
+    }
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
     const moved = new Set([...made, ...gone].map(i => i.id));
@@ -255,7 +289,7 @@ const Time = (() => {
   // A record's phrase: a tag attested or ruled out, a value set, changed or cleared, a record added or deleted.
   // A relation that's a fact (Ownership) is added; one a definition works out (Control) is attested.
   function recordPhrase(i, r, recs, N, name, back) {
-    const [what, of] = said({ ...recs, [i.id]: r }, i.id, N);
+    const [what, of] = said(i.id in recs ? recs : { ...recs, [i.id]: r }, i.id, N);
     const it = Tree.isView(r) ? `view ${name ? Log.latest(name.now.length ? name.now : name.was).value : of}` : Tree.isObject(r) ? of : r.args ? `${what}: ${of}` : `${what} of ${of}`;
     const verdict = r.tag ? 'Attested' : 'Ruled out', added = back ? 'Restored' : 'Added';
     const fact = r.args && r.tag === true && !App.definitions.peek().some(d => Tree.same(d.name, what));
@@ -336,7 +370,7 @@ const Time = (() => {
     const near = focus.length ? Tree.dependents(recs, focus) : null;
     const touches = c => [...c.adds, ...c.removes.map(id => E.rows.get(id)).filter(Boolean)]
       .some(r => near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
-    const changes = m === 'all' ? E.changes.filter(c => !near || touches(c)).reverse() : [];
+    const changes = m === 'all' ? entries.value.filter(e => !near || touches(e.change)).reverse() : [];
     const gone = m === 'deleted' ? deleted().filter(d => !near || near.has(d.item)) : [];
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' }); }, [t?.stood]);
     let lastDay = null;
@@ -349,13 +383,14 @@ const Time = (() => {
       ${focus.length ? html`<div class="hist-focus"><span>${focus.map(id => said(recs, id, N)[1] || said(recs, id, N)[0]).join(', ')}</span>
         <button class="btn icon" aria-label="Every change" data-tip="Every change" onClick=${() => Shell.select([])}>${Shell.icon('x')}</button></div>` : null}
       <div class="hist-list" ref=${ref}>
-        ${m === 'all' ? changes.map(c => {
-          const day = dayLabel(c.when), head = day !== lastDay ? html`<div class="hist-day">${day}</div>` : null, on = t?.stood === c.id;
+        ${m === 'all' ? changes.map(e => {
+          // An entry undone is struck, and offers to redo it; what's in the log for it now is its chain's last.
+          const c = e.change, last = e.chain.at(-1), off = undone(e), day = dayLabel(c.when), head = day !== lastDay ? html`<div class="hist-day">${day}</div>` : null, on = t?.stood === c.id;
           lastDay = day;
-          return html`${head}<div class="hist-row" role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)}>
+          return html`${head}<div class=${'hist-row' + (off ? ' undone' : '')} role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)}>
             <div class="what">${describe(c)}</div>
-            <div class="meta">${c.who} · ${clock(c.when)}</div>
-            ${on ? html`<button class="btn" disabled=${!App.wb.canReverse(c.id)} onClick=${e => { e.stopPropagation(); restore(c.id, describe(reversal(c))); }}>Undo this change</button>` : null}
+            <div class="meta">${c.who} · ${clock(c.when)}${off ? ` · undone${last.who !== c.who ? ` by ${last.who}` : ''}` : ''}</div>
+            ${on ? html`<button class="btn" disabled=${!App.wb.canReverse(last.id)} onClick=${ev => { ev.stopPropagation(); restore(last.id, describe(reversal(last))); }}>${off ? 'Redo this change' : 'Undo this change'}</button>` : null}
           </div>`;
         }) : gone.map(d => html`<div class="hist-row gone">
             <div class="what">${d.text}</div>
