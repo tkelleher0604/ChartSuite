@@ -395,6 +395,11 @@ async function checks() {
   // Ruled out: why turns on the condition that failed, after "but", and never on a fact that didn't decide it
   check('a check ruled out says the condition that failed, turning on “but”: he is a member, not a managing member, of GP III',
     await saidOf(['fx:capacity held=sign_okfr_fund']) === 'David R. Okafor signs for Fund III, via GP III, with a capacity of Managing Member, but is a member, not a managing member, of GP III, so Capacity Held does not hold (Managing member).', said());
+  document.querySelector('.fx-open').click(); await wait(30);
+  const inline = document.querySelector('.fx-inline > .fx-why')?.textContent ?? '';
+  check('… and in the bar’s one row, in short where it must be, what failed and what follows', /is a member, not a managing member, of GP III, so Capacity Held does not hold/.test(inline)
+    && (/ but /.test(inline) || inline.startsWith('David R. Okafor is a member')), inline);
+  await openRows();
   check('… never a fact that didn’t decide it (Chen’s role), nor does the chart outline one', !/Chen/.test(said()) && !F().map.has('chen') && !F().map.has('mem_chen_gp')
     && F().map.has('okafor') && F().map.has('mem_okfr_gp'), `${said()} | ${[...F().map.keys()].join(', ')}`);
   // Every record the rows rule out: what failed after "but", or, where a row rules it out where its condition

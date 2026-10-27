@@ -669,7 +669,8 @@ const FormulaBar = (() => {
       const c = factOf(Rv, x.host, x.reads);
       return { c: f.not && [x.host, ...x.reads].some(y => f.not.ids.includes(y)) ? { ...c, not: f.not } : c, then: i === l.length - 1 ? f.then : null };
     }));
-    const facts = gather(parts).map(x => {
+    // In short, for the bar's one row, a ruled-out record is what failed and what follows.
+    const facts = (top && !unfold && failed.length ? [] : gather(parts)).map(x => {
       const cl = clauseOf(Rv, x.host, text, x.p), reason = !!Rv.computed[x.host] && 'tag' in recs[x.host] && !x.reads.length;
       const why = reason && reasonOf(Rv, x.host, cl);
       return { ...x, cl, reason, c: factOf(Rv, x.host, x.reads), cite: why ? citeOf(defOfRecord(Rv, x.host)?.id, why.label) : null };
@@ -717,7 +718,8 @@ const FormulaBar = (() => {
     }
     return runs.length ? runs : null;
   }
-  // The subject's reasons said in full, and a level shallower for the bar's one row: why the rows give it, or
+  // The subject's reasons said in full, and a level shallower for the bar's one row (for a record the rows rule
+  // out, what failed and what follows): why the rows give it, or
   // where an entry overrides them, what they would give and why. None for a record no row gives, or while its
   // definition's rows are being edited.
   const why = computed(() => {
