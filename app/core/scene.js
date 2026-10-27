@@ -1151,7 +1151,6 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     let dx = boxes.length ? (W - E.w * s) / 2 / s - E.x : 0;
     const set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s }));
     const R = t => ({ x: (E.x + dx) * s, y: t, w: E.w * s, h: E.h * s });
-    if (globalThis.__furnish) globalThis.__furnish.push({ s, top, R: R(top), E });
     if (!force && boxes.length && !fits(R(top))) return null;
     if (key) {
       // Beside the title, its captions wrapping to the room there, where the chart is clear of it, moved toward
@@ -1168,7 +1167,6 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         const under = Math.max(top, r.y + r.h + 32), by = Math.max(0, ...set(top).filter(q => q.y < r.y + r.h + 21).map(q => q.x + q.w + 21 - r.x));
         const left = R(top).x - by >= M - 0.5 ? by / s : 0;
         dx -= left;
-        if (globalThis.__furnish) globalThis.__furnish.push({ s, r, by, left, meet: set(top).filter(q => meets(q, r, 21)) });
         if (!set(top).some(q => meets(q, r, 21))) places.set(key.row, r);
         else {
           dx += left;
