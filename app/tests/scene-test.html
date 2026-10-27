@@ -376,8 +376,19 @@ function run() {
     check('the hub is a normal width', f.byId.get('bdc').w === 220);
 
     const c = scene(wb, 'view_control'), bdc = c.byId.get('bdc');
-    check('positions with Connector None are written in the entity’s box, by role, not drawn', bdc.texts.some(it => it.text === 'Directors: Margaret A. Chen, Priya N. Raman')
-      && bdc.texts.some(it => it.text === 'Officer: David R. Okafor') && !c.marks.some(m => m.type === 'line' && m.record.startsWith('pos_')), j(bdc.texts.map(it => it.text)));
+    check('positions with Connector None are written in the entity’s box, by role, not drawn', bdc.texts.some(it => it.text === 'Directors: Margaret A. Chen, Priya N. Raman')
+      && bdc.texts.some(it => it.text === 'Officer: David R. Okafor') && !c.marks.some(m => m.type === 'line' && m.record.startsWith('pos_')), j(bdc.texts.map(it => it.text)));
+    // Set left, a role that runs on hangs: the lines after its first an em in, as a list's entry; its role whole on
+    // its first line, with the first name where they fit together, and never a name broken. On the slide and
+    // Letter, as entered and tidied.
+    const tw = fresh();
+    edit(tw, (tx, N) => { for (const n of N.notes('Position')) if (n.view === 'view_control') tx.remove(n.note); });
+    const roleTexts = [c, scene(wb, 'view_control', { paper: 'letter' }), scene(tw, 'view_control'), scene(tw, 'view_control', { paper: 'letter' })]
+      .flatMap(s => s.marks.filter(m => m.type === 'box').flatMap(b => b.texts.filter(it => it.records && /:/.test(it.text) && it.look.Align === 'left')));
+    const hangs = it => it.lines.slice(1).every(l => Math.abs(l.x - it.lines[0].x - it.look.Size * Scene.PT) < 0.01) && (it.lines.length < 2 || it.hang === it.look.Size * Scene.PT);
+    const plain = l => l.text.replace(/\s/g, ' ');
+    check('a role written in a box hangs where it runs on, its role whole on its first line and every name whole', roleTexts.some(it => it.lines.length > 1) && roleTexts.every(it => hangs(it)
+      && /:$|: /.test(plain(it.lines[0])) && it.lines.every(l => !/(^| )[A-Z]\.,?$|^[A-Z]\. /.test(plain(l)))), j(roleTexts.filter(it => it.lines.length > 1).map(it => it.lines.map(l => [plain(l), Math.round(l.x)]))));
     const caption = funds.caption.look, nameLook = f.byId.get('fund').texts[0].look;
     check('a frame’s caption is set as the names it heads are: their size, bold, #404040', caption.Size === nameLook.Size && caption.Bold && caption.Color === '#404040', j(caption));
   }

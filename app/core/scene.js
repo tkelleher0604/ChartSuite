@@ -136,52 +136,55 @@ function measure(text, t) {
 const SUFFIX = /, (Inc\.|LLC|L\.L\.C\.|L\.P\.|LP|LLP|Ltd\.|Limited|S\.à r\.l\.|S\.A\.|GmbH|mbH|N\.V\.|B\.V\.|plc)(?=$|[\s:;,)])/g;
 const NUMERAL = / (?=(?:[IVX]+|\d+)(?:-[A-Z0-9]+)?(?:$|[\s,;:)]))/g;
 const bind = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(/ /g, '\u00a0')}`).replace(NUMERAL, '\u00a0');
-// What's bound, wider than `most`, come apart as little as it must: at its suffix first, then its numeral's
-// binding, and so on. \u2192 its pieces.
+// What's bound, wider than `most`, come apart as little as it must: after a role's colon first, then at its suffix,
+// then its numeral's binding, and so on. \u2192 its pieces.
 function apart(w, t, most) {
   if (!w.includes('\u00a0') || measure(w, t) <= most) return [w];
-  const c = w.indexOf(',\u00a0'), i = c >= 0 ? c + 1 : w.indexOf('\u00a0');
+  const r = w.indexOf(':\u00a0'), c = w.indexOf(',\u00a0'), i = r >= 0 ? r + 1 : c >= 0 ? c + 1 : w.indexOf('\u00a0');
   return [...apart(w.slice(0, i), t, most), ...apart(w.slice(i + 1), t, most)];
 }
 // Text broken into lines no wider than `width`, at spaces where it can be: as few lines as hold it, and,
 // `balanced`, as even as they can be, the least width that keeps them as few, as CSS's text-wrap: balance
-// sets a heading. What's bound wider than the line comes apart (see apart), and the lines are `split`. A word
+// sets a heading. What's bound wider than the line comes apart (see apart), and the lines are `split`, but where it
+// comes apart only after a role's colon, as a list of who holds it may. A word
 // wider than the line is hyphenated where it must be, and that line is `cut`, the text no longer what was
-// typed. Kept, the latest few thousand, as the next scene breaks the same texts again.
+// typed. A text that `hang`s sets the lines after each paragraph's first an em in, `hung`, as a list sets an entry
+// that runs on, and breaks them to the width less that. Kept, the latest few thousand, as the next scene breaks the
+// same texts again.
 const broken = new Map();
-function breakLines(text, t, width, balanced = true) {
-  const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${t.Font}|${width}|${balanced}|${text}`;
+function breakLines(text, t, width, balanced = true, hang = false) {
+  const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${t.Font}|${width}|${balanced}|${hang}|${text}`, em = hang ? t.Size * PT : 0;
   let ls = broken.get(k);
   if (!ls) {
     ls = [];
     for (const para of bind(text).split('\n')) {
       let split = false;
-      const words = para.split(/ +/).flatMap(w => { const ps = apart(w, t, width); split ||= ps.length > 1; return ps; });
-      let some = fill(words, t, width);
+      const words = para.split(/ +/).flatMap(w => { const ps = apart(w, t, width - em); split ||= ps.filter(p => !p.endsWith(':')).length > 1; return ps; });
+      let some = fill(words, t, width, em);
       if (balanced && some.length > 1 && !some.some(l => l.cut)) {
-        let lo = Math.max(...words.map(w => measure(w, t))), hi = width;
-        while (hi - lo > 0.5) { const mid = (lo + hi) / 2; if (fill(words, t, mid).length > some.length) lo = mid; else hi = mid; }
-        some = fill(words, t, hi);
+        let lo = Math.max(...words.map(w => measure(w, t))) + em, hi = width;
+        while (hi - lo > 0.5) { const mid = (lo + hi) / 2; if (fill(words, t, mid, em).length > some.length) lo = mid; else hi = mid; }
+        some = fill(words, t, hi, em);
       }
-      ls.push(...some.map(l => ({ ...l, w: measure(l.text, t), ...(split && { split }) })));
+      ls.push(...some.map((l, i) => ({ ...l, w: measure(l.text, t), ...(split && { split }), ...(i && em && { hung: true }) })));
     }
     if (broken.size > 4000) broken.clear();
     broken.set(k, ls);
   }
   return ls.map(l => ({ ...l }));
 }
-// As much on each line as fits it.
-function fill(words, t, width) {
-  const out = [];
+// As much on each line as fits it: the first `width`, the rest `inset` less.
+function fill(words, t, width, inset = 0) {
+  const out = [], room = () => out.length ? width - inset : width;
   let line = '';
   for (const word of words) {
     const next = line ? `${line} ${word}` : word;
-    if (measure(next, t) <= width) { line = next; continue; }
+    if (measure(next, t) <= room()) { line = next; continue; }
     if (line) out.push({ text: line });
     line = word;
-    while (measure(line, t) > width && line.length > 4) {
+    while (measure(line, t) > room() && line.length > 4) {
       let i = line.length - 2;
-      while (i > 2 && measure(`${line.slice(0, i)}-`, t) > width) i--;
+      while (i > 2 && measure(`${line.slice(0, i)}-`, t) > room()) i--;
       out.push({ text: `${line.slice(0, i)}-`, cut: true });
       line = line.slice(i);
     }
@@ -189,21 +192,25 @@ function fill(words, t, width) {
   out.push({ text: line });
   return out;
 }
-// A text's lines, all of them; in a redline, what it said struck through above what it would say.
-const linesOf = (it, width) => it.was !== undefined && it.was !== it.text
-  ? [...breakLines(it.was, it.look, width).map(l => ({ ...l, red: 'go' })), ...(it.text ? breakLines(it.text, it.look, width).map(l => ({ ...l, red: 'appear' })) : [])]
-  : it.text ? breakLines(it.text, it.look, width) : [];
+// A text's lines, all of them; in a redline, what it said struck through above what it would say. One set left that
+// `hangs` hangs (see breakLines).
+const linesOf = (it, width) => {
+  const lines = text => breakLines(text, it.look, width, true, !!it.hangs && it.look.Align === 'left');
+  return it.was !== undefined && it.was !== it.text ? [...lines(it.was).map(l => ({ ...l, red: 'go' })), ...(it.text ? lines(it.text).map(l => ({ ...l, red: 'appear' })) : [])]
+    : it.text ? lines(it.text) : [];
+};
 // A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels.
 const dash = (d, w) => { const p = w * PT; return d === 'dashed' ? `${Math.max(4, p * 4)} ${Math.max(3, p * 3)}` : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
 const lineHeight = t => t.Size * PT * 1.2;
 // A text's lines stacked from y, each placed by its alignment within [x0, x0 + width]: its baseline and
-// its anchor, which is its start, middle or end.
+// its anchor, which is its start, middle or end; a line `hung` an em in, which the text's `hang` says.
 function stack(item, x0, width, y) {
-  const t = item.look, lh = lineHeight(t);
+  const t = item.look, lh = lineHeight(t), em = t.Size * PT;
   item.lines.forEach((l, i) => {
-    l.x = t.Align === 'left' ? x0 : t.Align === 'right' ? x0 + width : x0 + width / 2;
+    l.x = t.Align === 'left' ? x0 + (l.hung ? em : 0) : t.Align === 'right' ? x0 + width : x0 + width / 2;
     l.y = y + i * lh + t.Size * PT * 0.93;
   });
+  if (item.lines.some(l => l.hung)) item.hang = em; else delete item.hang;
   return y + item.lines.length * lh;
 }
 const blockHeight = items => items.reduce((h, it) => h + it.lines.length * lineHeight(it.look), 0);
@@ -582,15 +589,16 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', name), name: N.nameOf(state, m.listed) } }) };
   };
   // A box's relations written in it, one text for each role: the role, for more than one in the plural, and
-  // who holds it, by surname, each name kept on one line. They follow the box's own texts.
+  // who holds it, by surname, each name kept on one line, and the role on one with the first, where they fit one
+  // (see apart). They follow the box's own texts, each an entry that `hangs` where it runs on, as a list's do.
   const surname = s => s.trim().split(/\s+/).pop().toLowerCase();
   const gather = items => {
     const mine = items.filter(it => !it.listed), roles = groupBy(items.filter(it => it.listed), it => `${it.listed.role}|${JSON.stringify(it.look)}`);
     const merged = [...roles.values()].sort((a, b) => a[0].listed.role < b[0].listed.role ? -1 : 1).map(its => {
       const names = its.map(it => it.listed.name).sort((a, b) => surname(a) < surname(b) ? -1 : surname(a) > surname(b) ? 1 : 0)
         .map(n => n.trim().replace(/ +/g, '\u00a0')), role = its[0].listed.role;
-      return { ...its[0], text: role ? `${names.length > 1 ? Tree.plural(role) : role}: ${names.join(', ')}` : names.join(', '), records: its.map(it => it.id), listed: undefined, was: undefined,
-        computed: its.every(it => it.computed), redline: its.find(it => it.redline)?.redline ?? null };
+      return { ...its[0], text: role ? `${(names.length > 1 ? Tree.plural(role) : role).trim().replace(/ +/g, '\u00a0')}:\u00a0${names.join(', ')}` : names.join(', '), records: its.map(it => it.id), listed: undefined, was: undefined,
+        hangs: true, computed: its.every(it => it.computed), redline: its.find(it => it.redline)?.redline ?? null };
     });
     return [...mine, ...merged];
   };

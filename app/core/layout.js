@@ -695,6 +695,19 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
     t.x = l.sx = l.tx;
     t.y = edgeY(s, t.x, t.dir === 'down');
   }
+  // A box's stem keeps clear of the drops of other boxes' lines that come down past it (see BESIDE): it moves along
+  // the box's edge as little as that needs, where the edge allows.
+  const drops = lines.filter(l => l.dir === 'down' && !l.flank && l.tx !== undefined);
+  for (const t of trunks.filter(t => t.dir === 'down')) {
+    const s = G(t.from), m = Math.min(12, s.w / 4), past = drops.filter(l => l.from !== t.from && l.ty > t.edge && G(l.from).y + G(l.from).h <= t.edge + LANE).map(l => l.tx);
+    const clear = x => past.every(p => Math.abs(p - x) >= BESIDE);
+    if (clear(t.x)) continue;
+    const x = past.flatMap(p => [p - BESIDE - 0.5, p + BESIDE + 0.5]).filter(x => x >= s.x + m && x <= s.x + s.w - m && clear(x)).sort((a, b) => Math.abs(a - t.x) - Math.abs(b - t.x))[0];
+    if (x === undefined) continue;
+    t.x = x;
+    t.y = edgeY(s, x, true);
+    for (const l of t.ls) l.sx = x;
+  }
   // Lines going under leave their box's bottom, each on its own lane below what's in the way.
   lines.filter(l => l.dir === 'under').forEach((l, j) => {
     const s = G(l.from), lane = l.floor + 16 + LANE * j;
