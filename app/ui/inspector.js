@@ -841,7 +841,9 @@ function Prose({ text, put, label, cls = 'desc', auto, done }) {
   const [typed, setTyped] = useState(null), now = useRef(null), type = t => { now.current = t; setTyped(t); };
   return html`<textarea class=${'cell prose ' + cls} rows="1" value=${typed ?? text} disabled=${App.readOnly.value} aria-label=${label} ref=${el => auto && el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
     onInput=${e => type(e.target.value)} onBlur=${() => { const t = now.current; type(null); if (t !== null && T.clean(t) !== T.clean(text)) put(t.trim()); else done?.(); }}
-    onKeyDown=${e => { if (e.key === 'Escape') { e.stopPropagation(); type(null); e.target.blur(); } }} />`;
+    onKeyDown=${e => { if (e.key !== 'Escape') return; e.stopPropagation(); const el = e.target;
+      // As a value's Esc: what's typed put back, the keys kept here; with nothing typed, to its row.
+      if (now.current !== null) { type(null); setTimeout(() => el.isConnected && el.select()); } else { const row = el.closest('.row'); if (row) { row.tabIndex = -1; row.focus(); } else el.blur(); } }} />`;
 }
 
 // Two records: what holds between them, each said as a sentence with what's recorded at it beneath; then,
