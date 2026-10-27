@@ -5,10 +5,11 @@
 #   sh dendra.sh check <workbook.json> [--chart <name>] [--day <2026-03-02>]
 #   sh dendra.sh apply <workbook.json> <plan.json> [--write]
 #   sh dendra.sh new   <workbook.json> --name <chart name> --who <name> [--template <workbook.json>] [--from <chart>]
-#   any of them: --app <Dendra's app folder>; set DENDRA_BROWSER to a Chrome or Edge to use that one
+#   any of them: --app <Dendra's app folder, or its address: https://tkelleher0604.github.io/ChartSuite/app is the
+#   published app>; set DENDRA_BROWSER to a Chrome or Edge to use that one
 here=$(cd "$(dirname "$0")" && pwd)
 command=$1; [ $# -gt 0 ] && shift
-case "$command" in vocab|show|check|apply|new) ;; *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
+case "$command" in vocab|show|check|apply|new) ;; *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
 
 app="$here/../../../app"; write=; book=; plan=; template=; opts=
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
@@ -24,9 +25,11 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$book" ] || { echo 'Give the workbook file.' >&2; exit 2; }
-[ -f "$app/core/log.js" ] || { echo "Dendra's app folder isn't at $app; give it with --app." >&2; exit 2; }
+case "$app" in http://*|https://*) app=${app%/} ;; *) [ -f "$app/core/log.js" ] || { echo "Dendra's app folder isn't at $app; give it with --app." >&2; exit 2; } ;; esac
 
 # A path as a file URL, as this system's browser reads one.
+# A file of the app: its address when the app is given by one.
+appurl() { case "$app" in http://*|https://*) printf '%s/%s' "$app" "$1" ;; *) url "$app/$1" ;; esac; }
 abs() { (cd "$(dirname "$1")" && printf '%s/%s' "$(pwd)" "$(basename "$1")"); }
 url() { p=$(abs "$1"); command -v cygpath >/dev/null 2>&1 && p=$(cygpath -m "$p"); case "$p" in /*) ;; *) p="/$p" ;; esac; printf 'file://%s' "$p" | sed 's/ /%20/g'; }
 
@@ -56,9 +59,9 @@ while :; do
   before=$( [ -f "$book" ] && cksum < "$book" )
   {
     printf '<!doctype html><meta charset="utf-8"><pre id="text"></pre><pre id="book"></pre><pre id="ok"></pre>\n'
-    for f in tree notes log formulas; do printf '<script src="%s"></script>\n' "$(url "$app/core/$f.js")"; done
+    for f in tree notes log formulas; do printf '<script src="%s"></script>\n' "$(appurl "core/$f.js")"; done
     printf '<script src="%s"></script>\n' "$(url "$here/tool.js")"
-    [ "$command" = new ] && [ -z "$template" ] && printf '<script src="%s"></script>\n' "$(url "$app/sample/calder-ridge.js")"
+    [ "$command" = new ] && [ -z "$template" ] && printf '<script src="%s"></script>\n' "$(appurl sample/calder-ridge.js)"
     printf '<script>\nconst ARGS = { command: "%s", options: { %s}, workbook: %s, plan: %s, template: %s };\n' "$command" "$opts" \
       "$( [ -f "$book" ] && printf '"%s"' "$(url "$book")" || printf null )" "$( [ -n "$plan" ] && printf '"%s"' "$(url "$plan")" || printf null )" \
       "$( [ -n "$template" ] && printf '"%s"' "$(url "$template")" || printf null )"
