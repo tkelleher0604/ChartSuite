@@ -647,10 +647,12 @@ async function run() {
   Shell.select([legend.shape]); await tick(60);
   check('a Key shows its title, columns and rows to show or hide', $('.ih .cell')?.value === (legend.title ?? 'Key') && $$('.keyrow input[type="checkbox"]').length > 3, $('.insp')?.textContent.slice(0, 200));
   check('… with no eyebrow saying its title again', !$('.ih .path'), $('.ih')?.textContent);
-  // Set as the format bar sets it, in the page's units, its size reads as the slide's, to the half point.
-  App.change(tx => tx.update(legend.shape, { format: { ...legend.format, Size: Scene.fromSlide(App.scene.peek().page, 9) } })); await tick(60);
-  const size = $$('.row').find(r => r.querySelector(':scope > .k')?.textContent === 'Size');
-  check('… its size the slide’s, to the half point', size?.querySelector('.v').textContent === '9 pt', size?.textContent);
+  // Set as the format bar sets it, in the page's units, its size reads as the slide's, to the half point: 9 pt, or as the
+  // page then prints it, where a larger Key draws the chart a twentieth smaller.
+  const nine = Scene.fromSlide(App.scene.peek().page, 9);
+  App.change(tx => tx.update(legend.shape, { format: { ...legend.format, Size: nine } })); await tick(60);
+  const size = $$('.row').find(r => r.querySelector(':scope > .k')?.textContent === 'Size'), printed = Math.round(Scene.toSlide(App.scene.peek().page, nine) * 2) / 2;
+  check('… its size the slide’s, to the half point', size?.querySelector('.v').textContent === `${printed} pt` && Math.abs(printed - 9) <= 0.5, size?.textContent);
   Shell.parts.value.undo.undo(); await tick(60);
   // A shape undone while it's selected: nothing of it is left, and nothing throws
   let made;
