@@ -1109,5 +1109,5 @@ function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160, 
   return way.filter((p, i) => i === 0 || i === way.length - 1 || !((p[0] === way[i - 1][0] && p[0] === way[i + 1][0]) || (p[1] === way[i - 1][1] && p[1] === way[i + 1][1])));
 }
 
-return { place, arrange, route, around, labels: placeLabels, keepIn, OPTIONS };
+return { place, arrange, route, around, labels: placeLabels, sideY, sideX, keepIn, OPTIONS };
 })();

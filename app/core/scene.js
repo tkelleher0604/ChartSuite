@@ -34,8 +34,8 @@ const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
 const MARGIN = 48;
 const SCALES = Array.from({ length: 20 }, (_, i) => (20 - i) / 20);
-// A size on a page drawn at s, as the sheet's half point nearest it.
-const half = (v, s) => Math.max(1, Math.round(v * s * 2)) / 2 / s;
+// A size on a page drawn at s, as the sheet's half point nearest it, or at or under it.
+const half = (v, s, under = false) => Math.max(1, under ? Math.floor(v * s * 2 + 1e-9) : Math.round(v * s * 2)) / 2 / s;
 
 // Each sort of mark's properties, and their values where no note gives one. Notes calls every label that
 // isn't Name, Order and the like a format property, so a new one is only a word here. A box's and a
@@ -207,9 +207,10 @@ function stack(item, x0, width, y) {
 }
 const blockHeight = items => items.reduce((h, it) => h + it.lines.length * lineHeight(it.look), 0);
 const widest = items => Math.max(0, ...items.flatMap(it => it.lines.map(l => l.w)));
-// A text set again at the sheet's half point nearest its size, on a page drawn at s, its lines as they broke.
-function snap(it, s) {
-  it.look = { ...it.look, Size: half(it.look.Size, s) };
+// A text set again at the sheet's half point nearest its size (or `under` it), on a page drawn at s, its lines as
+// they broke.
+function snap(it, s, under = false) {
+  it.look = { ...it.look, Size: half(it.look.Size, s, under) };
   for (const l of it.lines) l.w = measure(l.text, it.look);
 }
 
@@ -714,8 +715,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const roomFor = new Map();
   for (const l of lines) if (l.label && !l.revealed) for (const k of [`${l.from}|${l.to}`, `${l.to}|${l.from}`]) roomFor.set(k, Math.max(roomFor.get(k) ?? 0, l.label.w + 8 + (l.settings.Arrow.value === 'none' ? 0 : 10.7)));
   // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have; labels
-  // with no free place, as they're drawn, at the sheet's half points (see relabel); and names cut, no longer as typed.
-  const faults = s => lines.filter(l => l.blocked || l.astray).length + relabel(boxes, lines, frames, s).length + boxes.filter(b => b.texts.some(it => it.lines.some(l => l.cut))).length;
+  // with no free place; and names cut, no longer as typed.
+  const faults = () => lines.filter(l => l.blocked || l.astray || l.crowded).length + boxes.filter(b => b.texts.some(it => it.lines.some(l => l.cut))).length;
   function* lay(squeeze, grow = 1) {
     for (const b of boxes) size(b, squeeze, null, grow);
     // Triangles of one width and one size of name widened as the widest of them is, but for one that stands alone
@@ -737,10 +738,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
     yield;
-    // What's placed on its own page stands where it was put; a place the layout gives makes room for labels, and
-    // for the lines that come down past what stands over their box.
+    // What's placed on its own page stands where it was put, but for the room labels need beside it; a place the
+    // layout gives makes room too for the lines that come down past what stands over their box.
     const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id));
-    spread(boxes, (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0, given);
+    spread(boxes, (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0, b => !!last?.at.has(b.id));
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level). A preview keeps every
     // box as it stood, and what it adds is placed clear of them, and sized among themselves.
     const added = b => !!last && !last.at.has(b.id);
@@ -756,9 +757,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
     }
     if (last) still(last, boxes, lines, frames);
-    // (A preview is laid out once, and nothing weighs its faults.)
-    const laid = furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy });
-    return { ...laid, faults: last ? 0 : faults(laid.s), around: lines.filter(l => l.around).length };
+    return { ...furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy }), faults: faults(), around: lines.filter(l => l.around).length };
   }
   // Of two layouts, the better: the one with fewer faults, then the larger, then the one with fewer lines gone
   // around what's drawn.
@@ -807,9 +806,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // points on the slide, a frame's at 0.75, however much smaller the chart is drawn.
   for (const m of [...boxes, ...lines]) m.settings.Weight = { ...m.settings.Weight, value: m.settings.Weight.value / s };
   for (const f of frames.values()) f.settings.Weight = { value: DEFAULTS.box.Weight / s, note: null };
-  // Every text at the sheet's half point nearest its size, placed again where it was.
+  // Every text at the sheet's half point nearest its size, placed again where it was; a line's label at the one at or
+  // under its size, so it takes no more room than the layout made for it.
   for (const b of boxes) { b.texts.forEach(it => snap(it, s)); setText(b); }
-  for (const l of lines) { l.texts.forEach(it => snap(it, s)); labelOf(l); }
+  for (const l of lines) { l.texts.forEach(it => snap(it, s, true)); labelOf(l); }
   for (const f of frames.values()) { snap(f.caption, s); f.label = f.caption.lines.length * lineHeight(f.caption.look); caption(f); }
   if (!last) relabel(boxes, lines, frames);
 
@@ -877,19 +877,20 @@ function level(ms) {
   }
 }
 // Where a box has grown wider over one beside it, that one moves aside, 16 pt clear, and each beyond it as far as
-// that makes it; and one whose place isn't `given` moves aside as far as the `room` a line joining it to the box
-// beside it needs for its label, less what a triangle's side gives, which the line meets at mid-height, a
-// quarter of its width in. Boxes keep their order from left to right. Boxes are beside each other where more
-// than half the shorter's height is level with the other; one lower than that is under it (see push).
-const inset = g => g.shape === 'triangle' ? g.w / 4 : 0;
-function spread(boxes, room = () => 0, given = () => true) {
+// that makes it; and one moves aside as far as the `room` a line joining it to the box beside it needs for its
+// label, less what a triangle's or an oval's side gives where the line meets it (see Layout's sideY), though it
+// was placed by hand, as the lanes over a box make room for theirs (see deepen); but not one a preview keeps
+// where it `stood`. Boxes keep their order from left to right. Boxes are beside each other where more than half
+// the shorter's height is level with the other; one lower than that is under it (see push).
+const gives = (a, b) => { const y = Layout.sideY(a, b); return a.x + a.w - Layout.sideX(a, y, true) + Layout.sideX(b, y, false) - b.x; };
+function spread(boxes, room = () => 0, stood = () => false) {
   const done = [];
   for (const b of [...boxes].sort((a, c) => a.x - c.x || a.y - c.y)) {
     for (let moved = true; moved;) {
       moved = false;
       for (const a of done) {
         if (Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) <= Math.min(a.h, b.h) / 2) continue;
-        const need = given(b) ? 0 : room(a, b) - inset(a) - inset(b);
+        const need = stood(b) || !room(a, b) ? 0 : room(a, b) - gives(a, b);
         if (b.x < a.x + a.w || b.x < a.x + a.w + need - 0.01) { b.x = a.x + a.w + Math.max(21, need); moved = true; }
       }
     }
@@ -899,7 +900,8 @@ function spread(boxes, room = () => 0, given = () => true) {
 // Where a box has grown into the rank below it, the rank moves down as far as it must, and each rank under it
 // as far as that makes it: ranks stay level, 12 pt under the tallest box over them, or 30 pt where a line runs
 // down from one to the other with no frame between, with room for the frames between, and a rank that's clear
-// stays where it is. A triangle under a box is its middle half.
+// stays where it is. A triangle under a box is its middle half; a box a line runs down to from one that isn't
+// beside it (see spread) is under it, wherever it is across.
 function push(boxes, frames, links = []) {
   const chain = new Map();
   for (const f of frames.values()) for (const id of f.members) { const c = []; for (let g = f; g; g = g.parent && frames.get(g.parent)) c.push(g); chain.set(id, c); }
@@ -910,7 +912,8 @@ function push(boxes, frames, links = []) {
     for (const c of rank) {
       const fc = chain.get(c.id) ?? [], [x0, x1] = c.shape === 'triangle' ? [c.x + c.w / 4, c.x + c.w * 3 / 4] : [c.x, c.x + c.w];
       for (const b of over) {
-        if (x0 >= b.x + b.w || b.x >= x1) continue;
+        const down = joined.has(`${b.id}>${c.id}`) && Math.min(b.y + b.h, c.y + c.h) - Math.max(b.y, c.y) <= Math.min(b.h, c.h) / 2;
+        if ((x0 >= b.x + b.w || b.x >= x1) && !down) continue;
         const fb = chain.get(b.id) ?? [];
         const room = fb.filter(f => !fc.includes(f)).reduce((sum, f) => sum + below(f), 0) + fc.filter(f => !fb.includes(f)).reduce((sum, f) => sum + above(f), 0);
         d = Math.max(d, b.y + b.h + room + (!room && joined.has(`${b.id}>${c.id}`) ? 40 : 16) - c.y);
@@ -1048,24 +1051,13 @@ const captions = frames => [...frames.values()].map(f => {
   const c = f.caption, t = c.look, x = Math.min(...c.lines.map(l => l.x - l.w * (t.Align === 'center' ? 0.5 : t.Align === 'right' ? 1 : 0)));
   return { x: f.x + x, y: f.y + c.lines[0].y - t.Size * PT * 0.93, w: widest([c]), h: c.lines.length * lineHeight(t) };
 });
-// Every line's label placed again where its words, set at the sheet's half points, now take more room or
-// less: where it was, while that's still free, or else in the first free place, as the router places them, its
-// route as it is. With a scale `s`, only as they would be on a page drawn at it, the lines left as they are.
-// → the labels that found no free place.
-function relabel(boxes, lines, frames, s = null) {
-  const drawn = l => {
-    if (!l.label || s === null) return l.label;
-    const its = l.texts.map(it => ({ ...it, lines: it.lines.map(x => ({ ...x })) }));
-    its.forEach(it => snap(it, s));
-    let y = 0;
-    for (const it of its) y = stack(it, 0, 0, y);
-    return { ...l.label, w: widest(its), h: y, base: its.at(-1).lines.at(-1).y };
-  };
-  const copies = lines.map(l => ({ id: l.id, points: l.points, label: drawn(l), labelAt: l.labelAt, arrow: l.settings.Arrow.value, down: l.down, ...l.placing }));
+// Every line's label placed again where its words, set at the sheet's half points, now take less room: where it
+// was, while that's still free, or else in the first free place, as the router places them, its route as it is.
+function relabel(boxes, lines, frames) {
+  const copies = lines.map(l => ({ id: l.id, points: l.points, label: l.label, labelAt: l.labelAt, arrow: l.settings.Arrow.value, down: l.down, ...l.placing }));
   const mine = copies.filter(c => c.label && !c.quiet && c.points);
   Layout.labels(new Map(boxes.map(b => [b.id, b])), mine, copies, [], captions(frames), true);
-  if (s === null) for (const c of mine) Object.assign(lines[copies.indexOf(c)], { labelAt: c.labelAt, crowded: c.crowded });
-  return mine.filter(c => c.crowded);
+  for (const c of mine) Object.assign(lines[copies.indexOf(c)], { labelAt: c.labelAt, crowded: c.crowded });
 }
 // A preview's lines: those it had keep their routes and labels where both their boxes (and the frame one lands
 // on) stand as they stood, to a hundredth of a pixel, as a frame set round its boxes again on the page comes

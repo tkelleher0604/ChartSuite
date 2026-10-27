@@ -429,21 +429,28 @@ function run() {
 
   // ---- Nothing drawn over anything, and every label on its own line ----
   // Every sample view, on the slide and on Letter, as entered, tidied, with an owner added (Northstar of
-  // Northpine, 5%) and with a 247-character name: no route runs through a box it doesn't end at, or through a
-  // frame's caption; no label sits on a box, a caption or another label; no line crosses a label; and every
-  // label is on its own line, as a reader takes it: its route within 4 pt of it (at the chart's size, as the
-  // layout measures), or the route of a line it's said once for (drawn with no label of its own, saying the
-  // same, from where it leaves its box), and no other line within 4 pt of it.
+  // Northpine, 5%), with a 247-character name on each entity of the funds and the manager in turn, and after a
+  // drag of a box on Structure, with an owner added and without: no route runs through a box it doesn't end
+  // at, or through a frame's caption; no label sits on a box, a caption or another label; no line crosses a
+  // label; and every label is on its own line, as a reader takes it: its route within 4 pt of it (at the
+  // chart's size, as the layout measures), or the route of a line it's said once for (drawn with no label of
+  // its own, saying the same, from where it leaves its box), and no other line within 4 pt of it.
   {
     const LONG = 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., an exempted company incorporated with limited liability in the Cayman Islands';
+    const owner = wb => edit(wb, tx => {
+      const o = tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'northpine' }], tag: true });
+      tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 0.05 });
+    });
+    // A box dragged on Structure, as the canvas writes where it's dropped.
+    const drag = (id, dx, dy) => wb => edit(wb, (tx, N) => { const n = N.notes('Position').find(n => n.view === MAIN && n.pattern.id === id); tx.set(n.note, { label: 'Position', pattern: n.pattern, view: MAIN, value: { ...n.value, x: n.value.x + dx, y: n.value.y + dy } }); });
     const cases = {
       'as entered': () => {},
       tidied: (wb, v) => edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); }),
-      'with an owner added': wb => edit(wb, tx => {
-        const o = tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'northpine' }], tag: true });
-        tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 0.05 });
-      }),
-      'with a long name': wb => edit(wb, tx => tx.set('feeder_name', { ...wb.asOf(C, DAY).feeder_name, value: LONG })),
+      'with an owner added': owner,
+      ...Object.fromEntries(['feeder', 'fund', 'aiv', 'northpine', 'blocker', 'gp', 'caygp', 'bdc', 'mgmt', 'inv_us'].map(id => [`with a long name on ${id}`,
+        wb => edit(wb, tx => { const st = wb.asOf(C, DAY), name = Object.keys(st).find(k => st[k].at === id && st[k].edge === 'Name'); tx.set(name, { ...st[name], value: LONG }); })])),
+      ...Object.fromEntries([['fund', 0, 120], ['northpine', 60, 50], ['halvard', -200, 0], ['feeder', 80, 0], ['caygp', -60, 40], ['bdc', -150, 60]].flatMap(([id, dx, dy]) => [
+        [`after a drag of ${id} by ${dx}, ${dy}`, drag(id, dx, dy)], [`with an owner added, after a drag of ${id} by ${dx}, ${dy}`, wb => { owner(wb); drag(id, dx, dy)(wb); }]])),
     };
     // Whether a point is inside a box's shape, more than a pixel in.
     const inside = (b, x, y) => {
@@ -468,6 +475,7 @@ function run() {
     const ON = 16 / 3;
     const routes = [], labels = [], crossed = [], loose = [];
     for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) for (const paper of [null, 'letter']) {
+      if (what.includes('drag') && v !== MAIN) continue;
       const wb = fresh();
       f(wb, v);
       const R = computed(wb), s = Scene.of(wb, C, v, DAY, { state: R.records, computed: R, paper }), at = `${what}, ${v}, ${paper ?? 'slide'}`;
@@ -491,8 +499,8 @@ function run() {
         if (own > ON + 0.01 || (nearest && nearest[1] <= ON)) loose.push(`${at}: ${r.l.id} "${r.l.label.text}" ${own.toFixed(1)} px from its line, ${nearest?.[1].toFixed(1)} from ${nearest?.[0]}`);
       });
     }
-    check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added and with a 247-character name',
-      LONG.length === 247 && !routes.length, j(routes.slice(0, 4)));
+    check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added, with a 247-character name on each of ten entities, and after six drags, with an owner added and without',
+      LONG.length === 247 && Object.keys(cases).length === 25 && !routes.length, j(routes.slice(0, 4)));
     check('… no label sits on a box, a caption or another label', !labels.length, j(labels.slice(0, 4)));
     check('… and no line crosses a label', !crossed.length, j(crossed.slice(0, 4)));
     check('… and every label is on its own line: within 4 pt of its route, and no other line within 4 pt of it', !loose.length, j(loose.slice(0, 4)));
