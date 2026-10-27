@@ -31,7 +31,7 @@ case "$app" in http://*|https://*) app=${app%/} ;; *) [ -f "$app/core/log.js" ] 
 # A file of the app: its address when the app is given by one.
 appurl() { case "$app" in http://*|https://*) printf '%s/%s' "$app" "$1" ;; *) url "$app/$1" ;; esac; }
 abs() { (cd "$(dirname "$1")" && printf '%s/%s' "$(pwd)" "$(basename "$1")"); }
-url() { p=$(abs "$1"); command -v cygpath >/dev/null 2>&1 && p=$(cygpath -m "$p"); case "$p" in /*) ;; *) p="/$p" ;; esac; printf 'file://%s' "$p" | sed 's/ /%20/g'; }
+url() { p=$(abs "$1"); command -v cygpath >/dev/null 2>&1 && p=$(cygpath -m "$p"); case "$p" in /*) ;; *) p="/$p" ;; esac; printf 'file://%s' "$p" | sed 's/%/%25/g; s/ /%20/g; s/#/%23/g; s/?/%3F/g'; }
 
 browser=$DENDRA_BROWSER
 if [ -z "$browser" ]; then
