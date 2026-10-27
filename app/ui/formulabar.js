@@ -1162,7 +1162,7 @@ const FormulaBar = (() => {
     if ('tag' in o) {
       const state = v => v === true ? ' yes' : v === false ? ' no' : '';
       const cls = 'tag' + (a !== undefined ? ' pend' + state(a?.tag) : state(o.tag) + (m.computed ? ' fx' : ''));
-      return html`<span class=${'fx-out' + (m.covered ? ' over' : '')}><button class=${cls} data-tour="tag" aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
+      return html`<span class=${'fx-out' + (m.covered && !m.covered.agrees ? ' over' : '')}><button class=${cls} data-tour="tag" aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
         onPointerEnter=${() => m.rec && preview(flipped(m), 'tag')} onPointerLeave=${() => pending.peek()?.from === 'tag' && previewDraft()}
         onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
     }
@@ -1177,7 +1177,7 @@ const FormulaBar = (() => {
   }
   // While a value is typed, what it replaces shows struck through before it, and the input keeps what's typed.
   function Value({ m }) {
-    const o = m.out, wrap = 'fx-out' + (m.covered ? ' over' : ''), typing = pending.value?.from === 'value', still = App.readOnly.value;
+    const o = m.out, wrap = 'fx-out' + (m.covered && !m.covered.agrees ? ' over' : ''), typing = pending.value?.from === 'value', still = App.readOnly.value;
     if (!o.field) {
       const options = m.def?.options ?? [], enter = choice => commit({ records: m.computed ? { 'fx-pending': { ...spotOf(m.rec), choice } } : { [m.id]: { ...spotOf(m.rec), choice } } });
       return html`<span class=${wrap}>${options.length && !still

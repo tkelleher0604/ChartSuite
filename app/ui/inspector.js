@@ -15,6 +15,8 @@ const recs = () => App.state.value;
 const N = () => App.notes.value;
 const fx = id => !!App.computed.value.computed?.[id];
 const over = id => !!App.computed.value.covered?.[id];
+// An entry overrides its formula only where it says otherwise; there, and only there, the amber corner.
+const overrides = id => App.computed.value.covered?.[id]?.agrees === false;
 const tree = id => T.treeOf(recs(), id);
 const entriesAt = id => T.index(recs()).entries.get(id) ?? [];
 const relationsAt = id => T.index(recs()).relations.get(id) ?? [];
@@ -388,7 +390,7 @@ function Output({ id, slot, label }) {
     return html`<button class=${'errv' + (say ? '' : ' err')} data-tip=${say ? code : null} aria-label=${say ? `${say} (${code})` : null} onClick=${() => emit('why-open', slot.error.id)}>${say || code}</button>`; }
   const g = id && disagreeing.value.get(id);
   if (g) return html`<${Answers} g=${g} />`;
-  const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && over(id);
+  const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && overrides(id);
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
   const type = r ? T.typeOf(r) : k.type, set = out => put(id, slot, out);
   const more = !r ? null : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;

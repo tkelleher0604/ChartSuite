@@ -167,6 +167,11 @@ async function run() {
   check('typing over a computed value enters it, with an amber corner', count()[1].value === 0.1 && !App.computed.value.computed[count()[0]] && !!rowOf('Voting Percentage').querySelector('.hug.over'));
   await type(rowOf('Voting Percentage').querySelector('input'), '');
   check('clearing an entered value lets the formula stand', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
+  // An entry saying what the formula gives overrides nothing: it has no corner, as a paid tax year has none.
+  const agree = Object.keys(App.computed.value.covered).find(id => App.computed.value.covered[id].agrees && st()[id]?.args);
+  Shell.select([agree]); await tick(60);
+  check('… an entry that says what its formula gives has no amber corner', !!agree && !$$('.insp .over').length && !$$('.fx-out.over').length, agree);
+  Shell.select(['own_us_fund']); await tick();
   offWhy();
   Shell.select(['fund']); await tick();
 
