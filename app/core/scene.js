@@ -721,8 +721,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const roomFor = new Map();
   for (const l of lines) if (l.label && !l.revealed) for (const k of [`${l.from}|${l.to}`, `${l.to}|${l.from}`]) roomFor.set(k, Math.max(roomFor.get(k) ?? 0, l.label.w + 8 + (l.settings.Arrow.value === 'none' ? 0 : 10.7)));
   // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have; labels
-  // with no free place; and names cut, no longer as typed.
-  const faults = () => lines.filter(l => l.blocked || l.astray || l.crowded).length + boxes.filter(b => b.texts.some(it => it.lines.some(l => l.cut))).length;
+  // with no free place, as they're drawn on a page at s (see relabel), which only a page drawn so small that the
+  // sheet's least half point is more than a label's size can make more; and names cut, no longer as typed.
+  const grown = s => lines.some(l => l.texts.some(it => half(it.look.Size, s, true) > it.look.Size + 1e-9));
+  const faults = s => lines.filter(l => l.blocked || l.astray).length + (grown(s) ? relabel(boxes, lines, frames, s).length : lines.filter(l => l.crowded).length)
+    + boxes.filter(b => b.texts.some(it => it.lines.some(l => l.cut))).length;
   function* lay(squeeze, grow = 1) {
     for (const b of boxes) size(b, squeeze, null, grow);
     // Triangles of one width and one size of name widened as the widest of them is, but for one that stands alone
@@ -763,7 +766,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
     }
     if (last) still(last, boxes, lines, frames);
-    return { ...furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy }), faults: faults(), around: lines.filter(l => l.around).length };
+    const laid = furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy });
+    return { ...laid, faults: faults(laid.s), around: lines.filter(l => l.around).length };
   }
   // Of two layouts, the better: the one with fewer faults, then the larger, then the one with fewer lines gone
   // around what's drawn.
@@ -1057,13 +1061,24 @@ const captions = frames => [...frames.values()].map(f => {
   const c = f.caption, t = c.look, x = Math.min(...c.lines.map(l => l.x - l.w * (t.Align === 'center' ? 0.5 : t.Align === 'right' ? 1 : 0)));
   return { x: f.x + x, y: f.y + c.lines[0].y - t.Size * PT * 0.93, w: widest([c]), h: c.lines.length * lineHeight(t) };
 });
-// Every line's label placed again where its words, set at the sheet's half points, now take less room: where it
-// was, while that's still free, or else in the first free place, as the router places them, its route as it is.
-function relabel(boxes, lines, frames) {
-  const copies = lines.map(l => ({ id: l.id, points: l.points, label: l.label, labelAt: l.labelAt, arrow: l.settings.Arrow.value, down: l.down, ...l.placing }));
+// Every line's label placed again where its words, set at the sheet's half points, now take less room (or, where
+// the sheet's least is more than they are, more): where it was, while that's still free, or else in the first free
+// place, as the router places them, its route as it is. With a scale `s`, only as they would be on a page drawn at
+// it, the lines left as they are. → the labels that found no free place.
+function relabel(boxes, lines, frames, s = null) {
+  const drawn = l => {
+    if (!l.label || s === null) return l.label;
+    const its = l.texts.map(it => ({ ...it, lines: it.lines.map(x => ({ ...x })) }));
+    its.forEach(it => snap(it, s, true));
+    let y = 0;
+    for (const it of its) y = stack(it, 0, 0, y);
+    return { ...l.label, w: widest(its), h: y, base: its.at(-1).lines.at(-1).y };
+  };
+  const copies = lines.map(l => ({ id: l.id, points: l.points, label: drawn(l), labelAt: l.labelAt, arrow: l.settings.Arrow.value, down: l.down, ...l.placing }));
   const mine = copies.filter(c => c.label && !c.quiet && c.points);
   Layout.labels(new Map(boxes.map(b => [b.id, b])), mine, copies, [], captions(frames), true);
-  for (const c of mine) Object.assign(lines[copies.indexOf(c)], { labelAt: c.labelAt, crowded: c.crowded });
+  if (s === null) for (const c of mine) Object.assign(lines[copies.indexOf(c)], { labelAt: c.labelAt, crowded: c.crowded });
+  return mine.filter(c => c.crowded);
 }
 // A preview's lines: those it had keep their routes and labels where both their boxes (and the frame one lands
 // on) stand as they stood, to a hundredth of a pixel, as a frame set round its boxes again on the page comes

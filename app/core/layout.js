@@ -951,12 +951,14 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
     }
     // What a place covers: boxes, captions, labels (hard); the lines through it; whether it's beside its own
     // route, and the other lines within 4 pt of it; labels within 8 pt.
-    const judge = (s, i) => {
+    // (A place that covers something is only weighed against the best so far that covers as much.)
+    const judge = (s, i, least) => {
       const r = { x: s.x, y: s.y, w, h }, clear = grow(r, CLEAR_LABEL.x, CLEAR_LABEL.y), [x0, x1, y0, y1] = [r.x + 0.5, r.x + w - 0.5, r.y + 0.5, r.y + h - 0.5];
       let hard = 0, covers = 0;
       for (const k of nearBoxes.near(clear)) if (meets(clear, boxes[k]) && (hulls[k].length === 4 && boxes[k].shape !== 'diamond' || depth(corners(clear), hulls[k]) > 0)) { hard++; covers += area(clear, boxes[k]); }
       for (const k of nearAvoid.near(clear)) if (meets(clear, avoid[k])) { hard++; covers += area(clear, avoid[k]); }
       for (const k of nearPlaced.near(clear)) if (meets(clear, placed[k])) { hard++; covers += area(clear, placed[k]) * 1.5; }
+      if (hard && least && (!least.hard || covers > least.covers)) return { ...s, i, hard, covers };
       let crossed = 0;
       const others = new Set();
       for (const k of nearSegs.near(grow(r, ON))) {
@@ -975,7 +977,7 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
       : a.beside !== b.beside ? a.beside : a.others + a.crossed !== b.others + b.crossed ? a.others + a.crossed < b.others + b.crossed : a.i < b.i);
     let free = null, least = null, i = 0;
     for (const s of spots()) {
-      const j = judge(s, i++);
+      const j = judge(s, i++, least);
       if (!j.hard && j.on && (!j.near || (was && j.i === 0))) { free = j; break; }
       if (!j.hard && j.on) free ??= j;
       if (!least || better(j, least)) least = j;
