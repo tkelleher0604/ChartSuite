@@ -143,9 +143,14 @@ async function run() {
     && items.includes('Portfolio companies (4)'), menu.join(' | '));
   const pcHead = menu.slice(0, menu.indexOf('Portfolio companies (4)')).filter(t => heads.includes(t)).at(-1);
   const seps = $$('.float .menu-sep, .float .menu-head, .float .menu-item').map(e => e.classList.contains('menu-sep') ? '-' : txt(e));
-  check('… each under its style’s name, and a style named as its one group (Name) is that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
-    && items.includes('Name (24)') && !heads.includes('Name') && menu.indexOf('Name (24)') > menu.indexOf(heads.at(-1))
-    && seps.slice(0, seps.indexOf('Name (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
+  check('… each under its style’s name, and a style that is its one group (Names) is that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
+    && items.includes('Names (24)') && !heads.includes('Name') && menu.indexOf('Names (24)') > menu.indexOf(heads.at(-1))
+    && seps.slice(0, seps.indexOf('Names (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
+  // Exactly the Styles rows that reach the box, by Styles' captions: none for an output no style formats.
+  const rowsReaching = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), 'northpine', App.state.peek())
+    .some(r => r.style === g.style && g.outputs.some(p => Tree.narrower(r.output, p)))).map(g => g.caption);
+  check('… and its groups are exactly the Styles rows that reach the selection, called as Styles calls them', JSON.stringify(items.slice(1).map(t => t.replace(/ \(\d+\)$/, '')).sort()) === JSON.stringify(rowsReaching.sort())
+    && !items.some(t => /^(Entity|Good Standing|Delaware) \(/.test(t)), `${items.join(' | ')} vs ${rowsReaching.join(' | ')}`);
   await closeMenus();
   // The groups are the Key's: a style's outputs that look alike are one group, Funds, its reach every box of them.
   Shell.select(['fund']); await tick(120);
@@ -348,6 +353,16 @@ async function run() {
   const hid = txt($$('.toast').at(-1)), still = App.scene.peek().byId.get(legend.id);
   check('a Key row selected as Back selects it is hidden by Delete, and the Key stays', !!still && still.hide.includes(kr.key) && /^Hid .* in the key/.test(hid), hid);
   Shell.parts.peek().undo.undo(); await tick(120);
+  // ---- A Key row restyled is its Styles row restyled, all of it, drawn here or not ----
+  const st = App.state.peek(), coinvest = Object.keys(st).filter(id => st[id].edge === 'Vehicle Type' && st[id].choice === 'Co-Investment Vehicle').map(id => st[id].at);
+  App.change(tx => coinvest.forEach(id => tx.note('Shown', Tree.treeOf(st, id), false, { view: sc().view }))); await tick(200);
+  const fundsKey = sc().marks.find(m => m.geometry === 'legend').rows.find(r => r.caption.text === 'Funds');
+  Shell.select([`${legend.id}#${fundsKey.key}`]); await tick(100);
+  FormatBar.apply('Fill', '#fff2cc'); await tick(150);
+  const fundRows = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => g.caption === 'Funds');
+  check('a Key row restyled restyles its Styles row, every output of it, those not drawn too', coinvest.length && fundsKey.outputs.length === 5 && fundRows.length === 1
+    && fundRows[0].outputs.length === 6 && fundRows[0].swatch.Fill === '#fff2cc', `${fundsKey.outputs.length} in the Key; ${fundRows.map(g => `${g.swatch.Fill} ×${g.outputs.length}`).join(', ')}`);
+  Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
 
   // ---- A highlight lights a relation the view hides on the line it already draws between the two boxes,
   // rather than routing a second line beside it ----
