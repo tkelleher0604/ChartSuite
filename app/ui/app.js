@@ -91,11 +91,12 @@ const App = (() => {
     Shell.toast(`${back ? 'Undid' : 'Redid'}: ${Time.describe(book.peek().changes().find(x => x.id === top.act))}`, back ? { redo } : { undo });
   }
   const undo = () => step(true), redo = () => step(false);
-  // One change, by the user: refused while the past is shown; dated from the day shown unless `dated` is false
-  // (a view isn't a fact about the world). `say`, a string or a function of the change, is toasted with Undo.
+  // One change, by the user: refused while the past is shown; dated from the day shown, or from the day `dated`
+  // gives (a payment, from the day it was made), unless it's false (a view isn't a fact about the world). `say`,
+  // a string or a function of the change, is toasted with Undo.
   function change(fn, { say, dated = true } = {}) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return null; }
-    const tx = book.peek().edit({ chart: chart.peek(), who: who(), day: dated ? Shell.time.peek()?.asOf ?? null : null });
+    const tx = book.peek().edit({ chart: chart.peek(), who: who(), day: typeof dated === 'string' ? dated : dated ? Shell.time.peek()?.asOf ?? null : null });
     fn(tx);
     const c = tx.commit();
     if (typeof c === 'string') { Shell.toast(c); return null; }

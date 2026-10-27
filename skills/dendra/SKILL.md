@@ -30,7 +30,11 @@ sh   <skill>/scripts/dendra.sh <command> …     # no Node: uses Chrome or Edge
 | `apply <workbook> <plan.json> [--write]` | Records a plan. Without `--write` it only says what it would record, what Dendra would then work out, and what would newly need attention. |
 | `new <workbook> --name <chart> --who <name>` | Begins a chart with no records, from the sample's schema, definitions, checks and views (or `--template <workbook>`). Its file is created if it doesn't exist. |
 
-Give `--chart <name>` when a workbook has more than one chart. The scripts find Dendra's core at `../../../app` (the repository). Elsewhere, give `--app <path to app/>`.
+Give `--chart <name>` when a workbook has more than one chart.
+
+The scripts find Dendra's core at `../../../app` (the repository). Installed elsewhere, give `--app` either:
+- Dendra's `app/` folder; or
+- the address of the published app, `https://tkelleher0604.github.io/ChartSuite/app`. The tool then runs the core it fetches from there.
 
 ## How to do it
 
@@ -68,10 +72,12 @@ Give `--chart <name>` when a workbook has more than one chart. The scripts find 
   Entering a deadline would freeze it: paying the tax would no longer move it on. Record what the formulas read instead: the date something was filed or paid, the fiscal year end, the percentages. Override only for something that truly stands over the formula, like a tax classification election, and say so.
 - **Time has two kinds of change.**
   - What was so from the start, or a correction of a mistake, takes no day.
-  - A change in the world on a date takes that day (a GP replaced, a percentage changed at a closing, an entity's good standing lost). The old value then stays true before that day and the new one from it, so the chart as of any past date stays right.
+  - A change in the world on a date takes that day (a GP replaced, a percentage changed at a closing, an entity's good standing lost, and every payment or filing, as Dendra's own Paid… and Filed… record them). The old value then stays true before that day and the new one from it, so the chart as of any past date stays right.
   - Dates that bound a record are entries, not days: Formation Date starts an entity and Dissolution Date ends it. Likewise Admission and Withdrawal Date for a GP, and Start and End Date for a position. `vocab` marks them "starts it" and "ends it".
 - **End what ended; delete only mistakes.** A dissolved entity gets its Dissolution Date. A resigned officer gets an End Date. Removing without a day deletes, as if it had never been. That's right only for a record made in error.
-- **Names exactly as the documents give them.** Use the full legal name, with its punctuation ("Calder Ridge Capital Partners IV, L.P."), and a Short Name for the chart's boxes ("Fund IV"). The plan finds existing objects by Name or Short Name, so a near-miss name creates a duplicate. When `apply` says "There's no Entity named…", check `show` before you add one.
+- **Names exactly as the documents give them.** Use the full legal name, with its punctuation ("Calder Ridge Capital Partners IV, L.P.").
+  - **Short Names:** give one ("Fund IV") only where the documents or the person use it. A folder name or an abbreviation you'd coin isn't a name; list it as a suggestion instead.
+  - **Duplicates:** the plan finds existing objects by Name or Short Name, so a near-miss name creates a duplicate. When `apply` says "There's no Entity named…", check `show` before you add one.
 - **Every document you rely on is a Document**, with its Link (a SharePoint or file address the firm can open), type, date and status, and related by Concerns to what it's about. That makes the record provable. It's also what the "on file" checks look for.
 - **Sign your changes** with `"who": "Claude, for <the person you're working for>"`. History shows it to everyone who opens the workbook.
 - **Percentages are text with their sign** ("71.6%"; a fraction would be ambiguous). Money can be "$750,000,000" or a number. Dates are best as 2026-03-02.

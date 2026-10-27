@@ -16,26 +16,40 @@ const FONTS = Scene.FONTS;
 // a weight the slide's own, one of PowerPoint's.
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32];
 const WEIGHTS = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6];
-// PowerPoint's colors, so a swatch means the same in both: its theme's columns (Background 1, Text 1 and the
-// six accents), each with its tints and shades in PowerPoint's rows, then its standard colors.
+// PowerPoint's colors, so a swatch means the same in both: its theme's ten columns (Background 1, Text 1,
+// Background 2, Text 2 and the six accents), each with its tints and shades in PowerPoint's rows, then its ten
+// standard colors.
 const THEME = [
-  '#ffffff', '#000000', '#4472c4', '#ed7d31', '#a5a5a5', '#ffc000', '#5b9bd5', '#70ad47',
-  '#f2f2f2', '#7f7f7f', '#dae3f3', '#fbe5d6', '#ededed', '#fff2cc', '#deebf7', '#e2f0d9',
-  '#d9d9d9', '#595959', '#b4c7e7', '#f8cbad', '#dbdbdb', '#ffe699', '#bdd7ee', '#c5e0b4',
-  '#bfbfbf', '#404040', '#8faadc', '#f4b183', '#c9c9c9', '#ffd966', '#9dc3e6', '#a9d18e',
-  '#a6a6a6', '#262626', '#2f5597', '#c55a11', '#7c7c7c', '#bf9000', '#2e75b6', '#548235',
-  '#7f7f7f', '#0d0d0d', '#203864', '#843c0c', '#525252', '#7f6000', '#1f4e79', '#385723',
+  '#ffffff', '#000000', '#e7e6e6', '#44546a', '#4472c4', '#ed7d31', '#a5a5a5', '#ffc000', '#5b9bd5', '#70ad47',
+  '#f2f2f2', '#7f7f7f', '#d0cece', '#d6dce5', '#dae3f3', '#fbe5d6', '#ededed', '#fff2cc', '#deebf7', '#e2f0d9',
+  '#d9d9d9', '#595959', '#afabab', '#adb9ca', '#b4c7e7', '#f8cbad', '#dbdbdb', '#ffe699', '#bdd7ee', '#c5e0b4',
+  '#bfbfbf', '#404040', '#767171', '#8497b0', '#8faadc', '#f4b183', '#c9c9c9', '#ffd966', '#9dc3e6', '#a9d18e',
+  '#a6a6a6', '#262626', '#3b3838', '#333f50', '#2f5597', '#c55a11', '#7c7c7c', '#bf9000', '#2e75b6', '#548235',
+  '#7f7f7f', '#0d0d0d', '#181717', '#222a35', '#203864', '#843c0c', '#525252', '#7f6000', '#1f4e79', '#385723',
 ];
-const STANDARD = ['#c00000', '#ff0000', '#ffc000', '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0'];
+const STANDARD = ['#c00000', '#ff0000', '#ffc000', '#ffff00', '#92d050', '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0'];
 // And what PowerPoint calls them: a column's color and its place in the theme, and a row's tint or shade of
-// it, which runs darker under White, lighter under Black, and both ways under an accent.
-const COLUMNS = [['White', 'Background 1'], ['Black', 'Text 1'], ['Blue', 'Accent 1'], ['Orange', 'Accent 2'], ['Gray', 'Accent 3'],
-  ['Gold', 'Accent 4'], ['Blue', 'Accent 5'], ['Green', 'Accent 6']];
+// it, which runs darker under White and Light Gray, lighter under Black, and both ways under the rest.
+const COLUMNS = [['White', 'Background 1'], ['Black', 'Text 1'], ['Light Gray', 'Background 2'], ['Blue-Gray', 'Text 2'], ['Blue', 'Accent 1'],
+  ['Orange', 'Accent 2'], ['Gray', 'Accent 3'], ['Gold', 'Accent 4'], ['Blue', 'Accent 5'], ['Green', 'Accent 6']];
 const SHADES = { 0: ['Darker 5%', 'Darker 15%', 'Darker 25%', 'Darker 35%', 'Darker 50%'], 1: ['Lighter 50%', 'Lighter 35%', 'Lighter 25%', 'Lighter 15%', 'Lighter 5%'],
-  accent: ['Lighter 80%', 'Lighter 60%', 'Lighter 40%', 'Darker 25%', 'Darker 50%'] };
-const THEME_NAMES = THEME.map((_, i) => { const col = i % 8, row = Math.floor(i / 8); return [...COLUMNS[col], row ? (SHADES[col] ?? SHADES.accent)[row - 1] : null].filter(Boolean).join(', '); });
-const STANDARD_NAMES = ['Dark Red', 'Red', 'Orange', 'Green', 'Light Blue', 'Blue', 'Dark Blue', 'Purple'];
+  2: ['Darker 10%', 'Darker 25%', 'Darker 50%', 'Darker 75%', 'Darker 90%'], accent: ['Lighter 80%', 'Lighter 60%', 'Lighter 40%', 'Darker 25%', 'Darker 50%'] };
+const THEME_NAMES = THEME.map((_, i) => { const col = i % 10, row = Math.floor(i / 10); return [...COLUMNS[col], row ? (SHADES[col] ?? SHADES.accent)[row - 1] : null].filter(Boolean).join(', '); });
+const STANDARD_NAMES = ['Dark Red', 'Red', 'Orange', 'Yellow', 'Light Green', 'Green', 'Light Blue', 'Blue', 'Dark Blue', 'Purple'];
 const NAMES = new Map([...THEME.map((c, i) => [c, THEME_NAMES[i]]), ...STANDARD.map((c, i) => [c, STANDARD_NAMES[i]])].reverse());
+// A color typed by its hex, as "#1F5FBF", "1f5fbf" or "#15b"; null for anything else.
+const hexOf = s => { const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(s ?? '').trim()); return m ? `#${(m[1].length === 3 ? [...m[1]].map(c => c + c).join('') : m[1]).toLowerCase()}` : null; };
+// The chart's own colors, as PowerPoint keeps its Recent Colors: those its formats give that aren't the palette's,
+// the latest first.
+const COLORED = new Set(['Fill', 'Outline', 'Color']);
+function chartColors() {
+  const rows = App.shown.peek().rows(App.chart.peek()), out = new Set();
+  for (let i = rows.length - 1; i >= 0 && out.size < 10; i--) {
+    const r = rows[i], given = 'note' in r ? (COLORED.has(r.label) ? [r.value] : []) : Object.entries(r.format ?? {}).filter(([l]) => COLORED.has(l)).map(([, v]) => v);
+    for (const v of given) { const c = typeof v === 'string' && hexOf(v); if (c && !NAMES.has(c)) out.add(c); }
+  }
+  return [...out].slice(0, 10);
+}
 // PowerPoint's name for a color of its palette ("Blue, Accent 1, Lighter 80%"), where a color is in it twice
 // the theme's; "None" for none; null for any other.
 const colorName = c => c === 'none' ? 'None' : typeof c === 'string' ? NAMES.get(`#${c.replace(/^#/, '').toLowerCase()}`) ?? null : null;
@@ -55,32 +69,38 @@ function scopesOf(c) {
   const group = picked.length === 1 && picked[0].geometry === 'group' ? picked[0] : null;
   const marks = picked.flatMap(m => m.geometry === 'group' ? m.members.map(id => sc.byId.get(id)).filter(Boolean) : [m]);
   if (!marks.length) return { marks, scopes: [] };
+  // The view's Styles rows (Scene.groupsOf, the Key's and Styles' rule and names). A Key row or a frame stands
+  // for the rows it's drawn from, all of each, drawn here or not.
+  const groups = Scene.groupsOf(App.notes.peek(), sc.view);
+  const whole = (style, outputs) => { const gs = groups.filter(g => g.style === style && g.outputs.some(p => outputs.some(q => Tree.key(q) === Tree.key(p))));
+    return { caption: gs[0]?.caption, outputs: gs.length ? gs.flatMap(g => g.outputs) : outputs }; };
   const rowKey = keys.length === 1 ? Canvas.keyParts(keys[0])[1] : null;
   if (rowKey) {
-    const r = marks[0].rows?.find(x => x.key === rowKey);
-    if (r) return { marks, row: r, scopes: [{ key: 'row', caption: r.caption.text, outputs: r.outputs, style: r.style }] };
+    const r = marks[0].rows?.find(x => x.key === rowKey), w = r && whole(r.style, r.outputs);
+    if (r) return { marks, row: r, scopes: [{ key: 'row', caption: w.caption ?? r.caption.text, outputs: w.outputs, style: r.style }] };
   }
   const bound = marks.filter(m => m.type === 'box' || m.type === 'line');
   if (marks.some(m => m.type === 'frame')) {
-    const f = marks.find(m => m.type === 'frame');
-    return { marks, scopes: [{ key: 'frame', caption: f.caption.text, outputs: f.outputs, style: Tree.key(Tree.bare(f.output)) }] };
+    const f = marks.find(m => m.type === 'frame'), style = Tree.key(Tree.bare(f.output));
+    return { marks, scopes: [{ key: 'frame', caption: f.caption.text, outputs: whole(style, f.outputs).outputs, style }] };
   }
   const own = { key: 'own', label: these(marks), own: true };
   if (!bound.length) return { marks, group, scopes: [own] };
-  // Each style that reaches the selection, by the groups of its outputs that the Key and Styles go by too
-  // (Scene.groupsOf), each group that reaches it a scope; an output in none (a filter), alone.
-  const groups = Scene.groupsOf(App.notes.peek(), sc.view), by = new Map();
-  for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek())) {
-    const k = Tree.key(r.output), g = groups.find(g => g.style === r.style && g.outputs.some(p => Tree.key(p) === k)) ?? { outputs: [r.output], caption: r.caption };
-    const key = `${r.style} ${Tree.key(g.outputs[0])}`;
-    if (!by.has(key)) by.set(key, { key, style: r.style, order: r.order, name: r.name, caption: g.caption, outputs: g.outputs });
-  }
+  // Then the Styles rows that reach the selection, and only those: each with an output that a record in or at a
+  // selected mark fits.
+  const by = new Map();
+  for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
+    for (const g of groups) if (g.style === r.style && g.outputs.some(p => Tree.narrower(r.output, p))) {
+      const key = `${g.style} ${g.key}`;
+      if (!by.has(key)) by.set(key, { key, style: g.style, order: g.order, name: g.name, caption: g.caption, outputs: g.outputs });
+    }
   return { marks, group, scopes: [own, ...[...by.values()].sort((a, b) => b.order - a.order)] };
 }
-// The selection, as a scope: "This box", "These 3 boxes", "This line", "These 2 shapes".
+// The selection, as a scope, by what's drawn: "This box", "These 3 boxes", "This line" (the lines drawn as one
+// included), "These 2 shapes".
 function these(ms) {
-  const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape';
-  return ms.length === 1 ? `This ${noun}` : `These ${ms.length} ${noun === 'box' ? 'boxes' : `${noun}s`}`;
+  const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape', n = new Set(ms.map(m => m.merged ?? m.id)).size;
+  return n === 1 ? `This ${noun}` : `These ${n} ${noun === 'box' ? 'boxes' : `${noun}s`}`;
 }
 // What each style reaches in a scene: by style, its outputs there, each with its caption and its marks.
 const reached = new WeakMap();
@@ -95,12 +115,13 @@ function reachOf(sc) {
     }
   return by;
 }
+// The marks a group reaches in a scene, as scopesOf finds them: those with a record whose output fits one of its.
+const marksOf = (sc, s) => new Set([...reachOf(sc).get(s.style)?.values() ?? []].filter(o => s.outputs.some(p => Tree.narrower(o.output, p))).flatMap(o => [...o.marks]));
 // A scope as it's named: the selection ("This box"), or a group of a style's outputs as the Key says it, with
 // how many of the view's marks it reaches: "Funds (6)".
 function named(c, s) {
   if (s.own) return s.label;
-  const outs = reachOf(c.scene()).get(s.style);
-  return `${s.caption} (${new Set(s.outputs.flatMap(o => [...outs?.get(Tree.key(o))?.marks ?? []])).size})`;
+  return `${s.caption} (${marksOf(c.scene(), s).size})`;
 }
 // The scope a change goes to: the one chosen, or else the selection itself.
 const chosen = signal(null);
@@ -108,9 +129,9 @@ const scopeOf = (scopes, key = chosen.peek()) => scopes.find(s => s.key === key)
 // The marks a group reaches that keep their own value of a property, entered for them alone in the view,
 // which a change for the group leaves as it is (entered wins): each with the notes that decide it.
 function keeping(c, scope, labels) {
-  const sc = c.scene(), outs = reachOf(sc).get(scope?.style), N = App.notes.peek(), out = [];
-  if (!scope?.outputs || !outs) return out;
-  for (const id of new Set(scope.outputs.flatMap(o => [...outs.get(Tree.key(o))?.marks ?? []]))) {
+  const sc = c.scene(), N = App.notes.peek(), out = [];
+  if (!scope?.outputs) return out;
+  for (const id of marksOf(sc, scope)) {
     const m = sc.byId.get(id), t = Tree.treeOf(App.state.peek(), m.record);
     const notes = labels.map(l => N.resolve(l, t, sc.view)?.note).filter(n => n && n.view === sc.view && n.pattern.id === m.record);
     if (notes.length) out.push({ m, notes });
@@ -225,11 +246,25 @@ const shapeGlyph = g => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${
 // The choices of one setting in a popover, each previewed while pointed at: a picked one is made, and
 // closes the popover where `close` is given. The one the setting has takes the focus as it opens.
 const choice = (label, v, close) => ({ onPointerEnter: () => preview(label, v), onClick: () => { close?.(); apply(label, v); } });
+// PowerPoint's palette: the theme's colors, its standard colors and the chart's own; then, as its menu ends, No
+// fill (or outline), and More colors, any color by its hex, drawn as it's typed and made with Enter.
+const NONE = { Fill: 'No fill', Outline: 'No outline' };
 function Palette({ label, none, close }) {
-  const v = String(value(label)).toLowerCase();
+  const v = String(value(label)).toLowerCase(), own = chartColors();
   const swatch = (c, name) => html`<button style=${`background:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
-  return html`<div class="palette" onPointerLeave=${() => preview()}>${THEME.map((c, i) => swatch(c, THEME_NAMES[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
-    ${none ? html`<button class="none" aria-pressed=${v === 'none'} autofocus=${v === 'none'} aria-label="None" data-tip="None" ...${choice(label, 'none', close)} />` : null}</div>`;
+  // Off the swatches, the chart is drawn in the color typed, while it's being typed.
+  const rest = el => { const f = el.querySelector('.hex > input'), c = f === document.activeElement && hexOf(f.value); c ? preview(label, c) : preview(); };
+  const typed = e => { const f = e.currentTarget; f.toggleAttribute('aria-invalid', !!f.value.trim() && !hexOf(f.value)); rest(f.closest('.palette')); };
+  const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { close?.(); apply(label, c); } };
+  return html`<div class="palette" onPointerLeave=${e => rest(e.currentTarget)}>${THEME.map((c, i) => swatch(c, THEME_NAMES[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
+    ${own.length ? html`<i />${own.map(c => swatch(c, c.toUpperCase()))}` : null}
+    <div class="more">
+      ${none ? html`<button class="menu-item" role="menuitemcheckbox" aria-checked=${v === 'none'} autofocus=${v === 'none'} ...${choice(label, 'none', close)}>
+        <span class="label">${NONE[label]}</span>${v === 'none' ? Shell.icon('check') : null}</button>` : null}
+      <label class="menu-item"><span class="label">More colors</span>
+        <span class="hex">#<input value=${/^#[0-9a-f]{6}$/.test(v) ? v.slice(1).toUpperCase() : ''} maxlength="7" spellcheck="false" autocomplete="off" aria-label="More colors"
+          onFocus=${e => e.currentTarget.select()} onInput=${typed} onKeyDown=${entered} /></span></label>
+    </div></div>`;
 }
 const seg = (label, items, v, { as = x => x, close } = {}) => html`<div class="seg" onPointerLeave=${() => preview()}>${items.map(([k, text]) =>
   html`<button aria-pressed=${v === k} autofocus=${v === k} ...${choice(label, as(k), close)}>${text}</button>`)}</div>`;
