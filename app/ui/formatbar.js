@@ -151,8 +151,9 @@ function apply(label, value) {
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
 // A choice pointed at, drawn on the chart as it would be: the change written, uncommitted, on the chart's
-// rows, and the canvas asked to draw from them; or, for Tidy, the chart laid out afresh. With nothing, the
-// chart is drawn as it is again. Each note tried is new, so nothing worked out from another is kept for it.
+// rows, and the canvas asked to draw from them; for a size, laid out afresh, as the page may grow for it, and for
+// Tidy, the chart laid out with nothing entered. With nothing, the chart is drawn as it is again. Each note tried
+// is new, so nothing worked out from another is kept for it.
 let tried = null, n = 0;
 function preview(label, value) {
   const c = Canvas.active.peek(), key = label === undefined || App.readOnly.peek() ? null : JSON.stringify([label, value]);
@@ -160,7 +161,7 @@ function preview(label, value) {
   tried = key;
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
-  c.restyle(trying(c, label, value));
+  c.restyle(trying(c, label, value), label === 'Size' ? { moves: true } : undefined);
 }
 // The chart with a change written on its rows, uncommitted.
 function trying(c, label, value) {
