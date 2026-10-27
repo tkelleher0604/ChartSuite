@@ -21,8 +21,8 @@ const Time = (() => {
     return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : where(recs, id, N)];
   }
   // Where an entry is, said as far as it needs, as the formula bar says it: its object (AIV-1), or the path down
-  // to it where the object has another entry of its label (Fund III › Jurisdiction: Delaware); at a relation, the
-  // relation's place (AIV-1, tax year 2025).
+  // to it where the object has another entry of its label (a file number at its jurisdiction and one elsewhere);
+  // at a relation, the relation's place (AIV-1, tax year 2025).
   const labelled = new WeakMap();
   function where(recs, id, N) {
     const at = recs[id].at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, x)}|${Tree.norm(recs[x].edge)}`;
