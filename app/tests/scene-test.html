@@ -290,6 +290,13 @@ function run() {
     edit(wb, (tx, N) => { for (const c of ['Feeder Fund', 'Parallel Fund', 'AIV', 'Co-Investment Vehicle']) note(tx, N, 'Caption', VT(c), CONTROL, undefined); });
     const plain = Scene.groupsOf(wb.notes(C), CONTROL).find(g => g.outputs.some(p => p.out?.choice === 'Feeder Fund'));
     check('… and a row called by its outputs calls them in that order', plain?.caption === 'Parallel Fund, Feeder Fund, AIV and Co-Investment Vehicle', plain?.caption);
+    // A style's rows in the option list's order of the outputs they go by, captioned or not: Structure's funds, their
+    // captions taken away, still before its portfolio companies (regress9 6).
+    const bare = fresh();
+    edit(bare, (tx, N) => { for (const c of N.notes('Caption')) if (c.view === MAIN && c.value === 'Funds') tx.remove(c.note); });
+    const rowsOf = wb => Scene.groupsOf(wb.notes(C), MAIN).filter(g => g.outputs.some(p => p.args?.[0].edge === 'Vehicle Type')).map(g => g.outputs[0].out.choice);
+    check('… and a style’s rows in the option list’s order of what they go by, captioned or not: the funds before the portfolio companies, their captions taken away',
+      j(rowsOf(bare)) === j(['Main Fund', 'Portfolio Company']) && j(rowsOf(fresh())) === j(rowsOf(bare)), j([rowsOf(fresh()), rowsOf(bare)]));
   }
 
   // ---- Frames ----
@@ -508,19 +515,28 @@ function run() {
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));
     check('the chart starts 24 pt under the date', placed.every(p => p.top >= p.d.y + p.d.h - 4.8 + 32 - 0.5), j(placed.map(p => [p.top, p.d.y + p.d.h - 4.8 + 32])));
     const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-    check('the Key is 24 pt under the chart, right-aligned to it, at the foot of what’s over it', [0, 2, 3].every(i => {
-      const p = placed[i], over = p.chart.filter(r => r.x < p.k.x + p.k.w && r.x + r.w > p.k.x);
-      return Math.abs(p.k.x + p.k.w - p.right) < 1 && p.k.y >= Math.max(...over.map(r => r.y + r.h)) + 32 - 0.5 && p.k.y + p.k.h <= 672.5;
-    }), j([0, 2, 3].map(i => [placed[i].k, placed[i].right])));
+    // The Key at the chart's foot: under the chart, 24 pt under what's drawn over it and 16 pt beside what isn't, set no
+    // further down than right-aligned to the chart, and right-aligned where that's as high. As entered, and tidied, where
+    // the chart's foot leaves the Key a bay among its lowest boxes.
+    const footed = [...[[0, 'Structure'], [2, 'Fund III'], [3, 'Management and control']].map(([i, what]) => [what, sc[i]]), ...['slide', 'letter'].map(paper => { const w = fresh(); edit(w, (tx, N) => { for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note); }); return [`tidied ${paper}`, scene(w, MAIN, paper === 'letter' ? { paper } : {})]; })].map(([what, s]) => {
+      const drawn = [...s.marks.filter(m => m.type === 'box' || m.type === 'frame'), ...s.marks.filter(m => m.type === 'line').flatMap(l => [...l.points.slice(1).map((p, i) => { const q = l.points[i]; return { x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]), w: Math.abs(p[0] - q[0]), h: Math.abs(p[1] - q[1]) }; }),
+        ...(l.labelAt ? [{ ...l.labelAt, w: l.label.w, h: l.label.h }] : [])])].map(m => sheetOf(s, m)), k = sheetOf(s, furniture(s).key);
+      const left = Math.min(...drawn.map(r => r.x)), right = Math.max(...drawn.map(r => r.x + r.w)), foot = x => Math.max(...drawn.filter(r => r.x < x + k.w + 20.5 && r.x + r.w + 20.5 > x).map(r => r.y + r.h)) + 32;
+      const ok = k.x >= left - 0.5 && k.x + k.w <= right + 0.5 && k.y >= foot(k.x) - 0.5 && k.y <= foot(right - k.w) + 0.5 && (Math.abs(k.x + k.w - right) < 1 || k.y < foot(right - k.w) - 0.5);
+      return { what, ok, k: [Math.round(k.x), Math.round(k.y), Math.round(k.w)], left: Math.round(left), right: Math.round(right), foot: Math.round(foot(k.x)), rightAligned: Math.round(foot(right - k.w)) };
+    });
+    check('the Key is at the chart’s foot, 24 pt under what’s over it and 16 pt beside what isn’t, where that sets it least far down, right-aligned where that’s as high',
+      footed.every(f => f.ok) && footed.slice(3).every(f => f.k[1] < f.rightAligned), j(footed));
     check('… or beside the title, top right, where that draws the chart larger: 40 Act', Math.abs(placed[1].k.x + placed[1].k.w - 1232) < 1 && Math.abs(placed[1].k.y - 48) < 0.5, j(placed[1].k));
     check('nothing drawn overlaps the title, the date or the Key', placed.every(p => !p.chart.some(r => meets(r, p.t) || meets(r, p.d) || meets(r, p.k))));
-    // A short chart is set in the middle of the room under the date, with its Key, as across the sheet: Management
-    // and control, so no band of the page is empty under the title.
-    const mc = placed[3], s3 = sc[3], ruled = s3.marks.filter(m => m.type === 'line').flatMap(l => l.points.map(([x, y]) => ({ x: on(s3, x), y: on(s3, y), w: 0, h: 0 })));
-    const reach = [...mc.chart, ...ruled, mc.k], under = mc.d.y + mc.d.h - 4.8 + 32;
-    const top = Math.min(...reach.map(r => r.y)), bottom = Math.max(...reach.map(r => r.y + r.h));
-    check('a short chart sits with its Key in the middle of the room under the title and its date', Math.abs((top - under) - (720 - 48 - bottom)) < 1 && top - under > 20,
-      j({ above: top - under, below: 720 - 48 - bottom }));
+    // A short chart starts 24 pt under its date, as every chart does, its Key with it, and the room the page has left is
+    // at its foot: Management and control, on the slide and on Letter, so no band of the page is empty under the title.
+    const short = [sc[3], scene(wb, 'view_control', { paper: 'letter' })].map(s => {
+      const f = furniture(s), d = sheetOf(s, f.date), ruled = s.marks.filter(m => m.type === 'line').flatMap(l => l.points.map(([x, y]) => ({ x: on(s, x), y: on(s, y), w: 0, h: 0 })));
+      const reach = [...s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m)), ...ruled, sheetOf(s, f.key)];
+      return { above: Math.min(...reach.map(r => r.y)) - (d.y + d.h - 4.8 + 32), below: s.page.sheet.h - 48 - Math.max(...reach.map(r => r.y + r.h)) };
+    });
+    check('a short chart starts 24 pt under its title and date, its Key with it, the room left at the page’s foot', short.every(p => Math.abs(p.above) < 1 && p.below > 20), j(short));
     // One output's own caption is its own group's: Management and control captions the BDC alone.
     const own = Scene.groupsOf(wb.notes(C), 'view_control'), bdcRow = own.find(g => g.caption === 'Business development company'), structure = Scene.groupsOf(wb.notes(C), MAIN);
     check('a caption at one output captions that output’s group alone, where outputs that look alike are captioned differently', bdcRow?.outputs.length === 1

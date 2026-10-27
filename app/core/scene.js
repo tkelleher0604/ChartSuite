@@ -29,8 +29,8 @@ const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, sa
 // on) says otherwise, its chart `scale` times its own size: the largest twentieth at which it fits, so that its
 // points stay on PowerPoint's half points and change only in steps. The page is the sheet in the chart's own
 // pixels, the sheet's size over the scale. Its furniture is the sheet's, at the sheet's size: its title and
-// its date at its top left margin, and its Key 24 pt under the chart, right-aligned to it, or beside the title,
-// top right, where that draws the chart larger.
+// its date at its top left margin, the chart 24 pt under them, and its Key at the chart's foot where it sets least
+// far down, or beside the title, top right, where that draws the chart larger.
 const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
 const MARGIN = 48;
@@ -1265,12 +1265,15 @@ function groupsOf(N, view, only = null) {
       const k = JSON.stringify([sw, off, sw.kind === 'frame' && captionOf(N, o.pattern, view)]);
       (looks.get(k) ?? looks.set(k, { style: s.key, order, name: alone ? null : name, swatch: sw, off, outputs: [] }).get(k)).outputs.push(o.pattern);
     }
-    // Captioned alike, or uncaptioned and so called by their outputs: what's called alike is one group.
+    // Captioned alike, or uncaptioned and so called by their outputs: what's called alike is one group; and a style's
+    // groups in the option list's order of the outputs they go by, captioned or not.
+    const groups = [];
     for (const look of looks.values())
       for (const [caption, parts] of groupBy([...groupBy(look.outputs, own)], ([c, ps]) => c ?? listed(listOrder(ps).map(p => called(p, look.swatch))))) {
         const ps = listOrder(parts.flatMap(([, ps]) => ps));
-        out.push({ ...look, outputs: ps, key: key(ps[0]), caption });
+        groups.push({ ...look, outputs: ps, key: key(ps[0]), caption });
       }
+    out.push(...listOrder(groups.map(g => g.outputs[0])).map(p => groups.find(g => g.outputs[0] === p)));
   });
   return out.sort((a, b) => (a.name === null) - (b.name === null));
 }
@@ -1386,8 +1389,9 @@ const obstaclesOf = (rows, by = { x: 0, y: 0 }) => rows.filter(r => r.x != null 
 // What's placed by hand, boxes and free shapes alike, is placed in the chart's own terms; the page adds `dx`
 // and `dy` to set it there. The scale is the largest twentieth at which the chart fits the sheet within its
 // margins, with the Key beside the title, clear of the title and the date by 24 pt and of the chart by 16; or
-// beside the title with the chart starting 24 pt under it; or else 24 pt under the chart, right-aligned to it,
-// at the foot of what's above it there; failing all of them, what fits the chart. The Key beside the title
+// beside the title with the chart starting 24 pt under it; or else at the chart's foot, 24 pt under what's over it
+// there and 16 pt beside what isn't, where that sets it least far down, right-aligned to the chart where that's as
+// high; failing all of them, what fits the chart. The Key beside the title
 // takes the room there, its captions wrapping. A preview keeps the page as it was. → { s, dx, dy, shapes,
 // places: rowId → { x, y } }, in the page's pixels.
 function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy }) {
@@ -1468,12 +1472,10 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         alongside = places.get(key.row);
       }
     }
-    // Set in the middle of the room under the title and date, as across the sheet: the chart, with the Key where
-    // it goes with it.
-    const foot = Math.max(R(top).y + R(top).h, alongside ? alongside.y + alongside.h : -Infinity), down = boxes.length && !force ? Math.max(0, (H - M - foot) / 2) : 0;
-    if (alongside) alongside.y += down;
+    // The chart starts 24 pt under its title and date, as a document's text does under its heading, with the Key where
+    // it goes with it, and what room the page has left is at its foot.
     for (const [id, p] of places) places.set(id, { x: p.x / s, y: p.y / s });
-    return { s, dx, dy: boxes.length ? (top + down) / s - E.y : 0, shapes, places, titled: !!key && !alongside && places.has(key.row) };
+    return { s, dx, dy: boxes.length ? top / s - E.y : 0, shapes, places, titled: !!key && !alongside && places.has(key.row) };
   };
   if (last) {
     const kept = at(last.page.scale, true);
