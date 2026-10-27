@@ -500,14 +500,17 @@ function run() {
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));
   }
 
-  // ---- Nothing drawn over anything, and every label on its own line ----
+  // ---- Nothing drawn over anything, no line read as another's, and every label on its own line ----
   // Every sample view, on the slide and on Letter, as entered, tidied, with an owner added (Northstar of
-  // Northpine, 5%), with a 247-character name on each entity of the funds and the manager in turn, and after a
-  // drag of a box on Structure, with an owner added and without: no route runs through a box it doesn't end
-  // at, or through a frame's caption; no label sits on a box, a caption or another label; no line crosses a
-  // label; and every label is on its own line, as a reader takes it: its route within 4 pt of it (at the
-  // chart's size, as the layout measures), or the route of a line it's said once for (drawn with no label of
-  // its own, saying the same, from where it leaves its box), and no other line within 4 pt of it.
+  // Northpine, 5%) and tidied so, with a 247-character name on each entity in turn, after a drag of a box on
+  // Structure, with an owner added and without, and with an owner whose percentage is undone after three drags:
+  // no route runs through a box it doesn't end at, or through a frame's caption; no line turns down close under a
+  // box it doesn't come from, a lane's depth (15 pt at the chart's size) under it within its width and 6 pt either
+  // side, unless its own box is as near over the turn; no two lines run side by side within 4 pt as printed, upright
+  // or level, nor over each other unless they share a box; no label sits on a box, a caption or another label; no
+  // line crosses a label; and every label is on its own line, as a reader takes it: its route within 4 pt of it (at
+  // the chart's size, as the layout measures), or the route of a line it's said once for (drawn with no label of its
+  // own, saying the same, from where it leaves its box), and no other line within 4 pt of it.
   {
     const LONG = 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., an exempted company incorporated with limited liability in the Cayman Islands';
     const owner = wb => edit(wb, tx => {
@@ -516,14 +519,21 @@ function run() {
     });
     // A box dragged on Structure, as the canvas writes where it's dropped.
     const drag = (id, dx, dy) => wb => edit(wb, (tx, N) => { const n = N.notes('Position').find(n => n.view === MAIN && n.pattern.id === id); tx.set(n.note, { label: 'Position', pattern: n.pattern, view: MAIN, value: { ...n.value, x: n.value.x + dx, y: n.value.y + dy } }); });
+    const tidy = (wb, v) => edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); });
     const cases = {
       'as entered': () => {},
-      tidied: (wb, v) => edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); }),
+      tidied: tidy,
       'with an owner added': owner,
-      ...Object.fromEntries(['feeder', 'fund', 'aiv', 'northpine', 'blocker', 'gp', 'caygp', 'bdc', 'mgmt', 'inv_us'].map(id => [`with a long name on ${id}`,
+      'tidied with an owner added': (wb, v) => { owner(wb); tidy(wb, v); },
+      ...Object.fromEntries(['feeder', 'fund', 'aiv', 'northpine', 'blocker', 'gp', 'caygp', 'bdc', 'mgmt', 'inv_us', 'chen', 'okafor', 'fund3a', 'coinv', 'halvard', 'pension'].map(id => [`with a long name on ${id}`,
         wb => edit(wb, tx => { const st = wb.asOf(C, DAY), name = Object.keys(st).find(k => st[k].at === id && st[k].edge === 'Name'); tx.set(name, { ...st[name], value: LONG }); })])),
       ...Object.fromEntries([['fund', 0, 120], ['northpine', 60, 50], ['halvard', -200, 0], ['feeder', 80, 0], ['caygp', -60, 40], ['bdc', -150, 60]].flatMap(([id, dx, dy]) => [
         [`after a drag of ${id} by ${dx}, ${dy}`, drag(id, dx, dy)], [`with an owner added, after a drag of ${id} by ${dx}, ${dy}`, wb => { owner(wb); drag(id, dx, dy)(wb); }]])),
+      // As regress8 left it: an owner added, then its percentage undone, then Northpine, Halvard and Fund III dragged.
+      'with an owner whose percentage is undone, after three drags': wb => {
+        edit(wb, tx => tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'northpine' }], tag: true }));
+        for (const [id, dx, dy] of [['northpine', 60, 50], ['halvard', -200, 0], ['fund', 0, 120]]) drag(id, dx, dy)(wb);
+      },
     };
     // Whether a point is inside a box's shape, more than a pixel in.
     const inside = (b, x, y) => {
@@ -534,7 +544,9 @@ function run() {
     };
     const along = ([a, b], f) => { const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]))); for (let i = 0; i <= n; i++) if (f(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n)) return true; return false; };
     const sides = r => [[[r.x, r.y], [r.x + r.w, r.y]], [[r.x + r.w, r.y], [r.x + r.w, r.y + r.h]], [[r.x + r.w, r.y + r.h], [r.x, r.y + r.h]], [[r.x, r.y + r.h], [r.x, r.y]]];
-    const corners = b => b.shape === 'triangle' ? [[b.x + b.w / 2, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]] : [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
+    // A shape's corners, or an oval's ends, the points of it furthest out.
+    const corners = b => b.shape === 'triangle' ? [[b.x + b.w / 2, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]] : b.shape === 'oval' ? [[b.x + b.w / 2, b.y], [b.x + b.w, b.y + b.h / 2], [b.x + b.w / 2, b.y + b.h], [b.x, b.y + b.h / 2]]
+      : [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
     const within = (r, [x, y]) => x > r.x + 0.5 && x < r.x + r.w - 0.5 && y > r.y + 0.5 && y < r.y + r.h - 0.5;
     const covers = (r, b) => sides(r).some(s => along(s, (x, y) => inside(b, x, y))) || corners(b).some(p => within(r, p)) || inside(b, r.x + r.w / 2, r.y + r.h / 2);
     const meets = (a, b) => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
@@ -546,7 +558,7 @@ function run() {
       return Math.min(...Array.from({ length: n + 1 }, (_, i) => off(r, a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n)));
     };
     const ON = 16 / 3;
-    const routes = [], labels = [], crossed = [], loose = [];
+    const routes = [], turns = [], beside = [], labels = [], crossed = [], loose = [];
     for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) for (const paper of [null, 'letter']) {
       if (what.includes('drag') && v !== MAIN) continue;
       const wb = fresh();
@@ -561,6 +573,23 @@ function run() {
         const box = boxes.find(b => b.id !== l.from && b.id !== l.to && along(g, (x, y) => inside(b, x, y))), cap = caps.find(c => along(g, (x, y) => within(c, [x, y])));
         if (box || cap) routes.push(`${at}: ${l.id} through ${box?.id ?? 'a caption'}`);
       }
+      // A level run turning down, and the box over the turn that would seem to own the drop: a lane's depth (20 px)
+      // over it, the turn within its width and 6 pt (8 px) either side, where the line's own box isn't as near over it.
+      for (const l of lines) l.points.forEach((p, i, ps) => {
+        const a = ps[i - 1], b = ps[i + 1], from = s.byId.get(l.from);
+        if (!a || !b || Math.abs(a[1] - p[1]) >= 0.5 || Math.abs(b[0] - p[0]) >= 0.5 || b[1] <= p[1] + 0.5 || (from && p[1] < from.y + from.h + 20 - 0.01)) return;
+        const over = boxes.find(g => g.id !== l.from && g.id !== l.to && p[0] >= g.x - 8 && p[0] <= g.x + g.w + 8 && p[1] >= g.y + g.h - 0.01 && p[1] < g.y + g.h + 20 - 0.01);
+        if (over) turns.push(`${at}: ${l.id} turns down ${(p[1] - over.y - over.h).toFixed(1)} px under ${over.id}`);
+      });
+      // Legs of two lines, upright or level, side by side within 4 pt as printed for more than a hair, or over each
+      // other where the lines share no box.
+      const pt = s.page.scale * 0.75, all = lines.flatMap(l => legs(l).map(g => ({ l, g, k: Math.abs(g[0][0] - g[1][0]) < 0.5 ? 0 : Math.abs(g[0][1] - g[1][1]) < 0.5 ? 1 : -1 }))).filter(e => e.k >= 0);
+      all.forEach((e, i) => all.slice(i + 1).forEach(f => {
+        if (e.l === f.l || e.k !== f.k) return;
+        const k = e.k, d = Math.abs(e.g[0][k] - f.g[0][k]), span = g => [Math.min(g[0][1 - k], g[1][1 - k]), Math.max(g[0][1 - k], g[1][1 - k])];
+        const [a0, a1] = span(e.g), [b0, b1] = span(f.g), share = [e.l.from, e.l.to].some(id => id === f.l.from || id === f.l.to);
+        if (d * pt < 4 && (d > 0.5 || !share) && (Math.min(a1, b1) - Math.max(a0, b0)) * pt > 0.5) beside.push(`${at}: ${e.l.id} and ${f.l.id} ${(d * pt).toFixed(1)} pt apart`);
+      }));
       rects.forEach((r, i) => {
         const box = boxes.find(b => covers(r, b)), other = rects.find((q, k) => k !== i && meets(r, q)), cap = caps.find(c => meets(r, c));
         if (box || other || cap) labels.push(`${at}: ${r.l.id} "${r.l.label.text}" on ${box?.id ?? other?.l.id ?? 'a caption'}`);
@@ -572,8 +601,10 @@ function run() {
         if (own > ON + 0.01 || (nearest && nearest[1] <= ON)) loose.push(`${at}: ${r.l.id} "${r.l.label.text}" ${own.toFixed(1)} px from its line, ${nearest?.[1].toFixed(1)} from ${nearest?.[0]}`);
       });
     }
-    check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added, with a 247-character name on each of ten entities, and after six drags, with an owner added and without',
-      LONG.length === 247 && Object.keys(cases).length === 25 && !routes.length, j(routes.slice(0, 4)));
+    check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added and tidied so, with a 247-character name on each of sixteen entities, after six drags, with an owner added and without, and with an owner’s percentage undone after three',
+      LONG.length === 247 && Object.keys(cases).length === 33 && !routes.length, j(routes.slice(0, 4)));
+    check('… no line turns down close under a box it doesn’t come from, where its own box isn’t as near over the turn: a drop never seems to leave a box it doesn’t', !turns.length, j(turns.slice(0, 4)));
+    check('… no two lines run side by side within 4 pt as printed, upright or level, or over each other where they share no box', !beside.length, j(beside.slice(0, 4)));
     check('… no label sits on a box, a caption or another label', !labels.length, j(labels.slice(0, 4)));
     check('… and no line crosses a label', !crossed.length, j(crossed.slice(0, 4)));
     check('… and every label is on its own line: within 4 pt of its route, and no other line within 4 pt of it', !loose.length, j(loose.slice(0, 4)));

@@ -17,8 +17,9 @@
 // chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
 // from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
 // are set in, as PowerPoint sets them (see setText). A line another crosses has `runs`, the pieces it's drawn in (see jumps); one that had to go
-// round what's drawn is `around` (`astray` where it couldn't keep its sides, `blocked` where it found no way), and
-// one whose label found no free place `crowded` (see Layout.route). A free shape has its
+// round what's drawn is `around` (`astray` where it couldn't keep its sides, `strained` where it could only against the
+// router's rules, `blocked` where it found no way), one whose label found no free place `crowded` (see Layout.route),
+// and one whose label is said once for several, as a trunk's, has their ids, its `kin`. A free shape has its
 // row's formats, with no notes, and a free line the boxes it's glued to; one whose row's `role` is title or
 // date is the page's own, as the Key is (see the page and free shapes).
 const Scene = (() => {
@@ -720,11 +721,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // its arrowhead, where it has one (see Layout's labels).
   const roomFor = new Map();
   for (const l of lines) if (l.label && !l.revealed) for (const k of [`${l.from}|${l.to}`, `${l.to}|${l.from}`]) roomFor.set(k, Math.max(roomFor.get(k) ?? 0, l.label.w + 8 + (l.settings.Arrow.value === 'none' ? 0 : 10.7)));
-  // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have; labels
-  // with no free place, as they're drawn on a page at s (see relabel), which only a page drawn so small that the
-  // sheet's least half point is more than a label's size can make more; and names cut, no longer as typed.
-  const grown = s => lines.some(l => l.texts.some(it => half(it.look.Size, s, true) > it.look.Size + 1e-9));
-  const faults = s => lines.filter(l => l.blocked || l.astray).length + (grown(s) ? relabel(boxes, lines, frames, s).length : lines.filter(l => l.crowded).length)
+  // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have, or none but
+  // against the router's rules; labels with no free place, as they're drawn on a page at s (see relabel); and names
+  // cut, no longer as typed.
+  const faults = s => lines.filter(l => l.blocked || l.astray || l.strained).length + relabel(boxes, lines, frames, s).length
     + boxes.filter(b => b.texts.some(it => it.lines.some(l => l.cut))).length;
   // Boxes sized for a layout: each as `size` sets it, `squeeze` and `grow` times its width; and triangles of one width
   // and one size of name widened as the widest of them is, but for one that stands alone (see level).
@@ -756,13 +756,19 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     yield;
     // What's placed on its own page stands where it was put, but for the room labels need beside it; a place the
     // layout gives makes room too for the lines that come down past what stands over their box.
-    const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id));
-    spread(boxes, (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0, b => !!last?.at.has(b.id));
+    const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id)), beside = (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0, stood = b => !!last?.at.has(b.id);
+    spread(boxes, beside, stood);
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level). A preview keeps every
     // box as it stood, and what it adds is placed clear of them, and sized among themselves.
     const added = b => !!last && !last.at.has(b.id);
     for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => `${Math.round(b.y / 4)}|${added(b)}`).values()) level(rank);
     push(boxes.filter(b => !added(b)), frames, lines.filter(l => l.ranks));
+    // And again where that left a line from side to side short of the room its label needs, as the height it runs at
+    // moves with the boxes it joins.
+    const byId = new Map(boxes.map(b => [b.id, b])), short = (a, b) => b.x - a.x - a.w < beside(a, b) - gives(a, b) - 0.01;
+    const side = (a, b) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2;
+    if (lines.some(l => { const p = byId.get(l.from), q = byId.get(l.to); if (!p || !q || !beside(p, q) || !side(p, q)) return false;
+      const [a, b] = p.x < q.x ? [p, q] : [q, p]; return !stood(b) && short(a, b); })) spread(boxes, beside, stood);
     // (A line into a frame may land on it, and doesn't come down to its box.)
     const framing = id => [...frames.values()].filter(f => inFrame(frames, f).includes(id)).map(f => f.id).join();
     clearTops(boxes, lines.filter(l => l.ranks && framing(l.from) === framing(l.to)), given);
@@ -836,7 +842,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const b of boxes) { b.texts.forEach(it => snap(it, s)); setText(b); }
   for (const l of lines) { l.texts.forEach(it => snap(it, s, true)); labelOf(l); }
   for (const f of frames.values()) { snap(f.caption, s); f.label = f.caption.lines.length * lineHeight(f.caption.look); caption(f); }
-  if (!last) relabel(boxes, lines, frames);
+  if (!last) relabel(boxes, lines, frames, null, s);
 
   // Free shapes: the view's own, each with its own formats; the furniture where the page puts it, and those
   // placed by hand where the chart is, by its offset.
@@ -874,6 +880,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     ...boxes.sort((a, b) => layer(a) - layer(b)),
     ...shapes.sort((a, b) => layer(a) - layer(b)),
   ];
+  // A label said once for several lines, a trunk's or a frame's, is said for them all: the line that carries it keeps
+  // their ids, its `kin`.
+  for (const ls of groupBy(lines.filter(l => l.placing?.kin != null), l => l.placing.kin).values()) for (const l of ls) if (ls.length > 1 && l.labelAt) l.kin = ls.map(o => o.id);
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; if (m.type !== 'shape') delete m.ends; }
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
   if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
@@ -924,7 +933,8 @@ function spread(boxes, room = () => 0, stood = () => false) {
 }
 // Where a box has grown into the rank below it, the rank moves down as far as it must, and each rank under it
 // as far as that makes it: ranks stay level, 12 pt under the tallest box over them, or 30 pt where a line runs
-// down from one to the other with no frame between, with room for the frames between, and a rank that's clear
+// down to the one under with no frame between, from the one over or past it, so that it turns down clear of the
+// box over (see Layout's SHADE); with room for the frames between, and a rank that's clear
 // stays where it is. A triangle under a box is its middle half; a box a line runs down to from one that isn't
 // beside it (see spread) is under it, wherever it is across.
 function push(boxes, frames, links = []) {
@@ -946,7 +956,7 @@ function push(boxes, frames, links = []) {
         if ((x0 >= b.x + b.w || b.x >= x1) && !down) continue;
         const fb = chain.get(b.id) ?? [];
         const room = fb.filter(f => !fc.includes(f)).reduce((sum, f) => sum + below(f), 0) + fc.filter(f => !fb.includes(f)).reduce((sum, f) => sum + above(f), 0);
-        d = Math.max(d, b.y + b.h + room + (!room && joined.has(`${b.id}>${c.id}`) ? 40 : 16) - c.y);
+        d = Math.max(d, b.y + b.h + room + (!room && ups.has(c.id) ? 40 : 16) - c.y);
       }
     }
     if (d > 0.5) for (const c of rank) c.y += d;
@@ -1062,7 +1072,7 @@ function routes(boxes, lines, frames = new Map()) {
   const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label, arrow: l.settings?.Arrow?.value }));
   const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
   Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames) });
-  return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, blocked: c.blocked, crowded: c.crowded,
+  return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, strained: c.strained, blocked: c.blocked, crowded: c.crowded,
     placing: { quiet: c.quiet, lane: c.lane, apex: c.apex, crowd: c.crowd, kin: c.kin, lack: c.lack, size: c.label && { w: c.label.w, h: c.label.h } } }));
 }
 // Where the lanes in a gap between ranks need more room than the gap leaves them (Layout.route's `lack`: a lane
@@ -1081,11 +1091,15 @@ const captions = frames => [...frames.values()].map(f => {
   const c = f.caption, t = c.look, x = Math.min(...c.lines.map(l => l.x - l.w * (t.Align === 'center' ? 0.5 : t.Align === 'right' ? 1 : 0)));
   return { x: f.x + x, y: f.y + c.lines[0].y - t.Size * PT * 0.93, w: widest([c]), h: c.lines.length * lineHeight(t) };
 });
+// The chart's pixels to a point as a page drawn at s prints them, for the room kept clear round a label; drawn at
+// under half the chart's size, as at half, where a point would be most of a label's height.
+const unitAt = s => 1 / (0.75 * Math.max(s, 0.5));
 // Every line's label placed again where its words, set at the sheet's half points, now take less room (or, where
 // the sheet's least is more than they are, more): where it was, while that's still free, or else in the first free
-// place, as the router places them, its route as it is. With a scale `s`, only as they would be on a page drawn at
-// it, the lines left as they are. → the labels that found no free place.
-function relabel(boxes, lines, frames, s = null) {
+// place, as the router places them, its route as it is, and clear of what's drawn by the points of the page drawn at
+// `at`. With a scale `s`, only as they would be on a page drawn at it, the lines left as they are. → the labels that
+// found no free place.
+function relabel(boxes, lines, frames, s = null, at = s) {
   const drawn = l => {
     if (!l.label || s === null) return l.label;
     const its = l.texts.map(it => ({ ...it, lines: it.lines.map(x => ({ ...x })) }));
@@ -1094,9 +1108,9 @@ function relabel(boxes, lines, frames, s = null) {
     for (const it of its) y = stack(it, 0, 0, y);
     return { ...l.label, w: widest(its), h: y, base: its.at(-1).lines.at(-1).y };
   };
-  const copies = lines.map(l => ({ id: l.id, points: l.points, label: drawn(l), labelAt: l.labelAt, arrow: l.settings.Arrow.value, down: l.down, ...l.placing }));
+  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, points: l.points, label: drawn(l), labelAt: l.labelAt, arrow: l.settings.Arrow.value, down: l.down, ...l.placing }));
   const mine = copies.filter(c => c.label && !c.quiet && c.points);
-  Layout.labels(new Map(boxes.map(b => [b.id, b])), mine, copies, [], captions(frames), true);
+  Layout.labels(new Map(boxes.map(b => [b.id, b])), mine, copies, [], captions(frames), true, at ? unitAt(at) : undefined);
   if (s === null) for (const c of mine) Object.assign(lines[copies.indexOf(c)], { labelAt: c.labelAt, crowded: c.crowded });
   return mine.filter(c => c.crowded);
 }
@@ -1118,12 +1132,12 @@ function still(last, boxes, lines, frames) {
   const labels = kept.filter(l => l.labelAt && l.label).map(l => ({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h })), cs = captions(frames);
   const segs = kept.flatMap(l => l.points.slice(1).map((p, i) => [l.points[i], p]));
   for (const l of added) {
-    const ps = Layout.around(geo, l.from, l.to, { avoid: [...labels, ...cs], segs, page: last.page });
+    const way = { avoid: [...labels, ...cs], segs, page: last.page }, ps = Layout.around(geo, l.from, l.to, way) ?? Layout.around(geo, l.from, l.to, { ...way, strict: false });
     if (ps) Object.assign(l, { points: ps, down: ps.at(-1)[1] > ps[0][1] + 1, landed: undefined });
   }
-  const copies = lines.map(l => ({ id: l.id, points: l.points, label: l.label, arrow: l.settings.Arrow.value, down: l.down }));
+  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, points: l.points, label: l.label, arrow: l.settings.Arrow.value, down: l.down }));
   const mine = copies.filter((c, i) => added.includes(lines[i]) && c.label);
-  Layout.labels(geo, mine, copies, labels, cs);
+  Layout.labels(geo, mine, copies, labels, cs, false, unitAt(last.page.scale));
   for (const c of mine) lines[copies.indexOf(c)].labelAt = c.labelAt;
 }
 
