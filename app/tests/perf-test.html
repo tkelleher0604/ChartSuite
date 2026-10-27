@@ -176,9 +176,10 @@ function inWindow(n) {
   const point = () => {
     const A = App(), F = W().eval('Formulas'), entered = A.entered.peek(), R = A.computed.peek();
     const R2 = F.computeState({ ...entered, own_us_fund: { ...entered.own_us_fund, tag: false } }, A.definitions.peek(), { relations: A.relations.peek(), schema: A.schema.peek() }, R);
-    const d = F.diff(R, R2);
-    W().requestIdleCallback = idle => idle({ timeRemaining: () => 50, didTimeout: false });
+    const d = F.diff(R, R2), idle = W().requestIdleCallback;
+    W().requestIdleCallback = f => f({ timeRemaining: () => 50, didTimeout: false });
     canvas().redline({ appear: d.appear, go: d.go, changed: {}, records: R2.records });
+    W().requestIdleCallback = idle;
   };
   const round = at => {
     for (let i = 0; i < 3; i++) {

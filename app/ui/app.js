@@ -174,7 +174,8 @@ const App = (() => {
 
   // ---- Views: View objects, each described by its own notes, never dated ----
   const viewTree = id => ({ id, kind: 'View' });
-  const views = computed(() => {
+  // Kept while they say the same, so the tabs aren't drawn again for every edit.
+  const viewsNow = computed(() => {
     const st = entered.value, N = notes.value;
     return (Tree.index(st).kinds.get('view') ?? []).map(id => {
       const t = viewTree(id), lay = N.value('Layout', t);
@@ -182,8 +183,11 @@ const App = (() => {
         keeps: N.value('As Of', t) ?? null, order: N.order(t) ?? Infinity };
     }).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
   });
+  const views = keptWhile(() => JSON.stringify(viewsNow.value), () => viewsNow.value);
   // The view shown, drawn: what the canvas, the format bar and the inspector's Look read.
   const scene = computed(() => {
+    // It reads the workbook's notes and shapes as well as the state (Scene keeps what's drawn from the same).
+    version.value;
     const v = views.value.find(x => x.id === Shell.view.value);
     return v?.layout !== 'chart' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
   });
