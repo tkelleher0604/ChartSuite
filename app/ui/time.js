@@ -240,15 +240,20 @@ const Time = (() => {
   });
   const undone = e => e.chain.length % 2 === 0;
 
-  // A change, said from itself: what it did to which items, in the chart's words. What a reversal brings
-  // back is restored.
+  // A change, said from itself: what it did to which items, in the chart's words, what it records read where it
+  // records it. What a reversal brings back is restored.
   function describe(c) {
-    const { rows, recs } = ever.peek(), N = App.notes.peek(), items = new Map(), back = !!c.reverses;
+    const { rows, recs: logged } = ever.peek(), own = recordsOf(c.adds), N = App.notes.peek(), items = new Map(), back = !!c.reverses;
+    const recs = Object.keys(own).every(id => id in logged) ? logged : { ...logged, ...own };
     const put = (r, side) => { const type = Log.typeOf(r), k = type + ':' + r[type]; if (!items.has(k)) items.set(k, { type, id: r[type], was: [], now: [] }); items.get(k)[side].push(r); };
     c.removes.map(id => rows.get(id)).filter(Boolean).forEach(r => put(r, 'was'));
     c.adds.forEach(r => put(r, 'now'));
-    const all = [...items.values()], touched = new Set(all.filter(i => i.type === 'record').map(i => i.id));
-    const rec = i => Log.latest(i.now.length ? i.now : i.was);
+    const all = [...items.values()], rec = i => Log.latest(i.now.length ? i.now : i.was);
+    // A relation a definition works out, entered with something recorded at it (a tax year, with its payment), was
+    // entered to bear it: what's at it is said, at its place; and so when they go together.
+    const worked = i => { const r = rec(i); return r.args && 'tag' in r && App.definitions.peek().some(d => Tree.same(d.name, N.nameOf(recs, i.id))); };
+    const bearers = new Set(all.filter(i => i.type === 'record' && !(i.was.length && i.now.length) && all.some(j => j.type === 'record' && rec(j).at === i.id) && worked(i)).map(i => i.id));
+    const touched = new Set(all.filter(i => i.type === 'record' && !bearers.has(i.id)).map(i => i.id));
     // Tidy takes a view's positions away, and undoing it puts them back.
     if (all.length > 1 && all.every(i => i.type === 'note' && rec(i).label === 'Position')) {
       if (!c.adds.length) return 'Tidied the layout';
@@ -270,7 +275,7 @@ const Time = (() => {
     for (const i of all) {
       if (i.type === 'record') {
         const r = rec(i);
-        if (Tree.argsOf(r).some(a => touched.has(a.at)) || (moved.size > 1 && moved.has(i.id))) continue;
+        if (bearers.has(i.id) || Tree.argsOf(r).some(a => touched.has(a.at)) || (moved.size > 1 && moved.has(i.id))) continue;
         phrases.push(recordPhrase(i, r, recs, N, named(i.id), back));
       } else if (i.type === 'note') {
         const n = rec(i);

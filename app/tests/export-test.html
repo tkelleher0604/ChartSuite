@@ -285,6 +285,8 @@ async function run() {
     const worded = summaries(await Export.calendar(R, wb.notes(C), C, 'Words', '').text());
     delete window.FormulaBar;
     check('… and every date there is, from no day', plainly.length === dates.length, plainly.length);
+    check('… a tax paid at the year it settled, said as the place rule says it', plainly.includes('Annual Tax Paid: Fund III, tax year 2025') && plainly.includes('Annual Tax Paid: Fund III-A, tax year 2024')
+      && !plainly.some(s => /^Annual Tax Paid: /.test(s) && !/, tax year \d{4}$/.test(s)), plainly.filter(s => /^Annual Tax Paid/.test(s)).join(' | '));
     const want = ['Start Date: Margaret A. Chen is a signatory of the Manager', 'Start Date: Margaret A. Chen is a signatory of Fund III, via GP III', 'Start Date: Thomas K. Lindqvist is an employee of the Manager'];
     check('… a relation’s, as the two-box panel says it, each side once: the role its first side has, the second, and any other not already said', want.every(w => plainly.includes(w))
       && !plainly.some(s => /signatory of the Manager, via/.test(s)), want.filter(w => !plainly.includes(w)).join(' | ') || plainly.filter(s => /Margaret/.test(s)).join(' | '));
