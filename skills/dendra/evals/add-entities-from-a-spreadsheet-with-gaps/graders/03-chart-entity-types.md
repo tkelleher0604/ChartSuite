@@ -4,4 +4,4 @@ focus: trace
 weight: 1
 ---
 
-The parallel fund's Entity Type is Exempted Limited Partnership (a Cayman LP) and the blocker's Corporation; no new Entity Type option such as 'LP' was added.
+The blocker's Entity Type is Corporation, and the parallel fund's is Exempted Limited Partnership (a Cayman LP), or else left blank with the final message asking; no new Entity Type option such as 'LP' was added.
