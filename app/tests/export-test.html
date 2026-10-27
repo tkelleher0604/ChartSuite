@@ -369,22 +369,17 @@ async function run() {
     const named = Object.keys(st).filter(id => Tree.isObject(st[id]) && N.nameOf(st, id) !== N.shortOf(st, id)).map(id => N.nameOf(st, id));
     const twice = named.filter(nm => events.some(e => e.summary.includes(nm) || e.description?.includes(nm)));
     check('… each thing named one way, by its short name, never by its full name', named.length > 5 && !twice.length, twice.slice(0, 3).join(' | '));
-    // Its description the formula bar's sentence for the date: nothing where the bar says nothing.
-    const bar = G('FormulaBar'), sentence = id => { const s = bar.sentence?.(id); return typeof s === 'string' ? s.trim() : ''; };
-    check('each event’s description is the formula bar’s sentence for its date, and there’s none where the bar says none', events.every(e => (e.description ?? '') === sentence(e.id)),
-      events.filter(e => (e.description ?? '') !== sentence(e.id)).slice(0, 2).map(e => `${e.id}: ${e.description}`).join(' | ') || (bar.sentence ? 'the bar’s' : 'no sentence in the bar yet'));
+    // Its description the formula bar's sentence for the date, which every date worked out has: nothing where the
+    // bar says nothing.
+    const bar = G('FormulaBar'), worked = events.filter(e => R.computed[e.id]);
+    check('each event’s description is the formula bar’s sentence for its date, which every date worked out has', worked.length > 10 && worked.every(e => e.description)
+      && events.every(e => (e.description ?? null) === bar.sentence(e.id)), events.filter(e => (e.description ?? null) !== bar.sentence(e.id) || (R.computed[e.id] && !e.description))
+        .slice(0, 2).map(e => `${e.id}: ${e.description}`).join(' | ') || events.find(e => e.summary === 'Next Renewal · The Manager (LEI Registered)')?.description);
     // A sentence: begun with a capital, ended with a stop, in words (a label beside its value has none in lower
     // case), each fact once, and no Yes, dash or dot between facts.
     const facts = d => d.split(/, so |, and |, but | and /), sentenced = d => /^[A-Z].*\.$/.test(d) && /\b[a-z]{2,}\b/.test(d) && !/ · |—|\bYes\b/.test(d) && new Set(facts(d)).size === facts(d).length;
     check('… a sentence, never ground facts run together: no fact twice, no Yes or dash, no label beside a value', events.every(e => !e.description || sentenced(e.description)),
       events.filter(e => e.description && !sentenced(e.description)).slice(0, 2).map(e => e.description).join(' | '));
-    // The bar's sentence, as the calendar says it, from what the bar says for one date.
-    const pick = events.find(e => e.summary === 'Next Renewal · The Manager (LEI Registered)')?.id, own = Object.getOwnPropertyDescriptor(bar, 'sentence');
-    bar.sentence = id => id === pick ? 'The Manager last renewed on March 10, 2026, so its next renewal is March 10, 2027 (A year on).' : null;
-    const worded = eventsOf(await X.calendar(R, N, A.chart.peek(), 'Words', day).text());
-    if (own) Object.defineProperty(bar, 'sentence', own); else delete bar.sentence;
-    check('… said as the bar says it, on the event for its date alone', worded.find(e => e.id === pick)?.description === 'The Manager last renewed on March 10, 2026, so its next renewal is March 10, 2027 (A year on).'
-      && worded.filter(e => e.description).length === 1, worded.filter(e => e.description).map(e => e.summary).join(' | '));
 
     // Every date there is, from no day: the table's every row, no two alike.
     const every = eventsOf(await X.calendar(R, N, A.chart.peek(), 'Every date', '').text()).map(e => e.summary);

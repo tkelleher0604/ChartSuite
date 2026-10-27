@@ -458,7 +458,7 @@ function dates(R, N, from = '') {
 // A date as the date's popover says it: what falls due, then whose.
 const summary = e => [e.what, e.whose].filter(Boolean).join(' · ');
 // Why a date falls when it does, as the formula bar says it; nothing where the bar says nothing.
-const why = id => { const s = typeof FormulaBar !== 'undefined' && FormulaBar.sentence?.(id); return typeof s === 'string' ? s.trim() : ''; };
+const why = id => FormulaBar.sentence(id) ?? '';
 // The dates from `from` on, as one all-day event each, for Outlook, titled by its summary and described by why.
 function calendar(R, N, chart, name, from = Log.today()) {
   const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
