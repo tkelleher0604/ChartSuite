@@ -55,23 +55,26 @@ function scopesOf(c) {
   const group = picked.length === 1 && picked[0].geometry === 'group' ? picked[0] : null;
   const marks = picked.flatMap(m => m.geometry === 'group' ? m.members.map(id => sc.byId.get(id)).filter(Boolean) : [m]);
   if (!marks.length) return { marks, scopes: [] };
-  // A Key row is its Styles row, all of it, drawn here or not.
+  // The view's Styles rows (Scene.groupsOf, the Key's and Styles' rule and names). A Key row or a frame stands
+  // for the rows it's drawn from, all of each, drawn here or not.
+  const groups = Scene.groupsOf(App.notes.peek(), sc.view);
+  const whole = (style, outputs) => { const gs = groups.filter(g => g.style === style && g.outputs.some(p => outputs.some(q => Tree.key(q) === Tree.key(p))));
+    return { caption: gs[0]?.caption, outputs: gs.length ? gs.flatMap(g => g.outputs) : outputs }; };
   const rowKey = keys.length === 1 ? Canvas.keyParts(keys[0])[1] : null;
   if (rowKey) {
-    const r = marks[0].rows?.find(x => x.key === rowKey);
-    const g = r && Scene.groupsOf(App.notes.peek(), sc.view).find(g => g.style === r.style && r.outputs.every(p => g.outputs.some(q => Tree.key(q) === Tree.key(p))));
-    if (r) return { marks, row: r, scopes: [{ key: 'row', caption: g?.caption ?? r.caption.text, outputs: g?.outputs ?? r.outputs, style: r.style }] };
+    const r = marks[0].rows?.find(x => x.key === rowKey), w = r && whole(r.style, r.outputs);
+    if (r) return { marks, row: r, scopes: [{ key: 'row', caption: w.caption ?? r.caption.text, outputs: w.outputs, style: r.style }] };
   }
   const bound = marks.filter(m => m.type === 'box' || m.type === 'line');
   if (marks.some(m => m.type === 'frame')) {
-    const f = marks.find(m => m.type === 'frame');
-    return { marks, scopes: [{ key: 'frame', caption: f.caption.text, outputs: f.outputs, style: Tree.key(Tree.bare(f.output)) }] };
+    const f = marks.find(m => m.type === 'frame'), style = Tree.key(Tree.bare(f.output));
+    return { marks, scopes: [{ key: 'frame', caption: f.caption.text, outputs: whole(style, f.outputs).outputs, style }] };
   }
   const own = { key: 'own', label: these(marks), own: true };
   if (!bound.length) return { marks, group, scopes: [own] };
-  // The Styles rows that reach the selection, and only those: each group of the view's styles (Scene.groupsOf,
-  // the Key's and Styles' rule and names) with an output that a record in or at a selected mark fits.
-  const groups = Scene.groupsOf(App.notes.peek(), sc.view), by = new Map();
+  // Then the Styles rows that reach the selection, and only those: each with an output that a record in or at a
+  // selected mark fits.
+  const by = new Map();
   for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
     for (const g of groups) if (g.style === r.style && g.outputs.some(p => Tree.narrower(r.output, p))) {
       const key = `${g.style} ${g.key}`;
