@@ -247,7 +247,10 @@ const Time = (() => {
       && (box(rec(i).pattern) || line(rec(i).pattern)) && ![...Tree.idsIn(rec(i).pattern)].some(id => moved.has(id)));
     for (const view of new Set(hid.map(i => rec(i).view))) {
       const ps = hid.filter(i => rec(i).view === view).map(i => rec(i).pattern);
-      const what = ps.length === 1 ? (ps[0].args ? `the ${N.name(ps[0])} line` : N.nameOf(recs, ps[0].id))
+      // A line by its relation and its ends, as the canvas's toast says it: the Ownership line from Northstar to Northpine.
+      const lineOf = p => { const k = Tree.key(Tree.bare(p)), id = Object.keys(recs).find(x => recs[x].args && Tree.key(Tree.bare(Tree.treeOf(recs, x) ?? {})) === k), [a, b] = id ? N.placed(recs, id) : [];
+        return `the ${N.name(p)} line${a && b ? ` from ${a.text} to ${b.text}` : ''}`; };
+      const what = ps.length === 1 ? (ps[0].args ? lineOf(ps[0]) : N.nameOf(recs, ps[0].id))
         : ps.every(p => p.args) ? `${ps.length} lines` : ps.some(p => p.args) ? `${ps.length} items` : `${ps.length} boxes`;
       phrases.push(`Hid ${what} in ${N.nameOf(recs, view)}`);
     }

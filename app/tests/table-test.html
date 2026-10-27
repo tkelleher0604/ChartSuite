@@ -810,10 +810,10 @@ async function run() {
   check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));
   const npine = named('Northpine Software, LLC'), boxOf = { id: npine, kind: 'Entity' };
   // Boxes and lines hidden in a view are said as the chart's Delete says them, so its toast and its Undo agree.
-  const owns = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).slice(0, 2).map(id => Tree.treeOf(st(), id));
+  const ownIds = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).slice(0, 2), owns = ownIds.map(id => Tree.treeOf(st(), id)), ends = App.notes.peek().placed(st(), ownIds[0]).map(s => s.text);
   const hiding = ps => ({ ...stamp, id: 'xh', removes: [], adds: ps.map((p, i) => ({ id: 'xh' + i, note: 'xhn' + i, label: 'Shown', pattern: p, view: 'view_main', value: false })) });
   const hidings = [hiding([owns[0]]), hiding([boxOf]), hiding(owns)].map(Time.describe).join(' / ');
-  check('A line or a box hidden in a view is said as the chart’s Delete says it, and several counted', hidings === 'Hid the Ownership line in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure', hidings);
+  check('A line or a box hidden in a view is said as the chart’s Delete says it, and several counted', hidings === `Hid the Ownership line from ${ends[0]} to ${ends[1]} in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure`, hidings);
   App.change(tx => tx.note('Fill', boxOf, '#fff2cc', { view: 'view_main' }), { dated: false });
   App.change(tx => tx.note('Fill', boxOf, undefined, { view: 'view_main' }), { dated: false });
   const cleared = Time.describe(last());
