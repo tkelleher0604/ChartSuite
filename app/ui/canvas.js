@@ -955,18 +955,25 @@ function mount(el) {
     if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
     ahead();
   }
-  // The chart as a change previewed would leave it, redlined or restyled, is laid out ahead once the window is
-  // idle, however big, so that making the change draws at once: Layout keeps what it works out by what it
-  // reads, and the scene drawn then reads the same.
+  // Drawn ahead once the window is idle, so that what's drawn next is drawn at once: the chart as a change
+  // previewed would leave it, redlined or restyled, however big, so that making the change draws it as laid out
+  // then; and the chart's other views, so that showing one draws it as it is (Scene keeps a view's latest scenes
+  // by what they're drawn from). A step at a time, an idle moment's each (see Scene.steps), so the window is never
+  // held up long; and given up once what they're drawn from changes.
   let aheadOf = null;
   function ahead() {
     const base = App.scene.peek(), wb = styled?.wb ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
-    if (!base || !state || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
+    if (!base || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
     if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base) return;
-    const mine = aheadOf = { wb, state, base };
-    requestIdleCallback(() => {
-      if (aheadOf === mine && App.scene.peek() === base) Scene.of(wb, App.chart.peek(), base.view, base.day, { state, computed: App.computed.peek(), ahead: true });
-    });
+    const mine = aheadOf = { wb, state, base }, chart = App.chart.peek(), computed = App.computed.peek();
+    const jobs = [...state ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true })] : [],
+      ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
+    const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
+    const step = idle => {
+      while (live()) { if (jobs[0].next().done) jobs.shift(); if (idle.timeRemaining() <= 0) break; }
+      if (live()) requestIdleCallback(step);
+    };
+    if (live()) requestIdleCallback(step);
   }
 
   // ---- Commands ----
@@ -1256,7 +1263,7 @@ function mount(el) {
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
   // A restyle is of the chart as it was: one that changes ends it.
-  const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); });
+  const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); ahead(); });
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,

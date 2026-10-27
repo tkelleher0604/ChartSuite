@@ -231,7 +231,9 @@ function run() {
     const own = Object.keys(wb.asOf(C, DAY)).sort().find(id => wb.asOf(C, DAY)[id].tag && wb.asOf(C, DAY)[id].args?.some(a => a.edge === 'Owner'));
     const ruling = edit(wb, tx => tx.update(own, { tag: false })), undo = wb.reverse(ruling.id, WHO);
     if (typeof undo === 'string') throw new Error(undo);
-    const back = computed(wb);
+    // Worked out from nothing, as on opening it, so its records are in the log's order, not the working-out's
+    // it's the same as.
+    const N = wb.notes(C), S = wb.schema(C), back = Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }, null);
     check('… so Undo of a ruling draws the layout as it was', said(Scene.of(wb, C, MAIN, DAY, { state: back.records, computed: back })) === before
       && Object.keys(back.records).join() !== Object.keys(R.records).join(), own);
   }

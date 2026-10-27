@@ -11,6 +11,8 @@
 // page). `ahead` lays out a state a change previewed would leave, so it's drawn at once when the change is
 // made, and isn't kept as how the view was drawn. `marks` are in drawing order: frames, lines, boxes, then
 // free shapes, each by its Layer.
+// Scene.steps(…), with the same arguments, draws it a step at a time: `next()` takes a step, the last giving
+// the scene; so a scene drawn while the window is idle never holds it up for long (see the canvas).
 // A box, line or frame has `settings`: { [property]: { value, note } }, the note null where nothing in the
 // chart says. A box or line has `texts`, each a record's text with its own settings and its `lines`, placed
 // from the mark's top left (a line's from its label's); a box or shape with text, the `column` its lines
@@ -357,20 +359,25 @@ function workedIn(notesAre) {
   if (worked.size > 12) worked.delete(worked.keys().next().value);
   return w;
 }
-// Each view's scene as last drawn, and what it was drawn from, which is all a scene reads: the state, the
-// notes, the view's free shapes, its day and its paper. Drawn again from the same, it's the same.
+// Each view's latest scenes, and what each was drawn from, which is all a scene reads: the state, the notes,
+// the view's free shapes and what they say, its day and its paper. Drawn again from the same, it's the same:
+// so a change previewed, once made, is drawn as it was laid out ahead, and its Undo as the chart was before.
 const drawnFrom = new Map();
 
-function of(wb, chart, view, day = Log.today(), opts = {}) {
+const of = (...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
+// The steps: the marks, from the records; then for each layout tried, ELK's part of it, and the rest of it
+// with its routes; then the page.
+function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
   const red = opts.redline ?? null;
   const rows = wb.rows(chart), notesAre = `${view}|${rows.filter(r => 'note' in r).map(r => r.id).join()}`;
   const shapeRows = rows.filter(r => 'shape' in r && r.view === view);
   const preview = !!(red || opts.reveal?.length), drawnAs = `${chart}|${view}`;
-  const from = [opts.state, opts.computed ?? null, notesAre, shapeRows.map(r => r.id).join(), day], whence = `${drawnAs}|${opts.paper ?? ''}`;
+  const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
+  const from = [opts.state, notesAre, shapeRows.map(r => r.id).join(), [...said.values()].join('\n'), day], whence = `${drawnAs}|${opts.paper ?? ''}`;
   if (!preview) {
-    const d = drawnFrom.get(whence);
-    if (d && d.from.every((x, i) => x === from[i])) { if (d.laid) laidOut.set(drawnAs, d.laid); return d.scene; }
+    const d = drawnFrom.get(whence)?.find(d => d.from.every((x, i) => x === from[i]));
+    if (d) { if (d.laid && !opts.ahead) laidOut.set(drawnAs, d.laid); return d.scene; }
   }
   // A redline draws what's in the chart now together with what would be: both, marked.
   const state = red?.state ? { ...opts.state, ...red.state } : opts.state;
@@ -632,7 +639,6 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // its lines where their boxes stand, its page and its furniture; what it adds goes on the page, around
   // what's drawn.
   const sheet = pageOf(N, view, opts.paper);
-  const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
   if (last) for (const [id, p] of positions) positions.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y });
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
@@ -655,7 +661,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have; labels
   // with no free place; and names cut, no longer as typed.
   const faults = () => lines.filter(l => l.blocked || l.astray || l.crowded).length + boxes.filter(b => b.texts.some(it => it.lines.some(l => l.cut))).length;
-  const lay = (squeeze, grow = 1) => {
+  function* lay(squeeze, grow = 1) {
     for (const b of boxes) size(b, squeeze, null, grow);
     // Triangles of one width and one size of name widened as the widest of them is, but for one that stands alone
     // (see level).
@@ -664,6 +670,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
       for (const b of ts) if (b.w < w) size(b, squeeze, w, grow);
       level(ts);
     }
+    yield;
     const placed = Layout.arrange({
       keep: last?.at ?? null,
       boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
@@ -674,6 +681,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
       entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
+    yield;
     // What's placed on its own page stands where it was put; a place the layout gives makes room for labels, and
     // for the lines that come down past what stands over their box.
     const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id));
@@ -690,34 +698,35 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
     if (last) still(last, boxes, lines, frames);
     return { ...furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy }), faults: faults(), around: lines.filter(l => l.around).length };
-  };
+  }
   // Of two layouts, the better: the one with fewer faults, then the larger, then the one with fewer lines gone
   // around what's drawn.
   const better = (a, b) => a.faults !== b.faults ? a.faults < b.faults : a.s !== b.s ? a.s > b.s : a.around < b.around;
-  let at = lay(1), grow = 1;
+  yield;
+  let at = yield* lay(1), grow = 1;
   // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
   // where the chart is tall for its page, its names then take fewer lines.
   if (!last && boxes.some(b => !b.pos?.w)) {
     let tried = 1;
     for (const g of [7 / 6, 4 / 3]) {
-      const next = lay(1, tried = g);
+      const next = yield* lay(1, tried = g);
       if (better(next, at)) [at, grow] = [next, g];
     }
-    if (tried !== grow) at = lay(1, grow);
+    if (tried !== grow) at = yield* lay(1, grow);
   }
   heights = new Map(boxes.map(b => [b.id, b.h]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at, and
   // never so close that a line can't pass or a label has no place.
   if (onPaper && boxes.length) {
-    const target = of(wb, chart, view, day, { ...opts, paper: null }).page.scale;
+    const target = (yield* drawing(wb, chart, view, day, { ...opts, paper: null })).page.scale;
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
       if (at.s >= target && !at.faults) break;
-      const next = lay(tried = f, grow);
+      const next = yield* lay(tried = f, grow);
       if (better(next, at)) [at, best] = [next, f];
     }
-    if (tried !== best) at = lay(best, grow);
+    if (tried !== best) at = yield* lay(best, grow);
   }
   const s = at.s;
   // The chart sits on its page where the page puts it, by its `offset`, which a place written from the page
@@ -764,13 +773,13 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
-  const laid = !preview && !opts.paper && !opts.ahead ? {
+  const laid = !preview && !opts.paper ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
     page, places: at.places,
   } : null;
-  if (laid) laidOut.set(drawnAs, laid);
+  if (laid && !opts.ahead) laidOut.set(drawnAs, laid);
 
   const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
   const marksInOrder = [
@@ -781,7 +790,7 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   ];
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; if (m.type !== 'shape') delete m.ends; }
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
-  if (!preview && !opts.ahead) drawnFrom.set(whence, { from, scene, laid });
+  if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
   return scene;
 }
 // A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.
@@ -1378,7 +1387,7 @@ function toPage(v, s, scaleAt) {
 }
 
 return {
-  of, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  of, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
 };
 })();
