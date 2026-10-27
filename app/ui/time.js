@@ -11,28 +11,14 @@ const Time = (() => {
   const list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   const viewTree = id => ({ id, kind: 'View' });
 
-  // What a record is, as the chart says it: [what, whose], whose by the place rule (see where) or, worded, in
-  // words (see whose).
+  // What a record is, as the chart says it: [what, whose], whose by the place rule (Notes: segmentOf, and
+  // whereOf, an entry's place as far as it needs, as the formula bar says it) or, worded, in words (see whose).
   function said(recs, id, N, worded = false) {
     const r = recs[id];
     if (!r) return ['', ''];
     if (Tree.isObject(r)) return [r.kind, N.nameOf(recs, id)];
     if (r.args) return [N.nameOf(recs, id), worded ? whose(recs, id, N) : N.segmentOf(recs, id)];
-    return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : where(recs, id, N)];
-  }
-  // Where an entry is, said as far as it needs, as the formula bar says it: its object (AIV-1), or the path down
-  // to it where the object has another entry of its label (a file number at its jurisdiction and one elsewhere);
-  // at a relation, the relation's place (AIV-1, tax year 2025).
-  const labelled = new WeakMap();
-  function where(recs, id, N) {
-    const at = recs[id].at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, x)}|${Tree.norm(recs[x].edge)}`;
-    if (!Tree.isObject(recs[O] ?? {}) || at === O) return N.placeOf(recs, at);
-    if (!labelled.has(recs)) {
-      const n = new Map();
-      for (const x in recs) if (recs[x].edge !== undefined && !recs[x].args) n.set(key(x), (n.get(key(x)) ?? 0) + 1);
-      labelled.set(recs, n);
-    }
-    return labelled.get(recs).get(key(id)) > 1 ? N.placeOf(recs, at) : N.shortOf(recs, O);
+    return [r.edge, !recs[r.at] ? '' : worded ? whose(recs, r.at, N) : N.whereOf(recs, r)];
   }
   // Whose a record is, in words, for a list of dates: an object by its short name, with what it's under in
   // parentheses (AIV-1 Blocker (Delaware); The Manager (Registered Investment Adviser)); a relation by its first
