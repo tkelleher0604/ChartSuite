@@ -593,12 +593,14 @@ function LookSection({ look, reset }) {
     ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${LABELS[x.label] ?? x.label}</div><div class="v">${val(x.label, x.value)}</div></div>`)}`)}</${Section}>`;
 }
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
-// scale), so the numbers are the ones PowerPoint shows: typed over to move it.
+// scale, and sets the chart across its middle, by its offset), so the numbers are the ones PowerPoint shows:
+// typed over to move it.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
-const Place = ({ at, put, reset, keys = 'xyw' }) => { const page = App.scene.value?.page;
+const Place = ({ at, put, reset, keys = 'xyw' }) => { const page = App.scene.value?.page, off = k => page?.offset?.[k] ?? 0;
   return html`<${Section} title="Position" act=${reset}>
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl">
-    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT)) }} datatype="number" label=${label} put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 2) / 2)}><span class="unit">pt</span></${Field}></div></div>`)}</${Section}>`; };
+    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, (at[k] + off(k)) / Scene.PT)) }} datatype="number" label=${label}
+      put=${out => out && put(k, Math.round((Scene.fromSlide(page, out.value) * Scene.PT - off(k)) * 2) / 2)}><span class="unit">pt</span></${Field}></div></div>`)}</${Section}>`; };
 const resetting = (own, labels, say) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
   : html`<button class="btn ghost reset" onClick=${() => App.change(tx => own.filter(x => labels(x.label)).forEach(x => tx.remove(x.note)), { say })}>Reset</button>`;
 
