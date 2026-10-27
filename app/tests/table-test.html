@@ -201,14 +201,14 @@ async function run() {
   check('A heading nothing matches is asked about, and nothing is pasted yet', $('dialog.dlg')?.textContent.includes('Fund Counsel') && N() === n0);
   await answer('New column'); await previewed();
   check('The paste is redlined first: its new row in blue, its new column, and a bar saying what it does', $$('.grid .tabulator-row.red-add').length === 1 && !!column('Fund Counsel')
-    && /3 values.*1 new entity/.test($('.pastebar')?.textContent) && N() === n0, $('.pastebar')?.textContent);
+    && /3 values.*1 new entity/.test($('.pendbar')?.textContent) && N() === n0, $('.pendbar')?.textContent);
   check('A pending paste can’t be edited over', !column('Name').getDefinition().editable(rowOf(halvard).getCells()[1]));
   press('Enter'); await tick(150);
   const blocker = named('Calder Ridge III Blocker, Inc.'), hollis = named('Hollis Bay Holdings, LLC');
   const at = (id, edge) => (Tree.index(st()).entries.get(id) ?? []).map(e => st()[e]).find(r => r.edge === edge);
   check('Pasting a new heading adds an entry, and a new name a row, in one change', N() === n0 + 1 && at(blocker, 'Fund Counsel')?.value === 'Kirkland & Ellis LLP'
     && st()[hollis]?.kind === 'Entity' && at(hollis, 'Formation Date')?.value === '2026-03-02' && !!column('Fund Counsel'));
-  check('Enter makes it, and the redline goes', !$('.pastebar') && !$$('.grid .tabulator-row.red-add').length && !$$('.grid .tabulator-cell .del, .grid .tabulator-cell .add').length);
+  check('Enter makes it, and the redline goes', !$('.pendbar') && !$$('.grid .tabulator-row.red-add').length && !$$('.grid .tabulator-cell .del, .grid .tabulator-cell .add').length);
   undo(); await tick(150);
   check('Undo takes the new entry and the new row back', !named('Hollis Bay Holdings, LLC') && !column('Fund Counsel'));
 
@@ -216,7 +216,7 @@ async function run() {
   n0 = N();
   Table.grid.addRange(rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Name')); await tick(60);
   const linked = paste('https://contoso.sharepoint.com/sites/FundLegal/Shared%20Documents/Halvard%20LLC%20Agreement.pdf'); await tick(100);
-  check('A link pasted onto a row goes on to link a document, and never overwrites the Name', !linked.defaultPrevented && N() === n0 && !$('.pastebar')
+  check('A link pasted onto a row goes on to link a document, and never overwrites the Name', !linked.defaultPrevented && N() === n0 && !$('.pendbar')
     && Shell.selection.peek().join() === halvard && rowOf(halvard).getData()['f:name'] === 'Halvard Logistics Holdings, Inc.');
 
   // The keys: one stop in the tab order, and an arrow with no cell active makes one.
@@ -313,7 +313,7 @@ async function run() {
   n0 = N();
   const rows0 = Table.grid.getRows().length;
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed();
-  const bar = $('.pastebar')?.textContent ?? '';
+  const bar = $('.pendbar')?.textContent ?? '';
   check('Pasting into a relation says what it creates, and from what day', /3 values/.test(bar) && /1 new ownership/.test(bar) && /new Entity\s*Halcyon University Endowment/.test(bar) && /From Nov 2, 2026/.test(bar) && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
   press('Enter'); await tick(150);
@@ -349,7 +349,7 @@ async function run() {
   paste('U.S. Investors\tFund III\t50%\r\n'); await previewed();
   check('Without headings, a row that gives its names finds its row by them, not by place', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && Table.grid.getRows()[0].getData()['f:percentage'] === firstPct);
   press('Escape'); await tick(150);
-  check('Esc leaves it unmade',!$('.pastebar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
+  check('Esc leaves it unmade',!$('.pendbar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
 
   // ---- A check: a tag a Check note covers says only where it fails, and a failure needs attention ----
   // The sample's Check notes are area F's; where they aren't yet, they're stood in for here.
@@ -382,9 +382,34 @@ async function run() {
   // Any change pending, whoever previews it, is redlined in the grid.
   const goes = Table.grid.getRows()[1].getData().id;
   FormulaBar.preview({ records: { [goes]: null } }); await previewed();
-  check('A change pending elsewhere is redlined in the grid: a row that would go is struck in red', rowOf(goes).getElement().classList.contains('red-go') && !$('.pastebar'));
+  check('A change pending elsewhere is redlined in the grid: a row that would go is struck in red', rowOf(goes).getElement().classList.contains('red-go') && !$('.pendbar'));
   FormulaBar.preview(null); await tick(100);
   check('Without it, the grid is as it was', !$$('.grid .tabulator-row.red-go').length && Table.grid.getRows().length === rows0);
+  // Deleting a row is redlined first. Pointed at, a row's Delete strikes it through; chosen, it deletes it.
+  Shell.select([]); await tick();
+  const doomed = Table.grid.getRows()[1].getData().id;
+  n0 = N();
+  rowOf(doomed).getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
+  hover(item('Delete')); await previewed();
+  check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
+  item('Delete').click(); await tick(150);
+  check('… and chosen, deletes it, as one change, said so, the redline gone', N() === n0 + 1 && !(doomed in st()) && /^Deleted 1 ownership/.test($('.toast span')?.textContent ?? '')
+    && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek(), $('.toast span')?.textContent);
+  undo(); await tick(150);
+  // The Delete key deletes the rows selected whole, by their numbers, after the redline: Enter deletes, Esc doesn't.
+  const whole = id => { Table.grid.addRange(rowOf(id).getCells()[1], rowOf(id).getCells().at(-1)); }, gridKeys = Table.grid.rowManager.element;
+  whole(doomed); await tick(40);
+  n0 = N();
+  press('Delete', gridKeys); await previewed();
+  check('Delete on a row selected whole strikes it through, with a bar to make it, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && /Delete$/.test($('.pendbar')?.textContent.trim() ?? '') && N() === n0,
+    $('.pendbar')?.textContent);
+  press('Escape', gridKeys); await tick(100);
+  check('… Esc leaves it', !$('.pendbar') && !$$('.grid .tabulator-row.red-go').length && N() === n0 && doomed in st());
+  whole(doomed); await tick(40);
+  press('Delete', gridKeys); await previewed();
+  press('Enter', gridKeys); await tick(150);
+  check('… and Enter deletes it, as one change', N() === n0 + 1 && !(doomed in st()) && !$('.pendbar') && /^Deleted 1 ownership/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  undo(); await tick(150);
 
   // ---- Dates and Documents ----
   await addTable(null, 'Dates');

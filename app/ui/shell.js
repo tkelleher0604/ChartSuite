@@ -54,14 +54,15 @@
 // as shown; aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer
 // joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name);
 // store.get/set, this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or
-// { label, detail?, keys?, checked?, disabled?, danger?, run?, items? }; one without run or items is shown, not chosen.
+// { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point? }; one without run or items is shown, not chosen,
+// and one with point(on) shows what it would do while it's pointed at or reached by the keys.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
 // (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.
 
 const Shell = (() => {
   const { h, render } = preact;
-  const { useLayoutEffect, useRef, useState } = preactHooks;
+  const { useEffect, useLayoutEffect, useRef, useState } = preactHooks;
   const { signal, computed, effect, batch } = preactSignals;
   const { computePosition, autoUpdate, offset, flip, shift } = FloatingUIDOM;
   const html = htm.bind(h);
@@ -410,6 +411,9 @@ const Shell = (() => {
       e.preventDefault();
     };
     useLayoutEffect(() => { el(active)?.scrollIntoView({ block: 'nearest' }); }, [active]);
+    // An item pointed at, or reached by the keys, shows what it would do (its `point`) until it's left.
+    const pointed = items[active]?.point;
+    useEffect(() => { if (!pointed) return; pointed(true); return () => pointed(false); }, [pointed]);
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
     return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>

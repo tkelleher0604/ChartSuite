@@ -789,9 +789,16 @@ const Table = (() => {
     return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Entity';
   }
 
-  // ---- A paste pending: redlined in the grid, with a bar saying what it does; Enter makes it, Esc doesn't ----
-  const staged = signal(null);   // { change, x, say, cols }
+  // ---- A change pending in the grid, a paste or a deletion: redlined, with a bar saying what it does; Enter makes
+  // it, Esc doesn't ----
+  const staged = signal(null);   // { change, parts, verb, make, cols }: what the bar says, its button, and the change made
   let unlayer = null;
+  function hold(s) {
+    staged.value = { cols: new Set(), ...s };
+    unlayer = Shell.layer(cancel);
+    FormulaBar.preview(s.change, 'grid');
+    back();
+  }
   function stage(m, r) {
     if (typeof r === 'string') return Shell.toast(r);
     const x = changeOf(m, r);
@@ -801,10 +808,22 @@ const Table = (() => {
     const say = [x.values && `Pasted ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
       .filter(Boolean).join(', ').replace(/^a/, 'A');
     const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
-    staged.value = { change: { records: x.records }, x, say, cols: new Set([...x.cols].filter(k => !shownCols.has(k))), noun, select: x.rows.length === 1 && x.rows };
-    unlayer = Shell.layer(cancel);
-    FormulaBar.preview(staged.peek().change, 'paste');
-    back();
+    const parts = [x.values && count(x.values, 'value'), x.rows.length && `${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`,
+      ...x.made.slice(0, 3).map(([kind, name]) => html`new ${kind} <span class="add">${name}</span>`), x.made.length > 3 && `${x.made.length - 3} more`,
+      x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
+    hold({ change: { records: x.records }, parts, verb: 'Paste', cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+      make: () => { if (enter(x.records, say) && x.rows.length === 1) Shell.select(x.rows); } });
+  }
+  // Rows deleted, as one change: the records entered there, and what's at them.
+  function deletion(ids) {
+    const what = ids.length === 1 && current.isKind ? App.notes.peek().nameOf(App.state.peek(), ids[0]) : count(ids.length, current.noun);
+    return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, parts: [html`<span class="del">${what}</span>`], verb: 'Delete',
+      make: () => edit(tx => ids.forEach(id => tx.remove(id)), () => `Deleted ${what}`) };
+  }
+  // The rows a range takes whole, as the row numbers select them, that were entered and so can be deleted.
+  function wholeRows() {
+    const n = table.getColumns().filter(c => c.getField()).length, entered = App.entered.peek();
+    return [...new Set(table.getRanges().filter(r => r.getColumns().filter(c => c.getField()).length === n).flatMap(r => r.getRows().map(x => x.getData().id)))].filter(id => id in entered);
   }
   function unstage() {
     if (!staged.peek()) return;
@@ -822,25 +841,21 @@ const Table = (() => {
     if (!s) return;
     unstage();
     FormulaBar.preview(null);
-    if (enter(s.change.records, s.say) && s.select) Shell.select(s.select);
+    s.make();
     back();
   }
-  // The bar under the grid while a paste is pending: what it does, the day it takes effect, and the choice.
-  function PasteBar() {
+  // The bar under the grid while a change is pending: what it does, the day it takes effect, and the choice.
+  function PendingBar() {
     const s = staged.value, p = FormulaBar.pending.value, day = Shell.time.value?.asOf;
     if (!s || p?.change !== s.change) return null;
-    const { x, noun } = s, made = x.made.slice(0, 3);
-    const parts = [x.values && count(x.values, 'value'), x.rows.length && `${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`,
-      ...made.map(([kind, name]) => html`new ${kind} <span class="add">${name}</span>`), x.made.length > 3 && `${x.made.length - 3} more`,
-      x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
-    return html`<div class="pastebar" role="region" aria-label="Paste">
-      <span class="what">${parts.map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
+    return html`<div class="pendbar" role="region" aria-label=${s.verb}>
+      <span class="what">${s.parts.map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
       ${day ? html`<span class="when">From ${Tree.formatDate(day, 'short')}</span>` : null}
       <button class="btn" onClick=${cancel}>Discard</button>
-      <button class="btn primary" onClick=${commit}>Paste</button>
+      <button class="btn primary" onClick=${commit}>${s.verb}</button>
     </div>`;
   }
-  // A paste pending goes when what it was worked out from changes: the view, the day, the workbook; or when
+  // A change pending goes when what it was worked out from changes: the view, the day, the workbook; or when
   // another change is previewed in its place.
   effect(() => { Shell.view.value; Shell.time.value; App.version.value; if (staged.peek()) cancel(); });
   let ours = false;
@@ -872,11 +887,12 @@ const Table = (() => {
       ...(c.pattern && !m.red ? ['-', { label: 'Hide', run: () => show(c, false) }, { label: 'Columns', items: columnItems(m) }] : []),
     ]);
   }
+  // A row's menu deletes it, and the other rows selected: pointed at, Delete strikes them through.
   function rowMenu(e, row) {
-    const st = App.state.value, ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
+    const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
     if (!ids.length || App.readOnly.peek() || current.red) return;
-    const what = ids.length === 1 ? (current.isKind ? App.notes.peek().nameOf(st, ids[0]) : count(1, current.noun)) : count(ids.length, current.noun);
-    Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Delete', danger: true, run: () => edit(tx => ids.forEach(id => tx.remove(id)), () => `Deleted ${what}`) }]);
+    const d = deletion(ids);
+    Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Delete', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.make(); } }]);
   }
 
   // ---- Selection: a row selected is the record selected, and the other way round ----
@@ -918,7 +934,8 @@ const Table = (() => {
     if (/^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) return across();
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent();
     if (!cell) return;
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); clear(); }
+    // Delete clears the cells of the range; rows selected whole, by their numbers, it deletes, after the redline.
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); const ids = wholeRows(); if (ids.length) hold(deletion(ids)); else clear(); }
     else if (e.key === ' ' && columnOf(cell)?.type === 'tag') { e.preventDefault(); flip(cell); }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && cell.getField()) {
       const c = columnOf(cell);
@@ -939,7 +956,7 @@ const Table = (() => {
       cells.className = 'cells';
       bar = document.createElement('div');
       el.append(cells, bar);
-      preact.render(html`<${PasteBar} />`, bar);
+      preact.render(html`<${PendingBar} />`, bar);
       cells.addEventListener('keydown', first, true);
       cells.addEventListener('keydown', keydown);
       // Keys arriving from outside (F6 onto the view) go to the rows, not a heading's filter, which would open.
