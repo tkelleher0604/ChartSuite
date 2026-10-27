@@ -113,8 +113,9 @@ async function run() {
     check('the slide is well-formed XML', !tags(doc, 'parsererror').length);
     const sps = tags(doc, 'p:sp'), cxns = tags(doc, 'p:cxnSp');
     const name = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('name'), idOf = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
-    const textOf = el => tags(el, 'a:p').map(p => tags(p, 'a:t').map(t => t.textContent).join('')).filter(Boolean);
-    const shapeOf = b => sps.find(sp => name(sp) === b.texts[0]?.text && j(textOf(sp)) === j(b.texts.map(it => Scene.bind(it.text))));
+    // A paragraph's text, its lines where they're written one by one joined as they were typed; spaces as spaces.
+    const textOf = el => tags(el, 'a:p').map(p => tags(p, 'a:t').map(t => t.textContent).join(tags(p, 'a:br').length ? ' ' : '').replace(/\s/g, ' ')).filter(Boolean);
+    const shapeOf = b => sps.find(sp => name(sp) === b.texts[0]?.text && j(textOf(sp)) === j(b.texts.map(it => it.text.replace(/\s/g, ' '))));
     const PRESET = { rect: 'rect', rounded: 'roundRect', oval: 'ellipse', triangle: 'triangle' };
     const missing = boxes(main).filter(b => { const sp = shapeOf(b); return !sp || tags(sp, 'a:prstGeom')[0]?.getAttribute('prst') !== PRESET[b.shape]; });
     check('every box is a shape of its preset geometry, holding its texts as paragraphs', !missing.length, missing.map(b => b.id).join(', '));
@@ -164,7 +165,7 @@ async function run() {
     const elbows = cxns.filter(c => tags(c, 'a:stCxn').length).map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst'));
     check('lines are elbow connectors, as the scene’s Connector says; the key’s swatches straight', elbows.every(p => /^bentConnector[234]$/.test(p))
       && cxns.filter(c => !tags(c, 'a:stCxn').length && name(c) !== 'Line').every(c => tags(c, 'a:prstGeom')[0].getAttribute('prst') === 'straightConnector1'), [...prsts].join(' '));
-    const gp = cxns.find(c => name(c) === 'General Partner');
+    const gp = cxns.find(c => name(c) === 'General partner');
     check('a dashed line stays dashed, at its weight on the slide, the sheet’s 0.75 pt however small the chart is drawn', tags(gp, 'a:prstDash')[0].getAttribute('val') === 'dash' && tags(gp, 'a:ln')[0].getAttribute('w') === String(Math.round(0.75 * 12700)));
     const labels = lines(main).filter(l => l.labelAt && l.texts.length).flatMap(l => l.texts.map(it => it.text));
     check('each line’s label is a text box beside it', labels.every(t => sps.some(sp => textOf(sp).includes(t))), labels.length);
@@ -187,7 +188,7 @@ async function run() {
       && legends.every(whole) && keys.every(g => rect(g).every((v, i) => Math.abs(v - rect(kids(g)[0])[i]) <= 2)), `${keys.length} groups for ${legends.length} keys`);
     check('no shape goes by PptxGenJS’s name for it, and no stand-in the deck is finished from is left', !sps.some(sp => /^Text \d+$/.test(name(sp)))
       && !(await Promise.all(slides.map(f => zip.file(f).async('string')))).some(x => x.includes('·')), sps.filter(sp => /^Text \d+$/.test(name(sp))).map(name).join(', '));
-    check('a free text shape is itself', sps.some(sp => textOf(sp)[0] === Scene.bind('Calder Ridge Capital Partners III, L.P.') && tags(sp, 'a:rPr')[0].getAttribute('sz') === String(Math.round(2000 * k))));
+    check('a free text shape is itself', sps.some(sp => textOf(sp)[0] === 'Calder Ridge Capital Partners III, L.P.' && tags(sp, 'a:rPr')[0].getAttribute('sz') === String(Math.round(2000 * k))));
     const arrow = cxns.find(c => name(c) === 'Line');
     check('a free line is a connector, its arrowhead at its end; a picture is a picture', arrow && tags(arrow, 'a:tailEnd').length && !tags(arrow, 'a:stCxn').length
       && tags(arrow, 'a:prstGeom')[0].getAttribute('prst') === 'bentConnector2' && tags(doc, 'p:pic').length === 1 && Object.keys(zip.files).some(f => /^ppt\/media\/.+\.png$/.test(f)));

@@ -67,7 +67,9 @@ if (Q.has('y')) Shell.ready.then(() => setTimeout(() => { document.querySelector
 const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms));
 const $ = s => document.querySelector('.inspector ' + s), $$ = s => [...document.querySelectorAll('.inspector ' + s)];
-const rowOf = label => $$('.row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === label);
+// What an element says, its no-break spaces, which bind a name's suffix and numerals, as spaces.
+const spoken = el => el.textContent.replace(/\s/g, ' ');
+const rowOf = label =>$$('.row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === label);
 const st = () => App.state.value, last = () => App.wb.changes().at(-1);
 const N = () => App.notes.value;
 const key = (el, k, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...o }));
@@ -225,7 +227,7 @@ async function run() {
 
   // Two boxes
   Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
-  check('two boxes say what holds between them, each as a sentence', $$('.rr .nm').some(x => x.textContent === 'Fund III Blocker is a close affiliate of the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
+  check('two boxes say what holds between them, each as a sentence', $$('.rr .nm').some(x => spoken(x) === 'Fund III Blocker is a close affiliate of the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
   // Why a formula gives each is the formula bar's reason, cited in full (here a stand-in where the bar's is missing)
   const ownReason = FormulaBar.reason;
   FormulaBar.reason ??= id => App.computed.peek().computed[id] ? { label: App.computed.peek().computed[id].label, cite: `§57(${id.length})`, words: '' } : null;
@@ -245,9 +247,9 @@ async function run() {
   // In the formula bar's words: an owner's list of what it owns named "Investor In" says so here too
   const ownList = App.notes.peek().notes('Name').find(n => n.value === 'Ownership' && !n.param && n.pattern.args?.length === 2);
   App.change(tx => tx.note('Name', ownList.pattern, 'Investor In', { param: 'Owned' })); await tick(60);
-  check('… each said in the formula bar’s words', $$('.rr .nm').some(x => x.textContent === 'Fund III Blocker is an investor in the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
+  check('… each said in the formula bar’s words', $$('.rr .nm').some(x => spoken(x) === 'Fund III Blocker is an investor in the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
   Shell.parts.value.undo.undo(); await tick(60);
-  const rr = $$('.rr').filter(r => r.querySelector('.nm')?.textContent === 'Fund III Blocker is an owner of the BDC');
+  const rr = $$('.rr').filter(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC');
   check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser to /.test(x.textContent))
     && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
   rr[0].querySelector('.tag').click(); await tick();
@@ -303,7 +305,7 @@ async function run() {
   // A deadline: where it is, in words
   const deadline = Object.keys(st()).find(k => st()[k].edge === 'Annual Tax Due' && st()[st()[k].at]?.args);
   Shell.select([deadline]); await tick(60);
-  check('a deadline’s header says where it is in words: its taxpayer, then its tax year', /^\S.*, tax year \d{4}$/.test($('.ih .path')?.textContent ?? '') && !/→/.test($('.ih').textContent), $('.ih')?.textContent);
+  check('a deadline’s header says where it is in words: its taxpayer, then its tax year', /^\S.*, tax year \d{4}$/.test($('.ih .path') ? spoken($('.ih .path')) : '') && !/→/.test($('.ih').textContent), $('.ih')?.textContent);
 
   // An entry in general
   Shell.select(['fund']); await tick();
