@@ -125,6 +125,14 @@ async function session(book, seed) {
       .then(() => { keptAt = now(); local = null; }, e => { local = unkept(e); })
       .finally(() => { writing--; tell(); });
   }
+  // A workbook kept only in this browser is named by its first chart, and follows it when it's renamed; one
+  // in a file or a library is named by the file.
+  let named = null;
+  const follow = () => {
+    const now = wb.charts()[0]?.name;
+    if (book.type === 'browser' && now && book.name === named && now !== named) { book.name = now; db.books.put(book).catch(() => {}); }
+    named = now ?? named;
+  };
   const off = wb.subscribe(cs => {
     const fresh = cs.filter(c => !known.has(c.id));
     if (fresh.length) {
@@ -133,6 +141,7 @@ async function session(book, seed) {
       channel.postMessage({ changes: fresh });
       if (!pulling) later();
     }
+    follow();
     tell();
   });
   // Another tab made changes, which it has kept, or moved where the workbook is kept.
@@ -252,6 +261,7 @@ async function session(book, seed) {
   early.forEach(hear);
   if (seed) wb.merge(seed);
   if (!book.name) { book.name = wb.charts()[0]?.name ?? 'Workbook'; db.books.put(book).catch(() => {}); }
+  named = wb.charts()[0]?.name ?? null;
   sync();
   return self;
 }
