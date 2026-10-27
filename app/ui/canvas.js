@@ -373,7 +373,7 @@ function mount(el) {
     let by = standing.get(scene);
     if (!by) {
       standing.set(scene, by = new Map());
-      for (const m of new Set(scene?.byId.values())) if (m.merged) (by.get(m.merged) ?? by.set(m.merged, [m.merged]).get(m.merged)).push(m.id);
+      for (const m of new Set(scene.byId.values())) if (m.merged) (by.get(m.merged) ?? by.set(m.merged, [m.merged]).get(m.merged)).push(m.id);
     }
     return by.get(id) ?? [id];
   }
@@ -625,7 +625,7 @@ function mount(el) {
     const m = scene.byId.get(id);
     if (!m || still()) return;
     // What's typed over: a record's value as entered, not as the chart reads it; a shape's text as written.
-    let it = null, rect, save, raw, left = null;
+    let it = null, rect, save, raw, escaped = null;
     const view = viewOf(), N = App.notes.peek();
     // A caption typed as the output's own name is no caption.
     const caption = (tx, p, text) => { const c = Tree.clean(text); tx.note('Caption', p, c && c !== Scene.outputName(N, p) ? c : undefined, { view }); };
@@ -664,15 +664,15 @@ function mount(el) {
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
       save = text => App.change(tx => m.geometry === 'text' && !text.trim() ? gone(tx) : tx.update(m.id, legend ? { title: text } : { text }));
-      if (m.geometry === 'text' && !raw?.trim()) left = () => App.change(gone);
+      if (m.geometry === 'text' && !raw?.trim()) escaped = () => App.change(gone);
     }
     if (!it) return;
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, left });
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped });
   }
   // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't (but does
-  // what `left` says), and leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`:
+  // what `escaped` says), and leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`:
   // a new box of a kind.
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, left = null } = {}) {
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null } = {}) {
     over.querySelector('.dc-edit')?.remove();
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
     const ed = document.createElement('div');
@@ -692,7 +692,7 @@ function mount(el) {
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
     let done = false;
-    const finish = ok => { if (done) return; done = true; const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else left?.(); };
+    const finish = ok => { if (done) return; done = true; const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else escaped?.(); };
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (e.key === 'Escape') { e.preventDefault(); finish(false); }
@@ -755,10 +755,9 @@ function mount(el) {
     if (m.shape === 'oval') { const a = ({ n: -1, e: 0, s: 1, w: 2 }[side] + t - 0.5) * Math.PI / 2; return [x + w / 2 * (1 + Math.cos(a)), y + h / 2 * (1 + Math.sin(a))]; }
     if (m.shape === 'triangle') {
       const apex = [x + w / 2, y], right = [x + w, y + h], left = [x, y + h];
-      return { n: along(apex, t < 0.5 ? left : right, Math.abs(t - 0.5) * 2 * APEX), e: along(apex, right), s: along(right, left), w: along(left, apex) }[side];
+      return side === 'n' ? along(apex, t < 0.5 ? left : right, Math.abs(t - 0.5) * 2 * APEX) : along(...{ e: [apex, right], s: [right, left], w: [left, apex] }[side]);
     }
-    const sides = { n: [[x, y], [x + w, y]], e: [[x + w, y], [x + w, y + h]], s: [[x + w, y + h], [x, y + h]], w: [[x, y + h], [x, y]] };
-    return along(...sides[side]);
+    return along(...{ n: [[x, y], [x + w, y]], e: [[x + w, y], [x + w, y + h]], s: [[x + w, y + h], [x, y + h]], w: [[x, y + h], [x, y]] }[side]);
   }
   // A box's outline as a polygon, to say how near a point is to it.
   const outlineOf = m => m.shape === 'triangle' || m.shape === 'oval' ? [...['e', 's', 'w'], ...(m.shape === 'oval' ? ['n'] : [])].flatMap(s => [0, 0.25, 0.5, 0.75].map(t => sidePoint(m, s, t)))
@@ -1053,7 +1052,7 @@ function mount(el) {
     // Placed on the page, kept as the chart's own (see place).
     if (row.x !== undefined) [row.x, row.y] = own(row.x, row.y);
     if (row.points) row.points = row.points.map(([x, y]) => own(x, y));
-    const add = r => { let id = null; if (!App.change(tx => { id = tx.add('shape', r); })) return null; Shell.select([id]); return id; };
+    const add = it => { let id = null; if (!App.change(tx => { id = tx.add('shape', it); })) return null; Shell.select([id]); return id; };
     if (!typing) return add(row);
     Shell.select([]);
     openEditor({ look: typing.look }, at, '', text => { if (text.trim()) add({ ...row, text }); }, { multiline: true, grow: !!typing.auto });
