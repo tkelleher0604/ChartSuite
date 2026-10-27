@@ -62,6 +62,20 @@ const FormulaBar = (() => {
     const g = groundOf(Rv, id);
     return g && ((clause && g.rows.find(r => Tree.same(r.label, clause))) || g.rows[0]);
   }
+  // Where the rows rule a record out (its output, or theirs where an entry overrides them), what held and what
+  // failed (see whyNot), which the sentence says and the chart outlines; once per working-out.
+  const nots = new WeakMap();
+  function notsOf(Rv, id) {
+    if (!nots.has(Rv)) nots.set(Rv, new Map());
+    const memo = nots.get(Rv);
+    if (!memo.has(id)) {
+      const c = Rv.covered[id], g = reasonOf(Rv, id), d = defOfRecord(Rv, id);
+      let no = null;
+      try { no = g && d && (c && !c.agrees ? c.value === false : Rv.records[id]?.tag === false) ? whyNot(Rv, d, g, id) : null; } catch {}
+      memo.set(id, no);
+    }
+    return memo.get(id);
+  }
   // The clause a row cites of a record it reads: a label of that record's rows, after a dot, just after the part.
   function clauseOf(Rv, id, text, p) {
     const m = /^\s*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))/.exec(String(text ?? '').slice(p.to)), c = m && (m[1] ?? m[2]);
@@ -273,7 +287,9 @@ const FormulaBar = (() => {
         if (p.id) { put(p.id, c, 0, cl); put(items.get(p.id), c, 0); if (Rv.computed[p.id]) deep(p.id, c, cl); }
         (p.items ?? []).forEach(walk);
       };
-      g.parts.forEach(walk);
+      // Where the rows rule it out, what the sentence says: what held and what failed, not what a list held.
+      const no = notsOf(Rv, m.id);
+      (no ? [...no.held, ...no.failed].flatMap(x => x.parts ?? []) : g.parts).forEach(walk);
     }
     if (m.err) {
       // The loop: every record the definition would give that shows this error, and what closes it here.
@@ -432,8 +448,7 @@ const FormulaBar = (() => {
     const held = [], failed = [], spanned = (ps, n) => ps.filter(p => p.from >= n.from && p.to <= n.to);
     const truth = (n, lets) => ask(Rv, d, id, lets, n.text, '←')?.value === true;
     const attests = sk => sk?.k === 'IF' && sk.kids.length === 2 && /^TRUE$/i.test(sk.kids[1]?.text ?? '') ? sk.kids[0] : null;
-    d.rows.forEach((row, i) => {
-      if (i > g.row) return;
+    d.rows.slice(0, g.row + 1).forEach((row, i) => {
       const sk = skeleton(row.formula), own = i === g.row, cond = own ? sk : Formulas.splitFormula(row.formula).kind === 'implies' ? sk : attests(sk);
       if (!cond) return;
       const names = own ? null : Formulas.evaluateRow(Rv, d.id, i, id)?.names ?? [];
@@ -469,11 +484,10 @@ const FormulaBar = (() => {
     if (within(wanted).length) return [{ parts: [...parts, ...within(wanted)] }];
     const v = ask(Rv, d, id, lets, found.text)?.value, w = ask(Rv, d, id, lets, wanted.text)?.value, recs = Rv.records;
     const pct = /%/.test(wanted.text) || parts.some(p => recs[p.id]?.field === 'percent'), one = parts.length === 1 && !parts[0].items?.length;
-    const said = (n.k === 'IN' || n.op === '=') && v?.t === 'rec' && v.id ? notOf(recs[v.id], w, pct) : null;
-    const op = found === x ? n.op : { '<': '>', '>': '<', '<=': '>=', '>=': '<=' }[n.op] ?? n.op;
-    const miss = { '=': `not ${either([w].flat().map(z => show(z, pct)))}`, IN: `not ${either([w].flat().map(z => show(z, pct)))}`,
-      '>': `${show(w, pct)} or less`, '>=': `less than ${show(w, pct)}`, '<': `${show(w, pct)} or more`, '<=': `more than ${show(w, pct)}` }[n.k === 'IN' ? 'IN' : op];
-    if (said && one) return [{ parts, not: { ids: [v.id], text: said } }];
+    // What it missed by: not what it wanted, or the other side of the line it had to cross.
+    const op = n.k === 'IN' ? '=' : found === x ? n.op : { '<': '>', '>': '<', '<=': '>=', '>=': '<=' }[n.op] ?? n.op;
+    const miss = { '=': `not ${either([w].flat().map(z => show(z, pct)))}`, '>': `${show(w, pct)} or less`, '>=': `less than ${show(w, pct)}`, '<': `${show(w, pct)} or more`, '<=': `more than ${show(w, pct)}` }[op];
+    if (op === '=' && one && v?.t === 'rec' && v.id) return [{ parts, not: { ids: [v.id], text: notOf(recs[v.id], w, pct) } }];
     return [{ parts, then: miss && (one ? miss : `${show(v, pct)}, ${miss}`) }];
   }
   // What a value isn't, said as the fact says what it is: a role with its article (not a managing member).
@@ -631,7 +645,7 @@ const FormulaBar = (() => {
     // that reads nothing, gives because the rows before it gave nothing: its facts are what those rows read.
     const text = d.rows[g.row]?.formula ?? '', seen = new Set(), loc = recs[id].at, read = i => Formulas.evaluateRow(Rv, d.id, i, id)?.names ?? [];
     const at = loc && !isObj(recs[loc]) && read(g.row).some(n => text.slice(n.from, n.to) === '@' && n.ids.length === 1 && n.ids[0] === loc) ? [{ id: loc }] : [];
-    const no = (would ?? recs[id]).tag === false ? whyNot(Rv, d, g, id) : null, otherwise = !no && !g.parts.length && g.row > 0;
+    const no = notsOf(Rv, id), otherwise = !no && !g.parts.length && g.row > 0;
     const parts = no ? [...at, ...no.held.flatMap(h => h.parts)] : !otherwise ? [...at, ...g.parts] : d.rows.slice(0, g.row).flatMap((_, i) => read(i)).flatMap(x => x.ids.map(y => ({ id: y })));
     // The records read, each said with the entries read at it, as one fact: a relation with its percentage.
     const gather = ps => {
