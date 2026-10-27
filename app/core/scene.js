@@ -28,8 +28,8 @@ const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, sa
 // on) says otherwise, its chart `scale` times its own size: the largest twentieth at which it fits, so that its
 // points stay on PowerPoint's half points and change only in steps. The page is the sheet in the chart's own
 // pixels, the sheet's size over the scale. Its furniture is the sheet's, at the sheet's size: its title and
-// its date at its top left margin, and its Key beside the title, top right, where it fits there, or else 24 pt
-// under the chart, right-aligned to it.
+// its date at its top left margin, and its Key 24 pt under the chart, right-aligned to it, or beside the title,
+// top right, where that draws the chart larger.
 const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
 const MARGIN = 48;
@@ -1329,7 +1329,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
   }
   const meets = (a, b, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
   const fits = r => r.x >= M - 0.5 && r.y >= M - 0.5 && r.x + r.w <= W - M + 0.5 && r.y + r.h <= H - M + 0.5;
-  const at = (s, force) => {
+  const at = (s, force, footed = false) => {
     const u = 1 / s, shapes = rows.map(r => freeShape(r, said.get(r.id), u)), places = new Map();
     for (const m of shapes) if (m.geometry === 'legend') layoutLegend(m, legendRows, u);
     const byPage = m => !!m && placedBy(rows.find(r => r.id === m.row));
@@ -1352,7 +1352,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     if (!force && boxes.length && !fits(R(top))) return null;
     if (key) {
       // Beside the title, its captions wrapping to the room there, where the chart is clear of it, moved toward
-      // the left as far as it must be, or can start under it.
+      // the left as far as it must be, or can start under it; unless it goes at the chart's foot (`footed`).
       const room = W - M - 32 - Math.max(M, ...[title, date].filter(Boolean).map(m => M - INSET + ((m.column?.x ?? 0) + widest(m.texts)) * s));
       let side = key;
       if (key.auto && key.w * s > room && room >= key.columns * (30 + 8 + 80 + 16) + 24) {
@@ -1361,7 +1361,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         layoutLegend(side, legendRows, u);
       }
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
-      if (r.w <= room + 0.5 && fits(r)) {
+      if (!footed && r.w <= room + 0.5 && fits(r)) {
         const under = Math.max(top, r.y + r.h + 32), by = Math.max(0, ...set(top).filter(q => q.y < r.y + r.h + 21).map(q => q.x + q.w + 21 - r.x));
         const left = R(top).x - by >= M - 0.5 ? by / s : 0;
         dx -= left;
@@ -1400,7 +1400,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     const foot = Math.max(R(top).y + R(top).h, alongside ? alongside.y + alongside.h : -Infinity), down = boxes.length && !force ? Math.max(0, (H - M - foot) / 2) : 0;
     if (alongside) alongside.y += down;
     for (const [id, p] of places) places.set(id, { x: p.x / s, y: p.y / s });
-    return { s, dx, dy: boxes.length ? (top + down) / s - E.y : 0, shapes, places };
+    return { s, dx, dy: boxes.length ? (top + down) / s - E.y : 0, shapes, places, titled: !!key && !alongside && places.has(key.row) };
   };
   if (last) {
     const kept = at(last.page.scale, true);
@@ -1409,7 +1409,8 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
   }
   // No larger than the chart alone would fit at.
   const E = bounds(rects), most = !boxes.length ? 1 : Math.min((W - 2 * M + 0.5) / Math.max(1, E.w), (H - 2 * M + 0.5) / Math.max(1, E.h));
-  for (const s of SCALES.filter(s => s <= most + 1e-9)) { const f = at(s); if (f) return f; }
+  // The Key at the chart's foot, as one block with it, where the chart is drawn as large so; or else beside the title.
+  for (const s of SCALES.filter(s => s <= most + 1e-9)) { const f = at(s); if (f) return f.titled ? at(s, false, true) ?? f : f; }
   // Too big for any of them: as large as the chart fits.
   return at(Math.max(0.005, Math.min(0.05, most)), true);
 }

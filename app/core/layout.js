@@ -536,7 +536,7 @@ function land(geo, lines, frames) {
 // (whether it runs down from its Above side, so an arrowhead would say nothing). A line going down (or up)
 // leaves its box's bottom (or top), turns along a lane just past it, and drops onto the box it reaches, where
 // lines arrive spread across the top in the order of where they start, so they don't cross there.
-// - A triangle's apex takes the chart's main relation, ownership, all its lines meeting there. A line of
+// - A triangle's apex takes the chart's main relation, ownership (see `main`), all its lines meeting there. A line of
 //   another, like a general partner's, comes down beside it and meets its side at mid-height, the lane it
 //   comes along kept 16 pt clear of the apexes it passes; where the box it leaves sits too close above for
 //   that, its trunk leaves the box's side instead.
@@ -568,7 +568,10 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   geo = new Map(geo);
   if (frames.length) land(geo, lines, frames);
   const G = id => geo.get(id);
-  const looks = groupBy(lines, l => l.trunk), main = [...looks.entries()].sort((a, b) => b[1].length - a[1].length)[0]?.[0];
+  // The main relation: the one most lines draw; of as many, the one more of whose lines say more than its name, as
+  // an owner's say its percentage and a general partner's only what it is.
+  const says = ls => ls.filter(l => l.label && !l.label.shared).length;
+  const looks = groupBy(lines, l => l.trunk), main = [...looks.entries()].sort((a, b) => b[1].length - a[1].length || says(b[1]) - says(a[1]))[0]?.[0];
   for (const l of lines) {
     const s = G(l.from), t = G(l.to);
     l.points = null;

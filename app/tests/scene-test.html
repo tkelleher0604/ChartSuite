@@ -218,6 +218,16 @@ function run() {
     const panels = forty.marks.filter(m => m.type === 'frame' && !m.lone);
     check('… lays 40 Act’s frames out as a column of panels, one over another, sharing their sides', panels.length === 4 && new Set(panels.map(f => Math.round(f.x))).size === 1
       && panels.every((f, i) => panels.every((g, k) => i === k || f.y + f.h <= g.y || g.y + g.h <= f.y)), j(panels.map(f => [f.caption.text, Math.round(f.x), Math.round(f.y)])));
+    // A fund, its GP and its investors alone, one line of each relation: the owners' takes the apex, the GP's
+    // the side, as a formation chart has them.
+    const small = fresh(), whole = scene(small);
+    edit(small, (tx, N) => {
+      for (const m of whole.marks.filter(m => m.type === 'box' && !['fund', 'gp', 'inv_us'].includes(m.id))) tx.note('Shown', Tree.treeOf(worked(small), m.record), false, { view: MAIN });
+      for (const n of N.notes('Position')) if (n.view === MAIN) tx.remove(n.note);
+    });
+    const three = scene(small), apex = l => { const t = three.byId.get('fund'), [x, y] = l.points.at(-1); return Math.abs(x - t.x - t.w / 2) < 0.5 && Math.abs(y - t.y) < 0.5; };
+    check('… and in a chart of a fund, its GP and its investors, the investors’ line takes the apex, the GP’s the side', apex(three.byId.get('own_us_fund')) && !apex(three.byId.get('gp_of_fund')),
+      j(['own_us_fund', 'gp_of_fund'].map(id => three.byId.get(id)?.points.at(-1))));
     const scales = [main, forty, fund3, control].map(s => s.page.scale);
     check('… and draws every sample view at 0.7 or more on its slide, its names at 7 pt or more', scales.every(s => s >= 0.7), j(scales));
     // The same records, in another order in the state, draw the same picture; so Undo, which puts what it
@@ -360,19 +370,18 @@ function run() {
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));
     check('the chart starts 24 pt under the date', placed.every(p => p.top >= p.d.y + p.d.h - 4.8 + 32 - 0.5), j(placed.map(p => [p.top, p.d.y + p.d.h - 4.8 + 32])));
     const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-    check('the Key is beside the title where it fits there: 40 Act and Management and control, top right', [1, 3].every(i => Math.abs(placed[i].k.x + placed[i].k.w - 1232) < 1 && Math.abs(placed[i].k.y - 48) < 0.5), j([1, 3].map(i => placed[i].k)));
-    check('… or 24 pt under the chart, right-aligned to it, at the foot of what’s over it', [0, 2].every(i => {
+    check('the Key is 24 pt under the chart, right-aligned to it, at the foot of what’s over it', [0, 2, 3].every(i => {
       const p = placed[i], over = p.chart.filter(r => r.x < p.k.x + p.k.w && r.x + r.w > p.k.x);
       return Math.abs(p.k.x + p.k.w - p.right) < 1 && p.k.y >= Math.max(...over.map(r => r.y + r.h)) + 32 - 0.5 && p.k.y + p.k.h <= 672.5;
-    }), j([0, 2].map(i => [placed[i].k, placed[i].right])));
+    }), j([0, 2, 3].map(i => [placed[i].k, placed[i].right])));
+    check('… or beside the title, top right, where that draws the chart larger: 40 Act', Math.abs(placed[1].k.x + placed[1].k.w - 1232) < 1 && Math.abs(placed[1].k.y - 48) < 0.5, j(placed[1].k));
     check('nothing drawn overlaps the title, the date or the Key', placed.every(p => !p.chart.some(r => meets(r, p.t) || meets(r, p.d) || meets(r, p.k))));
-    // A short chart is set in the middle of the room under the date, as across the sheet: Management and
-    // control, its Key beside the title.
+    // A short chart is set in the middle of the room under the date, with its Key, as across the sheet: Management
+    // and control, so no band of the page is empty under the title.
     const mc = placed[3], s3 = sc[3], ruled = s3.marks.filter(m => m.type === 'line').flatMap(l => l.points.map(([x, y]) => ({ x: on(s3, x), y: on(s3, y), w: 0, h: 0 })));
-    const reach = [...mc.chart, ...ruled], left = Math.min(...reach.map(r => r.x)), right = Math.max(...reach.map(r => r.x + r.w));
-    const under = Math.max(mc.d.y + mc.d.h - 4.8 + 32, mc.k.x < right && mc.k.x + mc.k.w > left ? mc.k.y + mc.k.h + 32 : 0);
+    const reach = [...mc.chart, ...ruled, mc.k], under = mc.d.y + mc.d.h - 4.8 + 32;
     const top = Math.min(...reach.map(r => r.y)), bottom = Math.max(...reach.map(r => r.y + r.h));
-    check('a short chart sits in the middle of the room under the title, its date and a Key over it', Math.abs((top - under) - (720 - 48 - bottom)) < 1 && top - under > 20,
+    check('a short chart sits with its Key in the middle of the room under the title and its date', Math.abs((top - under) - (720 - 48 - bottom)) < 1 && top - under > 20,
       j({ above: top - under, below: 720 - 48 - bottom }));
     // One output's own caption is its own group's: Management and control captions the BDC alone.
     const own = Scene.groupsOf(wb.notes(C), 'view_control'), bdcRow = own.find(g => g.caption === 'Business development company'), structure = Scene.groupsOf(wb.notes(C), MAIN);
