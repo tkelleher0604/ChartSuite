@@ -15,7 +15,7 @@ Edges keep their labels; argument order doesn't matter.
 
 **Notes**: `{ note: id, label, pattern, view?, param?, value }`. `view` is a View object's id. `param` names one of a relation pattern's edges: the Name there is that role's list name (Owners), the Order its place among the edges. Labels: Name, Description, Order, Required, Check (TRUE at a definition whose ruled-out records are problems, as Required makes a blank one), Start, End, Formula, Shown, Caption, Position, the format properties (Shape, Fill, Outline, Weight, Dash, Frame, Layer, Arrow, Connector, Above, Font, Size, Bold, Italic, Underline, Color, Align, Format: `Notes.FORMATS`), and a view's own, at its View object: Layout (`{ rows }` for a table, its rows a kind `{ kind }`, a relation's edges, or a datatype; none for a chart), As Of (the day it keeps) and Page. A Formula note's value is its rows, `[{ label, formula }]`; a Position is `{ x, y, w }`, with `loose: true` where it was only a first place (a box added by a double-click) that gives way to the layout once a line relates it.
 
-**Rows and changes.** A row is a version of an item and names the item under its type: `{ id, chart, name }`, `{ id, spec, tree }`, `{ id, record, …record }`, `{ id, note, …note }`, `{ id, shape, … }` (a shape mustn't use those five keys). A change is `{ id, who, when, chart, removes: [row id], adds: [row], reverses? }`. A row is live if added and not removed. The file is `{ "dendra": 1, "changes": [...] }`.
+**Rows and changes.** A row is a version of an item and names the item under its type: `{ id, chart, name }`, `{ id, spec, tree }`, `{ id, record, …record }`, `{ id, note, …note }`, `{ id, shape, … }` (a shape mustn't use those five keys). A change is `{ id, who, when, chart, removes: [row id], adds: [row], reverses?, restores? }`: `reverses` names the change it reverses, and `restores` the change that deleted an item it restores. A row is live if added and not removed. The file is `{ "dendra": 1, "changes": [...] }`.
 
 ## Tree
 
@@ -54,7 +54,7 @@ Reading, per chart:
 - `wb.at(moment)`: the log as it stood then, a workbook.
 - `wb.schema(chart)`: spec items with every version of every live record, closed. `wb.notes(chart)`: the Notes reader.
 - `wb.rows(chart)` (live), `wb.item(chart, id)` (an item's live rows, earliest first), `wb.charts()` (live chart rows), `wb.changes()` (all, by time).
-- `wb.deleted(chart)` → `[{ item, type, rows, change }]`: items with rows and none live, and the change that removed them.
+- `wb.deleted(chart)` → `[{ item, type, rows, change }]`: items with rows and none live, each with the change that deleted it (the last to remove one of its rows) and the rows it removed.
 - `wb.disagreements(chart)` → `[{ rows: [{ row, who, when, change }] }]`: live rows that disagree, versions of one item that differ and are valid on a common day, or records of two items with one argumentation; each group earliest first.
 
 Changing:
@@ -63,7 +63,8 @@ Changing:
   - With none ("Today"): setting corrects the version in force, keeping its period, and removing deletes, taking along the item's dependents, the notes at it, and a view's notes and shapes.
   - `rename` reaches every tree narrower than p: records (all versions), specifications, notes' patterns, list names and a table's rows. Wherever a name changes (a label, a kind, an option, or a Name note's value: a relation's name or a list's), every Formula row citing it is renamed too, where formulas.js offers `renameName`. `moveUp` reaches the same trees.
 - `wb.apply(change)`: the change, or why not. Refused if it removes a row that isn't live, or newly breaks the timeline (two records with one argumentation valid on a common day), a location, or the schema's conditions.
-- `wb.reverse(changeId, who)`, the reverse of a change, and `wb.canReverse(changeId)`: what Undo and Redo, which a window keeps for itself, and Restore make. A change can be reversed while rows equal to the ones it added are live, so reversing several changes to one record in turn works.
+- `wb.reverse(changeId, who)`, the reverse of a change, and `wb.canReverse(changeId)`: what Undo and Redo, which a window keeps for itself, and undoing an older change make. A change can be reversed while rows equal to the ones it added are live, so reversing several changes to one record in turn works.
+- `wb.restore(chart, item, who)`: restores an item deleted, as a change that removes nothing. It adds fresh copies of the rows the change that deleted it removed of it and of what was at it then: the records located at it, at any depth, and the notes and shapes at those (a deleted view's notes and shapes too). Whatever else that change did stands, so restoring one payment a revision removed brings back that payment and nothing more. What was at it and is also at something still deleted stays deleted, and comes back with that. The change, or a sentence saying why not (an item can't come back without what it's at: "Something it’s at no longer exists."), or null if the item isn't deleted.
 - `wb.merge(other)`: takes in another log's changes (a workbook, JSON or an array): the union. `wb.subscribe(fn)` → unsubscribe; `fn(changes)` runs after each apply or merge.
 - `JSON.stringify(wb)` saves; `Log.open(text)` loads.
 

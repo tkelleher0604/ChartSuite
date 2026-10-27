@@ -22,7 +22,7 @@ An **item** is anything in a workbook with an identity: a chart, a specification
 
 A **change** removes some rows and adds others, and says who made it and when. A **log** is a set of changes in which every row removed was added by a change in the log. A row is **live** if it was added and not removed. **A workbook is its log**: its timeline, notes, views and charts are its live rows.
 
-The **reverse** of a change removes the rows it added and adds fresh copies of the rows it removed; it can be made while every row the change added is live. **Undo** reverses your latest change not yet reversed, and **Redo** your latest undo, if you have made no change since. Reversing an older change is **restoring** it. An item is **deleted** when it has rows in the log and none live.
+The **reverse** of a change removes the rows it added and adds fresh copies of the rows it removed; it can be made while every row the change added is live. **Undo** reverses your latest change not yet reversed, and **Redo** your latest undo, if you have made no change since. An item is **deleted** when it has rows in the log and none live. **Restoring** it adds fresh copies of what the change that deleted it removed of it and of what was at it, and nothing else that change did; it can be made while what the item is at is live.
 
 The **union** of two logs is a log, and taking unions is commutative, associative and idempotent. Saving anywhere is therefore: read the copy there, take the union, write it back. Live rows that break the timeline's condition **disagree**; only changes made without seeing each other can, and a person settles it by keeping one, which is a change.
 
@@ -122,7 +122,7 @@ The window has three coordinates, and every screen is a setting of them:
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The title bar** holds the chart menu (the workbook's charts and a new one, the workbooks this browser keeps, files, History, Settings, light and dark, the tour), Find, the date, Undo and Redo, and Export.
+**The title bar** holds the chart's name, renamed in place as a sheet is, and the chart menu (the workbook's charts and a new one, the workbooks this browser keeps, files, History, Settings, light and dark, the tour), Find, the date, Undo and Redo, and Export.
 
 **The format bar** shows on a chart. A change applies to the selection, as in PowerPoint; a scope chip says so ("This box", "These 3 boxes"), and its menu offers each group of a style that reaches the selection, named as the Key names it, with its reach ("Funds (6)"). A choice pointed at is previewed on the chart.
 
@@ -144,7 +144,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Pending changes are redlined** before they are made, as lawyers' comparison software shows them: what would appear in blue, what would go struck through in red. Hovering a tag, typing a value, typing a formula and deleting a row all preview this way; Enter commits, Esc discards.
 
-**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. History lists the log, a change and its Undo as one, struck, and shows every view as it stood after a change, with Restore.
+**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. History lists the log, a change and its Undo as one, struck, and shows every view as it stood after a change, which can be undone from there; and what's deleted, each with Restore.
 
 **Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
 

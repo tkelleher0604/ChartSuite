@@ -232,6 +232,40 @@ function run(json) {
     check('one reverse brings all of it back', w.rows(C).length === rows && w.asOf(C, TODAY).own_fund_npine_pct?.value === 0.64 && w.notes(C).position(tree('northpine'), 'view_main'));
   }
 
+  // ---- Restoring an item deleted: it, and what was at it, and nothing else its deletion did ----
+  {
+    const w = fresh(), years = () => Object.values(w.asOf(C, TODAY)).filter(r => r.kind === 'Tax Year').length, live = () => w.rows(C).length;
+    const paid = w.deleted(C).find(d => d.item === 'fund_juris_tax'), revision = w.changes().find(c => c.id === paid.change);
+    const y0 = years(), n0 = live(), r = w.restore(C, 'fund_juris_tax', WHO);
+    check('restoring one payment a revision removed brings back that payment, every version of it, and nothing more', typeof r === 'object' && !r.removes.length && r.restores === revision.id
+      && r.adds.length === paid.rows.length && r.adds.every(x => x.record === 'fund_juris_tax' && !paid.rows.some(p => p.id === x.id)) && live() === n0 + paid.rows.length
+      && w.asOf(C, TODAY).fund_juris_tax?.value === '2026-05-27' && w.asOf(C, '2025-01-01').fund_juris_tax?.value === '2024-05-29', j(r).slice(0, 200));
+    check('… the rest of the revision stands: its tax years, and the other payments it removed', years() === y0 && y0 > 0 && ['gp_juris_tax', 'mgmt_juris_tax', 'holdco_juris_tax', 'fund3a_juris_tax'].every(id => w.deleted(C).some(d => d.item === id)));
+    check('an item not deleted isn’t restored', w.restore(C, 'fund', WHO) === null && w.restore(C, 'fund_juris_tax', WHO) === null);
+    const n1 = live();
+    commit(w, tx => tx.remove('northpine'));
+    const npine = w.restore(C, 'northpine', WHO);
+    check('an entity restored comes back with what was at it: its entries, relations and notes', live() === n1 && npine.restores && w.asOf(C, TODAY).own_fund_npine_pct?.value === 0.64
+      && w.asOf(C, TODAY).northpine_name && w.notes(C).position(tree('northpine'), 'view_main'));
+    w.reverse(npine.id, WHO);
+    check('… its undoing deletes it again, as the restore’s reverse', !w.asOf(C, TODAY).northpine && w.deleted(C).find(d => d.item === 'northpine')?.change === w.changes().at(-1).id);
+    w.restore(C, 'northpine', WHO);
+    // A relation at two things deleted apart: it went with the first, and can come back once both are there.
+    const chen = commit(w, tx => tx.remove('chen'));
+    commit(w, tx => tx.remove('northpine'));
+    w.restore(C, 'chen', WHO);
+    check('what was at it and at something still deleted stays deleted', w.asOf(C, TODAY).chen && !w.asOf(C, TODAY).pos_chen_npine && w.deleted(C).find(d => d.item === 'pos_chen_npine')?.change === chen.id);
+    w.restore(C, 'northpine', WHO);
+    check('… and once both are there, comes back by itself', w.asOf(C, TODAY).northpine && !w.asOf(C, TODAY).pos_chen_npine && w.restore(C, 'pos_chen_npine', WHO)?.restores === chen.id && w.asOf(C, TODAY).pos_chen_npine);
+    // An entry deleted before what it's at can't come back without it.
+    commit(w, tx => tx.remove('fund_file'));
+    commit(w, tx => tx.remove('fund_juris'));
+    const m = w.changes().length, alone = w.restore(C, 'fund_file', WHO);
+    check('an item whose place is gone can’t come back alone, and nothing is changed', alone === 'Something it’s at no longer exists.' && w.changes().length === m, alone);
+    w.restore(C, 'fund_juris', WHO);
+    check('… until its place is back', !w.asOf(C, TODAY).fund_file && w.restore(C, 'fund_file', WHO)?.restores && w.asOf(C, TODAY).fund_file?.value === '7351234');
+  }
+
   // ---- Checks on a change ----
   {
     const w = fresh(), add = r => commit(w, tx => tx.add('record', r));
