@@ -341,7 +341,9 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // app's own and never drawn.
   const marks = new Map(), own = new Map();
   const addMark = m => { marks.set(m.id, m); (own.get(m.record) ?? own.set(m.record, []).get(m.record)).push(m); return m; };
-  const ids = Object.keys(state).filter(id => !Tree.isView(state[id]) && (standing(id) || tree(id)));
+  // The records in order of their ids, not of where they stand in the state, so the same records always draw
+  // the same picture: a record restored by Undo comes back where it was.
+  const ids = Object.keys(state).filter(id => !Tree.isView(state[id]) && (standing(id) || tree(id))).sort();
   // What each record's notes give, landing on the nearest mark up the tree that has the property.
   const formats = new Map(ids.map(id => [id, work(id).formats]));
   // A two-sided relation's ends as its line runs, from its Above side, the edge drawn on top, to the other.
@@ -551,18 +553,26 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   // The key is of what the view draws: what's revealed for a while doesn't change it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
+  // Boxes a style fills alike, one row of the Key, are a class: peers the layout sets in one tier where it can.
+  // Where the Key has fewer than two such rows, the fill tells nothing apart, and nothing is.
+  const rowOf = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.key])));
+  const classOf = new Map(boxes.map(b => { const n = b.settings.Fill.note; return [b.id, n && n.view === view && !idsIn(n.pattern).size ? rowOf.get(key(n.pattern)) ?? null : null]; }));
+  if (new Set([...classOf.values()].filter(Boolean)).size < 2) classOf.clear();
+  // The room the chart has on its sheet, as the layout fills it: within the margins, under the title and date.
+  const furniture = shapeRows.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).reduce((h, r) => h + freeShape(r, said.get(r.id)).h, 0);
+  const room = { w: sheet.w - 2 * MARGIN, h: sheet.h - 2 * MARGIN - (furniture && furniture - INSET - PAD + 32) };
   let heights = null;
   const lay = squeeze => {
     for (const b of boxes) size(b, squeeze);
     for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => Math.round(b.w)).values()) level(ts);
     const placed = Layout.arrange({
       keep: last?.at ?? null,
-      boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape })),
-      links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to })),
+      boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
+      links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk })),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
       obstacles: obstaclesOf(shapeRows, last?.page.offset),
       clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
-      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: sheet, bounds: last?.page ?? null,
+      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level).
@@ -1045,12 +1055,13 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     let top = title || date ? y - PAD + 32 : M;
     // The chart, with what's placed by hand, set across the middle with its top at `top`: as rects on the sheet.
     const drawn = [...rects, ...shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x, y: m.y, w: m.w, h: m.h }))], E = bounds(drawn);
-    const dx = boxes.length ? (W - E.w * s) / 2 / s - E.x : 0, set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s }));
+    let dx = boxes.length ? (W - E.w * s) / 2 / s - E.x : 0;
+    const set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s }));
     const R = t => ({ x: (E.x + dx) * s, y: t, w: E.w * s, h: E.h * s });
     if (!force && boxes.length && !fits(R(top))) return null;
     if (key) {
-      // Beside the title, its captions wrapping to the room there, where the chart is clear of it or can start
-      // under it.
+      // Beside the title, its captions wrapping to the room there, where the chart is clear of it, moved toward
+      // the left as far as it must be, or can start under it.
       const room = W - M - 32 - Math.max(M, ...[title, date].filter(Boolean).map(m => M - INSET + ((m.column?.x ?? 0) + widest(m.texts)) * s));
       let side = key;
       if (key.auto && key.w * s > room && room >= key.columns * (30 + 8 + 80 + 16) + 24) {
@@ -1060,9 +1071,14 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       }
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
       if (r.w <= room + 0.5 && fits(r)) {
-        const under = Math.max(top, r.y + r.h + 32);
+        const under = Math.max(top, r.y + r.h + 32), by = Math.max(0, ...set(top).filter(q => q.y < r.y + r.h + 21).map(q => q.x + q.w + 21 - r.x));
+        const left = R(top).x - by >= M - 0.5 ? by / s : 0;
+        dx -= left;
         if (!set(top).some(q => meets(q, r, 21))) places.set(key.row, r);
-        else if (fits(R(under)) || (force && boxes.length)) { places.set(key.row, r); top = under; }
+        else {
+          dx += left;
+          if (fits(R(under)) || (force && boxes.length)) { places.set(key.row, r); top = under; }
+        }
         if (places.has(key.row)) shapes[shapes.indexOf(key)] = key = side;
       }
       if (!places.has(key.row)) {
