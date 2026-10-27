@@ -128,7 +128,7 @@ The window has three coordinates, and every screen is a setting of them:
 
 **The formula bar** is one row, as Excel's is: the selection's output, its name, and the row that gave it; with nothing selected, the view's name. Its definition's rows drop over the view (the chevron, or Ctrl+Shift+U), headed by why, in a sentence of the facts that fired, each one a link ("… is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person (§2(a)(3)(A)), so it is a remote affiliate (§57(e)(1)(A))"); a result ruled out says the condition that held, then, after "but", what failed ("… signs for Fund III with a capacity of Managing Member, but is a member, not a managing member, of GP III, so Capacity Held does not hold"); the rows that hold are in ink and the rest grey. Each name in a row takes a color, and what it means here is outlined on the chart in that color; deeper reasons are the same hue, lighter, down to entered records, even ones the view hides. Hovering part of a formula shows its value here. Clicking a computed line steps down into the clause its parent cited, with a breadcrumb back. The definition is edited here.
 
-**The view.** Views are sheet tabs, dragged to reorder. A chart view is a page of shapes: select, marquee, move, resize, guides, align, order, group, nudge, copy and paste, the format painter, as in PowerPoint. Dragging from a box's edge to another box shows what holds between the two, in sentences, with any other relation they could be in one step away. A table view is a grid edited like Excel, pasting included.
+**The view.** Views are sheet tabs, dragged to reorder. A chart view is a page of shapes: select, marquee, move, resize, guides, align, order, group, nudge, copy and paste, the format painter, as in PowerPoint. Dragging from a box's edge to another box shows what holds between the two, in sentences, with any other relation they could be in one step away. A table view is a grid edited like Excel, pasting included, that scrolls across under its first column rather than cut a name.
 
 **The inspector** shows whatever is selected:
 
@@ -144,7 +144,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Pending changes are redlined** before they are made, as lawyers' comparison software shows them: what would appear in blue, what would go struck through in red. Hovering a tag, typing a value, typing a formula and deleting a row all preview this way; Enter commits, Esc discards.
 
-**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. History lists the log and shows every view as it stood after a change, with Restore.
+**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. History lists the log, a change and its Undo as one, struck, and shows every view as it stood after a change, with Restore.
 
 **Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
 

@@ -259,7 +259,7 @@ async function run() {
   // ---- The Ownership table, and a closing schedule pasted from Excel ----
   await addTable('Relations', 'Ownership');
   const own = Shell.view.peek(), ownRows = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).length;
-  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Percentages In Range,Voting Percentage', Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
+  check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Voting Percentage', Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
   Shell.at({ asOf: '2026-11-02' }); await tick(100);
   n0 = N();
   const rows0 = Table.grid.getRows().length;
@@ -308,7 +308,7 @@ async function run() {
     const n = App.notes.peek().notes('Formula').find(x => x.note === id); if (n) tx.note('Check', n.pattern, true); }), { dated: false });
   await tick(150);
   const checkCells = () => Table.grid.getRows().map(r => r.getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range')?.getElement()).filter(Boolean);
-  check('A check’s column is blank where nothing fails: no empty boxes', checkCells().length > 0 && checkCells().every(e => !e.querySelector('.tag')), checkCells().map(e => e.innerHTML).slice(0, 3).join(' | '));
+  check('A check’s column shows only while a row fails it', !column('Percentages In Range') && Table.model(own).cols.some(c => c.check && c.title === 'Percentages In Range'), Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
   const errorsNow = () => Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error').length, e0 = errorsNow();
   const usRow = Table.grid.getRows().find(r => r.getData().f0 === 'U.S. Investors').getData().id;
   const usPct = (Tree.index(st()).entries.get(usRow) ?? []).find(e => st()[e].edge === 'Percentage');
@@ -322,7 +322,7 @@ async function run() {
   offAsk();
   check('… and going to it selects what it’s at, asking why it fails', Shell.selection.peek().join() === usRow && st()[asked]?.edge === 'Percentages In Range' && st()[asked].tag === false, `${Shell.selection.peek().join()} ${asked}`);
   Shell.select([]); undo(); await tick(150);
-  check('Undone, nothing fails, and nothing is counted', errorsNow() === e0 && checkCells().every(e => !e.querySelector('.tag')));
+  check('Undone, nothing fails, nothing is counted, and the check’s column goes', errorsNow() === e0 && !column('Percentages In Range'));
 
   // A relation ruled out: a red ✗ in the margin, its words intact.
   await addTable('Relations', 'Signing Authority');
@@ -364,7 +364,7 @@ async function run() {
   const jul9 = Time.events.peek().find(e => e.day === '2024-07-09');
   check('Each day is said in the chart’s words: whose in words, not arrows', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP, general partner of Offshore Feeder'), JSON.stringify(jul9?.items));
   const whose = Object.fromEntries(Table.model(views().find(v => v.rows === 'date').id).data.map(r => [r.f1 + '|' + r.f2, true]));
-  check('Dates says whose in words: AIV-1, taxed for 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, taxed for 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
+  check('Dates says whose in words, a tax year as the place rule says it: AIV-1, tax year 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
   // The list of days opens on the day shown, or the last of the chart's days before it.
   Shell.at({ asOf: '2024-01-15' }); await tick(60);
   $('.titlebar .asof .dd').click(); await tick(200);
@@ -374,8 +374,9 @@ async function run() {
   check('As of opens with the day in its field, selected, so typing replaces it', document.activeElement === typedDay && typedDay.selectionStart === 0 && typedDay.selectionEnd === typedDay.value.length && typedDay.value.length > 0,
     `${document.activeElement?.outerHTML.slice(0, 60)} ${typedDay.selectionStart}–${typedDay.selectionEnd} of ${typedDay.value.length}`);
   typedDay.value = 'December 31, 2023'; typedDay.dispatchEvent(new Event('input', { bubbles: true })); await tick();
-  typedDay.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(100);
-  check('A day typed and entered is shown, and the calendar closes', Shell.time.peek()?.asOf === '2023-12-31' && !$('.date-pop'), JSON.stringify(Shell.time.peek()));
+  const enterKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  typedDay.dispatchEvent(enterKey); await tick(100);
+  check('A day typed and entered is shown, and the calendar closes, its Enter going no further', Shell.time.peek()?.asOf === '2023-12-31' && !$('.date-pop') && enterKey.defaultPrevented, JSON.stringify(Shell.time.peek()));
   Shell.closeAll(); Shell.at(null); await tick(60);
   check('As of today, the date is plain, with no way back to need', !$('.titlebar .asof.past') && !$('.titlebar .asof [aria-label="Today"]') && $('.titlebar .asof').textContent === 'As of today');
   $('.titlebar .asof .dd').click(); await tick(100);
@@ -467,6 +468,13 @@ async function run() {
   Shell.find('overdue'); await tick(120);
   press('Enter', $('.findpal .menu-find')); await tick(120);
   check('… choosing one goes where the status bar’s count does', visits.join() === 'overdue2', visits.join());
+  // A blank F8 went to leaves the keys in its field, and F8 goes on from there.
+  const field = document.createElement('input');
+  $('.inspector').append(field); field.focus();
+  const f8 = new KeyboardEvent('keydown', { key: 'F8', code: 'F8', bubbles: true, cancelable: true });
+  field.dispatchEvent(f8); await tick();
+  check('F8 goes on from a field', f8.defaultPrevented);
+  field.remove();
   unneed(); await tick(60);
 
   // ---- Find: each kind under its head (the inspector's records, stood in for, each by its names and kind) ----
@@ -513,7 +521,7 @@ async function run() {
   check('The keys listed don’t start with Find, or with themselves', !['Find', 'Keyboard shortcuts'].includes(got[0]) && !got.includes('Find'), got.slice(0, 3).join(' / '));
   Shell.closeAll(); unfind(); await tick();
 
-  // ---- Tables fill their width and run no further; a heading's menu is at its right edge ----
+  // ---- Tables fill their width; wider, they scroll across under their first column, cutting nothing to fit ----
   // A grid is laid out as it's built, and again when Tabulator's ResizeObserver sees its slot change, which a
   // headless run under a time budget never delivers. So each grid here is built once its slot has settled, with
   // the inspector open or not, and is laid out then, in a window of 1440 × 900.
@@ -534,8 +542,29 @@ async function run() {
   check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.tabulator-header-filter') - edge('Owner', '.tabulator-header-filter')) <= 0.5
     && textRight(pctTitle) <= column('Percentage').getElement().querySelector('.tabulator-header-filter').getBoundingClientRect().left, `${edge('Percentage', '.tabulator-header-filter')} vs ${edge('Owner', '.tabulator-header-filter')}`);
   Shell.show(docsView); await built('Link');
-  const cut = () => Table.grid.getRows('visible').slice(0, 12).flatMap(r => r.getCells()).filter(c => !/c-(text|edge|choice|document)/.test(c.getElement().className) && c.getElement().scrollWidth > c.getElement().clientWidth + 1).map(c => c.getColumn().getDefinition().title);
-  check('Where the columns are wider than the grid, the columns of words give way, and the figures and dates stay whole', Math.abs(lastRight() - holderBox()) <= 1 && !cut().length, `${widths()}; cut: ${[...new Set(cut())].join()}`);
+  // Cut short: a cell narrower than what it holds, other than a long text at the cap.
+  const cut = () => Table.grid.getRows('active').slice(0, 30).flatMap(r => r.getCells()).filter(c => c.getElement().scrollWidth > c.getElement().clientWidth + 1 && c.getColumn().getWidth() < 340).map(c => c.getColumn().getDefinition().title);
+  const across = () => { const h = Table.grid.rowManager.element; return h.scrollWidth > h.clientWidth; };
+  check('Where the columns are wider than the grid, nothing is cut to fit: the grid scrolls across', across() && !cut().length, `${widths()}; cut: ${[...new Set(cut())].join()}`);
+  const pinned = () => { const h = Table.grid.rowManager.element, at = h.getBoundingClientRect().left + 48, row = Table.grid.getRows('active')[0];
+    return [row.getCells()[1].getElement(), $('.grid .tabulator-header .tabulator-col.pin')].map(e => Math.round(e.getBoundingClientRect().left - at)); };
+  Table.grid.rowManager.element.scrollLeft = 400; Table.grid.rowManager.element.dispatchEvent(new Event('scroll')); await tick(60);
+  check('… under its first column, which stays put, its heading with it', Table.grid.rowManager.element.scrollLeft > 0 && pinned().every(d => d === 0), pinned().join());
+  Table.grid.rowManager.element.scrollLeft = 0; Table.grid.rowManager.element.dispatchEvent(new Event('scroll')); await tick(60);
+  // Entities: its names whole, and a tag's column as narrow as its heading set on two lines.
+  Shell.show(views().find(v => v.name === 'Entities').id); await built('Good Standing');
+  const tags = Table.grid.getColumns().filter(c => c.isVisible() && /\bc-tag\b/.test(c.getDefinition().cssClass)), linesIn = c => Math.round(c.getElement().querySelector('.tabulator-col-title').getBoundingClientRect().height / 20);
+  check('A tag’s column is as narrow as its heading set on two lines', tags.length > 3 && tags.every(c => linesIn(c) <= 2 && c.getWidth() >= 56 && c.getWidth() < 130) && tags.some(c => linesIn(c) === 2),
+    tags.map(c => `${c.getDefinition().title} ${c.getWidth()} on ${linesIn(c)}`).join(', '));
+  check('Names stay whole, and the grid scrolls across', across() && !cut().length && column('Name').getWidth() > 200, `${widths()}; cut: ${[...new Set(cut())].join()}`);
+  const sr = Table.grid.modules.selectRange, gridEl = Table.grid.rowManager.element, behind = [];
+  Table.grid.addRange(Table.grid.getRows('active')[2].getCells().at(-1)); gridEl.scrollLeft = gridEl.scrollWidth; await tick(40);
+  for (let i = 1; i < Table.grid.getColumns().length; i++) {
+    sr.navigate(false, false, 'left'); await tick();
+    const a = sr.getActiveCell(), pin = $('.grid .tabulator-row .tabulator-cell.pin').getBoundingClientRect().right;
+    if (a && !a.getElement().classList.contains('pin') && a.getElement().getBoundingClientRect().left < pin - 1) behind.push(a.column.definition.title);
+  }
+  check('The arrows walk the active cell back across, never behind the column that stays put', !behind.length && sr.getActiveCell()?.column.definition.title === 'Name', behind.join());
   Shell.select([]); await slotSettled(true);
   Shell.show(own); await built('Voting Percentage');
   Shell.show(docsView); await built('Link');
@@ -554,18 +583,29 @@ async function run() {
   const chartName = App.wb.charts().find(c => c.chart === C()).name;
   check('… on a page with a title and an as-of line', shapesIn(nv).length === 2 && shapesIn(nv).some(s => s.role === 'title' && s.text === chartName) && shapesIn(nv).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text)), JSON.stringify(shapesIn(nv)));
   undo(); await tick(100);
-  Shell.show(own); await tick(60);
+  check('Undone, it leaves the view it was made from', Shell.view.peek() === own && !views().some(v => v.id === nv), Shell.view.peek());
 
   // ---- History ----
   Shell.select([]);
   Shell.parts.peek().action.find(a => a.id === 'history').run(); await tick(100);
   const ours = App.wb.changes().filter(x => x.chart === C());
   check('History opens in the inspector’s place, from the chart menu', !!$('.inspector .hist') && Shell.parts.peek().action.some(a => a.id === 'history' && a.menu === 'chart'));
-  check('It lists every change, newest first', $$('.hist-row').length === ours.length && $$('.hist-row .what')[0].textContent === Time.describe(ours.at(-1)), `${$$('.hist-row').length} of ${ours.length}: ${$$('.hist-row .what').slice(0, 3).map(x => x.textContent).join(' / ')} ${$('.inspector')?.innerHTML.slice(0, 300)}`);
+  // Every reversal made here so far is an Undo or a Redo, made straight after what it reverses.
+  const reversals = ours.filter(x => x.reverses).length;
+  check('It lists every change, newest first, each Undo and Redo with what it took back', reversals > 0 && $$('.hist-row').length === ours.length - reversals && $$('.hist-row .what')[0].textContent === Time.describe(ours.findLast(x => !x.reverses)),
+    `${$$('.hist-row').length} of ${ours.length} less ${reversals}: ${$$('.hist-row .what').slice(0, 3).map(x => x.textContent).join(' / ')}`);
+  const struck = $$('.hist-row.undone').map(x => x.textContent);
+  check('… a change undone struck, saying so, its Undo and Redo never entries of their own', struck.some(x => /^Changed EIN of Fund III from 92-4810337 to 92-1111111.*· undone by Pat Example$/.test(x)) && struck.some(x => /^Added view Chart/.test(x))
+    && !$$('.hist-row .what').some(x => /from 92-1111111 to 92-4810337/.test(x.textContent)) && getComputedStyle($('.hist-row.undone .what')).textDecorationLine === 'line-through', struck.slice(0, 4).join(' / '));
   check('Each says who, when, and what, in the chart’s words', $$('.hist-row').some(x => x.textContent.includes('Ruled out Good Standing of AIV-1 as of Jul 15, 2026') && x.textContent.includes('Jordan Alvarez')), $$('.hist-row').filter(x => /AIV-1|Corvane/.test(x.textContent)).slice(0, 6).map(x => x.textContent).join(' / '));
   const okafor = named('David R. Okafor'), manager = named('Calder Ridge Capital Management, LLC');
   const ruling = { id: 'x', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xr', record: 'xc', args: [{ edge: 'Controller', at: okafor }, { edge: 'Controlled', at: manager }], tag: false }] };
   check('A presumption ruled out says so', Time.describe(ruling) === 'Ruled out Control: David R. Okafor → The Manager', Time.describe(ruling));
+  const paid = { id: 'xp', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xpr', record: 'xpc', at: 'aiv_juris', edge: 'Annual Tax Paid', field: 'date', value: '2026-10-26' }] };
+  check('A place is said as the formula bar says it: the entity alone, where it has one entry of that label', Time.describe(paid) === 'Set Annual Tax Paid of AIV-1 to Oct 26, 2026', Time.describe(paid));
+  const pos = App.wb.rows(C()).filter(r => r.label === 'Position').slice(0, 3), stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: C() };
+  const tidied = { ...stamp, id: 'xt', removes: pos.map(r => r.id), adds: [] }, untidied = { ...stamp, id: 'xu', reverses: 'xt', removes: [], adds: pos }, retidied = { ...stamp, id: 'xr', reverses: 'xu', removes: pos.map(r => r.id), adds: [] };
+  check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));
   const before = st();
   const pick =[...$$('.hist-row')].find(x => x.textContent.includes('Changed Percentage of Fund III → Corvane'));
   pick.click(); await tick(150);
@@ -585,7 +625,7 @@ async function run() {
   $$('.hist-head .menu-seg button')[1].click(); await tick(60);
   // The sample deleted two registered agents; what this test added and undid was never there.
   const gone = () => $$('.hist-row.gone').map(x => x.querySelector('.what').textContent);
-  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III › Jurisdiction: Delaware', 'Registered Agent · Fund III › Jurisdiction: Delaware'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
+  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III', 'Registered Agent · Fund III'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
   check('An addition undone isn’t listed as deleted', !gone().includes('Halcyon University Endowment') && !gone().includes('Hollis Bay Holdings, LLC'), gone().join());
   n0 = N();
   const k = gone().length;
