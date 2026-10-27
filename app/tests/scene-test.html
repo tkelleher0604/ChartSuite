@@ -334,18 +334,23 @@ function run() {
     check('every line is drawn at the weight it was given on the slide, whatever the chart’s scale: 0.75 where nothing says', weighed.every(([, w, given]) => Math.abs(w - given) < 1e-9),
       j(weighed.filter(([, w, given]) => Math.abs(w - given) >= 1e-9).slice(0, 4)));
     // A size picked in the slide's points is the size on the slide, though the box grows and the chart is drawn
-    // smaller for it: the page's size found as the format bar finds it.
-    const picked = [10, 12, 14].map(v => {
-      const w = fresh(), R = computed(w), t0 = Tree.treeOf(R.records, 'fund'), at = t => {
-        const id = `·t${t}`, rows =[...w.rows(C), { id, note: id, label: 'Size', pattern: t0, view: MAIN, value: t }], notes = Notes.index(rows.filter(r => 'note' in r));
+    // smaller for it: the page's size found as the format bar finds it. Where no scale the chart can keep prints
+    // it so, as near as the page allows, never shrinking the chart more than holding its scale would.
+    const pick = (v, box, view) => {
+      const w = fresh(), R = computed(w), t0 = Tree.treeOf(R.records, box), at = t => {
+        const id = `·t${t}`, rows = [...w.rows(C), { id, note: id, label: 'Size', pattern: t0, view, value: t }], notes = Notes.index(rows.filter(r => 'note' in r));
         return { ...w, rows: () => rows, notes: () => notes };
       };
-      const t = Math.round(Scene.toPage(v, scene(w).page.scale, x => Scene.of(at(x), C, MAIN, DAY, { state: R.records, computed: R, ahead: true }).page.scale) * 100) / 100;
-      edit(w, (tx, N) => note(tx, N, 'Size', t0, MAIN, t));
-      const s = scene(w);
-      return [v, on(s, s.byId.get('fund').texts[0].look.Size), s.page.scale];
-    });
-    check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(([v, got]) => Math.abs(got - v) < 1e-9), j(picked));
+      const r = t => Math.round(t * 100) / 100, s0 = scene(w, view).page.scale, scaleAt = x => Scene.of(at(r(x)), C, view, DAY, { state: R.records, computed: R, ahead: true }).page.scale;
+      const held = scaleAt(v / s0), t = r(Scene.toPage(v, s0, scaleAt));
+      edit(w, (tx, N) => note(tx, N, 'Size', t0, view, t));
+      const s = scene(w, view), got = on(s, s.byId.get(box).texts[0].look.Size);
+      return { v, got, scale: s.page.scale, held, heldPrints: v * held / s0 };
+    };
+    const picked = [10, 12].map(v => pick(v, 'fund', MAIN)), nearest = [[14, 'fund', MAIN], [10, 'fund', 'view_40act'], [24, 'fund', MAIN], [32, 'fund', 'view_fund3']].map(a => pick(...a));
+    check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(p => Math.abs(p.got - p.v) < 1e-9), j(picked));
+    check('… or, where no scale the chart can keep allows it, as near as the page allows, the chart drawn no smaller than holding its scale draws it, and 24 pt or more on a triangle is set',
+      nearest.every(p => p.scale >= p.held - 1e-9 && Math.abs(p.got - p.v) <= Math.abs(p.heldPrints - p.v) + 0.25), j(nearest.map(p => [p.v, p.got, p.scale, p.held])));
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
       return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));
@@ -357,6 +362,18 @@ function run() {
       return Math.abs(p.k.x + p.k.w - p.right) < 1 && p.k.y >= Math.max(...over.map(r => r.y + r.h)) + 32 - 0.5 && p.k.y + p.k.h <= 672.5;
     }), j([0, 2].map(i => [placed[i].k, placed[i].right])));
     check('nothing drawn overlaps the title, the date or the Key', placed.every(p => !p.chart.some(r => meets(r, p.t) || meets(r, p.d) || meets(r, p.k))));
+    // A short chart is set in the middle of the room under the date, as across the sheet: Management and
+    // control, its Key beside the title.
+    const mc = placed[3], s3 = sc[3], ruled = s3.marks.filter(m => m.type === 'line').flatMap(l => l.points.map(([x, y]) => ({ x: on(s3, x), y: on(s3, y), w: 0, h: 0 })));
+    const reach = [...mc.chart, ...ruled], left = Math.min(...reach.map(r => r.x)), right = Math.max(...reach.map(r => r.x + r.w));
+    const under = Math.max(mc.d.y + mc.d.h - 4.8 + 32, mc.k.x < right && mc.k.x + mc.k.w > left ? mc.k.y + mc.k.h + 32 : 0);
+    const top = Math.min(...reach.map(r => r.y)), bottom = Math.max(...reach.map(r => r.y + r.h));
+    check('a short chart sits in the middle of the room under the title, its date and a Key over it', Math.abs((top - under) - (720 - 48 - bottom)) < 1 && top - under > 20,
+      j({ above: top - under, below: 720 - 48 - bottom }));
+    // One output's own caption is its own group's: Management and control captions the BDC alone.
+    const own = Scene.groupsOf(wb.notes(C), 'view_control'), bdcRow = own.find(g => g.caption === 'Business development company'), structure = Scene.groupsOf(wb.notes(C), MAIN);
+    check('a caption at one output captions that output’s group alone, where outputs that look alike are captioned differently', bdcRow?.outputs.length === 1
+      && bdcRow.outputs[0].out.choice === 'Business Development Company' && structure.find(g => g.caption === 'Funds')?.outputs.length === 6, j(own.filter(g => g.swatch.Fill === bdcRow?.swatch.Fill).map(g => [g.caption, g.outputs.length])));
 
     // Line jumps: Structure's rails from Chen and Okafor cross each other's drops.
     const s = sc[0], jumped = s.marks.filter(m => m.type === 'line' && m.runs), gap = 8 / s.page.scale;

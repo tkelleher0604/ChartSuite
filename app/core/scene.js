@@ -220,6 +220,9 @@ function pyramid(texts, w, wide) {
 function fitPyramid(texts, w, wide) {
   const step = lineHeight(texts[0]?.look ?? TEXT);
   for (;;) {
+    // A triangle too narrow to hold a piece of its text at any height, a word too short to break or a line
+    // taller than it can rise, widens until it holds it.
+    if (!shaped(texts, w, w * 40)) { w *= 1.25; continue; }
     // The least height that holds the text in no more than `n` lines (any, where n is Infinity), by halving.
     const least = (n = Infinity, lo = w * 0.5) => {
       const fits = h => { const ls = shaped(texts, w, h); return ls && ls.flat().length <= n; };
@@ -1082,24 +1085,28 @@ function outputName(N, p) {
 
 // How a view's styles group their outputs, the one rule the Key, Styles and the format bar's scope all go
 // by: a style's outputs that look alike, by their swatch and whether they're shown (and a frame's by its
-// caption, which is drawn on it), are one group, in the view's order of its styles. An output that only shows
-// or hides is a filter, and in none. A group goes by its first output, which stays the same while the group
-// does; it's captioned by a Caption note at one of its outputs, or else by them, two at most, or else by the
-// style's name. `only`, a set of output keys, takes those outputs alone, as the Key takes what's drawn.
+// caption, which is drawn on it), are one group, in the view's order of its styles; but where Caption notes at
+// outputs that look alike say different things, each caption groups its own outputs, and those with none are a
+// group of their own, so no caption names an output it doesn't describe. An output that only shows or hides is a
+// filter, and in none. A group goes by its first output, which stays the same while the group does; it's
+// captioned by its Caption, or else by its outputs, two at most, or else by the style's name. `only`, a set of
+// output keys, takes those outputs alone, as the Key takes what's drawn.
 // → [{ style, order, key, outputs: [pattern], swatch, caption, off }]
 function groupsOf(N, view, only = null) {
-  const out = [];
+  const out = [], own = p => { const c = N.resolve('Caption', p, view); return c && key(c.note.pattern) === key(p) ? c.value : null; };
   N.styles(view).forEach((s, order) => {
-    const groups = new Map();
+    const looks = new Map();
     for (const o of s.outputs) {
       if ((only && !only.has(key(o.pattern))) || !Object.keys(o.formats).some(k => k !== 'Shown')) continue;
       const sw = swatchOf(o.pattern, o.formats), off = o.formats.Shown === false;
       const k = JSON.stringify([sw, off, sw.kind === 'frame' && captionOf(N, o.pattern, view)]);
-      (groups.get(k) ?? groups.set(k, { style: s.key, order, outputs: [], swatch: sw, off }).get(k)).outputs.push(o.pattern);
+      (looks.get(k) ?? looks.set(k, { style: s.key, order, swatch: sw, off, outputs: [] }).get(k)).outputs.push(o.pattern);
     }
-    for (const g of groups.values()) {
-      const own = g.outputs.map(p => N.resolve('Caption', p, view)).find(c => c && g.outputs.some(p => key(p) === key(c.note.pattern)));
-      out.push({ ...g, key: key(g.outputs[0]), caption: own ? own.value : g.outputs.length > 2 ? styleName(N, s.pattern) : g.outputs.map(p => outputName(N, p)).join(', ') });
+    for (const look of looks.values()) {
+      const said = new Set(look.outputs.map(own).filter(c => c != null)), apart = said.size > 1;
+      const groups = groupBy(look.outputs, p => apart ? own(p) : null);
+      for (const [caption, ps] of groups) out.push({ ...look, outputs: ps, key: key(ps[0]),
+        caption: caption ?? (said.size === 1 ? [...said][0] : ps.length > 2 ? styleName(N, s.pattern) : ps.map(p => outputName(N, p)).join(', ')) });
     }
   });
   return out;
@@ -1243,7 +1250,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     // In the sheet's pixels: the title at the top left margin, its text at it, and the date under the title.
     let y = M - INSET;
     for (const m of [title, date].filter(Boolean)) { places.set(m.row, { x: M - INSET, y }); y += m.h * s; }
-    let top = title || date ? y - PAD + 32 : M;
+    let top = title || date ? y - PAD + 32 : M, alongside = null;
     // The chart, with what's placed by hand, set across the middle with its top at `top`: as rects on the sheet.
     const drawn = [...rects, ...shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x, y: m.y, w: m.w, h: m.h }))], E = bounds(drawn);
     let dx = boxes.length ? (W - E.w * s) / 2 / s - E.x : 0;
@@ -1292,10 +1299,15 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         if (fits(under) || force) places.set(key.row, under);
         else if (kh <= c.h && c.x - by >= M - 0.5 && fits(beside)) { dx -= by / s; places.set(key.row, beside); }
         else return null;
+        alongside = places.get(key.row);
       }
     }
+    // Set in the middle of the room under the title and date, as across the sheet: the chart, with the Key where
+    // it goes with it.
+    const foot = Math.max(R(top).y + R(top).h, alongside ? alongside.y + alongside.h : -Infinity), down = boxes.length && !force ? Math.max(0, (H - M - foot) / 2) : 0;
+    if (alongside) alongside.y += down;
     for (const [id, p] of places) places.set(id, { x: p.x / s, y: p.y / s });
-    return { s, dx, dy: boxes.length ? top / s - E.y : 0, shapes, places };
+    return { s, dx, dy: boxes.length ? (top + down) / s - E.y : 0, shapes, places };
   };
   if (last) {
     const kept = at(last.page.scale, true);
@@ -1343,18 +1355,24 @@ const styleName = (N, p) => p.args ? N.name(p) : 'Type';
 // A size or place on a page as it is on its sheet, the page drawn smaller by its scale: the number the slide
 // has, which is the one shown; and back, for one typed.
 const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v / (page?.scale ?? 1);
-// The page's size for one picked in the slide's points, where the size changes the scale the chart is drawn at,
-// so that it's the size on the slide: v over the scale the chart has with it. `scaleAt(t)` is the chart's scale
-// with the page's size t; tried from the scale it has (`s`), each scale a twentieth and moving one way only as
-// the size does, the scale stands in a step or two.
+// The page's size for one picked in the slide's points. Held at the chart's scale `s`, as v over s, it prints as
+// picked wherever the chart keeps its scale with it. Where the box needs the chart drawn smaller, of the sizes
+// that would print v at a twentieth from s (or, for a smaller pick, from the scale it then has) down to the scale
+// holding it draws the chart at, the one that prints nearest v at no smaller a scale than that, the larger scale
+// where two are as near: so a pick prints as picked wherever the chart can keep a scale for it, as near as the
+// page allows otherwise, and never shrinks the chart more than holding it does. The scale isn't monotone in the
+// size, as a triangle's lines break anew, so this looks rather than iterates. `scaleAt(t)` is the chart's scale
+// with the page's size t.
 function toPage(v, s, scaleAt) {
-  const seen = new Set([s]);
-  for (;;) {
-    const next = scaleAt(v / s);
-    if (Math.abs(next - s) < 1e-9) return v / s;
-    if (seen.has(next)) return v / Math.min(s, next);
-    seen.add(s = next);
+  const held = scaleAt(v / s);
+  let best = { t: v / s, off: Math.abs(v * held / s - v), at: held };
+  for (const k of SCALES) {
+    if (best.off < 1e-9) break;
+    if (k > Math.max(s, held) + 1e-9 || k < held - 1e-9 || Math.abs(k - s) < 1e-9) continue;
+    const t = v / k, at = scaleAt(t), off = Math.abs(t * at - v);
+    if (at >= held - 1e-9 && (off < best.off - 1e-9 || (Math.abs(off - best.off) < 1e-9 && at > best.at))) best = { t, off, at };
   }
+  return best.t;
 }
 
 return {

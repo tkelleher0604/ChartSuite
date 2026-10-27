@@ -177,13 +177,20 @@ function trying(c, label, value) {
   const notes = Notes.index(rows.filter(r => 'note' in r));
   return { ...wb, rows: () => rows, notes: () => notes };
 }
-// A size picked is the size on the slide, though the chart's scale changes with it: the page's size that, at the
-// scale the chart is then drawn at, is the one picked (Scene.toPage).
+// A size picked is the size on the slide, where the chart can keep a scale for it, and otherwise as near as the
+// page allows, never shrinking the chart more than holding the scale would (Scene.toPage). Worked out once for
+// each scene, selection and scope, as pointing at it previews it and picking it makes it.
+const picks = new WeakMap();
 function sized(v) {
   const c = Canvas.active.peek(), sc = c?.scene();
   if (!sc) return put(v);
-  const scaleAt = t => Scene.of(trying(c, 'Size', t), App.chart.peek(), sc.view, sc.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }).page.scale;
-  return Math.round(Scene.toPage(v, sc.page.scale, scaleAt) * 100) / 100;
+  const k = JSON.stringify([c.keys(), chosen.peek(), v]), seen = picks.get(sc) ?? picks.set(sc, new Map()).get(sc);
+  if (!seen.has(k)) {
+    const r = t => Math.round(t * 100) / 100;
+    const scaleAt = t => Scene.of(trying(c, 'Size', r(t)), App.chart.peek(), sc.view, sc.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }).page.scale;
+    seen.set(k, r(Scene.toPage(v, sc.page.scale, scaleAt)));
+  }
+  return seen.get(k);
 }
 // A setting's value on the selection: its first mark's, or its first text's for a text property (a frame's,
 // its caption's).
@@ -321,7 +328,7 @@ function Bar() {
       <span>${scope && named(c, scope)}</span></button>`}
     <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => offer(e.currentTarget, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => set('Font', f), tries: ['Font', f] })))}>
       <span>${any ? value('Font') : 'Arial'}</span></button>
-    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => offer(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', sized(z)), tries: ['Size', put(z)] })))}>
+    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => offer(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', sized(z)), get tries() { return ['Size', sized(z)]; } })))}>
       <span>${any ? shown(value('Size')) : 10}</span></button>
     <button class="btn letter b" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${any && !!value('Bold')} disabled=${none} onClick=${() => toggle('Bold')}>B</button>
     <button class="btn letter i" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${any && !!value('Italic')} disabled=${none} onClick=${() => toggle('Italic')}>I</button>
