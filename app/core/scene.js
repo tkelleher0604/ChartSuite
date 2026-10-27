@@ -1232,21 +1232,25 @@ function outputName(N, p) {
   return name;
 }
 
-// How a view's styles group their outputs, and what each group is called: the one rule the Key, Styles, the
-// format bar's scope and History all go by. A style's outputs that look alike, by their swatch and whether
-// they're shown, and are called alike, are one group, in the view's order of its styles. A Caption note at an
-// output calls that output alone, so no caption names an output it doesn't describe; those with none are called
-// by their outputs ("Feeder Fund and AIV"), a text style's in the plural, the texts it sets ("Names"); a frame's
-// each by its own, as its frame is captioned on the chart. An output that only shows or hides is a filter, and
-// in none. A group goes by its first output, which stays the same while the group does, and is listed under its
-// style's name, its `name`, but for a style that is that one group alone (Name), under none. `only`, a set of
-// output keys, takes those outputs alone, as the Key takes what's drawn.
+// How a view's styles group their outputs, what each group is called, and in what order: the one rule the Key,
+// Styles, the format bar's scope and History all go by. A style's outputs that look alike, by their swatch and
+// whether they're shown, and are called alike, are one group. A Caption note at an output calls that output
+// alone, so no caption names an output it doesn't describe; those with none are called by their outputs ("AIV
+// and Feeder Fund"), a text style's in the plural, the texts it sets ("Names"); a frame's each by its own, as its
+// frame is captioned on the chart. An output that only shows or hides is a filter, and in none. A group's
+// outputs are in their option list's order, the same in every view, and it goes by its first, which stays the
+// same while the group does. It's listed under its style's name, its `name`, but for a style that is that one
+// group alone (Name), under none. The groups are in the view's order of its styles, those under a name first and
+// those under none after them all, so none reads as under the name before it. `only`, a set of output keys,
+// takes those outputs alone, as the Key takes what's drawn.
 // → [{ style, order, name, key, outputs: [pattern], swatch, caption, off }]
 function groupsOf(N, view, only = null) {
   const out = [], own = p => { const c = N.resolve('Caption', p, view); return c && key(c.note.pattern) === key(p) ? c.value : null; };
   const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   // An uncaptioned output by its name, but a text style's naming its entry, not an option or a tag, by the texts.
   const called = (p, sw) => sw.kind === 'text' && (!p.out || 'field' in p.out) ? Tree.plural(outputName(N, p)) : outputName(N, p);
+  // Outputs as their option list has them: by the Order noted at each, then by name.
+  const listOrder = ps => ps.map(p => [p, N.optionOrder(p) ?? Infinity, outputName(N, p)]).sort((a, b) => a[1] - b[1] || a[2].localeCompare(b[2])).map(([p]) => p);
   N.styles(view).forEach((s, order) => {
     const looks = new Map(), keyed = s.outputs.filter(o => Object.keys(o.formats).some(k => k !== 'Shown')), name = styleName(N, s.pattern);
     const alone = keyed.length === 1 && same(outputName(N, keyed[0].pattern), name) && same(own(keyed[0].pattern) ?? name, name);
@@ -1258,12 +1262,12 @@ function groupsOf(N, view, only = null) {
     }
     // Captioned alike, or uncaptioned and so called by their outputs: what's called alike is one group.
     for (const look of looks.values())
-      for (const [caption, parts] of groupBy([...groupBy(look.outputs, own)], ([c, ps]) => c ?? listed(ps.map(p => called(p, look.swatch))))) {
-        const ps = parts.flatMap(([, ps]) => ps);
+      for (const [caption, parts] of groupBy([...groupBy(look.outputs, own)], ([c, ps]) => c ?? listed(listOrder(ps).map(p => called(p, look.swatch))))) {
+        const ps = listOrder(parts.flatMap(([, ps]) => ps));
         out.push({ ...look, outputs: ps, key: key(ps[0]), caption });
       }
   });
-  return out;
+  return out.sort((a, b) => (a.name === null) - (b.name === null));
 }
 // The legend's rows: the groups of the outputs from which a drawn box or line takes a property that tells
 // marks apart, each a swatch in their format and a caption.

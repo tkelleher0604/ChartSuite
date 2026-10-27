@@ -6,20 +6,22 @@
 // - PowerPoint: a box is a shape of the same preset geometry, holding its texts in the same fonts on the
 //   scene's lines; a line is a connector glued to its boxes, grouped with its label so the two move together
 //   and named as the two-box panel says its relation, and a line broken where another crosses it its pieces;
-//   a frame its outline and caption, grouped, behind its members; the legend one group, a swatch and caption
-//   for each row, named for it; the title the slide's title; free shapes shapes like any other. A line's
-//   sentence is its alt text as well. A deck's slides share one size, the smallest that holds every sheet,
-//   each in the middle of its slide.
+//   lines said as one, a line to a frame or a trunk's lines under one label, one group named for them all, a
+//   frame's by its caption (each of the Funds); a frame its outline and caption, grouped, behind its members;
+//   the legend one group, a swatch and caption for each row, named for it; the title the slide's title; free
+//   shapes shapes like any other. A line's sentence, or its group's, is its alt text as well. A deck's slides
+//   share one size, the smallest that holds every sheet, each in the middle of its slide.
 // - PDF: the scene as SVG, through svg2pdf.js, in the PDF's standard fonts (Helvetica has Arial's widths,
-//   Times Times New Roman's), compressed. Each page is its sheet, bookmarked by its title. No font is embedded:
-//   the only sans vendored, IBM Plex, hasn't Arial's widths, so the lines wouldn't fall where the scene sets them.
+//   Times Times New Roman's), compressed, in US English. Each page is its sheet, bookmarked by its title. It
+//   declares only the fonts it uses, and embeds none: the only sans vendored, IBM Plex, hasn't Arial's widths, so
+//   the lines wouldn't fall where the scene sets them.
 // - Each slide and page reads its title first, then its date, then the rest in the scene's order: a screen
 //   reader, PowerPoint's Reading Order and a PDF's text all follow what's written first.
 // - A file of one page is titled as its page is, of more by the chart's name; its author is whoever exported
 //   it, blank where no name is set.
-// - The calendar: the chart's dates from the day shown on, each said as the Dates table says it, what falls
-//   due, then whose (Time.whose), and why it falls then in the formula bar's sentence (FormulaBar.sentence),
-//   where the bar says one.
+// - The calendar: the chart's dates from the day shown on, and what's overdue, on its day, as it's still due;
+//   each said as the Dates table says it, what falls due, then whose (Time.whose), and why it falls then in the
+//   formula bar's sentence (FormulaBar.sentence), where the bar says one.
 // - The Export dialog, which the title bar's Export opens, previews the file: the same SVG, page by page, on
 //   the slides or pages it will have, a click on a page showing it at full size; for a calendar, its dates.
 // What the canvas shows only on screen (computed italics and dashes, the redline) is no part of the scene.
@@ -145,7 +147,7 @@ async function pdf(scenes, title, author) {
   try {
     for (const s of scenes) {
       const w = s.page.sheet.w * 0.75, h = s.page.sheet.h * 0.75, o = w > h ? 'l' : 'p';
-      if (!doc) doc = new window.jspdf.jsPDF({ unit: 'pt', format: [w, h], orientation: o, compress: true });
+      if (!doc) doc = new window.jspdf.jsPDF({ unit: 'pt', format: [w, h], orientation: o, compress: true, putOnlyUsedFonts: true });
       else doc.addPage([w, h], o);
       holder.innerHTML = svg(s, { pdf: true });
       await doc.svg(holder.firstElementChild, { x: 0, y: 0, width: w, height: h });
@@ -153,6 +155,7 @@ async function pdf(scenes, title, author) {
     }
   } finally { holder.remove(); }
   doc.setProperties({ title: pdfText(title), author: pdfText(author), creator: 'Dendra' });
+  doc.setLanguage('en-US');
   // jsPDF names itself the producer, which Dendra is: said in its place, padded to its length, so that the
   // file's index of where each object starts still holds.
   const was = `/Producer (jsPDF ${window.jspdf.jsPDF.version})`, raw = doc.output().replace(was, '/Producer (Dendra)'.padEnd(was.length));
@@ -185,7 +188,7 @@ const E = v => Math.round(v * 914400);                 // inches as EMU
 // A deck: a slide for each scene, each written in its XML where PptxGenJS can't write it as PowerPoint does
 // (see slide). The slides' layout is PowerPoint's Title Only, its title where the first slide's is and in its
 // look, and the file's properties are what PowerPoint would write: no subject, and the fonts and titles the
-// slides hold. `say` names a line's relation.
+// slides hold. `say(relations, caption)` names lines' relations as one (see sentence).
 async function pptx(scenes, title, author, say) {
   await LIBS.pptx();
   const p = new PptxGenJS();
@@ -281,16 +284,34 @@ function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = 
   return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill)}${'Outline' in s ? ln(s, k) : ''}</p:spPr>${body}</p:sp>`;
 }
 
+// Lines said as one, as the chart says them: those landing on a frame along one route, the first drawn standing
+// for the rest (Scene's `merged`, and any of another look drawn over it); and a trunk's lines, of one relation,
+// leaving their box at one point and saying one thing, said once by one label on their lane. → each line's
+// fellows, itself among them, drawn or not, in the order of what they reach across the page.
+function together(scene) {
+  const by = new Map(), out = new Map(), to = l => scene.byId.get(l.to) ?? {};
+  for (const l of new Set(scene.byId.values())) if (l.type === 'line') {
+    const k = l.landed ? `${l.landed}|${JSON.stringify(l.points)}` : l.label?.shared ? `${l.trunk}|${l.label.text}|${JSON.stringify(l.points?.[0])}` : l.id;
+    (by.get(k) ?? by.set(k, []).get(k)).push(l);
+  }
+  for (const ls of by.values()) {
+    ls.sort((a, b) => to(a).x - to(b).x || to(a).y - to(b).y);
+    // (A trunk whose lines each have their label isn't said as one.)
+    for (const one of ls.filter(l => l.labelAt).length > 1 ? ls.map(l => [l]) : [ls]) for (const l of one) out.set(l.id, one);
+  }
+  return out;
+}
+
 // One scene on a slide, its page drawn on its sheet `k` times its size from (ox, oy): every mark in reading
 // order, written as PowerPoint writes it. A box's text keeps the scene's lines (see txBody), inset as
 // the scene insets it, PowerPoint's own 0.1 in at the chart's scale, all round, as every text of the chart is;
 // the page's own shapes (its title, date, Key and free shapes) have PowerPoint's own margins, as the scene sets
 // them. A text on its own is a text box placed so that its lines fall where the scene sets them. A line is a
 // connector glued to the shapes it joins, so that it follows them when they're moved; what moves as one is
-// grouped: a line and its label, a frame and its caption, the Key. `say` names a line's relation, which is its
-// alt text too. → what finishes the slide's XML once the deck is written, when every shape has its number
-// (PptxGenJS numbers a slide's shapes in the order they're added, from 2): each stand-in replaced by what it
-// stands for.
+// grouped: a line and its label, lines said as one (see together), a frame and its caption, the Key. `say`
+// names lines' relations, which is their alt text too. → what finishes the slide's XML once the deck is
+// written, when every shape has its number (PptxGenJS numbers a slide's shapes in the order they're added, from
+// 2): each stand-in replaced by what it stands for.
 function slide(p, scene, { k, ox, oy }, say) {
   const sl = p.addSlide(), parts = [], ids = new Map();
   let count = 0;
@@ -310,11 +331,11 @@ function slide(p, scene, { k, ox, oy }, say) {
     return r;
   };
   // What `draw` adds, as one group named `name` (and with `alt` its alt text), framed round the rects `draw`
-  // gives back.
-  const group = (name, draw, alt) => { let rects; put(id => grouped(id, name, rects, alt)); rects = draw(); put(() => '</p:grpSp>'); };
+  // gives back. → those rects.
+  const group = (name, draw, alt) => { let rects; put(id => grouped(id, name, rects, alt)); rects = draw(); put(() => '</p:grpSp>'); return rects; };
   // A line, and with `label` ([its texts, where they're placed from]) its label: the two grouped, named as the
   // line is. A line broken where another crosses it is its pieces, grouped: the first glued where it starts,
-  // the last where it ends. Its `alt` text is the group's, or the connector's where it's one.
+  // the last where it ends. Its `alt` text is the group's, or the connector's where it's one. → its rects.
   const connector = (points, s, ends, name, { label = null, runs = [points], alt } = {}) => {
     const one = !label && runs.length === 1;
     const draw = () => {
@@ -325,7 +346,7 @@ function slide(p, scene, { k, ox, oy }, say) {
       });
       return [...runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
     };
-    if (one) draw(); else group(name, draw, alt);
+    return one ? draw() : group(name, draw, alt);
   };
   // The site a line's end is glued to: on the side it leaves or arrives by, the nearer if there are two.
   const glue = (b, ps, end) => {
@@ -337,12 +358,20 @@ function slide(p, scene, { k, ox, oy }, say) {
     return { id, idx: Array.isArray(site) ? site[(side % 2 ? p[1] > b.y + b.h / 2 : p[0] > b.x + b.w / 2) ? 1 : 0] : site };
   };
 
+  const fellows = together(scene), done = new Set();
   for (const m of reading(scene.marks)) {
     const s = look(m);
     if (m.type === 'box') ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : 'ctr', inset: CHART }));
     else if (m.type === 'line') {
-      const said = say(m.record);
-      connector(m.points, s, [m.from, m.to], said ?? m.texts[0]?.text ?? 'Line', { label: m.labelAt && m.texts.length ? [m.texts, m.labelAt] : null, runs: m.runs, alt: said });
+      // Lines said as one are one group, named for them all and described so, each line in it named for its own
+      // relation; a line alone is named for its relation.
+      if (done.has(m.id)) continue;
+      const ls = fellows.get(m.id), drawn = ls.filter(l => !l.merged), lab = drawn.find(l => l.labelAt && l.texts.length), label = lab ? [lab.texts, lab.labelAt] : null;
+      drawn.forEach(l => done.add(l.id));
+      const said = say(ls.map(l => l.record), scene.byId.get(m.landed)?.caption.text), name = said ?? (lab ?? m).texts[0]?.text ?? 'Line';
+      const line = (l, name, more) => connector(l.points, look(l), [l.from, l.to], name, { runs: l.runs, ...more });
+      if (drawn.length === 1) line(m, name, { label, alt: said });
+      else group(name, () => [...drawn.flatMap(l => line(l, say([l.record]) ?? name)), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])], said);
     }
     else if (m.type === 'frame') {
       // Its outline, a rectangle or a bracket, and its caption; round one box alone, its caption alone.
@@ -420,7 +449,7 @@ const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*
 // A file of one page is titled as its page is; of more, by `name`, the chart's.
 async function write(format, scenes, name, { author = '', R = null, N = null } = {}) {
   const title = scenes.length === 1 ? titleOf(scenes[0]) || name : name;
-  const blob = format === 'pdf' ? await pdf(scenes, title, author) : await pptx(scenes, title, author, rel => R && N ? sentence(R.records, N, rel) : null);
+  const blob = format === 'pdf' ? await pdf(scenes, title, author) : await pptx(scenes, title, author, (rels, caption) => R && N ? sentence(R.records, N, rels, caption) : null);
   save(blob, `${fileName(name)}.${format}`);
   return blob;
 }
@@ -429,38 +458,57 @@ async function write(format, scenes, name, { author = '', R = null, N = null } =
 
 // A text with an address in it, which ends what it's in (a name, or a part of one), said by its file's name.
 const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
-// A relation as the two-box panel says it, in the formula bar's words where they're to be had, and each side
-// once: Margaret A. Chen signs for Fund III, via GP III; but Margaret A. Chen signs for the Manager, not via it
-// as well. A side named by a number is a period of the other, not a party to it, and such a relation is said as
-// the place rule says it: Fund III, tax year 2026. → null for a relation of fewer than two sides.
-function sentence(st, N, rel) {
-  const r = st[rel], sides = r?.args ? N.sides(st, rel).filter(Boolean) : [];
-  if (sides.length < 2) return null;
-  const at = Object.fromEntries(sides.map(x => [x.edge, Tree.objectOf(st, x.at)])), [a, b, ...rest] = sides.map(x => x.edge);
-  if ([b, ...rest].some(e => /^\d+$/.test(N.shortOf(st, at[e])))) return plain(N.segmentOf(st, rel));
-  const short = x => plain(N.shortOf(st, x)), term = x => short(x) !== plain(N.nameOf(st, x)) ? short(x).replace(/^The /, 'the ') : short(x);
+// A relation as the two-box panel says it, in the formula bar's words where they're to be had, its sides by the
+// place rule (Notes.placed), so each once: Margaret A. Chen signs for Fund III, via GP III; but Margaret A. Chen
+// signs for the Manager, not via it as well. → { p, words, q, rest }: its first two sides' objects in the order
+// the words say them, then the rest as the place rule joins them; or, where a side after the first is named by a
+// number, a period of the other and not a party to it, { text }, as the place rule says it: Fund III, tax year
+// 2026. Null for a relation of fewer than two sides.
+function clause(st, N, rel) {
+  const r = st[rel], xs = r?.args ? N.placed(st, rel) : [];
+  if (xs.length < 2) return null;
+  if (xs.slice(1).some(x => /^\d+$/.test(x.text))) return { text: plain(xs.map(x => x.join + x.text).join('')) };
   const lower = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
-  const t = Tree.treeOf(st, rel), role = r.choice ?? a, [p, words, q] = (t && typeof FormulaBar !== 'undefined' && FormulaBar.phrase?.(t, a, b, { choice: r.choice, not: r.tag === false }))
-    || [a, ` is ${r.tag === false ? 'not ' : ''}${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${lower(role)} of `, b];
-  const said = new Set([at[p], at[q]]), more = rest.filter(e => !said.has(at[e]) && said.add(at[e]));
-  return `${short(at[p])}${words}${term(at[q])}${more.map(e => `, ${lower(e)} ${term(at[e])}`).join('')}`;
+  const [a, b, ...rest] = xs, t = Tree.treeOf(st, rel), role = r.choice ?? a.edge;
+  const [p, words, q] = (t && typeof FormulaBar !== 'undefined' && FormulaBar.phrase?.(t, a.edge, b.edge, { choice: r.choice, not: r.tag === false }))
+    || [a.edge, ` is ${r.tag === false ? 'not ' : ''}${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${lower(role)} of `, b.edge];
+  return { p: (p === a.edge ? a : b).id, words, q: (q === a.edge ? a : b).id, rest };
+}
+// Relations said as one, as one line, or a group of them, draws them all (see together), each object by its
+// short name, one of its own begun with The said "the" after the sentence's first word (the BDC). One relation as
+// `clause` says it; several alike but for one side, that side said once for them all: by `caption`, the frame's
+// they land on (each of the Funds), or else in turn (Fund III, Fund III-A and AIV-1); any others, each in turn.
+// → null where none has two sides.
+function sentence(st, N, rels, caption = null) {
+  const cs = rels.map(rel => clause(st, N, rel)).filter(Boolean), [c] = cs;
+  if (!c) return null;
+  const short = x => plain(N.shortOf(st, x)), term = x => short(x) !== plain(N.nameOf(st, x)) ? short(x).replace(/^The /, 'the ') : short(x);
+  const rest = x => x.rest.map(s => s.join + term(s.id)).join(''), one = x => x.text ?? `${short(x.p)}${x.words}${term(x.q)}${rest(x)}`;
+  const alike = f => new Set(cs.map(f)).size === 1, p = alike(x => x.p), q = alike(x => x.q);
+  if (alike(one)) return one(c);
+  if (cs.some(x => x.text) || p === q || !alike(x => x.words + rest(x))) return [...new Set(cs.map(one))].join('; ');
+  const them = [...new Set(cs.map(x => p ? x.q : x.p))].map(term);
+  const all = caption ? `the ${caption.replace(/^the /i, '')}` : them.length > 1 ? `${them.slice(0, -1).join(', ')} and ${them.at(-1)}` : them[0];
+  return p ? `${short(c.p)}${c.words}${caption ? `each of ${all}` : all}${rest(c)}` : `Each of ${all}${c.words}${term(c.q)}${rest(c)}`;
 }
 
 // ---- The calendar ----
 
-// The chart's dates from `from` on, as worked out, in order, each as the Dates table says it: its day, what
-// falls due, and whose (Time.whose), an address by its file's name.
+// The chart's dates from `from` on, and before it what's overdue, which is still due (Formulas.attention), as
+// worked out, in order, each as the Dates table says it: its day, what falls due, and whose (Time.whose), an
+// address by its file's name; and whether it's `overdue`.
 function dates(R, N, from = '') {
-  const st = R.records;
-  return Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value) && r.value >= from)
+  const st = R.records, overdue = new Set(from ? Formulas.attention(R, N, from).filter(a => a.kind === 'overdue').map(a => a.id) : []);
+  return Object.entries(st).filter(([id, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value) && (r.value >= from || overdue.has(id)))
     .sort((a, b) => a[1].value.localeCompare(b[1].value))
-    .map(([id, r]) => ({ id, day: r.value, what: N.nameOf(st, id), whose: plain(Time.whose(st, r.at, N)) }));
+    .map(([id, r]) => ({ id, day: r.value, what: N.nameOf(st, id), whose: plain(Time.whose(st, r.at, N)), overdue: overdue.has(id) }));
 }
 // A date as the date's popover says it: what falls due, then whose.
 const summary = e => [e.what, e.whose].filter(Boolean).join(' · ');
 // Why a date falls when it does, as the formula bar says it; nothing where the bar says nothing.
 const why = id => FormulaBar.sentence(id) ?? '';
-// The dates from `from` on, as one all-day event each, for Outlook, titled by its summary and described by why.
+// The dates from `from` on, and what's overdue, as one all-day event each on its day, for Outlook, titled by its
+// summary and described by why.
 function calendar(R, N, chart, name, from = Log.today()) {
   const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
   // Lines of at most 75 octets, each continued after a space.
@@ -506,11 +554,13 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const frame = { w: Math.max(...scenes.map(s => s.page.sheet.w)), h: Math.max(...scenes.map(s => s.page.sheet.h)) };
     return scenes.map(s => { const f = format === 'pdf' ? s.page.sheet : frame; return { name: s.name, src: uri(svg(s, { pdf: format === 'pdf', frame: f })), aspect: f.w / f.h }; });
   };
-  // The calendar's dates, by year, as the date's popover lists the chart's days.
+  // The calendar's dates, by year, as the date's popover lists the chart's days; what's overdue red, as the
+  // inspector shows it.
   const Dates = () => {
     const all = useMemo(() => dates(App.computed.peek(), App.notes.peek(), App.day.peek()), []), years = [...new Set(all.map(e => e.day.slice(0, 4)))];
+    const day = e => Tree.formatDate(e.day, 'short').replace(/, \d{4}$/, '');
     return html`<div class="date-days" style="max-height: none; background: var(--surface); box-shadow: 0 0 0 1px var(--rule-2)">${years.map(y => html`<div class="yr">${y}</div>
-      ${all.filter(e => e.day.startsWith(y)).map(e => html`<div class="dayrow"><span class="d">${Tree.formatDate(e.day, 'short').replace(/, \d{4}$/, '')}</span>
+      ${all.filter(e => e.day.startsWith(y)).map(e => html`<div class="dayrow"><span class="d">${e.overdue ? html`<span class="overdue">${day(e)}<span class="sr"> (overdue)</span></span>` : day(e)}</span>
         <span class="w"><span class="it"><b>${e.what}</b>${e.whose ? html` · ${e.whose}` : null}</span></span></div>`)}`)}</div>`;
   };
   // What's exported, on what size of page, and the file's pages, fitted to the well, two across where there

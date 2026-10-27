@@ -47,21 +47,24 @@
 // entered, schema, notes, definitions, relations, computed (Formulas.computeState's), state, views
 // ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
 // dated }) → the change, every edit's one way in; App.reverse(changeId) and App.restore(item), History's;
-// App.addView; App.who(); App.blank().
+// App.asksDay(record, recs?), whether a record about to be added asks the day it holds from (a relation with no
+// start entry), and App.From({ day, set, auto }), the control that asks it in the redline ("From" a day, or
+// "All along"), wherever a record is added (the inspector, a table's paste); App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)
 // as shown; aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer
 // joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name);
 // store.get/set, this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or
-// { label, detail?, keys?, checked?, disabled?, danger?, run?, items? }; one without run or items is shown, not chosen.
+// { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point? }; one without run or items is
+// shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
 // (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.
 
 const Shell = (() => {
   const { h, render } = preact;
-  const { useLayoutEffect, useRef, useState } = preactHooks;
+  const { useEffect, useLayoutEffect, useRef, useState } = preactHooks;
   const { signal, computed, effect, batch } = preactSignals;
   const { computePosition, autoUpdate, offset, flip, shift } = FloatingUIDOM;
   const html = htm.bind(h);
@@ -195,8 +198,10 @@ const Shell = (() => {
   const REGIONS = ['bars', 'view', 'inspector', 'tabs'], lastIn = {};
   document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) lastIn[r.dataset.region] = e.target; });
   const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
-  // A region given the keys: where it last had them, or else its first control, or itself.
+  // A region given the keys: the view's part, where it takes them itself (a table, at its active cell, as a sheet
+  // shown in Excel does); else where it last had them, or else its first control, or itself.
   function enter(n) {
+    if (n === 'view' && part(current.peek()?.layout ?? 'chart')?.focus?.()) return;
     const last = lastIn[n];
     (last?.isConnected && shown(last) && !last.disabled ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
   }
@@ -410,6 +415,9 @@ const Shell = (() => {
       e.preventDefault();
     };
     useLayoutEffect(() => { el(active)?.scrollIntoView({ block: 'nearest' }); }, [active]);
+    // An item pointed at, or reached by the keys, shows what it would do (its `point`) until it's left.
+    const pointed = items[active]?.point;
+    useEffect(() => { if (!pointed) return; pointed(true); return () => pointed(false); }, [pointed]);
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
     return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
@@ -521,9 +529,16 @@ const Shell = (() => {
     const all = [...many('find').flatMap(s => s.items()), ...counted(), ...vs, ...can];
     return headed(rank(all, q), all);
   }
-  // A result chosen keeps the focus it gave itself (a field, a dialog); otherwise the view has the keys.
-  const land = () => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) enter('view'); });
-  const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32, onClose: land }); };
+  // A result chosen keeps the focus it gave itself (a field, a dialog); otherwise the view has the keys, wherever
+  // Find was opened from.
+  function find(q = '') {
+    closeAll();
+    const was = document.activeElement;
+    let chosen = false;
+    const items = s => answers(s).map(it => it.run ? { ...it, run: () => { chosen = true; it.run(); } } : it);
+    const land = () => setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || chosen && a === was) enter('view'); });
+    menu(findButton, items, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32, onClose: land });
+  }
 
   // ---- The title bar ----
   // The day shown. Another day, or the log as it stood, fills the date in the accent, with an × back to today.
@@ -565,10 +580,12 @@ const Shell = (() => {
     if (items[items.length - 1] === '-') items.pop();
     return items;
   }
+  // A name cut short is shown whole on hover, as the formula bar's is.
+  const whole = e => { const b = e.currentTarget, n = b.querySelector('.name'); if (n && n.scrollWidth > n.clientWidth) b.dataset.tip = n.textContent; else delete b.dataset.tip; };
   function TitleBar() {
     const u = part('undo'), t = time.value;
     return html`<header class="titlebar" data-region="bars">
-      <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu"
+      <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu" onPointerOver=${whole}
         ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}</div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">

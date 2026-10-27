@@ -34,7 +34,7 @@ Edges keep their labels; argument order doesn't matter.
 
 - `resolve(label, t, view?, param?)` → `{ value, note }` or null: the note that decides. `value(…)` → just the value.
 - `name(t)`, falling back to the kind, the edge, or a relation's edges joined by ' · '. `listName(t, edge)`. `edges(t)`: a relation's edges in order.
-- `description(t)`, `order(t)`, `required(t)`, `check(t)`, `isStart(t)`, `isEnd(t)`.
+- `description(t)`, `order(t)` (an entry's place among its location's entries, by the Order at its label, read without its output), `optionOrder(p)` (an option's place in its list, by the Order at the option: Main Fund before Feeder Fund; none, by name), `required(t)`, `check(t)`, `isStart(t)`, `isEnd(t)`.
 - `shown(t, view)`, `position(t, view)`, `caption(t, view)`, and `formats(t, view)` → `{ [label]: { value, note } }` for every format property a note decides.
 - `styles(view)` → `[{ pattern, key, order, outputs: [{ pattern, formats: { [label]: value } }] }]`, in the view's order. An output pattern with no root label applies to every output.
 - `definitions(schema)` → formulas.js's input, one per Formula note: `{ id, name, covers, rows, type, datatype?, options?, edges? }`. `relations(schema)` → `[{ name, type, edges, lists: { [from]: { [listed]: name } }, covers }]`.

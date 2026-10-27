@@ -236,9 +236,9 @@ async function run() {
   const gp = App.scene.peek().marks.find(m => m.type === 'line' && st()[m.record]?.args && N().nameOf(st(), m.record) === 'General Partner')?.record;
   Shell.select([gp]); await tick(60);
   const lookRows = () => $$('section').find(s => s.querySelector('.fold')?.textContent === 'Look')?.querySelectorAll('.row:not(.src)') ?? [];
-  check('a line’s Look says what its text shows, never “Label: Label”', looks().includes('TextName') && ![...lookRows()].some(r => r.querySelector('.k')?.textContent === r.querySelector('.v')?.textContent), looks().join(' | '));
+  check('a line’s Look says what its text shows, never “Label: Label”', looks().includes('NameShown') && ![...lookRows()].some(r => r.querySelector('.k')?.textContent === r.querySelector('.v')?.textContent), looks().join(' | '));
   App.change(tx => tx.note('Format', Tree.treeOf(st(), gp), 'none', { view: Shell.view.peek() })); await tick(60);
-  check('… and no name where it shows none, as its own text is its name', looks().includes('TextNo name'), looks().join(' | '));
+  check('… and its name hidden where it shows none, as its own text is its name, not what’s recorded at it (its 64%)', looks().includes('NameHidden') && !looks().some(l => /^Text/.test(l)), looks().join(' | '));
   Shell.parts.value.undo.undo(); await tick(60);
 
   // Pasting a link
@@ -251,6 +251,11 @@ async function run() {
   // Two boxes
   Shell.emit('relate-open', ['blocker', 'bdc']); await tick();
   check('two boxes say what holds between them, each as a sentence', $$('.rr .nm').some(x => spoken(x) === 'Fund III Blocker is a close affiliate of the BDC'), $$('.rr .nm').map(x => x.textContent).join(', '));
+  Shell.emit('relate-open', ['chen', 'mgmt']); await tick(60);
+  check('… each side said once, by the place rule: she signs for the Manager, not “…, via the Manager”', $$('.rr .nm').some(x => spoken(x) === 'Margaret A. Chen signs for the Manager')
+    && !$$('.rr .nm').some(x => /via the Manager/.test(spoken(x))), $$('.rr .nm').map(x => spoken(x)).join(' | '));
+  Shell.emit('relate-open', ['chen', 'fund']); await tick(60);
+  check('… and a further side still said where it’s another', $$('.rr .nm').some(x => spoken(x) === 'Margaret A. Chen signs for Fund III, via GP III'), $$('.rr .nm').map(x => spoken(x)).join(' | '));
   // Why a formula gives each is the formula bar's reason, cited in full (here a stand-in where the bar's is missing)
   const ownReason = FormulaBar.reason;
   FormulaBar.reason ??= id => App.computed.peek().computed[id] ? { label: App.computed.peek().computed[id].label, cite: `§57(${id.length})`, words: '' } : null;
@@ -275,9 +280,21 @@ async function run() {
   const rr = $$('.rr').filter(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC');
   check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser to /.test(x.textContent))
     && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
-  rr[0].querySelector('.tag').click(); await tick();
-  const own = Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
-  check('ticking one relates them', !!own, JSON.stringify(own?.[1]));
+  // A relation with no start of its own (an ownership) is added from a day said in its redline, before Enter:
+  // the day shown, by default, so an owner added today isn't in the chart as of a day before
+  const n0r = App.wb.changes().length, owned = () => Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
+  rr[0].querySelector('.tag').click(); await tick(60);
+  const asking = $('.rr.adding'), fromIn = asking?.querySelector('.from input');
+  check('ticking one that asks its day redlines it, its day beneath it, the day shown, to type over', !!asking && /is an owner of the BDC/.test(asking.textContent)
+    && asking.querySelector('.from .sel')?.textContent === 'From' && fromIn?.value === Tree.formatDate(Log.today(), 'short') && document.activeElement === fromIn
+    && App.wb.changes().length === n0r && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1, asking?.textContent);
+  key(fromIn, 'Escape'); await tick(60);
+  check('… Esc drops it', !$('.rr.adding') && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r);
+  $$('.rr').find(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC').querySelector('.tag').click(); await tick(60);
+  key(document.activeElement, 'Enter'); await tick(60);
+  const own = owned();
+  check('ticking one relates them, from today with Enter', !!own && App.wb.item(C, own[0])[0].since === Log.today() && App.wb.changes().length === n0r + 1, JSON.stringify(own?.[1]));
+  check('… so an owner added today isn’t in the chart as of 2023, where both sides are', !App.wb.asOf(C, '2023-12-31')[own[0]] && ['blocker', 'bdc'].every(x => App.wb.asOf(C, '2023-12-31')[x]));
   const offered = $$('.rr-at .row > .k').map(k => k.textContent.trim()), pct = $$('.rr-at .row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === 'Percentage')?.querySelector('input');
   check('… and offers its entries at once, the first to type into', offered.includes('Percentage') && offered.includes('Voting Percentage') && document.activeElement === pct, offered.join(', '));
   await type(pct, '2%');
@@ -291,7 +308,45 @@ async function run() {
   const [nm, ra, rb] = $$('.rr.new input');
   for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
   key(rb, 'Enter'); await tick();
-  check('New relation makes one, and names it', Object.values(st()).some(r => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc') && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right');
+  check('New relation makes one, and names it, from the day beneath it', Object.entries(st()).some(([id, r]) => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc' && App.wb.item(C, id)[0].since === Log.today())
+    && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right');
+
+  // … or all along, for what was always so, from its menu: then it's in the chart as of 2023
+  Shell.emit('relate-open', ['holdco', 'halvard']); await tick(60);
+  ghost('Add a relation')?.click(); await tick();
+  $$('.rr').find(r => / is an owner of Halvard/.test(r.querySelector('.nm')?.textContent))?.querySelector('.tag').click(); await tick(60);
+  $('.rr.adding .from .sel')?.click(); await tick();
+  const fromMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
+  await pick('All along');
+  check('… or all along, from its menu', fromMenu === 'From,All along' && $('.rr.adding .from')?.textContent.trim() === 'All along' && !$('.rr.adding .from input')
+    && document.activeElement === $('.rr.adding .from .sel'), fromMenu + ' / ' + $('.rr.adding')?.textContent);
+  key(document.activeElement, 'Enter'); await tick(60);
+  const along = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Ownership' && st()[k].args.some(a => a.at === 'holdco') && st()[k].args.some(a => a.at === 'halvard'));
+  check('… an owner added all along is in the chart as of 2023', !!along && !App.wb.item(C, along)[0].since && !!App.wb.asOf(C, '2023-12-31')[along], JSON.stringify(along && App.wb.item(C, along)));
+  Shell.parts.value.undo.undo(); await tick(60);
+  // … with a day shown, from that day; and from a day typed over it
+  Shell.at({ asOf: '2026-01-01' }); Shell.emit('relate-open', ['holdco', 'northpine']); await tick(60);
+  ghost('Add a relation')?.click(); await tick();
+  $$('.rr').find(r => / is an adviser to Northpine/.test(r.querySelector('.nm')?.textContent))?.querySelector('.tag').click(); await tick(60);
+  const shownDay = $('.rr.adding .from input')?.value;
+  await type($('.rr.adding .from input'), 'March 2, 2025');
+  const advised = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Investment Adviser' && st()[k].args.some(a => a.at === 'holdco') && st()[k].args.some(a => a.at === 'northpine'));
+  check('… with a day shown, that day; or one typed over it', shownDay === 'Jan 1, 2026' && !!advised && App.wb.item(C, advised)[0].since === '2025-03-02', `${shownDay} ${JSON.stringify(advised && App.wb.item(C, advised))}`);
+  Shell.parts.value.undo.undo(); Shell.at(null); await tick(60);
+  // A list's Add asks the same, in the two-box panel, where its role or value is said too
+  Shell.select(['northpine']); await tick(60);
+  $$('.sect .btn.icon').find(b => b.getAttribute('aria-label') === 'Add to Owners')?.click(); await tick();
+  await pick('Calder Ridge Capital Management, LLC');
+  check('a list’s Add asks it there too, redlined', Shell.selection.peek().join() === 'northpine,mgmt' && /is an owner of Northpine/.test($('.rr.adding .nm')?.textContent ?? '')
+    && document.activeElement === $('.rr.adding .from input'), `${Shell.selection.peek()} ${$('.insp')?.textContent.slice(0, 160)}`);
+  key(document.activeElement, 'Escape'); await tick(60);
+  // A record whose kind or relation has a start entry asks no day: it holds from that entry, whenever it's added
+  const gpOf = { args: [{ edge: 'GP', at: 'mgmt' }, { edge: 'Partnership', at: Object.keys(st()).find(k => st()[k].at === 'fund' && st()[k].edge === 'Entity Type') }], tag: true };
+  let formed = null;
+  App.change(tx => { formed = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: formed, edge: 'Name', field: 'text', value: 'Harbor Point Holdings, LLC' }); tx.add('record', { at: formed, edge: 'Formation Date', field: 'date', value: '2021-05-04' }); });
+  check('an entity added asks no day, and keeps its Formation Date as its start; nor does a general partner, by its Admission Date', !App.asksDay({ kind: 'Entity' }) && !App.asksDay(gpOf)
+    && App.asksDay({ args: [{ edge: 'Owner', at: 'mgmt' }, { edge: 'Owned', at: 'fund' }], tag: true }) && !!App.wb.asOf(C, '2023-12-31')[formed] && !App.wb.asOf(C, '2021-05-03')[formed]);
+  Shell.parts.value.undo.undo(); await tick(60);
 
   // A role is chosen in its sentence, and a relation's fields come as a form sets them: the role, then the start, then the end
   Shell.emit('relate-open', ['chen', 'halvard']); await tick(60);
@@ -300,7 +355,8 @@ async function run() {
   check('a role still to choose is a dropdown in its sentence', role?.closest('.nm').textContent.includes(' is a … of '), $$('.rr .nm').map(x => x.textContent).join(' | '));
   role?.click(); await tick(); await pick('Director');
   const posFields = $$('.rr-at .row > .k').map(k => k.textContent.trim());
-  check('… and chosen, its fields are offered as a form sets them, the role first and the start before the end', posFields.join() === 'Title,Start Date,End Date' && document.activeElement?.getAttribute('aria-label') === 'Title', posFields.join(', '));
+  check('… and chosen, kept at once, as a position holds from its Start Date, its fields offered as a form sets them, the role first and the start before the end', posFields.join() === 'Title,Start Date,End Date'
+    && document.activeElement?.getAttribute('aria-label') === 'Title' && !$('.rr.adding'), posFields.join(', '));
   const director = $$('.rr').find(r => / is a director of Halvard/.test(r.querySelector('.nm')?.textContent));
   check('… held, it has its box, ticked, and its role a dropdown in the sentence', !!director?.querySelector('.ctl .tag.yes') && director.querySelector('.nm .sel')?.textContent === 'director', director?.innerHTML.slice(0, 200));
   check('… as every relation that holds has its box', $('.relate').querySelectorAll(':scope > .rr').length > 1 && [...$('.relate').querySelectorAll(':scope > .rr')].every(r => r.querySelector('.ctl .tag')));
@@ -379,8 +435,8 @@ async function run() {
   const styleNames = () => $$('.style').map(s => s.querySelector('.sname')?.textContent ?? s.querySelector('.cell').value);
   check('nothing selected shows the view’s layout and its styles, its name left to its tab', !$('.ih') && !!rowOf('Layout') && $$('.style').length > 3 && $$('svg.sw').length > 5, styleNames().join(', '));
   const outs = $$('.row.out').map(r => `${r.querySelector('.cell').value}/${r.querySelector('.oname')?.textContent ?? ''}`);
-  check('a style’s row: its caption, then the outputs it stands for, where it stands for several', outs.includes('Investors/') && outs.includes('Individual/')
-    && outs.some(o => o.startsWith('Funds/Main Fund, Business Development Company, Feeder Fund')) && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
+  check('a style’s row: its caption, then the outputs it stands for, where it stands for several, as their option list has them', outs.includes('Investors/') && outs.includes('Individual/')
+    && outs.includes('Funds/Main Fund, Parallel Fund, Feeder Fund, AIV, Co-Investment Vehicle, Business Development Company') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
   check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => r.querySelector('.cell').value === 'Investors')?.querySelector('.v').title === 'Investor Group');
   check('a text style uncaptioned is keyed by the texts it sets, as a box style by its boxes: Names, Jurisdictions', outs.includes('Names/') && outs.includes('Jurisdictions/')
     && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(r.querySelector('.cell').value)), outs.join(' | '));
@@ -404,6 +460,39 @@ async function run() {
   dispatchEvent(new PointerEvent('pointermove', { clientY: s2.getBoundingClientRect().bottom - 2 }));
   dispatchEvent(new PointerEvent('pointerup', {})); await tick();
   check('dragging a style reorders the view’s styles', styleNames()[0] !== firstStyle && styleNames()[1] === firstStyle, styleNames().join(', '));
+  // The styles under a name, then apart, after them all, those that are their one row, a heading's height apart.
+  const blocks = $$('.style'), lone = blocks.filter(b => b.classList.contains('lone')), headRow = $('.style .sname').closest('.row');
+  check('the styles under a name come first, then together, a heading’s height apart, those that are their one row (Names), so none reads as under the name before it',
+    lone.length >= 2 && blocks.slice(blocks.indexOf(lone[0])).every(b => lone.includes(b)) && lone.every(b => !b.querySelector('.sname'))
+    && parseFloat(getComputedStyle(lone[0]).marginTop) === headRow.getBoundingClientRect().height && lone.slice(1).every(b => parseFloat(getComputedStyle(b).marginTop) === 0),
+    `${styleNames().map((s, i) => blocks[i].classList.contains('lone') ? `(${s})` : s).join(', ')}; ${getComputedStyle(lone[0]).marginTop} vs ${headRow.getBoundingClientRect().height}`);
+  // Dragged among themselves, the rest keeping their places in the view's order of its styles.
+  const heads = () => styleNames().filter((_, i) => !$$('.style')[i].classList.contains('lone')), lones = () => styleNames().filter((_, i) => $$('.style')[i].classList.contains('lone'));
+  const headsWere = heads(), lonesWere = lones(), slots = () => N().styles(Shell.view.peek()).map(s => Scene.styleName(N(), s.pattern));
+  const slotsWere = slots(), lg = lone[0].querySelector('.grip');
+  lg.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(lg) }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: y(lone[1]) + 40 }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: lone[1].getBoundingClientRect().bottom - 2 }));
+  dispatchEvent(new PointerEvent('pointerup', {})); await tick();
+  const vw = Shell.view.peek(), styleOf = caption => { const g = Scene.groupsOf(N(), vw).find(g => g.caption === caption); return Scene.styleName(N(), N().styles(vw).find(s => s.key === g.style).pattern); };
+  const slotOf = name => slots().indexOf(name), [a, b] = lonesWere.slice(0, 2).map(styleOf);
+  check('… dragged among themselves, the styles under a name keeping their places', JSON.stringify(heads()) === JSON.stringify(headsWere) && lones()[0] === lonesWere[1] && lones()[1] === lonesWere[0]
+    && slotOf(a) === slotsWere.indexOf(b) && slotOf(b) === slotsWere.indexOf(a) && slots().every((s, i) => s === a || s === b || s === slotsWere[i]), `${lones().join(', ')} | ${slots().join(', ')} was ${slotsWere.join(', ')}`);
+  Shell.parts.value.undo.undo(); await tick();
+  // A row's outputs are in its option list's order: the entry's Options, dragged, order its Styles row too.
+  Shell.select([Shell.general({ args: [{ edge: 'Vehicle Type', loc: {} }] })]); await tick(80);
+  const optionList = () => $$('[data-drag="opt"] .cell').map(c => c.value), fundsRow = () => $$('.row.out').find(r => r.querySelector('.cell').value === 'Funds')?.querySelector('.oname')?.textContent.split(', ') ?? [];
+  const inOpts = () => fundsRow().length === 6 && JSON.stringify(fundsRow()) === JSON.stringify(optionList().filter(o => fundsRow().includes(o)));
+  check('an entry in general lists its Styles rows’ outputs in its Options’ order', inOpts(), `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
+  const mf = $$('[data-drag="opt"]').find(e => e.querySelector('.cell').value === 'Main Fund'), og = mf.querySelector('.grip'), top = $$('[data-drag="opt"]')[0];
+  og.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(og) }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: y(mf) - 40 }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: top.getBoundingClientRect().top + 2 }));
+  dispatchEvent(new PointerEvent('pointerup', {})); await tick();
+  check('… and Main Fund dragged to the head of its Options heads its Styles row, here and in the view’s Key', optionList()[0] === 'Main Fund' && fundsRow()[0] === 'Main Fund' && inOpts()
+    && Scene.outputName(N(), App.scene.peek().legend.find(r => r.caption === 'Funds').outputs[0]) === 'Main Fund', `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
+  Shell.parts.value.undo.undo(); await tick();
+  Shell.select([]); await tick();
 
   // A definition in general: one screen, its Formula set out as the statute it encodes
   describeAffiliated();

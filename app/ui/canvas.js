@@ -947,7 +947,8 @@ function mount(el) {
       const v = graph.findViewByCell(c);
       if (!v) continue;
       const k = c.getData()?.kind, id = k === 'label' ? c.getData().mark : c.id, el = v.container;
-      el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id));
+      // What a pending change would add or take away isn't dimmed: it's what's being asked about.
+      el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !scene.byId.get(id)?.redline);
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
   }
@@ -1092,7 +1093,9 @@ function mount(el) {
     else if (worked.length) Shell.toast(worked.length > 1 ? 'Formulas work these out' : 'A formula works this out');
   }
   const SHAPE = { text: 'text box', legend: 'key', picture: 'picture', line: 'line', group: 'group', frame: 'frame' };
-  const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? `the ${nameOf(m.record)} line` : m.type === 'frame' ? `the ${m.caption.text} frame`
+  // A line by its relation and its ends, as the place rule says them: the Ownership line from Northstar to Northpine.
+  const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(), [a, b] = N.placed(st, id); return `the ${N.nameOf(st, id)} line${a && b ? ` from ${a.text} to ${b.text}` : ''}`; };
+  const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
     : `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
   // A record deleted with a day shown is gone from that day on, and the toast says so.

@@ -240,6 +240,20 @@ const Time = (() => {
     // A view made or deleted goes by the Name note that goes with it.
     const named = id => all.find(i => i.type === 'note' && rec(i).label === 'Name' && rec(i).pattern.id === id);
     const phrases = [];
+    // Boxes and lines hidden in a view, as the chart's Delete says it: a box by its name, a line as its relation's,
+    // several counted.
+    const box = p => p.id in recs && !Tree.isView(recs[p.id]), line = p => !!p.args && Tree.idsIn(p).size > 0;
+    const hid = all.filter(i => i.type === 'note' && i.now.length && rec(i).label === 'Shown' && rec(i).value === false && rec(i).view && !moved.has(rec(i).view)
+      && (box(rec(i).pattern) || line(rec(i).pattern)) && ![...Tree.idsIn(rec(i).pattern)].some(id => moved.has(id)));
+    for (const view of new Set(hid.map(i => rec(i).view))) {
+      const ps = hid.filter(i => rec(i).view === view).map(i => rec(i).pattern);
+      // A line by its relation and its ends, as the canvas's toast says it: the Ownership line from Northstar to Northpine.
+      const lineOf = p => { const k = Tree.key(Tree.bare(p)), id = Object.keys(recs).find(x => recs[x].args && Tree.key(Tree.bare(Tree.treeOf(recs, x) ?? {})) === k), [a, b] = id ? N.placed(recs, id) : [];
+        return `the ${N.name(p)} line${a && b ? ` from ${a.text} to ${b.text}` : ''}`; };
+      const what = ps.length === 1 ? (ps[0].args ? lineOf(ps[0]) : N.nameOf(recs, ps[0].id))
+        : ps.every(p => p.args) ? `${ps.length} lines` : ps.some(p => p.args) ? `${ps.length} items` : `${ps.length} boxes`;
+      phrases.push(`Hid ${what} in ${N.nameOf(recs, view)}`);
+    }
     if (made.length > 1 || gone.length > 1) {
       for (const [verb, xs] of [[back ? 'Restored' : 'Added', made], ['Deleted', gone]]) if (xs.length) {
         const by = new Map();
@@ -254,7 +268,7 @@ const Time = (() => {
         phrases.push(recordPhrase(i, r, recs, N, named(i.id), back));
       } else if (i.type === 'note') {
         const n = rec(i);
-        if ([...Tree.idsIn(n.pattern)].some(id => moved.has(id)) || moved.has(n.view)) continue;
+        if (hid.includes(i) || [...Tree.idsIn(n.pattern)].some(id => moved.has(id)) || moved.has(n.view)) continue;
         phrases.push(notePhrase(i, n, recs, N));
       } else if (i.type === 'shape') {
         // A page's title that follows the chart's name is part of renaming it.

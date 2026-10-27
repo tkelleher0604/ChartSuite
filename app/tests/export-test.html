@@ -170,9 +170,22 @@ async function run() {
     const labels = lines(main).filter(l => l.labelAt && l.texts.length).flatMap(l => l.texts.map(it => it.text));
     const textBox = sp => tags(sp, 'p:cNvSpPr')[0].getAttribute('txBox') === '1';
     check('each line’s label is a text box beside it', labels.every(t => sps.some(sp => textOf(sp).includes(t) && textBox(sp))), labels.length);
+    // Lines said as one are one group of their lines, each named as it is (see below); any other group of a
+    // line's is the line, its pieces and its label named as it.
     const groups = tags(doc, 'p:grpSp').filter(g => tags(g, 'p:cxnSp').length && name(g) !== 'Key');
+    const inner = g => [...g.children].filter(el => /^(sp|grpSp|cxnSp)$/.test(el.localName)), ofLines = g => inner(g).filter(el => el.localName !== 'sp');
+    const several = g => ofLines(g).length > 1 && new Set(ofLines(g).map(name)).size === ofLines(g).length;
     check('a line and its label are one group, so they move together', groups.length >= lines(main).filter(l => l.labelAt && l.texts.length).length
-      && groups.every(g => tags(g, 'p:sp').length <= 1 && tags(g, 'p:cxnSp').every(c => name(c) === name(g))), `${groups.length} groups`);
+      && groups.every(g => tags(g, 'p:sp').length <= 1 && (several(g) || tags(g, 'p:cxnSp').every(c => name(c) === name(g)))), `${groups.length} groups`);
+    // A trunk's label said once, on its lane, is grouped with the trunk's lines, not with one of them: the group
+    // named for them all, the side they share once, the others in the order they're reached across the page.
+    const quiet = lines(main).filter(l => l.label?.shared && !l.labelAt), sayer = quiet.length && lines(main).find(l => l.labelAt && l.from === quiet[0].from && l.label.text === quiet[0].label.text);
+    const trunk = sayer && [sayer, ...quiet.filter(l => l.from === sayer.from)].sort((a, b) => main.byId.get(a.to).x - main.byId.get(b.to).x);
+    const trunked = trunk && groups.find(g => several(g) && ofLines(g).length === trunk.length), far = trunk?.map(l => wb.notes(C).shortOf(st, main.byId.get(l.to).record));
+    check('a label said once for a trunk is grouped with all the trunk’s lines, the group named for them all, each line in it for its own', trunk?.length > 2 && trunked
+      && inner(trunked).filter(el => el.localName === 'sp').length === 1 && textOf(inner(trunked).find(el => el.localName === 'sp'))[0] === sayer.texts[0].text
+      && name(trunked).endsWith(`${far.slice(0, -1).join(', ')} and ${far.at(-1)}`) && ofLines(trunked).every(el => far.some(f => name(el).endsWith(f)) && !name(el).includes(' and ')),
+      trunked ? `${name(trunked)}: ${ofLines(trunked).map(name).join(' | ')}` : `${trunk?.length} lines`);
     // Named as the two-box panel says its relation, both its sides by their short names; its label keeps its text.
     const st0 = R.records, short = id => wb.notes(C).shortOf(st0, main.byId.get(id).record).toLowerCase();
     const unsaid = lines(main).filter(l => !cxns.some(c => name(c).toLowerCase().includes(short(l.from)) && name(c).toLowerCase().includes(short(l.to)) && / is (an? |not )/.test(name(c))));
@@ -229,13 +242,15 @@ async function run() {
     // the date, then the chart.
     const firsts = docs.map(d => [...tags(d, 'p:spTree')[0].children].filter(el => /^(sp|grpSp|cxnSp|pic)$/.test(el.localName)).slice(0, 2).map(name));
     check('each slide reads its title first, then its date: the first two shapes in its tree', firsts.every(f => j(f) === j(['Title', 'Date'])), firsts.map(f => f.join(', ')).join(' | '));
-    // A line's sentence is its alt text: its group's, where it's grouped with its label or its pieces, else its
-    // connector's. Nothing else says one.
-    const alt = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('descr');
-    const described = [...tags(doc, 'p:grpSp'), ...cxns, ...sps].filter(alt), outer = el => el.localName === 'grpSp' || el.parentNode.localName !== 'grpSp';
-    check('each line’s sentence is its alt text, on its group, or its connector where it’s one alone, and no other shape has any', described.length === lines(main).length
-      && described.every(el => alt(el) === name(el) && / is (an? |not )/.test(alt(el)) && outer(el)) && described.some(el => el.localName === 'grpSp') && described.some(el => el.localName === 'cxnSp'),
-      `${described.length} of ${lines(main).length}: ${described.slice(0, 2).map(alt).join(' | ')}`);
+    // A line's sentence is its alt text: its group's, where it's grouped with its label or its pieces, or with
+    // the lines said as one with it; else its connector's. Each line has one, and nothing else says one.
+    const alt = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('descr'), atTop = el => el.parentNode.localName === 'spTree';
+    const described = [...tags(doc, 'p:grpSp'), ...cxns, ...sps].filter(alt), relational = cxns.filter(c => / is (an? |not )/.test(name(c)));
+    const holders = c => { const hs = []; for (let e = c; e.localName !== 'spTree'; e = e.parentNode) if (alt(e)) hs.push(e); return hs; };
+    check('each line’s sentence is its alt text, on its group, or its connector where it’s one alone, and no other shape has any', relational.length >= lines(main).length
+      && relational.every(c => holders(c).length === 1 && atTop(holders(c)[0])) && described.every(el => alt(el) === name(el) && / is (an? |not )/.test(alt(el)) && atTop(el)
+        && (el.localName === 'cxnSp' || tags(el, 'p:cxnSp').length)) && described.some(el => el.localName === 'grpSp') && docs.some(d => tags(d, 'p:cxnSp').some(c => alt(c) && atTop(c))),
+      `${described.length} described for ${lines(main).length} lines: ${described.slice(0, 2).map(alt).join(' | ')}`);
   }
 
   // ---- PDF ----
@@ -257,12 +272,18 @@ async function run() {
       /\/Producer \([^)]*\)/.exec(raw)?.[0]);
     check('… titled for the chart, by whoever exported it, as File › Properties shows', raw.includes('/Title (Calder Ridge Fund III structure)') && raw.includes(`/Author (${WHO})`),
       /\/Author \([^)]*\)/.exec(raw)?.[0]);
-    // Each stream's texts, as it shows them: a page's, in the order it draws them.
-    const streams = [];
+    // Each stream's texts, as it shows them: a page's, in the order it draws them; and the fonts they're set in.
+    const streams = [], used = new Set();
     for (const m of raw.matchAll(/\/Length (\d+)\s*\/Filter \/FlateDecode\s*>>\s*stream\r?\n/g)) {
       const start = m.index + m[0].length, text = new TextDecoder('latin1').decode(await inflate(bytes.subarray(start, start + +m[1])));
       streams.push([...text.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)].map(m => m[1].replace(/\\([0-7]{1,3}|.)/g, (_, c) => /^[0-7]+$/.test(c) ? String.fromCharCode(parseInt(c, 8)) : c)));
+      for (const f of text.matchAll(/\/(F\d+) [\d.]+ Tf/g)) used.add(f[1]);
     }
+    // File › Properties lists the fonts a PDF declares: those its text is set in, and no others.
+    const declared = [...(/\/Font <<([^>]*)>>/.exec(raw)?.[1] ?? '').matchAll(/\/(F\d+) /g)].map(m => m[1]), fonts = [...raw.matchAll(/\/BaseFont \/([\w-]+)/g)].map(m => m[1]);
+    check('it declares only the fonts its text is set in, the standard ones, Helvetica for Arial, embedding none', declared.length === used.size && declared.every(f => used.has(f))
+      && j(fonts.sort()) === j(['Helvetica', 'Helvetica-Bold']) && (raw.match(/\/Font <</g) ?? []).length === 1 && !/\/FontFile/.test(raw), `${fonts.join(', ')}; set in ${[...used].join(' ')}`);
+    check('its language is US English, as a screen reader reads it', /\/Lang \(en-US\)/.test(raw), /\/Lang \([^)]*\)/.exec(raw)?.[0] ?? 'no /Lang');
     const shown = streams.flat(), pages = streams.filter(s => s.length);
     check('each page reads its title first, then its date, as a screen reader and a search read it', pages.length === scenes.length
       && pages.every((p, i) => j(p.slice(0, heading(scenes[i]).length)) === j(heading(scenes[i]))), pages.map(p => p.slice(0, 2).join(' / ')).join(' | '));
@@ -270,7 +291,6 @@ async function run() {
     const want = scenes.flatMap(s => s.marks.flatMap(drawn)).flatMap(it => it.lines.map(l => l.text));
     const absent = want.filter(t => !shown.includes(t));   // WinAnsi, which TextDecoder's latin1 reads
     check('every line of text is in it, as the scene breaks it', !absent.length && shown.length >= want.length, absent.slice(0, 5).join(' | ') || `${shown.length} lines`);
-    check('in the standard fonts, Helvetica for Arial', /\/BaseFont \/Helvetica-Bold/.test(raw) && !/\/FontFile/.test(raw));
     check('a picture is in it', /\/Subtype \/Image/.test(raw));
   }
 
@@ -298,10 +318,13 @@ async function run() {
     const sizes = [...new Set(docs.flatMap(d => tags(d, 'a:rPr').map(r => +r.getAttribute('sz'))))].sort((a, b) => a - b);
     check('every size in the sample’s deck is a whole or half point; its title, date and Key 20, 11 and 8 pt on every slide', sizes.every(z => z % 50 === 0)
       && docs.every(d => sz(named(d, 'Title')) === 2000 && sz(named(d, 'Date')) === 1100 && sz(named(d, 'Key')) === 800), sizes.join(' '));
-    const main = slides[0], jumped = main.marks.filter(m => m.type === 'line' && m.runs);
-    const grouped = tags(docs[0], 'p:grpSp').filter(g => tags(g, 'p:cxnSp').length > 1 && g.getElementsByTagName('p:cNvPr')[0].getAttribute('name') !== 'Key');
+    // (A line's pieces are glued at one end at most, the first where it starts and the last where it ends; a group
+    // of lines said as one holds whole lines.)
+    const main = slides[0], jumped = main.marks.filter(m => m.type === 'line' && m.runs), pieces = g => [...g.children].filter(el => el.localName === 'cxnSp');
+    const grouped = tags(docs[0], 'p:grpSp').filter(g => g.getElementsByTagName('p:cNvPr')[0].getAttribute('name') !== 'Key' && pieces(g).length > 1
+      && pieces(g).every(c => !tags(c, 'a:stCxn').length || !tags(c, 'a:endCxn').length));
     check('a line broken where another crosses it is its pieces, grouped and named as the line, its arrowheads at its ends', jumped.length >= 2 && grouped.length === jumped.length
-      && grouped.every(g => { const cs = tags(g, 'p:cxnSp'); return cs.every(c => c.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === g.getElementsByTagName('p:cNvPr')[0].getAttribute('name'))
+      && grouped.every(g => { const cs = pieces(g); return cs.every(c => c.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === g.getElementsByTagName('p:cNvPr')[0].getAttribute('name'))
         && cs.every((c, i) => !tags(c, 'a:tailEnd').length || i === cs.length - 1) && cs.every((c, i) => !tags(c, 'a:headEnd').length || i === 0); }),
       `${jumped.length} broken, ${grouped.length} groups of pieces`);
   }
@@ -353,16 +376,23 @@ async function run() {
       id: /UID:([^\r]*)@dendra/.exec(e)?.[1].slice(A.chart.peek().length + 1), day: /DTSTART;VALUE=DATE:(\d{8})/.exec(e)?.[1], end: /DTEND;VALUE=DATE:(\d{8})/.exec(e)?.[1],
       summary: unesc(/^SUMMARY:(.*)\r$/m.exec(e)?.[1] ?? ''), description: /^DESCRIPTION:(.*)\r$/m.exec(e) && unesc(/^DESCRIPTION:(.*)\r$/m.exec(e)[1]) }));
 
-    // The calendar, as the dialog writes it: the dates from the day shown on.
-    const cal = await exported('ics'), ics = await cal.blob.text(), rows = ics.split('\r\n'), events = eventsOf(ics);
+    // The calendar, as the dialog writes it: the dates from the day shown on, and before it what's overdue, which
+    // is still due, as the status bar counts it. Its preview marks what's overdue as the inspector does.
+    let marked = [];
+    const cal = await exported('ics', d => { marked = [...d.querySelectorAll('.dayrow .overdue')].map(el => el.textContent); });
+    const ics = await cal.blob.text(), rows = ics.split('\r\n'), events = eventsOf(ics), overdue = A.needs.peek().filter(a => a.kind === 'overdue').map(a => a.id);
     check('the calendar the Export dialog writes is .ics, named for the chart', cal.name === `${chart}.ics` && cal.blob.type === 'text/calendar' && rows[0] === 'BEGIN:VCALENDAR' && rows.at(-2) === 'END:VCALENDAR', cal.name);
     check('… its lines ended in CRLF and folded within 75 octets', !/[^\r]\n/.test(ics) && rows.every(r => new TextEncoder().encode(r).length <= 75));
-    check('… one all-day event for each date from the day shown on, in order', events.length > 10 && events.every((e, i) => e.day >= day.replace(/-/g, '') && (!i || e.day >= events[i - 1].day) && +e.end > +e.day),
-      `${events.length} events`);
-    // Each said as the Dates table says it: what falls due, then whose.
-    const table = G('Table').model(A.views.peek().find(v => v.rows === 'date').id), col = key => 'f' + table.cols.findIndex(c => c.key === key);
-    const rowsSaid = from => table.data.filter(r => /^\d{4}-\d\d-\d\d$/.test(r[col('$value')]) && r[col('$value')] >= from).map(r => `${r[col('$entry')]} · ${r[col('$of')]}`).sort();
-    check('each event says what falls due, then whose, as the Dates table says it, one for each of its rows', j(events.map(e => e.summary).sort()) === j(rowsSaid(day))
+    check('… one all-day event for each date from the day shown on, and each overdue before it, in order', events.length > 10
+      && events.every((e, i) => (e.day >= day.replace(/-/g, '') || overdue.includes(e.id)) && (!i || e.day >= events[i - 1].day) && +e.end > +e.day), `${events.length} events`);
+    check('… what’s overdue in it, each on its day, as the status bar counts it; marked so in the preview, red, and to a screen reader', overdue.length >= 2
+      && overdue.every(id => events.filter(e => e.id === id && e.day === st[id].value.replace(/-/g, '')).length === 1) && marked.length === overdue.length && marked.every(t => / \(overdue\)$/.test(t)),
+      `${overdue.length} overdue: ${events.filter(e => overdue.includes(e.id)).map(e => `${e.day} ${e.summary}`).join(' | ')}; preview ${marked.join(', ')}`);
+    // Each said as the Dates table says it: what falls due, then whose; what's overdue, its Overdue group.
+    const table = G('Table').model(A.views.peek().find(v => v.rows === 'date').id), col = key => 'f:' + key;
+    const rowsSaid = from => table.data.filter(r => /^\d{4}-\d\d-\d\d$/.test(r[col('$value')]) && (r[col('$value')] >= from || r._g === 'overdue')).map(r => `${r[col('$entry')]} · ${r[col('$of')]}`).sort();
+    check('each event says what falls due, then whose, as the Dates table says it, one for each of its rows from the day shown on and of its Overdue group', j(events.map(e => e.summary).sort()) === j(rowsSaid(day))
+      && table.data.filter(r => r._g === 'overdue').length === overdue.length
       && events.some(e => e.summary === 'Next Renewal · The Manager (LEI Registered)') && events.some(e => e.summary === 'Affirmation Due · Fund III (4.13(a)(3) Exemption)'),
       events.filter(e => !rowsSaid(day).includes(e.summary)).slice(0, 3).map(e => e.summary).join(' | ') || events.slice(0, 3).map(e => e.summary).join(' | '));
     // One name for each thing, its short name, as the table says it: never its full legal name.
@@ -380,6 +410,20 @@ async function run() {
     const facts = d => d.split(/, so |, and |, but | and /), sentenced = d => /^[A-Z].*\.$/.test(d) && /\b[a-z]{2,}\b/.test(d) && !/ · |—|\bYes\b/.test(d) && new Set(facts(d)).size === facts(d).length;
     check('… a sentence, never ground facts run together: no fact twice, no Yes or dash, no label beside a value', events.every(e => !e.description || sentenced(e.description)),
       events.filter(e => e.description && !sentenced(e.description)).slice(0, 2).map(e => e.description).join(' | '));
+    // It reads true: the day it ends on is the event's, and any other day it names is a weekend day the date
+    // moved from, said with why and which way (January 31, a Sunday, so the Friday before), never a bare day.
+    const WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const untrue = events.filter(e => R.computed[e.id] && e.description).filter(e => {
+      let bare = e.description;
+      for (let s; (s = bare.replace(/\s*\([^()]*\)/g, '')) !== bare;) bare = s;
+      const iso = `${e.day.slice(0, 4)}-${e.day.slice(4, 6)}-${e.day.slice(6)}`, weekday = WEEK[new Date(iso + 'T12:00:00').getDay()];
+      const moved = /\(([A-Z][a-z]+ \d{1,2}(?:, \d{4})?), a (\w+), so the (\w+) (?:before|after)\)\.$/.exec(e.description);
+      return Tree.parseDate(/([A-Z][a-z]+ \d{1,2}, \d{4})\.$/.exec(bare)?.[1] ?? '') !== iso || /\([A-Z][a-z]+ \d{1,2}\)/.test(e.description)
+        || (moved && (!['Saturday', 'Sunday'].includes(moved[2]) || moved[3] !== weekday));
+    });
+    check('… and reads true: it ends on the event’s day, and names another only as the weekend day it moved from', !untrue.length
+      && events.some(e => /, so its annual return is due January 29, 2027 \(January 31, a Sunday, so the Friday before\)\.$/.test(e.description ?? '') && e.day === '20270129'),
+      untrue.slice(0, 2).map(e => `${e.day}: ${e.description}`).join(' | ') || events.find(e => /annual return/.test(e.description ?? ''))?.description);
 
     // Every date there is, from no day: the table's every row, no two alike.
     const every = eventsOf(await X.calendar(R, N, A.chart.peek(), 'Every date', '').text()).map(e => e.summary);
@@ -401,6 +445,23 @@ async function run() {
     const core = xml(await zip.file('docProps/core.xml').async('string')), prop = t => tags(core, t)[0]?.textContent;
     check('a deck the dialog writes with no name set has no author, not “You”, and is titled as its page is', deck.name.endsWith('.pptx') && prop('dc:creator') === '' && prop('cp:lastModifiedBy') === ''
       && prop('dc:title') === titleOf(A.scene.peek()), `${deck.name}: ${prop('dc:title')}; by ${j(prop('dc:creator'))}`);
+    // Every view as a deck, its lines said in the formula bar's words: a line to a frame named, and described, by
+    // the frame's caption, never by one of what's in it; a trunk's label said once, grouped with the trunk's lines,
+    // the group named for them all.
+    const whole = await exported('pptx', d => { const s = d.querySelector('select[aria-label="Views"]'); s.value = 'all'; s.dispatchEvent(new W.Event('change', { bubbles: true })); });
+    const wz = await JSZip.loadAsync(new Uint8Array(await whole.blob.arrayBuffer())), charts = A.views.peek().filter(v => v.layout === 'chart');
+    const sceneOf = v => G('Scene').of(A.shown.peek(), A.chart.peek(), v.id, A.day.peek(), { state: A.state.peek(), computed: A.computed.peek() }), short = id => N.shortOf(st, id);
+    const described = async i => [...tags(xml(await wz.file(`ppt/slides/slide${i + 1}.xml`).async('string')), 'p:spTree')[0].children]
+      .map(el => el.getElementsByTagName('p:cNvPr')[0]).filter(c => c?.getAttribute('descr')).map(c => [c.getAttribute('name'), c.getAttribute('descr')]);
+    const act = charts.findIndex(v => sceneOf(v).marks.some(m => m.type === 'line' && m.landed)), s2 = act >= 0 && sceneOf(charts[act]), on = act >= 0 ? await described(act) : [];
+    const landed = s2 ? s2.marks.filter(m => m.type === 'line' && m.landed) : [];
+    check('a line to a frame is named, and described, by the frame’s caption, never by one of what’s in it: “Each of the Funds is a close affiliate of the BDC”', landed.length >= 3
+      && landed.every(m => { const f = s2.byId.get(m.landed); return on.some(([n, d]) => n === d && n.startsWith(`Each of the ${f.caption.text} is `) && !f.members.some(b => n.includes(short(s2.byId.get(b).record)))); })
+      && on.some(([n]) => n === 'Each of the Funds is a close affiliate of the BDC'), on.map(([n]) => n).join(' | '));
+    const s1 = sceneOf(charts[0]), quiet = s1.marks.filter(m => m.type === 'line' && m.label?.shared && !m.labelAt), lead = quiet.length && s1.marks.find(m => m.type === 'line' && m.labelAt && m.from === quiet[0].from && m.label.text === quiet[0].label.text);
+    const far = lead ? [lead, ...quiet.filter(m => m.from === lead.from)].sort((a, b) => s1.byId.get(a.to).x - s1.byId.get(b.to).x).map(m => short(s1.byId.get(m.to).record)) : [], first = await described(0);
+    const trunkSaid = far.length > 2 && first.find(([n, d]) => n === d && n.startsWith(`${short(s1.byId.get(lead.from).record)} is a `) && n.endsWith(` of ${far.slice(0, -1).join(', ')} and ${far.at(-1)}`));
+    check('a trunk’s label said once is said with all its lines: “GP III is a general partner of AIV-1, Co-Invest, Fund III-A and Fund III”', !!trunkSaid, trunkSaid?.[0] ?? far.join(', '));
     // A PDF of every view, with a name set: titled for the chart, by that name.
     const Store = G('Store'), was = Store.who;
     Store.who = () => WHO;

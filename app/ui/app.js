@@ -106,6 +106,36 @@ const App = (() => {
     if (said) Shell.toast(said, { undo });
     return c;
   }
+  // When a record added holds from (dendra.md, Time). One whose kind or relation has a start entry holds from
+  // that, whenever it's recorded: a fund from its Formation Date, a general partner from its Admission Date.
+  // A relation with none, an ownership or a membership, holds from a day said as it's made, in its redline
+  // before Enter: the day shown, another, or all along, for what was always so; `change` takes it as `dated`
+  // (a day, or false for all along). asksDay(record, recs) says whether a record about to be added asks its day,
+  // its sides read in recs (the chart shown, and anything added with it).
+  function asksDay(r, recs = state.peek()) {
+    if (!(r?.args?.length > 1)) return false;
+    const t = Tree.treeOf({ ...recs, '': r }, ''), N = notes.peek();
+    return !!t && !N.notes('Start').some(n => n.pattern.args?.length === 1 && N.isStart({ out: { field: 'date' }, args: [{ edge: n.pattern.args[0].edge, loc: t }] }));
+  }
+  // The day asked, wherever a record added asks it (an add in the inspector, a row in a table): "From" and the
+  // day, typed over as Paid… types its day, or "All along", from the menu its first word opens. `day` is an
+  // ISO day, null (all along), or undefined while what's typed isn't a day; `set` takes the next. Enter and
+  // Esc are the add's own, which keeps or drops it; `auto` takes the focus, the day selected, as it's shown.
+  function From({ day, set, auto }) {
+    const [text, setText] = preactHooks.useState(null), input = preactHooks.useRef(), button = preactHooks.useRef(), once = preactHooks.useRef(auto);
+    // Shown, or switched, the day takes the keys, selected; all along, its menu does.
+    preactHooks.useLayoutEffect(() => {
+      if (once.current) { if (input.current) { input.current.focus(); input.current.select(); } else button.current?.focus(); }
+      once.current = true;
+    }, [day === null]);
+    const always = day === null, word = always ? 'All along' : 'From';
+    const pick = e => Shell.menu(e.currentTarget, [
+      { label: 'From', checked: !always, run: () => { if (always) { setText(null); set(Shell.time.peek()?.asOf ?? Log.today()); } } },
+      { label: 'All along', checked: always, run: () => set(null) }]);
+    return html`<span class="from"><button ref=${button} type="button" class="sel dd" aria-haspopup="menu" aria-label=${word} onClick=${pick}><span>${word}</span></button>
+      ${always ? null : html`<span class="hug"><input ref=${input} class="cell date" value=${text ?? Tree.formatDate(day, 'short')} aria-label="From" spellcheck=${false} autocomplete="off"
+        aria-invalid=${day === undefined ? 'true' : null} onInput=${e => { setText(e.target.value); set(Tree.parseDate(Tree.clean(e.target.value)) ?? undefined); }} /></span>`}</span>`;
+  }
   // From History: an older change undone or redone (its reverse), or an item deleted restored, made now, and
   // said as History says it.
   function remake(c) {
@@ -329,6 +359,6 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, state, needs,
-    readOnly, change, reverse, restore, views, scene, layouts, addView, who, blank,
+    readOnly, change, asksDay, From, reverse, restore, views, scene, layouts, addView, who, blank,
   };
 })();

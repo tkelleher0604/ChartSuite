@@ -154,7 +154,12 @@ function index(rows) {
     nameOf, shortOf, sides, placed, segmentOf, placeOf, whereOf,
     notes: label => byLabel.get(label) ?? [],
     description: t => value('Description', t),
-    order: t => value('Order', t),
+    // Where an entry sits among its location's entries, by the Order at its label: read without its output, as an
+    // Order at an option (Main Fund) orders the options instead (optionOrder).
+    order: t => value('Order', t.out ? bare(t) : t),
+    // Where an option sits in its list: the Order noted at it in no view, or at it where its entry is specified;
+    // none, and the list goes on by name.
+    optionOrder: p => (byLabel.get('Order') ?? []).find(n => !n.view && n.pattern.out && narrower(n.pattern, p))?.value,
     required: t => value('Required', t) === true,
     check: t => value('Check', t) === true,
     isStart: t => value('Start', t) === true,
