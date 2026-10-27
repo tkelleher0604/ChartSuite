@@ -357,16 +357,16 @@ const FormulaBar = (() => {
   // (AIV-1 has a Certificate of Limited Partnership).
   const typeOf = (edge, what) => !!what && Tree.same(edge, `${what} Type`);
   // A clause's citation: the section its Description starts with ("Section 2(a)(3): …") and the row's label,
-  // (A) reading §2(a)(3)(A), and (e)(1)(A) under 57(e) §57(e)(1)(A); a label of words follows the section. A
-  // row of a definition that cites no section has none: its label is the row's, not a citation.
+  // (A) reading §2(a)(3)(A), and (e)(1)(A) under 57(e) §57(e)(1)(A); a label of words (General partner) is the
+  // row's own, not a citation, so its section alone is cited. A row of a definition that cites no section has
+  // none.
   function citeOf(def, label) {
     const n = noteOf(def), lead = n ? String(N().description(n.pattern) ?? '').split('\n')[0] : '', l = Tree.clean(label);
     const sec = /^(?:Section|§)\s*(\d[\w.]*)((?:\([^)\s]+\))*)/i.exec(lead);
     if (l.includes('§')) return /§\s*\d[\w.]*(?:\([^)\s]+\))*/.exec(l)?.[0] ?? l;
     if (!sec) return null;
-    const groups = s => s.match(/\([^)]+\)/g) ?? [], own = /^(?:\([^)\s]+\))+/.exec(l);
-    if (!own) { const head = l.split(':')[0]; return `§${sec[1]}${sec[2]}${head ? `, ${head[0].toLowerCase()}${head.slice(1)}` : ''}`; }
-    const a = groups(sec[2]), b = groups(own[0]);
+    const groups = s => s.match(/\([^)]+\)/g) ?? [], own = /^(?:\([^)\s]+\))*/.exec(l)[0];
+    const a = groups(sec[2]), b = groups(own);
     let k = Math.min(a.length, b.length);
     while (k && a.slice(-k).join() !== b.slice(0, k).join()) k--;
     return `§${sec[1]}${a.join('')}${b.slice(k).join('')}`;
@@ -621,14 +621,14 @@ const FormulaBar = (() => {
         return Object.assign(c, { id: [id, ...reads].find(fx) ?? item, ids: [...c.ids, item], subj: ends[1 - k],
           pre: [' has ', an(what), reads.includes(kind) ? term(kind, what) : what], post: withs(reads.filter(e => e !== kind)) });
       }
-      // The sides past the second as the place rule says them (Notes.placed): each after its label, none twice.
-      const [a, b] = n.sides(recs, id), rest = n.placed(recs, id).slice(2), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
+      const [a, b] = n.sides(recs, id), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
       // Each side's list of the other: Holdings, and Owners.
       const theirs = t && b ? n.listName(t, a.edge) : a.edge, yes = r.tag !== false;
       const q = !B ? null : t ? predicateOf(t, a.edge, b.edge, { tag: 'tag' in r, name: n.nameOf(recs, id) }) : predicate(n.nameOf(recs, id), true);
       const p = q && !q.flip && !q.role ? q : null, flip = q?.flip ? q : null;
       const of = B ? [p?.form === 'noun' && !('field' in r) ? p.prep : ' of ', { name: B }] : [];
-      c.post = [...rest.flatMap(s => [s.join, { name: s.id }]), ...(rest.length && reads.length ? [','] : []), ...withs(reads)];
+      const rest = further(recs, id);
+      c.post = [...rest, ...(rest.length && reads.length ? [','] : []), ...withs(reads)];
       if ('field' in r) return Object.assign(c, { subj: A, poss: true, pre: [` ${lower(n.nameOf(recs, id))}`], obj: of, post: [be(), term(id, Tree.outputText(r)), ...c.post] });
       const says = q => q.form === 'noun' ? [be(yes), `${article(q.head)} `, term(id, q.head)] : q.form === 'participle' ? [be(yes), term(id, q.head)]
         : yes ? (would ? [' would ', term(id, q.head.replace(/s\b/, ''))] : [' ', term(id, q.head)]) : [would ? ' would not ' : ' does not ', term(id, q.head.replace(/s\b/, ''))];
@@ -640,20 +640,20 @@ const FormulaBar = (() => {
     const O = Tree.objectOf(recs, id), o = recs[O];
     if ('tag' in r) {
       // A tag described as "A fund that …" is a noun: Fund III is a private fund. Any other is a condition, said
-      // as its name says it (see conditionOf), of its object's or else of the one at its relation: Fund III's
-      // ownership adds up; the capacity is not held. A name that doesn't read so is said by itself: Good
-      // Standing holds for Fund III.
+      // as its name says it (see conditionOf), and whose it is (see whose): Fund III's ownership adds up; the
+      // capacity is not held. A name that doesn't read so is said by itself: Good Standing holds for Fund III.
       const noun = /^an?\s/i.test(n.description(Tree.treeOf(recs, id) ?? { args: [{ edge: r.edge, loc: {} }] }) ?? '');
       if (noun) return Object.assign(c, { subj: O, pre: [be(r.tag), `${article(r.edge)} `, term(id, lower(r.edge))] });
       const k = conditionOf(r.edge), not = r.tag === false ? 'not ' : '';
       if (!k) return Object.assign(c, { pre: [term(id, r.edge), holds(r.tag)], obj: isObj(o) ? [' for ', { name: O }] : [] });
       const says = k.verb ? (would ? [` would ${not}`, term(id, k.verb)] : not ? [' does not ', term(id, k.verb)] : [' ', term(id, k.said)])
         : [would ? ` would ${not}be ` : ` ${k.plural ? 'are' : 'is'} ${not}`, term(id, k.said)];
-      return Object.assign(c, isObj(o) ? { subj: O, poss: true, pre: [` ${k.what}`, ...says] } : { pre: [`the ${k.what}`, ...says] });
+      return Object.assign(c, whose(Rv, id, k.what), { post: says });
     }
     const v = Tree.outputText(r), named = o && n.nameOf(recs, O);
-    // An entry that names its object (a tax year's Year) says what the object is: the tax year is 2026.
-    if (named && [v, String(r.value)].some(x => Tree.same(named, x))) return Object.assign(c, { pre: [`the ${lower(o.kind)}`, be(), term(id, named)] });
+    // An entry that names its object (a tax year's Year) says what the object is: the tax year is 2026. It only
+    // names it, so where the sentence names the object otherwise, it isn't said (see reasons).
+    if (named && [v, String(r.value)].some(x => Tree.same(named, x))) return Object.assign(c, { names: O, pre: [`the ${lower(o.kind)}`, be(), term(id, named)] });
     // An entry naming what kind of thing its object is says it is one (typeOf): AIV-1 is a limited partnership.
     if (typeOf(r.edge, o?.kind)) return Object.assign(c, { subj: O, pre: [be(), an(v), term(id, lower(v))] });
     // A date named for what was done on it says it was done then: it last filed on …; it filed its annual return on ….
@@ -661,17 +661,29 @@ const FormulaBar = (() => {
     if (done) return Object.assign(c, { subj: O, pre: [` ${[would && 'would have', done[1]?.toLowerCase(), done[3].toLowerCase(), done[2] && `its ${lower(done[2])}`, 'on '].filter(Boolean).join(' ')}`, term(id, v)] });
     return Object.assign(c, { subj: O, poss: true, pre: [` ${lower(r.edge)}`, be(), term(id, v)] });
   }
+  // A relation's sides past the second as the place rule says them (Notes.placed): each after its label, none
+  // twice.
+  const further = (recs, id) => N().placed(recs, id).slice(2).flatMap(s => [s.join, { name: s.id }]);
+  // Whose a value or a condition is, leading its clause with what it is: its object's (the Manager's Form ADV);
+  // at a relation, its sides', as the relation says them (Fund III is taxed for 2026: Fund III's annual tax for
+  // 2026), which the sentence says as "the" once it has said the relation (see sentence); else "the".
+  function whose(Rv, id, what) {
+    const recs = Rv.records, O = Tree.objectOf(recs, id);
+    if (isObj(recs[O])) return { subj: O, poss: true, pre: [` ${what}`], obj: [] };
+    const rel = recs[O]?.args && factOf(Rv, O);
+    return rel?.subj ? { subj: rel.subj, poss: true, pre: [` ${what}`], obj: [...rel.obj, ...further(recs, O)], of: O }
+      : { subj: null, poss: false, pre: [`the ${what}`], obj: [] };
+  }
   // What the subject is, as the sentence's last clause: a relation, or a tag, as a fact; a value by its name,
-  // its object's where it has one: the Manager's Form ADV is due March 31, 2027; at a relation, as the bar
-  // names its place: the annual tax is due June 1, 2027. A date its row moved off a weekend says so (rollOf).
+  // and whose it is: the Manager's Form ADV is due March 31, 2027; Fund III's annual tax for 2026 is due June 1,
+  // 2027. A date its row moved off a weekend says so (rollOf).
   function givenOf(Rv, id, would, row) {
     const recs = Rv.records, r = would ?? recs[id], d = defOfRecord(Rv, id);
     if (r.args || 'tag' in r) return factOf(Rv, id, [], would);
-    const name = d?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name), O = Tree.objectOf(recs, id), roll = d && rollOf(Rv, d, row, id);
+    const name = d?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name), roll = d && rollOf(Rv, d, row, id);
     const what = lower(due?.[1] ?? name), is = (would ? ' would be' : plural(what) ? ' are' : ' is') + (due ? ' due ' : ' ');
-    const point = { term: Tree.outputText(r), id, fx: !!Rv.computed[id] || !!would }, post = roll ? [` (${roll})`] : [];
-    return isObj(recs[O]) ? { id, ids: [id], subj: O, poss: true, pre: [` ${what}`, is, point], obj: [], post }
-      : { id, ids: [id], subj: null, pre: [`the ${what}`, is, point], obj: [], post };
+    const point = { term: Tree.outputText(r), id, fx: !!Rv.computed[id] || !!would };
+    return { id, ids: [id], ...whose(Rv, id, what), post: [is, point, ...(roll ? [` (${roll})`] : [])] };
   }
   // A date a row moved off a weekend, in words: January 31, a Sunday, so the Friday before. The row's WORKDAY
   // that gave the date steps one working day from the day beside the one it aims at: WORKDAY(d + 1, -1) is d,
@@ -753,8 +765,13 @@ const FormulaBar = (() => {
       return { ...x, cl, reason, c: factOf(Rv, x.host, x.reads), cite: why ? citeOf(defOfRecord(Rv, x.host)?.id, why.label) : null };
     });
     const tags = facts.filter(f => f.reason), deeper = unfold && !otherwise && tags.length === 1 ? reasons(Rv, tags[0].host, tags[0].cl, false, false) : null;
+    const given = top ? givenOf(Rv, id, would, g.row) : factOf(Rv, id);
+    // A fact that only names an object (the tax year is 2026) isn't said where another clause names it: no side
+    // twice.
+    const names = c => c.names ? [] : [c.subj, ...[...c.pre, ...c.obj, ...c.post].map(s => s?.name)];
+    const named = new Set([given, ...facts.map(f => f.c), ...failed.map(f => f.c), ...(deeper ?? []).map(p => p.c)].filter(Boolean).flatMap(names).filter(Boolean));
     // The facts about one subject together; past three of a kind, the rest counted: and 38 more owners.
-    const leaves = deeper ? facts.filter(f => f !== tags[0]) : facts, subjects = [...new Set(leaves.map(f => f.c.subj))], kinds = new Map();
+    const leaves = facts.filter(f => !(deeper && f === tags[0]) && !named.has(f.c.names)), subjects = [...new Set(leaves.map(f => f.c.subj))], kinds = new Map();
     leaves.sort((x, y) => subjects.indexOf(x.c.subj) - subjects.indexOf(y.c.subj));
     const kindOf = f => { const r = recs[f.host], [a] = r.args ? N().sides(recs, f.host) : [], t = a && Tree.treeOf(recs, f.host);
       return a ? [`${N().nameOf(recs, f.host)}|${norm(a.edge)}`, lower(t ? N().listName(t, a.edge) : a.edge)] : [norm(r.edge), lower(Tree.plural(r.edge))]; };
@@ -767,20 +784,22 @@ const FormulaBar = (() => {
     if (more.length) out.push({ text: ` and ${more.join(' and ')}` });
     if (deeper) out.push({ ...deeper[0], join: !shown.length ? '' : shown.length > 1 ? ', and ' : ' and ' }, ...deeper.slice(1));
     failed.forEach((f, i) => out.push({ ...f, join: i ? (i < failed.length - 1 ? ', ' : ' and ') : out.length ? ', but ' : '' }));
-    out.push({ join: out.length ? ', so ' : '', c: top ? givenOf(Rv, id, would, g.row) : factOf(Rv, id), cite: citeOf(d.id, g.label), self: top });
+    out.push({ join: out.length ? ', so ' : '', c: given, cite: citeOf(d.id, g.label), self: top });
     return out;
   }
   const possessive = (Rv, id) => /s$/.test(N().shortOf(Rv.records, id)) ? '’' : '’s';
   // The pieces as runs, each clause said after the one before: the same subject again is "it" (a person is
   // named again), and after "and" or "but" isn't said, nor is "is" after "and" and a clause that ends at its
-  // object. What a value isn't follows it: is a member, not a managing member, of GP III.
+  // object; and a relation said again, as whose a value is, is "the" (so the capacity is held). What a value
+  // isn't follows it: is a member, not a managing member, of GP III.
   function sentence(Rv, pieces) {
-    const runs = [];
+    const runs = [], said = new Set();
     let prev = null;
     for (const p of pieces ?? []) {
       if (p.text) { runs.push({ text: p.text }); continue; }
       if (p.join) runs.push({ text: p.join });
-      const c = p.c, again = !!c.subj && c.subj === prev?.subj, and = !!p.join && p.join !== ', so ';
+      const c = said.has(p.c.of) ? { ...p.c, subj: null, poss: false, pre: [`the${p.c.pre[0]}`, ...p.c.pre.slice(1)], obj: [] } : p.c;
+      const again = !!c.subj && c.subj === prev?.subj, and = !!p.join && p.join !== ', so ';
       let subj = !c.subj ? [] : again && !isPerson(Rv, c.subj) ? [c.poss ? 'its' : 'it'] : [{ name: c.subj }, ...(c.poss ? [possessive(Rv, c.subj)] : [])], pre = c.pre;
       if (again && and && !c.poss && !prev.poss) {
         subj = [];
@@ -792,6 +811,7 @@ const FormulaBar = (() => {
       if (p.cite) runs.push({ cite: p.cite });
       if (p.then) runs.push({ text: ` (${p.then})` });
       prev = c;
+      c.ids?.forEach(x => said.add(x));
     }
     return runs.length ? runs : null;
   }
