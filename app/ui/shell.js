@@ -198,8 +198,10 @@ const Shell = (() => {
   const REGIONS = ['bars', 'view', 'inspector', 'tabs'], lastIn = {};
   document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) lastIn[r.dataset.region] = e.target; });
   const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
-  // A region given the keys: where it last had them, or else its first control, or itself.
+  // A region given the keys: the view's part, where it takes them itself (a table, at its active cell, as a sheet
+  // shown in Excel does); else where it last had them, or else its first control, or itself.
   function enter(n) {
+    if (n === 'view' && part(current.peek()?.layout ?? 'chart')?.focus?.()) return;
     const last = lastIn[n];
     (last?.isConnected && shown(last) && !last.disabled ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
   }
@@ -571,10 +573,12 @@ const Shell = (() => {
     if (items[items.length - 1] === '-') items.pop();
     return items;
   }
+  // A name cut short is shown whole on hover, as the formula bar's is.
+  const whole = e => { const b = e.currentTarget, n = b.querySelector('.name'); if (n && n.scrollWidth > n.clientWidth) b.dataset.tip = n.textContent; else delete b.dataset.tip; };
   function TitleBar() {
     const u = part('undo'), t = time.value;
     return html`<header class="titlebar" data-region="bars">
-      <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu"
+      <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu" onPointerOver=${whole}
         ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}</div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">

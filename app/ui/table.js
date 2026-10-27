@@ -522,9 +522,12 @@ const Table = (() => {
     reveal(row.getData().id);
   }
   // F6 and the like give the grid the keys, at its active cell.
+  // A grid still being built takes them once it is.
   function focus() {
+    if (!table || !el?.offsetParent) return false;
+    if (!ready) { const t = table; t.on('tableBuilt', () => { if (t === table) focus(); }); return true; }
     const h = holder();
-    if (!h || !el?.offsetParent) return false;
+    if (!h) return false;
     inside = true;
     h.focus({ preventScroll: true });
     activate();

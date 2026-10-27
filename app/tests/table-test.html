@@ -118,6 +118,11 @@ async function run() {
   const listed = $$('.float .menu-item').map(e => (e.getAttribute('aria-checked') === 'true' ? '✓' : '') + e.textContent.trim());
   item('Documents').click(); await tick(80);
   check('… the list names every view, the one shown checked, and shows the one chosen', listed.join() === views().map((v, i) => (i === 1 ? '✓' : '') + v.name).join() && views().find(v => v.id === Shell.view.peek())?.name === 'Documents', listed.join());
+  // Narrower still, the chart's name is cut in the title bar, and shown whole on hover.
+  $('.shell').style.width = '440px'; await tick(40);
+  const titled = $('.titlebar .chartmenu'), cutName = titled.querySelector('.name');
+  titled.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick();
+  check('A chart’s name cut short in the title bar is shown whole on hover', cutName.scrollWidth > cutName.clientWidth && titled.dataset.tip === cutName.textContent, `${cutName.scrollWidth} in ${cutName.clientWidth}: ${titled.dataset.tip}`);
   Object.assign($('.shell').style, { right: '', width: '' });
   Shell.show(start); await tick(80);
   check('With room for them all, no list', !$('.foot .btn.views') && !strip().dataset.more, `${strip().dataset.more}`);
@@ -621,6 +626,15 @@ async function run() {
   press('Enter', $('.findpal .menu-find')); await tick(150);
   check('Choosing a result selects it, and leaves the keys in the view', Shell.selection.peek().join() === named('Northpine Software, LLC') && !!document.activeElement?.closest('[data-region="view"]'), document.activeElement?.outerHTML.slice(0, 80));
   Shell.select([]);
+  Shell.closeAll(); await tick();
+  // A table chosen in Find takes the keys at its active cell, as a sheet shown in Excel does: the arrows move in it.
+  await found('Documents');
+  document.activeElement?.blur?.();
+  press('Enter', $('.findpal .menu-find')); await tick(150);
+  const activeRow = () => Table.grid?.modules.selectRange.getActiveCell()?.getComponent().getRow().getPosition(), r0 = activeRow();
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true, cancelable: true })); await tick(60);
+  check('A table chosen in Find takes the keys at its active cell, so the arrows move in it', views().find(v => v.id === Shell.view.peek())?.name === 'Documents'
+    && document.activeElement === Table.grid.rowManager.element && activeRow() === r0 + 1, `${document.activeElement?.className}: ${r0} → ${activeRow()}`);
   Shell.closeAll(); await tick();
   got = await found('blocker');
   const firstList = got.findIndex(x => x.includes(' › ')), blockers = ['Calder Ridge III AIV-1 Blocker, Inc.', 'Calder Ridge III Blocker, Inc.'].map(x => got.indexOf(x));
