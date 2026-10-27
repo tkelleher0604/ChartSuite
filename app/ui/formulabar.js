@@ -1,8 +1,10 @@
 // The formula bar (dendra.md, Part 2): one row that never changes height, as Excel's doesn't. It names the
 // selection, or the view when nothing is, with its output and, inline, why: the facts that gave it as a
-// sentence ("… so it is a remote affiliate of the BDC (§57(e)(1)(A))"), cut short where it doesn't fit. Each
-// name in the row of its definition that gave it takes a colour, and what it means here is outlined on the
-// chart in that colour; deeper reasons in the same hue, lighter, down to entered records (Range Finder).
+// sentence ("… so it is a remote affiliate of the BDC (§57(e)(1)(A))"), or for a record the rows rule out,
+// what failed, after "but" ("…, but is a member, not a managing member, of GP III, so …"); cut short where it
+// doesn't fit. Each name in the row of its definition that gave it takes a colour, and what it means here is
+// outlined on the chart in that colour; deeper reasons in the same hue, lighter, down to entered records (Range
+// Finder).
 // Hovering part of a formula shows its value. Clicking a fact, or a lit computed line, steps down to its
 // reason, by the clause the parent cited, and the breadcrumb steps back. The definition's rows drop over the
 // view under the sentence (the chevron, Ctrl+Shift+U, or a click on the sentence) until the selection changes,
