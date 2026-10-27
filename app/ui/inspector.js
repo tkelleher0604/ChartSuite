@@ -108,13 +108,14 @@ const blanksAt = at => (needsAt.value.get(at) ?? []).filter(a => a.kind === 'bla
 const placeOf = e => e.args?.length === 1 ? e.args[0] : e.at ? { at: e.at, edge: App.definitions.value.find(d => d.id === e.def)?.name } : null;
 
 // A record's entries, the errors where a formula would put one, and blank required ones (or, `all`, every
-// entry it could have and hasn't); in Order, Name first.
+// entry it could have and hasn't, but a check, which is its formula's to give and shows where it fails); in
+// Order, Name first.
 function slots(at, all) {
   const r = recs(), own = !!r[at]?.kind, slot = (edge, x) => ({ edge, ...x, t: { args: [{ edge, loc: tree(at) }] } });
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
-  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })) : [];
+  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
   const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));
   // Offered, the first not yet given, blank or not, is typed into at once.
@@ -235,12 +236,14 @@ const linking = signal(null);   // the record a link is being typed for
 // reason's own words.
 const Go = ({ to, cls = '', title, tip, children }) => html`<button class=${'lk ' + cls} title=${title} data-tip=${tip || null} onClick=${() => select([].concat(to))}>${children}</button>`;
 
-// Where Enter goes from a value, as in Excel: down (d = 1) or up (-1) to the next value in its part of the
-// panel (a section, or a relation's entries), or else to its own row, so that a key typed next is the window's.
+// Where Enter goes from a value or a tag's box, as in Excel: down (d = 1) or up (-1) to the next value to type
+// in its part of the panel (a section, or a relation's entries), or else to its own row, so that a key typed
+// next is the window's.
 const PART = 'section, .rr-at, .relate';
 function onward(el, d) {
   const part = el.closest(PART), all = [...el.closest('.insp')?.querySelectorAll('.hug > .cell') ?? []].filter(x => x.closest(PART) === part && !x.disabled);
-  const to = all[all.indexOf(el) + d], row = !to && el.closest('.row, .rr, .ih');
+  const after = x => el.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING;
+  const to = d > 0 ? all.find(after) : all.findLast(x => x !== el && !after(x)), row = !to && el.closest('.row, .rr, .ih');
   if (row) row.tabIndex = -1;
   return to ?? row;
 }
@@ -315,17 +318,21 @@ function Choice({ r, options, put, fx, over, id, fixed, label, ph, children }) {
     aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open}><span class=${r ? null : 'ph'}>${r?.choice ?? ph ?? ''}</span></button></span>${children}</span>`;
 }
 
-// A tag's checkbox: green attested, red ruled out, outlined when computed. Hovering shows the other state,
-// and the formula bar redlines what switching it would change; clicking switches it. After a click nothing
-// is previewed until the pointer has left, so the tag shows what was just done, even remounted under it.
-// `to` is what a click leaves (a relation unticked goes, its box empty); `fixed`, the box only says.
+// A tag's checkbox: green attested, red ruled out, outlined when computed. Pointed at, or reached by the keys,
+// it shows the other state, and the formula bar redlines what switching it would change; a click or Space
+// switches it, as a checkbox's do, and Enter goes on, as from any value, so no key meant to move on changes
+// it. After a switch nothing is previewed until it's left, so the tag shows what was just done, even remounted
+// under it. `to` is what a click leaves (a relation unticked goes, its box empty); `fixed`, the box only says.
 let clicked = false;
 function TagBox({ r, flip, fx, over, change, label, to, fixed, children }) {
   const [peek, setPeek] = useState(false), on = r?.tag, show = peek ? (to === undefined ? !(on ?? false) : to) : on;
   const hover = p => { if (p && clicked) return; setPeek(p); FormulaBar.preview(p && change ? change() : null); };
+  const leave = () => { clicked = false; if (peek) hover(false); };
+  const key = e => { if (e.key !== 'Enter') return; e.preventDefault(); onward(e.currentTarget, e.shiftKey ? -1 : 1)?.focus(); };
   return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ' no' : '') + (fx && !peek ? ' fx' : '') + (peek ? ' peek' : '')}
     role="checkbox" aria-checked=${on ? 'true' : 'false'} aria-label=${label && (on === false ? `${label}, ruled out` : label)} disabled=${App.readOnly.value || !!fixed} data-tour="tag"
-    onPointerEnter=${() => hover(true)} onPointerLeave=${() => { clicked = false; hover(false); }} onClick=${() => { hover(false); clicked = true; flip(); }} /></span>${children}</span>`;
+    onPointerEnter=${() => hover(true)} onPointerLeave=${leave} onFocus=${e => e.currentTarget.matches(':focus-visible') && hover(true)} onBlur=${leave} onKeyDown=${key}
+    onClick=${() => { hover(false); clicked = true; flip(); }} /></span>${children}</span>`;
 }
 
 // The record's other values, by time, as a count ("2 earlier"): each goes to the chart as of a day it held.
@@ -341,25 +348,39 @@ function Versions({ id }) {
 }
 
 // Beside a due date, its filing: the entry its rule reads, typed in a popover while the formula bar redlines
-// where the due date would move, or go once paid. Enter keeps it, at what the rule reads it at.
+// where the due date would move, or go once paid. Its button says what it records (Paid…, Renewed…), and a
+// filing of any other name is Filed…. Enter keeps it, at what the rule reads it at.
 function Filed({ id }) {
   const slot = !App.readOnly.value && filingOf(id);
   if (!slot) return null;
   const open = e => Shell.popover(e.currentTarget, close => html`<${Filing} due=${id} slot=${slot} close=${close} />`, { placement: 'bottom-end', onClose: () => FormulaBar.preview(null) });
   // Overdue or due soon, it's what someone came for: always shown.
-  return html`<button class=${'btn ghost ver filed' + (dueOf(id) ? ' due' : '')} aria-label=${`Record ${slot.edge}`} aria-haspopup="dialog" onClick=${open}>${/paid/i.test(slot.edge) ? 'Paid…' : 'Filed…'}</button>`;
+  return html`<button class=${'btn ghost ver filed' + (dueOf(id) ? ' due' : '')} aria-label=${`Record ${slot.edge}`} aria-haspopup="dialog" onClick=${open}>${(slot.edge.match(/\b(\w+ed|paid)\b/gi) ?? ['Filed']).at(-1)}…</button>`;
 }
+// A filing is a fact of the day it was made: it's recorded from that day, as the sample's are, so the chart
+// as of a day before still has the deadline it had; and it's redlined as of the day shown, where it holds only
+// if made by then. Kept, the selection stays on the record, at the filing's row, or moves to the filing where
+// the deadline selected goes with it.
 function Filing({ due, slot, close }) {
   const [text, setText] = useState(T.formatDate(App.day.peek(), 'short')), value = T.parse('date', T.clean(text) || '-');
   const rec = value ? { at: slot.at, edge: slot.edge, field: 'date', value } : null;
-  useLayoutEffect(() => { FormulaBar.preview(rec && { records: { [slot.id ?? 'fx-filing']: rec } }); }, [value]);
-  const was = recs()[due], p = FormulaBar.pending.value, next = p?.R2.records[due];
-  const keep = () => { if (!rec) return; close(); App.change(tx => slot.id ? tx.set(slot.id, rec) : tx.add('record', enterAt(tx, rec)), { say: `Recorded ${slot.edge}` }); };
+  useLayoutEffect(() => { FormulaBar.preview(rec && value <= App.day.peek() ? { records: { [slot.id ?? 'fx-filing']: rec } } : null); }, [value]);
+  const was = recs()[due], p = FormulaBar.pending.value, next = p ? p.R2.records[due] ?? null : undefined;
+  const keep = () => {
+    if (!rec) return;
+    close();
+    const sel = Shell.selection.peek(), at = was.at;
+    let made = slot.id;
+    if (!App.change(tx => { if (slot.id) tx.set(slot.id, rec); else made = tx.add('record', enterAt(tx, rec)); }, { dated: value, say: c => Time.describe(c) })) return;
+    const where = recs()[made]?.at, to = [...new Set(sel.map(k => recs()[k] ? k : k === at && where ? where : made))];
+    aim.value = made;
+    select(to);
+  };
   return html`<div class="filing">
     <label class="field"><span>${slot.edge}</span><input class="cell" value=${text} spellcheck=${false} aria-invalid=${value ? null : 'true'}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
       onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); keep(); } }} /></label>
-    <p class="meta">${was.edge} <s class="del">${short(was.value)}</s>${next && next.value !== was.value ? html` <span class="add">${short(next.value)}</span>` : null}</p>
+    <p class="meta">${was.edge} ${next === undefined || next?.value === was.value ? short(was.value) : html`<s class="del">${short(was.value)}</s>`}${next && next.value !== was.value ? html` <span class="add">${short(next.value)}</span>` : null}</p>
   </div>`;
 }
 
@@ -423,7 +444,7 @@ function Label({ it, fx }) {
 
 // A tag ruled out where its definition's Check note says that's a problem (Ownership Adds Up): an error,
 // said in place in red, where any other ruled out is quiet.
-const failed = id => N().value('Check', tree(id)) === true;
+const failed = id => N().check(tree(id));
 // An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value.
 // A tag is a checkbox row, its box before its name, as the two-box panel draws one; its entries beneath it.
 function Entry({ it, at, depth }) {
@@ -520,15 +541,17 @@ function sentence(t, edges, side, { choice, not, role, wrap = x => x } = {}) {
   return i < 0 ? html`${wrap(html`${side(a, true)}${words}${after}`)}${role ? html` ${role(choice)}` : null}`
     : html`${wrap(html`${side(a, true)}${words.slice(0, i)}`)}${role(words.slice(i, i + choice.length))}${wrap(html`${words.slice(i + choice.length)}${after}`)}`;
 }
-// A relation ruled out, said plainly: "Not a remote affiliate of the BDC". Where a formula rules it out
-// because another relation holds between the two, that one is said after it, with the clause that rules:
-// "Not a remote affiliate: a close affiliate of the BDC (§57(b))".
+// A relation ruled out, said plainly, as the formula bar says it but for whose record it is: "Not a remote
+// affiliate of the BDC", "Does not sign for the Manager". Where a formula rules it out because another
+// relation holds between the two, that one is said after it, with the clause that rules: "Not a remote
+// affiliate: a close affiliate of the BDC (§57(b))".
 function notText(it, held) {
   const why = because(it.rid), [, head, clause] = /^(.*?)\s*(\(.*\))?$/.exec(why?.label ?? ''), cite = why && why.cite !== why.label ? `(${why.cite})` : clause;
   const by = held.find(x => x.obj === it.obj && T.same(nameOf(x.rid), head)), rest = further(by ?? it).map(a => `, ${lower(a.edge)} ${termOf(a.at)}`).join('');
-  const not = `Not ${article(it.mine)} ${lower(it.mine)}`;
+  const not = `Not ${article(it.mine)} ${lower(it.mine)}`, said = FormulaBar.phrase?.(tree(it.rid), it.mine, it.edge, { not: true });
+  const says = said && T.same(said[0], it.mine) ? upper(said[1].trim().replace(/^is /, '')) : `${not} of`;
   return by ? `${not}: ${article(by.mine)} ${lower(by.mine)} of ${termOf(it.obj)}${rest}${cite ? ' ' + cite : ''}`
-    : `${not} of ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
+    : `${says} ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
 }
 
 function Relatives({ id }) {
@@ -576,21 +599,22 @@ function Relatives({ id }) {
 // Look: each format property set for a mark and its value, under where it comes from, said once, as an
 // entry's entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code
 // only for one of the user's own; a size or a weight is the slide's, as the format bar has it, a size to the
-// half point and a weight as PowerPoint gives it. Format is what a text shows: its Text, as the scene sets it
-// (a tag's is its name, whatever the format, unless it's none).
+// half point and a weight as PowerPoint gives it. Format is what a mark's own text shows, as the scene sets it:
+// a box's and a tag's is its name, whatever the format, unless it's none; what's recorded at it (a line's
+// percentage) is a text of its own, so a line can show no name and still draw its 64%.
 const LABELS = { Format: 'Text' }, TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
-const val = (label, v, tag) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
+const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
   : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
   : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
-  : label === 'Format' ? (tag && v !== 'none' ? 'Name' : TEXTS[v] ?? upper(String(v)))
+  : label === 'Format' ? (named ? (v === 'none' ? 'No name' : 'Name') : TEXTS[v] ?? upper(String(v)))
   : label === 'Shape' ? SHAPES[v] ?? upper(String(v)) : upper(String(v));
-function LookSection({ look, reset, tag }) {
+function LookSection({ look, reset, named }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))];
   return html`<${Section} title="Look" act=${reset}>${from.map(f => html`
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
-    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${LABELS[x.label] ?? x.label}</div><div class="v">${val(x.label, x.value, tag)}</div></div>`)}`)}</${Section}>`;
+    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${LABELS[x.label] ?? x.label}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
 }
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
 // scale, and sets the chart across its middle, by its offset), so the numbers are the ones PowerPoint shows:
@@ -616,7 +640,7 @@ function Look({ id }) {
     .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })).sort((a, b) => a.rank - b.rank);
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && x.pattern.id === id);
   const move = (k, x) => App.change(tx => tx.note('Position', t, { ...pos, [k]: x }, { view: v }), { dated: false });
-  return html`<${LookSection} look=${look} tag=${'tag' in recs()[id]} reset=${resetting(own, l => l !== 'Position', 'Reset the look')} />
+  return html`<${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position', 'Reset the look')} />
     ${pos ? html`<${Place} at=${pos} put=${move} reset=${resetting(own, l => l === 'Position', 'Reset the position')} />` : null}`;
 }
 
@@ -693,24 +717,21 @@ function Styles({ v, only }) {
     App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
   // A caption typed as an output's own name is no caption.
   const cap = (os, text) => App.change(tx => os.forEach(o => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v })));
-  // A style's outputs that look alike are one row, as in the Key, by Scene.groupsOf's rule: its swatch, its
-  // caption (the Key's word, typed over, which captions each), and beneath, the outputs it stands for, where
-  // it stands for several; one captioned otherwise is named on hover.
+  // A style's groups (Scene.groupsOf), each a row as the Key has it: its swatch, its caption (the Key's word,
+  // typed over, which captions each output in it), and, where a caption calls it, what it stands for: beneath,
+  // where several, or on hover.
   const groups = Scene.groupsOf(n, v);
   const rowsOf = s => groups.filter(g => g.style === s.key)
-    .map(g => ({ caption: g.caption, sw: g.swatch, off: g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
+    .map(g => ({ caption: g.caption, name: g.name, sw: g.swatch, off: g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
   const grip = () => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`;
-  // A text style uncaptioned is keyed by the texts it sets, as a box style is by the boxes it draws: Names,
-  // as Funds.
   const output = (g, lone) => {
-    const names = g.os.map(o => Scene.outputName(n, o.pattern)), own = names.length === 1 && T.same(names[0], g.caption);
-    const caption = g.sw.kind === 'text' && own ? T.plural(g.caption) : g.caption;
+    const names = g.os.map(o => Scene.outputName(n, o.pattern)), said = g.os.some((o, i) => Scene.captionOf(n, o.pattern, v) !== names[i]);
     return html`<div class=${'row out' + (lone ? ' lone' : '')} key=${T.key(g.os[0].pattern)}>${lone ? grip() : null}<div class="k"><${Swatch} sw=${g.sw} off=${g.off} /></div>
-      <div class="v" title=${names.length === 1 && !own ? names[0] : null}><${Field} r=${{ field: 'text', value: caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
-        ${names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
+      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
+        ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
-  // A style whose one row is captioned as the style is named is that row alone: Name, not Name over Name.
-  return list.map(s => { const rows = rowsOf(s), name = Scene.styleName(n, s.pattern), lone = rows.length === 1 && rows[0].os.length === 1 && T.same(rows[0].caption, name) && T.same(Scene.outputName(n, rows[0].os[0].pattern), name);
+  // A style that is its one group is that row alone: Names, not Name over Names.
+  return list.map(s => { const rows = rowsOf(s), name = Scene.styleName(n, s.pattern), lone = rows.length === 1 && !rows[0].name;
     return html`<div class="ent style" data-drag=${only ? null : 'style'} key=${s.key}>
       ${lone ? output(rows[0], true) : html`<div class="row" style="--depth:0">${grip()}<div class="k sname"><${Go} to=${general(s.pattern)}>${name}</${Go}></div></div>${rows.map(g => output(g))}`}
     </div>`; });

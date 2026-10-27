@@ -147,8 +147,9 @@ function run() {
       && row(lg, owns).swatch.kind === 'line');
     check('a row is captioned in the chart’s words, by its Caption notes', row(lg, choice('Main Fund')).caption.text === 'Funds' && row(lg, o => o.out?.tag === false).caption.text === 'Not in good standing',
       lg.rows.map(r => r.caption.text).join(' | '));
+    const FUNDS = ['Main Fund', 'Business Development Company', 'Feeder Fund', 'Parallel Fund', 'AIV', 'Co-Investment Vehicle'];
     edit(wb, (tx, N) => {
-      for (const v of ['Main Fund', 'Business Development Company']) note(tx, N, 'Caption', VT(v), MAIN, 'Fund vehicle');
+      for (const v of FUNDS) note(tx, N, 'Caption', VT(v), MAIN, 'Fund vehicle');
       note(tx, N, 'Shown', VT('Portfolio Company'), MAIN, false);
     });
     const t = scene(wb), lt = t.byId.get(key);
@@ -156,9 +157,10 @@ function run() {
     check('rows follow the outputs in use: hide every portfolio company and its row goes', !row(lt, choice('Portfolio Company')) && lt.rows.length === lg.rows.length - 1,
       `${lg.rows.length} then ${lt.rows.length}`);
     check('the legend is a shape: placed with the chart, sized and formatted as one', lt.x - t.page.offset.x === 40 && lt.y - t.page.offset.y === 700 && lt.w === 300 && lt.h > 40 && lt.look.Outline === '#7f7f7f');
-    edit(wb, (tx, N) => { for (const v of ['Main Fund', 'Business Development Company']) note(tx, N, 'Caption', VT(v), MAIN, undefined); });
-    const u = scene(wb).byId.get(key);
-    check('more than two outputs of one look, with no caption, go by the style’s name', row(u, choice('Main Fund')).caption.text === 'Vehicle Type', row(u, choice('Main Fund')).caption.text);
+    edit(wb, (tx, N) => { for (const v of FUNDS) note(tx, N, 'Caption', VT(v), MAIN, undefined); });
+    const u = scene(wb).byId.get(key), plain = row(u, choice('Main Fund')), listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
+    check('outputs of one look with no caption are called by their outputs, those drawn, never by the style’s name', plain.outputs.length > 2
+      && plain.caption.text === listed(plain.outputs.map(p => Scene.outputName(wb.notes(C), p))), plain.caption.text);
     const sample = fresh();
     const exhibits = ['view_main', 'view_40act', 'view_fund3', 'view_control'].map(v => {
       const sh = scene(sample, v).marks.filter(m => m.type === 'shape'), text = m => sample.item(C, m.id)[0]?.text ?? '';
@@ -167,6 +169,57 @@ function run() {
     });
     check('every sample chart view is an exhibit: a title, its date and a Key', exhibits.every(e => e.title && e.asOf && e.key), j(exhibits));
     check('… its date worked out as of the view’s day', exhibits.every(e => e.asOf === 'As of October 26, 2026'), j(exhibits.map(e => e.asOf)));
+  }
+
+  // ---- One rule for groups and their captions: the Key, Styles and the scope ----
+  {
+    const wb = fresh(), R = computed(wb), st = R.records, CONTROL = 'view_control';
+    const own = (N, v, p) => { const c = N.resolve('Caption', p, v); return c && Tree.key(c.note.pattern) === Tree.key(p) ? c.value : null; };
+    const show = (v, id, value) => edit(wb, (tx, N) => note(tx, N, 'Shown', Tree.treeOf(st, id), v, value));
+    const keyOf = v => Scene.of(wb, C, v, DAY, { state: st, computed: R }).legend, holding = (rows, c) => rows.find(r => r.outputs.some(p => p.out?.choice === c));
+    // Management and control's Key with the Cayman feeder and AIV-1 shown: the BDC's caption is the BDC's alone.
+    show(CONTROL, 'feeder', true); show(CONTROL, 'aiv', true);
+    const mc = keyOf(CONTROL), bdc = holding(mc, 'Business Development Company');
+    check('Management and control, the feeder and the AIV shown: the Key calls the BDC alone a business development company, the feeder and the AIV funds',
+      bdc?.caption === 'Business development company' && bdc.outputs.length === 1 && ['Feeder Fund', 'AIV'].every(c => holding(mc, c)?.caption === 'Funds'), j(mc.map(r => [r.caption, r.outputs.length])));
+    edit(wb, (tx, N) => { for (const c of ['Feeder Fund', 'Parallel Fund', 'AIV', 'Co-Investment Vehicle']) note(tx, N, 'Caption', VT(c), CONTROL, undefined); });
+    const plain = holding(keyOf(CONTROL), 'Feeder Fund'), styled = Scene.groupsOf(wb.notes(C), CONTROL).find(g => g.outputs.some(p => p.out?.choice === 'Feeder Fund'));
+    check('… and uncaptioned, a row of their own called by what it holds: “Feeder Fund and AIV” in the Key, all four in Styles', plain?.caption === 'Feeder Fund and AIV'
+      && styled?.caption === 'Feeder Fund, Parallel Fund, AIV and Co-Investment Vehicle' && holding(keyOf(CONTROL), 'Business Development Company')?.outputs.length === 1, `${plain?.caption} | ${styled?.caption}`);
+    const names = Scene.groupsOf(wb.notes(C), MAIN).find(g => g.swatch.kind === 'text' && g.outputs.some(p => p.args?.[0].edge === 'Name'));
+    check('a text style uncaptioned is called by the texts it sets, Names, and is its style alone, listed under no name', names?.caption === 'Names' && names.name === null, j(names && [names.caption, names.name]));
+    // Every view, with every entity, person or group of a kind the views draw shown in turn where it doesn't draw
+    // it: each Key row is captioned by its Caption notes, all saying it, or else by the outputs it holds and only
+    // those; it's one of the view's Styles rows, with that row's swatch, and its caption where a caption calls it;
+    // and it's a row the scope offers for a mark it keys.
+    const sample = fresh(), R2 = computed(sample), st2 = R2.records, VIEWS = ['view_main', 'view_40act', 'view_fund3', CONTROL], wrong = new Set();
+    const bases = new Map(VIEWS.map(v => [v, Scene.of(sample, C, v, DAY, { state: st2, computed: R2 })]));
+    const kinds = new Set([...bases.values()].flatMap(s => s.marks.filter(m => m.type === 'box').map(m => st2[m.record]?.kind)).filter(Boolean));
+    const parties = Object.keys(st2).filter(id => kinds.has(st2[id].kind)).sort();
+    let rows = 0, turns = 0, tried = 0; const notDrawn = [];
+    for (const v of VIEWS) {
+      const base = bases.get(v);
+      for (const id of [null, ...parties.filter(e => !base.byId.has(e))]) {
+        const was = id && sample.notes(C).notes('Shown').find(n => n.view === v && Tree.key(n.pattern) === Tree.key(Tree.treeOf(st2, id)))?.value;
+        if (was === true) continue;
+        if (id) edit(sample, (tx, N) => note(tx, N, 'Shown', Tree.treeOf(st2, id), v, true));
+        const N = sample.notes(C), s = id ? Scene.of(sample, C, v, DAY, { state: st2, computed: R2 }) : base, groups = Scene.groupsOf(N, v), reached = new Set();
+        if (id) { tried++; if (s.byId.has(id)) turns++; else notDrawn.push(v + ':' + id); }
+        for (const m of s.marks) if ((m.type === 'box' || m.type === 'line') && !m.revealed) for (const x of Scene.reach(sample, C, v, s, m.id, st2))
+          for (const g of groups) if (g.style === x.style && g.outputs.some(p => Tree.narrower(x.output, p))) reached.add(g.key);
+        for (const r of s.legend) {
+          rows++;
+          const ns = r.outputs.map(p => Scene.outputName(N, p)), caps = r.outputs.map(p => own(N, v, p)), captioned = caps.some(c => c != null);
+          const said = captioned ? r.outputs.every((p, i) => (caps[i] ?? ns[i]) === r.caption) : j(r.caption.split(/, | and /).sort()) === j([...ns].sort());
+          const g = groups.find(g => g.style === r.style && r.outputs.every(p => g.outputs.some(q => Tree.key(q) === Tree.key(p))));
+          if (!said || !g || j({ ...g.swatch, Weight: 0 }) !== j({ ...r.swatch, Weight: 0 }) || (captioned && g.caption !== r.caption) || !reached.has(g.key))
+            wrong.add(`${v}${id ? ` with ${id}` : ''}: “${r.caption}” holding ${ns.join(', ')}${g ? `, in “${g.caption}”` : ', in no Styles row'}`);
+        }
+        if (id) edit(sample, (tx, N) => note(tx, N, 'Shown', Tree.treeOf(st2, id), v, was));
+      }
+    }
+    check('every view, every entity shown in turn: no Key row names what it doesn’t hold, and each is a Styles row, so called, that the scope offers',
+      tried > 10 && turns === tried && !wrong.size, `${rows} rows; ${turns} of ${tried} shown ${notDrawn.join(' ')}; ${[...wrong].slice(0, 4).join(' | ')}`);
   }
 
   // ---- Frames ----
