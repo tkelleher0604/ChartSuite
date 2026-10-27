@@ -557,6 +557,14 @@ async function run() {
   check('A tag’s column is as narrow as its heading set on two lines', tags.length > 3 && tags.every(c => linesIn(c) <= 2 && c.getWidth() >= 56 && c.getWidth() < 130) && tags.some(c => linesIn(c) === 2),
     tags.map(c => `${c.getDefinition().title} ${c.getWidth()} on ${linesIn(c)}`).join(', '));
   check('Names stay whole, and the grid scrolls across', across() && !cut().length && column('Name').getWidth() > 200, `${widths()}; cut: ${[...new Set(cut())].join()}`);
+  const sr = Table.grid.modules.selectRange, gridEl = Table.grid.rowManager.element, behind = [];
+  Table.grid.addRange(Table.grid.getRows('active')[2].getCells().at(-1)); gridEl.scrollLeft = gridEl.scrollWidth; await tick(40);
+  for (let i = 1; i < Table.grid.getColumns().length; i++) {
+    sr.navigate(false, false, 'left'); await tick();
+    const a = sr.getActiveCell(), pin = $('.grid .tabulator-row .tabulator-cell.pin').getBoundingClientRect().right;
+    if (a && !a.getElement().classList.contains('pin') && a.getElement().getBoundingClientRect().left < pin - 1) behind.push(a.column.definition.title);
+  }
+  check('The arrows walk the active cell back across, never behind the column that stays put', !behind.length && sr.getActiveCell()?.column.definition.title === 'Name', behind.join());
   Shell.select([]); await slotSettled(true);
   Shell.show(own); await built('Voting Percentage');
   Shell.show(docsView); await built('Link');

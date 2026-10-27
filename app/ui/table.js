@@ -367,6 +367,9 @@ const Table = (() => {
     t.on('renderComplete', regain);
     t.on('tableBuilt', () => {
       ready = true;
+      // The first column stays put beside the row numbers (table.css), so the keys scroll a cell clear of both.
+      const sr = t.modules.selectRange, numbers = sr.getRowHeaderWidth.bind(sr);
+      sr.getRowHeaderWidth = () => numbers() + (t.getColumns().find(c => c.getField())?.getWidth() ?? 0);
       // One stop in the tab order: the rows, not the headings and their filters.
       host.querySelectorAll('.tabulator-header, .tabulator-header-filter input').forEach(x => x.setAttribute('tabindex', '-1'));
       mark();
