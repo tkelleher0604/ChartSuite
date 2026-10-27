@@ -1198,8 +1198,9 @@ function search(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
 // couldn't look, with nowhere to start or end, or a grid too fine.
 function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, mates }) {
   const BEND = 24, ALONG = 4, CROSS = 6, inReach = g => g.x < reach.r && g.x + g.w > reach.x && g.y < reach.d && g.y + g.h > reach.y;
-  const walls = [...solids.near.near({ x: reach.x, y: reach.y, w: reach.r - reach.x, h: reach.d - reach.y }).map(k => solids.list[k]), ...avoid]
-    .filter(inReach).map(g => ({ x: g.x - C, y: g.y - C, r: g.x + g.w + C, d: g.y + g.h + C }));
+  // The boxes in reach, and their walls, `pad` round each and round what's to be avoided.
+  const inside = solids.near.near({ x: reach.x, y: reach.y, w: reach.r - reach.x, h: reach.d - reach.y }).map(k => solids.list[k]).filter(inReach);
+  const walls = [...inside, ...avoid.filter(inReach)].map(g => ({ x: g.x - C, y: g.y - C, r: g.x + g.w + C, d: g.y + g.h + C }));
   const blocked = (x, y) => x < reach.x - 0.01 || x > reach.r + 0.01 || y < reach.y - 0.01 || y > reach.d + 0.01
     || walls.some(w => x > w.x + 0.01 && x < w.r - 0.01 && y > w.y + 0.01 && y < w.d - 0.01);
   // Each box's four ports: where a line meets its side, a step out from it, and the way out.
@@ -1209,8 +1210,7 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   const STEP = [[0, -1], [1, 0], [0, 1], [-1, 0]];
   // (A port's step out from its box keeps to the rules too.)
   const fair = p => !strict || !beside(p.at, p.out, legs, mates);
-  // The boxes in reach, and, `strict`, the edges of their shades (see SHADE), where a way may turn down just clear of one.
-  const inside = solids.near.near({ x: reach.x, y: reach.y, w: reach.r - reach.x, h: reach.d - reach.y }).map(k => solids.list[k]).filter(inReach);
+  // `strict`, the edges of the boxes' shades (see SHADE), where a way may turn down just clear of one.
   const shadeAt = k => !strict ? [] : inside.flatMap(g => k ? [g.y + g.h + LANE + 0.25] : [g.x - SHADE - 0.25, g.x + g.w + SHADE + 0.25]);
   const from = given?.from ?? ports(s), ends = (given?.to ?? ports(t)).filter(p => !blocked(...p.out) && fair(p));
   const coords = (k, extra) => {
