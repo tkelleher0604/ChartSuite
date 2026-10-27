@@ -290,7 +290,8 @@ const Time = (() => {
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
-      default: return `Changed ${n.label}${at !== undefined ? ' of ' : ' for '}${of}${inView}`;
+      // A style's output in a view goes by its group, as the Key and the format bar's scope say it.
+      default: return `Changed ${n.label}${at !== undefined ? ' of ' : ' for '}${at === undefined && n.view ? Scene.groupsOf(N, n.view).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(n.pattern)))?.caption ?? Scene.captionOf(N, n.pattern, n.view) : of}${inView}`;
     }
   }
 

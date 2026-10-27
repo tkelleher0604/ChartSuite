@@ -71,7 +71,7 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
   const step = Math.max(8, Math.ceil(Math.max(page.w, page.h) / 160)), spots = [];
   for (let x = x0; x <= x1; x += step) for (let y = y0; y <= y1; y += step) spots.push({ x, y, d: Math.hypot(x - cx, y - cy) });
   const best = spots.sort((a, b) => a.d - b.d).find(p => clear(p.x, p.y));
-  return best ?? { x: cx, y: Math.max(0, ...scene.marks.map(k => k.y + k.h)) + gap * 2 };
+  return best ?? { x: cx, y: Math.max(0, ...rects.map(r => r.y + r.h), ...segs.flat().map(p => p[1])) + gap * 2 };
 }
 
 // ---- Drawing: each mark as X6 cells ----
@@ -266,7 +266,8 @@ function mount(el) {
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
   // A restyle is drawn as an empty redline is, so its boxes stay where they are, as in every preview; one that
   // moves them, Tidy's, is laid out afresh, and not kept as how the view was drawn.
-  let pageWas = null;
+  // The page drawn last; and `moving`, while a gesture's change is made (see moveTo).
+  let pageWas = null, moving = false;
   function draw() {
     const base = App.scene.peek();
     if (!base) return;
@@ -277,21 +278,29 @@ function mount(el) {
       data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
-    // Each view comes back as it was left; one not seen yet opens on its page. Either is so at once, never
-    // drawn for a moment as the view before was. A framed view frames the page drawn, Tidy's preview's too
-    // (every other preview keeps the page as it was).
-    const size = `${scene.page.w}×${scene.page.h}`;
+    // Each view comes back as it was left; one not seen yet opens on its whole page. Either is so at once,
+    // never drawn for a moment as the view before was. A framed view is framed again on a page that grows or
+    // shrinks, Tidy's preview's too (every other preview keeps the page as it was). Otherwise, and under a
+    // gesture, the chart stays where it is on screen as the page sets it again (by its offset), so what was
+    // moved stays under the pointer; a gesture that changes the page's size leaves the view framed no more.
+    const page = scene.page, was = pageWas;
+    pageWas = page;
     if (viewShown !== view) {
       if (viewShown) zooms.set(viewShown, left ?? { s: graph.zoom(), t: graph.translate(), framed });
       viewShown = view;
       const z = zooms.get(view);
-      framed = z ? z.framed : READS;
+      framed = z ? z.framed : true;
       left = z && !z.framed ? z : null;
       settle();
-    } else if (framed && size !== pageWas) settle();   // the page grew or shrank: framed again
-    pageWas = size;
+    } else if (was) {
+      const resized = page.w !== was.w || page.h !== was.h, dx = page.offset.x - was.offset.x, dy = page.offset.y - was.offset.y;
+      if (framed && resized && !moving) settle();
+      else if ((dx || dy) && (moving || !framed) && screen.w) { const z = graph.zoom(), t = graph.translate(); quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z)); }
+      if (moving && resized) framed = false;
+    }
     syncSelection();
     paintStates();
+    seek();
   }
   // The graph's cells made these. Each is kept by what it's drawn from, in two parts, where it is (a node's
   // place, size and stacking, a line's route) and what it is (its markup, attributes and data): one that only
@@ -393,16 +402,31 @@ function mount(el) {
     const grow = [...new Set(ids.map(groupOf).filter(Boolean))].flatMap(g => g.members).filter(id => !ids.includes(id));
     if (grow.length) { syncing = true; sel.select(grow.map(id => graph.getCellById(id)).filter(Boolean)); syncing = false; }
     const keys = keysOfSelection();
-    if (!same(keys, Shell.selection.peek())) Shell.select(keys);
+    if (!same(keys, Shell.selection.peek())) pick(keys);
     grips();
     paintStates();
   });
-  const stopSel = effect(() => { Shell.selection.value; if (scene && !syncing) { syncSelection(); paintStates(); } });
+  // What's selected from elsewhere (Find, F8, the status bar, the inspector, Back) or by Tab is brought on
+  // screen, at the zoom the view is at; what's picked on the chart, by a click or the marquee, is there.
+  // What isn't drawn yet, a relation the view hides that its highlight will show, is brought once it is.
+  let picked = [], wanted = null;
+  const pick = keys => { picked = keys; Shell.select(keys); };
+  const stopSel = effect(() => {
+    const keys = Shell.selection.value;
+    if (!scene || syncing) return;
+    syncSelection(); paintStates();
+    wanted = same(keys, picked) ? null : keys;
+    seek();
+  });
+  function seek() {
+    const ms = wanted ? marksOf(wanted) : [];
+    if (ms.length) { wanted = null; bring(ms); }
+  }
   // Selects a mark, or the group it's in, unless it's selected already.
   function take(cell) {
     if (sel.isSelected(cell)) return;
     syncing = true; sel.reset(cellsFor([groupOf(cell.id)?.id ?? cell.id])); syncing = false;
-    Shell.select(keysOfSelection());
+    pick(keysOfSelection());
   }
 
   // While a formula's row is edited (point mode), a click on a box or line names its record to the formula
@@ -444,8 +468,8 @@ function mount(el) {
     }
     const m = scene.byId.get(node.id), key = e.target.closest?.('[data-row]')?.getAttribute('data-row');
     if (m?.geometry === 'legend') {
-      if (key && legendWas === m.id) Shell.select([`${m.id}#${key}`]);
-      else if (!key && keyRow()) Shell.select([m.id]);
+      if (key && legendWas === m.id) pick([`${m.id}#${key}`]);
+      else if (!key && keyRow()) pick([m.id]);
     }
   });
   // A click on a legend already selected selects the row under it.
@@ -475,14 +499,12 @@ function mount(el) {
       }
     }
   }
-  // Marks moved, written. The page then centres the chart again, so the view follows it by as much, and what
-  // was moved stays where it was put; unless the page changed size while framed, and was framed again.
+  // Marks moved, written: a gesture, so what was moved stays where it was put, however the page sets the
+  // chart again or grows (see draw).
   function moveTo(places) {
     if (!places.size) return;
-    const was = scene.page, z = graph.zoom();
-    if (!App.change(tx => place(tx, places))) return;
-    const now = scene.page, dx = now.offset.x - was.offset.x, dy = now.offset.y - was.offset.y, t = graph.translate();
-    if ((dx || dy) && !(framed && (now.w !== was.w || now.h !== was.h))) quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z));
+    moving = true;
+    try { App.change(tx => place(tx, places)); } finally { moving = false; }
   }
   function moved(ids) {
     const places = new Map();
@@ -744,7 +766,7 @@ function mount(el) {
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)));
   });
   root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = left = null; onScreen(); } showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
   // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
@@ -820,6 +842,10 @@ function mount(el) {
   // ---- States others ask for: highlight, redline, hidden records drawn ----
   // A record not drawn as text lights the box or line it sits in, or the line that stands in for it.
   const markFor = id => { const st = App.state.peek(); for (let x = id; x; x = st[x]?.at) { const m = scene?.byId.get(x) ?? scene?.byId.get(standIns.get(x)); if (m) return m; } return null; };
+  // The box or line it is, or is in: a text's, the box or line it's written in.
+  const hostOf = id => { const m = markFor(id); return m?.type !== 'text' ? m : scene.marks.find(h => h.texts?.includes(m)) ?? null; };
+  // The marks a selection's keys name: a record's or a shape's, a legend's for its row, a relation's text's box.
+  const marksOf = keys => [...new Set(keys.map(k => hostOf(keyParts(k)[0].split('@')[0])).filter(Boolean))];
   // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's.
   const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
   function paintStates(extra) {
@@ -1113,21 +1139,17 @@ function mount(el) {
   }
   function tidy() {
     if (!App.change(tx => placedHere().forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' })) return;
-    framed = READS; left = null;
+    framed = true; left = null;
     settle();
   }
 
-  // ---- Zoom: the levels, and framing. A view opens on its whole page, as PowerPoint opens a slide, where
-  // that's READS or more; otherwise at READS from the page's top left, so nothing is cut but its right and
-  // foot. A page drawn smaller than READS (a chart of hundreds of boxes) opens whole, or, where even its sheet's
-  // own size is too big for that, at that size from its top left: at READS its title and margin would loom
-  // larger than the sheet's. Fit (Shift+1) frames the whole page however small. A framed view stays framed as
-  // the window and the page change size, until it's zoomed or scrolled: `framed` is the least zoom it's
-  // framed at. A canvas that can't be seen (a table shown, the inspector widened) is never measured or moved:
-  // it's framed, or put back as it was left, once it's seen again ----
-  // Where a 10 pt name is 8 px on screen, as small as it's read.
-  const READS = 0.6;
-  let framed = READS, left = null, quiet = false;
+  // ---- Zoom: the levels, and framing. A view opens on its whole page, as PowerPoint opens a slide, and Fit
+  // (Shift+1) frames it so again. A framed view stays framed as the window and the page change size, until
+  // it's zoomed or scrolled, or a gesture changes the page's size (see draw). Nothing else moves the view:
+  // what's brought on screen is scrolled to, never zoomed to. A canvas that can't be seen (a table shown, the
+  // inspector widened) is never measured or moved: it's framed, or put back as it was left, once it's seen
+  // again ----
+  let framed = true, left = null, quiet = false;
   const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } onScreen(); };
   const seen = () => { screen = { w: root.clientWidth, h: root.clientHeight }; return screen.w > 0 && screen.h > 0; };
   const LEVELS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
@@ -1144,17 +1166,16 @@ function mount(el) {
     quietly(() => { graph.zoomTo(s); graph.translate(at(r.x, r.w, W), at(r.y, r.h, H)); });
     zoomLevel.value = graph.zoom();
   }
-  // The view as it's to be, once it can be seen: as it was left, or framed on its page, never larger than its
-  // sheet is.
+  // The view as it's to be, once it can be seen: as it was left, or framed on its page.
   function settle() {
     if (!scene || !seen()) return;
     const p = scene.page;
     if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
-    else if (framed) showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), Math.min(framed, p.scale), 2);
+    else if (framed) showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), LEAST, 2);
   }
   function zoom(k) {
     if (!scene) return;
-    if (k === 'fit') { framed = LEAST; left = null; return settle(); }
+    if (k === 'fit') { framed = true; left = null; return settle(); }
     if (!seen()) return;
     if (k === 'in' || k === 'out') {
       const z = graph.zoom(), next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? LEAST;
@@ -1165,23 +1186,21 @@ function mount(el) {
   }
   const resized = new ResizeObserver(() => { showHandles(null); seen(); if (framed || left) settle(); onScreen(); });
   resized.observe(root);
-  // Frames these records' marks (an entry lights the box or line it's in), as the formula bar asks when it
-  // steps down to a reason: closer, up to 100%, where they're small on screen; out as far as they need.
-  function zoomTo(ids) {
-    if (!scene || !seen()) return;
-    const hostOf = id => { const m = markFor(id); return m?.type !== 'text' ? m : scene.marks.find(h => h.texts?.includes(m)) ?? null; };
-    const ms = [...new Set([].concat(ids ?? []).map(hostOf).filter(Boolean))];
-    if (!ms.length) return;
-    const { x, y, w, h } = extent(ms);
-    // Where they're all on screen already, and legible, the view stays.
-    const a = graph.localToGraph(x, y), b = graph.localToGraph(x + w, y + h);
-    if (a.x >= 24 && a.y >= 24 && b.x <= root.clientWidth - 24 && b.y <= root.clientHeight - 24 && graph.zoom() >= 0.7) return;
-    framed = left = null;
-    showRect({ x, y, w, h }, 56, LEAST, 1);
+  // Brings marks on screen at the zoom the view is at, as Excel's Go To scrolls to a cell: by the least that
+  // shows them all, or the first of them where they don't all fit, or its top left where it's larger than the
+  // window. Where they're on screen, nothing moves. The formula bar brings a reason it steps down to so.
+  function bring(ms, pad = 24) {
+    if (!ms.length || !(screen.w || seen())) return;
+    const W = screen.w, H = screen.h, z = graph.zoom(), all = extent(ms);
+    const r = all.w * z <= W - 2 * pad && all.h * z <= H - 2 * pad ? all : extent(ms.slice(0, 1));
+    const a = graph.localToGraph(r.x, r.y), b = graph.localToGraph(r.x + r.w, r.y + r.h);
+    const into = (lo, hi, room) => lo < pad ? pad - lo : hi > room - pad ? Math.max(pad - lo, room - pad - hi) : 0;
+    const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H), t = graph.translate();
+    if (dx || dy) graph.translate(t.tx + dx, t.ty + dy);
   }
 
   // Tab and Shift+Tab select the next box and the one before, in reading order (by rows, top down, then
-  // left to right), as PowerPoint's step through its shapes; and bring it on screen.
+  // left to right), as PowerPoint's step through its shapes.
   function next(by) {
     const rows = [];
     for (const b of scene.marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y)) {
@@ -1192,10 +1211,6 @@ function mount(el) {
     const m = boxes.at(at < 0 ? (by > 0 ? 0 : -1) : (at + by) % boxes.length);
     if (!m) return false;
     Shell.select([m.id]);
-    const a = graph.localToGraph(m.x, m.y), b = graph.localToGraph(m.x + m.w, m.y + m.h), W = root.clientWidth, H = root.clientHeight, pad = 24;
-    const into = (lo, hi, room) => lo < pad ? pad - lo : hi > room - pad ? Math.max(pad - lo, room - pad - hi) : 0;
-    const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H), t = graph.translate();
-    if (dx || dy) graph.translate(t.tx + dx, t.ty + dy);
   }
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
@@ -1243,7 +1258,7 @@ function mount(el) {
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); });
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo,
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo: ids => bring(marksOf([].concat(ids ?? []))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
