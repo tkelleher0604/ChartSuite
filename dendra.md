@@ -154,7 +154,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Words.** No subtitles, descriptions, hints or tips. An empty state is a few words and its one action. A tooltip names an icon-only control and its key. A placeholder is "Find" or "New option", never an example or an instruction. A toast is a verb, an object and Undo. Nothing on screen says demo or sample. Teaching belongs to the tour. The model's terms (specification, pattern, note, candidate) never appear.
 
-**Computed** is italic, a computed tag's box is outlined, and a computed line in the default style is dashed: on screen only, like Excel's trace arrows. An entered value a formula also covers keeps a small amber corner. Errors show in place.
+**Computed** is italic, a computed tag's box is outlined, and a computed line in the default style is dashed: on screen only, like Excel's trace arrows. An entered value that says other than its formula keeps a small amber corner; one that agrees, a paid tax year say, overrides nothing and has none. Errors show in place.
 
 **Type.** IBM Plex Sans throughout, formulas included, with their functions in small capitals; four sizes; weights 400, 500, 600. The chart's text is the document's: Arial by default, which PowerPoint and the PDF draw alike.
 
