@@ -312,6 +312,10 @@ const Time = (() => {
     if (!i.now.length) return `Deleted ${what}${view ? ` from ${view}` : ''}`;
     return `Edited ${what}${view ? ` in ${view}` : ''}`;
   }
+  // A style's output in a view, by its group, as the Key and the format bar's scope say it; its caption, by its
+  // own name.
+  const grouped = (N, n) => typeof Scene === 'undefined' ? null : n.label === 'Caption' ? Scene.outputName(N, n.pattern)
+    : Scene.groupsOf(N, n.view).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(n.pattern)))?.caption ?? Scene.captionOf(N, n.pattern, n.view);
   function notePhrase(i, n, recs, N) {
     const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {});
     const of = at !== undefined ? N.nameOf(recs, at) : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern);
@@ -326,7 +330,7 @@ const Time = (() => {
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
-      default: return `Changed ${n.label}${at !== undefined ? ' of ' : ' for '}${of}${inView}`;
+      default: return `Changed ${n.label}${at !== undefined ? ' of ' : ' for '}${at === undefined && n.view ? grouped(N, n) ?? of : of}${inView}`;
     }
   }
 
