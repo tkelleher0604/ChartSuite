@@ -268,15 +268,21 @@ const Table = (() => {
     for (let i = 1; i < words.length; i++) line = Math.min(line, Math.max(w(words.slice(0, i)), w(words.slice(i))));
     return Math.ceil(line + parseFloat(b.paddingLeft) + parseFloat(b.paddingRight)) + 1;
   }
+  // Each column is measured as Tabulator fits a column to its data, but all of them at once: every column's width let
+  // go, then every one measured, then every one set, so the grid is laid out once to measure them, not once a column.
   Tabulator.extendModule('layout', 'modes', { fitDataSlack(columns) {
     const shown = columns.filter(c => c.visible), free = shown.filter(c => !c.widthFixed || sized.has(c)), full = new Map(), w = widthOf(this.table);
+    const plain = free.filter(c => !TAG.test(c.definition.cssClass)), fits = new Map();
+    for (const c of plain) { c.widthFixed = false; c.dispatch('column-width-fit-before', c); c.element.style.width = ''; c.cells.forEach(x => x.clearWidth()); }
+    for (const c of free) fits.set(c, TAG.test(c.definition.cssClass) ? twoLines(c)
+      : { data: Math.max(c.element.offsetWidth, ...c.cells.map(x => x.getWidth())) + 1, all: c.getField() ? widest(c) : 0 });
     for (const c of free) {
-      if (TAG.test(c.definition.cssClass)) c.setWidthActual(twoLines(c));
+      const fit = fits.get(c);
+      if (typeof fit === 'number') c.setWidthActual(fit);
       else {
-        const cap = c.maxInitialWidth;
-        c.maxInitialWidth = null; c.reinitializeWidth(); c.maxInitialWidth = cap;
-        const all = c.getField() ? widest(c) : 0;
-        if (all > c.getWidth()) c.setWidthActual(all);
+        c.setWidthActual(fit.data);
+        c.dispatch('column-width-fit-after', c);
+        if (fit.all > c.getWidth()) c.setWidthActual(fit.all);
       }
       full.set(c, c.getWidth());
       const most = PIN.test(c.definition.cssClass) ? Math.floor(w / 2) : c.maxInitialWidth;
@@ -376,6 +382,15 @@ const Table = (() => {
         groupHeader: (g, n) => `${g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month')}<span>${n}</span>`,
       }),
     });
+    // Rows are measured together: every row's cells let go of their heights, then every row measured, then every
+    // row's cells set to it, so the grid is laid out once for them all, where Tabulator, measuring each row after
+    // setting the one before, would lay it out again for each.
+    t.rowManager.normalizeHeight = function (force) {
+      const rows = this.activeRows;
+      if (force && !this.table.options.rowHeight) for (const r of rows) r.clearCellHeight();
+      for (const r of rows) r.calcHeight(force);
+      for (const r of rows) r.setCellHeight();
+    };
     t.on('cellEdited', cell => { const d = m.cols[+cell.getField().slice(1)]; if (d.type === 'choice' || d.type === 'edge') put(cell, cell.getValue() ?? ''); back(); });
     t.on('cellEditCancelled', () => back());
     t.on('cellClick', (e, cell) => { if (e.target.closest('.tag')) flip(cell); });
@@ -402,6 +417,9 @@ const Table = (() => {
   const signature = m => JSON.stringify([m.view, m.cols.filter(drawn).map(c => [c.key, c.title, c.type, c.options, c.filed, c.check]), m.groups]);
 
   let reds = new Set(), seen = null;
+  // Whether a row's data says what the grid's row does.
+  const sameRow = (a, b) => !!b && Object.keys(a).length === Object.keys(b).length
+    && Object.keys(a).every(k => a[k] === b[k] || (typeof a[k] === 'object' && a[k] !== null && JSON.stringify(a[k]) === JSON.stringify(b[k])));
   function refresh() {
     const view = Shell.view.value, v = viewOf(view), p = FormulaBar.pending.value;
     if (!el || v?.layout !== 'table') return;
@@ -423,8 +441,10 @@ const Table = (() => {
     // Rows keep their place while they're edited; a sort or a filter applies again only when asked.
     const t = table, lit = p ? [] : since(now), red = new Set(m.data.filter(isRed).map(r => r.id)), first = !reds.size && (m.data.find(r => r._red) ?? m.data.find(isRed))?.id;
     const f = flight = { again: false };
+    // Only the rows that say something else are updated, as Tabulator measures every row it's given again.
+    const had = new Map(t.getRows().map(row => [row.getData().id, row.getData()])), changed = m.data.filter(r => !sameRow(r, had.get(r.id)));
     t.blockRedraw();
-    t.updateOrAddData(m.data).then(() => {
+    (changed.length ? t.updateOrAddData(changed) : Promise.resolve()).then(() => {
       if (flight === f) flight = null;
       if (t !== table) return;
       const keep = new Set(m.data.map(r => r.id)), rows = new Map();
