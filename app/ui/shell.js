@@ -44,8 +44,9 @@
 // Anything else one part asks of another is a call: FormulaBar.preview(change), App.change(fn), Canvas.zoom.
 // Shell.ready and Shell.launched are promises: the window is drawn; the launch screen is gone.
 //
-// APP (app.js) is the workbook: App.wb; signals chart, version, day, readOnly (in History); computed shown,
-// entered, schema, notes, definitions, relations, computed (Formulas.computeState's), state, views
+// APP (app.js) is the workbook: App.wb; signals version, day, readOnly (in History); computed chart (the one the
+// view shown is of, so the address opens it), shown, entered, schema, notes, definitions, relations, computed
+// (Formulas.computeState's), state, views
 // ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
 // dated }) → the change, every edit's one way in, and App.would(fn(tx), { dated }), the records it would leave on
 // the day shown, unmade, which its redline previews; App.reverse(changeId) and App.restore(item), History's;
