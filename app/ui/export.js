@@ -285,19 +285,19 @@ function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = 
 }
 
 // Lines said as one, as the chart says them: those landing on a frame along one route, the first drawn standing
-// for the rest (Scene's `merged`, and any of another look drawn over it); and a trunk's lines, of one relation,
-// leaving their box at one point and saying one thing, said once by one label on their lane. → each line's
-// fellows, itself among them, drawn or not, in the order of what they reach across the page.
+// for the rest (Scene's `merged`, and any of another look drawn over it); and a trunk's lines said once by one
+// label on their lane, the label's line naming them (the layout's `kin`). → each line's fellows, itself among
+// them, drawn or not, in the order of what they reach across the page.
 function together(scene) {
-  const by = new Map(), out = new Map(), to = l => scene.byId.get(l.to) ?? {};
-  for (const l of new Set(scene.byId.values())) if (l.type === 'line') {
-    const k = l.landed ? `${l.landed}|${JSON.stringify(l.points)}` : l.label?.shared ? `${l.trunk}|${l.label.text}|${JSON.stringify(l.points?.[0])}` : l.id;
+  const by = new Map(), out = new Map(), to = l => scene.byId.get(l.to) ?? {}, lines = [...new Set(scene.byId.values())].filter(l => l.type === 'line');
+  for (const l of lines) {
+    const k = l.landed ? `${l.landed}|${JSON.stringify(l.points)}` : l.id;
     (by.get(k) ?? by.set(k, []).get(k)).push(l);
   }
+  for (const l of lines) if (l.kin?.length > 1) by.set(l.id, l.kin.map(id => scene.byId.get(id)).filter(Boolean));
   for (const ls of by.values()) {
     ls.sort((a, b) => to(a).x - to(b).x || to(a).y - to(b).y);
-    // (A trunk whose lines each have their label isn't said as one.)
-    for (const one of ls.filter(l => l.labelAt).length > 1 ? ls.map(l => [l]) : [ls]) for (const l of one) out.set(l.id, one);
+    for (const l of ls) if (!out.has(l.id) || ls.length > out.get(l.id).length) out.set(l.id, ls);
   }
   return out;
 }
