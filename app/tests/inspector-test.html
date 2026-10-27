@@ -379,8 +379,8 @@ async function run() {
   const styleNames = () => $$('.style').map(s => s.querySelector('.sname')?.textContent ?? s.querySelector('.cell').value);
   check('nothing selected shows the view’s layout and its styles, its name left to its tab', !$('.ih') && !!rowOf('Layout') && $$('.style').length > 3 && $$('svg.sw').length > 5, styleNames().join(', '));
   const outs = $$('.row.out').map(r => `${r.querySelector('.cell').value}/${r.querySelector('.oname')?.textContent ?? ''}`);
-  check('a style’s row: its caption, then the outputs it stands for, where it stands for several', outs.includes('Investors/') && outs.includes('Individual/')
-    && outs.some(o => o.startsWith('Funds/Main Fund, Business Development Company, Feeder Fund')) && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
+  check('a style’s row: its caption, then the outputs it stands for, where it stands for several, as their option list has them', outs.includes('Investors/') && outs.includes('Individual/')
+    && outs.includes('Funds/AIV, Business Development Company, Co-Investment Vehicle, Feeder Fund, Main Fund, Parallel Fund') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
   check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => r.querySelector('.cell').value === 'Investors')?.querySelector('.v').title === 'Investor Group');
   check('a text style uncaptioned is keyed by the texts it sets, as a box style by its boxes: Names, Jurisdictions', outs.includes('Names/') && outs.includes('Jurisdictions/')
     && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(r.querySelector('.cell').value)), outs.join(' | '));
@@ -404,6 +404,39 @@ async function run() {
   dispatchEvent(new PointerEvent('pointermove', { clientY: s2.getBoundingClientRect().bottom - 2 }));
   dispatchEvent(new PointerEvent('pointerup', {})); await tick();
   check('dragging a style reorders the view’s styles', styleNames()[0] !== firstStyle && styleNames()[1] === firstStyle, styleNames().join(', '));
+  // The styles under a name, then apart, after them all, those that are their one row, a heading's height apart.
+  const blocks = $$('.style'), lone = blocks.filter(b => b.classList.contains('lone')), headRow = $('.style .sname').closest('.row');
+  check('the styles under a name come first, then together, a heading’s height apart, those that are their one row (Names), so none reads as under the name before it',
+    lone.length >= 2 && blocks.slice(blocks.indexOf(lone[0])).every(b => lone.includes(b)) && lone.every(b => !b.querySelector('.sname'))
+    && parseFloat(getComputedStyle(lone[0]).marginTop) === headRow.getBoundingClientRect().height && lone.slice(1).every(b => parseFloat(getComputedStyle(b).marginTop) === 0),
+    `${styleNames().map((s, i) => blocks[i].classList.contains('lone') ? `(${s})` : s).join(', ')}; ${getComputedStyle(lone[0]).marginTop} vs ${headRow.getBoundingClientRect().height}`);
+  // Dragged among themselves, the rest keeping their places in the view's order of its styles.
+  const heads = () => styleNames().filter((_, i) => !$$('.style')[i].classList.contains('lone')), lones = () => styleNames().filter((_, i) => $$('.style')[i].classList.contains('lone'));
+  const headsWere = heads(), lonesWere = lones(), slots = () => N().styles(Shell.view.peek()).map(s => Scene.styleName(N(), s.pattern));
+  const slotsWere = slots(), lg = lone[0].querySelector('.grip');
+  lg.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(lg) }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: y(lone[1]) + 40 }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: lone[1].getBoundingClientRect().bottom - 2 }));
+  dispatchEvent(new PointerEvent('pointerup', {})); await tick();
+  const vw = Shell.view.peek(), styleOf = caption => { const g = Scene.groupsOf(N(), vw).find(g => g.caption === caption); return Scene.styleName(N(), N().styles(vw).find(s => s.key === g.style).pattern); };
+  const slotOf = name => slots().indexOf(name), [a, b] = lonesWere.slice(0, 2).map(styleOf);
+  check('… dragged among themselves, the styles under a name keeping their places', JSON.stringify(heads()) === JSON.stringify(headsWere) && lones()[0] === lonesWere[1] && lones()[1] === lonesWere[0]
+    && slotOf(a) === slotsWere.indexOf(b) && slotOf(b) === slotsWere.indexOf(a) && slots().every((s, i) => s === a || s === b || s === slotsWere[i]), `${lones().join(', ')} | ${slots().join(', ')} was ${slotsWere.join(', ')}`);
+  Shell.parts.value.undo.undo(); await tick();
+  // A row's outputs are in its option list's order: the entry's Options, dragged, order its Styles row too.
+  Shell.select([Shell.general({ args: [{ edge: 'Vehicle Type', loc: {} }] })]); await tick(80);
+  const optionList = () => $$('[data-drag="opt"] .cell').map(c => c.value), fundsRow = () => $$('.row.out').find(r => r.querySelector('.cell').value === 'Funds')?.querySelector('.oname')?.textContent.split(', ') ?? [];
+  const inOpts = () => fundsRow().length === 6 && JSON.stringify(fundsRow()) === JSON.stringify(optionList().filter(o => fundsRow().includes(o)));
+  check('an entry in general lists its Styles rows’ outputs in its Options’ order', inOpts(), `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
+  const mf = $$('[data-drag="opt"]').find(e => e.querySelector('.cell').value === 'Main Fund'), og = mf.querySelector('.grip'), top = $$('[data-drag="opt"]')[0];
+  og.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(og) }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: y(mf) - 40 }));
+  dispatchEvent(new PointerEvent('pointermove', { clientY: top.getBoundingClientRect().top + 2 }));
+  dispatchEvent(new PointerEvent('pointerup', {})); await tick();
+  check('… and Main Fund dragged to the head of its Options heads its Styles row, here and in the view’s Key', optionList()[0] === 'Main Fund' && fundsRow()[0] === 'Main Fund' && inOpts()
+    && Scene.outputName(N(), App.scene.peek().legend.find(r => r.caption === 'Funds').outputs[0]) === 'Main Fund', `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
+  Shell.parts.value.undo.undo(); await tick();
+  Shell.select([]); await tick();
 
   // A definition in general: one screen, its Formula set out as the statute it encodes
   describeAffiliated();

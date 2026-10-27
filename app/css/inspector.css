@@ -167,8 +167,10 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 .v.lines { white-space: pre-line; }
 
 /* Styles: each style's name, then its rows, each a swatch drawn as on the page beside its caption, and the
-   outputs it stands for beneath, where they say otherwise. A style that is its one row is that row alone. */
+   outputs it stands for beneath, where they say otherwise. A style that is its one row is that row alone, and
+   those come after the rest, a heading's height apart. */
 .styles { padding: 4px 0 8px; }
+.style:not(.lone) + .style.lone { margin-top: var(--row); }
 .style > .row > .k.sname { grid-column: 1 / -1; font-weight: 500; color: var(--ink); }
 .row.out { grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; padding-left: 34px; }
 .row.out.lone { padding-left: 20px; }

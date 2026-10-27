@@ -184,8 +184,8 @@ function run() {
       bdc?.caption === 'Business development company' && bdc.outputs.length === 1 && ['Feeder Fund', 'AIV'].every(c => holding(mc, c)?.caption === 'Funds'), j(mc.map(r => [r.caption, r.outputs.length])));
     edit(wb, (tx, N) => { for (const c of ['Feeder Fund', 'Parallel Fund', 'AIV', 'Co-Investment Vehicle']) note(tx, N, 'Caption', VT(c), CONTROL, undefined); });
     const plain = holding(keyOf(CONTROL), 'Feeder Fund'), styled = Scene.groupsOf(wb.notes(C), CONTROL).find(g => g.outputs.some(p => p.out?.choice === 'Feeder Fund'));
-    check('… and uncaptioned, a row of their own called by what it holds: “Feeder Fund and AIV” in the Key, all four in Styles', plain?.caption === 'Feeder Fund and AIV'
-      && styled?.caption === 'Feeder Fund, Parallel Fund, AIV and Co-Investment Vehicle' && holding(keyOf(CONTROL), 'Business Development Company')?.outputs.length === 1, `${plain?.caption} | ${styled?.caption}`);
+    check('… and uncaptioned, a row of their own called by what it holds: “AIV and Feeder Fund” in the Key, all four in Styles', plain?.caption === 'AIV and Feeder Fund'
+      && styled?.caption === 'AIV, Co-Investment Vehicle, Feeder Fund and Parallel Fund' && holding(keyOf(CONTROL), 'Business Development Company')?.outputs.length === 1, `${plain?.caption} | ${styled?.caption}`);
     const names = Scene.groupsOf(wb.notes(C), MAIN).find(g => g.swatch.kind === 'text' && g.outputs.some(p => p.args?.[0].edge === 'Name'));
     check('a text style uncaptioned is called by the texts it sets, Names, and is its style alone, listed under no name', names?.caption === 'Names' && names.name === null, j(names && [names.caption, names.name]));
     // Every view, with every entity, person or group of a kind the views draw shown in turn where it doesn't draw
@@ -220,6 +220,32 @@ function run() {
     }
     check('every view, every entity shown in turn: no Key row names what it doesn’t hold, and each is a Styles row, so called, that the scope offers',
       tried > 10 && turns === tried && !wrong.size, `${rows} rows; ${turns} of ${tried} shown ${notDrawn.join(' ')}; ${[...wrong].slice(0, 4).join(' | ')}`);
+  }
+
+  // ---- One order for the groups, and for a row's outputs: the Key's, Styles' and the scope's ----
+  {
+    const wb = fresh(), VIEWS = ['view_main', 'view_40act', 'view_fund3', 'view_control'], CONTROL = 'view_control';
+    const said = (N, ps) => ps.map(p => Scene.outputName(N, p)), funds = (N, v) => Scene.groupsOf(N, v).find(g => g.caption === 'Funds');
+    // Under a name, in the view's order of its styles; then, after them all, those under none, in that order too.
+    const parts = VIEWS.map(v => { const N = wb.notes(C), gs = Scene.groupsOf(N, v), at = gs.findIndex(g => g.name === null), styles = N.styles(v).map(s => Scene.styleName(N, s.pattern));
+      return { v, at, ok: at > 0 && gs.slice(at).every(g => g.name === null) && [gs.slice(0, at), gs.slice(at)].every(p => p.every((g, i) => !i || p[i - 1].order <= g.order)),
+        before: styles.indexOf('Name') < styles.indexOf('Entity Type') }; });
+    check('every view lists the groups under a style’s name first, in its order of its styles, then together those under none (Names), though its styles put Name before Entity Type',
+      parts.every(p => p.ok && p.before), j(parts));
+    // A row's outputs as the option list has them: by name, where no Order says otherwise, and so the same in every view.
+    const N0 = wb.notes(C), byName = ps => j(said(N0, ps)) === j(said(N0, ps).toSorted((a, b) => a.localeCompare(b)));
+    check('a row lists its outputs in their option list’s order, by name where no Order says otherwise, the same in every view', VIEWS.every(v => byName(funds(N0, v).outputs))
+      && j(said(N0, funds(N0, 'view_main').outputs).filter(x => said(N0, funds(N0, 'view_fund3').outputs).includes(x))) === j(said(N0, funds(N0, 'view_fund3').outputs)),
+      VIEWS.map(v => said(N0, funds(N0, v).outputs).join(', ')).join(' | '));
+    // The list reordered as the inspector's Options reorder it: Order at each option of its entry's specification.
+    const LIST = ['Main Fund', 'Parallel Fund', 'Feeder Fund', 'AIV', 'Co-Investment Vehicle', 'Business Development Company'], spec = N0.fitting(wb.schema(C), VT('Main Fund'))[0];
+    edit(wb, (tx, N) => LIST.forEach((o, k) => note(tx, N, 'Order', { out: { choice: o }, args: spec.args }, undefined, k + 1)));
+    const N1 = wb.notes(C), inList = ps => j(said(N1, ps)) === j(LIST.filter(o => said(N1, ps).includes(o))), key = scene(wb).legend.find(r => r.caption === 'Funds');
+    check('… and in the order its Order notes give it, in every view and in the Key, the row going by its first', VIEWS.every(v => inList(funds(N1, v).outputs)) && inList(key.outputs)
+      && funds(N1, MAIN).key === Tree.key(VT('Main Fund')), VIEWS.map(v => said(N1, funds(N1, v).outputs).join(', ')).join(' | ') + ` | Key: ${said(N1, key.outputs).join(', ')}`);
+    edit(wb, (tx, N) => { for (const c of ['Feeder Fund', 'Parallel Fund', 'AIV', 'Co-Investment Vehicle']) note(tx, N, 'Caption', VT(c), CONTROL, undefined); });
+    const plain = Scene.groupsOf(wb.notes(C), CONTROL).find(g => g.outputs.some(p => p.out?.choice === 'Feeder Fund'));
+    check('… and a row called by its outputs calls them in that order', plain?.caption === 'Parallel Fund, Feeder Fund, AIV and Co-Investment Vehicle', plain?.caption);
   }
 
   // ---- Frames ----
