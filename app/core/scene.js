@@ -617,8 +617,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (host?.texts) host.texts.push(textItem(m, host));
   }
   for (const b of boxes) b.texts = gather(b.texts);
-  // The key is of what the view draws: what's revealed for a while doesn't change it.
+  // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
+  // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
+  const onPage = shapeRows.filter(r => r.geometry !== 'legend' || legendRows.length);
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
@@ -715,10 +717,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // The room the chart has on its sheet, as the layout fills it: within the margins, under the title and date;
   // and the Key's size there, which the page sets beside the title where it fits there, or else `under` the
   // chart's right end (see furnish).
-  const furnished = shapeRows.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).map(r => freeShape(r, said.get(r.id)));
+  const furnished = onPage.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).map(r => freeShape(r, said.get(r.id)));
   const furniture = furnished.reduce((h, m) => h + m.h, 0);
   const room = { w: sheet.w - 2 * MARGIN, h: sheet.h - 2 * MARGIN - (furniture && furniture - INSET - PAD + 32) };
-  const keyRow = shapeRows.find(r => r.geometry === 'legend' && placedBy(r));
+  const keyRow = onPage.find(r => r.geometry === 'legend' && placedBy(r));
   if (keyRow) {
     const k = freeShape(keyRow, '');
     layoutLegend(k, legendRows);
@@ -757,7 +759,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const placed = Layout.arrange({
       keep: last?.at ?? null, ...ranked(boxes),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
-      obstacles: obstaclesOf(shapeRows, last?.page.offset),
+      obstacles: obstaclesOf(onPage, last?.page.offset),
       entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
@@ -790,7 +792,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const laid = furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy });
+    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy });
     return { ...laid, around: lines.filter(l => l.around).length };
   }
   // A layout just laid, with its faults; and a layout laid again, as it was judged.
