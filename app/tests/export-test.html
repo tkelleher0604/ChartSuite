@@ -380,6 +380,20 @@ async function run() {
     const facts = d => d.split(/, so |, and |, but | and /), sentenced = d => /^[A-Z].*\.$/.test(d) && /\b[a-z]{2,}\b/.test(d) && !/ · |—|\bYes\b/.test(d) && new Set(facts(d)).size === facts(d).length;
     check('… a sentence, never ground facts run together: no fact twice, no Yes or dash, no label beside a value', events.every(e => !e.description || sentenced(e.description)),
       events.filter(e => e.description && !sentenced(e.description)).slice(0, 2).map(e => e.description).join(' | '));
+    // It reads true: the day it ends on is the event's, and any other day it names is a weekend day the date
+    // moved from, said with why and which way (January 31, a Sunday, so the Friday before), never a bare day.
+    const WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const untrue = events.filter(e => R.computed[e.id] && e.description).filter(e => {
+      let bare = e.description;
+      for (let s; (s = bare.replace(/\s*\([^()]*\)/g, '')) !== bare;) bare = s;
+      const iso = `${e.day.slice(0, 4)}-${e.day.slice(4, 6)}-${e.day.slice(6)}`, weekday = WEEK[new Date(iso + 'T12:00:00').getDay()];
+      const moved = /\(([A-Z][a-z]+ \d{1,2}(?:, \d{4})?), a (\w+), so the (\w+) (?:before|after)\)\.$/.exec(e.description);
+      return Tree.parseDate(/([A-Z][a-z]+ \d{1,2}, \d{4})\.$/.exec(bare)?.[1] ?? '') !== iso || /\([A-Z][a-z]+ \d{1,2}\)/.test(e.description)
+        || (moved && (!['Saturday', 'Sunday'].includes(moved[2]) || moved[3] !== weekday));
+    });
+    check('… and reads true: it ends on the event’s day, and names another only as the weekend day it moved from', !untrue.length
+      && events.some(e => /, so its annual return is due January 29, 2027 \(January 31, a Sunday, so the Friday before\)\.$/.test(e.description ?? '') && e.day === '20270129'),
+      untrue.slice(0, 2).map(e => `${e.day}: ${e.description}`).join(' | ') || events.find(e => /annual return/.test(e.description ?? ''))?.description);
 
     // Every date there is, from no day: the table's every row, no two alike.
     const every = eventsOf(await X.calendar(R, N, A.chart.peek(), 'Every date', '').text()).map(e => e.summary);
