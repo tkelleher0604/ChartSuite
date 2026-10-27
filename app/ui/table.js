@@ -242,6 +242,10 @@ const Table = (() => {
   // sized keeps its width.
   const WORDS = /\bc-(text|edge|choice|document)\b/, TAG = /\bc-tag\b/, sized = new WeakSet();   // sized here, so free to size again
   const ruler = document.createElement('canvas').getContext('2d');
+  // The room a grid has, to the whole pixel below, since its slot is measured as the inspector glides, between
+  // pixels; and the room each grid was last laid out in, so one laid out in another is laid out again.
+  const widthOf = t => { const h = t.rowManager.element; return Math.floor(h.getBoundingClientRect().width - (h.offsetWidth - h.clientWidth)); };
+  const laid = new WeakMap();
   // A heading's width on two lines: the break between its words that leaves the longer line shortest.
   function twoLines(c) {
     const t = getComputedStyle(c.getElement().querySelector('.tabulator-col-title')), b = getComputedStyle(c.getElement().querySelector('.tabulator-col-content'));
@@ -262,9 +266,9 @@ const Table = (() => {
       full.set(c, c.getWidth());
       if (c.getWidth() > c.maxInitialWidth) c.setWidthActual(c.maxInitialWidth);
     }
-    // The room, to the whole pixel below: the slot is measured while the inspector glides, between pixels.
-    const h = this.table.rowManager.element;
-    let room = Math.floor(h.getBoundingClientRect().width - (h.offsetWidth - h.clientWidth)) - shown.reduce((w, c) => w + c.getWidth(), 0);
+    const w = widthOf(this.table);
+    laid.set(this.table, w);
+    let room = w - shown.reduce((s, c) => s + c.getWidth(), 0);
     const give = (c, d) => { if (c && d > 0) { c.setWidth(c.getWidth() + d); sized.add(c); room -= d; } };
     for (const c of [...free].sort((a, b) => (full.get(a) - a.getWidth()) - (full.get(b) - b.getWidth()))) give(c, Math.min(room, full.get(c) - c.getWidth()));
     give(free.filter(c => WORDS.test(c.definition.cssClass)).reduce((a, c) => !a || c.getWidth() > a.getWidth() ? c : a, null), room);
@@ -889,15 +893,17 @@ const Table = (() => {
         if (e.target.classList.contains('tabulator-tableholder') && e.target.matches(':focus-visible')) activate();
       });
       cells.addEventListener('focusout', e => { if (e.relatedTarget && !cells.contains(e.relatedTarget)) inside = false; });
-      // Tabulator draws its rows again when the grid's size changes (the formula bar growing), dropping the keys.
-      const sized = new ResizeObserver(() => requestAnimationFrame(regain));
+      // As the grid's slot changes size, a grid laid out in another room (drawn while its slot was hidden, or as the
+      // inspector glided) is laid out again; and Tabulator, drawing its rows again, drops the keys, which come back.
+      const sized = new ResizeObserver(() => requestAnimationFrame(() => {
+        if (table && ready && el?.offsetParent && laid.get(table) !== widthOf(table)) table.redraw();
+        regain();
+      }));
       sized.observe(cells);
       const offs = [
         effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view.
         effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking) reveal(id); }),
-        // A grid drawn while its slot was hidden is measured again once it shows.
-        effect(() => { Shell.view.value; requestAnimationFrame(() => { if (table && ready && el?.offsetParent) table.redraw(); }); }),
       ];
       return () => { offs.forEach(f => f()); sized.disconnect(); unstage(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
     },
