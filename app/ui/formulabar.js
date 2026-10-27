@@ -155,20 +155,6 @@ const FormulaBar = (() => {
     return m;
   }
 
-  // Where a record is, said as far as it needs: its object, or the path down to it where the object has another
-  // record of its label (a file number at its jurisdiction and one elsewhere). Counted once per working-out.
-  const labelled = new WeakMap();
-  function whereOf(Rv, r) {
-    const recs = Rv.records, at = r.at, O = Tree.objectOf(recs, at), key = x => `${Tree.objectOf(recs, recs[x].at)}|${norm(recs[x].edge)}`;
-    if (!isObj(recs[O]) || at === O) return N().placeOf(recs, at);
-    if (!labelled.has(Rv)) {
-      const n = new Map();
-      for (const x in recs) if (!isObj(recs[x]) && !recs[x].args) n.set(key(x), (n.get(key(x)) ?? 0) + 1);
-      labelled.set(Rv, n);
-    }
-    return labelled.get(Rv).get(`${O}|${norm(r.edge)}`) > 1 ? N().placeOf(recs, at) : N().shortOf(recs, O);
-  }
-
   // Two objects: the computed relations they could be in, each way round. The one picked shows as its record
   // if they're in it, or else as its rows at the pair, all grey (why not). Unpicked, it's the most derived one
   // that holds, a tag before a value, the first selected first: the pension is a remote affiliate of the BDC,
@@ -193,11 +179,11 @@ const FormulaBar = (() => {
     return { ...m, options, option: o };
   }
 
-  // Where a record is: an entry's place (see whereOf), or a relation's sides as the place rule says them
-  // (Notes.placed), each by its Short Name, which the bar's one row has room for, and its name; for two objects
-  // in no relation (`pair`), the relation they'd be in.
+  // Where a record is, as the place rule says it (Notes): an entry's place, as far as it needs; or a relation's
+  // sides, each by its Short Name, which the bar's one row has room for, and its name; for two objects in no
+  // relation (`pair`), the relation they'd be in.
   function argsOf(Rv, r, id) {
-    if (!r.args && !r.d) return { place: whereOf(Rv, r) };
+    if (!r.args && !r.d) return { place: N().whereOf(Rv.records, r) };
     const own = !!Rv.records[id], args = r.d ? r.d.edges.map((edge, i) => ({ edge, at: i ? r.b : r.a })) : r.args;
     return { args: N().placed(Rv.records, own ? id : null, own ? undefined : args).map(s => ({ ...s, short: s.text, name: nameOf(Rv, s.id) })) };
   }

@@ -14,7 +14,7 @@ const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.
 const lower = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
 const PREP = /\s(of|in|for|to|by|with|from|on|at)$/i;
 const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
-const bySchema = new WeakMap();
+const bySchema = new WeakMap(), labelled = new WeakMap();
 
 function index(rows) {
   // A record fits only patterns of its shape, so notes are found by label, edge and shape, narrowest first.
@@ -134,10 +134,23 @@ function index(rows) {
   }
   // Where a record is: the path down to it, a step at a time.
   const placeOf = (recs, id) => pathOf(recs, id).map(x => segmentOf(recs, x)).join(' › ');
+  // Where an entry is, said as far as it needs: its object (AIV-1), or the path down to it where the object has
+  // another entry of its label (a file number at its jurisdiction and one elsewhere); at a relation, the
+  // relation's place (AIV-1, tax year 2025). `r` is the entry, or one not recorded, as an error's { at, edge }.
+  function whereOf(recs, r) {
+    const O = objectOf(recs, r.at), of = (o, edge) => `${o}|${Tree.norm(edge)}`;
+    if (!recs[O] || !isObject(recs[O]) || r.at === O) return placeOf(recs, r.at);
+    if (!labelled.has(recs)) {
+      const n = new Map();
+      for (const x in recs) if (recs[x].edge !== undefined && !recs[x].args) { const k = of(objectOf(recs, recs[x].at), recs[x].edge); n.set(k, (n.get(k) ?? 0) + 1); }
+      labelled.set(recs, n);
+    }
+    return labelled.get(recs).get(of(O, r.edge)) > 1 ? placeOf(recs, r.at) : shortOf(recs, O);
+  }
 
   return {
     resolve, value, name, listName, edges, formats, styles, definitions, relations, fitting,
-    nameOf, shortOf, sides, placed, segmentOf, placeOf,
+    nameOf, shortOf, sides, placed, segmentOf, placeOf, whereOf,
     notes: label => byLabel.get(label) ?? [],
     description: t => value('Description', t),
     order: t => value('Order', t),
