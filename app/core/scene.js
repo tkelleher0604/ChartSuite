@@ -748,7 +748,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
     boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
-    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
+    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, says: !!l.label && !l.label.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
   function* lay(squeeze, grow = 1) {
@@ -781,11 +781,12 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const framing = id => [...frames.values()].filter(f => inFrame(frames, f).includes(id)).map(f => f.id).join();
     clearTops(boxes, lines.filter(l => l.ranks && framing(l.from) === framing(l.to)), given);
     frameBounds(frames, boxes);
-    routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
+    const stand = !!last || boxes.some(b => b.entered);
+    routes(boxes, lines, frames, stand).forEach((r, i) => Object.assign(lines[i], r));
     for (let n = 0; n < 3 && !last && deepen(boxes, lines); n++) {
       yield;
       frameBounds(frames, boxes);
-      routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
+      routes(boxes, lines, frames, stand).forEach((r, i) => Object.assign(lines[i], r));
     }
     yield;
     if (last) still(last, boxes, lines, frames);
@@ -1076,11 +1077,12 @@ function reflow(scene, rects) {
 // The routes of lines between boxes: each line's points, its label's place, and whether it runs down from
 // its Above side; whether it had to go `around` what's drawn, or found no way (`blocked`), and whether its label
 // found no free place (`crowded`); and what its label is placed by again (see relabel). The router's working
-// is left behind. Lines may land on frames (Layout.route says when), and keep clear of frames' captions.
-function routes(boxes, lines, frames = new Map()) {
+// is left behind. Lines may land on frames (Layout.route says when), and keep clear of frames' captions. Where
+// boxes `stand` where they were put, no gap deepens for a lane to keep out of a box's shade.
+function routes(boxes, lines, frames = new Map(), stand = true) {
   const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label, arrow: l.settings?.Arrow?.value }));
   const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
-  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames) });
+  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames), stand });
   return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, strained: c.strained, blocked: c.blocked, crowded: c.crowded,
     placing: { quiet: c.quiet, lane: c.lane, apex: c.apex, crowd: c.crowd, kin: c.kin, lack: c.lack, size: c.label && { w: c.label.w, h: c.label.h } } }));
 }
@@ -1440,13 +1442,15 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         if (places.has(key.row)) shapes[shapes.indexOf(key)] = key = side;
       }
       if (!places.has(key.row)) {
-        // Or else at the chart's foot, right-aligned to it: 24 pt under what's over it there, its captions wrapping
-        // to a narrower Key where that's what lets it fit; or 24 pt beside it, the chart moved left as far as that
-        // needs.
-        const c = R(top), row = rows.find(r => r.id === key.row), least = key.columns * (30 + 8 + 80 + 16) + 24;
+        // Or else at the chart's foot: 24 pt under what's over it there, and 16 pt beside what isn't, where that sets it
+        // least far down, right-aligned to the chart where that's as high, its captions wrapping to a narrower Key where
+        // that's what lets it fit; or 24 pt beside it, the chart moved left as far as that needs.
+        const c = R(top), row = rows.find(r => r.id === key.row), least = key.columns * (30 + 8 + 80 + 16) + 24, chart = set(top);
         const underOf = k => {
-          const kw = k.w * s, kh = k.h * s, x = Math.max(M, c.x + c.w - kw), over = set(top).filter(q => q.x < x + kw && q.x + q.w > x);
-          return { x, y: Math.max(c.y, ...over.map(q => q.y + q.h)) + 32, w: kw, h: kh };
+          const kw = k.w * s, kh = k.h * s, x0 = Math.max(M, c.x), x1 = Math.max(x0, c.x + c.w - kw);
+          const xs = [x1, x0, ...chart.flatMap(q => [q.x + q.w + 21, q.x - 21 - kw])].filter(x => x >= x0 - 0.01 && x <= x1 + 0.01);
+          return xs.map(x => ({ x, y: Math.max(c.y, ...chart.filter(q => q.x < x + kw + 21 && q.x + q.w + 21 > x).map(q => q.y + q.h)) + 32, w: kw, h: kh }))
+            .reduce((a, b) => b.y < a.y - 0.5 || (b.y < a.y + 0.5 && b.x > a.x) ? b : a);
         };
         let under = underOf(key);
         for (let w = key.w * s - 8; key.auto && !fits(under) && w >= least; w -= 8) {

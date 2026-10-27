@@ -61,18 +61,17 @@ const ROOM = { w: 1184, h: 538 };
 // long where it carries no label.
 const LANE = 20, CLEAR = 21, STEM = 14;
 // The router's two rules for what lines say together, which no route breaks where another way is open. No line turns
-// down close under a box it doesn't come from: where a level run turns down within a box's width and 6 pt either side,
-// less than a lane's depth under it, the line's own box is as near over the turn, so that it's one of its lanes running
-// under the boxes beside it; so a drop never seems to leave a box it doesn't. And no two lines run side by side closer
-// than 8 pt, 4 pt where the chart is drawn at half its size, or over each other, but lines that share a box, as a
-// trunk's do and lines meeting at an apex.
+// down in the shade of a box it doesn't come from, less than a lane's depth under it, within its width and 6 pt either
+// side, but where that's the shade of its own box too, as a lane running under it is; so a drop never seems to leave a
+// box it doesn't. And no two lines run side by side closer than 8 pt, 4 pt where the chart is drawn at half its size,
+// or over each other, but lines that share a box, as a trunk's do and lines meeting at an apex.
 const SHADE = 8, BESIDE = 32 / 3;
+const inShade = (g, x, y) => x >= g.x - SHADE && x <= g.x + g.w + SHADE && y >= g.y + g.h - 0.01 && y < g.y + g.h + LANE - 0.01;
 // Whether a line turning down at (x, y) would seem to leave a box over it that isn't `s` or `t`, its ends: one whose
-// shade, the lane's depth under it, holds the turn, where s's doesn't. near(r): the boxes of `solid` that could meet r.
+// shade holds the turn, where s's doesn't. near(r): the boxes of `solid` that could meet r.
 function shaded(x, y, s, t, near) {
-  if (s && y < s.y + s.h + LANE - 0.01) return false;
-  return near({ x: x - SHADE, y: y - LANE, w: 2 * SHADE, h: LANE }).some(g => g.id !== s?.id && g.id !== t?.id
-    && x >= g.x - SHADE && x <= g.x + g.w + SHADE && y >= g.y + g.h - 0.01 && y < g.y + g.h + LANE - 0.01);
+  if (s && inShade(s, x, y)) return false;
+  return near({ x: x - SHADE, y: y - LANE, w: 2 * SHADE, h: LANE }).some(g => g.id !== s?.id && g.id !== t?.id && inShade(g, x, y));
 }
 // Whether a leg runs beside another closer than BESIDE, or over it where they share no box, for more than a hair:
 // a leg from a to b against one drawn, g, of the line `g.line`, which mates(g.line) says shares a box with it or not.
@@ -130,15 +129,14 @@ function place({ boxes, links, clusters, room = ROOM }) {
 // → { tier: { id → tier }, wraps: [[each frame's boxes in a column, a row each]], fit: how large they're drawn (see
 // fit) }. Kept by what it reads, which a line's label isn't.
 const tiered = keeping();
-const tiers = (boxes, links, room = ROOM, clusters = []) => tiered(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk]),
+const tiers = (boxes, links, room = ROOM, clusters = []) => tiered(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, !!l.says]),
   [room.w, room.h, room.key?.w, room.key?.h, room.key?.under], clusters.map(c => [c.id, c.parent, c.members, c.top])]), () => tiering(boxes, links, room, clusters));
 function tiering(boxes, links, room, clusters) {
   // Each box's outermost frame; boxes filled alike are of one class only in one frame, or in none.
   const parent = new Map(clusters.map(c => [c.id, c.parent])), framed = new Map(clusters.flatMap(c => c.members.map(m => [m, c.id])));
   const outer = id => { let f = framed.get(id); while (f && parent.get(f)) f = parent.get(f); return f ?? null; };
   const cls = new Map(boxes.map(b => [b.id, b.class ? `${b.class}|${outer(b.id) ?? ''}` : null])), down = new Map(boxes.map(b => [b.id, []]));
-  const looks = groupBy(links, l => l.trunk), main = [...looks.entries()].sort((a, b) => b[1].length - a[1].length)[0]?.[0];
-  const strict = new Set(links.filter(l => l.trunk === main).map(l => `${l.from}>${l.to}`));
+  const main = mainOf(links), strict = new Set(links.filter(l => l.trunk === main).map(l => `${l.from}>${l.to}`));
   for (const l of links) if (down.has(l.from) && down.has(l.to) && l.from !== l.to && !down.get(l.from).includes(l.to)) down.get(l.from).push(l.to);
   // A search from the top, in the order given: what it finishes last comes first, and a line back up a path
   // it's on is a loop's.
@@ -218,7 +216,9 @@ function fit(rows, room) {
 // lines that run level aren't ELK's to place, but keep their boxes together: each set of boxes so joined, in one
 // frame, is one block to ELK, they side by side in it (see lineUp), its lines meeting it where its boxes are; and
 // so is a triangle, as its lines meet its apex. A line that passes a tier on its way down is kept straight before
-// all else, so that no box of that tier is put across it, and it comes down to its box as drawn, never around.
+// all else, so that no box of that tier is put across it, and it comes down to its box as drawn, never around; and a
+// line of the main relation into a triangle's apex weighs twice another's into its side, so a fund sits under its
+// owners and its general partner beside them, never over the apex.
 function elkPlace(boxes, links, clusters, options, room) {
   const { tier, wraps } = tiers(boxes, links, room, clusters), K = 1e5, first = new Map();
   for (const c of [...clusters].reverse()) first.set(c.id, Math.min(...c.members.map(m => tier.get(m) ?? Infinity), ...clusters.filter(d => d.parent === c.id).map(d => first.get(d.id))));
@@ -255,12 +255,13 @@ function elkPlace(boxes, links, clusters, options, room) {
       .map(([k, y, side]) => ({ id: `${n.id}|${b.id}|${k}`, x: inBlock.get(b.id).x + b.w / 2, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': side } }))) });
     node.get(home.get(bs[0].id) ?? null).children.push(n);
   });
-  const end = (id, k) => ported(inBlock.get(id).block) ? `${nodeOf(id)}|${id}|${k}` : id, seen = new Set();
+  const end = (id, k) => ported(inBlock.get(id).block) ? `${nodeOf(id)}|${id}|${k}` : id, seen = new Set(), main = mainOf(links), shape = new Map(boxes.map(b => [b.id, b.shape]));
   ranked.forEach((l, i) => {
     const [s, t] = [end(l.from, 's'), end(l.to, 'n')], e = `${s}>${t}`;
     if (seen.has(e) || tier.get(l.from) >= tier.get(l.to)) return;
     seen.add(e);
-    root.edges.push({ id: `·e${i}`, sources: [s], targets: [t], ...(tier.get(l.to) - tier.get(l.from) > 1 && { layoutOptions: { 'elk.layered.priority.straightness': '10' } }) });
+    const straight = tier.get(l.to) - tier.get(l.from) > 1 ? '10' : shape.get(l.to) === 'triangle' && l.trunk === main ? '2' : null;
+    root.edges.push({ id: `·e${i}`, sources: [s], targets: [t], ...(straight && { layoutOptions: { 'elk.layered.priority.straightness': straight } }) });
   });
   const at = run(root), out = new Map();
   for (const b of boxes) { const p = at.get(nodeOf(b.id)); out.set(b.id, { x: p.x + inBlock.get(b.id).x, y: p.y }); }
@@ -436,7 +437,7 @@ const arranged = keeping();
 function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
-  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
+  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.says]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
     at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
@@ -552,6 +553,10 @@ function exit(g, [tx, ty]) {
 const centerX = g => g.x + g.w / 2;
 const centerOf = g => [g.x + g.w / 2, g.y + g.h / 2];
 const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
+// The chart's main relation, ownership as a rule: the one most lines draw; of as many, the one more of whose lines say
+// more than its name (`says`), as an owner's say its percentage and a general partner's only what it is. Its lines meet
+// a triangle's apex, and a triangle sits under where they come from; another's meet its side.
+const mainOf = ls => [...groupBy(ls, l => l.trunk).entries()].sort((a, b) => b[1].length - a[1].length || b[1].filter(l => l.says).length - a[1].filter(l => l.says).length)[0]?.[0];
 
 // A box's lines of one look to every box in a frame, and to no others there, land on the frame as one line:
 // each such line is routed to the frame instead of its box. Outer frames first, so the fewest lines show.
@@ -581,8 +586,10 @@ function land(geo, lines, frames) {
 //   Trunks of different relations leave a box apart, spread along its edge in the order of where they go.
 // - Trunks leaving boxes level with each other turn along lanes stacked in the space below them, 12 pt
 //   apart, in the order that crosses the fewest of the others' lines, as channel routing does; trunks that
-//   don't overlap share a lane. Under the lowest, the room the labels of what they reach take; a gap too
-//   shallow for all that says what it `lack`s, for the boxes under it to move down by (see Scene's deepen).
+//   don't overlap share a lane. Under the lowest, the room the labels of what they reach take; and a lane whose
+//   lines turn down under a box beside its own runs out of that box's shade (see SHADE), but where the boxes
+//   `stand` where they were put. A gap too shallow for all that says what it `lack`s, for the boxes under it to
+//   move down by (see Scene's deepen).
 // - Boxes level with each other are joined side to side (a triangle's at its mid-height, where it can be),
 //   unless another box is in the way; then the line goes under the boxes between, on a lane of its own, and
 //   comes up into the far box's bottom.
@@ -591,24 +598,21 @@ function land(geo, lines, frames) {
 // - No route runs through a box it doesn't end at, or through what `avoid` holds (frames' captions): one that
 //   would goes `around`.
 // Labels go only on their own lines, where nothing else is drawn (see placeLabels); one that can't is
-// `crowded`. Routes are kept by what they read: the boxes, the lines and their labels, the frames and what to
-// avoid.
+// `crowded`. Routes are kept by what they read: the boxes, the lines and their labels, the frames, what to
+// avoid and whether the boxes stand.
 const routes = keeping();
 const ROUTED = ['from', 'to', 'points', 'labelAt', 'down', 'landed', 'around', 'astray', 'strained', 'blocked', 'crowded', 'quiet', 'lane', 'apex', 'crowd', 'kin', 'lack'];
 function route(geo, lines, opts = {}) {
-  const k = JSON.stringify([[...geo.values()].map(g => [g.id, g.x, g.y, g.w, g.h, g.shape]), opts.frames?.map(f => [f.id, f.x, f.y, f.w, f.h, f.members, f.depth]), opts.labels,
+  const k = JSON.stringify([[...geo.values()].map(g => [g.id, g.x, g.y, g.w, g.h, g.shape]), opts.frames?.map(f => [f.id, f.x, f.y, f.w, f.h, f.members, f.depth]), opts.labels, !!opts.stand,
     opts.avoid?.map(r => [r.x, r.y, r.w, r.h]), lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight, l.arrow, l.label && [l.label.w, l.label.h, l.label.base, l.label.shared, l.label.text]])]);
   const out = routes(k, () => { routing(geo, lines, opts); return lines.map(l => Object.fromEntries(ROUTED.map(p => [p, l[p]]))); });
   lines.forEach((l, i) => Object.assign(l, out[i]));
 }
-function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
+function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = false } = {}) {
   geo = new Map(geo);
   if (frames.length) land(geo, lines, frames);
   const G = id => geo.get(id), solid = [...geo.values()].filter(g => g.shape !== 'frame'), nearSolid = grid(solid);
-  // The main relation: the one most lines draw; of as many, the one more of whose lines say more than its name, as
-  // an owner's say its percentage and a general partner's only what it is.
-  const says = ls => ls.filter(l => l.label && !l.label.shared).length;
-  const looks = groupBy(lines, l => l.trunk), main = [...looks.entries()].sort((a, b) => b[1].length - a[1].length || says(b[1]) - says(a[1]))[0]?.[0];
+  const main = mainOf(lines.map(l => ({ trunk: l.trunk, says: !!l.label && !l.label.shared })));
   for (const l of lines) {
     const s = G(l.from), t = G(l.to);
     l.points = null;
@@ -634,7 +638,9 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   // Each box's trunks, and where each leaves it. A triangle's lines up leave by its sloping sides.
   const vertical = lines.filter(l => l.dir === 'down' || l.dir === 'up');
   const trunks = [...groupBy(vertical, l => `${l.from}|${l.dir}|${l.trunk}`).values()].map(ls => ({ ls, from: ls[0].from, dir: ls[0].dir }));
-  const heading = t => t.ls.reduce((sum, l) => sum + centerX(G(l.to)), 0) / t.ls.length;
+  // Where a line goes: the middle of what it reaches, or the side of a triangle it meets, the side its box is on.
+  const aim = l => { const t = G(l.to); return l.flank ? sideX(t, t.y + t.h / 2, centerX(G(l.from)) > centerX(t)) : centerX(t); };
+  const heading = t => t.ls.reduce((sum, l) => sum + aim(l), 0) / t.ls.length;
   for (const group of groupBy(trunks, t => `${t.from}|${t.dir}`).values()) {
     const s = G(group[0].from), sides = s.shape === 'triangle' && group[0].dir === 'up';
     group.sort((a, b) => heading(a) - heading(b)).forEach((t, i) => {
@@ -671,11 +677,13 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
       l.stagger = ls.length > 2 || (ls.length === 2 && t.w < 220) ? i % levels : 0;
     });
   }
-  // A line meeting a triangle's side comes down a gutter beside it, halfway to whatever is next to it there,
-  // at mid-height, or above a line from the side already meeting it there.
+  // A line meeting a triangle's side comes down a gutter beside it, at mid-height, or above a line from the side
+  // already meeting it there: the stretch beside it 12 pt clear of it and of whatever is next to it there, its
+  // `gutter`. It comes down halfway to what's next, 36 pt out at most, but where it can come straight down from its
+  // box (see below).
   const taken = lines.filter(l => l.dir === 'side' && l.y !== undefined).flatMap(l => [[l.from, l.y], [l.to, l.y]]);
   for (const l of lines.filter(x => x.flank)) {
-    const s = G(l.from), t = G(l.to), right = centerX(s) > centerX(t);
+    const s = G(l.from), t = G(l.to), right = centerX(s) > centerX(t), k = right ? 1 : -1;
     let my = t.y + t.h / 2;
     const other = taken.filter(([id, y]) => id === t.id && Math.abs(y - my) < 14).map(([, y]) => y);
     if (other.length) my = Math.min(...other) - 30;
@@ -683,26 +691,36 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
     const next = [...geo.values()].filter(g => g !== t && g !== s && g.shape !== 'frame' && g.y < my && g.y + g.h > t.y - CLEAR)
       .map(g => g.shape === 'triangle' ? sideX(g, Math.min(my, g.y + g.h), !right) : right ? g.x : g.x + g.w)
       .filter(x => right ? x > side : x < side);
-    const room = next.length ? Math.min(...next.map(x => Math.abs(x - side))) : 96;
-    l.gx = side + (right ? 1 : -1) * Math.min(48, room / 2);
+    const room = next.length ? Math.min(...next.map(x => Math.abs(x - side))) : Infinity;
+    l.gx = side + k * Math.min(48, room / 2);
+    l.gutter = [side + k * 16, side + k * (room - 16)].sort((a, b) => a - b);
     l.my = my; l.side = side;
     l.tx = l.gx; l.ty = t.y;
   }
-  // A box's one line leaves it straight above (or below) where it arrives, if the box spans that point.
-  for (const group of groupBy(trunks, t => `${t.from}|${t.dir}`).values()) {
-    const [t] = group, l = t.ls[0], s = G(t.from), m = Math.min(12, s.w / 4);
-    if (group.length !== 1 || t.ls.length !== 1 || l.flank || l.tx < s.x + m || l.tx > s.x + s.w - m || (s.shape === 'triangle' && t.dir === 'up')) continue;
+  // A box's one line leaves it straight above (or below) where it arrives, if the box spans that point; one meeting a
+  // triangle's side, over its gutter, where the box spans some of it, nearest the box's middle. And a trunk's one line
+  // meeting a triangle's side comes straight down its gutter from where it leaves its box, where that's over it.
+  for (const group of groupBy(trunks, t => `${t.from}|${t.dir}`).values()) for (const t of group) {
+    const l = t.ls[0], s = G(t.from), m = Math.min(12, s.w / 4), alone = group.length === 1;
+    if (t.ls.length !== 1 || (s.shape === 'triangle' && t.dir === 'up')) continue;
+    if (l.flank) {
+      const lo = Math.max(l.gutter[0], alone ? s.x + m : t.x), hi = Math.min(l.gutter[1], alone ? s.x + s.w - m : t.x);
+      if (lo > hi) continue;
+      l.gx = l.tx = Math.min(hi, Math.max(lo, centerX(s)));
+    } else if (!alone || l.tx < s.x + m || l.tx > s.x + s.w - m) continue;
     t.x = l.sx = l.tx;
     t.y = edgeY(s, t.x, t.dir === 'down');
   }
   // A box's stem keeps clear of the drops of other boxes' lines that come down past it (see BESIDE): it moves along
-  // the box's edge as little as that needs, where the edge allows.
+  // the box's edge as little as that needs, where the edge allows. A drop of a line that shares a box with the stem's,
+  // as lines meeting at an apex do, may run on with it.
   const drops = lines.filter(l => l.dir === 'down' && !l.flank && l.tx !== undefined);
   for (const t of trunks.filter(t => t.dir === 'down')) {
-    const s = G(t.from), m = Math.min(12, s.w / 4), past = drops.filter(l => l.from !== t.from && l.ty > t.edge && G(l.from).y + G(l.from).h <= t.edge + LANE).map(l => l.tx);
-    const clear = x => past.every(p => Math.abs(p - x) >= BESIDE);
+    const s = G(t.from), m = Math.min(12, s.w / 4), own = new Set(t.ls.flatMap(l => [l.from, l.to]));
+    const past = drops.filter(l => l.from !== t.from && l.ty > t.edge && G(l.from).y + G(l.from).h <= t.edge + LANE).map(l => [l.tx, own.has(l.from) || own.has(l.to)]);
+    const clear = x => past.every(([p, mate]) => Math.abs(p - x) >= BESIDE || (mate && Math.abs(p - x) <= 0.5));
     if (clear(t.x)) continue;
-    const x = past.flatMap(p => [p - BESIDE - 0.5, p + BESIDE + 0.5]).filter(x => x >= s.x + m && x <= s.x + s.w - m && clear(x)).sort((a, b) => Math.abs(a - t.x) - Math.abs(b - t.x))[0];
+    const x = past.flatMap(([p]) => [p - BESIDE - 0.5, p + BESIDE + 0.5]).filter(x => x >= s.x + m && x <= s.x + s.w - m && clear(x)).sort((a, b) => Math.abs(a - t.x) - Math.abs(b - t.x))[0];
     if (x === undefined) continue;
     t.x = x;
     t.y = edgeY(s, x, true);
@@ -762,6 +780,18 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   const room = l => l.label ? l.label.h + 5.3 + 4 : 0, short = l => l.flank ? CLEAR : Math.max(STEM, room(l));
   const landing = trunks.filter(t => t.dir === 'down').flatMap(t => t.lands).filter(l => !l.flank && l.label);
   const landingAt = sorted(landing, a => a.tx), over = t => landingAt((t.span[0] + t.span[1]) / 2, (t.span[1] - t.span[0]) / 2).filter(a => !t.ls.includes(a) && within(a.tx, t.span) && a.ty > t.edge).map(a => a.ty - room(a));
+  // And a lane that joins a line coming straight down to an apex joins it under that line's label, as far under where
+  // it leaves its box as the label needs, so that the label is on that line alone.
+  const plumb = trunks.filter(t => t.dir === 'down').flatMap(t => t.ls.filter(l => l.apex && Math.abs(l.tx - t.x) < 0.5).map(l => ({ l, under: t.edge + room(l) })));
+  const joins = t => plumb.filter(o => o.l.from !== t.from && t.lands.some(l => l.apex && l.to === o.l.to)).map(o => o.under);
+  // And a lane whose lines turn down from it under a box beside its own runs a lane's depth under that box, out of
+  // its shade (see SHADE), to the quarter pixel it's drawn at.
+  const shades = t => { const s = G(t.from); return t.lands.flatMap(l => {
+    const x = l.flank ? l.gx : l.tx;
+    if (Math.abs(x - t.x) < 0.5 || (x >= s.x - SHADE && x <= s.x + s.w + SHADE)) return [];
+    return nearSolid.near({ x: x - SHADE, y: t.edge - 2 * LANE, w: 2 * SHADE, h: 3 * LANE }).map(k => solid[k])
+      .filter(g => g.id !== s.id && g.id !== l.to && x >= g.x - SHADE && x <= g.x + g.w + SHADE && g.y < t.edge + 8 && g.y + g.h + LANE > t.edge + 8).map(g => Math.ceil((g.y + g.h + LANE) * 4) / 4);
+  }); };
   // Level runs already fixed, which a lane keeps 12 pt from where they overlap: a trunk's along its box's
   // side, and a line from side to side.
   const fixed = [...trunks.filter(t => t.flankSide).map(t => ({ y: t.laneY, x0: t.span[0], x1: t.span[1] })),
@@ -775,8 +805,9 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
     if (t.flankSide) {
       // Already placed, along the box's side.
     } else if (t.dir === 'down') {
-      const limit = Math.min(...ls.map(l => l.ty - short(l)), ...over(t)) - LANE * (lanes - 1 - t.lane), floor = t.edge + 8 + LANE * t.lane;
-      t.laneY = Math.max(floor, Math.min(t.edge + 18 + LANE * t.lane, limit));
+      const limit = Math.min(...ls.map(l => l.ty - short(l)), ...over(t)) - LANE * (lanes - 1 - t.lane), out = Math.max(...shades(t));
+      const floor = Math.max(t.edge + 8 + LANE * t.lane, ...joins(t), ...stand ? [] : [out]);
+      t.laneY = Math.max(floor, Math.min(Math.max(t.edge + 18 + LANE * t.lane, out), limit));
       for (const f of fixed) {
         if (Math.min(f.x1, t.span[1]) - Math.max(f.x0, t.span[0]) < 4 || Math.abs(t.laneY - f.y) >= LANE) continue;
         if (f.y + LANE <= limit) t.laneY = f.y + LANE;
@@ -816,7 +847,10 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
       const rightward = centerX(s) < centerX(t);
       l.points = [[sideX(s, l.y, rightward), l.y], [sideX(t, l.y, !rightward), l.y]];
     } else if (l.dir === 'straight') l.points = [exit(s, centerOf(t)), exit(t, centerOf(s))];
+    // (Points where it doesn't turn go.)
+    const on = (a, p, b, k) => Math.abs(a[k] - p[k]) < 0.5 && Math.abs(b[k] - p[k]) < 0.5 && (p[1 - k] - a[1 - k]) * (b[1 - k] - p[1 - k]) > 0;
     l.points = l.points.filter((p, i, ps) => i === 0 || Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) > 0.5)
+      .filter((p, i, ps) => i === 0 || i === ps.length - 1 || !(on(ps[i - 1], p, ps[i + 1], 0) || on(ps[i - 1], p, ps[i + 1], 1)))
       .map(([x, y]) => [Math.round(x * 4) / 4, Math.round(y * 4) / 4]);
     // Boxes that touch are joined where they touch, by a line of no length.
     if (l.points.length === 1) l.points.push([...l.points[0]]);
@@ -850,10 +884,12 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   for (const pass of [0, 1]) for (const [i, l] of lines.entries()) {
     if (!l.points || l.points.length < 2 || l.around || l.blocked) continue;
     if (pass ? !strays(l.points, G(l.from), G(l.to), boxesNear, drawn.without(i), mates(l)) : !blockedRoute(l.points, new Set([l.from, l.to]), solid, avoid, near)) continue;
-    const port = (p, q, at) => { const dx = Math.sign(Math.round(p[0] - q[0])), dy = Math.sign(Math.round(p[1] - q[1])), dir = dy < 0 ? 0 : dx > 0 ? 1 : dy > 0 ? 2 : 3, [ux, uy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][dir];
-      return pad => ({ at, out: [at[0] + ux * (pad + 0.25), at[1] + uy * (pad + 0.25)], dir }); };
+    // (Where it leaves its box's top or bottom, it may leave anywhere along that edge, 9 pt in from its ends: see search.)
+    const port = (p, q, at, g) => { const dx = Math.sign(Math.round(p[0] - q[0])), dy = Math.sign(Math.round(p[1] - q[1])), dir = dy < 0 ? 0 : dx > 0 ? 1 : dy > 0 ? 2 : 3, [ux, uy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][dir];
+      const m = g && Math.min(12, g.w / 4), slide = g && g.shape !== 'frame' && (dir === 2 || (dir === 0 && g.shape !== 'triangle')) ? [g.x + m, g.x + g.w - m] : null;
+      return pad => ({ at, out: [at[0] + ux * (pad + 0.25), at[1] + uy * (pad + 0.25)], dir, ...slide && { slide } }); };
     const ps = l.points, n = ps.length;
-    ends.set(l, [port(ps[1], ps[0], ps[0]), port(ps[n - 2], ps[n - 1], ps[n - 1])]);
+    ends.set(l, [port(ps[1], ps[0], ps[0], G(l.from)), port(ps[n - 2], ps[n - 1], ps[n - 1])]);
     if (!detour(i, l)) l.blocked = true;
   }
   if (!labels) return;
@@ -875,13 +911,14 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   }
   placeLabels(geo, lines.filter(l => !l.quiet), lines, [], avoid);
   // A label left with no free place where a line that went around what's drawn runs through the place it has among the
-  // lines drawn as they run: that line goes around those labels too, where it can keep to the rules, and its sides if it kept them,
-  // and the labels are placed again.
+  // lines drawn as they run, or within 4 pt of it: that line goes around those labels too, as far from them as a label's
+  // own line may be from another, where it can keep to the rules, and its sides if it kept them, and the labels are
+  // placed again.
   const detours = lines.filter(l => l.around && !l.strained);
   if (!detours.length || !lines.some(l => l.crowded)) return;
   const straight = lines.filter(l => !l.around), crowded = new Set(lines.filter(l => l.crowded));
   placeLabels(geo, straight.filter(l => !l.quiet), straight, [], avoid);
-  const placesOf = ls => ls.filter(l => l.labelAt).map(l => ({ x: l.labelAt.x - 2, y: l.labelAt.y - 2, w: l.label.w + 4, h: l.label.h + 4 }));
+  const placesOf = ls => ls.filter(l => l.labelAt).map(l => ({ x: l.labelAt.x - ON, y: l.labelAt.y - ON, w: l.label.w + 2 * ON, h: l.label.h + 2 * ON }));
   const shun = [...avoid, ...placesOf(straight)], by = nearOf(shun), theirs = placesOf(straight.filter(l => crowded.has(l))), byTheirs = nearOf(theirs);
   for (const l of detours) {
     const i = lines.indexOf(l), was = { points: l.points, astray: l.astray };
@@ -1115,8 +1152,8 @@ function legsDrawn(lines) {
 
 // A line added to a drawing that stays as it is, a highlight's or a redline's, or one whose route would run
 // through a box: square, from the side of its box that faces the other to the side of the other that faces it
-// (or from and to the `ports` given, { from, to }, each { at, out, dir }: where it meets its box, a step out,
-// and the way out, 0 up, 1 right, 2 down, 3 left), `pad` (6 pt) clear of every other box and of what `avoid`
+// (or from and to the `ports` given, { from, to }, each { at, out, dir, slide? }: where it meets its box, a step out,
+// the way out, 0 up, 1 right, 2 down, 3 left, and the stretch of its edge it may move along), `pad` (6 pt) clear of every other box and of what `avoid`
 // holds (labels and captions), crossing the lines already drawn (`segs`, or `drawn`, see legsDrawn) rather than running along them or close beside them, with
 // as few turns as it can, on the page (`page`, { w, h, margin }) where one is given. Found on the grid of the
 // places where something drawn begins or ends, and the gutters halfway between, as an orthogonal connector
@@ -1142,7 +1179,7 @@ function search(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
   const out = Math.max(NEAR, LANE) + 1, wide = { x: reach.x - out, y: reach.y - out, r: reach.r + out, d: reach.d + out }, meets = g => g.x < wide.r && g.x + g.w > wide.x && g.y < wide.d && g.y + g.h > wide.y;
   const reads = (list, k) => list.filter(([a, b]) => Math.max(a[k], b[k]) > wide[k ? 'y' : 'x'] && Math.min(a[k], b[k]) < wide[k ? 'd' : 'r']).map(g => [g[0][0], g[0][1], g[1][0], g[1][1], mates(g.line) ? 1 : 0]);
   const read = JSON.stringify([from, to, [s.x, s.y, s.w, s.h, s.shape], [t.x, t.y, t.w, t.h, t.shape], pad, far, strict, page && [page.margin, page.w, page.h],
-    given && [given.from, given.to].map(ps => ps.map(p => [p.at, p.out, p.dir])),
+    given && [given.from, given.to].map(ps => ps.map(p => [p.at, p.out, p.dir, p.slide])),
     solids.near.near({ x: wide.x, y: wide.y, w: wide.r - wide.x, h: wide.d - wide.y }).map(k => solids.list[k]).filter(meets).map(g => [g.id, g.x, g.y, g.w, g.h]),
     avoid.filter(meets).map(g => [g.x, g.y, g.w, g.h]), reads(legs.byLevel((wide.y + wide.d) / 2, (wide.d - wide.y) / 2), 0), reads(legs.byUpright((wide.x + wide.r) / 2, (wide.r - wide.x) / 2), 1)]);
   return ways(read, () => searching(s, t, reach, solids, legs, { avoid, pad, given, strict, mates }));
@@ -1162,9 +1199,21 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   const STEP = [[0, -1], [1, 0], [0, 1], [-1, 0]];
   // (A port's step out from its box keeps to the rules too.)
   const fair = p => !strict || !beside(p.at, p.out, legs, mates);
-  const starts = (given?.from ?? ports(s)).filter(p => !blocked(...p.out) && fair(p)), ends = (given?.to ?? ports(t)).filter(p => !blocked(...p.out) && fair(p));
+  // The boxes in reach, and, `strict`, the edges of their shades (see SHADE), where a way may turn down just clear of one.
+  const inside = solids.near.near({ x: reach.x, y: reach.y, w: reach.r - reach.x, h: reach.d - reach.y }).map(k => solids.list[k]).filter(inReach);
+  const shadeAt = k => !strict ? [] : inside.flatMap(g => k ? [g.y + g.h + LANE + 0.25] : [g.x - SHADE - 0.25, g.x + g.w + SHADE + 0.25]);
+  // A port given that may `slide` along its box's edge, [x0, x1], may leave from anywhere there that a way could run
+  // down (or up) from: where it is, the edge's ends, beside the upright legs drawn by it, clear of a shade, or over
+  // where the way goes; at a cost of each pixel it moves, so it moves a whole leg as little as it must, not adds a step.
+  const along = p => {
+    if (!p.slide) return [p];
+    const [x0, x1] = p.slide, uy = p.dir === 2 ? 1 : -1, by = legs.byUpright((x0 + x1) / 2, (x1 - x0) / 2 + BESIDE + 1).flatMap(([a]) => [a[0] - BESIDE - 0.25, a[0] + BESIDE + 0.25]);
+    const xs = [...new Set([x0, x1, ...by, ...shadeAt(0), ...(given.to ?? []).map(q => q.at[0])].filter(x => x >= x0 - 0.01 && x <= x1 + 0.01).map(x => Math.round(x * 4) / 4))];
+    return [p, ...xs.filter(x => Math.abs(x - p.at[0]) > 0.5).map(x => { const at = [x, edgeY(s, x, p.dir === 2)]; return { at, out: [x, at[1] + uy * (C + 0.25)], dir: p.dir, cost: Math.abs(x - p.at[0]) }; })];
+  };
+  const starts = (given?.from ?? ports(s)).flatMap(along).filter(p => !blocked(...p.out) && fair(p)), ends = (given?.to ?? ports(t)).filter(p => !blocked(...p.out) && fair(p));
   const coords = (k, extra) => {
-    const vs = [...new Set([...walls.flatMap(w => k ? [w.y, w.d] : [w.x, w.r]), ...extra, k ? reach.y : reach.x, k ? reach.d : reach.r].map(v => Math.round(v * 4) / 4))].sort((a, b) => a - b);
+    const vs = [...new Set([...walls.flatMap(w => k ? [w.y, w.d] : [w.x, w.r]), ...extra, ...shadeAt(k), k ? reach.y : reach.x, k ? reach.d : reach.r].map(v => Math.round(v * 4) / 4))].sort((a, b) => a - b);
     return [...new Set([...vs, ...vs.slice(1).map((v, i) => (v + vs[i]) / 2)])].sort((a, b) => a - b);
   };
   // Where something drawn begins or ends, and the gutters halfway between; and, `strict`, as near beside the lines
@@ -1228,7 +1277,7 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   const shade = new Int8Array(N), boxesNear = r => solids.near.near(r).map(k => solids.list[k]);
   const under = (n, i, j) => strict && (shade[n] || (shade[n] = shaded(xs[i], ys[j], s, t, boxesNear) ? 2 : 1)) === 2;
   for (const p of starts) {
-    const i = X.get(Math.round(p.out[0] * 4) / 4), j = Y.get(Math.round(p.out[1] * 4) / 4), k = node(i, j) * 4 + p.dir, g = C + toward(p, t);
+    const i = X.get(Math.round(p.out[0] * 4) / 4), j = Y.get(Math.round(p.out[1] * 4) / 4), k = node(i, j) * 4 + p.dir, g = C + toward(p, t) + (p.cost ?? 0);
     if (g < best[k]) { best[k] = g; from_[k] = -1; port.set(k, p); push(g + h(i, j), k); }
   }
   let done = null;
