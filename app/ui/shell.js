@@ -529,9 +529,16 @@ const Shell = (() => {
     const all = [...many('find').flatMap(s => s.items()), ...counted(), ...vs, ...can];
     return headed(rank(all, q), all);
   }
-  // A result chosen keeps the focus it gave itself (a field, a dialog); otherwise the view has the keys.
-  const land = () => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) enter('view'); });
-  const find = (q = '') => { closeAll(); menu(findButton, answers, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32, onClose: land }); };
+  // A result chosen keeps the focus it gave itself (a field, a dialog); otherwise the view has the keys, wherever
+  // Find was opened from.
+  function find(q = '') {
+    closeAll();
+    const was = document.activeElement;
+    let chosen = false;
+    const items = s => answers(s).map(it => it.run ? { ...it, run: () => { chosen = true; it.run(); } } : it);
+    const land = () => setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || chosen && a === was) enter('view'); });
+    menu(findButton, items, { search: true, query: q, cls: 'findpal', placement: 'bottom', gap: -32, onClose: land });
+  }
 
   // ---- The title bar ----
   // The day shown. Another day, or the log as it stood, fills the date in the accent, with an × back to today.

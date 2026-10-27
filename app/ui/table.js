@@ -503,7 +503,14 @@ const Table = (() => {
 
   // ---- The keys: the grid is one stop in the tab order, and keeps the keys through its redraws ----
   let inside = false, pressed = 0;   // whether the grid had the keys last; when the pointer last went down
-  document.addEventListener('pointerdown', e => { inside = !!cells?.contains(e.target); pressed = e.timeStamp; }, true);
+  document.addEventListener('pointerdown', e => {
+    inside = !!cells?.contains(e.target); pressed = e.timeStamp;
+    // A right-click before anything's selected selects the cell, or the row by its number, as a click would:
+    // Tabulator, keeping a range the cell is in, would look in a range that isn't there.
+    const row = inside && e.button === 2 && ready && !table.modules.selectRange?.activeRange ? e.target.closest('.tabulator-row') : null;
+    const cs = row ? table.getRows().find(x => x.getElement() === row)?.getCells().filter(c => c.getField()) : null;
+    if (cs?.length) { const c = cs.find(x => x.getElement().contains(e.target)); table.addRange(c ?? cs[0], c ?? cs.at(-1)); }
+  }, true);
   const holder = () => cells?.querySelector('.tabulator-tableholder');
   // A redraw that drops the keys gives them back.
   function regain() {

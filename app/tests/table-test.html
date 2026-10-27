@@ -423,6 +423,13 @@ async function run() {
   Shell.select([]); await tick();
   const doomed = Table.grid.getRows()[1].getData().id;
   n0 = N();
+  // A right-click before anything's selected selects the cell, as a click would, and throws nothing.
+  const sr0 = Table.grid.modules.selectRange, pressedOn = rowOf(doomed).getCells()[2].getElement();
+  sr0.clearRanges(); sr0.activeRange = false; errors.length = 0;
+  pressedOn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 2, buttons: 2 }));
+  pressedOn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2, buttons: 2 }));
+  pressedOn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 2 })); await tick(60);
+  check('A right-click on a cell before anything’s selected selects it, and throws nothing', !errors.length && Shell.selection.peek().join() === doomed, `${errors.join(' / ')} ${Shell.selection.peek().join()}`);
   rowOf(doomed).getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
   hover(item('Delete')); await previewed();
   check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
