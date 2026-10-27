@@ -145,8 +145,18 @@ async function run() {
     && pend?.change.records.fund_erisa?.tag === true && pend.diff.change.includes('fund_erisa'), JSON.stringify(pend?.change));
   erisa.dispatchEvent(new PointerEvent('pointerleave')); await tick();
   check('… and leaving it ends the redline', !FormulaBar.pending.peek());
-  erisa.click(); await tick();
+  erisa.click(); erisa.dispatchEvent(new PointerEvent('pointerleave')); await tick();
   check('clicking a tag switches it', st().fund_erisa.tag === true);
+  // Keys on a tag are a checkbox's: reached by the keys, it redlines as when pointed at; Enter goes on, so a
+  // key pressed to move on never overrides a check; Space, which clicks it, switches it
+  const onFile = rowOf('Formation Document on File')?.querySelector('.tag'), onFileId = rowOf('Formation Document on File')?.dataset.key;
+  const n1 = App.wb.changes().length;
+  onFile.focus(); await tick();
+  check('a computed check reached by the keys redlines what switching it would change, as pointing at it does', App.computed.value.computed[onFileId] && onFile.classList.contains('peek')
+    && FormulaBar.pending.peek()?.change.records['fx-pending']?.tag === false, JSON.stringify(FormulaBar.pending.peek()?.change));
+  key(onFile, 'Enter'); await tick();
+  check('… and Enter goes on to the next value, overriding nothing', App.wb.changes().length === n1 && App.computed.value.computed[onFileId] && document.activeElement?.matches('.insp .cell')
+    && !FormulaBar.pending.peek() && !onFile.classList.contains('peek'), document.activeElement?.outerHTML.slice(0, 120));
 
   // A choice from its dropdown
   rowOf('Investment Company Status').querySelector('.sel').click(); await tick();
@@ -228,7 +238,7 @@ async function run() {
   const lookRows = () => $$('section').find(s => s.querySelector('.fold')?.textContent === 'Look')?.querySelectorAll('.row:not(.src)') ?? [];
   check('a line’s Look says what its text shows, never “Label: Label”', looks().includes('TextName') && ![...lookRows()].some(r => r.querySelector('.k')?.textContent === r.querySelector('.v')?.textContent), looks().join(' | '));
   App.change(tx => tx.note('Format', Tree.treeOf(st(), gp), 'none', { view: Shell.view.peek() })); await tick(60);
-  check('… and none where it shows none', looks().includes('TextNone'), looks().join(' | '));
+  check('… and no name where it shows none, as its own text is its name', looks().includes('TextNo name'), looks().join(' | '));
   Shell.parts.value.undo.undo(); await tick(60);
 
   // Pasting a link
@@ -271,6 +281,8 @@ async function run() {
   const offered = $$('.rr-at .row > .k').map(k => k.textContent.trim()), pct = $$('.rr-at .row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === 'Percentage')?.querySelector('input');
   check('… and offers its entries at once, the first to type into', offered.includes('Percentage') && offered.includes('Voting Percentage') && document.activeElement === pct, offered.join(', '));
   await type(pct, '2%');
+  check('… but not a check, which is its formula’s, and shows only where it fails, never as an empty box', N().check({ args: [{ edge: 'Percentages In Range', loc: Tree.treeOf(st(), own[0]) }] })
+    && !$$('.rr-at .row > .k').some(k => k.textContent.trim() === 'Percentages In Range'), $$('.rr-at .row > .k').map(k => k.textContent.trim()).join(', '));
   check('… a value typed there recorded at the relation', Object.values(st()).some(r => r.at === own?.[0] && r.edge === 'Percentage' && r.value === 0.02));
   check('… Enter going down to the next', document.activeElement?.getAttribute('aria-label') === 'Voting Percentage', document.activeElement?.outerHTML.slice(0, 120));
   key(document.activeElement, 'Enter'); await tick();
@@ -432,7 +444,7 @@ async function run() {
   check('… and a relative says what the relation does, a percentage once where its vote is the same', says().includes('100%') && !says().some(s => /^(\S+) · \1 voting$/.test(s)), says().join(' | '));
   Shell.select(['okafor']); await tick(60);
   const okafor = $$('.nots .row').map(r => r.textContent.trim());
-  check('… a side it’s already named never said again ("signs for the Manager", not "…, via the Manager")', okafor.includes('Not a signatory of the Manager') && !okafor.some(t => /via the Manager/.test(t)), okafor.join(' | '));
+  check('… in the formula bar’s words, a side it’s already named never said again ("does not sign for the Manager", not "…, via the Manager")', okafor.includes('Does not sign for the Manager') && !okafor.some(t => /via the Manager/.test(t)), okafor.join(' | '));
   Shell.select(['fund']); await tick(60);
   check('… and its vote beside it where that differs', says().some(s => /^[\d.]+% · \d+% voting$/.test(s)), says().join(' | '));
   document.querySelector('.main').style.setProperty('--insp', '384px'); await tick(60);
@@ -454,6 +466,23 @@ async function run() {
     && filed?.diff.change.some(id => id.startsWith('fx:form d due')), JSON.stringify(filed?.diff));
   key(document.querySelector('.filing input'), 'Escape'); await tick();
   check('… and Esc leaves it as it was', !document.querySelector('.filing') && !FormulaBar.pending.peek());
+  check('… its button saying what it records', filing.textContent === 'Filed…', filing.textContent);
+  // A filing is a fact of the day it was made: kept, it holds from that day, and the one before it until then
+  const formDue = formD.dataset.key, lastFiled = Object.keys(st()).find(k => st()[k].at === st()[formDue]?.at && st()[k].edge === 'Last Filed');
+  const filedWas = st()[lastFiled]?.value;
+  formD.querySelector('.btn.ver').click(); await tick(80);
+  const dayIn = document.querySelector('.filing input'); dayIn.value = 'Oct 20, 2026'; dayIn.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
+  key(dayIn, 'Enter'); await tick(80);
+  const filedRows = App.wb.item(C, lastFiled);
+  check('Filed… records the filing from the day it was made, the one before holding until then', st()[lastFiled]?.value === '2026-10-20'
+    && filedRows.some(r => r.value === filedWas && r.before === '2026-10-20') && filedRows.some(r => r.value === '2026-10-20' && r.since === '2026-10-20')
+    && App.wb.asOf(C, '2026-10-19')[lastFiled]?.value === filedWas, JSON.stringify(filedRows));
+  check('… the selection staying on the record, at the filing’s row', Shell.selection.peek()[0] === 'bdc' && document.activeElement?.closest('[data-key]')?.dataset.key === lastFiled, document.activeElement?.outerHTML.slice(0, 120));
+  Shell.parts.value.undo.undo(); await tick(60);
+  Shell.select(['fund']); await tick(60);
+  const buttonOf = edge => rowOf(edge)?.querySelector('.btn.ver.filed')?.textContent;
+  check('… and so Renewed… for a renewal, Affirmed… for an affirmation', buttonOf('Next Renewal') === 'Renewed…' && buttonOf('Affirmation Due') === 'Affirmed…', `${buttonOf('Next Renewal')} ${buttonOf('Affirmation Due')}`);
+  Shell.select(['bdc']); await tick(60);
   // A tax year's payment is recorded at the year it settles: the year, worked out, entered to bear it
   const taxYear = (who, y) => Object.keys(st()).find(k => st()[k].args && N().segmentOf(st(), k) === `${who}, tax year ${y}`);
   const dueAt = rel => Object.keys(st()).find(k => st()[k].at === rel && st()[k].edge === 'Annual Tax Due');
@@ -468,9 +497,26 @@ async function run() {
   check('Paid… records the payment at the tax year, entering the year as it stood', payment?.value === '2026-10-26' && last().adds.length === 2 && year?.tag === true
     && JSON.stringify(year.args) === JSON.stringify(App.wb.asOf(C, '2026-10-26')[year.record]?.args) && N().segmentOf(st(), year.record) === 'AIV-1, tax year 2025', JSON.stringify(last().adds));
   check('… so that year is due no more, and the next still is', !dueAt(taxYear('AIV-1', 2025)) && st()[nextYear]?.value === '2027-06-01', dueAt(taxYear('AIV-1', 2025)));
-  check('… and History says it at the year', Time.describe(last()) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026', Time.describe(last()));
+  check('… and History says it at the year, and so does its toast', Time.describe(last()) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026'
+    && document.querySelector('.toast')?.textContent.startsWith(Time.describe(last())), Time.describe(last()));
+  check('… the selection staying on the year, now entered, at the payment’s row', Shell.selection.peek()[0] === year?.record && document.activeElement?.closest('[data-key]')?.dataset.key === payment?.record,
+    `${Shell.selection.peek()} ${document.activeElement?.outerHTML.slice(0, 120)}`);
+  // As the sample's are, a payment is recorded from the day it was made, the year with it: as of a day
+  // before, the tax is still owed
+  check('… from the day it was made, the year with it', payment?.since === '2026-10-26' && year?.since === '2026-10-26', JSON.stringify(last().adds));
+  Shell.at({ asOf: '2026-07-01' }); await tick(60);
+  check('… so as of a day before, the tax is still owed', !!dueAt(taxYear('AIV-1', 2025)) && Shell.parts.value.attention.flatMap(a => a.items()).some(i => i.kind === 'overdue'));
+  Shell.at({ asOf: '2026-10-26' }); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
   check('… and Undo leaves the year owed again', !!dueAt(taxYear('AIV-1', 2025)) && st()[dueAt(taxYear('AIV-1', 2025))].value === '2026-06-01');
+  // Paid from the deadline itself, which goes with it: the selection goes to the payment in its place
+  Shell.select([dueAt(owed)]); await tick(60);
+  $('.btn.ver.filed')?.click(); await tick(80);
+  key(document.querySelector('.filing input'), 'Enter'); await tick(80);
+  const paid2 = last().adds.find(r => r.edge === 'Annual Tax Paid');
+  check('… and paid from its deadline, the selection goes to the payment in its place', !!paid2 && Shell.selection.peek().join() === paid2.record && document.activeElement?.closest('[data-key]')?.dataset.key === paid2.record,
+    `${Shell.selection.peek()} ${document.activeElement?.outerHTML.slice(0, 120)}`);
+  Shell.parts.value.undo.undo(); await tick(60);
   // So with anything typed at a year a formula gives: the year is entered as it stands, with it
   Shell.select([taxYear('AIV-1', 2026)]); await tick(60);
   await type(rowOf('Annual Tax Amount')?.querySelector('input'), '$450'); await tick(60);
