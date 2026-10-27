@@ -103,12 +103,15 @@ const marker = (on, w) => on ? { name: 'block', width: 5 + w * 3, height: 4 + w 
 // behind it shows through its name.
 const FAINT = 0.55;
 
-// A cell in two parts, as JSON: where it is, which moving it changes, each of its keys apart; and what it is.
+// A cell in two parts, as JSON: where it is, which moving it changes, each of its keys apart; and what it is. A
+// line's `form` is what it is less its attributes' values: which it sets, and how, which setting its attributes again
+// can't take away (an arrowhead, a dash), but can give other values (a weight at another scale, a colour).
 const WHERE = new Set(['x', 'y', 'width', 'height', 'zIndex', 'source', 'target', 'vertices', 'connector']);
 function partsOf(c) {
   const where = {}, what = [];
   for (const k in c) if (WHERE.has(k)) where[k] = JSON.stringify(c[k]); else what.push(k, c[k]);
-  return { where, what: JSON.stringify(what) };
+  const form = c.shape === 'edge' ? JSON.stringify(what.map(x => x === c.attrs ? JSON.stringify(x, (k, v) => typeof v === 'number' || typeof v === 'string' ? typeof v : v) : x)) : null;
+  return { where, what: JSON.stringify(what), form };
 }
 // A cell moved to where `c` puts it: the props of it that differ from `was`, set at once in the cell's store,
 // which replaces each (a prop object given to the cell itself is merged into the old, keeping a line's old
@@ -304,8 +307,9 @@ function mount(el) {
   // The graph's cells made these. Each is kept by what it's drawn from, in two parts, where it is (a node's
   // place, size and stacking, a line's route) and what it is (its markup, attributes and data): one that only
   // moved is moved, a box or shape that looks different is drawn again in place, and so is a line whose attributes
-  // only take other values (see partsOf); only a line that sets others, or a new cell, is made anew, as making
-  // cells is what costs. A cell this view doesn't draw is
+  // only take other values (see partsOf), its new values set over its old, so it keeps those its shape gives it, the
+  // path drawn on its route among them; only a line that sets others, or a new cell, is made anew, as making cells
+  // is what costs. A cell this view doesn't draw is
   // hidden while another view of the chart drew it last, for when that one is shown again, and otherwise goes.
   const drawn = new Map(), drewLast = new Map();
   let chartDrawn = null;
@@ -326,8 +330,8 @@ function mount(el) {
       }
       for (const c of cells) {
         const was = drawn.get(c.id), cell = was && graph.getCellById(c.id), now = partsOf(c);
-        if (cell && cell.isEdge() === (c.shape === 'edge') && (was.what === now.what || cell.isNode())) {
-          if (was.what !== now.what) { cell.setMarkup(c.markup); cell.setData(c.data, { overwrite: true }); }
+        if (cell && cell.isEdge() === (c.shape === 'edge') && (was.what === now.what || cell.isNode() || was.form === now.form)) {
+          if (was.what !== now.what) { if (cell.isNode()) cell.setMarkup(c.markup); else cell.setAttrs(c.attrs); cell.setData(c.data, { overwrite: true }); }
           moveCell(cell, c, was.where);
           if (!cell.isVisible()) cell.setVisible(true);
         } else { if (cell) graph.removeCell(cell); c.shape === 'edge' ? graph.addEdge(c) : graph.addNode(c); }
