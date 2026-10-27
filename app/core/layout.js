@@ -786,7 +786,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   const landing = trunks.filter(t => t.dir === 'down').flatMap(t => t.lands).filter(l => !l.flank && l.label);
   const landingAt = sorted(landing, a => a.tx), over = t => landingAt((t.span[0] + t.span[1]) / 2, (t.span[1] - t.span[0]) / 2).filter(a => !t.ls.includes(a) && within(a.tx, t.span) && a.ty > t.edge).map(a => a.ty - room(a));
   // And a lane that joins a line coming straight down to an apex joins it under that line's label, as far under where
-  // it leaves its box as the label needs, so that the label is on that line alone.
+  // it leaves its box as the label needs, so that the label is on that line alone, where the lanes under it leave it that room.
   const plumb = trunks.filter(t => t.dir === 'down').flatMap(t => t.ls.filter(l => l.apex && Math.abs(l.tx - t.x) < 0.5).map(l => ({ l, under: t.edge + room(l) })));
   const joins = t => plumb.filter(o => o.l.from !== t.from && t.lands.some(l => l.apex && l.to === o.l.to)).map(o => o.under);
   // And a lane whose lines turn down from it under a box beside its own runs a lane's depth under that box, out of
@@ -811,7 +811,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
       // Already placed, along the box's side.
     } else if (t.dir === 'down') {
       const limit = Math.min(...ls.map(l => l.ty - short(l)), ...over(t)) - LANE * (lanes - 1 - t.lane), out = Math.max(...shades(t));
-      const floor = Math.max(t.edge + 8 + LANE * t.lane, ...joins(t), ...stand ? [] : [out]);
+      const floor = Math.max(t.edge + 8 + LANE * t.lane, ...joins(t).filter(y => y <= limit), ...stand ? [] : [out]);
       t.laneY = Math.max(floor, Math.min(Math.max(t.edge + 18 + LANE * t.lane, out), limit));
       for (const f of fixed) {
         if (Math.min(f.x1, t.span[1]) - Math.max(f.x0, t.span[0]) < 4 || Math.abs(t.laneY - f.y) >= LANE) continue;
