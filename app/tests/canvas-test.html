@@ -264,15 +264,31 @@ async function run() {
   check('at 1024, pointing at Tidy in Arrange draws it as it would be, and closing the menu ends that', tidyShown && sc() === App.scene.peek());
   await size(1440, 900);
 
-  // ---- Colors by PowerPoint's names ----
+  // ---- Colors by PowerPoint's names, in PowerPoint's whole palette, and any other by its hex ----
   const names = [['#DAE3F3', 'Blue, Accent 1, Lighter 80%'], ['E2F0D9', 'Green, Accent 6, Lighter 80%'], ['#f2f2f2', 'White, Background 1, Darker 5%'], ['#595959', 'Black, Text 1, Lighter 35%'],
-    ['#C00000', 'Dark Red'], ['#7f7f7f', 'Black, Text 1, Lighter 50%'], ['#ffc000', 'Gold, Accent 4'], ['#000000', 'Black, Text 1'], ['#123456', null]];
+    ['#C00000', 'Dark Red'], ['#7f7f7f', 'Black, Text 1, Lighter 50%'], ['#ffc000', 'Gold, Accent 4'], ['#000000', 'Black, Text 1'], ['#E7E6E6', 'Light Gray, Background 2'],
+    ['#AFABAB', 'Light Gray, Background 2, Darker 25%'], ['#44546A', 'Blue-Gray, Text 2'], ['#D6DCE5', 'Blue-Gray, Text 2, Lighter 80%'], ['#FFFF00', 'Yellow'], ['#92D050', 'Light Green'], ['#123456', null]];
   const bad = names.filter(([c, n]) => FormatBar.colorName(c) !== n);
   check('FormatBar.colorName gives PowerPoint’s name for a theme color, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
+  Shell.select(['halvard']); await tick(120);
   $('[data-fb="fill"]').click(); await tick(120);
-  const tips = $$('.float .palette > button').slice(0, 3).map(b => b.dataset.tip);
+  const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
+  check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Light Gray, Background 2', tips.join(' | '));
+  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then No fill and More colors', swatches.length === 70
+    && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
+    && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
+    && $$('.float .palette .menu-item').map(txt).join() === 'No fill,More colors#' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${$$('.float .palette .menu-item').map(txt)}`);
+  const hex = $('.float .palette .hex > input');
+  hex.focus(); hex.value = '1F5FBF'; hex.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(80);
+  check('a color typed by its hex in More colors is drawn as it’s typed, and changes nothing', fillOf('halvard') === '#1f5fbf' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#1f5fbf', fillOf('halvard'));
+  hex.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(150);
+  check('… and Enter makes it, and closes the palette', App.scene.peek().byId.get('halvard').settings.Fill.value === '#1f5fbf' && !$('.float .palette'), App.scene.peek().byId.get('halvard').settings.Fill.value);
+  Shell.select(['northpine']); await tick(120);
+  $('[data-fb="outline"]').click(); await tick(120);
+  const own = $$('.float .palette > button').slice(70).map(b => b.dataset.tip);
+  check('… and the chart’s own colors follow the standard ones, as PowerPoint’s Recent Colors do', own[0] === '#1F5FBF', own.join(' | '));
   await closeMenus();
-  check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Blue, Accent 1', tips.join(' | '));
+  Shell.parts.peek().undo.undo(); await tick(150);
 
   // ---- A highlight: lines lit where they lie, under the boxes; a box dimmed keeps its fill ----
   const ln = sc().marks.find(m => m.type === 'line' && m.from && m.to);
@@ -317,8 +333,20 @@ async function run() {
   const segs = () => sc().marks.filter(m => m.points).flatMap(m => m.points.slice(1).map((p, i) => [m.points[i], p]));
   const clearOf = hs => hs.every(({ p }) => segs().every(s => toSeg(p, s) * g.zoom() >= 15.9));
   const tri = sc().byId.get('fund'), hs = await handlesOn(tri), apex = [tri.x + tri.w / 2, tri.y];
-  const onTri = ({ side, p }) => side === 'e' ? toSeg(p, [apex, [tri.x + tri.w, tri.y + tri.h]]) < 0.6 : side === 'w' ? toSeg(p, [apex, [tri.x, tri.y + tri.h]]) < 0.6 : side === 's' && Math.abs(p[1] - tri.y - tri.h) < 0.6;
-  check('a triangle’s relate handles sit on its slopes and base, clear of every line', tri.shape === 'triangle' && hs.length >= 2 && hs.every(onTri) && clearOf(hs), hs.map(x => `${x.side} ${x.p.map(Math.round)}`).join('; '));
+  const slope = (t, p, to) => toSeg(p, [[t.x + t.w / 2, t.y], to]) < 0.6, right = t => [t.x + t.w, t.y + t.h], left = t => [t.x, t.y + t.h];
+  const onTri = ({ side, p }, t = tri) => side === 'e' ? slope(t, p, right(t)) : side === 'w' ? slope(t, p, left(t)) : side === 's' ? Math.abs(p[1] - t.y - t.h) < 0.6
+    : side === 'n' && (slope(t, p, right(t)) || slope(t, p, left(t))) && p[1] - t.y < t.h * 0.36;
+  check('a triangle’s relate handles sit on its apex, slopes and base, clear of every line, its top one too, off its apex where a line lands there',
+    tri.shape === 'triangle' && hs.length >= 3 && hs.some(h => h.side === 'n') && hs.every(h => onTri(h)) && clearOf(hs) && hs.every((h, i) => hs.slice(i + 1).every(k => Math.hypot(h.p[0] - k.p[0], h.p[1] - k.p[1]) * g.zoom() >= 15.9)),
+    hs.map(x => `${x.side} ${x.p.map(Math.round)}`).join('; '));
+  // A triangle with nothing at its apex has its top handle there: Northstar's box made one, for a moment.
+  Shell.select(['pension']); await tick(80);
+  FormatBar.apply('Shape', 'triangle'); await tick(150);
+  Shell.select([]); await tick(80);
+  const peak = sc().byId.get('pension'), [top] = (await handlesOn(peak)).filter(h => h.side === 'n');
+  check('… and on a triangle with no line at its apex, the top handle is the apex', peak.shape === 'triangle' && !!top && Math.hypot(top.p[0] - peak.x - peak.w / 2, top.p[1] - peak.y) < 0.6, top && top.p.map(Math.round).join());
+  Shell.parts.peek().undo.undo(); await tick(150);
+  Shell.select([]); await tick(60);
   const boxes = sc().marks.filter(m => m.type === 'box' && m.shape !== 'triangle' && m.shape !== 'oval');
   const busy = [];
   for (const m of boxes.slice(0, 12)) {
@@ -356,6 +384,48 @@ async function run() {
   check('two boxes selected light the line drawn between them, and draw no second route', !sc().marks.some(m => m.revealed) && !!gpCell?.classList.contains('dc-hl') && gpCell.classList.contains('strong'),
     `${sc().marks.filter(m => m.revealed).map(m => m.id)} ${gpCell?.getAttribute('class')}`);
   Shell.select([]); await tick(120);
+  // A record of a kind the view hides, a tax year, isn't drawn for a highlight, nor a relation to it: AIV-1's
+  // Annual Tax lights AIV-1 alone.
+  { const st = App.state.peek(), tax = Object.keys(st).find(id => st[id].args?.some(a => st[a.at]?.kind === 'Tax Year') && Tree.objectOf(st, st[id].args[0].at) === 'aiv');
+    const year = tax && st[tax].args.find(a => st[a.at]?.kind === 'Tax Year').at;
+    Shell.parts.peek().canvas.highlight({ [tax]: [1, 0], [year]: [2, 1], [st[tax]?.args[0].at]: [3, 1] }, { dim: true }); await tick(150);
+    check('a highlight draws no record of a kind the view hides, nor a relation to one, and lights what holds the rest', !!year && !sc().marks.some(m => m.revealed)
+      && !!$('.dc [data-cell-id="aiv"]') && !$('.dc [data-cell-id="aiv"]').classList.contains('dc-dim'), `${tax} ${year}: ${sc().marks.filter(m => m.revealed).map(m => m.id)}`);
+    Shell.parts.peek().canvas.highlight(null); await tick(80); }
+
+  // ---- A click on a line selects what's drawn where it's clicked: on a trunk, every line drawn along it; on a
+  // line's own leg, that line; on 40 Act, a line landing on a frame, every relation it draws ----
+  const clickAt = async (x, y) => {
+    const c = g.localToGraph(x, y), r0 = cv().root.getBoundingClientRect(), cx = r0.left + c.x, cy = r0.top + c.y, el = document.elementFromPoint(cx, cy);
+    for (const type of ['mousedown', 'mouseup', 'click']) el?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, buttons: type === 'mousedown' ? 1 : 0, view: window }));
+    await tick(100);
+    return el?.closest('.x6-edge')?.getAttribute('data-cell-id') ?? `not a line: ${el?.closest('[data-cell-id]')?.getAttribute('data-cell-id') ?? el?.tagName}`;
+  };
+  const asSet = ks => [...ks].sort().join(' ');
+  cv().zoom('fit'); await tick(120);
+  const fromFund = sc().marks.filter(m => m.type === 'line' && m.from === 'fund' && m.points.length > 2), stem = fromFund[0]?.points;
+  const under = stem && [stem[0][0], stem[0][1] + (stem[1][1] - stem[0][1]) / 3], trunk = sc().marks.filter(m => m.type === 'line' && m.points.slice(1).some((p, i) => {
+    const a = m.points[i]; return a[0] === p[0] && a[0] === under?.[0] && Math.min(a[1], p[1]) <= under[1] && Math.max(a[1], p[1]) >= under[1]; })).map(m => m.id);
+  const hitTrunk = under && await clickAt(...under);
+  check('a click on the trunk under Fund III selects every line drawn along it there', trunk.length >= 3 && trunk.includes(hitTrunk) && asSet(Shell.selection.peek()) === asSet(trunk) && chip() === `These ${trunk.length} lines`,
+    `${hitTrunk}: ${Shell.selection.peek().join(', ')} for ${trunk.join(', ')}; ${chip()}`);
+  const branch = fromFund.find(m => m.id === 'own_fund_npine') ?? fromFund.at(-1), [b0, b1] = branch.points.slice(-2);
+  const hitBranch = await clickAt(b0[0] + (b1[0] - b0[0]) / 4, b0[1] + (b1[1] - b0[1]) / 4);
+  check('… and a click on a line’s own leg, that line alone', hitBranch === branch.id && Shell.selection.peek().join() === branch.id && chip() === 'This line', `${hitBranch}: ${Shell.selection.peek().join(', ')}; ${chip()}`);
+  Shell.select([]); await tick(80);
+  if (v40) {
+    await show(v40); cv().zoom('fit'); await tick(120);
+    const all = [...new Set(sc().byId.values())], fl = sc().marks.find(m => m.type === 'line' && all.filter(x => x.merged === m.id).length >= 3);
+    const drawsAll = fl && [fl.id, ...all.filter(x => x.merged === fl.id).map(x => x.id)], [f0, f1] = fl?.points.slice(-2) ?? [];
+    const hitFrame = fl && await clickAt((f0[0] + f1[0]) / 2, (f0[1] + f1[1]) / 2);
+    check('on 40 Act, a click on a line landing on a frame selects every relation it draws, one line', hitFrame === fl?.id && asSet(Shell.selection.peek()) === asSet(drawsAll) && chip() === 'This line',
+      `${hitFrame}: ${Shell.selection.peek().length} of ${drawsAll?.length}; ${chip()}`);
+    const one = drawsAll?.[1];
+    Shell.select([one]); await tick(120);
+    const traced = () => $$('.dc .x6-edge.dc-sel').map(e => e.getAttribute('data-cell-id')).join();
+    check('… and one of them selected from elsewhere is that one, on the line that draws it', cv().keys().join() === one && traced() === fl.id, `${cv().keys().join()} on ${traced()}`);
+    Shell.select([]); await show(main);
+  }
 
   // ---- Tidy: pointed at, the chart is drawn tidied and nothing changes; made, it's one change, named so
   // everywhere, and the view is framed on its page again ----
@@ -403,16 +473,50 @@ async function run() {
     `${Math.round(newKey.w)}×${Math.round(newKey.h)} at ${sc().page.scale}`);
   for (let i = 0; i < 2; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
 
-  // ---- A box moved past the page's edge stays where it was put on screen as the page grows round it ----
+  // ---- A box moved past the page's edge: in a view framed, the page that grows for it is framed again, so it
+  // stays in view; in one zoomed in, the box stays where it was put on screen as the page grows round it ----
   cv().zoom('fit'); await tick(120);
   Shell.select(['halvard']); await tick(80);
-  const hv = () => sc().byId.get('halvard'), at0 = g.localToGraph(hv().x, hv().y), z0h = g.zoom(), size0 = `${sc().page.w}×${sc().page.h}`;
+  const hv = () => sc().byId.get('halvard'), size0 = `${sc().page.w}×${sc().page.h}`, fits = () => { const { a, b, W, H } = onScreen(); return whole() && (W - (b.x - a.x) <= 57 || H - (b.y - a.y) <= 57); };
+  cv().nudge(0, 300); await tick(150);
+  check('a box moved past the page’s edge in a view framed frames the page again, grown for it, whole and as large as fits', `${sc().page.w}×${sc().page.h}` !== size0 && fits(),
+    `${size0} → ${sc().page.w}×${sc().page.h}; ${JSON.stringify(onScreen())}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  cv().zoom(1); await tick(80);
+  cv().zoomTo('halvard'); await tick(120);
+  const at0 = g.localToGraph(hv().x, hv().y), z0h = g.zoom();
   cv().nudge(0, 300); await tick(150);
   const at1 = g.localToGraph(hv().x, hv().y);
-  check('a box moved past the page’s edge stays where it was put on screen, though the page grows', `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === z0h
+  check('… and in a view zoomed in, it stays where it was put on screen, though the page grows', `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === z0h
     && Math.abs(at1.x - at0.x) < 0.5 && Math.abs(at1.y - at0.y - 300 * z0h) < 0.5, `${size0} → ${sc().page.w}×${sc().page.h}; moved ${(at1.x - at0.x).toFixed(1)}, ${((at1.y - at0.y) / z0h).toFixed(1)}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   cv().zoom('fit'); await tick(120);
+
+  // ---- A new text box is made once something is typed in it: left empty, however it's left, it makes nothing ----
+  const textBoxes = () => App.shown.peek().rows(App.chart.peek()).filter(r => r.shape && r.geometry === 'text' && r.view === sc().view).length;
+  const before = App.wb.changes().length, boxes0 = textBoxes(), leftBy = [];
+  for (const how of ['Escape', 'Enter', 'a click away']) {
+    cv().insert('text'); await tick(60);
+    const ed = $('.dc-edit');
+    leftBy.push(`${how}: ${!!ed && document.activeElement === ed}`);
+    if (how === 'a click away') ed?.blur(); else ed?.dispatchEvent(new KeyboardEvent('keydown', { key: how, bubbles: true, cancelable: true }));
+    await tick(80);
+  }
+  check('Insert › Text box opens it for typing, and left empty, by Esc, Enter or a click away, it makes nothing', App.wb.changes().length === before && textBoxes() === boxes0 && !$('.dc-edit')
+    && leftBy.every(s => s.endsWith('true')), `${leftBy.join(', ')}; ${App.wb.changes().length - before} changes, ${textBoxes() - boxes0} text boxes`);
+  cv().insert('text'); await tick(60);
+  { const ed = $('.dc-edit'); if (ed) { ed.textContent = 'Draft for discussion'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); } }
+  await tick(120);
+  const typedIn = App.shown.peek().item(App.chart.peek(), Shell.selection.peek()[0] ?? '')[0];
+  check('… and one typed in is made, with its text, and selected', App.wb.changes().length === before + 1 && typedIn?.geometry === 'text' && typedIn.text === 'Draft for discussion' && textBoxes() === boxes0 + 1,
+    JSON.stringify(typedIn));
+  let blank = null;
+  App.change(tx => { blank = tx.add('shape', { view: sc().view, geometry: 'text', text: '', x: 40, y: 40 }); }); await tick(120);
+  cv().edit(blank); await tick(60);
+  $('.dc-edit')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
+  check('… and an empty one already kept goes as Esc leaves it', !App.shown.peek().item(App.chart.peek(), blank).length && !sc().byId.has(blank), blank);
+  for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(120); }
+  Shell.select([]); await tick(60);
 
   // ---- A popover opens with the focus on the value the setting has ----
   Shell.select([line.id]); await tick(120);

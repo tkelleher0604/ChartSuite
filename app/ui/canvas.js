@@ -280,9 +280,9 @@ function mount(el) {
     sheet.setAttribute('height', scene.page.h);
     // Each view comes back as it was left; one not seen yet opens on its whole page. Either is so at once,
     // never drawn for a moment as the view before was. A framed view is framed again on a page that grows or
-    // shrinks, Tidy's preview's too (every other preview keeps the page as it was). Otherwise, and under a
-    // gesture, the chart stays where it is on screen as the page sets it again (by its offset), so what was
-    // moved stays under the pointer; a gesture that changes the page's size leaves the view framed no more.
+    // shrinks, a gesture's or Tidy's preview's too (every other preview keeps the page as it was), so the page
+    // stays in view. Otherwise, and under a gesture, the chart stays where it is on screen as the page sets it
+    // again (by its offset), so what was moved stays under the pointer.
     const page = scene.page, was = pageWas;
     pageWas = page;
     if (viewShown !== view) {
@@ -294,9 +294,8 @@ function mount(el) {
       settle();
     } else if (was) {
       const resized = page.w !== was.w || page.h !== was.h, dx = page.offset.x - was.offset.x, dy = page.offset.y - was.offset.y;
-      if (framed && resized && !moving) settle();
+      if (framed && resized) settle();
       else if ((dx || dy) && (moving || !framed) && screen.w) { const z = graph.zoom(), t = graph.translate(); quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z)); }
-      if (moving && resized) framed = false;
     }
     syncSelection();
     paintStates();
@@ -366,12 +365,24 @@ function mount(el) {
   // ---- Selection: X6's, kept in step with the shell's keys ----
   const groups = () => scene ? scene.marks.filter(m => m.geometry === 'group') : [];
   const groupOf = id => groups().find(g => g.members.includes(id) && g.id !== entered);
+  // A line's cell draws its record and those of the lines drawn as one with it (Scene's `merged`), as the
+  // BDC's to every box in a frame are.
+  const standing = new WeakMap();
+  function drawsFor(id) {
+    if (!scene) return [id];
+    let by = standing.get(scene);
+    if (!by) {
+      standing.set(scene, by = new Map());
+      for (const m of new Set(scene?.byId.values())) if (m.merged) (by.get(m.merged) ?? by.set(m.merged, [m.merged]).get(m.merged)).push(m.id);
+    }
+    return by.get(id) ?? [id];
+  }
   function cellsFor(keys) {
     const out = [];
     for (const k of keys) {
       const [id] = keyParts(k);
       const m = scene?.byId.get(id);
-      if (m?.geometry === 'group') out.push(...m.members); else if (graph.getCellById(id)) out.push(id);
+      if (m?.geometry === 'group') out.push(...m.members); else out.push(m?.merged ?? id);
     }
     return [...new Set(out)].map(id => graph.getCellById(id)).filter(Boolean);
   }
@@ -380,11 +391,13 @@ function mount(el) {
     const ks = Shell.selection.peek(), [legend, key] = ks.length === 1 ? keyParts(ks[0]) : [];
     return key && scene?.byId.get(legend)?.geometry === 'legend' ? { legend, key } : null;
   };
-  function keysOfSelection() {
-    const ids = sel.getSelectedCells().map(c => c.id), keys = [], r = keyRow();
+  // The keys of what's selected on the chart: a group's member, the group; a line, the records it draws, those
+  // of them selected from elsewhere, or all of them when it was clicked (`whole`) or nothing it draws was.
+  function keysOfSelection(whole = new Set()) {
+    const ids = sel.getSelectedCells().map(c => c.id), keys = [], r = keyRow(), now = Shell.selection.peek();
     for (const id of ids) {
-      const g = groupOf(id), k = g ? g.id : r && r.legend === id && ids.length === 1 ? `${id}#${r.key}` : id;
-      if (!keys.includes(k)) keys.push(k);
+      const g = groupOf(id), all = drawsFor(id), some = whole.has(id) ? [] : all.filter(k => now.includes(k));
+      for (const k of g ? [g.id] : r && r.legend === id && ids.length === 1 ? [`${id}#${r.key}`] : some.length ? some : all) if (!keys.includes(k)) keys.push(k);
     }
     return keys;
   }
@@ -395,17 +408,35 @@ function mount(el) {
     if (want.length !== have.length || want.some(c => !have.includes(c))) { syncing = true; sel.reset(want); syncing = false; }
     grips();
   }
-  graph.on('selection:changed', () => {
-    if (syncing) return;
-    // Selecting a member of a group selects the group, unless it has been entered.
-    const ids = sel.getSelectedCells().map(c => c.id);
-    const grow = [...new Set(ids.map(groupOf).filter(Boolean))].flatMap(g => g.members).filter(id => !ids.includes(id));
-    if (grow.length) { syncing = true; sel.select(grow.map(id => graph.getCellById(id)).filter(Boolean)); syncing = false; }
-    const keys = keysOfSelection();
+  // What's selected on the chart, taken up as keys. Selecting a member of a group selects the group, unless it
+  // has been entered; and a line clicked (`pressed`), every line drawn along it where it was clicked, as a
+  // trunk's lines are drawn, each for all it draws: so what's selected is what's drawn there.
+  let pressed = null;
+  function reselect() {
+    const ids = sel.getSelectedCells().map(c => c.id), along = pressed ? alongside(pressed.id, pressed.p) : [], on = ids.includes(along[0]);
+    pressed = null;
+    const grow = [...new Set(ids.map(groupOf).filter(Boolean))].flatMap(g => g.members).concat(on ? along : []).filter(id => !ids.includes(id));
+    const drop = on ? [] : along.filter(id => ids.includes(id)), cells = xs => xs.map(id => graph.getCellById(id)).filter(Boolean);
+    if (grow.length || drop.length) { syncing = true; sel.select(cells(grow)); sel.unselect(cells(drop)); syncing = false; }
+    const keys = keysOfSelection(new Set(along));
     if (!same(keys, Shell.selection.peek())) pick(keys);
     grips();
     paintStates();
-  });
+  }
+  graph.on('selection:changed', () => { if (!syncing) reselect(); });
+  // A click that left X6's selection as it was (the line clicked was selected alone already) is taken up too.
+  graph.on('edge:click', () => { if (pressed && !hold) reselect(); });
+  // The lines drawn along the stretch of a line nearest p, it first: those running on it there, as a trunk's
+  // lines do, and not those crossing it. With no p, the line alone.
+  function alongside(id, p) {
+    const l = scene?.byId.get(id), legs = m => (m.runs ?? [m.points]).flatMap(r => r.slice(1).map((b, i) => [r[i], b])), ls = l?.points ? legs(l) : [];
+    if (!p || !ls.length) return [id];
+    const [a, b] = ls.reduce((best, s) => toSegment(p, ...s) < toSegment(p, ...best) ? s : best);
+    const n = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, t = clamp(((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / (n * n), 0, 1);
+    const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], d = [(b[0] - a[0]) / n, (b[1] - a[1]) / n];
+    const runs = ([c, e]) => Math.abs(d[0] * (e[1] - c[1]) - d[1] * (e[0] - c[0])) < 0.01 * Math.hypot(e[0] - c[0], e[1] - c[1]) && toSegment(q, c, e) < 0.5;
+    return [id, ...scene.marks.filter(m => m.type === 'line' && m.id !== id && graph.getCellById(m.id)?.isVisible() && legs(m).some(runs)).map(m => m.id)];
+  }
   // What's selected from elsewhere (Find, F8, the status bar, the inspector, Back) or by Tab is brought on
   // screen, at the zoom the view is at; what's picked on the chart, by a click or the marquee, is there.
   // What isn't drawn yet, in a view about to be shown or a relation the view hides that its highlight will
@@ -446,25 +477,29 @@ function mount(el) {
     addEventListener('mouseup', () => setTimeout(() => { hold = false; sel.enable(); }), { once: true });
     return true;
   }
-  graph.on('edge:mousedown', ({ edge }) => pointed(edge));
+  graph.on('edge:mousedown', ({ e, edge }) => {
+    const p = graph.clientToLocal(e.clientX, e.clientY);
+    pressed = !pointed(edge) && edge.getData()?.kind === 'line' ? { id: edge.id, p: [p.x, p.y] } : null;
+  });
 
   // A click on the page clears the selection, and a drag across it is the marquee; a click on a line's
   // label is a click on its line; a second click on a legend selects the row under it.
   graph.on('node:mousedown', ({ e, node }) => {
     const k = node.getData()?.kind;
+    pressed = null;
     root.focus({ preventScroll: true });
     if (k === 'page') { if (e.button === 0) { if (!e.shiftKey) sel.clean(); sel.startRubberband(e); } return; }
     if (pointed(node)) return;
     if (k === 'label' || e.shiftKey || e.ctrlKey || e.metaKey) return;
     take(node);
   });
-  graph.on('blank:mousedown', () => root.focus({ preventScroll: true }));
+  graph.on('blank:mousedown', () => { pressed = null; root.focus({ preventScroll: true }); });
   graph.on('node:click', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (hold) return;
     if (k === 'label') {
       const line = graph.getCellById(node.getData().mark);
-      if (line) { if (e.shiftKey) sel.isSelected(line) ? sel.unselect(line) : sel.select(line); else sel.reset(line); }
+      if (line) { pressed = { id: line.id }; if (e.shiftKey) sel.isSelected(line) ? sel.unselect(line) : sel.select(line); else sel.reset(line); pressed = null; }
       return;
     }
     const m = scene.byId.get(node.id), key = e.target.closest?.('[data-row]')?.getAttribute('data-row');
@@ -500,8 +535,8 @@ function mount(el) {
       }
     }
   }
-  // Marks moved, written: a gesture, so what was moved stays where it was put, however the page sets the
-  // chart again or grows (see draw).
+  // Marks moved, written: a gesture, so what was moved stays where it was put as the page sets the chart
+  // again, and a framed page that grows for it is framed again (see draw).
   function moveTo(places) {
     if (!places.size) return;
     moving = true;
@@ -590,7 +625,7 @@ function mount(el) {
     const m = scene.byId.get(id);
     if (!m || still()) return;
     // What's typed over: a record's value as entered, not as the chart reads it; a shape's text as written.
-    let it = null, rect, save, raw;
+    let it = null, rect, save, raw, left = null;
     const view = viewOf(), N = App.notes.peek();
     // A caption typed as the output's own name is no caption.
     const caption = (tx, p, text) => { const c = Tree.clean(text); tx.note('Caption', p, c && c !== Scene.outputName(N, p) ? c : undefined, { view }); };
@@ -626,15 +661,18 @@ function mount(el) {
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
       raw = legend ? m.title : rowOf(m.id)?.text;
-      // A text box left empty goes, as PowerPoint's does.
-      save = text => App.change(tx => m.geometry === 'text' && !text.trim() ? tx.remove(m.id) : tx.update(m.id, legend ? { title: text } : { text }));
+      // A text box left empty goes, however it's left, as PowerPoint's does.
+      const gone = tx => tx.remove(m.id);
+      save = text => App.change(tx => m.geometry === 'text' && !text.trim() ? gone(tx) : tx.update(m.id, legend ? { title: text } : { text }));
+      if (m.geometry === 'text' && !raw?.trim()) left = () => App.change(gone);
     }
     if (!it) return;
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto });
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, left });
   }
-  // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't, and
-  // leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`: a new box of a kind.
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null } = {}) {
+  // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't (but does
+  // what `left` says), and leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`:
+  // a new box of a kind.
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, left = null } = {}) {
     over.querySelector('.dc-edit')?.remove();
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
     const ed = document.createElement('div');
@@ -654,7 +692,7 @@ function mount(el) {
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
     let done = false;
-    const finish = ok => { if (done) return; done = true; const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); };
+    const finish = ok => { if (done) return; done = true; const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else left?.(); };
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (e.key === 'Escape') { e.preventDefault(); finish(false); }
@@ -697,9 +735,9 @@ function mount(el) {
 
   // ---- Relating: from near a box's edge to another box, or to empty page for a new one ----
   // The handles show on the box whose outline the pointer nears, on the outline, as PowerPoint's connection
-  // points are: at the middle of each side (a triangle's slopes and base), or off it along the side as far as
-  // keeps them clear of the lines there and of the box's grips, so a click by a box on a line takes the line.
-  // A side with no such place has none.
+  // points are: at the middle of each side (a triangle's apex, slopes and base), or off it along the side as far
+  // as keeps them clear of the lines there, of the box's grips and of each other, so a click by a box on a line
+  // takes the line. A side with no such place has none.
   let near = null, placed = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
@@ -708,14 +746,19 @@ function mount(el) {
     over.appendChild(h);
     return h;
   });
-  // A point t of the way along a side of a box's outline: a triangle's slopes and base (it has no top), an
-  // oval's quarters, or else its frame's sides.
+  // A point t of the way along a side of a box's outline: a triangle's slopes and base, and its top, the apex
+  // with the top of each slope (APEX of the way down it) either side; an oval's quarters; or else its frame's
+  // sides.
+  const APEX = 0.35;
   function sidePoint(m, side, t) {
-    const { x, y, w, h } = m, along = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const { x, y, w, h } = m, along = (a, b, u = t) => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
     if (m.shape === 'oval') { const a = ({ n: -1, e: 0, s: 1, w: 2 }[side] + t - 0.5) * Math.PI / 2; return [x + w / 2 * (1 + Math.cos(a)), y + h / 2 * (1 + Math.sin(a))]; }
-    const sides = m.shape === 'triangle' ? { e: [[x + w / 2, y], [x + w, y + h]], s: [[x + w, y + h], [x, y + h]], w: [[x, y + h], [x + w / 2, y]] }
-      : { n: [[x, y], [x + w, y]], e: [[x + w, y], [x + w, y + h]], s: [[x + w, y + h], [x, y + h]], w: [[x, y + h], [x, y]] };
-    return sides[side] ? along(...sides[side]) : null;
+    if (m.shape === 'triangle') {
+      const apex = [x + w / 2, y], right = [x + w, y + h], left = [x, y + h];
+      return { n: along(apex, t < 0.5 ? left : right, Math.abs(t - 0.5) * 2 * APEX), e: along(apex, right), s: along(right, left), w: along(left, apex) }[side];
+    }
+    const sides = { n: [[x, y], [x + w, y]], e: [[x + w, y], [x + w, y + h]], s: [[x + w, y + h], [x, y + h]], w: [[x, y + h], [x, y]] };
+    return along(...sides[side]);
   }
   // A box's outline as a polygon, to say how near a point is to it.
   const outlineOf = m => m.shape === 'triangle' || m.shape === 'oval' ? [...['e', 's', 'w'], ...(m.shape === 'oval' ? ['n'] : [])].flatMap(s => [0, 0.25, 0.5, 0.75].map(t => sidePoint(m, s, t)))
@@ -747,7 +790,7 @@ function mount(el) {
       const side = h.classList[1], p = ALONG.map(f => sidePoint(m, side, f)).find(p => p && clear(p));
       h.at = p ?? null;
       h.hidden = !p;
-      if (p) { const g = graph.localToGraph(p[0], p[1]); h.style.left = `${g.x}px`; h.style.top = `${g.y}px`; }
+      if (p) { const g = graph.localToGraph(p[0], p[1]); h.style.left = `${g.x}px`; h.style.top = `${g.y}px`; dots.push(p); }
     }
     root.classList.add('relating-on');
   }
@@ -812,9 +855,10 @@ function mount(el) {
   const contextOf = ({ e, node, edge }) => {
     let cell = node ?? edge ?? null;
     if (cell?.getData()?.kind === 'label') cell = graph.getCellById(cell.getData().mark);
-    const at = { x: e.clientX, y: e.clientY }, k = cell?.getData()?.kind;
-    if (!cell || k === 'page') return Shell.menu(at, pageItems(graph.clientToLocal(at.x, at.y)));
-    take(cell);
+    const at = { x: e.clientX, y: e.clientY }, k = cell?.getData()?.kind, p = graph.clientToLocal(at.x, at.y);
+    if (!cell || k === 'page') return Shell.menu(at, pageItems(p));
+    // A line is taken as a click takes it, with the lines drawn along it there.
+    if (edge && k === 'line' && !sel.isSelected(cell)) { pressed = { id: cell.id, p: [p.x, p.y] }; sel.reset(cell); } else take(cell);
     Shell.menu(at, markItems());
   };
   for (const name of ['node:contextmenu', 'edge:contextmenu', 'blank:contextmenu']) graph.on(name, contextOf);
@@ -927,7 +971,8 @@ function mount(el) {
   // change would leave it, PowerPoint's live preview; with `moves`, laid out again (Tidy). null ends it.
   function restyle(wb, { moves = false } = {}) { styled = wb && { wb, moves }; show(); }
   // Boxes and lines the view hides are drawn while they're highlighted, redlined, or asked for. (An entry
-  // isn't: it lights what it sits in, so no box changes size under the pointer.) A preview is drawn while
+  // isn't: it lights what it sits in, so no box changes size under the pointer. Nor is a record of a kind the
+  // view hides, a tax year say, or a relation to one: they aren't of this chart.) A preview is drawn while
   // it's quick: a redline or a restyle on a chart of a few hundred marks, and the hidden drawn only while
   // they're a few dozen; past that, what's drawn is lit, and the formula bar says the rest.
   const QUICK = { marks: 400, hidden: 40 };
@@ -935,8 +980,9 @@ function mount(el) {
   function reveal(ids) { asked = ids ? [...ids] : []; show(); }
   function show() {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, r = red && quick ? red : null, s = styled && quick ? styled : null;
-    const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek();
-    const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id); };
+    const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek(), N = App.notes.peek();
+    const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
+    const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id) && ![id, ...(x.args ?? []).map(a => a.at)].some(away); };
     // A relation the view hides, lit or stepped through, whose two boxes a line drawn here already joins (one
     // lit, of two), is lit on that line, not routed a second time beside it. (One a redline adds is drawn, as
     // what would change.)
@@ -1001,14 +1047,17 @@ function mount(el) {
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
+    // A text box is made once something is typed in it, as a box is once it's named: left empty, however it's
+    // left, it makes nothing.
+    const typing = geometry === 'text' && !row.text && Scene.shapeOf(row, s), at = typing && { x: row.x, y: row.y, w: typing.w, h: typing.h };
     // Placed on the page, kept as the chart's own (see place).
     if (row.x !== undefined) [row.x, row.y] = own(row.x, row.y);
     if (row.points) row.points = row.points.map(([x, y]) => own(x, y));
-    let id = null;
-    if (!App.change(tx => { id = tx.add('shape', row); })) return null;
-    Shell.select([id]);
-    if (geometry === 'text' && !opts.text) requestAnimationFrame(() => edit(id));
-    return id;
+    const add = r => { let id = null; if (!App.change(tx => { id = tx.add('shape', r); })) return null; Shell.select([id]); return id; };
+    if (!typing) return add(row);
+    Shell.select([]);
+    openEditor({ look: typing.look }, at, '', text => { if (text.trim()) add({ ...row, text }); }, { multiline: true, grow: !!typing.auto });
+    return null;
   }
   // Delete hides what's selected in this view and deletes a free shape; with `records`, Shift+Delete, it
   // deletes the records too, everywhere, and what's in or on them. Either way a toast says what went.
@@ -1152,7 +1201,7 @@ function mount(el) {
 
   // ---- Zoom: the levels, and framing. A view opens on its whole page, as PowerPoint opens a slide, and Fit
   // (Shift+1) frames it so again. A framed view stays framed as the window and the page change size, until
-  // it's zoomed or scrolled, or a gesture changes the page's size (see draw). Nothing else moves the view:
+  // it's zoomed or scrolled (see draw). Nothing else moves the view:
   // what's brought on screen is scrolled to, never zoomed to. A canvas that can't be seen (a table shown, the
   // inspector widened) is never measured or moved: it's framed, or put back as it was left, once it's seen
   // again ----
