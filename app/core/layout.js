@@ -66,7 +66,7 @@ const keepIn = s => { store = s; };
 const laidBefore = () => { try { return JSON.parse(store?.get('layouts') ?? '[]'); } catch { return []; } };
 function place({ boxes, links, clusters, room = ROOM }) {
   const quick = boxes.length + links.length > BIG;
-  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h, room.key?.w, room.key?.h], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
+  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h, room.key?.w, room.key?.h, room.key?.under], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
   return placed(k, () => {
     const before = laidBefore().find(([key]) => key === k);
     if (before) return new Map(before[1].map(([id, x, y]) => [id, { x, y }]));
@@ -166,11 +166,12 @@ function tiers(boxes, links, room = ROOM, clusters = []) {
   return { tier: new Map(rows.flatMap((bs, t) => bs.map(b => [b.id, t]))), wraps };
 }
 // How large rows would be drawn in a room, roughly: each row as wide as what's in it side by side, and as tall as
-// its tallest, with the gaps the layout leaves. rows: lists of { w, h }.
+// its tallest, with the gaps the layout leaves; in the room less the Key's, 24 pt under the chart, where it goes
+// there. rows: lists of { w, h }.
 function fit(rows, room) {
   const w = Math.max(...rows.map(us => us.reduce((w, u) => w + u.w + GAP.across, -GAP.across)));
   const h = rows.reduce((h, us) => h + Math.max(...us.map(u => u.h)) + GAP.down, -GAP.down);
-  return Math.min(room.w / w, room.h / h);
+  return Math.min(room.w / w, (room.h - (room.key?.under ? room.key.h + 32 : 0)) / h);
 }
 // ELK lays the tiers out as rows, each given its place (see tiers), and orders and places what's in each. Ranking
 // lines that run level aren't ELK's to place, but keep their boxes together: each set of boxes so joined, in one
@@ -399,7 +400,7 @@ function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
+    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
   const out = new Map();

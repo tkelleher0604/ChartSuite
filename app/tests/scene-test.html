@@ -422,6 +422,15 @@ function run() {
     const said = [...letters, ...slides].flatMap(s => boxes(s).flatMap(b => b.texts[0].lines.map(l => l.text.replace(/\s/g, ' '))));
     const left = said.filter(t => /^(Inc\.|LLC|L\.P\.|Ltd\.|[IVX]+(-[A-Z0-9]+)?)([ ,]|$)/.test(t));
     check('… there and on the slide, no line starts with a suffix or a numeral left by its word', said.length && !left.length, j(left));
+    // Tidied, with an owner added, or with a long name, as near the slide's size as Letter allows: 8 pt, or the
+    // slide's scale less a twentieth at the most.
+    const near = [['tidied', (w, v) => edit(w, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); })],
+      ['an owner added', w => edit(w, tx => { const o = tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'northpine' }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 0.05 }); })],
+      ['a long name', w => edit(w, tx => tx.set('feeder_name', { ...w.asOf(C, DAY).feeder_name, value: 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd.' }))]]
+      .flatMap(([what, f]) => views.map(v => { const w = fresh(); f(w, v); const Rw = computed(w), [sl, le] = [null, 'letter'].map(paper => Scene.of(w, C, v, DAY, { state: Rw.records, computed: Rw, paper }));
+        return [what, v, sl.page.scale, le.page.scale, Math.min(...boxes(le).map(b => b.texts[0].look.Size * le.page.scale))]; }));
+    check('… and tidied, with an owner added or with a long name, at 8 pt or no more than a twentieth smaller than on the slide', near.every(([, , sl, le, pt]) => pt >= 8 - 1e-9 || le >= sl - 0.05 - 1e-9),
+      j(near.filter(([, , sl, le, pt]) => pt < 8 - 1e-9 && le < sl - 0.05 - 1e-9)));
     const rows = letters.flatMap(s => [...Map.groupBy(boxes(s).filter(b => b.shape === 'triangle'), b => Math.round(b.y)).values()]);
     check('… a row of triangles is one size, each name in the fewest lines that fit it there, four at most', rows.every(ts => new Set(ts.map(b => `${b.w}×${b.h}`)).size === 1
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));

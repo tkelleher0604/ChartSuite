@@ -704,11 +704,17 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const classOf = new Map(boxes.map(b => { const n = b.settings.Fill.note; return [b.id, n && n.view === view && !idsIn(n.pattern).size ? rowOf.get(key(n.pattern)) ?? null : null]; }));
   if (new Set([...classOf.values()].filter(Boolean)).size < 2) classOf.clear();
   // The room the chart has on its sheet, as the layout fills it: within the margins, under the title and date;
-  // and the Key's size there, which the page sets under the chart's right end where it isn't beside the title.
-  const furniture = shapeRows.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).reduce((h, r) => h + freeShape(r, said.get(r.id)).h, 0);
+  // and the Key's size there, which the page sets beside the title where it fits there, or else `under` the
+  // chart's right end (see furnish).
+  const furnished = shapeRows.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).map(r => freeShape(r, said.get(r.id)));
+  const furniture = furnished.reduce((h, m) => h + m.h, 0);
   const room = { w: sheet.w - 2 * MARGIN, h: sheet.h - 2 * MARGIN - (furniture && furniture - INSET - PAD + 32) };
   const keyRow = shapeRows.find(r => r.geometry === 'legend' && placedBy(r));
-  if (keyRow) { const k = freeShape(keyRow, ''); layoutLegend(k, legendRows); room.key = { w: k.w, h: k.h }; }
+  if (keyRow) {
+    const k = freeShape(keyRow, '');
+    layoutLegend(k, legendRows);
+    room.key = { w: k.w, h: k.h, under: k.w > sheet.w - MARGIN - 32 - Math.max(MARGIN, ...furnished.map(m => MARGIN - INSET + (m.column?.x ?? 0) + widest(m.texts))) };
+  }
   let heights = null;
   // The room a line's label needs between the two boxes it joins side by side: its width and 3 pt either side, and
   // its arrowhead, where it has one (see Layout's labels).
