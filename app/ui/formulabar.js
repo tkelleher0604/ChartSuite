@@ -349,12 +349,13 @@ const FormulaBar = (() => {
   const singular = w => [w.replace(/ies$/, 'y'), w.replace(/es$/, ''), w.replace(/s$/, '')].find(x => x !== w && Tree.same(Tree.plural(x), w)) ?? w;
   const isPerson = (Rv, id) => /individual|person/i.test(Rv.records[id]?.kind ?? '');
   // A clause's citation: the section its Description starts with ("Section 2(a)(3): …") and the row's label,
-  // (A) reading §2(a)(3)(A), and (e)(1)(A) under 57(e) §57(e)(1)(A); a label of words follows the section.
+  // (A) reading §2(a)(3)(A), and (e)(1)(A) under 57(e) §57(e)(1)(A); a label of words follows the section. A
+  // row of a definition that cites no section has none: its label is the row's, not a citation.
   function citeOf(def, label) {
     const n = noteOf(def), lead = n ? String(N().description(n.pattern) ?? '').split('\n')[0] : '', l = Tree.clean(label);
     const sec = /^(?:Section|§)\s*(\d[\w.]*)((?:\([^)\s]+\))*)/i.exec(lead);
     if (l.includes('§')) return /§\s*\d[\w.]*(?:\([^)\s]+\))*/.exec(l)?.[0] ?? l;
-    if (!sec) return l || null;
+    if (!sec) return null;
     const groups = s => s.match(/\([^)]+\)/g) ?? [], own = /^(?:\([^)\s]+\))+/.exec(l);
     if (!own) { const head = l.split(':')[0]; return `§${sec[1]}${sec[2]}${head ? `, ${head[0].toLowerCase()}${head.slice(1)}` : ''}`; }
     const a = groups(sec[2]), b = groups(own[0]);
@@ -588,13 +589,14 @@ const FormulaBar = (() => {
     const c = { id: [id, ...reads].find(fx) ?? id, ids: [id, ...reads], subj: null, poss: false, pre: [], obj: [], post: [] };
     const withs = reads.flatMap(e => { const x = recs[e]; return 'tag' in x ? [` ${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [` with ${article(x.edge)} ${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
     if (r.args) {
-      const [a, b, ...rest] = n.sides(recs, id), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
+      // The sides past the second as the place rule says them (Notes.placed): each after its label, none twice.
+      const [a, b] = n.sides(recs, id), rest = n.placed(recs, id).slice(2), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
       // Each side's list of the other: Holdings, and Owners.
       const theirs = t && b ? n.listName(t, a.edge) : a.edge, yes = r.tag !== false;
       const q = !B ? null : t ? predicateOf(t, a.edge, b.edge, { tag: 'tag' in r, name: n.nameOf(recs, id) }) : predicate(n.nameOf(recs, id), true);
       const p = q && !q.flip && !q.role ? q : null, flip = q?.flip ? q : null;
       const of = B ? [p?.form === 'noun' && !('field' in r) ? p.prep : ' of ', { name: B }] : [];
-      c.post = [...rest.flatMap(x => [`, ${lower(x.edge)} `, { name: Tree.objectOf(recs, x.at) }]), ...(rest.length && withs.length ? [','] : []), ...withs];
+      c.post = [...rest.flatMap(s => [s.join, { name: s.id }]), ...(rest.length && withs.length ? [','] : []), ...withs];
       if ('field' in r) return Object.assign(c, { subj: A, poss: true, pre: [` ${lower(n.nameOf(recs, id))}`], obj: of, post: [be(), term(id, Tree.outputText(r)), ...c.post] });
       const says = q => q.form === 'noun' ? [be(yes), `${article(q.head)} `, term(id, q.head)] : q.form === 'participle' ? [be(yes), term(id, q.head)]
         : yes ? (would ? [' would ', term(id, q.head.replace(/s\b/, ''))] : [' ', term(id, q.head)]) : [would ? ' would not ' : ' does not ', term(id, q.head.replace(/s\b/, ''))];
@@ -627,15 +629,48 @@ const FormulaBar = (() => {
   }
   // What the subject is, as the sentence's last clause: a relation, or a tag, as a fact; a value by its name,
   // its object's where it has one: the Manager's Form ADV is due March 31, 2027; at a relation, as the bar
-  // names its place: the annual tax is due June 1, 2027.
-  function givenOf(Rv, id, would) {
-    const recs = Rv.records, r = would ?? recs[id];
+  // names its place: the annual tax is due June 1, 2027. A date its row moved off a weekend says so (rollOf).
+  function givenOf(Rv, id, would, row) {
+    const recs = Rv.records, r = would ?? recs[id], d = defOfRecord(Rv, id);
     if (r.args || 'tag' in r) return factOf(Rv, id, [], would);
-    const name = defOfRecord(Rv, id)?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name), O = Tree.objectOf(recs, id);
+    const name = d?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name), O = Tree.objectOf(recs, id), roll = d && rollOf(Rv, d, row, id);
     const what = lower(due?.[1] ?? name), is = (would ? ' would be' : /\b[a-z]+[^siu]s$/.test(what) ? ' are' : ' is') + (due ? ' due ' : ' ');
-    const point = { term: Tree.outputText(r), id, fx: !!Rv.computed[id] || !!would };
-    return isObj(recs[O]) ? { id, ids: [id], subj: O, poss: true, pre: [` ${what}`, is, point], obj: [], post: [] }
-      : { id, ids: [id], subj: null, pre: [`the ${what}`, is, point], obj: [], post: [] };
+    const point = { term: Tree.outputText(r), id, fx: !!Rv.computed[id] || !!would }, post = roll ? [` (${roll})`] : [];
+    return isObj(recs[O]) ? { id, ids: [id], subj: O, poss: true, pre: [` ${what}`, is, point], obj: [], post }
+      : { id, ids: [id], subj: null, pre: [`the ${what}`, is, point], obj: [], post };
+  }
+  // A date a row moved off a weekend, in words: January 31, a Sunday, so the Friday before. The row's WORKDAY
+  // that gave the date steps one working day from the day beside the one it aims at: WORKDAY(d + 1, -1) is d,
+  // or the Friday before where d falls on a weekend; WORKDAY(d - 1, 1), d or the Monday after.
+  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  function rollOf(Rv, d, row, id) {
+    const text = d.rows[row]?.formula, ev = text && Formulas.evaluateRow(Rv, d.id, row, id), v = ev?.value;
+    if (v?.t !== 'date') return null;
+    let toks;
+    try { const f = Formulas.splitFormula(text); toks = Formulas.tokenize(f.body, f.offset); } catch { return null; }
+    // The one value of the part from token a to token b, where it was worked out once.
+    const valueAt = (a, b) => { const p = ev.parts.find(x => x.from === a.pos && x.to === b.end); return p && new Set(p.values.map(x => JSON.stringify(x))).size === 1 ? p.values[0] : undefined; };
+    const op = (t, ...v) => t?.k === 'op' && v.includes(t.v);
+    for (let i = 0; i < toks.length - 1; i++) {
+      if (toks[i].k !== 'name' || !/^WORKDAY$/i.test(toks[i].v) || !op(toks[i + 1], '(')) continue;
+      // Its close, and the commas between its arguments.
+      let depth = 0, close = -1;
+      const commas = [];
+      for (let j = i + 1; j < toks.length && close < 0; j++) {
+        if (op(toks[j], '(', '{')) depth++;
+        else if (op(toks[j], ')', '}')) { if (!--depth) close = j; }
+        else if (depth === 1 && op(toks[j], ',')) commas.push(j);
+      }
+      if (close < 0 || commas.length !== 1 || valueAt(toks[i], toks[close])?.iso !== v.iso) continue;
+      const [k] = commas, from = valueAt(toks[i + 2], toks[k - 1]), n = valueAt(toks[k + 1], toks[close - 1]);
+      if (from?.t !== 'date' || Math.abs(n) !== 1) return null;
+      const day = new Date(from.iso + 'T12:00:00'), to = new Date(v.iso + 'T12:00:00');
+      day.setDate(day.getDate() + n);
+      if (Tree.isoOf(day) === v.iso) return null;
+      const said = Tree.formatDate(Tree.isoOf(day)), year = day.getFullYear() === to.getFullYear();
+      return `${year ? said.replace(/,\s*\d{4}$/, '') : said}, a ${WEEKDAYS[day.getDay()]}, so the ${WEEKDAYS[to.getDay()]} ${to < day ? 'before' : 'after'}`;
+    }
+    return null;
   }
   // A record as its definition's rows give it, where an entry overrides them.
   const asGiven = (r, v) => 'tag' in r ? { ...r, tag: v } : 'choice' in r ? { ...r, choice: v } : { ...r, value: v?.t === 'date' ? v.iso : v };
@@ -695,7 +730,7 @@ const FormulaBar = (() => {
     if (more.length) out.push({ text: ` and ${more.join(' and ')}` });
     if (deeper) out.push({ ...deeper[0], join: !shown.length ? '' : shown.length > 1 ? ', and ' : ' and ' }, ...deeper.slice(1));
     failed.forEach((f, i) => out.push({ ...f, join: i ? (i < failed.length - 1 ? ', ' : ' and ') : out.length ? ', but ' : '' }));
-    out.push({ join: out.length ? ', so ' : '', c: top ? givenOf(Rv, id, would) : factOf(Rv, id), cite: citeOf(d.id, g.label), self: top });
+    out.push({ join: out.length ? ', so ' : '', c: top ? givenOf(Rv, id, would, g.row) : factOf(Rv, id), cite: citeOf(d.id, g.label), self: top });
     return out;
   }
   const possessive = (Rv, id) => /s$/.test(N().shortOf(Rv.records, id)) ? '’' : '’s';
