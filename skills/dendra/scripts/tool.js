@@ -476,7 +476,7 @@ function relationStep(x, s) {
   }
   const key = as => as.map(a => `${T.norm(a.edge)}=${a.at}`).sort().join('|'), k = key(args);
   const id0 = Object.keys(x.recs).find(id => x.recs[id].args && key(x.recs[id].args) === k);
-  if (s.remove) { if (!id0) refuse(`There’s no ${rel.name} ${x.N.placed(x.recs, null, args).map(p => p.join + p.text).join('')} to remove.`); return x.remove(id0); }
+  if (s.remove) { if (!id0) refuse(`There’s no ${rel.name} ${x.N.segmentOf({ ...x.recs, '': { args, tag: true } }, '')} to remove.`); return x.remove(id0); }
   if (rel.formula && !s.entries && !s.override) refuse(`${rel.name} is worked out by Dendra (${rel.formula}): leave it out. To record something at one, a payment say, give its "entries".`);
   const out = relationValue(x, rel, args, s.value);
   let id = id0;
