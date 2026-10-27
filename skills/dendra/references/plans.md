@@ -189,12 +189,12 @@ Capacity Held is worked out: Dendra checks that the signatory holds that capacit
 
 ```json
 { "who": "Claude, for Rebecca A. Moretti", "records": [
-  { "relation": "Annual Tax", "sides": { "Taxpayer": "Fund III", "Tax Year": "2025" }, "entries": { "Annual Tax Paid": "2026-05-28" } },
-  { "kind": "Entity", "entries": { "Name": "Fund III", "LEI Registered": { "entries": { "Last Renewed": "2026-09-20" } } } },
+  { "relation": "Annual Tax", "sides": { "Taxpayer": "Fund III", "Tax Year": "2025" }, "entries": { "Annual Tax Paid": "2026-05-28" }, "day": "2026-05-28" },
+  { "kind": "Entity", "entries": { "Name": "Fund III", "LEI Registered": { "entries": { "Last Renewed": "2026-09-20" } } }, "day": "2026-09-20" },
   { "relation": "Ownership", "sides": { "Owner": "GP IV", "Owned": "Fund IV" }, "entries": { "Percentage": "0.5%" }, "day": "2026-06-30" }
 ] }
 ```
 
-- **The payment:** the Annual Tax for a taxpayer and a tax year is worked out. Its payment is recorded at it as Annual Tax Paid, which settles that year's Annual Tax Due. A Tax Year object (Name "2026", Year 2026) must exist; add one if `show` has none.
-- **The filing:** record what was filed and when (Last Renewed, Last Filed, Last Annual Amendment), never the next due date.
+- **The payment:** the Annual Tax for a taxpayer and a tax year is worked out. Its payment is recorded at it as Annual Tax Paid, on the day it was paid, which settles that year's Annual Tax Due from then on. A Tax Year object (Name "2026", Year 2026) must exist; add one if `show` has none.
+- **The filing:** record what was filed and when (Last Renewed, Last Filed, Last Annual Amendment), never the next due date, with the day it was made as its day, so the filing before it still stands before.
 - **The closing:** a percentage that changed on a day.

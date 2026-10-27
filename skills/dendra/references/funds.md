@@ -77,7 +77,7 @@ At a Jurisdiction:
 
 **Delaware's annual tax** (an LP or LLC owes it for each year it's on the register):
 - The Annual Tax relation of the taxpayer and a Tax Year is worked out.
-- Record the payment at it: `{ "relation": "Annual Tax", "sides": { "Taxpayer": "Fund III", "Tax Year": "2025" }, "entries": { "Annual Tax Paid": "2026-05-28" } }`.
+- Record the payment at it, from the day it was paid: `{ "relation": "Annual Tax", "sides": { "Taxpayer": "Fund III", "Tax Year": "2025" }, "entries": { "Annual Tax Paid": "2026-05-28" }, "day": "2026-05-28" }`. The chart as of an earlier day then still shows the tax owed.
 - Tax Years are objects (Name "2025", Year 2025). Add the ones the entities need, if the chart hasn't them.
 
 **A filing made again** (a renewal, an annual amendment) changes the "last" date. Set it with the filing's date as the day, so the earlier filing stays on record before it.

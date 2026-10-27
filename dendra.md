@@ -144,7 +144,7 @@ Widened, the inspector is the record's page. Where two people gave one value at 
 
 **Pending changes are redlined** before they are made, as lawyers' comparison software shows them: what would appear in blue, what would go struck through in red. Hovering a tag, typing a value, typing a formula and deleting a row all preview this way; Enter commits, Esc discards.
 
-**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. History lists the log, a change and its Undo as one, struck, and shows every view as it stood after a change, with Restore.
+**Time.** The date control shows the chart as of any day, with a strip of the days on which something starts or ends; with a day shown, typing takes effect from that day. A filing or payment recorded beside its deadline takes effect from the day it was made. History lists the log, a change and its Undo as one, struck, and shows every view as it stood after a change, with Restore.
 
 **Moving.** Find (Ctrl+K) reaches any record, list, view or action, and `=` works a formula out at the selection. Alt+← and Alt+→ walk the trail of selections. The status bar counts what needs attention (overdue, blank where required, errors), and F8 steps through them.
 
