@@ -669,10 +669,18 @@ const Shell = (() => {
   const counts = () => { const items = needs(); return KINDS.map(([k, say, names]) => ({ k, say, names, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
   // In Find, each count goes where the bar's does.
   const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => attend(1, c.k) }));
+  // The bar counts once the window has drawn what changed, as Excel's catches up, for on a big chart counting takes
+  // a while; whatever it counts is of the workbook, the chart and the time shown.
+  const tally = signal([]);
+  let counting = false;
+  const recount = () => { if (!counting) { counting = true; afterPaint(() => { counting = false; tally.value = counts(); }); } };
+  // After the next frame is drawn, as Preact runs an effect; or in 100 ms, where none is.
+  const afterPaint = f => { let raf = 0; const t = setTimeout(done, 100); function done() { clearTimeout(t); cancelAnimationFrame(raf); setTimeout(f); } raf = requestAnimationFrame(done); };
   function Status() {
+    useLayoutEffect(() => effect(() => { if (part('workbook')) { App.version.value; App.chart.value; } time.value; recount(); }), []);
     // The counts are announced as they change; how the workbook is kept, which ages by the minute, isn't.
     return html`<div class="status">
-      <span class="counts" role="status">${counts().map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} onClick=${() => attend(1, c.k)}>${c.say(c.n)}</button>`)}</span>
+      <span class="counts" role="status">${tally.value.map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} onClick=${() => attend(1, c.k)}>${c.say(c.n)}</button>`)}</span>
       ${many('status').map(s => s.render())}
     </div>`;
   }

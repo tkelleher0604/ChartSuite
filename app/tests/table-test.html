@@ -454,7 +454,8 @@ async function run() {
   // ---- F8 goes to the worst first, wherever the chart has it (the inspector's attention, stood in for) ----
   // The checks failed (app.js) are errors too, counted with the inspector's.
   const visits = [], needs = ['blank', 'soon', 'overdue', 'blank', 'error'].map((kind, i) => ({ kind, go: () => visits.push(kind + i) })), failing = errorsNow();
-  const unneed = Shell.register('attention', { items: () => needs }); await tick(60);
+  // (The status bar counts once the window has drawn, a frame later.)
+  const unneed = Shell.register('attention', { items: () => needs }); await tick(150);
   for (let i = 0; i < needs.length + failing; i++) Shell.parts.peek().action.find(a => a.id === 'attend').run();
   check('F8 goes to what’s overdue, then errors, then what’s due soon, then blanks', visits.join() === 'overdue2,error4,soon1,blank0,blank3', visits.join());
   check('… and the status bar counts them in that order, a check failed as an error', $$('.status .counts .btn').map(b => b.textContent).join(' · ') === `1 overdue · ${failing + 1} errors · 1 due soon · 2 blank`, $$('.status .counts .btn').map(b => b.textContent).join(' · '));
