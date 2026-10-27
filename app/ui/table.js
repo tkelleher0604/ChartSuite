@@ -835,7 +835,8 @@ const Table = (() => {
   }
   // Rows deleted, as one change: the records entered there, and what's at them.
   function deletion(ids) {
-    const what = ids.length === 1 && current.isKind ? App.notes.peek().nameOf(App.state.peek(), ids[0]) : count(ids.length, current.noun);
+    const st = App.state.peek(), N = App.notes.peek();
+    const what = ids.length > 1 || current.isDatatype ? count(ids.length, current.noun) : current.isKind ? N.nameOf(st, ids[0]) : Time.whose(st, ids[0], N);   // a relation by its sides
     return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, parts: [html`<span class="del">${what}</span>`], verb: 'Delete',
       make: () => edit(tx => ids.forEach(id => tx.remove(id)), c => Time.describe(c)) };
   }
