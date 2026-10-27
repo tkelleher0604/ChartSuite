@@ -726,23 +726,30 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const grown = s => lines.some(l => l.texts.some(it => half(it.look.Size, s, true) > it.look.Size + 1e-9));
   const faults = s => lines.filter(l => l.blocked || l.astray).length + (grown(s) ? relabel(boxes, lines, frames, s).length : lines.filter(l => l.crowded).length)
     + boxes.filter(b => b.texts.some(it => it.lines.some(l => l.cut))).length;
-  function* lay(squeeze, grow = 1) {
-    for (const b of boxes) size(b, squeeze, null, grow);
-    // Triangles of one width and one size of name widened as the widest of them is, but for one that stands alone
-    // (see level).
-    for (const ts of groupBy(boxes.filter(b => b.shape === 'triangle'), b => alone(b) ? b.id : `${Math.round(b.base)}|${b.texts[0]?.look.Size}`).values()) {
+  // Boxes sized for a layout: each as `size` sets it, `squeeze` and `grow` times its width; and triangles of one width
+  // and one size of name widened as the widest of them is, but for one that stands alone (see level).
+  function sizes(bs, squeeze, grow) {
+    for (const b of bs) size(b, squeeze, null, grow);
+    for (const ts of groupBy(bs.filter(b => b.shape === 'triangle'), b => alone(b) ? b.id : `${Math.round(b.base)}|${b.texts[0]?.look.Size}`).values()) {
       const w = Math.max(...ts.map(b => b.w));
       for (const b of ts) if (b.w < w) size(b, squeeze, w, grow);
       level(ts);
     }
+    return bs;
+  }
+  // What the layout reads: the boxes, the lines that rank them, and the frames.
+  const ranked = bs => ({
+    boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
+    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
+    clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
+  });
+  function* lay(squeeze, grow = 1) {
+    sizes(boxes, squeeze, grow);
     yield;
     const placed = Layout.arrange({
-      keep: last?.at ?? null,
-      boxes: boxes.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
-      links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
+      keep: last?.at ?? null, ...ranked(boxes),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
       obstacles: obstaclesOf(shapeRows, last?.page.offset),
-      clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
       entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
@@ -767,22 +774,29 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     if (last) still(last, boxes, lines, frames);
     const laid = furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy });
-    return { ...laid, faults: faults(laid.s), around: lines.filter(l => l.around).length };
+    return { ...laid, around: lines.filter(l => l.around).length };
   }
+  // A layout just laid, with its faults; and a layout laid again, as it was judged.
+  const judged = laid => ({ ...laid, faults: faults(laid.s) }), again = (laid, as) => ({ ...laid, faults: as.faults });
   // Of two layouts, the better: the one with fewer faults, then the larger, then the one with fewer lines gone
   // around what's drawn.
   const better = (a, b) => a.faults !== b.faults ? a.faults < b.faults : a.s !== b.s ? a.s > b.s : a.around < b.around;
   yield;
-  let at = yield* lay(1), grow = 1;
+  let at = judged(yield* lay(1)), grow = 1;
   // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
-  // where the chart is tall for its page, its names then take fewer lines.
+  // where the chart is tall for its page, its names then take fewer lines. A width is laid out only where its rows
+  // are drawn larger, roughly (see Layout.fit), than at every width before it; and of those laid out, the best.
   if (!last && boxes.some(b => !b.pos?.w)) {
-    let tried = 1;
+    const rough = g => Math.min(1, Layout.fit({ ...ranked(sizes(boxes.map(b => ({ ...b, texts: b.texts.map(it => ({ ...it })) })), 1, g)), room }));
+    let tried = 1, most = rough(1);
     for (const g of [7 / 6, 4 / 3]) {
-      const next = yield* lay(1, tried = g);
+      const r = rough(g);
+      if (r <= most) continue;
+      most = r;
+      const next = judged(yield* lay(1, tried = g));
       if (better(next, at)) [at, grow] = [next, g];
     }
-    if (tried !== grow) at = yield* lay(1, grow);
+    if (tried !== grow) at = again(yield* lay(1, grow), at);
   }
   heights = new Map(boxes.map(b => [b.id, b.h]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
@@ -793,10 +807,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
       if (at.s >= target && !at.faults) break;
-      const next = yield* lay(tried = f, grow);
+      const next = judged(yield* lay(tried = f, grow));
       if (better(next, at)) [at, best] = [next, f];
     }
-    if (tried !== best) at = yield* lay(best, grow);
+    if (tried !== best) at = again(yield* lay(best, grow), at);
   }
   const s = at.s;
   // The chart sits on its page where the page puts it, by its `offset`, which a place written from the page
@@ -916,12 +930,17 @@ function push(boxes, frames, links = []) {
   const chain = new Map();
   for (const f of frames.values()) for (const id of f.members) { const c = []; for (let g = f; g; g = g.parent && frames.get(g.parent)) c.push(g); chain.set(id, c); }
   const below = f => f.kind === 'bracket' || f.lone ? 0 : 10, above = f => f.kind === 'bracket' ? f.label + 12 : f.lone ? f.label + 5.3 : f.label + 10;
-  const joined = new Set(links.map(l => `${l.from}>${l.to}`)), over = [];
+  const joined = new Set(links.map(l => `${l.from}>${l.to}`)), ups = groupBy(links, l => l.to);
+  // What's over a box: the boxes in the ranks above that stand across from it, found by the columns they're in,
+  // and those that rank it.
+  const COL = 96, columns = new Map(), over = new Map(), cols = (a, b) => Array.from({ length: Math.floor(b / COL) - Math.floor(a / COL) + 1 }, (_, i) => Math.floor(a / COL) + i);
   for (const rank of [...groupBy(boxes, b => Math.round(b.y / 4)).values()].sort((a, b) => a[0].y - b[0].y)) {
     let d = 0;
     for (const c of rank) {
       const fc = chain.get(c.id) ?? [], [x0, x1] = c.shape === 'triangle' ? [c.x + c.w / 4, c.x + c.w * 3 / 4] : [c.x, c.x + c.w];
-      for (const b of over) {
+      const near = new Set(cols(x0, x1).flatMap(k => columns.get(k) ?? []));
+      for (const l of ups.get(c.id) ?? []) if (over.has(l.from)) near.add(over.get(l.from));
+      for (const b of near) {
         const down = joined.has(`${b.id}>${c.id}`) && Math.min(b.y + b.h, c.y + c.h) - Math.max(b.y, c.y) <= Math.min(b.h, c.h) / 2;
         if ((x0 >= b.x + b.w || b.x >= x1) && !down) continue;
         const fb = chain.get(b.id) ?? [];
@@ -930,7 +949,7 @@ function push(boxes, frames, links = []) {
       }
     }
     if (d > 0.5) for (const c of rank) c.y += d;
-    over.push(...rank);
+    for (const b of rank) { over.set(b.id, b); for (const k of cols(b.x, b.x + b.w)) (columns.get(k) ?? columns.set(k, []).get(k)).push(b); }
   }
 }
 // Where lines come down to a box past another standing over it, a box whose place isn't `given` moves aside,

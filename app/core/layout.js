@@ -9,15 +9,32 @@ const Layout = (() => {
 
 // ---- ELK, in this thread ----
 // elk.bundled.js runs ELK behind a stand-in worker whose dispatcher lays a graph out the moment it's handed
-// one; the promise is only the worker's envelope. Calling the dispatcher keeps the scene synchronous.
-let elk = null, ready = false;
+// one; the promise is only the worker's envelope. Calling the dispatcher keeps the scene synchronous. A graph is
+// laid out once: what ELK gives it is kept by the graph, the latest 24, and where a store is given (keepIn:
+// { get, set } of text), the latest six there too, so a reload lays out again nothing it laid out before. So
+// what ELK doesn't read, as the label of a line between boxes that aren't level, never lays a chart out again.
+// → each node's place, from the graph's top left, and its size: { id → { x, y, w, h } }.
+let elk = null, ready = false, store = null;
+const keepIn = s => { store = s; };
+const laidBefore = () => { try { return JSON.parse(store?.get('layouts') ?? '[]'); } catch { return []; } };
+const laid = keeping();
 function run(graph) {
-  elk ??= new ELK();
-  const d = elk.worker?.worker?.dispatcher;
-  if (!d) throw new Error('elk.bundled.js has no stand-in worker to lay out with.');
-  if (!ready) { d.dispatch({ data: { id: -1, cmd: 'register', algorithms: ['layered'] } }); ready = true; }
-  d.dispatch({ data: { id: -1, cmd: 'layout', graph, layoutOptions: {}, options: {} } });
-  return graph;
+  const k = JSON.stringify(graph);
+  return laid(k, () => {
+    const before = laidBefore().find(([key]) => key === k);
+    if (before) return new Map(before[1].map(([id, x, y, w, h]) => [id, { x, y, w, h }]));
+    elk ??= new ELK();
+    const d = elk.worker?.worker?.dispatcher;
+    if (!d) throw new Error('elk.bundled.js has no stand-in worker to lay out with.');
+    if (!ready) { d.dispatch({ data: { id: -1, cmd: 'register', algorithms: ['layered'] } }); ready = true; }
+    d.dispatch({ data: { id: -1, cmd: 'layout', graph, layoutOptions: {}, options: {} } });
+    const at = new Map(), walk = (n, ox, oy) => {
+      for (const c of n.children ?? []) { const x = ox + (c.x ?? 0), y = oy + (c.y ?? 0); at.set(c.id, { x, y, w: c.width, h: c.height }); walk(c, x, y); }
+    };
+    walk(graph, 0, 0);
+    store?.set('layouts', JSON.stringify([[k, [...at].map(([id, p]) => [id, p.x, p.y, p.w, p.h])], ...laidBefore().filter(([key]) => key !== k)].slice(0, 6)));
+    return at;
+  });
 }
 
 // Boxes 16 pt apart in a rank, and ranks 40 pt apart, at the least: a chart is as compact as its lines allow.
@@ -56,28 +73,14 @@ function keeping() {
   };
 }
 
-// Positions for every box, top left at 0, 0: { id → { x, y } }. Laid out again only when what it reads
-// changes: the boxes, their sizes and classes, the lines that rank them, and the frames; and where a store is
-// given (keepIn: { get, set } of text), not even after a reload, the latest six being kept there. Should ELK
-// fail, the boxes are set out in rows by rank, so a chart is always drawn.
-const placed = keeping();
-let store = null;
-const keepIn = s => { store = s; };
-const laidBefore = () => { try { return JSON.parse(store?.get('layouts') ?? '[]'); } catch { return []; } };
+// Positions for every box, top left at 0, 0: { id → { x, y } }. Should ELK fail, the boxes are set out in rows
+// by rank, so a chart is always drawn.
 function place({ boxes, links, clusters, room = ROOM }) {
   const quick = boxes.length + links.length > BIG;
-  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h, room.key?.w, room.key?.h, room.key?.under], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
-  return placed(k, () => {
-    const before = laidBefore().find(([key]) => key === k);
-    if (before) return new Map(before[1].map(([id, x, y]) => [id, { x, y }]));
-    let out = null;
-    for (const options of quick ? [{ ...OPTIONS, ...QUICK }] : [OPTIONS, { ...OPTIONS, ...QUICK }]) {
-      try { out = elkPlace(boxes, links, clusters, options, room); break; } catch { /* the next way, or rows */ }
-    }
-    out ??= rows(boxes, links);
-    store?.set('layouts', JSON.stringify([[k, [...out].map(([id, p]) => [id, p.x, p.y])], ...laidBefore().filter(([key]) => key !== k)].slice(0, 6)));
-    return out;
-  });
+  for (const options of quick ? [{ ...OPTIONS, ...QUICK }] : [OPTIONS, { ...OPTIONS, ...QUICK }]) {
+    try { return elkPlace(boxes, links, clusters, options, room); } catch { /* the next way, or rows */ }
+  }
+  return rows(boxes, links);
 }
 // The tier of each box, its row counted from the top, as a structure chart sets them: what nothing ranks over
 // in the top row, so investors sit in one row above the funds; each other box a row under the lowest box
@@ -90,8 +93,12 @@ function place({ boxes, links, clusters, room = ROOM }) {
 // (ownership's, the look most lines have), which meet a box's side, and the chart is drawn no smaller for it.
 // A tier too wide for the room wraps, as a line of text does: its frames that rank nothing outside them go on
 // rows of their own under it, as many as draw the chart largest, a column of panels.
-// → { tier: { id → tier }, wraps: [[each frame's boxes in a column, a row each]] }
-function tiers(boxes, links, room = ROOM, clusters = []) {
+// → { tier: { id → tier }, wraps: [[each frame's boxes in a column, a row each]], fit: how large they're drawn (see
+// fit) }. Kept by what it reads, which a line's label isn't.
+const tiered = keeping();
+const tiers = (boxes, links, room = ROOM, clusters = []) => tiered(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk]),
+  [room.w, room.h, room.key?.w, room.key?.h, room.key?.under], clusters.map(c => [c.id, c.parent, c.members, c.top])]), () => tiering(boxes, links, room, clusters));
+function tiering(boxes, links, room, clusters) {
   // Each box's outermost frame; boxes filled alike are of one class only in one frame, or in none.
   const parent = new Map(clusters.map(c => [c.id, c.parent])), framed = new Map(clusters.flatMap(c => c.members.map(m => [m, c.id])));
   const outer = id => { let f = framed.get(id); while (f && parent.get(f)) f = parent.get(f); return f ?? null; };
@@ -136,7 +143,7 @@ function tiers(boxes, links, room = ROOM, clusters = []) {
     return { ms, framed: !!f, w: f ? w + 20 + GAP.across : w, h: f ? h + pad.get(f) + 10 : h };
   });
   let rows = [...groupBy(boxes, b => tier.get(b.id)).entries()].sort((a, b) => a[0] - b[0]).map(([, bs]) => bs);
-  const fitOf = rs => fit(rs.map(units), room);
+  const unitsOf = new WeakMap(), fitOf = rs => fit(rs.map(r => unitsOf.get(r) ?? unitsOf.set(r, units(r)).get(r)), room), into = groupBy(links, l => l.to);
   for (let t = 0; t < rows.length - 1; t++) {
     const here = new Set(rows[t].map(b => b.id)), next = rows[t + 1];
     if (next.some(b => [...here].some(id => strict.has(`${id}>${b.id}`)))) continue;
@@ -146,8 +153,8 @@ function tiers(boxes, links, room = ROOM, clusters = []) {
   // A box that only lines of another look rank from the tier over it sits in that tier, beside what ranks it,
   // where the chart is drawn no smaller for it.
   for (let t = 1; t < rows.length; t++) for (const b of [...rows[t]]) {
-    const over = new Set(rows[t - 1].map(x => x.id)), here = new Set(rows[t].map(x => x.id)), ins = links.filter(l => l.to === b.id && over.has(l.from));
-    if (!ins.length || ins.some(l => strict.has(`${l.from}>${l.to}`)) || links.some(l => l.to === b.id && here.has(l.from))) continue;
+    const over = new Set(rows[t - 1].map(x => x.id)), here = new Set(rows[t].map(x => x.id)), ins = (into.get(b.id) ?? []).filter(l => over.has(l.from));
+    if (!ins.length || ins.some(l => strict.has(`${l.from}>${l.to}`)) || (into.get(b.id) ?? []).some(l => here.has(l.from))) continue;
     const moved = rows.map((r, i) => i === t ? r.filter(x => x !== b) : i === t - 1 ? [...r, b] : r);
     if (moved[t].length && fitOf(moved) >= fitOf(rows)) rows = moved;
   }
@@ -163,11 +170,11 @@ function tiers(boxes, links, room = ROOM, clusters = []) {
     wraps.push(free.map(u => u.ms.map(b => b.id)));
     t += free.length - 1;
   }
-  return { tier: new Map(rows.flatMap((bs, t) => bs.map(b => [b.id, t]))), wraps };
+  return { tier: new Map(rows.flatMap((bs, t) => bs.map(b => [b.id, t]))), wraps, fit: fitOf(rows) };
 }
 // How large rows would be drawn in a room, roughly: each row as wide as what's in it side by side, and as tall as
 // its tallest, with the gaps the layout leaves; in the room less the Key's, 24 pt under the chart, where it goes
-// there. rows: lists of { w, h }.
+// there. rows: lists of { w, h }. Layout.fit({ boxes, links, clusters, room }) gives it for boxes in their tiers.
 function fit(rows, room) {
   const w = Math.max(...rows.map(us => us.reduce((w, u) => w + u.w + GAP.across, -GAP.across)));
   const h = rows.reduce((h, us) => h + Math.max(...us.map(u => u.h)) + GAP.down, -GAP.down);
@@ -218,16 +225,7 @@ function elkPlace(boxes, links, clusters, options, room) {
     seen.add(e);
     root.edges.push({ id: `·e${i}`, sources: [s], targets: [t] });
   });
-  run(root);
-  const at = new Map(), out = new Map();
-  const walk = (n, ox, oy) => {
-    for (const c of n.children ?? []) {
-      const x = ox + (c.x ?? 0), y = oy + (c.y ?? 0);
-      at.set(c.id, { x, y });
-      walk(c, x, y);
-    }
-  };
-  walk(root, 0, 0);
+  const at = run(root), out = new Map();
   for (const b of boxes) { const p = at.get(nodeOf(b.id)); out.set(b.id, { x: p.x + inBlock.get(b.id).x, y: p.y }); }
   // A tier's boxes top-aligned, as ELK sets them on their middles.
   for (const bs of groupBy(boxes, b => tier.get(b.id)).values()) { const y = Math.min(...bs.map(b => out.get(b.id).y)); for (const b of bs) out.get(b.id).y = y; }
@@ -244,8 +242,8 @@ function elkPlace(boxes, links, clusters, options, room) {
   // ELK put it unless it's alone in its tier, and what's under the column comes up with it. What reaches into
   // them from above stands over their left, its middle 12 pt short of it, so its lines run down its side and
   // into each, where nothing else in its tier is in the way.
-  const size = new Map(boxes.map(b => [b.id, b])), outer = id => { let f = home.get(id); while (f && node.get(f).parent) f = node.get(f).parent; return f; };
-  for (const c of clusters) node.get(c.id).parent = c.parent;
+  const size = new Map(boxes.map(b => [b.id, b])), parent = new Map(clusters.map(c => [c.id, c.parent]));
+  const outer = id => { let f = home.get(id); while (f && parent.get(f)) f = parent.get(f); return f; };
   for (const column of wraps) {
     const alone = boxes.every(b => tier.get(b.id) !== tier.get(column[0][0]) || column[0].includes(b.id)), them = new Set(column.flat());
     const leftOf = ids => Math.min(...ids.map(id => out.get(id).x)), left = alone ? Math.min(...column.map(leftOf)) : leftOf(column[0]);
@@ -256,7 +254,7 @@ function elkPlace(boxes, links, clusters, options, room) {
       const f = outer(ids[0]), top = at.get(f).y, dy = (bottom ?? top) + (bottom === null ? 0 : 16) - top;
       for (const id of ids) out.get(id).y += dy;
       up = dy;
-      return top + dy + node.get(f).height;
+      return top + dy + at.get(f).h;
     }, alone && over.length ? Math.max(...over.map(b => out.get(b.id).y + b.h)) + 16 : null);
     const last = tier.get(column.at(-1)[0]);
     for (const b of boxes) if (tier.get(b.id) > last) out.get(b.id).y += up;
@@ -316,7 +314,7 @@ function rows(boxes, links) {
 function grid(rects, size = 96) {
   const cells = new Map(), cell = v => Math.floor(v / size);
   const each = (r, f) => {
-    if (![r.x, r.y, r.w, r.h].every(Number.isFinite)) return false;
+    if (!(Number.isFinite(r.x) && Number.isFinite(r.y) && Number.isFinite(r.w) && Number.isFinite(r.h))) return false;
     for (let i = cell(r.x); i <= cell(r.x + r.w); i++) for (let j = cell(r.y); j <= cell(r.y + r.h); j++) if (f(i * 100003 + j)) return true;
     return false;
   };
@@ -363,8 +361,10 @@ function depth(P, Q) {
   for (const S of [P, Q]) for (let i = 0; i < S.length; i++) {
     const [ax, ay] = S[i], [bx, by] = S[(i + 1) % S.length], nx = ay - by, ny = bx - ax, len = Math.hypot(nx, ny);
     if (len < 1e-9) continue;
-    const on = ps => ps.map(([px, py]) => (px * nx + py * ny) / len), p = on(P), q = on(Q);
-    least = Math.min(least, Math.max(...p) - Math.min(...q), Math.max(...q) - Math.min(...p));
+    let p0 = Infinity, p1 = -Infinity, q0 = Infinity, q1 = -Infinity;
+    for (const [px, py] of P) { const v = (px * nx + py * ny) / len; if (v < p0) p0 = v; if (v > p1) p1 = v; }
+    for (const [px, py] of Q) { const v = (px * nx + py * ny) / len; if (v < q0) q0 = v; if (v > q1) q1 = v; }
+    least = Math.min(least, p1 - q0, q1 - p0);
     if (least <= 0) return least;
   }
   return least;
@@ -872,7 +872,7 @@ function gap(r, a, b) {
 }
 function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = false) {
   const boxes = [...geo.values()].filter(b => b.shape !== 'frame'), hulls = boxes.map(hull), placed = [];
-  const segs = all.flatMap(l => (l.points ?? []).slice(1).map((p, i) => ({ l, a: l.points[i], b: p })));
+  const segs = all.flatMap(l => (l.points ?? []).slice(1).map((p, i) => ({ l, a: l.points[i], b: p }))), legsOf = groupBy(segs, s => s.l), kin = groupBy(all.filter(o => o.kin != null), o => o.kin);
   const nearBoxes = grid(boxes), nearSegs = grid(segs.map(s => span([s.a, s.b]))), nearPlaced = grid([]), nearAvoid = grid(avoid);
   for (const r of taken) nearPlaced.add(r, placed.push(r) - 1);
   const grow = (r, dx, dy = dx) => ({ x: r.x - dx, y: r.y - dy, w: r.w + 2 * dx, h: r.h + 2 * dy });
@@ -883,8 +883,7 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
     if (!lab || !ps || ps.length < 2) continue;
     const w = lab.w, h = lab.h, legs = ps.slice(1).map((p, i) => ({ a: ps[i], b: p, len: Math.hypot(p[0] - ps[i][0], p[1] - ps[i][1]) }));
     // Its own route: its line's, and its kin's.
-    const self = l.kin == null ? new Set([l]) : new Set(all.filter(o => o === l || o.kin === l.kin));
-    const own = segs.filter(s => self.has(s.l));
+    const mates = l.kin == null ? [l] : kin.get(l.kin) ?? [], self = new Set(mates), own = mates.flatMap(o => legsOf.get(o) ?? []);
     // Where it was, set again larger or smaller than it was placed (`size`): the sides of it that face its route
     // stay where they were.
     const was = at && (() => {
@@ -1115,5 +1114,5 @@ function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160, 
   return way.filter((p, i) => i === 0 || i === way.length - 1 || !((p[0] === way[i - 1][0] && p[0] === way[i + 1][0]) || (p[1] === way[i - 1][1] && p[1] === way[i + 1][1])));
 }
 
-return { place, arrange, route, around, labels: placeLabels, sideY, sideX, keepIn, OPTIONS };
+return { place, arrange, route, around, labels: placeLabels, sideY, sideX, keepIn, OPTIONS, fit: ({ boxes, links, clusters, room }) => tiers(boxes, links, room, clusters).fit };
 })();

@@ -302,8 +302,8 @@ async function run() {
   const edge = $(`.dc [data-cell-id="${ln.id}"]`), other = sc().marks.find(m => m.type === 'box' && m.id !== ln.from && m.id !== ln.to);
   const body = $(`.dc [data-cell-id="${other.id}"] > path`), text = $(`.dc [data-cell-id="${other.id}"] text`);
   check('a line lit is traced where it lies, not drawn over the boxes', edge.classList.contains('dc-hl') && edge.classList.contains('h2') && !$$('.dc-marks path').some(p => p.getAttribute('d')?.startsWith('M') && p.classList.contains('h2')));
-  check('a dimmed box keeps its fill, and fades its outline and text', getComputedStyle(body).fillOpacity === '1' && +getComputedStyle(body).strokeOpacity < 0.5 && +getComputedStyle(text).opacity < 0.5
-    && getComputedStyle(body.parentNode).opacity === '1', `${getComputedStyle(body).fillOpacity} ${getComputedStyle(body).strokeOpacity} ${getComputedStyle(text).opacity}`);
+  check('a dimmed box keeps its fill, and fades its outline and text', getComputedStyle(body).fillOpacity === '1' && +getComputedStyle(body).strokeOpacity < 0.5 && +getComputedStyle(text).fillOpacity < 0.5
+    && getComputedStyle(body.parentNode).opacity === '1', `${getComputedStyle(body).fillOpacity} ${getComputedStyle(body).strokeOpacity} ${getComputedStyle(text).fillOpacity}`);
   const order = [...$('.x6-graph-svg-stage').children].map(e => e.getAttribute('data-cell-id'));
   check('lines are drawn under the boxes', sc().marks.filter(m => m.type === 'line' && !m.merged).every(l => order.indexOf(l.id) < Math.min(...sc().marks.filter(m => m.type === 'box').map(b => order.indexOf(b.id)))));
   Shell.parts.peek().canvas.highlight(null); await tick(80);

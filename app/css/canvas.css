@@ -14,11 +14,14 @@
 .dc .x6-node, .dc .x6-edge { cursor: default; }
 .dc .x6-edge path:first-child { cursor: default; }
 /* What a highlight leaves out fades: a line whole; a box or shape its outline and text but never its fill,
-   so no line behind a box shows through its name. */
-.dc .x6-cell, .dc .x6-node * { transition: opacity var(--quick) var(--ease), stroke-opacity var(--quick) var(--ease); }
-.x6-edge.dc-dim { opacity: .22; }
+   so no line behind a box shows through its name. Each fades by its paint, not as a layer of its own, so a chart
+   of a thousand marks fades as quickly as a few; a line with an arrowhead fades whole, its head with it. */
+.dc .x6-cell, .dc .x6-cell * { transition: opacity var(--quick) var(--ease), stroke-opacity var(--quick) var(--ease), fill-opacity var(--quick) var(--ease); }
+.x6-edge.dc-dim:not(:has([marker-start], [marker-end])) path { stroke-opacity: .22; }
+.x6-edge.dc-dim:has([marker-start], [marker-end]) { opacity: .22; }
 .x6-node.dc-dim > * { stroke-opacity: .22; }
-.x6-node.dc-dim :is(text, image) { opacity: .22; }
+.x6-node.dc-dim text { fill-opacity: .22; }
+.x6-node.dc-dim image { opacity: .22; }
 
 /* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
    small on screen for its side handles shows only its corners. */
