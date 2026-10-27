@@ -610,6 +610,40 @@ async function run() {
     if (order.some((x, i) => i && x < order[i - 1])) bad.push('stacked out of order');
     return bad;
   };
+
+  // ---- What's laid out ahead is what's drawn: a value typed in the inspector, redlined as it's typed, and a day
+  // typed in the date control, each laid out while the window is idle (here, at once), so Enter draws the scene laid
+  // out then, the day's working-out too, and draws it as it is ----
+  {
+    const idly = f => { const idle = window.requestIdleCallback, frame = window.requestAnimationFrame;
+      window.requestIdleCallback = g => g({ timeRemaining: () => 50, didTimeout: false }); window.requestAnimationFrame = g => g(performance.now());
+      try { f(); } finally { window.requestIdleCallback = idle; window.requestAnimationFrame = frame; } };
+    const laid = [], worked = [], steps0 = Scene.steps, workOn0 = App.workOn;
+    Scene.steps = (...a) => (function* () { const s = yield* steps0(...a); laid.push(s); return s; })();
+    App.workOn = d => { const R = workOn0(d); worked.push(R); return R; };
+    try {
+      await show(charts()[0]); Shell.select(['own_us_fund']); await tick(120);
+      const pct = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Percentage');
+      pct?.focus(); await tick();
+      idly(() => { pct.value = '65%'; pct.dispatchEvent(new Event('input', { bubbles: true })); });
+      const typed = laid.find(s => s.view === charts()[0].id && txt({ textContent: s.byId.get('own_us_fund')?.texts.map(it => it.text).join(' ') }) === '65%');
+      pct?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(160);
+      const typedBad = drawnAsScene();
+      check('a value typed in the inspector is laid out ahead while it’s redlined, and Enter draws that scene, as it is', !!typed && sc() === typed && !typedBad.length,
+        `${!!typed} ${sc() === typed} ${typedBad.slice(0, 3).join(', ')}`);
+      Shell.parts.peek().undo.undo(); Shell.select([]); await tick(160);
+      $('.titlebar .asof .dd')?.click(); await tick(120);
+      const field = $('.date-pop .date-top input');
+      idly(() => { field.value = 'June 30, 2025'; field.dispatchEvent(new Event('input', { bubbles: true })); });
+      const day = laid.find(s => s.view === charts()[0].id && s.day === '2025-06-30'), R = worked.at(-1);
+      field?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
+      const dayBad = drawnAsScene();
+      check('a day typed in the date control is laid out ahead, and Enter shows that scene and that working-out, drawn as it is', !!day && sc() === day && App.computed.peek() === R && sc().day === '2025-06-30' && !dayBad.length,
+        `${!!day} ${sc() === day} ${App.computed.peek() === R} ${sc().day} ${dayBad.slice(0, 3).join(', ')}`);
+      Shell.at(null); await tick(200);
+    } finally { Scene.steps = steps0; App.workOn = workOn0; }
+  }
+
   const steps = [], step = async (what, f) => { await f(); await tick(120); const bad = drawnAsScene(); if (bad.length) steps.push(`${what}: ${bad.slice(0, 3).join(', ')}`); };
   const mainView = charts()[0], bar = () => $('.fx-out button.tag');
   await step('shown', () => show(mainView));

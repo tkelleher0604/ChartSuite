@@ -182,16 +182,15 @@ function enterAt(tx, r) {
   const enter = id => { if (!fx(id)) return id; const { computed: _, ...x } = recs()[id]; return tx.add('record', enterAt(tx, x)); };
   return r.args ? { ...r, args: r.args.map(a => ({ ...a, at: enter(a.at) })) } : r.at ? { ...r, at: enter(r.at) } : r;
 }
-function put(id, slot, out) {
-  App.change(tx => {
-    if (!out) return entered(id) && tx.remove(id);
-    if (entered(id)) tx.set(id, withOut(id, slot, out)); else tx.add('record', enterAt(tx, withOut(id, slot, out)));
-  });
+function putting(tx, id, slot, out) {
+  if (!out) return entered(id) && tx.remove(id);
+  if (entered(id)) tx.set(id, withOut(id, slot, out)); else tx.add('record', enterAt(tx, withOut(id, slot, out)));
 }
+const put = (id, slot, out) => App.change(tx => putting(tx, id, slot, out));
+// What it would change, as the formula bar redlines it: the records it would leave, as it would leave them.
+const putChange = (id, slot, out) => App.would(tx => putting(tx, id, slot, out));
 const flipped = id => ({ tag: !(recs()[id]?.tag ?? false) });
 const flip = (id, slot) => put(id, slot, flipped(id));
-// The change a tag's flip would make, as the formula bar redlines one.
-const flipChange = (id, slot) => ({ records: { [entered(id) ? id : 'fx-pending']: withOut(id, slot, flipped(id)) } });
 const remove = id => App.change(tx => tx.remove(id), { say: `Deleted ${recs()[id].args ? nameOf(id) : recs()[id].edge ?? nameOf(id)}` });
 // Adds an entry, and its specification if the schema hasn't got it.
 function addEntry(at, edge, out) {
@@ -261,22 +260,34 @@ function drag(e, onDrop, onClick) {
 // (Shift+Enter, up), or else to its row; leaving keeps it; Esc puts it back. So a value never shows other than
 // the record but while it's typed, and then the new text is redlined in blue and the old struck in red. A
 // document shows its name, and its address to edit. `label` names it; `due` marks a date overdue or due soon.
-// Text, and a title, wrap, as many lines as they take; a title's name keeps its suffix (Scene.bind).
-function Field({ r, datatype, put, fx, over, id, auto, ph, cls = '', title, label, due, children }) {
+// Text, and a title, wrap, as many lines as they take; a title's name keeps its suffix (Scene.bind). With `preview`,
+// what keeping it would change (out → a change), the formula bar redlines that while it's typed, as it does a value
+// typed in the bar, so the chart is laid out ahead as Enter leaves it.
+function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', title, label, due, children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
   // What's typed, null while nothing is; kept in a ref too, as a blur can come after the record has gone.
-  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null), clicked = useRef(false);
-  const type = t => { typed.current = t; setText(t); };
-  useLayoutEffect(() => { if (auto) ref.current?.focus(); }, []);
+  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null), clicked = useRef(false), previewed = useRef(null);
+  // What text typed keeps: its output, null where it's cleared, undefined where it doesn't read; false where it's as it was.
+  const outOf = t => {
+    if (t === null || t === T.clean(raw)) return false;
+    const dt = datatype ?? T.classify(t), v = t ? T.parse(dt, t) : null;
+    return v === undefined ? undefined : t ? { field: dt, value: v } : null;
+  };
+  const redline = c => { const k = c ? JSON.stringify(c) : null; if (k !== previewed.current) { previewed.current = k; FormulaBar.preview(c); } };
+  const type = t => {
+    typed.current = t;
+    setText(t);
+    if (preview) { const out = t === null ? false : outOf(T.clean(t)); redline(out === false || out === undefined ? null : preview(out)); }
+  };
+  useLayoutEffect(() => { if (auto) ref.current?.focus(); return () => { if (previewed.current) FormulaBar.preview(null); }; }, []);
   const typing = () => typed.current !== null && T.clean(typed.current) !== T.clean(raw), dirty = text !== null && T.clean(text) !== T.clean(raw);
   // Keeps what's typed, where it reads; false where it doesn't.
   const done = () => {
-    const t = typed.current === null ? null : T.clean(typed.current);
-    if (t === null || t === T.clean(raw)) { type(null); return true; }
-    const dt = datatype ?? T.classify(t), v = t ? T.parse(dt, t) : null;
-    if (v === undefined) { setBad(true); return false; }
+    const out = outOf(typed.current === null ? null : T.clean(typed.current));
+    if (out === false) { type(null); return true; }
+    if (out === undefined) { setBad(true); return false; }
     type(null);
-    put(t ? { field: dt, value: v } : null);
+    put(out);
     return true;
   };
   const key = e => {
@@ -406,9 +417,9 @@ function Output({ id, slot, label }) {
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
   const type = r ? T.typeOf(r) : k.type, set = out => put(id, slot, out);
   const more = !r ? null : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
-  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f} over=${o} label=${label} flip=${() => flip(id, slot)} change=${() => flipChange(id, slot)}>${more}</${TagBox}>`
+  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f} over=${o} label=${label} flip=${() => flip(id, slot)} change=${() => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
     : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}>${more}</${Choice}>`
-    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}>${more}</${Field}>`;
+    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}>${more}</${Field}>`;
 }
 
 // ---- The record's entries, as a tree ----
@@ -686,7 +697,8 @@ function RecordView({ id }) {
   // with its tag's box before it, as the formula bar has it.
   const head = r.kind
     ? html`<${Head} path=${[{ label: r.kind, go: () => select([general({ kind: r.kind })]) }, ...(first ? [{ label: recs()[first.id].choice, go: () => select([first.id]) }] : [])]}>
-        <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
+        <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)}
+          preview=${out => out && putChange(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
         ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm">${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
@@ -818,9 +830,10 @@ function RelateView({ a, b }) {
   const [begun] = useState(() => { const p = relating.peek(); return p?.a === a && p.b === b ? p : null; });
   const [draft, setDraft] = useState(begun), [day, setDay] = useState(() => App.day.peek()), [adding, setAdding] = useState(!!begun), previewed = useRef(false);
   useLayoutEffect(() => { if (begun) relating.value = null; }, []);
-  // The chart redlines it where it holds on the day shown: all along, or from that day or before.
+  // The chart redlines it as Enter would keep it, where it holds on the day shown: all along, or from that day or before.
+  const drafted = tx => tx.add('record', enterAt(tx, draft.rec));
   useLayoutEffect(() => {
-    const p = draft && day !== undefined && (day === null || day <= App.day.peek()) ? { records: { 'fx-relating': draft.rec } } : null;
+    const p = draft && day !== undefined ? App.would(drafted, { dated: day ?? false }) : null;
     if (p || previewed.current) FormulaBar.preview(p);
     previewed.current = !!p;
   }, [draft, day]);
@@ -872,7 +885,7 @@ function RelateView({ a, b }) {
   const keep = () => {
     if (!draft || day === undefined) return;
     setDraft(null); setFresh(draft.key);
-    App.change(tx => tx.add('record', enterAt(tx, draft.rec)), { dated: day ?? false });
+    App.change(drafted, { dated: day ?? false });
   };
   const drop = row => { setDraft(null); setTimeout(() => row.querySelector('.ctl .tag, .nm .sel')?.focus()); };
   const asking = e => {

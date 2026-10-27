@@ -71,6 +71,8 @@ const $ = s => document.querySelector('.inspector ' + s), $$ = s => [...document
 const spoken = el => el.textContent.replace(/\s/g, ' ');
 const rowOf = label =>$$('.row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === label);
 const st = () => App.state.value, last = () => App.wb.changes().at(-1);
+// Whether two records say the same, whatever order their keys were written in.
+const alike = (a, b) => !!a && !!b && JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
 const N = () => App.notes.value;
 const key = (el, k, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...o }));
 const type = async (el, text) => { el.focus(); await tick(); el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(); key(el, 'Enter'); await tick(); };
@@ -152,8 +154,9 @@ async function run() {
   const onFile = rowOf('Formation Document on File')?.querySelector('.tag'), onFileId = rowOf('Formation Document on File')?.dataset.key;
   const n1 = App.wb.changes().length;
   onFile.focus(); await tick();
+  const onFileRec = App.state.value[onFileId], entering = Object.values(FormulaBar.pending.peek()?.change.records ?? {});
   check('a computed check reached by the keys redlines what switching it would change, as pointing at it does', App.computed.value.computed[onFileId] && onFile.classList.contains('peek')
-    && FormulaBar.pending.peek()?.change.records['fx-pending']?.tag === false, JSON.stringify(FormulaBar.pending.peek()?.change));
+    && entering.length === 1 && entering[0].at === onFileRec.at && entering[0].edge === onFileRec.edge && entering[0].tag === false, JSON.stringify(FormulaBar.pending.peek()?.change));
   key(onFile, 'Enter'); await tick();
   check('… and Enter goes on to the next value, overriding nothing', App.wb.changes().length === n1 && App.computed.value.computed[onFileId] && document.activeElement?.matches('.insp .cell')
     && !FormulaBar.pending.peek() && !onFile.classList.contains('peek'), document.activeElement?.outerHTML.slice(0, 120));
@@ -291,9 +294,12 @@ async function run() {
   key(fromIn, 'Escape'); await tick(60);
   check('… Esc drops it', !$('.rr.adding') && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r);
   $$('.rr').find(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC').querySelector('.tag').click(); await tick(60);
+  const redlined = FormulaBar.pending.peek()?.change.records ?? {};
   key(document.activeElement, 'Enter'); await tick(60);
   const own = owned();
   check('ticking one relates them, from today with Enter', !!own && App.wb.item(C, own[0])[0].since === Log.today() && App.wb.changes().length === n0r + 1, JSON.stringify(own?.[1]));
+  check('… the very record its redline showed, its id and its day and all', !!own && Object.keys(redlined).join() === own[0] && alike(redlined[own[0]], App.entered.peek()[own[0]]) && redlined[own[0]].since === Log.today(),
+    `${JSON.stringify(redlined)} / ${own?.[0]} ${JSON.stringify(own && App.entered.peek()[own[0]])}`);
   check('… so an owner added today isn’t in the chart as of 2023, where both sides are', !App.wb.asOf(C, '2023-12-31')[own[0]] && ['blocker', 'bdc'].every(x => App.wb.asOf(C, '2023-12-31')[x]));
   const offered = $$('.rr-at .row > .k').map(k => k.textContent.trim()), pct = $$('.rr-at .row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === 'Percentage')?.querySelector('input');
   check('… and offers its entries at once, the first to type into', offered.includes('Percentage') && offered.includes('Voting Percentage') && document.activeElement === pct, offered.join(', '));
@@ -383,6 +389,22 @@ async function run() {
   check('a check that fails is said in place, in red', rowOf('Percentages In Range')?.classList.contains('failed') && !rowOf('Percentages In Range').classList.contains('ruled')
     && getComputedStyle(rowOf('Percentages In Range').querySelector('.lbl')).color !== getComputedStyle(rowOf('Owner').querySelector('.k')).color, rowOf('Percentages In Range')?.outerHTML.slice(0, 160));
   while (st()[pctOf].value !== pct0) { Shell.parts.value.undo.undo(); await tick(30); }
+  // A value typed is redlined as it's typed, as Enter will keep it: the record redlined is the record Enter makes, its
+  // period and all, today or with a day shown (from that day), so the chart laid out ahead for it is the chart drawn
+  for (const day of [null, '2026-01-01']) {
+    Shell.at(day && { asOf: day }); Shell.select(['own_us_fund']); await tick(60);
+    const input = rowOf('Percentage').querySelector('input');
+    input.focus(); await tick(); input.value = '65%'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    const typed = FormulaBar.pending.peek()?.change.records ?? {};
+    check(`a value typed in the inspector is redlined as it's typed${day ? ', with a day shown' : ''}`, Object.keys(typed).join() === pctOf && typed[pctOf].value === 0.65
+      && typed[pctOf].since === (day ?? App.wb.item(C, pctOf).find(r => Log.validOn(r, Log.today()))?.since), JSON.stringify(typed));
+    key(input, 'Enter'); await tick(60);
+    check(`… and Enter keeps the very record redlined${day ? ', from that day' : ''}, the redline ended`, alike(App.entered.peek()[pctOf], typed[pctOf]) && !FormulaBar.pending.peek(),
+      `${JSON.stringify(App.entered.peek()[pctOf])} / ${JSON.stringify(typed[pctOf])}`);
+    Shell.parts.value.undo.undo(); await tick(30);
+  }
+  Shell.at(null); await tick(60);
+  check('… each undone', st()[pctOf].value === pct0);
   // A deadline: where it is, in words
   const deadline = Object.keys(st()).find(k => st()[k].edge === 'Annual Tax Due' && st()[st()[k].at]?.args);
   Shell.select([deadline]); await tick(60);

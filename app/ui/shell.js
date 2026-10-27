@@ -13,7 +13,8 @@
 // THE PARTS register with Shell.register(kind, thing) → unregister. One of each:
 //   'canvas', 'table'  { mount(el) → unmount? }   the view, as a chart or a table   (canvas.js, table.js);
 //                      the canvas also kinds() → menu items, a box of each kind it can add (never none), which
-//                      a chart with no box offers as its one action, "Add a box"
+//                      a chart with no box offers as its one action, "Add a box"; and toward(day), a day about to
+//                      be shown, laid out ahead (one typed in the date's popover), null for none
 //   'inspector'        { mount(el) → unmount? }   the selection                      (inspector.js)
 //   'formatbar'        { mount(el) → unmount? }   on a chart, under the title bar    (formatbar.js)
 //   'formulabar'       a component                under the format bar               (formulabar.js)
@@ -46,10 +47,12 @@
 // APP (app.js) is the workbook: App.wb; signals chart, version, day, readOnly (in History); computed shown,
 // entered, schema, notes, definitions, relations, computed (Formulas.computeState's), state, views
 // ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
-// dated }) → the change, every edit's one way in; App.reverse(changeId) and App.restore(item), History's;
+// dated }) → the change, every edit's one way in, and App.would(fn(tx), { dated }), the records it would leave on
+// the day shown, unmade, which its redline previews; App.reverse(changeId) and App.restore(item), History's;
 // App.asksDay(record, recs?), whether a record about to be added asks the day it holds from (a relation with no
 // start entry), and App.From({ day, set, auto }), the control that asks it in the redline ("From" a day, or
-// "All along"), wherever a record is added (the inspector, a table's paste); App.addView; App.who(); App.blank().
+// "All along"), wherever a record is added (the inspector, a table's paste); App.workOn(day), another day's working-out,
+// as showing it would work it out; App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)

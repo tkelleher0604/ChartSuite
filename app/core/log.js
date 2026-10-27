@@ -231,13 +231,17 @@ function open(data) {
   }
 
   // An edit, building one change. With a day shown, an added record starts on it, setting a record's
-  // value splits its validity there, and removing ends it there. With none, each corrects.
-  function edit({ chart: c, who, day = null, when } = {}) {
-    const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set();
-    const put = r => { adds.set(r.id, r); push(items, itemOf(r), r); };
+  // value splits its validity there, and removing ends it there. With none, each corrects. `ids`, a list, names the
+  // items it adds, in order, each past its end added to it: so an edit made as another was is that one, ids and all.
+  function edit({ chart: c, who, day = null, when, ids = null } = {}) {
+    const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set(), touched = new Set();
+    let named = 0;
+    const name = () => !ids ? newId() : named < ids.length ? ids[named++] : (ids[named++] = newId());
+    const put = r => { adds.set(r.id, r); push(items, itemOf(r), r); if ('record' in r) touched.add(r.record); };
     const drop = r => {
       if (!adds.delete(r.id)) removes.add(r.id);
       const rs = items.get(itemOf(r)); rs.splice(rs.indexOf(r), 1); if (!rs.length) items.delete(itemOf(r));
+      if ('record' in r) touched.add(r.record);
     };
     const all = () => [...items.values()].flat();
     const swap = (r, u) => { if (u !== r) { drop(r); put({ ...u, id: newId() }); } };
@@ -250,7 +254,7 @@ function open(data) {
       }
     };
     const tx = {
-      add(type, payload, id = newId()) { put({ id: newId(), [type]: id, ...payload, ...(type === 'record' && day && { since: day }) }); return id; },
+      add(type, payload, id = name()) { put({ id: newId(), [type]: id, ...payload, ...(type === 'record' && day && { since: day }) }); return id; },
       set(id, payload) {
         const rs = items.get(id);
         if (!rs) return;
@@ -323,6 +327,9 @@ function open(data) {
           else if ('note' in r) { const pattern = Tree.lift(r.pattern, p); swap(r, pattern === r.pattern ? r : { ...r, pattern }); }
         }
       },
+      // What it would leave on a day, unmade: each record it touches as it would be then, or null where it would
+      // hold no version.
+      recordsOn: on => Object.fromEntries([...touched].map(id => { const r = items.get(id)?.find(x => validOn(x, on)); return [id, r ? recordOf(r) : null]; })),
       commit: () => adds.size || removes.size
         ? apply({ id: newId(), who, when: when ?? now(), chart: c, removes: [...removes], adds: [...adds.values()] }) : null,
     };

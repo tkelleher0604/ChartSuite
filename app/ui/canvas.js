@@ -1008,14 +1008,17 @@ function mount(el) {
   // by what they're drawn from). A step at a time (see Scene.steps): an idle moment takes one, and another only
   // while it has time left for one as long as the longest taken yet, so the window is never held up longer than a
   // step; and given up once what they're drawn from changes. Each idle moment is asked for after a frame, as a
-  // still window has none of its own until something is drawn.
-  let aheadOf = null, longest = 0;
+  // still window has none of its own until something is drawn. A day about to be shown (`toward`, one typed in the
+  // date's popover) is laid out first, its working-out a step of its own (App.workOn), so showing it draws it at once.
+  let aheadOf = null, longest = 0, soon = null;
+  function toward(d) { soon = d ?? null; ahead(); }
+  function* on(d, view) { const R = App.workOn(d); yield; return yield* Scene.steps(App.shown.peek(), App.chart.peek(), view, d, { state: R.records, computed: R, ahead: true }); }
   function ahead() {
     const base = App.scene.peek(), wb = styled?.wb ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
     if (!base || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
-    if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base) return;
-    const mine = aheadOf = { wb, state, base }, chart = App.chart.peek(), computed = App.computed.peek();
-    const jobs = [...state ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true })] : [],
+    if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base && aheadOf.soon === soon) return;
+    const mine = aheadOf = { wb, state, base, soon }, chart = App.chart.peek(), computed = App.computed.peek();
+    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...state ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true })] : [],
       ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
     const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
     const step = idle => {
@@ -1324,7 +1327,7 @@ function mount(el) {
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); ahead(); });
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
@@ -1338,7 +1341,7 @@ function mount(el) {
 // The other parts call the canvas shown through the shell (Shell.parts.value.canvas).
 const call = name => (...a) => active.peek()?.[name](...a);
 Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); },
-  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point'), zoomTo: call('zoomTo'),
+  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point'), toward: call('toward'), zoomTo: call('zoomTo'),
   kinds: () => kinds().map(k => ({ label: k, run: () => call('create')(k) })) });
 // A chart is shown, not just kept behind a table.
 const here = () => !!active.value && active.value.root.clientWidth > 0;

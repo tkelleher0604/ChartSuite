@@ -46,6 +46,9 @@ const App = (() => {
   const relations = computed(() => notes.value.relations(schema.value));
   let worked;
   const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value, schema: schema.value }, worked));
+  // Another day's working-out, as showing it would work it out: what the canvas lays out ahead for a day typed in the
+  // date control. Shown then, it's worked out again from the same, which gives this one (Formulas.computeState).
+  const workOn = d => chart.peek() ? Formulas.computeState(shown.peek().asOf(chart.peek(), d), definitions.peek(), { relations: relations.peek(), schema: schema.peek() }, worked) : null;
   const state = computed(() => result.value.records);
   // A record or a shape a change takes away (a deadline once paid, a shape added and undone) leaves the
   // selection with it, and a Key's row with its Key; a record only not there on the day or at the moment shown
@@ -91,12 +94,17 @@ const App = (() => {
     Shell.toast(`${back ? 'Undid' : 'Redid'}: ${Time.describe(book.peek().changes().find(x => x.id === top.act))}`, back ? { redo } : { undo });
   }
   const undo = () => step(true), redo = () => step(false);
+  // The ids the change last previewed gave what it would add (see would), which the next change gives what it adds,
+  // in order: so a change made as it was previewed is that change, ids and all.
+  let named = [];
+  const edit = (dated, ids) => book.peek().edit({ chart: chart.peek(), who: who(), day: typeof dated === 'string' ? dated : dated ? Shell.time.peek()?.asOf ?? null : null, ids });
   // One change, by the user: refused while the past is shown; dated from the day shown, or from the day `dated`
   // gives (a payment, from the day it was made), unless it's false (a view isn't a fact about the world). `say`,
   // a string or a function of the change, is toasted with Undo.
   function change(fn, { say, dated = true } = {}) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return null; }
-    const tx = book.peek().edit({ chart: chart.peek(), who: who(), day: typeof dated === 'string' ? dated : dated ? Shell.time.peek()?.asOf ?? null : null });
+    const tx = edit(dated, named);
+    named = [];
     fn(tx);
     const c = tx.commit();
     if (typeof c === 'string') { Shell.toast(c); return null; }
@@ -105,6 +113,17 @@ const App = (() => {
     const said = typeof say === 'function' ? say(c) : say;
     if (said) Shell.toast(said, { undo });
     return c;
+  }
+  // A change as `change` would make it, unmade: the records it would leave on the day shown, by id, null where one
+  // would hold no longer, their periods and ids and all; what its redline previews (FormulaBar.preview), so the chart
+  // laid out ahead for it is the chart the change, made, draws. Null where it changes no record shown, or the past is.
+  function would(fn, { dated = true } = {}) {
+    if (readOnly.peek()) return null;
+    const ids = [], tx = edit(dated, ids), now = entered.peek();
+    fn(tx);
+    named = ids;
+    const records = Object.fromEntries(Object.entries(tx.recordsOn(day.peek())).filter(([id, r]) => r !== (now[id] ?? null)));
+    return Object.keys(records).length ? { records } : null;
   }
   // When a record added holds from (dendra.md, Time). One whose kind or relation has a start entry holds from
   // that, whenever it's recorded: a fund from its Formation Date, a general partner from its Admission Date.
@@ -358,7 +377,7 @@ const App = (() => {
 
   return {
     get wb() { return book.value; },
-    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, state, needs,
-    readOnly, change, asksDay, From, reverse, restore, views, scene, layouts, addView, who, blank,
+    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
+    readOnly, change, would, asksDay, From, reverse, restore, views, scene, layouts, addView, who, blank,
   };
 })();

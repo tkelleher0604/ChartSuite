@@ -106,7 +106,10 @@ const Time = (() => {
     const years = [...new Set(evs.map(e => e.day.slice(0, 4)))].sort().reverse();
     const view = App.views.value.find(v => v.id === Shell.view.value);
     // The day is typed over as soon as the calendar opens; one entered is shown, and the calendar closes on it,
-    // the Enter going no further than the field (not on to the date's button, which would open it again).
+    // the Enter going no further than the field (not on to the date's button, which would open it again). A day
+    // typed is laid out ahead as it's typed (the canvas's toward), so Enter shows it at once.
+    const toward = d => Shell.parts.peek().canvas?.toward?.(d);
+    useEffect(() => () => toward(null), []);
     const typed = e => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
@@ -117,7 +120,7 @@ const Time = (() => {
       <div class="date-top">
         <button class="btn" aria-pressed=${!t} onClick=${() => show(null)}>Today</button>
         <input aria-label="Date" autofocus value=${text ?? Tree.formatDate(day)} spellcheck="false" onFocus=${e => e.target.select()}
-          onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); }} onKeyDown=${typed} />
+          onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); toward(Tree.parseDate(e.target.value)); }} onKeyDown=${typed} />
       </div>
       <div class="date-body">
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />
