@@ -32,6 +32,10 @@
 // 300 (the scene each draws is reported). Then the redline: one edit worked out and compared with the state before it, as the preview does
 // on every keystroke, in under 50 ms on the sample. Then the window itself, edited, ruled in and switched,
 // until the canvas shows it (see inWindow).
+// Every time here is of the work alone, the script that runs: the page runs under a virtual clock, which stands
+// still while anything runs, and no input here is a person's. What a person waits for, from an input to the paint
+// after it, the browser's own drawing and the work done while the window is idle among it, is timed in real time
+// by realtime.ps1, beside this page.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const esc = s => String(s).replace(/[&<>]/g, c => `&#${c.charCodeAt(0)};`);
@@ -161,8 +165,10 @@ function actions(n) {
 // showing another view, and the first again. Under a virtual time budget the clock stands still while anything
 // runs once the page has loaded, so the window is timed as it loads, in its load event: each step a listener of
 // its own, timed from the moment it's made until the next listener, by when the microtasks it queued (the
-// panes drawn again) have run and the canvas shows it. The best of three; at the most, each must take under
-// 300 ms. A ruling made with no preview before it is reported beside. → the lines to report, once it has run.
+// panes drawn again) have run and the canvas shows it: its script, not the browser's styling, layout and
+// painting after it, which realtime.ps1 times from the input to the paint. The best of three; at the most, each
+// must take under 300 ms of script. A ruling made with no preview before it is reported beside. → the lines to
+// report, once it has run.
 function inWindow(n) {
   const f = document.createElement('iframe');
   Object.assign(f.style, { position: 'fixed', left: '0', top: '0', width: '1440px', height: '900px', visibility: 'hidden' });
@@ -208,10 +214,10 @@ function inWindow(n) {
   return () => {
     const ms = x => `${x.toFixed(0)} ms`, show = at => Math.max(took[`${at} show`], took[`${at} show back`]);
     for (const [what, k] of [['an edit to a value', 'edit'], ['clicking a tag to rule it out', 'click']])
-      check(`At +${n}, in the window, ${what} is drawn in under 300 ms`, took[`grown ${k}`] < 300, `${ms(took[`grown ${k}`])}, on the sample ${ms(took[`sample ${k}`])}`);
-    check(`At +${n}, in the window, showing another view, and the first again, are each drawn in under 300 ms`, show('grown') < 300, `${ms(show('grown'))}, on the sample ${ms(show('sample'))}`);
-    return [`In the window, the sample: an edit ${ms(took['sample edit'])}, a ruling ${ms(took['sample click'])}, a view shown ${ms(show('sample'))}`,
-      `In the window, +${n}: an edit ${ms(took['grown edit'])}, a ruling ${ms(took['grown click'])} (${ms(took.unpreviewed)} unpreviewed), a view shown ${ms(show('grown'))}`];
+      check(`At +${n}, in the window, ${what} is worked out and drawn in under 300 ms of script`, took[`grown ${k}`] < 300, `${ms(took[`grown ${k}`])}, on the sample ${ms(took[`sample ${k}`])}`);
+    check(`At +${n}, in the window, showing another view, and the first again, are each drawn in under 300 ms of script`, show('grown') < 300, `${ms(show('grown'))}, on the sample ${ms(show('sample'))}`);
+    return [`In the window, its script, the sample: an edit ${ms(took['sample edit'])}, a ruling ${ms(took['sample click'])}, a view shown ${ms(show('sample'))}`,
+      `In the window, its script, +${n}: an edit ${ms(took['grown edit'])}, a ruling ${ms(took['grown click'])} (${ms(took.unpreviewed)} unpreviewed), a view shown ${ms(show('grown'))}`];
   };
 }
 
