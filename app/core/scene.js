@@ -558,9 +558,12 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const rowOf = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.key])));
   const classOf = new Map(boxes.map(b => { const n = b.settings.Fill.note; return [b.id, n && n.view === view && !idsIn(n.pattern).size ? rowOf.get(key(n.pattern)) ?? null : null]; }));
   if (new Set([...classOf.values()].filter(Boolean)).size < 2) classOf.clear();
-  // The room the chart has on its sheet, as the layout fills it: within the margins, under the title and date.
+  // The room the chart has on its sheet, as the layout fills it: within the margins, under the title and date;
+  // and the Key's size there, which the page sets under the chart's right end where it isn't beside the title.
   const furniture = shapeRows.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).reduce((h, r) => h + freeShape(r, said.get(r.id)).h, 0);
   const room = { w: sheet.w - 2 * MARGIN, h: sheet.h - 2 * MARGIN - (furniture && furniture - INSET - PAD + 32) };
+  const keyRow = shapeRows.find(r => r.geometry === 'legend' && placedBy(r));
+  if (keyRow) { const k = freeShape(keyRow, ''); layoutLegend(k, legendRows); room.key = { w: k.w, h: k.h }; }
   let heights = null;
   const lay = squeeze => {
     for (const b of boxes) size(b, squeeze);
@@ -1082,11 +1085,14 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         if (places.has(key.row)) shapes[shapes.indexOf(key)] = key = side;
       }
       if (!places.has(key.row)) {
-        // Or else under the chart, right-aligned to it, 24 pt under what's over it there.
-        const c = R(top), kw = key.w * s, x = Math.max(M, c.x + c.w - kw), over = set(top).filter(q => q.x < x + kw && q.x + q.w > x);
-        const under = { x, y: Math.max(c.y, ...over.map(q => q.y + q.h)) + 32, w: kw, h: key.h * s };
-        if (!force && !fits(under)) return null;
-        places.set(key.row, under);
+        // Or else at the chart's foot, right-aligned to it: 24 pt under what's over it there; or 24 pt beside it,
+        // the chart moved left as far as that needs.
+        const c = R(top), kw = key.w * s, kh = key.h * s, x = Math.max(M, c.x + c.w - kw), over = set(top).filter(q => q.x < x + kw && q.x + q.w > x);
+        const under = { x, y: Math.max(c.y, ...over.map(q => q.y + q.h)) + 32, w: kw, h: kh };
+        const by = Math.max(0, c.x + c.w + 32 + kw - (W - M)), beside = { x: c.x - by + c.w + 32, y: c.y + c.h - kh, w: kw, h: kh };
+        if (fits(under) || force) places.set(key.row, under);
+        else if (kh <= c.h && c.x - by >= M - 0.5 && fits(beside)) { dx -= by / s; places.set(key.row, beside); }
+        else return null;
       }
     }
     for (const [id, p] of places) places.set(id, { x: p.x / s, y: p.y / s });

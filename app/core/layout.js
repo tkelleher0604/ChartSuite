@@ -66,7 +66,7 @@ const keepIn = s => { store = s; };
 const laidBefore = () => { try { return JSON.parse(store?.get('layouts') ?? '[]'); } catch { return []; } };
 function place({ boxes, links, clusters, room = ROOM }) {
   const quick = boxes.length + links.length > BIG;
-  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
+  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h, room.key?.w, room.key?.h], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
   return placed(k, () => {
     const before = laidBefore().find(([key]) => key === k);
     if (before) return new Map(before[1].map(([id, x, y]) => [id, { x, y }]));
@@ -225,6 +225,15 @@ function elkPlace(boxes, links, clusters, options, room) {
   for (const b of boxes) { const p = at.get(nodeOf(b.id)); out.set(b.id, { x: p.x + inBlock.get(b.id).x, y: p.y }); }
   // A tier's boxes top-aligned, as ELK sets them on their middles.
   for (const bs of groupBy(boxes, b => tier.get(b.id)).values()) { const y = Math.min(...bs.map(b => out.get(b.id).y)); for (const b of bs) out.get(b.id).y = y; }
+  // Of the layout and its mirror image, the one that leaves the Key more room under the chart's right end, where
+  // the page sets it when it isn't beside the title.
+  if (room.key && !wraps.length) {
+    const x0 = Math.min(...boxes.map(b => out.get(b.id).x)), x1 = Math.max(...boxes.map(b => out.get(b.id).x + b.w));
+    const y0 = Math.min(...boxes.map(b => out.get(b.id).y)), y1 = Math.max(...boxes.map(b => out.get(b.id).y + b.h));
+    const kw = room.key.w / Math.min(1, room.w / (x1 - x0), room.h / (y1 - y0)), xOf = (b, flip) => flip ? x0 + x1 - out.get(b.id).x - b.w : out.get(b.id).x;
+    const rise = flip => Math.max(y0, ...boxes.filter(b => xOf(b, flip) + b.w > x1 - kw).map(b => out.get(b.id).y + b.h));
+    if (rise(true) < rise(false) - 0.5) for (const b of boxes) out.get(b.id).x = xOf(b, true);
+  }
   // A column of frames has them under one another from one left, 12 pt apart, as panels; the first stays where
   // ELK put it unless it's alone in its tier, and what's under the column comes up with it. What reaches into
   // them from above stands over their left, its middle 12 pt short of it, so its lines run down its side and
@@ -342,7 +351,7 @@ function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), page.margin, page.room && [page.room.w, page.room.h], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
+    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
   const out = new Map();
