@@ -18,6 +18,8 @@ Graph.registerConnector('runs', (s, t, route, { runs }) => runs.map(r => r.map((
 const active = signal(null);
 const zoomLevel = signal(1);
 const BLUE = '#1f5fbf', RED = '#c2372b';
+// Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
+const UNMARKED = new Set(['page', 'label', 'ink']);
 // As far out as the canvas goes: a chart of hundreds of boxes still fits.
 const LEAST = 0.02;
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
@@ -87,7 +89,7 @@ function textMarkup(it, red, faint) {
     children: it.lines.map(l => {
       const r = l.red ?? it.redline ?? red;
       const deco = [t.Underline && 'underline', r === 'go' && 'line-through'].filter(Boolean).join(' ');
-      return { tagName: 'tspan', attrs: { x: l.x, y: l.y, fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(t.Color), ...(deco && { 'text-decoration': deco }) }, textContent: l.text };
+      return { tagName: 'tspan', attrs: { x: l.x, y: l.y, fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(t.Color), ...(deco && { 'text-decoration': deco }), ...(l.ink && { 'data-ink': '' }) }, textContent: l.text };
     }),
   };
 }
@@ -127,27 +129,38 @@ function moveCell(cell, c, was) {
   if (Object.keys(props).length) cell.store.set(props);
 }
 
-// The cells for a scene, by id, each with what it's drawn from, to redraw only what changed.
-function cellsOf(scene) {
+// The cells for a scene, by id, each with what it's drawn from, to redraw only what changed; with `ink`, a
+// redline's (see inked), over it: what would appear in blue, a text that would change in blue under what it said,
+// struck in red, and a text that would go struck in red where it is. Ink moves nothing: every cell is where the
+// scene puts it.
+function cellsOf(scene, ink = null) {
   const cells = [], z = new Map(scene.marks.map((m, i) => [m.id, i * 2]));
   const node = (m, kind, markup, extra = {}) => cells.push({ id: m.id, shape: 'dendra', x: m.x, y: m.y, width: Math.max(1, m.w), height: Math.max(1, m.h),
     zIndex: z.get(m.id), markup, data: { kind, mark: m.id }, ...extra });
+  const red = m => ink?.go.has(m.record) ? 'go' : ink?.appear.has(m.record) ? 'appear' : m.redline;
+  // A text as the ink has it: a changed one's new lines under its old, struck; one appearing, blue.
+  const inkOn = it => {
+    const was = ink?.was.get(it.id), lh = px(it.look.Size) * 1.2;
+    return was === undefined ? (ink?.appear.has(it.id) ? { ...it, redline: 'appear' } : it)
+      : { ...it, redline: 'appear', lines: [{ ...it.lines[0], y: it.lines[0].y - lh, text: was, red: 'go', ink: true }, ...it.lines] };
+  };
+  const textsOf = m => [...m.texts.map(inkOn), ...(ink?.texts.get(m.id) ?? []).map(it => ({ ...it, redline: 'go', lines: it.lines.map(l => ({ ...l, ink: true })) }))];
   for (const m of scene.marks) {
     const s = look(m);
     if (m.type === 'box') {
-      node(m, 'box', [bodyMarkup(m.shape, m.w, m.h, s, m.redline, { 'data-tour': 'box', ...(m.revealed && { 'stroke-opacity': FAINT }) }),
-        ...m.texts.map(it => textMarkup(it, m.redline, m.revealed))]);
+      node(m, 'box', [bodyMarkup(m.shape, m.w, m.h, s, red(m), { 'data-tour': 'box', ...(m.revealed && { 'stroke-opacity': FAINT }) }),
+        ...textsOf(m).map(it => textMarkup(it, red(m), m.revealed))]);
     } else if (m.type === 'line') {
-      const ps = m.points, dashed = Scene.dash(s.Dash, s.Weight) ?? (m.computed && !m.settings.Dash.note ? Scene.dash('dashed', s.Weight) : null);
-      const arrow = s.Arrow;
+      const ps = m.points, dashed = Scene.dash(s.Dash, s.Weight) ?? (m.computed && !m.settings.Dash.note ? Scene.dash('dashed', s.Weight) : null) ?? (red(m) === 'go' ? '4 3' : null);
+      const arrow = s.Arrow, r = red(m);
       cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: 'line', mark: m.id },
         source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] },
         vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
-        attrs: { line: { stroke: m.redline === 'appear' ? BLUE : m.redline === 'go' ? RED : paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: dashed,
+        attrs: { line: { stroke: r === 'appear' ? BLUE : r === 'go' ? RED : paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight)),
           sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
-        zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: m.texts.map(it => textMarkup(it, m.redline)) });
+        zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: textsOf(m).map(it => textMarkup(it, r)) });
     } else if (m.type === 'frame') {
       const d = m.lone ? '' : m.kind === 'bracket' ? `M0.5,${m.h} V${m.h - 5} H${m.w - 0.5} V${m.h}` : `M0,0 H${m.w} V${m.h} H0 Z`;
       node(m, 'frame', [{ tagName: 'path', selector: 'body', attrs: { d, fill: 'none', stroke: '#595959', 'stroke-width': px(m.settings.Weight.value), 'pointer-events': 'visibleStroke',
@@ -200,10 +213,15 @@ function mount(el) {
   root.className = 'dc';
   root.tabIndex = 0;
   root.innerHTML = '<div class="dc-graph"></div><div class="dc-over"></div>';
-  el.appendChild(root);
+  // Under the chart, the window's bar while a change is pending (App.Pending), over the foot of the canvas, so the
+  // chart doesn't move as it comes and goes.
+  const bar = document.createElement('div');
+  bar.className = 'dc-pend';
+  el.append(root, bar);
+  preact.render(Shell.h(App.Pending), bar);
   const gEl = root.firstChild, over = root.lastChild;
 
-  let scene = null, viewShown = null, hl = null, red = null, revealIds = null, entered = null, dragging = null, syncing = false;
+  let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   let pointing = false, hold = false;
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
@@ -220,7 +238,7 @@ function mount(el) {
     interacting: view => {
       const k = view.cell.getData()?.kind;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still(), edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && k !== 'page' && k !== 'label' };
+      return { nodeMovable: !pointing && !still() && !UNMARKED.has(k) };
     },
   });
   // Only the cells on screen, and a margin round it, are drawn, as X6 draws a big graph (`virtual`), so a chart
@@ -233,7 +251,7 @@ function mount(el) {
   let screen = { w: 0, h: 0 };
   const onScreen = () => graph.renderer.setRenderArea(screen.w > 0 && screen.h > 0 ? graph.graphToLocal(0, 0, screen.w, screen.h).inflate(AROUND, AROUND) : undefined);
   // What can be selected: a mark this view draws (a cell another view drew is kept hidden; see cellsTo).
-  const selectable = c => { const k = c.getData()?.kind; return !!k && k !== 'page' && k !== 'label' && c.isVisible(); };
+  const selectable = c => { const k = c.getData()?.kind; return !!k && !UNMARKED.has(k) && c.isVisible(); };
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: selectable });
   graph.use(sel);
@@ -268,16 +286,18 @@ function mount(el) {
 
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
   // A restyle is drawn as an empty redline is, so its boxes stay where they are, as in every preview; one that
-  // moves them, Tidy's, is laid out afresh, and not kept as how the view was drawn.
+  // moves them, Tidy's, is laid out afresh, and not kept as how the view was drawn. A redline is the scene the
+  // change, made, draws, with its ink (see inked).
   // The page drawn last; and `moving`, while a gesture's change is made (see moveTo).
   let pageWas = null, moving = false;
   function draw() {
     const base = App.scene.peek();
     if (!base) return;
-    const view = base.view, s = styledDrawn;
-    scene = revealIds || redDrawn || s ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: redDrawn ?? (s && !s.moves ? {} : null), ahead: !!s?.moves }) : base;
-    cellsTo(App.chart.peek(), view, [...cellsOf(scene), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
+    const view = base.view, s = styledDrawn, r = !s && redDrawn;
+    scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
+      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, redline: s && !s.moves ? {} : null, ahead: !!s?.moves }) : r ? r.scene : base;
+    ink = r ? inked(r, scene, base) : null;
+    cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
       data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
@@ -495,7 +515,7 @@ function mount(el) {
     root.focus({ preventScroll: true });
     if (k === 'page') { if (e.button === 0) { if (!e.shiftKey) sel.clean(); sel.startRubberband(e); } return; }
     if (pointed(node)) return;
-    if (k === 'label' || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (UNMARKED.has(k) || e.shiftKey || e.ctrlKey || e.metaKey) return;
     take(node);
   });
   graph.on('blank:mousedown', () => { pressed = null; root.focus({ preventScroll: true }); });
@@ -708,7 +728,7 @@ function mount(el) {
   graph.on('node:dblclick', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (k === 'page') return addAt(e);
-    if (k === 'label') return;
+    if (UNMARKED.has(k)) return;
     const g = groupOf(node.id);
     if (g) { entered = g.id; sel.reset(node); }
     const m = scene.byId.get(node.id);
@@ -860,7 +880,7 @@ function mount(el) {
     let cell = node ?? edge ?? null;
     if (cell?.getData()?.kind === 'label') cell = graph.getCellById(cell.getData().mark);
     const at = { x: e.clientX, y: e.clientY }, k = cell?.getData()?.kind, p = graph.clientToLocal(at.x, at.y);
-    if (!cell || k === 'page') return Shell.menu(at, pageItems(p));
+    if (!cell || k === 'page' || k === 'ink') return Shell.menu(at, pageItems(p));
     // A line is taken as a click takes it, with the lines drawn along it there.
     if (edge && k === 'line' && !sel.isSelected(cell)) { pressed = { id: cell.id, p: [p.x, p.y] }; sel.reset(cell); } else take(cell);
     Shell.menu(at, markItems());
@@ -952,7 +972,7 @@ function mount(el) {
       if (!v) continue;
       const k = c.getData()?.kind, id = k === 'label' ? c.getData().mark : c.id, el = v.container;
       // What a pending change would add or take away isn't dimmed: it's what's being asked about.
-      el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !scene.byId.get(id)?.redline);
+      el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !ink?.lit.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
   }
@@ -963,14 +983,46 @@ function mount(el) {
     hl = map.size ? { map, dim, pulse: new Set(pulse) } : null;
     show();
   }
-  // A pending change, as comparison software shows one: what would appear in blue, what would go in red and
-  // struck through, and a changed value's old text struck before its new. records: the state it would leave,
-  // so what doesn't exist yet can be drawn. null clears it.
+  // A pending change, as comparison software shows one, on the scene the change, made, draws: `records`, the state
+  // it would leave, and `computed`, its working-out (the formula bar's, where it gives none), laid out as Enter lays
+  // it out, its routes and its page; and `appear`, `go` and `changed`, by record, its ink (see inked). Laid out at
+  // once on a chart of a few hundred marks, and past that ahead, and drawn then. null clears it.
+  // Cleared, it's drawn away once what cleared it is done: a change made as it was previewed draws its scene, the
+  // redline's, at once, and nothing in between.
+  let clearing = false;
   function redline(r) {
-    const now = App.state.peek();
-    red = r ? { state: r.records ?? null, appear: new Set(r.appear ?? []), go: new Set(r.go ?? []),
-      changed: new Map(Object.entries(r.changed ?? {}).map(([id, c]) => [id, now[id] ?? c?.before ?? c])) } : null;
-    show();
+    const R2 = typeof FormulaBar !== 'undefined' && FormulaBar.pending.peek()?.R2;
+    red = r ? { state: r.records, computed: r.computed ?? (R2?.records === r.records ? R2 : App.computed.peek()), appear: new Set(r.appear ?? []), go: new Set(r.go ?? []),
+      changed: new Set(Object.keys(r.changed ?? {})), scene: null } : null;
+    if (r) return show();
+    if (!clearing) { clearing = true; queueMicrotask(() => { clearing = false; show(); }); }
+  }
+  // A redline's ink, on the scene the change, made, draws (`after`), against the scene drawn now (`before`): what would
+  // appear, blue; a text that would change, blue under what it said, struck in red; and what would go, struck in red
+  // where it's drawn now, as the page will set it (by its offset), a line whose boxes will stand elsewhere taking a
+  // way of its own among them (Layout.around). It moves nothing: `cells`, what goes, drawn over the scene; `lit`, every
+  // cell inked, which a highlight doesn't dim.
+  function inked(r, after, before) {
+    const near = (a, b) => Math.abs(a - b) < 0.01, dx = after.page.offset.x - before.page.offset.x, dy = after.page.offset.y - before.page.offset.y;
+    const was = new Map(), texts = new Map(), lit = new Set();
+    for (const id of r.changed) { const a = after.byId.get(id), b = before.byId.get(id); if (a?.type === 'text' && b?.type === 'text' && a.text !== b.text) was.set(id, b.text); }
+    for (const m of before.marks) if (m.texts && after.byId.has(m.id)) { const its = m.texts.filter(it => r.go.has(it.id) && after.byId.get(it.id)?.type !== 'text'); if (its.length) texts.set(m.id, its); }
+    const boxes = before.marks.filter(m => m.type === 'box' && r.go.has(m.record) && !after.byId.has(m.id)).map(m => ({ ...m, x: m.x + dx, y: m.y + dy }));
+    const geo = new Map([...after.marks.filter(m => m.type === 'box'), ...boxes].map(b => [b.id, b]));
+    const stands = id => { const a = before.byId.get(id), b = geo.get(id); return !!a && !!b && near(a.x + dx, b.x) && near(a.y + dy, b.y) && near(a.w, b.w) && near(a.h, b.h); };
+    const shift = ps => ps.map(([x, y]) => [x + dx, y + dy]);
+    const way = l => { try { return geo.has(l.from) && geo.has(l.to) ? Layout.around(geo, l.from, l.to, { page: after.page }) : null; } catch { return null; } };
+    const lines = before.marks.filter(m => m.type === 'line' && r.go.has(m.record) && !after.byId.has(m.id)).map(l => {
+      if (stands(l.from) && stands(l.to)) return { ...l, points: shift(l.points), runs: l.runs?.map(shift), labelAt: l.labelAt && { x: l.labelAt.x + dx, y: l.labelAt.y + dy } };
+      const ps = way(l);
+      return ps && { ...l, points: ps, runs: null, labelAt: null, texts: [] };
+    }).filter(Boolean);
+    const gone = [...lines, ...boxes];
+    const cells = cellsOf({ marks: gone }, { appear: new Set(), go: new Set(gone.map(m => m.record)), was: new Map(), texts: new Map() })
+      .map((c, i) => ({ ...c, zIndex: 1e6 + i, data: { kind: 'ink', mark: c.data.mark } }));
+    for (const m of after.marks) if (r.appear.has(m.record) || texts.has(m.id) || m.texts?.some(it => was.has(it.id) || r.appear.has(it.id))) lit.add(m.id);
+    for (const c of cells) lit.add(c.id);
+    return { appear: r.appear, go: r.go, was, texts, cells, lit };
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
   // change would leave it, PowerPoint's live preview; with `moves`, laid out again (Tidy). null ends it.
@@ -983,9 +1035,12 @@ function mount(el) {
   const QUICK = { marks: 400, hidden: 40 };
   let asked = [], redDrawn = null, styled = null, styledDrawn = null, standIns = new Map();
   function reveal(ids) { asked = ids ? [...ids] : []; show(); }
-  function show() {
-    const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, r = red && quick ? red : null, s = styled && quick ? styled : null;
-    const st = r?.state ? { ...App.state.peek(), ...r.state } : App.state.peek(), N = App.notes.peek();
+  function show(again = false) {
+    const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
+    // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
+    if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day)) red.scene = quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true }) : null;
+    const r = red?.scene ? red : null;
+    const st = App.state.peek(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
     const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id) && ![id, ...(x.args ?? []).map(a => a.at)].some(away); };
     // A relation the view hides, lit or stepped through, whose two boxes a line drawn here already joins (one
@@ -1001,9 +1056,9 @@ function mount(el) {
       const x = st[id], line = hidden(id) && x.args?.length === 2 && joins.get(pair(...x.args.map(a => Tree.objectOf(st, a.at))));
       if (line) standIns.set(id, line.merged ?? line.id);
     }
-    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...(r ? [...r.appear, ...r.go, ...r.changed.keys()] : [])])].filter(id => hidden(id) && !standIns.has(id)).sort();
+    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : [])])].filter(id => hidden(id) && !standIns.has(id)).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
-    if (JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
+    if (again || JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
     ahead();
   }
   // Drawn ahead once the window is idle, so that what's drawn next is drawn at once: the chart as a change
@@ -1017,12 +1072,17 @@ function mount(el) {
   let aheadOf = null, longest = 0, soon = null;
   function toward(d) { soon = d ?? null; ahead(); }
   function* on(d, view) { const R = App.workOn(d); yield; return yield* Scene.steps(App.shown.peek(), App.chart.peek(), view, d, { state: R.records, computed: R, ahead: true }); }
+  // A redline not yet laid out (a big chart's) is drawn once it is.
+  function* redAhead(r, base) {
+    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true });
+    if (red === r && !r.scene) { r.scene = sc; show(); }
+  }
   function ahead() {
-    const base = App.scene.peek(), wb = styled?.wb ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
+    const base = App.scene.peek(), r = red && !red.scene ? red : null, wb = styled?.wb ?? App.shown.peek(), state = r?.state ?? (styled ? App.state.peek() : null);
     if (!base || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
     if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base && aheadOf.soon === soon) return;
     const mine = aheadOf = { wb, state, base, soon }, chart = App.chart.peek(), computed = App.computed.peek();
-    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...state ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true })] : [],
+    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...r ? [redAhead(r, base)] : styled ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true })] : [],
       ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
     const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
     const step = idle => {
@@ -1075,41 +1135,40 @@ function mount(el) {
     return null;
   }
   // Delete hides what's selected in this view and deletes a free shape; with `records`, Shift+Delete, it
-  // deletes the records too, everywhere, and what's in or on them. Either way a toast says what went.
+  // deletes the records too, and what's in or on them, as every deletion of a record is made: redlined first, the
+  // bar asking until when (App.deleting), Enter making it. A toast says what went.
   function remove(records = false) {
     const keys = keysOfSelection(), view = viewOf(), st = App.state.peek();
     if (!keys.length) return;
-    const hid = [], gone = [], worked = [];
+    const hid = [], gone = [], worked = [], doomed = [];
     // What a toast calls each: a box by its record's name, a line by its relation's, a shape by what it is.
     const as = (m, name = called(m)) => ({ type: m.type, name });
-    const c = App.change(tx => {
-      for (const k of keys) {
-        const [id, rowKey] = keyParts(k), m = scene.byId.get(id);
-        if (!m) continue;
-        if (m.type === 'box' || m.type === 'line') {
-          if (!records) { tx.note('Shown', treeOf(m.record), false, { view }); hid.push(as(m)); }
-          else if (st[m.record]?.computed) worked.push(m);
-          else { gone.push(as(m)); tx.remove(m.record); }
-        } else if (m.type === 'frame') { tx.note('Frame', m.output, undefined, { view }); hid.push(as(m)); }
+    const marks = keys.map(k => [...keyParts(k), scene.byId.get(keyParts(k)[0])]).filter(([, , m]) => m), bound = m => m.type === 'box' || m.type === 'line';
+    if (records) for (const [, , m] of marks) if (bound(m)) { if (st[m.record]?.computed) worked.push(m); else doomed.push(m); }
+    const rest = tx => {
+      for (const [id, rowKey, m] of marks) {
+        if (bound(m)) { if (!records) { tx.note('Shown', treeOf(m.record), false, { view }); hid.push(as(m)); } }
+        else if (m.type === 'frame') { tx.note('Frame', m.output, undefined, { view }); hid.push(as(m)); }
         else if (m.geometry === 'legend' && rowKey) { tx.update(id, { hide: [...m.hide, rowKey] }); hid.push({ type: 'row', name: m.rows.find(x => x.key === rowKey)?.caption.text }); }
         else if (m.geometry === 'group') { tx.remove(id); for (const x of m.members) if (scene.byId.get(x)?.type === 'shape') tx.remove(x); gone.push(as(m)); }
         else { tx.remove(id); gone.push(as(m)); }
       }
-    }, { say: () => said(hid, gone, view) });
+    };
+    if (doomed.length) return App.deleting(doomed.map(m => m.record), counted(doomed.map(m => as(m))), { source: 'chart', also: rest, done: () => Shell.select([]) });
+    const c = App.change(rest, { say: () => said(hid, gone, view) });
     if (c) Shell.select([]);
     else if (worked.length) Shell.toast(worked.length > 1 ? 'Formulas work these out' : 'A formula works this out');
   }
   const SHAPE = { text: 'text box', legend: 'key', picture: 'picture', line: 'line', group: 'group', frame: 'frame' };
-  // A line by its relation and its ends, as the place rule says them: the Ownership line from Northstar to Northpine.
-  const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(), [a, b] = N.placed(st, id); return `the ${N.nameOf(st, id)} line${a && b ? ` from ${a.text} to ${b.text}` : ''}`; };
+  // A line by its relation, at its place (Notes.segmentOf), as History and the formula bar say it: Ownership: The BDC →
+  // Northpine Software, LLC.
+  const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
     : `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
-  // A record deleted with a day shown is gone from that day on, and the toast says so.
   function said(hid, gone, view) {
-    const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row'), day = Shell.time.peek()?.asOf;
-    const from = day && gone.some(m => m.type === 'box' || m.type === 'line') ? ` as of ${Tree.formatDate(day, 'short')}` : '';
-    const parts = [marks.length && `hid ${counted(marks)} in ${viewName(view)}`, rows.length && `hid ${counted(rows)} in the key`, gone.length && `deleted ${counted(gone)}${from}`].filter(Boolean);
+    const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');
+    const parts = [marks.length && `hid ${counted(marks)} in ${viewName(view)}`, rows.length && `hid ${counted(rows)} in the key`, gone.length && `deleted ${counted(gone)}`].filter(Boolean);
     const s = parts.join(' and ');
     return s && s[0].toUpperCase() + s.slice(1);
   }
@@ -1329,13 +1388,13 @@ function mount(el) {
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
   // A restyle is of the chart as it was: one that changes ends it.
-  const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; draw(); ahead(); });
+  const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; show(true); });
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
-      graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
+      graph.dispose(); root.remove(); preact.render(null, bar); bar.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
   active.value = canvas;

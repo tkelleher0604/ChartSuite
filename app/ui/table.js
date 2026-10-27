@@ -6,7 +6,7 @@
 // a paste waits there for Enter.
 
 const Table = (() => {
-  const { effect, html, signal } = Shell;
+  const { effect, html } = Shell;
   const { clean, norm, same, plural } = Tree;
 
   const below = (p, path) => path.reduce((loc, edge) => ({ args: [{ edge, loc }] }), p);
@@ -362,7 +362,8 @@ const Table = (() => {
     const host = document.createElement('div');
     cells.appendChild(host);
     built = { view: m.view, sig: signature(m) };
-    reds = new Set();
+    // The rows redlined as built, so they're drawn again as they are once the redline goes.
+    reds = new Set(m.data.filter(isRed).map(r => r.id));
     flight = null;
     const t = table = new Tabulator(host, {
       // A column is sized at its heading's edge, as Excel's is, and a row is only its cells. A field is a column's
@@ -437,7 +438,7 @@ const Table = (() => {
     if (p) {
       m = redlined(now, model(view, p.R2, schemaWith(p)));
       // A paste into a column the view hides shows it while the paste is pending.
-      for (const c of m.cols) if (staged.peek()?.cols.has(c.key)) c.pasted = true;
+      for (const c of m.cols) if (App.pending.peek()?.cols?.has(c.key)) c.pasted = true;
     }
     current = m;
     if (!table || built.view !== view || built.sig !== signature(m)) { since(now); return build(m); }
@@ -540,14 +541,13 @@ const Table = (() => {
     activate();
     return true;
   }
-  // Before Tabulator hears a key: with no cell active, a key that moves makes one; while a paste is pending,
-  // Enter makes it; and on a cell that can't be edited, Enter moves down, as Excel's does.
+  // Before Tabulator hears a key: with no cell active, a key that moves makes one; and on a cell that can't be
+  // edited, Enter moves down, as Excel's does. (While a change is pending, Enter is App's, which makes it.)
   const canEdit = cell => { const d = cell.getColumn().getDefinition(); return !!d.editor && (typeof d.editable !== 'function' || d.editable(cell)); };
   function first(e) {
     if (!table || table.modules.edit?.currentCell) return;
-    const cell = e.key === 'Enter' && !staged.peek() && table.modules.selectRange?.getActiveCell()?.getComponent();
-    if (e.key === 'Enter' && staged.peek()) { e.preventDefault(); e.stopPropagation(); commit(); }
-    else if (cell && !canEdit(cell)) { e.preventDefault(); e.stopPropagation(); move('down'); }
+    const cell = e.key === 'Enter' && table.modules.selectRange?.getActiveCell()?.getComponent();
+    if (cell && !canEdit(cell)) { e.preventDefault(); e.stopPropagation(); move('down'); }
     else if (/^(Arrow|Page|Home$|End$)/.test(e.key) && !table.modules.selectRange?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(); }
   }
 
@@ -555,10 +555,11 @@ const Table = (() => {
   const edit = (fn, say, dated) => !!App.change(fn, { say, dated });
   // Records entered as one change: a new one under its own id, an entered one set from the day shown, or from
   // the day `dated` gives (App.change).
-  const enter = (records, say, dated) => edit(tx => {
+  const fill = (tx, records) => {
     const entered = App.entered.peek();
     for (const [id, r] of Object.entries(records)) { const { since: _, before: __, ...rec } = r; if (id in entered) tx.update(id, rec); else tx.add('record', rec, id); }
-  }, say, dated);
+  };
+  const enter = (records, say, dated) => edit(tx => fill(tx, records), say, dated);
   const typeIn = (c, r) => r ? ('choice' in r ? 'choice' : 'tag' in r ? 'tag' : r.field) : c.type;
   const columnOf = cell => current.byField.get(cell.getField());
   const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell); return !clean(raw) || c.type === 'edge' || !!value(typeIn(c, m.id && App.state.value[m.id]), clean(raw)); };
@@ -647,9 +648,8 @@ const Table = (() => {
   // about, never guessed by its place. Without a heading row, the cells fill the grid from the active cell.
   // Either way the paste is redlined in the grid, and Enter makes it, as one change.
   function paste(textIn) {
-    if (staged.peek() && FormulaBar.pending.peek()?.change !== staged.peek().change) unstage();
     const m = real, grid = tsv(textIn);
-    if (!m || m !== current || !grid.length || App.readOnly.peek() || staged.peek()) return;
+    if (!m || m !== current || !grid.length || App.readOnly.peek()) return;
     let head = headings(m, grid);
     if (head && m.isDatatype) { grid.shift(); head = null; }   // a datatype's rows have no names to match by
     if (!head) return stage(m, byPlace(m, grid));
@@ -805,18 +805,11 @@ const Table = (() => {
     return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Entity';
   }
 
-  // ---- A change pending in the grid, a paste or a deletion: redlined, with a bar saying what it does; Enter makes
-  // it, Esc doesn't. A paste that adds a row asking its day (App.asksDay), an ownership say, asks it there, from
-  // the day shown or all along (App.From), and the paste is made from that day, the values it sets with it, as
-  // a closing's schedule is. Until what's typed there is a day, it isn't made ----
-  const staged = signal(null);   // { change, parts, verb, make(day), cols, day? }: what the bar says, its button, and the change made
-  let unlayer = null;
-  function hold(s) {
-    staged.value = { cols: new Set(), ...s };
-    unlayer = Shell.layer(cancel);
-    FormulaBar.preview(s.change, 'grid');
-    back();
-  }
+  // ---- A paste or a deletion: a change pending (App.stage), redlined in the grid, with the window's bar saying what
+  // it does; Enter makes it, Esc doesn't. A paste that adds a row asking its day (App.asksDay), an ownership say, asks
+  // it there, from the day shown or all along (App.From), and the paste is made from that day, the values it sets
+  // with it, as a closing's schedule is; a deletion asks until when, as App.deleting does. Until what's typed there is
+  // a day, it isn't made ----
   function stage(m, r) {
     if (typeof r === 'string') return Shell.toast(r);
     const x = changeOf(m, r);
@@ -830,68 +823,21 @@ const Table = (() => {
       ...x.made.slice(0, 3).map(([kind, name]) => html`new ${kind} <span class="add">${name}</span>`), x.made.length > 3 && `${x.made.length - 3} more`,
       x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
     const recs = { ...App.state.peek(), ...x.records }, asks = x.rows.some(id => App.asksDay(x.records[id], recs));
-    hold({ change: { records: x.records }, parts, verb: 'Paste', cols: new Set([...x.cols].filter(k => !shownCols.has(k))), ...(asks && { day: App.day.peek() }),
-      make: day => { if (enter(x.records, say, asks ? day ?? false : undefined) && x.rows.length === 1) Shell.select(x.rows); } });
+    App.stage({ verb: 'Paste', what: list(added.length ? added : [count(x.values, 'value')]), parts, source: 'paste ' + m.view, say, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+      ...(asks ? { asks: 'from', day: App.day.peek() } : { from: Shell.time.peek()?.asOf }), make: tx => fill(tx, x.records), done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+    back();
   }
-  // Rows deleted, as one change: the records entered there, and what's at them.
+  // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
   function deletion(ids) {
     const st = App.state.peek(), N = App.notes.peek();
     const what = ids.length > 1 || current.isDatatype ? count(ids.length, current.noun) : current.isKind ? N.nameOf(st, ids[0]) : Time.whose(st, ids[0], N);   // a relation by its sides
-    return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, parts: [html`<span class="del">${what}</span>`], verb: 'Delete',
-      make: () => edit(tx => ids.forEach(id => tx.remove(id)), c => Time.describe(c)) };
+    return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, stage: () => { App.deleting(ids, what, { source: 'rows ' + current.view }); back(); } };
   }
   // The rows a range takes whole, as the row numbers select them, that were entered and so can be deleted.
   function wholeRows() {
     const n = table.getColumns().filter(c => c.getField()).length, entered = App.entered.peek();
     return [...new Set(table.getRanges().filter(r => r.getColumns().filter(c => c.getField()).length === n).flatMap(r => r.getRows().map(x => x.getData().id)))].filter(id => id in entered);
   }
-  function unstage() {
-    if (!staged.peek()) return;
-    staged.value = null;
-    unlayer?.(); unlayer = null;
-  }
-  function cancel() {
-    const s = staged.peek();
-    unstage();
-    if (s && FormulaBar.pending.peek()?.change === s.change) FormulaBar.preview(null);
-    back();
-  }
-  function commit() {
-    const s = staged.peek();
-    if (!s || s.day === undefined && 'day' in s) return;
-    unstage();
-    FormulaBar.preview(null);
-    s.make(s.day);
-    back();
-  }
-  // The bar under the grid while a change is pending: what it does, the day it takes effect (asked, where it
-  // asks one), and the choice.
-  function PendingBar() {
-    const s = staged.value, p = FormulaBar.pending.value, day = Shell.time.value?.asOf;
-    if (!s || p?.change !== s.change) return null;
-    const asks = 'day' in s, typed = e => { if (e.key === 'Enter' && e.target.matches('input')) { e.preventDefault(); commit(); } };
-    return html`<div class="pendbar" role="region" aria-label=${s.verb}>
-      <span class="what">${s.parts.map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
-      ${asks ? html`<span class="when" onKeyDown=${typed}><${App.From} day=${s.day} set=${d => { staged.value = { ...staged.peek(), day: d }; }} /></span>`
-        : day ? html`<span class="when">From ${Tree.formatDate(day, 'short')}</span>` : null}
-      <button class="btn" onClick=${cancel}>Discard</button>
-      <button class="btn primary" disabled=${asks && s.day === undefined} onClick=${commit}>${s.verb}</button>
-    </div>`;
-  }
-  // A change pending goes when what it was worked out from changes: the view, the day, the workbook; or when
-  // another change is previewed in its place.
-  effect(() => { Shell.view.value; Shell.time.value; App.version.value; if (staged.peek()) cancel(); });
-  let ours = false;
-  effect(() => {
-    const p = typeof FormulaBar === 'undefined' ? null : FormulaBar.pending.value, s = staged.peek();
-    if (!s) { ours = false; return; }
-    if (p?.change === s.change) ours = true;
-    else if (p || ours) unstage();
-  });
-  // Enter, wherever the keys are, unless something else is being typed or pressed.
-  addEventListener('keydown', e => {
-    if (e.key === 'Enter' && staged.peek() && !e.defaultPrevented && !e.target.closest?.('input, textarea, select, button, [contenteditable], .CodeMirror, dialog')) { e.preventDefault(); commit(); }
-  });
 
   // ---- Columns: Show/Hide and Order are the column's own notes in the view ----
   const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
@@ -915,7 +861,7 @@ const Table = (() => {
     const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
     if (!ids.length || App.readOnly.peek() || current.red) return;
     const d = deletion(ids);
-    Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Delete', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.make(); } }]);
+    Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Delete', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }]);
   }
 
   // ---- Selection: a row selected is the record selected, and the other way round ----
@@ -958,7 +904,7 @@ const Table = (() => {
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent();
     if (!cell) return;
     // Delete clears the cells of the range; rows selected whole, by their numbers, it deletes, after the redline.
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); const ids = wholeRows(); if (ids.length) hold(deletion(ids)); else clear(); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); const ids = wholeRows(); if (ids.length) deletion(ids).stage(); else clear(); }
     else if (e.key === ' ' && columnOf(cell)?.type === 'tag') { e.preventDefault(); flip(cell); }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && cell.getField()) {
       const c = columnOf(cell);
@@ -979,7 +925,7 @@ const Table = (() => {
       cells.className = 'cells';
       bar = document.createElement('div');
       el.append(cells, bar);
-      preact.render(html`<${PendingBar} />`, bar);
+      preact.render(html`<${App.Pending} />`, bar);
       cells.addEventListener('keydown', first, true);
       cells.addEventListener('keydown', keydown);
       // Keys arriving from outside (F6 onto the view) go to the rows, not a heading's filter, which would open.
@@ -1003,7 +949,7 @@ const Table = (() => {
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view.
         effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking) reveal(id); }),
       ];
-      return () => { offs.forEach(f => f()); sized.disconnect(); unstage(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
+      return () => { offs.forEach(f => f()); sized.disconnect(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
     },
     focus,
   });

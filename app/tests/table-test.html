@@ -433,9 +433,13 @@ async function run() {
   rowOf(doomed).getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
   hover(item('Delete')); await previewed();
   check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
-  item('Delete').click(); await tick(150);
-  check('… and chosen, deletes it, as one change, said so, the redline gone', N() === n0 + 1 && !(doomed in st()) && /^Deleted Ownership: /.test($('.toast span')?.textContent ?? '')
-    && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek(), $('.toast span')?.textContent);
+  item('Delete').click(); await previewed();
+  const untilIn = () => $('.pendbar .from input');
+  check('… and chosen, redlines it with the bar, asking until when: the day shown, to type over', N() === n0 && rowOf(doomed).getElement().classList.contains('red-go')
+    && $('.pendbar .from .sel')?.textContent === 'Until' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
+  press('Enter', Table.grid.rowManager.element); await tick(150);
+  check('… Enter ends it that day, as one change, said so, the redline gone: it\'s gone today, and was there before', N() === n0 + 1 && !(doomed in st()) && !!App.wb.asOf(C(), '2025-12-31')[doomed]
+    && /^Ended Ownership: .* on /.test($('.toast span')?.textContent ?? '') && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek() && !$('.pendbar'), $('.toast span')?.textContent);
   undo(); await tick(150);
   // The Delete key deletes the rows selected whole, by their numbers, after the redline: Enter deletes, Esc doesn't.
   const whole = id => { Table.grid.addRange(rowOf(id).getCells()[1], rowOf(id).getCells().at(-1)); }, gridKeys = Table.grid.rowManager.element;
@@ -446,11 +450,30 @@ async function run() {
     $('.pendbar')?.textContent);
   press('Escape', gridKeys); await tick(100);
   check('… Esc leaves it', !$('.pendbar') && !$$('.grid .tabulator-row.red-go').length && N() === n0 && doomed in st());
+  // Never held, from the menu its first word opens: a mistake, deleted as if never made, from 2023 too.
   whole(doomed); await tick(40);
   press('Delete', gridKeys); await previewed();
+  $('.pendbar .from .sel').click(); await tick();
+  const untilMenu = $$('.float .menu-item').map(x => x.textContent.trim()).join();
+  item('Never held').click(); await tick(60);
+  check('… or Never held, from its menu', untilMenu === 'Until,Never held' && $('.pendbar .from')?.textContent.trim() === 'Never held' && !untilIn(), untilMenu);
   press('Enter', gridKeys); await tick(150);
-  check('… and Enter deletes it, as one change', N() === n0 + 1 && !(doomed in st()) && !$('.pendbar') && /^Deleted Ownership: /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  check('… and Enter deletes it as if it never held, as one change', N() === n0 + 1 && !(doomed in st()) && !App.wb.asOf(C(), '2025-12-31')[doomed] && !$('.pendbar') && /^Deleted Ownership: /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   undo(); await tick(150);
+  // A day typed over the day shown: it holds until then.
+  whole(doomed); await tick(40);
+  press('Delete', gridKeys); await previewed();
+  untilIn().value = 'March 3, 2026'; untilIn().dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  press('Enter', untilIn()); await tick(150);
+  check('… or until a day typed', N() === n0 + 3 && !App.wb.asOf(C(), '2026-03-03')[doomed] && !!App.wb.asOf(C(), '2026-03-02')[doomed], JSON.stringify(App.wb.item(C(), doomed)));
+  undo(); await tick(150);
+  // A click elsewhere leaves a deletion pending; only Esc or Discard drops it.
+  whole(doomed); await tick(40);
+  press('Delete', gridKeys); await previewed();
+  Shell.select([]); Shell.show(views()[0].id); await tick(200); Shell.show(own); await tick(200);
+  check('A change pending stays pending as the selection and the view change', !!$('.pendbar') && App.pending.peek()?.verb === 'Delete' && N() === n0 + 4, $('.pendbar')?.textContent);
+  $$('.pendbar .btn').find(b => b.textContent === 'Discard').click(); await tick(100);
+  check('… till Discard drops it', !$('.pendbar') && !App.pending.peek() && doomed in st() && N() === n0 + 4);
 
   // ---- Dates and Documents ----
   await addTable(null, 'Dates');
@@ -810,10 +833,13 @@ async function run() {
   check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));
   const npine = named('Northpine Software, LLC'), boxOf = { id: npine, kind: 'Entity' };
   // Boxes and lines hidden in a view are said as the chart's Delete says them, so its toast and its Undo agree.
-  const ownIds = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).slice(0, 2), owns = ownIds.map(id => Tree.treeOf(st(), id)), ends = App.notes.peek().placed(st(), ownIds[0]).map(s => s.text);
+  const ownIds = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).slice(0, 2), owns = ownIds.map(id => Tree.treeOf(st(), id)), place = App.notes.peek().segmentOf(st(), ownIds[0]);
   const hiding = ps => ({ ...stamp, id: 'xh', removes: [], adds: ps.map((p, i) => ({ id: 'xh' + i, note: 'xhn' + i, label: 'Shown', pattern: p, view: 'view_main', value: false })) });
   const hidings = [hiding([owns[0]]), hiding([boxOf]), hiding(owns)].map(Time.describe).join(' / ');
-  check('A line or a box hidden in a view is said as the chart’s Delete says it, and several counted', hidings === `Hid the Ownership line from ${ends[0]} to ${ends[1]} in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure`, hidings);
+  check('A line or a box hidden in a view is said as the chart’s Delete says it, a line by the place rule as the formula bar says it, and several counted', hidings === `Hid Ownership: ${place} in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure`, hidings);
+  // A line's own look is said as that line's, not its style's.
+  const weighed = { ...stamp, id: 'xw', removes: [], adds: [{ id: 'xw0', note: 'xwn', label: 'Weight', pattern: owns[0], view: 'view_main', value: 2 }] };
+  check('A line formatted alone is said as that line, not its style', Time.describe(weighed) === `Changed Weight of Ownership: ${place} in Structure`, Time.describe(weighed));
   App.change(tx => tx.note('Fill', boxOf, '#fff2cc', { view: 'view_main' }), { dated: false });
   App.change(tx => tx.note('Fill', boxOf, undefined, { view: 'view_main' }), { dated: false });
   const cleared = Time.describe(last());

@@ -860,14 +860,17 @@ const FormulaBar = (() => {
     if (slow < 40 || pending.peek()?.from !== from) run(); else timer = setTimeout(run, 300);
   }
 
-  // The state as the change would leave it, and what would appear, go and change, per definition.
+  // The state as the change would leave it, and what would appear, go and change, per definition: the chart as of
+  // the day shown, as Log.asOf reads it, so a start entry typed past the day (a Formation Date) takes what it's at out
+  // of it, with all that's at that, as an end entry on it or before does.
   function hypothetical(change) {
     let entered = App.entered.peek(), ds = App.definitions.peek();
     if (change.records) {
       entered = { ...entered };
-      const gone = Object.keys(change.records).filter(id => change.records[id] === null && entered[id]);
-      if (gone.length) for (const id of Tree.dependents(entered, gone)) delete entered[id];
+      const N = App.notes.peek(), day = App.day.peek(), gone = Object.keys(change.records).filter(id => change.records[id] === null && entered[id]);
       for (const [id, r] of Object.entries(change.records)) if (r) entered[id] = r;
+      for (const id of Object.keys(change.records)) { const x = change.records[id] && Log.outOn(N, entered, id, day); if (x) gone.push(x); }
+      if (gone.length) for (const id of Tree.dependents(entered, gone)) delete entered[id];
     }
     if (change.rows) ds = ds.flatMap(d => !(d.id in change.rows) ? [d] : change.rows[d.id] ? [{ ...d, rows: change.rows[d.id] }] : []);
     const before = R.peek();

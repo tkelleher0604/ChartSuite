@@ -30,6 +30,13 @@ const Time = (() => {
     const qs = [...(r.args && Tree.isChoice(r) ? [r.choice] : []), ...under.map(step)];
     return `${r.args ? N.segmentOf(recs, head) : N.shortOf(recs, head)}${qs.length ? ` (${qs.join(', ')})` : ''}`;
   }
+  // The record a note's pattern is that record's own tree: a box's by its id, a line's by its relation's sides.
+  const recordAt = (recs, p) => p.id !== undefined ? p.id : (k => Object.keys(recs).find(x => recs[x].args && Tree.key(Tree.bare(Tree.treeOf(recs, x) ?? {})) === k))(Tree.key(Tree.bare(p)));
+  // A line, by its relation at its place, as the formula bar and History say it: Ownership: The BDC → Northpine
+  // Software, LLC.
+  const lineOf = (recs, p, N) => { const id = recordAt(recs, p); return id ? `${N.nameOf(recs, id)}: ${N.segmentOf(recs, id)}` : N.name(p); };
+  // Whose a note at one record is: a box's by its name, a line's as lineOf says it.
+  const ownerOf = (recs, p, N) => p.args ? lineOf(recs, p, N) : N.nameOf(recs, p.id);
   // Every version of every record a log's rows hold, the latest standing for each.
   function recordsOf(rows) {
     const recs = {};
@@ -250,13 +257,14 @@ const Time = (() => {
       && (box(rec(i).pattern) || line(rec(i).pattern)) && ![...Tree.idsIn(rec(i).pattern)].some(id => moved.has(id)));
     for (const view of new Set(hid.map(i => rec(i).view))) {
       const ps = hid.filter(i => rec(i).view === view).map(i => rec(i).pattern);
-      // A line by its relation and its ends, as the canvas's toast says it: the Ownership line from Northstar to Northpine.
-      const lineOf = p => { const k = Tree.key(Tree.bare(p)), id = Object.keys(recs).find(x => recs[x].args && Tree.key(Tree.bare(Tree.treeOf(recs, x) ?? {})) === k), [a, b] = id ? N.placed(recs, id) : [];
-        return `the ${N.name(p)} line${a && b ? ` from ${a.text} to ${b.text}` : ''}`; };
-      const what = ps.length === 1 ? (ps[0].args ? lineOf(ps[0]) : N.nameOf(recs, ps[0].id))
+      const what = ps.length === 1 ? (ps[0].args ? lineOf(recs, ps[0], N) : N.nameOf(recs, ps[0].id))
         : ps.every(p => p.args) ? `${ps.length} lines` : ps.some(p => p.args) ? `${ps.length} items` : `${ps.length} boxes`;
       phrases.push(`Hid ${what} in ${N.nameOf(recs, view)}`);
     }
+    // A mark's own look taken away all at once, Look's Reset: said whose, and what.
+    const looks = all.filter(i => i.type === 'note' && !i.now.length && Notes.FORMATS.has(rec(i).label) && rec(i).view), mark = looks[0] && rec(looks[0]);
+    if (looks.length > 1 && looks.length === all.length && looks.every(i => rec(i).view === mark.view && Tree.key(rec(i).pattern) === Tree.key(mark.pattern)) && Tree.idsIn(mark.pattern).size)
+      return `Reset the look of ${ownerOf(recs, mark.pattern, N)} in ${N.nameOf(recs, mark.view)}`;
     if (made.length > 1 || gone.length > 1) {
       for (const [verb, xs] of [[back ? 'Restored' : 'Added', made], ['Deleted', gone]]) if (xs.length) {
         const by = new Map();
@@ -289,7 +297,9 @@ const Time = (() => {
     const it = Tree.isView(r) ? `view ${name ? Log.latest(name.now.length ? name.now : name.was).value : of}` : Tree.isObject(r) ? of : r.args ? `${what}: ${of}` : `${what} of ${of}`;
     const verdict = r.tag ? 'Attested' : 'Ruled out', added = back ? 'Restored' : 'Added';
     const fact = r.args && r.tag === true && !App.definitions.peek().some(d => Tree.same(d.name, what));
-    if (!i.was.length) return Tree.isObject(r) || fact ? `${added} ${it}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}` : `Set ${it} to ${valueText(r)}`;
+    // A relation added that asked its day (App.asksDay) says it: from the day said, or all along.
+    const when = r.args && !back && App.asksDay(r, recs) ? r.since ? ` from ${short(r.since)}` : ' all along' : '';
+    if (!i.was.length) return Tree.isObject(r) || fact ? `${added} ${it}${fact ? when : ''}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}${when}` : `Set ${it} to ${valueText(r)}`;
     if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}` : `Cleared ${it}`;
     const was = Log.latest(i.was), ended = i.now.every(x => x.before) && !was.before;
     if (ended) return `Ended ${it} on ${short(Log.latest(i.now).before)}`;
@@ -313,14 +323,15 @@ const Time = (() => {
   const grouped = (N, n) => typeof Scene === 'undefined' ? null : n.label === 'Caption' ? Scene.outputName(N, n.pattern)
     : Scene.groupsOf(N, n.view).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(n.pattern)))?.caption ?? Scene.captionOf(N, n.pattern, n.view);
   function notePhrase(i, n, recs, N) {
-    const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {});
-    const of = at !== undefined ? N.nameOf(recs, at) : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern);
+    // One record's own (a box's, or a line's, its relation's tree), or else a style's or an entry's in general.
+    const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {}), line = at === undefined && !!n.pattern.args && Tree.idsIn(n.pattern).size > 0;
+    const of = at !== undefined ? N.nameOf(recs, at) : line ? lineOf(recs, n.pattern, N) : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern), one = at !== undefined || line;
     const inView = n.view ? ` in ${N.nameOf(recs, n.view)}` : '';
     const gone = !i.now.length;
     switch (n.label) {
       case 'Order': return isView ? 'Reordered the views' : n.view ? `Reordered ${N.nameOf(recs, n.view)}` : `Reordered ${of}`;
       case 'Shown': return gone ? `Reset ${of}${inView}` : `${n.value === false ? 'Hid' : 'Showed'} ${of}${inView}`;
-      case 'Position': return `Moved ${of}${inView}`;
+      case 'Position': return gone ? `Reset the position of ${of}${inView}` : `Moved ${of}${inView}`;
       case 'Formula': return gone ? `Deleted the formula of ${of}` : i.was.length ? `Changed the formula of ${of}` : `Defined ${of}`;
       case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? (Tree.same(of, n.value) ? `Named ${n.value}` : `Named ${of} ${n.value}`)
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
@@ -328,7 +339,8 @@ const Time = (() => {
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
       // A look one record kept of its own, cleared, as the format bar says it.
       default: return gone && at !== undefined && Notes.FORMATS.has(n.label) ? `Cleared ${of.endsWith('s') ? `${of}’` : `${of}’s`} own ${n.label}${inView}`
-        : `Changed ${n.label}${at !== undefined ? ' of ' : ' for '}${at === undefined && n.view ? grouped(N, n) ?? of : of}${inView}`;
+        : gone && line && Notes.FORMATS.has(n.label) ? `Cleared the ${n.label} of ${of}${inView}`
+        : `Changed ${n.label}${one ? ' of ' : ' for '}${!one && n.view ? grouped(N, n) ?? of : of}${inView}`;
     }
   }
 

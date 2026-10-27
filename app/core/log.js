@@ -26,6 +26,31 @@ const argKey = r => Tree.argsOf(r).map(a => JSON.stringify([Tree.norm(a.edge), a
 const content = ({ id, ...rest }) => JSON.stringify(rest, (k, v) => v && typeof v === 'object' && !Array.isArray(v)
   ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : v);
 
+// The records whose rows are valid on a day, by id, of `records`, each record's rows.
+function validAt(records, day) {
+  const on = {};
+  for (const [id, rows] of records) if ('record' in rows[0]) { const r = rows.find(x => validOn(x, day)); if (r) on[id] = recordOf(r); }
+  return on;
+}
+// What a record keeps out of the chart on a day, as a start or an end entry (dendra.md, Time): what it's at, where
+// it's a start after the day, or an end on it or before; or nothing. `recs`, the records it's among.
+function outOn(notes, recs, id, day) {
+  const r = recs[id], t = r.field === 'date' && r.at && recs[r.at] && Tree.treeOf(recs, id);
+  return t && ((notes.isStart(t) && day < r.value) || (notes.isEnd(t) && day >= r.value)) ? r.at : null;
+}
+// Of the records valid on a day (`on`, by id), those that hold on it: each from its start entry and before its end
+// entry, as the chart's notes say which those are, and with its locations holding.
+function holding(notes, on, day) {
+  const out = new Set(), holds = new Map(), state = {};
+  for (const id of Object.keys(on)) { const x = outOn(notes, on, id, day); if (x) out.add(x); }
+  const hold = id => {
+    if (!holds.has(id)) { holds.set(id, false); holds.set(id, !!on[id] && !out.has(id) && Tree.argsOf(on[id]).every(a => hold(a.at))); }
+    return holds.get(id);
+  };
+  for (const id of Object.keys(on)) if (hold(id)) state[id] = on[id];
+  return state;
+}
+
 // Each record as its latest version, for what doesn't depend on the day: dependents, renaming, the schema.
 function rawOf(items) {
   const out = {};
@@ -110,28 +135,12 @@ function open(data) {
     return d;
   }
   const schema = c => { const d = chart(c); return d.schema ??= schemaOf(d.rows); };
-  // A start or end entry, as of the records it's among: 'start', 'end' or nothing.
-  const bound = (d, recs, id) => {
-    const r = recs[id], t = r.field === 'date' && r.at && recs[r.at] && Tree.treeOf(recs, id);
-    return t && (d.notes.isStart(t) ? 'start' : d.notes.isEnd(t) ? 'end' : null);
-  };
-
   // The chart as of a day: the records that hold on it. A record holds when its row is valid on the day,
   // the day is from its start entry and before its end entry, and its locations hold.
   function asOf(c, day = today()) {
     const d = chart(c);
     if (d.days.has(day)) return d.days.get(day);
-    const on = {}, out = new Set(), holds = new Map(), state = {};
-    for (const [id, rows] of d.records) { const r = rows.find(x => validOn(x, day)); if (r) on[id] = recordOf(r); }
-    for (const id of Object.keys(on)) {
-      const b = bound(d, on, id);
-      if ((b === 'start' && day < on[id].value) || (b === 'end' && day >= on[id].value)) out.add(on[id].at);
-    }
-    const hold = id => {
-      if (!holds.has(id)) { holds.set(id, false); holds.set(id, !!on[id] && !out.has(id) && Tree.argsOf(on[id]).every(a => hold(a.at))); }
-      return holds.get(id);
-    };
-    for (const id of Object.keys(on)) if (hold(id)) state[id] = on[id];
+    const state = holding(d.notes, validAt(d.records, day), day);
     d.days.set(day, state);
     return state;
   }
@@ -234,14 +243,13 @@ function open(data) {
   // value splits its validity there, and removing ends it there. With none, each corrects. `ids`, a list, names the
   // items it adds, in order, each past its end added to it: so an edit made as another was is that one, ids and all.
   function edit({ chart: c, who, day = null, when, ids = null } = {}) {
-    const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set(), touched = new Set();
+    const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set();
     let named = 0;
     const name = () => !ids ? newId() : named < ids.length ? ids[named++] : (ids[named++] = newId());
-    const put = r => { adds.set(r.id, r); push(items, itemOf(r), r); if ('record' in r) touched.add(r.record); };
+    const put = r => { adds.set(r.id, r); push(items, itemOf(r), r); };
     const drop = r => {
       if (!adds.delete(r.id)) removes.add(r.id);
       const rs = items.get(itemOf(r)); rs.splice(rs.indexOf(r), 1); if (!rs.length) items.delete(itemOf(r));
-      if ('record' in r) touched.add(r.record);
     };
     const all = () => [...items.values()].flat();
     const swap = (r, u) => { if (u !== r) { drop(r); put({ ...u, id: newId() }); } };
@@ -327,9 +335,9 @@ function open(data) {
           else if ('note' in r) { const pattern = Tree.lift(r.pattern, p); swap(r, pattern === r.pattern ? r : { ...r, pattern }); }
         }
       },
-      // What it would leave on a day, unmade: each record it touches as it would be then, or null where it would
-      // hold no version.
-      recordsOn: on => Object.fromEntries([...touched].map(id => { const r = items.get(id)?.find(x => validOn(x, on)); return [id, r ? recordOf(r) : null]; })),
+      // The chart as it would leave it, unmade, as of a day: what asOf would read then, start and end entries and
+      // locations included, every record it leaves as it was the very one asOf has.
+      asOf: on => holding(d.notes, validAt(items, on), on),
       commit: () => adds.size || removes.size
         ? apply({ id: newId(), who, when: when ?? now(), chart: c, removes: [...removes], adds: [...adds.values()] }) : null,
     };
@@ -355,5 +363,5 @@ function open(data) {
 }
 const changesOf = x => !x ? [] : Array.isArray(x) ? x : typeof x.changes === 'function' ? x.changes() : x.changes ?? [];
 
-return { open, newId, today, validOn, typeOf, latest };
+return { open, newId, today, validOn, typeOf, latest, outOn };
 })();
