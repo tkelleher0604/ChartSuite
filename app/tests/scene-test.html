@@ -137,7 +137,7 @@ function run() {
     check('outputs that look alike share a row', row(lg, choice('Main Fund')) === row(lg, choice('Feeder Fund')));
     const groups = Scene.groupsOf(wb.notes(C), MAIN), funds = groups.find(g => g.outputs.some(choice('Main Fund')));
     check('Styles, the Key and the scope group by one rule: a style’s outputs that look alike, the Key’s rows those of them drawn', funds.outputs.length === 6 && funds.caption === 'Funds'
-      && lg.rows.every(r => groups.some(g => g.style === r.style && j(g.swatch) === j(r.swatch) && r.outputs.every(o => g.outputs.some(p => Tree.key(p) === Tree.key(o))))),
+      && lg.rows.every(r => groups.some(g => g.style === r.style && j({ ...g.swatch, Weight: 0 }) === j({ ...r.swatch, Weight: 0 }) && r.outputs.every(o => g.outputs.some(p => Tree.key(p) === Tree.key(o))))),
       j(groups.map(g => [g.caption, g.outputs.length])));
     check('no row for a look nothing drawn takes', !row(lg, choice('Business Development Company')) || s.marks.some(m => m.type === 'box' && m.settings.Fill.note?.pattern.out?.choice === 'Business Development Company'));
     check('a row’s swatch is drawn in its output’s format', row(lg, choice('Main Fund')).swatch.Fill === '#dae3f3' && row(lg, choice('Limited Partnership')).swatch.Shape === 'triangle'
@@ -317,6 +317,22 @@ function run() {
     const texts = s => s.marks.flatMap(m => [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]);
     const halves = sc.flatMap(s => texts(s).map(it => on(s, it.look.Size))).filter(p => Math.abs(p * 2 - Math.round(p * 2)) > 1e-6);
     check('every text is drawn at a whole or half point', !halves.length, j(halves.slice(0, 5)));
+    const weighed = sc.flatMap(s => s.marks.filter(m => m.type === 'box' || m.type === 'line' || m.type === 'frame').map(m => [m.id, on(s, m.settings.Weight.value), m.settings.Weight.note?.value ?? 0.75]));
+    check('every line is drawn at the weight it was given on the slide, whatever the chart’s scale: 0.75 where nothing says', weighed.every(([, w, given]) => Math.abs(w - given) < 1e-9),
+      j(weighed.filter(([, w, given]) => Math.abs(w - given) >= 1e-9).slice(0, 4)));
+    // A size picked in the slide's points is the size on the slide, though the box grows and the chart is drawn
+    // smaller for it: the page's size found as the format bar finds it.
+    const picked = [10, 12, 14].map(v => {
+      const w = fresh(), R = computed(w), t0 = Tree.treeOf(R.records, 'fund'), at = t => {
+        const id = `·t${t}`, rows =[...w.rows(C), { id, note: id, label: 'Size', pattern: t0, view: MAIN, value: t }], notes = Notes.index(rows.filter(r => 'note' in r));
+        return { ...w, rows: () => rows, notes: () => notes };
+      };
+      const t = Math.round(Scene.toPage(v, scene(w).page.scale, x => Scene.of(at(x), C, MAIN, DAY, { state: R.records, computed: R, ahead: true }).page.scale) * 100) / 100;
+      edit(w, (tx, N) => note(tx, N, 'Size', t0, MAIN, t));
+      const s = scene(w);
+      return [v, on(s, s.byId.get('fund').texts[0].look.Size), s.page.scale];
+    });
+    check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(([v, got]) => Math.abs(got - v) < 1e-9), j(picked));
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
       return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));

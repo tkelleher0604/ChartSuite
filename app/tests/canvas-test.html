@@ -195,6 +195,16 @@ async function run() {
   // ---- Sizes in slide points, on the half-point grid; a frame shows its caption's ----
   const shown = () => +txt($('[data-fb="size"]'));
   check('the format bar shows a size in slide points, to the half point', shown() * 2 === Math.round(shown() * 2) && Math.abs(shown() - Scene.toSlide(sc().page, sizeOf())) <= 0.25, `${shown()} for ${Scene.toSlide(sc().page, sizeOf())}`);
+  // A size picked reads back as picked, though the box grows and the chart's scale drops with it.
+  Shell.select(['fund']); await tick(120);
+  const scaleWas = sc().page.scale;
+  $('[data-fb="size"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e) === '14')?.click(); await tick(200);
+  const fundSize = Scene.toSlide(sc().page, sc().byId.get('fund').texts[0].look.Size);
+  check('a size picked reads back as picked, and prints so, though the chart is drawn smaller for it', shown() === 14 && Math.abs(fundSize - 14) < 0.01 && sc().page.scale < scaleWas,
+    `bar ${shown()}, drawn ${fundSize}, scale ${scaleWas} → ${sc().page.scale}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  Shell.select(['halvard']); await tick(120);
   const v40 = charts().find(v => v.name === '40 Act');
   if (v40) {
     await show(v40);

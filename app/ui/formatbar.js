@@ -12,9 +12,9 @@ const html = htm.bind(h);
 const { signal, effect } = preactSignals;
 
 const FONTS = Scene.FONTS;
-// Sizes and weights are shown and chosen as the slide has them: the page's, drawn smaller by its scale.
+// Sizes and weights are shown and chosen as the slide has them: a size the page's, drawn smaller by its scale;
+// a weight the slide's own, one of PowerPoint's.
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32];
-// PowerPoint's own weights, so the file, the bar and the inspector say one number.
 const WEIGHTS = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6];
 // PowerPoint's colors, so a swatch means the same in both: its theme's columns (Background 1, Text 1 and the
 // six accents), each with its tints and shades in PowerPoint's rows, then its standard colors.
@@ -138,6 +138,10 @@ function preview(label, value) {
   tried = key;
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
+  c.restyle(trying(c, label, value));
+}
+// The chart with a change written on its rows, uncommitted.
+function trying(c, label, value) {
   const wb = App.shown.peek(), same = (r, l, k, view) => 'note' in r && r.label === l && (r.view ?? null) === (view ?? null) && !r.param && Tree.key(r.pattern) === k;
   let rows = wb.rows(App.chart.peek());
   write({
@@ -149,7 +153,15 @@ function preview(label, value) {
     update(id, changes) { rows = rows.map(r => r.shape === id ? { ...r, ...changes } : r); },
   }, c, label, value);
   const notes = Notes.index(rows.filter(r => 'note' in r));
-  c.restyle({ ...wb, rows: () => rows, notes: () => notes });
+  return { ...wb, rows: () => rows, notes: () => notes };
+}
+// A size picked is the size on the slide, though the chart's scale changes with it: the page's size that, at the
+// scale the chart is then drawn at, is the one picked (Scene.toPage).
+function sized(v) {
+  const c = Canvas.active.peek(), sc = c?.scene();
+  if (!sc) return put(v);
+  const scaleAt = t => Scene.of(trying(c, 'Size', t), App.chart.peek(), sc.view, sc.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }).page.scale;
+  return Math.round(Scene.toPage(v, sc.page.scale, scaleAt) * 100) / 100;
 }
 // A setting's value on the selection: its first mark's, or its first text's for a text property (a frame's,
 // its caption's).
@@ -282,7 +294,7 @@ function Bar() {
       <span>${scope && named(c, scope)}</span></button>`}
     <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => offer(e.currentTarget, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => set('Font', f), tries: ['Font', f] })))}>
       <span>${any ? value('Font') : 'Arial'}</span></button>
-    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => offer(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', put(z)), tries: ['Size', put(z)] })))}>
+    <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => offer(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', sized(z)), tries: ['Size', put(z)] })))}>
       <span>${any ? shown(value('Size')) : 10}</span></button>
     <button class="btn letter b" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${any && !!value('Bold')} disabled=${none} onClick=${() => toggle('Bold')}>B</button>
     <button class="btn letter i" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${any && !!value('Italic')} disabled=${none} onClick=${() => toggle('Italic')}>I</button>
@@ -293,7 +305,7 @@ function Bar() {
     <button class="btn dd" aria-label="Fill" data-tip="Fill" data-fb="fill" disabled=${!boxy} onClick=${e => pop(e, close => html`<${Palette} label="Fill" none close=${close} />`)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none} onClick=${e => pop(e, close => html`<${Palette} label="Outline" none close=${close} />`)}>${glyph.outline(any ? value('Outline') : 'none')}</button>
     <button class="btn dd" aria-label="Line" data-tip="Line" data-fb="line" disabled=${none} onClick=${e => pop(e, () => html`<div class="picker">
-      <div class="row"><span class="k">Weight</span>${seg('Weight', WEIGHTS.map(w => [w, String(w)]), WEIGHTS.find(w => Math.abs(Scene.toSlide(page(), value('Weight')) - w) < 0.07), { as: put })}</div>
+      <div class="row"><span class="k">Weight</span>${seg('Weight', WEIGHTS.map(w => [w, String(w)]), WEIGHTS.find(w => Math.abs(Scene.toSlide(page(), value('Weight')) - w) < 0.01))}</div>
       <div class="row"><span class="k">Dash</span>${seg('Dash', ['solid', 'dashed', 'dotted'].map(d => [d, dashGlyph(d)]), value('Dash'))}</div>
       ${s.marks.some(m => m.type === 'line') ? html`<div class="row"><span class="k">Route</span>${seg('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))}</div>` : null}
       ${scope?.outputs && boxy ? html`<div class="row"><span class="k">Frame</span>${seg('Frame', [['none', 'None'], ['dashed', dashGlyph('dashed')], ['solid', dashGlyph('solid')], ['bracket', 'Bracket']], value('Frame') ?? 'none')}</div>` : null}
