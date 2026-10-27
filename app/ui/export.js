@@ -2,26 +2,27 @@
 // in tab order, and the chart's dates as a calendar for Outlook. The scene is all either draws.
 // - Each page is drawn on its sheet, a 13.33 × 7.5 in slide unless its Page says otherwise, or the paper the
 //   Export dialog names (Letter, say), for which the scene is drawn (Scene.of's paper), smaller by the page's
-//   scale, and every size with it: a text's points are the points it has on the sheet, so it breaks into the
-//   scene's lines.
-// - PowerPoint: a box is a shape of the same preset geometry, its texts paragraphs in the same fonts that
-//   wrap at the same width; a line is a connector glued to its boxes, grouped with its label so the two move
-//   together, and a line broken where another crosses it its pieces; a frame a shape behind its members; the
-//   legend one group, a swatch and caption for each row, named for it; the title the slide's title; free
-//   shapes shapes like any other. A deck's slides share one size, the smallest that holds every sheet, each
-//   in the middle of its slide.
+//   scale, and every size with it: a text's points are the points it has on the sheet.
+// - PowerPoint: a box is a shape of the same preset geometry, holding its texts in the same fonts on the
+//   scene's lines; a line is a connector glued to its boxes, grouped with its label so the two move together
+//   and named as the two-box panel says its relation, and a line broken where another crosses it its pieces;
+//   a frame its outline and caption, grouped, behind its members; the legend one group, a swatch and caption
+//   for each row, named for it; the title the slide's title; free shapes shapes like any other. A deck's
+//   slides share one size, the smallest that holds every sheet, each in the middle of its slide.
 // - PDF: the scene as SVG, through svg2pdf.js, in the PDF's standard fonts (Helvetica has Arial's widths,
-//   Times Times New Roman's), compressed. Each page is its sheet.
+//   Times Times New Roman's), compressed. Each page is its sheet, bookmarked by its title.
+// - The calendar: the chart's dates from the day shown on, each titled by what falls due, then whose.
 // - The Export dialog, which the title bar's Export opens, previews the file: the same SVG, page by page, on
 //   the slides or pages it will have, a click on a page showing it at full size; for a calendar, its dates.
 // What the canvas shows only on screen (computed italics and dashes, the redline) is no part of the scene.
 // PptxGenJS, jsPDF and svg2pdf.js load the first time they're needed.
 //
-// Export.write('pptx' | 'pdf', scenes, name, author?) → a Blob, also saved; Export.svg(scene, { pdf, frame })
-// → SVG markup; Export.calendar(R, N, chart, name) → the .ics Blob, also saved, R being Formulas.computeState's
-// and N the chart's Notes reader. Export.onFile, if set, takes each finished file (blob, name) instead of the
-// browser downloading it. In the window, Export.open(format?) opens the dialog: 'pptx', 'pdf' or 'ics', or
-// what the view shown offers (Shell's 'export' parts: a table's CSV).
+// Export.write('pptx' | 'pdf', scenes, name, { author, R, N }?) → a Blob, also saved, R being
+// Formulas.computeState's and N the chart's Notes reader, by which a deck says its lines' relations;
+// Export.svg(scene, { pdf, frame }) → SVG markup; Export.calendar(R, N, chart, name, from?) → the .ics Blob of
+// the dates from `from` (today) on, also saved. Export.onFile, if set, takes each finished file (blob, name)
+// instead of the browser downloading it. In the window, Export.open(format?) opens the dialog: 'pptx', 'pdf'
+// or 'ics', or what the view shown offers (Shell's 'export' parts: a table's CSV).
 const Export = (() => {
 const PT = Scene.PT;                                    // pixels a point
 const n = v => +v.toFixed(2);
@@ -50,6 +51,8 @@ function save(blob, name) {
 const lh = t => t.Size * PT * 1.2;
 const top = it => it.lines[0].y - it.look.Size * PT * 0.93;
 const block = items => ({ top: top(items[0]), bottom: top(items[0]) + items.reduce((h, it) => h + it.lines.length * lh(it.look), 0) });
+// How much of a line lies before its x, by its alignment.
+const BEFORE = { left: 0, center: 0.5, right: 1 };
 
 // ---- SVG: the PDF, and the preview ----
 
@@ -115,6 +118,10 @@ function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
     + `<rect x="${n(x)}" y="${n(y)}" width="${n(fw)}" height="${n(fh)}" fill="#ffffff"/>${scene.marks.map(m => markSvg(m, pdf)).join('')}</svg>`;
 }
 
+// A page's title, as its title shape says it; else its view's name.
+const titleOf = s => s.marks.find(m => m.role === 'title')?.texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim() || s.name || '';
+// A PDF text string: as it is where it's Latin-1, else UTF-16 and marked so, as a title with a curly quote needs.
+const pdfText = s => /^[\x20-\x7e\xa0-\xff]*$/.test(s) ? s : `\xfe\xff${Array.from({ length: s.length }, (_, i) => String.fromCharCode(s.charCodeAt(i) >> 8, s.charCodeAt(i) & 255)).join('')}`;
 async function pdf(scenes, title) {
   await LIBS.pdf();
   let doc;
@@ -127,79 +134,42 @@ async function pdf(scenes, title) {
       else doc.addPage([w, h], o);
       holder.innerHTML = svg(s, { pdf: true });
       await doc.svg(holder.firstElementChild, { x: 0, y: 0, width: w, height: h });
-      if (scenes.length > 1) doc.outline.add(null, s.name ?? '', { pageNumber: doc.getNumberOfPages() });
+      if (scenes.length > 1) doc.outline.add(null, pdfText(titleOf(s)), { pageNumber: doc.getNumberOfPages() });
     }
   } finally { holder.remove(); }
-  doc.setProperties({ title, creator: 'Dendra' });
-  return doc.output('blob');
+  doc.setProperties({ title: pdfText(title), creator: 'Dendra' });
+  // jsPDF names itself the producer, which Dendra is: said in its place, padded to its length, so that the
+  // file's index of where each object starts still holds.
+  const was = `/Producer (jsPDF ${window.jspdf.jsPDF.version})`, raw = doc.output().replace(was, '/Producer (Dendra)'.padEnd(was.length));
+  return new Blob([Uint8Array.from(raw, c => c.charCodeAt(0))], { type: 'application/pdf' });
 }
 
 // ---- PowerPoint ----
 
 const PRESET = { rect: 'rect', rounded: 'roundRect', oval: 'ellipse', triangle: 'triangle', diamond: 'diamond', hexagon: 'hexagon', octagon: 'octagon',
   parallelogram: 'parallelogram', trapezoid: 'trapezoid', pentagon: 'pentagon', chevron: 'chevron', arrow: 'rightArrow', cylinder: 'can' };
-// Where each preset sets its text, as [left, top, right, bottom] in a w × h shape whose shorter side is s:
-// presetShapeDefinitions.xml's formulas, checked against PowerPoint's own.
-const sides = (w, h, i) => [i, i, w - i, h - i];
-const TEXT_RECT = {
-  rect: (w, h) => [0, 0, w, h],
-  rounded: (w, h, s) => sides(w, h, s * 0.0488155),
-  oval: (w, h) => [w * 0.14645, h * 0.14645, w * 0.85355, h * 0.85355],
-  triangle: (w, h) => [w / 4, h / 2, w * 3 / 4, h],
-  diamond: (w, h) => [w / 4, h / 4, w * 3 / 4, h * 3 / 4],
-  hexagon: (w, h, s) => { const q = (2 + 2 * s / w) / 24; return [w * q, h * q, w - w * q, h - h * q]; },
-  octagon: (w, h, s) => sides(w, h, s * 0.146445),
-  parallelogram: (w, h, s) => { const q = (1 + 1.25 * s / w) / 12; return [w * q, h * q, w - w * q, h - h * q]; },
-  trapezoid: (w, h, s) => [s / 6, h * s / (6 * w), w - s / 6, h],
-  pentagon: (w, h) => [w * 0.19098, h * 0.23607, w * 0.80902, h],
-  chevron: (w, h) => w > h ? [h / 2, 0, w - h / 2, h] : [0, 0, w, h],
-  arrow: (w, h, s) => [0, h / 4, w - s / 4, h * 3 / 4],
-  cylinder: (w, h, s) => [0, s / 4, w, h - s / 8],
-};
 // Each preset's connection sites facing up, left, down and right, as PowerPoint numbers them; where a side
 // has two, the first is the nearer its start.
 const SITES = { rect: [0, 1, 2, 3], rounded: [0, 1, 2, 3], diamond: [0, 1, 2, 3], oval: [0, 2, 4, 6], triangle: [0, 1, 3, 5],
   hexagon: [[4, 5], 3, [2, 1], 0], octagon: [[6, 7], [5, 4], [3, 2], [0, 1]], parallelogram: [0, 5, 4, 2], trapezoid: [0, 1, 2, 3],
   pentagon: [0, 1, 3, 5], chevron: [0, 1, 2, 3], arrow: [0, 1, 2, 3], cylinder: [1, 2, 3, 4] };
 const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot' };
-// The page's own texts, by the names PowerPoint's Selection Pane gives them (the title's until it's made the
-// slide's title placeholder); any other shape, as a box is, by what it says.
-const ROLE = { title: '·title·', date: 'Date' };
-// How much wider or narrower than the scene measures it PowerPoint may set a line, and more: within 1%, in
-// PowerPoint, of Arial from 6.5 to 20 pt, kerned as the scene's are.
-const SLACK = 1.015;
-// The widths PowerPoint can wrap a text at and break it into the scene's lines: from its widest line to the
-// narrowest that would take in more of the next, PowerPoint breaking after a hyphen too where the scene breaks
-// only at spaces, and never at the no-break space that keeps a suffix to its name. The width wanted, kept
-// inside that range clear of its ends by the slack; null if the range is too narrow for that, or the scene
-// broke a text where PowerPoint wouldn't, when the scene's breaks are written as line breaks.
-function wrapAt(items, want) {
-  let lo = 0, hi = Infinity;
-  for (const it of items) {
-    const left = [...it.lines];
-    for (const para of Scene.bind(it.text).split('\n')) {
-      const ls = [], whole = para.split(/ +/).join(' ');
-      let said = null;
-      while (left.length && said !== whole) { const l = left.shift(); ls.push(l); said = said === null ? l.text : `${said} ${l.text}`; }
-      if (said !== whole) return null;
-      ls.forEach((l, i) => {
-        lo = Math.max(lo, l.w);
-        if (i < ls.length - 1) hi = Math.min(hi, Scene.measure(`${l.text} ${/^[^ \-–—]*[\-–—]?/.exec(ls[i + 1].text)[0]}`, it.look));
-      });
-    }
-  }
-  return lo * SLACK > hi / SLACK ? null : Math.min(Math.max(want, lo * SLACK), hi / SLACK);
-}
+const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
+// The page's own texts, by the names PowerPoint's Selection Pane gives them; any other shape, as a box is, by
+// what it says.
+const ROLE = { title: 'Title', date: 'Date' };
 // Of a line's arrowheads, those a piece of it has: its start's on its first, its end's on its last.
 const arrowOf = (a, first, last) => {
   const st = first && (a === 'start' || a === 'both'), en = last && (a === 'end' || a === 'both');
   return st && en ? 'both' : st ? 'start' : en ? 'end' : 'none';
 };
+const E = v => Math.round(v * 914400);                 // inches as EMU
 
-// A deck: a slide for each scene, each finished in its XML where PptxGenJS can't write it (see slide). The
-// slides' layout is PowerPoint's Title Only, its title where the first slide's is and in its look, and the
-// file's properties are what PowerPoint would write: no subject, and the fonts and titles the slides hold.
-async function pptx(scenes, title, author) {
+// A deck: a slide for each scene, each written in its XML where PptxGenJS can't write it as PowerPoint does
+// (see slide). The slides' layout is PowerPoint's Title Only, its title where the first slide's is and in its
+// look, and the file's properties are what PowerPoint would write: no subject, and the fonts and titles the
+// slides hold. `say` names a line's relation.
+async function pptx(scenes, title, author, say) {
   await LIBS.pptx();
   const p = new PptxGenJS();
   // One size for every slide, the smallest that holds every sheet.
@@ -208,13 +178,13 @@ async function pptx(scenes, title, author) {
   p.layout = 'Dendra';
   p.theme = { headFontFace: 'Arial', bodyFontFace: 'Arial' };
   Object.assign(p, { title, subject: '', author, company: '' });
-  const finish = scenes.map(s => { const k = fit(s.page); return slide(p, s, { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }); });
+  const finish = scenes.map(s => { const k = fit(s.page); return slide(p, s, { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }, say); });
   const zip = await JSZip.loadAsync(await p.write({ outputType: 'arraybuffer' }));
   const edit = async (f, change) => zip.file(f, change(await zip.file(f).async('string')));
   const slides = await Promise.all(finish.map((done, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(done)));
   slides.forEach((x, i) => zip.file(`ppt/slides/slide${i + 1}.xml`, x));
-  // Type kerned at every size, as the scene measures it, so a line the scene fits fits: PowerPoint's own
-  // default kerns only from 12 pt.
+  // Type kerned at every size, as the scene measures it, so each line is as wide as the scene sets it:
+  // PowerPoint's own default kerns only from 12 pt.
   for (const f of ['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml']) await edit(f, x => x.replaceAll('kern="1200"', 'kern="100"'));
   const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean);
   await edit('ppt/slideLayouts/slideLayout1.xml', x => x.replace('<p:cSld name="DEFAULT">', `<p:cSld name="${first ? 'Title Only' : 'Blank'}">`)
@@ -223,7 +193,7 @@ async function pptx(scenes, title, author) {
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
 }
 // A slide's title, in its title placeholder.
-const TITLE = /<p:sp><p:nvSpPr><p:cNvPr id="\d+" name="Title"><\/p:cNvPr><p:cNvSpPr\/><p:nvPr><p:ph type="title"\/>[\s\S]*?<\/p:sp>/;
+const TITLE = /<p:sp><p:nvSpPr><p:cNvPr id="\d+" name="Title"\/><p:cNvSpPr><a:spLocks noGrp="1"\/><\/p:cNvSpPr><p:nvPr><p:ph type="title"\/>[\s\S]*?<\/p:sp>/;
 // A layout's title placeholder made from a slide's title: in its place, its first paragraph's look its style,
 // holding PowerPoint's prompt.
 function layoutTitle(sp) {
@@ -246,68 +216,95 @@ function properties(app, slides, titles, format) {
       `<vt:variant><vt:i4>${l.length}</vt:i4></vt:variant>`]))}</HeadingPairs><TitlesOfParts>${vector('lpstr', parts.flatMap(([, l]) => l.map(t => `<vt:lpstr>${t}</vt:lpstr>`)))}</TitlesOfParts>`);
 }
 
+// A text's lines by the line each was typed on: as many of them as hold what was typed there, letter for letter.
+function typed(it) {
+  const ink = s => s.replace(/\s/g, '').length, left = [...it.lines], out = [];
+  for (const line of String(it.text).split('\n')) {
+    const ls = [];
+    for (let need = ink(line); left.length && (need > 0 || (!ls.length && !ink(left[0].text)));) {
+      const l = left.shift();
+      ls.push(l);
+      need -= ink(l.cut ? l.text.slice(0, -1) : l.text);
+    }
+    if (ls.length) out.push(ls);
+  }
+  if (left.length) (out.at(-1) ?? out[out.push([]) - 1]).push(...left);
+  return out;
+}
+// Texts as PowerPoint holds them, in a shape anchored at `anchor`: each line where the scene breaks it, so that
+// PowerPoint never wraps it again; in its look at its size on the slide (k times its page's, and at least 1 pt,
+// the least PowerPoint opens), its lines as far apart as the scene sets them; a paragraph for each line it was
+// typed on; its spaces plain, as typed, so that PowerPoint's Find finds them. Its margins are `inset` inches
+// all round, or PowerPoint's own where that's null.
+function txBody(items, k, anchor, inset) {
+  const ps = items.flatMap(it => {
+    const t = it.look, sz = Math.max(100, Math.round(t.Size * k * 100)), font = esc(t.Font);
+    const rPr = `<a:rPr lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''} dirty="0">`
+      + `<a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
+    return typed(it).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * k * 100)}"/></a:lnSpc></a:pPr>`
+      + ls.map(l => `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`) + `<a:endParaRPr lang="en-US" sz="${sz}" dirty="0"/></a:p>`);
+  });
+  const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(inset)}"`).join('');
+  return `<p:txBody><a:bodyPr${ps.length ? ' wrap="none"' : ''}${margins} rtlCol="0" anchor="${anchor}"/><a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
+}
+const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
+const paint = c => none(c) ? '<a:noFill/>' : `<a:solidFill><a:srgbClr val="${hex(c)}"/></a:solidFill>`;
+// An outline at its weight on the slide (k times its page's), and its arrowheads.
+const ln = (s, k, heads = '') => none(s.Outline) ? '<a:ln><a:noFill/></a:ln>'
+  : `<a:ln w="${Math.round(s.Weight * k * 12700)}" cap="${s.Dash === 'dotted' ? 'rnd' : 'flat'}">${paint(s.Outline)}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/><a:miter lim="800000"/>${heads}</a:ln>`;
+// A path through points q, in EMU within w × h.
+const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${w}" h="${h}" fill="none">`
+  + q.map(([x, y], i) => `<a:${i ? 'lnTo' : 'moveTo'}><a:pt x="${x}" y="${y}"/></a:${i ? 'lnTo' : 'moveTo'}>`).join('') + '</a:path></a:pathLst></a:custGeom>';
+// A shape as PowerPoint writes one, in r (inches on the slide): of a preset geometry, or a path through points
+// (inches within r); a text box (`box`), or the slide's title placeholder (`title`); holding `body`.
+function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = {}) {
+  const nv = title ? '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr>' : `<p:cNvSpPr${box ? ' txBox="1"' : ''}/><p:nvPr/>`;
+  const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}"><a:avLst/></a:prstGeom>`;
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${esc(name)}"/>${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill)}${'Outline' in s ? ln(s, k) : ''}</p:spPr>${body}</p:sp>`;
+}
+
 // One scene on a slide, its page drawn on its sheet `k` times its size from (ox, oy): every mark in the
-// scene's order. → what finishes the slide's XML once the deck is written, when every shape has its number
-// (PptxGenJS numbers a slide's shapes in the order they're added, from 2): each line's stand-in replaced by
-// its connector, glued to the shapes it joins so that it follows them when they're moved; what's drawn
-// between a group's two stand-ins grouped, as a line and its label are and the Key is, so they move as one;
-// and the title made the slide's title placeholder, as PowerPoint's Outline and Accessibility Checker read it.
-function slide(p, scene, { k, ox, oy }) {
-  const sl = p.addSlide(), lines = [], groups = [], ids = new Map();
+// scene's order, written as PowerPoint writes it. A box's text keeps the scene's lines (see txBody), inset as
+// the scene insets it, PowerPoint's own 0.1 in at the chart's scale, all round, as every text of the chart is;
+// the page's own shapes (its title, date, Key and free shapes) have PowerPoint's own margins, as the scene sets
+// them. A text on its own is a text box placed so that its lines fall where the scene sets them. A line is a
+// connector glued to the shapes it joins, so that it follows them when they're moved; what moves as one is
+// grouped: a line and its label, a frame and its caption, the Key. `say` names a line's relation. → what
+// finishes the slide's XML once the deck is written, when every shape has its number (PptxGenJS numbers a
+// slide's shapes in the order they're added, from 2): each stand-in replaced by what it stands for.
+function slide(p, scene, { k, ox, oy }, say) {
+  const sl = p.addSlide(), parts = [], ids = new Map();
   let count = 0;
-  const X = x => (ox + x * k) / 96, Y = y => (oy + y * k) / 96, L = v => v * k / 96, P = px => px * 0.75 * k;
+  const X = x => (ox + x * k) / 96, Y = y => (oy + y * k) / 96, L = v => v * k / 96, rect = m => ({ x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h) });
+  const CHART = 0.1 * k, PAGE = null;
   const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
-  const stand = name => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: name });
-  const fill = c => none(c) ? { type: 'none' } : { color: hex(c) };
-  const line = (s, w = s.Weight) => none(s.Outline) ? { type: 'none' } : { color: hex(s.Outline), width: w * k, dashType: DASH[s.Dash] ?? 'solid' };
-  // A text's column in PowerPoint: the scene's, about the side its lines align to, as wide as wrapAt says;
-  // `hug` makes it as narrow as it can be. A text the scene hyphenated is written line by line.
-  const column = (items, col, hug) => {
-    const cut = items.some(it => it.lines.some(l => l.cut));
-    const w = cut ? null : wrapAt(items, hug ? 0 : col.width), width = w ?? Math.max(...items.flatMap(it => it.lines.map(l => l.w))) * SLACK, a = items[0].look.Align;
-    return { x: a === 'left' ? col.x : a === 'right' ? col.x + col.width - width : col.x + (col.width - width) / 2, width, broken: w === null };
-  };
-  // Texts as paragraphs: one for each record's text (and each line it was typed on), in its own look, its
-  // lines as far apart as the scene sets them; or each of its lines, where they're `broken`.
-  const paragraphs = (items, broken) => items.flatMap(it => {
-    const o = { fontFace: it.look.Font, fontSize: it.look.Size * k, bold: !!it.look.Bold, italic: !!it.look.Italic, ...(it.look.Underline && { underline: { style: 'sng' } }),
-      color: hex(it.look.Color), align: it.look.Align, lineSpacing: it.look.Size * 1.2 * k };
-    return broken ? it.lines.map((l, i) => ({ text: l.text, options: { ...o, softBreakBefore: i > 0, breakLine: i === it.lines.length - 1 } }))
-      : Scene.bind(it.text).split('\n').map(text => ({ text, options: { ...o, breakLine: true } }));
-  }).map((r, i, all) => i < all.length - 1 ? r : { ...r, options: { ...r.options, breakLine: false } });
-  // A shape's text, set where the scene sets it: insets that make PowerPoint's text area its column, its
-  // lines anchored as the scene anchors them (at the foot of a triangle, at the top of a text box). A text box
-  // nobody sized doesn't wrap, as it doesn't on the chart.
-  const shape = (m, geometry, s, items, col, anchor, name, hug) => {
-    const text = items.length ? { ...column(items, col, hug), ...block(items) } : null;
-    const [l, t, r, b] = (TEXT_RECT[geometry] ?? TEXT_RECT.rect)(m.w, m.h, Math.min(m.w, m.h)), d = text && text.top + text.bottom - t - b;
-    const [above, below] = !text ? [0, 0] : anchor === 'top' ? [text.top - t, 0] : anchor === 'bottom' ? [0, b - text.bottom] : [Math.max(0, d), Math.max(0, -d)];
-    return add('addText', text ? paragraphs(items, text.broken) : '', {
-      shape: PRESET[geometry] ?? 'rect', x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), fill: fill(s.Fill), line: line(s), valign: anchor, wrap: !m.auto,
-      margin: text ? [P(text.x - l), P(r - text.x - text.width), P(below), P(above)] : 0, ...(name && { objectName: name }) });
-  };
-  // Text alone, its column from x: a line's label, a legend's caption. → its rect on the slide, in inches.
-  const label = (items, x, y, width, name = items[0].text) => {
-    const f = column(items, { x, width }, true), { top: y0, bottom: y1 } = block(items), r = { x: X(f.x), y: Y(y + y0), w: L(f.width), h: L(y1 - y0) };
-    add('addText', paragraphs(items, f.broken), { ...r, margin: 0, valign: 'top', wrap: true, objectName: name });
+  // A stand-in for what `write` writes once it has its number. → that number.
+  const put = write => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${parts.push(write) - 1}·` });
+  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title } = {}) =>
+    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset), { box, title }));
+  // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
+  // their first line's top, its margins round them. → its rect.
+  const textBox = (items, x0, y0, inset) => {
+    const first = items[0], w = Math.max(...items.flatMap(it => it.lines.map(l => l.w))), { top, bottom } = block(items), [mx, my] = inset === PAGE ? [0.1, 0.05] : [inset, inset];
+    const r = { x: X(x0 + first.lines[0].x - w * (BEFORE[first.look.Align] ?? 0.5)) - mx, y: Y(y0 + top) - my, w: L(w) + 2 * mx, h: L(bottom - top) + 2 * my };
+    shape(r, 'rect', { Fill: 'none' }, first.text, { items, anchor: 't', inset, box: true });
     return r;
   };
   // What `draw` adds, as one group named `name`, framed round the rects `draw` gives back.
-  const group = (name, draw) => { const j = groups.length; groups.push({ name }); stand(`·group·${j}`); groups[j].rects = draw(); stand(`·end·${j}`); };
-  // A line, and with `text` its label: the two grouped, named as the line is. A line broken where another
-  // crosses it is its pieces, grouped: the first glued where it starts, the last where it ends.
-  const connector = (points, s, ends, name, text, runs = [points]) => {
+  const group = (name, draw) => { let rects; put(id => grouped(id, name, rects)); rects = draw(); put(() => '</p:grpSp>'); };
+  // A line, and with `label` ([its texts, where they're placed from]) its label: the two grouped, named as the
+  // line is. A line broken where another crosses it is its pieces, grouped: the first glued where it starts,
+  // the last where it ends.
+  const connector = (points, s, ends, name, label, runs = [points]) => {
     const draw = () => {
-      const j = lines.length;
-      lines.push(id => {
+      put(id => {
         const glued = ends?.map((b, i) => glue(scene.byId.get(b), points, i)) ?? [];
-        return runs.map((r, i) => cxn(i ? 200000 + j * 100 + i : id, name, r, { ...s, Arrow: arrowOf(s.Arrow, i === 0, i === runs.length - 1) },
+        return runs.map((r, i) => cxn(i ? 200000 + id * 100 + i : id, name, r, { ...s, Arrow: arrowOf(s.Arrow, i === 0, i === runs.length - 1) },
           [i === 0 ? glued[0] : null, i === runs.length - 1 ? glued[1] : null], { X, Y, k })).join('');
       });
-      stand(`·line·${j}`);
-      return runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })).concat(text ? [label(text.items, text.x, text.y, 200)] : []);
+      return [...runs.flat().map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
     };
-    if (text || runs.length > 1) group(name, draw); else draw();
+    if (label || runs.length > 1) group(name, draw); else draw();
   };
   // The site a line's end is glued to: on the side it leaves or arrives by, the nearer if there are two.
   const glue = (b, ps, end) => {
@@ -321,47 +318,49 @@ function slide(p, scene, { k, ox, oy }) {
 
   for (const m of scene.marks) {
     const s = look(m);
-    if (m.type === 'box') ids.set(m.id, shape(m, m.shape, s, m.texts, m.column, m.shape === 'triangle' ? 'bottom' : 'middle', m.texts[0]?.text));
-    else if (m.type === 'line') connector(m.points, s, [m.from, m.to], m.texts[0]?.text, m.labelAt && m.texts.length ? { items: m.texts, x: m.labelAt.x, y: m.labelAt.y } : null, m.runs);
+    if (m.type === 'box') ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : 'ctr', inset: CHART }));
+    else if (m.type === 'line') connector(m.points, s, [m.from, m.to], say(m.record) ?? m.texts[0]?.text ?? 'Line', m.labelAt && m.texts.length ? [m.texts, m.labelAt] : null, m.runs);
     else if (m.type === 'frame') {
-      const dash = frameDash(m.kind), outline = { Outline: m.lone ? 'none' : FRAME.stroke, Weight: s.Weight, Dash: dash, Fill: 'none' };
-      if (m.kind === 'bracket') add('addText', paragraphs([m.caption]), { shape: 'custGeom', x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), line: line(outline),
-        points: [[0.5, m.h], [0.5, m.h - 5], [m.w - 0.5, m.h - 5], [m.w - 0.5, m.h]].map(([x, y]) => ({ x: L(x), y: L(y) })),
-        margin: 0, valign: 'top', wrap: false, objectName: m.caption.text });
-      else shape(m, 'rect', outline, [m.caption], { x: m.lone ? 0 : 6, width: 400 }, 'top', m.caption.text, true);
+      // Its outline, a rectangle or a bracket, and its caption; round one box alone, its caption alone.
+      const caption = () => textBox([m.caption], m.x, m.y, CHART);
+      if (m.lone) caption();
+      else group(m.caption.text, () => {
+        const outline = { Outline: FRAME.stroke, Weight: s.Weight, Dash: frameDash(m.kind), Fill: 'none' };
+        shape(rect(m), m.kind === 'bracket' ? [[0.5, m.h], [0.5, m.h - 5], [m.w - 0.5, m.h - 5], [m.w - 0.5, m.h]].map(([x, y]) => [L(x), L(y)]) : 'rect', outline, m.caption.text);
+        return [rect(m), caption()];
+      });
     } else if (m.geometry === 'line') connector(m.points, s, m.ends ?? null, 'Line');
     else if (m.geometry === 'picture') {
       if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) } });
-      if (s.Outline !== '#000000') shape(m, 'rect', { ...s, Fill: 'none' }, [], null);
+      if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture');
     } else if (m.geometry === 'legend') group(m.title || 'Legend', () => {
-      shape(m, 'rect', { ...s, Dash: 'solid' }, m.texts, { x: m.texts[0]?.lines[0]?.x ?? 12, width: m.w - 2 * (m.texts[0]?.lines[0]?.x ?? 12) }, 'top', m.title || 'Legend');
+      shape(rect(m), 'rect', { ...s, Dash: 'solid' }, m.title || 'Legend');
+      if (m.texts.length) textBox(m.texts, m.x, m.y, PAGE);
       // Each row a swatch and its caption, both named as the row is.
       for (const r of m.rows) {
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h }, name = r.caption.text;
         if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, name);
-        else if (sw.kind === 'frame') shape(box, 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }, [], null, 'middle', name);
-        else shape(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box, sw.Shape ?? 'rect', sw, [], null, 'middle', name);
-        label([r.caption], m.x + r.caption.column.x, m.y, r.caption.column.width);
+        else if (sw.kind === 'frame') shape(rect(box), 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }, name);
+        else shape(rect(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box), sw.Shape ?? 'rect', sw, name);
+        textBox([r.caption], m.x, m.y, PAGE);
       }
-      return [{ x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h) }];
+      return [rect(m)];
     });
     else if (m.geometry !== 'group') {
-      const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
-      shape(m, geometry, s, m.texts, m.column, m.geometry === 'text' || m.geometry === 'frame' ? 'top' : 'middle', ROLE[m.role] ?? m.texts[0]?.text);
+      const text = m.geometry === 'text' || m.geometry === 'frame';
+      shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.texts[0]?.text ?? 'Shape',
+        { items: m.texts, anchor: text ? 't' : 'ctr', box: m.geometry === 'text', title: m.role === 'title' });
     }
   }
-  return xml => xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·line·(\d+)">[\s\S]*?<\/p:sp>/g, (_, id, j) => lines[j](+id))
-    .replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·group·(\d+)">[\s\S]*?<\/p:sp>([\s\S]*?)<p:sp><p:nvSpPr><p:cNvPr id="\d+" name="·end·\2">[\s\S]*?<\/p:sp>/g,
-      (_, id, j, inner) => grouped(+id, groups[j].name, inner, groups[j].rects))
-    .replace(/(<p:cNvPr id="\d+" name=)"·title·"(><\/p:cNvPr><p:cNvSpPr\/><p:nvPr>)/, '$1"Title"$2<p:ph type="title"/>');
+  return xml => xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·(\d+)·">[\s\S]*?<\/p:sp>/g, (_, id, j) => parts[j](+id));
 }
 
-// Shapes' XML as one PowerPoint group, framed round them all (rects in inches on the slide).
-function grouped(id, name, inner, rects) {
-  const E = v => Math.round(v * 914400), x = E(Math.min(...rects.map(r => r.x))), y = E(Math.min(...rects.map(r => r.y)));
+// The start of a PowerPoint group, framed round rects (in inches on the slide).
+function grouped(id, name, rects) {
+  const x = E(Math.min(...rects.map(r => r.x))), y = E(Math.min(...rects.map(r => r.y)));
   const w = E(Math.max(...rects.map(r => r.x + r.w))) - x, h = E(Math.max(...rects.map(r => r.y + r.h))) - y;
   return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="${esc(name || 'Line')}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
-    + `<p:grpSpPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/><a:chOff x="${x}" y="${y}"/><a:chExt cx="${w}" cy="${h}"/></a:xfrm></p:grpSpPr>${inner}</p:grpSp>`;
+    + `<p:grpSpPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/><a:chOff x="${x}" y="${y}"/><a:chExt cx="${w}" cy="${h}"/></a:xfrm></p:grpSpPr>`;
 }
 
 // A route as PowerPoint's connector: straight, or an elbow of one to four legs (bentConnector3 for one or
@@ -369,18 +368,15 @@ function grouped(id, name, inner, rects) {
 // moved; a route no connector draws is a freeform. An elbow whose first leg is upright is one whose first leg
 // runs across, turned a quarter.
 function cxn(id, name, ps, s, ends, { X, Y, k }) {
-  const E = ([x, y]) => [Math.round(X(x) * 914400), Math.round(Y(y) * 914400)], q = ps.map(E);
+  const q = ps.map(([x, y]) => [E(X(x)), E(Y(y))]);
   const [x0, y0] = q[0], [x1, y1] = q.at(-1), dx = x1 - x0, dy = y1 - y0, legs = q.length - 1;
   const elbow = s.Connector === 'elbow' && (legs > 1 || !dx || !dy), upright = legs > 1 ? q[1][0] === x0 : elbow && !dx;
   const square = legs === 1 || q.slice(1).every((p, i) => (i % 2 === 0) === upright ? p[0] === q[i][0] : p[1] === q[i][1]);
-  const ln = none(s.Outline) ? '<a:ln><a:noFill/></a:ln>' : `<a:ln w="${Math.round(s.Weight * k * 12700)}" cap="${s.Dash === 'dotted' ? 'rnd' : 'flat'}"><a:solidFill><a:srgbClr val="${hex(s.Outline)}"/></a:solidFill>`
-    + `<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/><a:miter lim="800000"/>${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}</a:ln>`;
+  const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}`);
   const nv = (tag, inner) => `<p:nv${tag}Pr><p:cNvPr id="${id}" name="${esc(name || 'Line')}"/><p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
   if (legs > 4 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
     const x = Math.min(...q.map(p => p[0])), y = Math.min(...q.map(p => p[1])), w = Math.max(...q.map(p => p[0])) - x, h = Math.max(...q.map(p => p[1])) - y;
-    const pt = ([px, py]) => `<a:pt x="${px - x}" y="${py - y}"/>`;
-    return `<p:sp>${nv('Sp', '')}<p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/>`
-      + `<a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${w}" h="${h}" fill="none"><a:moveTo>${pt(q[0])}</a:moveTo>${q.slice(1).map(p => `<a:lnTo>${pt(p)}</a:lnTo>`).join('')}</a:path></a:pathLst></a:custGeom><a:noFill/>${ln}</p:spPr></p:sp>`;
+    return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${line}</p:spPr></p:sp>`;
   }
   const W = Math.abs(upright ? dy : dx), H = Math.abs(upright ? dx : dy);
   const flipH = upright ? dy < 0 : dx < 0, flipV = upright ? dx > 0 : dy < 0;
@@ -390,49 +386,61 @@ function cxn(id, name, ps, s, ends, { X, Y, k }) {
   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   const glue = (tag, e) => e ? `<a:${tag} id="${e.id}" idx="${e.idx}"/>` : '';
   return `<p:cxnSp>${nv('CxnSp', glue('stCxn', ends?.[0]) + glue('endCxn', ends?.[1]))}<p:spPr>`
-    + `<a:xfrm${upright ? ' rot="5400000"' : ''}${flipH ? ' flipH="1"' : ''}${flipV ? ' flipV="1"' : ''}><a:off x="${Math.round(cx - W / 2)}" y="${Math.round(cy - H / 2)}"/><a:ext cx="${W}" cy="${H}"/></a:xfrm>`
-    + `<a:prstGeom prst="${prst}"><a:avLst>${adj.map((a, i) => `<a:gd name="adj${i + 1}" fmla="val ${Math.round(a * 100000)}"/>`).join('')}</a:avLst></a:prstGeom>${ln}</p:spPr></p:cxnSp>`;
+    + xfrm(Math.round(cx - W / 2), Math.round(cy - H / 2), W, H, `${upright ? ' rot="5400000"' : ''}${flipH ? ' flipH="1"' : ''}${flipV ? ' flipV="1"' : ''}`)
+    + `<a:prstGeom prst="${prst}"><a:avLst>${adj.map((a, i) => `<a:gd name="adj${i + 1}" fmla="val ${Math.round(a * 100000)}"/>`).join('')}</a:avLst></a:prstGeom>${line}</p:spPr></p:cxnSp>`;
 }
 
 // ---- Writing a file ----
 
 const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Chart';
-async function write(format, scenes, name, author = '') {
-  const blob = format === 'pdf' ? await pdf(scenes, name) : await pptx(scenes, name, author);
+async function write(format, scenes, name, { author = '', R = null, N = null } = {}) {
+  const blob = format === 'pdf' ? await pdf(scenes, name) : await pptx(scenes, name, author, rel => R && N ? sentence(R.records, N, rel) : null);
   save(blob, `${fileName(name)}.${format}`);
   return blob;
 }
 
+// ---- The chart's words ----
+
+// A text with an address in it, which ends what it's in (a name, or a part of a ground), said by its file's name.
+const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
+// A relation as the two-box panel says it, in the formula bar's words where they're to be had, and each side
+// once: Margaret A. Chen signs for Fund III, via GP III; but Margaret A. Chen signs for the Manager, not via it
+// as well. A side named by a number is a period of the other, not a party to it, and such a relation is said as
+// the place rule says it: Fund III, tax year 2026. → null for a relation of fewer than two sides.
+function sentence(st, N, rel) {
+  const r = st[rel], sides = r?.args ? N.sides(st, rel).filter(Boolean) : [];
+  if (sides.length < 2) return null;
+  const at = Object.fromEntries(sides.map(x => [x.edge, Tree.objectOf(st, x.at)])), [a, b, ...rest] = sides.map(x => x.edge);
+  if ([b, ...rest].some(e => /^\d+$/.test(N.shortOf(st, at[e])))) return plain(N.segmentOf(st, rel));
+  const short = x => plain(N.shortOf(st, x)), term = x => short(x) !== plain(N.nameOf(st, x)) ? short(x).replace(/^The /, 'the ') : short(x);
+  const lower = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
+  const t = Tree.treeOf(st, rel), role = r.choice ?? a, [p, words, q] = (t && typeof FormulaBar !== 'undefined' && FormulaBar.phrase?.(t, a, b, { choice: r.choice, not: r.tag === false }))
+    || [a, ` is ${r.tag === false ? 'not ' : ''}${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${lower(role)} of `, b];
+  const said = new Set([at[p], at[q]]), more = rest.filter(e => !said.has(at[e]) && said.add(at[e]));
+  return `${short(at[p])}${words}${term(at[q])}${more.map(e => `, ${lower(e)} ${term(at[e])}`).join('')}`;
+}
+
 // ---- The calendar ----
 
-// Every date in the chart as worked out, in order: its day, what it's the date of, whose, and why it falls
-// where it does, the ground on one line. An address, which ends what it's in (a name, or a part of the
-// ground), is given by its file's name alone.
-function dates(R, N) {
+// The chart's dates from `from` on, as worked out, in order: each its day, what falls due, whose, and why it
+// falls where it does, the ground on one line. Whose: an object by its name in full; a relation by its side's
+// where it has one, else as the two-box panel says it (see sentence); and, where two would read alike, the way
+// down to the date as well.
+function dates(R, N, from = '') {
   const st = R.records;
-  const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
-  // A relation as the two-box panel says it, in the formula bar's words, and each side once: Margaret A.
-  // Chen signs for Fund III, via GP III; but Margaret A. Chen signs for the Manager, not via it as well.
-  const short = x => plain(N.shortOf(st, x)), term = x => short(x) !== plain(N.nameOf(st, x)) ? short(x).replace(/^The /, 'the ') : short(x);
-  const sentence = (rel, sides) => {
-    const r = st[rel], t = Tree.treeOf(st, rel), at = Object.fromEntries(sides.map(x => [x.edge, Tree.objectOf(st, x.at)])), [a, b, ...rest] = sides.map(x => x.edge);
-    const role = r.choice ?? a, [p, words, q] = (t && typeof FormulaBar !== 'undefined' && FormulaBar.phrase?.(t, a, b, { choice: r.choice, not: r.tag === false }))
-      || [a, ` is ${r.tag === false ? 'not ' : ''}${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${role.toLowerCase()} of `, b];
-    const said = new Set([at[p], at[q]]), more = rest.filter(e => !said.has(at[e]) && said.add(at[e]));
-    return `${short(at[p])}${words}${term(at[q])}${more.map(e => `, ${e.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase())} ${term(at[e])}`).join('')}`;
-  };
-  return Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value)).sort((a, b) => a[1].value < b[1].value ? -1 : 1).map(([id, r]) => {
-    // What it's the date of, then whose: Formation Date · Calder Ridge Capital Partners III, L.P.; Start Date ·
-    // Margaret A. Chen signs for the Manager. A relation of one side is that side's, by name.
-    const path = Tree.pathOf(st, id), sides = Tree.isObject(st[path[0]]) ? [] : N.sides(st, path[0]).filter(Boolean);
-    let what = path.slice(1).map(x => N.segmentOf(st, x)).join(' › ');
-    if (sides.length === 1 && !Tree.norm(what).includes(Tree.norm(N.nameOf(st, path[0])))) what = `${N.nameOf(st, path[0])} ${what}`;
-    const whose = sides.length > 1 ? sentence(path[0], sides) : plain(N.nameOf(st, Tree.objectOf(st, sides[0]?.at ?? path[0])));
-    return { id, day: r.value, what, whose, why: r.computed ? plain(Formulas.groundText(R, id)) : '' };
-  });
+  const all = Object.entries(st).filter(([, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value) && r.value >= from)
+    .sort((a, b) => a[1].value.localeCompare(b[1].value)).map(([id, r]) => {
+      const path = Tree.pathOf(st, id), head = path[0], sides = Tree.isObject(st[head]) ? [] : N.sides(st, head).filter(Boolean);
+      const whose = sides.length > 1 ? sentence(st, N, head) : plain(N.nameOf(st, Tree.objectOf(st, sides[0]?.at ?? head)));
+      const way = path.slice(sides.length === 1 ? 0 : 1, -1).map(x => x === head ? N.nameOf(st, x) : N.segmentOf(st, x));
+      return { id, day: r.value, what: r.edge, whose, way, why: r.computed ? plain(Formulas.groundText(R, id)) : '' };
+    });
+  const alike = new Map();
+  for (const e of all) alike.set(`${e.what}|${e.whose}`, (alike.get(`${e.what}|${e.whose}`) ?? 0) + 1);
+  return all.map(({ way, ...e }) => alike.get(`${e.what}|${e.whose}`) > 1 ? { ...e, whose: [e.whose, ...way].join(' › ') } : e);
 }
-// The dates as one all-day event each, for Outlook.
-function calendar(R, N, chart, name, stamp = new Date()) {
+// The dates from `from` on, as one all-day event each, for Outlook, titled by what falls due, then whose.
+function calendar(R, N, chart, name, from = Log.today()) {
   const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
   // Lines of at most 75 octets, each continued after a space.
   const utf8 = new TextEncoder(), fold = line => {
@@ -445,9 +453,9 @@ function calendar(R, N, chart, name, stamp = new Date()) {
     return out;
   };
   const day = iso => iso.replace(/-/g, ''), next = iso => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return day(d.toISOString().slice(0, 10)); };
-  const now = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-  const events = dates(R, N).map(e => ['BEGIN:VEVENT', `UID:${chart}.${e.id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(e.day)}`, `DTEND;VALUE=DATE:${next(e.day)}`,
-    `SUMMARY:${text(`${e.what} · ${e.whose}`)}`, ...(e.why ? [`DESCRIPTION:${text(e.why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT']);
+  const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const events = dates(R, N, from).map(e => ['BEGIN:VEVENT', `UID:${chart}.${e.id}@dendra`, `DTSTAMP:${now}`, `DTSTART;VALUE=DATE:${day(e.day)}`, `DTEND;VALUE=DATE:${next(e.day)}`,
+    `SUMMARY:${text(`${e.what}: ${e.whose}`)}`, ...(e.why ? [`DESCRIPTION:${text(e.why)}`] : []), 'TRANSP:TRANSPARENT', 'END:VEVENT']);
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Dendra//Dendra//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${text(name)}`, ...events.flat(), 'END:VCALENDAR'];
   const blob = new Blob([ics.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar' });
   save(blob, `${fileName(name)}.ics`);
@@ -479,10 +487,10 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   };
   // The calendar's dates, by year, as the date's popover lists the chart's days.
   const Dates = () => {
-    const all = useMemo(() => dates(App.computed.peek(), App.notes.peek()), []), years = [...new Set(all.map(e => e.day.slice(0, 4)))];
+    const all = useMemo(() => dates(App.computed.peek(), App.notes.peek(), App.day.peek()), []), years = [...new Set(all.map(e => e.day.slice(0, 4)))];
     return html`<div class="date-days" style="max-height: none; background: var(--surface); box-shadow: 0 0 0 1px var(--rule-2)">${years.map(y => html`<div class="yr">${y}</div>
       ${all.filter(e => e.day.startsWith(y)).map(e => html`<div class="dayrow"><span class="d">${Tree.formatDate(e.day, 'short').replace(/, \d{4}$/, '')}</span>
-        <span class="w"><span class="it"><b>${e.what}</b> · ${e.whose}</span></span></div>`)}`)}</div>`;
+        <span class="w"><span class="it"><b>${e.what}</b>: ${e.whose}</span></span></div>`)}`)}</div>`;
   };
   // What's exported, on what size of page, and the file's pages, fitted to the well, two across where there
   // are more, each captioned; a click shows one at full size. A PDF goes on Letter, unless another paper is
@@ -522,11 +530,11 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const go = await Shell.dialog({ title: 'Export', width: 720, body: () => html`<${Choice} choice=${choice} here=${here} others=${others} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
-    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName());
+    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName(), App.day.peek());
     if (choice.format.startsWith('x')) return others[+choice.format.slice(1)]?.run();
     const all = choice.which === 'all';
-    write(choice.format, all ? choice.scenes : choice.scenes.filter(s => s.view === here.id), all ? chartName() : fileName(chartName(), here.name), App.who())
-      .catch(e => Shell.toast(e?.message || 'Couldn’t export'));
+    write(choice.format, all ? choice.scenes : choice.scenes.filter(s => s.view === here.id), all ? chartName() : fileName(chartName(), here.name),
+      { author: App.who(), R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
   api.open = open;
 }
