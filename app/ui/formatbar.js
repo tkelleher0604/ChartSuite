@@ -67,14 +67,14 @@ function scopesOf(c) {
   }
   const own = { key: 'own', label: these(marks), own: true };
   if (!bound.length) return { marks, group, scopes: [own] };
-  // Each style that reaches the selection, by the groups of its outputs that the Key and Styles go by too
-  // (Scene.groupsOf), each group that reaches it a scope; an output in none (a filter), alone.
+  // The Styles rows that reach the selection, and only those: each group of the view's styles (Scene.groupsOf,
+  // the Key's and Styles' rule and names) with an output that a record in or at a selected mark fits.
   const groups = Scene.groupsOf(App.notes.peek(), sc.view), by = new Map();
-  for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek())) {
-    const k = Tree.key(r.output), g = groups.find(g => g.style === r.style && g.outputs.some(p => Tree.key(p) === k)) ?? { outputs: [r.output], caption: r.caption };
-    const key = `${r.style} ${Tree.key(g.outputs[0])}`;
-    if (!by.has(key)) by.set(key, { key, style: r.style, order: r.order, name: r.name, caption: g.caption, outputs: g.outputs });
-  }
+  for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
+    for (const g of groups) if (g.style === r.style && g.outputs.some(p => Tree.narrower(r.output, p))) {
+      const key = `${g.style} ${g.key}`;
+      if (!by.has(key)) by.set(key, { key, style: g.style, order: g.order, name: g.name, caption: g.caption, outputs: g.outputs });
+    }
   return { marks, group, scopes: [own, ...[...by.values()].sort((a, b) => b.order - a.order)] };
 }
 // The selection, as a scope: "This box", "These 3 boxes", "This line", "These 2 shapes".
@@ -95,12 +95,13 @@ function reachOf(sc) {
     }
   return by;
 }
+// The marks a group reaches in a scene, as scopesOf finds them: those with a record whose output fits one of its.
+const marksOf = (sc, s) => new Set([...reachOf(sc).get(s.style)?.values() ?? []].filter(o => s.outputs.some(p => Tree.narrower(o.output, p))).flatMap(o => [...o.marks]));
 // A scope as it's named: the selection ("This box"), or a group of a style's outputs as the Key says it, with
 // how many of the view's marks it reaches: "Funds (6)".
 function named(c, s) {
   if (s.own) return s.label;
-  const outs = reachOf(c.scene()).get(s.style);
-  return `${s.caption} (${new Set(s.outputs.flatMap(o => [...outs?.get(Tree.key(o))?.marks ?? []])).size})`;
+  return `${s.caption} (${marksOf(c.scene(), s).size})`;
 }
 // The scope a change goes to: the one chosen, or else the selection itself.
 const chosen = signal(null);
@@ -108,9 +109,9 @@ const scopeOf = (scopes, key = chosen.peek()) => scopes.find(s => s.key === key)
 // The marks a group reaches that keep their own value of a property, entered for them alone in the view,
 // which a change for the group leaves as it is (entered wins): each with the notes that decide it.
 function keeping(c, scope, labels) {
-  const sc = c.scene(), outs = reachOf(sc).get(scope?.style), N = App.notes.peek(), out = [];
-  if (!scope?.outputs || !outs) return out;
-  for (const id of new Set(scope.outputs.flatMap(o => [...outs.get(Tree.key(o))?.marks ?? []]))) {
+  const sc = c.scene(), N = App.notes.peek(), out = [];
+  if (!scope?.outputs) return out;
+  for (const id of marksOf(sc, scope)) {
     const m = sc.byId.get(id), t = Tree.treeOf(App.state.peek(), m.record);
     const notes = labels.map(l => N.resolve(l, t, sc.view)?.note).filter(n => n && n.view === sc.view && n.pattern.id === m.record);
     if (notes.length) out.push({ m, notes });

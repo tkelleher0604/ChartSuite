@@ -382,7 +382,9 @@ async function run() {
   const said = $$('.row.out').map(r => (r.querySelector('.oname')?.textContent ?? (r.querySelector('.v').title || r.querySelector('.cell').value)).split(', '));
   check('… grouped as the Key groups them: outputs that look alike are one row', App.scene.peek().legend.every(g => said.some(ns => g.outputs.every(p => ns.some(x => Tree.same(x, Scene.outputName(N(), p))))))
     && $$('.row.out').length < N().styles(Shell.view.peek()).flatMap(s => s.outputs).length, App.scene.peek().legend.map(g => g.caption).join(', '));
-  check('… and a style that is its one row, that row alone', $$('.style').some(s => !s.querySelector('.sname') && s.querySelector('.row.out.lone .cell')?.value === 'Names'), styleNames().join(', '));
+  check('… each row a group of Scene.groupsOf, in its order and called by its caption, as the Key and the scope call it', $$('.row.out').map(r => r.querySelector('.cell').value).join(' | ')
+    === Scene.groupsOf(N(), Shell.view.peek()).map(g => g.caption).join(' | '),$$('.row.out').map(r => r.querySelector('.cell').value).join(' | '));
+  check('… and a style that is its one row, that row alone',$$('.style').some(s => !s.querySelector('.sname') && s.querySelector('.row.out.lone .cell')?.value === 'Names'), styleNames().join(', '));
   const firstStyle = styleNames()[0], s2 = $$('.style')[1], grip = $$('.style')[0].querySelector('.grip');
   const y = el => el.getBoundingClientRect().top + 4;
   grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(grip) }));

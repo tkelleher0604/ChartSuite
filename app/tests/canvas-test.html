@@ -143,9 +143,14 @@ async function run() {
     && items.includes('Portfolio companies (4)'), menu.join(' | '));
   const pcHead = menu.slice(0, menu.indexOf('Portfolio companies (4)')).filter(t => heads.includes(t)).at(-1);
   const seps = $$('.float .menu-sep, .float .menu-head, .float .menu-item').map(e => e.classList.contains('menu-sep') ? '-' : txt(e));
-  check('… each under its style’s name, and a style named as its one group (Name) is that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
-    && items.includes('Name (24)') && !heads.includes('Name') && menu.indexOf('Name (24)') > menu.indexOf(heads.at(-1))
-    && seps.slice(0, seps.indexOf('Name (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
+  check('… each under its style’s name, and a style that is its one group (Names) is that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
+    && items.includes('Names (24)') && !heads.includes('Name') && menu.indexOf('Names (24)') > menu.indexOf(heads.at(-1))
+    && seps.slice(0, seps.indexOf('Names (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
+  // Exactly the Styles rows that reach the box, by Styles' captions: none for an output no style formats.
+  const rowsReaching = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), 'northpine', App.state.peek())
+    .some(r => r.style === g.style && g.outputs.some(p => Tree.narrower(r.output, p)))).map(g => g.caption);
+  check('… and its groups are exactly the Styles rows that reach the selection, called as Styles calls them', JSON.stringify(items.slice(1).map(t => t.replace(/ \(\d+\)$/, '')).sort()) === JSON.stringify(rowsReaching.sort())
+    && !items.some(t => /^(Entity|Good Standing|Delaware) \(/.test(t)), `${items.join(' | ')} vs ${rowsReaching.join(' | ')}`);
   await closeMenus();
   // The groups are the Key's: a style's outputs that look alike are one group, Funds, its reach every box of them.
   Shell.select(['fund']); await tick(120);
