@@ -120,7 +120,7 @@ function index(rows) {
     const t = args ? { args: args.map(a => ({ edge: a.edge, loc: treeOf(recs, a.at) ?? {} })) } : treeAt(recs, id), of = args ?? recs[id].args;
     const xs = edges(t).map(e => of.find(a => same(a.edge, e))).filter(Boolean);
     return xs.map((a, i) => {
-      const o = objectOf(recs, a.at) ?? a.at, text = shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && PREP.exec(listName(t, a.edge))?.[1];
+      const o = objectOf(recs, a.at) ?? a.at, text = shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && xs.length > 2 && PREP.exec(listName(t, a.edge))?.[1];
       const join = !i ? '' : /^\d+$/.test(text) && kind ? `, ${kind.toLowerCase()} ` : xs.length === 2 ? ' → ' : prep ? ` ${prep.toLowerCase()} ` : `, ${lower(a.edge)} `;
       return { edge: a.edge, id: o, text, join };
     });
