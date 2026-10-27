@@ -1212,16 +1212,7 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   // The boxes in reach, and, `strict`, the edges of their shades (see SHADE), where a way may turn down just clear of one.
   const inside = solids.near.near({ x: reach.x, y: reach.y, w: reach.r - reach.x, h: reach.d - reach.y }).map(k => solids.list[k]).filter(inReach);
   const shadeAt = k => !strict ? [] : inside.flatMap(g => k ? [g.y + g.h + LANE + 0.25] : [g.x - SHADE - 0.25, g.x + g.w + SHADE + 0.25]);
-  // A port given that may `slide` along its box's edge, [x0, x1], may leave from anywhere there that a way could run
-  // down (or up) from: where it is, the edge's ends, beside the upright legs drawn by it, clear of a shade, or over
-  // where the way goes; at a cost of each pixel it moves, so it moves a whole leg as little as it must, not adds a step.
-  const along = p => {
-    if (!p.slide) return [p];
-    const [x0, x1] = p.slide, uy = p.dir === 2 ? 1 : -1, by = legs.byUpright((x0 + x1) / 2, (x1 - x0) / 2 + BESIDE + 1).flatMap(([a]) => [a[0] - BESIDE - 0.25, a[0] + BESIDE + 0.25]);
-    const xs = [...new Set([x0, x1, ...by, ...shadeAt(0), ...(given.to ?? []).map(q => q.at[0])].filter(x => x >= x0 - 0.01 && x <= x1 + 0.01).map(x => Math.round(x * 4) / 4))];
-    return [p, ...xs.filter(x => Math.abs(x - p.at[0]) > 0.5).map(x => { const at = [x, edgeY(s, x, p.dir === 2)]; return { at, out: [x, at[1] + uy * (C + 0.25)], dir: p.dir, cost: Math.abs(x - p.at[0]) }; })];
-  };
-  const starts = (given?.from ?? ports(s)).flatMap(along).filter(p => !blocked(...p.out) && fair(p)), ends = (given?.to ?? ports(t)).filter(p => !blocked(...p.out) && fair(p));
+  const from = given?.from ?? ports(s), ends = (given?.to ?? ports(t)).filter(p => !blocked(...p.out) && fair(p));
   const coords = (k, extra) => {
     const vs = [...new Set([...walls.flatMap(w => k ? [w.y, w.d] : [w.x, w.r]), ...extra, ...shadeAt(k), k ? reach.y : reach.x, k ? reach.d : reach.r].map(v => Math.round(v * 4) / 4))].sort((a, b) => a - b);
     return [...new Set([...vs, ...vs.slice(1).map((v, i) => (v + vs[i]) / 2)])].sort((a, b) => a - b);
@@ -1231,7 +1222,12 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   const corridor = [[Math.min(s.x, t.x), Math.max(s.x + s.w, t.x + t.w)], [Math.min(s.y, t.y), Math.max(s.y + s.h, t.y + t.h)]];
   const gutters = (k, q) => !strict ? [] : q((corridor[k][0] + corridor[k][1]) / 2, (corridor[k][1] - corridor[k][0]) / 2)
     .filter(([a, b]) => Math.max(a[1 - k], b[1 - k]) > corridor[1 - k][0] && Math.min(a[1 - k], b[1 - k]) < corridor[1 - k][1]).flatMap(([a]) => [a[k] - BESIDE - 0.25, a[k] + BESIDE + 0.25]);
-  const xs = coords(0, [...[...starts, ...ends].map(p => p.out[0]), ...gutters(0, legs.byUpright)]), ys = coords(1, [...[...starts, ...ends].map(p => p.out[1]), ...gutters(1, legs.byLevel)]);
+  const xs = coords(0, [...[...from, ...ends].map(p => p.out[0]), ...from.flatMap(p => p.slide ?? []), ...gutters(0, legs.byUpright)]), ys = coords(1, [...[...from, ...ends].map(p => p.out[1]), ...gutters(1, legs.byLevel)]);
+  // A port given that may `slide` along its box's edge, [x0, x1], may leave from anywhere there on the grid, a step out as
+  // far as where it is, at a cost of each pixel it moves: so a line moves a whole leg as little as it must, rather than
+  // add a step to it.
+  const starts = from.flatMap(p => !p.slide ? [p] : [p, ...xs.filter(x => x >= p.slide[0] - 0.01 && x <= p.slide[1] + 0.01 && Math.abs(x - p.at[0]) > 0.5)
+    .map(x => ({ at: [x, edgeY(s, x, p.dir === 2)], out: [x, p.out[1]], dir: p.dir, cost: Math.abs(x - p.at[0]) }))]).filter(p => !blocked(...p.out) && fair(p));
   if (xs.length * ys.length > 40000 || !starts.length || !ends.length) return null;
   const X = new Map(xs.map((v, i) => [v, i])), Y = new Map(ys.map((v, i) => [v, i])), node = (i, j) => i * ys.length + j;
   // What a step costs beyond its length: running along a line drawn, or within 12 pt of one beside it, or across one;
