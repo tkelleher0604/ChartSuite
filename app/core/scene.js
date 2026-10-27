@@ -406,8 +406,8 @@ function readRows(rows, view) {
 }
 
 const of = (...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
-// The steps: the marks, from the records; then for each layout tried, ELK's part of it, and the rest of it
-// with its routes; then the page.
+// The steps: the marks, from the records; then for each layout tried, its boxes sized, ELK's part of it, its
+// routes, and the rest of it; then the page.
 function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
   const red = opts.redline ?? null;
@@ -772,6 +772,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       frameBounds(frames, boxes);
       routes(boxes, lines, frames).forEach((r, i) => Object.assign(lines[i], r));
     }
+    yield;
     if (last) still(last, boxes, lines, frames);
     const laid = furnish({ sheet, boxes, lines, frames, shapes: shapeRows, said, legend: legendRows, last, placedBy });
     return { ...laid, around: lines.filter(l => l.around).length };

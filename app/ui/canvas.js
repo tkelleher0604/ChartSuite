@@ -1003,9 +1003,11 @@ function mount(el) {
   // Drawn ahead once the window is idle, so that what's drawn next is drawn at once: the chart as a change
   // previewed would leave it, redlined or restyled, however big, so that making the change draws it as laid out
   // then; and the chart's other views, so that showing one draws it as it is (Scene keeps a view's latest scenes
-  // by what they're drawn from). A step at a time, an idle moment's each (see Scene.steps), so the window is never
-  // held up long; and given up once what they're drawn from changes.
-  let aheadOf = null;
+  // by what they're drawn from). A step at a time (see Scene.steps): an idle moment takes one, and another only
+  // while it has time left for one as long as the longest taken yet, so the window is never held up longer than a
+  // step; and given up once what they're drawn from changes. Each idle moment is asked for after a frame, as a
+  // still window has none of its own until something is drawn.
+  let aheadOf = null, longest = 0;
   function ahead() {
     const base = App.scene.peek(), wb = styled?.wb ?? App.shown.peek(), state = red?.state ?? (styled ? App.state.peek() : null);
     if (!base || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
@@ -1015,10 +1017,15 @@ function mount(el) {
       ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
     const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
     const step = idle => {
-      while (live()) { if (jobs[0].next().done) jobs.shift(); if (idle.timeRemaining() <= 0) break; }
-      if (live()) requestIdleCallback(step);
+      for (let first = true; live() && (first || idle.timeRemaining() > longest); first = false) {
+        const t = performance.now();
+        if (jobs[0].next().done) jobs.shift();
+        longest = Math.max(longest, performance.now() - t);
+      }
+      if (live()) later();
     };
-    if (live()) requestIdleCallback(step);
+    const later = () => requestAnimationFrame(() => requestIdleCallback(step));
+    if (live()) later();
   }
 
   // ---- Commands ----

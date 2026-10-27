@@ -181,14 +181,17 @@ function inWindow(n) {
   const tag = () => W().document.querySelector('.fx-out button.tag'), views = () => App().views.peek().filter(v => v.layout === 'chart');
   const steps = [], took = {};
   const step = (k, act) => steps.push([k, act]);
-  // Pointing at the tag: its ruling worked out and redlined, as the formula bar asks; the window idle at once.
+  // Pointing at the tag: its ruling worked out and redlined, as the formula bar asks; the next frame and the
+  // window idle after it at once.
   const point = () => {
     const A = App(), F = W().eval('Formulas'), entered = A.entered.peek(), R = A.computed.peek();
     const R2 = F.computeState({ ...entered, own_us_fund: { ...entered.own_us_fund, tag: false } }, A.definitions.peek(), { relations: A.relations.peek(), schema: A.schema.peek() }, R);
-    const d = F.diff(R, R2), idle = W().requestIdleCallback;
+    const d = F.diff(R, R2), idle = W().requestIdleCallback, frame = W().requestAnimationFrame;
     W().requestIdleCallback = f => f({ timeRemaining: () => 50, didTimeout: false });
+    W().requestAnimationFrame = f => f(performance.now());
     canvas().redline({ appear: d.appear, go: d.go, changed: {}, records: R2.records });
     W().requestIdleCallback = idle;
+    W().requestAnimationFrame = frame;
   };
   const round = at => {
     for (let i = 0; i < 3; i++) {
