@@ -343,11 +343,19 @@ const FormulaBar = (() => {
   // among its facts unfolds into its own, a level down; any other is said with its clause, and a click steps
   // down into it. A row comparing with a number says the number: (5% or more).
   // Words: a term in lower case mid-sentence, names kept (BDC, Form PF); "a" or "an"; one of a list (Owners →
-  // owner); and whether an object is a person, whom "it" doesn't name.
+  // owner); whether words name more than one, by their head before "of", not in capitals (Bylaws, Articles of
+  // Incorporation, audited accounts; not CRS), which takes no article; and whether an object is a person, whom
+  // "it" doesn't name.
   const lower = s => String(s).replace(/\b[A-Z][a-z]+\b(?!\s+(?:[A-Z]{1,4}|\d+)\b)/g, w => w.toLowerCase());
   const article = w => /^[aeiou]/i.test(w) ? 'an' : 'a';
   const singular = w => [w.replace(/ies$/, 'y'), w.replace(/es$/, ''), w.replace(/s$/, '')].find(x => x !== w && Tree.same(Tree.plural(x), w)) ?? w;
+  const plural = w => /\b[A-Za-z][a-z]*[^siu\W]s$/.test(String(w).split(/\s+of\s+/i)[0]);
+  const an = w => plural(w) ? '' : `${article(w)} `;
   const isPerson = (Rv, id) => /individual|person/i.test(Rv.records[id]?.kind ?? '');
+  // An entry named for what a thing is, and Type, says what kind of that thing it is: an entity's Entity Type
+  // (AIV-1 is a limited partnership); a document's Document Type, which names one a list of documents found
+  // (AIV-1 has a Certificate of Limited Partnership).
+  const typeOf = (edge, what) => !!what && Tree.same(edge, `${what} Type`);
   // A clause's citation: the section its Description starts with ("Section 2(a)(3): …") and the row's label,
   // (A) reading §2(a)(3)(A), and (e)(1)(A) under 57(e) §57(e)(1)(A); a label of words follows the section. A
   // row of a definition that cites no section has none: its label is the row's, not a citation.
@@ -417,6 +425,15 @@ const FormulaBar = (() => {
     };
     return read(0, toks.length - 1);
   }
+  // A condition that holds by what a value isn't (x <> y, NOT x) only excludes: what it read is no reason, for
+  // any value but the one excluded would do as well, and as NOT ANY reads nothing, it says nothing. A lawyer
+  // states what a rule asks, not each exception that doesn't apply; the rows show it, in ink.
+  const excludes = n => n.k === 'NOT' || (n.k === 'CMP' && n.op === '<>');
+  function exclusions(text) {
+    const out = [], walk = n => { if (n) excludes(n) ? out.push(n) : n.kids?.forEach(walk); };
+    walk(skeleton(text));
+    return n => out.some(x => n.from >= x.from && n.to <= x.to);
+  }
   // A formula asked of the engine at a record, inside the LETs on the way to where it's read: its value, the
   // records each name read, and where the body asked about starts.
   function ask(Rv, d, id, lets, body, lead = '=') {
@@ -427,11 +444,11 @@ const FormulaBar = (() => {
   const SOUGHT = '[·]';
 
   // Why the rows rule a record out. A row gives FALSE where it reaches a condition that fails: what held on the
-  // way there (an IF's condition) is a reason, said first, and what failed follows "but". A row that gives
-  // FALSE itself where its condition holds, IF(c, FALSE), rules the record out because c holds: a reason like
-  // any other, with "so". And the rows before it that would have attested it (← c, or IF(c, TRUE)) gave
-  // nothing because their conditions failed: they follow "but" too. Each is said by what it read: the row's
-  // ground for its own row, and for a row before, the records its names read there.
+  // way there (an IF's condition, less what only excludes) is a reason, said first, and what failed follows
+  // "but". A row that gives FALSE itself where its condition holds, IF(c, FALSE), rules the record out because
+  // c holds: a reason like any other, with "so". And the rows before it that would have attested it (← c, or
+  // IF(c, TRUE)) gave nothing because their conditions failed: they follow "but" too. Each is said by what it
+  // read: the row's ground for its own row, and for a row before, the records its names read there.
   function whyNot(Rv, d, g, id) {
     const held = [], failed = [], spanned = (ps, n) => ps.filter(p => p.from >= n.from && p.to <= n.to);
     const truth = (n, lets) => ask(Rv, d, id, lets, n.text, '←')?.value === true;
@@ -446,7 +463,7 @@ const FormulaBar = (() => {
       // a LET's body; AND's part that failed; OR's every part.
       const walk = (n, lets) => {
         if (!n || no(n)) return;
-        if (n.k === 'IF') { const [c, t, e] = n.kids; if (truth(c, lets)) { held.push(...leaves(c, lets).map(x => ({ parts: within(x), then: x.k === 'CMP' ? thresholdOf(x.text) : null }))); walk(t, lets); } else walk(no(e) ? c : e, lets); }
+        if (n.k === 'IF') { const [c, t, e] = n.kids; if (truth(c, lets)) { held.push(...leaves(c, lets).filter(x => !excludes(x)).map(x => ({ parts: within(x), then: x.k === 'CMP' ? thresholdOf(x.text) : null }))); walk(t, lets); } else walk(no(e) ? c : e, lets); }
         else if (n.k === 'LET') walk(n.kids.at(-1), [...lets, ...n.kids.slice(0, -1).flatMap((x, k, l) => k % 2 ? [] : [{ name: x.text, text: l[k + 1]?.text }])]);
         else if (n.k === 'AND') walk(n.kids.find(x => !truth(x, lets)), lets);
         else if (n.k === 'OR') n.kids.forEach(x => walk(x, lets));
@@ -475,13 +492,14 @@ const FormulaBar = (() => {
     // What it missed by: not what it wanted, or the other side of the line it had to cross.
     const op = n.k === 'IN' ? '=' : found === x ? n.op : { '<': '>', '>': '<', '<=': '>=', '>=': '<=' }[n.op] ?? n.op;
     const miss = { '=': `not ${either([w].flat().map(z => show(z, pct)))}`, '>': `${show(w, pct)} or less`, '>=': `less than ${show(w, pct)}`, '<': `${show(w, pct)} or more`, '<=': `more than ${show(w, pct)}` }[op];
-    if (op === '=' && one && v?.t === 'rec' && v.id) return [{ parts, not: { ids: [v.id], text: notOf(recs[v.id], w, pct) } }];
+    if (op === '=' && one && v?.t === 'rec' && v.id) return [{ parts, not: { ids: [v.id], text: notOf(recs, v.id, w, pct) } }];
     return [{ parts, then: miss && (one ? miss : `${show(v, pct)}, ${miss}`) }];
   }
-  // What a value isn't, said as the fact says what it is: a role with its article (not a managing member).
-  function notOf(r, w, pct) {
-    const xs = [w].flat().map(z => show(z, pct));
-    return either(r?.args && 'choice' in r ? xs.map(z => `${article(z)} ${lower(z)}`) : xs);
+  // What a value isn't, said as the fact says what it is: a role, or a kind, with its article (not a managing
+  // member; not a corporation).
+  function notOf(recs, id, w, pct) {
+    const r = recs[id], xs = [w].flat().map(z => show(z, pct));
+    return either((r?.args && 'choice' in r) || typeOf(r?.edge, recs[Tree.objectOf(recs, id)]?.kind) ? xs.map(z => `${an(z)}${lower(z)}`) : xs);
   }
 
   // A list that lacked what was sought, said by what came nearest: x IN list, x IN FILTER(list, c), and
@@ -498,21 +516,23 @@ const FormulaBar = (() => {
     for (let k = all.length - 1; k > 0; k--) {
       const near = [ask(Rv, d, id, at, filtered(k))?.value ?? []].flat(Infinity).filter(v => v?.t === 'rec' && v.id);
       if (!near.length) continue;
-      // The next condition at those items: what its side about the item read of it (its status), or else the
-      // item's own place in the list (his membership); and what the other side wanted.
+      // The next condition at those items: what its side about the item read of it (its status), under the item
+      // it was read of, or else the item's own place in the list (his membership); and what the other side
+      // wanted.
       const c = all[k], side = c.k === 'CMP' || c.k === 'IN' ? c.kids.find(s => s.at) ?? c : c, other = side !== c ? c.kids.find(s => s !== side) : null;
       const body = `EACH(${filtered(k)}, ${side.text})`, r = ask(Rv, d, id, at, body), from = (r?.at ?? 0) + body.length - side.text.length - 1;
       const read = [...new Set((r?.names ?? []).filter(m => m.from >= from && m.to <= from + side.text.length && side.text.slice(m.from - from, m.to - from) !== '@').flatMap(m => m.ids))]
         .filter(y => recs[y] && !isObj(recs[y]));
       const ids = read.length ? read : [...new Set(near.map(v => v.link).filter(Boolean))], w = other && !other.at ? ask(Rv, d, id, at, other.text)?.value : undefined;
-      return [{ parts: ids.map(y => ({ id: y })), ...(w !== undefined && (c.k === 'IN' || c.op === '=') && ids.length && { not: { ids, text: notOf(recs[ids.at(-1)], w) } }) }];
+      const of = y => near.find(v => v.link && recs[y].at === v.id)?.link;
+      return [{ parts: ids.map(y => of(y) ? { id: of(y), items: [{ id: y }] } : { id: y }), ...(w !== undefined && (c.k === 'IN' || c.op === '=') && ids.length && { not: { ids, text: notOf(recs, ids.at(-1), w) } }) }];
     }
     const some = [ask(Rv, d, id, lets, B.text)?.value ?? []].flat(Infinity).some(v => v?.t === 'rec' && v.id);
     return absent(Rv, d, id, at, B, { x: x && ask(Rv, d, id, lets, x.text)?.value?.id, c: !x && some ? all[0] : null }) ?? [];
   }
   // A list with none of what was sought, said of whose list it is: x isn't among GP III's general partners;
-  // the signing authority is not evidenced by anything; Fund III-A has no documents, or none with a document
-  // type of Certificate of Limited Partnership.
+  // the signing authority is not evidenced by anything; Fund III-A has no documents, or no Certificate of
+  // Limited Partnership (what its Document Type names), or none with a status of Filed.
   function absent(Rv, d, id, lets, B, { x = null, c = null } = {}) {
     const m = /^(?:(.*\S)\s*\.\s*)?(?:\[([^\]]+)\]|([A-Za-z_]\w*))$/.exec(B.text.replace(/^COUNT\((.*)\)$/i, '$1').trim());
     if (!m) return null;
@@ -528,8 +548,8 @@ const FormulaBar = (() => {
       const [side, other] = c.kids?.[0]?.at ? c.kids : [...(c.kids ?? [])].reverse(), e = /^@\s*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))$/.exec(side?.text ?? '');
       const w = e && (c.k === 'IN' || c.op === '=') && !other.at && ask(Rv, d, id, lets, other.text)?.value;
       if (w === undefined || w === null || w === false || p) return null;
-      const entry = e[1] ?? e[2];
-      pre = [...who, ` has no ${lower(singular(list))} with ${article(entry)} ${lower(entry)} of ${either([w].flat().map(z => show(z)))}`];
+      const entry = e[1] ?? e[2], noun = singular(list), ws = either([w].flat().map(z => show(z)));
+      pre = [...who, typeOf(entry, noun) ? ` has no ${ws}` : ` has no ${lower(noun)} with ${article(entry)} ${lower(entry)} of ${ws}`];
     }
     return [{ clause: { subj: named ? owner : null, pre, obj, post: [] } }];
   }
@@ -566,7 +586,7 @@ const FormulaBar = (() => {
     const w = Tree.clean(name), place = PLACE.exec(w), m = place ?? PARTICLE.exec(w) ?? STATE.exec(w);
     if (!m || /\b[A-Z]{2,}\b|[\d.()]/.test(m[1])) return null;
     const what = m[1].toLowerCase(), said = m[2].toLowerCase(), verb = !place && /s\s\S+$/.test(said) ? said.replace(/s(?=\s)/, '') : null;
-    return { what, said, verb, plural: /[^siu]s$/.test(what) };
+    return { what, said, verb, plural: plural(what) };
   }
   // A predicate's words, or their negation: is (not) a director; is (not) evidenced; signs, does not sign.
   const verbal = (w, not) => w.form === 'noun' ? ` is ${not ? 'not ' : ''}${article(w.head)} ${w.head}` : w.form === 'participle' ? ` is ${not ? 'not ' : ''}${w.head}`
@@ -587,8 +607,20 @@ const FormulaBar = (() => {
     const be = (yes = true) => would ? (yes ? ' would be ' : ' would not be ') : yes ? ' is ' : ' is not ';
     const holds = yes => would ? (yes ? ' would hold' : ' would not hold') : yes ? ' holds' : ' does not hold';
     const c = { id: [id, ...reads].find(fx) ?? id, ids: [id, ...reads], subj: null, poss: false, pre: [], obj: [], post: [] };
-    const withs = reads.flatMap(e => { const x = recs[e]; return 'tag' in x ? [` ${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [` with ${article(x.edge)} ${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
+    // Entries read, said with the record: with a voting percentage of 7%; with a status of Filed and a date of ….
+    const withs = xs => xs.flatMap((e, i) => { const x = recs[e], and = !i ? ' ' : i < xs.length - 1 ? ', ' : ' and ';
+      return 'tag' in x ? [`${and}${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [`${and}${i ? '' : 'with '}${article(x.edge)} ${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
     if (r.args) {
+      // An item a list found, with what was read of it, is one fact: what the other side has, one of its list,
+      // named by what kind it is (typeOf) or else as the list names one, with the rest of what was read: AIV-1
+      // has a Certificate of Limited Partnership with a status of Filed. Clicked, it selects the item.
+      const ends = r.args.map(x => Tree.objectOf(recs, x.at)), k = ends.length === 2 ? ends.findIndex(o => reads.some(e => recs[e].at === o)) : -1;
+      if (k >= 0) {
+        const t = Tree.treeOf(recs, id), noun = singular(t ? n.listName(t, r.args[k].edge) : r.args[k].edge), item = ends[k];
+        const kind = reads.find(e => recs[e].at === item && typeOf(recs[e].edge, noun)) ?? Tree.entryAt(recs, item, `${noun} Type`), what = kind ? Tree.outputText(recs[kind]) : lower(noun);
+        return Object.assign(c, { id: [id, ...reads].find(fx) ?? item, ids: [...c.ids, item], subj: ends[1 - k],
+          pre: [' has ', an(what), reads.includes(kind) ? term(kind, what) : what], post: withs(reads.filter(e => e !== kind)) });
+      }
       // The sides past the second as the place rule says them (Notes.placed): each after its label, none twice.
       const [a, b] = n.sides(recs, id), rest = n.placed(recs, id).slice(2), A = Tree.objectOf(recs, a.at), B = b && Tree.objectOf(recs, b.at), t = Tree.treeOf(recs, id);
       // Each side's list of the other: Holdings, and Owners.
@@ -596,7 +628,7 @@ const FormulaBar = (() => {
       const q = !B ? null : t ? predicateOf(t, a.edge, b.edge, { tag: 'tag' in r, name: n.nameOf(recs, id) }) : predicate(n.nameOf(recs, id), true);
       const p = q && !q.flip && !q.role ? q : null, flip = q?.flip ? q : null;
       const of = B ? [p?.form === 'noun' && !('field' in r) ? p.prep : ' of ', { name: B }] : [];
-      c.post = [...rest.flatMap(s => [s.join, { name: s.id }]), ...(rest.length && withs.length ? [','] : []), ...withs];
+      c.post = [...rest.flatMap(s => [s.join, { name: s.id }]), ...(rest.length && reads.length ? [','] : []), ...withs(reads)];
       if ('field' in r) return Object.assign(c, { subj: A, poss: true, pre: [` ${lower(n.nameOf(recs, id))}`], obj: of, post: [be(), term(id, Tree.outputText(r)), ...c.post] });
       const says = q => q.form === 'noun' ? [be(yes), `${article(q.head)} `, term(id, q.head)] : q.form === 'participle' ? [be(yes), term(id, q.head)]
         : yes ? (would ? [' would ', term(id, q.head.replace(/s\b/, ''))] : [' ', term(id, q.head)]) : [would ? ' would not ' : ' does not ', term(id, q.head.replace(/s\b/, ''))];
@@ -622,6 +654,8 @@ const FormulaBar = (() => {
     const v = Tree.outputText(r), named = o && n.nameOf(recs, O);
     // An entry that names its object (a tax year's Year) says what the object is: the tax year is 2026.
     if (named && [v, String(r.value)].some(x => Tree.same(named, x))) return Object.assign(c, { pre: [`the ${lower(o.kind)}`, be(), term(id, named)] });
+    // An entry naming what kind of thing its object is says it is one (typeOf): AIV-1 is a limited partnership.
+    if (typeOf(r.edge, o?.kind)) return Object.assign(c, { subj: O, pre: [be(), an(v), term(id, lower(v))] });
     // A date named for what was done on it says it was done then: it last filed on …; it filed its annual return on ….
     const done = r.field === 'date' && /^(?:(last|first) )?(?:(.+) )?(\S+ed|paid)(?: on)?$/i.exec(Tree.clean(r.edge));
     if (done) return Object.assign(c, { subj: O, pre: [` ${[would && 'would have', done[1]?.toLowerCase(), done[3].toLowerCase(), done[2] && `its ${lower(done[2])}`, 'on '].filter(Boolean).join(' ')}`, term(id, v)] });
@@ -634,7 +668,7 @@ const FormulaBar = (() => {
     const recs = Rv.records, r = would ?? recs[id], d = defOfRecord(Rv, id);
     if (r.args || 'tag' in r) return factOf(Rv, id, [], would);
     const name = d?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name), O = Tree.objectOf(recs, id), roll = d && rollOf(Rv, d, row, id);
-    const what = lower(due?.[1] ?? name), is = (would ? ' would be' : /\b[a-z]+[^siu]s$/.test(what) ? ' are' : ' is') + (due ? ' due ' : ' ');
+    const what = lower(due?.[1] ?? name), is = (would ? ' would be' : plural(what) ? ' are' : ' is') + (due ? ' due ' : ' ');
     const point = { term: Tree.outputText(r), id, fx: !!Rv.computed[id] || !!would }, post = roll ? [` (${roll})`] : [];
     return isObj(recs[O]) ? { id, ids: [id], subj: O, poss: true, pre: [` ${what}`, is, point], obj: [], post }
       : { id, ids: [id], subj: null, pre: [`the ${what}`, is, point], obj: [], post };
@@ -683,25 +717,28 @@ const FormulaBar = (() => {
     if (!g || !d) return null;
     // What the row reads as @, where that's a value (an entity's Entity Type), is a fact too. A default, a row
     // that reads nothing, gives because the rows before it gave nothing: its facts are what those rows read.
-    const text = d.rows[g.row]?.formula ?? '', seen = new Set(), loc = recs[id].at, read = i => Formulas.evaluateRow(Rv, d.id, i, id)?.names ?? [];
-    const at = loc && !isObj(recs[loc]) && read(g.row).some(n => text.slice(n.from, n.to) === '@' && n.ids.length === 1 && n.ids[0] === loc) ? [{ id: loc }] : [];
+    // What only excludes is no reason (exclusions).
+    const text = d.rows[g.row]?.formula ?? '', excluded = exclusions(text), seen = new Set(), loc = recs[id].at, read = i => Formulas.evaluateRow(Rv, d.id, i, id)?.names ?? [];
+    const at = loc && !isObj(recs[loc]) && read(g.row).some(n => text.slice(n.from, n.to) === '@' && n.ids.length === 1 && n.ids[0] === loc && !excluded(n)) ? [{ id: loc }] : [];
+    const kept = ps => ps.filter(p => !excluded(p)).map(p => p.items ? { ...p, items: kept(p.items) } : p);
     const no = notsOf(Rv, id), otherwise = !no && !g.parts.length && g.row > 0;
-    const parts = no ? [...at, ...no.held.flatMap(h => h.parts)] : !otherwise ? [...at, ...g.parts] : d.rows.slice(0, g.row).flatMap((_, i) => read(i)).flatMap(x => x.ids.map(y => ({ id: y })));
-    // The records read, each said with the entries read at it, as one fact: a relation with its percentage.
+    const parts = no ? [...at, ...no.held.flatMap(h => h.parts)] : !otherwise ? [...at, ...kept(g.parts)] : d.rows.slice(0, g.row).flatMap((_, i) => read(i)).flatMap(x => x.ids.map(y => ({ id: y })));
+    // The records read, each said with the entries read at it, as one fact: a relation with its percentage; an
+    // item a list found (the record linking it) with what was read of the item.
     const gather = ps => {
-      const groups = new Map(), walk = p => {
+      const groups = new Map(), walk = (p, link) => {
         const r = p.id && recs[p.id];
         if (r && !isObj(r) && !seen.has(p.id)) {
           seen.add(p.id);
-          const host = !r.args && recs[r.at]?.args ? r.at : p.id;
+          const host = !r.args && recs[r.at]?.args ? r.at : !r.args && link && recs[link].args.some(a => Tree.objectOf(recs, a.at) === r.at) ? link : p.id;
           if (host !== id) {
             if (!groups.has(host)) groups.set(host, { host, reads: [], p });
             if (host === p.id) groups.get(host).p = p; else groups.get(host).reads.push(p.id);
           }
         }
-        (p.items ?? []).forEach(walk);
+        (p.items ?? []).forEach(q => walk(q, r?.args ? p.id : link));
       };
-      ps.forEach(walk);
+      ps.forEach(p => walk(p));
       return [...groups.values()];
     };
     // What failed is said in full, so a fact it shares with what held is said there.

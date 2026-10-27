@@ -410,6 +410,11 @@ async function run() {
     const facts = d => d.split(/, so |, and |, but | and /), sentenced = d => /^[A-Z].*\.$/.test(d) && /\b[a-z]{2,}\b/.test(d) && !/ · |—|\bYes\b/.test(d) && new Set(facts(d)).size === facts(d).length;
     check('… a sentence, never ground facts run together: no fact twice, no Yes or dash, no label beside a value', events.every(e => !e.description || sentenced(e.description)),
       events.filter(e => e.description && !sentenced(e.description)).slice(0, 2).map(e => e.description).join(' | '));
+    // What the rows ask, never what they only rule out: an annual return falls due for any vehicle but a
+    // portfolio company, which says nothing of the feeder's vehicle type.
+    const feeder = events.find(e => e.summary.startsWith('Annual Return Due · Offshore Feeder'));
+    check('… saying what the rows ask, never what they only rule out: no vehicle type, where any but a portfolio company would do', !events.some(e => /vehicle type/.test(e.description ?? ''))
+      && feeder?.description === 'Offshore Feeder filed its annual return on January 20, 2026, so its annual return is due January 29, 2027 (January 31, a Sunday, so the Friday before).', feeder?.description);
     // It reads true: the day it ends on is the event's, and any other day it names is a weekend day the date
     // moved from, said with why and which way (January 31, a Sunday, so the Friday before), never a bare day.
     const WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
