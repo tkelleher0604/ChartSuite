@@ -59,14 +59,11 @@ const App = (() => {
     const keys = Shell.selection.peek(), gone = k => there(was, k) && !there(now, k);
     if (was?.at === now.at && keys.some(gone)) Shell.select(keys.filter(k => !gone(k)), { replace: true });
   });
-  // A record ruled out where a Check note says ruling out is a problem (Ownership Adds Up, Capacity Held)
-  // needs attention, as an error does. Going to it selects what it's at, and asks why.
-  const failed = computed(() => {
-    const st = state.value, N = notes.value;
-    if (!N.notes('Check').length) return [];
-    return Object.keys(st).filter(id => { const t = st[id].tag === false && Tree.treeOf(st, id); return t && N.value('Check', t) === true; });
-  });
-  Shell.register('attention', { items: () => failed.value.map(id => ({ kind: 'error', go: () => {
+  // What needs attention as of the day shown (Formulas.attention). A check failed (Ownership Adds Up, Capacity
+  // Held) is counted here, as an error; going to it selects what it's at, and asks why. The inspector counts
+  // the rest, aiming at their rows.
+  const needs = computed(() => Formulas.attention(result.value, notes.value, day.value));
+  Shell.register('attention', { items: () => needs.value.filter(a => a.kind === 'error' && !a.error).map(({ id }) => ({ kind: 'error', go: () => {
     const r = state.peek()[id];
     if (!r) return;
     Shell.select([r.args ? id : r.at]);
@@ -315,7 +312,7 @@ const App = (() => {
 
   return {
     get wb() { return book.value; },
-    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, state,
+    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, state, needs,
     readOnly, change, restore, views, scene, layouts, addView, who, blank,
   };
 })();

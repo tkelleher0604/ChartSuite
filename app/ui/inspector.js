@@ -59,13 +59,11 @@ function because(id) {
   return c?.label ? { label: c.label, cite: FormulaBar.citeOf?.(c.def, c.label) ?? c.label, words: null } : null;
 }
 
-// A date a formula gives is overdue once the day shown is past it, and due soon within 30 days of it.
+// What needs attention as of the day shown (App.needs), by record: a date a formula gives is overdue once the
+// day is past it, and due soon within 30 days of it; a blank is a required entry missing.
+const needsAt = computed(() => Map.groupBy(App.needs.value, a => a.id));
 const later = (iso, days) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days); return T.isoOf(d); };
-function dueOf(id) {
-  const r = recs()[id], day = App.day.value;
-  if (r?.field !== 'date' || !(fx(id) || over(id))) return null;
-  return r.value < day ? 'overdue' : r.value <= later(day, 30) ? 'soon' : null;
-}
+const dueOf = id => needsAt.value.get(id)?.find(a => a.kind === 'overdue' || a.kind === 'soon')?.kind ?? null;
 const DUE = { overdue: 'overdue', soon: 'due soon' };
 // A date's text, kept on one line: red when overdue and amber when due soon, saying so to a screen reader.
 const dated = (id, text) => { const d = dueOf(id); return html`<span class=${'date' + (d ? ' ' + d : '')}>${text}${d ? html`<span class="sr"> (${DUE[d]})</span>` : null}</span>`; };
@@ -103,16 +101,8 @@ function kindAt(t, edge) {
   return !s ? { type: 'field', datatype: null } : 'field' in s.out ? { type: 'field', datatype: s.out.field } : 'choice' in s.out ? { type: 'choice', options: optionsOf(specs) } : { type: 'tag' };
 }
 
-// Required entries that are blank at a record: their label, and what each takes.
-function blanksAt(at) {
-  const t = tree(at), have = new Set(entriesAt(at).map(e => T.norm(recs()[e].edge))), out = [];
-  for (const n of N().notes('Required')) {
-    const a = !n.view && n.pattern.args?.length === 1 && n.pattern.args[0];
-    if (!a || have.has(T.norm(a.edge)) || out.some(b => T.same(b.edge, a.edge)) || !T.narrower(t, a.loc)) continue;
-    if (N().required({ args: [{ edge: a.edge, loc: t }] })) out.push({ at, edge: a.edge });
-  }
-  return out;
-}
+// Required entries that are blank at a record: their label.
+const blanksAt = at => (needsAt.value.get(at) ?? []).filter(a => a.kind === 'blank').map(a => ({ at, edge: a.edge }));
 
 // Where an error stands, as the entry its value would be: the record it's at, and its label.
 const placeOf = e => e.args?.length === 1 ? e.args[0] : e.at ? { at: e.at, edge: App.definitions.value.find(d => d.id === e.def)?.name } : null;
@@ -1012,9 +1002,8 @@ function Inspector() {
 
 // ---- What needs attention: deadlines overdue and due soon, blanks where required, and errors ----
 // Going to one selects the record it's at and aims at its row; an error, which is no record, at the row
-// where its value would be, with the formula that gave it open in the bar.
-const attention = computed(() => {
-  const w = App.computed.value, items = [];
+// where its value would be, with the formula that gave it open in the bar. A failed check is app.js's.
+const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(a => {
   const go = (id, edge, why) => () => {
     const obj = recs()[id] && objectOf(id);
     if (!obj) return;
@@ -1022,14 +1011,9 @@ const attention = computed(() => {
     select([obj]);
     if (why) emit('why-open', why);
   };
-  for (const [id, r] of Object.entries(w.records)) {
-    const due = r.field === 'date' && dueOf(id);
-    if (due) items.push({ kind: due, go: go(id) });
-    if (!('field' in r)) for (const b of blanksAt(id)) items.push({ kind: 'blank', go: go(id, b.edge) });
-  }
-  for (const e of w.errors) { const p = placeOf(e) ?? e.args?.[0]; items.push({ kind: 'error', go: go(p?.at, p?.edge, e.id) }); }
-  return items;
-});
+  const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
+  return { kind: a.kind, go: a.error ? go(p?.at, p?.edge, a.id) : go(a.id, a.edge) };
+}));
 
 Shell.register('inspector', { mount(el) { render(html`<${Inspector} />`, el); return () => render(null, el); } });
 Shell.register('attention', { items: () => attention.value });

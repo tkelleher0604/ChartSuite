@@ -3553,8 +3553,40 @@ function text(R, v) {
   return isErr(t) ? t.code : t;
 }
 
+// What needs attention in a working-out on a day (ISO), as the status bar counts it: a date a formula gives, or an
+// entry one covers, that's past (overdue) or within 30 days (soon); a blank where a Required note asks for an
+// entry; and as errors, a record ruled out where a Check note says that's a problem, and every error. Each item is
+// { kind: 'overdue' | 'soon' | 'blank' | 'error', id, edge?, error? }: a blank names its record and edge, and an
+// error from the rows carries itself, as R.errors has it.
+function attention(R, N, day) {
+  const recs = R.records, items = [], soon = new Date(day + 'T12:00:00');
+  soon.setDate(soon.getDate() + 30);
+  const by = Tree.isoOf(soon), checks = N.notes('Check').length > 0;
+  const required = N.notes('Required').filter(n => !n.view && n.pattern.args?.length === 1).map(n => n.pattern.args[0]);
+  const edges = new Map();
+  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); s.add(normal(r.edge)); }
+  for (const [id, r] of Object.entries(recs)) {
+    if ('field' in r) {
+      if (r.field === 'date' && (R.computed[id] || R.covered[id]) && r.value <= by) items.push({ kind: r.value < day ? 'overdue' : 'soon', id });
+      continue;
+    }
+    const t = (checks || required.length) && Tree.treeOf(recs, id);
+    if (!t) continue;
+    if (r.tag === false && checks && N.value('Check', t) === true) items.push({ kind: 'error', id });
+    const has = edges.get(id), blank = new Set();
+    for (const a of required) {
+      const e = normal(a.edge);
+      if (has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !N.required({ args: [{ edge: a.edge, loc: t }] })) continue;
+      blank.add(e);
+      items.push({ kind: 'blank', id, edge: a.edge });
+    }
+  }
+  for (const e of R.errors) items.push({ kind: 'error', id: e.id, error: e });
+  return items;
+}
+
 return {
-  computeState, ground, groundText, evaluateRow, diff, check, suggest, evaluateAt, text, renameName, computedId, splitFormula, tidyArrow,
+  computeState, ground, groundText, evaluateRow, diff, check, suggest, evaluateAt, text, attention, renameName, computedId, splitFormula, tidyArrow,
   tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
 };
 
