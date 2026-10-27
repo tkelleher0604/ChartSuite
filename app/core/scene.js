@@ -249,17 +249,36 @@ function shaped(texts, w, h, loose) {
     const paras = (it.was !== undefined && it.was !== it.text ? [[it.was, 'go'], ...(it.text ? [[it.text, 'appear']] : [])] : it.text ? [[it.text]] : [])
       .flatMap(([text, red]) => (loose ? bindSuffix : bind)(text).split('\n').map(p => ({ red, words: units(p, t, most) })));
     for (let p = paras.length - 1; p >= 0; p--) {
-      const { words, red } = paras[p];
-      for (let k = words.length; k > 0;) {
-        d += lh;
-        const room = w * (h - d) / h - 2 * PAD;
-        let j = k - 1, line = words[j].text;
-        if (measure(line, t) > room) return null;
-        while (j > 0 && !words[j - 1].cut && measure(`${words[j - 1].text} ${line}`, t) <= room) line = `${words[--j].text} ${line}`;
-        const these = words.slice(j, k);
-        out[i].unshift({ text: line, w: measure(line, t), ...(these.some(x => x.split) && { split: true }), ...(these.at(-1).cut && { cut: true }), ...(red && { red }) });
+      const { words, red } = paras[p], m = words.length, room = k => w * (h - d - (k + 1) * lh) / h - 2 * PAD;
+      const said = (a, b) => words.slice(a, b).map(x => x.text).join(' ');
+      // As few lines as hold the paragraph, filled bottom up; then, of the ways to set it in so many, the one
+      // whose lines come nearest the triangle's sides, each as full of its room as the rest.
+      let n = 0;
+      for (let k = m; k > 0; n++) {
+        let j = k - 1;
+        if (measure(words[j].text, t) > room(n)) return null;
+        while (j > 0 && !words[j - 1].cut && measure(said(j - 1, k), t) <= room(n)) j--;
         k = j;
       }
+      // best[k][a]: the least cost of setting words a… in the bottom k lines, and where the topmost of them ends.
+      const best = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(null));
+      best[0][m] = { cost: 0 };
+      for (let k = 1; k <= n; k++) for (let a = 0; a < m; a++) for (let b = a + 1; b <= m; b++) {
+        if (words.slice(a, b - 1).some(x => x.cut) || !best[k - 1][b]) continue;
+        const width = measure(said(a, b), t), r = room(k - 1);
+        if (width > r) break;
+        const cost = best[k - 1][b].cost + (1 - width / r) ** 2;
+        if (!best[k][a] || cost < best[k][a].cost) best[k][a] = { cost, end: b };
+      }
+      if (!best[n][0]) return null;
+      const lines = [];
+      for (let k = n, a = 0; k > 0; k--) {
+        const b = best[k][a].end, these = words.slice(a, b), text = said(a, b);
+        lines.push({ text, w: measure(text, t), ...(these.some(x => x.split) && { split: true }), ...(these.at(-1).cut && { cut: true }), ...(red && { red }) });
+        a = b;
+      }
+      out[i].unshift(...lines);
+      d += n * lh;
     }
   }
   return out;
