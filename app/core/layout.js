@@ -66,7 +66,7 @@ const keepIn = s => { store = s; };
 const laidBefore = () => { try { return JSON.parse(store?.get('layouts') ?? '[]'); } catch { return []; } };
 function place({ boxes, links, clusters, room = ROOM }) {
   const quick = boxes.length + links.length > BIG;
-  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h, room.key?.w, room.key?.h], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
+  const k = JSON.stringify([OPTIONS, quick, [room.w, room.h, room.key?.w, room.key?.h, room.key?.under], boxes.map(b => [b.id, Math.round(b.w), Math.round(b.h), b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top])]);
   return placed(k, () => {
     const before = laidBefore().find(([key]) => key === k);
     if (before) return new Map(before[1].map(([id, x, y]) => [id, { x, y }]));
@@ -166,11 +166,12 @@ function tiers(boxes, links, room = ROOM, clusters = []) {
   return { tier: new Map(rows.flatMap((bs, t) => bs.map(b => [b.id, t]))), wraps };
 }
 // How large rows would be drawn in a room, roughly: each row as wide as what's in it side by side, and as tall as
-// its tallest, with the gaps the layout leaves. rows: lists of { w, h }.
+// its tallest, with the gaps the layout leaves; in the room less the Key's, 24 pt under the chart, where it goes
+// there. rows: lists of { w, h }.
 function fit(rows, room) {
   const w = Math.max(...rows.map(us => us.reduce((w, u) => w + u.w + GAP.across, -GAP.across)));
   const h = rows.reduce((h, us) => h + Math.max(...us.map(u => u.h)) + GAP.down, -GAP.down);
-  return Math.min(room.w / w, room.h / h);
+  return Math.min(room.w / w, (room.h - (room.key?.under ? room.key.h + 32 : 0)) / h);
 }
 // ELK lays the tiers out as rows, each given its place (see tiers), and orders and places what's in each. Ranking
 // lines that run level aren't ELK's to place, but keep their boxes together: each set of boxes so joined, in one
@@ -399,7 +400,7 @@ function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
+    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
   const out = new Map();
@@ -535,7 +536,7 @@ function land(geo, lines, frames) {
 // (whether it runs down from its Above side, so an arrowhead would say nothing). A line going down (or up)
 // leaves its box's bottom (or top), turns along a lane just past it, and drops onto the box it reaches, where
 // lines arrive spread across the top in the order of where they start, so they don't cross there.
-// - A triangle's apex takes the chart's main relation, ownership, all its lines meeting there. A line of
+// - A triangle's apex takes the chart's main relation, ownership (see `main`), all its lines meeting there. A line of
 //   another, like a general partner's, comes down beside it and meets its side at mid-height, the lane it
 //   comes along kept 16 pt clear of the apexes it passes; where the box it leaves sits too close above for
 //   that, its trunk leaves the box's side instead.
@@ -543,7 +544,8 @@ function land(geo, lines, frames) {
 //   Trunks of different relations leave a box apart, spread along its edge in the order of where they go.
 // - Trunks leaving boxes level with each other turn along lanes stacked in the space below them, 12 pt
 //   apart, in the order that crosses the fewest of the others' lines, as channel routing does; trunks that
-//   don't overlap share a lane.
+//   don't overlap share a lane. Under the lowest, the room the labels of what they reach take; a gap too
+//   shallow for all that says what it `lack`s, for the boxes under it to move down by (see Scene's deepen).
 // - Boxes level with each other are joined side to side (a triangle's at its mid-height, where it can be),
 //   unless another box is in the way; then the line goes under the boxes between, on a lane of its own, and
 //   comes up into the far box's bottom.
@@ -551,10 +553,11 @@ function land(geo, lines, frames) {
 //   frame's near side.
 // - No route runs through a box it doesn't end at, or through what `avoid` holds (frames' captions): one that
 //   would goes `around`.
-// Labels go only where nothing else is drawn (see placeLabels); one that can't is `crowded`. Routes are kept by
-// what they read: the boxes, the lines and their labels, the frames and what to avoid.
+// Labels go only on their own lines, where nothing else is drawn (see placeLabels); one that can't is
+// `crowded`. Routes are kept by what they read: the boxes, the lines and their labels, the frames and what to
+// avoid.
 const routes = keeping();
-const ROUTED = ['from', 'to', 'points', 'labelAt', 'down', 'landed', 'around', 'astray', 'blocked', 'crowded', 'quiet', 'lane', 'apex', 'crowd'];
+const ROUTED = ['from', 'to', 'points', 'labelAt', 'down', 'landed', 'around', 'astray', 'blocked', 'crowded', 'quiet', 'lane', 'apex', 'crowd', 'kin', 'lack'];
 function route(geo, lines, opts = {}) {
   const k = JSON.stringify([[...geo.values()].map(g => [g.id, g.x, g.y, g.w, g.h, g.shape]), opts.frames?.map(f => [f.id, f.x, f.y, f.w, f.h, f.members, f.depth]), opts.labels,
     opts.avoid?.map(r => [r.x, r.y, r.w, r.h]), lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight, l.arrow, l.label && [l.label.w, l.label.h, l.label.base, l.label.shared, l.label.text]])]);
@@ -565,7 +568,10 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   geo = new Map(geo);
   if (frames.length) land(geo, lines, frames);
   const G = id => geo.get(id);
-  const looks = groupBy(lines, l => l.trunk), main = [...looks.entries()].sort((a, b) => b[1].length - a[1].length)[0]?.[0];
+  // The main relation: the one most lines draw; of as many, the one more of whose lines say more than its name, as
+  // an owner's say its percentage and a general partner's only what it is.
+  const says = ls => ls.filter(l => l.label && !l.label.shared).length;
+  const looks = groupBy(lines, l => l.trunk), main = [...looks.entries()].sort((a, b) => b[1].length - a[1].length || says(b[1]) - says(a[1]))[0]?.[0];
   for (const l of lines) {
     const s = G(l.from), t = G(l.to);
     l.points = null;
@@ -671,10 +677,17 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   }
   // The lanes. A trunk nearer its boxes than another crosses it where the other's stem passes its lane,
   // and where its own drops pass the other's; each channel's trunks are stacked, nearest first, picking
-  // each time the one whose place there crosses the fewest of those left.
-  for (const t of trunks) { const xs = [t.x, ...t.ls.map(l => l.tx)]; t.span = [Math.min(...xs), Math.max(...xs)]; }
+  // each time the one whose place there crosses the fewest of those left. A line that would drop from its lane
+  // through a box goes around it instead (see below), and its trunk's lane `lands` only the rest.
+  const solids = [...geo.values()].filter(g => g.shape !== 'frame');
+  for (const t of trunks) {
+    const s = G(t.from), drop = l => t.dir === 'down' ? [[l.tx, s.y + s.h + 8], [l.tx, l.ty]] : [[l.tx, l.ty], [l.tx, s.y - 8]];
+    t.lands = t.ls.filter(l => l.flank || !solids.some(g => g.id !== l.from && g.id !== l.to && through(g, ...drop(l))));
+    const xs = [t.x, ...t.lands.map(l => l.tx)];
+    t.span = [Math.min(...xs), Math.max(...xs)];
+  }
   const within = (x, [a, b]) => x > a + 0.5 && x < b - 0.5;
-  const crossings = (near, far) => within(far.x, near.span) + near.ls.filter(l => within(l.tx, far.span)).length;
+  const crossings = (near, far) => within(far.x, near.span) + near.lands.filter(l => within(l.tx, far.span)).length;
   const overlap = (a, b) => a.span[0] < b.span[1] + 6 && b.span[0] < a.span[1] + 6;
   const channels = [];
   for (const t of [...trunks].filter(t => !t.flankSide).sort((a, b) => a.x - b.x)) {
@@ -695,28 +708,38 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   }
   const laneOf = new Map(channels.flatMap(ch => ch.trunks.map(t => [t, ch])));
   // How far short of what it reaches a lane must stop: room for the label beside the last leg, and for a
-  // line meeting a triangle's side, 16 pt clear of its apex.
-  const short = l => l.flank ? CLEAR : Math.max(STEM, l.label ? l.label.h + 5.3 + 4 : 0);
+  // line meeting a triangle's side, 16 pt clear of its apex; and a lane over other lines' drops, as far short
+  // of where they arrive as their labels need.
+  const room = l => l.label ? l.label.h + 5.3 + 4 : 0, short = l => l.flank ? CLEAR : Math.max(STEM, room(l));
+  const landing = trunks.filter(t => t.dir === 'down').flatMap(t => t.lands).filter(l => !l.flank && l.label);
+  const over = t => landing.filter(a => !t.ls.includes(a) && within(a.tx, t.span) && a.ty > t.edge).map(a => a.ty - room(a));
   // Level runs already fixed, which a lane keeps 12 pt from where they overlap: a trunk's along its box's
   // side, and a line from side to side.
   const fixed = [...trunks.filter(t => t.flankSide).map(t => ({ y: t.laneY, x0: t.span[0], x1: t.span[1] })),
     ...lines.filter(l => l.dir === 'side' && l.y !== undefined).map(l => { const xs = [G(l.from), G(l.to)].flatMap(g => [g.x, g.x + g.w]).sort((a, b) => a - b); return { y: l.y, x0: xs[1], x1: xs[2] }; })];
+  // A gap too shallow for its lanes, a lane each 8 pt past the boxes they leave and 15 pt apart, and the room
+  // under the lowest, is short by what it `lack`s: { top, bottom, by }, the gap's top and bottom and how much
+  // deeper it must be, for the boxes from its bottom down to move down by (see Scene's deepen).
+  for (const l of lines) l.lack = null;
   for (const t of trunks) {
-    const s = G(t.from), lanes = laneOf.get(t)?.lanes ?? 1;
+    const s = G(t.from), lanes = laneOf.get(t)?.lanes ?? 1, ls = t.lands.length ? t.lands : t.ls;
     if (t.flankSide) {
       // Already placed, along the box's side.
     } else if (t.dir === 'down') {
-      const limit = Math.min(...t.ls.map(l => l.ty - short(l))) - LANE * (lanes - 1 - t.lane), floor = t.edge + 8 + LANE * t.lane;
+      const limit = Math.min(...ls.map(l => l.ty - short(l)), ...over(t)) - LANE * (lanes - 1 - t.lane), floor = t.edge + 8 + LANE * t.lane;
       t.laneY = Math.max(floor, Math.min(t.edge + 18 + LANE * t.lane, limit));
       for (const f of fixed) {
         if (Math.min(f.x1, t.span[1]) - Math.max(f.x0, t.span[0]) < 4 || Math.abs(t.laneY - f.y) >= LANE) continue;
         if (f.y + LANE <= limit) t.laneY = f.y + LANE;
         else if (f.y - LANE >= floor) t.laneY = f.y - LANE;
       }
+      if (t.lands.length && floor > limit + 0.25) t.lack = { top: t.edge, bottom: Math.min(...ls.map(l => G(l.to).y)), by: floor - limit };
     } else if (s.shape !== 'triangle') {
-      const limit = Math.max(...t.ls.map(l => l.ty + short(l))) + LANE * (lanes - 1 - t.lane);
-      t.laneY = Math.min(t.edge - 8 - LANE * t.lane, Math.max(t.edge - 18 - LANE * t.lane, limit));
+      const limit = Math.max(...ls.map(l => l.ty + short(l))) + LANE * (lanes - 1 - t.lane), floor = t.edge - 8 - LANE * t.lane;
+      t.laneY = Math.min(floor, Math.max(t.edge - 18 - LANE * t.lane, limit));
+      if (t.lands.length && floor < limit - 0.25) t.lack = { top: Math.max(...ls.map(l => G(l.to).y + G(l.to).h)), bottom: t.edge, by: limit - floor };
     }
+    for (const l of t.ls) l.lack = t.lack ?? null;
     if (t.dir === 'down') {
       for (const l of t.ls) {
         const start = t.flankSide ? [[t.x, t.y]] : [[t.x, t.y], [t.x, t.laneY]];
@@ -776,16 +799,21 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   }
   if (!labels) return;
   // A trunk whose lines all say the same thing, like a GP's to each of its funds, says it once, on its lane: the
-  // rest are `quiet`.
-  for (const l of lines) { l.quiet = false; l.lane = null; }
+  // rest are `quiet`, and all of them `kin`, one route to their label.
+  for (const l of lines) { l.quiet = false; l.lane = null; l.kin = null; }
   for (const t of trunks) {
     if (t.ls.length < 2 || t.laneY === undefined || t.ls.some(l => l.around) || !t.ls.every(l => l.label?.shared) || new Set(t.ls.map(l => l.label.text)).size > 1) continue;
     t.ls.slice(1).forEach(l => { l.labelAt = null; l.quiet = true; });
-    const xs = t.flankSide ? [t.x, ...t.ls.map(l => l.gx)] : [t.span[0], t.span[1]];
-    t.ls[0].lane = { y: t.laneY, x0: Math.min(...xs), x1: Math.max(...xs), from: t.x };
+    t.ls.forEach(l => { l.kin = t.ls[0].id; });
+    // (Where it's drawn, to the quarter pixel, as its route is.)
+    const xs = t.flankSide ? [t.x, ...t.ls.map(l => l.gx)] : [t.span[0], t.span[1]], q = v => Math.round(v * 4) / 4;
+    t.ls[0].lane = { y: q(t.laneY), x0: q(Math.min(...xs)), x1: q(Math.max(...xs)), from: q(t.x) };
   }
   // Lines drawn one over another, landing on one frame, say it once.
-  for (const ls of groupBy(lines.filter(l => l.landed), l => `${l.from}|${l.to}|${l.trunk}`).values()) ls.slice(1).forEach(l => { l.labelAt = null; l.quiet = true; });
+  for (const ls of groupBy(lines.filter(l => l.landed), l => `${l.from}|${l.to}|${l.trunk}`).values()) {
+    ls.slice(1).forEach(l => { l.labelAt = null; l.quiet = true; });
+    ls.forEach(l => { l.kin ??= ls[0].id; });
+  }
   placeLabels(geo, lines.filter(l => !l.quiet), lines, [], avoid);
 }
 
@@ -821,27 +849,48 @@ function arrivals(t, starts, after = [], clear = null) {
 // Labels. A label goes in one place, the same on every line: beside the last leg, just short of what the
 // line reaches, as percentages sit. On a drop, right of it, 3 pt off, its last baseline 4 pt above the top
 // it meets (below the bottom, going up); on a level last leg, above it, just past the arrowhead. Where that
-// place isn't free, the label steps away from what it reaches, a line's height at a time; then it looks along
-// its lane, or beside its longest legs; and then anywhere beside its route, on either side, from the end it
-// reaches back. A place is free where it covers no box, caption or other label, 1 pt clear, and crosses no
-// line; the first free place 8 pt from every other label wins, or else the first free one. Where none is free,
-// the first that covers no box, caption or label, crossing fewest lines; and only where there's none of those,
-// the one that covers least; either way the label is `crowded`. `taken`: labels already placed, which stay where
-// they are; `avoid`: what else no label may cover, frames' captions; `keep`: a label stays where it is while
-// that's still free, as when its words are set again a little larger or smaller.
-const APART = 32 / 3, CLEAR_LABEL = 4 / 3;
+// place isn't free, the label steps away from what it reaches, a line's height at a time, as far as the leg
+// goes; then it looks along its lane, or beside its longest legs; and then anywhere beside its route, on either
+// side, from the end it reaches back. A place is free where the label is on its own line, and on nothing else:
+// its route (or its kin's, the lines it's said once for) within 4 pt of it, no other line within 4 pt and no
+// line through it; and no box, caption or other label within 3 pt of its words' ends, or 1 pt of the leading
+// over and under them, as its ink is 3 pt from them there too. The first free place 8 pt from every other label
+// wins, or else the first free one. Where none is free the label is `crowded`, and goes where it covers no box,
+// caption or label, beside its own line where it can, with the fewest lines near or through it; and only where
+// there's no such place, where it covers least. `taken`: labels already placed, which stay where they are;
+// `avoid`: what else no label may cover, frames' captions; `keep`: a label stays where it is while that's still
+// free, as when its words are set again a little larger or smaller.
+const APART = 32 / 3, ON = 16 / 3, CLEAR_LABEL = { x: 4 - 1 / 4, y: 4 / 3 };
+// How far a rect is from a segment: 0 where they meet. Two convex shapes apart are nearest at a corner of one.
+function gap(r, a, b) {
+  if (a[0] === b[0] || a[1] === b[1]) return Math.hypot(Math.max(0, r.x - Math.max(a[0], b[0]), Math.min(a[0], b[0]) - r.x - r.w), Math.max(0, r.y - Math.max(a[1], b[1]), Math.min(a[1], b[1]) - r.y - r.h));
+  const box = corners(r);
+  if (depth([a, b], box) > 0) return 0;
+  const toRect = ([x, y]) => Math.hypot(Math.max(0, r.x - x, x - r.x - r.w), Math.max(0, r.y - y, y - r.y - r.h));
+  const toSeg = ([x, y]) => { const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy))); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
+  return Math.min(toRect(a), toRect(b), ...box.map(toSeg));
+}
 function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = false) {
   const boxes = [...geo.values()].filter(b => b.shape !== 'frame'), hulls = boxes.map(hull), placed = [];
   const segs = all.flatMap(l => (l.points ?? []).slice(1).map((p, i) => ({ l, a: l.points[i], b: p })));
   const nearBoxes = grid(boxes), nearSegs = grid(segs.map(s => span([s.a, s.b]))), nearPlaced = grid([]), nearAvoid = grid(avoid);
   for (const r of taken) nearPlaced.add(r, placed.push(r) - 1);
-  const grow = (r, d) => ({ x: r.x - d, y: r.y - d, w: r.w + 2 * d, h: r.h + 2 * d });
+  const grow = (r, dx, dy = dx) => ({ x: r.x - dx, y: r.y - dy, w: r.w + 2 * dx, h: r.h + 2 * dy });
   const area = (r, q) => Math.max(0, Math.min(r.x + r.w, q.x + q.w) - Math.max(r.x, q.x)) * Math.max(0, Math.min(r.y + r.h, q.y + q.h) - Math.max(r.y, q.y));
   for (const l of lines) {
-    const ps = l.points, lab = l.label, was = keep && l.labelAt;
+    const ps = l.points, lab = l.label, at = keep && l.labelAt;
     l.labelAt = null; l.crowded = false;
     if (!lab || !ps || ps.length < 2) continue;
     const w = lab.w, h = lab.h, legs = ps.slice(1).map((p, i) => ({ a: ps[i], b: p, len: Math.hypot(p[0] - ps[i][0], p[1] - ps[i][1]) }));
+    // Its own route: its line's, and its kin's.
+    const self = l.kin == null ? new Set([l]) : new Set(all.filter(o => o === l || o.kin === l.kin));
+    const own = segs.filter(s => self.has(s.l));
+    // Where it was, set again larger or smaller than it was placed (`size`): the sides of it that face its route
+    // stay where they were.
+    const was = at && (() => {
+      const r = { ...at, ...(l.size ?? lab) }, g = own.reduce((m, s) => { const d = gap(r, s.a, s.b); return d < m.d ? { d, s } : m; }, { d: Infinity }).s;
+      return { x: g && Math.min(g.a[0], g.b[0]) >= r.x + r.w ? r.x + r.w - w : r.x, y: g && Math.min(g.a[1], g.b[1]) >= r.y + r.h ? r.y + r.h - h : r.y };
+    })();
     const upright = g => Math.abs(g.a[0] - g.b[0]) < 1, level = g => Math.abs(g.a[1] - g.b[1]) < 1, last = legs[legs.length - 1];
     // The label's last baseline sits `base` below its top.
     const base = lab.base ?? h * 0.8;
@@ -868,9 +917,9 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
         yield { x, y: join.b[1] + 3 };
       }
       if (upright(last)) {
-        const down = last.b[1] > last.a[1], x = last.b[0] + 4;
+        const down = last.b[1] > last.a[1], x = last.b[0] + 4, [top, bottom] = down ? [last.a[1], last.b[1]] : [last.b[1], last.a[1]];
         const y0 = down ? last.b[1] - 5.3 - base : last.b[1] + 5.3;
-        for (let k = 0; k < 4; k++) yield { x, y: down ? y0 - k * (h + 2) : y0 + k * (h + 2) };
+        for (let k = 0, y = y0; k < 4 && y + h > top && y < bottom; k++, y = down ? y0 - k * (h + 2) : y0 + k * (h + 2)) yield { x, y };
       } else {
         const tipped = l.arrow === 'end' || l.arrow === 'both' || (l.arrow === 'auto' && !l.down);
         const leftward = last.b[0] < last.a[0], y = last.b[1], pad = 6 + (tipped ? 8 : 0);
@@ -900,32 +949,40 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
         }
       }
     }
-    // What a place covers: boxes, captions, labels (hard); lines it crosses; labels within 8 pt.
-    const judge = (s, i) => {
-      const r = { x: s.x, y: s.y, w, h }, clear = grow(r, CLEAR_LABEL), [x0, x1, y0, y1] = [r.x + 0.5, r.x + w - 0.5, r.y + 0.5, r.y + h - 0.5];
+    // What a place covers: boxes, captions, labels (hard); the lines through it; whether it's beside its own
+    // route, and the other lines within 4 pt of it; labels within 8 pt.
+    // (A place that covers something is only weighed against the best so far that covers as much.)
+    const judge = (s, i, least) => {
+      const r = { x: s.x, y: s.y, w, h }, clear = grow(r, CLEAR_LABEL.x, CLEAR_LABEL.y), [x0, x1, y0, y1] = [r.x + 0.5, r.x + w - 0.5, r.y + 0.5, r.y + h - 0.5];
       let hard = 0, covers = 0;
-      for (const k of nearBoxes.near(clear)) if (meets(clear, boxes[k]) && (hulls[k].length === 4 && boxes[k].shape !== 'diamond' || depth(corners(r, CLEAR_LABEL), hulls[k]) > 0)) { hard++; covers += area(clear, boxes[k]) * 4; }
-      for (const k of nearAvoid.near(clear)) if (meets(clear, avoid[k])) { hard++; covers += area(clear, avoid[k]) * 4; }
-      for (const k of nearPlaced.near(clear)) if (meets(clear, placed[k])) { hard++; covers += area(clear, placed[k]) * 6; }
+      for (const k of nearBoxes.near(clear)) if (meets(clear, boxes[k]) && (hulls[k].length === 4 && boxes[k].shape !== 'diamond' || depth(corners(clear), hulls[k]) > 0)) { hard++; covers += area(clear, boxes[k]); }
+      for (const k of nearAvoid.near(clear)) if (meets(clear, avoid[k])) { hard++; covers += area(clear, avoid[k]); }
+      for (const k of nearPlaced.near(clear)) if (meets(clear, placed[k])) { hard++; covers += area(clear, placed[k]) * 1.5; }
+      if (hard && least && (!least.hard || covers > least.covers)) return { ...s, i, hard, covers };
       let crossed = 0;
-      for (const k of nearSegs.near(r)) {
-        const { a, b } = segs[k];
+      const others = new Set();
+      for (const k of nearSegs.near(grow(r, ON))) {
+        const { l: o, a, b } = segs[k];
         if (a[0] === b[0] ? a[0] > x0 && a[0] < x1 && Math.max(a[1], b[1]) > y0 && Math.min(a[1], b[1]) < y1
           : a[1] === b[1] ? a[1] > y0 && a[1] < y1 && Math.max(a[0], b[0]) > x0 && Math.min(a[0], b[0]) < x1
           : depth([a, b], corners(r, -0.5)) > 0) crossed++;
+        if (!self.has(o) && !others.has(o) && gap(r, a, b) <= ON) others.add(o);
       }
-      const room = grow(r, APART), near = nearPlaced.near(room).some(k => meets(room, placed[k]));
-      return { ...s, hard, crossed, near, cost: i * 2 + covers + crossed * 40 };
+      const beside = own.some(g => gap(r, g.a, g.b) <= ON), room = grow(r, APART), near = nearPlaced.near(room).some(k => meets(room, placed[k]));
+      return { ...s, i, hard, covers, crossed, beside, others: others.size, on: beside && !others.size && !crossed, near };
     };
-    let free = null, open = null, least = null, i = 0;
+    // Of two places that aren't free, the better: one that covers nothing, or else less; then one beside its own
+    // line; then one with fewer lines near or through it; then the one preferred.
+    const better = (a, b) => (!a.hard !== !b.hard ? !a.hard : a.hard && a.covers !== b.covers ? a.covers < b.covers
+      : a.beside !== b.beside ? a.beside : a.others + a.crossed !== b.others + b.crossed ? a.others + a.crossed < b.others + b.crossed : a.i < b.i);
+    let free = null, least = null, i = 0;
     for (const s of spots()) {
-      const j = judge(s, i++);
-      if (!j.hard && !j.crossed && (!j.near || (was && i === 1))) { free = j; break; }
-      if (!j.hard && !j.crossed) free ??= j;
-      else if (!j.hard && (!open || j.crossed < open.crossed)) open = j;
-      if (!least || j.cost < least.cost) least = j;
+      const j = judge(s, i++, least);
+      if (!j.hard && j.on && (!j.near || (was && j.i === 0))) { free = j; break; }
+      if (!j.hard && j.on) free ??= j;
+      if (!least || better(j, least)) least = j;
     }
-    const best = free ?? open ?? least;
+    const best = free ?? least;
     l.labelAt = { x: best.x, y: best.y };
     l.crowded = !free;
     const mine = { x: best.x, y: best.y, w, h };
@@ -1058,5 +1115,5 @@ function around(geo, from, to, { avoid = [], segs = [], page = null, far = 160, 
   return way.filter((p, i) => i === 0 || i === way.length - 1 || !((p[0] === way[i - 1][0] && p[0] === way[i + 1][0]) || (p[1] === way[i - 1][1] && p[1] === way[i + 1][1])));
 }
 
-return { place, arrange, route, around, labels: placeLabels, keepIn, OPTIONS };
+return { place, arrange, route, around, labels: placeLabels, sideY, sideX, keepIn, OPTIONS };
 })();
