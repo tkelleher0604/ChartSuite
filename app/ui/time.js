@@ -406,7 +406,8 @@ const Time = (() => {
   }
   // History takes the inspector's place while it's open. Esc comes back from a change picked to now, and
   // then closes it.
-  function openHistory() {
+  function openHistory(list) {
+    if (list) mode.value = list;
     if (open.peek()) return;
     open.value = true;
     Shell.aside(History);
@@ -419,7 +420,9 @@ const Time = (() => {
     unlayer();
     now();
   }
-  Shell.register('action', { id: 'history', name: 'History', menu: 'chart', order: 10, run: () => open.peek() ? close() : openHistory() });
+  Shell.register('action', { id: 'history', name: 'History', menu: 'chart', order: 10, run: () => open.peek() ? close() : openHistory('all') });
+  // Its list of what's deleted, which Find reaches by what's done there too.
+  Shell.register('action', { id: 'history.deleted', name: 'History › Deleted', names: ['Restore'], run: () => openHistory('deleted') });
 
   return { events, whose, describe, keep, open: openHistory, close };
 })();

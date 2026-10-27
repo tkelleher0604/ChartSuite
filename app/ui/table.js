@@ -366,8 +366,8 @@ const Table = (() => {
     flight = null;
     const t = table = new Tabulator(host, {
       // A column is sized at its heading's edge, as Excel's is, and a row is only its cells. A field is a column's
-      // key as it stands, dots and all.
-      index: 'id', data: m.data, columns: columnDefs(m), columnDefaults: { resizable: 'header' }, nestedFieldSeparator: false, height: '100%', layout: 'fitDataSlack',
+      // key as it stands, dots and all. The grid is laid out again as settle says, not as Tabulator watches its size.
+      index: 'id', data: m.data, columns: columnDefs(m), columnDefaults: { resizable: 'header' }, nestedFieldSeparator: false, height: '100%', layout: 'fitDataSlack', autoResize: false,
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,
@@ -414,9 +414,11 @@ const Table = (() => {
       sr.getRowHeaderWidth = () => numbers() + (t.getColumns().find(c => c.getField())?.getWidth() ?? 0);
       // One stop in the tab order: the rows, not the headings and their filters.
       host.querySelectorAll('.tabulator-header, .tabulator-header-filter input').forEach(x => x.setAttribute('tabindex', '-1'));
+      tall.set(t, t.element.clientHeight);
       mark();
       reveal(Shell.selection.peek()[0]);
       regain();
+      settle();
     });
   }
   // What the columns are; when it changes, the grid is built again rather than refreshed.
@@ -429,6 +431,12 @@ const Table = (() => {
   function refresh() {
     const view = Shell.view.value, v = viewOf(view), p = FormulaBar.pending.value;
     if (!el || v?.layout !== 'table') return;
+    // A grid is built and drawn only in its slot shown; asked for while it's hidden, it's done once the slot shows.
+    owed = !el.offsetParent;
+    if (owed) return;
+    // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
+    const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value];
+    if (table && ready && !flight && drewFrom.every((x, i) => x === from[i])) return settle();
     const now = model(view);
     real = now;
     // A table whose rows aren't chosen yet.
@@ -440,10 +448,11 @@ const Table = (() => {
       for (const c of m.cols) if (staged.peek()?.cols.has(c.key)) c.pasted = true;
     }
     current = m;
-    if (!table || built.view !== view || built.sig !== signature(m)) { since(now); return build(m); }
+    if (!table || built.view !== view || built.sig !== signature(m)) { drewFrom = from; since(now); return build(m); }
     if (!ready) return table.on('tableBuilt', () => refresh());
     // One update at a time: another asked for meanwhile follows it.
     if (flight) { flight.again = true; return; }
+    drewFrom = from;
     // Rows keep their place while they're edited; a sort or a filter applies again only when asked.
     const t = table, lit = p ? [] : since(now), red = new Set(m.data.filter(isRed).map(r => r.id)), first = !reds.size && (m.data.find(r => r._red) ?? m.data.find(isRed))?.id;
     const f = flight = { again: false };
@@ -469,10 +478,30 @@ const Table = (() => {
       if (first) reveal(first);
       flash(lit);
       regain();
-      if (f.again) refresh();
+      if (f.again) refresh(); else settle();
     });
   }
-  let flight = null;
+  let flight = null, owed = false, drewFrom = [];
+
+  // ---- The grid's room, which one owner lays it out in ----
+  // A grid is laid out as it's built, in its slot shown. It's laid out again here, and only here, once its slot has
+  // settled, shown and not gliding (Shell.gliding), in another room than it was laid out in: the columns fitted again
+  // for another width, the rows drawn again for another height. So the inspector gliding in or out lays it out once,
+  // at the end, and a view shown again in the room it was laid out in costs nothing. A cell being edited keeps the
+  // layout it's edited in until it's left (back), and rows being updated until they are (refresh).
+  const tall = new WeakMap();
+  function settle() {
+    if (!el?.offsetParent || Shell.gliding.peek()) return;
+    if (owed) return refresh();
+    const t = table;
+    if (!t || !ready || flight || t.modules.edit?.currentCell) return;
+    const h = t.element.clientHeight;
+    if (laid.get(t) !== widthOf(t)) t.redraw();
+    else if (tall.get(t) !== h) t.rowManager.redraw();
+    else return;
+    tall.set(t, h);
+    regain();
+  }
 
   // ---- Quiet feedback: the cells a change just made light for a moment, whoever made it ----
   // The cells that differ from the grid last drawn, at this view, with these columns, at this time.
@@ -517,7 +546,7 @@ const Table = (() => {
     const a = document.activeElement;
     if (inside && table && el?.offsetParent && (!a || a === document.body) && !table.modules.edit?.currentCell) holder()?.focus({ preventScroll: true });
   }
-  const back = () => { inside = true; requestAnimationFrame(regain); };
+  const back = () => { inside = true; requestAnimationFrame(regain); setTimeout(settle); };
   // A cell made active for the keys: the selected record's row, or the first, in the first column.
   function activate() {
     const sr = table?.modules.selectRange;
@@ -991,19 +1020,17 @@ const Table = (() => {
         if (e.target.classList.contains('tabulator-tableholder') && e.target.matches(':focus-visible')) activate();
       });
       cells.addEventListener('focusout', e => { if (e.relatedTarget && !cells.contains(e.relatedTarget)) inside = false; });
-      // As the grid's slot changes size, a grid laid out in another room (drawn while its slot was hidden, or as the
-      // inspector glided) is laid out again; and Tabulator, drawing its rows again, drops the keys, which come back.
-      const sized = new ResizeObserver(() => requestAnimationFrame(() => {
-        if (table && ready && el?.offsetParent && laid.get(table) !== widthOf(table)) table.redraw();
-        regain();
-      }));
+      // The slot settles as it's shown, as the inspector stops gliding, and as the window or the divider sizes it.
+      const sized = new ResizeObserver(() => requestAnimationFrame(settle)), shown = new MutationObserver(settle);
       sized.observe(cells);
+      shown.observe(el, { attributes: true, attributeFilter: ['hidden'] });
       const offs = [
+        effect(() => { if (!Shell.gliding.value) preactSignals.untracked(settle); }),
         effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view.
         effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking) reveal(id); }),
       ];
-      return () => { offs.forEach(f => f()); sized.disconnect(); unstage(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
+      return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); unstage(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
     },
     focus,
   });

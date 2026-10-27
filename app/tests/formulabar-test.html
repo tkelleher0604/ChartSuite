@@ -294,8 +294,9 @@ async function checks() {
   const why = FormulaBar.reason(CLOSE_NP);
   check('reason(): the cited row, its citation, and its words from the Description', why?.label === cited.label && why.cite === '§57(b)(1)' && /^any person \(other than the business development company itself\)/.test(why.words ?? ''),
     JSON.stringify(why));
-  check('citeOf(): a clause letter under its section', FormulaBar.citeOf('def_affiliated', '(C)') === '§2(a)(3)(C)' && FormulaBar.citeOf('def_remote', '(e)(1)(A)') === '§57(e)(1)(A)'
-    && FormulaBar.citeOf('def_control', 'Presumed: more than 25% of voting securities') === '§2(a)(9), presumed', FormulaBar.citeOf('def_affiliated', '(C)'));
+  check('citeOf(): a clause letter under its section, and for a label of words, the section alone', FormulaBar.citeOf('def_affiliated', '(C)') === '§2(a)(3)(C)' && FormulaBar.citeOf('def_remote', '(e)(1)(A)') === '§57(e)(1)(A)'
+    && FormulaBar.citeOf('def_control', 'Presumed: more than 25% of voting securities') === '§2(a)(9)' && FormulaBar.citeOf('def_control', 'General partner') === '§2(a)(9)',
+    `${FormulaBar.citeOf('def_affiliated', '(C)')} ${FormulaBar.citeOf('def_control', 'Presumed: more than 25% of voting securities')} ${FormulaBar.citeOf('def_control', 'General partner')}`);
   check('reason() is nothing for an entered record', FormulaBar.reason('pos_chen_bdc') === null);
 
   // One row, whatever it shows: the chart under it never moves
@@ -381,7 +382,7 @@ async function checks() {
   check('why, in words: Northstar’s 7% makes it an affiliated person, so a remote affiliate',
     await saidOf([REMOTE_NS]) === 'Northstar Teachers’ Retirement System is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person of the BDC (§2(a)(3)(A)), so it is a remote affiliate of the BDC (§57(e)(1)(A)).', said());
   check('… and the Blocker a close affiliate, through Chen, a director who controls it',
-    await saidOf([CLOSE_BLK]) === 'Margaret A. Chen is a director of the BDC and a controller of Fund III Blocker (§2(a)(9), presumed), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
+    await saidOf([CLOSE_BLK]) === 'Margaret A. Chen is a director of the BDC and a controller of Fund III Blocker (§2(a)(9)), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
   const facts = [...document.querySelectorAll('.fx-said .fx-fact.go')];
   check('each fact is a button; hovered, its records pulse on the chart', facts.length === 3 && (facts[1].dispatchEvent(new PointerEvent('pointerenter')), (StandIn.hl.peek()?.pulse ?? []).length > 0));
   facts[1].dispatchEvent(new PointerEvent('pointerleave'));
@@ -497,7 +498,20 @@ async function checks() {
   check('no sentence says what a condition only excludes: no vehicle type where the rows ask only that it isn’t a portfolio company', excluding.length > 20 && !excluding.some(s => /vehicle type/.test(s ?? '')), excluding.find(s => /vehicle type/.test(s ?? '')));
   check('… and a tag of an object, said of the object’s', await saidOf(['fx:ownership adds up=fund']) === 'U.S. Investors is an owner of Fund III with a percentage of 71.6% and Offshore Feeder is an owner of Fund III with a percentage of 28.4%, so Fund III’s ownership adds up.', said());
   check('a default, said with the facts the rows before it read; an Entity Type, as what kind of entity it is', await saidOf(['fx:tax classification=northpine_type']) === 'Northpine Software, LLC is a limited liability company, so its tax classification is Partnership.', said());
-  check('every fact said, about one subject together, none left as "and 2 more"', /^Fund III is a limited partnership, its formation date is February 14, 2023 and the tax year is 2026, so/.test(await saidOf(['fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris']) ?? ''), said());
+  // A value at a relation says whose it is, its sides as the relation says them (Fund III is taxed for 2026), and
+  // a fact that only names a side (the tax year is 2026) isn't said beside it: no side twice
+  const TAX = 'fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris';
+  check('a value at a relation says whose: Fund III’s annual tax for 2026 is due June 1, 2027, never “the tax year is 2026, so the annual tax is due”',
+    await saidOf([`fx:annual tax due=${TAX}`]) === 'Fund III’s annual tax for 2026 is due June 1, 2027.' && FormulaBar.sentence(`fx:annual tax amount=${TAX}`) === 'Fund III’s annual tax amount for 2026 is $400.', said());
+  const taxes = [...Object.entries(R().computed), ...Object.entries(R().covered)].filter(([, c]) => /^def_annual_tax/.test(c.def)).map(([id]) => FormulaBar.sentence(id));
+  const whose = s => /^\S.*’s? annual tax (amount )?for \d{4} is |, so it is taxed for \d{4}\.$/.test(s ?? '') && !/\btax year is\b/.test(s);
+  check('… every Delaware tax sentence names whose, and its year once', taxes.length >= 50 && taxes.every(whose), taxes.find(s => !whose(s)));
+  check('… so the facts about one subject together, then it: is taxed for 2026', await saidOf([TAX]) === 'Fund III is a limited partnership and its formation date is February 14, 2023, so it is taxed for 2026.', said());
+  const vote = id => Object.keys(R().records).find(k => R().records[k].at === ent()[id].at && R().records[k].edge === 'Voting Percentage');
+  check('… an owner’s voting percentage, where the facts say only the company: U.S. Investors’ voting percentage of Fund III is 0%; where they say the holding, the voting percentage',
+    FormulaBar.sentence(vote(pct('inv_us', 'fund'))) === 'Fund III is a limited partnership, so U.S. Investors’ voting percentage of Fund III is 0%.'
+    && FormulaBar.sentence(vote(pct('fund', 'northpine'))) === 'Fund III is an owner of Northpine Software, LLC with a percentage of 64%, so the voting percentage is 64%.',
+    `${FormulaBar.sentence(vote(pct('inv_us', 'fund')))} | ${FormulaBar.sentence(vote(pct('fund', 'northpine')))}`);
   check('… a date of what was done, as done then', /^Fund III Blocker is a corporation and paid its franchise tax on February 24, 2026, so /.test(await saidOf(['fx:franchise tax due=blocker_juris']) ?? ''), said());
   check('… its annual return filed on a day, and Form D last filed on one, while its offering is open', /^Offshore Feeder filed its annual return on January 20, 2026, so its annual return is due/.test(await saidOf(['fx:annual return due=feeder_juris']) ?? '')
     && /^The BDC’s offering is open and it last filed on November 10, 2025, so its Form D is due/.test(await saidOf(['fx:form d due=bdc_regd']) ?? ''), said());
@@ -514,6 +528,9 @@ async function checks() {
   const labelled = Object.keys(R().computed).map(id => [id, FormulaBar.sentence(id)])
     .filter(([id, s]) => s && App.definitions.peek().find(d => d.id === R().computed[id].def).rows.some(r => r.label && s.includes(` (${r.label})`)));
   check('no sentence ends in its row’s label in parentheses, as if it were a citation', !labelled.length, labelled.slice(0, 2).map(x => x.join(': ')).join(' | '));
+  const cites = Object.keys(R().computed).flatMap(id => FormulaBar.sentence(id)?.match(/\(§[^()]*(?:\([^()]*\)[^()]*)*\)/g) ?? []);
+  check('… and a citation names only its section: (§2(a)(9)), never (§2(a)(9), general partner) after “is a general partner”', cites.length > 500 && cites.every(c => /^\(§\d[\w.]*(?:\([^()\s]+\))*\)$/.test(c)),
+    cites.find(c => !/^\(§\d[\w.]*(?:\([^()\s]+\))*\)$/.test(c)));
   // No tag is said as "is Yes", nor any value as a bare yes or no, whatever the record
   const says = [];
   for (const def of App.definitions.peek()) { const id = Object.keys(R().computed).find(k => R().computed[k].def === def.id); if (id) says.push(await saidOf([id])); }
@@ -565,7 +582,7 @@ async function checks() {
   // One place rule, the core's (Notes.placed), which the bar draws piece by piece: two sides as their line
   // joins them; three as the panel's sentence says them, less its verb; a side named by a number with its kind
   const placeShown = async key => { Shell.select([key]); await wait(40); return document.querySelector('.fxbar .fx-args')?.textContent; };
-  const SA = 'David R. Okafor for Fund III, via GP III', TAX = 'fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris';
+  const SA = 'David R. Okafor for Fund III, via GP III';
   check('the place rule: a relation of three sides as the panel says it, less its verb, and an entry at it there too', await placeShown('sign_okfr_fund') === SA
     && App.notes.peek().segmentOf(R().records, 'sign_okfr_fund') === SA && await placeShown('fx:capacity held=sign_okfr_fund') === SA, `${await placeShown('sign_okfr_fund')} | ${await placeShown('fx:capacity held=sign_okfr_fund')}`);
   check('… one of two as its line joins them, and a side named by a number with its kind', await placeShown(CLOSE_NP) === App.notes.peek().segmentOf(R().records, CLOSE_NP)

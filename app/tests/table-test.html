@@ -659,6 +659,18 @@ async function run() {
   got = await found('rename');
   check('… and “rename” renames the chart or the view', got.includes('Rename chart') && got.includes('Rename view'), got.join(' / '));
   Shell.closeAll(); await tick();
+  got = await found('restore');
+  press('Enter', $('.findpal .menu-find')); await tick(120);
+  const listing = () => !!$('.inspector .hist') && $$('.hist-head .menu-seg button').find(b => b.getAttribute('aria-pressed') === 'true')?.textContent;
+  check('… and “restore” opens History at what’s deleted, where Restore is', got[0] === '#Actions' && got[1] === 'History › Deleted' && listing() === 'Deleted', `${got.slice(0, 4).join(' / ')}: ${listing()}`);
+  const history = Shell.parts.peek().action.find(a => a.id === 'history');
+  history.run(); await tick(60);
+  got = await found('delete');
+  check('… and so does “delete”', got.includes('History › Deleted'), got.join(' / '));
+  Shell.closeAll(); await tick();
+  history.run(); await tick(60);
+  check('History itself opens at its changes', listing() === 'Changes', listing());
+  history.run(); await tick(60);
   got = await found('close affiliate');
   const under = (head, label) => { let e = $$('.findpal .menu-head').find(h => h.textContent === head); while ((e = e?.nextElementSibling) && !e.classList.contains('menu-head')) if (e.querySelector('.label')?.textContent === label) return e; return null; };
   check('… the definitions', !!under('Definitions', 'Close Affiliate'), got.join(' / '));
@@ -778,7 +790,8 @@ async function run() {
     && App.notes.peek().resolve('Shown', { kind: 'Document' }, nv)?.note.view === nv && !notesIn(nv).some(r => r.label === 'Position')
     && notesIn(nv).length === notesIn(firstChart).filter(r => r.label !== 'Position').length, `${notesIn(nv).length} of ${notesIn(firstChart).length}`);
   const chartName = App.wb.charts().find(c => c.chart === C()).name;
-  check('… on a page with a title and an as-of line', shapesIn(nv).length === 2 && shapesIn(nv).some(s => s.role === 'title' && s.text === chartName) && shapesIn(nv).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text)), JSON.stringify(shapesIn(nv)));
+  check('… on a page with a title, an as-of line and a Key, as the sample’s pages begin', shapesIn(nv).length === 3 && shapesIn(nv).some(s => s.role === 'title' && s.text === chartName)
+    && shapesIn(nv).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text)) && shapesIn(nv).some(s => s.geometry === 'legend' && s.title === 'Key' && s.x == null), JSON.stringify(shapesIn(nv)));
   undo(); await tick(100);
   check('Undone, it leaves the view it was made from', Shell.view.peek() === own && !views().some(v => v.id === nv), Shell.view.peek());
 
@@ -872,8 +885,9 @@ async function run() {
     && !['Structure', '40 Act', 'Fund III', 'Management and control', 'Entities 2'].some(n => kept.includes(n)) && views().filter(v => v.layout === 'chart').length === 1, kept.join());
   check('… its chart with the styles and Shown of the old chart’s first', chart1 && App.notes.peek().resolve('Shown', { kind: 'Document' }, chart1.id)?.note.view === chart1.id);
   const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
-  check('Each of its pages has a title, its name, and an as-of line', pages.length > 0 && pages.every(v => furniture(v).some(s => s.role === 'title' && s.text === name1) && furniture(v).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text))),
-    pages.map(v => `${v.name}: ${furniture(v).map(s => s.text).join(' | ')}`).join(' / '));
+  check('Each of its pages has a title, its name, an as-of line and a Key', pages.length > 0 && pages.every(v => furniture(v).some(s => s.role === 'title' && s.text === name1)
+    && furniture(v).some(s => s.role === 'date' && /^="As of " & TEXT\(@AsOf/.test(s.text)) && furniture(v).some(s => s.geometry === 'legend')),
+    pages.map(v => `${v.name}: ${furniture(v).map(s => s.text ?? s.title).join(' | ')}`).join(' / '));
   // Named in place in the title bar, as a sheet is: as it begins, from the chart menu, or by a double-click.
   const naming = () => $('.titlebar .chartmenu.naming input'), type = (el, text) => { el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); };
   const pageTitles = () => App.wb.rows(C1).filter(r => 'shape' in r && r.role === 'title').map(r => r.text).sort().join(' | ');
@@ -897,8 +911,15 @@ async function run() {
   check('A double-click on it types over it too, and Esc puts it back, the keys on it again', chartName1() === 'Harbor Point Fund I, L.P.' && !naming() && document.activeElement === $('.titlebar .chartmenu'), document.activeElement?.outerHTML.slice(0, 60));
   App.change(tx => tx.note('Name', { id: views()[0].id, kind: 'View' }, 'Overview'), { dated: false }); await tick(60);
   check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Chart'));
+  const onC1 = Shell.view.peek(), among = vs => vs.some(v => v.id === Shell.view.peek());
   Shell.parts.peek().workbook.open(C0); await tick(200);
   check('Back on the first chart, its Undo is its own', C() === C0 && Shell.parts.peek().undo.canUndo());
+  // The address names the view, and the view its chart: so Back, a link and a reload open the chart it's of.
+  const atC0 = Shell.view.peek();
+  Shell.back(); await until(() => Shell.view.peek() === onC1); await tick(100);
+  check('Opening another chart is a step: Back comes back to the chart it was on, at its view', C() === C1 && Shell.view.peek() === onC1 && among(views()), `${C() === C1} ${Shell.view.peek()}`);
+  location.hash = `#v=${encodeURIComponent(atC0)}`; await until(() => Shell.view.peek() === atC0); await tick(100);
+  check('A link to a view of another chart opens that chart at it', C() === C0 && Shell.view.peek() === atC0 && among(views()), `${C() === C0} ${Shell.view.peek()}`);
   check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
 }
 
