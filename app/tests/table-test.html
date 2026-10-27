@@ -106,6 +106,21 @@ async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
   check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities,Ownership,Dates,Documents', views().map(v => v.name).join());
   check('A view without a Layout note is a chart', views().slice(0, 4).every(v => v.layout === 'chart') && views().slice(4).every(v => v.layout === 'table'));
+  // In a narrow window the tabs run on past the edge, which fades, the wheel turns them across, and every view
+  // is a click away in a list.
+  const strip = () => $('.sheets'), start = Shell.view.peek();
+  Object.assign($('.shell').style, { right: 'auto', width: '720px' });
+  Shell.show(views()[1].id); await tick(80);
+  check('Tabs that run on past the edge fade into it, and every view is listed beside them', strip().dataset.more === 'right' && !!$('.foot .btn.views'), `${strip().dataset.more} ${!!$('.foot .btn.views')}`);
+  strip().dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true })); await tick(40);
+  check('… the wheel turns them across', strip().scrollLeft > 0, strip().scrollLeft);
+  $('.foot .btn.views').click(); await tick(80);
+  const listed = $$('.float .menu-item').map(e => (e.getAttribute('aria-checked') === 'true' ? '✓' : '') + e.textContent.trim());
+  item('Documents').click(); await tick(80);
+  check('… the list names every view, the one shown checked, and shows the one chosen', listed.join() === views().map((v, i) => (i === 1 ? '✓' : '') + v.name).join() && views().find(v => v.id === Shell.view.peek())?.name === 'Documents', listed.join());
+  Object.assign($('.shell').style, { right: '', width: '' });
+  Shell.show(start); await tick(80);
+  check('With room for them all, no list', !$('.foot .btn.views') && !strip().dataset.more, `${strip().dataset.more}`);
 
   // ---- Adding a table view from the + menu ----
   let n0 = N();
@@ -662,6 +677,13 @@ async function run() {
   const pos = App.wb.rows(C()).filter(r => r.label === 'Position').slice(0, 3), stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: C() };
   const tidied = { ...stamp, id: 'xt', removes: pos.map(r => r.id), adds: [] }, untidied = { ...stamp, id: 'xu', reverses: 'xt', removes: [], adds: pos }, retidied = { ...stamp, id: 'xr', reverses: 'xu', removes: pos.map(r => r.id), adds: [] };
   check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));
+  const npine = named('Northpine Software, LLC'), boxOf = { id: npine, kind: 'Entity' };
+  App.change(tx => tx.note('Fill', boxOf, '#fff2cc', { view: 'view_main' }), { dated: false });
+  App.change(tx => tx.note('Fill', boxOf, undefined, { view: 'view_main' }), { dated: false });
+  const cleared = Time.describe(last());
+  undo(); await tick(60);
+  check('A look a box kept of its own, cleared, is said so, and so is its Undo', cleared === 'Cleared Northpine Software, LLC’s own Fill in Structure' && $('.toast span')?.textContent === `Undid: ${cleared}`, `${cleared} / ${$('.toast span')?.textContent}`);
+  undo(); await tick(60);
   const before = st();
   const pick =[...$$('.hist-row')].find(x => x.textContent.includes('Changed Percentage of Fund III → Corvane'));
   pick.click(); await tick(150);
