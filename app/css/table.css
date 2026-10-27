@@ -2,11 +2,9 @@
    ruler under the view, and History in the inspector's place. Tokens are dendra.css's. */
 
 /* ---- The grid, and under it the bar of a paste pending ---- */
-/* With nothing selected, the grid has the inspector's width too (shell.js's .alone); the inspector glides back
-   when a row is selected. */
+/* With nothing selected, the grid has the inspector's width too (shell.js's .alone, which glides). */
 .main.alone { grid-template-columns: minmax(0, 1fr) 0 0; }
 .main.alone > :is(.divider, .inspector) { display: none; }
-.main:has(> .view > .host.grid:not([hidden])):not(:has(> .divider.drag)) { transition: grid-template-columns var(--calm) var(--ease); }
 .view > .host.grid { display: flex; flex-direction: column; background: var(--surface); }
 .grid > .cells { flex: 1; min-height: 0; }
 .grid > .cells > .tabulator { height: 100%; }

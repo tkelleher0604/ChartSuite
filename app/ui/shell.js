@@ -59,7 +59,8 @@
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)
 // as shown; aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer
 // joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name);
-// store.get/set, this browser's settings; widen() and narrow(); theme. A menu item is '-', { head }, or
+// store.get/set, this browser's settings; widen() and narrow(), and gliding, a signal true while the inspector
+// glides in or out, so the view's slot has settled once it's false again; theme. A menu item is '-', { head }, or
 // { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point? }; one without run or items is
 // shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys.
 //
@@ -163,7 +164,8 @@ const Shell = (() => {
   // The inspector: as the user left it, or 30% of the window between 300 and 384 px, so a small screen keeps its chart.
   const insp = signal(Math.min(Math.max(280, +store.get('inspector') || Math.round(Math.min(384, Math.max(300, innerWidth * .3)))), Math.max(280, innerWidth - 320)));
   const wide = signal(false), gliding = signal(false);
-  const glide = () => { gliding.value = true; setTimeout(() => { gliding.value = false; }, 240); };
+  let glided = 0;
+  const glide = () => { gliding.value = true; clearTimeout(glided); glided = setTimeout(() => { gliding.value = false; }, 240); };
   const widen = () => { if (!wide.peek()) { glide(); wide.value = true; } };
   const narrow = () => { if (wide.peek()) { glide(); wide.value = false; } };
   // What takes the inspector's place, while it does: History.
@@ -621,6 +623,11 @@ const Shell = (() => {
     ? html`<div class=${'slot ' + kind} role="region" aria-label=${BARS[kind]} data-region="bars" hidden=${hidden}><${Host} kind=${kind} /></div>` : html`<div hidden />`;
 
   // ---- The view and the inspector; a chart with no box offers its one action ----
+  // A table with nothing selected has the width: the inspector would show only the view's settings. The inspector
+  // glides out as the last row is let go and back as one is selected; another view is shown as it is, at once.
+  const alone = computed(() => current.value?.layout === 'table' && !wide.value && !aside.value && !selection.value.length);
+  let wasAlone = null;
+  effect(() => { const now = { v: view.value, alone: alone.value }; if (wasAlone?.v === now.v && wasAlone.alone !== now.alone) glide(); wasAlone = now; });
   function Main() {
     const v = current.value, layout = v?.layout || 'chart', kinds = layout === 'chart' && part('canvas')?.kinds;
     const bare = kinds && v && !App.readOnly.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box');
@@ -639,9 +646,7 @@ const Shell = (() => {
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up, { once: true });
     };
-    // A table with nothing selected has the width: the inspector would show only the view's settings.
-    const alone = layout === 'table' && !wide.value && !aside.value && !selection.value.length;
-    return html`<div class=${'main' + (wide.value ? ' wide' : '') + (alone ? ' alone' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
+    return html`<div class=${'main' + (wide.value ? ' wide' : '') + (alone.value ? ' alone' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
       <div class="view" id="view" role="tabpanel" aria-labelledby=${v ? 'tab-' + v.id : null} data-region="view" tabindex="-1" aria-hidden=${wide.value ? 'true' : null}>
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
@@ -803,7 +808,7 @@ const Shell = (() => {
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
     register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store, nameChart,
-    widen, narrow, wide, theme, setTheme, html, h, signal, computed, effect, parts: reg,
+    widen, narrow, wide, gliding, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     aside: c => { aside.value = c; },
   };
 })();
