@@ -578,19 +578,21 @@ function Relatives({ id }) {
 // Look: each format property set for a mark and its value, under where it comes from, said once, as an
 // entry's entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code
 // only for one of the user's own; a size or a weight is the slide's, as the format bar has it, a size to the
-// half point and a weight as PowerPoint gives it. Format is what a text says: its Label.
-const LABELS = { Format: 'Label' };
+// half point and a weight as PowerPoint gives it. Format is what a text shows: its Text, as the scene sets it
+// (a tag's is its name, whatever the format, unless it's none).
+const LABELS = { Format: 'Text' }, TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
-const val = (label, v) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
+const val = (label, v, tag) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
   : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
   : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
+  : label === 'Format' ? (tag && v !== 'none' ? 'Name' : TEXTS[v] ?? upper(String(v)))
   : label === 'Shape' ? SHAPES[v] ?? upper(String(v)) : upper(String(v));
-function LookSection({ look, reset }) {
+function LookSection({ look, reset, tag }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))];
   return html`<${Section} title="Look" act=${reset}>${from.map(f => html`
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
-    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${LABELS[x.label] ?? x.label}</div><div class="v">${val(x.label, x.value)}</div></div>`)}`)}</${Section}>`;
+    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${LABELS[x.label] ?? x.label}</div><div class="v">${val(x.label, x.value, tag)}</div></div>`)}`)}</${Section}>`;
 }
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
 // scale, and sets the chart across its middle, by its offset), so the numbers are the ones PowerPoint shows:
@@ -616,7 +618,7 @@ function Look({ id }) {
     .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })).sort((a, b) => a.rank - b.rank);
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && x.pattern.id === id);
   const move = (k, x) => App.change(tx => tx.note('Position', t, { ...pos, [k]: x }, { view: v }), { dated: false });
-  return html`<${LookSection} look=${look} reset=${resetting(own, l => l !== 'Position', 'Reset the look')} />
+  return html`<${LookSection} look=${look} tag=${'tag' in recs()[id]} reset=${resetting(own, l => l !== 'Position', 'Reset the look')} />
     ${pos ? html`<${Place} at=${pos} put=${move} reset=${resetting(own, l => l === 'Position', 'Reset the position')} />` : null}`;
 }
 
@@ -694,17 +696,20 @@ function Styles({ v, only }) {
   // A caption typed as an output's own name is no caption.
   const cap = (os, text) => App.change(tx => os.forEach(o => tx.note('Caption', o.pattern, text && text !== Scene.outputName(n, o.pattern) ? text : undefined, { view: v })));
   // A style's outputs that look alike are one row, as in the Key, by Scene.groupsOf's rule: its swatch, its
-  // caption (the Key's word, typed over, which captions each), and beneath, the outputs, where they say other
-  // than the caption.
+  // caption (the Key's word, typed over, which captions each), and beneath, the outputs it stands for, where
+  // it stands for several; one captioned otherwise is named on hover.
   const groups = Scene.groupsOf(n, v);
   const rowsOf = s => groups.filter(g => g.style === s.key)
     .map(g => ({ caption: g.caption, sw: g.swatch, off: g.off, os: s.outputs.filter(o => g.outputs.some(p => T.key(p) === T.key(o.pattern))) }));
   const grip = () => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`;
+  // A text style uncaptioned is keyed by the texts it sets, as a box style is by the boxes it draws: Names,
+  // as Funds.
   const output = (g, lone) => {
-    const names = g.os.map(o => Scene.outputName(n, o.pattern)), said = names.length > 1 || !T.same(names[0], g.caption);
+    const names = g.os.map(o => Scene.outputName(n, o.pattern)), own = names.length === 1 && T.same(names[0], g.caption);
+    const caption = g.sw.kind === 'text' && own ? T.plural(g.caption) : g.caption;
     return html`<div class=${'row out' + (lone ? ' lone' : '')} key=${T.key(g.os[0].pattern)}>${lone ? grip() : null}<div class="k"><${Swatch} sw=${g.sw} off=${g.off} /></div>
-      <div class="v"><${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
-        ${said ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
+      <div class="v" title=${names.length === 1 && !own ? names[0] : null}><${Field} r=${{ field: 'text', value: caption }} datatype="text" label=${names.join(', ')} cls=${g.off ? ' off' : ''} put=${out => cap(g.os, out?.value ?? '')} />
+        ${names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style whose one row is captioned as the style is named is that row alone: Name, not Name over Name.
   return list.map(s => { const rows = rowsOf(s), name = Scene.styleName(n, s.pattern), lone = rows.length === 1 && rows[0].os.length === 1 && T.same(rows[0].caption, name) && T.same(Scene.outputName(n, rows[0].os[0].pattern), name);
