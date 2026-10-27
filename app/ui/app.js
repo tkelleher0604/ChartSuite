@@ -110,10 +110,11 @@ const App = (() => {
   // that, whenever it's recorded: a fund from its Formation Date, a general partner from its Admission Date.
   // A relation with none, an ownership or a membership, holds from a day said as it's made, in its redline
   // before Enter: the day shown, another, or all along, for what was always so; `change` takes it as `dated`
-  // (a day, or false for all along). asksDay(record) says whether a record about to be added asks its day.
-  function asksDay(r) {
+  // (a day, or false for all along). asksDay(record, recs) says whether a record about to be added asks its day,
+  // its sides read in recs (the chart shown, and anything added with it).
+  function asksDay(r, recs = state.peek()) {
     if (!(r?.args?.length > 1)) return false;
-    const t = Tree.treeOf({ ...state.peek(), '': r }, ''), N = notes.peek();
+    const t = Tree.treeOf({ ...recs, '': r }, ''), N = notes.peek();
     return !!t && !N.notes('Start').some(n => n.pattern.args?.length === 1 && N.isStart({ out: { field: 'date' }, args: [{ edge: n.pattern.args[0].edge, loc: t }] }));
   }
   // The day asked, wherever a record added asks it (an add in the inspector, a row in a table): "From" and the
