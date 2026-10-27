@@ -572,7 +572,14 @@ async function run() {
       const [m] = want.get(c.id) ?? [];
       if (!m) bad.push(`${c.id} drawn`);
       else if (c.id.endsWith('·label')) { const p = c.getPosition(); if (p.x !== m.labelAt.x || p.y !== m.labelAt.y) bad.push(`${c.id} at ${p.x},${p.y}`); }
-      else if (c.isEdge()) { if (j([c.getSource(), ...c.getVertices(), c.getTarget()].map(p => [p.x, p.y])) !== j(m.points)) bad.push(`${c.id} routed otherwise`); }
+      else if (c.isEdge()) {
+        if (j([c.getSource(), ...c.getVertices(), c.getTarget()].map(p => [p.x, p.y])) !== j(m.points)) bad.push(`${c.id} routed otherwise`);
+        // … and drawn there, where it's drawn (cells out of view aren't): the path goes through every point of the
+        // route, not only the cell's model, its ends as near as an arrowhead allows.
+        const d = cv().graph.findViewByCell(c)?.container.querySelector('path[d]')?.getAttribute('d') ?? '', xy = (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+        const on = ([x, y], i) => { const e = i === 0 || i === m.points.length - 1 ? 4 : 0.5; return xy.some((v, k) => k % 2 === 0 && Math.abs(v - x) < e && Math.abs(xy[k + 1] - y) < e); };
+        if (d && !m.points.every(on)) bad.push(`${c.id} drawn on another route`);
+      }
       else {
         const p = c.getPosition(), z = c.getSize();
         if (p.x !== m.x || p.y !== m.y || z.width !== Math.max(1, m.w) || z.height !== Math.max(1, m.h)) bad.push(`${c.id} at ${p.x},${p.y} ${z.width}×${z.height}`);
@@ -598,7 +605,13 @@ async function run() {
   await step('… and not', () => Shell.parts.peek().canvas.reveal(null));
   for (let i = 0; i < 4; i++) await step(`undone ${i + 1}`, () => Shell.parts.peek().undo.undo());
   for (const v of [charts()[1], mainView]) await step(`${v.name} shown again`, () => show(v));
-  check('what the canvas draws is the scene, after edits, views shown in turn, previews and undoing', !steps.length, steps.join('; '));
+  await step('tidied', () => $('[data-fb="tidy"]')?.click());
+  await step('… and undone', () => Shell.parts.peek().undo.undo());
+  await step('as of a past day', () => Shell.at({ asOf: '2025-06-30' }));
+  await step('… and today', () => Shell.at(null));
+  for (const v of charts()) await step(`${v.name} shown at its own scale`, () => show(v));
+  await step(`${mainView.name} last`, () => show(mainView));
+  check('what the canvas draws is the scene, after edits, views shown in turn, previews, undoing, Tidy and a past day', !steps.length, steps.join('; '));
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);
