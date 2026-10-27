@@ -659,6 +659,18 @@ async function run() {
   got = await found('rename');
   check('… and “rename” renames the chart or the view', got.includes('Rename chart') && got.includes('Rename view'), got.join(' / '));
   Shell.closeAll(); await tick();
+  got = await found('restore');
+  press('Enter', $('.findpal .menu-find')); await tick(120);
+  const listing = () => !!$('.inspector .hist') && $$('.hist-head .menu-seg button').find(b => b.getAttribute('aria-pressed') === 'true')?.textContent;
+  check('… and “restore” opens History at what’s deleted, where Restore is', got[0] === '#Actions' && got[1] === 'History › Deleted' && listing() === 'Deleted', `${got.slice(0, 4).join(' / ')}: ${listing()}`);
+  const history = Shell.parts.peek().action.find(a => a.id === 'history');
+  history.run(); await tick(60);
+  got = await found('delete');
+  check('… and so does “delete”', got.includes('History › Deleted'), got.join(' / '));
+  Shell.closeAll(); await tick();
+  history.run(); await tick(60);
+  check('History itself opens at its changes', listing() === 'Changes', listing());
+  history.run(); await tick(60);
   got = await found('close affiliate');
   const under = (head, label) => { let e = $$('.findpal .menu-head').find(h => h.textContent === head); while ((e = e?.nextElementSibling) && !e.classList.contains('menu-head')) if (e.querySelector('.label')?.textContent === label) return e; return null; };
   check('… the definitions', !!under('Definitions', 'Close Affiliate'), got.join(' / '));

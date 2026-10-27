@@ -26,15 +26,15 @@
 //   'time'       { When({ close }), Ruler(), today() }   the date's popover, the ruler under the view, and
 //                back to today from another day or the past                                  (time.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
-// Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order? } (the chart
+// Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order?, names? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
-// window (in fields too, with inputs) and listed by ? ; 'find' { items() → menu items }, Find's records,
-// lists and definitions, an item with its kind (detail: 'Entity', which heads it), any other names it goes by
-// (names: […]) and a key, and what's within it (a list, "AIV-1 › Signatories") with of: that key; 'export'
-// { name, run }; 'status' { render() }; 'attention' { items() → [{ kind: 'overdue' | 'error' | 'soon' |
-// 'blank', go() }] }, what needs attention, counted in the status bar and stepped through by F8 in that
-// order, the worst first, from App.needs (Formulas.attention): inspector.js counts deadlines, blanks and errors,
-// aiming at their rows; app.js the checks failed, as errors.
+// window (in fields too, with inputs) and listed by ?, and Find reaching it by any other names it goes by;
+// 'find' { items() → menu items }, Find's records, lists and definitions, an item with its kind (detail:
+// 'Entity', which heads it), any other names it goes by (names: […]) and a key, and what's within it (a list,
+// "AIV-1 › Signatories") with of: that key; 'export' { name, run }; 'status' { render() }; 'attention'
+// { items() → [{ kind: 'overdue' | 'error' | 'soon' | 'blank', go() }] }, what needs attention, counted in the
+// status bar and stepped through by F8 in that order, the worst first, from App.needs (Formulas.attention):
+// inspector.js counts deadlines, blanks and errors, aiming at their rows; app.js the checks failed, as errors.
 //
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar
@@ -524,7 +524,7 @@ const Shell = (() => {
       if (r?.error) return [{ label: r.error, danger: true }];
       return r?.items ?? [{ label: String(r?.value ?? '') }];
     }
-    const acts = many('action').filter(a => a.id !== 'find').map(a => ({ id: a.id, label: a.name, detail: 'Action', keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
+    const acts = many('action').filter(a => a.id !== 'find').map(a => ({ id: a.id, label: a.name, names: a.names, detail: 'Action', keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
     // The keys, but not the two ways here.
     if (q.startsWith('?')) { const ks = acts.filter(a => a.keys && a.id !== 'keys').map(a => ({ ...a, detail: null })); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
     const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
