@@ -875,18 +875,18 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [] } = {}) {
   }
   placeLabels(geo, lines.filter(l => !l.quiet), lines, [], avoid);
   // A label left with no free place where a line that went around what's drawn runs through the place it has among the
-  // lines drawn as they run: that line goes around those labels too, where it can keep to its sides and the rules so,
+  // lines drawn as they run: that line goes around those labels too, where it can keep to the rules, and its sides if it kept them,
   // and the labels are placed again.
-  const detours = lines.filter(l => l.around && !l.astray && !l.strained);
+  const detours = lines.filter(l => l.around && !l.strained);
   if (!detours.length || !lines.some(l => l.crowded)) return;
   const straight = lines.filter(l => !l.around), crowded = new Set(lines.filter(l => l.crowded));
   placeLabels(geo, straight.filter(l => !l.quiet), straight, [], avoid);
   const placesOf = ls => ls.filter(l => l.labelAt).map(l => ({ x: l.labelAt.x - 2, y: l.labelAt.y - 2, w: l.label.w + 4, h: l.label.h + 4 }));
   const shun = [...avoid, ...placesOf(straight)], by = nearOf(shun), theirs = placesOf(straight.filter(l => crowded.has(l))), byTheirs = nearOf(theirs);
   for (const l of detours) {
-    const i = lines.indexOf(l), was = l.points;
-    if (!blockedRoute(was, new Set([l.from, l.to]), solid, theirs, byTheirs)) continue;
-    if (!detour(i, l, shun, by, false) || l.astray) { Object.assign(l, { points: was, astray: false }); drawn.moved(i); }
+    const i = lines.indexOf(l), was = { points: l.points, astray: l.astray };
+    if (!blockedRoute(was.points, new Set([l.from, l.to]), solid, theirs, byTheirs)) continue;
+    if (!detour(i, l, shun, by, false) || (l.astray && !was.astray)) { Object.assign(l, was); drawn.moved(i); }
   }
   placeLabels(geo, lines.filter(l => !l.quiet), lines, [], avoid);
 }
@@ -1145,7 +1145,12 @@ function around(geo, from, to, { avoid = [], segs = [], drawn = null, page = nul
     const vs = [...new Set([...walls.flatMap(w => k ? [w.y, w.d] : [w.x, w.r]), ...extra, k ? reach.y : reach.x, k ? reach.d : reach.r].map(v => Math.round(v * 4) / 4))].sort((a, b) => a - b);
     return [...new Set([...vs, ...vs.slice(1).map((v, i) => (v + vs[i]) / 2)])].sort((a, b) => a - b);
   };
-  const xs = coords(0, [...starts, ...ends].map(p => p.out[0])), ys = coords(1, [...starts, ...ends].map(p => p.out[1]));
+  // Where something drawn begins or ends, and the gutters halfway between; and, `strict`, as near beside the lines
+  // drawn between its boxes as the rules let it run.
+  const corridor = [[Math.min(s.x, t.x), Math.max(s.x + s.w, t.x + t.w)], [Math.min(s.y, t.y), Math.max(s.y + s.h, t.y + t.h)]];
+  const gutters = (k, q) => !strict ? [] : q((corridor[k][0] + corridor[k][1]) / 2, (corridor[k][1] - corridor[k][0]) / 2)
+    .filter(([a, b]) => Math.max(a[1 - k], b[1 - k]) > corridor[1 - k][0] && Math.min(a[1 - k], b[1 - k]) < corridor[1 - k][1]).flatMap(([a]) => [a[k] - BESIDE - 0.25, a[k] + BESIDE + 0.25]);
+  const xs = coords(0, [...[...starts, ...ends].map(p => p.out[0]), ...gutters(0, legs.byUpright)]), ys = coords(1, [...[...starts, ...ends].map(p => p.out[1]), ...gutters(1, legs.byLevel)]);
   if (xs.length * ys.length > 40000 || !starts.length || !ends.length) return null;
   const X = new Map(xs.map((v, i) => [v, i])), Y = new Map(ys.map((v, i) => [v, i])), node = (i, j) => i * ys.length + j;
   // What a step costs beyond its length: running along a line drawn, or within 12 pt of one beside it, or across one;
