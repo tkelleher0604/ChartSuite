@@ -468,16 +468,21 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
     if (host?.texts) host.texts.push(textItem(m, host));
   }
   for (const b of boxes) b.texts = gather(b.texts);
+  // The key is of what the view draws: what's revealed for a while doesn't change it.
+  const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
-  // has none, as what reveals it names it.
+  // has none, as what reveals it names it. A line that says its relation's name says it as the Key does, its
+  // row's caption, so one relation is spelled one way on the page.
+  const captioned = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.caption])));
+  const keyedBy = l => KEYED.line.map(k => l.settings[k].note).find(n => n && captioned.has(key(n.pattern)));
   for (const l of lines) {
-    const r = state[l.record], t = tree(l.record);
+    const r = state[l.record], t = tree(l.record), text = lineText(r, l.settings.Format.value, N.name(t)), keyed = isTag(r) && r.tag && text && keyedBy(l);
     [l.from, l.to] = endsOf(l.record, l.ends);
     l.ranks = l.settings.Above.value !== 'none';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
-      text: lineText(r, l.settings.Format.value, N.name(t)), computed: l.computed, redline: l.redline };
+      text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed, redline: l.redline };
     l.texts = l.revealed ? [] : [own, ...l.texts].filter(it => it.text);
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
     labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r));
@@ -550,8 +555,6 @@ function of(wb, chart, view, day = Log.today(), opts = {}) {
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
   if (last) for (const [id, p] of positions) positions.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y });
-  // The key is of what the view draws: what's revealed for a while doesn't change it.
-  const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
   // Boxes a style fills alike, one row of the Key, are a class: peers the layout sets in one tier where it can.
   // Where the Key has fewer than two such rows, the fill tells nothing apart, and nothing is.
