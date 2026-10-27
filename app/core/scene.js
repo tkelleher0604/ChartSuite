@@ -1452,18 +1452,24 @@ const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v 
 // picked wherever the chart keeps its scale with it. Where the box needs the chart drawn smaller, of the sizes
 // that would print v at a twentieth from s (or, for a smaller pick, from the scale it then has) down to the scale
 // holding it draws the chart at, the one that prints nearest v at no smaller a scale than that, the larger scale
-// where two are as near: so a pick prints as picked wherever the chart can keep a scale for it, as near as the
-// page allows otherwise, and never shrinks the chart more than holding it does. The scale isn't monotone in the
-// size, as a triangle's lines break anew, so this looks rather than iterates. `scaleAt(t)` is the chart's scale
-// with the page's size t.
+// where two are as near; and then of the sizes that print as near, at a twentieth from s down, the one at the
+// largest scale that keeps it: so a pick prints as picked wherever the chart can keep a scale for it, as near as
+// the page allows otherwise, and never shrinks the chart more than printing as near needs. The scale isn't
+// monotone in the size, as a triangle's lines break anew, so this looks rather than iterates. `scaleAt(t)` is the
+// chart's scale with the page's size t.
 function toPage(v, s, scaleAt) {
-  const held = scaleAt(v / s);
+  const held = scaleAt(v / s), printed = (t, at) => half(t, at) * at;
   let best = { t: v / s, off: Math.abs(v * held / s - v), at: held };
   for (const k of SCALES) {
     if (best.off < 1e-9) break;
     if (k > Math.max(s, held) + 1e-9 || k < held - 1e-9 || Math.abs(k - s) < 1e-9) continue;
     const t = v / k, at = scaleAt(t), off = Math.abs(t * at - v);
     if (at >= held - 1e-9 && (off < best.off - 1e-9 || (Math.abs(off - best.off) < 1e-9 && at > best.at))) best = { t, off, at };
+  }
+  const p = printed(best.t, best.at);
+  for (const k of SCALES) {
+    if (k > Math.max(s, held) + 1e-9 || k <= best.at + 1e-9) continue;
+    if (scaleAt(p / k) >= k - 1e-9) return p / k;
   }
   return best.t;
 }
