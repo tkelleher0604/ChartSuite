@@ -878,7 +878,7 @@ const FormulaBar = (() => {
       ${boxed ? html`<${Output} m=${m} />` : null}
       ${m.options ? html`<button class="btn ghost dd fx-name" onClick=${e => pickMenu(e, m)}>${m.title}</button>`
         : m.def && !m.general ? html`<button class="fx-name" onClick=${() => openDef(m.def.id)}>${m.title}</button>` : html`<span class="fx-name">${m.title}</span>`}
-      <span class="fx-args">${m.args ? m.args.map((a, i) => html`${i ? html`<span class="to">${m.args.length === 2 ? '→' : '·'}</span>` : null}<span class=${'fx-arg' + tint(a.edge)} title=${a.short !== a.name ? a.name : null}>${a.short}</span>`) : m.place}</span>
+      <span class="fx-args">${m.args ? m.args.map((a, i) => html`${!i ? null : /^\d+$/.test(a.short) && R.peek().records[a.id]?.kind ? html`<span class="to of">, ${R.peek().records[a.id].kind.toLowerCase()}</span>` : html`<span class="to">${m.args.length === 2 ? "→" : "·"}</span>`}<span class=${'fx-arg' + tint(a.edge)} title=${a.short !== a.name ? a.name : null}>${a.short}</span>`) : m.place}</span>
       ${boxed ? null : html`<${Output} m=${m} />`}
       ${m.def && shut ? html`<${Inline} m=${m} />` : null}
       <span class="fx-end">
