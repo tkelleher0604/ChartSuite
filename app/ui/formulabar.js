@@ -11,7 +11,8 @@
 // clear of what they're about: those that hold in ink, the rest grey. Two objects show the most derived
 // relation that holds between them; one picked that doesn't shows its rows, all grey (why not). Any pending
 // change is redlined before it's made, whoever asks (FormulaBar.preview). It also answers Find's "=", and gives
-// the other panes a record's reason, and a relation's words.
+// the other panes a record's reason, the sentence it says for a record (FormulaBar.sentence), and a relation's
+// words. Where a record is, it says by the core's place rule (Notes.placed, whereOf).
 const FormulaBar = (() => {
   const { html, signal, computed, effect, on, emit } = Shell;
   const { render } = preact;
