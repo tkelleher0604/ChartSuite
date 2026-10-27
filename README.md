@@ -6,3 +6,5 @@ A system of record for the legal team of a private fund manager: entities, peopl
 - [formulas.md](formulas.md): the formula language.
 
 Open `app/index.html` in Chrome or Edge. It needs no server, build step or sign-in.
+
+For AI agents keeping a fund's records in a workbook: [skills/dendra](skills/dendra/SKILL.md), a skill with a tool that records plans in the chart's own words with Dendra's core.

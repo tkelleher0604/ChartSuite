@@ -242,6 +242,12 @@ function theSample() {
   check('The checks rule out 4: Okafor’s four authorities. Each entity has its formation document and governing agreement on file, each a check', failing.length === 4
     && by('def_capacity_held') === flagged.join() && onFile.length === 24 && onFile.every(id => R.records[id].tag === true && N.check(Tree.treeOf(R.records, id)))
     && !Object.keys(R.computed).some(id => R.records[id].tag === false && R.computed[id].def === 'def_remote' && N.check(Tree.treeOf(R.records, id))), failing.map(id => R.computed[id].def).join());
+  // What needs attention, as the status bar counts it: those 4 its errors, its deadlines worked out, its blanks required.
+  const needs = Formulas.attention(R, N, DAY), count = k => needs.filter(a => a.kind === k).length;
+  check('What needs attention: 2 overdue, 4 errors (the checks failed), 2 due soon and 5 blank, each where it is', count('overdue') === 2 && count('soon') === 2 && count('blank') === 5
+    && needs.filter(a => a.kind === 'error').map(a => a.id).sort().join() === failing.sort().join()
+    && needs.every(a => a.kind === 'blank' ? !Object.values(R.records).some(r => r.at === a.id && Tree.same(r.edge, a.edge)) : a.kind === 'error' || (R.records[a.id].field === 'date' && (a.kind === 'overdue') === R.records[a.id].value < DAY)),
+    ['overdue', 'error', 'soon', 'blank'].map(k => `${count(k)} ${k}`).join(', '));
 }
 
 // ---- The semantics ----

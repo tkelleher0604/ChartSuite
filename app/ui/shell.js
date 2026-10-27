@@ -31,7 +31,8 @@
 // (names: […]) and a key, and what's within it (a list, "AIV-1 › Signatories") with of: that key; 'export'
 // { name, run }; 'status' { render() }; 'attention' { items() → [{ kind: 'overdue' | 'error' | 'soon' |
 // 'blank', go() }] }, what needs attention, counted in the status bar and stepped through by F8 in that
-// order, the worst first (inspector.js: deadlines, blanks and errors; app.js: checks failed, as errors).
+// order, the worst first, from App.needs (Formulas.attention): inspector.js counts deadlines, blanks and errors,
+// aiming at their rows; app.js the checks failed, as errors.
 //
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar

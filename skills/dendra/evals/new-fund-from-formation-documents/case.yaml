@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: new-fund-from-formation-documents
+expected_outcome: |
+  A new workbook, harbor-point.dendra.json, that Dendra opens: Harbor Point Capital Partners I, L.P. and
+  Harbor Point GP I, LLC recorded exactly as their certificates give them (names, Delaware file numbers,
+  formation dates, entity types), the GP as general partner from April 14, 2026, Rivera as managing member
+  and Anand as member, the four documents linked to SharePoint and related to their entities, nothing
+  Dendra works out entered by hand, nothing invented, signed for Sam Rivera; and a final message that
+  says what's recorded, what Dendra flags, and what the documents didn't give.
+context:
+  scaffold_script: place-files.sh

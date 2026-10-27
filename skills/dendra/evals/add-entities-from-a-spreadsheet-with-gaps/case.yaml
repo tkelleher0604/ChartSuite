@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: add-entities-from-a-spreadsheet-with-gaps
+expected_outcome: |
+  Both entities from new-entities.csv are in calder-ridge.dendra.json in the chart's own words: the
+  parallel fund an Exempted Limited Partnership in the Cayman Islands formed 2026-08-03, the blocker a
+  Delaware Corporation formed 2026-08-10; the Cayman GP owning 0.5% of the parallel fund and the parallel
+  fund 100% of the blocker (or the 0.5 asked about); no new options or labels; nothing recorded that the
+  sheet doesn't say; and a final message flagging what looks off: the abbreviations it read, the 0.5,
+  the parallel fund's ownership not adding up, and the missing documents and general partner.
+context:
+  scaffold_script: place-files.sh

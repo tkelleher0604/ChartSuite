@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: record-a-payment-and-a-renewal
+expected_outcome: |
+  calder-ridge.dendra.json gains AIV-1's 2025 Delaware annual tax payment (Annual Tax Paid May 28, 2026, at
+  the Annual Tax relation of AIV-1 and tax year 2025) and Fund III-A's LEI renewal (Last Renewed October 20,
+  2026, as a change on that day so the earlier renewal stays on record), signed for Rebecca Moretti, with
+  nothing else changed and no due date entered by hand; and the final message says nothing is overdue now.
+context:
+  scaffold_script: place-files.sh
