@@ -873,10 +873,10 @@ function LookSection({ look, reset, named }) {
 }
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
 // scale, and moves a chart placed only as far as holds it, by its offset), so the numbers are the ones PowerPoint shows:
-// typed over to move it. `at` is in the chart's own terms, as a place is written: a box's Position, or a free shape
-// drawn, less the offset.
+// typed over to move it. `at` is in the chart's own terms, as a place is written: a box's Position, less the offset;
+// or, `onPage`, a free shape's, which stands on the page where it was put.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
-const Place = ({ at, put, reset, keys = 'xyw' }) => { const page = App.scene.value?.page, off = k => page?.offset?.[k] ?? 0;
+const Place = ({ at, put, reset, keys = 'xyw', onPage = false }) => { const page = App.scene.value?.page, off = k => onPage ? 0 : page?.offset?.[k] ?? 0;
   return html`<${Section} title="Position" act=${reset}>
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl">
     <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, (at[k] + off(k)) / Scene.PT)) }} datatype="number" label=${label}
@@ -1167,7 +1167,7 @@ function ShapeView({ id, part }) {
       <span class="k"><input type="checkbox" checked=${!(row.hide ?? []).includes(r.key)} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
       <span class="v">${r.caption}</span></label>`)}</${Section}>` : null}
     <${LookSection} look=${look} reset=${reset} />
-    ${m && g !== 'line' ? html`<${Place} at=${{ ...m, x: m.x - (App.scene.value.page.offset?.x ?? 0), y: m.y - (App.scene.value.page.offset?.y ?? 0) }} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => set({ [k]: x })} />` : null}
+    ${m && g !== 'line' ? html`<${Place} at=${m} onPage keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => set({ [k]: x })} />` : null}
   </div>`;
 }
 
