@@ -390,7 +390,7 @@ const Table = (() => {
   const FUNNEL = SVG(24, '<path d="M22 3H2l8 9.46V19l4 2v-8.54z"/>'), CHEVRON = SVG(16, '<path d="M4.5 6.5 8 10l3.5-3.5"/>', 1.5);
   const heading = c => `${c.parent ? `<span class="up">${esc(c.parent)}</span>` : ''}<span class="t">${esc(c.title)}</span>`
     + `<span class="funnel" role="button" aria-label="Filter" data-tip="Filter">${FUNNEL}</span>`
-    + `<button type="button" class="col-menu" tabindex="-1" aria-haspopup="menu" aria-label="${esc(c.title)}" data-tip="Column" data-keys="Alt+↓">${CHEVRON}</button>`;
+    + `<button type="button" class="col-menu" tabindex="-1" aria-haspopup="menu" aria-label="${esc(c.title)}" data-tip="Column menu" data-keys="Alt+↓">${CHEVRON}</button>`;
   function columnDefs(m, look = lookOf(m.view)) {
     const defs = m.cols.filter(drawn).map(c => {
       const editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of', right = NUMERIC.has(c.type) ? 'right' : 'left', width = look.widths?.[c.key];
@@ -499,7 +499,9 @@ const Table = (() => {
     t.on('renderComplete', () => { regain(); strip(); });
     t.on('scrollVertical', strip);
     for (const ev of ['dataFiltered', 'dataSorted', 'rowAdded', 'rowDeleted', 'groupVisibilityChanged']) t.on(ev, () => requestAnimationFrame(strip));
-    t.on('dataFiltered', () => { looked.value++; });
+    // Filtered or sorted, the cells under the selection are others: they're counted again (a moment later, once the rows are).
+    t.on('dataFiltered', () => { looked.value++; setTimeout(tally); });
+    t.on('dataSorted', () => setTimeout(tally));
     // A grid built again before this one was, this one's building done is nothing: it would ready, and lay out, the next.
     t.on('tableBuilt', () => {
       if (t !== table) return;
@@ -1393,25 +1395,32 @@ const Table = (() => {
   const GRIP = SVG(24, '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>');
   function Columns({ view }) {
     looked.value;
-    const ref = useRef(), [naming, setNaming] = useState(false);
+    const ref = useRef(), [naming, setNaming] = useState(false), [q, setQ] = useState('');
     const m = shownM.value;
     if (!m || m.view !== view) return null;
-    const writes = canWrite(), mv = m.cols.filter(c => c.pattern);
+    // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all.
+    const t = q.trim().toLowerCase(), found = c => !t || called(c).toLowerCase().includes(t);
+    const writes = canWrite(), mv = m.cols.filter(c => c.pattern), vis = mv.filter(found);
     const down = (e, c) => {
       if (!writes || e.target.closest('input, button')) return;
       Shell.drag(e, { item: e.currentTarget, items: [...ref.current.querySelectorAll('.colrow.mv')], onDrop: (from, i) => {
-        const o = mv.slice(); o.splice(i, 0, o.splice(from, 1)[0]); place(o, `Moved ${mv[from].title}`);
+        const a = vis[from], rest = vis.filter(x => x !== a), o = mv.filter(x => x !== a), anchor = rest[i];
+        o.splice(anchor ? o.indexOf(anchor) : rest.length ? o.indexOf(rest.at(-1)) + 1 : o.length, 0, a);
+        place(o, `Moved ${a.title}`);
       } });
     };
     const add = e => { if (e.key === 'Enter') { e.preventDefault(); if (addColumn(e.target.value)) e.target.value = ''; } else if (e.key === 'Escape') { e.stopPropagation(); setNaming(false); } };
     return html`<div class="cols" ref=${ref}>
-      ${m.cols.map(c => c.pattern
+      <input type="search" class="col-find" placeholder="Find" aria-label="Find" value=${q} spellcheck=${false} onInput=${e => setQ(e.target.value)} />
+      <div class="cols-list">
+      ${m.cols.filter(found).map(c => c.pattern
         ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
             <label><input type="checkbox" checked=${c.shown} disabled=${!writes} onChange=${() => show(c, !c.shown)} /><span>${called(c)}</span></label></div>`
         : html`<div class="colrow" key=${c.key}><span class="colgrip" /><label><input type="checkbox" checked disabled /><span>${called(c)}</span></label></div>`)}
       ${m.base && writes ? naming
         ? html`<div class="colrow new"><span class="colgrip" /><input class="col-new" placeholder="New column" aria-label="New column" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} onKeyDown=${add} onBlur=${e => { if (!clean(e.target.value)) setNaming(false); }} /></div>`
         : html`<button type="button" class="colrow new" onClick=${() => setNaming(true)}><span class="colgrip">${Shell.icon('plus')}</span><span>New column</span></button>` : null}
+      </div>
     </div>`;
   }
 
@@ -1522,8 +1531,9 @@ const Table = (() => {
       n++;
       if (typeof v === 'number' && NUMERIC.has(type)) { nums++; sum += v; types.add(type); }
     }
+    // An average of percentages to two places of a percent, as a sum is to the places its values have.
     const type = types.size === 1 ? [...types][0] : 'number', say = v => Tree.format(type, +v.toPrecision(12));
-    stats.value = !n ? null : { n, ...(nums && { sum: say(sum), avg: say(sum / nums) }) };
+    stats.value = !n ? null : { n, ...(nums && { sum: say(sum), avg: say(type === 'percent' ? +(sum / nums).toFixed(4) : sum / nums) }) };
   }
   function Stats() {
     const s = stats.value;

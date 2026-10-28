@@ -151,7 +151,7 @@
 .newrow > .nr-name:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); background: var(--surface); }
 
 /* ---- A column's filter: Find, then its values as checkbox rows, each with how many rows have it ---- */
-.tfilter { display: grid; gap: 8px; width: 264px; margin: -4px; }
+.tfilter { display: grid; gap: 8px; width: 304px; margin: -4px; }
 .tfilter > .tf-find { width: 100%; }
 .tf-list { max-height: 280px; overflow: auto; margin: 0 -8px; padding: 0 0 2px; }
 .tf-row { display: flex; align-items: center; gap: 8px; min-height: var(--row); padding: 0 8px; border-radius: var(--r); cursor: default; user-select: none; }
@@ -163,8 +163,10 @@
 .tf-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; margin: 0 -12px; padding-inline: 12px; border-top: 1px solid var(--rule); }
 
 /* ---- Every column, a checkbox each, dragged by its row to reorder ---- */
-.cols { display: grid; width: 280px; max-height: min(480px, calc(100vh - 160px)); overflow: auto; margin: -8px -8px; padding: 4px 0; }
-.colrow { position: relative; display: flex; align-items: center; gap: 4px; min-height: var(--row); padding: 0 8px 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--ink); text-align: left; user-select: none; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); width: 320px; margin: -8px; }
+.cols > .cols-list { display: grid; grid-template-columns: minmax(0, 1fr); max-height: min(440px, calc(100vh - 200px)); overflow: auto; padding: 4px 0; }
+.cols > .col-find { margin: 4px 4px 0; }
+.colrow { position: relative; min-width: 0; display: flex; align-items: center; gap: 4px; min-height: var(--row); padding: 0 8px 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--ink); text-align: left; user-select: none; }
 .colrow.mv:hover { background: var(--hover); }
 .colrow > .colgrip { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--ink-3); opacity: 0; }
 .colrow.mv:hover > .colgrip { opacity: 1; cursor: grab; }

@@ -466,7 +466,7 @@ async function run() {
     const rs = Table.grid.getRows('active').slice(0, 3), pc = r => r.getCells().find(c => c.getColumn().getDefinition().title === 'Percentage'), vs = rs.map(r => pc(r).getValue());
     Table.grid.addRange(pc(rs[0]), pc(rs[2])); await tick(100);
     const say = v => Tree.format('percent', +v.toPrecision(12)), sum = vs.reduce((a, b) => a + b, 0);
-    check('Percentages selected are counted, summed and averaged in the status bar, as percentages', $('.status .tstats')?.textContent === `Count 3Sum ${say(sum)}Average ${say(sum / 3)}`, `${$('.status .tstats')?.textContent} / ${vs.join()}`);
+    check('Percentages selected are counted, summed and averaged in the status bar, as percentages', $('.status .tstats')?.textContent === `Count 3Sum ${say(sum)}Average ${say(+(sum / 3).toFixed(4))}`, `${$('.status .tstats')?.textContent} / ${vs.join()}`);
     // In Excel, a percentage is a number in a percentage's format, as precise as the grid says it.
     const wbo = await Table.workbook(), ws = wbo.Sheets[wbo.SheetNames[0]], cell = ws && ws[XLSX.utils.encode_cell({ r: 1, c: 2 })], first = Table.grid.getRows('active')[0].getData()['f:percentage'];
     check('… and in Excel a percentage is a number in a percentage’s format, as precise as the grid says it', cell?.t === 'n' && cell.v === first && /^0(\.0+)?%$/.test(cell.z)
