@@ -639,10 +639,10 @@ async function run() {
   item('Delete row').click(); await previewed();
   const untilIn = () => $('.pendbar .from input');
   check('… and chosen, redlines it with the bar, asking until when: the day shown, to type over', N() === n0 && rowOf(doomed).getElement().classList.contains('red-go')
-    && $('.pendbar .from .sel')?.textContent === 'Until' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
+    && $('.pendbar .from .sel')?.textContent === 'Ends on' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
   press('Enter', Table.grid.rowManager.element); await tick(150);
   check('… Enter ends it that day, as one change, said so, the redline gone: it\'s gone today, and was there before', N() === n0 + 1 && !(doomed in st()) && !!App.wb.asOf(C(), '2025-12-31')[doomed]
-    && /^Deleted Ownership: .* from /.test($('.toast span')?.textContent ?? '') && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek() && !$('.pendbar'), $('.toast span')?.textContent);
+    && /^Ended Ownership: .* on /.test($('.toast span')?.textContent ?? '') && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek() && !$('.pendbar'), $('.toast span')?.textContent);
   undo(); await tick(150);
   // The Delete key deletes the rows selected whole, by their numbers, after the redline: Enter deletes, Esc doesn't.
   const whole = id => { Table.grid.addRange(rowOf(id).getCells()[1], rowOf(id).getCells().at(-1)); }, gridKeys = Table.grid.rowManager.element;
@@ -659,7 +659,7 @@ async function run() {
   $('.pendbar .from .sel').click(); await tick();
   const untilMenu = $$('.float .menu-item').map(x => x.textContent.trim()).join();
   item('Never held').click(); await tick(60);
-  check('… or Never held, from its menu', untilMenu === 'Until,Never held' && $('.pendbar .from')?.textContent.trim() === 'Never held' && !untilIn(), untilMenu);
+  check('… or Never held, from its menu', untilMenu === 'Ends on,Never held' && $('.pendbar .from')?.textContent.trim() === 'Never held' && !untilIn(), untilMenu);
   press('Enter', gridKeys); await tick(150);
   check('… and Enter deletes it as if it never held, as one change', N() === n0 + 1 && !(doomed in st()) && !App.wb.asOf(C(), '2025-12-31')[doomed] && !$('.pendbar') && /^Deleted Ownership: .* as never held$/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   undo(); await tick(150);

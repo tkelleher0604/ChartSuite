@@ -307,14 +307,31 @@ async function run() {
   // the day shown, by default, so an owner added today isn't in the chart as of a day before
   const n0r = App.wb.changes().length, owned = () => Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
   rr[0].querySelector('.tag').focus(); rr[0].querySelector('.tag').click(); await tick(60);   // (a click focuses a button)
-  const asking = $('.rr.adding'), fromIn = pb('.from input');
+  const asking = $('.rr.adding'), fromIn = pb('.from input'), hereIn = $('.rr.adding .ask .from input');
   check('ticking one that asks its day redlines it, ticked, its day asked in the bar under the view, the day shown, to type over', !!asking && /is an owner of the BDC/.test(asking.textContent)
-    && pb('.from .sel')?.textContent === 'From' && fromIn?.value === Tree.formatDate(Log.today(), 'short') && document.activeElement === fromIn
+    && pb('.from .sel')?.textContent === 'From' && fromIn?.value === Tree.formatDate(Log.today(), 'short')
     && /^Ownership: Fund III Blocker → The BDC/.test(spoken(pb('.what'))) && /DiscardAdd$/.test(pb().textContent.replace(/\s/g, ''))
     && App.wb.changes().length === n0r && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1, `${asking?.textContent} / ${pb()?.textContent}`);
-  key(fromIn, 'Escape'); await tick(60);
-  check('… Esc drops it, the keys going back to its row', !$('.rr.adding') && !pb() && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r && !!document.activeElement?.matches('.rr .ctl .tag'),
+  // … and asked where it was ticked too, under its row, the keys there: its day, Discard and Add, the bar's state
+  const askBtns = $$('.rr.adding .ask .btn').map(b => b.textContent);
+  check('… and asked under its row too, where it was ticked, the keys there: From the day shown, Discard and Add', !!hereIn && document.activeElement === hereIn && hereIn.value === fromIn?.value
+    && $('.rr.adding .ask .from .sel')?.textContent === 'From' && askBtns.join() === 'Discard,Add', `${askBtns} ${document.activeElement?.outerHTML.slice(0, 100)}`);
+  hereIn.value = 'March 2, 2025'; hereIn.dispatchEvent(new Event('input', { bubbles: true })); await tick(30);
+  check('… one state: a day typed under the row is the bar’s day too', App.pending.peek()?.day === '2025-03-02' && pb('.from input')?.value === 'Mar 2, 2025', pb('.from input')?.value);
+  key(hereIn, 'Escape'); await tick(30);
+  check('… Esc there puts back what was typed first, as a value’s does', App.pending.peek()?.day === Log.today() && document.activeElement === hereIn, App.pending.peek()?.day);
+  key(hereIn, 'Escape'); await tick(60);
+  const dropped = document.querySelector('.toast span')?.textContent ?? '';
+  check('… then Esc drops it, saying so, the keys going back to its row, its box not ticked', !$('.rr.adding') && !pb() && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r
+    && dropped === 'Discarded adding Ownership: Fund III Blocker → The BDC' && !!document.activeElement?.matches('.rr[data-key]') && !$('.rr .tag.peek'), `${dropped} ${document.activeElement?.outerHTML.slice(0, 120)}`);
+  [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Redo')?.click(); await tick(60);
+  check('… its toast’s Redo brings it back as it was, asked under its row again', !!$('.rr.adding') && !!pb() && App.pending.peek()?.day === Log.today() && document.activeElement === $('.rr.adding .ask .from input'),
     document.activeElement?.outerHTML.slice(0, 120));
+  $('.rr.adding .ask .btn')?.click(); await tick(60);
+  check('… Discard under the row drops it as the bar’s does, saying so', !$('.rr.adding') && !pb() && /^Discarded adding Ownership: Fund III Blocker → The BDC/.test(document.querySelector('.toast span')?.textContent ?? ''));
+  Shell.parts.value.undo.redo(); await tick(60);
+  check('… and Redo, the key, brings back the one last discarded', !!$('.rr.adding') && !!pb() && App.wb.changes().length === n0r);
+  key(pb(), 'Escape'); await tick(60);
   $$('.rr').find(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC').querySelector('.tag').click(); await tick(60);
   const redlined = FormulaBar.pending.peek()?.change.records ?? {};
   // A click away never drops it: the bar and its redline stay, and the two boxes again show it ticked
@@ -394,18 +411,25 @@ async function run() {
   Shell.select(['northpine']); await tick(60);
   $$('.sect .btn.icon').find(b => b.getAttribute('aria-label') === 'Add to Owners')?.click(); await tick();
   await pick('Calder Ridge Capital Management, LLC');
-  check('a list’s Add asks it there too, redlined', Shell.selection.peek().join() === 'northpine,mgmt' && /is an owner of Northpine/.test($('.rr.adding .nm')?.textContent ?? '')
-    && document.activeElement === pb('.from input'), `${Shell.selection.peek()} ${$('.insp')?.textContent.slice(0, 160)}`);
+  check('a list’s Add asks it there too, redlined, under its row', Shell.selection.peek().join() === 'northpine,mgmt' && /is an owner of Northpine/.test($('.rr.adding .nm')?.textContent ?? '')
+    && document.activeElement === $('.rr.adding .ask .from input'), `${Shell.selection.peek()} ${$('.insp')?.textContent.slice(0, 160)}`);
   key(document.activeElement, 'Escape'); await tick(60);
-  // Deleting a relation ends it on the day said, in its redline: Until the day shown, so it's still there before;
-  // unticking a held one in the two-box panel asks the same
+  // Deleting a relation ends it on the day said, in its redline: Ends on the day shown, the first day it no longer holds,
+  // so it's still there before; unticking a held one in the two-box panel asks the same, under its row
   Shell.emit('relate-open', ['inv_us', 'fund']); await tick(60);
   const usFund = $$('.rr').find(r => / is an owner of Fund III$/.test(spoken(r.querySelector('.nm') ?? r)));
   usFund?.querySelector('.ctl .tag').click(); await tick(60);
-  check('unticking an ownership redlines it going, the bar asking until when, the day shown', /Ownership: U\.S\. Investors → Fund III/.test(spoken(pb('.what') ?? document.body)) && pb('.from .sel')?.textContent === 'Until'
+  check('unticking an ownership redlines it going, the bar asking the day it ends on, the day shown', /Ownership: U\.S\. Investors → Fund III/.test(spoken(pb('.what') ?? document.body)) && pb('.from .sel')?.textContent === 'Ends on'
     && pb('.from input')?.value === Tree.formatDate(Log.today(), 'short') && FormulaBar.pending.peek()?.change.records.own_us_fund === null && !!st().own_us_fund, pb()?.textContent);
+  check('… and under its row, struck, where it was unticked, the keys there', !!$('.rr.going .ask') && $('.rr.going .ask .from .sel')?.textContent === 'Ends on' && document.activeElement === $('.rr.going .ask .from input')
+    && $$('.rr.going .ask .btn').map(b => b.textContent).join() === 'Discard,Delete', $('.rr.going')?.textContent);
+  $('.rr.going .ask .from .sel')?.click(); await tick();
+  const endMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
+  Shell.closeAll(); await tick();
+  check('… Ends on, or Never held, from its menu', endMenu === 'Ends on,Never held', endMenu);
   key(document.body, 'Enter'); await tick(60);
-  check('… Enter ends it today: gone today, there as of 2025', !st().own_us_fund && !!App.wb.asOf(C, '2025-12-31').own_us_fund && /^Deleted Ownership: U.S. Investors → Fund III from /.test(Time.describe(last())), Time.describe(last()));
+  check('… Enter ends it today: gone today, there as of 2025, said as ended on its day', !st().own_us_fund && !!App.wb.asOf(C, '2025-12-31').own_us_fund
+    && Time.describe(last()) === `Ended Ownership: U.S. Investors → Fund III on ${Tree.formatDate(Log.today(), 'short')}` && document.querySelector('.toast span')?.textContent === Time.describe(last()), Time.describe(last()));
   Shell.parts.value.undo.undo(); await tick(60);
   // A record ended by an entry of its own, a general partner by its Withdrawal Date, is offered that entry instead
   const gpLine = 'gp_of_fund', endsBy = App.endOf(gpLine);
@@ -417,7 +441,7 @@ async function run() {
   key(document.body, 'Enter'); await tick(60);
   check('a general partner deleted is ended by its Withdrawal Date, which its redline offers', word === 'Withdrawal Date' && endsBy === word && !st()[gpLine] && !!App.wb.asOf(C, '2025-12-31')[gpLine]
     && last().adds.some(r => r.at === gpLine && r.edge === word && r.value === Log.today()), `${word} ${JSON.stringify(last().adds)}`);
-  check('… said as one Delete, then its day', new RegExp(`^Deleted General Partner: .* from ${Tree.formatDate(Log.today(), 'short')}$`).test(Time.describe(last())), Time.describe(last()));
+  check('… said as ended, on its day', new RegExp(`^Ended General Partner: .* on ${Tree.formatDate(Log.today(), 'short')}$`).test(Time.describe(last())), Time.describe(last()));
   Shell.parts.value.undo.undo(); await tick(60);
   // A change that asks no day holds from the day shown when it was begun, whatever day is shown at Enter
   Shell.at({ asOf: '2025-06-30' }); await tick(60);
@@ -444,7 +468,13 @@ async function run() {
   key(document.body, 'Escape', { cancelable: true, code: 'Escape' }); await tick(60);
   check('Esc pressed to clear another selection clears it, and keeps the change pending', !Shell.selection.peek().length && !!App.pending.peek() && !!pb(), `${Shell.selection.peek()} ${!!App.pending.peek()}`);
   key(document.body, 'Escape', { cancelable: true, code: 'Escape' }); await tick(60);
-  check('… and with nothing else to escape, Esc discards it', !App.pending.peek() && !pb());
+  const escToast = [...document.querySelectorAll('.toast')].at(-1);
+  check('… and with nothing else to escape, Esc discards it, saying so, with Redo', !App.pending.peek() && !pb()
+    && /^Discarded adding Ownership: .* → Northpine Software, LLC$/.test(escToast?.querySelector('span')?.textContent ?? '') && escToast?.querySelector('button')?.textContent === 'Redo', escToast?.textContent);
+  escToast?.querySelector('button')?.click(); await tick(60);
+  check('… its Redo bringing it back, as it was', !!App.pending.peek() && !!pb() && /Northpine/.test(pb('.what')?.textContent ?? '') && App.pending.peek().day === Log.today());
+  pb('.btn:not(.primary)')?.click(); await tick(60);
+  check('… and Discard in the bar says so too', !App.pending.peek() && !pb() && /^Discarded adding Ownership: .*Northpine/.test(toastText()), toastText());
   await tickOwner('pension', 'northpine', / is an owner of Northpine/);
   const nU = nP();
   Shell.parts.value.undo.undo(); await tick(60);
@@ -472,6 +502,92 @@ async function run() {
   key(document.body, 'Enter'); await tick(60);
   check('deleted as never held, it says so', Time.describe(last()) === 'Deleted Ownership: U.S. Investors → Fund III as never held' && toastText() === Time.describe(last()), Time.describe(last()));
   Shell.parts.value.undo.undo(); await tick(60);
+
+  // ---- Transfer… (dendra.md, Time: Transfer): a relation given to another, one change of the records it writes, asked
+  // where it's begun, set out as History will say it ----
+  { const own = 'own_blkr_hlvd', pctOf = (recs, rel) => Object.values(recs).find(r => r.at === rel && r.edge === 'Percentage')?.value;
+  const owners = recs => Object.keys(recs).filter(k => recs[k].args?.some(a => a.edge === 'Owned' && a.at === 'halvard') && recs[k].tag === true);
+  const findIn = async q => { const f = document.querySelector('.float .menu-find'); f.textContent = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(); };
+  Shell.select([own]); await tick(60);
+  $('.ih .btn.more').click(); await tick();
+  const ownMenu = [...document.querySelector('.float .menu').children].map(x => x.classList.contains('menu-sep') ? '-' : x.querySelector('.label')?.textContent);
+  Shell.closeAll(); await tick();
+  check('a relation’s ⋯ has no empty section, and offers its History, Transfer… and Delete…', ownMenu[0] !== '-' && ownMenu.at(-1) !== '-' && !ownMenu.some((x, i) => x === '-' && ownMenu[i + 1] === '-')
+    && ['History', 'Hide in this view', 'Transfer…', 'Delete…'].every(x => ownMenu.includes(x)), ownMenu.join(' | '));
+  check('… where it can be transferred: one a formula gives, or of more than two sides, can’t', App.transferable(own) && !App.transferable(Object.keys(st()).find(k => N().nameOf(st(), k) === 'Control'))
+    && !App.transferable(Object.keys(App.entered.peek()).find(k => App.entered.peek()[k].args?.length > 2)));
+  const nT = nP(), quiet = $$('.addrow .add-entry').find(b => /Transfer…/.test(b.textContent));
+  check('… and says so quietly in its panel, beside Add', !!quiet && /Add/.test(quiet.previousElementSibling?.textContent ?? ''));
+  quiet?.click(); await tick(80);
+  check('Transfer… asks at once, atop the relation’s panel, whom it goes to, a search; its bar setting it out the same, till then not to be made',
+    !!$('.insp > .asking .transfer') && !!pb('.transfer') && !!document.querySelector('.float .menu-find') && document.activeElement === document.querySelector('.float .menu-find')
+    && /^From Fund III Blocker to/.test(spoken($('.asking .transfer'))) && / of Halvard Logistics Holdings, Inc\.$/.test(spoken($('.asking .transfer')))
+    && $('.asking .transfer .amount')?.value === '82%' && $('.asking .from .word')?.textContent === 'On' && $('.asking .from input')?.value === today
+    && pb('.btn.primary')?.textContent === 'Transfer' && pb('.btn.primary').disabled && $('.asking .btn.primary')?.disabled, `${$('.asking')?.textContent} / ${pb()?.textContent}`);
+  await findIn('Northwind Holdings LLC');
+  const offeredTo = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  check('… a name typed offers a new one, of each kind that side takes', offeredTo.includes('New Entity: Northwind Holdings LLC') && offeredTo.includes('New Investor Group: Northwind Holdings LLC'), offeredTo.join(' | '));
+  await pick('New Entity: Northwind Holdings LLC'); await tick(80);
+  const red = FormulaBar.pending.peek()?.change.records ?? {}, newLine = Object.keys(red).find(k => red[k]?.args?.some(a => a.at === 'halvard'));
+  check('… picked, it’s redlined: the old line going, the new owner and its line coming, with all 82%; the panel struck; the keys on to how much',
+    red[own] === null && !!newLine && Object.values(red).some(r => r?.kind === 'Entity') && pctOf(red, newLine) === 0.82 && !!$('.insp.going') && document.activeElement === $('.asking .amount')
+    && !pb('.btn.primary').disabled && /to Northwind Holdings LLC/.test(spoken($('.asking .transfer'))), `${JSON.stringify(red).slice(0, 300)} ${document.activeElement?.outerHTML.slice(0, 80)}`);
+  const onIn = $('.asking .from input');
+  onIn.focus(); onIn.value = 'November 1, 2026'; onIn.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  key(onIn, 'Enter'); await tick(80);
+  const t1 = last(), nov = App.wb.asOf(C, '2026-11-01'), oct = App.wb.asOf(C, '2026-10-31'), to1 = owners(nov).find(k => k !== own);
+  const buyer = to1 && nov[to1].args.find(a => a.edge === 'Owner').at;
+  check('Enter makes it, one change: the old ownership ends on the day, still held the day before; the new one holds from it, all 82%, its new owner made with it',
+    nP() === nT + 1 && !!oct[own] && !nov[own] && !!to1 && !oct[to1] && pctOf(nov, to1) === 0.82 && N().nameOf(nov, buyer) === 'Northwind Holdings LLC' && !oct[buyer] && !App.pending.peek() && !pb(),
+    `${owners(oct)} / ${owners(nov)} ${JSON.stringify(t1.adds).slice(0, 300)}`);
+  check('… History and its toast say it as asked', Time.describe(t1) === 'Transferred 82% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2026'
+    && toastText() === Time.describe(t1), `${Time.describe(t1)} / ${toastText()}`);
+  Shell.parts.value.undo.undo(); await tick(60);
+  check('… one Undo takes it back whole, saying what it undid', nP() === nT + 2 && owners(App.wb.asOf(C, '2026-11-01')).join() === own && toastText() === `Undid: ${Time.describe(t1)}`, toastText());
+  // A part, today, to one the chart has: the old one's amount less the part, from the day; the new one the part
+  Shell.select([own]); await tick(60);
+  App.transferring(own); await tick(80);
+  await findIn('Northpine'); await pick('Northpine Software, LLC'); await tick(60);
+  const much = $('.asking .amount');
+  much.value = '30'; much.dispatchEvent(new Event('input', { bubbles: true })); await tick(60);
+  const red2 = FormulaBar.pending.peek()?.change.records ?? {};
+  check('a part typed: the old line kept, its percentage less the part; the new one the part', red2[own] === undefined && Object.entries(red2).some(([, r]) => r?.at === own && r.value === 0.52)
+    && Object.keys(red2).some(k => red2[k]?.args?.some(a => a.at === 'northpine') && pctOf(red2, k) === 0.3), JSON.stringify(red2).slice(0, 300));
+  much.value = '90%'; much.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  check('… more than it has can’t be transferred', much.getAttribute('aria-invalid') === 'true' && pb('.btn.primary').disabled);
+  much.value = '30%'; much.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  key(much, 'Enter'); await tick(80);
+  const t2 = last(), now2 = App.wb.asOf(C, Log.today()), was2 = App.wb.asOf(C, Tree.isoOf(new Date(Date.now() - 864e5))), to2 = owners(now2).find(k => k !== own);
+  check('… Enter makes it: from today the old one 52%, before it 82%; the new owner 30% from today', pctOf(now2, own) === 0.52 && pctOf(was2, own) === 0.82 && !!to2 && pctOf(now2, to2) === 0.3 && !was2[to2]
+    && now2[to2].args.find(a => a.edge === 'Owner').at === 'northpine', `${pctOf(now2, own)} ${pctOf(was2, own)} ${to2}`);
+  check('… said as a part', Time.describe(t2) === `Transferred 30% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northpine Software, LLC on ${today}`, Time.describe(t2));
+  // To one that holds such a relation already: its percentage grows by the part, from the day
+  App.transferring(own); await tick(80);
+  await findIn('Northpine'); await pick('Northpine Software, LLC'); await tick(60);
+  $('.asking .amount').value = '10%'; $('.asking .amount').dispatchEvent(new Event('input', { bubbles: true })); await tick(60);
+  pb('.btn.primary').click(); await tick(80);
+  const now3 = App.wb.asOf(C, Log.today());
+  check('a part to one that holds such a relation already: its percentage grows by it, no second line', pctOf(now3, own) === 0.42 && owners(now3).length === 2 && pctOf(now3, to2) === 0.4
+    && Time.describe(last()) === `Transferred 10% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northpine Software, LLC on ${today}`, `${pctOf(now3, own)} ${owners(now3)} ${Time.describe(last())}`);
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(60);
+  // A general partner, which has no amount, and its start and end entries: the old ended by its Withdrawal Date, the
+  // new one from its Admission Date
+  const gpOf = 'gp_of_fund', nG = nP();
+  App.transferring(gpOf); await tick(80);
+  check('one without an amount says what it is in its place', !$('.asking .amount') && /^From GP III to …·General Partner of Fund III$/.test(spoken($('.asking .transfer')).replace(/\s+/g, ' ')), spoken($('.asking .transfer') ?? document.body));
+  await findIn('Calder Ridge Capital Management'); await pick('Calder Ridge Capital Management, LLC'); await tick(60);
+  key(document.body, 'Enter'); await tick(80);
+  const t4 = last(), gnow = App.entered.peek(), newGp = Object.keys(gnow).find(k => gnow[k].args?.some(a => a.edge === 'GP' && a.at === 'mgmt') && gnow[k].args.some(a => a.at === 'fund_type'));
+  check('… a general partner transferred: the old one ended by its Withdrawal Date, the new one holding from its Admission Date, both the day', nP() === nG + 1 && !st()[gpOf] && !!newGp
+    && t4.adds.some(r => r.at === gpOf && r.edge === 'Withdrawal Date' && r.value === Log.today()) && t4.adds.some(r => r.at === newGp && r.edge === 'Admission Date' && r.value === Log.today())
+    && /^Transferred General Partner of .* from GP III to .* on /.test(Time.describe(t4)), `${Time.describe(t4)} ${JSON.stringify(t4.adds).slice(0, 300)}`);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // Esc, or Discard where it was asked, drops it, saying so, with Redo
+  Shell.select([own]); App.transferring(own); await tick(80);
+  Shell.closeAll(); await tick();
+  key($('.asking .from input'), 'Escape'); await tick(60);
+  check('Esc drops a transfer, saying so, with Redo', !App.pending.peek() && toastText() === 'Discarded transferring Ownership: Fund III Blocker → Halvard Logistics Holdings, Inc.'
+    && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Redo'), toastText()); }
   // A deletion pending shows in the inspector as on the chart: the end entry it gives, in blue, the record struck as it
   // goes; an end day typed after the day shown is recorded as one typed in the inspector is, so the record says it
   Shell.select(['northpine']); await tick(60);
@@ -481,8 +597,8 @@ async function run() {
   check('… and what follows from it counted, as for a line', (FormulaBar.pending.peek()?.deltas ?? []).length > 0, JSON.stringify(FormulaBar.pending.peek()?.deltas ?? null));
   await type(pb('.from input'), 'December 1, 2026');
   const dissolved = Tree.entryAt(st(), 'northpine', 'Dissolution Date');
-  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says until when', !!st().northpine && st()[dissolved]?.value === '2026-12-01'
-    && !App.wb.item(C, dissolved)[0].since && /^Deleted Northpine Software, LLC from Dec 1, 2026/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
+  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2026-12-01'
+    && !App.wb.item(C, dissolved)[0].since && /^Ended Northpine Software, LLC on Dec 1, 2026/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // A start typed in the formula bar past the day shown: the toast says why, as from the inspector
   Shell.at({ asOf: '2025-06-30' }); await tick(60);

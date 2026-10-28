@@ -52,10 +52,11 @@
 // leave as of the day shown, unmade, which its redline previews; App.reverse(changeId) and App.restore(item), History's;
 // App.asksDay(record, recs?), whether a record about to be added asks the day it holds from (a relation with no
 // start entry), App.endOf(id), how deleting one ends it (by its end entry, on a day said, or as a value), and
-// App.From({ day, set, auto, until }), the control that asks either ("From" a day or "All along"; "Until" a day or
-// "Never held"); App.pending, the one change pending, begun by App.stage(…) or App.deleting(ids, what), made by
-// App.commit() and dropped by App.discard(), and App.Pending, its bar, the window's one, which the shell shows under
-// whichever view is shown; App.workOn(day), another day's working-out,
+// App.From({ day, set, auto, asks, word }), the control that asks either ("From" a day or "All along"; "Ends on" a
+// day or "Never held"; a transfer's "On" a day); App.pending, the one change pending, begun by App.stage(…),
+// App.deleting(ids, what) or App.transferring(id) (where App.transferable(id)), made by App.commit() and dropped by
+// App.discard(), which says so, with Redo; App.Pending, its bar, the window's one, which the shell shows under
+// whichever view is shown, and App.Asking, its controls where it was asked; App.workOn(day), another day's working-out,
 // as showing it would work it out; App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()

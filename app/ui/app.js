@@ -190,17 +190,18 @@ const App = (() => {
   // drawn, as the two-box panel's later relation is.
   function From({ day, set, auto, asks, word: end }) {
     const { useState, useRef, useLayoutEffect } = preactHooks;
-    const [text, setText] = useState(null), [typing, setTyping] = useState(false), input = useRef(), button = useRef(), once = useRef(auto), was = useRef();
-    // Shown, or switched, the day takes the keys, selected; all along, its menu does.
+    const [text, setText] = useState(null), [typing, setTyping] = useState(false), input = useRef(), button = useRef(), keys = useRef(auto), was = useRef();
+    // Shown with `auto`, or switched from its own menu (not another's showing the same, in the bar or where it was asked),
+    // the day takes the keys, selected; all along, its menu does.
     useLayoutEffect(() => {
-      if (once.current) { if (input.current) { input.current.focus(); input.current.select(); } else button.current?.focus(); }
-      once.current = true;
+      if (keys.current) { if (input.current) { input.current.focus(); input.current.select(); } else button.current?.focus(); }
+      keys.current = false;
     }, [day === null]);
     const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', 'Never held'] : asks === 'on' ? ['On'] : ['From', 'All along'], always = day === null, word = words[always ? 1 : 0];
     const shown = Shell.time.value?.asOf ?? Log.today(), later = !!day && day > shown && !typing;
     const pick = e => Shell.menu(e.currentTarget, [
-      { label: words[0], checked: !always, run: () => { if (always) { setText(null); set(shown); } } },
-      { label: words[1], checked: always, run: () => set(null) }]);
+      { label: words[0], checked: !always, run: () => { if (always) { keys.current = true; setText(null); set(shown); } } },
+      { label: words[1], checked: always, run: () => { if (!always) keys.current = true; set(null); } }]);
     const key = e => {
       if (e.key !== 'Escape' || text === null) return;
       e.preventDefault(); e.stopPropagation();
@@ -346,15 +347,19 @@ const App = (() => {
     const not = new Set([tr.first.at, other.at].map(x => Tree.objectOf(recs, x))), words = Tree.norm(q ?? ''), seen = new Set(), found = [];
     for (const x of Object.keys(recs)) {
       const b = Tree.objectOf(recs, x);
-      if (seen.has(b) || not.has(b) || 'field' in recs[x] || Tree.isView(recs[b] ?? {}) || !Tree.norm(N.nameOf(recs, b)).includes(words)) continue;
+      if (seen.has(b) || not.has(b) || 'field' in recs[x] || Tree.isView(recs[b] ?? {})) continue;
+      const names = [N.nameOf(recs, b), N.shortOf(recs, b)];
+      if (!names.some(s => Tree.norm(s).includes(words))) continue;
       const t = Tree.treeOf(recs, x);
       if (!t || !ways.some(w => Tree.narrower(t, w.mine.loc))) continue;
       seen.add(b);
-      found.push({ at: x, name: N.nameOf(recs, b), kind: recs[b].kind });
+      found.push({ at: x, name: names[0], short: names[1], kind: recs[b].kind });
     }
     const drawn = typeof Canvas !== 'undefined' && Canvas.kinds ? Canvas.kinds().map(Tree.norm) : [], rank = k => { const i = drawn.indexOf(Tree.norm(k)); return i < 0 ? Infinity : i; };
     const kinds = [...new Set(ways.map(w => w.mine.loc).filter(l => l.kind && !l.args).map(l => l.kind))].sort((a, b) => rank(a) - rank(b));
-    return { found: found.sort((a, b) => a.name.localeCompare(b.name)), kinds };
+    // A name typed whole first, then those it begins, then the rest, each by name.
+    const near = f => [f.name, f.short].some(s => Tree.same(s, q ?? '')) ? 0 : [f.name, f.short].some(s => Tree.norm(s).startsWith(words)) ? 1 : 2;
+    return { found: found.sort((a, b) => near(a) - near(b) || a.name.localeCompare(b.name)), kinds };
   }
   // The records a transfer writes (dendra.md, Time: Transfer), on tx dated its day `d`, reading the chart entered as of
   // that day: `to`, the record it goes to ({ at }) or a new one ({ kind, name }); `part`, the amount, or null for all.
@@ -422,12 +427,14 @@ const App = (() => {
     const on = () => setTimeout(() => (much.current ?? whom.current?.closest('.asking, .pendbar')?.querySelector('.when input'))?.focus());
     const choose = (anchor, query) => Shell.menu(anchor, q => {
       const { found, kinds } = takers(rid, q), named = Tree.clean(q ?? '');
-      return [...found.map(f => ({ label: f.name, detail: f.kind, checked: to?.at === f.at, run: () => { set({ to: { at: f.at, name: f.name } }); on(); } })),
-        ...(named && kinds.length && !found.some(f => Tree.same(f.name, named)) ? [...(found.length ? ['-'] : []), ...kinds.map(k => ({ label: `New ${k}: ${named}`, run: () => { set({ to: { kind: k, name: named } }); on(); } }))] : [])];
+      return [...found.map(f => ({ label: f.name, detail: f.kind, checked: to?.at === f.at, run: () => { set({ to: { at: f.at, name: f.name, short: f.short } }); on(); } })),
+        ...(named && kinds.length && !found.some(f => Tree.same(f.name, named) || Tree.same(f.short, named)) ? [...(found.length ? ['-'] : []), ...kinds.map(k => ({ label: `New ${k}: ${named}`, run: () => { set({ to: { kind: k, name: named } }); on(); } }))] : [])];
     }, { search: true, query });
     useLayoutEffect(() => { if (!auto || asked === p.n || !whom.current) return; asked = p.n; whom.current.focus(); if (!to) choose(whom.current); }, []);
     if (!tr) return null;
-    const amt = tr.amount && entered.value[tr.amount], name = x => bind(N.shortOf(recs, Tree.objectOf(recs, x)));
+    // A record by its short name, which as a defined term reads "the Manager" mid-sentence, as History says it.
+    const term = (o, s = N.shortOf(recs, o)) => s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s;
+    const amt = tr.amount && entered.value[tr.amount], name = x => bind(term(Tree.objectOf(recs, x)));
     const key = e => {
       if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); e.target.blur(); commit(); }
       else if (e.key === 'Escape' && text !== null) { e.preventDefault(); e.stopPropagation(); setText(null); set({ part: was.current }); setTimeout(() => much.current?.select()); }
@@ -440,10 +447,10 @@ const App = (() => {
     };
     const ahead = e => { if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); choose(e.currentTarget, e.key); } };
     return html`<span class="transfer"><span>From ${name(tr.first.at)} to${' '}<button ref=${whom} type="button" class=${'sel dd' + (to ? '' : ' ph')} aria-haspopup="menu"
-        aria-label=${`To: ${to?.name ?? 'none'}`} onClick=${e => choose(e.currentTarget)} onKeyDown=${ahead}><span>${to ? bind(to.name) : '…'}</span></button></span><span class="sep">·</span><span>${amt
+        aria-label=${`To: ${to?.name ?? 'none'}`} title=${to && to.short !== to.name ? to.name : null} onClick=${e => choose(e.currentTarget)} onKeyDown=${ahead}><span>${to ? bind(to.at ? term(Tree.objectOf(recs, to.at)) : to.name) : '…'}</span></button></span><span class="sep">·</span><span>${amt
         ? html`<span class="hug"><input ref=${much} class="cell amount" aria-label="How much" spellcheck=${false} autocomplete="off" aria-invalid=${part === undefined ? 'true' : null}
             value=${text ?? Tree.format(amt.field, part ?? amt.value)} onFocus=${e => e.target.select()} onBlur=${() => { if (part !== undefined) setText(null); }} onInput=${typed} onKeyDown=${key} /></span>`
-        : html`<span class="add">${'choice' in recs[rid] ? recs[rid].choice : N.nameOf(recs, rid)}</span>`} of ${name(tr.rest[0].at)}</span></span>`;
+        : html`<span>${'choice' in recs[rid] ? recs[rid].choice : N.nameOf(recs, rid)}</span>`} of ${name(tr.rest[0].at)}</span></span>`;
   }
   // Its redline: the chart as it would leave it on the day shown (would), worked out again as what that reads
   // changes (the workbook, the day shown, its own day), and shown again once another preview gives way (a value

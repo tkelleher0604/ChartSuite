@@ -317,33 +317,38 @@ const Time = (() => {
     // Its amount's item, of those at it: the first figure, in its entries' order.
     const order = i => N.order(Tree.treeOf(recs, i.id) ?? {}) ?? Infinity;
     const amountAt = rel => all.filter(i => i.type === 'record' && rec(i).at === rel && FIGURES.has(rec(i).field)).sort((a, b) => order(a) - order(b) || rec(a).edge.localeCompare(rec(b).edge))[0];
-    // A figure's change from a day: [day, by how much], where it's split there.
-    const step = i => { const to = i.now.find(x => x.since && i.now.some(y => y.before === x.since)), was = to && i.now.find(y => y.before === to.since);
-      return i.was.length && to ? [to.since, to.value - was.value] : null; };
+    // A figure's change from a day: [day, by how much], from what it was on that day, split there or replaced.
+    const step = i => { const to = i.was.length && i.now.length && Log.latest(i.now), was = to?.since && (i.now.find(y => y.before === to.since) ?? i.was.find(y => Log.validOn(y, to.since)));
+      return was ? [to.since, to.value - was.value] : null; };
     // What it's from: a relation ended on its day, by its period or by its end entry; or its amount lowered. What it's to:
     // a relation added from the day; or its amount raised, or given.
     const froms = [], tos = [], here = id => all.some(j => j.type === 'record' && j.id === id), amountOf = rel => { const a = amountAt(rel); return a && recs[rel] ? a : null; };
     for (const i of all) if (i.type === 'record') {
       const r = rec(i), at = recs[r.at];
-      if (pair(r)) {
+      if (pair(r) && i.now.length) {
         const a = amountOf(i.id), now = Log.latest(i.now);
-        if (i.was.length && i.now.length && i.now.every(x => x.before) && !Log.latest(i.was).before) froms.push({ rel: i.id, day: now.before, q: a ? Log.latest(a.was).value : null, a });
-        else if (!i.was.length && now.since) tos.push({ rel: i.id, day: now.since, q: a && !a.was.length ? Log.latest(a.now).value : null, a });
-      } else if (pair(at) && r.field === 'date' && !i.was.length && (t => !!t && N.isEnd(t))(Tree.treeOf(recs, i.id))) {
-        const a = amountOf(r.at);
-        froms.push({ rel: r.at, day: r.value, q: a ? Log.latest(a.was.length ? a.was : a.now).value : null, a });
-      } else if (pair(at) && FIGURES.has(r.field) && amountAt(r.at) === i && !here(r.at)) {
+        if (i.was.length && i.now.every(x => x.before) && !Log.latest(i.was).before) froms.push({ rel: i.id, day: now.before, q: a?.was.length ? Log.latest(a.was).value : null, a });
+        else if (!i.was.length && now.since) tos.push({ rel: i.id, day: now.since, q: a && !a.was.length && a.now.length ? Log.latest(a.now).value : null, a });
+      } else if (pair(at) && r.field === 'date' && !i.was.length && i.now.length && (t => !!t && N.isEnd(t))(Tree.treeOf(recs, i.id))) {
+        const a = amountOf(r.at), vs = a && (a.was.length ? a.was : a.now);
+        froms.push({ rel: r.at, day: r.value, q: vs?.length ? Log.latest(vs).value : null, a });
+      } else if (pair(at) && FIGURES.has(r.field) && amountAt(r.at) === i && !here(r.at) && i.now.length) {
         const s = step(i), now = Log.latest(i.now);
         if (s && s[1] < 0) froms.push({ rel: r.at, day: s[0], q: -s[1], a: i });
         else if (s && s[1] > 0) tos.push({ rel: r.at, day: s[0], q: s[1], a: i });
         else if (!i.was.length && now.since) tos.push({ rel: r.at, day: now.since, q: now.value, a: i });
       }
     }
+    // Just one of each, the same part going as comes: a closing's paste that dilutes some owners as it adds another is
+    // no transfer.
+    if (froms.length !== 1 || tos.length !== 1) return null;
     for (const f of froms) for (const t of tos) {
       const F = recs[f.rel], T = Tree.treeOf(recs, f.rel), first = T && N.edges(T)[0], side = (r, own) => r.args.find(a => Tree.same(a.edge, first) === own)?.at;
       const R = recs[t.rel];
       if (!first || t.day !== f.day || !Tree.same(N.nameOf(recs, f.rel), N.nameOf(recs, t.rel)) || F.choice !== R.choice || side(F, false) !== side(R, false) || side(F, true) === side(R, true)) continue;
-      const q = f.a && t.a ? (f.q ?? t.q) : null, name = x => N.shortOf(recs, Tree.objectOf(recs, x));
+      if (!!f.a !== !!t.a || (f.a && !(f.q != null && t.q != null && Math.abs(f.q - t.q) < 1e-9))) continue;
+      // Each by its short name, a defined term reading "the Manager" mid-sentence.
+      const q = f.a ? f.q : null, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
       const what = q != null ? Tree.format(rec(f.a).field, Math.round(q * 1e9) / 1e9) : F.choice ?? N.nameOf(recs, f.rel);
       return `Transferred ${what} of ${name(side(F, false))} from ${name(side(F, true))} to ${name(side(R, true))} on ${short(f.day)}`;
     }

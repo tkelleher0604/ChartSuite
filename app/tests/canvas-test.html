@@ -840,7 +840,7 @@ async function run() {
   key('Enter'); await tick(150);
   const toast = txt($$('.toast').at(-1));
   check('a record deleted as of a past day is redlined first, its bar asking its end entry, that day; then ended by it', /Halvard/.test(asked) && /Dissolution Date/.test(asked) && dayAsked === 'Jun 30, 2025' && stillThere
-    && /^Deleted Halvard Logistics Holdings, Inc. from Jun 30, 2025/.test(toast) && !App.state.peek().halvard && !!App.wb.asOf(App.chart.peek(), '2025-06-29').halvard, `${asked} / ${toast}`);
+    && /^Ended Halvard Logistics Holdings, Inc. on Jun 30, 2025/.test(toast) && !App.state.peek().halvard && !!App.wb.asOf(App.chart.peek(), '2025-06-29').halvard, `${asked} / ${toast}`);
   Shell.at(null); await tick(100);
 
   // ---- What's drawn is the scene, however it came to be: after edits, views shown in turn, previews and
