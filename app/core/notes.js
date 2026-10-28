@@ -68,11 +68,12 @@ function index(rows) {
     return out;
   }
 
-  // The fields a record's notes show or hide in the box (or on the line) it's in, in a view: each Shown note whose
-  // param names an entry (the field beside the record, dendra.md, Fields), the narrowest for each. → { [label]: { value, note } }
-  function fields(t, view) {
+  // The fields a record's notes show or hide in the box (or on the line) it's in, in a view, or give a look of `label`
+  // there: each note whose param names an entry (the field beside the record, dendra.md, Fields), the narrowest for
+  // each. → { [entry]: { value, note } }
+  function fields(t, view, label = 'Shown') {
     const out = {};
-    for (const param of params.get(`Shown|${shapeOf(t)}`)?.values() ?? []) { const r = resolve('Shown', t, view, param); if (r) out[param] = r; }
+    for (const param of params.get(`${label}|${shapeOf(t)}`)?.values() ?? []) { const r = resolve(label, t, view, param); if (r) out[param] = r; }
     return out;
   }
 

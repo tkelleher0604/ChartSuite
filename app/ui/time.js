@@ -416,8 +416,11 @@ const Time = (() => {
   }
   function notePhrase(i, n, recs, N) {
     // One record's own (a box's, or a line's, its relation's tree), or else a style's or an entry's in general.
-    const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {}), line = at === undefined && !!n.pattern.args && Tree.idsIn(n.pattern).size > 0;
-    const of = at !== undefined ? N.nameOf(recs, at) : line ? lineOf(recs, n.pattern, N) : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern), one = at !== undefined || line;
+    const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {}), line = at === undefined && (n.pattern.args?.length ?? 0) > 1 && Tree.idsIn(n.pattern).size > 0;
+    // A field of one box: its entry's pattern with that box's record in it, "Jurisdiction of Offshore Feeder".
+    const field = at === undefined && n.pattern.args?.length === 1 && Tree.idsIn(n.pattern).size === 1;
+    const of = at !== undefined ? N.nameOf(recs, at) : line ? lineOf(recs, n.pattern, N) : field ? `${N.name(n.pattern)} of ${N.shortOf(recs, [...Tree.idsIn(n.pattern)][0])}`
+      : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern), one = at !== undefined || line || field;
     const inView = n.view ? ` in ${N.nameOf(recs, n.view)}` : '';
     const gone = !i.now.length;
     switch (n.label) {
@@ -436,9 +439,12 @@ const Time = (() => {
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
-      // A look one record kept of its own, cleared, as the format bar says it.
-      default: return gone && at !== undefined && Notes.FORMATS.has(n.label) ? `Cleared ${of.endsWith('s') ? `${of}’` : `${of}’s`} own ${n.label}${inView}`
-        : gone && line && Notes.FORMATS.has(n.label) ? `Cleared the ${n.label} of ${of}${inView}`
+      // A field's look in a group's boxes, given beside its output (dendra.md, Fields): "Made Jurisdiction not bold in the
+      // Cayman Islands boxes in Structure". A look one record kept of its own, cleared, as the format bar says it.
+      default: if (n.param && Notes.FORMATS.has(n.label)) { const boxes = `in the ${grouped(N, n) ?? N.name(n.pattern)} boxes${inView}`;
+          return gone ? `Cleared the ${n.label} of ${of} ${boxes}` : `${looked(n.label, n.value, of)} ${boxes}`; }
+        return gone && at !== undefined && Notes.FORMATS.has(n.label) ? `Cleared ${of.endsWith('s') ? `${of}’` : `${of}’s`} own ${n.label}${inView}`
+        : gone && (line || field) && Notes.FORMATS.has(n.label) ? `Cleared the ${n.label} of ${of}${inView}`
         : Notes.FORMATS.has(n.label) && !gone ? `${looked(n.label, n.value, !one && n.view ? grouped(N, n) ?? of : of)}${inView}`
         : `Changed ${n.label}${one ? ' of ' : ' for '}${!one && n.view ? grouped(N, n) ?? of : of}${inView}`;
     }

@@ -287,13 +287,13 @@ function preview(label, value) {
 }
 // The chart with a change written on its rows, uncommitted; `more`, what else the change writes.
 function trying(c, label, value, more) {
-  const wb = App.shown.peek(), same = (r, l, k, view) => 'note' in r && r.label === l && (r.view ?? null) === (view ?? null) && !r.param && Tree.key(r.pattern) === k;
+  const wb = App.shown.peek(), same = (r, l, k, view, param) => 'note' in r && r.label === l && (r.view ?? null) === (view ?? null) && (r.param ?? null) === (param ?? null) && Tree.key(r.pattern) === k;
   let rows = wb.rows(App.chart.peek());
   const tx = {
-    note(l, pattern, v, { view } = {}) {
+    note(l, pattern, v, { view, param } = {}) {
       const k = Tree.key(pattern), id = `·tried${++n}`;
-      rows = rows.filter(r => !same(r, l, k, view));
-      if (v !== undefined && v !== null) rows.push({ id, note: id, label: l, pattern, ...(view && { view }), value: v });
+      rows = rows.filter(r => !same(r, l, k, view, param));
+      if (v !== undefined && v !== null) rows.push({ id, note: id, label: l, pattern, ...(view && { view }), ...(param && { param }), value: v });
     },
     update(id, changes) { rows = rows.map(r => r.shape === id ? { ...r, ...changes } : r); },
   };
@@ -366,6 +366,19 @@ function value(label) {
 }
 // The field selected in the one box selected, if any (the canvas's field()).
 const fieldOf = c => { const f = c.field?.(), ks = c.keys(); return f?.it && ks.length === 1 && Canvas.keyParts(ks[0])[0] === f.m.id ? f : null; };
+// A toggle's state (bold, italic, underline, strikethrough), as Office's: pressed only where every text it would
+// change has it, so a box whose name is bold and whose jurisdiction isn't shows Bold unpressed, and pressing it sets
+// them all. Those texts: with a field selected, that field, in the box selected or in each box of the group chosen;
+// else every text of the marks the scope reaches. A Key row is its swatch's and caption's.
+const edgeOf = it => it.free ? `text@${it.free.note}` : Tree.norm(App.state.peek()[it.id]?.edge ?? it.blank?.edge ?? '');
+function pressed(label) {
+  if (!current?.marks.length) return false;
+  if (current.row) return !!value(label);
+  const sc = current.canvas.scene(), scope = current.scope, f = current.field;
+  const marks = scope?.own || !scope?.marks ? current.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean);
+  const texts = marks.flatMap(m => m.texts ?? (m.caption ? [m.caption] : [])).filter(it => !it.blank && (!f || (it === f.it || (!f.it.free && edgeOf(it) === edgeOf(f.it)))));
+  return texts.length ? texts.every(it => !!it.look?.[label]) : !!value(label);
+}
 
 // ---- The bar ----
 
@@ -736,7 +749,7 @@ function Bar() {
   const none = !s.marks.length, lineOnly = s.marks.length && s.marks.every(m => m.type === 'line' || m.geometry === 'line');
   const any = !none, boxy = any && !lineOnly && !s.marks.every(m => m.type === 'frame'), ro = App.readOnly.value;
   const set = (label, v) => apply(label, v);
-  const toggle = label => set(label, !value(label));
+  const toggle = label => set(label, !pressed(label));
   const zoom = Math.round(Canvas.zoom.value * 100);
   const placeable = s.marks.filter(m => m.type === 'box' || m.type === 'shape').length;
   const aligns = [
@@ -797,10 +810,10 @@ function Bar() {
     <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-tip="Increase font size" data-keys="Ctrl+Shift+>" disabled=${none} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
     <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-tip="Decrease font size" data-keys="Ctrl+Shift+<" disabled=${none} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
     <span class="sep" />
-    <button class="btn icon" data-fb="bold" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${any && !!value('Bold')} disabled=${none} onClick=${() => toggle('Bold')}>${Shell.icon('bold')}</button>
-    <button class="btn icon" data-fb="italic" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${any && !!value('Italic')} disabled=${none} onClick=${() => toggle('Italic')}>${Shell.icon('italic')}</button>
-    <button class="btn icon" data-fb="underline" aria-label="Underline" data-tip="Underline" data-keys="Ctrl+U" aria-pressed=${any && !!value('Underline')} disabled=${none} onClick=${() => toggle('Underline')}>${Shell.icon('underline')}</button>
-    <button class="btn icon" data-fb="strike" aria-label="Strikethrough" data-tip="Strikethrough" data-keys="Ctrl+Shift+X" aria-pressed=${any && !!value('Strike')} disabled=${none} onClick=${() => toggle('Strike')}>${Shell.icon('strike')}</button>
+    <button class="btn icon" data-fb="bold" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${any && pressed('Bold')} disabled=${none} onClick=${() => toggle('Bold')}>${Shell.icon('bold')}</button>
+    <button class="btn icon" data-fb="italic" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${any && pressed('Italic')} disabled=${none} onClick=${() => toggle('Italic')}>${Shell.icon('italic')}</button>
+    <button class="btn icon" data-fb="underline" aria-label="Underline" data-tip="Underline" data-keys="Ctrl+U" aria-pressed=${any && pressed('Underline')} disabled=${none} onClick=${() => toggle('Underline')}>${Shell.icon('underline')}</button>
+    <button class="btn icon" data-fb="strike" aria-label="Strikethrough" data-tip="Strikethrough" data-keys="Ctrl+Shift+X" aria-pressed=${any && pressed('Strike')} disabled=${none} onClick=${() => toggle('Strike')}>${Shell.icon('strike')}</button>
     <button class="btn dd" aria-label="Text color" data-tip="Text color" data-fb="color" disabled=${none} onClick=${e => opener.color(e.currentTarget)}>${glyph.color(any ? value('Color') : '#000000')}</button>
     <button class="btn dd" aria-label="Paragraph" data-tip="Alignment and spacing" data-fb="paragraph" disabled=${none} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
@@ -835,7 +848,7 @@ function mount(el) {
   // shown (its keys, as every action's, not taken while text is being typed).
   const onScreen = () => (Canvas.active.peek()?.root.clientWidth ?? 0) > 0 && !!Canvas.active.peek().scene();
   const can = () => onScreen() && !!current?.marks.length, edit = () => can() && !App.readOnly.peek();
-  const flip = label => () => apply(label, !value(label));
+  const flip = label => () => apply(label, !pressed(label));
   const actions = [
     ['format.bold', 'Bold', '$mod+KeyB', flip('Bold')], ['format.italic', 'Italic', '$mod+KeyI', flip('Italic')], ['format.underline', 'Underline', '$mod+KeyU', flip('Underline')],
     ['format.strike', 'Strikethrough', '$mod+Shift+KeyX', flip('Strike')],
