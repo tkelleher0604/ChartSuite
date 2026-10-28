@@ -1119,17 +1119,21 @@ function level(ms) {
 // the shorter's height is level with the other; one lower than that is under it (see push).
 const gives = (a, b) => { const y = Layout.sideY(a, b); return a.x + a.w - Layout.sideX(a, y, true) + Layout.sideX(b, y, false) - b.x; };
 function spread(boxes, room = () => 0, stood = () => false) {
-  const done = [];
+  // Only the boxes placed before it that are beside it can push it: found among those in the bands of height it's in,
+  // in the order they were placed, as nothing here moves a box up or down.
+  const BAND = 64, bands = new Map(), placed = new Map(), beside = (a, b) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2;
+  const bandsOf = b => { const ks = []; for (let k = Math.floor(b.y / BAND); k <= Math.floor((b.y + b.h) / BAND); k++) ks.push(k); return ks; };
   for (const b of [...boxes].sort((a, c) => a.x - c.x || a.y - c.y)) {
+    const done = [...new Set(bandsOf(b).flatMap(k => bands.get(k) ?? []))].filter(a => beside(a, b)).sort((a, c) => placed.get(a) - placed.get(c));
     for (let moved = true; moved;) {
       moved = false;
       for (const a of done) {
-        if (Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) <= Math.min(a.h, b.h) / 2) continue;
         const need = stood(b) || !room(a, b) ? 0 : room(a, b) - gives(a, b);
         if (b.x < a.x + a.w || b.x < a.x + a.w + need - 0.01) { b.x = a.x + a.w + Math.max(21, need); moved = true; }
       }
     }
-    done.push(b);
+    placed.set(b, placed.size);
+    for (const k of bandsOf(b)) (bands.get(k) ?? bands.set(k, []).get(k)).push(b);
   }
 }
 // Where a box has grown into the rank below it, the rank moves down as far as it must, and each rank under it
