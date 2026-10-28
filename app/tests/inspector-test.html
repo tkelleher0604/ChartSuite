@@ -588,7 +588,26 @@ async function run() {
   Shell.closeAll(); await tick();
   key($('.asking .from input'), 'Escape'); await tick(60);
   check('Esc drops a transfer, saying so, with Redo', !App.pending.peek() && toastText() === 'Discarded transferring Ownership: Fund III Blocker → Halvard Logistics Holdings, Inc.'
-    && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Redo'), toastText()); }
+    && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Redo'), toastText());
+  // What the panel makes on a chart, the chart shows: a new owner named in a list's Add, or a transfer's new one, where
+  // the view shown hides its kind, is shown there by the same change (App.showMade)
+  const view = Shell.view.peek(), nH = nP();
+  App.change(tx => tx.note('Shown', { kind: 'Entity' }, false, { view }), { dated: false }); await tick(60);
+  const shownAt = id => App.notes.peek().notes('Shown').some(n => n.view === view && n.pattern.id === id && n.value === true);
+  Shell.select(['northpine']); await tick(60);
+  $('.addrow .add-entry')?.click(); await tick();
+  await pick('Owners…'); await tick();
+  await findIn('Zeta Holdings'); await pick('New Entity: Zeta Holdings'); await tick(60);
+  key(document.body, 'Enter'); await tick(80);
+  const zeta = Object.keys(st()).find(k => st()[k].kind === 'Entity' && N().nameOf(st(), k) === 'Zeta Holdings');
+  check('a new owner named in a list’s Add, where the view hides its kind, is shown there by the same change', !!zeta && shownAt(zeta) && App.scene.peek()?.byId.has(zeta) && nP() === nH + 2, `${zeta} ${nP() - nH}`);
+  Shell.parts.value.undo.undo(); await tick(60);
+  Shell.select([own]); App.transferring(own); await tick(80);
+  await findIn('Omega Holdings'); await pick('New Entity: Omega Holdings'); await tick(60);
+  key(document.body, 'Enter'); await tick(80);
+  const omega = Object.keys(st()).find(k => st()[k].kind === 'Entity' && N().nameOf(st(), k) === 'Omega Holdings');
+  check('… and so is a transfer’s new one', !!omega && shownAt(omega) && App.scene.peek()?.byId.has(omega), omega);
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(60); }
   // A deletion pending shows in the inspector as on the chart: the end entry it gives, in blue, the record struck as it
   // goes; an end day typed after the day shown is recorded as one typed in the inspector is, so the record says it
   Shell.select(['northpine']); await tick(60);

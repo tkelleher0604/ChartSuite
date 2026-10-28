@@ -518,16 +518,18 @@ function whoFor(id, l, q) {
 // ticked there; any other is made at once, the new one with it, as one change.
 function joinTo(id, b, w, lb, fresh = null) {
   const make = tx => { const o = tx.add('record', { kind: fresh.kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: fresh.name }); return o; };
-  if ('choice' in w.s.out) { if (fresh) { let o = null; if (!App.change(tx => { o = make(tx); })) return; b = o; } return select([id, b]); }
+  if ('choice' in w.s.out) { if (fresh) { let o = null; if (!App.change(tx => { o = make(tx); App.showMade(tx, [o]); })) return; b = o; } return select([id, b]); }
   const rec = other => ({ args: [{ edge: w.sm.edge, at: w.at }, { edge: w.sl.edge, at: other }], tag: true });
   if (!fresh) {
     if (!App.asksDay(rec(lb))) return App.change(tx => tx.add('record', enterAt(tx, rec(lb))));
     begin(id, b, [w.sm.edge, w.sl.edge, w.at, lb].join('|').toLowerCase(), { tag: true }, rec(lb));
     return select([id, b]);
   }
+  // The new one, related as it's made, is shown on the chart shown, where that would hide it, by the same change.
   const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), what = `${N().name(p)}: ${first ? `${shortOf(id)} → ${fresh.name}` : `${fresh.name} → ${shortOf(id)}`}`;
-  if (!App.asksDay(rec(id))) return App.change(tx => tx.add('record', enterAt(tx, rec(make(tx)))), { say: `Added ${what}` });
-  App.stage({ verb: 'Add', what, source: `list ${id}`, asks: 'from', day: App.day.peek(), auto: true, needs: [id], make: tx => tx.add('record', enterAt(tx, rec(make(tx)))), say: c => Time.describe(c) });
+  const made = tx => { const o = make(tx); tx.add('record', enterAt(tx, rec(o))); App.showMade(tx, [o]); };
+  if (!App.asksDay(rec(id))) return App.change(made, { say: `Added ${what}` });
+  App.stage({ verb: 'Add', what, source: `list ${id}`, asks: 'from', day: App.day.peek(), auto: true, needs: [id], make: made, say: c => Time.describe(c) });
 }
 // A document linked: picked from SharePoint, where it's set up, or its link typed.
 const linkAdd = (anchor, at) => SharePoint.configured() ? menu(anchor, [{ label: 'SharePoint…', run: () => pickLink(at) }, { label: 'Link…', run: () => { linking.value = at; } }]) : (linking.value = at);
@@ -567,15 +569,27 @@ const lit = (it, at) => {
 const fields = () => charted() ? Canvas.active.peek()?.fields : null;
 // Show on chart: at the row's end, shown in this box a quiet eye, pointed at a way to show or hide it there, at the
 // format bar's scope; the tooltip says where.
+// At a group scope it's on only where every mark the group reaches shows the field, so with one of five showing it it says
+// "Show in all 5 limited partnerships", and its click shows it in the other four; the scope is asked again as it's
+// pointed at and clicked, as it may have been chosen since.
 function OnChart({ it, at }) {
-  const c = charted() ? Canvas.active.value : null, host = c && hostIn(at);
+  const c = charted() ? Canvas.active.value : null, host = c && hostIn(at), [pointed, setPointed] = useState(null);
   if (!host || !c || App.readOnly.value || it.error) return null;
   App.scene.value; Shell.selection.value;
-  const on = c.fields.shown(host, it.edge, at);
-  const say = () => { const s = Canvas.scope(); return `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`; };
-  return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say()}
-    onPointerEnter=${e => { e.currentTarget.dataset.tip = say(); const s = Canvas.scope(); if (s.marks) c.cue?.([...s.marks]); }} onPointerLeave=${() => c.cue?.(null)}
-    onClick=${e => { e.stopPropagation(); c.fields.show(host, it.edge, !on, at); }}>${Shell.icon('eye')}</button>`;
+  const state = () => { const s = Canvas.scope(); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : [...s.marks].every(id => { const x = alikeIn(host, at, id); return !!x && c.fields.shown(id, it.edge, x); }) }; };
+  const { s, on } = pointed ?? state();
+  const say = ({ s, on }) => `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`;
+  return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say({ s, on })}
+    onPointerEnter=${e => { const now = state(); setPointed(now); e.currentTarget.dataset.tip = say(now); if (now.s.marks) c.cue?.([...now.s.marks]); }} onPointerLeave=${() => { setPointed(null); c.cue?.(null); }}
+    onClick=${e => { e.stopPropagation(); const now = state(); c.fields.show(host, it.edge, !now.on, at); setPointed(null); }}>${Shell.icon('eye')}</button>`;
+}
+// The record of mark `id` at the place `at` is at in `host`'s: an entry's place in each box alike, by its labels (a
+// File Number at its Jurisdiction); null where that box has none there.
+function alikeIn(host, at, id) {
+  if (at === host) return id;
+  let x = id;
+  for (const step of T.pathOf(recs(), at).slice(T.pathOf(recs(), host).length)) { x = entryNamed(x, recs()[step].edge); if (!x) return null; }
+  return x;
 }
 // A row dragged onto the chart, by its grip or its label: the box under the pointer is lit as the target, and dropped
 // there, it shows the entry. `reorder`, where the grip also reorders the row among its siblings, which a drop on the

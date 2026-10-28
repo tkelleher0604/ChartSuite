@@ -381,6 +381,8 @@ const App = (() => {
     // To: the one it goes to, made with it where it's new; and where it holds such a relation already, that one's
     // amount grows by the part, from the day.
     const b = to.at ?? (o => { tx.add('record', { at: o, edge: 'Name', field: 'text', value: to.name }); return o; })(tx.add('record', { kind: to.kind }));
+    // A new one is shown on the chart shown as of the day, where that would hide it (App.showMade), once it's related.
+    const shownToo = () => { if (!to.at) showMade(tx, [b], Shell.view.peek(), d > day.peek() ? d : day.peek()); };
     const like = { args: [{ edge: tr.first.edge, at: b }, ...tr.rest.map(a => ({ edge: a.edge, at: a.at }))], ...('choice' in r ? { choice: r.choice } : { tag: true }) };
     const held = to.at && Object.keys(at).find(x => x !== rid && at[x].args?.length === 2 && ('choice' in r ? at[x].choice === r.choice : at[x].tag === true)
       && like.args.every(a => at[x].args.some(c => Tree.same(c.edge, a.edge) && c.at === a.at)) && Tree.same(N.nameOf(at, x), N.nameOf(at, rid)));
@@ -401,6 +403,7 @@ const App = (() => {
       for (const k of entries(x)) if (at[k].field !== 'date') copy(k, y);
     };
     for (const x of entries(rid)) if (at[x].field !== 'date') copy(x, made);
+    shownToo();
     return made;
   }
   // Transfer…: begun as a change pending, redlined, asking whom (Transferring, in its bar and atop the relation's panel,
@@ -582,9 +585,9 @@ const App = (() => {
   // What's made on a chart, the chart shows (dendra.md, Views): boxes `ids` that tx makes on chart view `view`, where
   // the view would draw one nowhere (a filter of the affiliates hides its kind, say), are shown there by the same
   // change, each at its own tree, the narrowest note. Only a note that hides can hide a box, so with none nothing's
-  // worked out.
-  function showMade(tx, ids, view = Shell.view.peek()) {
-    const N = notes.peek(), d = day.peek();
+  // worked out. `d`, the day it's drawn as of: the day shown, or a later one a change made ahead holds from (a transfer's).
+  function showMade(tx, ids, view = Shell.view.peek(), d = day.peek()) {
+    const N = notes.peek();
     if (views.peek().find(v => v.id === view)?.layout !== 'chart' || !N.notes('Shown').some(n => n.value === false && (!n.view || n.view === view))) return;
     const after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), { relations: relations.peek(), schema: schema.peek() }, worked);
     const drawn = Scene.looks(shown.peek(), chart.peek(), view, d, { state: R.records, computed: R }).byId;
