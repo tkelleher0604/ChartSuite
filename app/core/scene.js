@@ -715,11 +715,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     layoutLegend(k, legendRows);
     room.key = { w: k.w, h: k.h, under: k.w > sheet.w - MARGIN - 32 - Math.max(MARGIN, ...furnished.map(m => MARGIN - INSET + (m.column?.x ?? 0) + widest(m.texts))) };
   }
-  let heights = null;
+  // Each box's size on its own page, for another paper (see squeezed).
+  let pageSizes = null;
   // The room a line's label needs between the two boxes it joins side by side: its width and 3 pt either side, and
   // its arrowhead, where it has one (see Layout's labels).
   const roomFor = new Map();
   for (const l of lines) if (l.label && !l.revealed) for (const k of [`${l.from}|${l.to}`, `${l.to}|${l.from}`]) roomFor.set(k, Math.max(roomFor.get(k) ?? 0, l.label.w + 8 + (l.settings.Arrow.value === 'none' ? 0 : 10.7)));
+  const beside = (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0;
+  // The boxes a box's lines run to.
+  const ends = groupBy(lines.flatMap(l => [[l.from, l.to], [l.to, l.from]]), ([id]) => id), linked = id => (ends.get(id) ?? []).map(([, o]) => o);
   // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have, or none but
   // against the router's rules; labels with no free place, as they're drawn on a page at s (see relabel); and names
   // cut, no longer as typed.
@@ -749,13 +753,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       keep: last?.at ?? null, ...ranked(boxes),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
       obstacles: obstaclesOf(onPage, last?.page.offset),
-      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: { ...sheet, room }, bounds: last?.page ?? null,
+      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, pageSizes, beside, linked), page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
     yield;
     // What's placed on its own page stands where it was put, but for the room labels need beside it; a place the
     // layout gives makes room too for the lines that come down past what stands over their box.
-    const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id)), beside = (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0, stood = b => !!last?.at.has(b.id);
+    const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id)), stood = b => !!last?.at.has(b.id);
     spread(boxes, beside, stood);
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level). A preview keeps every
     // box as it stood, and what it adds is placed clear of them, and sized among themselves.
@@ -784,11 +788,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy });
     return { ...laid, around: lines.filter(l => l.around).length };
   }
-  // A layout just laid, with its faults; and a layout laid again, as it was judged.
-  const judged = laid => ({ ...laid, faults: faults(laid.s) }), again = (laid, as) => ({ ...laid, faults: as.faults });
-  // Of two layouts, the better: the one with fewer faults, then the larger, then the one with fewer lines gone
-  // around what's drawn.
-  const better = (a, b) => a.faults !== b.faults ? a.faults < b.faults : a.s !== b.s ? a.s > b.s : a.around < b.around;
+  // A layout just laid, with its faults, and on another paper its lines bent that drop straight on the view's own page
+  // (`straight`); and a layout laid again, as it was judged.
+  let straight = null, largest = Infinity;
+  const bent = () => straight ? lines.filter(l => straight.has(l.id) && l.points?.length > 2).length : 0;
+  const judged = laid => ({ ...laid, faults: faults(laid.s), bent: bent() }), again = (laid, as) => ({ ...laid, faults: as.faults, bent: as.bent });
+  // Of two layouts, the better: the one with fewer faults, then the larger, up to the size its own page prints it at on
+  // another paper (`largest`), then the one with fewer lines bent, then the one with fewer lines gone around what's drawn.
+  const better = (a, b) => { const [p, q] = [a.s, b.s].map(s => Math.min(s, largest));
+    return a.faults !== b.faults ? a.faults < b.faults : p !== q ? p > q : a.bent !== b.bent ? a.bent < b.bent : a.around < b.around; };
   yield;
   let at = judged(yield* lay(1)), grow = 1;
   // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
@@ -806,15 +814,19 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     if (tried !== grow) at = again(yield* lay(1, grow), at);
   }
-  heights = new Map(boxes.map(b => [b.id, b.h]));
+  pageSizes = new Map(boxes.map(b => [b.id, { w: b.w, h: b.h }]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at, and
-  // never so close that a line can't pass or a label has no place.
+  // never so close that a line can't pass or a label has no place; and of those as large, the one with the fewest
+  // lines bent that drop straight on its own page.
   if (onPaper && boxes.length) {
-    const target = (yield* drawing(wb, chart, view, day, { ...opts, paper: null })).page.scale;
+    const own = yield* drawing(wb, chart, view, day, { ...opts, paper: null });
+    largest = own.page.scale;
+    straight = new Set(own.marks.filter(m => m.type === 'line' && m.points?.length === 2).map(m => m.id));
+    at = { ...at, bent: bent() };
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
-      if (at.s >= target && !at.faults) break;
+      if (at.s >= largest && !at.faults && !at.bent) break;
       const next = judged(yield* lay(tried = f, grow));
       if (better(next, at)) [at, best] = [next, f];
     }
@@ -983,26 +995,48 @@ function clearTops(boxes, links, given) {
     if (!boxes.some(g => g !== c && g.y < c.y + c.h + 16 && g.y + g.h + 16 > c.y && g.x < x + c.w + 21 && g.x + g.w + 21 > x)) c.x = x;
   }
 }
-// Entered places on a paper narrower than their page: each box's middle `f` times as far from the chart's
-// left, the box `f` times as wide. A rank whose names wrap more grows up into the space over it, down to 40 pt
-// from the rank above, and the rest of what it grew moves every rank under it down (`was`, each box's height on
-// its page), so that the space between ranks stays as it was where it's no more than that.
-function squeezed(positions, boxes, f, was) {
-  const x0 = Math.min(...[...positions.values()].map(p => p.x)), by = new Map(boxes.map(b => [b.id, b]));
-  const ranks = groupBy([...positions].filter(([id]) => by.has(id)), ([, p]) => Math.round(p.y / 4));
+// Entered places on a paper narrower than their page: each box's middle `f` times as far from the chart's left as
+// on its page (`was`, each box's size there), as wide as it's sized now, and moved aside as spread moves it. A box
+// whose one line runs to a box over or under it that it stood straight over or under on its page (`linked`, the boxes
+// a box's lines run to) stands so again, as one standing so over or under that in turn does, where the boxes beside it
+// leave it the room within the chart's width, those moving aside as far as that needs: so a line that dropped straight
+// drops straight where the paper allows. A rank whose names wrap more grows up into the space over it, down to 40 pt
+// from the rank above, and the rest of what it grew moves every rank under it down, so that the space between ranks
+// stays as it was where it's no more than that.
+function squeezed(positions, boxes, f, was, room = () => 0, linked = () => []) {
+  const by = new Map(boxes.map(b => [b.id, b])), placed = [...positions].filter(([id]) => by.has(id));
+  const ranks = groupBy(placed, ([, p]) => Math.round(p.y / 4)), then = id => was.get(id) ?? by.get(id);
   let shift = 0, floor = -Infinity;
   const at = new Map([...ranks.keys()].sort((a, b) => a - b).map(r => {
     const ids = ranks.get(r).map(([id]) => id), top = Math.min(...ranks.get(r).map(([, p]) => p.y));
-    const now = Math.max(...ids.map(id => by.get(id).h)), then = Math.max(...ids.map(id => was.get(id) ?? by.get(id).h)), grew = Math.max(0, now - then);
+    const now = Math.max(...ids.map(id => by.get(id).h)), grew = Math.max(0, now - Math.max(...ids.map(id => then(id).h)));
     const up = Math.min(grew, Math.max(0, top + shift - floor - 53)), moved = shift - up;
     shift += grew - up;
     floor = top + moved + now;
     return [r, moved];
   }));
-  return new Map([...positions].map(([id, p]) => {
-    const w = by.get(id)?.w ?? 0, wide = p.w ?? w / f;
-    return [id, { ...p, x: x0 + (p.x + wide / 2 - x0) * f - w / 2, y: p.y + (at.get(Math.round(p.y / 4)) ?? shift) }];
+  const x0 = Math.min(...placed.map(([, p]) => p.x)), mid = (id, p) => p.x + (p.w ?? then(id).w) / 2;
+  const gs = placed.map(([id, p]) => { const b = by.get(id); return { id, x: x0 + (mid(id, p) - x0) * f - b.w / 2, y: p.y + at.get(Math.round(p.y / 4)), w: b.w, h: b.h, shape: b.shape }; });
+  spread(gs, room);
+  const g = new Map(gs.map(b => [b.id, b])), c = b => b.x + b.w / 2, level = (a, b) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2;
+  // Each box's lead, the one its one line runs to, where it stood straight over or under it; and where each would
+  // stand: as it stood to its lead's lead, and so on, or where it is.
+  const page = new Map(placed), off = (a, b) => mid(a, page.get(a)) - mid(b, page.get(b)), lead = new Map(gs.map(b => {
+    const [o, ...more] = linked(b.id).map(id => g.get(id));
+    return [b.id, o && !more.length && !level(b, o) && Math.abs(off(b.id, o.id)) <= Math.min(then(b.id).w, then(o.id).w) / 2 ? o.id : null];
   }));
+  const root = (id, seen = new Set()) => lead.get(id) && !seen.has(id) ? root(lead.get(id), seen.add(id)) : id;
+  const want = new Map(gs.map(b => { const r = root(b.id); return [b.id, c(g.get(r)) + off(b.id, r) * f]; }));
+  if (gs.every(b => Math.abs(want.get(b.id) - c(b)) < 0.5)) return new Map([...positions].map(([id, p]) => [id, { ...p, ...g.has(id) && { x: g.get(id).x, y: g.get(id).y } }]));
+  // Left to right as they stand, each where it would stand, or as far right of what's beside it on its left as they need,
+  // 16 pt apart, or as near as they stand, or as far as the line joining them needs; then right to left, as far left as
+  // what's beside it on its right needs, and the chart's right end.
+  const order = [...gs].sort((a, b) => c(a) - c(b)), at0 = new Map(gs.map(b => [b.id, c(b)]));
+  const need = (a, b) => (a.w + b.w) / 2 + Math.max(Math.min(21, Math.max(0, at0.get(b.id) - at0.get(a.id) - (a.w + b.w) / 2)), room(a, b) ? room(a, b) - gives(a, b) : 0);
+  const left = Math.min(...gs.map(b => b.x)), right = Math.max(...gs.map(b => b.x + b.w)), to = new Map();
+  order.forEach((b, i) => to.set(b.id, Math.max(want.get(b.id), left + b.w / 2, ...order.slice(0, i).filter(a => level(a, b)).map(a => to.get(a.id) + need(a, b)))));
+  for (let i = order.length - 1; i >= 0; i--) { const b = order[i]; to.set(b.id, Math.min(to.get(b.id), right - b.w / 2, ...order.slice(i + 1).filter(a => level(a, b)).map(a => to.get(a.id) - need(b, a)))); }
+  return new Map([...positions].map(([id, p]) => [id, { ...p, ...g.has(id) && { x: to.get(id) - g.get(id).w / 2, y: g.get(id).y } }]));
 }
 // A mark moved by (dx, dy), with everything placed in it.
 function move(m, dx, dy) {

@@ -716,10 +716,27 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
     t.x = l.sx = l.tx;
     t.y = edgeY(s, t.x, t.dir === 'down');
   }
-  // A box's stem keeps clear of the drops of other boxes' lines that come down past it (see BESIDE): it moves along
-  // the box's edge as little as that needs, where the edge allows. A drop of a line that shares a box with the stem's,
-  // as lines meeting at an apex do, may run on with it.
-  const drops = lines.filter(l => l.dir === 'down' && !l.flank && l.tx !== undefined);
+  // A line that would drop from its lane through a box goes around it instead (see below): its trunk's lane `lands`
+  // only the rest.
+  for (const t of trunks) {
+    const s = G(t.from), drop = l => t.dir === 'down' ? [[l.tx, s.y + s.h + 8], [l.tx, l.ty]] : [[l.tx, l.ty], [l.tx, s.y - 8]];
+    t.lands = t.ls.filter(l => l.flank || !nearSolid.any(span(drop(l)), k => solid[k].id !== l.from && solid[k].id !== l.to && through(solid[k], ...drop(l))));
+  }
+  // A trunk's stem moves along its box's edge onto a branch it would leave its lane by within 8 pt of it (see BESIDE),
+  // where the edge allows, so that the two are one straight line and not a step.
+  for (const t of trunks) {
+    const s = G(t.from), m = Math.min(12, s.w / 4);
+    if (s.shape === 'triangle' && t.dir === 'up') continue;
+    const x = t.lands.map(l => l.flank ? l.gx : l.tx).filter(x => Math.abs(x - t.x) > 0.25 && Math.abs(x - t.x) < BESIDE && x >= s.x + m && x <= s.x + s.w - m).sort((a, b) => Math.abs(a - t.x) - Math.abs(b - t.x))[0];
+    if (x === undefined) continue;
+    t.x = x;
+    t.y = edgeY(s, x, t.dir === 'down');
+    for (const l of t.ls) l.sx = x;
+  }
+  // A box's stem keeps clear of the drops of other boxes' lines that come down past it, those drawn (see BESIDE): it
+  // moves along the box's edge as little as that needs, where the edge allows. A drop of a line that shares a box with
+  // the stem's, as lines meeting at an apex do, may run on with it.
+  const drops = trunks.flatMap(t => t.lands).filter(l => l.dir === 'down' && !l.flank && l.tx !== undefined);
   for (const t of trunks.filter(t => t.dir === 'down')) {
     const s = G(t.from), m = Math.min(12, s.w / 4), own = new Set(t.ls.flatMap(l => [l.from, l.to]));
     const past = drops.filter(l => l.from !== t.from && l.ty > t.edge && G(l.from).y + G(l.from).h <= t.edge + LANE).map(l => [l.tx, own.has(l.from) || own.has(l.to)]);
@@ -750,11 +767,8 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   }
   // The lanes. A trunk nearer its boxes than another crosses it where the other's stem passes its lane,
   // and where its own drops pass the other's; each channel's trunks are stacked, nearest first, picking
-  // each time the one whose place there crosses the fewest of those left. A line that would drop from its lane
-  // through a box goes around it instead (see below), and its trunk's lane `lands` only the rest.
+  // each time the one whose place there crosses the fewest of those left.
   for (const t of trunks) {
-    const s = G(t.from), drop = l => t.dir === 'down' ? [[l.tx, s.y + s.h + 8], [l.tx, l.ty]] : [[l.tx, l.ty], [l.tx, s.y - 8]];
-    t.lands = t.ls.filter(l => l.flank || !nearSolid.any(span(drop(l)), k => solid[k].id !== l.from && solid[k].id !== l.to && through(solid[k], ...drop(l))));
     const xs = [t.x, ...t.lands.map(l => l.tx)];
     t.span = [Math.min(...xs), Math.max(...xs)];
   }
