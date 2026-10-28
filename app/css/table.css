@@ -8,7 +8,8 @@
 .grid .tabulator .tabulator-tableholder .tabulator-table { min-width: 100%; }   /* rows to the edge, whatever the columns */
 .grid .tabulator .tabulator-tableholder:focus-visible { outline: none; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
-.grid .tabulator .tabulator-header .tabulator-col { background: var(--paper); border-right-color: var(--rule); }
+.grid .tabulator .tabulator-header .tabulator-col { background: var(--paper); border-right-color: var(--rule); cursor: grab; }
+.grid .tabulator .tabulator-header .tabulator-col:active { cursor: grabbing; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 4px 8px; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 26px; }
 .grid .tabulator .tabulator-header .tabulator-col:is(.sorted, .filtered) .tabulator-col-title { padding-right: 42px; }

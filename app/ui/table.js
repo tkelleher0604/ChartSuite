@@ -1054,8 +1054,8 @@ const Table = (() => {
   const canWrite = () => !App.readOnly.peek() && !current?.red;
   const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), ch => Time.describe(ch));
   // The columns in this order, as Order notes in the view, as one change: those given, then the rest as they were;
-  // `also`, what else the change does (a column inserted shows).
-  function place(order, say, also) {
+  // `also`, what else the change does (a column inserted shows). It says what it did as History says it.
+  function place(order, say = ch => Time.describe(ch), also) {
     const m = current, rest = m.cols.filter(c => c.pattern && !order.includes(c));
     return edit(tx => { [...order, ...rest].filter(c => c.pattern).forEach((c, i) => note(tx, 'Order', c, m.view, i + 1)); also?.(tx); }, say);
   }
@@ -1094,7 +1094,7 @@ const Table = (() => {
     const order = movable(), i = order.indexOf(c);
     if (i < 0 || !order[i + d]) return;
     order.splice(i + d, 0, order.splice(i, 1)[0]);
-    place(order, `Moved ${c.title}`);
+    place(order);
   }
   // A column named as it's typed, before the column `before` (or last), as one change: shown in the view at its
   // pattern, below the rows, whether or not any record has it yet; one the table has already is shown, there.
@@ -1277,7 +1277,7 @@ const Table = (() => {
       if (!ghost) return;
       ghost.remove(); bar.remove(); colEl.classList.remove('moving');
       const os = order(), from = os.indexOf(c);
-      if (drop && to >= 0 && to !== from && to !== from + 1) { os.splice(to > from ? to - 1 : to, 0, os.splice(from, 1)[0]); place(os, `Moved ${c.title}`); }
+      if (drop && to >= 0 && to !== from && to !== from + 1) { os.splice(to > from ? to - 1 : to, 0, os.splice(from, 1)[0]); place(os); }
     };
     const up = () => end(true), esc = ev => { if (ev.key === 'Escape' && ghost) { ev.preventDefault(); ev.stopPropagation(); end(false); } };
     addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('keydown', esc, true);
@@ -1405,7 +1405,7 @@ const Table = (() => {
       Shell.drag(e, { item: e.currentTarget, items: [...ref.current.querySelectorAll('.colrow.mv')], onDrop: (from, i) => {
         const a = vis[from], rest = vis.filter(x => x !== a), o = mv.filter(x => x !== a), anchor = rest[i];
         o.splice(anchor ? o.indexOf(anchor) : rest.length ? o.indexOf(rest.at(-1)) + 1 : o.length, 0, a);
-        place(o, `Moved ${a.title}`);
+        place(o);
       } });
     };
     const add = e => { if (e.key === 'Enter') { e.preventDefault(); if (addColumn(e.target.value)) e.target.value = ''; } else if (e.key === 'Escape') { e.stopPropagation(); setNaming(false); } };
