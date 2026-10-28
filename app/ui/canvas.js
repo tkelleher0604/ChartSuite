@@ -1463,9 +1463,10 @@ function mount(el) {
   function styleField(tx, f, label, v, s = scopeNow(canvas)) {
     const view = viewOf(), name = fieldName(f.it);
     if (f.it.free) { const N = App.notes.peek(), n = N.notes('Text').find(x => x.note === f.it.free.note); if (n) tx.note('Text', n.pattern, { ...n.value, [label]: v }, { view }); return; }
-    // A group that names the boxes by another of their entries can't name this one's text: it's this box's.
+    // A group that names the boxes by an entry of theirs (Jurisdiction: Cayman Islands) gives the look beside it, the field
+    // in each of its boxes, as Shown beside an output shows it.
     const rec = treeOf(f.m.record), e = f.it.blank ? { args: [{ edge: name, loc: rec }] } : treeOf(f.it.id);
-    for (const p of s.own ? [rec] : s.outputs) { const [pattern, param] = fieldAt(e, rec, scopeAt(p, name), name); tx.note(label, param ? fieldAt(e, rec, rec, name)[0] : pattern, v, { view }); }
+    for (const p of s.own ? [rec] : s.outputs) { const [pattern, param] = fieldAt(e, rec, scopeAt(p, name), name); tx.note(label, pattern, v, { view, ...(param && { param }) }); }
   }
   // A field's own: typed in, hidden from this box or from all like it, its text's look.
   function fieldItems(f) {

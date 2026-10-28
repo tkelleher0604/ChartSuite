@@ -305,8 +305,16 @@ async function checks() {
   check('the bar is one row of 36 px, why said inline, never the formula', tall() === 36 && !document.querySelector('.fx-panel') && document.querySelector('.fx-inline .fx-why')
     && !document.querySelector('.fx-inline .CodeMirror') && !document.querySelector('.fx-row'), tall());
 
-  // Hovering part of the formula, in the rows
+  // Expanded, it reads as a person reads it: why, in full, the formula behind "Show the formula", which stays shown
+  // once asked for.
   await openRows();
+  const showBtn = document.querySelector('.fx-panel .fx-show');
+  check('expanded, the bar says why in full, the formula behind “Show the formula”', !!document.querySelector('.fx-panel .fx-said .fx-why') && !document.querySelector('.fx-panel .fx-row')
+    && showBtn?.textContent === 'Show the formula', `${!!document.querySelector('.fx-panel .fx-row')} ${showBtn?.textContent}`);
+  showBtn?.click(); await wait(30);
+  check('… which shows the rows, and stays so', document.querySelectorAll('.fx-panel .fx-row').length > 0 && document.querySelector('.fx-panel .fx-show')?.textContent === 'Hide the formula'
+    && localStorage.getItem('dendra.formula') === 'shown');
+  // Hovering part of the formula, in the rows
   hoverOn(cited.key, '@'); await wait(30);
   let val = document.querySelector('.fx-val');
   check('hovering @ shows its value here, just after it', val?.textContent === 'Margaret A. Chen', val?.textContent);
@@ -628,7 +636,7 @@ async function checks() {
   const ms = performance.now() - t0;
   let p = FormulaBar.pending.peek();
   // Rebutting Okafor's presumed control of GP III takes his control of the eleven it reaches through GP III.
-  check('hovering a tag previews ruling it out, in words: Control: 11 fewer', p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /Control: 11 fewer/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
+  check('hovering a tag previews ruling it out, in plain words: Takes away 11 controls', p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /^Takes away (.* and )?11 controls(?![a-z])/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
   check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === p?.diff.go.length && p.diff.go.length >= 11, `${StandIn.rl.peek()?.go?.length} of ${p?.diff.go.length}`);
   check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
   document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);

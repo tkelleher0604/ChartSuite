@@ -551,11 +551,13 @@ async function run() {
     const exported = async (format, pick) => {
       const done = X.open(format), dialog = () => W.document.querySelector('dialog.dlg');
       await until(() => dialog()?.querySelector('.btn.primary'));
-      if (pick) { pick(dialog()); await tick(100); }
+      if (pick) { await pick(dialog()); await tick(100); }
       dialog().querySelector('.btn.primary').click();
       await done;
       return got.at(-1);
     };
+    // The views are a checklist: every one ticked, one at a time, as a person ticks them.
+    const everyView = async d => { for (const box of d.querySelectorAll('.ex-views input')) if (!box.checked) { box.click(); await tick(60); } };
     const R = A.computed.peek(), st = R.records, N = A.notes.peek(), day = A.day.peek(), chart = A.shown.peek().charts().find(c => c.chart === A.chart.peek()).name;
     const unesc = s => s.replace(/\\([\\;,])/g, '$1');
     const eventsOf = ics => ics.replace(/\r\n /g, '').split('BEGIN:VEVENT').slice(1).map(e => ({
@@ -651,11 +653,18 @@ async function run() {
     // Every view as a deck, its lines said in the formula bar's words: a line to a frame named, and described, by
     // the frame's caption, never by one of what's in it; a trunk's label said once, grouped with the trunk's lines,
     // the group named for them all.
-    const whole = await exported('pptx', d => { const s = d.querySelector('select[aria-label="Views"]'); s.value = 'all'; s.dispatchEvent(new W.Event('change', { bubbles: true })); });
+    const whole = await exported('pptx', everyView);
     const wz = await JSZip.loadAsync(new Uint8Array(await whole.blob.arrayBuffer())), charts = A.views.peek().filter(v => v.layout === 'chart');
     const sceneOf = v => G('Scene').of(A.shown.peek(), A.chart.peek(), v.id, A.day.peek(), { state: A.state.peek(), computed: A.computed.peek() }), short = id => N.shortOf(st, id);
     const described = async i => [...tags(xml(await wz.file(`ppt/slides/slide${i + 1}.xml`).async('string')), 'p:spTree')[0].children]
       .map(el => el.getElementsByTagName('p:cNvPr')[0]).filter(c => c?.getAttribute('descr')).map(c => [c.getAttribute('name'), c.getAttribute('descr')]);
+    // Every line between two boxes a connector glued to both, so it follows a box the partner moves in PowerPoint.
+    const glue = [];
+    for (const [i, v] of charts.entries()) {
+      const x = await wz.file(`ppt/slides/slide${i + 1}.xml`).async('string'), drawn = sceneOf(v).marks.filter(m => m.type === 'line' && !m.merged).length;
+      glue.push([drawn, (x.match(/<a:stCxn id="\d+" idx="\d+"\/><a:endCxn id="\d+" idx="\d+"\/>/g) ?? []).length]);
+    }
+    check('in the deck every line between two boxes is a connector glued to both, so it follows a box moved in PowerPoint', glue.every(([d, g]) => d > 0 && d === g), JSON.stringify(glue));
     const act = charts.findIndex(v => sceneOf(v).marks.some(m => m.type === 'line' && m.landed)), s2 = act >= 0 && sceneOf(charts[act]), on = act >= 0 ? await described(act) : [];
     const landed = s2 ? s2.marks.filter(m => m.type === 'line' && m.landed) : [];
     // The caption said as a defined term where it reads as one (the Funds), and in lower case where it's a common
@@ -671,11 +680,44 @@ async function run() {
     // A PDF of every view, with a name set: titled for the chart, by that name.
     const Store = G('Store'), was = Store.who;
     Store.who = () => WHO;
-    const doc = await exported('pdf', d => { const s = d.querySelector('select[aria-label="Views"]'); s.value = 'all'; s.dispatchEvent(new W.Event('change', { bubbles: true })); });
+    const doc = await exported('pdf', everyView);
     Store.who = was;
     const raw = new TextDecoder('latin1').decode(await doc.blob.arrayBuffer());
     check('a PDF of every view the dialog writes is titled for the chart, by whoever exported it', doc.name === `${chart}.pdf` && raw.includes(`/Title (${chart})`) && raw.includes(`/Author (${WHO})`)
       && (raw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === A.views.peek().filter(v => v.layout === 'chart').length, `${doc.name}: ${/\/Author \([^)]*\)/.exec(raw)?.[0]}`);
+    // The dialog remembers, for the chart, what it last exported: opened again, it's on that format, those views and
+    // that paper; and it offers every paper there is.
+    const dlg = () => W.document.querySelector('dialog.dlg'), cancel = async done => { dlg().querySelector('.dlg-foot .btn:not(.primary)').click(); await done; };
+    let opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    const sel = l => dlg().querySelector(`select[aria-label="${l}"]`), ticked = () => [...dlg().querySelectorAll('.ex-views input')].map(b => b.checked);
+    check('Export opened again is on what it last exported: PDF, every view, Letter', sel('Format').value === 'pdf' && ticked().length === charts.length && ticked().every(Boolean) && sel('Page size').value === 'letter',
+      `${sel('Format').value} ${ticked()} ${sel('Page size').value}`);
+    check('… and offers every paper there is', [...sel('Page size').options].map(o => o.textContent).join() === 'Slide 16:9,Letter,Legal,Tabloid 11×17,A4,A3', [...sel('Page size').options].map(o => o.textContent).join());
+    // The views a checklist: Structure and Fund III alone, on Tabloid, which is remembered too.
+    const pickTwo = async d => {
+      for (const [i, box] of [...d.querySelectorAll('.ex-views input')].entries()) if (box.checked !== [0, 2].includes(i)) { box.click(); await tick(60); }
+      const s = d.querySelector('select[aria-label="Page size"]'); s.value = 'tabloid'; s.dispatchEvent(new W.Event('change', { bubbles: true })); await tick(60);
+    };
+    await cancel(opening);
+    const two = await exported(undefined, pickTwo), twoRaw = new TextDecoder('latin1').decode(await two.blob.arrayBuffer());
+    check('The views are a checklist: two of them make a PDF of two pages, on the paper picked, named for the chart', two.name === `${chart}.pdf` && (twoRaw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === 2
+      && /\/MediaBox \[([^\]]+)\]/.exec(twoRaw)?.[1].trim().split(/\s+/).map(Number).join() === '0,0,1224,792', `${two.name} ${(twoRaw.match(/\/Type \/Page\b(?!s)/g) ?? []).length} ${/\/MediaBox \[[^\]]*\]/.exec(twoRaw)?.[0]}`);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    check('… which it remembers', JSON.stringify(ticked()) === JSON.stringify(charts.map((_, i) => [0, 2].includes(i))) && sel('Page size').value === 'tabloid', `${ticked()} ${sel('Page size').value}`);
+    await cancel(opening);
+    // A table's file says what it writes: as the table shows it, or every row.
+    const S = G('Shell'), entities = A.views.peek().find(v => v.name === 'Entities'), back = S.view.peek();
+    S.show(entities.id); await until(() => (S.parts.peek().export ?? []).some(x => x.name === 'Excel'), 3000);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    const says = () => dlg().querySelector('.ex-says')?.textContent ?? '', asShown = says();
+    [...dlg().querySelectorAll('.ex-rows button')].find(b => b.textContent === 'Every row')?.click(); await tick(60);
+    check('A table’s file says what it writes, as shown or every row', sel('Format').selectedOptions[0]?.textContent === 'Excel' && /^All \d+ entities; \d+ columns, in their order$/.test(asShown)
+      && /^All \d+ entities; \d+ columns, in their order$/.test(says()), `${asShown} | ${says()}`);
+    await cancel(opening);
+    S.show(back); await tick(200);
     f.remove();
   }
 }

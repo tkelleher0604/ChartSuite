@@ -501,7 +501,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
-    const N0 = wb.notes(chart), fielded = [...N0.notes('Text'), ...N0.notes('Shown').filter(n => n.param)].some(n => n.view === view);
+    const N0 = wb.notes(chart), fielded = [...N0.notes('Text'), ...['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param))].some(n => n.view === view);
     const formatsOf = (recs, id) => { const t = treeOf(recs, id); return fielded && recs[id]?.at ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
@@ -651,6 +651,20 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const about = note => filters(note) && note.pattern.args?.length === 1;
   for (const id of ids) for (const [label, res] of Object.entries(formats.get(id))) if (label !== 'Shown' && label !== 'Frame')
     land(id, label, res, label !== 'Format' && about(res.note) ? m => m.type !== 'text' && drawn(m) : drawn);
+  // A text's look given beside an output (a format note whose param names an entry, dendra.md, Fields) is that field's
+  // own in each box or line a record fitting the output is in, ranked as Shown beside an output is: Bold beside
+  // Jurisdiction: Cayman Islands bolds the Jurisdiction field of every Cayman box, and nothing else in them.
+  for (const label of TEXT_PROPS) if (label !== 'Format' && N.notes(label).some(n => n.param && n.view === view)) {
+    const by = new Map();
+    for (const id of ids) for (const [edge, res] of Object.entries(once(id, `beside ${label}`, () => N.fields(tree(id), view, label)))) for (const start of own.get(id) ?? []) {
+      const [h, depth] = hostOf(start), k = h && `${h.id}|${Tree.norm(edge)}`, r = h && rankOf(res.note, depth), c = h && by.get(k);
+      if (h && (!c || beats(r, c.rank))) by.set(k, { value: res.value, note: res.note, record: id, rank: r });
+    }
+    for (const m of marks.values()) if (m.type === 'text' && !m.host) {
+      const e = state[m.record].edge, h = e !== undefined && hostOf(m)[0], c = h && by.get(`${h.id}|${Tree.norm(e)}`);
+      if (c && (!m.cand[label] || beats(c.rank, m.cand[label].rank))) m.cand[label] = c;
+    }
+  }
 
   const settle = (m, defaults) => {
     m.settings = {};

@@ -375,20 +375,28 @@ const Time = (() => {
     if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}${back || Tree.isView(r) ? '' : ' as never held'}` : `Cleared ${it}`;
     const was = Log.latest(i.was), ended = i.now.every(x => x.before) && !was.before;
     if (ended) return `Ended ${it} on ${short(Log.latest(i.now).before)}`;
-    const on = r.since && r.since !== was.since && r.since !== r.value ? ` as of ${short(r.since)}` : '';
+    // Something ended, made to hold on again (History's Restore of what was ended), is restored.
+    if (was.before && !Log.latest(i.now).before && (Tree.isObject(r) || r.args)) return `Restored ${it}`;
+    // A value typed with a day shown changes from that day; with none, it's corrected, for all time (dendra.md, Time).
+    const from = r.since && r.since !== was.since && r.since !== r.value ? r.since : null;
     if (Tree.isObject(r)) return `Changed ${it}`;
     if (Tree.same(r.edge ?? '', 'Name') && 'value' in r) return `Renamed ${was.value} to ${r.value}`;
-    if ('tag' in r) return `${verdict} ${it}${on}`;
-    const old = valueText(was);
-    return `Changed ${it} ${old && old !== valueText(r) ? `from ${old} ` : ''}to ${valueText(r)}${on}`;
+    if ('tag' in r) return `${verdict} ${it}${from ? ` from ${short(from)}` : ''}`;
+    if (valueText(was) === valueText(r)) return `Changed ${it}`;
+    return from ? `Changed ${it} to ${valueText(r)} from ${short(from)}` : `Corrected ${it} to ${valueText(r)}`;
   }
-  // A free shape's phrase, by what it is and the view it's in.
+  // A free shape's phrase, by what it is and the view it's in: moved where only its place changed, resized where its
+  // size did.
   const SHAPES = { legend: 'the Key', text: 'a text box', line: 'a line', picture: 'a picture', group: 'a group', frame: 'a frame' };
+  // (A width first given where only a place was, a box placed loosely and then laid out, is no resizing; a height first given is.)
+  const resized = (a, b) => !!a && !!b && ((a.w != null && b.w != null && a.w !== b.w) || (b.h != null && a.h !== b.h));
   function shapePhrase(i, s, recs, N, back) {
     const what = SHAPES[s.geometry] ?? 'a shape', view = s.view && N.nameOf(recs, s.view);
     if (!i.was.length) return `${back ? 'Restored' : 'Added'} ${what}${view ? ` to ${view}` : ''}`;
     if (!i.now.length) return `Deleted ${what}${view ? ` from ${view}` : ''}`;
-    return `Edited ${what}${view ? ` in ${view}` : ''}`;
+    const a = Log.latest(i.was), b = Log.latest(i.now), only = ks => Object.keys({ ...a, ...b }).filter(k => k !== 'id' && JSON.stringify(a[k]) !== JSON.stringify(b[k])).every(k => ks.includes(k));
+    const verb = resized(a, b) && only(['x', 'y', 'w', 'h', 'points']) ? 'Resized' : only(['x', 'y', 'points']) ? 'Moved' : 'Edited';
+    return `${verb} ${what}${view ? ` in ${view}` : ''}`;
   }
   // A style's output in a view, by its group, as the Key and the format bar's scope say it; its caption, by its
   // own name.
@@ -416,8 +424,11 @@ const Time = (() => {
   }
   function notePhrase(i, n, recs, N) {
     // One record's own (a box's, or a line's, its relation's tree), or else a style's or an entry's in general.
-    const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {}), line = at === undefined && !!n.pattern.args && Tree.idsIn(n.pattern).size > 0;
-    const of = at !== undefined ? N.nameOf(recs, at) : line ? lineOf(recs, n.pattern, N) : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern), one = at !== undefined || line;
+    const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {}), line = at === undefined && (n.pattern.args?.length ?? 0) > 1 && Tree.idsIn(n.pattern).size > 0;
+    // A field of one box: its entry's pattern with that box's record in it, "Jurisdiction of Offshore Feeder".
+    const field = at === undefined && n.pattern.args?.length === 1 && Tree.idsIn(n.pattern).size === 1;
+    const of = at !== undefined ? N.nameOf(recs, at) : line ? lineOf(recs, n.pattern, N) : field ? `${N.name(n.pattern)} of ${N.shortOf(recs, [...Tree.idsIn(n.pattern)][0])}`
+      : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern), one = at !== undefined || line || field;
     const inView = n.view ? ` in ${N.nameOf(recs, n.view)}` : '';
     const gone = !i.now.length;
     switch (n.label) {
@@ -430,20 +441,31 @@ const Time = (() => {
       // A free text (dendra.md, Fields), in a box or a group's, by whose it is.
       case 'Text': { const whose = one ? of : n.view ? grouped(N, n) ?? of : of;
         return gone || !n.value?.text ? `Removed the text from ${whose}${inView}` : i.was.length ? `Edited the text of ${whose}${inView}` : `Added text to ${whose}${inView}`; }
-      case 'Position': return gone ? `Reset the position of ${of}${inView}` : `Moved ${of}${inView}`;
+      case 'Position': return gone ? `Reset the position of ${of}${inView}` : `${i.was.length && resized(Log.latest(i.was).value, n.value) ? 'Resized' : 'Moved'} ${of}${inView}`;
       case 'Formula': return gone ? `Deleted the formula of ${of}` : i.was.length ? `Changed the formula of ${of}` : `Defined ${of}`;
       case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? (Tree.same(of, n.value) ? `Named ${n.value}` : `Named ${of} ${n.value}`)
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
-      // A look one record kept of its own, cleared, as the format bar says it.
-      default: return gone && at !== undefined && Notes.FORMATS.has(n.label) ? `Cleared ${of.endsWith('s') ? `${of}’` : `${of}’s`} own ${n.label}${inView}`
-        : gone && line && Notes.FORMATS.has(n.label) ? `Cleared the ${n.label} of ${of}${inView}`
+      // A field's look in a group's boxes, given beside its output (dendra.md, Fields): "Made Jurisdiction not bold in the
+      // Cayman Islands boxes in Structure". A look one record kept of its own, cleared, as the format bar says it.
+      default: if (n.param && Notes.FORMATS.has(n.label)) { const boxes = `in the ${grouped(N, n) ?? N.name(n.pattern)} boxes${inView}`;
+          return gone ? `Cleared the ${n.label} of ${of} ${boxes}` : `${looked(n.label, n.value, of)} ${boxes}`; }
+        return gone && at !== undefined && Notes.FORMATS.has(n.label) ? `Cleared ${of.endsWith('s') ? `${of}’` : `${of}’s`} own ${n.label}${inView}`
+        : gone && (line || field) && Notes.FORMATS.has(n.label) ? `Cleared the ${n.label} of ${of}${inView}`
         : Notes.FORMATS.has(n.label) && !gone ? `${looked(n.label, n.value, !one && n.view ? grouped(N, n) ?? of : of)}${inView}`
         : `Changed ${n.label}${one ? ' of ' : ' for '}${!one && n.view ? grouped(N, n) ?? of : of}${inView}`;
     }
   }
 
+  // Restoring what was ended clears its end, one change: its end entry cleared, or its period and what ended with it
+  // made to hold on.
+  const unend = d => App.change(tx => d.entry ? tx.remove(d.entry) : tx.reopen(d.item, d.ended), { dated: false, say: c => describe(c) });
+  // An end entry (a Dissolution Date): what ends what it's at. Cleared, what it ended is restored, which is how
+  // Deleted lists it, not as an entry deleted.
+  const endEntry = (recs, id, N) => recs[id]?.field === 'date' && (t => !!t && N.isEnd(t))(Tree.treeOf(recs, id));
+  // A record as History's Deleted lists it: an object by its name, anything else by what it is and whose.
+  const textOf = (recs, id, N) => { const [what, of] = said(recs, id, N); return recs[id] && Tree.isObject(recs[id]) ? of : of ? `${what} · ${of}` : what; };
   // The items deleted and not restored, each with the change that deleted it: things at something also
   // deleted go with it, only records and definitions are listed, and an addition undone was never there. A
   // change adds anew what it adds unless it brings it back: a restore, or the undoing of a change that took it.
@@ -454,12 +476,34 @@ const Time = (() => {
     const undone = d => { const c = find(d.change); return !!c?.reverses && anew(find(c.reverses)) && d.rows.every(r => by.get(r.id) === c.reverses); };
     // A deleted view goes by the last name it had.
     const viewName = id => [...rows.values()].filter(r => r.label === 'Name' && r.pattern?.id === id).at(-1)?.value;
-    return gone.filter(d => !undone(d) && (d.type === 'record' ? !Tree.argsOf(recs[d.item] ?? {}).some(a => ids.has(a.at)) : d.type === 'note' && d.rows[0]?.label === 'Formula'))
+    return [...gone.filter(d => !undone(d) && (d.type === 'record' ? !Tree.argsOf(recs[d.item] ?? {}).some(a => ids.has(a.at)) && !endEntry(recs, d.item, N) : d.type === 'note' && d.rows[0]?.label === 'Formula'))
       .map(d => {
         const change = changes.find(c => c.id === d.change);
-        const r = recs[d.item], [what, of] = d.type === 'record' ? said(recs, d.item, N) : ['Formula', N.name(d.rows[0].pattern)];
-        return { ...d, text: r && Tree.isView(r) ? viewName(d.item) ?? of : r && Tree.isObject(r) ? of : of ? `${what} · ${of}` : what, who: change?.who, when: change?.when };
-      }).sort((a, b) => (b.when ?? '').localeCompare(a.when ?? ''));
+        const r = recs[d.item], text = d.type === 'record' ? (Tree.isView(r ?? {}) ? viewName(d.item) ?? said(recs, d.item, N)[1] : textOf(recs, d.item, N)) : `Formula · ${N.name(d.rows[0].pattern)}`;
+        return { ...d, text, who: change?.who, when: change?.when };
+      }), ...ended()].sort((a, b) => (b.when ?? '').localeCompare(a.when ?? ''));
+  }
+  // What's ended and still recorded as having held (dendra.md, Time): an object or a relation whose period ends, every
+  // version of it before a day, or that its end entry ends (a Dissolution Date); each with the change that ended it,
+  // the day it ends on, and the entry, where one ended it. What's at something ended with it on its day comes back with
+  // it, so isn't listed apart. Restoring one clears its end.
+  function ended() {
+    const { by, changes } = ever.peek(), N = App.notes.peek(), rows = App.wb.rows(App.chart.peek()).filter(r => 'record' in r), items = new Map();
+    for (const r of rows) (items.get(r.record) ?? items.set(r.record, []).get(r.record)).push(r);
+    const recs = Object.fromEntries([...items].map(([id, rs]) => { const { id: _, record: __, ...r } = Log.latest(rs); return [id, r]; }));
+    const out = new Map(), { entries } = Tree.index(recs);
+    for (const [id, rs] of items) {
+      const r = recs[id];
+      if (!(Tree.isObject(r) || r.args?.length > 1) || Tree.isView(r)) continue;
+      if (rs.every(x => x.before)) { const last = rs.reduce((a, x) => x.before > a.before ? x : a); out.set(id, { item: id, ended: last.before, change: by.get(last.id) }); continue; }
+      const e = (entries.get(id) ?? []).find(x => endEntry(recs, x, N));
+      if (e) out.set(id, { item: id, ended: recs[e].value, entry: e, word: recs[e].edge, change: by.get(Log.latest(items.get(e)).id) });
+    }
+    const along = (x, d) => Tree.argsOf(recs[x.item]).some(a => { const o = out.get(Tree.objectOf(recs, a.at)); return o && o.ended === d.ended && o.change === d.change; });
+    return [...out.values()].filter(d => !along(d, d)).map(d => {
+      const change = changes.find(c => c.id === d.change);
+      return { ...d, text: textOf(recs, d.item, N), who: change?.who, when: change?.when };
+    });
   }
 
   const open = signal(false), mode = signal('all');
@@ -477,6 +521,12 @@ const Time = (() => {
     return k === today ? 'Today' : k === y ? 'Yesterday' : short(k);
   };
   const clock = when => new Date(when).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  // What keeps a change from being undone from History: the first later change that took a row it added, which must be
+  // undone first; or null.
+  const blocker = c => {
+    const all = ever.peek().changes, mine = new Set(c.adds.map(r => r.id)), reversed = new Set(all.filter(x => x.reverses).map(x => x.reverses));
+    return all.filter(x => x.id !== c.id && x.removes.some(id => mine.has(id)) && !reversed.has(x.id)).at(-1) ?? null;
+  };
 
   function History() {
     const t = Shell.time.value, sel = Shell.selection.value, E = ever.value, m = mode.value, ref = useRef(), N = App.notes.value;
@@ -505,12 +555,13 @@ const Time = (() => {
           return html`${head}<div class=${'hist-row' + (off ? ' undone' : '')} role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)}>
             <div class="what">${describe(c)}</div>
             <div class="meta">${c.who} · ${clock(c.when)}${off ? ` · undone${last.who !== c.who ? ` by ${last.who}` : ''}` : ''}</div>
-            ${on ? html`<button class="btn" disabled=${!App.wb.canReverse(last.id)} onClick=${ev => { ev.stopPropagation(); App.reverse(last.id); now(); }}>${off ? 'Redo this change' : 'Undo this change'}</button>` : null}
+            ${on ? html`<div class="acts"><button class="btn" disabled=${!App.wb.canReverse(last.id)} onClick=${ev => { ev.stopPropagation(); App.reverse(last.id); now(); }}>${off ? 'Redo this change' : 'Undo this change'}</button>
+              ${App.wb.canReverse(last.id) ? null : html`<span class="why">${blocker(last) ? html`A later change touches it: <button class="lk" onClick=${ev => { ev.stopPropagation(); stand(blocker(last)); }}>undo that</button> first` : 'It has changed since'}</span>`}</div>` : null}
           </div>`;
         }) : gone.map(d => html`<div class="hist-row gone">
             <div class="what">${d.text}</div>
-            <div class="meta">${d.who} · ${d.when ? dayLabel(d.when) : ''}</div>
-            <button class="btn" onClick=${() => { App.restore(d.item); now(); }}>Restore</button>
+            <div class="meta">${d.ended ? `${d.word ?? 'Ended'} ${short(d.ended)} · ` : ''}${d.who} · ${d.when ? dayLabel(d.when) : ''}</div>
+            <button class="btn" onClick=${() => { now(); d.ended ? unend(d) : App.restore(d.item); }}>Restore</button>
           </div>`)}
         ${(m === 'all' ? changes : gone).length ? null : html`<div class="empty">${m === 'all' ? 'No changes' : 'Nothing deleted'}</div>`}
       </div>

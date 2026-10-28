@@ -231,7 +231,12 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
    than one go two across, two rows of them in view, each page as large as that allows (--a its width over its
    height). */
 .ex { display: grid; gap: 12px; }
-.ex-pick { display: flex; gap: 8px; }
+.ex-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ex-pick > .ex-rows { margin: 0; width: 200px; }
+/* The views to export, each a checkbox, as many rows as they take. */
+.ex-views { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.ex-views > label { display: inline-flex; align-items: center; gap: 6px; min-height: var(--row); color: var(--ink); }
+.ex-says { margin: 0; color: var(--ink-2); }
 .ex-well { height: min(56vh, 520px); overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
 .ex-well.full { grid-template-columns: max-content; }
 .ex-well.many { grid-template-columns: repeat(2, minmax(0, 1fr)); container-type: size; }

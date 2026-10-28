@@ -1320,7 +1320,7 @@ function RelateView({ a, b }) {
   // What else could hold, once asked for; at once where nothing did.
   const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
   none.current ??= !holds.length;
-  return html`<div class="insp">
+  return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
@@ -1500,7 +1500,7 @@ const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' 
     if (why) emit('why-open', why);
   };
   const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
-  return { kind: a.kind, go: a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
+  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
 }));
 
 Shell.register('inspector', { mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });

@@ -212,6 +212,14 @@ async function run() {
   check('a box’s looks are said as made: bold, not struck through, its fill taken off, its font, shape and fill set, its outline dashed', JSON.stringify(looks) === JSON.stringify([
     `Made ${np} bold`, `Made ${np} not struck through`, `Took the fill off ${np}`, `Set the font of ${np} to Garamond`, `Set the shape of ${np} to rounded rectangle`,
     `Set the fill of ${np} to ${FormatBar.colorName('#fff2cc')}`, `Made the outline of ${np} dashed`].map(s => `${s} in ${main.name}`)), looks.join(' / '));
+  // A box's size changed is said as resized, its place alone as moved.
+  const npAt = sc().byId.get('northpine'), placed = (x, w) => App.change(tx => tx.note('Position', Tree.treeOf(App.state.peek(), 'northpine'), { x, y: npAt.y, w }, { view: main.id }), { dated: false });
+  const madePlaces = [placed(npAt.x, npAt.w)]; await tick(60); madePlaces.push(placed(npAt.x, npAt.w + 40)); await tick(60);
+  const resizedSaid = Time.describe(App.wb.changes().at(-1));
+  madePlaces.push(placed(npAt.x + 20, npAt.w + 40)); await tick(60);
+  const movedSaid = Time.describe(App.wb.changes().at(-1));
+  for (const c of madePlaces) if (c) { Shell.parts.peek().undo.undo(); await tick(60); }
+  check('a box resized is said so, and one moved, moved', resizedSaid === `Resized ${np} in ${main.name}` && movedSaid === `Moved ${np} in ${main.name}`, `${resizedSaid} / ${movedSaid}`);
   check('… and the group stays chosen after the change', chip() === 'All 4 portfolio companies', chip());
   $('[data-fb="groups"]').click(); await tick(120);
   const clearIt = $$('.float .menu-item').find(e => txt(e).startsWith('Clear '));
@@ -620,6 +628,31 @@ async function run() {
     check('with a field selected, the format bar formats that field’s text alone', fieldSelected && juris?.look.Italic && others.length && others.every(it => !it.look.Italic)
       && $('[data-fb="italic"]').getAttribute('aria-pressed') === 'true', fundTexts.map(it => `${it.text}:${it.look.Italic}`).join(', '));
     Shell.parts.peek().undo.undo(); await tick(250);
+    // A toggle says what's there, as Office's: a box whose name is bold and whose jurisdiction isn't shows Bold
+    // unpressed, and pressing it sets them all; then it's pressed.
+    const boldOn = () => $('[data-fb="bold"]').getAttribute('aria-pressed') === 'true', feederTexts = () => App.scene.peek().byId.get('feeder').texts;
+    Shell.select([]); await tick(80); Shell.select(['feeder']); await tick(200);
+    const mixed = feederTexts().some(it => it.look.Bold) && feederTexts().some(it => !it.look.Bold), mixedOn = boldOn();
+    $('[data-fb="bold"]').click(); await tick(250);
+    check('Bold, with a box whose texts are bold and not, shows unpressed, and pressing it bolds them all, then shows pressed', mixed && !mixedOn && feederTexts().every(it => it.look.Bold) && boldOn(),
+      `${mixed} ${mixedOn} ${feederTexts().map(it => `${it.text}:${it.look.Bold}`).join(', ')} ${boldOn()}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    // A field selected at a group changes that field in every box of the group, and nothing else in them: Bold beside
+    // Jurisdiction: Cayman Islands.
+    Shell.select([]); await tick(80); Shell.select(['feeder']); await tick(200);
+    const fj = textAt('feeder', 'feeder_juris');
+    if (fj) await press(fj);
+    $('[data-fb="groups"]').click(); await tick(120);
+    $$('.float .menu-item').find(e => /^Jurisdiction: Cayman Islands/.test(txt(e)))?.click(); await tick(150);
+    const fieldOn = cv().field()?.it.id === 'feeder_juris', jurisOff = !boldOn();
+    const restOf = () => ['feeder', 'caygp'].map(b => App.scene.peek().byId.get(b).texts.filter(it => it.id !== `${b}_juris`).map(it => it.look.Bold).join()).join('|'), restWas = restOf();
+    $('[data-fb="bold"]').click(); await tick(300);
+    const caymanJuris = ['feeder', 'caygp'].map(b => App.scene.peek().byId.get(b)?.texts.find(it => it.id === `${b}_juris`)), caymanSaid = Time.describe(App.wb.changes().at(-1));
+    const namesAlone = restOf() === restWas;
+    check('a field selected at a group changes that field in every box of the group, said so in History', fieldOn && jurisOff && caymanJuris.every(it => it?.look.Bold) && namesAlone && boldOn()
+      && caymanSaid === `Made Jurisdiction bold in the Cayman Islands boxes in ${main.name}`, `${fieldOn} ${jurisOff} ${caymanJuris.map(it => it?.look.Bold)} ${namesAlone} ${caymanSaid}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    Shell.select([]); await tick(80); Shell.select(['fund']); await tick(200);
     // A row copied: Ctrl+C on its label in the inspector, then Ctrl+V on another box.
     const copy = new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: new DataTransfer() });
     const row = $('.insp .row[data-key="fund_juris"]');
@@ -666,7 +699,7 @@ async function run() {
   // ---- Tidy: pointed at, the chart is drawn tidied and nothing changes; made, it's one change, named so
   // everywhere, and the view is framed on its page again ----
   const tidyBtn = $('[data-fb="tidy"]'), made = App.wb.changes().length, base = () => App.scene.peek(), label = () => $('.dc-previewing');
-  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(250);
+  tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 3 })); await tick(250);
   check('pointing at Tidy draws nothing for a moment: its preview waits till the pointer has rested on it half a second', sc() === base() && !!label()?.hidden);
   await tick(450);
   const shifted = sc() !== base() && sc().marks.some(m => m.type === 'box' && base().byId.get(m.id) && (base().byId.get(m.id).x !== m.x || base().byId.get(m.id).y !== m.y));
@@ -674,11 +707,15 @@ async function run() {
   check('… a label on the chart saying it’s Tidy’s preview', !label().hidden && txt(label()) === 'Tidy preview' && getComputedStyle(label()).display !== 'none', `${label()?.hidden} ${txt(label())}`);
   tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(120);
   check('… and leaving it draws the chart as it is, the label gone', sc() === base() && label().hidden);
-  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(200);
+  tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 3 })); await tick(200);
   tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(500);
   check('… and passing over it, never resting, draws nothing', sc() === base() && label().hidden);
+  // A menu closing over Tidy leaves the pointer on it without moving it there: that's no pointing at it.
+  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(700);
+  check('… nor does the pointer found on it as a menu closes, not moved onto it', sc() === base() && label().hidden);
+  tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
   cv().zoom(2); await tick(80);
-  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
+  tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 3 })); await tick(120);
   tidyBtn.click(); await tick(200);
   const tidyToast = txt($$('.toast').at(-1)), { a: ta, z: tz } = onScreen(), said = Time.describe(App.wb.changes().at(-1));
   check('Tidy is one change, “Tidied the layout” in its toast and History, and the view is framed on its page again', tidyToast.startsWith('Tidied the layout') && said === 'Tidied the layout'
@@ -1129,8 +1166,8 @@ async function run() {
     // The chart menu: the chart's own actions first, where they stay, its charts and the workbooks each a list of their own.
     const items = () => Shell.parts.peek().workbook.menu();
     const del = () => items().find(x => x.label === 'Delete chart');
-    check('the chart menu keeps its actions first and its lists in submenus', items().slice(0, 3).map(x => x.label).join() === 'New chart,Duplicate chart,Delete chart'
-      && items().find(x => x.label === 'Charts')?.items?.length === App.wb.charts().length && items().find(x => x.label === 'Workbooks')?.items?.some(x => x.label === 'Delete workbook'), items().map(x => x.label ?? x).join());
+    check('the chart menu keeps its actions first, New workbook among them, and its lists in submenus', items().slice(0, 4).map(x => x.label).join() === 'New chart,New workbook,Duplicate chart,Delete chart'
+      && items().find(x => x.label === 'Charts')?.items?.length === App.wb.charts().length && items().find(x => x.label === 'Workbooks')?.items?.some(x => x.label === 'Delete workbook') && !items().find(x => x.label === 'Workbooks')?.items?.some(x => x.label === 'New workbook'), items().map(x => x.label ?? x).join());
     check('… Delete chart on a workbook’s only chart greyed, saying why', App.wb.charts().length > 1 || (del().disabled && /only chart/.test(del().tip ?? '')), JSON.stringify(del()));
     // A new chart begins in the house look, whichever view is shown: the first chart view's looks, never its filter, nor the
     // style of a relation a formula gives. (40 Act, its filter and its affiliates' styles and all, put first for this.)
@@ -1180,6 +1217,22 @@ async function run() {
   check('what the canvas draws is the scene, after edits, views shown in turn, previews, undoing, Tidy and a past day', !steps.length, steps.join('; '));
 
   await keptAsDrawn();
+  // ---- A toast never covers what's being worked on: a field being typed in where it would stand, at the view's foot,
+  // sends it clear; and just come, it takes no click, so one meant for the field goes there ----
+  {
+    Shell.select([]); await tick(80);
+    Shell.toast('Placed'); await tick(80);
+    const home = $('.toasts').getBoundingClientRect(), field = Object.assign(document.createElement('input'), { value: 'typing' });
+    Object.assign(field.style, { position: 'fixed', left: `${home.left}px`, top: `${home.top}px`, width: `${home.width}px`, height: `${home.height}px`, zIndex: 1 });
+    $('#view').append(field); field.focus(); await tick(80);
+    const off = Shell.toast('Placed again', { undo: () => {} }); await tick(80);
+    const at = $('.toasts').getBoundingClientRect(), f = field.getBoundingClientRect(), clear = at.right <= f.left || at.left >= f.right || at.bottom <= f.top || at.top >= f.bottom;
+    const passing = getComputedStyle($('.toast')).pointerEvents === 'none';
+    await tick(500);
+    check('a toast never covers a field being typed in, and just placed it takes no click, then takes one', clear && passing && getComputedStyle($('.toast')).pointerEvents === 'auto',
+      `${JSON.stringify(at)} vs ${JSON.stringify(f)}; ${passing}`);
+    field.remove(); off(); await tick(80);
+  }
 
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();

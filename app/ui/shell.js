@@ -32,9 +32,10 @@
 // 'find' { items() → menu items }, Find's records, lists and definitions, an item with its kind (detail:
 // 'Entity', which heads it), any other names it goes by (names: […]) and a key, and what's within it (a list,
 // "AIV-1 › Signatories") with of: that key; 'export' { name, run }; 'status' { render() }; 'attention'
-// { items() → [{ kind: 'overdue' | 'error' | 'soon' | 'blank', go() }] }, what needs attention, counted in the
-// status bar and stepped through by F8 in that order, the worst first, from App.needs (Formulas.attention):
-// inspector.js counts deadlines, blanks and errors, aiming at their rows; app.js the checks failed, as errors.
+// { items() → [{ kind: 'overdue' | 'error' | 'soon' | 'blank', id, edge?, error?, go() }] }, what needs attention,
+// counted in the status bar, listed by a count clicked and stepped through by F8 in that order, the worst first, from
+// App.needs (Formulas.attention): inspector.js counts deadlines, blanks and errors, aiming at their rows; app.js the
+// checks failed, as errors. One 'needs' (item) → { what, where, figure } says an item in its words (formulabar.js).
 //
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar
@@ -543,10 +544,50 @@ const Shell = (() => {
     t.arm();
     return dismiss;
   }
-  const Toasts = () => html`<div class="toasts" aria-live="polite">${toasts.value.map(t => html`
-    <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
-      <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); }}>${label}</button>`)}${t.stay
-        ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${t.dismiss}>${icon('x')}</button>` : null}</div>`)}</div>`;
+  // A toast never covers what's being worked on: the field being typed in, the cell or box selected, or the pointer.
+  // It stands at the foot of the view, in its middle; where that covers one of them, at its foot's left, its right,
+  // or its top, the first that's clear. It's placed as it comes and again as the selection or the keys move, never
+  // as the pointer does, so its Undo stays where it was seen; and in each place it takes no click for a moment, so a
+  // click meant for what was there goes there.
+  let pointer = null;
+  addEventListener('pointermove', e => { pointer = { x: e.clientX, y: e.clientY }; }, { capture: true, passive: true });
+  const busy = () => {
+    const out = [], add = el => { const r = el?.getBoundingClientRect?.(); if (r && r.width + r.height > 0) out.push(r); };
+    const a = document.activeElement;
+    if (a && a !== document.body && a.matches?.(TYPED) && !a.closest('.toasts')) add(a);
+    document.querySelectorAll('#view .tabulator-range-cell-active, #view .tabulator-editing, #view .dc-edit').forEach(add);
+    for (const k of selection.peek().slice(0, 40)) { const id = String(k).split('@')[0]; document.querySelectorAll(`#view [data-cell-id="${CSS.escape(id)}"]`).forEach(add); }
+    if (pointer) out.push(new DOMRect(pointer.x - 12, pointer.y - 12, 24, 24));
+    return out;
+  };
+  const overlap = (a, b, pad = 8) => Math.max(0, Math.min(a.right + pad, b.right) - Math.max(a.left - pad, b.left)) * Math.max(0, Math.min(a.bottom + pad, b.bottom) - Math.max(a.top - pad, b.top));
+  let settling = 0;
+  function placeToasts(fresh = false) {
+    const el = document.querySelector('.toasts'), view = document.getElementById('view')?.getBoundingClientRect();
+    if (!el || !el.children.length || !view) return;
+    const was = el.style.translate;
+    el.style.translate = '';
+    const r = el.getBoundingClientRect(), hit = busy(), gap = 16;
+    const at = [[0, 0], [view.left + gap - r.left, 0], [view.right - gap - r.right, 0], [0, view.top + gap - r.top]];
+    const cost = ([dx, dy]) => hit.reduce((s, b) => s + overlap(new DOMRect(r.left + dx, r.top + dy, r.width, r.height), b), 0);
+    const [dx, dy] = at.find(p => !cost(p)) ?? at.reduce((x, p) => cost(p) < cost(x) ? p : x);
+    const now = dx || dy ? `${Math.round(dx)}px ${Math.round(dy)}px` : '';
+    el.style.translate = now;
+    if (fresh || now !== was) { el.classList.add('settling'); clearTimeout(settling); settling = setTimeout(() => el.classList.remove('settling'), 400); }
+  }
+  const replace = () => requestAnimationFrame(() => placeToasts());
+  on('select', replace);
+  document.addEventListener('focusin', replace);
+  document.addEventListener('keyup', e => { if (/^(Arrow|Tab|Enter|Page|Home|End)/.test(e.key)) replace(); });
+  function Toasts() {
+    const list = toasts.value;
+    // Placed as it comes, and again once the view has drawn what the change did (a table's cells laid out anew).
+    useLayoutEffect(() => { if (!list.length) return; placeToasts(true); const t = setTimeout(() => placeToasts(), 120); return () => clearTimeout(t); }, [list]);
+    return html`<div class="toasts" aria-live="polite">${list.map(t => html`
+      <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
+        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); }}>${label}</button>`)}${t.stay
+          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${t.dismiss}>${icon('x')}</button>` : null}</div>`)}</div>`;
+  }
 
   // ---- Find: records, lists, definitions, what needs attention, views and actions, ranked as you type, each
   // under its kind's head; "=" works a formula out; "?" lists the keys ----
@@ -757,26 +798,31 @@ const Shell = (() => {
   }
 
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
-  // Each kind as the bar says it, and the words Find reaches it by besides: a deadline is settled by Paid… or
-  // Filed… (inspector.js).
+  // Each kind as the bar says it, what it means on hover where its name doesn't say, and the words Find reaches it by
+  // besides: a deadline is settled by Paid… or Filed… (inspector.js).
   const KINDS = [['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
-    ['soon', n => `${n} due soon`, ['Paid', 'Filed']], ['blank', n => `${n} blank`, []]];
+    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []]];
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   const needs = () => many('attention').flatMap(a => a.items());
-  // A count goes to the first of its kind, clicked again to the next of its kind, round to the first; F8 goes on from
-  // wherever it is through them all.
+  // F8 goes on from wherever it is through them all.
   let stepAt = -1;
-  function attend(d = 1, kind) {
+  function attend(d = 1) {
     const items = needs().sort((a, b) => worst(a) - worst(b));
-    if (kind) {
-      const of = items.flatMap((it, i) => it.kind === kind ? [i] : []), k = of.indexOf(stepAt);
-      stepAt = of.length ? of[(k + 1) % of.length] : -1;
-    } else stepAt = items.length ? (stepAt + d + items.length) % items.length : -1;
+    stepAt = items.length ? (stepAt + d + items.length) % items.length : -1;
     items[stepAt]?.go();
   }
-  const counts = () => { const items = needs(); return KINDS.map(([k, say, names]) => ({ k, say, names, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
-  // In Find, each count goes where the bar's does.
-  const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => attend(1, c.k) }));
+  // A count clicked opens its items, each in its words and where (the 'needs' part: what, whose, its figure), found as
+  // they're typed; choosing one goes there.
+  function listOf(kind, anchor) {
+    const say = part('needs');
+    const items = needs().filter(it => it.kind === kind).map(it => { const w = say?.(it) ?? { what: '', where: '', figure: '' };
+      return { label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go }; });
+    if (anchor) menu(anchor, items, { search: true, cls: 'needs', placement: 'top-end' });
+  }
+  const countButton = kind => document.querySelector(`.status .counts > .${kind}`);
+  const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
+  // In Find, each count opens its list, as the bar's does.
+  const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => setTimeout(() => listOf(c.k, countButton(c.k))) }));
   // The bar counts once the window has drawn what changed, as Excel's catches up, for on a big chart counting takes
   // a while; whatever it counts is of the workbook, the chart and the time shown.
   const tally = signal([]);
@@ -788,7 +834,8 @@ const Shell = (() => {
     useLayoutEffect(() => effect(() => { if (part('workbook')) { App.version.value; App.chart.value; } time.value; recount(); }), []);
     // The counts are announced as they change; how the workbook is kept, which ages by the minute, isn't.
     return html`<div class="status">
-      <span class="counts" role="status">${tally.value.map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} onClick=${() => attend(1, c.k)}>${c.say(c.n)}</button>`)}</span>
+      <span class="counts" role="status">${tally.value.map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} aria-haspopup="menu" data-tip=${c.tip ?? null}
+        onClick=${e => listOf(c.k, e.currentTarget)}>${c.say(c.n)}</button>`)}</span>
       ${many('status').map(s => s.render())}
     </div>`;
   }
@@ -809,9 +856,12 @@ const Shell = (() => {
   const problems = () => needs().length > 0;
   [
     { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
-    // What the title bar's Export does, for Find, by what it makes: a chart's slides or pages, and the dates.
+    // What the title bar's Export does, for Find, by what it makes: a chart's slides or pages, the dates, and a table's
+    // sheet, each with why not where it can't.
     ...[['pptx', 'PowerPoint'], ['pdf', 'PDF'], ['ics', 'Calendar']].map(([f, name]) => ({ id: 'export.' + f, name: `Export to ${name}`,
-      enabled: () => typeof Export !== 'undefined' && (f === 'ics' || views.peek().some(v => v.layout === 'chart')), run: () => Export.open(f) })),
+      enabled: () => typeof Export !== 'undefined' && (f === 'ics' || views.peek().some(v => v.layout === 'chart')), why: () => 'Add a chart view first', run: () => Export.open(f) })),
+    { id: 'export.xlsx', name: 'Export to Excel', names: ['Excel', 'Spreadsheet', 'xlsx'], enabled: () => typeof Export !== 'undefined' && many('export').some(x => x.name === 'Excel'),
+      why: () => 'Show a table first', run: () => Export.open('Excel') },
     // Printing is the PDF, as it would print: the browser would print the window.
     { id: 'print', name: 'Print', keys: '$mod+KeyP', inputs: true, enabled: () => typeof Export !== 'undefined', run: () => Export.open(current.peek()?.layout === 'chart' ? 'pdf' : undefined) },
     { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
