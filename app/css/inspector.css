@@ -32,6 +32,8 @@ button.lk:hover { text-decoration: underline; text-underline-offset: 2px; text-d
 button.lk:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; border-radius: 2px; }
 button.lk.fx { font-style: italic; }
 button.lk.muted { color: var(--ink-3); }
+/* A blank choice's option its record's name already says, one click to take: quiet, in the accent, as a link. */
+button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* A row's depth in the tree, and its grip: drag to reorder, click for its menu. */

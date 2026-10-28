@@ -647,6 +647,13 @@ async function run() {
   App.change(tx => { formed = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: formed, edge: 'Name', field: 'text', value: 'Harbor Point Holdings, LLC' }); tx.add('record', { at: formed, edge: 'Formation Date', field: 'date', value: '2021-05-04' }); });
   check('an entity added asks no day, and keeps its Formation Date as its start; nor does a general partner, by its Admission Date', !App.asksDay({ kind: 'Entity' }) && !App.asksDay(gpOf)
     && App.asksDay({ args: [{ edge: 'Owner', at: 'mgmt' }, { edge: 'Owned', at: 'fund' }], tag: true }) && !!App.wb.asOf(C, '2023-12-31')[formed] && !App.wb.asOf(C, '2021-05-03')[formed]);
+  // Its blank Entity Type offers what its name already says, LLC a Limited Liability Company, one click to take.
+  Shell.select([formed]); await tick(150);
+  const hinted = $('.insp button.lk.hint')?.textContent;
+  $('.insp button.lk.hint')?.click(); await tick(150);
+  const typed = Object.values(st()).find(r => r.at === formed && r.edge === 'Entity Type')?.choice;
+  check('a blank choice offers the option its record’s name already says, which a click takes', hinted === 'Limited Liability Company?' && typed === 'Limited Liability Company', `${hinted} → ${typed}`);
+  Shell.parts.value.undo.undo(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
 
   // A role is chosen in its sentence, and a relation's fields come as a form sets them: the role, then the start, then the end

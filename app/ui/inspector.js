@@ -352,7 +352,18 @@ function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', ti
 }
 
 // A choice's option, from its dropdown, or (unless the options are fixed) a new one typed.
-function Choice({ r, options, put, fx, over, id, fixed, label, ph, children }) {
+// The option a record's name already says, as a legal form ends a name: the initials of one (…, L.P. a Limited
+// Partnership; LLC), or the forms that say a corporation (Inc., Corp.) or a company (Ltd., the fewest words of those);
+// none where its last word says none.
+const SAYS = { inc: 'corporation', incorporated: 'corporation', corp: 'corporation', ltd: 'company', limited: 'company' };
+function namedOption(name, options) {
+  const tail = String(name ?? '').split(/[\s,()]+/).filter(Boolean).at(-1)?.replace(/\./g, '').toLowerCase();
+  if (!tail || !options.length) return null;
+  const words = o => T.norm(o).split(/\s+/), initials = o => words(o).map(w => w[0]).join('');
+  return options.find(o => words(o).length > 1 && initials(o) === tail)
+    ?? (SAYS[tail] ? options.filter(o => words(o).at(-1) === SAYS[tail]).sort((a, b) => words(a).length - words(b).length)[0] : null) ?? null;
+}
+function Choice({ r, options, put, fx, over, id, fixed, label, ph, hint, children }) {
   const [typing, setTyping] = useState(false);
   if (typing) return html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label=${label ?? 'New option'} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
     onKeyDown=${e => { if (e.key === 'Enter') { const t = T.clean(e.target.value); setTyping(false); if (t) put({ choice: t }); } else if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); } }}
@@ -363,7 +374,8 @@ function Choice({ r, options, put, fx, over, id, fixed, label, ph, children }) {
       ...(fixed ? [] : [...(options.length ? ['-'] : []), { label: 'New option', run: () => setTyping(true) }])]);
   };
   return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'sel dd' + (fx ? ' fx' : '')} disabled=${App.readOnly.value} data-tour=${fx ? 'computed' : null}
-    aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open}><span class=${r ? null : 'ph'}>${r?.choice ?? ph ?? ''}</span></button></span>${children}</span>`;
+    aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open}><span class=${r ? null : 'ph'}>${r?.choice ?? ph ?? ''}</span></button></span>${!r && hint && !App.readOnly.value
+      ? html`<button class="lk hint" data-tip="From its name" onClick=${() => put({ choice: hint })}>${hint}?</button>` : null}${children}</span>`;
 }
 
 // A tag's checkbox: green attested, red ruled out, outlined when computed. Pointed at, or reached by the keys,
@@ -456,7 +468,8 @@ function Output({ id, slot, label }) {
   const type = r ? T.typeOf(r) : k.type, set = out => put(id, slot, out);
   const more = !r ? null : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
   return type === 'tag' ? html`<${TagBox} r=${r} fx=${f} over=${o} label=${label} flip=${() => flip(id, slot)} change=${() => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
-    : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}>${more}</${Choice}>`
+    : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
+        hint=${!r && recs()[slot.at]?.kind ? namedOption(nameOf(slot.at), k.options ?? []) : null}>${more}</${Choice}>`
     : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}>${more}</${Field}>`;
 }
 
