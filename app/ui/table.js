@@ -338,7 +338,7 @@ const Table = (() => {
   const frozenWidth = t => pinsOf(t).reduce((s, c) => s + c.getWidth(), 0);
   function pinned(t) {
     let left = 48;
-    const rules = pinsOf(t).map((c, i) => { const r = `.grid .tabulator .pin-${i} { left: ${left}px; }`; left += c.getWidth(); return r; });
+    const rules = pinsOf(t).map((c, i) => { const r = `.grid .tabulator .tabulator-header .tabulator-col.pin-${i}, .grid .tabulator-row .tabulator-cell.pin-${i} { left: ${left}px; }`; left += c.getWidth(); return r; });
     if (pins) pins.textContent = rules.join('\n');
     t.element.style.setProperty('--pinned', `${left}px`);
     requestAnimationFrame(strip);
@@ -543,7 +543,7 @@ const Table = (() => {
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
     const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value];
-    if (table && ready && !flight && drewFrom.every((x, i) => x === from[i])) return settle();
+    if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
     const now = model(view);
     real = now;
     // A table whose rows aren't chosen yet.
@@ -604,7 +604,7 @@ const Table = (() => {
   let flight = null, owed = false, drewFrom = [];
   // Built again, as what's kept in this browser (the look) changes what the grid is: its groups, its widths, the columns
   // kept in view.
-  const rebuild = () => { if (built) built.sig = null; drewFrom = []; refresh(); };
+  const rebuild = () => { if (built) built.sig = null; drewFrom = null; refresh(); };
 
   // ---- The grid's room, which one owner lays it out in ----
   // A grid is laid out as it's built, in its slot shown. It's laid out again here, and only here, once its slot has
@@ -714,6 +714,13 @@ const Table = (() => {
     }
     if (e.target.closest?.('.tabulator-header')) return;
     if (/^(Arrow|Page|Home$|End$|Tab$|Enter$|F2$)/.test(e.key) && !sr?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(); return; }
+    // Alt+Down opens the active cell's column's menu, as it opens a heading's filter in Excel; the cell stays where it is.
+    if (e.key === 'ArrowDown' && e.altKey && !current?.red) {
+      e.preventDefault(); e.stopPropagation();
+      const col = sr.getActiveCell()?.column.getComponent();
+      if (col?.getField()) columnMenu(col.getElement().querySelector('.col-menu') ?? col.getElement(), col);
+      return;
+    }
     if ((e.key === 'Enter' || e.key === 'Tab') && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault(); e.stopPropagation();
       if (e.key === 'Tab') { tabbed ??= sr.getActiveCell()?.column; step(e.shiftKey ? 'left' : 'right'); }
@@ -1101,8 +1108,15 @@ const Table = (() => {
   }
   // A column with no values yet goes with its notes.
   const dropColumn = c => edit(tx => { note(tx, 'Shown', c, current.view, undefined); note(tx, 'Order', c, current.view, undefined); }, `Deleted column ${c.title}`);
+  // An entry's column can be renamed; not a relation's side, nor a row's Name, by which everything names it.
+  const renamable = c => !!c?.pattern && c.type !== 'edge' && !(c.path?.length === 1 && same(c.title, 'Name'));
   // Renamed, an entry is renamed wherever it's at a row of this kind: its records, its specification, its notes.
-  const renameColumn = (c, to) => { if (to && to !== c.title) edit(tx => tx.rename(c.pattern, c.title, to), `Renamed ${c.title} to ${to}`); };
+  // How it's looked at goes with it: its width, its sort, its filter, its grouping.
+  function renameColumn(c, to) {
+    if (!to || to === c.title || !edit(tx => tx.rename(c.pattern, c.title, to), `Renamed ${c.title} to ${to}`)) return;
+    const was = c.key, now = [...c.path.slice(0, -1), to].map(norm).join('›'), l = lookOf(current.view), move = o => o && was in o ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k === was ? now : k, v])) : o;
+    setLook(current.view, { widths: move(l.widths), filters: move(l.filters), sort: l.sort?.key === was ? { ...l.sort, key: now } : l.sort, group: l.group === was ? now : l.group });
+  }
   const columnItems = m => m.cols.filter(c => c.pattern).map(c => ({ label: called(c), checked: c.shown, run: () => show(c, !c.shown) }));
 
   // ---- How it's looked at: sorted, filtered, grouped, kept in view, sized ----
@@ -1180,7 +1194,7 @@ const Table = (() => {
       ...(filtered ? [{ label: 'Clear filter', run: () => filterBy(c, null) }] : []),
       '-',
       ...(m.base && canWrite() ? [{ label: 'Insert column left', run: () => insert(col, false) }, { label: 'Insert column right', run: () => insert(col, true) }] : []),
-      ...(writes && c.type !== 'edge' ? [{ label: 'Rename column', run: () => rename(col) }] : []),
+      ...(writes && renamable(c) ? [{ label: 'Rename column', run: () => rename(col) }] : []),
       ...(writes ? [{ label: 'Hide column', run: () => show(c, false) },
         { label: 'Move left', disabled: k <= 0, run: () => shift(c, -1) }, { label: 'Move right', disabled: k < 0 || k === order.length - 1, run: () => shift(c, 1) }] : []),
       ...(writes && c.fresh ? [{ label: 'Delete column', danger: true, run: () => dropColumn(c) }] : []),
@@ -1284,7 +1298,7 @@ const Table = (() => {
   }
   function rename(col) {
     const c = current.byField.get(col.getField());
-    if (c?.pattern && c.type !== 'edge' && canWrite()) nameIn(col.getElement(), c.title, s => renameColumn(c, s));
+    if (renamable(c) && canWrite()) nameIn(col.getElement(), c.title, s => renameColumn(c, s));
   }
   // Insert column: an empty column where it's asked for, its name typed in its heading; nothing's made until it's named.
   function insert(col, right) {
@@ -1588,9 +1602,11 @@ const Table = (() => {
 
   // Moved across by the keys, the active cell comes whole into view with the grid at a column's edge, where it
   // stops as it scrolls (table.css): its own edge, if it's past the left or wider than the room; past the right,
-  // the first edge that shows it.
-  function across() {
-    const a = table.modules.selectRange?.getActiveCell()?.getElement(), h = holder();
+  // the first edge that shows it. A cell made active by a range added (Home, End, a new row's next cell) is only so once
+  // Tabulator has placed the range, a moment later, so it's brought into view then too.
+  function across() { acrossNow(); setTimeout(acrossNow); }
+  function acrossNow() {
+    const a = table?.modules.selectRange?.getActiveCell()?.getElement(), h = holder();
     if (!a || !h || a.classList.contains('pin')) return;
     const at = parseFloat(getComputedStyle(a).scrollMarginLeft) || 48, left = a.offsetLeft - at, need = a.offsetLeft + a.offsetWidth - h.clientWidth;
     if (h.scrollLeft > left || need > left) h.scrollLeft = left;
@@ -1614,10 +1630,10 @@ const Table = (() => {
       const row = mod ? rows[e.key === 'Home' ? 0 : rows.length - 1] : cell.getRow();
       to(row.getCell(cols[e.key === 'Home' ? 0 : cols.length - 1]));
       reveal(row.getData().id);
+      if (e.key === 'Home') { const h = holder(); if (h) h.scrollLeft = 0; return; }
       return across();
     }
     if (/^(ArrowLeft|ArrowRight)$/.test(e.key)) return across();
-    if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); const col = cell.getColumn(); return columnMenu(col.getElement().querySelector('.col-menu') ?? col.getElement(), col); }
     if (mod && (k === 'd' || k === 'r') && !e.shiftKey && !e.altKey) { e.preventDefault(); if (canWrite()) fillFrom(k === 'd'); return; }
     if (e.key === 'F2') { e.preventDefault(); if (canEdit(cell)) { ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } return; }
     // Delete clears the cells of the range; rows selected whole, by their numbers, it deletes, after the redline.
