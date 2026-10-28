@@ -229,6 +229,13 @@ async function run() {
   check('Enter makes it, and the redline goes', !$('.pendbar') && !$$('.grid .tabulator-row.red-add').length && !$$('.grid .tabulator-cell .del, .grid .tabulator-cell .add').length);
   undo(); await tick(150);
   check('Undo takes the new entry and the new row back', !named('Hollis Bay Holdings, LLC') && !column('Fund Counsel'));
+  // Import is a paste of a file with a heading row: the same plan, its verb Import, saying the file.
+  n0 = N();
+  Table.paste('Name\tFormation Date\nHollis Bay Holdings, LLC\t3/2/2026\n', { file: 'entities.csv' }); await previewed();
+  check('A file imported is redlined as a paste is, its bar’s verb Import', $$('.grid .tabulator-row.red-add').length === 1 && $('.pendbar .btn.primary')?.textContent === 'Import' && N() === n0, $('.pendbar')?.textContent);
+  press('Enter'); await tick(150);
+  check('… and Enter makes it, said with the file’s name', !!named('Hollis Bay Holdings, LLC') && N() === n0 + 1 && $('.toast span')?.textContent === 'Imported 1 entity from entities.csv', $('.toast span')?.textContent);
+  undo(); await tick(150);
 
   // A link pasted onto a row isn't written over a cell: it goes on, to link a document to the row's record.
   n0 = N();
@@ -1167,6 +1174,23 @@ async function run() {
   check('Opening another chart is a step: Back comes back to the chart it was on, at its view', C() === C1 && Shell.view.peek() === onC1 && among(views()), `${C() === C1} ${Shell.view.peek()}`);
   location.hash = `#v=${encodeURIComponent(atC0)}`; await until(() => Shell.view.peek() === atC0); await tick(100);
   check('A link to a view of another chart opens that chart at it', C() === C0 && Shell.view.peek() === atC0 && among(views()), `${C() === C0} ${Shell.view.peek()}`);
+  // Duplicate chart: the chart as it stands, every record, view and look, under new ids, named as it begins.
+  const name0 = App.wb.charts().find(c => c.chart === C0).name, objects = c => Object.values(App.wb.asOf(c, App.day.peek())).filter(r => r.kind && r.kind !== 'View').length;
+  const viewNames = () => views().map(v => v.name).join();
+  const views0 = viewNames(), charts1 = App.wb.charts().length;
+  $('.titlebar .chartmenu').click(); await tick(60);
+  item('Duplicate chart').click(); await tick(300);
+  const C2 = C();
+  check('Duplicate chart makes a copy of the chart shown, named "… copy" as it begins, with every record and view', C2 !== C0 && App.wb.charts().length === charts1 + 1
+    && naming()?.value === `${name0} copy` && objects(C2) === objects(C0) && viewNames() === views0 && Time.describe(last()) === `Began the chart ${name0} copy`,
+    `${naming()?.value} ${objects(C2)}/${objects(C0)} ${viewNames()} ${Time.describe(last())}`);
+  press('Escape', naming()); await tick(60);
+  check('… its records its own: what it shares with the first is none of its ids', !App.wb.rows(C2).some(r => r.record && App.wb.item(C0, r.record).length));
+  $('.titlebar .chartmenu').click(); await tick(60);
+  item('Delete chart').click(); await tick(200);
+  check('Delete chart takes it out, says so, and shows another', !App.wb.charts().some(c => c.chart === C2) && C() !== C2 && $('.toast span')?.textContent === `Deleted the chart ${name0} copy`, $('.toast span')?.textContent);
+  $('.toast button').click(); await tick(300);
+  check('… and its Undo brings it back, shown', App.wb.charts().some(c => c.chart === C2) && C() === C2 && objects(C2) === objects(C0));
   check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
 }
 

@@ -1,6 +1,7 @@
 // Notes: what a chart says about its records, as entries at patterns, some in a view (dendra.md, Notes).
 // A note row is { note, label, pattern, view?, param?, value }: param names one of a relation pattern's
-// edges, for a list's name or an edge's order. For a record and a label, the narrowest note it fits decides:
+// edges, for a list's name or an edge's order; or, for Shown, an entry, the field shown beside the pattern in the
+// box it's in (dendra.md, Fields). For a record and a label, the narrowest note it fits decides:
 // one in the view before one in none, then the pattern that keeps more labels.
 const Notes = (() => {
 const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoice, isTag, objectOf, pathOf, entryAt, same } = Tree;
@@ -20,7 +21,7 @@ const bySchema = new WeakMap(), labelled = new WeakMap();
 
 function index(rows) {
   // A record fits only patterns of its shape, so notes are found by label, edge and shape, narrowest first.
-  const byKey = new Map(), byShape = new Map(), byLabel = new Map();
+  const byKey = new Map(), byShape = new Map(), byLabel = new Map(), params = new Map();
   const ranked = rows.map(n => [n, weight(n.pattern)])
     .sort(([a, w], [b, v]) => !!b.view - !!a.view || v - w || (a.note < b.note ? -1 : a.note > b.note ? 1 : 0));
   for (const [n] of ranked) {
@@ -29,6 +30,7 @@ function index(rows) {
     push(byLabel, n.label, n);
     if (!byShape.has(shape)) byShape.set(shape, new Set());
     byShape.get(shape).add(n.label);
+    if (n.param) { const k = `${n.label}|${shape}`; if (!params.has(k)) params.set(k, new Map()); params.get(k).set(Tree.norm(n.param), n.param); }
   }
 
   // The note that decides a label for a tree (a record's, or any pattern), in a view or none: { value, note }.
@@ -57,12 +59,21 @@ function index(rows) {
     return out;
   }
 
+  // The fields a record's notes show or hide in the box (or on the line) it's in, in a view: each Shown note whose
+  // param names an entry (the field beside the record, dendra.md, Fields), the narrowest for each. → { [label]: { value, note } }
+  function fields(t, view) {
+    const out = {};
+    for (const param of params.get(`Shown|${shapeOf(t)}`)?.values() ?? []) { const r = resolve('Shown', t, view, param); if (r) out[param] = r; }
+    return out;
+  }
+
   // A view's styles in its order: each a pattern with root unlabeled, and its outputs' formats. A note at
-  // one object or one value is that record's own setting, not a style's. Order in a view orders its styles.
+  // one object or one value is that record's own setting, not a style's. Order in a view orders its styles. A
+  // field shown beside an output (a Shown note's param) is the boxes' own, not a look a style gives them.
   function styles(view) {
     const groups = new Map(), order = new Map();
     const group = p => { const k = key(p); if (!groups.has(k)) groups.set(k, { pattern: p, key: k, outputs: new Map() }); return groups.get(k); };
-    for (const n of rows) if (n.view === view) {
+    for (const n of rows) if (n.view === view && !n.param) {
       const p = n.pattern;
       if (n.label === 'Order') { order.set(key(p), n.value); group(p); }
       else if ((FORMATS.has(n.label) || n.label === 'Caption') && p.id === undefined && !(p.out && 'value' in p.out)) {
@@ -152,7 +163,7 @@ function index(rows) {
   }
 
   return {
-    resolve, value, name, listName, edges, formats, styles, definitions, relations, fitting,
+    resolve, value, name, listName, edges, formats, fields, styles, definitions, relations, fitting,
     nameOf, shortOf, sides, placed, segmentOf, placeOf, whereOf,
     notes: label => byLabel.get(label) ?? [],
     description: t => value('Description', t),

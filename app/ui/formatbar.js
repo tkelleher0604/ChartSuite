@@ -220,10 +220,14 @@ const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(
 // ---- Making a change ----
 
 // What a change of one setting writes, on tx: for the selection, a format note at each record's own tree in
-// the view, and a free shape's own format; for a style, a note at each of its outputs in the view.
+// the view, and a free shape's own format; for a style, a note at each of its outputs in the view. With a field of a
+// box selected (a text in it, clicked), a text property is that field's, as a text selected in a PowerPoint shape is
+// formatted: at the field's own pattern, at the scope (the canvas's styleField).
 function write(tx, c, label, value) {
   const { marks, scopes } = scopesOf(c), scope = scopeOf(scopes);
   if (!scope) return;
+  const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
+  if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
   const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id);
   if (scope.outputs) for (const p of scope.outputs) tx.note(label, p, value, { view });
   else for (const m of marks) {
@@ -295,10 +299,12 @@ function value(label) {
     const outs = new Set((current.scope?.outputs ?? []).map(p => Tree.key(p)));
     return current.canvas.scene().marks.find(f => f.type === 'frame' && outs.has(Tree.key(f.output)))?.kind ?? 'none';
   }
-  const text = m.texts?.[0] ?? m.caption;
+  const text = current.field?.it ?? m.texts?.[0] ?? m.caption;
   if (TEXT_LABELS.has(label) && text) return text.look?.[label] ?? text.settings?.[label]?.value;
   return m.settings?.[label]?.value ?? m.look?.[label];
 }
+// The field selected in the one box selected, if any (the canvas's field()).
+const fieldOf = c => { const f = c.field?.(), ks = c.keys(); return f?.it && ks.length === 1 && Canvas.keyParts(ks[0])[0] === f.m.id ? f : null; };
 
 // ---- The bar ----
 
@@ -661,11 +667,11 @@ const opener = {
 
 // While the inspector is widened over the chart there's nothing here to format.
 function Bar() {
-  App.scene.value; Shell.selection.value;
+  App.scene.value; Shell.selection.value; Canvas.fieldLit?.value;
   const c = Canvas.active.value;
   if (!c || !c.scene() || Shell.wide.value) return html`<div class="fb" hidden=${Shell.wide.value} />`;
   const s = scopesOf(c), scope = scopeOf(s.scopes, chosen.value);
-  current = { canvas: c, ...s, scope };
+  current = { canvas: c, ...s, scope, field: fieldOf(c) };
   const none = !s.marks.length, lineOnly = s.marks.length && s.marks.every(m => m.type === 'line' || m.geometry === 'line');
   const any = !none, boxy = any && !lineOnly && !s.marks.every(m => m.type === 'frame'), ro = App.readOnly.value;
   const set = (label, v) => apply(label, v);
@@ -796,30 +802,38 @@ const typing = () => !!document.activeElement?.closest?.('input, textarea, [cont
 
 // ---- For the other parts ----
 // FormatBar.scope() → what a look change goes to now, as the bar shows it, or null with nothing to format:
-//   { own, label, view, patterns, marks, records }: `own`, the selection itself ("This box", "These 3 boxes"), with
-//   `patterns` null; or a group (`label` "Funds (6)"), with `patterns` its outputs, at which its look is noted in the
-//   view. `marks` are the marks it reaches, boxes and lines by id, and `records` their records.
+//   { own: true, label, view, records } for the selection itself ("This box", "These 3 boxes"); or for a group,
+//   { own: false, outputs, caption, marks, label, view, records }: its outputs, at which its look is noted in the view;
+//   its caption ("Funds"); the marks it reaches, boxes and lines by id, as a Set; its name with its reach ("Funds (6)").
+//   `records` are the records of the marks the change goes to.
 // FormatBar.write(tx, label, value) writes one look at that scope on tx, as the bar's own changes do: for the
-//   selection, a note at each record's own tree in the view (a free shape, in its row); for a group, at each output.
+//   selection, a note at each record's own tree in the view (a free shape, in its row); for a group, at each output; a
+//   text property, with a field selected, the field's (the canvas's styleField).
 // FormatBar.cue(on): the scope's cue on the chart while on (as the bar's own part shows it pointed at), and back to
 //   the bar's own when off.
-// FormatBar.open(kind, anchor): one of the bar's popovers, 'fill', 'outline', 'font', 'color', 'shape' or
-//   'paragraph', at an element or a point { x, y } on screen, for a menu that offers them (the canvas's Format ▸).
+// FormatBar.open(what, at?): one of the bar's popovers, 'fill', 'outline', 'font', 'color', 'shape' or 'paragraph',
+//   at an element or a point { x, y } on screen, or else under the bar's own button for it (the canvas's Format ▸).
 // FormatBar.copyLook() → whether there was a look to copy, from the selection (Ctrl+Shift+C); FormatBar.pasteLook()
-//   pastes it on the selection at its scope (Ctrl+Shift+V), one change; FormatBar.painted() → whether a look is
+//   pastes it on the selection at its scope (Ctrl+Shift+V), one change; FormatBar.canPasteLook() → whether a look is
 //   copied; FormatBar.clear() clears the look at the scope (Clear formatting), one change, saying what it cleared.
 function describe() {
   const c = Canvas.active.peek();
   if (!c?.scene()) return null;
   const s = scopesOf(c), sc = scopeOf(s.scopes);
   if (!sc) return null;
-  const by = c.scene().byId, marks = sc.own ? s.marks.map(m => m.id) : [...sc.marks ?? []];
-  return { own: !!sc.own, label: named(c, sc), view: c.scene().view, patterns: sc.outputs ?? null, marks, records: [...new Set(marks.map(id => by.get(id)?.record).filter(Boolean))] };
+  const by = c.scene().byId, ids = sc.own ? s.marks.map(m => m.id) : [...sc.marks ?? []], records = [...new Set(ids.map(id => by.get(id)?.record).filter(Boolean))];
+  const base = { label: named(c, sc), view: c.scene().view, records };
+  return sc.own ? { own: true, ...base } : { own: false, ...base, outputs: sc.outputs, caption: sc.caption, marks: new Set(ids) };
 }
 function scoped(tx, label, v) { const c = Canvas.active.peek(); if (c?.scene()) write(tx, c, label, v); }
 function cueing(on) { const c = Canvas.active.peek(); if (!c?.scene()) return; if (!on) return cue(); const s = scopesOf(c), sc = scopeOf(s.scopes); cue(sc?.own ? null : sc); }
+// A popover of the bar's, under its own button where nothing else is given (Format ▸ in a menu of the canvas's).
+function open(what, at) {
+  const anchor = at ?? document.querySelector(`.fb [data-fb="${what}"]`);
+  if (anchor) opener[what]?.(anchor);
+}
 
 Shell.register('formatbar', { mount });
-return { apply, value, colorName, scope: describe, write: scoped, cue: cueing, open: (kind, anchor) => opener[kind]?.(anchor),
-  copyLook, pasteLook: () => pasteLook(), painted: () => !!copied, clear: clearLook };
+return { apply, value, colorName, scope: describe, write: scoped, cue: cueing, open,
+  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook };
 })();

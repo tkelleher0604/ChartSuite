@@ -480,7 +480,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   if (!preview) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
-    const formatsOf = (recs, id) => { const t = treeOf(recs, id); return t ? wb.notes(chart).formats(t, view) : {}; };
+    // An entry the view's free text may read, or a field shown beside another record, is never inert.
+    const N0 = wb.notes(chart), fielded = [...N0.notes('Text'), ...N0.notes('Shown').filter(n => n.param)].some(n => n.view === view);
+    const formatsOf = (recs, id) => { const t = treeOf(recs, id); return fielded && recs[id]?.at ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
       if (d.laid && !opts.ahead) laidOut.set(drawnAs, d.laid);
@@ -513,11 +515,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const once = (id, k, f) => { const w = work(id); return k in w ? w[k] : (w[k] = f()); };
 
   // A note's rank where it reaches a mark: in the view before none; one record's own (entered) before a
-  // style's; a later style before an earlier; and through the mark's own record before a deeper one.
+  // style's; a field shown beside an output (a Shown note's param) before one at its entry alone, as it's the
+  // entry in those boxes only (see Fields); a later style before an earlier; and through the mark's own record
+  // before a deeper one.
   const ranks = new Map();
   const rankOf = (note, depth) => {
     let r = ranks.get(note);
-    if (!r) ranks.set(note, r = [note.view ? 1 : 0, idsIn(note.pattern).size ? 1 : 0, note.view ? (styleAt.get(key(bare(note.pattern))) ?? -1) : 0]);
+    if (!r) ranks.set(note, r = [note.view ? 1 : 0, idsIn(note.pattern).size ? 1 : 0, note.param ? 1 : 0, note.view ? (styleAt.get(key(bare(note.pattern))) ?? -1) : 0]);
     return [...r, -depth];
   };
   const beats = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
@@ -589,6 +593,23 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const res = formats.get(id).Shown;
     if (res) land(id, 'Shown', res, m => !filters(res.note) || m.type !== 'text');
   }
+  // Fields (dendra.md, Fields): a Shown note whose param names an entry shows or hides that entry in the box, or on
+  // the line, that a record fitting its pattern is in, the field beside it there; ranked with what decides the entry's
+  // own text, the narrower decides. `fieldsOf`, by box or line, each field's note that decides there.
+  const hostOf = m => { let c = m, depth = 0; while (c && c.type === 'text') { c = c.listed ? null : up(c); depth++; } return [c, depth]; };
+  const fieldsOf = new Map();
+  if (N.notes('Shown').some(n => n.param && n.view === view)) {
+    for (const id of ids) for (const [edge, res] of Object.entries(once(id, 'fields', () => N.fields(tree(id), view)))) for (const start of own.get(id) ?? []) {
+      const [h, depth] = hostOf(start);
+      if (!h) continue;
+      const by = fieldsOf.get(h.id) ?? fieldsOf.set(h.id, new Map()).get(h.id), k = Tree.norm(edge), r = rankOf(res.note, depth), c = by.get(k);
+      if (!c || beats(r, c.rank)) by.set(k, { value: res.value, note: res.note, record: id, rank: r });
+    }
+    for (const m of marks.values()) if (m.type === 'text' && !m.host) {
+      const e = state[m.record].edge, h = e !== undefined && hostOf(m)[0], c = h && fieldsOf.get(h.id)?.get(Tree.norm(e));
+      if (c && (!m.cand.Shown || beats(c.rank, m.cand.Shown.rank))) m.cand.Shown = c;
+    }
+  }
   // Where no note says, a box and its name are shown, and nothing else: a new chart's boxes say what they are.
   const named = m => m.type === 'text' && !m.host && isObject(state[state[m.record].at] ?? {}) && Tree.norm(state[m.record].edge ?? '') === 'name';
   const shownAlone = m => m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m);
@@ -625,11 +646,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // own where they tie. Format, how a value reads, is each record's own.
   const orders = new Map();
   const orderOf = id => orders.get(id) ?? orders.set(id, Tree.pathOf(state, id).slice(1).map(x => [once(x, 'order', () => N.order(tree(x))) ?? Infinity, Tree.norm(state[x].edge ?? '')])).get(id);
-  const byOrder = (a, b) => {
-    const p = orderOf(a.record), q = orderOf(b.record);
+  const ordered = (p, q) => {
     for (let i = 0; i < Math.min(p.length, q.length); i++) if (p[i][0] !== q[i][0]) return p[i][0] - q[i][0]; else if (p[i][1] !== q[i][1]) return p[i][1] < q[i][1] ? -1 : 1;
     return p.length - q.length;
   };
+  const byOrder = (a, b) => ordered(orderOf(a.record), orderOf(b.record));
   const container = m => { let c = up(m); while (c && c.type === 'text') c = up(c); return c; };
   const textItem = (m, host) => {
     for (const label of TEXT_PROPS) {
@@ -639,7 +660,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     settle(m, DEFAULTS.text);
     for (const label of TEXT_PROPS) if (!m.cand[label] && label !== 'Format') m.settings[label] = host.settings[label];
     const r = state[m.record], t = look(m.settings), name = once(m.record, 'name', () => N.name(tree(m.record)));
-    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name), computed: !!r.computed,
+    // `shownBy`, the note that shows it, where one does: what hiding it where it's shown takes back (see Fields).
+    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name), computed: !!r.computed, shownBy: m.cand.Shown?.note ?? null,
       ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', name), name: N.nameOf(state, m.listed) } }) };
   };
   // A box's relations written in it, one text for each role: the role, for more than one in the plural, and
@@ -669,7 +691,62 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const host = container(m);
     if (host?.texts) host.texts.push(textItem(m, host));
   }
-  for (const b of boxes) b.texts = gather(b.texts);
+  // A blank field (dendra.md, Fields): one a box shows that its record hasn't yet (an EIN not yet typed), where the note
+  // that shows it is at a scope, which names a field of the box, not at the entry wherever there is one: at its object,
+  // its kind, or beside an output. Its name stands in its place, `blank`, in its order among the box's texts, and in their
+  // look; the box keeps its room, which the canvas draws it faint in, to type into, and an export leaves empty. Only an
+  // entry the chart has at an object, a value or a choice, which a kind without it yet takes as it's typed; a name is
+  // never blank.
+  const scoped = N.notes('Shown').filter(n => (!n.view || n.view === view) && !n.param && !n.pattern.out && n.pattern.args?.length === 1
+    && !n.pattern.args[0].loc.args && (n.pattern.args[0].loc.kind !== undefined || n.pattern.args[0].loc.id !== undefined));
+  const scopes = new Set(scoped);
+  const S = scoped.length || fieldsOf.size ? wb.schema(chart) : null, specs = new Map();
+  const typed = edge => { const k = Tree.norm(edge);
+    if (!specs.has(k)) specs.set(k, Object.values(S).some(s => s.args?.length === 1 && same(s.args[0].edge, edge) && !s.args[0].loc.args && ('field' in s.out || 'choice' in s.out)));
+    return specs.get(k); };
+  function blanksIn(b) {
+    const O = b.record, t = tree(O), fs = fieldsOf.get(b.id), want = new Map();
+    for (const n of scoped) if (Tree.narrower(t, n.pattern.args[0].loc)) want.set(Tree.norm(n.pattern.args[0].edge), n.pattern.args[0].edge);
+    for (const [k, c] of fs ?? []) if (c.value === true) want.set(k, c.note.param);
+    if (!want.size) return;
+    const have = new Set((Tree.index(state).entries.get(O) ?? []).map(e => Tree.norm(state[e].edge)));
+    for (const [k, edge] of want) {
+      if (have.has(k) || k === 'name' || !typed(edge)) continue;
+      const et = { args: [{ edge, loc: t }] }, at = N.resolve('Shown', et, view), mine = at && { ...at, rank: rankOf(at.note, 0) }, beside = fs?.get(k);
+      const win = !mine ? beside : !beside || !beats(beside.rank, mine.rank) ? mine : beside;
+      if (win?.value !== true || !(win.note.param || scopes.has(win.note))) continue;
+      const f = N.formats(et, view), settings = {};
+      for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && f[label] ? { value: f[label].value, note: f[label].note } : b.settings[label];
+      const item = { id: `blank:${O}|${edge}`, type: 'text', settings, look: look(settings), text: edge, blank: { at: O, edge }, computed: false, shownBy: win.note };
+      const order = [[N.order(et) ?? Infinity, k]], i = b.texts.findIndex(it => it.listed || ordered(order, orderOf(it.id)) < 0);
+      b.texts.splice(i < 0 ? b.texts.length : i, 0, item);
+    }
+  }
+  // Free text (dendra.md, Fields): the Text note that decides for a box or a line, of those its records' patterns fit, as a
+  // format lands on it: one more text after its fields, in the look of its own that the note gives and the mark's
+  // otherwise; each {Entry} in it read as that entry of the mark's record reads, a form letter's field, or as nothing.
+  const freeOf = new Map();
+  if (N.notes('Text').some(n => n.view === view)) for (const id of ids) {
+    const res = once(id, 'text', () => N.resolve('Text', tree(id), view) ?? null);
+    if (res) for (const start of own.get(id) ?? []) {
+      const [h, depth] = hostOf(start), r = h && rankOf(res.note, depth), c = h && freeOf.get(h.id);
+      if (h && (!c || beats(r, c.rank))) freeOf.set(h.id, { ...res, rank: r });
+    }
+  }
+  const entryText = (at, label) => {
+    const k = Tree.norm(label), entries = Tree.index(state).entries;
+    for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return textOf(state[e], 'value', state[e].edge); todo.push(e); }
+    return '';
+  };
+  function freeText(h) {
+    const c = freeOf.get(h.id), v = c?.value;
+    if (!v || typeof v !== 'object') return [];
+    const text = String(v.text ?? '').replace(/\{([^{}\n]+)\}/g, (_, l) => entryText(h.record, l)).split('\n').map(s => s.replace(/[ \t]+/g, ' ').trim()).join('\n').trim();
+    const settings = {};
+    for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
+    return text ? [{ id: `text@${h.id}`, type: 'text', settings, look: look(settings), text, free: { note: c.note.note, text: v.text }, computed: false, shownBy: c.note }] : [];
+  }
+  for (const b of boxes) { blanksIn(b); b.texts = [...gather(b.texts), ...freeText(b)]; }
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
@@ -687,7 +764,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     l.ranks = l.settings.Above.value !== 'none';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
       text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed };
-    l.texts = l.revealed ? [] : [own, ...l.texts].filter(it => it.text);
+    l.texts = l.revealed ? [] : [own, ...l.texts, ...freeText(l)].filter(it => it.text);
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
     labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r));
     // The layout and the routes read the relation a line draws, never its look, so restyling a line moves

@@ -850,14 +850,15 @@ const Table = (() => {
   // Either way the paste is redlined in the grid, and Enter makes it, as one change.
   // Pasted while another change is pending, it's pasted into the table as it is, and takes that one's place, which says
   // so (App.stage); never dropped without a word.
-  function paste(textIn) {
+  function paste(textIn, { file = null } = {}) {
     const m = real, grid = tsv(textIn);
     if (!m || !grid.length || App.readOnly.peek()) return;
-    let head = headings(m, grid);
+    // A file's first row is its headings, though none of them is a column's yet: they're asked about.
+    let head = headings(m, grid) ?? (file && grid.length > 1 ? grid[0].map(h => clean(h) ? named(m, h) : null) : null);
     if (head && m.isDatatype) { grid.shift(); head = null; }   // a datatype's rows have no names to match by
-    if (!head) return stage(m, byPlace(m, grid));
+    if (!head) return stage(m, byPlace(m, grid), file);
     const asked = grid[0].some((h, j) => !head[j] && clean(h));
-    (asked ? ask(m, grid, head) : Promise.resolve(head)).then(h => h && stage(m, byName(m, grid, h)));
+    (asked ? ask(m, grid, head) : Promise.resolve(head)).then(h => h && stage(m, byName(m, grid, h), file));
   }
 
   // The column a heading names: by its title, or its place (Entity Type › Tax Classification); a relation's
@@ -1014,14 +1015,14 @@ const Table = (() => {
   // it there, from the day shown or all along (App.From), and the paste is made from that day, the values it sets
   // with it, as a closing's schedule is; a deletion asks until when, as App.deleting does. Until what's typed there is
   // a day, it isn't made ----
-  function stage(m, r) {
+  function stage(m, r, file = null) {
     if (typeof r === 'string') return Shell.toast(r);
     const x = changeOf(m, r);
-    if (!Object.keys(x.records).length) return Shell.toast(x.skipped ? `Left out ${count(x.skipped, 'value')}` : 'Nothing new to paste');
+    if (!Object.keys(x.records).length) return Shell.toast(x.skipped ? `Left out ${count(x.skipped, 'value')}` : `Nothing new to ${file ? `import from ${file}` : 'paste'}`);
     const made = x.made.map(([, name]) => name), noun = m.noun;
     const added = [x.rows.length && count(x.rows.length, noun), ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
-    const say = [x.values && `Pasted ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
-      .filter(Boolean).join(', ').replace(/^a/, 'A');
+    const say = [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
+      .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
     const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
     // What it does, in the redline's ink, as the bar says it; what's left out, which it doesn't do, plain.
     const ink = t => html`<span class="add">${t}</span>`;
@@ -1031,7 +1032,7 @@ const Table = (() => {
     const recs = { ...App.state.peek(), ...x.records }, asks = x.rows.some(id => App.asksDay(x.records[id], recs)), entered = App.entered.peek();
     // What it's at: the records it writes over, and those it adds at.
     const needs = [...new Set(Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]))].filter(id => id in entered);
-    App.stage({ verb: 'Paste', what: list(added.length ? added : [count(x.values, 'value')]), parts, source: 'paste ' + m.view, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+    App.stage({ verb: file ? 'Import' : 'Paste', what: list(added.length ? added : [count(x.values, 'value')]), parts, source: 'paste ' + m.view, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
       ...(asks && { asks: 'from', day: App.day.peek() }), make: tx => fill(tx, x.records), done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
@@ -1370,6 +1371,7 @@ const Table = (() => {
       <button type="button" class=${'btn ghost dd' + (fs.length ? ' on' : '')} aria-haspopup="menu" onClick=${e => filterMenu(e.currentTarget)}>${fs.length ? html`Filtered by ${list(fs.map(called))}` : 'Filter'}</button>
       ${m.rows === 'date' ? null : html`<button type="button" class=${'btn ghost dd' + (groupC ? ' on' : '')} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? html`Grouped by ${called(groupC)}` : 'Group'}</button>`}
       ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
+      ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
       <span class="tcount">${showing !== total ? `${showing} of ${count(total, m.noun)}` : count(total, m.noun)}</span>
     </div>`;
   }
@@ -1751,6 +1753,26 @@ const Table = (() => {
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     return blob;
   }
+  // Import: a file of rows, Excel's or CSV, read as a paste with a heading row, so its rows are found by their names and
+  // what's new is added, the headings nothing matches asked about, the whole redlined until Enter. A date reads as its
+  // day, whatever format the sheet shows it in.
+  function importFile() {
+    if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.xlsx,.xlsm,.xls,.csv,.tsv,.txt' });
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (!f) return;
+      try {
+        const X = await loadSheetJS(), wb = X.read(await f.arrayBuffer(), { cellNF: true }), ws = wb.Sheets[wb.SheetNames[0]], pad = n => String(n).padStart(2, '0');
+        for (const [k, c] of Object.entries(ws)) if (k[0] !== '!' && c.t === 'n' && c.z && X.SSF.is_date(c.z)) { const d = X.SSF.parse_date_code(c.v); c.w = `${d.y}-${pad(d.m)}-${pad(d.d)}`; }
+        const text = X.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false });
+        if (!text.trim()) return Shell.toast(`${f.name} has no rows`);
+        paste(text, { file: f.name });
+      } catch (e) { Shell.toast(`Couldn’t read ${f.name}`); }
+    };
+    input.click();
+  }
+  Shell.register('action', { id: 'table.import', name: 'Import…', enabled: () => viewOf(Shell.view.peek())?.layout === 'table' && !!real && !real.isDatatype, run: importFile });
   let unexport = null;
   effect(() => {
     const on = viewOf(Shell.view.value)?.layout === 'table';
