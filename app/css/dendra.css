@@ -274,6 +274,8 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .divider:hover, .divider.drag { background: var(--rule-2); }
 .inspector { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--surface); }
 .main.wide .inspector > .host { max-width: 880px; margin: 0 auto; padding-top: 16px; }
+/* The way back from the record's page to the view it was widened over, at its top left, where a page's back is. */
+.inspector > .back { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 2px; margin: 8px 0 0 8px; padding: 0 10px 0 4px; height: 28px; }
 .main.anim { transition: grid-template-columns var(--calm) var(--ease); }
 
 /* The view shown fills it; under it, the window's one bar while a change is pending (App.Pending), over the foot of a
