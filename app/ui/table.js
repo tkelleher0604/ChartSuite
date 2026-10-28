@@ -262,7 +262,6 @@ const Table = (() => {
   const filed = v => { const l = Tree.linkOf(v); return l.folder ? l.folder.split('/').join(' › ') : l.library || l.host || l.short; };
   const YES = /^(yes|y|true|x|✓|✔|1)$/i, NO = /^(no|n|false|0)$/i;
   const meta = cell => cell.getRow().getData()._m[cell.getField()];
-  const LIST = { autocomplete: true, listOnEmpty: true, placeholderEmpty: 'No match', placeholderLoading: '' };   // Tabulator's dropdowns, worded as the shell's menus
 
   function formatter(c) {
     // A tag's box, blank, attested or ruled out; a check's only where it fails.
@@ -288,13 +287,21 @@ const Table = (() => {
   // stays open, marked. Begun by typing, it holds what's typed; by F2, the value with the caret at its end; else the
   // value selected. Ctrl+Enter keeps what's typed in every cell of the range.
   let typed0 = null, atEnd = false;
+  // What's typed in a cell is shown whole, as Excel's is: the field runs on over the cells beside it, never scrolling its
+  // first letters out of sight.
+  function grow(input, cell) {
+    const s = getComputedStyle(input), w = cell.getElement().offsetWidth;
+    ruler.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+    input.style.width = `${Math.max(w, Math.ceil(ruler.measureText(input.value).width + parseFloat(s.paddingLeft) + parseFloat(s.paddingRight) + 4))}px`;
+  }
   const editor = (c, put) => (cell, onRendered, success, cancel) => {
     const input = document.createElement('input');
     input.className = 'typed';
     input.value = typed0 ?? typing(typeOf(c, cell.getRow().getData()), cell.getValue());
     const first = typed0 !== null || atEnd;
     typed0 = null; atEnd = false;
-    onRendered(() => { input.focus(); if (!first) input.select(); else input.setSelectionRange(input.value.length, input.value.length); });
+    input.addEventListener('input', () => grow(input, cell));
+    onRendered(() => { grow(input, cell); input.focus(); if (!first) input.select(); else input.setSelectionRange(input.value.length, input.value.length); });
     let done = false;
     const bad = () => { input.classList.add('bad'); input.setAttribute('aria-invalid', 'true'); return false; };
     const keep = () => {
@@ -314,16 +321,86 @@ const Table = (() => {
     input.addEventListener('blur', () => { if (!keep()) { done = true; cancel(); } });
     return input;
   };
-  // After an edit, the active cell moves as Excel's does, and the grid keeps the keys.
-  function move(d) {
+  // A choice's editor, as Excel's list is validated: what's typed finds its options, those it begins first, the first lit,
+  // and Enter or Tab takes the one lit and moves on, as from text; Ctrl+Enter takes it into every cell of the range. Text
+  // that finds none is never kept: it stays, outlined, "Not an option", till an option is picked or "New option: …", its
+  // own item, never lit of itself, is chosen. A relation's side is one of the objects it can be, and nothing new. Esc puts
+  // it back; leaving keeps only an option named whole, or nothing, which clears it.
+  const chooser = c => (cell, onRendered, success, cancel) => {
+    const input = document.createElement('input'), now = cell.getValue(), was = now === null || now === undefined ? '' : String(now);
+    input.className = 'typed';
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-expanded', 'true');
+    let typing = typed0 !== null;
+    input.value = typed0 ?? was;
+    const caret = typing || atEnd;
+    typed0 = null; atEnd = false;
+    const pop = Object.assign(document.createElement('div'), { className: 'float pick' }), list = Object.assign(document.createElement('div'), { className: 'menu' });
+    list.setAttribute('role', 'listbox');
+    pop.append(list);
+    let done = false, lit = -1, items = [];
+    const options = () => c.type === 'edge' ? objects(current, c) : c.options ?? [];
+    function draw() {
+      const q = clean(input.value), k = norm(q), opts = options();
+      const found = !typing || !q ? opts : [...opts.filter(o => norm(o).startsWith(k)), ...opts.filter(o => !norm(o).startsWith(k) && norm(o).includes(k))];
+      items = found.map(o => ({ label: o, value: o }));
+      const none = !!q && typing && !found.length, fresh = c.type === 'choice' && !!q && typing && !opts.some(o => same(o, q));
+      if (fresh) items.push({ label: `New option: ${q}`, value: q, fresh: true });
+      lit = !typing ? found.findIndex(o => same(o, was)) : found.length ? 0 : -1;
+      input.classList.toggle('bad', none);
+      input.toggleAttribute('aria-invalid', none);
+      paint(none);
+    }
+    function paint(none = input.classList.contains('bad')) {
+      const said = none ? `<div class="menu-none">${c.type === 'choice' ? 'Not an option' : 'No match'}</div>${items.length ? '<div class="menu-sep"></div>' : ''}` : '';
+      list.innerHTML = said + items.map((it, i) => `<div class="menu-item${i === lit ? ' on' : ''}" role="option" aria-selected="${i === lit}" data-i="${i}"><span class="label">${esc(it.label)}</span></div>`).join('');
+      list.querySelector('.menu-item.on')?.scrollIntoView({ block: 'nearest' });
+      const r = cell.getElement().getBoundingClientRect(), h = pop.offsetHeight;
+      Object.assign(pop.style, { left: `${Math.round(r.left)}px`, minWidth: `${Math.round(Math.max(r.width, 200))}px`,
+        top: `${Math.round(r.bottom + 2 + h > innerHeight - 8 && r.top - 2 - h > 8 ? r.top - 2 - h : r.bottom + 2)}px` });
+    }
+    const close = () => { pop.remove(); removeEventListener('scroll', place, true); };
+    const place = () => { if (input.isConnected) paint(); else close(); };
+    // Taken, the cell is written as one typed in is (put), or every cell of the range (fillWith); left blank, it's cleared.
+    const take = (value, then) => { if (done) return; done = true; close(); cancel(); if (then === 'fill') fillWith(cell, value, ranged); else { put(cell, value); if (then) move(then); else back(); } };
+    const leave = () => { if (done) return; done = true; close(); cancel(); back(); };
+    input.addEventListener('input', () => { typing = true; grow(input, cell); draw(); });
+    input.addEventListener('keydown', e => {
+      const q = clean(input.value), it = items[lit], go = e.key === 'Tab' ? (e.shiftKey ? 'left' : 'right') : e.shiftKey ? 'up' : 'down';
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); if (items.length) { lit = lit < 0 ? (e.key === 'ArrowDown' ? 0 : items.length - 1) : (lit + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; paint(); } }
+      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); if (it) take(it.value, 'fill'); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); if (it) take(it.value, go); else if (!q) take('', go); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); leave(); }
+      else if (e.key === 'Home' || e.key === 'End' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.stopPropagation();
+    });
+    input.addEventListener('blur', () => { const q = clean(input.value), o = options().find(x => same(x, q)); if (o !== undefined && !same(o, was)) take(o); else if (!q && was) take(''); else leave(); });
+    // Picked by the pointer, the field keeps the keys till it's taken.
+    list.addEventListener('pointerdown', e => e.preventDefault());
+    list.addEventListener('pointermove', e => { const i = +e.target.closest('.menu-item')?.dataset.i; if (i >= 0 && i !== lit) { lit = i; paint(); } });
+    list.addEventListener('click', e => { const i = +e.target.closest('.menu-item')?.dataset.i; if (i >= 0) take(items[i].value, 'down'); });
+    onRendered(() => {
+      grow(input, cell);
+      document.body.append(pop);
+      draw();
+      addEventListener('scroll', place, true);
+      input.focus();
+      if (caret) input.setSelectionRange(input.value.length, input.value.length); else input.select();
+    });
+    return input;
+  };
+  // After an edit, the active cell moves as Excel's does, and the grid keeps the keys: where the edit built the grid again
+  // (an option new to its column), from the cell it puts back, once that's placed.
+  function move(d, tries = 40) {
     setTimeout(() => {
-      const sr = table?.modules.selectRange;
+      const sr = ready && table?.modules.selectRange;
+      if (table && (!sr || (sr.activeRange && sr.activeRange.start?.row === undefined)) && tries) return move(d, tries - 1);
+      if (tabbed && tabbed.table !== table) tabbed = table?.columnManager.findColumn(tabbed.field) || null;
       if (sr?.activeRange) {
         if (d === 'left' || d === 'right') { tabbed ??= sr.getActiveCell()?.column; step(d); }
         else { const col = d === 'down' ? tabbed : null; tabbed = null; step(d, col); }
       }
       back();
-    }, 0);
+    }, tries < 40 ? 20 : 0);
   }
 
   // ---- The grid ----
@@ -414,9 +491,7 @@ const Table = (() => {
         sorter: sorter(c),
         formatter: formatter(c),
         editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
-        editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? 'list' : editor(c, put),
-        editorParams: c.type === 'choice' ? { ...LIST, values: c.options, freetext: true, allowEmpty: true }
-          : c.type === 'edge' ? () => ({ ...LIST, values: objects(m, c) }) : undefined,
+        editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
     });
@@ -532,7 +607,6 @@ const Table = (() => {
     // reckoning the rows it hasn't drawn from the rows first drawn, before the columns were laid out: rows a
     // narrow first column had wrapped, so the grid ran on three times its rows' height, blank.
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
-    t.on('cellEdited', cell => { const d = columnOf(cell); if (d.type === 'choice' || d.type === 'edge') put(cell, cell.getValue() ?? ''); back(); });
     t.on('cellEditCancelled', () => back());
     t.on('cellClick', (e, cell) => { if (e.target.closest('.tag')) flip(cell); });
     t.on('rangeChanged', () => { soon(); tally(); });
@@ -761,23 +835,14 @@ const Table = (() => {
   }
   // Before Tabulator hears a key, the keys move as Excel's do: with no cell active, a key that moves makes one; Enter
   // and Shift+Enter move down and up, Enter back to the column a run of Tabs began in; Tab and Shift+Tab move across.
-  // Ctrl+Enter, in a dropdown being typed in, keeps what's typed in every cell of the range (a cell typed in keeps it
-  // itself: editor). While a change is pending, Enter is App's, which makes it.
+  // A cell being typed in has the keys itself (editor, chooser). While a change is pending, Enter is App's, which makes it.
   const canEdit = cell => { const d = cell.getColumn().getDefinition(); return !!d.editor && (typeof d.editable !== 'function' || d.editable(cell)); };
   let tabbed = null;   // the column a run of Tabs began in
   let ranged = null;   // the cells selected as a cell began to be typed in, which Tabulator narrows to that cell
   function first(e) {
     if (!table) return;
-    const sr = table.modules.selectRange, editing = table.modules.edit?.currentCell;
-    if (editing) {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.target.classList?.contains('typed')) {
-        e.preventDefault(); e.stopPropagation();
-        const raw = e.target.value ?? '', cell = editing.getComponent(), cs = ranged;
-        cell.cancelEdit();
-        fillWith(cell, raw, cs);
-      }
-      return;
-    }
+    const sr = table.modules.selectRange;
+    if (table.modules.edit?.currentCell) return;
     if (e.target.closest?.('.tabulator-header')) return;
     if (/^(Arrow|Page|Home$|End$|Tab$|Enter$|F2$)/.test(e.key) && !sr?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(true); return; }
     // Alt+Down opens the active cell's column's menu, as it opens a heading's filter in Excel; the cell stays where it is.
@@ -1856,8 +1921,7 @@ const Table = (() => {
     else if (e.key.length === 1 && !mod && !e.altKey && cell.getField()) {
       const c = columnOf(cell);
       if (c.type === 'tag' || App.readOnly.peek() || !canEdit(cell)) return;
-      // A dropdown opens with its field taking the key, so what's typed finds an option.
-      if (c.type === 'choice' || c.type === 'edge') { ranged = cellsOf(); return cell.edit(true); }
+      // What's typed begins the value, or in a choice finds its option.
       typed0 = e.key; ranged = cellsOf();
       e.preventDefault();
       cell.edit(true);

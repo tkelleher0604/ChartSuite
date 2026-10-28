@@ -147,9 +147,9 @@ async function run() {
   check('Entries below entries are columns too, hidden at first', Table.model(ent).cols.some(c => c.path?.join('›') === 'Jurisdiction›File Number' && !c.shown));
   check('Computed cells are italic', $$('.grid .tabulator-cell.fx').length > 0 && $$('.grid .tabulator-cell.fx').every(el => getComputedStyle(el).fontStyle === 'italic'), $$('.grid .tabulator-cell.fx').length);
   check('Tags are checkboxes, green attested and red ruled out', $$('.grid .c-tag .tag.yes').length > 0 && $$('.grid .c-tag .tag.no').length > 0);
-  check('A choice edits as a dropdown of its options', column('Vehicle Type').getDefinition().editor === 'list' && column('Vehicle Type').getDefinition().editorParams.values.includes('Feeder Fund'));
+  const offered = title => Table.model(ent).cols.find(c => c.title === title)?.options ?? [];
+  check('A choice edits as a list of its options', typeof column('Vehicle Type').getDefinition().editor === 'function' && offered('Vehicle Type').includes('Feeder Fund'));
   // A heading's filter, opened from its menu: its values, each a checkbox row.
-  const offered = title => column(title).getDefinition().editorParams.values;
   const filterOf = async title => {
     column(title).getElement().querySelector('.col-menu').click(); await tick();
     item('Filter…').click(); await tick(80);
@@ -194,6 +194,34 @@ async function run() {
   bi.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick();
   undo(); await tick(100);
   check('Undo takes the value back', !(Tree.index(st()).entries.get(halvard) ?? []).some(e => st()[e].edge === 'Short Name'));
+  // A choice never makes an option by accident: Tab or Enter takes the option lit, the first that what's typed begins;
+  // text that finds none stays, outlined, "Not an option", till "New option: …", its own item, is chosen.
+  {
+    const cellOf = title => rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === title);
+    const choiceOf = edge => (Tree.index(st()).entries.get(halvard) ?? []).map(e => st()[e]).find(r => r.edge === edge)?.choice;
+    const typeIn = async (title, text) => { const c = cellOf(title); Table.grid.addRange(c); await tick(); c.edit(true); await tick(); const i = c.getElement().querySelector('input'); i.value = text; i.dispatchEvent(new Event('input', { bubbles: true })); await tick(); return i; };
+    const key = (el, key, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...o }));
+    const lit = () => $('.float.pick .menu-item.on')?.textContent;
+    n0 = N();
+    let i = await typeIn('Entity Type', 'Limited Pa');
+    check('Typed in a choice, its options that begin with it are listed, the first lit', lit() === 'Limited Partnership' && $$('.float.pick .menu-item').at(-1)?.textContent === 'New option: Limited Pa', $$('.float.pick .menu-item').map(x => x.textContent).join());
+    key(i, 'Tab'); await tick(150);
+    check('… and Tab takes the one lit, never what was typed, as one change', choiceOf('Entity Type') === 'Limited Partnership' && N() === n0 + 1 && !$('.float.pick')
+      && !offered('Entity Type').includes('Limited Pa') && Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title === 'Jurisdiction', `${choiceOf('Entity Type')} ${N() - n0}`);
+    undo(); await tick(100);
+    i = await typeIn('Vehicle Type', 'Exempted Co');
+    key(i, 'Enter'); await tick(100);
+    check('Text that finds no option is never kept: it stays in the cell, outlined, "Not an option", with "New option: …" its own item, not lit',
+      N() === n0 + 2 && i.isConnected && i.classList.contains('bad') && $('.float.pick .menu-none')?.textContent === 'Not an option' && !lit() && $('.float.pick .menu-item')?.textContent === 'New option: Exempted Co', `${N() - n0} ${i.className} ${$('.float.pick')?.textContent}`);
+    const row0 = Table.grid.getRows('active').indexOf(rowOf(halvard));
+    key(i, 'ArrowDown'); key(i, 'Enter'); await tick(150);
+    check('… chosen, the new option is the cell’s, and Enter goes down, as from text', choiceOf('Vehicle Type') === 'Exempted Co' && N() === n0 + 3
+      && Table.grid.getRows('active').indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent()) === row0 + 1, `${choiceOf("Vehicle Type")} ${row0} ${Table.grid.getRows("active").indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent())} ${Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title}`);
+    undo(); await tick(100);
+    i = await typeIn('Vehicle Type', 'Exempted Co');
+    key(i, 'Escape'); await tick(100);
+    check('… and Esc leaves it as it was', choiceOf('Vehicle Type') === 'Portfolio Company' && !$('.float.pick') && N() === n0 + 4, choiceOf('Vehicle Type'));
+  }
 
   // A tag's box flips: attested, ruled out, blank.
   const good = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Good Standing');

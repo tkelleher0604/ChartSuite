@@ -135,7 +135,14 @@
 /* A choice reads as a dropdown where it can be changed. */
 .grid .tabulator-row .tabulator-cell.c-choice.tabulator-editable:hover { padding-right: 22px; background: var(--chev) no-repeat right 8px center; }
 
+/* A cell typed in: its field outlined, as wide as what's typed, running on over the cells beside it (table.js). */
+.grid .tabulator-row .tabulator-cell.tabulator-editing { overflow: visible; z-index: 13; box-shadow: none; }
+.grid .tabulator-row .tabulator-cell.tabulator-editing input.typed { position: relative; min-width: 100%; background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent); }
 .grid .tabulator-row .tabulator-cell.tabulator-editing input.bad { box-shadow: inset 0 0 0 2px var(--no); }
+/* A choice's options, under its cell as it's typed in (table.js): the shell's menu, lit on the one Enter takes. */
+.float.pick { z-index: 70; }
+.float.pick > .menu { max-height: 280px; }
+.float.pick .menu-none { color: var(--no); }
 .grid .tabulator-row.tabulator-group { padding: 4px 8px 4px 12px; font: 600 var(--t13); }
 .grid .tabulator-row.tabulator-group:hover { background-image: none; }
 .grid .tabulator-row.tabulator-group span { font-weight: 400; }
