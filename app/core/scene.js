@@ -1748,12 +1748,11 @@ function reach(wb, chart, view, scene, markId, state) {
   };
   const ids = [...(m.type === 'box' ? within(m.record) : Tree.dependents(state, [m.record]))].map(id => [id, treeOf(state, id)]).filter(([, t]) => t);
   const captioned = output => { const k = key(output); return kept.captions.get(k) ?? kept.captions.set(k, captionOf(N, output, view)).get(k); };
-  const out = [];
+  // A record fits only a pattern of its shape.
+  const out = [], byShape = groupBy(ids, ([, t]) => Tree.shapeOf(t));
   scene.styles.forEach((s, order) => {
-    const shape = Tree.shapeOf(s.pattern);
-    for (const [id, t] of ids) {
-      // A record fits only a pattern of its shape.
-      if (Tree.shapeOf(t) !== shape || !Tree.narrower(t, s.pattern)) continue;
+    for (const [id, t] of byShape.get(Tree.shapeOf(s.pattern)) ?? []) {
+      if (!Tree.narrower(t, s.pattern)) continue;
       const output = outputIn(s, t);
       if (!out.some(o => o.style === s.key && key(o.output) === key(output)))
         out.push({ style: s.key, order, record: id, output, caption: captioned(output), name: styleName(N, s.pattern) });

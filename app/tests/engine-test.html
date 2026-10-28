@@ -248,6 +248,11 @@ function theSample() {
     && needs.filter(a => a.kind === 'error').map(a => a.id).sort().join() === failing.sort().join()
     && needs.every(a => a.kind === 'blank' ? !Object.values(R.records).some(r => r.at === a.id && Tree.same(r.edge, a.edge)) : a.kind === 'error' || (R.records[a.id].field === 'date' && (a.kind === 'overdue') === R.records[a.id].value < DAY)),
     ['overdue', 'error', 'soon', 'blank'].map(k => `${count(k)} ${k}`).join(', '));
+  // What's required at a record is kept with its tree while the notes stand: asked again, it says the same; asked with
+  // other notes, it asks them, and with no Required note there's no blank.
+  const again = Formulas.attention(R, N, DAY), unrequired = Notes.index(WB.rows(CHART).filter(r => 'note' in r && r.label !== 'Required'));
+  check('… the same asked again, and asked afresh of other notes: with none required, none blank', JSON.stringify(again) === JSON.stringify(needs)
+    && !Formulas.attention(R, unrequired, DAY).some(a => a.kind === 'blank') && Formulas.attention(R, N, DAY).filter(a => a.kind === 'blank').length === 5);
 }
 
 // ---- The semantics ----

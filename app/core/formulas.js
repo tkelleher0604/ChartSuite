@@ -3536,6 +3536,13 @@ function text(R, v) {
 // entry; and as errors, a record ruled out where a Check note says that's a problem, and every error. Each item is
 // { kind: 'overdue' | 'soon' | 'blank' | 'error', id, edge?, error? }: a blank names its record and edge, and an
 // error from the rows carries itself, as R.errors has it.
+// Whether an entry of a label is required at a record's tree: kept for the tree while the notes stand, as a tree stands
+// while its record does (Tree.treeOf), so it's asked once, not at every change.
+const asked = new WeakMap();
+function requiredAt(N, t, edge) {
+  const byTree = asked.get(N) ?? asked.set(N, new WeakMap()).get(N), m = byTree.get(t) ?? byTree.set(t, new Map()).get(t);
+  return m.get(edge) ?? m.set(edge, N.required({ args: [{ edge, loc: t }] })).get(edge);
+}
 function attention(R, N, day) {
   const recs = R.records, items = [], soon = new Date(day + 'T12:00:00');
   soon.setDate(soon.getDate() + 30);
@@ -3554,7 +3561,7 @@ function attention(R, N, day) {
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);
-      if (has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !N.required({ args: [{ edge: a.edge, loc: t }] })) continue;
+      if (has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
       blank.add(e);
       items.push({ kind: 'blank', id, edge: a.edge });
     }
