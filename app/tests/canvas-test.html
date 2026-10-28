@@ -466,6 +466,57 @@ async function run() {
     Shell.select([]); await show(main);
   }
 
+  // ---- A box's fields (dendra.md, Fields): a click on a text in a box selected already selects it, its inspector row
+  // lit; Delete hides it in this box, one change, which Undo takes back; a row copied and pasted on another box shows
+  // that box's own entry, or a blank of it; Show on chart at a group writes beside its outputs ----
+  {
+    cv().zoom('fit'); await tick(120);
+    const textAt = (box, id) => { const m = sc().byId.get(box), it = m?.texts.find(x => x.id === id), t = it?.look;
+      if (!it) return null;
+      const xs = it.lines.map(l => l.x - (t.Align === 'center' ? l.w / 2 : t.Align === 'right' ? l.w : 0)), y = Math.min(...it.lines.map(l => l.y)) - t.Size * Scene.PT * 0.5;
+      return [m.x + Math.min(...xs) + Math.max(...it.lines.map(l => l.w)) / 2, m.y + y]; };
+    const press = async ([x, y], type = 'click') => {
+      const c = cv().graph.localToGraph(x, y), r0 = cv().root.getBoundingClientRect(), cx = r0.left + c.x, cy = r0.top + c.y, el = document.elementFromPoint(cx, cy);
+      const evs = type === 'click' ? ['mousedown', 'mouseup', 'click'] : ['contextmenu'];
+      for (const t of evs) el?.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: type === 'click' ? 0 : 2, buttons: t === 'mousedown' ? 1 : 0, view: window }));
+      await tick(120);
+    };
+    Shell.select(['fund']); await tick(200);
+    const at = textAt('fund', 'fund_juris');
+    if (at) await press(at);
+    check('a click on a text in a box selected already selects it as a field, and lights its row in the inspector', cv().field()?.it.id === 'fund_juris' && !!$('.insp .row.lit[data-key="fund_juris"]'),
+      `${cv().field()?.it.id}; lit ${$$('.insp .row.lit').map(r => r.dataset.key)}`);
+    const changes = App.shown.peek().changes().length;
+    cv().root.focus(); key('Delete'); await tick(250);
+    const hid = App.notes.peek().notes('Shown').find(n => n.view === Shell.view.peek() && Tree.key(n.pattern) === Tree.key({ args: [{ edge: 'Jurisdiction', loc: { id: 'fund', kind: 'Entity' } }] }));
+    check('Delete hides it in this box: a Shown note at its entry’s pattern, at the box, one change', hid?.value === false && !sc().byId.get('fund').texts.some(it => it.id === 'fund_juris')
+      && App.shown.peek().changes().length === changes + 1 && sc().byId.get('aiv').texts.some(it => it.text === '(Delaware)'), `${hid?.value}; ${changes} → ${App.shown.peek().changes().length}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    check('… and Undo takes it back whole', sc().byId.get('fund').texts.some(it => it.id === 'fund_juris'));
+    // A row copied: Ctrl+C on its label in the inspector, then Ctrl+V on another box.
+    const copy = new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: new DataTransfer() });
+    const row = $('.insp .row[data-key="fund_juris"]');
+    row.tabIndex = -1; row.focus(); row.dispatchEvent(copy);
+    const held = copy.clipboardData.getData('text/plain');
+    Shell.select(['chen']); await tick(200); cv().root.focus();
+    const dt = new DataTransfer(); dt.setData('text/plain', held);
+    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt })); await tick(300);
+    const pasted = sc().byId.get('chen')?.texts.find(it => it.blank);
+    check('a row copied and pasted on a box of another kind shows that entry there, blank, to type into', held === 'Delaware' && pasted?.blank.edge === 'Jurisdiction', `${held}; ${sc().byId.get('chen')?.texts.map(it => it.text)}`);
+    Shell.parts.peek().undo.undo(); await tick(200);
+    // Show on chart, at the scope chosen in the format bar: a group of Vehicle Type writes beside its outputs.
+    Shell.select(['fund']); await tick(200);
+    $('[data-fb="scope"]').click(); await tick(120);
+    $$('.float .menu-item').find(e => /^Funds \(\d+\)/.test(txt(e)))?.click(); await tick(150);
+    const eye = $('.insp .row[data-key="fund_ein"] .onchart');
+    eye?.click(); await tick(300);
+    const beside = App.notes.peek().notes('Shown').filter(n => n.param === 'EIN' && n.view === Shell.view.peek());
+    check('Show on chart with a group chosen shows the entry in every box of the group, a Shown note beside each of its outputs, one change',
+      beside.length >= 2 && beside.every(n => n.pattern.args?.[0].edge === 'Vehicle Type') && sc().byId.get('feeder').texts.some(it => it.text === '98-1702264'), `${beside.length} notes; ${chip()}`);
+    Shell.parts.peek().undo.undo(); await tick(200);
+    Shell.select([]); await tick(120);
+  }
+
   // ---- Tidy: pointed at, the chart is drawn tidied and nothing changes; made, it's one change, named so
   // everywhere, and the view is framed on its page again ----
   const tidyBtn = $('[data-fb="tidy"]'), made = App.wb.changes().length, base = () => App.scene.peek();

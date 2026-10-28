@@ -49,6 +49,20 @@ button.lk.muted { color: var(--ink-3); }
 .grip > svg { width: 14px; height: 14px; }
 .row:hover > .grip, .grip:focus-visible { opacity: 1; }
 .grip:hover { color: var(--ink); background: var(--hover); }
+/* An entry as a field on the chart: lit while its field there is pointed at or selected; and at its end, Show on chart,
+   a quiet eye where it's shown in this box, and on hover a way to show or hide it. Dragged, its name follows the
+   pointer over the chart. */
+.row.lit { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); }
+.btn.onchart { position: absolute; right: 1px; top: 4px; width: 18px; height: 20px; padding: 0; border: 0; color: var(--ink-3); background: none; opacity: 0; }
+.btn.onchart[aria-pressed="true"], .btn.onchart:hover { background-image: none; }
+.onchart > svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+.onchart:not(.on) > svg > circle { opacity: .35; }
+.row:hover > .onchart, .onchart:focus-visible { opacity: 1; }
+.onchart.on { opacity: .55; }
+.row:hover > .onchart.on { opacity: 1; color: var(--accent); }
+.onchart:hover { color: var(--ink); }
+.row:has(> .onchart) .btn.ver:not(.due) { right: 13px; }
+.drag-field { position: fixed; z-index: 100; padding: 3px 8px; border-radius: var(--r); background: var(--accent); color: var(--on-accent); font: var(--t12); pointer-events: none; box-shadow: var(--shadow-pop); }
 .ent { position: relative; }
 i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border-radius: 50%; background: var(--due); vertical-align: 2px; }
 /* A tag: a checkbox row, its box and then its name across both columns, as the two-box panel draws one; its

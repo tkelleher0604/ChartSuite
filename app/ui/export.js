@@ -80,9 +80,10 @@ const stroke = (s, w = s.Weight) => none(s.Outline) ? 'stroke="none"'
   : `stroke="${s.Outline}" stroke-width="${n(w * PT)}"${Scene.dash(s.Dash, w) ? ` stroke-dasharray="${Scene.dash(s.Dash, w)}"` : ''}${s.Dash === 'dotted' ? ' stroke-linecap="round"' : ''}`;
 const body = (shape, w, h, s) => `<path d="${Scene.path(shape, w, h)}" fill="${none(s.Fill) ? 'none' : s.Fill}" ${stroke(s)} stroke-linejoin="miter"/>`;
 const g = (x, y, inner) => `<g transform="translate(${n(x)} ${n(y)})">${inner}</g>`;
-// Each line of the texts where the scene put it; an underline as a rule, which every reader draws alike.
+// Each line of the texts where the scene put it; an underline as a rule, which every reader draws alike. A blank
+// field's room is kept, empty: its name is the canvas's alone (dendra.md, Fields).
 function texts(items, pdf) {
-  return items.map(it => {
+  return items.filter(it => !it.blank).map(it => {
     const t = it.look, size = t.Size * PT, anchor = ANCHOR[t.Align] ?? 'middle';
     const font = `font-family="${esc(pdf ? STANDARD(t.Font) : Scene.fontFamily(t.Font))}" font-size="${n(size)}" font-weight="${t.Bold ? 'bold' : 'normal'}" font-style="${t.Italic ? 'italic' : 'normal'}"`;
     return it.lines.map(l => `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="${anchor}" ${font} fill="${t.Color}">${esc(l.text)}</text>`
@@ -259,7 +260,8 @@ function txBody(items, k, anchor, inset) {
     const rPr = `<a:rPr lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''} dirty="0">`
       + `<a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
     const hang = it.hang ? ` marL="${E(it.hang * k / 96)}" indent="${-E(it.hang * k / 96)}"` : '';
-    return typed(it).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${hang}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * k * 100)}"/></a:lnSpc></a:pPr>`
+    // A blank field keeps its lines' room, each an empty paragraph.
+    return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${hang}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * k * 100)}"/></a:lnSpc></a:pPr>`
       + ls.map(l => `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`) + `<a:endParaRPr lang="en-US" sz="${sz}" dirty="0"/></a:p>`);
   });
   const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(inset)}"`).join('');

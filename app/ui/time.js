@@ -352,6 +352,9 @@ const Time = (() => {
     switch (n.label) {
       case 'Order': return isView ? 'Reordered the views' : n.view ? `Reordered ${N.nameOf(recs, n.view)}` : `Reordered ${of}`;
       case 'Shown': return gone ? `Reset ${of}${inView}` : `${n.value === false ? 'Hid' : 'Showed'} ${of}${inView}`;
+      // A free text (dendra.md, Fields), in a box or a group's, by whose it is.
+      case 'Text': { const whose = one ? of : n.view ? grouped(N, n) ?? of : of;
+        return gone || !n.value?.text ? `Removed the text from ${whose}${inView}` : i.was.length ? `Edited the text of ${whose}${inView}` : `Added text to ${whose}${inView}`; }
       case 'Position': return gone ? `Reset the position of ${of}${inView}` : `Moved ${of}${inView}`;
       case 'Formula': return gone ? `Deleted the formula of ${of}` : i.was.length ? `Changed the formula of ${of}` : `Defined ${of}`;
       case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? (Tree.same(of, n.value) ? `Named ${n.value}` : `Named ${of} ${n.value}`)

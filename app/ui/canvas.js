@@ -17,6 +17,8 @@ Graph.registerConnector('runs', (s, t, route, { runs }) => runs.map(r => r.map((
 
 const active = signal(null);
 const zoomLevel = signal(1);
+// The field pointed at or selected on the chart, by its row's key in the inspector, which lights that row.
+const fieldLit = signal(null);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
 const UNMARKED = new Set(['page', 'label', 'ink']);
@@ -49,9 +51,65 @@ function kinds(scene = App.scene.peek()) {
 // The kind last added, while it can be; or the most drawn.
 const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return ks.includes(k) ? k : ks[0]; };
 
+// ---- Groups and the scope (dendra.md, Fields) ----
+// What each style reaches in a scene, by its output: the marks a record of it is in or at.
+const reached = new WeakMap();
+function reachOf(sc) {
+  let by = reached.get(sc);
+  if (by) return by;
+  reached.set(sc, by = new Map());
+  for (const m of sc.marks) if ((m.type === 'box' || m.type === 'line') && !m.revealed)
+    for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
+      (by.get(Tree.key(r.output)) ?? by.set(Tree.key(r.output), { output: r.output, marks: new Set() }).get(Tree.key(r.output))).marks.add(m.id);
+  return by;
+}
+// The groups a mark is in, as the Key and Styles call them (Scene.groupsOf), each with the marks it reaches, the
+// fewest first; or, where no style reaches it, its kind's, or its relation's: every box of its kind, every line alike.
+function groupsAt(sc, m) {
+  const by = reachOf(sc), st = App.state.peek(), out = [];
+  for (const g of Scene.groupsOf(App.notes.peek(), sc.view)) {
+    const marks = new Set(g.outputs.flatMap(p => [...by.values()].filter(o => Tree.narrower(o.output, p)).flatMap(o => [...o.marks])));
+    if (marks.has(m.id)) out.push({ caption: g.caption, outputs: g.outputs, marks });
+  }
+  if (!out.length) {
+    const r = st[m.record], t = Tree.treeOf(st, m.record);
+    const p = !r || !t ? null : Tree.isObject(r) ? { kind: r.kind } : Tree.bare(Tree.specOf(t));
+    const like = p && sc.marks.filter(x => x.type === m.type && !x.revealed && Tree.treeOf(st, x.record) && Tree.narrower(Tree.treeOf(st, x.record), p));
+    if (like?.length) out.push({ caption: Tree.isObject(r) ? Tree.plural(r.kind) : Tree.plural(App.notes.peek().name(p)), outputs: [p], marks: new Set(like.map(x => x.id)) });
+  }
+  return out.sort((a, b) => a.marks.size - b.marks.size);
+}
+// The scope a field or a free text goes to: the format bar's, This box, each mark's own record, or a group, at each of
+// its outputs. Read from the bar's own call where it has one, or else from its chip. → { own: true } or { outputs, caption }
+function scopeNow(c = active.peek()) {
+  const s = typeof FormatBar !== 'undefined' && FormatBar.scope?.();
+  if (s) return s.outputs?.length ? s : { own: true };
+  const chip = document.querySelector('.fb [data-fb="scope"]'), sc = c?.scene(), m = c?.selected()[0];
+  if (!chip || chip.classList.contains('own') || !sc || !m) return { own: true };
+  const said = chip.textContent.trim();
+  return groupsAt(sc, m).find(g => said.startsWith(`${g.caption} (`)) ?? { own: true };
+}
+// A group, as the scope's chip names it: all of what its Key row calls it, and how many it reaches.
+const named = s => `all ${s.caption}${s.marks ? ` (${s.marks.size})` : s.n ? ` (${s.n})` : ''}`;
+// The boxes a group of a field's own entry reaches (Jurisdictions: Jurisdiction at no kind) are where the entry is: the
+// object it's at, through the entries it's in, the scope a field of it is shown or hidden at.
+function scopeAt(p, edge) {
+  if (!(p.args?.length === 1 && !p.out && Tree.same(p.args[0].edge, edge))) return p;
+  for (p = p.args[0].loc; p.args?.length === 1 && !p.out; p = p.args[0].loc);
+  return p;
+}
+// A field's pattern at a scope's pattern p, in the mark whose record has tree `rec`: the entry's own, each step bare, with
+// that record put as p, where it fits p; or else, the field beside p in the boxes p reaches, p with the field's label as
+// its param. → [pattern, param]
+function fieldAt(t, rec, p, edge) {
+  const put = x => x === rec ? p : x.args ? { args: x.args.map(a => ({ edge: a.edge, loc: put(a.loc) })) } : x;
+  return Tree.narrower(rec, p) ? [put(t), undefined] : [p, edge];
+}
+
 // Where a w × h shape can go on a scene's page: the nearest place to `near` (its middle) clear of every box,
-// frame, shape, label and line, on a grid; with `bands`, clear of the chart too, in the page's bands above,
-// below or beside it. Where the page has no such place, just below everything, and the page grows to hold it.
+// frame, shape and label by `gap`, and of every line by a lane's width either side, so nothing new is ever drawn on
+// a line or reads as on it, on a grid; with `bands`, clear of the chart too, in the page's bands above, below or beside
+// it. Where the page has no such place, just below everything, and the page grows to hold it.
 function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
   const page = scene.page, m = page.margin, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
   const take = (x, y, r, d) => Object.assign(chart, { x: Math.min(chart.x, x), y: Math.min(chart.y, y), r: Math.max(chart.r, r), d: Math.max(chart.d, d) });
@@ -65,7 +123,7 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
       if (k.type !== 'shape') take(k.x, k.y, k.x + k.w, k.y + k.h);
     }
   }
-  const g = gap / 2;
+  const g = Math.max(gap, 24);
   const clear = (x, y) => !(bands && x < chart.r + gap && x + w + gap > chart.x && y < chart.d + gap && y + h + gap > chart.y)
     && !rects.some(r => x < r.x + r.w + gap && x + w + gap > r.x && y < r.y + r.h + gap && y + h + gap > r.y)
     && !segs.some(([a, b]) => Math.max(a[0], b[0]) >= x - g && Math.min(a[0], b[0]) <= x + w + g && Math.max(a[1], b[1]) >= y - g && Math.min(a[1], b[1]) <= y + h + g);
@@ -78,13 +136,14 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
 
 // ---- Drawing: each mark as X6 cells ----
 
-// A text; `faint`, in a box drawn only while it's asked about.
+// A text; `faint`, in a box drawn only while it's asked about. A blank field is its entry's name, faint, the canvas's
+// alone (dendra.md, Fields).
 function textMarkup(it, red, faint) {
-  const t = it.look, tone = c => red === 'appear' ? BLUE : red === 'go' ? RED : c;
+  const t = it.blank ? { ...it.look, Color: BLANK, Bold: false, Underline: false } : it.look, tone = c => red === 'appear' ? BLUE : red === 'go' ? RED : c;
   return {
     tagName: 'text', attrs: {
       'font-family': Scene.fontFamily(t.Font), 'font-size': px(t.Size), 'font-weight': t.Bold ? 700 : 400,
-      'font-style': t.Italic || it.computed ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
+      'font-style': t.Italic || it.computed || it.blank ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
     },
     children: it.lines.map(l => {
       const r = l.red ?? it.redline ?? red;
@@ -118,6 +177,8 @@ const widthOf = (ps, w, start, end) => {
 // How strongly a mark the view hides is drawn while it's asked about. A box keeps its fill, so no line
 // behind it shows through its name.
 const FAINT = 0.55;
+// A blank field's name: a placeholder's grey, on the page's white.
+const BLANK = '#a3a8ad';
 
 // A cell in two parts, as JSON: where it is, which moving it changes, each of its keys apart; and what it is. A
 // line's `form` is what it is less its attributes' values: which it sets, and how, which setting its attributes again
@@ -232,6 +293,8 @@ function mount(el) {
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   let pointing = false, hold = false;
+  // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
+  let field = null, hovered = null, litKey = null, dropOn = null;
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
   const still = () => App.readOnly.peek();
@@ -332,6 +395,8 @@ function mount(el) {
     syncSelection();
     paintStates();
     seek();
+    // A field's name said on hover goes as the chart is drawn again, which may have moved it.
+    tipFor(null);
   }
   // The graph's cells made these. Each is kept by what it's drawn from, in two parts, where it is (a node's
   // place, size and stacking, a line's route) and what it is (its markup, attributes and data): one that only
@@ -479,6 +544,8 @@ function mount(el) {
   const pick = keys => { picked = keys; Shell.select(keys); };
   const stopSel = effect(() => {
     const keys = Shell.selection.value;
+    // A field is of its mark selected alone.
+    if (field && !(keys.length === 1 && keyParts(keys[0])[0] === field.box)) field = null;
     if (!scene || syncing) return;
     syncSelection(); paintStates();
     wanted = same(keys, picked) ? null : keys;
@@ -518,8 +585,14 @@ function mount(el) {
 
   // A click on the page clears the selection, and a drag across it is the marquee; a click on a line's
   // label is a click on its line; a second click on a legend selects the row under it.
+  // What a press found, for the click and the double-click after it: the mark, whether it was selected already, and
+  // where; `twice`, the first press of a double-click's.
+  let down = null, twice = null;
   graph.on('node:mousedown', ({ e, node }) => {
-    const k = node.getData()?.kind;
+    const k = node.getData()?.kind, id = k === 'label' ? node.getData().mark : node.id, cell = graph.getCellById(id), t = performance.now();
+    const now = { id, selected: !!cell && sel.isSelected(cell), x: e.clientX, y: e.clientY, t };
+    twice = down && down.id === id && t - down.t < 500 ? down : now;
+    down = now;
     pressed = null;
     root.focus({ preventScroll: true });
     if (k === 'page') { if (e.button === 0) { if (!e.shiftKey) sel.clean(); sel.startRubberband(e); } return; }
@@ -531,6 +604,13 @@ function mount(el) {
   graph.on('node:click', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (hold) return;
+    // A click on a field of a mark already selected selects the field; on its own room, the mark again.
+    const atRest = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 4;
+    if ((k === 'box' || k === 'label') && atRest && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const f = fieldUnder(e.clientX, e.clientY);
+      if (down.selected && f?.it) { pickField(f); if (k === 'label') return; }
+      else pickField(null);
+    }
     if (k === 'label') {
       const line = graph.getCellById(node.getData().mark);
       if (line) { pressed = { id: line.id }; if (e.shiftKey) sel.isSelected(line) ? sel.unselect(line) : sel.select(line); else sel.reset(line); pressed = null; }
@@ -654,6 +734,49 @@ function mount(el) {
     const id = target?.closest?.('[data-text]')?.getAttribute('data-text');
     return m.texts?.find(it => it.id === id) ?? m.texts?.find(it => Tree.isField(App.state.peek()[it.id] ?? {})) ?? m.texts?.[0];
   }
+  // A field typed over, in a box or on a line's label: a value, as entered; an option, from its list; a tag, ticked or
+  // ruled out; a blank, its record made as it's typed; a free text, its words, {Entry} and all (see Fields).
+  function editField(m, it, typed) {
+    if (!it || still()) return;
+    // What's typed in is the field selected, so Tab goes on from it and its row stays lit.
+    if (isField(it)) field = { box: m.id, id: it.id };
+    if (it.free) return writeText(m, it, typed);
+    const st = App.state.peek(), r = it.blank ? null : st[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
+    if (!kind || kind.type === 'object' || (r && r.args)) return;
+    const rect = fieldRect(m, it), at = graph.localToGraph(rect.x, rect.y + rect.h), box = root.getBoundingClientRect(), menuAt = { x: box.left + at.x, y: box.top + at.y + 2 };
+    // The record, or a blank's: typed over where it's worked out, as the inspector enters one.
+    // A blank of an entry its record's kind hasn't yet gives the kind the entry, as the inspector's Add does.
+    const put = out => App.change(tx => {
+      if (r && !r.computed) return tx.update(it.id, out);
+      const at = r?.at ?? it.blank.at, edge = r?.edge ?? it.blank.edge, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
+      if (it.blank && !App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
+      tx.add('record', { at, edge, ...out });
+    });
+    // A menu under the field, from which Tab goes on to the next field, as from one typed in.
+    const picker = (items, o = {}) => {
+      let close = null;
+      const tabbed = e => { if (e.key !== 'Tab') return; e.preventDefault(); e.stopPropagation(); close?.(); stepField(e.shiftKey ? -1 : 1, true); };
+      addEventListener('keydown', tabbed, true);
+      close = Shell.menu(menuAt, items, { ...o, onClose: () => removeEventListener('keydown', tabbed, true) });
+    };
+    // An option is picked from its list, which what's typed narrows; one typed that isn't on it is a new option.
+    if (kind.type === 'choice') {
+      const now = r?.choice, opts = optionsOf(r ? r.at : it.blank.at, r ? r.edge : it.blank.edge);
+      const items = q => {
+        const k = Tree.norm(q ?? ''), xs = opts.filter(o => Tree.norm(o).includes(k)).map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => !(now && Tree.same(o, now)) && put({ choice: o }) }));
+        return k && !opts.some(o => Tree.same(o, q)) ? [...xs, ...(xs.length ? ['-'] : []), { label: `New option: ${Tree.clean(q)}`, run: () => put({ choice: Tree.clean(q) }) }] : xs;
+      };
+      return picker(items, { search: true, query: typed ?? '' });
+    }
+    if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
+      { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
+    const raw = r ? Tree.format(r.field, r.value) : '';
+    openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, text => {
+      const v = Tree.parse(kind.datatype ?? Tree.classify(text), text);
+      if (v === undefined || Tree.clean(text) === '' || (r && v === r.value)) return;
+      put({ field: kind.datatype ?? Tree.classify(text), value: v });
+    }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true) });
+  }
   function edit(key, target, typed) {
     const [id, rowKey] = keyParts(key);
     const m = scene.byId.get(id);
@@ -663,17 +786,9 @@ function mount(el) {
     const view = viewOf(), N = App.notes.peek();
     // A caption typed as the output's own name is no caption.
     const caption = (tx, p, text) => { const c = Tree.clean(text); tx.note('Caption', p, c && c !== Scene.outputName(N, p) ? c : undefined, { view }); };
-    if (m.type === 'box') {
+    if (m.type === 'box' || (m.type === 'line' && m.texts?.length)) {
       it = textAt(m, target);
-      const r = it && App.state.peek()[it.id];
-      if (!r || !(Tree.isField(r) || Tree.isChoice(r))) return;
-      raw = Tree.isField(r) ? Tree.format(r.field, r.value) : r.choice;
-      rect = { x: m.x, y: m.y + Math.min(...it.lines.map(l => l.y)) - px(it.look.Size), w: m.w, h: it.lines.length * px(it.look.Size) * 1.2 + 4 };
-      save = text => {
-        const v = Tree.isField(r) ? Tree.parse(r.field, text) : Tree.clean(text);
-        if (v === undefined || v === '' || v === (Tree.isField(r) ? r.value : r.choice)) return;
-        App.change(tx => tx.update(it.id, Tree.isField(r) ? { value: v } : { choice: v }));
-      };
+      return editField(m, it?.free || it?.blank || App.state.peek()[it?.id]?.edge !== undefined ? it : m.texts.find(x => App.state.peek()[x.id]?.edge !== undefined) ?? it, typed);
     } else if (m.type === 'frame') {
       it = m.caption;
       rect = { x: m.x, y: m.y, w: Math.max(160, m.w), h: m.label + 8 };
@@ -706,14 +821,15 @@ function mount(el) {
   // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't (but does
   // what `escaped` says), and leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`:
   // a new box of a kind.
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null } = {}) {
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null } = {}) {
     over.querySelector('.dc-edit')?.remove();
+    tipFor(null);
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
     const ed = document.createElement('div');
-    ed.className = 'dc-edit' + (grow ? ' grow' : '') + (box ? ' new' : '');
+    ed.className = 'dc-edit' + (grow ? ' grow' : '') + (box || ph ? ' new' : '');
     ed.contentEditable = 'plaintext-only';
     ed.spellcheck = false;
-    if (box) ed.dataset.ph = box;
+    if (box || ph) ed.dataset.ph = box ?? ph;
     Object.assign(ed.style, { left: `${p.x}px`, top: `${p.y}px`, [grow ? 'minWidth' : 'width']: `${rect.w * z}px`, minHeight: `${rect.h * z}px`,
       font: `${t.Bold ? 700 : 400} ${t.Italic ? 'italic' : ''} ${size}px/${1.2} ${Scene.fontFamily(t.Font)}`, textAlign: t.Align ?? 'center', color: t.Color,
       padding: box ? `${Math.max(0, (rect.h * z - size * 1.2) / 2)}px ${9.6 * z}px` : `${2 * z}px ${7.2 * z}px` });
@@ -726,17 +842,79 @@ function mount(el) {
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
     let done = false;
-    const finish = ok => { if (done) return; done = true; const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else escaped?.(); };
+    const list = complete && completing(ed, complete);
+    const finish = ok => { if (done) return; done = true; list?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else escaped?.(); };
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
+      if (list?.key(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); finish(false); }
       else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true); }
+      // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
+      else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
     });
     ed.addEventListener('blur', () => finish(true));
+    return ed;
+  }
+  // Typing `{` in a free text offers the record's entries, as a form letter's fields: the list narrows as the name is
+  // typed, the arrows move in it, and Enter or Tab puts `{Entry}` in; Esc, or a key that isn't in a name, leaves it.
+  // `labels`, the entries to offer.
+  function completing(ed, labels) {
+    const pane = document.createElement('div');
+    pane.className = 'dc-complete';
+    pane.setAttribute('role', 'listbox');
+    pane.hidden = true;
+    over.appendChild(pane);
+    let items = [], at = 0, from = -1;
+    const before = () => { const s = getSelection(); if (!s.rangeCount || !ed.contains(s.focusNode)) return null; const r = document.createRange(); r.selectNodeContents(ed); r.setEnd(s.focusNode, s.focusOffset); return r.toString(); };
+    const caret = n => { const w = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT); for (let x; (x = w.nextNode());) { if (n <= x.length) return getSelection().collapse(x, n); n -= x.length; } getSelection().collapse(ed, ed.childNodes.length); };
+    const draw = () => {
+      pane.replaceChildren(...items.map((l, i) => { const o = document.createElement('div'); o.className = 'menu-item' + (i === at ? ' on' : ''); o.setAttribute('role', 'option'); o.textContent = l;
+        o.addEventListener('pointerdown', e => { e.preventDefault(); at = i; put(); }); return o; }));
+      const r = ed.getBoundingClientRect(), b = over.getBoundingClientRect();
+      Object.assign(pane.style, { left: `${r.left - b.left}px`, top: `${r.bottom - b.top + 2}px` });
+    };
+    const close = () => { pane.hidden = true; from = -1; };
+    const look = () => {
+      const s = before(), m = s && /\{([^{}\n]*)$/.exec(s);
+      if (!m) return close();
+      from = s.length - m[0].length;
+      const q = m[1].toLowerCase();
+      items = labels.filter(l => l.toLowerCase().includes(q)).sort((a, b) => !a.toLowerCase().startsWith(q) - !b.toLowerCase().startsWith(q));
+      at = Math.min(at, Math.max(0, items.length - 1));
+      pane.hidden = !items.length;
+      if (items.length) draw();
+    };
+    function put() {
+      const s = before() ?? '', all = ed.innerText.replace(/\n$/, ''), word = `{${items[at]}}`, rest = all.slice(s.length).replace(/^[^{}\s]*\}?/, '');
+      ed.textContent = all.slice(0, from) + word + rest;
+      caret(from + word.length);
+      close();
+    }
+    ed.addEventListener('input', () => { at = 0; look(); });
+    ed.addEventListener('click', look);
+    return {
+      close() { pane.remove(); },
+      key(e) {
+        if (pane.hidden) return false;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { at = (at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length; draw(); }
+        else if (e.key === 'Enter' || e.key === 'Tab') put();
+        else if (e.key === 'Escape') close();
+        else return false;
+        e.preventDefault();
+        return true;
+      },
+    };
   }
   graph.on('node:dblclick', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (k === 'page') return addAt(e);
+    // A field double-clicked is typed in, a line's label's too; the room of a box that was selected already starts
+    // a free text there.
+    if (k === 'box' || k === 'label') {
+      const f = fieldUnder(e.clientX, e.clientY);
+      if (f?.it) { pickField(f); return editField(f.m, f.it); }
+      if (k === 'box' && twice?.selected && twice.id === node.id && !still()) return writeText(scene.byId.get(node.id));
+    }
     if (UNMARKED.has(k)) return;
     const g = groupOf(node.id);
     if (g) { entered = g.id; sel.reset(node); }
@@ -744,6 +922,211 @@ function mount(el) {
     edit(m?.geometry === 'legend' && keyRow() ? Shell.selection.peek()[0] : node.id, e.target);
   });
   graph.on('blank:dblclick', ({ e }) => addAt(e));
+
+  // ---- Fields: a box's texts as a form's (dendra.md, Fields) ----
+  // Each text in a box, or on a line's label, that's an entry, a blank or a free text is a field. Pointed at, it's
+  // outlined quietly, with the text pointer and its entry's name; a click on one in a mark already selected selects it,
+  // as a second click into a PowerPoint shape goes into its text; a double-click, F2, Enter or a key typed edits it in
+  // place. Selected, Delete hides it at the scope, Ctrl+C copies it, and a right-click offers what applies. Its row in
+  // the inspector lights with it, and pointing at the row lights it here. Showing or hiding one is a Shown note at the
+  // entry's pattern at the scope; a free text is a Text note there; each act is one change.
+  const st = () => App.state.peek();
+  const isField = it => !!it && (it.blank || it.free || st()[it.id]?.edge !== undefined);
+  // A text's rect on the page, as the scene sets its lines in its mark.
+  function fieldRect(m, it) {
+    const o = m.type === 'line' ? m.labelAt ?? { x: 0, y: 0 } : m, t = it.look, lh = px(t.Size) * 1.2;
+    const xs = it.lines.map(l => l.x - (t.Align === 'center' ? l.w / 2 : t.Align === 'right' ? l.w : 0));
+    return { x: o.x + Math.min(...xs), y: o.y + Math.min(...it.lines.map(l => l.y)) - px(t.Size) * 0.93, w: Math.max(1, ...it.lines.map(l => l.w)), h: it.lines.length * lh };
+  }
+  // The field under a point on screen: of the topmost box there, or line label, the text within a few pixels of it, or
+  // null for the box's own room. → { m, it } or null.
+  function fieldUnder(cx, cy) {
+    if (!scene) return null;
+    const p = graph.clientToLocal(cx, cy), pad = 3 / graph.zoom();
+    const inside = (r, d = 0) => p.x >= r.x - d && p.x <= r.x + r.w + d && p.y >= r.y - d && p.y <= r.y + r.h + d;
+    for (let i = scene.marks.length - 1; i >= 0; i--) {
+      const m = scene.marks[i];
+      if (m.type === 'box' ? !inside(m) : !(m.type === 'line' && m.labelAt && m.label && inside({ ...m.labelAt, w: m.label.w, h: m.label.h }, pad))) continue;
+      // The text the point is on, or else the one it's within a few pixels of.
+      const it = m.texts.find(x => x.lines?.length && inside(fieldRect(m, x))) ?? m.texts.find(x => x.lines?.length && inside(fieldRect(m, x), pad));
+      return { m, it: isField(it) ? it : null };
+    }
+    return null;
+  }
+  // Where a field's row is in the inspector: its record's, or a blank's place there.
+  const rowKey = it => !it ? null : it.blank ? `${it.blank.at}|${Tree.norm(it.blank.edge)}` : it.free ? null : it.id;
+  const fieldName = it => it.blank ? it.blank.edge : it.free ? 'Text' : st()[it.id]?.edge ?? '';
+  // The field selected, as the scene now draws it; a blank typed into, its record now; null once it isn't drawn.
+  const filled = (m, id) => { const [at, edge] = id.slice(6).split('|'); return m?.texts?.find(x => st()[x.id]?.at === at && Tree.same(st()[x.id].edge, edge)); };
+  const fieldNow = () => {
+    const m = field && scene?.byId.get(field.box), it = m?.texts?.find(x => x.id === field.id) ?? (field?.id.startsWith('blank:') ? filled(m, field.id) : null);
+    if (it && it.id !== field.id) field = { ...field, id: it.id };
+    return it ? { m, it } : null;
+  };
+  // A field's outline, drawn over the chart: pointed at, quiet; selected, the accent's; lit from the inspector, its row
+  // pointed at; and a box a row is dragged over, as the drop's target.
+  function paintFields() {
+    marks.querySelectorAll('.dc-field').forEach(n => n.remove());
+    if (!scene) return;
+    const draw = (r, cls, pad = 2) => {
+      const p = document.createElementNS(NS, 'rect');
+      Object.entries({ x: r.x - pad, y: r.y - pad, width: r.w + 2 * pad, height: r.h + 2 * pad, rx: 1.5, class: `dc-field ${cls}` }).forEach(([k, v]) => p.setAttribute(k, v));
+      marks.appendChild(p);
+    };
+    const f = fieldNow();
+    if (!f && field) field = null;
+    if (f) draw(fieldRect(f.m, f.it), 'on');
+    const h = hovered && scene.byId.get(hovered.box)?.texts?.find(x => x.id === hovered.id);
+    // What was pointed at and is drawn no longer (a blank typed into) is pointed at no longer, till the pointer moves.
+    if (hovered && !h) { hovered = null; tipFor(null); root.classList.remove('on-field'); }
+    if (h && hovered.id !== field?.id) draw(fieldRect(scene.byId.get(hovered.box), h), 'hover');
+    if (litKey) for (const m of scene.marks) for (const it of m.texts ?? []) if (rowKey(it) === litKey && it.lines?.length) draw(fieldRect(m, it), 'lit');
+    const d = dropOn && scene.byId.get(dropOn);
+    if (d) draw(d, 'drop', 4);
+    fieldLit.value = rowKey((h && hovered ? h : null) ?? fieldNow()?.it) ?? null;
+  }
+  // Its entry's name, on hover, a moment after the pointer stops on it, as a tooltip shows.
+  const tip = document.createElement('div');
+  tip.className = 'dc-tip';
+  tip.setAttribute('role', 'tooltip');
+  tip.hidden = true;
+  over.appendChild(tip);
+  let tipTimer = 0;
+  function tipFor(f) {
+    clearTimeout(tipTimer);
+    tip.hidden = true;
+    if (!f?.it) return;
+    tipTimer = setTimeout(() => {
+      const r = fieldRect(f.m, f.it), a = graph.localToGraph(r.x + r.w / 2, r.y + r.h);
+      tip.textContent = f.it.blank ? `${fieldName(f.it)}, blank` : fieldName(f.it);
+      Object.assign(tip.style, { left: `${a.x}px`, top: `${a.y + 6}px` });
+      tip.hidden = false;
+    }, 450);
+  }
+  // The pointer says what a click does: the text pointer over a field, move over a selected box's room.
+  function hover(f) {
+    const was = hovered;
+    hovered = f?.it && !dragging ? { box: f.m.id, id: f.it.id } : null;
+    root.classList.toggle('on-field', !!hovered);
+    root.classList.toggle('on-body', !!f && !f.it && f.m.type === 'box' && sel.isSelected(graph.getCellById(f.m.id) ?? {}));
+    if (was?.id !== hovered?.id || was?.box !== hovered?.box) { paintFields(); tipFor(hovered ? f : null); }
+  }
+  function pickField(f) {
+    field = f?.it && isField(f.it) ? { box: f.m.id, id: f.it.id } : null;
+    paintFields();
+  }
+  // The field after the one selected in its box (`by` 1), or before it (-1), round; with `edit`, typed in at once.
+  function stepField(by, edit = false) {
+    const f = fieldNow(), all = f?.m.texts.filter(x => isField(x) && x.lines?.length) ?? [];
+    if (!all.length) return false;
+    const it = all[(all.findIndex(x => x.id === f.it.id) + by + all.length) % all.length];
+    pickField({ m: f.m, it });
+    if (edit) editField(f.m, it);
+  }
+
+  // The entry a mark's record has of a label: at it, or else nearest it.
+  function entryIn(at, edge) {
+    const s = st(), es = Tree.index(s).entries;
+    for (let todo = [at], i = 0; i < todo.length; i++) for (const e of es.get(todo[i]) ?? []) { if (Tree.same(s[e].edge, edge)) return e; todo.push(e); }
+    return null;
+  }
+  // What an entry of a label takes at a record, by the schema: { type, datatype?, fits }, where `fits` says the record's
+  // kind has it; where it hasn't, what the label takes at an object of any kind, which the kind gets as it's typed (as
+  // the inspector's Add gives it), or null where the chart has no such entry.
+  function specOfField(at, edge) {
+    const t = treeOf(at), S = Object.values(App.schema.peek()).filter(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge));
+    const mine = t && S.find(x => Tree.narrower(t, x.args[0].loc)), s = mine ?? (t && !t.args && S.find(x => !x.args[0].loc.args));
+    return !s ? null : { ...('field' in s.out ? { type: 'field', datatype: s.out.field } : 'choice' in s.out ? { type: 'choice' } : { type: 'tag' }), fits: !!mine };
+  }
+  // A choice's options at a record, in their list's order: its kind's, or where it hasn't the entry, every kind's.
+  function optionsOf(at, edge) {
+    const t = treeOf(at), N = App.notes.peek(), all = Object.values(App.schema.peek()).filter(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge) && 'choice' in x.out);
+    const fit = all.filter(x => t && Tree.narrower(t, x.args[0].loc)), specs = fit.length ? fit : all.filter(x => !x.args[0].loc.args);
+    const rank = o => N.optionOrder({ out: { choice: o }, args: Tree.bare(specs[0]).args }) ?? Infinity;
+    return [...new Set(specs.map(s => s.out.choice))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  }
+  // The entries a mark's record has, or could have by its kind's: their labels, in the inspector's order.
+  function entriesOf(m) {
+    const s = st(), t = treeOf(m.record), N = App.notes.peek(), out = new Map();
+    for (const e of Tree.index(s).entries.get(m.record) ?? []) out.set(Tree.norm(s[e].edge), s[e].edge);
+    for (const x of Object.values(App.schema.peek())) if (t && x.args?.length === 1 && Tree.narrower(t, x.args[0].loc) && !N.check(Tree.bare(x))) out.set(Tree.norm(x.args[0].edge), x.args[0].edge);
+    const order = e => Tree.same(e, 'Name') ? -1 : N.order({ args: [{ edge: e, loc: t }] }) ?? Infinity;
+    return [...out.values()].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  }
+  // Whether a mark shows an entry of a label at a record (its own, or one in it), as a field or a blank.
+  const shows = (m, edge, at = m.record) => (m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
+  // Where a scope reaches, said: a mark by its name, several by their count, a group as the Key calls it.
+  const whereSaid = (ms, s) => s.own ? (ms.length === 1 ? called(ms[0]) : counted(ms.map(m => ({ type: m.type, name: called(m) })))) : named(s);
+
+  // Shows or hides an entry, by its label, in marks at a scope: in each, its record's entry of that label, or a blank
+  // where it has none; showing one in an entry, the entries it's in too. The scope's own, the marks' records' each.
+  function setField(ms, edge, on, s = scopeNow(canvas), at = null) {
+    ms = ms.filter(m => m.type === 'box' || m.type === 'line');
+    if (!ms.length || still()) return null;
+    const view = viewOf(), s0 = st();
+    return App.change(tx => {
+      for (const m of ms) {
+        const rec = treeOf(m.record), e = at && at !== m.record ? Tree.entryAt(s0, at, edge) : entryIn(m.record, edge);
+        if (!rec || (!e && !specOfField(m.record, edge))) continue;
+        const steps = e ? Tree.pathOf(s0, e).slice(Tree.pathOf(s0, m.record).length) : [];
+        const trees = e ? (on ? steps : steps.slice(-1)).map(x => treeOf(x)) : [{ args: [{ edge, loc: rec }] }];
+        for (const t of trees) for (const p of s.own ? [rec] : s.outputs) {
+          const [pattern, param] = fieldAt(t, rec, scopeAt(p, t.args[0].edge), t.args[0].edge);
+          tx.note('Shown', pattern, on, { view, ...(param && { param }) });
+        }
+      }
+    }, { dated: false, say: () => {
+      // A group's boxes that a narrower note, or a later group's, keeps as they were, said, as the format bar says a
+      // box keeps its own.
+      const now = App.scene.peek(), kept = s.marks ? [...s.marks].filter(id => { const m = now?.byId.get(id); return m && m.type === ms[0].type && shows(m, edge) !== on; }) : [];
+      const m0 = kept.length && now.byId.get(kept[0]), by = m0 && groupOfNote(m0, m0.texts.find(it => Tree.same(fieldName(it), edge))?.shownBy, now);
+      const why = !kept.length ? '' : by ? `; ${named(by)} still ${on ? 'hides' : 'shows'} it in ${kept.length === 1 ? called(m0) : `${kept.length} of them`}`
+        : `; ${kept.length === 1 ? `${called(m0)} keeps its own` : `${kept.length} ${ms[0].type === 'line' ? 'lines' : 'boxes'} keep their own`}`;
+      return `${on ? 'Showed' : 'Hid'} ${edge} ${on ? 'in' : 'from'} ${whereSaid(ms, s)}${why}`;
+    } });
+  }
+  // A free text written in a mark at a scope, as it's typed in place (new, where `it` is none): its words, {Entry} and
+  // all, its look kept. Left empty, it's taken away (see unText).
+  function writeText(m, it, typed) {
+    const s = scopeNow(canvas), view = viewOf(), rec = treeOf(m.record), N = App.notes.peek();
+    const at = p => N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p));
+    // A new one goes under the mark's texts: in a box, across it; on a line, under its label, or at its middle.
+    const raw = it?.free.text ?? '', drawn = m.texts.filter(x => x.lines?.length).map(x => fieldRect(m, x)), mid = m.points?.[Math.floor(m.points.length / 2)] ?? [m.x, m.y];
+    const look = it?.look ?? { ...Scene.DEFAULTS.text, ...Object.fromEntries(Object.keys(Scene.DEFAULTS.text).map(k => [k, m.settings[k]?.value]).filter(([, v]) => v !== undefined)), Bold: false };
+    const under = drawn.length ? Math.max(...drawn.map(r => r.y + r.h)) : m.type === 'box' ? m.y + m.h / 2 - 8 : mid[1];
+    const rect = it ? fieldRect(m, it) : { x: m.type === 'box' ? m.x : drawn[0]?.x ?? mid[0], y: under, w: m.type === 'box' ? m.w : 120, h: px(look.Size) * 1.2 };
+    const labels = entriesOf(m);
+    openEditor({ look }, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 120) }, typed ?? raw, text => {
+      if (!Tree.clean(text)) return it && unText(m);
+      App.change(tx => { for (const p of s.own ? [rec] : s.outputs) tx.note('Text', p, { ...(at(p)?.value ?? {}), text: text.trim() }, { view }); },
+        { dated: false, say: it ? null : `Added text to ${whereSaid([m], s)}` });
+    }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null });
+  }
+  // A free text taken away at the scope: the scope's own note goes; and where the mark's own is taken away but a group's
+  // would still give it text, it keeps an empty one, the narrowest, which gives none.
+  function unText(m, s = scopeNow(canvas)) {
+    const view = viewOf(), rec = treeOf(m.record), N = App.notes.peek(), s0 = st();
+    const ids = [...Tree.dependents(s0, [m.record])].filter(id => id === m.record || s0[id]?.at);
+    return App.change(tx => {
+      if (!s.own) return s.outputs.forEach(p => tx.note('Text', p, undefined, { view }));
+      const others = N.notes('Text').some(n => n.view === view && Tree.key(n.pattern) !== Tree.key(rec) && ids.some(id => Tree.fits(s0, id, n.pattern)));
+      tx.note('Text', rec, others ? { text: '' } : undefined, { view });
+    }, { dated: false, say: `Removed the text from ${whereSaid([m], s)}` });
+  }
+  // A field hidden: its entry, or a blank, at the scope; a free text taken away.
+  function hideField(f = fieldNow(), s) {
+    if (!f) return;
+    field = null;
+    if (f.it.free) return unText(f.m, s);
+    setField([f.m], fieldName(f.it), false, s);
+  }
+  // Every mark of the narrowest group the selection's first box or line is in, as the Key and Styles group them.
+  function selectLike() {
+    const m = selected().find(x => x.type === 'box' || x.type === 'line');
+    if (!m) return false;
+    const gs = groupsAt(scene, m), g = gs.find(x => x.marks.size > 1) ?? gs[0];
+    if (g) Shell.select([...g.marks]);
+  }
 
   // ---- Adding a box: a record of a kind, named as it's typed ----
   // Nothing is made until a name is, and Esc makes nothing. The box is dropped where it was asked for, clear
@@ -838,11 +1221,14 @@ function mount(el) {
     }
     return best;
   }
+  // Pointing at a box shows its handles, as Lucidchart's do, and at a field, that it's one (see Fields).
   root.addEventListener('pointermove', e => {
-    if (!scene || e.target.closest?.('.dc-handle, .dc-edit')) return;
-    showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)));
+    if (!scene || e.target.closest?.('.dc-handle, .dc-edit, .dc-complete')) return;
+    const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY);
+    showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
+    hover(f);
   });
-  root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) showHandles(null); });
+  root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
   for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
@@ -863,9 +1249,12 @@ function mount(el) {
       paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
     };
     const end = () => {
-      removeEventListener('pointermove', move); removeEventListener(click ? 'mousedown' : 'pointerup', up, true);
+      removeEventListener('pointermove', move); removeEventListener(click ? 'mousedown' : 'pointerup', up, true); removeEventListener('keydown', esc, true);
       unlayer?.(); line.remove(); root.classList.remove('relating'); paintStates();
     };
+    // Dropped on another box, the two's relations are asked for, in the two-box panel, a relation ticked there pending
+    // through the bar; dropped in empty room, a new box goes there, of the kind last made, named as it's typed, as
+    // Lucidchart's does, and then the two's relations are asked for; Esc, or dropping where it began, makes nothing.
     const up = ev => {
       if (click) { ev.preventDefault(); ev.stopPropagation(); }
       end();
@@ -873,14 +1262,13 @@ function mount(el) {
       const p = at(ev);
       target = boxAt(p);
       if (target) Shell.emit('relate-open', [from.id, target.id]);
-      else if (!ev.target.closest?.('.dc') || ev.button !== 0) return;
-      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) Shell.menu({ x: ev.clientX, y: ev.clientY }, [
-        ...kinds().map(k => ({ label: `New ${k}`, run: () => create(k, p, { relate: from.id }) })), '-',
-        { label: 'Line', run: () => insert('line', { points: [start, [p.x, p.y]], ends: [from.id, null] }) }]);
+      else if (!ev.target.closest?.('.dc') || ev.target.closest?.('.dc-edit') || ev.button !== 0) return;
+      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) create(lastKind(), p, { relate: from.id });
     };
+    const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(); } };
     addEventListener('pointermove', move);
     addEventListener(click ? 'mousedown' : 'pointerup', up, true);
-    if (click) unlayer = Shell.layer(end);
+    if (click) unlayer = Shell.layer(end); else addEventListener('keydown', esc, true);
   }
 
   // ---- Right-click: what applies to what's under the pointer ----
@@ -890,6 +1278,10 @@ function mount(el) {
     if (cell?.getData()?.kind === 'label') cell = graph.getCellById(cell.getData().mark);
     const at = { x: e.clientX, y: e.clientY }, k = cell?.getData()?.kind, p = graph.clientToLocal(at.x, at.y);
     if (!cell || k === 'page' || k === 'ink') return Shell.menu(at, pageItems(p));
+    // A field of a mark selected already has its own menu, as a click selects it; anywhere else, the mark's.
+    const f = (k === 'box' || k === 'line') && sel.isSelected(cell) ? fieldUnder(at.x, at.y) : null;
+    if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, fieldItems(f)); }
+    pickField(null);
     // A line is taken as a click takes it, with the lines drawn along it there.
     if (edge && k === 'line' && !sel.isSelected(cell)) { pressed = { id: cell.id, p: [p.x, p.y] }; sel.reset(cell); } else take(cell);
     Shell.menu(at, markItems());
@@ -897,23 +1289,80 @@ function mount(el) {
   for (const name of ['node:contextmenu', 'edge:contextmenu', 'blank:contextmenu']) graph.on(name, contextOf);
   const ORDER = () => [{ label: 'Bring to front', keys: '$mod+Shift+]', run: () => order('front') }, { label: 'Bring forward', keys: '$mod+]', run: () => order('forward') },
     { label: 'Send backward', keys: '$mod+[', run: () => order('backward') }, { label: 'Send to back', keys: '$mod+Shift+[', run: () => order('back') }];
+  // What applies to what's selected: its text and fields first, then its look, then what it's like and related to,
+  // then hiding and deleting it, its order and grouping, and the clipboard.
   function markItems() {
-    const ms = selected(), one = ms.length === 1 ? ms[0] : null, bound = ms.some(m => m.type === 'box' || m.type === 'line'), ro = still();
-    const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry);
+    const ms = selected(), one = ms.length === 1 ? ms[0] : null, bound = ms.filter(m => m.type === 'box' || m.type === 'line'), ro = still();
+    const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry), fielded = bound.length && bound.length === ms.length;
+    const worded = one && (one.type === 'box' || (one.type === 'line' && one.texts?.some(isField)));
     return [
-      ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }, '-'] : []),
       ...(text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []),
-      ...(bound ? [{ label: 'Hide in this view', keys: 'Delete', disabled: ro, run: () => remove() }] : []),
-      { label: 'Delete', keys: bound ? 'Shift+Delete' : 'Delete', danger: true, disabled: ro, run: () => remove(bound) },
-      '-', ...ORDER().map(x => ({ ...x, disabled: ro || ms.every(m => m.type === 'frame') })),
-      '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !clip?.items.length, run: () => paste() },
+      ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []),
+        { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
+      ...formatItems(ms, ro),
+      ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
+      ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []), ...(bound.length ? ['-'] : []),
+      ...(bound.length ? [{ label: 'Hide in this view', keys: 'Delete', disabled: ro, run: () => remove() }] : []),
+      { label: 'Delete', keys: bound.length ? 'Shift+Delete' : 'Delete', danger: true, disabled: ro, run: () => remove(!!bound.length) },
+      '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
+      '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
+    ];
+  }
+  // Show on chart: each entry the selection's records have, or could have, a checkbox row, ticked where every one of
+  // them shows it; switched at the scope.
+  const showItems = ms => entriesOf(ms[0]).filter(e => ms.every(m => entriesOf(m).some(x => Tree.same(x, e))))
+    .map(e => { const on = ms.every(m => shows(m, e)); return { label: e, checked: on, run: () => setField(ms, e, !on) }; });
+  // Format: the format bar's Fill, Outline and Font, opened from here; and its painter's Copy and Paste formatting.
+  function formatItems(ms, ro) {
+    if (!ms.length) return [];
+    const bar = typeof FormatBar !== 'undefined' ? FormatBar : {}, open = what => () => bar.open ? bar.open(what) : document.querySelector(`.fb [data-fb="${what}"]`)?.click();
+    const boxy = ms.some(m => m.type === 'box' || (m.type === 'shape' && m.geometry !== 'line'));
+    return [{ label: 'Format', disabled: ro, items: [...(boxy ? [{ label: 'Fill…', run: open('fill') }] : []), { label: 'Outline…', run: open('outline') }, { label: 'Font…', run: open('font') }] },
+      ...(bar.copyLook ? [{ label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : []), '-'];
+  }
+  // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
+  // as the Key and Styles group them; null for a box's own, or where none says.
+  function groupOfNote(m, note, sc = scene) {
+    if (!note || !note.view || Tree.idsIn(note.pattern).size) return null;
+    // Or, at a pattern no style keys, the boxes whose texts it gives, called by what it's at.
+    return groupsAt(sc, m).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(note.pattern)))
+      ?? { caption: calledAt(note.pattern), outputs: [note.pattern], marks: new Set(sc.marks.filter(x => x.texts?.some(it => it.shownBy === note)).map(x => x.id)) };
+  }
+  // What a pattern a note is at calls the boxes it reaches: an entry's at a kind, that kind's (Entities); at no kind,
+  // boxes; an output, by its name (Main Fund).
+  const calledAt = p => { const loc = p.args?.length === 1 && !p.out ? p.args[0].loc : null;
+    return loc && !loc.args ? (loc.kind ? Tree.plural(loc.kind) : 'boxes') : !p.args ? (p.kind ? Tree.plural(p.kind) : 'boxes') : Scene.outputName(App.notes.peek(), p); };
+  // A field's own: typed in, hidden from this box or from all like it, its text's look.
+  function fieldItems(f) {
+    // All like it: the group whose note shows the field here, so hiding it there takes back what showed it; else the
+    // scope's group, or the narrowest.
+    const ro = still(), s = scopeNow(canvas), all = groupOfNote(f.m, f.it.shownBy) ?? (s.own ? groupsAt(scene, f.m).find(x => x.marks.size > 1) : s);
+    const name = fieldName(f.it), t = f.it.look, view = viewOf();
+    // Its look, at the field's own pattern at the scope, as a format given there lands on its text.
+    const restyle = (label, v) => App.change(tx => {
+      if (f.it.free) { const N = App.notes.peek(), n = N.notes('Text').find(x => x.note === f.it.free.note); if (n) tx.note('Text', n.pattern, { ...n.value, [label]: v }, { view }); return; }
+      // A group that names the boxes by another of their entries can't name this one's text: it's this box's.
+      const rec = treeOf(f.m.record), e = f.it.blank ? { args: [{ edge: name, loc: rec }] } : treeOf(f.it.id);
+      for (const p of s.own ? [rec] : s.outputs) { const [pattern, param] = fieldAt(e, rec, scopeAt(p, name), name); tx.note(label, param ? fieldAt(e, rec, rec, name)[0] : pattern, v, { view }); }
+    }, { dated: false });
+    return [
+      { label: f.it.free ? 'Edit text' : 'Edit', keys: 'Enter', disabled: ro, run: () => editField(f.m, f.it) },
+      '-', { label: f.m.type === 'line' ? 'Hide from this line' : 'Hide from this box', keys: s.own ? 'Delete' : undefined, disabled: ro, run: () => hideField(f, { own: true }) },
+      ...(all ? [{ label: `Hide from ${named(all)}`, keys: s.own ? undefined : 'Delete', disabled: ro, run: () => hideField(f, all),
+        // Pointed at, the boxes it reaches are cued on the chart, as the scope's are (the format bar's cue).
+        point: on => canvas.cue?.(on && all.marks ? [...all.marks] : null) }] : []),
+      '-', { label: 'Format', disabled: ro, items: [
+        { label: 'Bold', checked: !!t.Bold, run: () => restyle('Bold', !t.Bold) }, { label: 'Italic', checked: !!t.Italic, run: () => restyle('Italic', !t.Italic) },
+        { label: 'Underline', checked: !!t.Underline, run: () => restyle('Underline', !t.Underline) }] },
+      '-', { label: 'Copy', keys: '$mod+C', run: () => copyField(f) },
     ];
   }
   const pageItems = p => [
     ...kinds().map(k => ({ label: `New ${k}`, disabled: still(), run: () => create(k, p) })), '-',
     { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
+    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
     { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Tidy', disabled: still(), run: tidy },
   ];
 
@@ -984,6 +1433,7 @@ function mount(el) {
       el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !ink?.lit.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
+    paintFields();
   }
   // Range Finder: colors { [record id]: [hue 1–6 or 'loop', depth 0–2] }, each record outlined in its hue;
   // pulse, what a hovered part of a formula means. With dim, the rest fades. null clears it.
@@ -1206,8 +1656,22 @@ function mount(el) {
     return true;
   }
   // A copy from the menu puts the names on the system's clipboard too, as it can.
-  const copyOut = () => { if (copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
+  const copyOut = () => { if (field ? copyField(fieldNow()) : copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
+  // A field copied is its entry, by its label, or a free text's words: pasted on a box, the box shows its own entry of
+  // that label, as a form's field shows its record's, or the same words, at the scope (see Fields). Its text is what
+  // the system's clipboard holds of it.
+  function copyField(f, text = f?.it.text) {
+    if (!f?.it) return false;
+    clip = { items: [], text: text ?? '', ...(f.it.free ? { free: f.it.free.text } : { field: fieldName(f.it) }) };
+    return true;
+  }
   function paste(c = clip) {
+    if (c?.field || c?.free !== undefined) {
+      const ms = selected().filter(m => m.type === 'box' || m.type === 'line'), s = scopeNow(canvas), view = viewOf();
+      if (c.field) return setField(ms, c.field, true, s);
+      return ms.length && App.change(tx => ms.forEach(m => (s.own ? [treeOf(m.record)] : s.outputs).forEach(p => tx.note('Text', p, { text: c.free }, { view }))),
+        { dated: false, say: `Added text to ${whereSaid(ms, s)}` });
+    }
     if (!c?.items.length) return;
     const view = viewOf(), here = view === c.view, ids = [];
     App.change(tx => {
@@ -1397,8 +1861,10 @@ function mount(el) {
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
   const keyMap = {
-    'Tab': () => next(1), 'Shift+Tab': () => next(-1),
-    'Delete': () => remove(), 'Backspace': () => remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
+    // Tab steps through the boxes, or with a field selected, through its box's fields, as a form's.
+    'Tab': () => fieldNow() ? stepField(1) : next(1), 'Shift+Tab': () => fieldNow() ? stepField(-1) : next(-1),
+    // A field selected is hidden at the scope (see Fields); anything else, hidden in this view.
+    'Delete': () => fieldNow() ? hideField() : remove(), 'Backspace': () => fieldNow() ? hideField() : remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
     'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
     'Shift+ArrowLeft': () => nudging(-10, 0), 'Shift+ArrowRight': () => nudging(10, 0), 'Shift+ArrowUp': () => nudging(0, -10), 'Shift+ArrowDown': () => nudging(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
@@ -1406,18 +1872,24 @@ function mount(el) {
     '$mod+BracketRight': () => order('forward'), '$mod+BracketLeft': () => order('backward'),
     '$mod+Shift+BracketRight': () => order('front'), '$mod+Shift+BracketLeft': () => order('back'),
     '$mod+Equal': () => zoom('in'), '$mod+Minus': () => zoom('out'), 'Shift+Digit0': () => zoom(1),
-    'F2': () => { const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
-    'Enter': () => { const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
-    'Escape': () => { if (!keysOfSelection().length) return false; entered = null; Shell.select([]); },
+    'F2': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
+    'Enter': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
+    // Esc backs out a step: from a field to its box, from the selection to none.
+    'Escape': () => { if (fieldNow()) return pickField(null); if (!keysOfSelection().length) return false; entered = null; Shell.select([]); },
   };
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
   const unbind = tinykeys.tinykeys(root, wrapped);
+  // Ctrl+Shift+Space, Select all like this, by the space typed, whatever key code it comes with.
+  root.addEventListener('keydown', e => {
+    if ((e.key === ' ' || e.code === 'Space') && (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && selectLike() !== false) { e.preventDefault(); e.stopPropagation(); }
+  });
   // Typing over a selected box or shape starts editing it, with what was typed; the window's own keys (? for
   // the shortcuts, say) come first.
   const typeOver = e => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1 || e.target !== root) return;
-    const k = keysOfSelection();
-    if (k.length === 1) { e.preventDefault(); edit(k[0], null, e.key); }
+    const k = keysOfSelection(), f = fieldNow();
+    if (f) { e.preventDefault(); editField(f.m, f.it, e.key); }
+    else if (k.length === 1) { e.preventDefault(); edit(k[0], null, e.key); }
   };
   addEventListener('keydown', typeOver);
   // The clipboard is the system's, as Office's is. A copy puts the marks' names on it; a paste is of the marks
@@ -1427,10 +1899,12 @@ function mount(el) {
   const clipboard = e => {
     if (!mine()) return;
     if (e.type === 'paste') { if (!still() && clip && e.clipboardData?.getData('text/plain') === clip.text) { e.preventDefault(); paste(); } return; }
-    if (!copy()) return;
+    // A field selected is copied as a field; cut, it's hidden.
+    const f = fieldNow();
+    if (!(f ? copyField(f) : copy())) return;
     e.preventDefault();
     e.clipboardData?.setData('text/plain', clip.text);
-    if (e.type === 'cut') remove();
+    if (e.type === 'cut') { if (f) hideField(f); else remove(); }
   };
   const CLIP = ['copy', 'cut', 'paste'];
   CLIP.forEach(n => document.addEventListener(n, clipboard));
@@ -1439,9 +1913,28 @@ function mount(el) {
 
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; show(true); });
+  // A mark's fields, asked of by the inspector (see Fields): `shown`, whether the mark a record draws shows an entry of a
+  // label; `show`, shows or hides one there, at the scope where the mark is what's selected; `light`, outlines the field
+  // a row's key names, as its row is pointed at; `over`, the box under a point on screen as a row is dragged, outlined as
+  // its target (null ends it), and `drop`, the label dropped there; `clip`, a row copied, as a field.
+  const marked = id => scene?.byId.get(id);
+  const scoped = m => Shell.selection.peek().length === 1 && keyParts(Shell.selection.peek()[0])[0] === m.id ? scopeNow(canvas) : { own: true };
+  const fields = {
+    shown: (id, edge, at = id) => { const m = marked(id); return !!m && shows(m, edge, at); },
+    show: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, scoped(m), at); },
+    light: key => { if (litKey !== key) { litKey = key; paintFields(); } },
+    over(cx, cy) {
+      const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => b.type === 'box' && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
+      if ((m?.id ?? null) !== dropOn) { dropOn = m?.id ?? null; paintFields(); }
+      return m ?? null;
+    },
+    drop(edge) { const m = marked(dropOn); dropOn = null; paintFields(); return m && setField([m], edge, true, scoped(m)); },
+    clip: (edge, text) => { clip = { items: [], text, field: edge }; },
+  };
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
+    fields, field: () => fieldNow(), selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     destroy() {
       nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
@@ -1462,5 +1955,5 @@ const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 
-return { active, zoom: zoomLevel, keyParts, kinds };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, scope: () => scopeNow(), named, groupsAt };
 })();
