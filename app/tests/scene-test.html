@@ -289,15 +289,29 @@ function run() {
         const y = l.byId.get(m.id)?.settings[k], same = k === 'Weight' ? Math.abs(x.value - y?.value / s.page.scale) < 1e-9 : k === 'Arrow' && y?.value === 'auto' ? ['none', 'end'].includes(x.value) : j(x.value) === j(y?.value);
         if (!same || x.note !== y?.note) differ.push(`${v} ${m.id} ${k}: ${j(x.value)} drawn, ${j(y?.value)} read`);
       }
-      // What reaches each of its marks, kept for the scene and the state, is what's read afresh, of a copy of the state.
+      // What reaches each of its marks, kept for the scene and the state, is what's read afresh, of a copy of the state, and
+      // what it was read as: through every record Tree.dependents finds from the mark's, a box's those its box is.
+      const boxIn = id => { const r = st[id]; return !r ? null : Tree.isObject(r) ? id : r.at ? boxIn(r.at) : null; };
+      const then = m => {
+        const N = wb.notes(C), out = [];
+        s.styles.forEach((sty, order) => { for (const id of Tree.dependents(st, [m.record])) {
+          if (id !== m.record && boxIn(id) !== m.record && m.type === 'box') continue;
+          const t = Tree.treeOf(st, id);
+          if (!t || !Tree.narrower(t, sty.pattern)) continue;
+          const output = Scene.outputPattern(sty, t);
+          if (!out.some(o => o.style === sty.key && Tree.key(o.output) === Tree.key(output)))
+            out.push({ style: sty.key, order, record: id, output, caption: Scene.captionOf(N, output, v), name: Scene.styleName(N, sty.pattern) });
+        } });
+        return out;
+      };
       for (const m of drawn) {
         const a = Scene.reach(wb, C, v, s, m.id, st), again = Scene.reach(wb, C, v, s, m.id, st), b = Scene.reach(wb, C, v, s, m.id, { ...st });
-        if (a !== again || j(a) !== j(b)) off.push(`${v} ${m.id}`);
+        if (a !== again || j(a) !== j(b) || j(a) !== j(then(m))) off.push(`${v} ${m.id}`);
       }
     }
     check('a look read alone gives each box and line its scene draws what the scene gives it, but a weight at the page’s scale and an arrow Auto draws',
       !differ.length, differ.slice(0, 4).join(' | '));
-    check('… and what reaches each mark, kept for its scene, is what’s read afresh', !off.length, off.slice(0, 4).join(' | '));
+    check('… and what reaches each mark, kept for its scene, is what’s read afresh, and what it was read as', !off.length, off.slice(0, 4).join(' | '));
   }
 
   // ---- One order for the groups, and for a row's outputs: the Key's, Styles' and the scope's ----

@@ -425,10 +425,23 @@ const now = () => (typeof performance === 'object' ? performance.now() : Date.no
 const laidOut = new Map();
 // What a scene works out from a record's tree and the notes alone, its formats and its edges' order, kept by
 // record from one scene to the next while the notes, the view and the records its tree runs through stand: a
-// store of them for each of the latest views and states of the notes, so views shown in turn each keep theirs.
+// store of them for each of the latest views and states of the notes, so views shown in turn each keep theirs. Only
+// notes of a record's shape decide for it (Notes), so a record keeps what the view's store before had for it where no
+// note of its shape is new or gone since: a look changed works out again only what has its shape.
 const worked = new Map();
-function workedIn(notesAre) {
-  const w = worked.get(notesAre) ?? new WeakMap();
+function workedIn(notesAre, view, rows) {
+  let w = worked.get(notesAre);
+  if (!w) {
+    const shapes = new Map(), last = [...worked.values()].reverse().find(x => x.view === view), map = new WeakMap();
+    for (const r of rows) if ('note' in r) shapes.set(r.id, Tree.shapeOf(r.pattern));
+    const before = last?.map, changed = new Set();
+    if (last) {
+      for (const [id, s] of shapes) if (!last.shapes.has(id)) changed.add(s);
+      for (const [id, s] of last.shapes) if (!shapes.has(id)) changed.add(s);
+    }
+    const had = r => { const x = before?.get(r); return x && !changed.has(x.shape) ? (map.set(r, x), x) : undefined; };
+    w = { view, shapes, map, get: r => map.get(r) ?? had(r), set: (r, x) => map.set(r, x) };
+  }
   worked.delete(notesAre);
   worked.set(notesAre, w);
   if (worked.size > 12) worked.delete(worked.keys().next().value);
@@ -498,7 +511,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const state = opts.state;
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
   const tree = id => treeOf(state, id);
-  const kept = workedIn(notesAre), stands = new Map();
+  const kept = workedIn(notesAre, view, rows), stands = new Map();
   const standing = id => {
     let s = stands.get(id);
     if (s === undefined) {
@@ -511,7 +524,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const work = id => {
     if (standing(id)) return kept.get(state[id]);
-    const r = state[id], at = argsOf(r).map(a => a.at), w = { at, locs: at.map(x => state[x]), formats: N.formats(tree(id), view) };
+    const r = state[id], at = argsOf(r).map(a => a.at), w = { at, locs: at.map(x => state[x]), shape: Tree.shapeOf(tree(id)), formats: N.formats(tree(id), view) };
     kept.set(r, w);
     stands.set(id, true);
     return w;
@@ -1710,17 +1723,23 @@ function outputPattern(style, t) {
 // with their outputs. A box is reached through its object and every record in it; a line through its
 // relation and the records at it.
 // Kept for each scene, read in a state with its notes: the format bar and the canvas ask it of every mark drawn, each
-// time the scene is drawn anew, so each record's box, and each output's caption, are worked out once.
+// time the scene is drawn anew, so each output's caption is worked out once. A box's records are those in it, as
+// Tree.dependents finds them, the relations at them, and what's in or at those, being no box's; a line's, its
+// relation and everything in or at it.
 const reaches = new WeakMap();
 function reach(wb, chart, view, scene, markId, state) {
   const m = scene.byId.get(markId);
   if (!m || (m.type !== 'box' && m.type !== 'line')) return [];
   const N = wb.notes(chart);
   let kept = reaches.get(scene);
-  if (!kept || kept.state !== state || kept.N !== N || kept.view !== view) reaches.set(scene, kept = { state, N, view, by: new Map(), boxes: new Map(), captions: new Map() });
+  if (!kept || kept.state !== state || kept.N !== N || kept.view !== view) reaches.set(scene, kept = { state, N, view, by: new Map(), captions: new Map() });
   if (kept.by.has(markId)) return kept.by.get(markId);
-  const box = id => kept.boxes.get(id) ?? kept.boxes.set(id, boxOf(state, id)).get(id);
-  const ids = [...Tree.dependents(state, [m.record])].filter(id => id === m.record || m.type !== 'box' || box(id) === m.record).map(id => [id, treeOf(state, id)]).filter(([, t]) => t);
+  const { entries } = Tree.index(state), within = id => {
+    const all = new Set([id]), todo = [id];
+    while (todo.length) for (const d of entries.get(todo.pop()) ?? []) if (!all.has(d)) { all.add(d); todo.push(d); }
+    return all;
+  };
+  const ids = [...(m.type === 'box' ? within(m.record) : Tree.dependents(state, [m.record]))].map(id => [id, treeOf(state, id)]).filter(([, t]) => t);
   const captioned = output => { const k = key(output); return kept.captions.get(k) ?? kept.captions.set(k, captionOf(N, output, view)).get(k); };
   const out = [];
   scene.styles.forEach((s, order) => {
@@ -1736,7 +1755,6 @@ function reach(wb, chart, view, scene, markId, state) {
   kept.by.set(markId, out);
   return out;
 }
-const boxOf = (state, id) => { const r = state[id]; return !r ? null : isObject(r) ? id : r.at ? boxOf(state, r.at) : null; };
 // What a style is called: its pattern's name, or for a style by kind, Type.
 const styleName = (N, p) => p.args ? N.name(p) : 'Type';
 // A size or place on a page as it is on its sheet, the page drawn smaller by its scale: the number the slide
