@@ -496,7 +496,9 @@ function whoFor(id, l, q) {
     out.push({ label: nameOf(b), detail: recs()[b].kind, run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
-  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()], named = T.clean(q ?? '');
+  // The kinds a new one can be, those the chart draws most first, as Insert offers them.
+  const drawn = charted() ? Canvas.kinds().map(T.norm) : [], rank = k => { const i = drawn.indexOf(T.norm(k)); return i < 0 ? Infinity : i; };
+  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()].sort((a, b) => rank(a.sl.loc.kind) - rank(b.sl.loc.kind)), named = T.clean(q ?? '');
   if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.map(w => ({ label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) })));
   return out;
 }
