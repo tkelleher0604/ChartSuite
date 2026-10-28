@@ -241,7 +241,7 @@ const Table = (() => {
   }
 
   // ---- The grid ----
-  let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null, bar = null;
+  let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null;
   // The grid is laid out as Excel's is. Each column is as wide as what it holds in every row, drawn or not, to a
   // cap, and a tag's column as narrow as its heading set on two lines; nothing is cut to fit. The first column,
   // the names, has no cap but half the grid, past which a name goes on to a second line. Where there's room,
@@ -408,7 +408,9 @@ const Table = (() => {
     t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu(e, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
     t.on('renderComplete', regain);
+    // A grid built again before this one was, this one's building done is nothing: it would ready, and lay out, the next.
     t.on('tableBuilt', () => {
+      if (t !== table) return;
       ready = true;
       // The first column stays put beside the row numbers (table.css), so the keys scroll a cell clear of both.
       const sr = t.modules.selectRange, numbers = sr.getRowHeaderWidth.bind(sr);
@@ -457,13 +459,20 @@ const Table = (() => {
     // Rows keep their place while they're edited; a sort or a filter applies again only when asked.
     const t = table, lit = p ? [] : since(now), red = new Set(m.data.filter(isRed).map(r => r.id)), first = !reds.size && (m.data.find(r => r._red) ?? m.data.find(isRed))?.id;
     const f = flight = { again: false };
-    // Only the rows that say something else are updated, as Tabulator measures every row it's given again.
+    // Only the rows that say something else are updated, as Tabulator measures every row it's given again; a row that
+    // comes (back, by Undo, or pasted) goes where its records put it, after the row before it, not at the end.
     const had = new Map(t.getRows().map(row => [row.getData().id, row.getData()])), changed = m.data.filter(r => !sameRow(r, had.get(r.id)));
+    const updated = changed.filter(r => had.has(r.id)), there = new Set(had.keys());
+    const come = () => m.data.filter(r => !had.has(r.id)).reduce((p, r) => p.then(() => {
+      const before = m.data.slice(0, m.data.indexOf(r)).findLast(x => there.has(x.id));
+      there.add(r.id);
+      return before ? t.addRow(r, false, before.id) : t.addRow(r, true);
+    }), Promise.resolve());
     // However it ends, the next update can go; one that failed has left rows that can't be trusted, so the grid
     // is built again from what's there.
     let ok = false;
     t.blockRedraw();
-    (changed.length ? t.updateOrAddData(changed) : Promise.resolve()).then(() => {
+    (updated.length ? t.updateData(updated) : Promise.resolve()).then(come).then(() => {
       if (t !== table) return;
       const keep = new Set(m.data.map(r => r.id)), rows = new Map();
       for (const row of t.getRows()) if (!keep.has(row.getData().id)) row.delete(); else rows.set(row.getData().id, row);
@@ -676,9 +685,11 @@ const Table = (() => {
   // a relation's sides, and entries under headings the table hasn't got. A heading nothing matches is asked
   // about, never guessed by its place. Without a heading row, the cells fill the grid from the active cell.
   // Either way the paste is redlined in the grid, and Enter makes it, as one change.
+  // Pasted while another change is pending, it's pasted into the table as it is, and takes that one's place, which says
+  // so (App.stage); never dropped without a word.
   function paste(textIn) {
     const m = real, grid = tsv(textIn);
-    if (!m || m !== current || !grid.length || App.readOnly.peek()) return;
+    if (!m || !grid.length || App.readOnly.peek()) return;
     let head = headings(m, grid);
     if (head && m.isDatatype) { grid.shift(); head = null; }   // a datatype's rows have no names to match by
     if (!head) return stage(m, byPlace(m, grid));
@@ -821,7 +832,8 @@ const Table = (() => {
         else if (records[id]) records[id] = { ...records[id], ...out };
         else if (path) kids.set(`${at}|${norm(path.at(-1))}`, put({ at, edge: path.at(-1), ...out }));
         else { x.skipped++; continue; }
-        x.values++;
+        // A value is counted where it changes a row that was there; one in a row it adds is that row's.
+        if (p.row) x.values++;
         x.cols.add(c.key);
       }
     }
@@ -848,12 +860,16 @@ const Table = (() => {
     const say = [x.values && `Pasted ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
       .filter(Boolean).join(', ').replace(/^a/, 'A');
     const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
-    const parts = [x.values && count(x.values, 'value'), x.rows.length && `${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`,
-      ...x.made.slice(0, 3).map(([kind, name]) => html`new ${kind} <span class="add">${name}</span>`), x.made.length > 3 && `${x.made.length - 3} more`,
+    // What it does, in the redline's ink, as the bar says it; what's left out, which it doesn't do, plain.
+    const ink = t => html`<span class="add">${t}</span>`;
+    const parts = [x.values && ink(count(x.values, 'value')), x.rows.length && ink(`${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`),
+      ...x.made.slice(0, 3).map(([kind, name]) => ink(`new ${kind} ${name}`)), x.made.length > 3 && ink(`${x.made.length - 3} more`),
       x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
-    const recs = { ...App.state.peek(), ...x.records }, asks = x.rows.some(id => App.asksDay(x.records[id], recs));
-    App.stage({ verb: 'Paste', what: list(added.length ? added : [count(x.values, 'value')]), parts, source: 'paste ' + m.view, say, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks ? { asks: 'from', day: App.day.peek() } : { from: Shell.time.peek()?.asOf }), make: tx => fill(tx, x.records), done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+    const recs = { ...App.state.peek(), ...x.records }, asks = x.rows.some(id => App.asksDay(x.records[id], recs)), entered = App.entered.peek();
+    // What it's at: the records it writes over, and those it adds at.
+    const needs = [...new Set(Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]))].filter(id => id in entered);
+    App.stage({ verb: 'Paste', what: list(added.length ? added : [count(x.values, 'value')]), parts, source: 'paste ' + m.view, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+      ...(asks && { asks: 'from', day: App.day.peek() }), make: tx => fill(tx, x.records), done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -953,9 +969,7 @@ const Table = (() => {
       el.classList.add('grid');
       cells = document.createElement('div');
       cells.className = 'cells';
-      bar = document.createElement('div');
-      el.append(cells, bar);
-      preact.render(html`<${App.Pending} />`, bar);
+      el.append(cells);
       cells.addEventListener('keydown', first, true);
       cells.addEventListener('keydown', keydown);
       // Keys arriving from outside (F6 onto the view) go to the rows, not a heading's filter, which would open.
@@ -977,7 +991,7 @@ const Table = (() => {
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view.
         effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking) reveal(id); }),
       ];
-      return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); preact.render(null, bar); table?.destroy(); table = null; el = cells = bar = null; };
+      return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); table?.destroy(); table = null; el = cells = null; };
     },
     focus,
   });

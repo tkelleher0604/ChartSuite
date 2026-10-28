@@ -337,9 +337,14 @@ async function run() {
   const second = Shell.selection.peek()[0];
   key('Tab', { shiftKey: true }); await tick(60);
   check('Tab selects the first box in reading order, then the next; Shift+Tab goes back', first === reading[0] && second === reading[1] && Shell.selection.peek()[0] === reading[0], `${first} ${second} ${Shell.selection.peek()[0]}`);
-  const x0 = sc().byId.get(first).x;
-  key('ArrowRight'); await tick(120);
-  check('an arrow key nudges the box selected', Math.abs(sc().byId.get(first).x - x0 - 1) <= 0.5, `${x0} → ${sc().byId.get(first).x}`);
+  const x0 = sc().byId.get(first).x, nx = App.wb.changes().length, cellX = () => cv().graph.getCellById(first)?.getPosition().x;
+  key('ArrowRight'); await tick(60);
+  const movedAtOnce = cellX() - x0;
+  key('ArrowRight'); await tick(60); key('ArrowRight', { shiftKey: true }); await tick(700);
+  check('an arrow key nudges the box selected at once, and nudges one after another are one change, as History lists it', Math.abs(movedAtOnce - 1) <= 0.5 && Math.abs(sc().byId.get(first).x - x0 - 12) <= 0.5
+    && App.wb.changes().length === nx + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${movedAtOnce} ${x0} → ${sc().byId.get(first).x}, ${App.wb.changes().length - nx} changes`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  check('… which one Undo takes back', Math.abs(sc().byId.get(first).x - x0) <= 0.5 && App.wb.changes().length === nx + 2, `${sc().byId.get(first).x}`);
   Shell.select([]); cv().root.focus();
   key('Tab', { shiftKey: true }); await tick(60);
   check('Shift+Tab from nothing selects the last box', Shell.selection.peek()[0] === reading.at(-1));
@@ -576,7 +581,7 @@ async function run() {
   key('Enter'); await tick(150);
   const toast = txt($$('.toast').at(-1));
   check('a record deleted as of a past day is redlined first, its bar asking its end entry, that day; then ended by it', /Halvard/.test(asked) && /Dissolution Date/.test(asked) && dayAsked === 'Jun 30, 2025' && stillThere
-    && /^Set Dissolution Date of Halvard.* to Jun 30, 2025/.test(toast) && !App.state.peek().halvard && !!App.wb.asOf(App.chart.peek(), '2025-06-29').halvard, `${asked} / ${toast}`);
+    && /^Deleted Halvard Logistics Holdings, Inc. from Jun 30, 2025/.test(toast) && !App.state.peek().halvard && !!App.wb.asOf(App.chart.peek(), '2025-06-29').halvard, `${asked} / ${toast}`);
   Shell.at(null); await tick(100);
 
   // ---- What's drawn is the scene, however it came to be: after edits, views shown in turn, previews and
@@ -691,11 +696,52 @@ async function run() {
     await pending('a ruling pointed at and clicked', async () => { cv().root.focus(); Shell.select([]); await tick(60); Shell.select(['own_us_fund']); await tick(120); $('.fx-out button.tag')?.dispatchEvent(new PointerEvent('pointerenter')); },
       () => $('.fx-out button.tag')?.click());
     check('every kind of pending change is drawn as the scene Enter makes, less its ink, no line through the Key, and Enter draws that scene', !off.length, off.join('; '));
+    // A relation of a new name, named in the two-box panel, is pending till Enter as one ticked is; no style of the view
+    // draws it, so its redline is the chart as it is, and Enter draws that
+    {
+      Shell.emit('relate-open', ['pension', 'bdc']); await tick(120);
+      $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60); $$('.rr .add-entry').find(x => txt(x) === 'New relation')?.click(); await tick(60);
+      const ins = $$('.rr.new input'), n0 = App.wb.changes().length;
+      for (const [i, v] of ['Lender', 'Lender', 'Borrower'].entries()) { ins[i]?.focus(); if (ins[i]) { ins[i].value = v; ins[i].dispatchEvent(new Event('input', { bubbles: true })); } await tick(10); }
+      await tick(160);
+      const red = sc(), pend = !!App.pending.peek() && !!$('.view > .pendbar') && App.wb.changes().length === n0, sig = s => JSON.stringify(s.marks.map(m => [m.id, m.x, m.y, m.w, m.h, m.points]));
+      ins[2]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(220);
+      check('a relation of a new name is pending till Enter, its redline the chart Enter draws', ins.length === 3 && pend && App.wb.changes().length === n0 + 1 && sig(red) === sig(sc()) && !drawnAsScene().length,
+        `${ins.length} ${pend} ${App.wb.changes().length - n0} ${sig(red) === sig(sc())}`);
+      Shell.parts.peek().undo.undo(); await tick(160);
+    }
+    // A struck label is drawn only where it's clear of every label and box of the scene Enter makes
+    const named = name => Object.keys(App.state.peek()).find(id => App.state.peek()[id].kind && App.notes.peek().nameOf(App.state.peek(), id) === name);
+    const okafor = named('David R. Okafor'), coinv = named('Calder Ridge Co-Invest (Corvane), L.P.') ?? 'coinv';
+    const hisLine = Object.keys(App.state.peek()).find(id => App.state.peek()[id].args?.some(a => a.at === okafor) && App.state.peek()[id].args.some(a => a.at === 'holdco'));
+    const overprints = () => { const s = sc(), rects = [...s.marks.filter(m => m.type === 'box'), ...s.marks.filter(m => m.type === 'line' && m.labelAt && m.label && m.texts.length).map(m => ({ x: m.labelAt.x, y: m.labelAt.y, w: m.label.w, h: m.label.h }))];
+      return cv().graph.getCells().filter(c => c.getData()?.kind === 'ink' && c.id.endsWith('·label')).filter(c => { const p = c.getPosition(), z = c.getSize();
+        return rects.some(b => p.x < b.x + b.w && b.x < p.x + z.width && p.y < b.y + b.h && b.y < p.y + z.height); }).map(c => c.id); };
+    const struck = [];
+    for (const [what, begin] of [
+      ['a line deleted', async () => { Shell.select([hisLine]); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }],
+      ['a person deleted', async () => { Shell.select([okafor]); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }],
+      ['a fund’s start moved past today', async () => { Shell.select([coinv]); await tick(120); field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Formation Date');
+        if (!field) throw new Error('no Formation Date: ' + coinv + ' ' + txt($('.insp')).slice(0, 200));
+        field.focus(); await tick(); field.value = 'March 2, 2027'; field.dispatchEvent(new Event('input', { bubbles: true })); }]]) {
+      await begin(); await tick(200);
+      const inked = cv().graph.getCells().filter(c => c.getData()?.kind === 'ink').length, over = overprints();
+      if (!inked || over.length) struck.push(`${what}: ${inked ? over.join(', ') : 'nothing struck'}`);
+      if (App.pending.peek()) App.discard(); else { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); field.blur(); }
+      await tick(160);
+    }
+    check('a struck label is drawn only where it’s clear of every label and box of the scene Enter makes', !!okafor && !!hisLine && !struck.length, `${okafor} ${hisLine} ${struck.join('; ')}`);
+    // Esc pressed to clear the selection keeps a change pending; with nothing else to escape, it discards it
+    await tickRow('pension', 'fund', /is an owner of Fund III$/); await tick(120);
+    Shell.select(['northpine']); await tick(80); cv().root.focus(); key('Escape'); await tick(120);
+    check('Esc pressed on the chart to clear its selection clears it and keeps the change pending, redlined', !Shell.selection.peek().length && !!App.pending.peek() && sc() !== App.scene.peek(), `${Shell.selection.peek()} ${!!App.pending.peek()}`);
+    key('Escape'); await tick(160);
+    check('… and pressed again, with nothing else to escape, discards it', !App.pending.peek() && !$('.pendbar') && sc() === App.scene.peek());
     // A click away leaves a change pending, its redline drawn
     await tickRow('pension', 'fund', /is an owner of Fund III$/); await tick(120);
     const red = sc();
     Shell.select([]); cv().root.focus(); await tick(160);
-    check('a click away leaves a change pending, its bar and its redline drawn', !!App.pending.peek() && !!$('.dc-pend .pendbar') && sc() === red && sc() !== App.scene.peek(), `${!!App.pending.peek()} ${sc() === red}`);
+    check('a click away leaves a change pending, its bar and its redline drawn', !!App.pending.peek() && $$('.pendbar').length === 1 && !!$('.view > .pendbar') && sc() === red && sc() !== App.scene.peek(), `${!!App.pending.peek()} ${sc() === red}`);
     $$('.pendbar .btn').find(b => txt(b) === 'Discard')?.click(); await tick(160);
     check('… till Discard drops it, and the chart is drawn as it is', !App.pending.peek() && !$('.pendbar') && sc() === App.scene.peek() && !drawnAsScene().length);
   }

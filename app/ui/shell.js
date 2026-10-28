@@ -54,8 +54,8 @@
 // start entry), App.endOf(id), how deleting one ends it (by its end entry, on a day said, or as a value), and
 // App.From({ day, set, auto, until }), the control that asks either ("From" a day or "All along"; "Until" a day or
 // "Never held"); App.pending, the one change pending, begun by App.stage(…) or App.deleting(ids, what), made by
-// App.commit() and dropped by App.discard(), and App.Pending, its bar, which the canvas and a table show under the
-// view; App.workOn(day), another day's working-out,
+// App.commit() and dropped by App.discard(), and App.Pending, its bar, the window's one, which the shell shows under
+// whichever view is shown; App.workOn(day), another day's working-out,
 // as showing it would work it out; App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
@@ -325,8 +325,10 @@ const Shell = (() => {
   // Ranked as uFuzzy ranks their names (a label, and any others), except that a name typed exactly comes
   // first; a name with fewer words around what matched before one with more (Fund III before Fund III
   // Blocker, Northpine Software before a document naming Northpine); between those alike, a record related
-  // to more others first (the fund before its general partner); and what's within a thing (AIV-1 ›
-  // Signatories, of its key) after every thing found, so "blocker" finds both blockers before their lists.
+  // to more others first (the fund before its general partner); a name that holds another's found too, as a
+  // document's names what it's about (Form D, Co-Invest (Corvane) holds Co-Invest), after every name that
+  // doesn't; and what's within a thing (AIV-1 › Signatories, of its key) after every thing found, so "blocker"
+  // finds both blockers before their lists.
   const words = s => (s.match(/\S*[\p{L}\p{N}]\S*/gu) ?? []).length;
   function relatives(id) {
     const st = App.state.peek(), out = new Set();
@@ -348,7 +350,10 @@ const Shell = (() => {
     }
     const found = [...best.values()].sort((a, b) => a.extra - b.extra || related(b) - related(a));
     const within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q);
-    return [...new Set([...found.filter(x => names(x).some(n => norm(n) === typed)), ...found.filter(x => !within(x)), ...found])].slice(0, limit);
+    const things = found.filter(x => !within(x)), named = [...new Set(things.flatMap(names))].map(n => [n, n.toLowerCase()]);
+    const word = (n, s) => new RegExp(`(?:^|[^\\p{L}\\p{N}-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}-])`, 'iu').test(s);
+    const about = x => { const s = x.label.toLowerCase(); return named.some(([n, l]) => l.length < s.length && s.includes(l) && !names(x).includes(n) && word(n, x.label)); };
+    return [...new Set([...found.filter(x => names(x).some(n => norm(n) === typed)), ...things.filter(x => !about(x)), ...things, ...found])].slice(0, limit);
   }
   const marked = (label, ranges) => !ranges ? label : uFuzzy.highlight(label, ranges, (p, m) => m ? html`<b>${p}</b>` : p, [], (a, p) => { a.push(p); });
   const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled && (it.run || it.items);
@@ -654,6 +659,7 @@ const Shell = (() => {
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
         ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
+        ${h(App.Pending)}
         ${part('time') ? h(part('time').Ruler) : null}
       </div>
       <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${resize} onDblClick=${() => wide.value ? narrow() : widen()} />

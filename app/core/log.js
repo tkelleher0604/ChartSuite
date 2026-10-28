@@ -273,13 +273,15 @@ function open(data) {
         if (day && validOn(r, day) && r.since !== day) { put({ ...r, id: newId(), before: day }); fresh({ since: day, ...(r.before && { before: r.before }) }); }
         else fresh({ ...(r.since && { since: r.since }), ...(r.before && { before: r.before }) });
       },
-      remove(id) {
+      // Removing, on the transaction's day or on the day given (null for none): what a deletion that asks its own
+      // day ends on.
+      remove(id, on = day) {
         const rs = items.get(id);
         if (!rs) return;
         if (!('record' in rs[0])) return rs.slice().forEach(drop);
         const raw = rawOf(items), gone = Tree.dependents(raw, [id]);
         // A removed object's notes, and a removed view's notes and shapes, are its dependents.
-        if (!day) for (const r of all()) if (('note' in r || 'shape' in r) && (gone.has(r.view) || [...Tree.idsIn(r.pattern ?? {})].some(x => gone.has(x)))) drop(r);
+        if (!on) for (const r of all()) if (('note' in r || 'shape' in r) && (gone.has(r.view) || [...Tree.idsIn(r.pattern ?? {})].some(x => gone.has(x)))) drop(r);
         // From the top down: a record whose location goes whole (it began on the day) goes with it, never outlasting
         // what it's at; any other ends on the day.
         const order = [], seen = new Set(), visit = x => { if (seen.has(x)) return; seen.add(x); for (const a of raw[x] ? Tree.argsOf(raw[x]) : []) if (gone.has(a.at)) visit(a.at); order.push(x); };
@@ -287,8 +289,8 @@ function open(data) {
         for (const x of order) {
           const under = raw[x] && Tree.argsOf(raw[x]).some(a => gone.has(a.at) && !items.has(a.at));
           for (const r of (items.get(x) ?? []).slice()) {
-            if (!day || under || (r.since && r.since >= day)) drop(r);
-            else if (!r.before || r.before > day) swap(r, { ...r, before: day });
+            if (!on || under || (r.since && r.since >= on)) drop(r);
+            else if (!r.before || r.before > on) swap(r, { ...r, before: on });
           }
         }
       },

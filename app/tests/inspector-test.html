@@ -77,10 +77,8 @@ const N = () => App.notes.value;
 const key = (el, k, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...o }));
 const type = async (el, text) => { el.focus(); await tick(); el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(); key(el, 'Enter'); await tick(); };
 const pick = async label => { const it = [...document.querySelectorAll('.float .menu-item')].find(x => x.querySelector('.label').textContent === label); it?.click(); await tick(); return !!it; };
-// The window's bar while a change is pending (App.Pending), which each view's part shows under it: here, where the
-// view would be.
+// The window's one bar while a change is pending (App.Pending), which the shell shows under the view.
 const pb = (s = '') => document.querySelector('.pendbar' + (s && ' ' + s));
-Shell.ready.then(() => { const el = document.createElement('div'); el.style.cssText = 'position:fixed;left:0;right:420px;bottom:0;z-index:5'; document.body.append(el); preact.render(Shell.h(App.Pending), el); });
 
 async function run() {
   while (!App.chart.value) await tick(50);
@@ -303,14 +301,15 @@ async function run() {
   // A relation with no start of its own (an ownership) is added from a day said in its redline, before Enter:
   // the day shown, by default, so an owner added today isn't in the chart as of a day before
   const n0r = App.wb.changes().length, owned = () => Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
-  rr[0].querySelector('.tag').click(); await tick(60);
+  rr[0].querySelector('.tag').focus(); rr[0].querySelector('.tag').click(); await tick(60);   // (a click focuses a button)
   const asking = $('.rr.adding'), fromIn = pb('.from input');
   check('ticking one that asks its day redlines it, ticked, its day asked in the bar under the view, the day shown, to type over', !!asking && /is an owner of the BDC/.test(asking.textContent)
     && pb('.from .sel')?.textContent === 'From' && fromIn?.value === Tree.formatDate(Log.today(), 'short') && document.activeElement === fromIn
     && /^Ownership: Fund III Blocker → The BDC/.test(spoken(pb('.what'))) && /DiscardAdd$/.test(pb().textContent.replace(/\s/g, ''))
     && App.wb.changes().length === n0r && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1, `${asking?.textContent} / ${pb()?.textContent}`);
   key(fromIn, 'Escape'); await tick(60);
-  check('… Esc drops it', !$('.rr.adding') && !pb() && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r);
+  check('… Esc drops it, the keys going back to its row', !$('.rr.adding') && !pb() && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r && !!document.activeElement?.matches('.rr .ctl .tag'),
+    document.activeElement?.outerHTML.slice(0, 120));
   $$('.rr').find(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC').querySelector('.tag').click(); await tick(60);
   const redlined = FormulaBar.pending.peek()?.change.records ?? {};
   // A click away never drops it: the bar and its redline stay, and the two boxes again show it ticked
@@ -336,11 +335,18 @@ async function run() {
   key(document.activeElement, 'Enter'); await tick();
   check('… and from the last, to its row, so a key typed next is the window’s', document.activeElement?.matches('.rr-at .row') && document.activeElement.textContent.includes('Voting Percentage'), document.activeElement?.outerHTML.slice(0, 120));
   ghost('New relation').click(); await tick();
-  const [nm, ra, rb] = $$('.rr.new input');
-  for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
+  const [nm, ra, rb] = $$('.rr.new input'), nNew = App.wb.changes().length;
+  check('New relation is set out as the relation’s rows: its name, then each side with its role after it, no placeholder saying what a field is', document.activeElement === nm && nm.placeholder === 'New relation'
+    && ![ra, rb].some(x => x.placeholder) && ra.previousElementSibling?.matches('.side') && rb.previousElementSibling?.matches('.side') && ra.getAttribute('aria-label') !== rb.getAttribute('aria-label') && !$('.rr.new .when'),
+    $('.rr.new')?.innerHTML.slice(0, 300));
+  for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.focus(); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
+  check('… once named, it’s a change pending, as one ticked is: redlined, the bar asking its day, nothing made yet', !!$('.rr.new.adding') && /^Co-Investment Right: Fund III Blocker → The BDC/.test(spoken(pb('.what') ?? document.body))
+    && pb('.from input')?.value === Tree.formatDate(Log.today(), 'short') && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1 && App.wb.changes().length === nNew && document.activeElement === rb,
+    `${pb()?.textContent} ${document.activeElement?.outerHTML.slice(0, 80)}`);
   key(rb, 'Enter'); await tick();
-  check('New relation makes one, and names it, from the day beneath it', Object.entries(st()).some(([id, r]) => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc' && App.wb.item(C, id)[0].since === Log.today())
-    && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right');
+  check('New relation makes one, and names it, from the day its bar says', Object.entries(st()).some(([id, r]) => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc' && App.wb.item(C, id)[0].since === Log.today())
+    && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right' && !$('.rr.new input') && !pb() && App.wb.changes().length === nNew + 1
+    && Time.describe(last()) === `Added Co-Investment Right: Fund III Blocker → The BDC from ${Tree.formatDate(Log.today(), 'short')}`, Time.describe(last()));
 
   // … or all along, for what was always so, from its menu: then it's in the chart as of 2023
   Shell.emit('relate-open', ['holdco', 'halvard']); await tick(60);
@@ -394,15 +400,19 @@ async function run() {
   check('unticking an ownership redlines it going, the bar asking until when, the day shown', /Ownership: U\.S\. Investors → Fund III/.test(spoken(pb('.what') ?? document.body)) && pb('.from .sel')?.textContent === 'Until'
     && pb('.from input')?.value === Tree.formatDate(Log.today(), 'short') && FormulaBar.pending.peek()?.change.records.own_us_fund === null && !!st().own_us_fund, pb()?.textContent);
   key(document.body, 'Enter'); await tick(60);
-  check('… Enter ends it today: gone today, there as of 2025', !st().own_us_fund && !!App.wb.asOf(C, '2025-12-31').own_us_fund && /^Ended Ownership: U\.S\. Investors → Fund III on /.test(Time.describe(last())), Time.describe(last()));
+  check('… Enter ends it today: gone today, there as of 2025', !st().own_us_fund && !!App.wb.asOf(C, '2025-12-31').own_us_fund && /^Deleted Ownership: U.S. Investors → Fund III from /.test(Time.describe(last())), Time.describe(last()));
   Shell.parts.value.undo.undo(); await tick(60);
   // A record ended by an entry of its own, a general partner by its Withdrawal Date, is offered that entry instead
   const gpLine = 'gp_of_fund', endsBy = App.endOf(gpLine);
+  Shell.select([gpLine]); await tick(60);
   App.deleting([gpLine], 'General Partner'); await tick(60);
   const word = pb('.from .sel')?.textContent;
+  check('… its inspector showing the Withdrawal Date the deletion gives, in blue, and the relation struck', rowOf('Withdrawal Date')?.querySelector('.v.redline .add')?.textContent === Tree.formatDate(Log.today(), 'short')
+    && !!$('.insp.going'), $('.insp')?.className + ' ' + rowOf('Withdrawal Date')?.outerHTML.slice(0, 160));
   key(document.body, 'Enter'); await tick(60);
   check('a general partner deleted is ended by its Withdrawal Date, which its redline offers', word === 'Withdrawal Date' && endsBy === word && !st()[gpLine] && !!App.wb.asOf(C, '2025-12-31')[gpLine]
     && last().adds.some(r => r.at === gpLine && r.edge === word && r.value === Log.today()), `${word} ${JSON.stringify(last().adds)}`);
+  check('… said as one Delete, then its day', new RegExp(`^Deleted General Partner: .* from ${Tree.formatDate(Log.today(), 'short')}$`).test(Time.describe(last())), Time.describe(last()));
   Shell.parts.value.undo.undo(); await tick(60);
   // A change that asks no day holds from the day shown when it was begun, whatever day is shown at Enter
   Shell.at({ asOf: '2025-06-30' }); await tick(60);
@@ -411,6 +421,77 @@ async function run() {
   key(document.body, 'Enter'); await tick(60);
   check('an entry deleted as of a day, Entered after going back to today, goes from that day, not from every day', !!App.wb.asOf(C, '2025-06-29').fund_ein && !App.wb.asOf(C, '2025-06-30').fund_ein && !st().fund_ein,
     JSON.stringify(last().adds.concat(last().removes)));
+  Shell.parts.value.undo.undo(); await tick(60);
+
+  // ---- A change pending: one bar, the window's; kept till Enter, Esc from its bar or with nothing else to escape, or
+  // Discard; never dropped without a word ----
+  const toastText = () => document.querySelector('.toast span')?.textContent ?? '', nP = () => App.wb.changes().length, today = Tree.formatDate(Log.today(), 'short');
+  const tickOwner = async (a, b, re) => { Shell.emit('relate-open', [a, b]); await tick(60); ghost('Add a relation')?.click(); await tick();
+    $$('.rr').find(r => re.test(spoken(r.querySelector('.nm') ?? r)))?.querySelector('.tag').click(); await tick(60); };
+  await tickOwner('pension', 'northpine', / is an owner of Northpine/);
+  check('a change pending has one bar, the window’s, under the view', document.querySelectorAll('.pendbar').length === 1 && !!document.querySelector('.view > .pendbar'), document.querySelectorAll('.pendbar').length);
+  const barDay = pb('.from input');
+  barDay.value = 'June 3'; barDay.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  key(barDay, 'Escape'); await tick(60);
+  check('Esc in the bar’s day field puts back what was typed, keeping the keys there, the change still pending', !!App.pending.peek() && document.activeElement === pb('.from input')
+    && pb('.from input')?.value === today && App.pending.peek().day === Log.today(), `${document.activeElement?.outerHTML.slice(0, 80)} ${pb('.from input')?.value}`);
+  Shell.narrow(); Shell.select(['fund']); await tick(60);
+  key(document.body, 'Escape', { cancelable: true, code: 'Escape' }); await tick(60);
+  check('Esc pressed to clear another selection clears it, and keeps the change pending', !Shell.selection.peek().length && !!App.pending.peek() && !!pb(), `${Shell.selection.peek()} ${!!App.pending.peek()}`);
+  key(document.body, 'Escape', { cancelable: true, code: 'Escape' }); await tick(60);
+  check('… and with nothing else to escape, Esc discards it', !App.pending.peek() && !pb());
+  await tickOwner('pension', 'northpine', / is an owner of Northpine/);
+  const nU = nP();
+  Shell.parts.value.undo.undo(); await tick(60);
+  check('Undo with a change pending discards it first, saying so, and undoes nothing else', !App.pending.peek() && !pb() && nP() === nU && /^Discarded adding Ownership: .*Northpine/.test(toastText()), toastText());
+  [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Redo')?.click(); await tick(60);
+  check('… its toast’s Redo bringing it back', !!App.pending.peek() && !!pb() && nP() === nU);
+  const later1 = pb('.from input');
+  later1.focus(); later1.value = 'December 1, 2026'; later1.dispatchEvent(new Event('input', { bubbles: true })); await tick(); later1.blur(); await tick(60);
+  const link = pb('.from .lk');
+  check('a day after the day shown, said in the bar, is a link to the chart then, where the change is drawn', link?.textContent === 'Dec 1, 2026' && !pb('.from input') && !FormulaBar.pending.peek(), pb()?.innerHTML.slice(0, 300));
+  link?.click(); await tick(60);
+  check('… which shows that day, the change redlined there, its day typed over there', Shell.time.peek()?.asOf === '2026-12-01' && !!FormulaBar.pending.peek() && pb('.from input')?.value === 'Dec 1, 2026', pb()?.textContent);
+  Shell.at(null); App.discard(); await tick(60);
+  // A deletion pending whose record an older change undone (History's) takes away is dropped, saying why
+  let ownAdded = null;
+  App.change(tx => { ownAdded = tx.add('record', { args: [{ edge: 'Owner', at: 'holdco' }, { edge: 'Owned', at: 'northpine' }], tag: true }); }, { dated: false }); await tick(60);
+  const addedBy = last().id;
+  App.deleting([ownAdded], 'Ownership: Sponsor Holdings → Northpine Software, LLC'); await tick(60);
+  App.reverse(addedBy); await tick(60);
+  check('a deletion pending whose record goes is dropped, the toast saying why', !App.pending.peek() && !pb() && /^Discarded deleting Ownership: Sponsor Holdings → Northpine Software, LLC, which no longer exists/.test(toastText()), toastText());
+  // The words: one Delete, said as asked, then its day
+  Shell.select(['own_us_fund']); await tick(60);
+  App.deleting(['own_us_fund'], 'Ownership: U.S. Investors → Fund III'); await tick(60);
+  pb('.from .sel')?.click(); await tick(); await pick('Never held');
+  key(document.body, 'Enter'); await tick(60);
+  check('deleted as never held, it says so', Time.describe(last()) === 'Deleted Ownership: U.S. Investors → Fund III as never held' && toastText() === Time.describe(last()), Time.describe(last()));
+  Shell.parts.value.undo.undo(); await tick(60);
+  // A deletion pending shows in the inspector as on the chart: the end entry it gives, in blue, the record struck as it
+  // goes; an end day typed after the day shown is recorded as one typed in the inspector is, so the record says it
+  Shell.select(['northpine']); await tick(60);
+  App.deleting(['northpine'], 'Northpine Software, LLC'); await tick(60);
+  check('a deletion pending shows in the inspector: the end entry it gives in blue, the record struck', rowOf('Dissolution Date')?.querySelector('.v.redline .add')?.textContent === today && !!$('.insp.going'),
+    rowOf('Dissolution Date')?.outerHTML.slice(0, 200));
+  check('… and what follows from it counted, as for a line', (FormulaBar.pending.peek()?.deltas ?? []).length > 0, JSON.stringify(FormulaBar.pending.peek()?.deltas ?? null));
+  await type(pb('.from input'), 'December 1, 2026');
+  const dissolved = Tree.entryAt(st(), 'northpine', 'Dissolution Date');
+  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says until when', !!st().northpine && st()[dissolved]?.value === '2026-12-01'
+    && !App.wb.item(C, dissolved)[0].since && /^Deleted Northpine Software, LLC from Dec 1, 2026/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // A start typed in the formula bar past the day shown: the toast says why, as from the inspector
+  Shell.at({ asOf: '2025-06-30' }); await tick(60);
+  Shell.select([Tree.entryAt(st(), 'fund', 'Formation Date')]); await tick(80);
+  const fxIn = document.querySelector('.formulabar .fx-value');
+  fxIn?.focus(); if (fxIn) { fxIn.value = 'September 1, 2025'; fxIn.dispatchEvent(new Event('input', { bubbles: true })); } await tick(60);
+  if (fxIn) key(fxIn, 'Enter'); await tick(80);
+  check('a start typed in the formula bar past the day shown takes it out, the toast saying why', !st().fund && /, so it holds from Sep 1, 2025$/.test(toastText()), `${!!fxIn} ${toastText()}`);
+  Shell.parts.value.undo.undo(); Shell.at(null); await tick(60);
+  // One line's own look reads as This line, with Reset, as a box's does
+  Shell.select(['own_us_fund']); await tick(60);
+  App.change(tx => tx.note('Color', Tree.treeOf(st(), 'own_us_fund'), '#C00000', { view: App.scene.peek().view }), { dated: false }); await tick(60);
+  const ownLooks = $$('.row.src .k').map(k => k.textContent.trim()), lookSect = $$('section').find(s => s.querySelector('.sect .fold')?.textContent === 'Look');
+  check('one line’s own look reads under This line, with Reset, as a box’s does', ownLooks[0] === 'This line' && !!lookSect?.querySelector('.reset'), ownLooks.join(', '));
   Shell.parts.value.undo.undo(); await tick(60);
   // A record whose kind or relation has a start entry asks no day: it holds from that entry, whenever it's added
   const gpOf = { args: [{ edge: 'GP', at: 'mgmt' }, { edge: 'Partnership', at: Object.keys(st()).find(k => st()[k].at === 'fund' && st()[k].edge === 'Entity Type') }], tag: true };
@@ -465,6 +546,7 @@ async function run() {
     const input = rowOf('Percentage').querySelector('input');
     input.focus(); await tick(); input.value = '65%'; input.dispatchEvent(new Event('input', { bubbles: true })); await tick();
     const typed = FormulaBar.pending.peek()?.change.records ?? {};
+    if (!day) check('… what it said struck before what’s typed, whole', !!rowOf('Percentage').querySelector('.cellbox > s.del + .hug') && rowOf('Percentage').querySelector('s.del')?.textContent === '71.6%', rowOf('Percentage')?.innerHTML.slice(0, 200));
     check(`a value typed in the inspector is redlined as it's typed${day ? ', with a day shown' : ''}`, Object.keys(typed).join() === pctOf && typed[pctOf].value === 0.65
       && typed[pctOf].since === (day ?? App.wb.item(C, pctOf).find(r => Log.validOn(r, Log.today()))?.since), JSON.stringify(typed));
     key(input, 'Enter'); await tick(60);
@@ -549,6 +631,14 @@ async function run() {
   const dark = getComputedStyle(swatch), page = getComputedStyle(document.body).getPropertyValue('--page').trim();
   check('in dark, a swatch is drawn true, on the page’s white, not turned to the panel’s colours', dark.filter === 'none' && dark.backgroundColor === 'rgb(255, 255, 255)' && page === '#ffffff', `${dark.filter} ${dark.backgroundColor} ${page}`);
   document.documentElement.dataset.theme = theme;
+  // Each 2 px inside its chip, a heavy outline too, so none runs along the chip's edge, where in dark a dashed one
+  // (Not in good standing) would merge with the chip's white.
+  // What a mark covers: its box, and half its outline beyond, but past a line's ends, which are cut square.
+  const reach = c => { const b = c.getBBox(), h = +(c.getAttribute('stroke-width') || 0) / 2, hx = b.height ? h : 0, [, tx = 0, ty = 0] = /translate\(([\d.]+) ([\d.]+)\)/.exec(c.getAttribute('transform') ?? '') ?? [];
+    return [b.x + +tx - hx, b.y + +ty - h, b.x + +tx + b.width + hx, b.y + +ty + b.height + h]; };
+  const outside = $$('svg.sw > *').filter(c => { const [x0, y0, x1, y1] = reach(c); return x0 < 1.99 || y0 < 1.99 || x1 > 26.01 || y1 > 14.01; });
+  check('… each 2 px inside its chip, a heavy outline too, so none runs along its edge', $$('svg.sw > *').length > 5 && !outside.length && $$('svg.sw path[stroke-width="2.5"]').length > 0,
+    outside.map(c => reach(c).map(v => v.toFixed(2)).join(',')).join(' | '));
   // One rule groups a style's outputs, the Key's: a Key row is one row here, its outputs all in it.
   const said = $$('.row.out').map(r => (r.querySelector('.oname')?.textContent ?? (r.querySelector('.v').title || r.querySelector('.cell').value)).split(', '));
   check('… grouped as the Key groups them: outputs that look alike are one row', App.scene.peek().legend.every(g => said.some(ns => g.outputs.every(p => ns.some(x => Tree.same(x, Scene.outputName(N(), p))))))
@@ -786,6 +876,22 @@ async function run() {
   check('Several relations selected are listed each by its place', listed.length === 3 && listed.every(t => /^Ownership · .+ → .+/.test(t)) && new Set(listed).size === 3, listed.join(' | '));
   Shell.select(owns.slice(0, 2)); await tick(60);
   check('… and two of them are a list, not the two-box panel', $$('.insp .rows .row').length === 2 && /^2 selected/.test($('.insp')?.textContent.trim()), $('.insp')?.textContent.slice(0, 120));
+
+  // A change pending is its chart's: another chart opened keeps it, as another view does, its bar back with its chart;
+  // and it's noted for the tab, so a reload that drops it says so
+  Shell.select([]); await tick(60);
+  App.deleting(['own_us_fund'], 'Ownership: U.S. Investors → Fund III'); await tick(60);
+  const pendKept = App.pending.peek(), stored = (() => { try { return JSON.parse(sessionStorage.getItem('dendra.pending')); } catch { return null; } })();
+  Shell.parts.peek().action.find(a => a.id === 'chart.new').run(); await tick(120);
+  const other = App.chart.peek();
+  check('another chart opened keeps a change pending, its bar not shown there, nothing said', other !== C && App.pending.peek() === pendKept && !pb() && !/^Discarded/.test(document.querySelector('.toast span')?.textContent ?? ''));
+  const nK = App.wb.changes().length;
+  document.activeElement?.blur?.(); key(document.body, 'Escape'); key(document.body, 'Enter'); await tick(60);
+  check('… nor Esc nor Enter there touching it', App.pending.peek() === pendKept && App.wb.changes().length === nK);
+  Shell.parts.peek().workbook.open(C); await tick(120);
+  check('… and its chart shown again, its bar back', App.chart.peek() === C && !!pb() && /U\.S\. Investors → Fund III/.test(pb()?.textContent ?? ''));
+  check('… noted for the tab, so a reload that drops it says so', stored?.verb === 'Delete' && /U\.S\. Investors → Fund III/.test(stored?.what ?? ''), JSON.stringify(stored));
+  App.discard(); await tick(60);
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {

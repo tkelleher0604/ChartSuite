@@ -227,12 +227,7 @@ function mount(el) {
   root.className = 'dc';
   root.tabIndex = 0;
   root.innerHTML = '<div class="dc-graph"></div><div class="dc-over"></div>';
-  // Under the chart, the window's bar while a change is pending (App.Pending), over the foot of the canvas, so the
-  // chart doesn't move as it comes and goes.
-  const bar = document.createElement('div');
-  bar.className = 'dc-pend';
-  el.append(root, bar);
-  preact.render(Shell.h(App.Pending), bar);
+  el.append(root);
   const gEl = root.firstChild, over = root.lastChild;
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
@@ -1029,8 +1024,14 @@ function mount(el) {
     const avoid = [...after.marks.filter(m => m.type === 'shape' && m.geometry !== 'line' && m.geometry !== 'group'),
       ...after.marks.filter(m => m.type === 'line' && m.labelAt && m.label).map(m => ({ x: m.labelAt.x, y: m.labelAt.y, w: m.label.w, h: m.label.h }))].map(({ x, y, w, h }) => ({ x, y, w, h }));
     const way = l => { try { return geo.has(l.from) && geo.has(l.to) ? Layout.around(geo, l.from, l.to, { page: after.page, avoid }) : null; } catch { return null; } };
+    // A struck line keeps its label only where it's clear of every label and box of the scene Enter makes; else it's
+    // struck without it, as what goes is said in the bar and counted in the formula bar.
+    const clear = (a, pad = 1) => ![...avoid, ...geo.values()].some(b => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad);
     const lines = before.marks.filter(m => m.type === 'line' && r.go.has(m.record) && !after.byId.has(m.id)).map(l => {
-      if (stands(l.from) && stands(l.to)) return { ...l, points: shift(l.points), runs: l.runs?.map(shift), labelAt: l.labelAt && { x: l.labelAt.x + dx, y: l.labelAt.y + dy } };
+      if (stands(l.from) && stands(l.to)) {
+        const at = l.labelAt && { x: l.labelAt.x + dx, y: l.labelAt.y + dy };
+        return { ...l, points: shift(l.points), runs: l.runs?.map(shift), ...(at && l.label && clear({ ...at, w: l.label.w, h: l.label.h }) ? { labelAt: at } : { labelAt: null, texts: [] }) };
+      }
       const ps = way(l);
       return ps && { ...l, points: ps, runs: null, labelAt: null, texts: [] };
     }).filter(Boolean);
@@ -1230,6 +1231,33 @@ function mount(el) {
   // Ctrl+D copies in place, leaving the clipboard as it was.
   const duplicate = () => paste(marksNow());
   const nudge = (dx, dy) => moveTo(new Map(placeable().map(m => [m.id, { x: m.x + dx, y: m.y + dy, ...(m.points && { dx, dy }) }])));
+  // The arrow keys nudge: one after another, of one selection, they're one change, as History lists it. The marks move
+  // at once, as a drag moves them, and the change is made as the nudging stops: a moment after the last, or as anything
+  // else is done (another key, a click, another selection).
+  let run = null;
+  function nudging(dx, dy) {
+    const ms = placeable(), key = ms.map(m => m.id).join();
+    if (still() || !ms.length) return nudge(dx, dy);
+    if (run && run.key !== key) nudged();
+    run ??= { key, ms, dx: 0, dy: 0, timer: 0 };
+    run.dx += dx; run.dy += dy;
+    showHandles(null);
+    graph.batchUpdate(() => { for (const m of ms) graph.getCellById(m.id)?.translate(dx, dy); });
+    for (const m of ms) { const c = graph.getCellById(m.id); if (c?.isNode()) follow(c); else astray(m.id); }
+    clearTimeout(run.timer);
+    run.timer = setTimeout(nudged, 600);
+  }
+  function nudged() {
+    const r = run;
+    if (!r) return;
+    run = null;
+    clearTimeout(r.timer);
+    moveTo(new Map(r.ms.map(m => [m.id, { x: m.x + r.dx, y: m.y + r.dy, ...(m.points && { dx: r.dx, dy: r.dy }) }])));
+  }
+  const nudgeEnds = e => { if (run && !(e.type === 'keydown' && /^(Arrow|Shift)/.test(e.key))) nudged(); };
+  addEventListener('keydown', nudgeEnds, true);
+  addEventListener('pointerdown', nudgeEnds, true);
+  const stopNudge = Shell.on('select', () => nudged());
   function align(how) {
     const ms = placeable();
     if (!ms.length) return;
@@ -1371,8 +1399,8 @@ function mount(el) {
   const keyMap = {
     'Tab': () => next(1), 'Shift+Tab': () => next(-1),
     'Delete': () => remove(), 'Backspace': () => remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
-    'ArrowLeft': () => nudge(-1, 0), 'ArrowRight': () => nudge(1, 0), 'ArrowUp': () => nudge(0, -1), 'ArrowDown': () => nudge(0, 1),
-    'Shift+ArrowLeft': () => nudge(-10, 0), 'Shift+ArrowRight': () => nudge(10, 0), 'Shift+ArrowUp': () => nudge(0, -10), 'Shift+ArrowDown': () => nudge(0, 10),
+    'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
+    'Shift+ArrowLeft': () => nudging(-10, 0), 'Shift+ArrowRight': () => nudging(10, 0), 'Shift+ArrowUp': () => nudging(0, -10), 'Shift+ArrowDown': () => nudging(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
     '$mod+KeyD': () => duplicate(), '$mod+KeyG': () => group(), '$mod+Shift+KeyG': () => ungroup(),
     '$mod+BracketRight': () => order('forward'), '$mod+BracketLeft': () => order('backward'),
@@ -1415,8 +1443,9 @@ function mount(el) {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
+      nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
-      graph.dispose(); root.remove(); preact.render(null, bar); bar.remove(); if (active.peek() === canvas) active.value = null;
+      graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
   active.value = canvas;

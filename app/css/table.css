@@ -1,7 +1,7 @@
 /* Table views and the time: the grid (on dendra.css's Tabulator restyle), the date control's calendar, the
    ruler under the view, and History in the inspector's place. Tokens are dendra.css's. */
 
-/* ---- The grid, and under it the bar of a paste pending ---- */
+/* ---- The grid ---- */
 /* With nothing selected, the grid has the inspector's width too (shell.js's .alone, which glides). */
 .main.alone { grid-template-columns: minmax(0, 1fr) 0 0; }
 .main.alone > :is(.divider, .inspector) { display: none; }
