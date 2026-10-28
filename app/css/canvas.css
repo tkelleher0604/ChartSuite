@@ -8,9 +8,6 @@
 .dc-over { position: absolute; inset: 0; pointer-events: none; }
 .dc-over > * { pointer-events: auto; }
 
-/* The window's bar while a change is pending, over the foot of the canvas. */
-.dc-pend { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; }
-
 .dc-sheet { fill: var(--page); stroke: var(--rule-2); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 :root[data-theme="dark"] .dc-sheet { stroke: transparent; }
 .dc .x6-graph-svg-stage text { user-select: none; }

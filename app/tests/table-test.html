@@ -209,7 +209,7 @@ async function run() {
   check('A heading nothing matches is asked about, and nothing is pasted yet', $('dialog.dlg')?.textContent.includes('Fund Counsel') && N() === n0);
   await answer('New column'); await previewed();
   check('The paste is redlined first: its new row in blue, its new column, and a bar saying what it does', $$('.grid .tabulator-row.red-add').length === 1 && !!column('Fund Counsel')
-    && /3 values.*1 new entity/.test($('.pendbar')?.textContent) && N() === n0, $('.pendbar')?.textContent);
+    && /^1 value·1 new entity/.test($('.pendbar .what')?.textContent) && N() === n0, $('.pendbar')?.textContent);
   check('A pending paste can’t be edited over', !column('Name').getDefinition().editable(rowOf(halvard).getCells()[1]));
   press('Enter'); await tick(150);
   const blocker = named('Calder Ridge III Blocker, Inc.'), hollis = named('Hollis Bay Holdings, LLC');
@@ -322,7 +322,7 @@ async function run() {
   const rows0 = Table.grid.getRows().length;
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed();
   const bar = $('.pendbar')?.textContent ?? '';
-  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /3 values/.test(bar) && /1 new ownership/.test(bar) && /new Entity\s*Halcyon University Endowment/.test(bar)
+  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Entity\s*Halcyon University Endowment/.test(bar)
     && /From$/.test($('.pendbar .from')?.textContent.trim()) && $('.pendbar .from input')?.value === 'Nov 2, 2026' && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
   press('Enter'); await tick(150);
@@ -332,7 +332,7 @@ async function run() {
   check('With a day shown, a value pasted takes effect from it', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-01') === 0.716);
   check('A row that’s new is added, with its new owner', pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.06 && Table.grid.getRows().length === rows0 + 1);
   check('A name finds an entity, never a view of that name', c.adds.some(r => r.args?.some(a => a.edge === 'Owned' && a.at === fund)));
-  check('The toast says what was done, with Undo', /^Pasted 3 values, added 1 ownership/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
+  check('The toast says what was done, with Undo', /^Pasted 2 values, added 1 ownership/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
   check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III from 71.6% to 67.3% as of Nov 2, 2026, and 2 more', Time.describe(c));
   undo(); await tick(150);
   check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
@@ -362,6 +362,10 @@ async function run() {
   press('Enter', Table.grid.rowManager.element); await tick(150);
   check('… which holds on every day, 2023 too', halcyon('2023-12-31') === 0.06 && halcyon(Log.today()) === 0.06, halcyon('2023-12-31'));
   undo(); await tick(150);
+  // One row of a new ownership is said as one thing: its values are the row's, not counted again
+  paste('Owner\tOwned\tPercentage\r\nSponsor Holdings\tFund III\t3%\r\n'); await previewed();
+  check('A row pasted that adds an ownership with its value is said as that one new ownership, in the redline’s blue', $('.pendbar .what')?.textContent === '1 new ownership' && !!$('.pendbar .what .add'), $('.pendbar .what')?.textContent);
+  press('Escape'); await tick(150);
   // Without headings, cells fill the grid from the active cell.
   const us = Table.grid.getRows().find(r => r.getData()['f:@owner'] === 'U.S. Investors');
   Table.grid.addRange(us.getCells().find(x => x.getColumn().getDefinition().title === 'Percentage')); await tick(40);
@@ -439,7 +443,7 @@ async function run() {
     && $('.pendbar .from .sel')?.textContent === 'Until' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
   press('Enter', Table.grid.rowManager.element); await tick(150);
   check('… Enter ends it that day, as one change, said so, the redline gone: it\'s gone today, and was there before', N() === n0 + 1 && !(doomed in st()) && !!App.wb.asOf(C(), '2025-12-31')[doomed]
-    && /^Ended Ownership: .* on /.test($('.toast span')?.textContent ?? '') && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek() && !$('.pendbar'), $('.toast span')?.textContent);
+    && /^Deleted Ownership: .* from /.test($('.toast span')?.textContent ?? '') && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek() && !$('.pendbar'), $('.toast span')?.textContent);
   undo(); await tick(150);
   // The Delete key deletes the rows selected whole, by their numbers, after the redline: Enter deletes, Esc doesn't.
   const whole = id => { Table.grid.addRange(rowOf(id).getCells()[1], rowOf(id).getCells().at(-1)); }, gridKeys = Table.grid.rowManager.element;
@@ -458,8 +462,9 @@ async function run() {
   item('Never held').click(); await tick(60);
   check('… or Never held, from its menu', untilMenu === 'Until,Never held' && $('.pendbar .from')?.textContent.trim() === 'Never held' && !untilIn(), untilMenu);
   press('Enter', gridKeys); await tick(150);
-  check('… and Enter deletes it as if it never held, as one change', N() === n0 + 1 && !(doomed in st()) && !App.wb.asOf(C(), '2025-12-31')[doomed] && !$('.pendbar') && /^Deleted Ownership: /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  check('… and Enter deletes it as if it never held, as one change', N() === n0 + 1 && !(doomed in st()) && !App.wb.asOf(C(), '2025-12-31')[doomed] && !$('.pendbar') && /^Deleted Ownership: .* as never held$/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   undo(); await tick(150);
+  check('… and Undo brings its row back where it was, not at the table’s end', Table.grid.getRows().findIndex(r => r.getData().id === doomed) === 1, Table.grid.getRows().findIndex(r => r.getData().id === doomed));
   // A day typed over the day shown: it holds until then.
   whole(doomed); await tick(40);
   press('Delete', gridKeys); await previewed();
@@ -472,6 +477,10 @@ async function run() {
   press('Delete', gridKeys); await previewed();
   Shell.select([]); Shell.show(views()[0].id); await tick(200); Shell.show(own); await tick(200);
   check('A change pending stays pending as the selection and the view change', !!$('.pendbar') && App.pending.peek()?.verb === 'Delete' && N() === n0 + 4, $('.pendbar')?.textContent);
+  Shell.select([doomed]); await tick(60);
+  gridKeys.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(100);
+  check('Esc pressed to clear the selection clears it, the change still pending, in the window’s one bar under the view', !Shell.selection.peek().length && App.pending.peek()?.verb === 'Delete' && $$('.pendbar').length === 1 && !!$('.view > .pendbar'),
+    `${Shell.selection.peek()} ${App.pending.peek()?.verb}`);
   $$('.pendbar .btn').find(b => b.textContent === 'Discard').click(); await tick(100);
   check('… till Discard drops it', !$('.pendbar') && !App.pending.peek() && doomed in st() && N() === n0 + 4);
 

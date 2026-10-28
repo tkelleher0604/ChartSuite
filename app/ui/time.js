@@ -291,18 +291,23 @@ const Time = (() => {
   }
   const valueText = r => r.field === 'date' ? short(r.value) : Tree.outputText(r);
   // A record's phrase: a tag attested or ruled out, a value set, changed or cleared, a record added or deleted.
-  // A relation that's a fact (Ownership) is added; one a definition works out (Control) is attested.
+  // A relation that's a fact (Ownership) is added; one a definition works out (Control) is attested. Deleted, it's
+  // said as the bar that deleted it asked it, then its day: from the day it ends, whether a day said ended it or its
+  // end entry (a Dissolution Date); or as never held.
   function recordPhrase(i, r, recs, N, name, back) {
-    const [what, of] = said(i.id in recs ? recs : { ...recs, [i.id]: r }, i.id, N);
-    const it = Tree.isView(r) ? `view ${name ? Log.latest(name.now.length ? name.now : name.was).value : of}` : Tree.isObject(r) ? of : r.args ? `${what}: ${of}` : `${what} of ${of}`;
+    const all = i.id in recs ? recs : { ...recs, [i.id]: r }, [what, of] = said(all, i.id, N);
+    const itOf = (x, [w, o]) => Tree.isView(all[x]) ? `view ${name ? Log.latest(name.now.length ? name.now : name.was).value : o}` : Tree.isObject(all[x]) ? o : all[x].args ? `${w}: ${o}` : `${w} of ${o}`;
+    const it = itOf(i.id, [what, of]);
     const verdict = r.tag ? 'Attested' : 'Ruled out', added = back ? 'Restored' : 'Added';
     const fact = r.args && r.tag === true && !App.definitions.peek().some(d => Tree.same(d.name, what));
     // A relation added that asked its day (App.asksDay) says it: from the day said, or all along.
     const when = r.args && !back && App.asksDay(r, recs) ? r.since ? ` from ${short(r.since)}` : ' all along' : '';
-    if (!i.was.length) return Tree.isObject(r) || fact ? `${added} ${it}${fact ? when : ''}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}${when}` : `Set ${it} to ${valueText(r)}`;
-    if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}` : `Cleared ${it}`;
+    const end = r.field === 'date' && all[r.at] && !back && (t => !!t && N.isEnd(t))(Tree.treeOf(all, i.id));
+    if (!i.was.length) return end ? `Deleted ${itOf(r.at, said(all, r.at, N))} from ${short(r.value)}`
+      : Tree.isObject(r) || fact ? `${added} ${it}${fact ? when : ''}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}${when}` : `Set ${it} to ${valueText(r)}`;
+    if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}${back || Tree.isView(r) ? '' : ' as never held'}` : `Cleared ${it}`;
     const was = Log.latest(i.was), ended = i.now.every(x => x.before) && !was.before;
-    if (ended) return `Ended ${it} on ${short(Log.latest(i.now).before)}`;
+    if (ended) return `Deleted ${it} from ${short(Log.latest(i.now).before)}`;
     const on = r.since && r.since !== was.since && r.since !== r.value ? ` as of ${short(r.since)}` : '';
     if (Tree.isObject(r)) return `Changed ${it}`;
     if (Tree.same(r.edge ?? '', 'Name') && 'value' in r) return `Renamed ${was.value} to ${r.value}`;

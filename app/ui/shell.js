@@ -54,8 +54,8 @@
 // start entry), App.endOf(id), how deleting one ends it (by its end entry, on a day said, or as a value), and
 // App.From({ day, set, auto, until }), the control that asks either ("From" a day or "All along"; "Until" a day or
 // "Never held"); App.pending, the one change pending, begun by App.stage(…) or App.deleting(ids, what), made by
-// App.commit() and dropped by App.discard(), and App.Pending, its bar, which the canvas and a table show under the
-// view; App.workOn(day), another day's working-out,
+// App.commit() and dropped by App.discard(), and App.Pending, its bar, the window's one, which the shell shows under
+// whichever view is shown; App.workOn(day), another day's working-out,
 // as showing it would work it out; App.addView; App.who(); App.blank().
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
@@ -654,6 +654,7 @@ const Shell = (() => {
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
         ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
+        ${h(App.Pending)}
         ${part('time') ? h(part('time').Ruler) : null}
       </div>
       <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${resize} onDblClick=${() => wide.value ? narrow() : widen()} />

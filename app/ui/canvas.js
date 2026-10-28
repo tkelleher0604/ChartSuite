@@ -219,12 +219,7 @@ function mount(el) {
   root.className = 'dc';
   root.tabIndex = 0;
   root.innerHTML = '<div class="dc-graph"></div><div class="dc-over"></div>';
-  // Under the chart, the window's bar while a change is pending (App.Pending), over the foot of the canvas, so the
-  // chart doesn't move as it comes and goes.
-  const bar = document.createElement('div');
-  bar.className = 'dc-pend';
-  el.append(root, bar);
-  preact.render(Shell.h(App.Pending), bar);
+  el.append(root);
   const gEl = root.firstChild, over = root.lastChild;
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
@@ -1021,8 +1016,14 @@ function mount(el) {
     const avoid = [...after.marks.filter(m => m.type === 'shape' && m.geometry !== 'line' && m.geometry !== 'group'),
       ...after.marks.filter(m => m.type === 'line' && m.labelAt && m.label).map(m => ({ x: m.labelAt.x, y: m.labelAt.y, w: m.label.w, h: m.label.h }))].map(({ x, y, w, h }) => ({ x, y, w, h }));
     const way = l => { try { return geo.has(l.from) && geo.has(l.to) ? Layout.around(geo, l.from, l.to, { page: after.page, avoid }) : null; } catch { return null; } };
+    // A struck line keeps its label only where it's clear of every label and box of the scene Enter makes; else it's
+    // struck without it, as what goes is said in the bar and counted in the formula bar.
+    const clear = (a, pad = 1) => ![...avoid, ...geo.values()].some(b => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad);
     const lines = before.marks.filter(m => m.type === 'line' && r.go.has(m.record) && !after.byId.has(m.id)).map(l => {
-      if (stands(l.from) && stands(l.to)) return { ...l, points: shift(l.points), runs: l.runs?.map(shift), labelAt: l.labelAt && { x: l.labelAt.x + dx, y: l.labelAt.y + dy } };
+      if (stands(l.from) && stands(l.to)) {
+        const at = l.labelAt && { x: l.labelAt.x + dx, y: l.labelAt.y + dy };
+        return { ...l, points: shift(l.points), runs: l.runs?.map(shift), ...(at && l.label && clear({ ...at, w: l.label.w, h: l.label.h }) ? { labelAt: at } : { labelAt: null, texts: [] }) };
+      }
       const ps = way(l);
       return ps && { ...l, points: ps, runs: null, labelAt: null, texts: [] };
     }).filter(Boolean);
@@ -1408,7 +1409,7 @@ function mount(el) {
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
-      graph.dispose(); root.remove(); preact.render(null, bar); bar.remove(); if (active.peek() === canvas) active.value = null;
+      graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
   active.value = canvas;

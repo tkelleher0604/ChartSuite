@@ -904,7 +904,8 @@ const FormulaBar = (() => {
     const by = new Map(), name = (X, id) => { const def = X.computed[id]?.def ?? X.covered[id]?.def; return def && defOf(def)?.name; };
     const bump = (n, k) => { if (!n) return; if (!by.has(n)) by.set(n, { name: n, plus: 0, minus: 0, changed: 0 }); by.get(n)[k]++; };
     const counts = r => !('tag' in r) || r.tag === true;
-    const tops = (ids, X) => { const all = new Set(ids); return ids.filter(id => !all.has(X.records[id]?.at) && !(X.records[id]?.args ?? []).some(a => all.has(a.at))); };
+    // Counted at what it's at only where that's counted itself: what a definition gives at an entity that goes is.
+    const tops = (ids, X) => { const all = new Set(ids), counted = id => all.has(id) && !!name(X, id); return ids.filter(id => !counted(X.records[id]?.at) && !(X.records[id]?.args ?? []).some(a => counted(a.at))); };
     for (const id of tops(d.appear, B)) if (counts(B.records[id])) bump(name(B, id), 'plus');
     for (const id of tops(d.go, A)) if (counts(A.records[id])) bump(name(A, id), 'minus');
     for (const id of d.change) { const a = A.records[id], b = B.records[id]; bump(name(B, id) ?? name(A, id), 'tag' in a ? (b.tag ? 'plus' : 'minus') : 'changed'); }

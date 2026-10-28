@@ -187,13 +187,16 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .pendbar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
 .pendbar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
 /* A toast rises over the bar, so neither hides the other. */
-#app:has(.view > .host:not([hidden]) .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
-#app:has(.view > .scrub):has(.view > .host:not([hidden]) .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }
+#app:has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
+#app:has(.view > .scrub):has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }
 /* The day a change holds from or until, wherever it's asked (App.From): "From" or "Until", a menu with All along or
    Never held, and the day, typed over; what's said, the day or All along, in the redline's blue. */
 .from { display: inline-flex; align-items: center; gap: 2px; min-height: var(--row); color: var(--ink-2); }
 .from > .sel { margin: 0 2px 0 -7px; color: inherit; }
-.from .cell.date, .from:not(:has(.cell)) > .sel { color: var(--accent-ink); }
+.from .cell.date, .from:not(:has(.cell, .lk)) > .sel { color: var(--accent-ink); }
+/* A day other than the day shown, said: a link to the chart then. */
+:is(.from, .pendbar > .when) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
+:is(.from, .pendbar > .when) > button.lk:hover { text-decoration-color: currentColor; }
 
 /* ---- Tabs, inside panels ---- */
 .tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--rule); }
@@ -259,7 +262,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 
 .shell > .main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 1px var(--insp, 384px); min-height: 0; }
 .main.wide { grid-template-columns: 0 1px minmax(0, 1fr); }
-.view { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
+.view { position: relative; display: grid; grid-template: minmax(0, 1fr) auto / minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
 .divider { position: relative; background: var(--rule); cursor: col-resize; z-index: 2; }
 .divider::before { content: ""; position: absolute; inset: 0 -4px; }
 .divider:hover, .divider.drag { background: var(--rule-2); }
@@ -267,12 +270,16 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .main.wide .inspector > .host { max-width: 880px; margin: 0 auto; padding-top: 16px; }
 .main.anim { transition: grid-template-columns var(--calm) var(--ease); }
 
-.view > .host { position: absolute; inset: 0; }
+/* The view shown fills it; under it, the window's one bar while a change is pending (App.Pending), over the foot of a
+   chart, so the chart doesn't move as it comes and goes, and under a table's last row, which it never hides. */
+.view > .host { position: relative; grid-area: 1 / 1; min-height: 0; }
+.view > .host:has(> .dc) { grid-area: 1 / 1 / 3; }
+.view > .pendbar { grid-area: 2 / 1; z-index: 4; }
 /* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
 .view > .void { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .view > .void > .btn { pointer-events: auto; }
 /* The time's ruler, under the view while it shows (table.css). */
-.view:has(> .scrub) > .host { bottom: 32px; }
+.view:has(> .scrub) { padding-bottom: 32px; }
 .inspector > .host { min-height: 100%; }
 /* What takes the inspector's place (History) fills it, and scrolls itself. */
 .inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }
