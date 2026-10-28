@@ -21,7 +21,9 @@
 .ih-tag { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 8px; }
 .ih-tag > .cellbox { position: static; min-height: 0; }
 .ih:hover .btn.ver { opacity: 1; }
-.ih .btn.ver { right: 13px; top: 16px; }
+.ih .btn.ver { right: 44px; top: 16px; }
+/* What can be done with what's shown, at the panel's top right, as a box's right-click has it. */
+.ih > .btn.more { position: absolute; right: 12px; top: 10px; color: var(--ink-2); }
 @container (min-width: 640px) { .ih { padding-top: 28px; } .ih .btn.ver { top: 32px; } .ih-title, .cellbox.title .cell { font: var(--t22); } }
 
 /* A name that selects what it names: set as text, a button to the keyboard. */

@@ -817,11 +817,25 @@ function Look({ id }) {
 
 // ---- The views of a selection ----
 // A header: its eyebrow, where it says more than the title does, and the title, or `children` in its place.
-function Head({ path = [], title, children }) {
+// `more`, what can be done with what's shown, as its box's or row's right-click offers it: behind ⋯ at the top right.
+function Head({ path = [], title, more, children }) {
   const said = path.length && !(path.length === 1 && T.same(path[0].label, title));
   return html`<header class="ih">
     ${said ? html`<nav class="path">${path.map(p => p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
+    ${more ? html`<button class="btn icon more" aria-label="More" data-tip="More" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, more(), { placement: 'bottom-end' })}>${icon('more')}</button>` : null}
     ${children ?? html`<h2 class="ih-title">${title}</h2>`}</header>`;
+}
+// What can be done with a record from its panel: what its box's right-click has that isn't the chart's own arranging.
+function moreOf(id) {
+  const r = recs()[id], v = viewShown(), chart = v?.layout === 'chart', drawn = chart && App.scene.value?.byId.has(id), first = r.kind && slots(id).find(s => s.id && 'choice' in recs()[s.id]);
+  const hide = () => App.change(tx => tx.note('Shown', tree(id), false, { view: v.id }), { say: ch => Time.describe(ch) });
+  return [
+    ...(r.kind ? [{ label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }] : []),
+    ...(first ? [{ label: `Select every ${recs()[first.id].choice}`, disabled: !chart, run: () => alike(first.id) }] : []),
+    ...(chart && (r.kind || r.args) ? ['-', drawn ? { label: 'Hide in this view', disabled: App.readOnly.value, run: hide }
+      : hiddenNote(id, v.id) ? { label: 'Show in this view', disabled: App.readOnly.value, run: () => showHere([id], v) } : null].filter(Boolean) : []),
+    '-', { label: 'Delete…', danger: true, disabled: App.readOnly.value, run: () => remove(id) },
+  ];
 }
 // The breadcrumb's kind opens its table, at the record's row, where the chart has one, or else says the kind in general;
 // its option selects every box on the chart shown that has it, as Select all like this does.
@@ -857,10 +871,10 @@ function RecordView({ id }) {
   // An object's title is its Name, typed over (cleared, it stays); a relation's or an entry's is what it is,
   // with its tag's box before it, as the formula bar has it.
   const head = r.kind
-    ? html`<${Head} path=${[{ label: r.kind, go: () => kindTable(id), tip: `Open ${T.plural(r.kind)}` }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select all ${recs()[first.id].choice}` }] : [])]}>
+    ? html`<${Head} more=${() => moreOf(id)} path=${[{ label: r.kind, go: () => kindTable(id), tip: `Open ${T.plural(r.kind)}` }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
         <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)}
           preview=${out => out && putChange(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
-    : html`<${Head} title=${name} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
+    : html`<${Head} title=${name} more=${r.args ? () => moreOf(id) : null} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
         ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm">${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   return html`<div class=${'insp' + (goes(id) ? ' going' : '')}>${head}

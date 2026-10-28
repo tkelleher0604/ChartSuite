@@ -319,6 +319,13 @@ async function run() {
   Shell.closeAll(); await tick();
   Shell.select(selWas); await tick(120);
 
+  // ---- What can be done with a record is in its panel too, behind ⋯, as its box's right-click has it ----
+  Shell.select(['fund']); await tick(150);
+  $$('.ih > .btn.more').find(b => b.getClientRects().length)?.click(); await tick(120);
+  const moreItems = $$('.float .menu-item .label').map(e => e.textContent);
+  check('a record’s panel has ⋯, with its table, Hide in this view and Delete…', ['Open in Entities', 'Hide in this view', 'Delete…'].every(x => moreItems.includes(x)), moreItems.join(' | '));
+  Shell.closeAll(); await tick();
+
   // ---- Tidy is with the arrangement, not the zoom ----
   Shell.select(['halvard']); await tick(80);
   $('[data-fb="zoom"]').click(); await tick(120);

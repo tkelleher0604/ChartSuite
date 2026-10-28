@@ -272,7 +272,7 @@ const Shell = (() => {
     fill: 'PaintBucket', outline: 'Pen', color: 'Baseline', bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough',
     'align-left': 'AlignLeft', 'align-center': 'AlignCenter', 'align-right': 'AlignRight', layers: 'Layers', group: 'Group', ungroup: 'Ungroup',
     painter: 'Paintbrush', eraser: 'Eraser', grow: 'AArrowUp', shrink: 'AArrowDown', copy: 'Copy', paste: 'ClipboardPaste', trash: 'Trash2',
-    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight',
+    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight', more: 'Ellipsis',
   };
   const lucideOf = name => typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
   const icon = name => html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${lucideOf(name)?.[2].map(([tag, a]) => h(tag, a)) ?? null}</svg>`;
