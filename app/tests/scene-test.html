@@ -660,6 +660,29 @@ function run() {
       j(bent.sort()) === j(['view_main: own_nonus_fdr', 'view_main: own_us_fund']), j(bent));
   }
 
+  // ---- An owner added disturbs only what it touches (design10 5, firstlook10 m3) ----
+  // Northstar of Fund III, its line going around what's drawn: it takes no lane, so no gap deepens for it, and every box
+  // and the page stay as they were, and every other line but the one it joins at the apex keeps its route. And Northstar
+  // of Northpine, then Chen of Northpine: the labels already at Northpine keep their drops, as labels are placed in
+  // reading order, not in the order the lines were made in.
+  {
+    const add = (wb, from, to, pct) => edit(wb, tx => { const o = tx.add('record', { args: [{ edge: 'Owner', at: from }, { edge: 'Owned', at: to }], tag: true }); if (pct != null) tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: pct }); });
+    const rel = (s, m) => [m.x - s.page.offset.x, m.y - s.page.offset.y], at = (s, ps) => j(ps.map(([x, y]) => [x - s.page.offset.x, y - s.page.offset.y]));
+    const before = scene(fresh()), w = fresh();
+    add(w, 'pension', 'fund', 0.05);
+    const after = scene(w), moved = before.marks.filter(m => m.type === 'box' && j(rel(before, m)) !== j(rel(after, after.byId.get(m.id))));
+    const rerouted = before.marks.filter(m => m.type === 'line' && m.id !== 'own_us_fund' && at(before, m.points) !== at(after, after.byId.get(m.id).points));
+    check('an owner added that goes around what’s drawn moves no box, no other route and not the page: Northstar of Fund III', !moved.length && !rerouted.length && after.page.scale === before.page.scale,
+      j({ moved: moved.map(m => m.id), rerouted: rerouted.map(m => m.id), scale: [before.page.scale, after.page.scale] }));
+    const one = fresh(), two = fresh();
+    add(one, 'pension', 'northpine', 0.05);
+    add(two, 'pension', 'northpine', 0.05); add(two, 'chen', 'northpine', null);
+    const [s1, s2] = [scene(one), scene(two)], drop = (s, id) => { const l = s.byId.get(id); return l.labelAt.x - l.points.at(-1)[0]; };
+    check('… and a label at the box an owner is added to keeps its place by its drop: the BDC’s 12% and Fund III’s 64% at Northpine, Chen added after Northstar',
+      ['own_bdc_npine', 'own_fund_npine'].every(id => Math.abs(drop(s1, id) - drop(s2, id)) < 0.5 && Math.abs(s1.byId.get(id).labelAt.y - s1.page.offset.y - (s2.byId.get(id).labelAt.y - s2.page.offset.y)) < 0.5),
+      j(['own_bdc_npine', 'own_fund_npine'].map(id => [rel(s1, s1.byId.get(id).labelAt), rel(s2, s2.byId.get(id).labelAt)])));
+  }
+
   // ---- Nothing drawn over anything, no line read as another's, and every label on its own line ----
   // Every sample view, on the slide and on Letter, as entered, tidied, with an owner added (Northstar of
   // Northpine, 5%) and tidied so, with a 247-character name on each entity in turn, after a drag of a box on

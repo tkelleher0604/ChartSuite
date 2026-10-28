@@ -776,12 +776,33 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const framing = id => [...frames.values()].filter(f => inFrame(frames, f).includes(id)).map(f => f.id).join();
     clearTops(boxes, lines.filter(l => l.ranks && framing(l.from) === framing(l.to)), given);
     frameBounds(frames, boxes);
-    const stand = !!last || boxes.some(b => b.entered);
-    routes(boxes, lines, frames, stand).forEach((r, i) => Object.assign(lines[i], r));
+    const stand = !!last || boxes.some(b => b.entered), tops = boxes.map(b => b.y);
+    let rs = routes(boxes, lines, frames, stand);
+    rs.forEach((r, i) => Object.assign(lines[i], r));
     for (let n = 0; n < 3 && !last && deepen(boxes, lines); n++) {
       yield;
       frameBounds(frames, boxes);
-      routes(boxes, lines, frames, stand).forEach((r, i) => Object.assign(lines[i], r));
+      (rs = routes(boxes, lines, frames, stand)).forEach((r, i) => Object.assign(lines[i], r));
+    }
+    // A line that goes around what's drawn though its trunk gave it a lane takes none: the routes are found again with it
+    // aside, the gaps as they were and deepened only for the lanes then drawn, where no more lines go around for it. So a
+    // line added that goes around moves no lane, gap or box it doesn't touch.
+    const off = last ? [] : lines.filter(l => l.around && l.placing.laned).map(l => l.id);
+    if (off.length) {
+      const astray = () => lines.filter(l => l.blocked || l.astray || l.strained).length, was = { ys: boxes.map(b => b.y), rs, around: lines.filter(l => l.around).length, astray: astray() };
+      boxes.forEach((b, i) => { b.y = tops[i]; });
+      frameBounds(frames, boxes);
+      (rs = routes(boxes, lines, frames, stand, off)).forEach((r, i) => Object.assign(lines[i], r));
+      for (let n = 0; n < 3 && deepen(boxes, lines); n++) {
+        yield;
+        frameBounds(frames, boxes);
+        (rs = routes(boxes, lines, frames, stand, off)).forEach((r, i) => Object.assign(lines[i], r));
+      }
+      if (lines.filter(l => l.around).length > was.around || astray() > was.astray) {
+        boxes.forEach((b, i) => { b.y = was.ys[i]; });
+        frameBounds(frames, boxes);
+        was.rs.forEach((r, i) => Object.assign(lines[i], r));
+      }
     }
     yield;
     if (last) still(last, boxes, lines, frames);
@@ -1105,12 +1126,12 @@ function reflow(scene, rects) {
 // found no free place (`crowded`); and what its label is placed by again (see relabel). The router's working
 // is left behind. Lines may land on frames (Layout.route says when), and keep clear of frames' captions. Where
 // boxes `stand` where they were put, no gap deepens for a lane to keep out of a box's shade.
-function routes(boxes, lines, frames = new Map(), stand = true) {
+function routes(boxes, lines, frames = new Map(), stand = true, aside = []) {
   const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label, arrow: l.settings?.Arrow?.value }));
   const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
-  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames), stand });
+  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames), stand, aside });
   return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, strained: c.strained, blocked: c.blocked, crowded: c.crowded,
-    placing: { quiet: c.quiet, lane: c.lane, apex: c.apex, crowd: c.crowd, kin: c.kin, lack: c.lack, size: c.label && { w: c.label.w, h: c.label.h } } }));
+    placing: { quiet: c.quiet, lane: c.lane, apex: c.apex, crowd: c.crowd, kin: c.kin, lack: c.lack, laned: c.laned, size: c.label && { w: c.label.w, h: c.label.h } } }));
 }
 // Where the lanes in a gap between ranks need more room than the gap leaves them (Layout.route's `lack`: a lane
 // each, and under the lowest the room their labels take), the boxes from the gap's bottom down move down as far
