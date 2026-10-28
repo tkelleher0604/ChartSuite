@@ -98,8 +98,9 @@ function fieldAt(t, rec, p, edge) {
 }
 
 // Where a w × h shape can go on a scene's page: the nearest place to `near` (its middle) clear of every box,
-// frame, shape, label and line, on a grid; with `bands`, clear of the chart too, in the page's bands above,
-// below or beside it. Where the page has no such place, just below everything, and the page grows to hold it.
+// frame, shape and label by `gap`, and of every line by a lane's width either side, so nothing new is ever drawn on
+// a line or reads as on it, on a grid; with `bands`, clear of the chart too, in the page's bands above, below or beside
+// it. Where the page has no such place, just below everything, and the page grows to hold it.
 function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
   const page = scene.page, m = page.margin, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
   const take = (x, y, r, d) => Object.assign(chart, { x: Math.min(chart.x, x), y: Math.min(chart.y, y), r: Math.max(chart.r, r), d: Math.max(chart.d, d) });
@@ -113,7 +114,7 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
       if (k.type !== 'shape') take(k.x, k.y, k.x + k.w, k.y + k.h);
     }
   }
-  const g = gap / 2;
+  const g = Math.max(gap, 24);
   const clear = (x, y) => !(bands && x < chart.r + gap && x + w + gap > chart.x && y < chart.d + gap && y + h + gap > chart.y)
     && !rects.some(r => x < r.x + r.w + gap && x + w + gap > r.x && y < r.y + r.h + gap && y + h + gap > r.y)
     && !segs.some(([a, b]) => Math.max(a[0], b[0]) >= x - g && Math.min(a[0], b[0]) <= x + w + g && Math.max(a[1], b[1]) >= y - g && Math.min(a[1], b[1]) <= y + h + g);

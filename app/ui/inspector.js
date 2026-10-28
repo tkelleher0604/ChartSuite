@@ -466,8 +466,7 @@ function addItems(at, anchor) {
   const others = () => [...T.index(recs()).kinds].flatMap(([, ids]) => ids).filter(x => !T.isView(recs()[x]) && x !== objectOf(at))
     .map(x => ({ label: nameOf(x), detail: recs()[x].kind, run: () => select([at, x]) })).sort((a, b) => a.label.localeCompare(b.label));
   const lists = recs()[at].kind ? listItems(at, anchor) : [];
-  return [...items, ...(items.length ? ['-'] : []), { label: 'Value', run: start('field') }, { label: 'Tag', run: start('tag') }, { label: 'Choice', run: start('choice') }, '-',
-    ...(lists.length ? [...lists, '-'] : []),
+  return [...(lists.length ? [...lists, '-'] : []), ...items, ...(items.length ? ['-'] : []), { label: 'Value', run: start('field') }, { label: 'Tag', run: start('tag') }, { label: 'Choice', run: start('choice') }, '-',
     { label: 'Relation…', run: () => menu(anchor, others(), { search: true }) }, ...(recs()[at].kind && !linkOf(at) ? [{ label: 'Document…', run: () => linkAdd(anchor, at) }] : [])];
 }
 // The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
@@ -475,14 +474,16 @@ function addItems(at, anchor) {
 // record (or a record in it) fits. Picking one asks who, by name: one the chart has, or a new one typed, of the kind
 // the other side is; then it's related as a list's + relates it, pending through the bar where it asks its day.
 function listItems(id, anchor) {
-  const n = N(), own = within(id), lists = new Map();
-  for (const s of Object.values(App.schema.value)) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !n.resolve('Formula', T.bare(s))) for (const sm of s.args) {
+  const n = N(), own = within(id), lists = new Map(), S = Object.values(App.schema.value);
+  // A document is linked by Document…, not listed here.
+  const doc = loc => !!loc.kind && S.some(s => s.out?.field === 'document' && s.args?.length === 1 && T.same(s.args[0].loc.kind ?? '', loc.kind));
+  for (const s of S) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !n.resolve('Formula', T.bare(s))) for (const sm of s.args) {
     const sl = s.args.find(a => a !== sm), at = own.find(x => T.narrower(tree(x), sm.loc));
-    if (!at || !sl) continue;
+    if (!at || !sl || doc(sl.loc)) continue;
     const name = n.listName(T.bare(s), sl.edge), was = lists.get(T.norm(name));
     if (!was) lists.set(T.norm(name), { name, ways: [{ s, sm, sl, at }] }); else if (!was.ways.some(w => T.key(w.sl.loc) === T.key(sl.loc) && T.same(w.sm.edge, sm.edge))) was.ways.push({ s, sm, sl, at });
   }
-  return [...lists.values()].sort((a, b) => a.name.localeCompare(b.name)).map(l => ({ label: l.name, run: () => menu(anchor, q => whoFor(id, l, q), { search: true }) }));
+  return [...lists.values()].sort((a, b) => a.name.localeCompare(b.name)).map(l => ({ label: `${l.name}…`, run: () => menu(anchor, q => whoFor(id, l, q), { search: true }) }));
 }
 // Who can be in a list: each record the chart has that fits its other side, by name, as typed; and a new one of the
 // side's kind, named as typed.
@@ -495,8 +496,8 @@ function whoFor(id, l, q) {
     out.push({ label: nameOf(b), detail: recs()[b].kind, run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
-  const kind = l.ways.map(w => w.sl.loc.kind).find(Boolean), named = T.clean(q ?? '');
-  if (kind && named && !out.some(o => T.same(o.label, named))) out.push('-', { label: `New ${kind}: ${named}`, run: () => joinTo(id, null, l.ways.find(w => w.sl.loc.kind) ?? l.ways[0], null, { kind, name: named }) });
+  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()], named = T.clean(q ?? '');
+  if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.map(w => ({ label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) })));
   return out;
 }
 // Relates a record to another as a list's side, or to a new one (`fresh`, { kind, name }) made with it: a role to choose
@@ -540,13 +541,14 @@ function hostIn(at) {
 }
 // The key a field goes by on the chart and here: its record's id, or a blank's place.
 const fieldKey = (it, at) => it.id ?? `${at}|${T.norm(it.edge)}`;
-const lit = (it, at) => typeof Canvas !== 'undefined' && Canvas.fieldLit.value === fieldKey(it, at);
-const fields = () => Canvas.active.peek()?.fields;
+const charted = () => typeof Canvas !== 'undefined';
+const lit = (it, at) => charted() && Canvas.fieldLit.value === fieldKey(it, at);
+const fields = () => charted() ? Canvas.active.peek()?.fields : null;
 const EYE = html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>`;
 // Show on chart: at the row's end, shown in this box a quiet eye, pointed at a way to show or hide it there, at the
 // format bar's scope; the tooltip says where.
 function OnChart({ it, at }) {
-  const host = typeof Canvas !== 'undefined' && hostIn(at), c = Canvas.active.value;
+  const c = charted() ? Canvas.active.value : null, host = c && hostIn(at);
   if (!host || !c || App.readOnly.value || it.error) return null;
   App.scene.value; Shell.selection.value;
   const on = c.fields.shown(host, it.edge, at);
