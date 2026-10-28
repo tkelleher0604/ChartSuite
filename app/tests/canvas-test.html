@@ -252,7 +252,7 @@ async function run() {
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   await closeMenus(); await tick(80);
   check('closing the palette ends it too', sc() === App.scene.peek() && App.wb.changes().length === changes + 1);
-  $('[data-fb="size"]').click(); await tick(120);
+  $('[data-fb="sizes"]').click(); await tick(120);
   const sizeOf = () => sc().byId.get('halvard').texts[0].look.Size;
   $$('.float .menu-item').find(e => txt(e) === '20').dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(80);
   const pointed = JSON.stringify([sc().page.scale, sizeOf()]), grew = sizeOf() > App.scene.peek().byId.get('halvard').texts[0].look.Size;
@@ -260,20 +260,20 @@ async function run() {
   check('… until the pointer leaves it', sc() === App.scene.peek());
   await closeMenus();
   // What's drawn while a size is pointed at is what picking it makes.
-  $('[data-fb="size"]').click(); await tick(120);
+  $('[data-fb="sizes"]').click(); await tick(120);
   $$('.float .menu-item').find(e => txt(e) === '20')?.click(); await tick(200);
   check('pointing at a size in its menu draws the text as picking it will', grew && JSON.stringify([sc().page.scale, sizeOf()]) === pointed, `${pointed} pointed, ${JSON.stringify([sc().page.scale, sizeOf()])} picked`);
   Shell.parts.peek().undo.undo(); await tick(150);
 
   // ---- Sizes in slide points, on the half-point grid; a frame shows its caption's ----
-  const shown = () => +txt($('[data-fb="size"]'));
+  const shown = () => +$('[data-fb="size"]').value;
   check('the format bar shows a size in slide points, to the half point', shown() * 2 === Math.round(shown() * 2) && Math.abs(shown() - Scene.toSlide(sc().page, sizeOf())) <= 0.25, `${shown()} for ${Scene.toSlide(sc().page, sizeOf())}`);
   // A size picked reads back as picked where the chart can keep a scale for it, though the box grows and the
   // chart's scale drops with it (12 on Fund III); and where it can't, the bar says what it prints, as near the
   // pick as the page allows (14).
   Shell.select(['fund']); await tick(120);
   const scaleWas = sc().page.scale, pickSize = async z => {
-    $('[data-fb="size"]').click(); await tick(120);
+    $('[data-fb="sizes"]').click(); await tick(120);
     $$('.float .menu-item').find(e => txt(e) === String(z))?.click(); await tick(200);
     return Scene.toSlide(sc().page, sc().byId.get('fund').texts[0].look.Size);
   };
@@ -291,7 +291,7 @@ async function run() {
     await show(v40);
     const frame = sc().marks.find(m => m.type === 'frame');
     Shell.select([frame.id]); await tick(120);
-    check('a frame selected shows its caption’s font and size', txt($('[data-fb="font"]')) === frame.caption.look.Font && +txt($('[data-fb="size"]')) > 0, `${txt($('[data-fb="font"]'))} ${txt($('[data-fb="size"]'))}`);
+    check('a frame selected shows its caption’s font and size', txt($('[data-fb="font"]')) === frame.caption.look.Font && +$('[data-fb="size"]').value > 0, `${txt($('[data-fb="font"]'))} ${$('[data-fb="size"]').value}`);
     Shell.select([]); await show(main);
   } else check('a view with frames', false);
 
@@ -303,7 +303,7 @@ async function run() {
   $('[data-fb="arrange"]').click(); await tick(120);
   const arrange = menuItems();
   await closeMenus();
-  check('Tidy is beside Align and Order, and not among the zoom levels', !zoomItems.includes('Tidy') && arrange.includes('Tidy') && !!$('[data-fb="tidy"]') && $('[data-fb="tidy"]').previousElementSibling?.dataset.fb === 'group', zoomItems.join(', '));
+  check('Tidy is beside Arrange (Align, Order and Group), in it too, and not among the zoom levels', !zoomItems.includes('Tidy') && arrange.includes('Tidy') && !!$('[data-fb="tidy"]') && $('[data-fb="tidy"]').previousElementSibling?.dataset.fb === 'arrange', zoomItems.join(', '));
 
   // ---- At 1024 the chip gives way, and the zoom stays in the window ----
   await size(1024, 768);
@@ -331,10 +331,11 @@ async function run() {
   $('[data-fb="fill"]').click(); await tick(120);
   const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
   check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Light Gray, Background 2', tips.join(' | '));
-  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then No fill and More colors', swatches.length === 70
+  const fillRows = $$('.float .palette .menu-item').map(txt);
+  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then More colors, Transparency and No fill', swatches.length === 70
     && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
     && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
-    && $$('.float .palette .menu-item').map(txt).join() === 'No fill,More colors#' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${$$('.float .palette .menu-item').map(txt)}`);
+    && fillRows.length === 3 && fillRows[0] === 'More colors#' && /^Transparency ?\d+%$/.test(fillRows[1]) && fillRows[2] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
   // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
   // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
   const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -604,12 +605,109 @@ async function run() {
   for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(120); }
   Shell.select([]); await tick(60);
 
-  // ---- A popover opens with the focus on the value the setting has ----
+  // ---- Outline is one popover, as PowerPoint's Shape Outline: its palette, then Weight ▸, Dashes ▸, a line's Arrows ▸
+  // and Route ▸, then No outline; each ▸ a menu of the popover's, the value the line has checked ----
   Shell.select([line.id]); await tick(120);
-  $('[data-fb="line"]').click(); await tick(150);
-  const focused = document.activeElement;
-  check('the Line popover opens with the focus on the weight the line has', focused?.getAttribute('aria-pressed') === 'true' && focused.closest('.seg') === $('.float .seg'), `${focused?.outerHTML.slice(0, 80)}`);
-  await closeMenus();
+  $('[data-fb="outline"]').click(); await tick(150);
+  const subs = $$('.float .palette .menu-item.sub').map(txt), outlineRows = $$('.float .palette .menu-item').map(txt);
+  $$('.float .palette .menu-item.sub').find(b => txt(b) === 'Weight')?.click(); await tick(150);
+  const lineWeight = +Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value).toFixed(2), checkedW = $$('.float .menu-item[aria-checked="true"]').map(txt);
+  check('Outline offers its palette, then Weight ▸, Dashes ▸, Arrows ▸ and Route ▸ for a line, then No outline; Weight ▸ checks the weight the line has, and the popover stays open beside it',
+    subs.join() === 'Weight,Dashes,Arrows,Route' && outlineRows.at(-1) === 'No outline' && checkedW.includes(`${lineWeight} pt`) && !!$('.float .palette'), `${outlineRows.join(' | ')}; ${checkedW}`);
+  $$('.float .menu-item').find(e => txt(e) === '3 pt')?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
+  check('… and a weight pointed at in it is drawn on the line, changing nothing', Math.abs(Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value) - 3) < 0.01
+    && sc() !== App.scene.peek());
+  await closeMenus(); await tick(80);
+  check('… until the popover closes', sc() === App.scene.peek());
+  { Shell.select(['fund']); await tick(120);
+    $('[data-fb="outline"]').click(); await tick(150);
+    const boxSubs = $$('.float .palette .menu-item.sub').map(txt);
+    await closeMenus();
+    check('a box’s Outline has no Arrows ▸ or Route ▸, and the Line and Arrowheads buttons are gone', boxSubs.join() === 'Weight,Dashes' && !$('[data-fb="line"]') && !$('[data-fb="arrow"]'), boxSubs.join()); }
+
+  // ---- Fonts: found as typed, each in its own face, the chart's own first, then by class; one not on this computer
+  // greyed and said so; any font on it taken by its name ----
+  const lookOf = id => App.scene.peek().byId.get(id).texts[0].look, slide = v => Math.round(Scene.toSlide(App.scene.peek().page, v) * 2) / 2;
+  Shell.select(['halvard']); await tick(120); cv().root.focus();
+  $('[data-fb="font"]').click(); await tick(150);
+  const fontHeads = $$('.float .fonts .menu-head').map(txt), faces = $$('.float .fonts .menu-item .label'), away = $$('.float .fonts .menu-item.away');
+  check('the font menu opens on its field, then This chart, then Sans serif, Serif and Monospace, each name in its own face', document.activeElement === $('.float .fonts .find')
+    && fontHeads.join() === 'This chart,Sans serif,Serif,Monospace' && faces.length >= 40 && faces.every(f => f.style.fontFamily.includes(txt(f).split(' ')[0])), fontHeads.join());
+  check('… a font not on this computer greyed and said so on hover', away.every(e => e.dataset.tip === 'Not on this computer') && $$('.float .fonts .menu-item:not(.away)').every(e => !e.dataset.tip), `${away.length} away`);
+  const findFont = async q => { const f = $('.float .fonts .find'); f.value = q; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(150); };
+  await findFont('gara');
+  check('… typing finds a font by its name, and draws the selection in it, changing nothing', $$('.float .fonts .menu-item').map(txt).join() === 'Garamond'
+    && sc().byId.get('halvard').texts[0].look.Font === 'Garamond' && lookOf('halvard').Font === 'Arial', $$('.float .fonts .menu-item').map(txt).join());
+  $('.float .fonts .find').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
+  check('… and Enter sets it', lookOf('halvard').Font === 'Garamond' && !$('.float .fonts'), lookOf('halvard').Font);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  $('[data-fb="font"]').click(); await tick(150);
+  await findFont('Impact');
+  const impact = $$('.float .fonts .menu-item').map(txt);
+  $('.float .fonts .find').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
+  check('… and a font on this computer not among them is taken by its name', impact[0] === 'Impact' && lookOf('halvard').Font === 'Impact', `${impact.join()} → ${lookOf('halvard').Font}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+
+  // ---- Sizes: any typed into the field, Grow and Shrink through PowerPoint's ----
+  Shell.select(['fund']); await tick(120);
+  const sizeField = $('[data-fb="size"]');
+  sizeField.focus(); sizeField.value = '11.5'; sizeField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(300);
+  check('a size typed into the field (11.5) and Enter set it, as the slide prints it', slide(lookOf('fund').Size) === 11.5 && +$('[data-fb="size"]').value === 11.5, `${slide(lookOf('fund').Size)} ${$('[data-fb="size"]').value}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  Shell.select(['halvard']); await tick(120);
+  const from = slide(lookOf('halvard').Size);
+  $('[data-fb="grow"]').click(); await tick(300);
+  const grownTo = slide(lookOf('halvard').Size);
+  cv().root.focus(); key('>', { code: 'Period', ctrlKey: true, shiftKey: true }); await tick(300);
+  const grownAgain = slide(lookOf('halvard').Size);
+  key('<', { code: 'Comma', ctrlKey: true, shiftKey: true }); await tick(300);
+  check('Grow goes to PowerPoint’s next size (8 to 9), Ctrl+Shift+> to the one after (10), Ctrl+Shift+< back', from === 8 && grownTo === 9 && grownAgain === 10 && slide(lookOf('halvard').Size) === 9,
+    `${from} ${grownTo} ${grownAgain} ${slide(lookOf('halvard').Size)}`);
+  for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
+
+  // ---- The format painter: Ctrl+Shift+C copies a look, Ctrl+Shift+V pastes it on the selection; the brush clicked
+  // once paints one mark, twice until Esc; Clear formatting takes a look away, saying what it took ----
+  const notesAt = id => App.notes.peek().notes('Fill').concat(...['Font', 'Bold', 'Strike', 'Shadow', 'Size', 'Color', 'Outline'].map(l => App.notes.peek().notes(l)))
+    .filter(n => n.view === sc().view && n.pattern.id === id).map(n => n.label).sort();
+  Shell.select(['halvard']); await tick(120);
+  App.change(tx => ['Fill', '#fbe5d6', 'Strike', true, 'Shadow', 'soft', 'Color', '#c00000'].reduce((a, v, i, all) => (i % 2 || tx.note(v, Tree.treeOf(App.state.peek(), 'halvard'), all[i + 1], { view: sc().view }), a), 0)); await tick(200);
+  cv().root.focus(); key('C', { code: 'KeyC', ctrlKey: true, shiftKey: true }); await tick(100);
+  Shell.select(['corvane']); await tick(120); cv().root.focus();
+  const pasteFrom = App.wb.changes().length;
+  key('V', { code: 'KeyV', ctrlKey: true, shiftKey: true }); await tick(250);
+  const cv1 = App.scene.peek().byId.get('corvane');
+  check('Ctrl+Shift+C copies a box’s look and Ctrl+Shift+V pastes it on another, one change, its notes at the box', App.wb.changes().length === pasteFrom + 1 && cv1.settings.Fill.value === '#fbe5d6'
+    && cv1.settings.Shadow.value === 'soft' && cv1.texts[0].look.Strike && cv1.texts[0].look.Color === '#c00000' && notesAt('corvane').join() === 'Color,Fill,Shadow,Strike', notesAt('corvane').join());
+  check('… keeping its own shape, as PowerPoint’s painter does', cv1.shape === App.scene.peek().byId.get('corvane').shape && !App.notes.peek().notes('Shape').some(n => n.pattern.id === 'corvane'));
+  Shell.parts.peek().undo.undo(); await tick(150);
+  Shell.select(['halvard']); await tick(120);
+  const brushAt = async id => { const p = $(`.dc [data-cell-id="${id}"] path`); p.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 1, clientY: 1 })); await tick(250); };
+  $('[data-fb="painter"]').click(); await tick(100);
+  const armedOnce = $('[data-fb="painter"]').getAttribute('aria-pressed') === 'true' && cv().root.classList.contains('painting');
+  await brushAt('corvane');
+  check('the brush clicked once arms the painter, the chart showing it, and a click on a box paints it, selects it, and disarms it', armedOnce && App.scene.peek().byId.get('corvane').settings.Fill.value === '#fbe5d6'
+    && Shell.selection.peek().join() === 'corvane' && !cv().root.classList.contains('painting'), `${armedOnce} ${Shell.selection.peek()}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  Shell.select(['halvard']); await tick(120);
+  $('[data-fb="painter"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(100);
+  await brushAt('corvane'); await brushAt('tessellate');
+  const stillArmed = cv().root.classList.contains('painting');
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100);
+  check('… a double-click keeps it armed, painting each box clicked, until Esc', stillArmed && !cv().root.classList.contains('painting') && ['corvane', 'tessellate'].every(id => App.scene.peek().byId.get(id).settings.Fill.value === '#fbe5d6'));
+  Shell.select(['tessellate']); await tick(120);
+  $('[data-fb="clear"]').click(); await tick(200);
+  check('Clear formatting takes the look’s notes away, one change, and says what it took', !notesAt('tessellate').length && /^Cleared Tessellate .*’s .*Fill/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  for (let i = 0; i < 4; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
+  check('… and Undo takes back the paint and the look given', !notesAt('corvane').length && !notesAt('halvard').length, `${notesAt('corvane')} ${notesAt('halvard')}`);
+  // A group's look cleared: every note of its outputs' looks in the view, Funds' fill among them.
+  Shell.select(['fund']); await tick(120);
+  $('[data-fb="groups"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e).startsWith('Funds ('))?.click(); await tick(120);
+  $('[data-fb="clear"]').click(); await tick(200);
+
+  check('Clear formatting with a group chosen takes away the group’s look, and it leaves the Key', /^Cleared the Fill.* of Funds/.test(txt($$('.toast').at(-1))) && !App.scene.peek().legend.some(r => r.caption === 'Funds'), txt($$('.toast').at(-1)));
+  Shell.parts.peek().undo.undo(); await tick(150);
+  Shell.select([]); await tick(60);
 
   // ---- A page drawn very small (as a chart of hundreds of boxes is) opens whole, not at 60% on its blank
   // margin or its title many times its size ----

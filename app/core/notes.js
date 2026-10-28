@@ -5,9 +5,11 @@
 const Notes = (() => {
 const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoice, isTag, objectOf, pathOf, entryAt, same } = Tree;
 
-// The format properties: how a view draws what a note reaches.
-const FORMATS = new Set(['Shown', 'Shape', 'Fill', 'Outline', 'Weight', 'Dash', 'Frame', 'Layer', 'Arrow', 'Connector', 'Above',
-  'Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color', 'Align', 'Format']);
+// The format properties, how a view draws what a note reaches: every label but the model's others (dendra.md,
+// Notes), so a new property is only a word in the scene's defaults and its drawing. A Text note, a box's free text,
+// is a note of its own, not a look.
+const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Layout', 'As Of', 'Page', 'Text']);
+const FORMATS = { has: label => typeof label === 'string' && !OTHERS.has(label) };
 const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
 // Words begun mid-sentence, in lower case but for initials (GP, BDC); and the preposition a list's name ends
 // in, as a relation's words say a side: Signs For, for.
