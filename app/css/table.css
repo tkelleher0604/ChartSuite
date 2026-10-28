@@ -71,7 +71,7 @@
    only where the grid scrolls, clear of them, as far as it's scrolled across (table.js). */
 .grid .tabulator-row .tabulator-cell:is(.pin, .tabulator-frozen) { z-index: 12; }
 .grid .tabulator .tabulator-tableholder .tabulator-range-overlay { clip-path: inset(-100000px -100000px -100000px calc(var(--across, 0px) + var(--pinned, 48px))); }
-.grid .tabulator .tabulator-header .tabulator-col.pin-last, .grid .tabulator-row .tabulator-cell.pin-last { border-right: 1px solid var(--rule-2); }
+.grid .tabulator .tabulator-header .tabulator-col.pin-last, .grid .tabulator-row .tabulator-cell.pin-last { border-right: 1px solid var(--ink-3); box-shadow: 1px 0 0 var(--ink-3); }
 .grid .tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left, .grid .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left { border-right-color: var(--rule); }
 .grid .tabulator-row .tabulator-cell.pin { background: var(--surface); }
 .grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell:is(.tabulator-frozen, .pin) { background: var(--selected); }

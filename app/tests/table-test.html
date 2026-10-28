@@ -265,6 +265,13 @@ async function run() {
   check('… and Enter makes it, said with the file’s name', !!named('Hollis Bay Holdings, LLC') && N() === n0 + 1 && $('.toast span')?.textContent === 'Imported 1 entity from entities.csv', $('.toast span')?.textContent);
   undo(); await tick(150);
 
+  // One cell pasted that only changes a value is made at once, as one typed is, with Undo.
+  n0 = N();
+  Table.grid.addRange(rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Short Name')); await tick(60);
+  paste('Halvard'); await tick(250);
+  check('One cell pasted that only changes a value is made at once, with Undo, no bar to confirm it', N() === n0 + 1 && !$('.pendbar') && at(halvard, 'Short Name')?.value === 'Halvard'
+    && !!$$('.toast button').find(b => b.textContent === 'Undo'), `${N() - n0} ${$('.pendbar')?.textContent}`);
+  undo(); await tick(150);
   // A link pasted onto a row isn't written over a cell: it goes on, to link a document to the row's record.
   n0 = N();
   Table.grid.addRange(rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Name')); await tick(60);
@@ -339,14 +346,19 @@ async function run() {
     n1 = N();
     await menuOf('Formation Date');
     const sorts = $$('.float .menu-item').map(x => x.textContent.trim());
-    item('Sort oldest to newest').click(); await tick(150);
+    item('Sort oldest first').click(); await tick(150);
     const days = () => Table.grid.getRows('active').map(r => r.getData()['f:formation date']);
     const sortedOk = () => { const ds = days(), set = ds.filter(Boolean); return set.join() === [...set].sort().join() && ds.indexOf(null) >= set.length; };
-    check('A date column sorts oldest to newest, as Excel says it; sorted, the blank last, the view keeping it, which is no change', sorts.includes('Sort oldest to newest') && sortedOk()
-      && JSON.stringify(Table.look(ent).sort) === '{"key":"formation date","dir":"asc"}' && N() === n1 && /Sorted by Formation Date/.test($('.tbar').textContent), `${sorts.slice(0, 3).join()} / ${days().join()}`);
+    check('A date column sorts oldest first, as Excel sorts it; sorted, the blank last, the view keeping it, which is no change, the bar saying which way', sorts.includes('Sort oldest first') && sorts.includes('Sort newest first') && sortedOk()
+      && JSON.stringify(Table.look(ent).sort) === '{"key":"formation date","dir":"asc"}' && N() === n1 && !!tool('Formation Date, oldest first'), `${sorts.slice(0, 3).join()} / ${days().join()}`);
     await again();
     check('… and the grid built again is sorted so', sortedOk() && Table.grid.getSorters()[0]?.field === 'f:formation date', days().join());
-    tool('Sorted by Formation Date').click(); await tick(); item('Clear sort').click(); await tick(100);
+    tool('Formation Date, oldest first').click(); await tick();
+    const pills = $$('.float .menu-seg button'), fit = pills.every(b => b.scrollHeight <= b.clientHeight + 1 && b.scrollWidth <= b.clientWidth + 1);
+    pills.find(b => b.textContent === 'Newest first').click(); await tick(150);
+    check('… its chip turns it the other way, its two ways each fitting its pill, and says which', pills.map(b => b.textContent).join() === 'Oldest first,Newest first' && fit
+      && !!tool('Formation Date, newest first') && Table.look(ent).sort?.dir === 'desc', `${pills.map(b => b.textContent).join()} ${fit}`);
+    tool('Formation Date, newest first').click(); await tick(); item('Clear sort').click(); await tick(100);
     check('… till the bar’s Sort clears it', !Table.look(ent).sort && !Table.grid.getSorters().length);
 
     // Filtered as Excel filters: Select all off, a value on.
@@ -372,11 +384,23 @@ async function run() {
     tool('Group').click(); await tick(); item('Jurisdiction').click(); await tick(300);
     const heads = $$('.grid .tabulator-group').map(g => g.textContent.replace(/\d+$/, ''));
     check('Grouped by a column, its rows fall under its values in its options’ order, Blank last; kept, no change', Table.look(ent).group === 'jurisdiction' && heads[0] === 'Delaware' && heads.at(-1) === 'Blank' && !!tool('Grouped by Jurisdiction'), heads.join());
-    tool('Grouped by Jurisdiction').click(); await tick(); item('None').click(); await tick(300);
+    // Filtered, a group the filters leave no row in is left out, as a pivot leaves it.
+    await menuOf('Jurisdiction'); item('Filter…').click(); await tick(80);
+    fRow('Select all').querySelector('input').click(); await tick(60);
+    fRow('Delaware').querySelector('input').click(); await tick(60);
+    Shell.closeAll(); await tick(100);
+    tool('Grouped by Jurisdiction').click(); await tick(); item('Entity Type').click(); await tick(300);
+    const counted = $$('.grid .tabulator-group').map(g => g.textContent);
+    check('… and filtered, a group with no row left in it is left out', counted.length > 1 && counted.every(t => !/\D0$/.test(t)) && !counted.some(t => t.startsWith('Exempted')), counted.join(' | '));
+    tool('Clear filters').click(); await tick(150);
+    check('… and back once its rows are', $$('.grid .tabulator-group').some(g => g.textContent.startsWith('Exempted')), $$('.grid .tabulator-group').map(g => g.textContent).join(' | '));
+    tool('Grouped by Entity Type').click(); await tick(); item('None').click(); await tick(300);
     check('… and None ungroups it', !Table.look(ent).group && !$$('.grid .tabulator-group').length);
-    // Frozen up to a column: those up to it stay put as it scrolls across.
+    // Frozen up to a column: those up to it stay put as it scrolls across, a line where they end.
     await menuOf('Short Name'); item('Freeze up to here').click(); await tick(300);
-    check('Freeze up to here keeps the columns up to it in view', Table.look(ent).frozen === 2 && $$('.grid .tabulator-header .tabulator-col.pin').map(e => e.textContent).join() === 'Name,Short Name');
+    const line = getComputedStyle(column('Short Name').getElement()).borderRightColor, rule = getComputedStyle(column('Vehicle Type').getElement()).borderRightColor;
+    check('Freeze up to here keeps the columns up to it in view, a line where they end', Table.look(ent).frozen === 2 && $$('.grid .tabulator-header .tabulator-col.pin').map(e => e.textContent).join() === 'Name,Short Name'
+      && line !== rule, `${line} ${rule}`);
     await menuOf('Short Name'); item('Unfreeze columns').click(); await tick(300);
     check('… and Unfreeze columns none', Table.look(ent).frozen === 0 && !$$('.grid .tabulator-header .tabulator-col.pin').length);
     await menuOf('Name'); item('Freeze up to here').click(); await tick(300);
@@ -893,7 +917,15 @@ async function run() {
     const n = App.notes.peek().notes('Formula').find(x => x.note === id); if (n) tx.note('Check', n.pattern, true); }), { dated: false });
   await tick(150);
   const checkCells = () => Table.grid.getRows().map(r => r.getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range')?.getElement()).filter(Boolean);
-  check('A check’s column shows only while a row fails it', !column('Percentages In Range') && Table.model(own).cols.some(c => c.check && c.title === 'Percentages In Range'), Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
+  check('A check’s column shows only while a row fails it', !column('Percentages In Range') && Table.model(own).cols.some(c => c.check && c.title === 'Percentages In Range' && !c.shown), Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
+  // Ticked in Columns, it shows its heading and its boxes.
+  $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(60);
+  const inRangeRow = $$('.cols .colrow').find(r => r.textContent.trim() === 'Percentages In Range');
+  const unticked = !inRangeRow?.querySelector('input').checked;
+  inRangeRow?.querySelector('input').click(); await tick(250); Shell.closeAll(); await tick();
+  check('… unticked in Columns; ticked, it shows its heading and its boxes', unticked && !!column('Percentages In Range') && column('Percentages In Range').getElement().querySelector('.t')?.textContent === 'Percentages In Range'
+    && checkCells().length > 0 && checkCells().every(e => e.querySelector('.tag')) && !checkCells().some(e => e.querySelector('.tag.no')), `${unticked} ${checkCells().length} ${checkCells().filter(e => e.querySelector('.tag.yes')).length}`);
+  undo(); await tick(200);
   const errorsNow = () => Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error').length, e0 = errorsNow();
   const usRow = Table.grid.getRows().find(r => r.getData()['f:@owner'] === 'U.S. Investors').getData().id;
   const usPct = (Tree.index(st()).entries.get(usRow) ?? []).find(e => st()[e].edge === 'Percentage');
@@ -1010,6 +1042,36 @@ async function run() {
   check('A change while Dates is shown lights the cell it made, and throws nothing', $$('.grid .tabulator-cell.lit').length > 0 && !logged.length && !rejected.length, [...logged, ...rejected].join(' / '));
   console.error = consoleError; removeEventListener('unhandledrejection', onRejected);
   undo(); await tick(150);
+  // A date filters by its days as Excel's Date Filters do: overdue, the next 30, 60 or 90 days, or between two.
+  {
+    const dv = Shell.view.peek(), tool = label => $$('.tbar .btn').find(b => b.textContent === label), shownDays = () => Table.grid.getRows('active').map(r => r.getData()['f:$value']);
+    const menuOf = async title => { column(title).getElement().querySelector('.col-menu').click(); await tick(); item('Filter…').click(); await tick(80); };
+    const pick = label => $$('.tfilter .tf-ranges .tf-row').find(r => r.textContent.trim() === label)?.querySelector('input').click();
+    await menuOf('Date');
+    const ranges = $$('.tfilter .tf-ranges .tf-row').map(r => r.textContent.trim());
+    pick('Next 60 days'); await tick(150);
+    const today = App.day.peek(), in60 = (() => { const [y, m, d] = today.split('-').map(Number); return Tree.isoOf(new Date(y, m - 1, d + 60)); })();
+    check('A date’s filter has, above its values, Overdue, the next 30, 60 and 90 days, and Between…', ranges.join() === 'Overdue,Next 30 days,Next 60 days,Next 90 days,Between…', ranges.join());
+    check('… the next 60 days keeping just those days, from the day shown, the bar saying so', shownDays().length > 0 && shownDays().every(d => d >= today && d <= in60)
+      && shownDays().length === dates.data.filter(r => r['f:$value'] >= today && r['f:$value'] <= in60).length && !!tool('Filtered by Date, next 60 days'), `${shownDays().join()} ${$('.tbar').textContent}`);
+    pick('Overdue'); await tick(150);
+    check('… Overdue, those before it', shownDays().length > 0 && shownDays().every(d => d < today), shownDays().join());
+    pick('Between…'); await tick(150);
+    const [from, to] = $$('.tfilter .tf-between input');
+    from.value = 'Jan 1, 2027'; from.dispatchEvent(new Event('change', { bubbles: true })); await tick(100);
+    to.value = 'Mar 31, 2027'; to.dispatchEvent(new Event('change', { bubbles: true })); await tick(150);
+    check('… and Between two days typed, those days and those between', shownDays().length > 0 && shownDays().every(d => d >= '2027-01-01' && d <= '2027-03-31') && JSON.stringify(Table.look(dv).filters?.['$value']) === '{"range":"between","from":"2027-01-01","to":"2027-03-31"}',
+      `${shownDays().join()} ${JSON.stringify(Table.look(dv).filters)}`);
+    Shell.closeAll(); tool('Clear filters').click(); await tick(150);
+    // Grouped by whose, or by what falls due, each group by its days.
+    tool('Grouped by month').click(); await tick();
+    const ways = $$('.float .menu-item').map(x => x.textContent.trim());
+    item('Whose').click(); await tick(300);
+    const heads = $$('.grid .tabulator-group').map(g => g.firstChild?.textContent ?? g.textContent);
+    check('Dates are grouped by month till grouped by whose, or what falls due', ways[0] === 'Month' && ways.includes('Whose') && ways.includes('What') && !!tool('Grouped by Whose') && heads.length > 1 && !heads.includes('Overdue'), `${ways.join()} / ${heads.slice(0, 4).join()}`);
+    tool('Grouped by Whose').click(); await tick(); item('Month').click(); await tick(300);
+    check('… and Month groups them by month again', !Table.look(dv).group && $$('.grid .tabulator-group')[0]?.textContent.startsWith('Overdue'), $$('.grid .tabulator-group')[0]?.textContent);
+  }
   await addTable(null, 'Documents');
   const docs = Table.model(Shell.view.peek());
   check('Documents has every document link, with the Document’s own entries beside it', docs.data.length === Object.values(st()).filter(r => r.field === 'document').length

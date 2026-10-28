@@ -61,7 +61,7 @@ const Table = (() => {
   // …and blank last, whichever way it's sorted.
   const sorter = c => { const cmp = compare(c); return (a, b, _a, _b, _c, dir) => blank(a) || blank(b) ? (blank(a) - blank(b)) * (dir === 'desc' ? -1 : 1) : cmp(a, b); };
   // What sorting a column is called, as Excel calls it for what it holds.
-  const SORTS = { number: ['smallest to largest', 'largest to smallest'], date: ['oldest to newest', 'newest to oldest'], tag: ['Yes first', 'No first'] };
+  const SORTS = { number: ['smallest first', 'largest first'], date: ['oldest first', 'newest first'], tag: ['Yes first', 'No first'] };
   const sortWords = c => SORTS[NUMERIC.has(c.type) ? 'number' : c.type === 'yearly' ? 'date' : c.type] ?? ['A to Z', 'Z to A'];
 
   // ---- The model: a table's columns and rows, worked out from a computed state (App's, or a pending one) ----
@@ -127,6 +127,13 @@ const Table = (() => {
     const obj = other && Tree.objectOf(st, other.at);
     return obj && Tree.fits(st, rid, c.pattern) ? [{ rid, obj, name: N.nameOf(st, obj) }] : [];
   }).sort((a, b) => a.name.localeCompare(b.name));
+  // The record a record is of: the object it's in; for one in a relation (a tax year's), the object its sentence begins with.
+  function ownerOf(st, id, N) {
+    const top = Tree.objectOf(st, id), r = st[top];
+    if (!r?.args) return top;
+    const t = Tree.treeOf(st, top), e = t && N.edges(t)[0], a = r.args.find(x => same(x.edge, e ?? '')) ?? r.args[0];
+    return Tree.objectOf(st, a.at);
+  }
   // Names as a list's cell holds them, each on its own or after a semicolon.
   const namesIn = raw => String(raw ?? '').split(/[;\n]/).map(clean).filter(Boolean);
 
@@ -182,7 +189,9 @@ const Table = (() => {
       for (const c of cols) {
         const o = c.pattern && N.resolve('Order', c.pattern, view, c.param);
         c.place = o?.note.view === view ? o.value : Infinity;
-        c.shown = !c.pattern || (N.value('Shown', c.pattern, view, c.param) ?? (c.type !== 'list' && (!!c.param || c.path.length === 1)));
+        const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
+        c.shown = !c.pattern || (said ?? (c.type !== 'list' && (!!c.param || c.path.length === 1)));
+        c.said = said !== undefined;
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
       }
       const lex = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? -2) - (b[i] ?? -2); if (d) return d; } return 0; };
@@ -201,7 +210,7 @@ const Table = (() => {
       if (c.key === '$out') return { id: row, at: null, v: valueOf(st[row]) };
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
       if (c.key === '$entry') return { v: N.nameOf(st, row) };
-      if (c.key === '$of') return { v: Time.whose(st, st[row].args ? row : st[row].at, N) };
+      if (c.key === '$of') return { v: Time.whose(st, st[row].args ? row : st[row].at, N), group: N.shortOf(st, ownerOf(st, st[row].args ? row : st[row].at, N)) };
       let at = c.up ? st[row].at : row;
       if (c.type === 'list') {
         for (const e of c.minePath) at = entryAt(st, at, e);
@@ -220,18 +229,21 @@ const Table = (() => {
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }) };
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group }) };
       }
       row._ruled = st[id].tag === false;
       return row;
     });
-    // A check's column is drawn only while a row fails it, as the inspector shows a check only where it fails.
-    for (const c of cols) if (c.check) c.fails = data.some(r => r[field(c)] === false);
+    // A check's column is shown, unless the view says, only while a row fails it, as the inspector shows a check only where it
+    // fails; ticked, it shows with its every box.
+    for (const c of cols) if (c.check) { c.fails = data.some(r => r[field(c)] === false); if (!c.said) c.shown = c.fails; }
 
-    // Dates fall into months, with what's overdue first, then from this month on, then back from it.
+    // Dates fall into months, with what's overdue first, then from this month on, then back from it; grouped by a column
+    // instead (whose, or what falls due), each group's by its days.
     let groups = null, named = null;
     const f0 = cols[0] && field(cols[0]), by = cols.find(c => c.key === look.group);
-    if (rows === 'date') {
+    if (rows === 'date' && by) data.sort((a, b) => a[f0].localeCompare(b[f0]));
+    else if (rows === 'date') {
       const month = today.slice(0, 7);
       for (const r of data) r._g = r._m[f0].due ? 'overdue' : r[f0].slice(0, 7);
       const keys = [...new Set(data.map(r => r._g))];
@@ -241,12 +253,13 @@ const Table = (() => {
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b[f0].localeCompare(a[f0]) : a[f0].localeCompare(b[f0])));
     } else if (f0) data.sort((a, b) => text(typeOf(cols[0], a), a[f0]).localeCompare(text(typeOf(cols[0], b), b[f0])));
     // Grouped by a column, the rows fall under its values, in the order it sorts them, Blank last.
-    if (rows !== 'date' && by) {
-      const f = field(by), cmp = sorter(by), seen = new Map();
-      for (const r of data) { r._g = blank(r[f]) ? BLANK : JSON.stringify(r[f]); if (!seen.has(r._g)) seen.set(r._g, r); }
-      const firsts = [...seen.values()].sort((a, b) => cmp(a[f], b[f], null, null, null, 'asc'));
+    // Whose a date is, grouped, is the record it's of: AIV-1, for its annual tax and its Delaware franchise tax alike.
+    if (by) {
+      const f = field(by), cmp = sorter(by), seen = new Map(), gv = r => r._m[f]?.group ?? r[f];
+      for (const r of data) { r._g = blank(gv(r)) ? BLANK : JSON.stringify(gv(r)); if (!seen.has(r._g)) seen.set(r._g, r); }
+      const firsts = [...seen.values()].sort((a, b) => cmp(gv(a), gv(b), null, null, null, 'asc'));
       groups = firsts.map(r => r._g);
-      named = new Map(firsts.map(r => [r._g, r._g === BLANK ? 'Blank' : text(typeOf(by, r), r[f])]));
+      named = new Map(firsts.map(r => [r._g, r._g === BLANK ? 'Blank' : r._m[f]?.group ?? text(typeOf(by, r), r[f])]));
     }
 
     const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
@@ -306,9 +319,9 @@ const Table = (() => {
   const meta = cell => cell.getRow().getData()._m[cell.getField()];
 
   function formatter(c) {
-    // A tag's box, blank, attested or ruled out; a check's only where it fails.
+    // A tag's box, blank, attested or ruled out.
     const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
-    const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? (!c.check ? box(v, m) : v === false ? box(v, m) : '')
+    const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? box(v, m)
       : type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
       : esc(text(type, v));
     return cell => {
@@ -516,7 +529,7 @@ const Table = (() => {
     pinned(this.table);
   } });
 
-  const drawn = c => c.pasted || (c.shown && (!c.check || c.fails));
+  const drawn = c => c.pasted || c.shown;
   // A heading: its name (under as much of its path as tells it from another's, entitle), a funnel while it's filtered,
   // which opens its filter, and the chevron that opens its menu, shown while it's pointed at.
   const FUNNEL = Shell.iconMarkup('filter'), CHEVRON = Shell.iconMarkup('chevron');
@@ -638,7 +651,7 @@ const Table = (() => {
         e.classList.toggle('red-go', d._red === 'go');
       },
       ...(m.groups && {
-        groupBy: '_g', groupValues: [m.groups], groupToggleElement: 'header',
+        groupBy: '_g', groupValues: [grouped(m, passes)], groupToggleElement: 'header',
         groupHeader: (g, n) => `${esc(m.named ? m.named.get(g) : g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month'))}<span>${n}</span>`,
       }),
       ...(sorted && { initialSort: [{ column: field(sorted), dir: look.sort.dir }] }),
@@ -1479,10 +1492,13 @@ const Table = (() => {
   function refilter() {
     if (!table || !ready) return;
     const p = filterOf(current);
+    if (current.groups) table.setGroupValues([grouped(current, p)]);
     if (p) table.setFilter(p); else table.clearFilter();
     funnels();
     relayout();
   }
+  // The groups a grid shows: those the filters leave a row in, as a pivot leaves out what's empty.
+  const grouped = (m, p) => m.groups.filter(g => m.data.some(r => r._g === g && (!p || p(r))));
   // A heading's arrow or funnel coming or going, its column is fitted again, so its name stays whole.
   const relayout = () => { if (table && ready) { laid.delete(table); settle(); } };
   // A filtered column's heading shows its funnel, and a sorted one's its arrow, each with room for it.
@@ -1535,7 +1551,7 @@ const Table = (() => {
       '-',
       i === frozen - 1 ? { label: 'Unfreeze columns', run: () => freeze(0) } : { label: 'Freeze up to here', run: () => freeze(i + 1) },
       { label: 'Fit width', run: () => fit(col) },
-      ...(m.rows === 'date' ? [] : [l.group === c.key ? { label: 'Ungroup', run: () => group(null) } : { label: 'Group by this column', run: () => group(c) }]),
+      l.group === c.key ? { label: 'Ungroup', run: () => group(null) } : { label: 'Group by this column', run: () => group(c) },
       ...(c.pattern && canWrite() ? ['-', { label: 'Columns', items: columnItems(m) }] : []),
     ], { onClose: () => col.getElement().classList.remove('open') });
   }
@@ -1726,9 +1742,9 @@ const Table = (() => {
     const sel = Shell.selection.value[0], passes = fs.length && filterOf(m, l), out = passes && m.data.find(r => r.id === sel && r._red !== 'add' && !passes(r));
     return html`<div class="tbar" role="toolbar" aria-label="Table">
       <button type="button" class="btn ghost dd" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
-      <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? html`Sorted by ${headed(sortC)}` : 'Sort'}</button>
+      <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? `${headed(sortC)}, ${sortWords(sortC)[l.sort.dir === "desc" ? 1 : 0]}` : "Sort"}</button>
       <button type="button" class=${'btn ghost dd' + (fs.length ? ' on' : '')} aria-haspopup="menu" onClick=${e => filterMenu(e.currentTarget)}>${fs.length ? html`Filtered by ${list(fs.map(c => Array.isArray(l.filters[c.key]) ? headed(c) : `${headed(c)}, ${rangeWords(l.filters[c.key])}`))}` : 'Filter'}</button>
-      ${m.rows === 'date' ? null : html`<button type="button" class=${'btn ghost dd' + (groupC ? ' on' : '')} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? html`Grouped by ${headed(groupC)}` : 'Group'}</button>`}
+      <button type="button" class=${"btn ghost dd" + (groupC ? " on" : "")} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? `Grouped by ${headed(groupC)}` : m.rows === "date" ? "Grouped by month" : "Group"}</button>
       ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
       ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
       ${out ? html`<span class="tout" role="status"><b>${rowName(sel)}</b> is filtered out<span class="sep">·</span><button type="button" class="lk" onClick=${() => { clearFilters(); setTimeout(() => track(sel)); }}>Clear filters</button></span>` : null}
@@ -1741,7 +1757,7 @@ const Table = (() => {
   function sortMenu(anchor) {
     const m = current, l = lookOf(m.view), sc = l.sort && m.cols.find(c => c.key === l.sort.key);
     Shell.menu(anchor, [
-      ...(sc ? [{ seg: sortWords(sc).map((w, i) => ({ label: w, pressed: l.sort.dir === (i ? 'desc' : 'asc'), run: () => { Shell.closeAll(); sortBy(sc, i ? 'desc' : 'asc'); } })) }, '-'] : []),
+      ...(sc ? [{ seg: sortWords(sc).map((w, i) => ({ label: w[0].toUpperCase() + w.slice(1), pressed: l.sort.dir === (i ? 'desc' : 'asc'), run: () => { Shell.closeAll(); sortBy(sc, i ? 'desc' : 'asc'); } })) }, '-'] : []),
       ...m.cols.filter(drawn).map(c => ({ label: headed(c), checked: c === sc, run: () => sortBy(c, c === sc ? l.sort.dir : 'asc') })),
       ...(sc ? ['-', { label: 'Clear sort', run: () => sortBy(null) }] : []),
     ]);
@@ -1752,8 +1768,9 @@ const Table = (() => {
       ...(Object.keys(fs).length ? ['-', { label: 'Clear filters', run: clearFilters }] : [])]);
   }
   function groupMenu(anchor) {
+    // Dates are grouped by month till grouped otherwise: by whose, or by what falls due.
     const m = current, g = lookOf(m.view).group;
-    Shell.menu(anchor, [{ label: 'None', checked: !g, run: () => group(null) }, '-', ...m.cols.filter(drawn).map(c => ({ label: headed(c), checked: c.key === g, run: () => group(c) }))]);
+    Shell.menu(anchor, [{ label: m.rows === 'date' ? 'Month' : 'None', checked: !g, run: () => group(null) }, '-', ...m.cols.filter(drawn).map(c => ({ label: headed(c), checked: c.key === g, run: () => group(c) }))]);
   }
   // Every column, each a checkbox that shows or hides it, dragged by its row to reorder; and a new one, named as it's typed.
   const GRIP = Shell.iconMarkup('grip');
