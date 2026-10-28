@@ -147,18 +147,27 @@ async function run() {
   check('Computed cells are italic', $$('.grid .tabulator-cell.fx').length > 0 && $$('.grid .tabulator-cell.fx').every(el => getComputedStyle(el).fontStyle === 'italic'), $$('.grid .tabulator-cell.fx').length);
   check('Tags are checkboxes, green attested and red ruled out', $$('.grid .c-tag .tag.yes').length > 0 && $$('.grid .c-tag .tag.no').length > 0);
   check('A choice edits as a dropdown of its options', column('Vehicle Type').getDefinition().editor === 'list' && column('Vehicle Type').getDefinition().editorParams.values.includes('Feeder Fund'));
-  const offered = title => column(title).getDefinition().editorParams.values, filtered = title => column(title).getDefinition().headerFilterParams.valuesLookup().map(x => x.label);
-  check('… in their order, as the inspector lists them, then by name; and so in its heading’s filter', offered('Vehicle Type').slice(0, 3).join() === 'Main Fund,Parallel Fund,Feeder Fund' && offered('Entity Type')[0] === 'Limited Partnership'
-    && filtered('Vehicle Type').filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => filtered('Vehicle Type').includes(o)).join(), `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${filtered('Vehicle Type').join()}`);
-  check('Header filters are dropdowns', column('Jurisdiction').getDefinition().headerFilter === 'list');
+  // A heading's filter, opened from its menu: its values, each a checkbox row.
+  const offered = title => column(title).getDefinition().editorParams.values;
+  const filterOf = async title => {
+    column(title).getElement().querySelector('.col-menu').click(); await tick();
+    item('Filter…').click(); await tick(80);
+    const got = { values: $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent), find: !!$('.tfilter .tf-find'), all: !!$('.tfilter .tf-row.all input[type=checkbox]') };
+    Shell.closeAll(); await tick();
+    return got;
+  };
+  const vt = await filterOf('Vehicle Type');
+  check('… in their order, as the inspector lists them, then by name; and so in its heading’s filter, Blank last', offered('Vehicle Type').slice(0, 3).join() === 'Main Fund,Parallel Fund,Feeder Fund' && offered('Entity Type')[0] === 'Limited Partnership'
+    && vt.values.filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => vt.values.includes(o)).join() && vt.values.at(-1) === 'Blank', `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${vt.values.join()}`);
+  check('A heading’s filter is Excel’s: Find, Select all and a checkbox for each value; no field in the heading', vt.find && vt.all && !$$('.grid .tabulator-header-filter').length);
 
   // Show/Hide on a column writes a Shown note in the view.
   n0 = N();
   const jur = Table.model(ent).cols.find(c => c.title === 'Jurisdiction');
   Table.grid.getColumns().find(c => c.getDefinition().title === 'Jurisdiction').getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 600, clientY: 60 }));
   await tick();
-  check('A heading’s menu sorts, hides, and lists the columns with ticks', !!item('Sort A to Z') && !!item('Hide') && !!item('Columns'));
-  item('Hide').click(); await tick(100);
+  check('A heading’s menu sorts, hides, and lists the columns with ticks', !!item('Sort A to Z') && !!item('Hide column') && !!item('Columns'));
+  item('Hide column').click(); await tick(100);
   const shown = App.notes.peek().resolve('Shown', jur.pattern, ent);
   check('Hide writes a Shown note in the view, as one change', N() === n0 + 1 && shown?.note.view === ent && shown.value === false);
   check('The column goes', !column('Jurisdiction'));
@@ -249,6 +258,141 @@ async function run() {
   check('Moving a column places it, as Order notes in the view, one change', N() === n0 + 1 && order[1] === 'Jurisdiction' && App.notes.peek().resolve('Order', jur.pattern, ent)?.note.view === ent, order.slice(0, 3).join());
   undo(); await tick(150);
 
+  // ---- Excel-grade: a heading dragged, its menu, the bar above the grid, a column inserted, fills, the new row ----
+  // How one person looks at a table (sort, filters, grouping, frozen columns, widths) is kept per view in this browser,
+  // and is no change.
+  {
+    const nStart = N(), titlesOf = () => Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean);
+    const menuOf = async title => { column(title).getElement().querySelector('.col-menu').click(); await tick(); };
+    const keyIn = (key, o = {}, el = Table.grid.rowManager.element) => { const e = new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true, ...o }); el.dispatchEvent(e); return e; };
+    const tool = label => $$('.tbar .btn').find(b => b.textContent === label);
+    const again = async () => { Shell.show(views()[0].id); await tick(100); Shell.show(ent); await until(() => !!Table.grid && $$('.grid .tabulator-row').length > 0); await tick(200); };
+    // A heading dragged moves its column at once.
+    const g0 = Table.grid, from = column('Jurisdiction').getElement().getBoundingClientRect(), to = column('Short Name').getElement().getBoundingClientRect();
+    const pe = (type, el, x) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: from.top + 10, button: 0, buttons: 1, pointerId: 7 }));
+    let n1 = N();
+    pe('pointerdown', column('Jurisdiction').getElement().querySelector('.tabulator-col-title'), from.left + 20);
+    pe('pointermove', window, from.left - 40); pe('pointermove', window, to.left + 4);
+    const ghosted = !!$('.col-ghost') && !!$('.grid .col-drop') && !$('.grid .col-drop').hidden;
+    pe('pointerup', window, to.left + 4); await tick(200);
+    check('A heading dragged moves its column at once: a ghost under the pointer, a bar where it drops, and dropped, one change, the column moved in the grid rather than the grid built again',
+      ghosted && titlesOf().slice(0, 3).join() === 'Name,Jurisdiction,Short Name' && N() === n1 + 1 && Table.grid === g0 && !$('.col-ghost'), titlesOf().slice(0, 4).join());
+    undo(); await tick(200);
+    check('… Undo moves it back', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && Table.grid === g0, titlesOf().slice(0, 6).join());
+
+    // Sorted by what it holds: a date oldest first, the blank last; kept, no change, built again as it was.
+    n1 = N();
+    await menuOf('Formation Date');
+    const sorts = $$('.float .menu-item').map(x => x.textContent.trim());
+    item('Sort oldest to newest').click(); await tick(150);
+    const days = () => Table.grid.getRows('active').map(r => r.getData()['f:formation date']);
+    const sortedOk = () => { const ds = days(), set = ds.filter(Boolean); return set.join() === [...set].sort().join() && ds.indexOf(null) >= set.length; };
+    check('A date column sorts oldest to newest, as Excel says it; sorted, the blank last, the view keeping it, which is no change', sorts.includes('Sort oldest to newest') && sortedOk()
+      && JSON.stringify(Table.look(ent).sort) === '{"key":"formation date","dir":"asc"}' && N() === n1 && /Sorted by Formation Date/.test($('.tbar').textContent), `${sorts.slice(0, 3).join()} / ${days().join()}`);
+    await again();
+    check('… and the grid built again is sorted so', sortedOk() && Table.grid.getSorters()[0]?.field === 'f:formation date', days().join());
+    tool('Sorted by Formation Date').click(); await tick(); item('Clear sort').click(); await tick(100);
+    check('… till the bar’s Sort clears it', !Table.look(ent).sort && !Table.grid.getSorters().length);
+
+    // Filtered as Excel filters: Select all off, a value on.
+    await menuOf('Jurisdiction'); item('Filter…').click(); await tick(80);
+    const fRow = label => $$('.tfilter .tf-row').find(r => r.querySelector('.v').textContent === label);
+    fRow('Select all').querySelector('input').click(); await tick(60);
+    fRow('Cayman Islands').querySelector('input').click(); await tick(60);
+    Shell.closeAll(); await tick();
+    const cayman = Table.model(ent).data.filter(r => r['f:jurisdiction'] === 'Cayman Islands').length, active = () => Table.grid.getDataCount('active');
+    check('A column filtered as Excel filters it, Select all off and Cayman Islands on, shows just its rows; its heading shows a funnel, and the bar says so, with Clear filters, and how many of how many',
+      JSON.stringify(Table.look(ent).filters) === '{"jurisdiction":["Cayman Islands"]}' && cayman > 0 && active() === cayman && column('Jurisdiction').getElement().classList.contains('filtered')
+      && !!tool('Filtered by Jurisdiction') && !!tool('Clear filters') && $('.tbar .tcount').textContent.startsWith(`${cayman} of `), `${JSON.stringify(Table.look(ent).filters)} ${active()} ${$('.tbar').textContent}`);
+    await again();
+    check('… kept, and so after the grid is built again', active() === cayman && column('Jurisdiction').getElement().classList.contains('filtered'), active());
+    tool('Clear filters').click(); await tick(100);
+    check('… till Clear filters', !Table.look(ent).filters && active() === Table.model(ent).data.length && !tool('Clear filters'), active());
+
+    // Fitted, a width is kept; grouped, the rows fall under its values in its options' order, Blank last.
+    await menuOf('Short Name'); item('Fit width').click(); await tick(60);
+    const fitted = column('Short Name').getWidth();
+    await again();
+    check('Fit width keeps the width it fits, in the view, the grid built again too', Table.look(ent).widths?.['short name'] === Math.round(fitted) && Math.abs(column('Short Name').getWidth() - fitted) <= 1, `${JSON.stringify(Table.look(ent).widths)} ${column('Short Name').getWidth()}`);
+    tool('Group').click(); await tick(); item('Jurisdiction').click(); await tick(300);
+    const heads = $$('.grid .tabulator-group').map(g => g.textContent.replace(/\d+$/, ''));
+    check('Grouped by a column, its rows fall under its values in its options’ order, Blank last; kept, no change', Table.look(ent).group === 'jurisdiction' && heads[0] === 'Delaware' && heads.at(-1) === 'Blank' && !!tool('Grouped by Jurisdiction'), heads.join());
+    tool('Grouped by Jurisdiction').click(); await tick(); item('None').click(); await tick(300);
+    check('… and None ungroups it', !Table.look(ent).group && !$$('.grid .tabulator-group').length);
+    // Frozen up to a column: those up to it stay put as it scrolls across.
+    await menuOf('Short Name'); item('Freeze up to here').click(); await tick(300);
+    check('Freeze up to here keeps the columns up to it in view', Table.look(ent).frozen === 2 && $$('.grid .tabulator-header .tabulator-col.pin').map(e => e.textContent).join() === 'Name,Short Name');
+    await menuOf('Short Name'); item('Unfreeze columns').click(); await tick(300);
+    check('… and Unfreeze columns none', Table.look(ent).frozen === 0 && !$$('.grid .tabulator-header .tabulator-col.pin').length);
+    await menuOf('Name'); item('Freeze up to here').click(); await tick(300);
+    check('… the first, by default, once frozen up to it again', !('frozen' in Table.look(ent)) && $$('.grid .tabulator-header .tabulator-col.pin').length === 1);
+
+    // A column inserted: a Shown note in the view below the rows, where no record is yet.
+    n1 = N();
+    await menuOf('Jurisdiction'); item('Insert column right').click(); await tick(150);
+    const naming = $('.grid .col-name');
+    check('Insert column right opens an empty column beside it, its name typed in its heading', !!naming && document.activeElement === naming);
+    naming.value = 'Process Agent'; keyIn('Enter', {}, naming); await tick(250);
+    const ra = Table.model(ent).cols.find(c => c.title === 'Process Agent' && c.path?.length === 1), raNote = ra && App.notes.peek().resolve('Shown', ra.pattern, ent);
+    const atEntity = edge => Object.values(st()).some(r => r.edge === edge && st()[r.at]?.kind === 'Entity');
+    check('… named, it’s a Shown note in the view at its pattern below the rows, where no record is yet, placed after Jurisdiction, as one change', N() === n1 + 1 && !!ra?.fresh
+      && raNote?.note.view === ent && raNote.value === true && !raNote.note.param && titlesOf()[titlesOf().indexOf('Jurisdiction') + 1] === 'Process Agent' && !atEntity('Process Agent'), titlesOf().join());
+    // From the Columns list too, at the end.
+    tool('Columns').click(); await tick(); $('.cols .colrow.new').click(); await tick(60);
+    const newCol = $('.cols .col-new'); newCol.value = 'Annual Fee'; keyIn('Enter', {}, newCol); await tick(250); Shell.closeAll(); await tick();
+    check('… and a New column from the Columns list, last', titlesOf().at(-1) === 'Annual Fee' && N() === n1 + 2, titlesOf().slice(-2).join());
+    // The first value typed says what it holds.
+    const cellIn = (row, title) => row.getCells().find(c => c.getColumn().getDefinition().title === title);
+    cellIn(rowOf(halvard), 'Annual Fee').edit(true); await tick();
+    const fee = cellIn(rowOf(halvard), 'Annual Fee').getElement().querySelector('input'); fee.value = '$1,250'; keyIn('Enter', {}, fee); await tick(200);
+    const feeRec = Object.values(st()).find(r => r.at === halvard && r.edge === 'Annual Fee');
+    check('The first value typed into a column with no values says what it holds: $1,250 is money', feeRec?.field === 'money' && feeRec.value === 1250 && N() === n1 + 3 && !Table.model(ent).cols.find(c => c.title === 'Annual Fee').fresh, JSON.stringify(feeRec));
+
+    // Fill down, and Ctrl+Enter, each one change.
+    const rows3 = Table.grid.getRows('active').slice(0, 6), raOf = row => cellIn(row, 'Process Agent');
+    raOf(rows3[0]).edit(true); await tick();
+    const ri = raOf(rows3[0]).getElement().querySelector('input'); ri.value = 'CT Corporation'; keyIn('Enter', {}, ri); await tick(200);
+    Table.grid.addRange(raOf(rows3[0]), raOf(rows3[2])); await tick(60);
+    n1 = N();
+    keyIn('d', { ctrlKey: true }); await tick(200);
+    const agentOf = row => Object.values(st()).find(r => r.at === row.getData().id && r.edge === 'Process Agent')?.value;
+    check('Ctrl+D fills the range down from its top cell, as one change', N() === n1 + 1 && rows3.slice(0, 3).every(r => agentOf(r) === 'CT Corporation') && /^Filled 2 cells/.test($('.toast span')?.textContent ?? ''), rows3.slice(0, 3).map(agentOf).join());
+    Table.grid.addRange(raOf(rows3[3]), raOf(rows3[5])); await tick(60);
+    keyIn('M'); await tick(60);
+    const typed = raOf(rows3[3]).getElement().querySelector('input');
+    typed.value = 'Maples and Calder'; keyIn('Enter', { ctrlKey: true }, typed); await tick(200);
+    check('Ctrl+Enter keeps what’s typed in every cell of the range, as one change, the range still selected', N() === n1 + 2 && rows3.slice(3).every(r => agentOf(r) === 'Maples and Calder')
+      && Table.grid.getRanges()[0]?.getCells().flat().length === 3, rows3.slice(3).map(agentOf).join());
+
+    // The status bar counts the cells selected, and sums and averages their numbers.
+    Table.grid.addRange(raOf(rows3[0]), raOf(rows3[5])); await tick(100);
+    check('Cells selected are counted in the status bar, as Excel counts them', /Count 6/.test($('.status .tstats')?.textContent ?? '') && !/Sum/.test($('.status .tstats').textContent), $('.status .tstats')?.textContent);
+
+    // The new row: a name typed there adds an entity, as one change.
+    n1 = N();
+    const nr = $('.newslot .nr-name');
+    check('Under the last row, a new one, as Airtable’s', !!nr && nr.placeholder === 'New entity');
+    nr.focus(); nr.value = 'Harbor Point Holdings, LLC'; keyIn('Enter', {}, nr); await tick(300);
+    const hp = named('Harbor Point Holdings, LLC');
+    check('… a name typed there adds the entity, as one change, its row in the grid, the new row ready for the next', N() === n1 + 1 && st()[hp]?.kind === 'Entity' && !!rowOf(hp) && nr.value === '' && document.activeElement === nr);
+
+    // The Excel workbook: what the grid shows, in its order, a date a date and a tag Yes or No.
+    const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], heads2 = titlesOf(), at = (r, c) => ws[XLSX.utils.encode_cell({ r, c })];
+    const fd = heads2.indexOf('Formation Date'), shown = Table.grid.getRows('active').map(r => r.getData()), withDay = shown.findIndex(d => d['f:formation date']);
+    const day = at(withDay + 1, fd), gs = heads2.indexOf('Good Standing'), tagged = shown.findIndex(d => d['f:good standing'] === true);
+    check('Export to Excel: its headings in the grid’s order, a date an Excel date in the grid’s format, a tag Yes, its columns as wide as the grid’s, with a filter on its headings',
+      wb.SheetNames[0] === views().find(v => v.id === ent).name && heads2.every((h, j) => at(0, j)?.v === h) && day?.t === 'n' && day.z === 'mmm d, yyyy'
+      && day.v === (Date.UTC(...shown[withDay]['f:formation date'].split('-').map((x, i) => i === 1 ? x - 1 : +x)) - Date.UTC(1899, 11, 30)) / 864e5
+      && at(tagged + 1, gs)?.v === 'Yes' && ws['!cols'].length === heads2.length && ws['!cols'][0].wpx === Math.round(column('Name').getWidth()) && !!ws['!autofilter'], JSON.stringify([day, at(tagged + 1, gs), ws['!cols']?.[0]]));
+    check('… offered first in Export while a table shows, CSV beside it', Shell.parts.peek().export.map(x => x.name).join() === 'Excel,CSV', Shell.parts.peek().export.map(x => x.name).join());
+
+    // All of it undone, and the look let go.
+    const made = N() - nStart - 2;   // all but the move and its Undo
+    for (let i = 0; i < made; i++) { undo(); await tick(60); }
+    Shell.store.set(`table.${C()}.${ent}`, null); await again();
+    check('Undone, the columns and the rows are as they were', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && !titlesOf().includes('Process Agent') && !named('Harbor Point Holdings, LLC'), titlesOf().join());
+  }
+
   // The tabs: renamed, moved, duplicated and deleted, each one change.
   const tabs = Shell.parts.peek().views;
   n0 = N();
@@ -317,6 +461,34 @@ async function run() {
   await addTable('Relations', 'Ownership');
   const own = Shell.view.peek(), ownRows = Object.keys(st()).filter(id => st()[id].args?.some(a => a.edge === 'Owner')).length;
   check('A relation’s table: a row for each, its sides first, then what’s at it', Table.grid.getRows().length === ownRows && Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join() === 'Owner,Owned,Percentage,Voting Percentage', Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
+  {
+    // Percentages selected are counted, summed and averaged in the status bar, as percentages.
+    const rs = Table.grid.getRows('active').slice(0, 3), pc = r => r.getCells().find(c => c.getColumn().getDefinition().title === 'Percentage'), vs = rs.map(r => pc(r).getValue());
+    Table.grid.addRange(pc(rs[0]), pc(rs[2])); await tick(100);
+    const say = v => Tree.format('percent', +v.toPrecision(12)), sum = vs.reduce((a, b) => a + b, 0);
+    check('Percentages selected are counted, summed and averaged in the status bar, as percentages', $('.status .tstats')?.textContent === `Count 3Sum ${say(sum)}Average ${say(+(sum / 3).toFixed(4))}`, `${$('.status .tstats')?.textContent} / ${vs.join()}`);
+    // In Excel, a percentage is a number in a percentage's format, as precise as the grid says it.
+    const wbo = await Table.workbook(), ws = wbo.Sheets[wbo.SheetNames[0]], cell = ws && ws[XLSX.utils.encode_cell({ r: 1, c: 2 })], first = Table.grid.getRows('active')[0].getData()['f:percentage'];
+    check('… and in Excel a percentage is a number in a percentage’s format, as precise as the grid says it', cell?.t === 'n' && cell.v === first && /^0(\.0+)?%$/.test(cell.z)
+      && cell.z === `0${String(+(first * 100).toFixed(4)).includes('.') ? '.' + '0'.repeat(String(+(first * 100).toFixed(4)).split('.')[1].length) : ''}%`, JSON.stringify(cell));
+    Shell.select([]); await tick(60);
+  }
+  // A relation's new row asks its sides, each from the objects that side can be, and waits on Enter as a relation added does.
+  {
+    const n2 = N(), go = $('.newslot .nr-go');
+    check('Under a relation’s last row, a new one', go?.textContent.trim() === 'New ownership', go?.textContent);
+    go.click(); await tick(80);
+    const pickIn = async (q) => { const f = $('.float .menu-find'); f.textContent = q; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60); press('Enter', $('.float .menu')); await tick(120); };
+    const asked = $('.float .menu-head')?.textContent;
+    await pickIn('U.S. Investors');
+    const said = $('.newslot .nr-go')?.textContent.replace(/\s+/g, ' ').trim(), asked2 = $('.float .menu-head')?.textContent;
+    await pickIn('Northpine Software');
+    await previewed();
+    check('… its Owner, then its Owned, the row saying what’s picked, then the bar asking its day, the row redlined, nothing made yet', asked === 'Owner' && asked2 === 'Owned' && /^U\.S\. Investors\s*→\s*Owned$/.test(said)
+      && App.pending.peek()?.verb === "Add" && App.pending.peek()?.asks === "from" && $$(".grid .tabulator-row.red-add").length === 1 && N() === n2, `${asked} ${asked2} ${said} ${App.pending.peek()?.what} ${App.pending.peek()?.asks} ${$$(".grid .tabulator-row.red-add").length} ${N() - n2}`);
+    press('Escape', $('.pendbar .from input') ?? document.body); await tick(150);
+    check('… and Esc leaves it unmade', !App.pending.peek() && N() === n2 && !$$('.grid .tabulator-row.red-add').length);
+  }
   Shell.at({ asOf: '2026-11-02' }); await tick(100);
   n0 = N();
   const rows0 = Table.grid.getRows().length;
@@ -435,9 +607,9 @@ async function run() {
   pressedOn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 2 })); await tick(60);
   check('A right-click on a cell before anything’s selected selects it, and throws nothing', !errors.length && Shell.selection.peek().join() === doomed, `${errors.join(' / ')} ${Shell.selection.peek().join()}`);
   rowOf(doomed).getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
-  hover(item('Delete')); await previewed();
+  hover(item('Delete row')); await previewed();
   check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
-  item('Delete').click(); await previewed();
+  item('Delete row').click(); await previewed();
   const untilIn = () => $('.pendbar .from input');
   check('… and chosen, redlines it with the bar, asking until when: the day shown, to type over', N() === n0 && rowOf(doomed).getElement().classList.contains('red-go')
     && $('.pendbar .from .sel')?.textContent === 'Until' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
@@ -751,8 +923,8 @@ async function run() {
   const textRight = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().right; };
   const edge = (title, sel) => { const c = column(title).getElement(); return c.getBoundingClientRect().right - c.querySelector(sel).getBoundingClientRect().right; };
   const pctTitle = column('Percentage').getElement().querySelector('.tabulator-col-title');
-  check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.tabulator-header-filter') - edge('Owner', '.tabulator-header-filter')) <= 0.5
-    && textRight(pctTitle) <= column('Percentage').getElement().querySelector('.tabulator-header-filter').getBoundingClientRect().left, `${edge('Percentage', '.tabulator-header-filter')} vs ${edge('Owner', '.tabulator-header-filter')}`);
+  check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.col-menu') - edge('Owner', '.col-menu')) <= 0.5
+    && textRight(pctTitle.querySelector('.t')) <= column('Percentage').getElement().querySelector('.col-menu').getBoundingClientRect().left, `${edge('Percentage', '.col-menu')} vs ${edge('Owner', '.col-menu')}`);
   Shell.show(docsView); await built('Link');
   // Cut short: a cell of any row narrower than what it holds, other than a long text at the cap; a name, never.
   const cut = () => Table.grid.getRows('active').flatMap(r => r.getCells()).filter(c => c.getElement().scrollWidth > c.getElement().clientWidth + 1

@@ -1,15 +1,28 @@
-// Table views (dendra.md, Views): a view laid out as a table is one Tabulator grid. Its rows are the records
-// of one kind (Entities), one relation (Ownership), or every entry of one datatype (Dates, Documents), as its
-// Layout note says; its columns are what's located at the rows. In the view, a Shown note at a column's
-// pattern shows or hides it, and Order notes place the columns. Every edit, paste or deletion is one change,
-// so one Undo takes it back. A pending change, whoever asks (FormulaBar.preview), is redlined in the grid, and
-// a paste waits there for Enter.
+// Table views (dendra.md, Views): a view laid out as a table is one Tabulator grid, edited as Excel's is. Its rows are
+// the records of one kind (Entities), one relation (Ownership), or every entry of one datatype (Dates, Documents), as
+// its Layout note says; its columns are what's located at the rows, and a Shown note in the view at a pattern below the
+// rows where no record is yet (a column just inserted, named as it's typed). In the view, a Shown note at a column's
+// pattern shows or hides it, and Order notes place the columns: a heading dragged, its menu (the chevron, or a
+// right-click, or Alt+Down), or the Columns control above the grid. Every edit, fill, paste, deletion or new row is one
+// change, so one Undo takes it back. How one person looks at a table (its sort, filters, grouping, frozen columns and
+// widths) is kept per view in this browser (Shell.store), never a change. A pending change, whoever asks
+// (FormulaBar.preview), is redlined in the grid, and a paste waits there for Enter. Export offers the table as an Excel
+// workbook (SheetJS, loaded the first time it's needed) or CSV; the status bar counts, sums and averages the cells
+// selected.
 
 const Table = (() => {
+  const SCRIPT = document.currentScript?.src ?? location.href;
   const { effect, html } = Shell;
   const { clean, norm, same, plural } = Tree;
+  const { useState, useRef } = preactHooks;
 
   const below = (p, path) => path.reduce((loc, edge) => ({ args: [{ edge, loc }] }), p);
+  // The path of edges from `base` down to a pattern built by `below`, or null if it isn't one.
+  const pathBelow = (p, base) => {
+    const path = [], k = Tree.key(base);
+    while (p?.args?.length === 1 && Tree.key(p) !== k) { path.unshift(p.args[0].edge); p = p.args[0].loc; }
+    return p && path.length && Tree.key(p) === k ? path : null;
+  };
   const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
   const count = (n, one, many = plural(one)) => `${n} ${n === 1 ? one : many}`;
   const list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
@@ -17,6 +30,39 @@ const Table = (() => {
   const entryAt = (st, at, edge) => at && Tree.entryAt(st, at, edge);
   const valueOf = r => !r ? undefined : 'tag' in r ? r.tag : 'choice' in r ? r.choice : r.value;
   const viewOf = id => App.views.value.find(v => v.id === id);
+  const blank = v => v === null || v === undefined || v === '';
+
+  // ---- How one person looks at a table: per view, in this browser, never a change ----
+  // { sort: { key, dir }, filters: { key: [values, null for Blank] }, group: key, frozen: columns kept in view (1, the
+  // names, unless said), widths: { key: px } }.
+  const lookKey = view => `table.${App.chart.peek()}.${view}`;
+  function lookOf(view) { try { return JSON.parse(Shell.store.get(lookKey(view)) || '{}') || {}; } catch { return {}; } }
+  function setLook(view, patch) {
+    const l = { ...lookOf(view), ...patch };
+    for (const k of Object.keys(l)) if (l[k] === undefined || l[k] === null || (typeof l[k] === 'object' && !Object.keys(l[k]).length)) delete l[k];
+    Shell.store.set(lookKey(view), Object.keys(l).length ? JSON.stringify(l) : null);
+    looked.value++;
+    return l;
+  }
+  const looked = Shell.signal(0);
+  const frozenOf = l => l.frozen ?? 1;
+
+  // How a column's values compare, as its sort, its filter's list and its groups put them: numbers and dates as such,
+  // a choice in its options' order, a tag Yes first, text and names as words, figures in them as numbers.
+  function compare(c) {
+    const at = v => { const i = c.options?.indexOf(v) ?? -1; return i < 0 ? Infinity : i; };
+    return (a, b) => {
+      if (typeof a === 'number' && typeof b === 'number') return a - b;
+      if (typeof a === 'boolean' && typeof b === 'boolean') return b - a;
+      const i = at(a), j = at(b);
+      return i !== j ? (i < j ? -1 : 1) : String(a).localeCompare(String(b), 'en', { numeric: true, sensitivity: 'base' });
+    };
+  }
+  // …and blank last, whichever way it's sorted.
+  const sorter = c => { const cmp = compare(c); return (a, b, _a, _b, _c, dir) => blank(a) || blank(b) ? (blank(a) - blank(b)) * (dir === 'desc' ? -1 : 1) : cmp(a, b); };
+  // What sorting a column is called, as Excel calls it for what it holds.
+  const SORTS = { number: ['smallest to largest', 'largest to smallest'], date: ['oldest to newest', 'newest to oldest'], tag: ['Yes first', 'No first'] };
+  const sortWords = c => SORTS[NUMERIC.has(c.type) ? 'number' : c.type === 'yearly' ? 'date' : c.type] ?? ['A to Z', 'Z to A'];
 
   // ---- The model: a table's columns and rows, worked out from a computed state (App's, or a pending one) ----
   // A column of entries is a path of edges from the row down, with every specification there.
@@ -48,7 +94,7 @@ const Table = (() => {
     return { ...c, type, options: [...rank.keys()].sort((a, b) => rank.get(a) - rank.get(b) || a.localeCompare(b)) };
   }
 
-  function model(view, R = App.computed.value, S = App.schema.value) {
+  function model(view, R = App.computed.value, S = App.schema.value, look = lookOf(view)) {
     const st = R.records, N = App.notes.value;
     const rows = viewOf(view)?.rows;
     if (!rows) return null;
@@ -81,8 +127,19 @@ const Table = (() => {
     if (base) {
       const isRow = base.args ? loc => loc.args?.length > 1 && Tree.narrower(loc, base) : loc => !loc.args && same(loc.kind, base.kind);
       const own = up && ids.length && norm(st[ids[0]].edge);
-      for (const c of entryColumns(S, isRow)) if (!(up && c.path.length === 1 && norm(c.path[0]) === own))
-        cols.push(typed({ ...c, up, pattern: below(base, c.path), title: c.path.at(-1), parent: c.path.slice(0, -1).join(' › '), base: order(base, c.path) }, c.specs));
+      const column = (path, specs, fresh) => ({ key: path.map(norm).join('›'), path, specs, up, pattern: below(base, path), title: path.at(-1), parent: path.slice(0, -1).join(' › '), base: order(base, path), ...fresh });
+      const mine = path => !(up && path.length === 1 && norm(path[0]) === own);
+      for (const c of entryColumns(S, isRow)) if (mine(c.path)) cols.push(typed(column(c.path, c.specs), c.specs));
+      // A column with no values yet: a Shown note in the view at a pattern below the rows, where no record is. It's
+      // titled by its edge, and the first value typed into it says what it holds.
+      const have = new Set(cols.map(c => c.key));
+      for (const n of N.notes('Shown')) {
+        const path = n.view === view && !n.param && pathBelow(n.pattern, base);
+        if (!path || !mine(path) || have.has(path.map(norm).join('›'))) continue;
+        const c = column(path, [], { type: 'text', options: [], fresh: true });
+        have.add(c.key);
+        cols.push(c);
+      }
       // In the view, Order places a column and Shown shows it; by default every entry at the row shows. A tag
       // a Check note covers is a check, which says only where it fails.
       for (const c of cols) {
@@ -130,8 +187,8 @@ const Table = (() => {
     for (const c of cols) if (c.check) c.fails = data.some(r => r[field(c)] === false);
 
     // Dates fall into months, with what's overdue first, then from this month on, then back from it.
-    let groups = null;
-    const f0 = cols[0] && field(cols[0]);
+    let groups = null, named = null;
+    const f0 = cols[0] && field(cols[0]), by = cols.find(c => c.key === look.group);
     if (rows === 'date') {
       const month = today.slice(0, 7);
       for (const r of data) r._g = r._m[f0].due ? 'overdue' : r[f0].slice(0, 7);
@@ -141,9 +198,17 @@ const Table = (() => {
       const at = new Map(groups.map((g, i) => [g, i]));
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b[f0].localeCompare(a[f0]) : a[f0].localeCompare(b[f0])));
     } else if (f0) data.sort((a, b) => text(typeOf(cols[0], a), a[f0]).localeCompare(text(typeOf(cols[0], b), b[f0])));
+    // Grouped by a column, the rows fall under its values, in the order it sorts them, Blank last.
+    if (rows !== 'date' && by) {
+      const f = field(by), cmp = sorter(by), seen = new Map();
+      for (const r of data) { r._g = blank(r[f]) ? BLANK : JSON.stringify(r[f]); if (!seen.has(r._g)) seen.set(r._g, r); }
+      const firsts = [...seen.values()].sort((a, b) => cmp(a[f], b[f], null, null, null, 'asc'));
+      groups = firsts.map(r => r._g);
+      named = new Map(firsts.map(r => [r._g, r._g === BLANK ? 'Blank' : text(typeOf(by, r), r[f])]));
+    }
 
     const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
-    return { view, rows, isKind, isDatatype, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, noun };
+    return { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, noun };
   }
   // A column's field in the grid's rows: its own key, so a column added or hidden beside it never moves it.
   const field = c => 'f:' + c.key;
@@ -206,25 +271,29 @@ const Table = (() => {
   const typeOf = (c, d) => d?._m[field(c)]?.type ?? c.type;
 
   // A text editor, as Excel's: Enter or leaving keeps what's typed, Esc puts it back, and what can't be read
-  // stays open, marked.
-  let typed0 = null;
+  // stays open, marked. Begun by typing, it holds what's typed; by F2, the value with the caret at its end; else the
+  // value selected. Ctrl+Enter keeps what's typed in every cell of the range.
+  let typed0 = null, atEnd = false;
   const editor = (c, put) => (cell, onRendered, success, cancel) => {
     const input = document.createElement('input');
+    input.className = 'typed';
     input.value = typed0 ?? typing(typeOf(c, cell.getRow().getData()), cell.getValue());
-    const first = typed0 !== null;
-    typed0 = null;
-    onRendered(() => { input.focus(); if (!first) input.select(); });
+    const first = typed0 !== null || atEnd;
+    typed0 = null; atEnd = false;
+    onRendered(() => { input.focus(); if (!first) input.select(); else input.setSelectionRange(input.value.length, input.value.length); });
     let done = false;
+    const bad = () => { input.classList.add('bad'); input.setAttribute('aria-invalid', 'true'); return false; };
     const keep = () => {
       if (done) return true;
-      if (!readable(cell, input.value)) { input.classList.add('bad'); input.setAttribute('aria-invalid', 'true'); return false; }
+      if (!readable(cell, input.value)) return bad();
       done = true;
       cancel();
       put(cell, input.value);
       return true;
     };
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (keep()) move('down'); }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); if (!readable(cell, input.value)) return bad(); const cs = ranged; done = true; cancel(); fillWith(cell, input.value, cs); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (keep()) move(e.shiftKey ? 'up' : 'down'); }
       else if (e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); if (keep()) move(e.shiftKey ? 'left' : 'right'); }
       else if (e.key === 'Escape') { e.stopPropagation(); done = true; cancel(); back(); }
     });
@@ -235,20 +304,23 @@ const Table = (() => {
   function move(d) {
     setTimeout(() => {
       const sr = table?.modules.selectRange;
-      if (sr?.activeRange) sr.navigate(false, false, d);
+      if (sr?.activeRange) {
+        if (d === 'left' || d === 'right') { tabbed ??= sr.getActiveCell()?.column; step(d); }
+        else { const col = d === 'down' ? tabbed : null; tabbed = null; step(d, col); }
+      }
       back();
     }, 0);
   }
 
   // ---- The grid ----
-  let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null;
+  let table = null, ready = false, built = null, current = null, real = null, el = null, cells = null, pins = null;
   // The grid is laid out as Excel's is. Each column is as wide as what it holds in every row, drawn or not, to a
   // cap, and a tag's column as narrow as its heading set on two lines; nothing is cut to fit. The first column,
   // the names, has no cap but half the grid, past which a name goes on to a second line. Where there's room,
   // what's cut short has it first, the least cut first, so the most come out whole; what's left stays at the
   // right edge. Where there isn't, the grid scrolls across under its first column, which stays put, a column at
   // a time. A column the user has sized keeps its width.
-  const TAG = /\bc-tag\b/, PIN = /\bpin\b/, sized = new WeakSet();   // sized here, so free to size again
+  const TAG = /\bc-tag\b/, PIN = /\bpin\b/, LEAD = /\blead\b/, sized = new WeakSet();   // sized here, so free to size again
   const ruler = document.createElement('canvas').getContext('2d');
   // The widest of a column's values as its cells set them, in every row.
   function widest(c) {
@@ -260,8 +332,17 @@ const Table = (() => {
     for (const row of c.table.rowManager.rows) { const v = row.data[f]; if (v !== null && v !== undefined) w = Math.max(w, ruler.measureText(said(v, typeOf(col, row.data))).width); }
     return Math.ceil(w + parseFloat(s.paddingLeft) + parseFloat(s.paddingRight) + parseFloat(s.borderRightWidth)) + 2;
   }
-  // Where a column the grid scrolls to starts: clear of the row numbers and the first column.
-  const pinned = t => t.element.style.setProperty('--pinned', `${48 + (t.getColumns().find(c => c.getField())?.getWidth() ?? 0)}px`);
+  // The columns kept in view (frozen, as Excel says: the first, the names, unless the user says otherwise) each stay
+  // put where the row numbers and those before them end; a column the grid scrolls to starts clear of them all.
+  const pinsOf = t => t.getColumns().filter(c => c.getField() && PIN.test(c.getDefinition().cssClass));
+  const frozenWidth = t => pinsOf(t).reduce((s, c) => s + c.getWidth(), 0);
+  function pinned(t) {
+    let left = 48;
+    const rules = pinsOf(t).map((c, i) => { const r = `.grid .tabulator .tabulator-header .tabulator-col.pin-${i}, .grid .tabulator-row .tabulator-cell.pin-${i} { left: ${left}px; }`; left += c.getWidth(); return r; });
+    if (pins) pins.textContent = rules.join('\n');
+    t.element.style.setProperty('--pinned', `${left}px`);
+    requestAnimationFrame(strip);
+  }
   // The room a grid has, to the whole pixel below, since its slot is measured as the inspector glides, between
   // pixels; and the room each grid was last laid out in, so one laid out in another is laid out again.
   const widthOf = t => { const h = t.rowManager.element; return Math.floor(h.getBoundingClientRect().width - (h.offsetWidth - h.clientWidth)); };
@@ -292,7 +373,7 @@ const Table = (() => {
         if (fit.all > c.getWidth()) c.setWidthActual(fit.all);
       }
       full.set(c, c.getWidth());
-      const most = PIN.test(c.definition.cssClass) ? Math.floor(w / 2) : c.maxInitialWidth;
+      const most = LEAD.test(c.definition.cssClass) ? Math.floor(w / 2) : c.maxInitialWidth;
       if (c.getWidth() > most) c.setWidthActual(most);
     }
     laid.set(this.table, w);
@@ -303,38 +384,34 @@ const Table = (() => {
   } });
 
   const drawn = c => c.pasted || (c.shown && (!c.check || c.fails));
-  function columnDefs(m) {
+  // A heading: its name (under the entry it's at, if any), a funnel while it's filtered, which opens its filter, and
+  // the chevron that opens its menu, shown while it's pointed at.
+  const SVG = (box, inner, w = 2) => `<svg class="i" viewBox="0 0 ${box} ${box}" style="stroke-width:${w}" aria-hidden="true">${inner}</svg>`;
+  const FUNNEL = SVG(24, '<path d="M22 3H2l8 9.46V19l4 2v-8.54z"/>'), CHEVRON = SVG(16, '<path d="M4.5 6.5 8 10l3.5-3.5"/>', 1.5);
+  const heading = c => `${c.parent ? `<span class="up">${esc(c.parent)}</span>` : ''}<span class="t">${esc(c.title)}</span>`
+    + `<span class="funnel" role="button" aria-label="Filter" data-tip="Filter">${FUNNEL}</span>`
+    + `<button type="button" class="col-menu" tabindex="-1" aria-haspopup="menu" aria-label="${esc(c.title)}" data-tip="Column menu" data-keys="Alt+↓">${CHEVRON}</button>`;
+  function columnDefs(m, look = lookOf(m.view)) {
     const defs = m.cols.filter(drawn).map(c => {
-      const f = field(c), editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of';
-      // A heading's filter offers the values its column has now, as they read, and Blank where it has one; none
-      // once its grid has given way to another.
-      const values = () => {
-        if (current?.view !== m.view || !current.byField.has(f)) return [];
-        const at = v => c.options?.includes(v) ? c.options.indexOf(v) : Infinity;   // a choice's in its options' order
-        const vs = [...new Map(current.data.filter(r => r[f] !== null).map(r => [r[f], typeOf(c, r)]))]
-          .sort(([a], [b]) => at(a) - at(b) || (typeof a === 'number' ? a - b : String(a).localeCompare(String(b))));
-        return [...vs.map(([v, type]) => ({ label: text(type, v), value: v })), ...(current.data.some(r => r[f] === null) ? [{ label: 'Blank', value: BLANK }] : [])];
-      };
-      const right = NUMERIC.has(c.type) ? 'right' : 'left';
+      const editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of', right = NUMERIC.has(c.type) ? 'right' : 'left', width = look.widths?.[c.key];
       return {
-        title: c.title, field: f, minWidth: c.type === 'tag' ? 56 : 72, maxInitialWidth: 340,
-        titleFormatter: c.parent ? () => `<span class="up">${esc(c.parent)}</span>${esc(c.title)}` : undefined,
-        hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.type === 'edge' ? 'edge' : c.type),
-        sorter: NUMERIC.has(c.type) ? 'number' : c.type === 'tag' ? 'boolean' : 'string', sorterParams: { alignEmptyValues: 'bottom' },
+        title: c.title, field: field(c), minWidth: c.type === 'tag' ? 56 : 72, maxInitialWidth: 340, ...(width && { width }),
+        titleFormatter: () => heading(c),
+        hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
+        sorter: sorter(c),
         formatter: formatter(c),
         editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? 'list' : editor(c, put),
         editorParams: c.type === 'choice' ? { ...LIST, values: c.options, freetext: true, allowEmpty: true }
           : c.type === 'edge' ? () => ({ ...LIST, values: objects(m, c) }) : undefined,
-        headerFilter: 'list', headerFilterParams: { ...LIST, valuesLookup: values, clearable: true },
-        headerFilterFunc: (want, v) => want === BLANK ? v === null || v === '' : v === want,
-        headerFilterEmptyCheck: v => v === undefined || v === null || v === '',
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
     });
-    // Kept in view by table.css, not frozen: Tabulator's range selection takes only the row numbers frozen. Its
-    // rows are as tall as a name wrapped takes.
-    if (defs[0]) Object.assign(defs[0], { cssClass: defs[0].cssClass + ' pin', variableHeight: true });
+    // The columns kept in view are kept so by table.css, not frozen: Tabulator's range selection takes only the row
+    // numbers frozen. The first column's rows are as tall as a name wrapped takes.
+    const n = Math.min(frozenOf(look), defs.length);
+    defs.forEach((d, i) => { if (i < n) d.cssClass += ` pin pin-${i}${i === n - 1 ? ' pin-last' : ''}`; });
+    if (defs[0]) Object.assign(defs[0], { cssClass: defs[0].cssClass + ' lead', variableHeight: true });
     return defs;
   }
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
@@ -356,6 +433,11 @@ const Table = (() => {
   const sideLoc = (m, edge) => m.rows.args.find(a => same(a.edge, edge)).loc;
 
   function build(m) {
+    // Built again in its view (a column shown, hidden or kept in view), the grid stays where it was scrolled, with what was
+    // selected in it: its first and last rows and columns, a column selected whole whole.
+    const look = lookOf(m.view), h = table?.rowManager.element, r = ready && table.getRanges()[0];
+    const ends = xs => xs.length ? [xs[0], xs.at(-1)] : null, rs = r && ends(r.getRows().map(x => x.getData().id)), cs = r && ends(r.getColumns().map(c => c.getField()).filter(Boolean));
+    const was = table && ready && built?.view === m.view ? { left: h.scrollLeft, top: h.scrollTop, rs, cs, whole: r && r.getRows().length === table.getRows('active').length } : null;
     if (table) { table.destroy(); table = null; }
     ready = false;
     cells.replaceChildren();
@@ -365,22 +447,24 @@ const Table = (() => {
     // The rows redlined as built, so they're drawn again as they are once the redline goes.
     reds = new Set(m.data.filter(isRed).map(r => r.id));
     flight = null;
+    const sorted = look.sort && m.cols.find(c => c.key === look.sort.key && drawn(c)), passes = filterOf(m, look);
     const t = table = new Tabulator(host, {
       // A column is sized at its heading's edge, as Excel's is, and a row is only its cells. A field is a column's
       // key as it stands, dots and all. The grid is laid out again as settle says, not as Tabulator watches its size.
-      index: 'id', data: m.data, columns: columnDefs(m), columnDefaults: { resizable: 'header' }, nestedFieldSeparator: false, height: '100%', layout: 'fitDataSlack', autoResize: false,
+      index: 'id', data: m.data, columns: columnDefs(m, look), columnDefaults: { resizable: 'header' }, nestedFieldSeparator: false, height: '100%', layout: 'fitDataSlack', autoResize: false,
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,
       editTriggerEvent: 'dblclick',
-      // Tab leaves the grid, as it leaves any control; the arrows move within it.
-      keybindings: { navPrev: false, navNext: false },
+      // Tab, Home and End are the grid's own, as Excel's (keydown); F6 leaves it.
+      keybindings: { navPrev: false, navNext: false, scrollToStart: false, scrollToEnd: false },
       clipboard: true, clipboardCopyStyled: false, clipboardCopyRowRange: 'range',
       clipboardCopyConfig: { columnHeaders: false, columnGroups: false, rowHeaders: false, rowGroups: false, columnCalcs: false, formatCells: false },
       // A link pasted onto a row isn't the grid's: it goes on to link a document (inspector.js).
       clipboardPasteParser: text => { const to = onto(text); return to === 'record' ? false : { text: to === 'cell' ? text : '' }; },
       clipboardPasteAction: ({ text }) => { if (text) paste(text); return []; },
-      movableColumns: !m.isDatatype, headerSortClickElement: 'icon', columnHeaderVertAlign: 'bottom',
+      // A heading is moved by dragging it at once (headings), not after Tabulator's pause.
+      movableColumns: false, headerSortClickElement: 'icon', columnHeaderVertAlign: 'bottom',
       rowFormatter: row => {
         const d = row.getData(), e = row.getElement();
         e.classList.toggle('ruled', !!d._ruled);
@@ -390,8 +474,10 @@ const Table = (() => {
       },
       ...(m.groups && {
         groupBy: '_g', groupValues: [m.groups], groupToggleElement: 'header',
-        groupHeader: (g, n) => `${g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month')}<span>${n}</span>`,
+        groupHeader: (g, n) => `${esc(m.named ? m.named.get(g) : g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month'))}<span>${n}</span>`,
       }),
+      ...(sorted && { initialSort: [{ column: field(sorted), dir: look.sort.dir }] }),
+      ...(passes && { initialFilter: passes }),
     });
     // Laid out, the grid draws its rows again from where it's scrolled, each drawn row measured at the columns'
     // new widths and the rest reckoned from them. Tabulator would measure every row, drawn or not, but go on
@@ -401,31 +487,51 @@ const Table = (() => {
     t.on('cellEdited', cell => { const d = columnOf(cell); if (d.type === 'choice' || d.type === 'edge') put(cell, cell.getValue() ?? ''); back(); });
     t.on('cellEditCancelled', () => back());
     t.on('cellClick', (e, cell) => { if (e.target.closest('.tag')) flip(cell); });
-    t.on('rangeChanged', range => pick(range));
-    t.on('rangeAdded', range => pick(range));
+    t.on('rangeChanged', range => { if (!arranging) pick(range); tally(); });
+    t.on('rangeAdded', range => { if (!arranging) pick(range); tally(); });
+    t.on('rangeRemoved', tally);
+    t.on('dataSorted', sorters => { if (ready && t === table) keepSort(sorters); });
     t.on('columnMoved', () => placeColumns());
-    t.on('columnResized', col => { sized.delete(col._column); pinned(t); });
-    t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu(e, col); });
+    // A width the user gives a column is kept, in this view.
+    t.on('columnResized', col => { sized.delete(col._column); keepWidth(col); pinned(t); });
+    t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu({ x: e.clientX, y: e.clientY }, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
-    t.on('renderComplete', regain);
+    t.on('renderComplete', () => { regain(); strip(); });
+    t.on('scrollVertical', strip);
+    for (const ev of ['dataFiltered', 'dataSorted', 'rowAdded', 'rowDeleted', 'groupVisibilityChanged']) t.on(ev, () => requestAnimationFrame(strip));
+    // Filtered or sorted, the cells under the selection are others: they're counted again (a moment later, once the rows are).
+    t.on('dataFiltered', () => { looked.value++; setTimeout(tally); });
+    t.on('dataSorted', () => setTimeout(tally));
     // A grid built again before this one was, this one's building done is nothing: it would ready, and lay out, the next.
     t.on('tableBuilt', () => {
       if (t !== table) return;
       ready = true;
-      // The first column stays put beside the row numbers (table.css), so the keys scroll a cell clear of both.
+      // The columns kept in view stay put beside the row numbers (table.css), so the keys scroll a cell clear of them.
       const sr = t.modules.selectRange, numbers = sr.getRowHeaderWidth.bind(sr);
-      sr.getRowHeaderWidth = () => numbers() + (t.getColumns().find(c => c.getField())?.getWidth() ?? 0);
-      // One stop in the tab order: the rows, not the headings and their filters.
-      host.querySelectorAll('.tabulator-header, .tabulator-header-filter input').forEach(x => x.setAttribute('tabindex', '-1'));
+      sr.getRowHeaderWidth = () => numbers() + frozenWidth(t);
+      // One stop in the tab order: the rows, not the headings.
+      host.querySelectorAll('.tabulator-header').forEach(x => x.setAttribute('tabindex', '-1'));
+      wireHeadings(t);
       tall.set(t, t.element.clientHeight);
       mark();
+      if (was?.rs && was.cs) {
+        const all = t.getRows('active'), row = id => t.rowManager.findRow(id)?.getComponent(), col = f => t.getColumns().find(c => c.getField() === f);
+        const [r0, r1] = was.whole ? [all[0], all.at(-1)] : was.rs.map(row), [c0, c1] = was.cs.map(col);
+        arranging = true;
+        try { if (r0 && r1 && c0 && c1) t.addRange(r0.getCell(c0), r1.getCell(c1)); } finally { arranging = false; }
+      }
       reveal(Shell.selection.peek()[0]);
       regain();
       settle();
+      if (was) { t.rowManager.element.scrollLeft = was.left; t.rowManager.element.scrollTop = was.top; }
+      strip();
+      tally(); looked.value++;
     });
   }
-  // What the columns are; when it changes, the grid is built again rather than refreshed.
-  const signature = m => JSON.stringify([m.view, m.cols.filter(drawn).map(c => [c.key, c.title, c.type, c.options, c.filed, c.check]), m.groups]);
+  // What the columns are, in any order (a column moved is moved in the grid: arrange); when it changes, the grid is
+  // built again rather than refreshed.
+  const signature = m => JSON.stringify([m.view, m.cols.filter(drawn).map(c => [c.key, c.title, c.type, c.options, c.filed, c.check]).sort((a, b) => a[0] < b[0] ? -1 : 1),
+    m.groups, m.named && [...m.named.values()]]);
 
   let reds = new Set(), seen = null;
   // Whether a row's data says what the grid's row does.
@@ -439,7 +545,7 @@ const Table = (() => {
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
     const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value];
-    if (table && ready && !flight && drewFrom.every((x, i) => x === from[i])) return settle();
+    if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
     const now = model(view);
     real = now;
     // A table whose rows aren't chosen yet.
@@ -451,8 +557,12 @@ const Table = (() => {
       for (const c of m.cols) if (App.pending.peek()?.cols?.has(c.key)) c.pasted = true;
     }
     current = m;
+    shownM.value = m;
+    // Under a table whose rows are a kind's or a relation's, a row for a new one, where the chart can be changed.
+    el.classList.toggle('adds', !m.isDatatype && !m.red && !App.readOnly.peek());
     if (!table || built.view !== view || built.sig !== signature(m)) { drewFrom = from; since(now); return build(m); }
     if (!ready) return table.on('tableBuilt', () => refresh());
+    if (!flight && !arrange(m)) { drewFrom = from; since(now); return build(m); }
     // One update at a time: another asked for meanwhile follows it.
     if (flight) { flight.again = true; return; }
     drewFrom = from;
@@ -488,10 +598,15 @@ const Table = (() => {
       if (first) reveal(first);
       flash(lit);
       regain();
+      tally(); looked.value++;
+      strip();
       if (f.again) refresh(); else settle();
     });
   }
   let flight = null, owed = false, drewFrom = [];
+  // Built again, as what's kept in this browser (the look) changes what the grid is: its groups, its widths, the columns
+  // kept in view.
+  const rebuild = () => { if (built) built.sig = null; drewFrom = null; refresh(); };
 
   // ---- The grid's room, which one owner lays it out in ----
   // A grid is laid out as it's built, in its slot shown. It's laid out again here, and only here, once its slot has
@@ -544,6 +659,7 @@ const Table = (() => {
   let inside = false, pressed = 0;   // whether the grid had the keys last; when the pointer last went down
   document.addEventListener('pointerdown', e => {
     inside = !!cells?.contains(e.target); pressed = e.timeStamp;
+    if (inside) tabbed = null;
     // A right-click before anything's selected selects the cell, or the row by its number, as a click would:
     // Tabulator, keeping a range the cell is in, would look in a range that isn't there.
     const row = inside && e.button === 2 && ready && !table.modules.selectRange?.activeRange ? e.target.closest('.tabulator-row') : null;
@@ -556,7 +672,7 @@ const Table = (() => {
     const a = document.activeElement;
     if (inside && table && el?.offsetParent && (!a || a === document.body) && !table.modules.edit?.currentCell) holder()?.focus({ preventScroll: true });
   }
-  const back = () => { inside = true; requestAnimationFrame(regain); setTimeout(settle); };
+  const back = () => { inside = true; ranged = null; requestAnimationFrame(regain); setTimeout(settle); };
   // A cell made active for the keys: the selected record's row, or the first, in the first column.
   function activate() {
     const sr = table?.modules.selectRange;
@@ -579,14 +695,48 @@ const Table = (() => {
     activate();
     return true;
   }
-  // Before Tabulator hears a key: with no cell active, a key that moves makes one; and on a cell that can't be
-  // edited, Enter moves down, as Excel's does. (While a change is pending, Enter is App's, which makes it.)
+  // Before Tabulator hears a key, the keys move as Excel's do: with no cell active, a key that moves makes one; Enter
+  // and Shift+Enter move down and up, Enter back to the column a run of Tabs began in; Tab and Shift+Tab move across.
+  // Ctrl+Enter, in a dropdown being typed in, keeps what's typed in every cell of the range (a cell typed in keeps it
+  // itself: editor). While a change is pending, Enter is App's, which makes it.
   const canEdit = cell => { const d = cell.getColumn().getDefinition(); return !!d.editor && (typeof d.editable !== 'function' || d.editable(cell)); };
+  let tabbed = null;   // the column a run of Tabs began in
+  let ranged = null;   // the cells selected as a cell began to be typed in, which Tabulator narrows to that cell
   function first(e) {
-    if (!table || table.modules.edit?.currentCell) return;
-    const cell = e.key === 'Enter' && table.modules.selectRange?.getActiveCell()?.getComponent();
-    if (cell && !canEdit(cell)) { e.preventDefault(); e.stopPropagation(); move('down'); }
-    else if (/^(Arrow|Page|Home$|End$)/.test(e.key) && !table.modules.selectRange?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(); }
+    if (!table) return;
+    const sr = table.modules.selectRange, editing = table.modules.edit?.currentCell;
+    if (editing) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.target.classList?.contains('typed')) {
+        e.preventDefault(); e.stopPropagation();
+        const raw = e.target.value ?? '', cell = editing.getComponent(), cs = ranged;
+        cell.cancelEdit();
+        fillWith(cell, raw, cs);
+      }
+      return;
+    }
+    if (e.target.closest?.('.tabulator-header')) return;
+    if (/^(Arrow|Page|Home$|End$|Tab$|Enter$|F2$)/.test(e.key) && !sr?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(); return; }
+    // Alt+Down opens the active cell's column's menu, as it opens a heading's filter in Excel; the cell stays where it is.
+    if (e.key === 'ArrowDown' && e.altKey && !current?.red) {
+      e.preventDefault(); e.stopPropagation();
+      const col = sr.getActiveCell()?.column.getComponent();
+      if (col?.getField()) columnMenu(col.getElement().querySelector('.col-menu') ?? col.getElement(), col);
+      return;
+    }
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === 'Tab') { tabbed ??= sr.getActiveCell()?.column; step(e.shiftKey ? 'left' : 'right'); }
+      else { const col = tabbed; tabbed = null; step(e.shiftKey ? 'up' : 'down', col); }
+    } else if (/^Arrow/.test(e.key)) tabbed = null;
+  }
+  // The active cell moved a cell, and on down to the column a run of Tabs began in; brought whole into view.
+  function step(d, col) {
+    const sr = table?.modules.selectRange;
+    if (!sr?.activeRange) return;
+    sr.navigate(false, false, d);
+    const a = sr.getActiveCell();
+    if (col && a && a.column !== col && col.visible) { const cell = a.row.getCell(col)?.getComponent(); if (cell) table.addRange(cell, cell); }
+    across();
   }
 
   // ---- Writing: each edit, paste or deletion one change ----
@@ -600,19 +750,33 @@ const Table = (() => {
   const enter = (records, say, dated) => edit(tx => fill(tx, records), say, dated);
   const typeIn = (c, r) => r ? ('choice' in r ? 'choice' : 'tag' in r ? 'tag' : r.field) : c.type;
   const columnOf = cell => current.byField.get(cell.getField());
-  const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell); return !clean(raw) || c.type === 'edge' || !!value(typeIn(c, m.id && App.state.value[m.id]), clean(raw)); };
-  // A value typed or chosen in a cell, as one change: a correction, or with a day shown, from that day on.
-  function put(cell, raw) {
-    const c = columnOf(cell), m = meta(cell), st = App.state.value, r = m.id && st[m.id], entered = m.id in App.entered.value;
-    if (c.type === 'edge') return edit(tx => side(tx, st, cell.getRow().getData().id, c.edge, raw));
+  // The datatype what's typed is read as: the value's own where there is one, else its column's; in a column with no
+  // values yet, what it reads as, as a pasted column's first values say theirs (newColumn).
+  const typeFor = (c, r, s) => r ? typeIn(c, r) : c.fresh ? (/^(yes|no|true|false|y|n|x|✓|✔)$/i.test(s) ? 'tag' : Tree.classify(s)) : c.type;
+  const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell), s = clean(raw); return !s || c.type === 'edge' || !!value(typeFor(c, m.id && App.state.value[m.id], s), s); };
+  // What typing `raw` into a cell writes: { put: [id, record] }, a value entered; { gone: id }, one cleared; or { side:
+  // [row, edge, name] }, a relation's side moved. Null where it writes nothing; false where it can't be read.
+  function writing(cell, raw) {
+    const c = columnOf(cell), m = meta(cell), st = App.state.peek(), r = m?.id && st[m.id], entered = !!m?.id && m.id in App.entered.peek();
+    if (!c || !m) return null;
+    if (c.type === 'edge') return clean(raw) ? { side: [cell.getRow().getData().id, c.edge, raw] } : null;
     const s = clean(raw);
-    if (!s) return !entered || edit(tx => tx.remove(m.id));
-    const out = value(typeIn(c, r), s);
+    if (!s) return entered ? { gone: m.id } : null;
+    const out = value(typeFor(c, r, s), s);
     if (!out) return false;
-    if (entered && JSON.stringify(valueOf(out)) === JSON.stringify(valueOf(r))) return true;
+    if (entered && JSON.stringify(valueOf(out)) === JSON.stringify(valueOf(r))) return null;
     const p = placed(m, c, out);
-    return !p || enter(Object.fromEntries([p]));
+    return p ? { put: p } : null;
   }
+  // What several cells write, as one change: a correction, or with a day shown, from that day on.
+  function write(ws, say) {
+    ws = ws.filter(Boolean);
+    if (!ws.length || App.readOnly.peek() || current?.red) return false;
+    const st = App.state.peek(), records = Object.fromEntries(ws.filter(w => w.put).map(w => w.put));
+    return edit(tx => { fill(tx, records); ws.forEach(w => w.gone ? tx.remove(w.gone) : w.side && side(tx, st, ...w.side)); }, say);
+  }
+  // A value typed or chosen in a cell.
+  function put(cell, raw) { const w = writing(cell, raw); return w === false ? false : !w || write([w]); }
   const value = (type, s) => {
     if (type === 'choice') return { choice: s };
     if (type === 'tag') return YES.test(s) ? { tag: true } : NO.test(s) ? { tag: false } : null;
@@ -887,27 +1051,540 @@ const Table = (() => {
 
   // ---- Columns: Show/Hide and Order are the column's own notes in the view ----
   const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
+  const called = c => c.parent ? `${c.parent} › ${c.title}` : c.title;
+  const canWrite = () => !App.readOnly.peek() && !current?.red;
   const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), ch => Time.describe(ch));
-  function placeColumns() {
-    const m = current, cols = table.getColumns().map(c => c.getField()).filter(Boolean).map(f => m.byField.get(f));
-    edit(tx => [...cols, ...m.cols.filter(c => !cols.includes(c))].filter(c => c.pattern).forEach((c, i) => note(tx, 'Order', c, m.view, i + 1)));
+  // The columns in this order, as Order notes in the view, as one change: those given, then the rest as they were;
+  // `also`, what else the change does (a column inserted shows).
+  function place(order, say, also) {
+    const m = current, rest = m.cols.filter(c => c.pattern && !order.includes(c));
+    return edit(tx => { [...order, ...rest].filter(c => c.pattern).forEach((c, i) => note(tx, 'Order', c, m.view, i + 1)); also?.(tx); }, say);
   }
-  const columnItems = m => m.cols.filter(c => c.pattern).map(c => ({ label: c.parent ? `${c.parent} › ${c.title}` : c.title, checked: c.shown, run: () => show(c, !c.shown) }));
-  function columnMenu(e, col) {
-    const m = current, c = m.byField.get(col.getField());
+  // As the grid has them, its columns moved by Tabulator (moveColumn); not while the grid is being put in the model's order.
+  let arranging = false;
+  function placeColumns() {
+    if (arranging) return;
+    const m = current;
+    place(table.getColumns().map(c => m.byField.get(c.getField())).filter(Boolean));
+  }
+  // A column moved in the model, moved in the grid rather than the grid built again: where the columns kept in view are
+  // as they were. False where it can't be.
+  function arrange(m) {
+    const want = m.cols.filter(drawn).map(field), now = () => table.getColumns().map(c => c.getField()).filter(Boolean);
+    if (now().join('\n') === want.join('\n')) return true;
+    const n = Math.max(1, frozenOf(lookOf(m.view)));
+    if (now().length !== want.length || now().slice(0, n).join('\n') !== want.slice(0, n).join('\n')) return false;
+    // A column selected whole stays selected, where it's gone (Tabulator would leave one of its cells selected). Tabulator
+    // moves the selection with a column, and can't where there's none, so one is lent it for the move.
+    const sr = table.modules.selectRange, r = table.getRanges()[0], rows = table.getRows('active'), first = table.getColumns().find(c => c.getField());
+    const whole = r && rows.length > 1 && r.getRows().length === rows.length && r.getColumns().filter(c => c.getField()), lent = !sr.activeRange;
+    if (lent && !rows.length) return false;
+    arranging = true;
+    try {
+      if (lent) table.addRange(rows[0].getCell(first), rows[0].getCell(first));
+      want.forEach((f, i) => { const at = now()[i]; if (at !== f) table.moveColumn(f, at, false); });
+      if (whole?.length) { const cs = table.getColumns().filter(c => whole.includes(c)); table.addRange(rows[0].getCell(cs[0]), rows.at(-1).getCell(cs.at(-1))); }
+      if (lent) { sr.clearRanges(); sr.activeRange = false; sr.layoutElement(); }
+    } finally { arranging = false; }
+    pinned(table);
+    return true;
+  }
+  // The patterned columns the grid draws, in its order: those a drag or a menu moves among.
+  const movable = () => table.getColumns().map(c => current.byField.get(c.getField())).filter(c => c?.pattern);
+  function shift(c, d) {
+    const order = movable(), i = order.indexOf(c);
+    if (i < 0 || !order[i + d]) return;
+    order.splice(i + d, 0, order.splice(i, 1)[0]);
+    place(order, `Moved ${c.title}`);
+  }
+  // A column named as it's typed, before the column `before` (or last), as one change: shown in the view at its
+  // pattern, below the rows, whether or not any record has it yet; one the table has already is shown, there.
+  function addColumn(name, before = null) {
+    const m = current, s = clean(name);
+    if (!s || !m?.base || !canWrite()) return false;
+    const had = m.cols.find(c => c.path?.length === 1 && c.key === norm(s));
+    const it = had ?? { pattern: below(m.base, [s]), title: s };
+    const order = movable().filter(c => c !== had), at = before ? order.indexOf(before) : -1;
+    order.splice(at < 0 ? order.length : at, 0, it);
+    return place(order, had ? `Showed ${had.title}` : `Added column ${s}`, tx => tx.note('Shown', it.pattern, true, { view: m.view }));
+  }
+  // A column with no values yet goes with its notes.
+  const dropColumn = c => edit(tx => { note(tx, 'Shown', c, current.view, undefined); note(tx, 'Order', c, current.view, undefined); }, `Deleted column ${c.title}`);
+  // An entry's column can be renamed; not a relation's side, nor a row's Name, by which everything names it.
+  const renamable = c => !!c?.pattern && c.type !== 'edge' && !(c.path?.length === 1 && same(c.title, 'Name'));
+  // Renamed, an entry is renamed wherever it's at a row of this kind: its records, its specification, its notes.
+  // How it's looked at goes with it: its width, its sort, its filter, its grouping.
+  function renameColumn(c, to) {
+    if (!to || to === c.title || !edit(tx => tx.rename(c.pattern, c.title, to), `Renamed ${c.title} to ${to}`)) return;
+    const was = c.key, now = [...c.path.slice(0, -1), to].map(norm).join('›'), l = lookOf(current.view), move = o => o && was in o ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k === was ? now : k, v])) : o;
+    setLook(current.view, { widths: move(l.widths), filters: move(l.filters), sort: l.sort?.key === was ? { ...l.sort, key: now } : l.sort, group: l.group === was ? now : l.group });
+  }
+  const columnItems = m => m.cols.filter(c => c.pattern).map(c => ({ label: called(c), checked: c.shown, run: () => show(c, !c.shown) }));
+
+  // ---- How it's looked at: sorted, filtered, grouped, kept in view, sized ----
+  // Sorted by a column, which the heading's arrow shows and flips; kept as Tabulator sorts (dataSorted).
+  function sortBy(c, dir) { if (!table) return; if (c) table.setSort(field(c), dir); else table.clearSort(); }
+  function keepSort(sorters) {
+    const m = current, s = sorters[0], c = s && m?.byField.get(s.field), was = lookOf(m.view).sort;
+    const now = c ? { key: c.key, dir: s.dir } : null;
+    if (JSON.stringify(was ?? null) === JSON.stringify(now)) return;
+    setLook(m.view, { sort: now });
+    funnels();
+    if (!was !== !now || was?.key !== now?.key) setTimeout(relayout);
+  }
+  // A filter keeps the rows whose value in each filtered column is one of those chosen (null, Blank).
+  function filterOf(m, l = lookOf(m.view)) {
+    const fs = Object.entries(l.filters ?? {}).filter(([k]) => m.cols.some(c => c.key === k)).map(([k, vs]) => ['f:' + k, new Set(vs.map(v => JSON.stringify(v)))]);
+    return fs.length ? d => fs.every(([f, ok]) => ok.has(JSON.stringify(blank(d[f]) ? null : d[f]))) : null;
+  }
+  function filterBy(c, values) {
+    const m = current, fs = { ...lookOf(m.view).filters };
+    if (values) fs[c.key] = values; else delete fs[c.key];
+    setLook(m.view, { filters: fs });
+    refilter();
+  }
+  const clearFilters = () => { setLook(current.view, { filters: null }); refilter(); };
+  function refilter() {
+    if (!table || !ready) return;
+    const p = filterOf(current);
+    if (p) table.setFilter(p); else table.clearFilter();
+    funnels();
+    relayout();
+  }
+  // A heading's arrow or funnel coming or going, its column is fitted again, so its name stays whole.
+  const relayout = () => { if (table && ready) { laid.delete(table); settle(); } };
+  // A filtered column's heading shows its funnel, and a sorted one's its arrow, each with room for it.
+  function funnels() {
+    const l = lookOf(current.view), fs = l.filters ?? {};
+    for (const col of table.getColumns()) {
+      const c = current.byField.get(col.getField()), e = col.getElement();
+      e.classList.toggle('filtered', !!c && c.key in fs);
+      e.classList.toggle('sorted', !!c && l.sort?.key === c.key);
+    }
+  }
+  const group = c => { setLook(current.view, { group: c?.key }); rebuild(); };
+  const freeze = n => { setLook(current.view, { frozen: n === 1 ? undefined : n }); rebuild(); };
+  function keepWidth(col) {
+    const m = current, c = m?.byField.get(col.getField());
+    if (c) setLook(m.view, { widths: { ...lookOf(m.view).widths, [c.key]: Math.round(col.getWidth()) } });
+  }
+  // As wide as what it holds, every row's, or its heading; as a double-click on its edge does.
+  function fit(col) {
+    const c = col._column;
+    let w;
+    if (TAG.test(c.definition.cssClass)) w = twoLines(c);
+    else { c.reinitializeWidth(true); w = Math.max(c.getWidth(), widest(c)); }
+    sized.delete(c);
+    col.setWidth(w);
+    keepWidth(col);
+    pinned(table);
+  }
+
+  // ---- A column's menu: the chevron on its heading, a right-click on it, or Alt+Down ----
+  function columnMenu(at, col) {
+    const m = current, c = m?.byField.get(col.getField());
     if (!c) return;
-    Shell.menu({ x: e.clientX, y: e.clientY }, [
-      { label: 'Sort A to Z', run: () => table.setSort(col.getField(), 'asc') },
-      { label: 'Sort Z to A', run: () => table.setSort(col.getField(), 'desc') },
-      ...(c.pattern && !m.red ? ['-', { label: 'Hide', run: () => show(c, false) }, { label: 'Columns', items: columnItems(m) }] : []),
+    const l = lookOf(m.view), [up, down] = sortWords(c), sorted = l.sort?.key === c.key, filtered = !!l.filters?.[c.key];
+    const shown = table.getColumns().filter(x => x.getField()), i = shown.indexOf(col), frozen = Math.min(frozenOf(l), shown.length);
+    const order = movable(), k = order.indexOf(c), writes = canWrite() && !!c.pattern;
+    col.getElement().classList.add('open');
+    return Shell.menu(at, [
+      { label: `Sort ${up}`, run: () => sortBy(c, 'asc') },
+      { label: `Sort ${down}`, run: () => sortBy(c, 'desc') },
+      ...(sorted ? [{ label: 'Clear sort', run: () => sortBy(null) }] : []),
+      { label: 'Filter…', run: () => filterPop(c) },
+      ...(filtered ? [{ label: 'Clear filter', run: () => filterBy(c, null) }] : []),
+      '-',
+      ...(m.base && canWrite() ? [{ label: 'Insert column left', run: () => insert(col, false) }, { label: 'Insert column right', run: () => insert(col, true) }] : []),
+      ...(writes && renamable(c) ? [{ label: 'Rename column', run: () => rename(col) }] : []),
+      ...(writes ? [{ label: 'Hide column', run: () => show(c, false) },
+        { label: 'Move left', disabled: k <= 0, run: () => shift(c, -1) }, { label: 'Move right', disabled: k < 0 || k === order.length - 1, run: () => shift(c, 1) }] : []),
+      ...(writes && c.fresh ? [{ label: 'Delete column', danger: true, run: () => dropColumn(c) }] : []),
+      '-',
+      i === frozen - 1 ? { label: 'Unfreeze columns', run: () => freeze(0) } : { label: 'Freeze up to here', run: () => freeze(i + 1) },
+      { label: 'Fit width', run: () => fit(col) },
+      ...(m.rows === 'date' ? [] : [l.group === c.key ? { label: 'Ungroup', run: () => group(null) } : { label: 'Group by this column', run: () => group(c) }]),
+      ...(c.pattern && canWrite() ? ['-', { label: 'Columns', items: columnItems(m) }] : []),
+    ], { onClose: () => col.getElement().classList.remove('open') });
+  }
+
+  // ---- Headings: dragged to move at once, their menu, their funnel, a double-click to rename or, on the edge, to fit ----
+  const colAt = el => { const e = el?.closest?.('.tabulator-col'); return e ? table?.getColumns().find(c => c.getField() && c.getElement() === e) ?? null : null; };
+  function wireHeadings(t) {
+    const head = t.columnManager.getElement();
+    funnels();
+    // The chevron, the funnel and a heading's name being typed are pressed without selecting the column.
+    head.addEventListener('mousedown', e => { if (e.target.closest('.col-menu, .funnel, .col-name')) e.stopPropagation(); }, true);
+    head.addEventListener('click', e => {
+      const col = colAt(e.target), menu = e.target.closest('.col-menu'), funnel = e.target.closest('.funnel');
+      if (!col || (!menu && !funnel)) return;
+      e.stopPropagation();
+      if (menu) columnMenu(menu, col); else filterPop(current.byField.get(col.getField()));
+    }, true);
+    head.addEventListener('dblclick', e => {
+      const handle = e.target.closest('.tabulator-col-resize-handle'), col = colAt(handle ? handle.previousElementSibling : e.target);
+      if (!col || e.target.closest('.col-menu, .funnel, .col-name, .tabulator-col-sorter')) return;
+      e.stopPropagation(); e.preventDefault();
+      if (handle) fit(col); else rename(col);
+    }, true);
+    head.addEventListener('pointerdown', e => dragHeading(e, t));
+  }
+  // A heading dragged moves its column at once, as Excel's selected column moves: a ghost of it follows the pointer, a
+  // bar shows where it will drop, and dropped, it's placed there, as one change; Esc leaves it. A click selects the
+  // column, and Shift-click widens the selection, as ever.
+  function dragHeading(e, t) {
+    if (e.button !== 0 || !ready || t !== table || !canWrite() || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (e.target.closest('.tabulator-col-resize-handle, .col-menu, .funnel, .col-name, .tabulator-col-sorter')) return;
+    const col = colAt(e.target), c = col && current.byField.get(col.getField());
+    if (!c?.pattern) return;
+    const x0 = e.clientX, colEl = col.getElement(), box = colEl.getBoundingClientRect(), dx = x0 - box.left;
+    let ghost = null, bar = null, to = -1, raf = 0, lastX = x0;
+    const order = () => movable(), edges = () => { const os = order(); return [...os.map(o => colOf(o).getElement().getBoundingClientRect().left), colOf(os.at(-1)).getElement().getBoundingClientRect().right]; };
+    const colOf = o => t.getColumns().find(x => x.getField() === field(o));
+    const place0 = x => {
+      ghost.style.left = `${x - dx}px`;
+      const es = edges(), from = order().indexOf(c);
+      to = es.reduce((best, ex, i) => Math.abs(ex - x) < Math.abs(es[best] - x) ? i : best, 0);
+      const still = to === from || to === from + 1, r = cells.getBoundingClientRect();
+      bar.hidden = still;
+      bar.style.left = `${Math.round(es[to] - r.left - 1)}px`;
+      bar.style.height = `${Math.round(Math.min(t.rowManager.tableElement.getBoundingClientRect().bottom, t.rowManager.element.getBoundingClientRect().bottom) - r.top)}px`;
+    };
+    // Near an edge of the grid, it scrolls across under the pointer.
+    const roll = () => {
+      raf = 0;
+      if (!ghost) return;
+      const h = holder(), r = h.getBoundingClientRect(), left = r.left + 48 + frozenWidth(t);
+      const d = lastX > r.right - 40 ? 12 : lastX < left + 40 && h.scrollLeft > 0 ? -12 : 0;
+      if (d) { h.scrollLeft += d; place0(lastX); raf = requestAnimationFrame(roll); }
+    };
+    const move = ev => {
+      lastX = ev.clientX;
+      if (!ghost) {
+        if (Math.abs(ev.clientX - x0) < 6) return;
+        t.modules.selectRange.mousedown = false;   // it moves the column; it doesn't widen the selection
+        ghost = Object.assign(document.createElement('div'), { className: 'col-ghost', textContent: called(c) });
+        Object.assign(ghost.style, { top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+        bar = Object.assign(document.createElement('div'), { className: 'col-drop' });
+        document.body.append(ghost); cells.append(bar);
+        colEl.classList.add('moving');
+      }
+      place0(ev.clientX);
+      if (!raf) raf = requestAnimationFrame(roll);
+    };
+    const end = drop => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('keydown', esc, true);
+      cancelAnimationFrame(raf);
+      if (!ghost) return;
+      ghost.remove(); bar.remove(); colEl.classList.remove('moving');
+      const os = order(), from = os.indexOf(c);
+      if (drop && to >= 0 && to !== from && to !== from + 1) { os.splice(to > from ? to - 1 : to, 0, os.splice(from, 1)[0]); place(os, `Moved ${c.title}`); }
+    };
+    const up = () => end(true), esc = ev => { if (ev.key === 'Escape' && ghost) { ev.preventDefault(); ev.stopPropagation(); end(false); } };
+    addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('keydown', esc, true);
+  }
+  // A heading named in place: a field over its name, Enter or leaving keeping what's typed, Esc putting it back.
+  function nameIn(colEl, value, done) {
+    const input = Object.assign(document.createElement('input'), { className: 'col-name', value, spellcheck: false });
+    input.setAttribute('aria-label', 'Column name');
+    colEl.querySelector('.tabulator-col-content').append(input);
+    input.focus(); input.select();
+    let over = false;
+    const end = keep => { if (over) return; over = true; const s = clean(input.value); input.remove(); done(keep ? s : ''); back(); };
+    input.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); end(true); } else if (e.key === 'Escape') { e.preventDefault(); end(false); }
+    });
+    input.addEventListener('blur', () => end(true));
+    return input;
+  }
+  function rename(col) {
+    const c = current.byField.get(col.getField());
+    if (renamable(c) && canWrite()) nameIn(col.getElement(), c.title, s => renameColumn(c, s));
+  }
+  // Insert column: an empty column where it's asked for, its name typed in its heading; nothing's made until it's named.
+  function insert(col, right) {
+    const t = table, m = current, c = m.byField.get(col.getField());
+    if (!m.base || !canWrite()) return;
+    const after = movable(), before = right ? after[after.indexOf(c) + 1] ?? null : c, temp = 'f:\u0000new';
+    t.addColumn({ title: '', field: temp, headerSort: false, resizable: false, width: 180, minWidth: 120, cssClass: 'c-new', formatter: () => '' }, !right, col.getField()).then(nc => {
+      nc.scrollTo?.(undefined, false)?.catch?.(() => {});
+      nameIn(nc.getElement(), '', s => { if (!(s && addColumn(s, before)) && t === table) t.deleteColumn(temp); });
+    });
+  }
+
+  // ---- A column's filter, as Excel's: its values, of the rows the other filters leave, each a checkbox ----
+  function filterPop(c, anchor) {
+    const col = table?.getColumns().find(x => x.getField() === field(c));
+    if (!col) return;
+    if (!anchor) { col.getElement().scrollIntoView({ block: 'nearest', inline: 'nearest' }); anchor = col.getElement(); }
+    const view = current.view;
+    Shell.popover(anchor, close => html`<${Filter} c=${c} view=${view} close=${close} />`, { placement: 'bottom-start' });
+  }
+  function Filter({ c, view, close }) {
+    looked.value;
+    const [q, setQ] = useState('');
+    const m = shownM.value;
+    if (!m || m.view !== view) return null;
+    const l = lookOf(view), f = field(c), on = l.filters?.[c.key] ?? null, rest = { ...l.filters };
+    delete rest[c.key];
+    const others = filterOf(m, { ...l, filters: rest });
+    const counts = new Map();
+    for (const r of m.data) if (r._red !== 'add' && (!others || others(r))) {
+      const v = blank(r[f]) ? null : r[f], k = JSON.stringify(v);
+      if (!counts.has(k)) counts.set(k, { v, k, n: 0, label: v === null ? 'Blank' : text(typeOf(c, r), v) });
+      counts.get(k).n++;
+    }
+    for (const v of on ?? []) { const k = JSON.stringify(v); if (!counts.has(k)) counts.set(k, { v, k, n: 0, label: v === null ? 'Blank' : text(c.type, v) }); }
+    const cmp = sorter(c), vals = [...counts.values()].sort((a, b) => cmp(a.v, b.v, null, null, null, 'asc'));
+    const t = q.trim().toLowerCase(), list = t ? vals.filter(x => x.label.toLowerCase().includes(t)) : vals;
+    const kept = new Set((on ?? vals.map(x => x.v)).map(v => JSON.stringify(v))), isOn = x => kept.has(x.k);
+    // Every value kept is no filter at all.
+    const set = ks => filterBy(c, vals.every(x => ks.has(x.k)) ? null : vals.filter(x => ks.has(x.k)).map(x => x.v));
+    const toggle = x => { const ks = new Set(kept); if (ks.has(x.k)) ks.delete(x.k); else ks.add(x.k); set(ks); };
+    const every = list.length > 0 && list.every(isOn), some = list.some(isOn);
+    const flipAll = () => { const ks = new Set(kept); list.forEach(x => every ? ks.delete(x.k) : ks.add(x.k)); set(ks); };
+    // Enter, with something typed, keeps just what it finds.
+    const keys = e => { if (e.key === 'Enter' && t) { e.preventDefault(); filterBy(c, list.map(x => x.v)); close(); } };
+    return html`<div class="tfilter">
+      <input type="search" class="tf-find" placeholder="Find" aria-label="Find" value=${q} autofocus spellcheck=${false} onInput=${e => setQ(e.target.value)} onKeyDown=${keys} />
+      <div class="tf-list" role="group" aria-label=${called(c)}>
+        ${list.length ? html`<label class="tf-row all"><input type="checkbox" ref=${x => { if (x) x.indeterminate = some && !every; }} checked=${every} onChange=${flipAll} /><span class="v">Select all</span></label>` : html`<div class="tf-none">No match</div>`}
+        ${list.map(x => html`<label class="tf-row" key=${x.k}><input type="checkbox" checked=${isOn(x)} onChange=${() => toggle(x)} /><span class=${'v' + (x.v === null ? ' muted' : '')}>${x.label}</span><span class="n">${x.n}</span></label>`)}
+      </div>
+      <div class="tf-foot"><button type="button" class="btn" disabled=${!on} onClick=${() => filterBy(c, null)}>Clear filter</button><button type="button" class="btn primary" onClick=${close}>Done</button></div>
+    </div>`;
+  }
+
+  // ---- Above the grid: its columns, and how it's sorted, filtered and grouped, each saying so while it's on ----
+  const shownM = Shell.signal(null);
+  function Tools() {
+    looked.value;
+    const m = shownM.value, view = Shell.view.value;
+    if (!m || m.view !== view) return null;
+    const l = lookOf(view), by = k => m.cols.find(c => c.key === k);
+    const sortC = l.sort && by(l.sort.key), groupC = l.group && m.named && by(l.group), fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean);
+    const total = m.data.filter(r => r._red !== 'add').length, showing = table && ready ? table.getData('active').filter(r => r._red !== 'add').length : total;
+    return html`<div class="tbar" role="toolbar" aria-label="Table">
+      <button type="button" class="btn ghost dd" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
+      <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? html`Sorted by ${called(sortC)}` : 'Sort'}</button>
+      <button type="button" class=${'btn ghost dd' + (fs.length ? ' on' : '')} aria-haspopup="menu" onClick=${e => filterMenu(e.currentTarget)}>${fs.length ? html`Filtered by ${list(fs.map(called))}` : 'Filter'}</button>
+      ${m.rows === 'date' ? null : html`<button type="button" class=${'btn ghost dd' + (groupC ? ' on' : '')} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? html`Grouped by ${called(groupC)}` : 'Group'}</button>`}
+      ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
+      <span class="tcount">${showing !== total ? `${showing} of ${count(total, m.noun)}` : count(total, m.noun)}</span>
+    </div>`;
+  }
+  function sortMenu(anchor) {
+    const m = current, l = lookOf(m.view), sc = l.sort && m.cols.find(c => c.key === l.sort.key);
+    Shell.menu(anchor, [
+      ...(sc ? [{ seg: sortWords(sc).map((w, i) => ({ label: w, pressed: l.sort.dir === (i ? 'desc' : 'asc'), run: () => { Shell.closeAll(); sortBy(sc, i ? 'desc' : 'asc'); } })) }, '-'] : []),
+      ...m.cols.filter(drawn).map(c => ({ label: called(c), checked: c === sc, run: () => sortBy(c, c === sc ? l.sort.dir : 'asc') })),
+      ...(sc ? ['-', { label: 'Clear sort', run: () => sortBy(null) }] : []),
     ]);
   }
-  // A row's menu deletes it, and the other rows selected: pointed at, Delete strikes them through.
+  function filterMenu(anchor) {
+    const m = current, fs = lookOf(m.view).filters ?? {};
+    Shell.menu(anchor, [...m.cols.filter(drawn).map(c => ({ label: called(c), checked: c.key in fs, run: () => filterPop(c, anchor) })),
+      ...(Object.keys(fs).length ? ['-', { label: 'Clear filters', run: clearFilters }] : [])]);
+  }
+  function groupMenu(anchor) {
+    const m = current, g = lookOf(m.view).group;
+    Shell.menu(anchor, [{ label: 'None', checked: !g, run: () => group(null) }, '-', ...m.cols.filter(drawn).map(c => ({ label: called(c), checked: c.key === g, run: () => group(c) }))]);
+  }
+  // Every column, each a checkbox that shows or hides it, dragged by its row to reorder; and a new one, named as it's typed.
+  const GRIP = SVG(24, '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>');
+  function Columns({ view }) {
+    looked.value;
+    const ref = useRef(), [naming, setNaming] = useState(false), [q, setQ] = useState('');
+    const m = shownM.value;
+    if (!m || m.view !== view) return null;
+    // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all.
+    const t = q.trim().toLowerCase(), found = c => !t || called(c).toLowerCase().includes(t);
+    const writes = canWrite(), mv = m.cols.filter(c => c.pattern), vis = mv.filter(found);
+    const down = (e, c) => {
+      if (!writes || e.target.closest('input, button')) return;
+      Shell.drag(e, { item: e.currentTarget, items: [...ref.current.querySelectorAll('.colrow.mv')], onDrop: (from, i) => {
+        const a = vis[from], rest = vis.filter(x => x !== a), o = mv.filter(x => x !== a), anchor = rest[i];
+        o.splice(anchor ? o.indexOf(anchor) : rest.length ? o.indexOf(rest.at(-1)) + 1 : o.length, 0, a);
+        place(o, `Moved ${a.title}`);
+      } });
+    };
+    const add = e => { if (e.key === 'Enter') { e.preventDefault(); if (addColumn(e.target.value)) e.target.value = ''; } else if (e.key === 'Escape') { e.stopPropagation(); setNaming(false); } };
+    return html`<div class="cols" ref=${ref}>
+      <input type="search" class="col-find" placeholder="Find" aria-label="Find" value=${q} spellcheck=${false} onInput=${e => setQ(e.target.value)} />
+      <div class="cols-list">
+      ${m.cols.filter(found).map(c => c.pattern
+        ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
+            <label><input type="checkbox" checked=${c.shown} disabled=${!writes} onChange=${() => show(c, !c.shown)} /><span>${called(c)}</span></label></div>`
+        : html`<div class="colrow" key=${c.key}><span class="colgrip" /><label><input type="checkbox" checked disabled /><span>${called(c)}</span></label></div>`)}
+      ${m.base && writes ? naming
+        ? html`<div class="colrow new"><span class="colgrip" /><input class="col-new" placeholder="New column" aria-label="New column" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} onKeyDown=${add} onBlur=${e => { if (!clean(e.target.value)) setNaming(false); }} /></div>`
+        : html`<button type="button" class="colrow new" onClick=${() => setNaming(true)}><span class="colgrip">${Shell.icon('plus')}</span><span>New column</span></button>` : null}
+      </div>
+    </div>`;
+  }
+
+  // ---- The new row, under the last: a name typed there makes a record of the table's kind, as one change; a relation's
+  // asks its sides, each from the objects that side can be (or a new one, named), and waits on Enter as a relation added does ----
+  function NewRow() {
+    looked.value;
+    const m = shownM.value;
+    if (!m || m.isDatatype || m.red || App.readOnly.value) return null;
+    const label = `New ${m.noun}`;
+    if (m.isKind) return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span>
+      <input class="nr-name" placeholder=${label} aria-label=${label} spellcheck=${false} autocomplete="off" onKeyDown=${newName} /></div>`;
+    // While its sides are picked, the row says those picked, and the side asked for next.
+    const so = choosing.value;
+    return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span><button type="button" class=${'nr-go' + (so ? ' on' : '')} aria-haspopup="menu" onClick=${e => relate(e.currentTarget)}>${so
+      ? html`${so.picked.map(n => html`<span class="nr-side">${n}</span><span class="nr-to">→</span>`)}<span class="nr-next">${so.next}</span>` : label}</button></div>`;
+  }
+  const choosing = Shell.signal(null);
+  // Enter makes it and stays for the next; Tab makes it and goes on to its next cell; Esc leaves it.
+  function newName(e) {
+    const input = e.currentTarget, s = clean(input.value);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); input.value = ''; focus(); return; }
+    if ((e.key !== 'Enter' && e.key !== 'Tab') || !s) return;
+    e.preventDefault();
+    const m = current;
+    let id = null;
+    if (!App.change(tx => { id = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); })) return;
+    input.value = '';
+    landed(id, () => {
+      if (e.key !== 'Tab') return reveal(id);
+      Shell.select([id]);
+      // Once the inspector has come in beside it and the grid is laid out again for its room.
+      const go = (tries = 30) => {
+        if ((Shell.gliding.peek() || laid.get(table) !== widthOf(table)) && tries) return setTimeout(() => go(tries - 1), 30);
+        const row = table.rowManager.findRow(id)?.getComponent(), col = table.getColumns().filter(c => c.getField())[1];
+        if (row && col) { table.addRange(row.getCell(col), row.getCell(col)); focus(); across(); table.modules.selectRange.layoutElement(); }
+      };
+      go();
+    });
+  }
+  // Once a record made is a row of the grid (or the grid's filters leave it out, which the toast says).
+  function landed(id, then, tries = 40) {
+    if (inGrid(id)) return then();
+    if (table?.rowManager.findRow(id)) return Shell.toast(`Added ${App.notes.peek().nameOf(App.state.peek(), id)}, which a filter hides`, { undo: () => Shell.parts.peek().undo?.undo() });
+    if (tries) setTimeout(() => landed(id, then, tries - 1), 25);
+  }
+  function relate(anchor) {
+    const m = current, sides = m.cols.filter(c => c.type === 'edge'), picked = {}, st = App.state.peek(), N = App.notes.peek();
+    const say = o => typeof o === 'string' ? N.nameOf(st, o) : clean(o.name);
+    const next = i => {
+      if (i === sides.length) return addRelation(m, sides, picked);
+      choosing.value = { picked: sides.slice(0, i).map(c => say(picked[c.edge])), next: sides[i].title };
+      pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); });
+    };
+    next(0);
+  }
+  // One side, from the objects it can be, found as they're typed; or a new one of the kind most of its rows have.
+  function pickSide(anchor, m, c, done) {
+    const st = App.state.peek(), N = App.notes.peek(), kind = kindAt(m, c.edge);
+    const all = [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => ({ id, name: N.nameOf(st, id), short: N.shortOf(st, id) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    Shell.menu(anchor, q => {
+      const t = norm(q), hit = all.filter(x => !t || norm(x.name).includes(t) || norm(x.short).includes(t));
+      return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, run: () => done(x.id) })),
+        ...(q && !all.some(x => norm(x.name) === t) ? [{ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) }] : [])];
+    }, { search: true, placement: 'top-start', onClose: () => { choosing.value = null; } });
+  }
+  function addRelation(m, sides, picked) {
+    const st = App.state.peek(), N = App.notes.peek(), records = {}, made = [];
+    const at = (c, o) => {
+      if (typeof o !== 'string') { const id = Log.newId(); records[id] = { kind: o.kind }; records[Log.newId()] = { at: id, edge: 'Name', field: 'text', value: clean(o.name) }; made.push(id); o = id; }
+      return follow({ ...st, ...records }, o, sideLoc(m, c.edge));
+    };
+    const args = sides.map(c => ({ edge: c.edge, at: at(c, picked[c.edge]) }));
+    if (args.some(a => !a.at)) return Shell.toast(`Couldn’t add the ${m.noun}`);
+    const rel = Log.newId();
+    records[rel] = { args, tag: true };
+    const recs = { ...st, ...records }, asks = App.asksDay(records[rel], recs), entered = App.entered.peek();
+    App.stage({ verb: 'Add', what: `${N.nameOf(recs, rel)}: ${N.placed(recs, rel).map(s => s.join + s.text).join('')}`, source: 'row ' + m.view,
+      ...(asks && { asks: 'from', day: App.day.peek(), auto: true }), needs: args.map(a => a.at).filter(id => id in entered),
+      say: c => Time.describe(c), make: tx => fill(tx, records), done: () => landed(rel, () => Shell.select([rel])) });
+  }
+  // The new row's place: under the last row, or, where the rows run on past the grid's foot, there.
+  let rowEl = null;
+  function strip() {
+    if (!rowEl || !el || !table || !ready || !el.classList.contains('adds')) return;
+    const h = table.rowManager.element, tb = table.rowManager.tableElement;
+    const y = Math.min(tb.getBoundingClientRect().bottom, h.getBoundingClientRect().bottom) - el.getBoundingClientRect().top;
+    rowEl.style.top = `${Math.round(y)}px`;
+    el.style.setProperty('--lead', `${table.getColumns().find(c => c.getField())?.getWidth() ?? 240}px`);
+  }
+
+  // ---- The cells selected, counted, summed and averaged in the status bar, as Excel's ----
+  const stats = Shell.signal(null);
+  function tally() {
+    if (!table || !ready || !current) { stats.value = null; return; }
+    const seen = new Set(), got = [];
+    for (const r of table.getRanges()) for (const cell of r.getCells().flat()) {
+      const k = cell.getRow().getData().id + '\n' + cell.getField();
+      if (cell.getField() && !seen.has(k)) { seen.add(k); got.push(cell); }
+    }
+    if (got.length < 2) { stats.value = null; return; }
+    let n = 0, nums = 0, sum = 0;
+    const types = new Set();
+    for (const cell of got) {
+      const v = cell.getValue(), c = columnOf(cell), type = c && typeOf(c, cell.getRow().getData());
+      if (blank(v)) continue;
+      n++;
+      if (typeof v === 'number' && NUMERIC.has(type)) { nums++; sum += v; types.add(type); }
+    }
+    // An average of percentages to two places of a percent, as a sum is to the places its values have.
+    const type = types.size === 1 ? [...types][0] : 'number', say = v => Tree.format(type, +v.toPrecision(12));
+    stats.value = !n ? null : { n, ...(nums && { sum: say(sum), avg: say(type === 'percent' ? +(sum / nums).toFixed(4) : sum / nums) }) };
+  }
+  function Stats() {
+    const s = stats.value;
+    if (!s || viewOf(Shell.view.value)?.layout !== 'table') return null;
+    return html`<span class="tstats" role="status"><span>Count <b>${s.n}</b></span>${s.sum !== undefined ? html`<span>Sum <b>${s.sum}</b></span><span>Average <b>${s.avg}</b></span>` : null}</span>`;
+  }
+  Shell.register('status', { render: () => html`<${Stats} />` });
+
+  // ---- Filling: Ctrl+D and Ctrl+R, and Ctrl+Enter, as Excel's, each one change ----
+  const cellsOf = () => { const seen = new Set(); return table.getRanges().flatMap(r => r.getCells().flat()).filter(x => x.getField() && !seen.has(x) && seen.add(x)); };
+  const rawOf = cell => typing(typeOf(columnOf(cell), cell.getRow().getData()), cell.getValue());
+  const filled = n => `Filled ${count(n, 'cell')}`;
+  // What's typed into every cell of the range it was typed in (`cs`, as it was before the typing began), that cell among
+  // them; the range left selected, as Excel leaves it.
+  function fillWith(cell, raw, cs) {
+    cs = cs?.includes(cell) ? cs : [cell];
+    const ws = cs.map(x => writing(x, raw)).filter(Boolean);
+    write(ws, filled(ws.length));
+    if (cs.length > 1) table.addRange(cs[0], cs.at(-1));
+    back();
+  }
+  // Down: each column of the range takes its top cell's value, or, the range a row tall, the cell's above. Right: each
+  // row takes its left cell's, or, a column wide, the cell's to its left.
+  function fillFrom(down) {
+    const rows = table.getRows('active'), cols = table.getColumns().filter(c => c.getField()), ws = [];
+    for (const r of table.getRanges()) {
+      const rs = r.getRows(), cs = r.getColumns().filter(c => c.getField()), along = down ? rs : cs, over = down ? cs : rs;
+      const all = down ? rows : cols, first = along.length > 1 ? along[0] : all[all.indexOf(along[0]) - 1], to = along.length > 1 ? along.slice(1) : along;
+      if (!first) continue;
+      for (const x of over) {
+        const cellAt = y => down ? y.getCell(x) : x.getCell(y), raw = rawOf(cellAt(first));
+        for (const y of to) ws.push(writing(cellAt(y), raw));
+      }
+    }
+    const done = ws.filter(Boolean);
+    if (done.length) write(done, filled(done.length));
+  }
+
+  // ---- A cell's menu: what applies to the cells selected and their rows ----
   function rowMenu(e, row) {
+    const cell = row.getCells().find(x => x.getElement().contains(e.target) && x.getField()), c = cell && columnOf(cell);
     const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
-    if (!ids.length || App.readOnly.peek() || current.red) return;
-    const d = deletion(ids);
-    Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Delete', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }]);
+    const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
+    const v = cell?.getValue();
+    Shell.menu({ x: e.clientX, y: e.clientY }, [
+      { label: 'Copy', keys: '$mod+KeyC', run: () => table.copyToClipboard('range') },
+      ...(writes ? [{ label: 'Clear contents', keys: 'Delete', run: clear }, { label: 'Fill down', keys: '$mod+KeyD', run: () => fillFrom(true) }] : []),
+      ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, [blank(v) ? null : v]) }] : []),
+      ...(!current.isDatatype && writes ? ['-', { label: `New ${current.noun}`, run: () => rowEl?.querySelector('input, button')?.[current.isKind ? 'focus' : 'click']() }] : []),
+      ...(d ? [{ label: ids.length > 1 || many ? `Delete ${count(ids.length, 'row')}` : 'Delete row', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
+    ]);
   }
 
   // ---- Selection: a row selected is the record selected, and the other way round ----
@@ -935,27 +1612,49 @@ const Table = (() => {
 
   // Moved across by the keys, the active cell comes whole into view with the grid at a column's edge, where it
   // stops as it scrolls (table.css): its own edge, if it's past the left or wider than the room; past the right,
-  // the first edge that shows it.
-  function across() {
-    const a = table.modules.selectRange?.getActiveCell()?.getElement(), h = holder();
+  // the first edge that shows it. A cell made active by a range added (Home, End, a new row's next cell) is only so once
+  // Tabulator has placed the range, a moment later, so it's brought into view then too.
+  function across() { acrossNow(); setTimeout(acrossNow); }
+  function acrossNow() {
+    const a = table?.modules.selectRange?.getActiveCell()?.getElement(), h = holder();
     if (!a || !h || a.classList.contains('pin')) return;
     const at = parseFloat(getComputedStyle(a).scrollMarginLeft) || 48, left = a.offsetLeft - at, need = a.offsetLeft + a.offsetWidth - h.clientWidth;
     if (h.scrollLeft > left || need > left) h.scrollLeft = left;
     else if (h.scrollLeft < need) h.scrollLeft = [...a.parentElement.children].filter(c => c.classList.contains('tabulator-cell') && !c.matches('.pin, .tabulator-row-header'))
       .map(c => c.offsetLeft - at).find(x => x >= need) ?? h.scrollWidth;
   }
+  // The grid's own keys, as Excel's: Delete clears, Space flips a tag, typing begins a value (in a dropdown, finding
+  // it), F2 edits the value as it is; Ctrl+Space and Shift+Space select the column and the row, Ctrl+A everything;
+  // Home and End go to the row's first and last cells, with Ctrl the grid's; Alt+Down opens the column's menu; Ctrl+D
+  // and Ctrl+R fill down and right.
   function keydown(e) {
     if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || current?.red) return;
-    if (/^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) return across();
-    const cell = table.modules.selectRange?.getActiveCell()?.getComponent();
+    const cell = table.modules.selectRange?.getActiveCell()?.getComponent(), mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
     if (!cell) return;
+    const rows = table.getRows('active'), cols = table.getColumns().filter(c => c.getField()), r0 = table.getRanges()[0];
+    const to = (a, b = a) => { e.preventDefault(); if (a && b) table.addRange(a, b); };
+    if (e.key === ' ' && mod && !e.shiftKey) { const cs = r0.getColumns().filter(c => c.getField()); return rows.length && to(rows[0].getCell(cs[0]), rows.at(-1).getCell(cs.at(-1))); }
+    if (e.key === ' ' && e.shiftKey && !mod) { const rs = r0.getRows(); return to(rs[0]?.getCell(cols[0]), rs.at(-1)?.getCell(cols.at(-1))); }
+    if (k === 'a' && mod && !e.shiftKey && !e.altKey) return rows.length && to(rows[0].getCell(cols[0]), rows.at(-1).getCell(cols.at(-1)));
+    if (e.key === 'Home' || e.key === 'End') {
+      const row = mod ? rows[e.key === 'Home' ? 0 : rows.length - 1] : cell.getRow();
+      to(row.getCell(cols[e.key === 'Home' ? 0 : cols.length - 1]));
+      reveal(row.getData().id);
+      if (e.key === 'Home') { const h = holder(); if (h) h.scrollLeft = 0; return; }
+      return across();
+    }
+    if (/^(ArrowLeft|ArrowRight)$/.test(e.key)) return across();
+    if (mod && (k === 'd' || k === 'r') && !e.shiftKey && !e.altKey) { e.preventDefault(); if (canWrite()) fillFrom(k === 'd'); return; }
+    if (e.key === 'F2') { e.preventDefault(); if (canEdit(cell)) { ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } return; }
     // Delete clears the cells of the range; rows selected whole, by their numbers, it deletes, after the redline.
     if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); const ids = wholeRows(); if (ids.length) deletion(ids).stage(); else clear(); }
     else if (e.key === ' ' && columnOf(cell)?.type === 'tag') { e.preventDefault(); flip(cell); }
-    else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && cell.getField()) {
+    else if (e.key.length === 1 && !mod && !e.altKey && cell.getField()) {
       const c = columnOf(cell);
-      if (c.type === 'tag' || c.type === 'choice' || c.type === 'edge' || App.readOnly.peek()) return;
-      typed0 = e.key;
+      if (c.type === 'tag' || App.readOnly.peek() || !canEdit(cell)) return;
+      // A dropdown opens with its field taking the key, so what's typed finds an option.
+      if (c.type === 'choice' || c.type === 'edge') { ranged = cellsOf(); return cell.edit(true); }
+      typed0 = e.key; ranged = cellsOf();
       e.preventDefault();
       cell.edit(true);
       if (!table.modules.edit.currentCell) typed0 = null;
@@ -967,9 +1666,16 @@ const Table = (() => {
     mount(host) {
       el = host;
       el.classList.add('grid');
+      const tools = document.createElement('div');
+      tools.className = 'tools';
       cells = document.createElement('div');
       cells.className = 'cells';
-      el.append(cells);
+      rowEl = document.createElement('div');
+      rowEl.className = 'newslot';
+      pins = document.createElement('style');
+      el.append(tools, cells, rowEl, pins);
+      preact.render(html`<${Tools} />`, tools);
+      preact.render(html`<${NewRow} />`, rowEl);
       cells.addEventListener('keydown', first, true);
       cells.addEventListener('keydown', keydown);
       // Keys arriving from outside (F6 onto the view) go to the rows, not a heading's filter, which would open.
@@ -991,21 +1697,71 @@ const Table = (() => {
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view.
         effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking) reveal(id); }),
       ];
-      return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); table?.destroy(); table = null; el = cells = null; };
+      return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); preact.render(null, tools); preact.render(null, rowEl); table?.destroy(); table = null; el = cells = rowEl = pins = null; };
     },
     focus,
   });
 
-  // Export: what the table shows, as CSV, while a table is shown.
+  // ---- Export: what the table shows, in its order, as an Excel workbook or as CSV, while a table is shown ----
+  const VENDOR = new URL('../../vendor/', SCRIPT);
+  let sheetjs = null;
+  const loadSheetJS = () => sheetjs ??= new Promise((ok, fail) => document.head.append(Object.assign(document.createElement('script'), {
+    src: new URL('xlsx/xlsx.full.min.js', VENDOR).href, onload: () => ok(window.XLSX), onerror: () => { sheetjs = null; fail(new Error('Couldn’t load the Excel writer')); } })));
+  const fileName = ext => `${[App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(Shell.view.peek())?.name].filter(Boolean).join(' – ').replace(/[\\/:*?"<>|]+/g, '') || 'Table'}.${ext}`;
+  // A day as Excel counts it, from December 30, 1899.
+  const serial = iso => { const [y, m, d] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
+  // A percentage as precise as the grid says it, to four places: 28.4% is 0.0%, 100% is 0%.
+  const pct = v => { const s = String(+(v * 100).toFixed(4)), i = s.indexOf('.'); return `0${i < 0 ? '' : '.' + '0'.repeat(s.length - i - 1)}%`; };
+  // The sheet: the headings, then each row the grid shows, in its order, each value Excel's own kind of cell in the format
+  // the grid reads it in: a number a number, a percentage a percentage, an amount of money money, a date a date; a link
+  // to a document a link, named as the grid names it; a tag Yes or No. Its columns as wide as the grid's, with Excel's
+  // filter on its headings. A row a change pending would add isn't there yet, and a value it would change is as it is.
+  function sheet(X) {
+    const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c);
+    const rows = table.getRows('active').map(r => r.getData()).filter(d => d._red !== 'add');
+    const value = (d, c) => { const mm = d._m[field(c)]; return mm && 'was' in mm ? mm.was : d[field(c)]; };
+    const ws = {}, at = (r, j) => X.utils.encode_cell({ r, c: j });
+    cols.forEach(([, c], j) => {
+      ws[at(0, j)] = { t: 's', v: called(c) };
+      rows.forEach((d, i) => {
+        const v = value(d, c), type = typeOf(c, d);
+        if (blank(v)) return;
+        ws[at(i + 1, j)] = type === 'tag' ? { t: 's', v: v ? 'Yes' : 'No' }
+          : typeof v === 'number' && NUMERIC.has(type) ? { t: 'n', v, ...(type === 'percent' ? { z: pct(v) } : type === 'money' ? { z: `"$"#,##0${Number.isInteger(v) ? '' : '.00'}` } : {}) }
+          : type === 'date' && /^\d{4}-\d\d-\d\d$/.test(v) ? { t: 'n', v: serial(v), z: 'mmm d, yyyy' }
+          : type === 'document' ? { t: 's', v: c.filed ? filed(v) : Tree.format('document', v), l: { Target: String(v) } }
+          : { t: 's', v: text(type, v) };
+      });
+    });
+    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: Math.max(0, cols.length - 1) } });
+    ws['!cols'] = cols.map(([col]) => ({ wpx: Math.round(col.getWidth()) }));
+    ws['!autofilter'] = { ref: ws['!ref'] };
+    return ws;
+  }
+  async function workbook() {
+    const X = await loadSheetJS(), wb = X.utils.book_new(), name = viewOf(Shell.view.peek())?.name ?? 'Table';
+    X.utils.book_append_sheet(wb, sheet(X), name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Table');
+    wb.Props = { Title: fileName('xlsx').replace(/\.xlsx$/, ''), Author: App.who() ?? '' };
+    return wb;
+  }
+  async function excel() {
+    const X = await loadSheetJS(), blob = new Blob([X.write(await workbook(), { bookType: 'xlsx', type: 'array', compression: true })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    if (typeof Export !== 'undefined' && Export.onFile) return Export.onFile(blob, fileName('xlsx'));
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: fileName('xlsx') });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    return blob;
+  }
   let unexport = null;
   effect(() => {
     const on = viewOf(Shell.view.value)?.layout === 'table';
-    if (on && !unexport) unexport = Shell.register('export', { name: 'CSV', run: () => {
-      const chart = App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name;
-      table?.download('csv', `${[chart, viewOf(Shell.view.peek())?.name].filter(Boolean).join(' – ')}.csv`, { bom: true });
-    } });
+    if (on && !unexport) {
+      const offs = [Shell.register('export', { name: 'Excel', run: () => table && excel().catch(e => Shell.toast(e?.message || 'Couldn’t export')) }),
+        Shell.register('export', { name: 'CSV', run: () => table?.download('csv', fileName('csv'), { bom: true }) })];
+      unexport = () => offs.forEach(f => f());
+    }
     if (!on && unexport) { unexport(); unexport = null; }
   });
 
-  return { model, paste, focus, get grid() { return table; } };
+  return { model, paste, focus, look: lookOf, workbook, get grid() { return table; } };
 })();
