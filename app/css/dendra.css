@@ -262,6 +262,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 
 .shell > .main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 1px var(--insp, 384px); min-height: 0; }
 .main.wide { grid-template-columns: 0 1px minmax(0, 1fr); }
+/* Put away, the inspector leaves its divider at the window's edge, to drag it out again. */
+.main.shut { grid-template-columns: minmax(0, 1fr) 1px 0; }
+.main.shut > .inspector { visibility: hidden; }
 .view { position: relative; display: grid; grid-template: minmax(0, 1fr) auto / minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
 .divider { position: relative; background: var(--rule); cursor: col-resize; z-index: 2; }
 .divider::before { content: ""; position: absolute; inset: 0 -4px; }
