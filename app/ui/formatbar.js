@@ -855,6 +855,16 @@ function mount(el) {
   ].map(([id, name, keys, run, enabled = edit, names]) => Shell.register('action', { id, name, ...(keys && { keys }), ...(names && { names }), run, enabled,
     // Not now, and why: Find says so beside it, rather than leave it out.
     why: () => App.readOnly.peek() ? 'Can’t change the past' : !onScreen() ? 'Show a chart first' : 'Select a box, line or shape first' }));
+  // Insert's, for Find, by what each makes: a box of each of the chart's kinds, as the page's right-click says it ("New
+  // entity", found by Add or Insert too), then its text box, frame, Key and picture.
+  actions.push(Shell.register('find', { items: () => {
+    const c = Canvas.active.peek();
+    if (!onScreen() || App.readOnly.peek()) return [];
+    const word = s => s.toLowerCase();
+    return [...Canvas.kinds().map(k => ({ label: `New ${word(k)}`, detail: 'Action', names: [`Add ${word(k)}`, `Insert ${word(k)}`, 'Add a box'], run: () => c.create(k) })),
+      ...[['text', 'Text box'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) => ({ label: `Insert ${word(name)}`, detail: 'Action',
+        names: [name, `Add ${word(name)}`], run: () => g === 'picture' ? picture(c) : c.insert(g) }))];
+  } }));
   return () => { stopSel(); stopCue(); stopBrush(); actions.forEach(off => off()); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true);
     preview(); Canvas.active.peek()?.cue(null); render(null, el); };
 }

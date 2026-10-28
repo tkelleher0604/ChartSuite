@@ -1394,6 +1394,28 @@ Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['
   why: notNow('Only a relation of two sides transfers', 'an ownership or another relation') });
 Shell.register('action', { id: 'record.delete', name: 'Delete…', names: ['Remove', 'Dissolve', 'End'],
   enabled: () => !App.readOnly.peek() && !!theOne(), run: () => remove(theOne(), { auto: true, inline: true }), why: notNow('', 'what to delete') });
+// Hidden in the chart shown, or shown there again, as its ⋯ does it.
+const drawnHere = () => !!App.scene.peek()?.byId.has(theOne());
+Shell.register('action', { id: 'record.hide', get name() { return theOne() && !drawnHere() ? 'Show in this view' : 'Hide in this view'; }, names: ['Hide box', 'Show box', 'Unhide'],
+  enabled: () => !App.readOnly.peek() && !!theOne() && viewShown()?.layout === 'chart' && !!(recs()[theOne()].kind || recs()[theOne()].args),
+  run: () => { const id = theOne(), v = viewShown(); if (drawnHere()) App.change(tx => tx.note('Shown', tree(id), false, { view: v.id }), { say: ch => Time.describe(ch) }); else showHere([id], v); },
+  why: () => viewShown()?.layout !== 'chart' ? 'Show a chart first' : notNow('Only a box or a line is hidden', 'a box or a line')() });
+// Add to each of the selected record's lists, by the word for one of it ("Add owner"), as its + does: Find opens its search.
+const one = w => w.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
+Shell.register('find', { items: () => {
+  const id = theOne();
+  if (!id || App.readOnly.peek() || !(recs()[id].kind || recs()[id].args)) return [];
+  return relatives(id).lists.filter(([, items]) => !items[0].rest.length && !items.every(it => fx(it.rid))).map(([list]) => ({ label: `Add to ${list}…`, detail: 'Action',
+    names: [`Add ${one(list).toLowerCase()}`, `New ${one(list).toLowerCase()}`], run: () => {
+      aim.value = 'list:' + list;
+      // Once Find has closed and the list is open, brought into view, its + pressed.
+      setTimeout(() => {
+        const s = document.querySelector(`.insp [data-key="${CSS.escape('list:' + list)}"]`);
+        s?.scrollIntoView({ block: 'start' });
+        s?.querySelector('.sect .btn.icon')?.click();
+      }, 150);
+    } }));
+} });
 // Find reaches every record by its name, and every list of relatives by whose it is (AIV-1 › Signatories). They're the
 // same while the state and the notes stand, so they're found once, not at each key typed; and found ahead, an object
 // at a time, while the window is idle after either changes, so the first key typed in Find finds at once.

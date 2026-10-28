@@ -325,6 +325,14 @@ async function run() {
   check('Find finds Outline… for “border”, greyed with nothing selected, saying what it needs', !!borderRow && borderRow.getAttribute('aria-disabled') === 'true'
     && /first$/.test(borderRow.querySelector('.detail')?.textContent ?? ''), $$('.findpal .menu-item').map(e => e.textContent).join(' / '));
   Shell.closeAll(); await tick();
+  // … and every task by its words: Insert's boxes as made ("new entity"), and for the record selected, adding to its lists
+  // ("add owner") and hiding it here.
+  const found = async q => { Shell.find(q); await tick(150); const got = $$('.findpal .menu-item').map(e => e.querySelector('.label')?.textContent); Shell.closeAll(); await tick(); return got; };
+  const newEntity = await found('new entity');
+  Shell.select(['fund']); await tick(150);
+  const addOwner = await found('add owner'), hideIt = await found('hide');
+  check('Find reaches Insert’s boxes, a list’s Add and Hide in this view by the words for them', newEntity[0] === 'New entity' && addOwner[0] === 'Add to Owners…' && hideIt.includes('Hide in this view'),
+    `${newEntity[0]} / ${addOwner[0]} / ${hideIt.join(', ')}`);
   Shell.select(selWas); await tick(120);
 
   // ---- What can be done with a record is in its panel too, behind ⋯, as its box's right-click has it ----
