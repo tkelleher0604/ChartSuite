@@ -757,11 +757,15 @@ const Shell = (() => {
     ['soon', n => `${n} due soon`, ['Paid', 'Filed']], ['blank', n => `${n} blank`, []]];
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   const needs = () => many('attention').flatMap(a => a.items());
-  // A count goes to the first of its kind, and F8 goes on from there.
+  // A count goes to the first of its kind, clicked again to the next of its kind, round to the first; F8 goes on from
+  // wherever it is through them all.
   let stepAt = -1;
   function attend(d = 1, kind) {
     const items = needs().sort((a, b) => worst(a) - worst(b));
-    stepAt = kind ? items.findIndex(it => it.kind === kind) : items.length ? (stepAt + d + items.length) % items.length : -1;
+    if (kind) {
+      const of = items.flatMap((it, i) => it.kind === kind ? [i] : []), k = of.indexOf(stepAt);
+      stepAt = of.length ? of[(k + 1) % of.length] : -1;
+    } else stepAt = items.length ? (stepAt + d + items.length) % items.length : -1;
     items[stepAt]?.go();
   }
   const counts = () => { const items = needs(); return KINDS.map(([k, say, names]) => ({ k, say, names, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
