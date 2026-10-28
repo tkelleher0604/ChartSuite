@@ -1321,11 +1321,17 @@ function relabel(boxes, lines, frames, s = null, at = s) {
     return { ...l.label, w: widest(its), h: y, base: its.at(-1).lines.at(-1).y };
   };
   const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, points: l.points, label: drawn(l), labelAt: l.labelAt, arrow: l.settings.Arrow.value, down: l.down, ...l.placing }));
-  const mine = copies.filter(c => c.label && !c.quiet && c.points);
-  Layout.labels(new Map(boxes.map(b => [b.id, b])), mine, copies, [], captions(frames), true, at ? unitAt(at) : undefined);
+  const mine = copies.filter(c => c.label && !c.quiet && c.points), cs = captions(frames), unit = at ? unitAt(at) : undefined;
+  // Placed as they were where everything they're placed among is as it was: a look changed moves nothing.
+  const k = JSON.stringify([boxes.map(b => [b.id, b.x, b.y, b.w, b.h, b.shape]), copies, cs, unit]), was = placedFor.get(k);
+  if (was) { placedFor.delete(k); mine.forEach((c, i) => Object.assign(c, { labelAt: was[i].labelAt && { ...was[i].labelAt }, crowded: was[i].crowded })); }
+  else Layout.labels(new Map(boxes.map(b => [b.id, b])), mine, copies, [], cs, true, unit);
+  placedFor.set(k, was ?? mine.map(c => ({ labelAt: c.labelAt && { ...c.labelAt }, crowded: c.crowded })));
+  if (placedFor.size > 8) placedFor.delete(placedFor.keys().next().value);
   if (s === null) for (const c of mine) Object.assign(lines[copies.indexOf(c)], { labelAt: c.labelAt, crowded: c.crowded });
   return mine.filter(c => c.crowded);
 }
+const placedFor = new Map();
 // A preview's lines: those it had keep their routes and labels where both their boxes (and the frame one lands
 // on) stand as they stood, to a hundredth of a pixel, as a frame set round its boxes again on the page comes
 // out; so lines drawn as one stay one. What it adds is routed around what's drawn, its labels clear of the rest.
