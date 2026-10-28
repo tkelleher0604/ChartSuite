@@ -897,6 +897,16 @@ async function run() {
   check('… and its chart shown again, its bar back', App.chart.peek() === C && !!pb() && /U\.S\. Investors → Fund III/.test(pb()?.textContent ?? ''));
   check('… noted for the tab, so a reload that drops it says so', stored?.verb === 'Delete' && /U\.S\. Investors → Fund III/.test(stored?.what ?? ''), JSON.stringify(stored));
   App.discard(); await tick(60);
+
+  // Find reaches every record and list by name: found once while the state stands, the same at each key typed, and
+  // afresh once it changes, so a record just added is found at once.
+  const finds = async q => { Shell.find(q); await tick(150); const out = [...document.querySelectorAll('.findpal .menu-item .label')].map(e => e.textContent); Shell.closeAll(); await tick(); return out; };
+  const halvardFound = await finds('halvard'), foundAgain = await finds('halvard');
+  App.change(tx => { const id = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Halvard Freight Partners' }); }); await tick(60);
+  const foundAdded = await finds('halvard');
+  check('Find finds the same while nothing changes, and a record just added at once', halvardFound.length > 0 && halvardFound.join() === foundAgain.join() && !halvardFound.includes('Halvard Freight Partners')
+    && foundAdded.includes('Halvard Freight Partners') && foundAdded.filter(x => !halvardFound.includes(x)).length === 1, `${halvardFound.join(' / ')} → ${foundAdded.join(' / ')}`);
+  Shell.parts.value.undo.undo(); await tick(60);
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {

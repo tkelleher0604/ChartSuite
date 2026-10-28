@@ -558,6 +558,13 @@ async function run() {
     if (at) await press(at);
     check('a click on a text in a box selected already selects it as a field, and lights its row in the inspector', cv().field()?.it.id === 'fund_juris' && !!$('.insp .row.lit[data-key="fund_juris"]'),
       `${cv().field()?.it.id}; lit ${$$('.insp .row.lit').map(r => r.dataset.key)}`);
+    // (The pointer off the chart, so no field is lit for being pointed at.)
+    cv().root.dispatchEvent(new PointerEvent('pointerleave')); await tick(60);
+    const named = textAt('fund', 'fund_name');
+    if (named) await press(named);
+    check('… and another picked lights its own, the row lit before no longer lit', cv().field()?.it.id === 'fund_name' && !$$('.insp .row.lit').length,
+      `${cv().field()?.it.id}; lit ${$$('.insp .row.lit').map(r => r.dataset.key)}`);
+    if (at) await press(at);
     const changes = App.shown.peek().changes().length;
     cv().root.focus(); key('Delete'); await tick(250);
     const hid = App.notes.peek().notes('Shown').find(n => n.view === Shell.view.peek() && Tree.key(n.pattern) === Tree.key({ args: [{ edge: 'Jurisdiction', loc: { id: 'fund', kind: 'Entity' } }] }));

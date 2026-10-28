@@ -71,8 +71,17 @@ let current = null; // { canvas, scopes, scope, marks }
 
 // A group's key, the same for the same outputs however it's come by: a Styles row, or one of a record's own groups.
 const keyOf = ps => JSON.stringify(ps.map(p => Tree.key(p)).sort());
+// Kept for the scene and the selection, while the state and the notes stand: the bar, and each row of the inspector
+// (its Show on chart says where), ask it as they're drawn.
+const scopesKept = new WeakMap();
 function scopesOf(c) {
-  const sc = c.scene(), keys = c.keys();
+  const sc = c.scene(), keys = c.keys(), k = JSON.stringify(keys), st = App.state.peek(), N = App.notes.peek(), was = scopesKept.get(sc);
+  if (was?.k === k && was.st === st && was.N === N) return was.s;
+  const s = scopesNow(c, sc, keys);
+  scopesKept.set(sc, { k, st, N, s });
+  return s;
+}
+function scopesNow(c, sc, keys) {
   // A group is formatted as its members.
   const picked = keys.map(k => sc.byId.get(Canvas.keyParts(k)[0])).filter(Boolean);
   const group = picked.length === 1 && picked[0].geometry === 'group' ? picked[0] : null;
@@ -295,7 +304,8 @@ function trying(c, label, value, more) {
 // A look given a group is what each of its marks then has. Where a later style gives some of them otherwise (Funds'
 // fill over the limited partnerships'), the group's style goes after those in Styles, as Styles' own drag puts it,
 // where that changes nothing else drawn; otherwise it's said which style still decides. Worked out once for each
-// scene, scope and value, as pointing at a choice previews it and picking it makes it: { also(tx), say }.
+// scene, scope and value, as pointing at a choice previews it and picking it makes it: { also(tx), say }. It reads
+// only the marks' looks, as the notes give them (Scene.looks), never laying the chart out.
 const firsts = new WeakMap();
 function firstFor(c, scope, label, value) {
   const sc = c?.scene();
@@ -303,7 +313,7 @@ function firstFor(c, scope, label, value) {
   const memo = firsts.get(sc) ?? firsts.set(sc, new Map()).get(sc), k = JSON.stringify([scope.key, label, value]);
   if (memo.has(k)) return memo.get(k);
   const view = sc.view, N = App.notes.peek(), all = N.styles(view), groups = Scene.groupsOf(N, view), same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const sceneOf = wb => Scene.of(wb, App.chart.peek(), view, sc.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true });
+  const sceneOf = wb => Scene.looks(wb, App.chart.peek(), view, sc.day, { state: App.state.peek(), computed: App.computed.peek() });
   const ids = [...marksOf(sc, scope)], one = sceneOf(trying(c, label, value)), got = (s, id) => s.byId.get(id)?.settings?.[label];
   const masked = ids.filter(id => got(one, id) && !same(got(one, id).value, value));
   const mine = new Set(scope.outputs.map(p => Tree.key(Tree.bare(p)))), at = new Map(all.map((s, i) => [s.key, i]));

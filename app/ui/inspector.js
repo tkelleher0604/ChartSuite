@@ -146,7 +146,15 @@ const linkOf = id => entriesAt(id).find(e => recs()[e].field === 'document');
 // A record's relatives by list (Owners, Holdings), and its documents. A relation located anywhere in it
 // lists its other sides under the name of their list, the first side by its edges' order and the rest beside.
 // A relation ruled out makes no relative: it's said once, as a "not", on the side its edges name first.
+// Kept for each record while the state and the notes stand, as Find asks it of every object at each key typed.
+const relativesKept = new WeakMap();
 function relatives(id) {
+  const r = recs(), n = N();
+  let kept = relativesKept.get(r);
+  if (kept?.n !== n) relativesKept.set(r, kept = { n, by: new Map() });
+  return kept.by.get(id) ?? kept.by.set(id, relativesOf(id)).get(id);
+}
+function relativesOf(id) {
   const r = recs(), lists = new Map(), docs = [], nots = [];
   for (const loc of within(id)) for (const rid of relationsAt(loc)) {
     const rel = r[rid], t = tree(rid), mine = rel.args.find(a => a.at === loc);
@@ -159,7 +167,8 @@ function relatives(id) {
     const name = N().listName(t, first.edge);
     (lists.get(name) ?? lists.set(name, []).get(name)).push(item);
   }
-  const by = (a, b) => shortOf(a.obj).localeCompare(shortOf(b.obj));
+  // Each by its short name, read once.
+  const shorts = new Map(), named = o => shorts.get(o) ?? shorts.set(o, shortOf(o)).get(o), by = (a, b) => named(a.obj).localeCompare(named(b.obj));
   return { lists: [...lists].sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) => [name, items.sort(by)]), docs: docs.sort(by), nots: nots.sort(by) };
 }
 
@@ -544,7 +553,15 @@ function hostIn(at) {
 // The key a field goes by on the chart and here: its record's id, or a blank's place.
 const fieldKey = (it, at) => it.id ?? `${at}|${T.norm(it.edge)}`;
 const charted = () => typeof Canvas !== 'undefined';
-const lit = (it, at) => charted() && Canvas.fieldLit.value === fieldKey(it, at);
+// Whether a row's field is the one lit on the chart, each row asking of its own: so as the pointer goes from field to
+// field, only the two rows whose light changes are drawn again.
+const lits = new Map();
+const lit = (it, at) => {
+  if (!charted()) return false;
+  const k = fieldKey(it, at);
+  if (!lits.has(k)) { if (lits.size > 4000) lits.clear(); lits.set(k, computed(() => Canvas.fieldLit.value === k)); }
+  return lits.get(k).value;
+};
 const fields = () => charted() ? Canvas.active.peek()?.fields : null;
 // Show on chart: at the row's end, shown in this box a quiet eye, pointed at a way to show or hide it there, at the
 // format bar's scope; the tooltip says where.
@@ -1293,15 +1310,34 @@ const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' 
 
 Shell.register('inspector', { mount(el) { render(html`<${Inspector} />`, el); return () => render(null, el); } });
 Shell.register('attention', { items: () => attention.value });
-// Find reaches every record by its name, and every list of relatives by whose it is (AIV-1 › Signatories).
-Shell.register('find', { items: () => {
-  const st = App.state.peek(), n = App.notes.peek(), out = [];
+// Find reaches every record by its name, and every list of relatives by whose it is (AIV-1 › Signatories). They're the
+// same while the state and the notes stand, so they're found once, not at each key typed; and found ahead, an object
+// at a time, while the window is idle after either changes, so the first key typed in Find finds at once.
+let findable = null;
+function* finding(st, n, out) {
   for (const ids of T.index(st).kinds.values()) for (const id of ids) if (!T.isView(st[id])) {
     out.push({ key: id, label: n.nameOf(st, id), names: [n.shortOf(st, id)].filter(s => s && s !== n.nameOf(st, id)), detail: st[id].kind, run: () => select([id]) });
     for (const [list] of relatives(id).lists) out.push({ of: id, label: `${n.shortOf(st, id)} › ${list}`, detail: 'List', run: () => { aim.value = 'list:' + list; select([id]); } });
+    yield;
   }
-  return out;
-} });
+}
+function findableNow() {
+  const st = App.state.peek(), n = App.notes.peek();
+  if (findable?.st !== st || findable.n !== n) { const out = []; findable = { st, n, out, steps: finding(st, n, out) }; }
+  return findable;
+}
+Shell.register('find', { items: () => { const f = findableNow(); while (!f.steps.next().done); return f.out; } });
+let warming = false;
+preactSignals.effect(() => {
+  App.state.value; App.notes.value;
+  if (warming || typeof requestIdleCallback !== 'function') return;
+  warming = true;
+  requestIdleCallback(function step(idle) {
+    const f = findableNow();
+    while (idle.timeRemaining() > 4) if (f.steps.next().done) { warming = false; return; }
+    requestIdleCallback(step);
+  });
+});
 // The two-box panel asked for (a handle dropped on a box, a box made from one, Relate…) is seen, the panel brought back if
 // it was put away.
 on('relate-open', d => { Shell.showPanel?.(); select(d); });
