@@ -71,6 +71,23 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
 
+/* A box's fields: the text pointer over one, and move over a selected box's own room; one pointed at outlined
+   quietly, one selected in the accent, washed; one its inspector row lights, in the accent; a box a row is dragged
+   over, as the drop's target. The entry's name, a moment after the pointer stops on it. */
+.dc.on-field .x6-node { cursor: text; }
+.dc.on-body .x6-node { cursor: move; }
+.dc-field { fill: none; vector-effect: non-scaling-stroke; }
+.dc-field.hover { stroke: rgb(44 76 124 / .5); stroke-width: 1px; fill: rgb(44 76 124 / .04); }
+.dc-field.on { stroke: var(--accent); stroke-width: 1.5px; fill: rgb(44 76 124 / .08); }
+.dc-field.lit { stroke: var(--accent); stroke-width: 1px; fill: rgb(44 76 124 / .05); }
+.dc-field.drop { stroke: var(--accent); stroke-width: 2px; fill: rgb(44 76 124 / .06); }
+.dc-tip { position: absolute; z-index: 4; transform: translateX(-50%); padding: 3px 7px; border-radius: var(--r); background: var(--ink); color: var(--surface); font: var(--t12); white-space: nowrap; pointer-events: none; }
+.dc-over > .dc-tip { pointer-events: none; }
+/* `{` in a free text: the record's entries, as a menu offers them, under what's typed. */
+.dc-complete { position: absolute; z-index: 5; min-width: 160px; max-height: 220px; overflow: auto; padding: 4px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow-pop); }
+.dc-complete > .menu-item { padding: 4px 8px; border-radius: 3px; font: var(--t13); color: var(--ink); cursor: default; }
+.dc-complete > .menu-item.on { background: var(--hover); }
+
 /* Typing in place: over a mark; widening as it's typed, a text box nobody has sized; a new box, its kind
    shown till its name is typed. */
 .dc-edit { position: absolute; z-index: 3; box-sizing: border-box; outline: 1px solid var(--accent); background: #fff; white-space: pre-wrap; overflow-wrap: break-word; cursor: text; }

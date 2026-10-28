@@ -465,8 +465,55 @@ function addItems(at, anchor) {
     run: 'tag' in s.out ? () => addEntry(at, s.args[0].edge, { tag: true }) : start('field' in s.out ? 'field' : 'choice', s.args[0].edge) }));
   const others = () => [...T.index(recs()).kinds].flatMap(([, ids]) => ids).filter(x => !T.isView(recs()[x]) && x !== objectOf(at))
     .map(x => ({ label: nameOf(x), detail: recs()[x].kind, run: () => select([at, x]) })).sort((a, b) => a.label.localeCompare(b.label));
+  const lists = recs()[at].kind ? listItems(at, anchor) : [];
   return [...items, ...(items.length ? ['-'] : []), { label: 'Value', run: start('field') }, { label: 'Tag', run: start('tag') }, { label: 'Choice', run: start('choice') }, '-',
+    ...(lists.length ? [...lists, '-'] : []),
     { label: 'Relation…', run: () => menu(anchor, others(), { search: true }) }, ...(recs()[at].kind && !linkOf(at) ? [{ label: 'Document…', run: () => linkAdd(anchor, at) }] : [])];
+}
+// The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
+// name them once it has some: each the relations of the schema, entered not worked out, of two sides, one of which the
+// record (or a record in it) fits. Picking one asks who, by name: one the chart has, or a new one typed, of the kind
+// the other side is; then it's related as a list's + relates it, pending through the bar where it asks its day.
+function listItems(id, anchor) {
+  const n = N(), own = within(id), lists = new Map();
+  for (const s of Object.values(App.schema.value)) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !n.resolve('Formula', T.bare(s))) for (const sm of s.args) {
+    const sl = s.args.find(a => a !== sm), at = own.find(x => T.narrower(tree(x), sm.loc));
+    if (!at || !sl) continue;
+    const name = n.listName(T.bare(s), sl.edge), was = lists.get(T.norm(name));
+    if (!was) lists.set(T.norm(name), { name, ways: [{ s, sm, sl, at }] }); else if (!was.ways.some(w => T.key(w.sl.loc) === T.key(sl.loc) && T.same(w.sm.edge, sm.edge))) was.ways.push({ s, sm, sl, at });
+  }
+  return [...lists.values()].sort((a, b) => a.name.localeCompare(b.name)).map(l => ({ label: l.name, run: () => menu(anchor, q => whoFor(id, l, q), { search: true }) }));
+}
+// Who can be in a list: each record the chart has that fits its other side, by name, as typed; and a new one of the
+// side's kind, named as typed.
+function whoFor(id, l, q) {
+  const out = [], seen = new Set(), words = T.norm(q ?? '');
+  for (const w of l.ways) for (const x of Object.keys(recs())) {
+    const b = objectOf(x);
+    if (seen.has(b) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {}) || !T.norm(nameOf(b)).includes(words)) continue;
+    seen.add(b);
+    out.push({ label: nameOf(b), detail: recs()[b].kind, run: () => joinTo(id, b, w, x) });
+  }
+  out.sort((a, b) => a.label.localeCompare(b.label));
+  const kind = l.ways.map(w => w.sl.loc.kind).find(Boolean), named = T.clean(q ?? '');
+  if (kind && named && !out.some(o => T.same(o.label, named))) out.push('-', { label: `New ${kind}: ${named}`, run: () => joinTo(id, null, l.ways.find(w => w.sl.loc.kind) ?? l.ways[0], null, { kind, name: named }) });
+  return out;
+}
+// Relates a record to another as a list's side, or to a new one (`fresh`, { kind, name }) made with it: a role to choose
+// opens the two-box panel; a relation that asks its day is a change pending, redlined and asked in the bar, as one
+// ticked there; any other is made at once, the new one with it, as one change.
+function joinTo(id, b, w, lb, fresh = null) {
+  const make = tx => { const o = tx.add('record', { kind: fresh.kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: fresh.name }); return o; };
+  if ('choice' in w.s.out) { if (fresh) { let o = null; if (!App.change(tx => { o = make(tx); })) return; b = o; } return select([id, b]); }
+  const rec = other => ({ args: [{ edge: w.sm.edge, at: w.at }, { edge: w.sl.edge, at: other }], tag: true });
+  if (!fresh) {
+    if (!App.asksDay(rec(lb))) return App.change(tx => tx.add('record', enterAt(tx, rec(lb))));
+    begin(id, b, [w.sm.edge, w.sl.edge, w.at, lb].join('|').toLowerCase(), { tag: true }, rec(lb));
+    return select([id, b]);
+  }
+  const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), what = `${N().name(p)}: ${first ? `${shortOf(id)} → ${fresh.name}` : `${fresh.name} → ${shortOf(id)}`}`;
+  if (!App.asksDay(rec(id))) return App.change(tx => tx.add('record', enterAt(tx, rec(make(tx)))), { say: `Added ${what}` });
+  App.stage({ verb: 'Add', what, source: `list ${id}`, asks: 'from', day: App.day.peek(), auto: true, needs: [id], make: tx => tx.add('record', enterAt(tx, rec(make(tx)))), say: c => Time.describe(c) });
 }
 // A document linked: picked from SharePoint, where it's set up, or its link typed.
 const linkAdd = (anchor, at) => SharePoint.configured() ? menu(anchor, [{ label: 'SharePoint…', run: () => pickLink(at) }, { label: 'Link…', run: () => { linking.value = at; } }]) : (linking.value = at);
@@ -484,19 +531,83 @@ function Label({ it, fx }) {
 // A tag ruled out where its definition's Check note says that's a problem (Ownership Adds Up): an error,
 // said in place in red, where any other ruled out is quiet.
 const failed = id => N().check(tree(id));
-// An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value.
-// A tag is a checkbox row, its box before its name, as the two-box panel draws one; its entries beneath it.
+// ---- An entry on the chart: a field of the box (or line) its record is drawn as (dendra.md, Fields) ----
+// The box or line on the chart shown that an entry at `at` would be drawn in: the nearest record up from it that's one.
+function hostIn(at) {
+  const sc = App.scene.value;
+  for (let x = at; x && sc; x = recs()[x]?.at) { const m = sc.byId.get(x); if (m && (m.type === 'box' || m.type === 'line')) return x; }
+  return null;
+}
+// The key a field goes by on the chart and here: its record's id, or a blank's place.
+const fieldKey = (it, at) => it.id ?? `${at}|${T.norm(it.edge)}`;
+const lit = (it, at) => typeof Canvas !== 'undefined' && Canvas.fieldLit.value === fieldKey(it, at);
+const fields = () => Canvas.active.peek()?.fields;
+const EYE = html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>`;
+// Show on chart: at the row's end, shown in this box a quiet eye, pointed at a way to show or hide it there, at the
+// format bar's scope; the tooltip says where.
+function OnChart({ it, at }) {
+  const host = typeof Canvas !== 'undefined' && hostIn(at), c = Canvas.active.value;
+  if (!host || !c || App.readOnly.value || it.error) return null;
+  App.scene.value; Shell.selection.value;
+  const on = c.fields.shown(host, it.edge, at);
+  const say = () => { const s = Canvas.scope(); return `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : `all ${s.caption}`}`; };
+  return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say()}
+    onPointerEnter=${e => { e.currentTarget.dataset.tip = say(); }} onClick=${e => { e.stopPropagation(); c.fields.show(host, it.edge, !on, at); }}>${EYE}</button>`;
+}
+// A row dragged onto the chart, by its grip or its label: the box under the pointer is lit as the target, and dropped
+// there, it shows the entry. `reorder`, where the grip also reorders the row among its siblings, which a drop on the
+// chart doesn't. → whether the drop was on the chart, asked as the row's own drag ends.
+function carry(e, it) {
+  if (e.button !== 0 || App.readOnly.peek() || !fields()) return () => false;
+  const x0 = e.clientX, y0 = e.clientY;
+  let ghost = null, over = null, onChart = false;
+  const move = ev => {
+    if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+    onChart = !!document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.dc');
+    ghost ??= Object.assign(document.createElement('div'), { className: 'drag-field', textContent: it.edge });
+    if (!ghost.isConnected) document.body.appendChild(ghost);
+    ghost.hidden = !onChart;
+    Object.assign(ghost.style, { left: `${ev.clientX + 12}px`, top: `${ev.clientY + 10}px` });
+    over = onChart ? fields()?.over(ev.clientX, ev.clientY) : (fields()?.over(null), null);
+  };
+  const up = () => {
+    removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+    ghost?.remove();
+    if (over) fields()?.drop(it.edge); else fields()?.over(null);
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+  return () => onChart;
+}
+// A row copied, Ctrl+C on it or on its value: its entry, as a field, which Ctrl+V on a box shows there (see Fields).
+function copied(e, it, at) {
+  if (!fields() || it.error) return;
+  const el = e.target, typed = el.matches?.('input, textarea') ? el.value.slice(el.selectionStart, el.selectionEnd) : null;
+  const r = it.id && recs()[it.id], text = typed ?? (r ? T.outputText(r) : it.edge);
+  if (typed === null) { e.preventDefault(); e.clipboardData?.setData('text/plain', text); }
+  fields().clip(it.edge, text);
+}
+
+// An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value; dragged
+// onto the chart, by its grip or its label, it shows there. A tag is a checkbox row, its box before its name, as the
+// two-box panel draws one; its entries beneath it. Pointed at, its field on the chart lights, and the other way round.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
   const tag = r ? boxed(it.id) : !it.error && kindAt(tree(at), it.edge).type === 'tag', day = ending(at, it.edge), end = day !== r?.value ? day : null;
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
-  const k = html`<div class="k"><${Label} it=${it} fx=${f} /></div>`, v = end
+  // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it onto the chart.
+  const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); carry(e, it); };
+  const k = html`<div class="k" onPointerDown=${press}><${Label} it=${it} fx=${f} /></div>`, v = end
     ? html`<div class="v redline">${r ? html`<s class="del date">${short(r.value)}</s>` : null}<span class="add date">${short(end)}</span></div>`
     : html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
+  const light = on => fields()?.light(on ? fieldKey(it, at) : null);
+  const grip = e => { const chart = carry(e, it); drag(e, (from, i) => { if (!chart()) reorder(at, moved(sibs(), from, i)); }, g => entryMenu(g, it.id)); };
   return html`<div class="ent" data-drag=${r ? at : null}>
-    <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? (failed(it.id) ? ' failed' : ' ruled') : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`} onKeyDown=${keyMenu}>
-      ${r ? html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, (from, i) => reorder(at, moved(sibs(), from, i)), g => entryMenu(g, it.id))}>${GRIP}</button>` : null}
+    <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? (failed(it.id) ? ' failed' : ' ruled') : '') + (lit(it, at) ? ' lit' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`}
+      onKeyDown=${keyMenu} onPointerEnter=${() => light(true)} onPointerLeave=${() => light(false)} onCopy=${e => copied(e, it, at)}>
+      ${r ? html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${grip}>${GRIP}</button>` : null}
       ${tag ? [v, k] : [k, v]}
+      <${OnChart} it=${it} at=${at} />
     </div>
     ${r && !('field' in r) ? html`<${Entries} at=${it.id} depth=${depth + 1} />` : null}
   </div>`;
@@ -705,8 +816,20 @@ function Look({ id }) {
 function Head({ path = [], title, children }) {
   const said = path.length && !(path.length === 1 && T.same(path[0].label, title));
   return html`<header class="ih">
-    ${said ? html`<nav class="path">${path.map(p => p.go ? html`<button class="lk" onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
+    ${said ? html`<nav class="path">${path.map(p => p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
     ${children ?? html`<h2 class="ih-title">${title}</h2>`}</header>`;
+}
+// The breadcrumb's kind opens its table, at the record's row, where the chart has one, or else says the kind in general;
+// its option selects every box on the chart shown that has it, as Select all like this does.
+function kindTable(id) {
+  const k = recs()[id].kind, v = App.views.peek().find(x => x.layout === 'table' && x.rows?.kind && T.same(x.rows.kind, k));
+  if (!v) return select([general({ kind: k })]);
+  Shell.show(v.id);
+  select([id]);
+}
+function alike(id) {
+  const r = recs()[id], sc = App.scene.peek(), ids = !sc ? [] : Object.keys(recs()).filter(x => recs()[x].at && T.same(recs()[x].edge, r.edge) && T.same(recs()[x].choice ?? '', r.choice) && sc.byId.get(recs()[x].at)?.type === 'box').map(x => recs()[x].at);
+  if (ids.length) select([...new Set(ids)]); else select([id]);
 }
 // Add: what a record (at `at`), or a panel's own `items`, can have that it hasn't.
 const AddRow = ({ at, items = anchor => addItems(at, anchor) }) => App.readOnly.value ? null
@@ -730,7 +853,7 @@ function RecordView({ id }) {
   // An object's title is its Name, typed over (cleared, it stays); a relation's or an entry's is what it is,
   // with its tag's box before it, as the formula bar has it.
   const head = r.kind
-    ? html`<${Head} path=${[{ label: r.kind, go: () => select([general({ kind: r.kind })]) }, ...(first ? [{ label: recs()[first.id].choice, go: () => select([first.id]) }] : [])]}>
+    ? html`<${Head} path=${[{ label: r.kind, go: () => kindTable(id), tip: `Open ${T.plural(r.kind)}` }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select all ${recs()[first.id].choice}` }] : [])]}>
         <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)}
           preview=${out => out && putChange(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
