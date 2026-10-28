@@ -135,13 +135,15 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
 // ---- Drawing: each mark as X6 cells ----
 
 // A text; `faint`, in a box drawn only while it's asked about. A blank field is its entry's name, faint, the canvas's
-// alone (dendra.md, Fields).
+// alone, and only in a box selected, pointed at or in the scope chosen; elsewhere its room is empty, as it prints
+// (dendra.md, Fields).
 function textMarkup(it, red, faint) {
   const t = it.blank ? { ...it.look, Color: BLANK, Bold: false, Underline: false } : it.look, tone = c => red === 'appear' ? BLUE : red === 'go' ? RED : c;
   return {
     tagName: 'text', attrs: {
       'font-family': Scene.fontFamily(t.Font), 'font-size': px(t.Size), 'font-weight': t.Bold ? 700 : 400,
       'font-style': t.Italic || it.computed || it.blank ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
+      ...(it.blank && { class: 'dc-blank' }),
     },
     children: it.lines.map(l => {
       const r = l.red ?? it.redline ?? red;
@@ -1475,6 +1477,8 @@ function mount(el) {
       el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !ink?.lit.has(id));
       // And every mark the scope doesn't reach is dulled, the page's own furniture with them.
       el.classList.toggle('dc-dull', !!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id));
+      // A mark selected, or in the scope chosen, shows its blanks' names.
+      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
     paintFields();
