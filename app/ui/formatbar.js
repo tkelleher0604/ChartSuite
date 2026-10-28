@@ -862,8 +862,8 @@ function mount(el) {
     if (!onScreen() || App.readOnly.peek()) return [];
     const word = s => s.toLowerCase();
     return [...Canvas.kinds().map(k => ({ label: `New ${word(k)}`, detail: 'Action', names: [`Add ${word(k)}`, `Insert ${word(k)}`, 'Add a box'], run: () => c.create(k) })),
-      ...[['text', 'Text box'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) => ({ label: `Insert ${word(name)}`, detail: 'Action',
-        names: [name, `Add ${word(name)}`], run: () => g === 'picture' ? picture(c) : c.insert(g) }))];
+      ...[['text', 'Text box'], ['frame', 'Frame'], ['legend', 'Key', 'Legend'], ['picture', 'Picture', 'Logo']].map(([g, name, also]) => ({ label: `Insert ${word(name)}`, detail: 'Action',
+        names: [name, `Add ${word(name)}`, ...(also ? [also] : [])], run: () => g === 'picture' ? picture(c) : c.insert(g) }))];
   } }));
   return () => { stopSel(); stopCue(); stopBrush(); actions.forEach(off => off()); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true);
     preview(); Canvas.active.peek()?.cue(null); render(null, el); };

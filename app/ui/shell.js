@@ -820,6 +820,11 @@ const Shell = (() => {
     { id: 'forward', name: 'Forward', keys: 'Alt+ArrowRight', run: forward },
     { id: 'view.prev', name: 'Previous view', keys: '$mod+Shift+PageUp', run: () => stepView(-1) },
     { id: 'view.next', name: 'Next view', keys: '$mod+Shift+PageDown', run: () => stepView(1) },
+    // The day the chart is shown as of, as the title bar's date opens it.
+    { id: 'asof', name: 'Show as of a day…', names: ['As of', 'Date', 'Go to date', 'Past'], enabled: () => !!part('time'), run: () => {
+      const b = document.querySelector('.titlebar .asof > button');
+      if (b) popover(b, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' });
+    } },
     { id: 'chart.rename', name: 'Rename chart', enabled: () => !!part('workbook')?.current() && !App.readOnly.peek(), run: nameChart },
     { id: 'view.rename', name: 'Rename view', enabled: () => !!current.peek() && !App.readOnly.peek(), run: () => { editing.value = view.peek(); } },
     { id: 'panel', get name() { return away.peek() ? 'Show panel' : 'Hide panel'; }, keys: '$mod+Backslash', run: () => setShut(!away.peek()) },

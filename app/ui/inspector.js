@@ -1396,6 +1396,10 @@ Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['
   why: notNow('Only a relation of two sides transfers', 'an ownership or another relation') });
 Shell.register('action', { id: 'record.delete', name: 'Delete…', names: ['Remove', 'Dissolve', 'End'],
   enabled: () => !App.readOnly.peek() && !!theOne(), run: () => remove(theOne(), { auto: true, inline: true }), why: notNow('', 'what to delete') });
+// Renamed in its panel's title, its Name, which the keys go to.
+Shell.register('action', { id: 'record.rename', name: 'Rename', names: ['Change name', 'Edit name'], enabled: () => !App.readOnly.peek() && !!theOne() && !!recs()[theOne()].kind,
+  run: () => { Shell.showPanel?.(); setTimeout(() => { const t = document.querySelector('.insp .ih .cellbox.title textarea'); t?.focus(); t?.select(); }, 60); },
+  why: notNow('Only a record with a name is renamed', 'what to rename') });
 // Hidden in the chart shown, or shown there again, as its ⋯ does it.
 const drawnHere = () => !!App.scene.peek()?.byId.has(theOne());
 Shell.register('action', { id: 'record.hide', get name() { return theOne() && !drawnHere() ? 'Show in this view' : 'Hide in this view'; }, names: ['Hide box', 'Show box', 'Unhide'],
