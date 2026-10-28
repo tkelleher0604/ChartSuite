@@ -226,16 +226,20 @@ const App = (() => {
   const discarded = p => `Discarded ${doing[p.verb] ?? p.verb.toLowerCase()} ${p.what}`;
   function stage(p) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return; }
-    const was = pending.peek(), back = document.activeElement !== document.body ? document.activeElement : null;
+    // Where the keys were as it was begun: what had them, the row it's in, and its part of the window.
+    const was = pending.peek(), a = document.activeElement !== document.body ? document.activeElement : null;
+    const back = a && { el: a, key: a.closest?.('[data-key]')?.dataset.key, region: a.closest?.('[data-region]') };
     pending.value = { ids: [], n: ++staged, chart: chart.peek(), from: Shell.time.peek()?.asOf ?? null, back, ...p };
     if (was && was.source !== p.source) Shell.toast(discarded(was), { undo: () => stage(was) });
   }
-  // Gone, with the keys in its bar, they go back where they were as it was begun, or to its part of the window.
+  // Gone, with the keys in its bar, they go back where they were as it was begun: to what had them, or the row it was
+  // in drawn again (a two-box panel's), or else that part of the window, or the view.
   function after(p) {
     setTimeout(() => {
-      const a = document.activeElement;
+      const a = document.activeElement, b = p.back;
       if (a && a !== document.body && a.isConnected) return;
-      (p.back?.isConnected ? p.back : p.back?.closest?.('[data-region]') ?? document.getElementById('view'))?.focus({ preventScroll: true });
+      const row = b?.key && document.querySelector(`[data-key="${CSS.escape(b.key)}"]`);
+      (b?.el.isConnected ? b.el : row?.querySelector('button, input, textarea') ?? (b?.region?.isConnected ? b.region : document.getElementById('view')))?.focus({ preventScroll: true });
     });
   }
   function discard() {

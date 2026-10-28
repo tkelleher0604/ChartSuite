@@ -301,14 +301,15 @@ async function run() {
   // A relation with no start of its own (an ownership) is added from a day said in its redline, before Enter:
   // the day shown, by default, so an owner added today isn't in the chart as of a day before
   const n0r = App.wb.changes().length, owned = () => Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
-  rr[0].querySelector('.tag').click(); await tick(60);
+  rr[0].querySelector('.tag').focus(); rr[0].querySelector('.tag').click(); await tick(60);   // (a click focuses a button)
   const asking = $('.rr.adding'), fromIn = pb('.from input');
   check('ticking one that asks its day redlines it, ticked, its day asked in the bar under the view, the day shown, to type over', !!asking && /is an owner of the BDC/.test(asking.textContent)
     && pb('.from .sel')?.textContent === 'From' && fromIn?.value === Tree.formatDate(Log.today(), 'short') && document.activeElement === fromIn
     && /^Ownership: Fund III Blocker → The BDC/.test(spoken(pb('.what'))) && /DiscardAdd$/.test(pb().textContent.replace(/\s/g, ''))
     && App.wb.changes().length === n0r && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1, `${asking?.textContent} / ${pb()?.textContent}`);
   key(fromIn, 'Escape'); await tick(60);
-  check('… Esc drops it', !$('.rr.adding') && !pb() && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r);
+  check('… Esc drops it, the keys going back to its row', !$('.rr.adding') && !pb() && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r && !!document.activeElement?.matches('.rr .ctl .tag'),
+    document.activeElement?.outerHTML.slice(0, 120));
   $$('.rr').find(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC').querySelector('.tag').click(); await tick(60);
   const redlined = FormulaBar.pending.peek()?.change.records ?? {};
   // A click away never drops it: the bar and its redline stay, and the two boxes again show it ticked

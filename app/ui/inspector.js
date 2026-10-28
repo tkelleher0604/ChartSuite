@@ -488,7 +488,7 @@ const failed = id => N().check(tree(id));
 // A tag is a checkbox row, its box before its name, as the two-box panel draws one; its entries beneath it.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
-  const tag = r ? boxed(it.id) : !it.error && kindAt(tree(at), it.edge).type === 'tag', end = ending(at, it.edge);
+  const tag = r ? boxed(it.id) : !it.error && kindAt(tree(at), it.edge).type === 'tag', day = ending(at, it.edge), end = day !== r?.value ? day : null;
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
   const k = html`<div class="k"><${Label} it=${it} fx=${f} /></div>`, v = end
     ? html`<div class="v redline">${r ? html`<s class="del date">${short(r.value)}</s>` : null}<span class="add date">${short(end)}</span></div>`
