@@ -704,7 +704,7 @@ async function run() {
   check('A row that’s new is added, with its new owner', pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.06 && Table.grid.getRows().length === rows0 + 1);
   check('A name finds an entity, never a view of that name', c.adds.some(r => r.args?.some(a => a.edge === 'Owned' && a.at === fund)));
   check('The toast says what was done, with Undo', /^Pasted 2 values, added 1 ownership/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
-  check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III from 71.6% to 67.3% as of Nov 2, 2026, and 2 more', Time.describe(c));
+  check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III to 67.3% from Nov 2, 2026, and 2 more', Time.describe(c));
   undo(); await tick(150);
   check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
   // A change that would leave a check failing says so in its bar before it's made: Fund III's owners at 103.4%.
@@ -1294,9 +1294,9 @@ async function run() {
   check('It lists every change, newest first, each Undo and Redo with what it took back', reversals > 0 && $$('.hist-row').length === ours.length - reversals && $$('.hist-row .what')[0].textContent === Time.describe(ours.findLast(x => !x.reverses)),
     `${$$('.hist-row').length} of ${ours.length} less ${reversals}: ${$$('.hist-row .what').slice(0, 3).map(x => x.textContent).join(' / ')}`);
   const struck = $$('.hist-row.undone').map(x => x.textContent);
-  check('… a change undone struck, saying so, its Undo and Redo never entries of their own', struck.some(x => /^Changed EIN of Fund III from 92-4810337 to 92-1111111.*· undone by Pat Example$/.test(x)) && struck.some(x => /^Added view Chart/.test(x))
-    && !$$('.hist-row .what').some(x => /from 92-1111111 to 92-4810337/.test(x.textContent)) && getComputedStyle($('.hist-row.undone .what')).textDecorationLine === 'line-through', struck.slice(0, 4).join(' / '));
-  check('Each says who, when, and what, in the chart’s words', $$('.hist-row').some(x => x.textContent.includes('Ruled out Good Standing of AIV-1 as of Jul 15, 2026') && x.textContent.includes('Jordan Alvarez')), $$('.hist-row').filter(x => /AIV-1|Corvane/.test(x.textContent)).slice(0, 6).map(x => x.textContent).join(' / '));
+  check('… a change undone struck, saying so, its Undo and Redo never entries of their own', struck.some(x => /^Corrected EIN of Fund III to 92-1111111.*· undone by Pat Example$/.test(x)) && struck.some(x => /^Added view Chart/.test(x))
+    && !$$('.hist-row .what').some(x => /to 92-4810337$/.test(x.textContent)) && getComputedStyle($('.hist-row.undone .what')).textDecorationLine === 'line-through', struck.slice(0, 4).join(' / '));
+  check('Each says who, when, and what, in the chart’s words', $$('.hist-row').some(x => x.textContent.includes('Ruled out Good Standing of AIV-1 from Jul 15, 2026') && x.textContent.includes('Jordan Alvarez')), $$('.hist-row').filter(x => /AIV-1|Corvane/.test(x.textContent)).slice(0, 6).map(x => x.textContent).join(' / '));
   const okafor = named('David R. Okafor'), manager = named('Calder Ridge Capital Management, LLC');
   const ruling = { id: 'x', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xr', record: 'xc', args: [{ edge: 'Controller', at: okafor }, { edge: 'Controlled', at: manager }], tag: false }] };
   check('A presumption ruled out says so', Time.describe(ruling) === 'Ruled out Control: David R. Okafor → The Manager', Time.describe(ruling));
@@ -1330,7 +1330,7 @@ async function run() {
   check('A look a box kept of its own, cleared, is said so, and so is its Undo', cleared === 'Cleared Northpine Software, LLC’s own Fill in Structure' && $('.toast span')?.textContent === `Undid: ${cleared}`, `${cleared} / ${$('.toast span')?.textContent}`);
   undo(); await tick(60);
   const before = st();
-  const pick =[...$$('.hist-row')].find(x => x.textContent.includes('Changed Percentage of Fund III → Corvane'));
+  const pick =[...$$('.hist-row')].find(x => /(Changed|Corrected) Percentage of Fund III → Corvane/.test(x.textContent));
   pick.click(); await tick(150);
   const corvane = named('Corvane Specialty Chemicals Holdings, LLC');
   check('Picking a change shows the chart as it stood just after it', Shell.time.peek()?.stood && pct('Calder Ridge Capital Partners III, L.P.', 'Corvane Specialty Chemicals Holdings, LLC', Log.today()) === 0.49
@@ -1358,6 +1358,23 @@ async function run() {
   check('Undo takes the restore back, and says it undid a restore', !st().gp_agent && /^Undid: Restored /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   await tick(60);
   check('… and it’s listed as deleted again', gone().includes('Registered Agent · GP III'), gone().join());
+  // What Delete… ended is listed too, by the day it ends on; its Restore clears its end, so it holds on.
+  const np = named('Northpine Software, LLC'), today = Log.today(), N0 = App.notes.peek();
+  const npOwn = Object.keys(st()).find(id => st()[id].args?.length === 2 && st()[id].tag === true && st()[id].args.some(a => a.at === np));
+  const lineSaid = `${N0.nameOf(st(), npOwn)} · ${N0.segmentOf(st(), npOwn)}`;
+  App.change(tx => tx.remove(npOwn, today)); await tick(100);
+  const endedRow = () => $$('.hist-row.gone').find(x => x.querySelector('.what').textContent === lineSaid);
+  check('Deleted lists a relation Delete… ended, with the day it ends on', !!endedRow() && endedRow().querySelector('.meta').textContent.startsWith(`Ended ${Tree.formatDate(today, 'short')} · `), `${lineSaid}: ${endedRow()?.textContent}`);
+  n0 = N();
+  endedRow()?.querySelector('.btn').click(); await tick(150);
+  check('… and its Restore makes it hold on, one change, said so', N() === n0 + 1 && !!st()[npOwn] && $('.toast span')?.textContent === `Restored ${N0.nameOf(st(), npOwn)}: ${N0.segmentOf(st(), npOwn)}` && !endedRow(), $('.toast span')?.textContent);
+  App.change(tx => tx.add('record', { at: np, edge: 'Dissolution Date', field: 'date', value: today })); await tick(100);
+  const dissolved = () => $$('.hist-row.gone').find(x => x.querySelector('.what').textContent === 'Northpine Software, LLC');
+  check('… and an entity its end entry ended, by that entry and its day', dissolved()?.querySelector('.meta').textContent.startsWith(`Dissolution Date ${Tree.formatDate(today, 'short')} · `), dissolved()?.textContent);
+  dissolved()?.querySelector('.btn').click(); await tick(150);
+  check('… whose Restore clears its end, and lists nothing in its place', !Object.values(st()).some(r => r.at === np && r.edge === 'Dissolution Date') && !dissolved() && !gone().some(x => /^Dissolution Date/.test(x))
+    && $('.toast span')?.textContent === 'Cleared Dissolution Date of Northpine Software, LLC', `${$('.toast span')?.textContent} ${gone().join()}`);
+  undo(); await tick(60); undo(); await tick(60); undo(); await tick(60); undo(); await tick(60);
   // One payment a revision removed: restored, it comes back alone, and the revision's tax years stand.
   const years = () => Object.values(st()).filter(r => r.kind === 'Tax Year').length, y0 = years();
   n0 = N();
@@ -1365,6 +1382,18 @@ async function run() {
   check('Restoring one payment a revision removed brings back that payment alone, and says so', N() === n0 + 1 && !last().removes.length && years() === y0 && y0 > 0
     && $('.toast span')?.textContent === 'Restored Annual Tax Paid of Fund III' && !gone().includes('Annual Tax Paid · Fund III') && gone().includes('Annual Tax Paid · GP III'), $('.toast span')?.textContent);
   undo(); await tick(100);
+  // A change a later one touches can't be undone from History alone, and it says why, with a way to that one.
+  $$('.hist-head .menu-seg button')[0].click(); await tick(60);
+  App.change(tx => tx.update('fund_ein', { value: '92-3333333' })); await tick(60);
+  App.change(tx => tx.update('fund_ein', { value: '92-4444444' })); await tick(60);
+  [...$$('.hist-row')].find(x => x.querySelector('.what').textContent === 'Corrected EIN of Fund III to 92-3333333')?.click(); await tick(150);
+  const why = $('.hist-row[aria-selected="true"] .why');
+  check('A change a later one touches says why it can’t be undone, and links to that one', $('.hist-row[aria-selected="true"] .btn')?.disabled && why?.textContent === 'A later change touches it: undo that first', why?.textContent);
+  why?.querySelector('.lk')?.click(); await tick(150);
+  check('… which picks that change, to undo first', $('.hist-row[aria-selected="true"] .what')?.textContent === 'Corrected EIN of Fund III to 92-4444444' && !$('.hist-row[aria-selected="true"] .btn')?.disabled,
+    $('.hist-row[aria-selected="true"] .what')?.textContent);
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
+  undo(); await tick(60); undo(); await tick(60);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
   check('Esc then closes History', !$('.inspector .hist'));
 

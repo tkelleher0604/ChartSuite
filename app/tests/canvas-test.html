@@ -212,6 +212,14 @@ async function run() {
   check('a box’s looks are said as made: bold, not struck through, its fill taken off, its font, shape and fill set, its outline dashed', JSON.stringify(looks) === JSON.stringify([
     `Made ${np} bold`, `Made ${np} not struck through`, `Took the fill off ${np}`, `Set the font of ${np} to Garamond`, `Set the shape of ${np} to rounded rectangle`,
     `Set the fill of ${np} to ${FormatBar.colorName('#fff2cc')}`, `Made the outline of ${np} dashed`].map(s => `${s} in ${main.name}`)), looks.join(' / '));
+  // A box's size changed is said as resized, its place alone as moved.
+  const npAt = sc().byId.get('northpine'), placed = (x, w) => App.change(tx => tx.note('Position', Tree.treeOf(App.state.peek(), 'northpine'), { x, y: npAt.y, w }, { view: main.id }), { dated: false });
+  const madePlaces = [placed(npAt.x, npAt.w)]; await tick(60); madePlaces.push(placed(npAt.x, npAt.w + 40)); await tick(60);
+  const resizedSaid = Time.describe(App.wb.changes().at(-1));
+  madePlaces.push(placed(npAt.x + 20, npAt.w + 40)); await tick(60);
+  const movedSaid = Time.describe(App.wb.changes().at(-1));
+  for (const c of madePlaces) if (c) { Shell.parts.peek().undo.undo(); await tick(60); }
+  check('a box resized is said so, and one moved, moved', resizedSaid === `Resized ${np} in ${main.name}` && movedSaid === `Moved ${np} in ${main.name}`, `${resizedSaid} / ${movedSaid}`);
   check('… and the group stays chosen after the change', chip() === 'All 4 portfolio companies', chip());
   $('[data-fb="groups"]').click(); await tick(120);
   const clearIt = $$('.float .menu-item').find(e => txt(e).startsWith('Clear '));

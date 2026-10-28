@@ -187,6 +187,10 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* Just come, or just moved clear of what's worked on, it takes no click: one meant for what was there goes there. */
 .toasts.settling > .toast { pointer-events: none; }
 
+/* ---- History: a change picked, its Undo, and why not where it can't run; what's ended, by its day ---- */
+.hist-row > .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; }
+.hist-row > .acts > .why { font: var(--t12); color: var(--ink-2); }
+
 /* ---- A change pending: the bar under the view, what it does, when it holds, Discard and its verb ---- */
 .pendbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--rule-2); background: var(--paper); }
 .pendbar > .what { flex: 1 1 240px; min-width: 0; color: var(--ink-2); }
@@ -221,8 +225,8 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .asking > .ctls > .when { margin-right: auto; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
 .asking .btn { height: 26px; padding: 0 10px; }
 /* A day other than the day shown, said: a link to the chart then. */
-:is(.from, .pendbar > .when) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
-:is(.from, .pendbar > .when) > button.lk:hover { text-decoration-color: currentColor; }
+:is(.from, .pendbar > .when, .hist-row .why) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
+:is(.from, .pendbar > .when, .hist-row .why) > button.lk:hover { text-decoration-color: currentColor; }
 
 /* ---- Tabs, inside panels ---- */
 .tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--rule); }
