@@ -825,6 +825,9 @@ async function run() {
   $$('.status .counts .btn').find(b => b.textContent === '1 due soon').click();
   Shell.parts.peek().action.find(a => a.id === 'attend').run();
   check('A count goes to the first of its kind, and F8 goes on from there, in the whole list', visits.join() === 'soon1,blank0', visits.join());
+  visits.length = 0;
+  for (let i = 0; i < 3; i++) $$('.status .counts .btn').find(b => b.textContent === '2 blank').click();
+  check('A count clicked again goes to the next of its kind, and round to the first', visits.join() === 'blank3,blank0,blank3', visits.join());
   // Find reaches them by the bar's words, and a deadline by what settles it.
   const problems = async q => { Shell.find(q); await tick(120); const got = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent); Shell.closeAll(); await tick(); return got; };
   let said = await problems('overdue');

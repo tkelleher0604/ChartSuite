@@ -25,6 +25,9 @@
 /* The format bar's scope while a group is chosen or pointed at: what it doesn't reach dulled whole, fill and all, so
    what it reaches stands out (see cue). */
 .dc .x6-cell.dc-dull { opacity: .35; }
+/* A blank field's name shows in a box selected, pointed at or in the scope chosen; elsewhere its room is empty, as
+   it prints. */
+.dc .x6-cell:not(:hover, .dc-on) text.dc-blank { visibility: hidden; }
 
 /* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
    small on screen for its side handles shows only its corners. */
