@@ -382,7 +382,7 @@ async function run() {
     await again();
     check('Fit width keeps the width it fits, in the view, the grid built again too', Table.look(ent).widths?.['short name'] === Math.round(fitted) && Math.abs(column('Short Name').getWidth() - fitted) <= 1, `${JSON.stringify(Table.look(ent).widths)} ${column('Short Name').getWidth()}`);
     tool('Group').click(); await tick(); item('Jurisdiction').click(); await tick(300);
-    const heads = $$('.grid .tabulator-group').map(g => g.textContent.replace(/\d+$/, ''));
+    const heads = $$('.grid .tabulator-group').map(g => g.querySelector('.gname').textContent);
     check('Grouped by a column, its rows fall under its values in its options’ order, Blank last; kept, no change', Table.look(ent).group === 'jurisdiction' && heads[0] === 'Delaware' && heads.at(-1) === 'Blank' && !!tool('Grouped by Jurisdiction'), heads.join());
     // Filtered, a group the filters leave no row in is left out, as a pivot leaves it.
     await menuOf('Jurisdiction'); item('Filter…').click(); await tick(80);
@@ -390,10 +390,10 @@ async function run() {
     fRow('Delaware').querySelector('input').click(); await tick(60);
     Shell.closeAll(); await tick(100);
     tool('Grouped by Jurisdiction').click(); await tick(); item('Entity Type').click(); await tick(300);
-    const counted = $$('.grid .tabulator-group').map(g => g.textContent);
+    const counted = $$('.grid .tabulator-group').map(g => g.querySelector('.gname').textContent + g.querySelector('.gn').textContent);
     check('… and filtered, a group with no row left in it is left out', counted.length > 1 && counted.every(t => !/\D0$/.test(t)) && !counted.some(t => t.startsWith('Exempted')), counted.join(' | '));
     tool('Clear filters').click(); await tick(150);
-    check('… and back once its rows are', $$('.grid .tabulator-group').some(g => g.textContent.startsWith('Exempted')), $$('.grid .tabulator-group').map(g => g.textContent).join(' | '));
+    check('… and back once its rows are', $$('.grid .tabulator-group').some(g => g.querySelector('.gname').textContent.startsWith('Exempted')), $$('.grid .tabulator-group').map(g => g.querySelector('.gname').textContent).join(' | '));
     tool('Grouped by Entity Type').click(); await tick(); item('None').click(); await tick(300);
     check('… and None ungroups it', !Table.look(ent).group && !$$('.grid .tabulator-group').length);
     // Frozen up to a column: those up to it stay put as it scrolls across, a line where they end.
@@ -969,6 +969,19 @@ async function run() {
   check('A percentage out of range fails its check: a red ✗ in that row’s cell, and only there', checkCells().filter(e => e.querySelector('.tag.no')).length === 1
     && rowOf(usRow).getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range').getElement().querySelector('.tag.no'), checkCells().map(e => e.innerHTML).join(' | '));
   check('… counted as an error in the status bar, with Fund III’s ownership no longer adding up', errorsNow() === e0 + 2 && new RegExp(`${e0 + 2} errors`).test($('.status .counts')?.textContent), `${e0} → ${errorsNow()}: ${$('.status .counts')?.textContent}`);
+  // Where they are: the row a check fails at has its number red, the check's words on it; grouped by what's owned, each
+  // group's header sums its percentages under their column, and Fund III's, a record Ownership Adds Up fails at, is red.
+  {
+    const rn = rowOf(usRow).getElement().querySelector('.tabulator-cell.rn');
+    check('A row a check fails at has its number red, the check’s words on it', rowOf(usRow).getElement().classList.contains('fails') && rn?.dataset.tip === 'Percentages In Range'
+      && getComputedStyle(rn).color !== getComputedStyle(rowOf(Table.grid.getRows().find(r => r.getData().id !== usRow).getData().id).getElement().querySelector('.tabulator-cell.rn')).color, rn?.dataset.tip);
+    $$('.tbar .btn').find(b => b.textContent === 'Group').click(); await tick(); item('Owned').click(); await tick(400);
+    const fund3 = $$('.grid .tabulator-group').find(g => g.querySelector('.gname').textContent === 'Calder Ridge Capital Partners III, L.P.'), sum = fund3?.querySelector('.gsum');
+    const pctCol = column('Percentage').getElement().getBoundingClientRect(), at = sum?.getBoundingClientRect();
+    check('… grouped, a group’s header sums each column of numbers under it, as Excel’s subtotal does', sum?.textContent === '6,498.4%' && Math.abs(at.left - pctCol.left) < 2 && Math.abs(at.width - pctCol.width) < 2, `${sum?.textContent} ${at?.left}/${pctCol.left}`);
+    check('… and a group that’s a record a check fails at is red, beside its sum, the check’s words on it', fund3.querySelector('.gname').classList.contains('no') && sum.classList.contains('no') && fund3.querySelector('.gname').dataset.tip === 'Ownership Adds Up', fund3?.innerHTML);
+    $$('.tbar .btn').find(b => b.textContent === 'Grouped by Owned').click(); await tick(); item('None').click(); await tick(300);
+  }
   let asked = null;
   const offAsk = Shell.on('why-open', id => { asked = id; });
   for (const it of Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error')) { it.go(); await tick(40); if (Shell.selection.peek().join() === usRow) break; }
@@ -1103,7 +1116,7 @@ async function run() {
     tool('Grouped by month').click(); await tick();
     const ways = $$('.float .menu-item').map(x => x.textContent.trim());
     item('Whose').click(); await tick(300);
-    const heads = $$('.grid .tabulator-group').map(g => g.firstChild?.textContent ?? g.textContent);
+    const heads = $$('.grid .tabulator-group').map(g => g.querySelector('.gname').textContent);
     check('Dates are grouped by month till grouped by whose, or what falls due', ways[0] === 'Month' && ways.includes('Whose') && ways.includes('What') && !!tool('Grouped by Whose') && heads.length > 1 && !heads.includes('Overdue'), `${ways.join()} / ${heads.slice(0, 4).join()}`);
     tool('Grouped by Whose').click(); await tick(); item('Month').click(); await tick(300);
     check('… and Month groups them by month again', !Table.look(dv).group && Table.model(dv).groups[0] === 'overdue' && !!tool('Grouped by month'), Table.model(dv).groups.slice(0, 3).join());

@@ -210,7 +210,7 @@ const Table = (() => {
       if (c.key === '$out') return { id: row, at: null, v: valueOf(st[row]) };
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
       if (c.key === '$entry') return { v: N.nameOf(st, row) };
-      if (c.key === '$of') return { v: Time.whose(st, st[row].args ? row : st[row].at, N), group: N.shortOf(st, ownerOf(st, st[row].args ? row : st[row].at, N)) };
+      if (c.key === '$of') { const o = ownerOf(st, st[row].args ? row : st[row].at, N); return { v: Time.whose(st, st[row].args ? row : st[row].at, N), group: N.shortOf(st, o), gid: o }; }
       let at = c.up ? st[row].at : row;
       if (c.type === 'list') {
         for (const e of c.minePath) at = entryAt(st, at, e);
@@ -221,6 +221,9 @@ const Table = (() => {
       const id = entryAt(st, at, c.path.at(-1));
       return { id, at, v: valueOf(st[id]) };
     };
+    // The checks failing at each record, by their labels: in it, a record ruled out where a Check note says that's a problem.
+    const fails = new Map();
+    if (R === App.computed.value) for (const a of App.needs.value) if (a.kind === 'error' && !a.error && st[a.id]) { const o = Tree.objectOf(st, a.id); fails.set(o, [...new Set([...(fails.get(o) ?? []), st[a.id].edge])]); }
     const today = App.day.value, data = ids.map(id => {
       const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
       for (const c of cols) {
@@ -229,9 +232,10 @@ const Table = (() => {
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group }) };
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }) };
       }
       row._ruled = st[id].tag === false;
+      row._fails = fails.get(id) ?? null;
       return row;
     });
     // A check's column is shown, unless the view says, only while a row fails it, as the inspector shows a check only where it
@@ -253,17 +257,21 @@ const Table = (() => {
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b[f0].localeCompare(a[f0]) : a[f0].localeCompare(b[f0])));
     } else if (f0) data.sort((a, b) => text(typeOf(cols[0], a), a[f0]).localeCompare(text(typeOf(cols[0], b), b[f0])));
     // Grouped by a column, the rows fall under its values, in the order it sorts them, Blank last.
-    // Whose a date is, grouped, is the record it's of: AIV-1, for its annual tax and its Delaware franchise tax alike.
+    // Whose a date is, grouped, is the record it's of: AIV-1, for its annual tax and its Delaware franchise tax alike. A
+    // group that's one record (a side's, the Name's, whose a date is) is that record's, as its checks say (`grec`).
+    let grec = null;
     if (by) {
       const f = field(by), cmp = sorter(by), seen = new Map(), gv = r => r._m[f]?.group ?? r[f];
       for (const r of data) { r._g = blank(gv(r)) ? BLANK : JSON.stringify(gv(r)); if (!seen.has(r._g)) seen.set(r._g, r); }
       const firsts = [...seen.values()].sort((a, b) => cmp(gv(a), gv(b), null, null, null, 'asc'));
       groups = firsts.map(r => r._g);
       named = new Map(firsts.map(r => [r._g, r._g === BLANK ? 'Blank' : r._m[f]?.group ?? text(typeOf(by, r), r[f])]));
+      const recOf = r => by.type === 'edge' ? r._m[f]?.at && Tree.objectOf(st, r._m[f].at) : r._m[f]?.gid ?? (isKind && by.path?.length === 1 && same(by.title, 'Name') ? r.id : null);
+      grec = new Map(firsts.map(r => [r._g, recOf(r)]));
     }
 
     const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
-    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, noun };
+    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, grec, fails, noun };
     entitle(m);
     return m;
   }
@@ -292,11 +300,11 @@ const Table = (() => {
       if (!w) return { ...r, _red: 'add' };
       const _m = { ...r._m };
       for (const c of then.cols) { const f = field(c), v = w[f] ?? null; if (v !== r[f]) _m[f] = { ..._m[f], was: v }; }
-      return { ...r, _m };
+      return { ...r, _m, _fails: w._fails };
     });
     const kept = new Set(then.data.map(r => r.id));
     for (const w of now.data) if (!kept.has(w.id)) data.push({ ...w, _red: 'go' });
-    return { ...then, data, red: true };
+    return { ...then, data, red: true, fails: now.fails };
   }
   const isRed = r => !!r._red || Object.values(r._m).some(m => 'was' in m);
   // The schema as a pending change would leave it, so a heading pasted that the chart hasn't got is a column.
@@ -485,6 +493,9 @@ const Table = (() => {
   function pinned(t) {
     let left = 48;
     const rules = pinsOf(t).map((c, i) => { const r = `.grid .tabulator .tabulator-header .tabulator-col.pin-${i}, .grid .tabulator-row .tabulator-cell.pin-${i} { left: ${left}px; }`; left += c.getWidth(); return r; });
+    // A group's sums, each under its column (groupHead).
+    let x = 0;
+    for (const c of t.getColumns()) { if (!c.isVisible()) continue; const w = c.getWidth(); if (c.getField()) rules.push(`.grid .tabulator-group .gsum[data-f="${c.getField().replace(/["\\]/g, '\\$&')}"] { left: ${x}px; width: ${w}px; }`); x += w; }
     if (pins) pins.textContent = rules.join('\n');
     t.element.style.setProperty('--pinned', `${left}px`);
     requestAnimationFrame(strip);
@@ -609,6 +620,17 @@ const Table = (() => {
   const follow = (st, id, loc) => !loc.args ? id : (x => x && entryAt(st, x, loc.args[0].edge))(follow(st, id, loc.args[0].loc));
   const sideLoc = (m, edge) => m.rows.args.find(a => same(a.edge, edge)).loc;
 
+  // A group's header: its name and count, and under each column of numbers its rows' sum, as Excel's subtotal is (placed
+  // under its column: pinned); red, the check's words on it, where the group is a record a check fails at, so Fund III's
+  // owners at 101.6% are red at Fund III, beside its 101.6%.
+  function groupHead(m, g, n, rows) {
+    const name = m.named ? m.named.get(g) : g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month'), fails = m.fails?.get(m.grec?.get(g));
+    const sums = m.cols.filter(c => drawn(c) && NUMERIC.has(c.type)).map(c => {
+      const vs = rows.map(d => d[field(c)]).filter(v => typeof v === 'number');
+      return vs.length ? `<span class="gsum" data-f="${esc(field(c))}">${esc(Tree.format(c.type, +vs.reduce((s, v) => s + v, 0).toPrecision(12)))}</span>` : '';
+    }).join('');
+    return `<span class="gname${fails ? ' no' : ''}"${fails ? ` data-tip="${esc(fails.join(', '))}"` : ''}>${esc(name)}</span><span class="gn">${n}</span>${fails ? sums.replace(/class="gsum"/g, 'class="gsum no"') : sums}`;
+  }
   function build(m) {
     // Built again in its view (a column shown, hidden or kept in view), the grid stays where it was scrolled, with what was
     // selected in it, by its records and columns (stay); in another, with nothing.
@@ -646,13 +668,17 @@ const Table = (() => {
       rowFormatter: row => {
         const d = row.getData(), e = row.getElement();
         e.classList.toggle('ruled', !!d._ruled);
+        // A record a check fails at: its number red, the check's words on it.
+        e.classList.toggle('fails', !!d._fails);
+        const rn = e.querySelector('.tabulator-cell.rn');
+        if (rn) { if (d._fails) rn.dataset.tip = d._fails.join(', '); else delete rn.dataset.tip; }
         e.classList.toggle('picked', picked.has(d.id));
         e.classList.toggle('red-add', d._red === 'add');
         e.classList.toggle('red-go', d._red === 'go');
       },
       ...(m.groups && {
         groupBy: '_g', groupValues: [grouped(m, passes)], groupToggleElement: 'header',
-        groupHeader: (g, n) => `${esc(m.named ? m.named.get(g) : g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month'))}<span>${n}</span>`,
+        groupHeader: (g, n, rows) => groupHead(current ?? m, g, n, rows),
       }),
       ...(sorted && { initialSort: [{ column: field(sorted), dir: look.sort.dir }] }),
       ...(passes && { initialFilter: passes }),
@@ -788,6 +814,8 @@ const Table = (() => {
       if (t !== table) return;
       if (!ok) return build(current);
       if (came) resort();
+      // A group's sums and checks say what its rows now hold.
+      if (m.groups) for (const g of t.getGroups()) g._group.generateGroupHeaderContents();
       mark();
       if (first) reveal(first);
       flash(lit);

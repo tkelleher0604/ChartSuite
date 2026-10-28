@@ -145,7 +145,16 @@
 .float.pick .menu-none { color: var(--no); }
 .grid .tabulator-row.tabulator-group { padding: 4px 8px 4px 12px; font: 600 var(--t13); }
 .grid .tabulator-row.tabulator-group:hover { background-image: none; }
-.grid .tabulator-row.tabulator-group span { font-weight: 400; }
+.grid .tabulator-row.tabulator-group { position: relative; }
+.grid .tabulator-row.tabulator-group > .gn { font-weight: 400; }
+.grid .tabulator-row.tabulator-group > :is(.gname, .gsum) { margin-left: 0; color: var(--ink); font-weight: 600; }
+/* A group's sums, each under its column, as Excel's subtotal (table.js); red, with the group's name, where a check fails
+   at the record the group is. */
+.grid .tabulator-row.tabulator-group > .gsum { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px;
+  overflow: hidden; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.grid .tabulator-row.tabulator-group > :is(.gname, .gsum).no { color: var(--no); }
+/* A record a check fails at: its row's number red. */
+.grid .tabulator-row.fails .tabulator-cell.rn { color: var(--no); font-weight: 600; }
 /* A month folds on the app's chevron, not Tabulator's triangle. */
 .grid .tabulator-row.tabulator-group .tabulator-arrow, .grid .tabulator-row.tabulator-group.tabulator-group-visible .tabulator-arrow { width: 10px; height: 6px; margin: 0 10px 0 2px; border: 0;
   background: var(--chev) no-repeat center; vertical-align: 2px; transform: rotate(-90deg); }
