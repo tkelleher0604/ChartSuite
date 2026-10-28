@@ -695,6 +695,7 @@ async function run() {
   check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Entity\s*Halcyon University Endowment/.test(bar)
     && /From$/.test($('.pendbar .from')?.textContent.trim()) && $('.pendbar .from input')?.value === 'Nov 2, 2026' && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
+  check('… and its bar names no check it fails, Fund III’s owners still adding up', !$('.pendbar .fails'), $('.pendbar .fails')?.textContent);
   press('Enter'); await tick(150);
   const c = last();
   check('Pasting is one change', N() === n0 + 1, N() - n0);
@@ -706,6 +707,11 @@ async function run() {
   check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III from 71.6% to 67.3% as of Nov 2, 2026, and 2 more', Time.describe(c));
   undo(); await tick(150);
   check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
+  // A change that would leave a check failing says so in its bar before it's made: Fund III's owners at 103.4%.
+  paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t75%\r\n'); await previewed();
+  const failsSaid = $('.pendbar .fails')?.textContent, n3 = N();
+  press('Escape', document.body); await tick(150);
+  check('A change that would leave a check failing says so in its bar, before it’s made', failsSaid === 'Fails Ownership Adds Up at Fund III' && N() === n3 && !App.pending.peek(), failsSaid);
   // As of today, a row added that asks its day, an ownership, holds from the day its bar says: today, typed over,
   // or all along; never on a past day by default.
   Shell.at(null); await tick(100);
@@ -1290,6 +1296,10 @@ async function run() {
   const hiding = ps => ({ ...stamp, id: 'xh', removes: [], adds: ps.map((p, i) => ({ id: 'xh' + i, note: 'xhn' + i, label: 'Shown', pattern: p, view: 'view_main', value: false })) });
   const hidings = [hiding([owns[0]]), hiding([boxOf]), hiding(owns)].map(Time.describe).join(' / ');
   check('A line or a box hidden in a view is said as the chart’s Delete says it, a line by the place rule as the formula bar says it, and several counted', hidings === `Hid Ownership: ${place} in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure`, hidings);
+  // An entry of an entry, shown or hidden, by its path, as the Columns list says it.
+  const nested = { args: [{ edge: 'File Number', loc: { args: [{ edge: 'Jurisdiction', loc: { kind: 'Entity' } }] } }] };
+  const fileSaid = Time.describe({ ...stamp, id: 'xf', removes: [], adds: [{ id: 'xf0', note: 'xfn', label: 'Shown', pattern: nested, view: 'view_main', value: true }] });
+  check('An entry of an entry shown is said by its path, so two of a label read apart', fileSaid === 'Showed Jurisdiction › File Number in Structure', fileSaid);
   // A line's own look is said as that line's, not its style's.
   const weighed = { ...stamp, id: 'xw', removes: [], adds: [{ id: 'xw0', note: 'xwn', label: 'Weight', pattern: owns[0], view: 'view_main', value: 2 }] };
   check('A line formatted alone is said as that line, not its style, with what it’s given', Time.describe(weighed) === `Set the outline weight of Ownership: ${place} to 2 pt in Structure`, Time.describe(weighed));
