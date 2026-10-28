@@ -985,7 +985,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper });
+    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: (positions.size > 0 || onPage.some(r => !placedBy(r))) && !onPaper });
     return { ...laid, around: lines.filter(l => l.around).length };
   }
   // A layout just laid, with its faults, and on another paper its lines bent that drop straight on the view's own page

@@ -2,7 +2,7 @@
 // formats or positions: a gesture is a change through App.change, and the scene that follows is drawn. The
 // gestures are PowerPoint's: click, Shift+click and the marquee; drag, with guides, a shape kept on the page;
 // resize; Tab through the boxes, and the arrow keys; copy and paste; align, order and group; double-click to
-// type; right-click for what applies. Delete hides what's selected in this view, Shift+Delete deletes it.
+// type; right-click for what applies. Delete deletes what's selected, as a change pending, and clears a field.
 // Double-clicking the page adds a box, named as it's typed. A drag from near a box's edge to another box
 // relates them, and to empty page adds a box to relate to it. The formula bar's highlight, redline and point
 // mode, and the format bar's live preview, are drawn over the scene, or as a variant of it, which shows what
@@ -38,6 +38,8 @@ const px = pt => pt * Scene.PT;
 // A free shape's row, as it's kept.
 const rowOf = id => { const r = App.shown.peek().item(App.chart.peek(), id)[0]; if (!r) return null; const { id: _, shape, ...p } = r; return p; };
 const nameOf = id => App.notes.peek().nameOf(App.state.peek(), id);
+// A name mid-sentence, in lower case but for initials: "New investor group", "New GP".
+const lowered = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
 const viewName = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
 
 // The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first; in a
@@ -106,7 +108,7 @@ function fieldAt(t, rec, p, edge) {
 
 // Where a w × h shape can go on a scene's page: the nearest place to `near` (its middle) clear of every box,
 // frame, shape and label by `gap`, and of every line by a lane's width either side, so nothing new is ever drawn on
-// a line or reads as on it, on a grid; with `bands`, clear of the chart too, in the page's bands above, below or beside
+// a line or reads as on it: just there where it's clear, or else on a grid; with `bands`, clear of the chart too, in the page's bands above, below or beside
 // it. Where the page has no such place, just below everything, and the page grows to hold it.
 function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
   const page = scene.page, m = page.margin, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
@@ -126,6 +128,7 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
     && !rects.some(r => x < r.x + r.w + gap && x + w + gap > r.x && y < r.y + r.h + gap && y + h + gap > r.y)
     && !segs.some(([a, b]) => Math.max(a[0], b[0]) >= x - g && Math.min(a[0], b[0]) <= x + w + g && Math.max(a[1], b[1]) >= y - g && Math.min(a[1], b[1]) <= y + h + g);
   const x0 = m, y0 = m, x1 = page.w - m - w, y1 = page.h - m - h, cx = clamp(near.x - w / 2, x0, x1), cy = clamp(near.y - h / 2, y0, y1);
+  if (clear(cx, cy)) return { x: cx, y: cy };
   const step = Math.max(8, Math.ceil(Math.max(page.w, page.h) / 160)), spots = [];
   for (let x = x0; x <= x1; x += step) for (let y = y0; y <= y1; y += step) spots.push({ x, y, d: Math.hypot(x - cx, y - cy) });
   const best = spots.sort((a, b) => a.d - b.d).find(p => clear(p.x, p.y));
@@ -135,13 +138,15 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
 // ---- Drawing: each mark as X6 cells ----
 
 // A text; `faint`, in a box drawn only while it's asked about. A blank field is its entry's name, faint, the canvas's
-// alone (dendra.md, Fields).
+// alone, and only in a box selected, pointed at or in the scope chosen; elsewhere its room is empty, as it prints
+// (dendra.md, Fields).
 function textMarkup(it, red, faint) {
   const t = it.blank ? { ...it.look, Color: BLANK, Bold: false, Underline: false } : it.look, tone = c => red === 'appear' ? BLUE : red === 'go' ? RED : c;
   return {
     tagName: 'text', attrs: {
       'font-family': Scene.fontFamily(t.Font), 'font-size': px(t.Size), 'font-weight': t.Bold ? 700 : 400,
       'font-style': t.Italic || it.computed || it.blank ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
+      ...(it.blank && { class: 'dc-blank' }),
     },
     children: it.lines.map(l => {
       const r = l.red ?? it.redline ?? red;
@@ -853,16 +858,17 @@ function mount(el) {
   }
   // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't, as a cell's in
   // Excel (but does what `escaped` says), unless it's `kept`, as a shape's text in PowerPoint; and leaving keeps it.
-  // `grow`: it widens as it's typed, a text box nobody has sized; `box`: a new box of a kind.
+  // `grow`: it widens as it's typed, a text box nobody has sized; `box`: a new box, named as it's typed, its kind
+  // chosen beside it (see kindChooser) from `box.kinds`, `box.kind` first, each chosen told to `box.pick`.
   function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false } = {}) {
-    over.querySelector('.dc-edit')?.remove();
+    over.querySelectorAll('.dc-edit, .dc-kind, .dc-kinds').forEach(x => x.remove());
     tipFor(null);
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
     const ed = document.createElement('div');
     ed.className = 'dc-edit' + (grow ? ' grow' : '') + (box || ph ? ' new' : '');
     ed.contentEditable = 'plaintext-only';
     ed.spellcheck = false;
-    if (box || ph) ed.dataset.ph = box ?? ph;
+    if (ph) ed.dataset.ph = ph;
     Object.assign(ed.style, { left: `${p.x}px`, top: `${p.y}px`, [grow ? 'minWidth' : 'width']: `${rect.w * z}px`, minHeight: `${rect.h * z}px`,
       font: `${t.Bold ? 700 : 400} ${t.Italic ? 'italic' : ''} ${size}px/${1.2 * (t.Spacing ?? 1)} ${Scene.fontFamily(t.Font)}`, textAlign: t.Align ?? 'center', color: t.Color,
       padding: box ? `${Math.max(0, (rect.h * z - size * 1.2 * (t.Spacing ?? 1)) / 2)}px ${9.6 * z}px` : `${2 * z}px ${7.2 * z}px` });
@@ -875,11 +881,11 @@ function mount(el) {
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
     let done = false;
-    const list = complete && completing(ed, complete);
-    const finish = ok => { if (done) return; done = true; list?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else escaped?.(); };
+    const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box);
+    const finish = ok => { if (done) return; done = true; list?.close(); kind?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else escaped?.(); };
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
-      if (list?.key(e)) return;
+      if (list?.key(e) || kind?.key(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); finish(kept); }
       else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
@@ -887,6 +893,55 @@ function mount(el) {
     });
     ed.addEventListener('blur', () => finish(true));
     return ed;
+  }
+  // A new box's kind, chosen beside its name as it's typed: "Entity ▾" at the name's right, its placeholder "New entity".
+  // A click opens the kinds, the one it is ticked; Tab and Shift+Tab step through them. The keys stay in the name all the
+  // while, so Enter makes the box and Esc makes nothing, wherever the pointer went.
+  function kindChooser(ed, { kinds: ks, kind, pick }) {
+    let at = Math.max(0, ks.indexOf(kind)), pane = null;
+    const chip = document.createElement('button'), label = document.createElement('span');
+    chip.type = 'button';
+    chip.className = 'btn dd dc-kind';
+    chip.tabIndex = -1;
+    chip.setAttribute('aria-haspopup', 'listbox');
+    chip.append(label);
+    over.appendChild(chip);
+    const keep = e => e.preventDefault();
+    const set = i => { at = (i + ks.length) % ks.length; label.textContent = ks[at]; ed.dataset.ph = `New ${lowered(ks[at])}`; chip.setAttribute('aria-label', `Kind: ${ks[at]}`); pick(ks[at]); };
+    const shut = () => { pane?.remove(); pane = null; chip.setAttribute('aria-expanded', 'false'); };
+    const open = () => {
+      pane = document.createElement('div');
+      pane.className = 'menu dc-kinds';
+      pane.setAttribute('role', 'listbox');
+      pane.append(...ks.map((k, i) => {
+        const o = document.createElement('div');
+        o.className = 'menu-item';
+        o.setAttribute('role', 'option');
+        o.setAttribute('aria-selected', String(i === at));
+        o.innerHTML = `<span class="check">${i === at ? Shell.iconMarkup('check') : ''}</span><span class="label"></span>`;
+        o.lastChild.textContent = k;
+        o.addEventListener('pointerdown', e => { keep(e); set(i); shut(); });
+        return o;
+      }));
+      over.appendChild(pane);
+      Object.assign(pane.style, { left: `${chip.offsetLeft}px`, top: `${chip.offsetTop + chip.offsetHeight + 4}px` });
+      chip.setAttribute('aria-expanded', 'true');
+    };
+    chip.addEventListener('pointerdown', e => { keep(e); if (e.button === 0) pane ? shut() : open(); });
+    set(at);
+    // At the name's right, level with it; or at its left, where the right runs off the view.
+    const x = ed.offsetLeft + ed.offsetWidth + 6;
+    Object.assign(chip.style, { left: `${x + chip.offsetWidth > root.clientWidth - 8 ? ed.offsetLeft - chip.offsetWidth - 6 : x}px`, top: `${ed.offsetTop + (ed.offsetHeight - chip.offsetHeight) / 2}px` });
+    return {
+      close() { shut(); chip.remove(); },
+      key(e) {
+        if (e.key === 'Tab') { set(at + (e.shiftKey ? -1 : 1)); if (pane) { shut(); open(); } }
+        else if (e.key === 'Escape' && pane) shut();
+        else return false;
+        e.preventDefault();
+        return true;
+      },
+    };
   }
   // Typing `{` in a free text offers the record's entries, as a form letter's fields: the list narrows as the name is
   // typed, the arrows move in it, and Enter or Tab puts `{Entry}` in; Esc, or a key that isn't in a name, leaves it.
@@ -960,7 +1015,7 @@ function mount(el) {
   // Each text in a box, or on a line's label, that's an entry, a blank or a free text is a field. Pointed at, it's
   // outlined quietly, with the text pointer and its entry's name; a click on one in a mark already selected selects it,
   // as a second click into a PowerPoint shape goes into its text; a double-click, F2, Enter or a key typed edits it in
-  // place. Selected, Delete hides it at the scope, Ctrl+C copies it, and a right-click offers what applies. Its row in
+  // place. Selected, Delete clears it, Ctrl+C copies it, and a right-click offers what applies. Its row in
   // the inspector lights with it, and pointing at the row lights it here. Showing or hiding one is a Shown note at the
   // entry's pattern at the scope; a free text is a Text note there; each act is one change.
   const st = () => App.state.peek();
@@ -1154,6 +1209,16 @@ function mount(el) {
     if (f.it.free) return unText(f.m, s);
     setField([f.m], fieldName(f.it), false, s);
   }
+  // A field cleared, as Delete clears a cell in a table: the value entered there goes, from the day shown, one change
+  // that Undo takes back, and one a formula works out shows its own again; a free text, its words. The field stays,
+  // a blank where it's shown at a scope; hiding it is the eye's, or its menu's. Only what's entered clears.
+  const clears = f => !!f?.it && (!!f.it.free || (!f.it.blank && f.it.id in App.entered.peek()));
+  function clearField(f = fieldNow()) {
+    if (!f?.it || still()) return;
+    if (!clears(f)) return f.it.blank ? undefined : Shell.toast('A formula works this out');
+    if (f.it.free) return unText(f.m);
+    App.change(tx => tx.remove(f.it.id), { say: c => Time.describe(c) });
+  }
   // Every mark of the narrowest group the selection's first box or line is in, as the Key and Styles group them.
   function selectLike() {
     const m = selected().find(x => x.type === 'box' || x.type === 'line');
@@ -1163,14 +1228,17 @@ function mount(el) {
   }
 
   // ---- Adding a box: a record of a kind, named as it's typed ----
-  // Nothing is made until a name is, and Esc makes nothing. The box is dropped where it was asked for, clear
-  // of what's there, and loosely: once a line relates it, it goes beside its relatives (Scene).
+  // Nothing is made until a name is, and Esc makes nothing. Its kind is chosen beside its name, the one asked for first,
+  // then the one last made (see kindChooser). The box is dropped where it was asked for, clear of what's there, and
+  // loosely: once a line relates it, it goes beside its relatives (Scene). What's made on a chart, the chart shows: where
+  // the view would hide it, the same change shows it there (App.showMade).
   // `guide`, the line a handle was dragged out on, stays drawn to it while it's named, so it's plain the two will be related.
   function create(kind, at, { relate, guide } = {}) {
     if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
-    Shell.store.set('kind', kind);
-    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), [x, y] = own(p.x, p.y);
+    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), [x, y] = own(p.x, p.y), last = Shell.store.get('kind');
+    const ks = kinds(), choice = [...new Set([kind, ...ks.filter(k => k === last), ...ks])];
+    let now = kind;
     guide?.setAttribute('d', guide.getAttribute('d').replace(/L[^L]*$/, `L${p.x + w / 2},${p.y + h / 2}`));
     openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, '', name => {
       guide?.remove();
@@ -1178,12 +1246,14 @@ function mount(el) {
       if (!name) return;
       let id = null;
       if (!App.change(tx => {
-        id = tx.add('record', { kind });
+        id = tx.add('record', { kind: now });
         tx.add('record', { at: id, edge: 'Name', field: 'text', value: name });
-        tx.note('Position', { id, kind }, { x, y, loose: true }, { view });
+        tx.note('Position', { id, kind: now }, { x, y, loose: true }, { view });
+        App.showMade(tx, [id], view);
       })) return;
+      Shell.store.set('kind', now);
       if (relate) Shell.emit('relate-open', [relate, id]); else Shell.select([id]);
-    }, { box: kind, escaped: () => guide?.remove() });
+    }, { box: { kinds: choice, kind, pick: k => { now = k; } }, escaped: () => guide?.remove() });
   }
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
 
@@ -1338,9 +1408,10 @@ function mount(el) {
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
       ...formatItems(ms, ro),
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
-      ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []), ...(bound.length ? ['-'] : []),
-      ...(bound.length ? [{ label: 'Hide in this view', keys: 'Delete', disabled: ro, run: () => remove() }] : []),
-      { label: 'Delete', keys: bound.length ? 'Shift+Delete' : 'Delete', danger: true, disabled: ro, run: () => remove(!!bound.length) },
+      ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []),
+      // History, as the title menu's opens it with these selected: of them.
+      ...(bound.length ? [{ label: 'History', run: () => Time.open('all') }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
+      { label: bound.length ? 'Delete…' : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
@@ -1389,8 +1460,9 @@ function mount(el) {
     const restyle = (label, v) => App.change(tx => styleField(tx, f, label, v, s), { dated: false });
     return [
       { label: f.it.free ? 'Edit text' : 'Edit', keys: 'Enter', disabled: ro, run: () => editField(f.m, f.it) },
-      '-', { label: f.m.type === 'line' ? 'Hide from this line' : 'Hide from this box', keys: s.own ? 'Delete' : undefined, disabled: ro, run: () => hideField(f, { own: true }) },
-      ...(all ? [{ label: `Hide from ${named(all)}`, keys: s.own ? undefined : 'Delete', disabled: ro, run: () => hideField(f, all),
+      { label: 'Clear contents', keys: 'Delete', disabled: ro || !clears(f), run: () => clearField(f) },
+      '-', { label: f.m.type === 'line' ? 'Hide from this line' : 'Hide from this box', disabled: ro, run: () => hideField(f, { own: true }) },
+      ...(all ? [{ label: `Hide from ${named(all)}`, disabled: ro, run: () => hideField(f, all),
         // Pointed at, the boxes it reaches are cued on the chart, as the scope's are (the format bar's cue).
         point: on => canvas.cue?.(on && all.marks ? [...all.marks] : null) }] : []),
       '-', { label: 'Format', disabled: ro, items: [
@@ -1400,7 +1472,7 @@ function mount(el) {
     ];
   }
   const pageItems = p => [
-    ...kinds().map(k => ({ label: `New ${k}`, disabled: still(), run: () => create(k, p) })), '-',
+    ...kinds().map(k => ({ label: `New ${lowered(k)}`, disabled: still(), run: () => create(k, p) })), '-',
     { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
     { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
     { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Tidy', disabled: still(), run: tidy },
@@ -1476,6 +1548,8 @@ function mount(el) {
       el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !ink?.lit.has(id));
       // And every mark the scope doesn't reach is dulled, the page's own furniture with them.
       el.classList.toggle('dc-dull', !!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id));
+      // A mark selected, or in the scope chosen, shows its blanks' names.
+      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
     paintFields();
@@ -1637,9 +1711,10 @@ function mount(el) {
   const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
   const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape'));
   // A new shape goes into free space, never over what's drawn: near the middle of what's on screen, as
-  // PowerPoint puts one; a text box or frame in the page's bands round the chart; a key at the bottom right,
-  // in two columns.
-  const SIZE = { line: [160, 8], 'arrow-line': [160, 8], frame: [320, 200], picture: [160, 100] };
+  // PowerPoint puts one; a frame in the page's bands round the chart; a key at the bottom right, in two columns.
+  // A text box typed in has room for a line of it (ROOM), and as it's made, a longer one is placed again, nearest
+  // where it was typed, so it never lands on a box, a line or the Key.
+  const SIZE = { line: [160, 8], 'arrow-line': [160, 8], frame: [320, 200], picture: [160, 100] }, ROOM = px(216);
   function insert(geometry, opts = {}) {
     const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable();
     let row = { view, geometry, ...opts };
@@ -1654,7 +1729,7 @@ function mount(el) {
     else if (opts.x === undefined) {
       const drawn = geometry === 'text' || geometry === 'legend' ? Scene.shapeOf(row, s) : null;
       const [w, h] = drawn ? [drawn.w, drawn.h] : [opts.w, opts.h].every(Number.isFinite) ? [opts.w, opts.h] : SIZE[geometry] ?? [140, 70];
-      const p = freeSpot(s, w, h, geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, { bands: ['text', 'legend', 'frame'].includes(geometry) });
+      const p = freeSpot(s, geometry === 'text' && !row.text ? Math.max(w, ROOM) : w, h, geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, { bands: ['legend', 'frame'].includes(geometry) });
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
@@ -1667,12 +1742,17 @@ function mount(el) {
     const add = it => { let id = null; if (!App.change(tx => { id = tx.add('shape', it); })) return null; Shell.select([id]); return id; };
     if (!typing) return add(row);
     Shell.select([]);
-    openEditor({ look: typing.look }, at, '', text => { if (text.trim()) add({ ...row, text }); }, { multiline: true, grow: !!typing.auto, kept: true });
+    openEditor({ look: typing.look }, at, '', text => {
+      if (!text.trim()) return;
+      const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = freeSpot(scene, made.w, made.h, { x: at.x + made.w / 2, y: at.y + made.h / 2 });
+      const [x, y] = own(round(q.x), round(q.y));
+      add({ ...row, x, y, text });
+    }, { multiline: true, grow: !!typing.auto, kept: true });
     return null;
   }
-  // Delete hides what's selected in this view and deletes a free shape; with `records`, Shift+Delete, it
+  // Hide in this view hides what's selected in this view and deletes a free shape; with `records`, Delete, it
   // deletes the records too, and what's in or on them, as every deletion of a record is made: redlined first, the
-  // bar asking until when (App.deleting), Enter making it. A toast says what went.
+  // bar asking when it ends (App.deleting), Enter making it. A toast says what went.
   function remove(records = false) {
     const keys = keysOfSelection(), view = viewOf(), st = App.state.peek();
     if (!keys.length) return;
@@ -1947,8 +2027,8 @@ function mount(el) {
   const keyMap = {
     // Tab steps through the boxes, or with a field selected, through its box's fields, as a form's.
     'Tab': () => fieldNow() ? stepField(1) : next(1), 'Shift+Tab': () => fieldNow() ? stepField(-1) : next(-1),
-    // A field selected is hidden at the scope (see Fields); anything else, hidden in this view.
-    'Delete': () => fieldNow() ? hideField() : remove(), 'Backspace': () => fieldNow() ? hideField() : remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
+    // Delete deletes what's selected, a box or a line as a change pending (App.deleting); a field selected, it clears.
+    'Delete': () => fieldNow() ? clearField() : remove(true), 'Backspace': () => fieldNow() ? clearField() : remove(true),
     'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
     'Shift+ArrowLeft': () => nudging(-10, 0), 'Shift+ArrowRight': () => nudging(10, 0), 'Shift+ArrowUp': () => nudging(0, -10), 'Shift+ArrowDown': () => nudging(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },

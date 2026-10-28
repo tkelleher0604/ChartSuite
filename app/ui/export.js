@@ -12,10 +12,10 @@
 //   the title the slide's title; free shapes shapes like any other. A line's alt text is its name with the
 //   values its label says, as the formula bar says a fact (with a percentage of 50%). A deck's slides share one
 //   size, the smallest that holds every sheet, each in the middle of its slide.
-// - PDF: the scene as SVG, through svg2pdf.js, in the PDF's standard fonts (Helvetica has Arial's widths,
-//   Times Times New Roman's), compressed, in US English. Each page is its sheet, bookmarked by its title. It
-//   declares only the fonts it uses, and embeds none: the only sans vendored, IBM Plex, hasn't Arial's widths, so
-//   the lines wouldn't fall where the scene sets them.
+// - PDF: the scene as SVG, through svg2pdf.js, compressed, in US English. Each page is its sheet, bookmarked by its
+//   title. Its text is in the faces the canvas draws it in, this computer's, embedded with only the letters used;
+//   or, where a face has a standard font's widths (Helvetica Arial's, Times Times New Roman's) or can't be read
+//   or embedded, in the standard font of its class (see fontsOf). It declares only the fonts it uses.
 // - Each slide and page reads its title first, then its date, then the rest in the scene's order: a screen
 //   reader, PowerPoint's Reading Order and a PDF's text all follow what's written first.
 // - A file of one page is titled as its page is, of more by the chart's name; its author is whoever exported
@@ -50,11 +50,13 @@ const script = f => scripts.get(f) ?? scripts.set(f, new Promise((ok, fail) => d
   document.createElement('script'), { src: new URL(f, VENDOR).href, onload: ok, onerror: () => { scripts.delete(f); fail(new Error(`Couldn’t load ${f}`)); } })))).get(f);
 const LIBS = { pptx: () => script('pptxgenjs/pptxgen.bundle.js'), pdf: () => script('jspdf/jspdf.umd.min.js').then(() => script('svg2pdf/svg2pdf.umd.min.js')) };
 
-function save(blob, name) {
-  if (api.onFile) return api.onFile(blob, name);
+// Saved where the browser saves downloads, and said so by its name, as every other act of the window says what it did.
+function save(blob, name, also = '') {
+  if (api.onFile) return api.onFile(blob, name, also);
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  if (typeof Shell !== 'undefined') Shell.toast(`Downloaded ${name}${also}`);
 }
 
 // ---- Text, as the scene sets it ----
@@ -78,13 +80,126 @@ const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
 // The PDF's standard font for a font: Helvetica for a sans serif, Times for a serif, Courier for a monospace (see
 // Scene's FONTS), in the weight and slant asked; and how wide it sets a line at a size, by jsPDF's own metrics.
 const STANDARD = f => ({ sans: 'helvetica', serif: 'times', mono: 'courier' })[Scene.fontClass(f)];
+const styleOf = t => t.Bold && t.Italic ? 'bolditalic' : t.Bold ? 'bold' : t.Italic ? 'italic' : 'normal';
 let metrics = null;
 function standardWidth(t, text, size) {
   if (!window.jspdf) return 0;
   metrics ??= new window.jspdf.jsPDF({ unit: 'pt' });
-  metrics.setFont(STANDARD(t.Font), t.Bold && t.Italic ? 'bolditalic' : t.Bold ? 'bold' : t.Italic ? 'italic' : 'normal');
+  metrics.setFont(STANDARD(t.Font), styleOf(t));
   return metrics.getStringUnitWidth(text) * size;
 }
+
+// ---- A PDF's fonts ----
+// A PDF's text is in the face the canvas draws it in, where this computer has it and lets it be read (the browser's
+// Local Font Access, which asks once): the first font of its stack installed (Scene's FONTS), in the face of its
+// style CSS would take (where it has none, the nearest by slant, then weight), embedded with only the letters used.
+// A font whose face installed has a standard font's widths (Arial Helvetica's, Times New Roman Times's, Courier New
+// Courier's) is in that standard font, which every reader has. So is one this computer hasn't, or won't let be read,
+// or that can't be embedded: PostScript outlines, which jsPDF can't, or a face its maker restricts.
+const METRIC = new Set(['arial', 'helvetica', 'liberation sans', 'arimo', 'times new roman', 'times', 'liberation serif', 'tinos', 'courier new', 'courier', 'liberation mono', 'cousine']);
+const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
+const stackOf = f => Scene.fontFamily(f).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(s => !GENERIC.has(s.toLowerCase()));
+// The fonts the PDF's standard ones are for, and how they set a line: the standard font, its widths jsPDF's.
+const PLAIN = { family: t => STANDARD(t.Font), width: standardWidth, missed: [] };
+// Whether this computer may let its fonts be read: where it has, or hasn't yet been asked.
+async function mayRead() {
+  if (typeof window.queryLocalFonts !== 'function') return false;
+  try { return (await navigator.permissions.query({ name: 'local-fonts' })).state !== 'denied'; } catch { return true; }
+}
+// This computer's fonts, by family in lower case, each its faces as the browser lists them; null where it won't say.
+async function installed() {
+  if (typeof window.queryLocalFonts !== 'function') return null;
+  try {
+    const by = new Map();
+    for (const f of await window.queryLocalFonts()) { const k = f.family.toLowerCase(); (by.get(k) ?? by.set(k, []).get(k)).push(f); }
+    return by;
+  } catch { return null; }
+}
+// The face of a family a style takes, as CSS takes one: its slant first, then its weight; of those, the plainest
+// (Bold before Semibold Condensed).
+function faceOf(faces, style) {
+  const it = style.includes('italic'), bold = style.includes('bold'), odd = /light|thin|medium|semi|demi|black|heavy|extra|ultra|condensed|narrow|compressed/i;
+  const rank = f => (/italic|oblique/i.test(f.style) !== it ? 4 : 0) + (/\bbold\b/i.test(f.style) !== bold ? 2 : 0) + (odd.test(f.style) ? 1 : 0);
+  return faces.reduce((a, f) => rank(f) < rank(a) ? f : a);
+}
+// A font file's tables, from its table directory at `at`: by tag, where each is and how long.
+function tablesOf(b, at) {
+  const out = new Map();
+  for (let i = 0, r = at + 12; i < b.getUint16(at + 4); i++, r += 16)
+    out.set(String.fromCharCode(...[0, 1, 2, 3].map(k => b.getUint8(r + k))), { sum: b.getUint32(r + 4), offset: b.getUint32(r + 8), length: b.getUint32(r + 12) });
+  return out;
+}
+// A face's PostScript name, as its name table says it (name 6): Windows's and Unicode's in UTF-16, the Mac's in Roman.
+function psName(b, at) {
+  const t = tablesOf(b, at).get('name');
+  if (!t) return null;
+  const strings = t.offset + b.getUint16(t.offset + 4);
+  for (let i = 0, r = t.offset + 6; i < b.getUint16(t.offset + 2); i++, r += 12) {
+    if (b.getUint16(r + 6) !== 6) continue;
+    const wide = b.getUint16(r) !== 1, o = strings + b.getUint16(r + 10), len = b.getUint16(r + 8);
+    return wide ? String.fromCharCode(...Array.from({ length: len / 2 }, (_, k) => b.getUint16(o + 2 * k))) : String.fromCharCode(...new Uint8Array(b.buffer, o, len));
+  }
+  return null;
+}
+// A face's font, as a TrueType file of its own (taken out of a collection, a .ttc, where it's in one), as jsPDF reads
+// one: a string of its bytes. Null where its outlines are PostScript's, or its maker restricts embedding it (its OS/2
+// table's fsType).
+async function fontFile(face) {
+  const b = new DataView(await (await face.blob()).arrayBuffer());
+  const tag = o => String.fromCharCode(...[0, 1, 2, 3].map(k => b.getUint8(o + k)));
+  const at = tag(0) !== 'ttcf' ? 0 : Array.from({ length: b.getUint32(8) }, (_, i) => b.getUint32(12 + 4 * i)).find(o => psName(b, o) === face.postscriptName);
+  if (at === undefined || (b.getUint32(at) !== 0x00010000 && tag(at) !== 'true')) return null;
+  const tables = [...tablesOf(b, at)], os2 = tables.find(([k]) => k === 'OS/2')?.[1];
+  if (os2 && (b.getUint16(os2.offset + 8) & 0x0f) === 2) return null;
+  // Its header, its tables' records, then its tables, each on four bytes.
+  let size = 12 + 16 * tables.length;
+  const placed = tables.map(([, t]) => { const o = size; size += (t.length + 3) & ~3; return o; });
+  const out = new Uint8Array(size), d = new DataView(out.buffer), src = new Uint8Array(b.buffer), p = 2 ** Math.floor(Math.log2(tables.length));
+  d.setUint32(0, 0x00010000); d.setUint16(4, tables.length); d.setUint16(6, p * 16); d.setUint16(8, Math.log2(p)); d.setUint16(10, (tables.length - p) * 16);
+  tables.forEach(([k, t], i) => {
+    const r = 12 + 16 * i;
+    [...k].forEach((c, j) => d.setUint8(r + j, c.charCodeAt(0)));
+    d.setUint32(r + 4, t.sum); d.setUint32(r + 8, placed[i]); d.setUint32(r + 12, t.length);
+    out.set(src.subarray(t.offset, t.offset + t.length), placed[i]);
+  });
+  let s = '';
+  for (let i = 0; i < out.length; i += 0x8000) s += String.fromCharCode(...out.subarray(i, i + 0x8000));
+  return s;
+}
+// What the texts of `scenes` are set in, looked up in this computer's fonts (`local`, as installed() gives them):
+// { family(t), width(t, text, size), add(doc), missed }: the font family a PDF names a text's font by, its face
+// first; how wide the face sets a line; each face given to a jsPDF document; and the fonts set in a standard font
+// that this computer's own face would have drawn, had it been read, as the canvas does.
+async function fontsOf(scenes, local) {
+  const looks = new Map();
+  for (const s of scenes) for (const m of s.marks)
+    for (const it of [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]) looks.set(`${it.look.Font}|${styleOf(it.look)}`, it.look);
+  const faces = new Map(), files = new Map(), missed = new Set();
+  for (const [k, t] of looks) {
+    const stack = stackOf(t.Font), family = local ? stack.find(f => local.has(f.toLowerCase())) : stack[0];
+    if (!family || METRIC.has(family.toLowerCase())) continue;
+    const face = local && faceOf(local.get(family.toLowerCase()), styleOf(t));
+    if (face && !files.has(face.postscriptName)) files.set(face.postscriptName, await fontFile(face).catch(() => null));
+    if (face && files.get(face.postscriptName)) faces.set(k, { family, ps: face.postscriptName });
+    else missed.add(t.Font);
+  }
+  // Each named in the file, as a reader lists it, by its face's PostScript name, tagged as a subset is (DENDRA+Garamond-Italic).
+  const add = doc => [...faces].forEach(([k, f], i) => {
+    const style = k.split('|')[1];
+    if (!doc.existsFileInVFS(f.ps)) doc.addFileToVFS(f.ps, files.get(f.ps));
+    doc.addFont(f.ps, f.family, style);
+    doc.internal.getFont(f.family, style).fontName = `DENDR${String.fromCharCode(65 + i % 26)}+${f.ps}`;
+  });
+  if (faces.size && window.jspdf) { metrics ??= new window.jspdf.jsPDF({ unit: 'pt' }); add(metrics); }
+  const faceFor = t => faces.get(`${t.Font}|${styleOf(t)}`);
+  return {
+    family: t => { const f = faceFor(t); return f ? `'${f.family}', ${STANDARD(t.Font)}` : STANDARD(t.Font); },
+    width: (t, text, size) => { const f = faceFor(t); if (!f) return standardWidth(t, text, size); metrics.setFont(f.family, styleOf(t)); return metrics.getStringUnitWidth(text) * size; },
+    add, missed: [...missed],
+  };
+}
+// A PDF's preview, before this computer's fonts are read: each in the face the canvas draws it in, where they may be.
+const ASKED = { family: t => Scene.fontFamily(t.Font), width: () => 0, missed: [] };
 const stroke = (s, w = s.Weight) => none(s.Outline) ? 'stroke="none"'
   : `stroke="${s.Outline}" stroke-width="${n(w * PT)}"${Scene.dash(s.Dash, w) ? ` stroke-dasharray="${Scene.dash(s.Dash, w)}"` : ''}${s.Dash === 'dotted' ? ' stroke-linecap="round"' : ''}`;
 const g = (x, y, inner) => `<g transform="translate(${n(x)} ${n(y)})">${inner}</g>`;
@@ -100,16 +215,16 @@ function body(shape, w, h, s) {
   return `${shade}<path d="${d}" fill="${none(s.Fill) ? 'none' : s.Fill}"${clear && !none(s.Fill) ? ` fill-opacity="${n(1 - clear / 100)}"` : ''} ${stroke(s)} stroke-linejoin="miter"/>`;
 }
 // Each line of the texts where the scene put it; an underline and a strikethrough as rules, which every reader draws
-// alike. In a PDF, a line its standard font sets wider than the scene sets it is condensed to the scene's width,
-// scaled across as jsPDF scales text, so no text ever leaves its box. A blank field's room is kept, empty: its name
-// is the canvas's alone (dendra.md, Fields).
+// alike. In a PDF (`pdf`, its fonts: see fontsOf), a line its font sets wider than the scene sets it is condensed to
+// the scene's width, scaled across as jsPDF scales text, so no text ever leaves its box. A blank field's room is
+// kept, empty: its name is the canvas's alone (dendra.md, Fields).
 function texts(items, pdf) {
   return items.filter(it => !it.blank).map(it => {
     const t = it.look, size = t.Size * PT, anchor = ANCHOR[t.Align] ?? 'middle';
-    const font = `font-family="${esc(pdf ? STANDARD(t.Font) : Scene.fontFamily(t.Font))}" font-size="${n(size)}" font-weight="${t.Bold ? 'bold' : 'normal'}" font-style="${t.Italic ? 'italic' : 'normal'}"`;
+    const font = `font-family="${esc(pdf ? pdf.family(t) : Scene.fontFamily(t.Font))}" font-size="${n(size)}" font-weight="${t.Bold ? 'bold' : 'normal'}" font-style="${t.Italic ? 'italic' : 'normal'}"`;
     const rule = (l, y, h) => `<rect x="${n(l.x - l.w * { start: 0, middle: 0.5, end: 1 }[anchor])}" y="${n(y)}" width="${n(l.w)}" height="${n(h)}" fill="${t.Color}"/>`;
     return it.lines.map(l => {
-      const wide = pdf ? standardWidth(t, l.text, size) : 0, k = l.w > 0 && wide > l.w + 0.01 ? l.w / wide : 1;
+      const wide = pdf ? pdf.width(t, l.text, size) : 0, k = l.w > 0 && wide > l.w + 0.01 ? l.w / wide : 1;
       return `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="${anchor}" ${font} fill="${t.Color}"${k < 1 ? ` transform="matrix(${+k.toFixed(4)} 0 0 1 ${n(l.x * (1 - k))} 0)"` : ''}>${esc(l.text)}</text>`
         + (t.Underline ? rule(l, l.y + size * 0.106, size * 0.073) : '') + (t.Strike ? rule(l, l.y - size * 0.3, size * 0.073) : '');
     }).join('');
@@ -155,8 +270,10 @@ const fit = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
 // The papers a page can be drawn on, by the names the dialog gives them.
 const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid: 'Tabloid', a4: 'A4', a3: 'A3' };
 // The scene as SVG, in its own pixels, on white; with `frame` (a sheet's size, in the sheet's pixels), in the
-// middle of a larger sheet, as a deck's slides hold a smaller one.
+// middle of a larger sheet, as a deck's slides hold a smaller one. For a PDF, `pdf` its fonts (see fontsOf); true,
+// its standard fonts.
 function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
+  if (pdf === true) pdf = PLAIN;
   const { w, h } = scene.page, k = fit(scene.page), fw = frame.w / k, fh = frame.h / k, x = (w - fw) / 2, y = (h - fh) / 2;
   at = scene.page.scale ?? 1;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(fw)}" height="${n(fh)}" viewBox="${n(x)} ${n(y)} ${n(fw)} ${n(fh)}">`
@@ -167,7 +284,8 @@ function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
 const titleOf = s => s.marks.find(m => m.role === 'title')?.texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim() || s.name || '';
 // A PDF text string: as it is where it's Latin-1, else UTF-16 and marked so, as a title with a curly quote needs.
 const pdfText = s => /^[\x20-\x7e\xa0-\xff]*$/.test(s) ? s : `\xfe\xff${Array.from({ length: s.length }, (_, i) => String.fromCharCode(s.charCodeAt(i) >> 8, s.charCodeAt(i) & 255)).join('')}`;
-async function pdf(scenes, title, author) {
+// A PDF of `scenes`, in `fonts` (see fontsOf).
+async function pdf(scenes, title, author, fonts = PLAIN) {
   await LIBS.pdf();
   let doc;
   const holder = Object.assign(document.createElement('div'), { style: 'position:fixed;left:-10000px;top:0;width:0;height:0;overflow:hidden' });
@@ -175,9 +293,9 @@ async function pdf(scenes, title, author) {
   try {
     for (const s of scenes) {
       const w = s.page.sheet.w * 0.75, h = s.page.sheet.h * 0.75, o = w > h ? 'l' : 'p';
-      if (!doc) doc = new window.jspdf.jsPDF({ unit: 'pt', format: [w, h], orientation: o, compress: true, putOnlyUsedFonts: true });
+      if (!doc) { doc = new window.jspdf.jsPDF({ unit: 'pt', format: [w, h], orientation: o, compress: true, putOnlyUsedFonts: true }); fonts.add?.(doc); }
       else doc.addPage([w, h], o);
-      holder.innerHTML = svg(s, { pdf: true });
+      holder.innerHTML = svg(s, { pdf: fonts });
       await doc.svg(holder.firstElementChild, { x: 0, y: 0, width: w, height: h });
       if (scenes.length > 1) doc.outline.add(null, pdfText(titleOf(s)), { pageNumber: doc.getNumberOfPages() });
     }
@@ -476,10 +594,15 @@ function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
 
 const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Chart';
 // A file of one page is titled as its page is; of more, by `name`, the chart's.
+// A PDF's fonts are this computer's, asked for at once, while the click that asked for the file still lets them be;
+// any it couldn't embed are said as it's saved: "with Garamond printed as Times".
 async function write(format, scenes, name, { author = '', R = null, N = null } = {}) {
   const title = scenes.length === 1 ? titleOf(scenes[0]) || name : name;
-  const blob = format === 'pdf' ? await pdf(scenes, title, author) : await pptx(scenes, title, author, (rels, caption, entries) => R && N ? sentence(R.records, N, rels, caption, entries) : null);
-  save(blob, `${fileName(name)}.${format}`);
+  const local = format === 'pdf' && typeof window.queryLocalFonts === 'function' ? installed() : null;
+  const fonts = local ? await LIBS.pdf().then(async () => fontsOf(scenes, await local)) : PLAIN;
+  const blob = format === 'pdf' ? await pdf(scenes, title, author, fonts) : await pptx(scenes, title, author, (rels, caption, entries) => R && N ? sentence(R.records, N, rels, caption, entries) : null);
+  const as = { helvetica: 'Helvetica', times: 'Times', courier: 'Courier' }, list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
+  save(blob, `${fileName(name)}.${format}`, fonts.missed.length ? `, with ${list(fonts.missed.map(f => `${f} printed as ${as[STANDARD(f)]}`))}` : '');
   return blob;
 }
 
@@ -592,10 +715,12 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   });
   const chartName = () => App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name ?? 'Chart';
   const uri = s => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}`;
-  // The pages the file will have: a deck's on its one slide size, a document's each its own.
+  // The pages the file will have: a deck's on its one slide size, a document's each its own, in the faces it will
+  // have, where this computer may let its fonts be read (`readable`, asked as the dialog opens).
+  let readable = false;
   const sheets = (format, scenes) => {
     const frame = { w: Math.max(...scenes.map(s => s.page.sheet.w)), h: Math.max(...scenes.map(s => s.page.sheet.h)) };
-    return scenes.map(s => { const f = format === 'pdf' ? s.page.sheet : frame; return { name: s.name, src: uri(svg(s, { pdf: format === 'pdf', frame: f })), aspect: f.w / f.h }; });
+    return scenes.map(s => { const f = format === 'pdf' ? s.page.sheet : frame; return { name: s.name, src: uri(svg(s, { pdf: format === 'pdf' && (readable ? ASKED : PLAIN), frame: f })), aspect: f.w / f.h }; });
   };
   // The calendar's dates, by year, as the date's popover lists the chart's days; what's overdue red, as the
   // inspector shows it.
@@ -636,6 +761,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     </div>`;
   }
   async function open(format) {
+    readable = await mayRead();
     const shown = Shell.view.peek(), list = charts(), others = Shell.parts.peek().export ?? [];
     const here = list.find(v => v.id === shown) ?? list[0] ?? null;
     // What the view shown offers comes first where it's a table; then a chart's slides.
