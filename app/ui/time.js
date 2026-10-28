@@ -244,6 +244,13 @@ const Time = (() => {
       if (!c.adds.length) return 'Tidied the layout';
       if (back && !c.removes.length) return 'Restored the layout';
     }
+    // A view's columns put in another order: by the one that moved against the rest, or the two that swapped.
+    if (all.length > 1 && all.every(i => i.type === 'note' && rec(i).label === 'Order' && rec(i).view && rec(i).view === rec(all[0]).view && i.was.length && i.now.length)) {
+      const d = all.map(i => Log.latest(i.now).value - Log.latest(i.was).value), title = i => rec(i).param ?? N.name(rec(i).pattern), view = N.nameOf(recs, rec(all[0]).view);
+      if (all.length === 2 && d[0] === -d[1] && Math.abs(d[0]) === 1) return `Swapped ${title(all[0])} and ${title(all[1])} in ${view}`;
+      const against = all.filter((_, k) => d[k] && Math.sign(d[k]) !== Math.sign(d.reduce((s, x) => s + Math.sign(x), 0)));
+      if (against.length === 1) return `Moved ${title(against[0])} in ${view}`;
+    }
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
     const moved = new Set([...made, ...gone].map(i => i.id));

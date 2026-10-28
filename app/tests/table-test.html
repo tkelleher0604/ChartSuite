@@ -256,6 +256,14 @@ async function run() {
   Table.grid.moveColumn(column('Jurisdiction').getField(), column('Name').getField(), true); await tick(150);
   const order = Table.model(ent).cols.filter(x => x.shown).map(x => x.title);
   check('Moving a column places it, as Order notes in the view, one change', N() === n0 + 1 && order[1] === 'Jurisdiction' && App.notes.peek().resolve('Order', jur.pattern, ent)?.note.view === ent, order.slice(0, 3).join());
+  // Moved again, History says which column moved against the rest, or which two swapped, as its toast and Undo do.
+  Table.grid.moveColumn(column('Jurisdiction').getField(), column('Entity Type').getField(), true); await tick(150);
+  const movedSaid = Time.describe(last());
+  Table.grid.moveColumn(column('Jurisdiction').getField(), column('Entity Type').getField(), false); await tick(150);
+  const entName = App.views.peek().find(v => v.id === ent).name;
+  check('A column moved is said by its name, and two side by side as swapped', movedSaid === `Moved Jurisdiction in ${entName}` && [`Swapped Jurisdiction and Entity Type in ${entName}`, `Swapped Entity Type and Jurisdiction in ${entName}`].includes(Time.describe(last())),
+    `${movedSaid}; ${Time.describe(last())}`);
+  undo(); await tick(150); undo(); await tick(150);
   undo(); await tick(150);
 
   // ---- Excel-grade: a heading dragged, its menu, the bar above the grid, a column inserted, fills, the new row ----
