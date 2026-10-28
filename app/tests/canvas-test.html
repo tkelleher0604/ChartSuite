@@ -546,7 +546,7 @@ async function run() {
   }
 
   // ---- A box's fields (dendra.md, Fields): a click on a text in a box selected already selects it, its inspector row
-  // lit; Delete hides it in this box, one change, which Undo takes back; a row copied and pasted on another box shows
+  // lit; Delete clears it, and its menu hides it in this box, each one change, which Undo takes back; a row copied and pasted on another box shows
   // that box's own entry, or a blank of it; Show on chart at a group writes beside its outputs ----
   {
     cv().zoom('fit'); await tick(120);
@@ -572,13 +572,25 @@ async function run() {
     check('… and another picked lights its own, the row lit before no longer lit', cv().field()?.it.id === 'fund_name' && !$$('.insp .row.lit').length,
       `${cv().field()?.it.id}; lit ${$$('.insp .row.lit').map(r => r.dataset.key)}`);
     if (at) await press(at);
-    const changes = App.shown.peek().changes().length;
+    const changes = App.shown.peek().changes().length, shownNotes = App.notes.peek().notes('Shown').length;
     cv().root.focus(); key('Delete'); await tick(250);
-    const hid = App.notes.peek().notes('Shown').find(n => n.view === Shell.view.peek() && Tree.key(n.pattern) === Tree.key({ args: [{ edge: 'Jurisdiction', loc: { id: 'fund', kind: 'Entity' } }] }));
-    check('Delete hides it in this box: a Shown note at its entry’s pattern, at the box, one change', hid?.value === false && !sc().byId.get('fund').texts.some(it => it.id === 'fund_juris')
-      && App.shown.peek().changes().length === changes + 1 && sc().byId.get('aiv').texts.some(it => it.text === '(Delaware)'), `${hid?.value}; ${changes} → ${App.shown.peek().changes().length}`);
+    check('Delete clears it, as a cell’s Delete does: its value entered goes, one change, and nothing is hidden', !('fund_juris' in App.entered.peek()) && !sc().byId.get('fund').texts.some(it => it.id === 'fund_juris')
+      && App.shown.peek().changes().length === changes + 1 && App.notes.peek().notes('Shown').length === shownNotes && sc().byId.get('aiv').texts.some(it => it.text === '(Delaware)')
+      && /^Cleared/.test(txt($$('.toast').at(-1))), `${changes} → ${App.shown.peek().changes().length}; ${txt($$('.toast').at(-1))}`);
     Shell.parts.peek().undo.undo(); await tick(250);
-    check('… and Undo takes it back whole', sc().byId.get('fund').texts.some(it => it.id === 'fund_juris'));
+    check('… and Undo takes it back whole', 'fund_juris' in App.entered.peek() && sc().byId.get('fund').texts.some(it => it.id === 'fund_juris'));
+    // Hiding it is its menu's (or the eye's): Hide from this box, one change, keyed to nothing; Clear contents is the one keyed Delete.
+    Shell.select(['fund']); await tick(200);
+    if (at) { await press(at); await press(at, 'contextmenu'); }
+    const fieldMenu = $$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]);
+    const keyed = Object.fromEntries(fieldMenu);
+    check('a field’s menu keys Delete to Clear contents, and hiding it to nothing', keyed['Clear contents'] === Shell.keyLabel('Delete') && 'Hide from this box' in keyed && !keyed['Hide from this box'], JSON.stringify(fieldMenu));
+    $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'Hide from this box')?.click(); await tick(250);
+    const hid = App.notes.peek().notes('Shown').find(n => n.view === Shell.view.peek() && Tree.key(n.pattern) === Tree.key({ args: [{ edge: 'Jurisdiction', loc: { id: 'fund', kind: 'Entity' } }] }));
+    check('Hide from this box hides it there: a Shown note at its entry’s pattern, at the box, one change', hid?.value === false && !sc().byId.get('fund').texts.some(it => it.id === 'fund_juris')
+      && App.shown.peek().changes().length === changes + 3 && sc().byId.get('aiv').texts.some(it => it.text === '(Delaware)'), `${hid?.value}; ${changes} → ${App.shown.peek().changes().length}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    check('… and Undo takes that back whole', sc().byId.get('fund').texts.some(it => it.id === 'fund_juris'));
     // The format bar, with a field selected, formats that field's text alone, as a text selected in a PowerPoint shape.
     Shell.select(['fund']); await tick(200);
     if (at) await press(at);
@@ -838,7 +850,7 @@ async function run() {
   // ---- Deleting as of a past day ends it then, by its own end entry, which its redline asks first ----
   Shell.at({ asOf: '2025-06-30' }); await tick(200);
   Shell.select(['halvard']); await tick(80);
-  cv().root.focus(); key('Delete', { shiftKey: true }); await tick(120);
+  cv().root.focus(); key('Delete'); await tick(120);
   const asked = txt($('.pendbar')), dayAsked = $('.pendbar .from input')?.value, stillThere = !!App.state.peek().halvard;
   key('Enter'); await tick(150);
   const toast = txt($$('.toast').at(-1));
@@ -944,10 +956,10 @@ async function run() {
     await pending('a relation added from today', () => tickRow('pension', 'fund', /is an owner of Fund III$/));
     await pending('another, Sponsor Holdings → Northpine', () => tickRow('holdco', 'northpine', /is an owner of Northpine Software, LLC$/));
     await pending('a relation added all along', async () => { await tickRow('pension', 'northpine', /is an owner of Northpine Software, LLC$/); $('.pendbar .from .sel')?.click(); await tick(); $$('.float .menu-item').find(x => txt(x) === 'All along')?.click(); });
-    await pending('a line deleted until today', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }, undefined, true);
-    await pending('a line deleted as never held', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); await tick(60);
+    await pending('a line deleted until today', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete'); }, undefined, true);
+    await pending('a line deleted as never held', async () => { Shell.select(['own_us_fund']); await tick(80); cv().root.focus(); key('Delete'); await tick(60);
       $('.pendbar .from .sel')?.click(); await tick(); $$('.float .menu-item').find(x => txt(x) === 'Never held')?.click(); }, undefined, true);
-    await pending('a box deleted, by its end entry', async () => { Shell.select(['northpine']); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }, undefined, true);
+    await pending('a box deleted, by its end entry', async () => { Shell.select(['northpine']); await tick(80); cv().root.focus(); key('Delete'); }, undefined, true);
     let field = null;
     const enterField = () => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     await pending('a start typed past the day shown', async () => { Shell.select(['northpine']); await tick(120);
@@ -981,8 +993,8 @@ async function run() {
         return rects.some(b => p.x < b.x + b.w && b.x < p.x + z.width && p.y < b.y + b.h && b.y < p.y + z.height); }).map(c => c.id); };
     const struck = [];
     for (const [what, begin] of [
-      ['a line deleted', async () => { Shell.select([hisLine]); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }],
-      ['a person deleted', async () => { Shell.select([okafor]); await tick(80); cv().root.focus(); key('Delete', { shiftKey: true }); }],
+      ['a line deleted', async () => { Shell.select([hisLine]); await tick(80); cv().root.focus(); key('Delete'); }],
+      ['a person deleted', async () => { Shell.select([okafor]); await tick(80); cv().root.focus(); key('Delete'); }],
       ['a fund’s start moved past today', async () => { Shell.select([coinv]); await tick(120); field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Formation Date');
         if (!field) throw new Error('no Formation Date: ' + coinv + ' ' + txt($('.insp')).slice(0, 200));
         field.focus(); await tick(); field.value = 'March 2, 2027'; field.dispatchEvent(new Event('input', { bubbles: true })); }]]) {
@@ -1006,6 +1018,94 @@ async function run() {
     check('a click away leaves a change pending, its bar and its redline drawn', !!App.pending.peek() && $$('.pendbar').length === 1 && !!$('.view > .pendbar') && sc() === red && sc() !== App.scene.peek(), `${!!App.pending.peek()} ${sc() === red}`);
     $$('.pendbar .btn').find(b => txt(b) === 'Discard')?.click(); await tick(160);
     check('… till Discard drops it, and the chart is drawn as it is', !App.pending.peek() && !$('.pendbar') && sc() === App.scene.peek() && !drawnAsScene().length);
+  }
+
+  // ---- Charts, boxes and Delete (dendra.md, Workbook, Views, the view): a new chart begins in the house look; what's
+  // made on a chart the chart shows, its kind chosen beside its name; Delete deletes; a text box lands in room ----
+  {
+    const named = name => Object.keys(App.state.peek()).find(id => App.state.peek()[id].kind && App.notes.peek().nameOf(App.state.peek(), id) === name);
+    const editor = () => $('.dc-edit'), chip = () => $('.dc-kind');
+    const typeIn = async (text, k = 'Enter') => { editor().textContent = text; editor().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); await tick(300); };
+    const ownShown = (id, view) => App.notes.peek().notes('Shown').find(n => n.view === view && n.pattern.id === id);
+    const act = charts().find(v => v.name === '40 Act');
+    await show(act);
+    const offered = Shell.parts.peek().canvas.kinds();
+    offered[0].run(); await tick(150);
+    check('a box asked for is named in place, “New …” in its room and its kind beside it', !!editor() && txt(chip()) === offered[0].label && /^New /.test(editor().dataset.ph ?? ''), `${txt(chip())} | ${editor()?.dataset.ph}`);
+    editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })); await tick(60);
+    const chosen = txt(chip());
+    check('… Tab switches its kind, the keys staying in its name', chosen === (offered[1] ?? offered[0]).label && document.activeElement === editor(), chosen);
+    chip().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })); await tick(60);
+    const listed = $$('.dc-kinds .menu-item').map(txt);
+    check('… and a click on it lists the kinds, the one it is ticked', listed.length === offered.length && !!$('.dc-kinds [aria-selected="true"]') && txt($('.dc-kinds [aria-selected="true"]')) === chosen, listed.join(', '));
+    $('.dc-kinds .menu-item')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })); await tick(60);
+    const n0 = App.wb.changes().length;
+    await typeIn('Halcyon Affiliate LLC');
+    const made = named('Halcyon Affiliate LLC');
+    check('a box made on a view whose filter hides its kind is drawn there, the same change showing it at its own tree', !!made && sc().byId.has(made) && App.state.peek()[made].kind === offered[0].label
+      && ownShown(made, act.id)?.value === true && App.wb.changes().length === n0 + 1 && !$('.dc-kind'), `${made} ${App.state.peek()[made]?.kind} ${ownShown(made, act.id)?.value} ${App.wb.changes().length - n0}`);
+    Shell.parts.peek().undo.undo(); await tick(200);
+    await show(main);
+    Shell.parts.peek().canvas.kinds()[0].run(); await tick(150);
+    await typeIn('Ninth Street Holdings LLC');
+    const plain = named('Ninth Street Holdings LLC');
+    check('… and on a view that draws it anyway, nothing more is written', !!plain && sc().byId.has(plain) && !ownShown(plain, main.id));
+    // Delete deletes a box or a line, as a change pending; Hide in this view is the menu's, keyed to nothing.
+    Shell.select([plain]); await tick(120);
+    cv().root.focus(); key('Delete'); await tick(200);
+    check('Delete on a box selected deletes it, as a change pending, redlined', App.pending.peek()?.verb === 'Delete' && App.pending.peek().needs?.includes(plain) && !!$('.pendbar'), App.pending.peek()?.what);
+    App.discard(); await tick(120);
+    const boxAt = m => { const c = cv().graph.localToGraph(m.x + m.w / 2, m.y + 4), r0 = cv().root.getBoundingClientRect(); return [r0.left + c.x, r0.top + c.y]; };
+    const [bx, by] = boxAt(sc().byId.get(plain));
+    document.elementFromPoint(bx, by)?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: bx, clientY: by, button: 2, view: window })); await tick(150);
+    const boxMenu = Object.fromEntries($$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]));
+    check('a box’s menu keys Delete to Delete…, and Hide in this view to nothing, with History beside them', boxMenu['Delete…'] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
+    $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'History')?.click(); await tick(250);
+    check('… its History opens History filtered to it', !!$('.hist') && txt($('.hist-focus')).includes('Ninth Street Holdings LLC'), txt($('.hist-focus')));
+    Time.close(); await tick(120);
+    Shell.parts.peek().undo.undo(); await tick(200);
+    // A text box inserted lands in empty room near the middle, never on a box or the Key, and reads its place in the page's points.
+    Shell.select([]); await tick(80);
+    cv().insert('text'); await tick(150);
+    const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const solid = () => sc().marks.filter(m => m.type === 'box' || m.geometry === 'legend');
+    await typeIn('Draft – privileged and confidential, for discussion only');
+    const tb = sc().marks.find(m => m.geometry === 'text' && m.texts?.[0]?.text?.startsWith('Draft'));
+    check('a text box inserted lands on no box and not on the Key', !!tb && !solid().some(m => meets(m, tb)), tb && solid().filter(m => meets(m, tb)).map(m => m.id).join());
+    await tick(150);
+    const left = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Left'), top = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Top');
+    const page = sc().page, want = v => String(Math.round(Scene.toSlide(page, v / Scene.PT)));
+    check('… its Position reads in the page’s points from the page’s top left, as a box’s does', !!tb && left?.value === want(tb.x) && top?.value === want(tb.y) && +left.value >= 0, `${left?.value},${top?.value} for ${tb && [want(tb.x), want(tb.y)]}`);
+    Shell.parts.peek().undo.undo(); await tick(150);
+    // The chart menu: the chart's own actions first, where they stay, its charts and the workbooks each a list of their own.
+    const items = () => Shell.parts.peek().workbook.menu();
+    const del = () => items().find(x => x.label === 'Delete chart');
+    check('the chart menu keeps its actions first and its lists in submenus', items().slice(0, 3).map(x => x.label).join() === 'New chart,Duplicate chart,Delete chart'
+      && items().find(x => x.label === 'Charts')?.items?.length === App.wb.charts().length && items().find(x => x.label === 'Workbooks')?.items?.some(x => x.label === 'Delete workbook'), items().map(x => x.label ?? x).join());
+    check('… Delete chart on a workbook’s only chart greyed, saying why', App.wb.charts().length > 1 || (del().disabled && /only chart/.test(del().tip ?? '')), JSON.stringify(del()));
+    // A new chart begins in the house look, whichever view is shown: the first chart view's looks, never its filter, nor the
+    // style of a relation a formula gives. (40 Act, its filter and its affiliates' styles and all, put first for this.)
+    Shell.parts.peek().views.move(act.id, 0); await tick(150);
+    await show(main);
+    items().find(x => x.label === 'New chart').run(); await tick(400);
+    const fresh = App.chart.peek(), N = App.notes.peek(), v0 = App.views.peek().find(v => v.layout === 'chart')?.id, at = n => n.view === v0;
+    $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+    check('a new chart takes the house look, the first chart view’s: its looks and frames, the kinds it keeps off the page, no filter, no affiliates’ style',
+      App.wb.charts().length === 2 && N.notes('Fill').some(n => at(n) && n.pattern.kind === 'Investor Group') && N.notes('Shown').some(n => at(n) && n.pattern.kind === 'Document' && n.value === false)
+      && N.notes('Frame').some(n => at(n)) && N.notes('Caption').some(n => at(n) && n.value === 'Portfolio companies and blockers')
+      && !N.notes('Shown').some(n => at(n) && n.value === false && !n.pattern.kind && !n.param && !(n.pattern.args?.length === 1))
+      && ![...N.notes('Dash'), ...N.notes('Shown'), ...N.notes('Caption'), ...N.notes('Above')].some(n => at(n) && JSON.stringify(n.pattern).includes('Affiliate')),
+      `${App.wb.charts().length} charts`);
+    check('… and the chart menu’s Delete chart is there for it', del() && !del().disabled);
+    Shell.parts.peek().canvas.kinds()[0].run(); await tick(150);
+    await typeIn('Larkspur Credit Fund II, L.P.');
+    const first = named('Larkspur Credit Fund II, L.P.');
+    check('… and the first box made in it stays, drawn, with nothing more written', App.chart.peek() === fresh && !!first && sc().byId.has(first) && !ownShown(first, v0), `${first}`);
+    del().run(); await tick(300);
+    check('… and Delete chart takes it away, the chart before shown again', App.wb.charts().length === 1 && App.chart.peek() !== fresh);
+    await show(main);
+    Shell.parts.peek().undo.undo(); await tick(200);
+    check('(the views back in their order)', charts()[0].id === main.id, charts().map(v => v.name).join());
   }
 
   const steps = [], step = async (what, f) => { await f(); await tick(120); const bad = drawnAsScene(); if (bad.length) steps.push(`${what}: ${bad.slice(0, 3).join(', ')}`); };
