@@ -51,7 +51,7 @@ function run(json) {
   // governing agreement is among its 55 documents, and each Delaware tax paid, a corporation's franchise tax
   // among them, is at the tax year it settled.
   const docs = Object.values(now).filter(r => r.kind === 'Document').length;
-  check('the sample is as big as it should be', Object.keys(now).length === 973 && docs === 55 && wb.changes().length === 136,
+  check('the sample is as big as it should be', Object.keys(now).length === 974 && docs === 55 && wb.changes().length === 136,
     `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
   const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
   const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
@@ -179,6 +179,11 @@ function run(json) {
     !Object.values(S).some(t => t.args?.length === 1 && Tree.same(t.args[0].edge, 'Registered Agent')) && N.name(tree('ra_fund')) === 'Registered Agent'
     && N.listName(tree('ra_fund'), 'Agent') === 'Registered Agents' && stood.fund_agent?.args.find(a => a.edge === 'Agent').at === 'ctc' && N.nameOf(now, 'ctc') === 'The Corporation Trust Company'
     && !now.fund_agent && now.ra_fund.args.find(a => a.edge === 'Agent').at === 'wilmington', j(stood.fund_agent));
+  // What an entity is to the chart is required: its Vehicle Type, Third Party for one that isn't the sponsor's, as Northstar.
+  const vehicleOrder = o => N.optionOrder({ out: { choice: o }, args: [{ edge: 'Vehicle Type', loc: { kind: 'Entity' } }] });
+  check('Vehicle Type is required at every entity, and offers Third Party after Portfolio Company, as Northstar Teachers’ Retirement System is', N.required(tree('fund_vehicle'))
+    && vehicleOrder('Third Party') === vehicleOrder('Portfolio Company') + 1 && now.pension_vehicle?.choice === 'Third Party' && N.isEnd({ out: { field: 'date' }, args: [{ edge: 'Dissolution Date', loc: tree('fund') }] }),
+    `${vehicleOrder('Portfolio Company')} ${vehicleOrder('Third Party')}`);
   // The jurisdictions a fund practice meets are the sample's options: every state and D.C., and the offshore and European ones.
   const jurisdictions = Object.values(S).filter(t => t.out?.choice && t.args?.length === 1 && Tree.same(t.args[0].edge, 'Jurisdiction') && Tree.same(t.args[0].loc.kind ?? '', 'Entity')).map(t => t.out.choice)
     .sort((a, b) => N.optionOrder({ out: { choice: a }, args: [{ edge: 'Jurisdiction', loc: { kind: 'Entity' } }] }) - N.optionOrder({ out: { choice: b }, args: [{ edge: 'Jurisdiction', loc: { kind: 'Entity' } }] }));

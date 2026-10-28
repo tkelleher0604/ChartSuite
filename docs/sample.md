@@ -5,7 +5,7 @@ The workbook a first launch opens is Calder Ridge, a fictional private fund mana
 ## What's in it
 
 **Objects:**
-- 17 entities: the funds (Fund III, the parallel Fund III-A, the Cayman feeder, AIV-1 and the Corvane co-invest), the GPs, the manager, the sponsor holding company, two blockers, three portfolio companies, and a BDC the manager advises.
+- 17 entities: the funds (Fund III, the parallel Fund III-A, the Cayman feeder, AIV-1 and the Corvane co-invest), the GPs, the manager, the sponsor holding company, two blockers, three portfolio companies, a BDC the manager advises, and an outside investor in it, the pension plan.
 - 7 people, and 5 investor groups.
 - 3 service providers, the registered agents: Wilmington Harbor in Delaware, The Corporation Trust Company before it, and Seven Mile in the Cayman Islands.
 - 55 documents, among them the formation document and governing agreement of each Calder Ridge entity.
@@ -14,7 +14,7 @@ The workbook a first launch opens is Calder Ridge, a fictional private fund mana
 
 Jurisdiction offers every U.S. state and D.C., and the offshore and European jurisdictions a fund practice meets: the Cayman Islands, the British Virgin Islands, Bermuda, Jersey, Guernsey, Luxembourg, Ireland, the Netherlands, England and Wales, Singapore and Hong Kong. A registered agent is recorded one way, as a relation of a service provider and the jurisdiction it serves.
 
-Opened as of today, the chart has 973 entered records. The definitions work out 600 more, for 1,573 in all:
+Opened as of today, the chart has 974 entered records. The definitions work out 600 more, for 1,574 in all:
 - **Control** (51) and **Affiliated Person** (289) under §2(a)(9) and §2(a)(3), with the statute's words beside each clause.
 - The BDC's **Close Affiliates** (21) and its one **Remote Affiliate**, under §57.
 - **Look-Through Ownership** (51), and whether **Ownership Adds Up**.
@@ -27,7 +27,9 @@ Opened as of today, the chart has 973 entered records. The definitions work out 
   - the Cayman annual return and fee, audited accounts, CRS and FATCA.
 
   Each moves to the business day before a weekend where the rule says "on or before".
-- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each Calder Ridge entity, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage.
+
+  Each is owed only by an entity of the family: one whose Vehicle Type, which is required, is set and isn't Portfolio Company or Third Party, as the pension plan is. So a buyer, or an entity not yet typed, owes nothing tracked.
+- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each entity of the family, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage.
 
 ## Views
 
@@ -53,4 +55,4 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page.
 
 ## How it's kept
 
-The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, the people's addresses, the jurisdictions to choose from, and the registered agent once kept as text, The Corporation Trust Company, as the relation, which Jordan's changes of January 2025 delete as before. The formation documents and governing agreements it lacked are filed with the documents of their time. The revision that gave each tax year its own Delaware tax, a corporation's franchise tax among them, records each payment made before it at the year it settled, from the day it was paid, so the chart as of every day owes what was owed then. So every change in History is one of the three people's, made in working hours, and the chart as it stood after each works out as it did, with those documents on file. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).
+The sample was converted from the earlier app's and revised since by scripts. What the app's own building changed after the team's work is folded into the rows it fixed, as if the chart had been kept that way from the start: the charts' palettes, captions, layouts and pages, the renamed lists and labels, Fiscal Year End as a day of the year, the people's addresses, the jurisdictions to choose from, Vehicle Type required and the pension plan's Third Party, the rules that track only the family's own entities, and the registered agent once kept as text, The Corporation Trust Company, as the relation, which Jordan's changes of January 2025 delete as before. The formation documents and governing agreements it lacked are filed with the documents of their time. The revision that gave each tax year its own Delaware tax, a corporation's franchise tax among them, records each payment made before it at the year it settled, from the day it was paid, so the chart as of every day owes what was owed then. So every change in History is one of the three people's, made in working hours, and the chart as it stood after each works out as it did, with those documents on file. The tests check its counts: [app/tests/core-test.html](../app/tests/core-test.html) and [engine-test.html](../app/tests/engine-test.html).
