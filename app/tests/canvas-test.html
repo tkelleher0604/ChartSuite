@@ -1179,8 +1179,38 @@ async function run() {
   await step(`${mainView.name} last`, () => show(mainView));
   check('what the canvas draws is the scene, after edits, views shown in turn, previews, undoing, Tidy and a past day', !steps.length, steps.join('; '));
 
+  await keptAsDrawn();
+
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
+}
+
+// ---- What a change keeps where it's drawn is drawn there again (gui2 L-2.6): two owners of Fund III imported, then
+// Northwind buying a third of Tessellate from the AIV-1 Blocker, made an LLC. Each of Northwind and the importeds is placed by the
+// layout among places entered, deepened as its row is for the lanes over it, and kept as the layout placed it: so the
+// edit after, which places nothing, moves no box and re-routes no line ----
+async function keptAsDrawn() {
+  await show(charts()[0]);
+  const st = () => App.state.peek(), n0 = App.wb.changes().length;
+  // (To the half pixel a place is kept to.)
+  const boxAt = () => new Map(sc().marks.filter(m => m.type === 'box').map(m => [m.record, [m.x, m.y, m.w, m.h]]));
+  const routes = () => new Map(sc().marks.filter(m => m.type === 'line').map(m => [m.id, m.points.flat()]));
+  const near = (a, b) => !!a && !!b && a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) <= 0.5);
+  const entity = (tx, name) => { const e = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: e, edge: 'Name', field: 'text', value: name }); return e; };
+  const owns = (tx, a, b, p) => { const o = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: p }); };
+  App.change(tx => { owns(tx, entity(tx, 'Harborview Pension Fund'), 'fund', 0.045); owns(tx, entity(tx, 'Meridian Family Office LLC'), 'fund', 0.02); }); await tick(400);
+  let nw = null;
+  const pct = Object.keys(st()).find(id => st()[id].at === 'own_aivblk_tess' && st()[id].edge === 'Percentage');
+  App.change(tx => { nw = entity(tx, 'Northwind Holdings LLC'); owns(tx, nw, 'tessellate', 0.33); if (pct) tx.update(pct, { value: 0.33 }); }); await tick(400);
+  const was = boxAt(), lw = routes();
+  check('a new owner of a box low on the chart goes beside its other owners, in their row: Northwind beside the AIV-1 Blocker, over Tessellate', !!was.get(nw) && Math.abs(was.get(nw)[1] - was.get('aivblk')[1]) < 0.5,
+    JSON.stringify({ nw: was.get(nw), aivblk: was.get('aivblk'), tessellate: was.get('tessellate') }));
+  App.change(tx => tx.add('record', { at: nw, edge: 'Entity Type', choice: 'Limited Liability Company' })); await tick(400);
+  const now = boxAt(), ln = routes(), moved = [...was].filter(([id, p]) => !near(now.get(id), p)), rerouted = [...lw].filter(([id, p]) => !near(ln.get(id), p)).map(([id]) => id);
+  check('an edit that places nothing moves no box and re-routes no line: Northwind, bought into Tessellate among owners just imported, made an LLC', !!nw && was.has(nw) && !moved.length && !rerouted.length,
+    JSON.stringify({ moved: moved.map(([id, p]) => [id, p, now.get(id)]), rerouted }));
+  for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(200); }
+  check('… and undone, as it was', App.wb.changes().length === n0 + 6 && !st()[nw], App.wb.changes().length - n0);
 }
 
 async function stillAsMade() {

@@ -791,7 +791,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed };
     l.texts = l.revealed ? [] : [own, ...l.texts, ...freeText(l)].filter(it => it.text);
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
-    labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r));
+    // A line's Position is its label's, where it was dragged to (see Layout.pin).
+    const pin = N.resolve('Position', t, view)?.value;
+    labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r), Number.isFinite(pin?.along) ? { along: pin.along, dx: pin.dx ?? 0, dy: pin.dy ?? 0 } : undefined);
     // The layout and the routes read the relation a line draws, never its look, so restyling a line moves
     // nothing; lines of one look along one route are drawn as one (see below), which is drawing.
     l.trunk = once(l.record, 'relation', () => `${N.name(t)}|${Tree.shapeOf(t)}`);
@@ -937,7 +939,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // A triangle placed that its texts set wider than it was placed keeps its middle where it was, as far as the room on its
     // left allows, so its apex stays under its owners' lines; else, as any other box, it grows rightward, those beside it
     // moving aside (see spread).
-    for (const b of boxes) Object.assign(b, placed.get(b.id));
+    // (Where the layout puts each box, in the terms of a place entered, before anything moves it for the room its lanes and
+    // labels need: its `laid` place, which a change keeping it where it's drawn enters, so it's drawn there again.)
+    for (const b of boxes) { Object.assign(b, placed.get(b.id)); b.laid = { ...placed.get(b.id) }; }
     if (squeeze === 1) for (const b of [...boxes].sort((p, q) => p.x - q.x)) if (b.entered && b.pos.w && b.shape === 'triangle' && b.w > b.pos.w && !last?.at.has(b.id)) {
       const level = a => a !== b && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2 && a.x + a.w / 2 < b.x + b.pos.w / 2;
       const room = b.x - Math.max(-Infinity, ...boxes.filter(level).map(a => a.x + a.w + 8));
@@ -1281,12 +1285,13 @@ function setText(b) {
   for (const it of b.texts) y = stack(it, b.column.x, b.column.width, y);
 }
 // A line's label: its texts stacked from its top left, as wide as the widest line. It's `shared` where it's
-// the line's own name alone, which a trunk's lines can say once.
-function labelOf(l, shared = l.label?.shared ?? false) {
+// the line's own name alone, which a trunk's lines can say once; `pin`ned where it was dragged to a place of its own
+// (see Layout.pin).
+function labelOf(l, shared = l.label?.shared ?? false, pin = l.label?.pin) {
   let y = 0;
   for (const it of l.texts) y = stack(it, 0, 0, y);
   const lastLine = l.texts.at(-1)?.lines.at(-1);
-  l.label = l.texts.length ? { w: widest(l.texts), h: y, base: lastLine?.y ?? y, text: l.texts.map(it => it.text).join('\n'), shared } : null;
+  l.label = l.texts.length ? { w: widest(l.texts), h: y, base: lastLine?.y ?? y, text: l.texts.map(it => it.text).join('\n'), shared, ...(pin && { pin }) } : null;
 }
 
 // The middle of the side of a box that faces a point.

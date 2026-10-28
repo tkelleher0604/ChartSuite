@@ -885,6 +885,52 @@ function run() {
       seen.every(x => !x.shared.length && x.y['General partner'] - x.y['Investment adviser'] > 10), j(seen));
   }
   {
+    // Dana's Halvard Fund IV (gui2 D-14): four owners' lines run together into the fund's apex. Each owner's percentage is
+    // on its own drop, just under the owner, as a comb's teeth, never on the run they share; placed by hand or laid out,
+    // slide and Letter. And a label never touches its own line: the GP's "General partner" 2 pt or more clear of its drop.
+    const advises = (tx, a, b) => tx.add('record', { args: [{ edge: 'Adviser', at: a }, { edge: 'Client', at: b }], tag: true });
+    const halvard = (placed, paper = null) => newChart((tx, view) => {
+      const [f, type] = entity(tx, 'Halvard Capital Fund IV, L.P.', 'Limited Partnership', { Jurisdiction: 'Delaware' }), [g] = entity(tx, 'Halvard Fund IV GP, LLC', 'Limited Liability Company', { Jurisdiction: 'Delaware' });
+      const [m] = entity(tx, 'Halvard Capital Management, LLC', 'Limited Liability Company', { Jurisdiction: 'Delaware' }), [b] = entity(tx, 'Halvard IV Blocker, Inc.', 'Corporation', { Jurisdiction: 'Delaware' });
+      const [a] = entity(tx, 'Atlas Packaging Holdings, LLC', 'Limited Liability Company', { Jurisdiction: 'Delaware' });
+      const inv = [['State Teachers Pension Plan', 0.4], ['Ridgeway Family Office LLC', 0.25], ['Harbor University Endowment', 0.35], ['Coastal Insurance Co.', 0.05]].map(([n, p]) => { const i = group(tx, n); owns(tx, i, f, p); return i; });
+      gpOf(tx, g, type); advises(tx, m, f); owns(tx, f, b, 1); owns(tx, b, a, 0.6);
+      tx.note('Shown', { out: { tag: true }, args: [{ edge: 'Adviser', loc: {} }, { edge: 'Client', loc: {} }] }, true, { view });
+      if (placed) for (const [id, kind, x, y] of [[g, 'Entity', 40, 100], [m, 'Entity', 200, 100], ...inv.map((i, k) => [i, 'Investor Group', 360 + 160 * k, 100]), [f, 'Entity', 520, 300], [b, 'Entity', 540, 480], [a, 'Entity', 540, 620]])
+        tx.note('Position', { id, kind }, { x, y, w: id === f ? 176 : 132 }, { view });
+    }, paper).s;
+    const combs = [true, false].flatMap(p => [null, 'letter'].map(paper => {
+      const s = halvard(p, paper), fund = s.marks.find(m => m.shape === 'triangle');
+      const owners = s.marks.filter(l => l.type === 'line' && l.to === fund.id && /%$/.test(l.label?.text ?? ''));
+      const teeth = owners.map(l => { const o = s.byId.get(l.from), x = l.points[0][0], at = l.labelAt;
+        return { text: l.label.text, ok: !!at && at.y >= o.y + o.h && at.y <= o.y + o.h + 6 && (Math.abs(at.x - (x + 4)) < 0.5 || Math.abs(at.x + l.label.w - (x - 4)) < 0.5), at, x, bottom: o.y + o.h }; });
+      const gp = s.marks.find(l => l.type === 'line' && l.label?.text === 'General partner'), r = gp?.labelAt && { ...gp.labelAt, w: gp.label.w, h: gp.label.h };
+      const touches = !!r && gp.points.slice(1).some((q, i) => { const p0 = gp.points[i];
+        return Math.abs(p0[0] - q[0]) < 0.5 ? p0[0] > r.x - 8 / 3 + 0.01 && p0[0] < r.x + r.w + 8 / 3 - 0.01 && Math.max(p0[1], q[1]) > r.y + 0.5 && Math.min(p0[1], q[1]) < r.y + r.h - 0.5
+          : p0[1] > r.y - 4 / 3 + 0.01 && p0[1] < r.y + r.h + 4 / 3 - 0.01 && Math.max(p0[0], q[0]) > r.x + 0.5 && Math.min(p0[0], q[0]) < r.x + r.w - 0.5; });
+      return { placed: p, paper, teeth: teeth.filter(t => !t.ok), owners: owners.length, gp: !!gp, touches };
+    }));
+    check('owners’ lines run together into a fund’s apex: each percentage on its own drop, just under its owner, never on the run they share, placed by hand or laid out, slide and Letter',
+      combs.every(c => c.owners === 4 && !c.teeth.length), j(combs));
+    check('… and a label never touches its own line: “General partner” 2 pt or more clear of its drop and its lane', combs.every(c => c.gp && !c.touches), j(combs));
+  }
+  {
+    // A label dragged (gui2 D-14) is the line's Position in the view: kept by its line as it runs, that far along it and as far
+    // off it, as its boxes move; and the other labels keep clear of it.
+    const wb = fresh(), s0 = scene(wb), l0 = s0.marks.find(m => m.type === 'line' && m.record && m.label?.text === '12%'), t = tree(wb, l0.record);
+    const put = { x: l0.points[0][0] + 6, y: (l0.points[0][1] + l0.points[1][1]) / 2 }, pin = Layout.pin(l0.points, { ...put, w: l0.label.w, h: l0.label.h });
+    edit(wb, (tx, N) => note(tx, N, 'Position', t, MAIN, pin));
+    const s1 = scene(wb), l1 = s1.byId.get(l0.id), r1 = { ...l1.labelAt, w: l1.label.w, h: l1.label.h };
+    const northpine = s1.byId.get(l0.to);
+    edit(wb, (tx, N) => note(tx, N, 'Position', tree(wb, northpine.record), MAIN, { x: northpine.x - s1.page.offset.x + 60, y: northpine.y - s1.page.offset.y, w: northpine.w }));
+    const s2 = scene(wb), l2 = s2.byId.get(l0.id), at2 = Layout.pinned(l2.points, pin);
+    const others = s1.marks.filter(m => m.type === 'line' && m.id !== l1.id && m.labelAt).map(m => ({ ...m.labelAt, w: m.label.w, h: m.label.h }));
+    const meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    check('a label dragged stays where it was put, the line’s Position, kept by its line as it runs, and the other labels keep clear of it',
+      Math.abs(r1.x - put.x) < 0.5 && Math.abs(r1.y - put.y) < 0.5 && Math.abs(l2.labelAt.x - at2.x) < 0.01 && Math.abs(l2.labelAt.y - at2.y) < 0.01 && !others.some(o => meets(o, r1)),
+      j({ put, pin, r1, at2, l2: l2.labelAt }));
+  }
+  {
     // A font pointed at in the bar is drawn as picking it will lay the chart out (gui1 R-17): every label on the side it was.
     const wb = fresh(), s = scene(wb), rows = wb.rows(C).concat([{ id: '·font', note: '·font', label: 'Font', pattern: { out: { field: 'text' }, args: [{ edge: 'Name', loc: {} }] }, view: MAIN, value: 'Garamond' }]);
     const notes = Notes.index(rows.filter(r => 'note' in r)), tried = { ...wb, rows: () => rows, notes: () => notes }, R = computed(wb);
@@ -914,7 +960,9 @@ function run() {
     const on = s.marks.filter(m => m.type === 'line' && m.from !== e && m.to !== e && m.points.slice(1).some((p, i) => meets([m.points[i], p])));
     const over = s.marks.filter(m => m.type === 'box' && m.id !== e && b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
     check('a new owner is placed on no line it isn’t on, and over no box', !on.length && !over.length, j({ at: [b.x, b.y], on: on.map(m => m.id), over: over.map(m => m.id) }));
-    check('and beside what it owns, above it', b.y + b.h < fund3a.y && Math.abs(b.x + b.w / 2 - (fund3a.x + fund3a.w / 2)) < 400, j({ at: [b.x, b.y] }));
+    // (Fund III-A's owners' row is the investors', which has room only at its end.)
+    const owner = s.byId.get('inv_3a');
+    check('and over what it owns, in the row of the owners of what it owns, where that row has room', b.y + b.h < fund3a.y && Math.abs(b.y - owner.y) < 0.5, j({ at: [b.x, b.y], row: owner.y }));
   }
 
   // ---- How long it takes ----

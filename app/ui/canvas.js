@@ -340,11 +340,12 @@ function mount(el) {
     panning: { enabled: true, eventTypes: ['mouseWheelDown'] },
     mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], zoomAtMousePosition: true, minScale: LEAST, maxScale: 4, factor: 1.12 },
     scaling: { min: LEAST, max: 4 },
-    translating: { restrict: view => scene ? pageRect(view?.cell?.getData()?.kind === 'shape') : null },
+    translating: { restrict: view => scene ? pageRect(['shape', 'label'].includes(view?.cell?.getData()?.kind)) : null },
+    // A line's label is dragged along its line, or off it, as its own (see movedLabel).
     interacting: view => {
       const k = view.cell.getData()?.kind;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still(), edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && !UNMARKED.has(k) };
+      return { nodeMovable: !pointing && !still() && (!UNMARKED.has(k) || k === 'label') };
     },
   });
   // Only the cells on screen, and a margin round it, are drawn, as X6 draws a big graph (`virtual`), so a chart
@@ -716,7 +717,16 @@ function mount(el) {
     moveTo(places);
   }
   const membersOf = f => [...f.members.map(id => scene.byId.get(id)), ...f.frames.flatMap(id => membersOf(scene.byId.get(id)))].filter(Boolean);
-  graph.on('node:moved', ({ node }) => { dragging = null; moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
+  // A line's label dragged: where it's put, kept by its line as it runs (Layout.pin), the line's Position in this view.
+  // (A click that shook the label by a hair leaves it where it was.)
+  function movedLabel(node) {
+    const m = scene.byId.get(node.getData().mark), p = node.getPosition();
+    if (!m?.points || !m.label || !m.labelAt) return;
+    if (Math.hypot(p.x - m.labelAt.x, p.y - m.labelAt.y) * graph.zoom() < 3) return node.setPosition(m.labelAt.x, m.labelAt.y);
+    const at = Layout.pin(m.points, { x: p.x, y: p.y, w: m.label.w, h: m.label.h });
+    App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
+  }
+  graph.on('node:moved', ({ node }) => { dragging = null; if (node.getData()?.kind === 'label') return movedLabel(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
   graph.on('node:resized', ({ node }) => { dragging = null; moved([node.id]); });
   graph.on('edge:mouseup', ({ edge }) => { if (scene.byId.get(edge.id)?.geometry === 'line') moved([edge.id]); });
 
@@ -764,7 +774,7 @@ function mount(el) {
       paintStates();
     });
   }
-  graph.on('node:moving', ({ node }) => { dragging = node.id; showHandles(null); follow(node); });
+  graph.on('node:moving', ({ node }) => { dragging = node.id; showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else follow(node); });
   graph.on('node:resizing', ({ node }) => { dragging = node.id; showHandles(null); follow(node); });
 
   // ---- Double-click to type: a box's text edits its record, a shape's its own ----
@@ -1942,9 +1952,14 @@ function mount(el) {
   // those the layout placed (and one made loosely that stands, though related), entering each where it stands, as
   // `kept`. So a change moves only what it touches: a box added goes beside its relatives, and nothing else moves. A
   // change pending is drawn so, as making it will draw it (see show) ----
+  // (In a chart placed, each where the layout put it among the places entered, in their terms: not where the room their
+  // lanes took moved it with them, which drawing it again gives it again. In one the layout alone placed, where it's drawn.)
   function holdsOf(base) {
     const o = origin(base.page), out = new Map();
-    for (const m of base.marks) if (m.type === 'box' && !m.placed && !m.revealed) out.set(m.record, { x: round(m.x - o.x), y: round(m.y - o.y), w: round(m.w), kept: true });
+    for (const m of base.marks) if (m.type === 'box' && !m.placed && !m.revealed) {
+      const [x, y] = base.page.placed && m.laid ? [m.laid.x, m.laid.y] : [m.x - o.x, m.y - o.y];
+      out.set(m.record, { x: round(x), y: round(y), w: round(m.w), kept: true });
+    }
     return out;
   }
   const stopKeep = App.keeping(tx => {
