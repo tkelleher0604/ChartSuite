@@ -142,7 +142,10 @@
 .newrow { display: flex; align-items: center; height: var(--row); border-bottom: 1px solid var(--rule); background: var(--surface); }
 .newrow > .plus { display: grid; place-items: center; width: 48px; height: 100%; flex: none; background: var(--paper); color: var(--ink-3); border-right: 1px solid var(--rule); }
 .newrow > .nr-name, .newrow > .nr-go { width: var(--lead, 240px); max-width: calc(100% - 48px); height: 100%; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; cursor: text; }
-.newrow > .nr-go { color: var(--ink-3); cursor: default; }
+.newrow > .nr-go { display: flex; align-items: center; gap: 6px; width: auto; min-width: var(--lead, 240px); color: var(--ink-3); cursor: default; white-space: nowrap; }
+.newrow > .nr-go.on { color: var(--ink); box-shadow: inset 0 0 0 2px var(--accent); }
+.newrow .nr-side { color: var(--accent-ink); }
+.newrow .nr-to, .newrow .nr-next { color: var(--ink-3); }
 .newrow > .nr-name::placeholder { color: var(--ink-3); }
 .newrow:hover > :is(.nr-name, .nr-go) { background-image: linear-gradient(var(--hover), var(--hover)); }
 .newrow > .nr-name:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); background: var(--surface); }
@@ -163,13 +166,13 @@
 .cols { display: grid; width: 280px; max-height: min(480px, calc(100vh - 160px)); overflow: auto; margin: -8px -8px; padding: 4px 0; }
 .colrow { position: relative; display: flex; align-items: center; gap: 4px; min-height: var(--row); padding: 0 8px 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--ink); text-align: left; user-select: none; }
 .colrow.mv:hover { background: var(--hover); }
-.colrow > .grip { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--ink-3); opacity: 0; }
-.colrow.mv:hover > .grip { opacity: 1; cursor: grab; }
+.colrow > .colgrip { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--ink-3); opacity: 0; }
+.colrow.mv:hover > .colgrip { opacity: 1; cursor: grab; }
 .colrow > label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; min-height: var(--row); }
 .colrow > label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .colrow:not(.mv) > label { color: var(--ink-3); }
 .colrow.new { margin-top: 4px; border-top: 1px solid var(--rule); border-radius: 0; color: var(--ink-2); }
-.colrow.new > .grip { opacity: 1; }
+.colrow.new > .colgrip { opacity: 1; }
 button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .colrow.new > input { flex: 1; height: 24px; margin: 2px 0; }
 

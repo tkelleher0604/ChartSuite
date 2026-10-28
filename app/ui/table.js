@@ -292,7 +292,7 @@ const Table = (() => {
       return true;
     };
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); if (!readable(cell, input.value)) return bad(); done = true; cancel(); fillWith(cell, input.value); }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); if (!readable(cell, input.value)) return bad(); const cs = ranged; done = true; cancel(); fillWith(cell, input.value, cs); }
       else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (keep()) move(e.shiftKey ? 'up' : 'down'); }
       else if (e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); if (keep()) move(e.shiftKey ? 'left' : 'right'); }
       else if (e.key === 'Escape') { e.stopPropagation(); done = true; cancel(); back(); }
@@ -523,6 +523,7 @@ const Table = (() => {
       settle();
       if (was) { t.rowManager.element.scrollLeft = was.left; t.rowManager.element.scrollTop = was.top; }
       strip();
+      tally(); looked.value++;
     });
   }
   // What the columns are, in any order (a column moved is moved in the grid: arrange); when it changes, the grid is
@@ -595,7 +596,7 @@ const Table = (() => {
       if (first) reveal(first);
       flash(lit);
       regain();
-      tally();
+      tally(); looked.value++;
       strip();
       if (f.again) refresh(); else settle();
     });
@@ -669,7 +670,7 @@ const Table = (() => {
     const a = document.activeElement;
     if (inside && table && el?.offsetParent && (!a || a === document.body) && !table.modules.edit?.currentCell) holder()?.focus({ preventScroll: true });
   }
-  const back = () => { inside = true; requestAnimationFrame(regain); setTimeout(settle); };
+  const back = () => { inside = true; ranged = null; requestAnimationFrame(regain); setTimeout(settle); };
   // A cell made active for the keys: the selected record's row, or the first, in the first column.
   function activate() {
     const sr = table?.modules.selectRange;
@@ -698,15 +699,16 @@ const Table = (() => {
   // itself: editor). While a change is pending, Enter is App's, which makes it.
   const canEdit = cell => { const d = cell.getColumn().getDefinition(); return !!d.editor && (typeof d.editable !== 'function' || d.editable(cell)); };
   let tabbed = null;   // the column a run of Tabs began in
+  let ranged = null;   // the cells selected as a cell began to be typed in, which Tabulator narrows to that cell
   function first(e) {
     if (!table) return;
     const sr = table.modules.selectRange, editing = table.modules.edit?.currentCell;
     if (editing) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.target.classList?.contains('typed')) {
         e.preventDefault(); e.stopPropagation();
-        const raw = e.target.value ?? '', cell = editing.getComponent();
+        const raw = e.target.value ?? '', cell = editing.getComponent(), cs = ranged;
         cell.cancelEdit();
-        fillWith(cell, raw);
+        fillWith(cell, raw, cs);
       }
       return;
     }
@@ -1063,12 +1065,17 @@ const Table = (() => {
     if (now().join('\n') === want.join('\n')) return true;
     const n = Math.max(1, frozenOf(lookOf(m.view)));
     if (now().length !== want.length || now().slice(0, n).join('\n') !== want.slice(0, n).join('\n')) return false;
-    // A column selected whole stays selected, where it's gone (Tabulator would leave one of its cells selected).
-    const r = table.getRanges()[0], rows = table.getRows('active'), whole = r && rows.length > 1 && r.getRows().length === rows.length && r.getColumns().filter(c => c.getField());
+    // A column selected whole stays selected, where it's gone (Tabulator would leave one of its cells selected). Tabulator
+    // moves the selection with a column, and can't where there's none, so one is lent it for the move.
+    const sr = table.modules.selectRange, r = table.getRanges()[0], rows = table.getRows('active'), first = table.getColumns().find(c => c.getField());
+    const whole = r && rows.length > 1 && r.getRows().length === rows.length && r.getColumns().filter(c => c.getField()), lent = !sr.activeRange;
+    if (lent && !rows.length) return false;
     arranging = true;
     try {
+      if (lent) table.addRange(rows[0].getCell(first), rows[0].getCell(first));
       want.forEach((f, i) => { const at = now()[i]; if (at !== f) table.moveColumn(f, at, false); });
       if (whole?.length) { const cs = table.getColumns().filter(c => whole.includes(c)); table.addRange(rows[0].getCell(cs[0]), rows.at(-1).getCell(cs.at(-1))); }
+      if (lent) { sr.clearRanges(); sr.activeRange = false; sr.layoutElement(); }
     } finally { arranging = false; }
     pinned(table);
     return true;
@@ -1341,7 +1348,7 @@ const Table = (() => {
     if (!m || m.view !== view) return null;
     const l = lookOf(view), by = k => m.cols.find(c => c.key === k);
     const sortC = l.sort && by(l.sort.key), groupC = l.group && m.named && by(l.group), fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean);
-    const total = m.data.filter(r => r._red !== 'add').length, showing = table && ready ? table.getDataCount('active') : total;
+    const total = m.data.filter(r => r._red !== 'add').length, showing = table && ready ? table.getData('active').filter(r => r._red !== 'add').length : total;
     return html`<div class="tbar" role="toolbar" aria-label="Table">
       <button type="button" class="btn ghost dd" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
       <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? html`Sorted by ${called(sortC)}` : 'Sort'}</button>
@@ -1385,12 +1392,12 @@ const Table = (() => {
     const add = e => { if (e.key === 'Enter') { e.preventDefault(); if (addColumn(e.target.value)) e.target.value = ''; } else if (e.key === 'Escape') { e.stopPropagation(); setNaming(false); } };
     return html`<div class="cols" ref=${ref}>
       ${m.cols.map(c => c.pattern
-        ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="grip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
+        ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
             <label><input type="checkbox" checked=${c.shown} disabled=${!writes} onChange=${() => show(c, !c.shown)} /><span>${called(c)}</span></label></div>`
-        : html`<div class="colrow" key=${c.key}><span class="grip" /><label><input type="checkbox" checked disabled /><span>${called(c)}</span></label></div>`)}
+        : html`<div class="colrow" key=${c.key}><span class="colgrip" /><label><input type="checkbox" checked disabled /><span>${called(c)}</span></label></div>`)}
       ${m.base && writes ? naming
-        ? html`<div class="colrow new"><span class="grip" /><input class="col-new" placeholder="New column" aria-label="New column" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} onKeyDown=${add} onBlur=${e => { if (!clean(e.target.value)) setNaming(false); }} /></div>`
-        : html`<button type="button" class="colrow new" onClick=${() => setNaming(true)}><span class="grip">${Shell.icon('plus')}</span><span>New column</span></button>` : null}
+        ? html`<div class="colrow new"><span class="colgrip" /><input class="col-new" placeholder="New column" aria-label="New column" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} onKeyDown=${add} onBlur=${e => { if (!clean(e.target.value)) setNaming(false); }} /></div>`
+        : html`<button type="button" class="colrow new" onClick=${() => setNaming(true)}><span class="colgrip">${Shell.icon('plus')}</span><span>New column</span></button>` : null}
     </div>`;
   }
 
@@ -1403,8 +1410,12 @@ const Table = (() => {
     const label = `New ${m.noun}`;
     if (m.isKind) return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span>
       <input class="nr-name" placeholder=${label} aria-label=${label} spellcheck=${false} autocomplete="off" onKeyDown=${newName} /></div>`;
-    return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span><button type="button" class="nr-go" aria-haspopup="menu" onClick=${e => relate(e.currentTarget)}>${label}</button></div>`;
+    // While its sides are picked, the row says those picked, and the side asked for next.
+    const so = choosing.value;
+    return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span><button type="button" class=${'nr-go' + (so ? ' on' : '')} aria-haspopup="menu" onClick=${e => relate(e.currentTarget)}>${so
+      ? html`${so.picked.map(n => html`<span class="nr-side">${n}</span><span class="nr-to">→</span>`)}<span class="nr-next">${so.next}</span>` : label}</button></div>`;
   }
+  const choosing = Shell.signal(null);
   // Enter makes it and stays for the next; Tab makes it and goes on to its next cell; Esc leaves it.
   function newName(e) {
     const input = e.currentTarget, s = clean(input.value);
@@ -1418,8 +1429,13 @@ const Table = (() => {
     landed(id, () => {
       if (e.key !== 'Tab') return reveal(id);
       Shell.select([id]);
-      const row = table.rowManager.findRow(id)?.getComponent(), col = table.getColumns().filter(c => c.getField())[1];
-      if (row && col) { table.addRange(row.getCell(col), row.getCell(col)); focus(); across(); }
+      // Once the inspector has come in beside it and the grid is laid out again for its room.
+      const go = (tries = 30) => {
+        if ((Shell.gliding.peek() || laid.get(table) !== widthOf(table)) && tries) return setTimeout(() => go(tries - 1), 30);
+        const row = table.rowManager.findRow(id)?.getComponent(), col = table.getColumns().filter(c => c.getField())[1];
+        if (row && col) { table.addRange(row.getCell(col), row.getCell(col)); focus(); across(); table.modules.selectRange.layoutElement(); }
+      };
+      go();
     });
   }
   // Once a record made is a row of the grid (or the grid's filters leave it out, which the toast says).
@@ -1429,8 +1445,13 @@ const Table = (() => {
     if (tries) setTimeout(() => landed(id, then, tries - 1), 25);
   }
   function relate(anchor) {
-    const m = current, sides = m.cols.filter(c => c.type === 'edge'), picked = {};
-    const next = i => i < sides.length ? pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); }) : addRelation(m, sides, picked);
+    const m = current, sides = m.cols.filter(c => c.type === 'edge'), picked = {}, st = App.state.peek(), N = App.notes.peek();
+    const say = o => typeof o === 'string' ? N.nameOf(st, o) : clean(o.name);
+    const next = i => {
+      if (i === sides.length) return addRelation(m, sides, picked);
+      choosing.value = { picked: sides.slice(0, i).map(c => say(picked[c.edge])), next: sides[i].title };
+      pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); });
+    };
     next(0);
   }
   // One side, from the objects it can be, found as they're typed; or a new one of the kind most of its rows have.
@@ -1442,7 +1463,7 @@ const Table = (() => {
       const t = norm(q), hit = all.filter(x => !t || norm(x.name).includes(t) || norm(x.short).includes(t));
       return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, run: () => done(x.id) })),
         ...(q && !all.some(x => norm(x.name) === t) ? [{ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) }] : [])];
-    }, { search: true, placement: 'top-start' });
+    }, { search: true, placement: 'top-start', onClose: () => { choosing.value = null; } });
   }
   function addRelation(m, sides, picked) {
     const st = App.state.peek(), N = App.notes.peek(), records = {}, made = [];
@@ -1488,7 +1509,7 @@ const Table = (() => {
       if (typeof v === 'number' && NUMERIC.has(type)) { nums++; sum += v; types.add(type); }
     }
     const type = types.size === 1 ? [...types][0] : 'number', say = v => Tree.format(type, +v.toPrecision(12));
-    stats.value = { n, ...(nums && { sum: say(sum), avg: say(sum / nums) }) };
+    stats.value = !n ? null : { n, ...(nums && { sum: say(sum), avg: say(sum / nums) }) };
   }
   function Stats() {
     const s = stats.value;
@@ -1501,12 +1522,13 @@ const Table = (() => {
   const cellsOf = () => { const seen = new Set(); return table.getRanges().flatMap(r => r.getCells().flat()).filter(x => x.getField() && !seen.has(x) && seen.add(x)); };
   const rawOf = cell => typing(typeOf(columnOf(cell), cell.getRow().getData()), cell.getValue());
   const filled = n => `Filled ${count(n, 'cell')}`;
-  // What's typed into every cell of the range, the cell typed in among them.
-  function fillWith(cell, raw) {
-    const cs = cellsOf();
-    if (!cs.includes(cell)) cs.push(cell);
+  // What's typed into every cell of the range it was typed in (`cs`, as it was before the typing began), that cell among
+  // them; the range left selected, as Excel leaves it.
+  function fillWith(cell, raw, cs) {
+    cs = cs?.includes(cell) ? cs : [cell];
     const ws = cs.map(x => writing(x, raw)).filter(Boolean);
     write(ws, filled(ws.length));
+    if (cs.length > 1) table.addRange(cs[0], cs.at(-1));
     back();
   }
   // Down: each column of the range takes its top cell's value, or, the range a row tall, the cell's above. Right: each
@@ -1597,7 +1619,7 @@ const Table = (() => {
     if (/^(ArrowLeft|ArrowRight)$/.test(e.key)) return across();
     if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); const col = cell.getColumn(); return columnMenu(col.getElement().querySelector('.col-menu') ?? col.getElement(), col); }
     if (mod && (k === 'd' || k === 'r') && !e.shiftKey && !e.altKey) { e.preventDefault(); if (canWrite()) fillFrom(k === 'd'); return; }
-    if (e.key === 'F2') { e.preventDefault(); if (canEdit(cell)) { atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } return; }
+    if (e.key === 'F2') { e.preventDefault(); if (canEdit(cell)) { ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } return; }
     // Delete clears the cells of the range; rows selected whole, by their numbers, it deletes, after the redline.
     if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); const ids = wholeRows(); if (ids.length) deletion(ids).stage(); else clear(); }
     else if (e.key === ' ' && columnOf(cell)?.type === 'tag') { e.preventDefault(); flip(cell); }
@@ -1605,8 +1627,8 @@ const Table = (() => {
       const c = columnOf(cell);
       if (c.type === 'tag' || App.readOnly.peek() || !canEdit(cell)) return;
       // A dropdown opens with its field taking the key, so what's typed finds an option.
-      if (c.type === 'choice' || c.type === 'edge') return cell.edit(true);
-      typed0 = e.key;
+      if (c.type === 'choice' || c.type === 'edge') { ranged = cellsOf(); return cell.edit(true); }
+      typed0 = e.key; ranged = cellsOf();
       e.preventDefault();
       cell.edit(true);
       if (!table.modules.edit.currentCell) typed0 = null;
@@ -1662,8 +1684,8 @@ const Table = (() => {
   const fileName = ext => `${[App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(Shell.view.peek())?.name].filter(Boolean).join(' – ').replace(/[\\/:*?"<>|]+/g, '') || 'Table'}.${ext}`;
   // A day as Excel counts it, from December 30, 1899.
   const serial = iso => { const [y, m, d] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
-  // As many places as the column's percentages need, to four.
-  const places = (vs, scale) => Math.max(0, ...vs.map(v => { const s = String(+(v * scale).toFixed(4)), i = s.indexOf('.'); return i < 0 ? 0 : s.length - i - 1; }));
+  // A percentage as precise as the grid says it, to four places: 28.4% is 0.0%, 100% is 0%.
+  const pct = v => { const s = String(+(v * 100).toFixed(4)), i = s.indexOf('.'); return `0${i < 0 ? '' : '.' + '0'.repeat(s.length - i - 1)}%`; };
   // The sheet: the headings, then each row the grid shows, in its order, each value Excel's own kind of cell in the format
   // the grid reads it in: a number a number, a percentage a percentage, an amount of money money, a date a date; a link
   // to a document a link, named as the grid names it; a tag Yes or No. Its columns as wide as the grid's, with Excel's
@@ -1675,13 +1697,11 @@ const Table = (() => {
     const ws = {}, at = (r, j) => X.utils.encode_cell({ r, c: j });
     cols.forEach(([, c], j) => {
       ws[at(0, j)] = { t: 's', v: called(c) };
-      const vs = rows.map(d => value(d, c)).filter(v => typeof v === 'number');
-      const pct = `0${places(vs, 100) ? '.' + '0'.repeat(places(vs, 100)) : ''}%`, money = `"$"#,##0${vs.some(v => !Number.isInteger(v)) ? '.00' : ''}`;
       rows.forEach((d, i) => {
         const v = value(d, c), type = typeOf(c, d);
         if (blank(v)) return;
         ws[at(i + 1, j)] = type === 'tag' ? { t: 's', v: v ? 'Yes' : 'No' }
-          : typeof v === 'number' && NUMERIC.has(type) ? { t: 'n', v, ...(type === 'percent' ? { z: pct } : type === 'money' ? { z: money } : {}) }
+          : typeof v === 'number' && NUMERIC.has(type) ? { t: 'n', v, ...(type === 'percent' ? { z: pct(v) } : type === 'money' ? { z: `"$"#,##0${Number.isInteger(v) ? '' : '.00'}` } : {}) }
           : type === 'date' && /^\d{4}-\d\d-\d\d$/.test(v) ? { t: 'n', v: serial(v), z: 'mmm d, yyyy' }
           : type === 'document' ? { t: 's', v: c.filed ? filed(v) : Tree.format('document', v), l: { Target: String(v) } }
           : { t: 's', v: text(type, v) };
