@@ -1062,9 +1062,11 @@ function mount(el) {
   function writeText(m, it, typed) {
     const s = scopeNow(canvas), view = viewOf(), rec = treeOf(m.record), N = App.notes.peek();
     const at = p => N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p));
-    const raw = it?.free.text ?? '', top = m.type === 'box' ? (m.texts.length ? Math.max(...m.texts.map(x => fieldRect(m, x)).map(r => r.y + r.h)) : m.y + m.h / 2 - 8) : 0;
+    // A new one goes under the mark's texts: in a box, across it; on a line, under its label, or at its middle.
+    const raw = it?.free.text ?? '', drawn = m.texts.filter(x => x.lines?.length).map(x => fieldRect(m, x)), mid = m.points?.[Math.floor(m.points.length / 2)] ?? [m.x, m.y];
     const look = it?.look ?? { ...Scene.DEFAULTS.text, ...Object.fromEntries(Object.keys(Scene.DEFAULTS.text).map(k => [k, m.settings[k]?.value]).filter(([, v]) => v !== undefined)), Bold: false };
-    const rect = it ? fieldRect(m, it) : { x: m.x, y: top, w: m.w, h: px(look.Size) * 1.2 };
+    const under = drawn.length ? Math.max(...drawn.map(r => r.y + r.h)) : m.type === 'box' ? m.y + m.h / 2 - 8 : mid[1];
+    const rect = it ? fieldRect(m, it) : { x: m.type === 'box' ? m.x : drawn[0]?.x ?? mid[0], y: under, w: m.type === 'box' ? m.w : 120, h: px(look.Size) * 1.2 };
     const labels = entriesOf(m);
     openEditor({ look }, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 120) }, typed ?? raw, text => {
       if (!Tree.clean(text)) return it && unText(m);
@@ -1314,7 +1316,9 @@ function mount(el) {
     return [
       { label: f.it.free ? 'Edit text' : 'Edit', keys: 'Enter', disabled: ro, run: () => editField(f.m, f.it) },
       '-', { label: f.m.type === 'line' ? 'Hide from this line' : 'Hide from this box', keys: s.own ? 'Delete' : undefined, disabled: ro, run: () => hideField(f, { own: true }) },
-      ...(all ? [{ label: `Hide from ${named(all)}`, keys: s.own ? undefined : 'Delete', disabled: ro, run: () => hideField(f, all) }] : []),
+      ...(all ? [{ label: `Hide from ${named(all)}`, keys: s.own ? undefined : 'Delete', disabled: ro, run: () => hideField(f, all),
+        // Pointed at, the boxes it reaches are cued on the chart, as the scope's are (the format bar's cue).
+        point: on => canvas.cue?.(on && all.marks ? [...all.marks] : null) }] : []),
       '-', { label: 'Format', disabled: ro, items: [
         { label: 'Bold', checked: !!t.Bold, run: () => restyle('Bold', !t.Bold) }, { label: 'Italic', checked: !!t.Italic, run: () => restyle('Italic', !t.Italic) },
         { label: 'Underline', checked: !!t.Underline, run: () => restyle('Underline', !t.Underline) }] },

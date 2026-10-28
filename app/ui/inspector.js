@@ -554,7 +554,8 @@ function OnChart({ it, at }) {
   const on = c.fields.shown(host, it.edge, at);
   const say = () => { const s = Canvas.scope(); return `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`; };
   return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say()}
-    onPointerEnter=${e => { e.currentTarget.dataset.tip = say(); }} onClick=${e => { e.stopPropagation(); c.fields.show(host, it.edge, !on, at); }}>${EYE}</button>`;
+    onPointerEnter=${e => { e.currentTarget.dataset.tip = say(); const s = Canvas.scope(); if (s.marks) c.cue?.([...s.marks]); }} onPointerLeave=${() => c.cue?.(null)}
+    onClick=${e => { e.stopPropagation(); c.fields.show(host, it.edge, !on, at); }}>${EYE}</button>`;
 }
 // A row dragged onto the chart, by its grip or its label: the box under the pointer is lit as the target, and dropped
 // there, it shows the entry. `reorder`, where the grip also reorders the row among its siblings, which a drop on the
