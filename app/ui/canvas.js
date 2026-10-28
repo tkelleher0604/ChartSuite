@@ -150,11 +150,19 @@ function bodyMarkup(shape, w, h, s, red, extra = {}) {
 }
 const look = m => m.look ?? Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
 // An arrowhead, X6's block, at a line's end; on a route, no longer than the leg it ends (`leg`, its two points), so
-// that X6, shortening the path by it, never takes the path back past the turn into that leg (regress9 8).
+// that it never reaches back past the turn into that leg (regress9 8).
 const marker = (on, w, leg = null) => {
   if (!on) return null;
   const k = leg ? Math.min(1, Math.hypot(leg[1][0] - leg[0][0], leg[1][1] - leg[0][1]) / (5 + w * 3)) : 1;
   return { name: 'block', width: (5 + w * 3) * k, height: (4 + w * 2.4) * k, offset: 0 };
+};
+// A line's width, `w`, through `ps` with an arrowhead at its start or end. X6 ends a path short of an arrowhead's end by
+// the width its attributes give the line, back toward the point before: where the leg an arrowhead ends is shorter than
+// the line is wide, its attributes give it half that leg and its style the width it's drawn at, so the path ends on
+// that leg, never back past the turn (regress10 7).
+const widthOf = (ps, w, start, end) => {
+  const leg = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), least = Math.min(start ? leg(ps[0], ps[1] ?? ps[0]) : Infinity, end ? leg(ps.at(-1), ps.at(-2) ?? ps.at(-1)) : Infinity);
+  return least < w ? { strokeWidth: least / 2, style: { strokeWidth: w } } : { strokeWidth: w };
 };
 // How strongly a mark the view hides is drawn while it's asked about. A box keeps its fill, so no line
 // behind it shows through its name.
@@ -213,7 +221,7 @@ function cellsOf(scene, ink = null) {
       cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: 'line', mark: m.id },
         source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] },
         vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
-        attrs: { line: { stroke: r === 'appear' ? BLUE : r === 'go' ? RED : paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: dashed,
+        attrs: { line: { stroke: r === 'appear' ? BLUE : r === 'go' ? RED : paint(s.Outline), ...widthOf(ps, px(s.Weight), arrow === 'start' || arrow === 'both', arrow === 'end' || arrow === 'both'), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2)),
           sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
