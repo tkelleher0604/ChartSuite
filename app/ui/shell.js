@@ -190,8 +190,12 @@ const Shell = (() => {
   function keys(map, o = {}) {
     const wrapped = {};
     for (const [k, fn] of Object.entries(map)) wrapped[k] = e => { if (!e.defaultPrevented && fn(e) !== false) e.preventDefault(); };
-    return tinykeys.tinykeys(o.target || window, wrapped, o.inputs ? { ignore: e => e.isComposing } : {});
+    return tinykeys.tinykeys(o.target || window, wrapped, { ignore: o.inputs ? e => e.isComposing : typing });
   }
+  // A key held, or one in what's typed in (a text field, a list, an editor), isn't the window's; one on a checkbox
+  // or a button is, so Ctrl+Z after a tick undoes it.
+  const TYPED = '[contenteditable]:not([contenteditable="false"]), select, textarea, input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit], [type=reset], [type=color], [type=file])';
+  const typing = e => e.repeat || e.isComposing || (e.target !== e.currentTarget && !!e.target.matches?.(TYPED));
   // Esc closes the topmost layer open: a menu or popover, a dialog, History, the tour. Text being typed puts
   // itself back first, unless the layer is a menu, whose only text is its search.
   const layers = [];

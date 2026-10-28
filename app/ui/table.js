@@ -1784,5 +1784,5 @@ const Table = (() => {
     if (!on && unexport) { unexport(); unexport = null; }
   });
 
-  return { model, paste, focus, look: lookOf, workbook, get grid() { return table; } };
+  return { model, paste, focus, look: lookOf, workbook, Columns, get grid() { return table; } };
 })();

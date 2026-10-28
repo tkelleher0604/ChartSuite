@@ -938,6 +938,7 @@ function ViewPanel() {
         put=${out => layout({ rows: all.find(l => l.name === out.choice).rows })} /></div></div>` : null}
     </div>
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
+    ${v.layout === 'table' && typeof Table !== 'undefined' ? html`<${Section} title="Columns"><${Table.Columns} view=${v.id} /></${Section}>` : null}
   </div>`;
 }
 

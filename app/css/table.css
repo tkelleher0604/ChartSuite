@@ -175,6 +175,9 @@
 .colrow.new > .colgrip { opacity: 1; }
 button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .colrow.new > input { flex: 1; height: 24px; margin: 2px 0; }
+/* In the view panel, beside a table, as Styles are beside a chart: the panel's width, and its own scroll. */
+.insp .cols { width: auto; margin: 0 16px 8px; }
+.insp .cols > .cols-list { max-height: none; overflow: visible; }
 
 /* ---- The cells selected, at the status bar's end: counted, and their numbers summed and averaged ---- */
 .tstats { display: flex; gap: 16px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--rule); color: var(--ink-3); white-space: nowrap; }
