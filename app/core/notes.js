@@ -33,11 +33,20 @@ function index(rows) {
     if (n.param) { const k = `${n.label}|${shape}`; if (!params.has(k)) params.set(k, new Map()); params.get(k).set(Tree.norm(n.param), n.param); }
   }
 
-  // The note that decides a label for a tree (a record's, or any pattern), in a view or none: { value, note }.
+  // The note that decides a label for a tree (a record's, or any pattern), in a view or none: { value, note }. Kept
+  // for the tree while these notes stand, as a tree is kept while its state does (Tree.treeOf), so a record's is
+  // looked for once however often it's asked.
+  const decided = new WeakMap();
   function resolve(label, t, view, param) {
+    const k = `${label}|${view ?? ''}|${param ?? ''}`;
+    let kept = decided.get(t);
+    if (kept?.has(k)) return kept.get(k);
+    let out = null;
     for (const n of byKey.get(`${label}|${param ?? ''}|${shapeOf(t)}`) ?? [])
-      if ((!n.view || n.view === view) && narrower(t, n.pattern)) return { value: n.value, note: n };
-    return null;
+      if ((!n.view || n.view === view) && narrower(t, n.pattern)) { out = { value: n.value, note: n }; break; }
+    if (!kept) decided.set(t, kept = new Map());
+    kept.set(k, out);
+    return out;
   }
   const value = (label, t, view, param) => resolve(label, t, view, param)?.value;
 

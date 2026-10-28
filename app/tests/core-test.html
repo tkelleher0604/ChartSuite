@@ -113,6 +113,16 @@ function run(json) {
     check('in a view, its note decides over one in no view', fill('fund', 'view_main').value === 'blue' && fill('fund', 'view_40act').value === 'red');
     check('among notes in one view, the narrowest decides', fill('gp', 'view_main').value === 'green' && fill('mgmt', 'view_main').value === 'blue');
     check('resolving says which note decided', fill('gp', 'view_main').note.view === 'view_main' && fill('fund').note.pattern.id === 'fund');
+    // What decides is kept for a tree while the notes stand: asked again, or of a copy of the tree, it says the same, for
+    // every record, label, view and param; and notes changed decide afresh.
+    const say = r => r && [r.value, r.note.note], labels = ['Fill', 'Shown', 'Order', 'Name', 'Shape', 'Required', 'Bold'], views = [undefined, 'view_main', 'view_40act'];
+    const differ = Object.keys(now).flatMap(id => labels.flatMap(l => views.flatMap(v => [undefined, 'Owner'].filter(p => {
+      const t = tree(id), a = t && j(say(M.resolve(l, t, v, p)));
+      return !!t && (a !== j(say(M.resolve(l, t, v, p))) || a !== j(say(M.resolve(l, structuredClone(t), v, p))));
+    }).map(p => `${id} ${l} ${v} ${p}`))));
+    commit(w, tx => tx.add('note', { label: 'Fill', pattern: { id: 'mgmt', kind: 'Entity' }, view: 'view_main', value: 'gold' }));
+    check('what decides is kept for a record while the notes stand, the same asked again or of a copy, and decided afresh once they change',
+      !differ.length && fill('mgmt', 'view_main').value === 'blue' && w.notes(C).resolve('Fill', tree('mgmt'), 'view_main').value === 'gold', differ.slice(0, 5).join(' | '));
   }
   const styles = N.styles('view_main'), fortyAct = N.styles('view_40act');
   check('a view’s styles come in its order, each with its outputs', styles[0].key === '*' && styles.length === 12

@@ -38,17 +38,22 @@ const perRecs = new WeakMap();
 const kept = (recs, name, make) => { let m = perRecs.get(recs); if (!m) perRecs.set(recs, m = {}); return m[name] ??= make(); };
 const remember = (cache, t, make) => { let v = cache.get(t); if (v === undefined) cache.set(t, v = make()); return v; };
 
-// A record's tree, or null while a location is missing.
+// A record's tree, or null while a location is missing. It's the same tree from one set of records to the next while
+// the record is, and so are the trees of where it's located: so what's worked out from a tree and kept with it (its
+// key, the notes that decide for it) is kept while the record stands.
+const lasting = new WeakMap();   // record → { id, tree }
 function treeOf(recs, id) {
   const m = kept(recs, 'tree', () => new Map());
   if (!m.has(id)) {
-    const r = recs[id];
+    const r = recs[id], was = r && lasting.get(r);
     let t = null;
-    if (r && isObject(r)) t = { id, kind: r.kind };
+    if (r && isObject(r)) t = was?.id === id ? was.tree : { id, kind: r.kind };
     else if (r) {
       const args = argsOf(r).map(a => ({ edge: a.edge, loc: treeOf(recs, a.at) }));
-      if (args.every(a => a.loc)) t = { out: isField(r) ? { field: r.field, value: r.value } : isChoice(r) ? { choice: r.choice } : { tag: r.tag }, args };
+      if (args.every(a => a.loc)) t = was?.id === id && was.tree.args.every((a, i) => a.loc === args[i].loc) ? was.tree
+        : { out: isField(r) ? { field: r.field, value: r.value } : isChoice(r) ? { choice: r.choice } : { tag: r.tag }, args };
     }
+    if (t && was?.tree !== t) lasting.set(r, { id, tree: t });
     m.set(id, t);
   }
   return m.get(id);
