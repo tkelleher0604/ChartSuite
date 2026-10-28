@@ -311,7 +311,7 @@ const lineGlyph = d => html`<svg class="ln" viewBox="0 0 40 10"><path d="M2 5h36
 const arrowGlyph = a => html`<svg class="ln" viewBox="0 0 40 10"><path d="M4 5h32" stroke-width="1.3" />${a === 'end' || a === 'both' ? html`<path d="M31 1.5l5 3.5-5 3.5" stroke-width="1.3" />` : null}${a === 'start' || a === 'both' ? html`<path d="M9 1.5 4 5l5 3.5" stroke-width="1.3" />` : null}</svg>`;
 const frameGlyph = f => html`<svg class="ln" viewBox="0 0 40 14"><path d=${f === 'bracket' ? 'M2 13V3h36v10' : 'M2.5 1.5h35v11h-35z'} stroke-width="1.2" stroke-dasharray=${f === 'dashed' ? '4 3' : null} /></svg>`;
 const shapeGlyph = (g, corner) => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${Scene.path(g, 18, 14, corner)} /></svg>`;
-const shadowGlyph = on => html`<svg class="glyph sh" viewBox="-1 -1 22 18">${on ? html`<path d="M3 3h16v12H3z" class="shade" />` : null}<path d="M1 1h16v12H1z" /></svg>`;
+const shadowGlyph = on => html`<svg class="glyph sh" viewBox="-1 -1 22 18">${on ? html`<path d="M4 4h16v12H4z" class="shade" />` : null}<path d="M1 1h16v12H1z" /></svg>`;
 const ALIGN_ICON = { left: 'align-left', center: 'align-center', right: 'align-right' };
 
 // The choices of one setting in a popover, each previewed while pointed at: a picked one is made, and

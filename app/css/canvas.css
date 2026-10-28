@@ -89,13 +89,14 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .btn:hover:not(:disabled) { border-color: transparent; }
 .fb .btn.icon { width: 28px; }
 /* The scope: two parts, the selection and all like it, the one a change goes to pressed in the accent, and the
-   ▾ that chooses the group joined to its part. It gives way first when the bar is short of room, so the zoom
-   never leaves the window; the group's name is then cut short, and shown whole on hover. */
-.fb .scope { display: inline-flex; flex: 0 1 auto; min-width: 0; max-width: 360px; height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+   ▾ that chooses the group joined to its part. It keeps one width, so nothing after it in the bar moves as the group
+   it names changes; a name too long for it is cut short, and shown whole on hover. */
+.fb .scope { display: inline-flex; flex: none; width: 300px; height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
 .fb .scope > button { height: 26px; padding: 0 10px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
 .fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fb .scope > [data-fb="own"] { flex: none; }
-.fb .scope > [data-fb="like"] { flex: 0 1 auto; min-width: 64px; }
+.fb .scope > :only-child { flex: 1 1 auto; }
+.fb .scope > [data-fb="like"] { flex: 1 1 auto; min-width: 0; }
 .fb .scope > * + * { border-left: 1px solid var(--rule-2); }
 .fb .scope > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
 .fb .scope > button[aria-pressed="true"] { background-color: var(--selected); color: var(--accent-ink); font-weight: 500; }
@@ -122,7 +123,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
 @container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } }
-@container (max-width: 1140px) { .fb .font { width: 120px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
+@container (max-width: 1140px) { .fb .scope { width: 228px; } .fb .font { width: 120px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
 .fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 18px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }
@@ -154,7 +155,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* A submenu's glyph: a line's weight, dash, arrowheads, a frame. */
 .menu-item > .glyph:has(svg.ln) { width: 40px; }
 svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: visible; }
-.glyph.sh .shade { fill: currentColor; stroke: none; opacity: .3; }
+.glyph.sh .shade { fill: currentColor; stroke: none; opacity: .45; }
 .picker .seg .glyph.sh { width: 20px; height: 16px; fill: var(--surface); }
 
 /* The palette and the pickers in the format bar's popovers: PowerPoint's theme colors, its first row apart
