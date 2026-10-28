@@ -658,13 +658,8 @@ function equal(a, b) {
   return a === b;
 }
 
-// Nothing takes the least value of the other side's kind, as in Excel: 0, empty text, FALSE, or a date
-// before every date (or day of the year).
-const EARLIEST = { t: 'date', iso: '0000-01-01' }, FIRST = { t: 'date', iso: '--00-00' };
+// Two values in order: neither is nothing, which has no size and no day.
 function ordering(S, a, b) {
-  const least = x => typeof x === 'string' ? '' : typeof x === 'boolean' ? false : isDate(x) ? (dated(x) ? EARLIEST : FIRST) : 0;
-  if (a === null) a = least(b);
-  if (b === null) b = least(a);
   if (typeof a === 'number' && typeof b === 'number') return near(a, b) ? 0 : Math.sign(a - b);
   if (typeof a === 'string' && typeof b === 'string') return Math.sign(a.localeCompare(b, undefined, { sensitivity: 'base' }));
   if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : a ? 1 : -1;
@@ -679,6 +674,9 @@ function compare(S, op, a, b) {
   if (isErr(b)) return b;
   if (op === '=') return equal(a, b);
   if (op === '<>') return !equal(a, b);
+  // Nothing is in no order, so a comparison of order with it is nothing: a tax year is no later than a
+  // formation date that isn't recorded.
+  if (a === null || b === null) return null;
   const o = ordering(S, a, b);
   if (isErr(o)) return o;
   return op === '<' ? o < 0 : op === '>' ? o > 0 : op === '<=' ? o <= 0 : o >= 0;
@@ -732,7 +730,7 @@ function evNode(node, c) {
     }
     case 'cmp': return compare(S, node.op, ev(node.a, c), ev(node.b, c));
     case 'in': return among1(S, ev(node.a, c), ev(node.b, c));
-    case 'bin': return arithmetic(S, node.op, ev(node.a, c), ev(node.b, c));
+    case 'bin': return arithmetic(S, node.op, ev(node.a, c), ev(node.b, c), node);
   }
   return err('#VALUE!', 'Unknown expression.');
 }
@@ -757,8 +755,13 @@ function objectIds(S, list) {
   return listIds.get(list);
 }
 
-// Nothing drops out of a sum and wipes out a product.
-function arithmetic(S, op, a, b) {
+// A part written in the formula, reading nothing of the chart: a number, or numbers worked together.
+const written = n => n.w ??= n.k === 'lit' || (n.k === 'neg' && written(n.x)) || (n.k === 'bin' && written(n.a) && written(n.b));
+
+// Nothing drops out of a sum of what's read and wipes out a product. A number written in the formula only
+// moves what's read, so nothing moved by it is nothing: the year after a blank one, or a day before it.
+// `n` is the expression, where there is one.
+function arithmetic(S, op, a, b, n) {
   if (op === '&') {
     const x = toText(S, a), y = toText(S, b);
     return isErr(x) ? x : isErr(y) ? y : x + y;
@@ -769,6 +772,7 @@ function arithmetic(S, op, a, b) {
   if (isErr(b)) return b;
   if (a === null || b === null) {
     if (op === '*' || op === '/' || (a === null && b === null)) return null;
+    if (n && written(a === null ? n.b : n.a)) return null;
     if (b === null) return a;
     if (op === '+') return b;
     const y = toNumber(S, b);
@@ -974,14 +978,15 @@ const FUNCTIONS = {
     return ev(a[1].x, { ...c, S: counterfactual(c.S, x.id, c.def) });
   },
   TODAY(a) { return arity('TODAY', a, 0) ?? { t: 'date', iso: Tree.isoOf(new Date()) }; },
-  // A date of nothing is nothing.
+  // A date of nothing is nothing, whatever month and day are written beside it; but one of something and
+  // nothing, a year with no month, can't be made.
   DATE(a, c) {
     const bad = arity('DATE', a, 3);
     if (bad) return bad;
     const parts = a.map(x => scalar(c.S, ev(x.x, c)));
     const e = parts.find(isErr);
     if (e) return e;
-    if (parts.some(x => x === null)) return null;
+    if (parts.some(x => x === null)) return parts.every((x, i) => x === null || written(a[i].x)) ? null : err('#VALUE!', 'A date needs its year, month and day.');
     const [y, m, d] = parts.map(x => toNumber(c.S, x));
     return [y, m, d].find(isErr) ?? { t: 'date', iso: Tree.isoOf(new Date(y, m - 1, d)) };
   },
@@ -1651,14 +1656,15 @@ function holdsWhere(K, n, v) {
 }
 
 // Where an expression can give something: outside, it's sure to give nothing, and no error. Nothing drops out
-// of a sum, so a sum gives something where either side does; it wipes out a product, so a product gives
-// something only where both sides do.
+// of a sum, so a sum gives something where either side does, or, beside a number written, where what's read
+// does; it wipes out a product, so a product gives something only where both sides do.
 function givesWhere(K, n, v) {
   if (!uses(n, v)) return steady(K, n) && (c => { const x = ev(n, c); return !isErr(x) && isNothing(x) ? NOWHERE : null; });
   switch (n.k) {
     case 'dot': { const x = givesWhere(K, n.x, v); return x && (c => loose(x(c))); }
     case 'bin': {
       const a = givesWhere(K, n.a, v), b = givesWhere(K, n.b, v);
+      if ((n.op === '+' || n.op === '-') && (written(n.a) || written(n.b))) { const x = written(n.a) ? b : a; return x && (c => loose(x(c))); }
       if (n.op === '+' || n.op === '-') return a && b && (c => { const s = a(c); return s && loose(union(s, b(c))); });
       if (n.op === '*' || n.op === '/') return (a || b) && (c => {
         const s = a ? a(c) : null, t = b ? b(c) : null;
@@ -2842,7 +2848,7 @@ function gv(n, c) {
       return { v, g: [...a.g, ...L.items.filter(it => equal(x, scalar(S, it.v))).flatMap(it => it.g)] };
     }
     case 'bin': {
-      const a = gv(n.a, c), b = gv(n.b, c), v = arithmetic(S, n.op, a.v, b.v);
+      const a = gv(n.a, c), b = gv(n.b, c), v = arithmetic(S, n.op, a.v, b.v, n);
       const sum = n.op === '+' || n.op === '-';
       return { v, g: [...(sum && isNothing(scalar(S, a.v)) ? [] : a.g), ...(sum && isNothing(scalar(S, b.v)) ? [] : b.g)] };
     }
@@ -3570,8 +3576,48 @@ function attention(R, N, day) {
   return items;
 }
 
+// A payment of a tax that falls due year by year (see dendra.md, Time): `due` is a date worked out at a
+// relation of a record and a year (Annual Tax Due at Fund III's tax year 2026), until the entry its rule waits
+// on, blank, is entered (Annual Tax Paid). The payment settles the earliest year unsettled: of the relation's
+// records with the same first side that have that due date, the one due first. It's written as that entry
+// there, `{ at, edge, field: 'date', value: day }`, through `add`, which enters the year's relation where only
+// a formula gives it, in a change dated the day paid. It gives the words that say so, the year named ("Paid
+// Fund III Blocker’s annual tax for 2026 on Oct 28, 2026"), or null where `due` is no such date.
+function pay({ R, N, due, day, add }) {
+  const S = R.state, recs = S.recs, r = recs[due], c = R.computed[due];
+  const L = r && c && recs[r.at], d = c && S.P.byId.get(c.def), rel = L && isRelation(L) && relationOf(S, L);
+  if (!rel || !d?.rows[c.row]?.ast || L.args.length < 2 || r.field !== 'date' || !r.value) return null;
+  // What the rule waits on: an entry read blank by ISBLANK, not one of the relation's sides.
+  const sides = new Set(L.args.map(a => normal(a.edge))), waits = [];
+  const walk = n => { if (isCall(n, 'ISBLANK') && n.args[0]?.x.k === 'name' && !sides.has(n.args[0].x.n)) waits.push(n.args[0].x.name); childrenOf(n).forEach(walk); };
+  walk(d.rows[c.row].ast);
+  const label = waits.find(w => S.P.known.values.has(normal(w)));
+  if (!label) return null;
+  // Its years: the same relation's records at the same first side, each with the due date unsettled.
+  const first = normal(rel.edges?.[0] ?? L.args[0].edge), holder = L.args.find(a => normal(a.edge) === first) ?? L.args[0];
+  const dues = new Map(), paid = new Set();
+  for (const [id, x] of Object.entries(recs)) {
+    if (!x.at) continue;
+    if (same(x.edge, r.edge) && x.field === 'date' && x.value) dues.set(x.at, x.value);
+    if (same(x.edge, label)) paid.add(x.at);
+  }
+  let year = null;
+  for (const [at, value] of dues) {
+    const y = recs[at];
+    if (!y?.args || paid.has(at) || relationOf(S, y) !== rel || !y.args.some(a => normal(a.edge) === first && a.at === holder.at)) continue;
+    if (!year || value < dues.get(year) || (value === dues.get(year) && at < year)) year = at;
+  }
+  if (!year) return null;
+  add({ at: year, edge: label, field: 'date', value: day });
+  // The words: whose tax, for which year, on what day.
+  const Y = recs[year], who = objectOf(S, holder.at), other = Y.args.find(a => normal(a.edge) !== first);
+  const whose = N?.shortOf ? N.shortOf(recs, who) : nameOf(S, who), when = other ? nameOf(S, objectOf(S, other.at)) : '';
+  const what = rel.name.split(' ').map(w => /^[A-Z][a-z]/.test(w) ? w.toLowerCase() : w).join(' ');
+  return `Paid ${/\)$/.test(whose) ? `the ${what} of ${whose}` : `${whose}’s ${what}`}${when ? ` for ${when}` : ''} on ${Tree.formatDate(day, 'short')}`;
+}
+
 return {
-  computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, renameName, computedId, splitFormula, tidyArrow,
+  computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, pay, renameName, computedId, splitFormula, tidyArrow,
   tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
 };
 
