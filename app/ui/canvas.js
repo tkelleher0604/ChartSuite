@@ -108,9 +108,9 @@ function fieldAt(t, rec, p, edge) {
 
 // Where a w × h shape can go on a scene's page: the nearest place to `near` (its middle) clear of every box,
 // frame, shape and label by `gap`, and of every line by a lane's width either side, so nothing new is ever drawn on
-// a line or reads as on it: just there where it's clear, or else on a grid; with `bands`, clear of the chart too, in the page's bands above, below or beside
-// it. Where the page has no such place, just below everything, and the page grows to hold it.
-function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
+// a line or reads as on it: just there where it's clear, or else on a grid; with `bands`, clear of the chart too, in the
+// page's bands above, below or beside it. Where the page has no such place, null; or, `last`, just below everything.
+function freeSpot(scene, w, h, near, { bands = false, gap = 16, last = false } = {}) {
   const page = scene.page, m = page.margin, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
   const take = (x, y, r, d) => Object.assign(chart, { x: Math.min(chart.x, x), y: Math.min(chart.y, y), r: Math.max(chart.r, r), d: Math.max(chart.d, d) });
   for (const k of scene.marks) {
@@ -132,7 +132,7 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16 } = {}) {
   const step = Math.max(8, Math.ceil(Math.max(page.w, page.h) / 160)), spots = [];
   for (let x = x0; x <= x1; x += step) for (let y = y0; y <= y1; y += step) spots.push({ x, y, d: Math.hypot(x - cx, y - cy) });
   const best = spots.sort((a, b) => a.d - b.d).find(p => clear(p.x, p.y));
-  return best ?? { x: cx, y: Math.max(0, ...rects.map(r => r.y + r.h), ...segs.flat().map(p => p[1])) + gap * 2 };
+  return best ?? (last ? { x: cx, y: Math.max(0, ...rects.map(r => r.y + r.h), ...segs.flat().map(p => p[1])) + gap * 2 } : null);
 }
 
 // ---- Drawing: each mark as X6 cells ----
@@ -668,9 +668,9 @@ function mount(el) {
   // ---- Gestures, each one change ----
   const viewOf = () => scene.view;
   const treeOf = id => Tree.treeOf(App.state.peek(), id);
-  // Places for marks, written: a box's Position at its record in this view, a free shape's own place, kept
-  // on the page; each where it is on the page, less what the page moved a chart placed so to hold it (Scene's
-  // furnish), as a chart the layout alone placed is placed once anything is.
+  // Places for marks, written: a box's Position at its record in this view, where it is on the page less what the page
+  // moved a chart placed so to hold it (Scene's furnish), as a chart the layout alone placed is placed once anything is;
+  // a free shape's own place, where it is on the page, kept on it, as a PowerPoint shape's is.
   const origin = (page = scene.page) => page.placed ? page.offset : { x: 0, y: 0 };
   const own = (x, y, page = scene.page) => { const o = origin(page); return [round(x - o.x), round(y - o.y)]; };
   function place(tx, places) {
@@ -682,10 +682,10 @@ function mount(el) {
         const old = n.position(treeOf(m.record), view), [x, y] = own(Math.max(0, p.x), Math.max(0, p.y));
         tx.note('Position', treeOf(m.record), { x, y, w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
       } else if (m.type === 'shape') {
-        const points = rowOf(id)?.points, [x, y] = own(p.x, p.y);
-        if (points) { tx.update(id, { x, y, ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
-        const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h), [cx, cy] = own(clamp(p.x, 0, page.w - w), clamp(p.y, 0, page.h - h));
-        tx.update(id, { x: cx, y: cy, ...(p.w !== undefined && { w: round(w), h: round(h) }) });
+        const points = rowOf(id)?.points;
+        if (points) { tx.update(id, { x: round(p.x), y: round(p.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
+        const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
+        tx.update(id, { x: round(clamp(p.x, 0, page.w - w)), y: round(clamp(p.y, 0, page.h - h)), ...(p.w !== undefined && { w: round(w), h: round(h) }) });
       }
     }
   }
@@ -1237,7 +1237,7 @@ function mount(el) {
   function create(kind, at, { relate, guide } = {}) {
     if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
-    const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), [x, y] = own(p.x, p.y), last = Shell.store.get('kind');
+    const w = 200, h = 44, p = freeSpot(scene, w, h, at, { last: true }), view = viewOf(), [x, y] = own(p.x, p.y), last = Shell.store.get('kind');
     const ks = kinds(), choice = [...new Set([kind, ...ks.filter(k => k === last), ...ks])];
     let now = kind;
     guide?.setAttribute('d', guide.getAttribute('d').replace(/L[^L]*$/, `L${p.x + w / 2},${p.y + h / 2}`));
@@ -1714,10 +1714,15 @@ function mount(el) {
   const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
   const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape'));
   // A new shape goes into free space, never over what's drawn: near the middle of what's on screen, as
-  // PowerPoint puts one; a frame in the page's bands round the chart; a key at the bottom right, in two columns.
-  // A text box typed in has room for a line of it (ROOM), and as it's made, a longer one is placed again, nearest
-  // where it was typed, so it never lands on a box, a line or the Key.
+  // PowerPoint puts one; a text box, a frame and a key in the page's bands round the chart, where they have room, so
+  // none lands in the chart's midst; a key at the bottom right, in two columns. A text box typed in has room for a line
+  // of it (ROOM), and as it's made, a longer one is placed again, nearest where it was typed, so it never lands on a
+  // box, a line or the Key.
   const SIZE = { line: [160, 8], 'arrow-line': [160, 8], frame: [320, 200], picture: [160, 100] }, ROOM = px(216);
+  const spot = (s, w, h, near, banded) => {
+    const p = (banded && freeSpot(s, w, h, near, { bands: true })) || freeSpot(s, w, h, near) || freeSpot(s, w, h, near, { last: true });
+    return { x: clamp(p.x, 0, s.page.w - w), y: clamp(p.y, 0, s.page.h - h) };
+  };
   function insert(geometry, opts = {}) {
     const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable();
     let row = { view, geometry, ...opts };
@@ -1732,24 +1737,22 @@ function mount(el) {
     else if (opts.x === undefined) {
       const drawn = geometry === 'text' || geometry === 'legend' ? Scene.shapeOf(row, s) : null;
       const [w, h] = drawn ? [drawn.w, drawn.h] : [opts.w, opts.h].every(Number.isFinite) ? [opts.w, opts.h] : SIZE[geometry] ?? [140, 70];
-      const p = freeSpot(s, geometry === 'text' && !row.text ? Math.max(w, ROOM) : w, h, geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, { bands: ['legend', 'frame'].includes(geometry) });
+      const p = spot(s, geometry === 'text' && !row.text ? Math.max(w, ROOM) : w, h, geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, ['text', 'legend', 'frame'].includes(geometry));
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
     // A text box is made once something is typed in it, as a box is once it's named: left empty, however it's
-    // left, it makes nothing.
+    // left, it makes nothing. Placed on the page, where it is on it (see place).
     const typing = geometry === 'text' && !row.text && Scene.shapeOf(row, s), at = typing && { x: row.x, y: row.y, w: typing.w, h: typing.h };
-    // Placed on the page, kept as the chart's own (see place).
-    if (row.x !== undefined) [row.x, row.y] = own(row.x, row.y);
-    if (row.points) row.points = row.points.map(([x, y]) => own(x, y));
+    if (row.x !== undefined) [row.x, row.y] = [round(row.x), round(row.y)];
+    if (row.points) row.points = row.points.map(([x, y]) => [round(x), round(y)]);
     const add = it => { let id = null; if (!App.change(tx => { id = tx.add('shape', it); })) return null; Shell.select([id]); return id; };
     if (!typing) return add(row);
     Shell.select([]);
     openEditor({ look: typing.look }, at, '', text => {
       if (!text.trim()) return;
-      const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = freeSpot(scene, made.w, made.h, { x: at.x + made.w / 2, y: at.y + made.h / 2 });
-      const [x, y] = own(round(q.x), round(q.y));
-      add({ ...row, x, y, text });
+      const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = spot(scene, made.w, made.h, { x: at.x + made.w / 2, y: at.y + made.h / 2 }, true);
+      add({ ...row, x: round(q.x), y: round(q.y), text });
     }, { multiline: true, grow: !!typing.auto, kept: true });
     return null;
   }

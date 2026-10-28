@@ -703,14 +703,14 @@ async function run() {
   check('… and a relation the view draws nowhere, by its sides', ['okafor', 'gp', 'fund'].every(inView), ['okafor', 'gp', 'fund'].map(id => `${id} ${inView(id)}`).join(', '));
   cv().zoom('fit'); await tick(120);
 
-  // ---- A Key or a frame inserted where the page has no room goes under what's drawn, and the page grows
-  // to hold it ----
+  // ---- A Key or a frame inserted where the page has no room goes on it, as a PowerPoint shape does, the page holding
+  // as it was: a free shape is the page's, and never grows it ----
   Shell.select([]); await tick(60);
   const heightWas = sc().page.h, inserted = ['legend', 'frame'].map(gm => { const id = cv().insert(gm), r = App.shown.peek().item(App.chart.peek(), id)[0]; return { gm, id, x: r?.x, y: r?.y }; });
   await tick(150);
-  const newKey = sc().byId.get(inserted[0].id);
-  check('a Key or a frame inserted on a full page lands under the chart, the page grows to hold it, and it’s brought on screen', inserted.every(r => Number.isFinite(r.x) && Number.isFinite(r.y))
-    && sc().page.h > heightWas && inView(inserted[1].id), JSON.stringify(inserted));
+  const newKey = sc().byId.get(inserted[0].id), onPage = id => { const m = sc().byId.get(id), p = sc().page; return m.x >= 0 && m.y >= 0 && m.x + m.w <= p.w + 0.5 && m.y + m.h <= p.h + 0.5; };
+  check('a Key or a frame inserted on a full page lands on it, the page holding as it was, and it’s brought on screen', inserted.every(r => Number.isFinite(r.x) && Number.isFinite(r.y))
+    && Math.abs(sc().page.h - heightWas) < 0.5 && inserted.every(r => onPage(r.id)) && inView(inserted[1].id), JSON.stringify(inserted));
   check('… a Key at the size its captions need on the sheet, as the page’s own is, however small the chart is drawn for it', newKey.h * sc().page.scale < 200 && sc().page.scale >= 0.4,
     `${Math.round(newKey.w)}×${Math.round(newKey.h)} at ${sc().page.scale}`);
   for (let i = 0; i < 2; i++) { Shell.parts.peek().undo.undo(); await tick(150); }

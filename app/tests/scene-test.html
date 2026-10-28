@@ -206,7 +206,8 @@ function run() {
     check('a Caption note captions a row', lt.rows.some(r => r.caption.text === 'Fund vehicle'));
     check('rows follow the outputs in use: hide every portfolio company and its row goes', !row(lt, choice('Portfolio Company')) && lt.rows.length === lg.rows.length - 1,
       `${lg.rows.length} then ${lt.rows.length}`);
-    check('the legend is a shape: placed with the chart, sized and formatted as one', lt.x - t.page.offset.x === 40 && lt.y - t.page.offset.y === 700 && lt.w === 300 && lt.h > 40 && lt.look.Outline === '#7f7f7f');
+    check('the legend is a shape: placed where it was put on the page, sized and formatted as one, and where it would fall off the page’s foot, brought back onto it',
+      lt.x === 40 && (lt.y === 700 || Math.abs(lt.y + lt.h - t.page.h) < 0.5) && lt.y <= 700 && lt.w === 300 && lt.h > 40 && lt.look.Outline === '#7f7f7f', `${lt.x}, ${lt.y}, ${lt.w} × ${lt.h} on ${t.page.h}`);
     edit(wb, (tx, N) => { for (const v of FUNDS) note(tx, N, 'Caption', VT(v), MAIN, undefined); });
     const u = scene(wb).byId.get(key), plain = row(u, choice('Main Fund')), listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
     check('outputs of one look with no caption are called by their outputs, those drawn, never by the style’s name', plain.outputs.length > 2
@@ -583,6 +584,18 @@ function run() {
       return { above: Math.min(...reach.map(r => r.y)) - (d.y + d.h - 4.8 + 32), below: s.page.sheet.h - 48 - Math.max(...reach.map(r => r.y + r.h)) };
     });
     check('a short chart starts 24 pt under its title and date, its Key with it, the room left at the page’s foot', short.every(p => Math.abs(p.above) < 1 && p.below > 20), j(short));
+    // A free shape is the page's, as a PowerPoint shape is (dendra.md, Free shapes): a text box put beside the title stands
+    // there, and the chart, its page and its Key stand as they stood without it; one put off the page comes back onto it.
+    {
+      const w = fresh(), s0 = scene(w), at = { x: s0.page.w - 480, y: 30 };
+      let note, off;
+      edit(w, tx => { note = tx.add('shape', { view: MAIN, geometry: 'text', ...at, text: 'Draft – privileged and confidential' }); off = tx.add('shape', { view: MAIN, geometry: 'text', x: s0.page.w + 400, y: s0.page.h + 400, text: 'Off the page' }); });
+      const s1 = scene(w), m = s1.byId.get(note), o = s1.byId.get(off), boxes = s => s.marks.filter(x => x.type === 'box').map(b => [b.id, b.x, b.y].join());
+      const key = s => { const k = s.marks.find(x => x.geometry === 'legend'); return [k.x, k.y].map(Math.round).join(); };
+      check('a text box put beside the title stands where it was put, the chart, its page and its Key as they stood without it; one put off the page comes back onto it',
+        m.x === at.x && m.y === at.y && s1.page.scale === s0.page.scale && j(s1.page.offset) === j(s0.page.offset) && j(boxes(s1)) === j(boxes(s0)) && key(s1) === key(s0)
+        && o.x >= 0 && o.y >= 0 && o.x + o.w <= s1.page.w + 0.5 && o.y + o.h <= s1.page.h + 0.5, j({ m: [m.x, m.y], o: [o.x, o.y, o.w, o.h], page: [s1.page.w, s1.page.h, s1.page.scale, s0.page.scale], keys: [key(s0), key(s1)] }));
+    }
     // One output's own caption is its own group's: Management and control captions the BDC alone.
     const own = Scene.groupsOf(wb.notes(C), 'view_control'), bdcRow = own.find(g => g.caption === 'Business development company'), structure = Scene.groupsOf(wb.notes(C), MAIN);
     check('a caption at one output captions that output’s group alone, where outputs that look alike are captioned differently', bdcRow?.outputs.length === 1

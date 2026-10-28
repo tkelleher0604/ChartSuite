@@ -931,7 +931,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const placed = Layout.arrange({
       keep: last?.at ?? null, ...ranked(boxes),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
-      obstacles: obstaclesOf(onPage, last?.page.offset),
+      obstacles: obstaclesOf(onPage),
       entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, pageSizes, beside, linked), hints, page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     // A triangle placed that its texts set wider than it was placed keeps its middle where it was, as far as the room on its
@@ -993,7 +993,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: (positions.size > 0 || onPage.some(r => !placedBy(r))) && !onPaper });
+    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper });
     return { ...laid, around: lines.filter(l => l.around).length };
   }
   // A layout just laid, with its faults, and on another paper its lines bent that drop straight on the view's own page
@@ -1069,10 +1069,17 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   if (!last) relabel(boxes, lines, frames, null, s);
 
   // Free shapes: the view's own, each with its own formats; the furniture where the page puts it, and those
-  // placed by hand where the chart is, by its offset.
+  // placed by hand where they were put on the page, as a PowerPoint shape is: one that would fall off the page is
+  // brought back onto it, and nothing else moves one.
   const geo = new Map(boxes.map(b => [b.id, b]));
   const shapes = at.shapes;
-  for (const m of shapes) { const p = at.places.get(m.row); if (p) Object.assign(m, { x: p.x, y: p.y }); else move(m, offset.x, offset.y); }
+  for (const m of shapes) {
+    const p = at.places.get(m.row);
+    if (p) { Object.assign(m, { x: p.x, y: p.y }); continue; }
+    if (m.geometry === 'group') continue;
+    const dx = Math.min(0, page.w - m.x - m.w) || Math.max(0, -m.x), dy = Math.min(0, page.h - m.y - m.h) || Math.max(0, -m.y);
+    if (dx || dy) move(m, Math.max(-m.x, dx), Math.max(-m.y, dy));
+  }
   // A free line glued to a box leaves it where it faces the line's other end, and follows it.
   for (const m of shapes) if (m.geometry === 'line' && m.ends) {
     const ps = m.points, [a, b] = m.ends.map(id => geo.get(id) ?? shapes.find(x => x.id === id));
@@ -1633,16 +1640,17 @@ function pageOf(N, view, paper) {
   if (PAGES[paper] && paper !== size) { const [a, b] = PAGES[paper], [L, S] = [Math.max(a, b), Math.min(a, b)]; [w, h] = w >= h ? [L, S] : [S, L]; size = paper; }
   return { size, w, h, margin: MARGIN };
 }
-// What a box placed among entered ones keeps clear of: the free shapes placed by hand, which are the chart's
-// as its boxes are (see furnish); in a preview, moved `by` the page's offset, as its boxes are.
-const obstaclesOf = (rows, by = { x: 0, y: 0 }) => rows.filter(r => r.x != null && r.y != null && !['line', 'group'].includes(r.geometry))
-  .map(r => ({ x: r.x + by.x, y: r.y + by.y, w: r.w ?? 200, h: Math.max(r.h ?? 52, r.geometry === 'legend' ? 120 : 0) }));
+// What a box placed among entered ones keeps clear of: the free shapes placed by hand, where they are on the page
+// (see furnish), which a chart placed stands on as it was put, where the page needn't move it.
+const obstaclesOf = rows => rows.filter(r => r.x != null && r.y != null && !['line', 'group'].includes(r.geometry))
+  .map(r => ({ x: r.x, y: r.y, w: r.w ?? 200, h: Math.max(r.h ?? 52, r.geometry === 'legend' ? 120 : 0) }));
 // The page's scale and its furniture's places, and where it sets the chart. A chart `placed`, some of its boxes
 // where they were entered, stands where it was placed: a place is the page's, from its top left, in the chart's
 // own size, as a PowerPoint shape's is, so a box moved moves on the page and nothing else does; the page moves the
 // chart, as a whole, only as far as holds it within its margins and 24 pt under the date. One the layout alone
-// places is set across the middle, 24 pt under the date. What's placed by hand, boxes and free shapes alike, is
-// placed so; the page adds `dx` and `dy` to set it there. The scale is the largest twentieth at which the chart
+// places is set across the middle, 24 pt under the date. Its boxes placed by hand are placed so; the page adds `dx`
+// and `dy` to set it there. A free shape placed by hand is the page's, where it was put, no part of the chart: the
+// Key keeps clear of it where it can. The scale is the largest twentieth at which the chart
 // fits the sheet within its margins, with the Key beside the title, clear of the title and the date by 24 pt and of
 // the chart by 16; or, where the layout places the chart, beside the title with the chart starting 24 pt under it;
 // or else at the chart's foot, 24 pt under what's over it there and 16 pt beside what isn't, where that sets it least
@@ -1677,13 +1685,14 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     for (const m of [title, date].filter(Boolean)) { places.set(m.row, { x: M - INSET, y }); y += m.h * s; }
     // The chart's top on the sheet: 24 pt under the date, or, placed, where it stands, if that's lower.
     let top = title || date ? y - PAD + 32 : M, alongside = null;
-    // The chart, with what's placed by hand, as rects on the sheet: placed, where it stands, moved right as far as
-    // keeps it off the left margin; else across the middle.
-    const drawn = [...rects, ...shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x, y: m.y, w: m.w, h: m.h }))], E = bounds(drawn);
+    // The chart as rects on the sheet: placed, where it stands, moved right as far as keeps it off the left margin; else
+    // across the middle. A shape placed by hand is the page's, where it was put (see Free shapes): no part of the chart,
+    // which it never moves, but what the Key keeps clear of, on the sheet.
+    const drawn = rects, E = bounds(drawn), free = shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x * s, y: m.y * s, w: m.w * s, h: m.h * s }));
     let dx = !boxes.length ? 0 : placed ? Math.max(0, M / s - E.x) : (W - E.w * s) / 2 / s - E.x;
     if (placed && boxes.length) top = Math.max(top, E.y * s);
     const set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s }));
-    const R = t => ({ x: (E.x + dx) * s, y: t, w: E.w * s, h: E.h * s });
+    const R = t => ({ x: (E.x + dx) * s, y: t, w: E.w * s, h: E.h * s }), clearOfFree = r => !free.some(q => meets(q, r, 21));
     if (!force && boxes.length && !fits(R(top))) return null;
     if (key) {
       // Beside the title, its captions wrapping to the room there, where the chart is clear of it; or, where the
@@ -1695,7 +1704,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         side = keyed(rows.find(r => r.id === key.row), room * u);
       }
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
-      if (!footed && r.w <= room + 0.5 && fits(r)) {
+      if (!footed && r.w <= room + 0.5 && fits(r) && clearOfFree(r)) {
         const under = Math.max(top, r.y + r.h + 32), by = Math.max(0, ...set(top).filter(q => q.y < r.y + r.h + 21).map(q => q.x + q.w + 21 - r.x));
         const left = !placed && R(top).x - by >= M - 0.5 ? by / s : 0;
         dx -= left;
@@ -1709,8 +1718,10 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       if (!places.has(key.row)) {
         // Or else at the chart's foot: 24 pt under what's over it there, and 16 pt beside what isn't, where that sets it
         // least far down, right-aligned to the chart where that's as high, its captions wrapping to a narrower Key where
-        // that's what lets it fit; or 24 pt beside it, the chart moved left as far as that needs.
-        const c = R(top), row = rows.find(r => r.id === key.row), least = key.columns * (30 + 8 + 80 + 16) + 24, chart = set(top);
+        // that's what lets it fit; or 24 pt beside it, the chart moved left as far as that needs. Clear of what's placed
+        // by hand, where that fits.
+        const c = R(top), row = rows.find(r => r.id === key.row), least = key.columns * (30 + 8 + 80 + 16) + 24, own = set(top), withFree = [...own, ...free];
+        let chart = withFree;
         const underOf = k => {
           const kw = k.w * s, kh = k.h * s, x0 = Math.max(M, c.x), x1 = Math.max(x0, c.x + c.w - kw);
           const xs = [x1, x0, ...chart.flatMap(q => [q.x + q.w + 21, q.x - 21 - kw])].filter(x => x >= x0 - 0.01 && x <= x1 + 0.01);
@@ -1718,6 +1729,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
             .reduce((a, b) => b.y < a.y - 0.5 || (b.y < a.y + 0.5 && b.x > a.x) ? b : a);
         };
         let under = underOf(key);
+        if (!fits(under) && free.length) { chart = own; under = underOf(key); }
         for (let w = key.w * s - 8; key.auto && !fits(under) && w >= least; w -= 8) {
           const narrow = keyed(row, w * u), r = underOf(narrow);
           if (fits(r)) { shapes[shapes.indexOf(key)] = key = narrow; under = r; }

@@ -70,9 +70,10 @@ async function run() {
       tx.add('shape', { view, geometry: 'legend', x: 48, y: 1200, w: 520, title: 'Key', columns: 2 });
       tx.add('shape', { view, geometry: 'text', x: 640, y: 1200, w: 640, h: 30, text: 'Calder Ridge Capital Partners III, L.P.', format: { Size: 20, Bold: true } });
     }
-    // A picture, and an arrow drawn by hand; the picture placed far out, so that the page holding it draws the chart very
-    // small, its names under 1 pt.
+    // A picture, and an arrow drawn by hand; and a box placed far out, so that the page holding it draws the chart very
+    // small, its names under 1 pt (a free shape placed so is the page's, brought back onto it).
     tx.add('shape', { view: views[0], geometry: 'picture', x: 26000, y: 14000, w: 60, h: 40, src: `data:image/png;base64,${PNG}` });
+    writeNote(tx, N, 'Position', Tree.treeOf(wb.asOf(C, DAY), 'pension'), views[0], { x: 26000, y: 14000, w: 132 });
     tx.add('shape', { view: views[0], geometry: 'line', points: [[1400, 1220], [1500, 1220], [1500, 1260]], format: { Arrow: 'end' } });
     const c = tx.commit();
     if (typeof c === 'string') throw new Error(c);
@@ -219,7 +220,9 @@ async function run() {
       && legends.every(whole) && keys.every(g => rect(g).every((v, i) => Math.abs(v - rect(kids(g)[0])[i]) <= 2)), `${keys.length} groups for ${legends.length} keys`);
     check('no shape goes by PptxGenJS’s name for it, and no stand-in the deck is finished from is left', !sps.some(sp => /^Text \d+$/.test(name(sp)))
       && !(await Promise.all(slides.map(f => zip.file(f).async('string')))).some(x => x.includes('·')), sps.filter(sp => /^Text \d+$/.test(name(sp))).map(name).join(', '));
-    check('a free text shape is itself', sps.some(sp => textOf(sp)[0] === 'Calder Ridge Capital Partners III, L.P.' && tags(sp, 'a:rPr')[0].getAttribute('sz') === String(Math.round(2000 * k))));
+    // (Its 20 pt on the page, at the sheet's half point, and no less than 1 pt, as every size in the deck is.)
+    check('a free text shape is itself', sps.some(sp => textOf(sp)[0] === 'Calder Ridge Capital Partners III, L.P.' && tags(sp, 'a:rPr')[0].getAttribute('sz') === String(Math.max(100, Math.round(40 * k) * 50))),
+      sps.filter(sp => textOf(sp)[0] === 'Calder Ridge Capital Partners III, L.P.').map(sp => tags(sp, 'a:rPr')[0].getAttribute('sz')).join() + ` at ${k}`);
     const arrow = cxns.find(c => name(c) === 'Line');
     check('a free line is a connector, its arrowhead at its end; a picture is a picture', arrow && tags(arrow, 'a:tailEnd').length && !tags(arrow, 'a:stCxn').length
       && tags(arrow, 'a:prstGeom')[0].getAttribute('prst') === 'bentConnector2' && tags(doc, 'p:pic').length === 1 && Object.keys(zip.files).some(f => /^ppt\/media\/.+\.png$/.test(f)));
