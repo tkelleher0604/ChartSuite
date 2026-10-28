@@ -386,8 +386,7 @@ const Table = (() => {
   const drawn = c => c.pasted || (c.shown && (!c.check || c.fails));
   // A heading: its name (under the entry it's at, if any), a funnel while it's filtered, which opens its filter, and
   // the chevron that opens its menu, shown while it's pointed at.
-  const SVG = (box, inner, w = 2) => `<svg class="i" viewBox="0 0 ${box} ${box}" style="stroke-width:${w}" aria-hidden="true">${inner}</svg>`;
-  const FUNNEL = SVG(24, '<path d="M22 3H2l8 9.46V19l4 2v-8.54z"/>'), CHEVRON = SVG(16, '<path d="M4.5 6.5 8 10l3.5-3.5"/>', 1.5);
+  const FUNNEL = Shell.iconMarkup('filter'), CHEVRON = Shell.iconMarkup('chevron');
   const heading = c => `${c.parent ? `<span class="up">${esc(c.parent)}</span>` : ''}<span class="t">${esc(c.title)}</span>`
     + `<span class="funnel" role="button" aria-label="Filter" data-tip="Filter">${FUNNEL}</span>`
     + `<button type="button" class="col-menu" tabindex="-1" aria-haspopup="menu" aria-label="${esc(c.title)}" data-tip="Column menu" data-keys="Alt+↓">${CHEVRON}</button>`;
@@ -1392,7 +1391,7 @@ const Table = (() => {
     Shell.menu(anchor, [{ label: 'None', checked: !g, run: () => group(null) }, '-', ...m.cols.filter(drawn).map(c => ({ label: called(c), checked: c.key === g, run: () => group(c) }))]);
   }
   // Every column, each a checkbox that shows or hides it, dragged by its row to reorder; and a new one, named as it's typed.
-  const GRIP = SVG(24, '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>');
+  const GRIP = Shell.iconMarkup('grip');
   function Columns({ view }) {
     looked.value;
     const ref = useRef(), [naming, setNaming] = useState(false), [q, setQ] = useState('');
