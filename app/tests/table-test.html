@@ -147,18 +147,27 @@ async function run() {
   check('Computed cells are italic', $$('.grid .tabulator-cell.fx').length > 0 && $$('.grid .tabulator-cell.fx').every(el => getComputedStyle(el).fontStyle === 'italic'), $$('.grid .tabulator-cell.fx').length);
   check('Tags are checkboxes, green attested and red ruled out', $$('.grid .c-tag .tag.yes').length > 0 && $$('.grid .c-tag .tag.no').length > 0);
   check('A choice edits as a dropdown of its options', column('Vehicle Type').getDefinition().editor === 'list' && column('Vehicle Type').getDefinition().editorParams.values.includes('Feeder Fund'));
-  const offered = title => column(title).getDefinition().editorParams.values, filtered = title => column(title).getDefinition().headerFilterParams.valuesLookup().map(x => x.label);
-  check('… in their order, as the inspector lists them, then by name; and so in its heading’s filter', offered('Vehicle Type').slice(0, 3).join() === 'Main Fund,Parallel Fund,Feeder Fund' && offered('Entity Type')[0] === 'Limited Partnership'
-    && filtered('Vehicle Type').filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => filtered('Vehicle Type').includes(o)).join(), `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${filtered('Vehicle Type').join()}`);
-  check('Header filters are dropdowns', column('Jurisdiction').getDefinition().headerFilter === 'list');
+  // A heading's filter, opened from its menu: its values, each a checkbox row.
+  const offered = title => column(title).getDefinition().editorParams.values;
+  const filterOf = async title => {
+    column(title).getElement().querySelector('.col-menu').click(); await tick();
+    item('Filter…').click(); await tick(80);
+    const got = { values: $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent), find: !!$('.tfilter .tf-find'), all: !!$('.tfilter .tf-row.all input[type=checkbox]') };
+    Shell.closeAll(); await tick();
+    return got;
+  };
+  const vt = await filterOf('Vehicle Type');
+  check('… in their order, as the inspector lists them, then by name; and so in its heading’s filter, Blank last', offered('Vehicle Type').slice(0, 3).join() === 'Main Fund,Parallel Fund,Feeder Fund' && offered('Entity Type')[0] === 'Limited Partnership'
+    && vt.values.filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => vt.values.includes(o)).join() && vt.values.at(-1) === 'Blank', `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${vt.values.join()}`);
+  check('A heading’s filter is Excel’s: Find, Select all and a checkbox for each value; no field in the heading', vt.find && vt.all && !$$('.grid .tabulator-header-filter').length);
 
   // Show/Hide on a column writes a Shown note in the view.
   n0 = N();
   const jur = Table.model(ent).cols.find(c => c.title === 'Jurisdiction');
   Table.grid.getColumns().find(c => c.getDefinition().title === 'Jurisdiction').getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 600, clientY: 60 }));
   await tick();
-  check('A heading’s menu sorts, hides, and lists the columns with ticks', !!item('Sort A to Z') && !!item('Hide') && !!item('Columns'));
-  item('Hide').click(); await tick(100);
+  check('A heading’s menu sorts, hides, and lists the columns with ticks', !!item('Sort A to Z') && !!item('Hide column') && !!item('Columns'));
+  item('Hide column').click(); await tick(100);
   const shown = App.notes.peek().resolve('Shown', jur.pattern, ent);
   check('Hide writes a Shown note in the view, as one change', N() === n0 + 1 && shown?.note.view === ent && shown.value === false);
   check('The column goes', !column('Jurisdiction'));
@@ -435,9 +444,9 @@ async function run() {
   pressedOn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 2 })); await tick(60);
   check('A right-click on a cell before anything’s selected selects it, and throws nothing', !errors.length && Shell.selection.peek().join() === doomed, `${errors.join(' / ')} ${Shell.selection.peek().join()}`);
   rowOf(doomed).getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
-  hover(item('Delete')); await previewed();
+  hover(item('Delete row')); await previewed();
   check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
-  item('Delete').click(); await previewed();
+  item('Delete row').click(); await previewed();
   const untilIn = () => $('.pendbar .from input');
   check('… and chosen, redlines it with the bar, asking until when: the day shown, to type over', N() === n0 && rowOf(doomed).getElement().classList.contains('red-go')
     && $('.pendbar .from .sel')?.textContent === 'Until' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
@@ -751,8 +760,8 @@ async function run() {
   const textRight = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().right; };
   const edge = (title, sel) => { const c = column(title).getElement(); return c.getBoundingClientRect().right - c.querySelector(sel).getBoundingClientRect().right; };
   const pctTitle = column('Percentage').getElement().querySelector('.tabulator-col-title');
-  check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.tabulator-header-filter') - edge('Owner', '.tabulator-header-filter')) <= 0.5
-    && textRight(pctTitle) <= column('Percentage').getElement().querySelector('.tabulator-header-filter').getBoundingClientRect().left, `${edge('Percentage', '.tabulator-header-filter')} vs ${edge('Owner', '.tabulator-header-filter')}`);
+  check('A column of figures has its heading set right, its menu at the right edge as every column’s is', getComputedStyle(pctTitle).textAlign === 'right' && Math.abs(edge('Percentage', '.col-menu') - edge('Owner', '.col-menu')) <= 0.5
+    && textRight(pctTitle.querySelector('.t')) <= column('Percentage').getElement().querySelector('.col-menu').getBoundingClientRect().left, `${edge('Percentage', '.col-menu')} vs ${edge('Owner', '.col-menu')}`);
   Shell.show(docsView); await built('Link');
   // Cut short: a cell of any row narrower than what it holds, other than a long text at the cap; a name, never.
   const cut = () => Table.grid.getRows('active').flatMap(r => r.getCells()).filter(c => c.getElement().scrollWidth > c.getElement().clientWidth + 1

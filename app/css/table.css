@@ -6,56 +6,70 @@
 .main.alone { grid-template-columns: minmax(0, 1fr) 0 0; }
 .main.alone > :is(.divider, .inspector) { display: none; }
 .view > .host.grid { display: flex; flex-direction: column; background: var(--surface); }
-.grid > .cells { flex: 1; min-height: 0; }
+.grid > .cells { position: relative; flex: 1; min-height: 0; }
 .grid > .cells > .tabulator { height: 100%; }
 .grid .tabulator .tabulator-tableholder .tabulator-table { min-width: 100%; }   /* rows to the edge, whatever the columns */
 .grid .tabulator .tabulator-tableholder:focus-visible { outline: none; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
 .grid .tabulator .tabulator-header .tabulator-col { background: var(--paper); border-right-color: var(--rule); }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 4px 8px; }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 22px; }
-.grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable .tabulator-col-title { padding-right: 38px; }
-/* A tag's column is as narrow as its heading set on two lines (table.js), and its sort and filter show while
-   the pointer is on it or they're in use, over the heading's corner, on the heading's own ground. */
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 26px; }
+.grid .tabulator .tabulator-header .tabulator-col:is(.sorted, .filtered) .tabulator-col-title { padding-right: 42px; }
+.grid .tabulator .tabulator-header .tabulator-col.filtered.sorted .tabulator-col-title { padding-right: 58px; }
+/* A tag's column is as narrow as its heading set on two lines (table.js); its chevron, arrow and funnel show over the
+   heading's corner, on the heading's own ground. */
 .grid .tabulator .tabulator-header .tabulator-col.c-tag .tabulator-col-title { padding-right: 0; white-space: normal; }
-.grid .tabulator .tabulator-header .tabulator-col.c-tag :is(.tabulator-col-content, .tabulator-col-title-holder, .tabulator-col-sorter, .tabulator-header-filter) { background: inherit; }
-.grid .tabulator .tabulator-header .tabulator-col.c-tag .tabulator-col-content .tabulator-col-sorter { right: 16px; }
-.grid .tabulator .tabulator-header .tabulator-col.c-tag:not(:hover, :focus-within, :has(.tabulator-header-filter input:not(:placeholder-shown))) .tabulator-header-filter { opacity: 0; }
+.grid .tabulator .tabulator-header .tabulator-col.c-tag :is(.tabulator-col-content, .tabulator-col-title-holder, .tabulator-col-sorter, .funnel, .col-menu) { background-color: inherit; }
+.grid .tabulator .tabulator-header .tabulator-col.c-tag :is(.tabulator-col-sorter, .funnel) { top: 2px; bottom: auto !important; }
 .grid .tabulator-col-title .up { display: block; font-weight: 400; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-range-highlight,
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-range-selected { background: var(--paper) linear-gradient(var(--press), var(--press)); color: var(--ink); }
-@media (hover: hover) and (pointer: fine) { .grid .tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover { background: var(--paper) linear-gradient(var(--hover), var(--hover)); } }
+/* A heading is dragged to move its column (table.js): while it's dragged, faint, a ghost of it under the pointer and a
+   bar where it will drop. */
+.grid .tabulator .tabulator-header .tabulator-col.moving { color: var(--ink-3); }
+.col-ghost { position: fixed; z-index: 60; display: flex; align-items: flex-end; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 2px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--ink); font-weight: 500; line-height: 20px; white-space: nowrap; overflow: hidden;
+  box-shadow: var(--shadow-pop); pointer-events: none; }
+.grid .col-drop { position: absolute; top: 0; z-index: 20; width: 2px; background: var(--accent); pointer-events: none; }
+.grid .col-drop::before { content: ""; position: absolute; left: -4px; top: 0; border: 5px solid transparent; border-top-color: var(--accent); }
 
-/* Sorting: an arrow beside the filter, shown on hover and while the column sorts (Tabulator's triangle goes). */
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter { right: 26px; bottom: 4px; top: auto; width: 12px; height: 20px; justify-content: center; color: var(--ink-3); opacity: 0; }
-.grid .tabulator .tabulator-header .tabulator-col:hover .tabulator-col-sorter,
-.grid .tabulator .tabulator-header .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter,
-.grid .tabulator .tabulator-header .tabulator-col[aria-sort="descending"] .tabulator-col-sorter { opacity: 1; }
-.grid .tabulator .tabulator-header .tabulator-col:is([aria-sort="ascending"], [aria-sort="descending"]) .tabulator-col-sorter { color: var(--ink); }
+/* A heading's chevron opens its menu: shown while the pointer is on the heading, the heading is selected, or its menu is open. */
+.grid .tabulator-col .col-menu { position: absolute; right: 4px; bottom: 4px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0;
+  border-radius: var(--r); background: transparent; color: var(--ink-2); opacity: 0; cursor: default; }
+.grid .tabulator-col .col-menu:hover, .grid .tabulator-col.open .col-menu { background-image: linear-gradient(var(--press), var(--press)); color: var(--ink); }
+.grid .tabulator-col:is(:hover, .open, .tabulator-range-selected) .col-menu { opacity: 1; }
+/* Sorted, an arrow beside it, which flips the sort; filtered, a funnel, which opens the filter. Tabulator's triangle goes. */
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter { right: 26px; bottom: 4px; top: auto; width: 14px; height: 20px; justify-content: center;
+  border-radius: var(--r); color: var(--ink); opacity: 0; pointer-events: none; }
+.grid .tabulator .tabulator-header .tabulator-col:is([aria-sort="ascending"], [aria-sort="descending"]) .tabulator-col-sorter { opacity: 1; pointer-events: auto; }
+.grid .tabulator .tabulator-header .tabulator-col .tabulator-col-sorter:hover { background: var(--press); }
 .grid .tabulator-col .tabulator-col-sorter .tabulator-arrow { display: none; }
 .grid .tabulator-col .tabulator-col-sorter::after { content: ""; width: 8px; height: 10px; background: currentColor;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='10'%3E%3Cpath d='M4 1v8M1 6l3 3 3-3' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center; }
 .grid .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter::after { transform: rotate(180deg); }
+.grid .tabulator-col .funnel { position: absolute; right: 26px; bottom: 4px; display: none; place-items: center; width: 16px; height: 20px; border-radius: var(--r); color: var(--accent-ink); cursor: default; }
+.grid .tabulator-col.filtered .funnel { display: grid; }
+.grid .tabulator-col.filtered.sorted .funnel { right: 42px; }
+.grid .tabulator-col .funnel:hover { background: var(--press); }
+.grid .tabulator-col .funnel svg { width: 12px; height: 12px; fill: currentColor; fill-opacity: .18; }
+.grid .tabulator-col.filtered .tabulator-col-title .t { color: var(--accent-ink); }
+/* A heading's name, typed in place over it; a column just inserted, waiting on its name. */
+.grid .tabulator-col .col-name { position: absolute; left: 4px; right: 4px; bottom: 2px; z-index: 2; height: 24px; padding: 0 6px; font-weight: 500;
+  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); outline: none; cursor: text; }
+.grid .tabulator .tabulator-header .tabulator-col.c-new { background: var(--surface); }
+.grid .tabulator-row .tabulator-cell.c-new { background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
 
-/* Filtering: a dropdown at the heading's right edge, as Excel's, a column of figures' too, its heading set
-   right before it; a column filtered is underlined in the accent. */
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter { position: absolute; right: 4px; bottom: 4px; width: 20px; margin: 0; }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input { width: 20px !important; height: 20px; padding: 0 !important; border: 0; border-radius: var(--r); color: transparent; background: transparent var(--chev) no-repeat center; cursor: default; }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:hover { background-color: var(--press); }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter:focus-within { left: 4px; right: 4px; width: auto; bottom: 2px; z-index: 2; }
-.grid .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:focus { width: 100% !important; height: 24px; padding: 0 22px 0 6px !important; color: var(--ink); background-color: var(--surface); box-shadow: 0 0 0 1px var(--accent); background-position: right 7px center; cursor: text; outline: none; }
-.grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) { box-shadow: inset 0 -2px var(--accent); }
-.grid .tabulator .tabulator-header .tabulator-col:has(.tabulator-header-filter input:not(:placeholder-shown)) .tabulator-col-title { color: var(--accent-ink); }
-.grid .tabulator .tabulator-header-filter .tabulator-edit-list-clear { display: none; }
 
 /* Row numbers, as Excel's, set in the margin's paper. */
 .grid .tabulator-row .tabulator-cell.rn, .grid .tabulator .tabulator-header .tabulator-col.rn { background: var(--paper); color: var(--ink-3); font: var(--t12); line-height: 20px; }
 .grid .tabulator-row.picked .tabulator-cell.rn { color: var(--accent-ink); font-weight: 500; }
 
 .grid .tabulator-row { min-height: var(--row); }
-/* The first column stays put beside the row numbers as the grid scrolls across, as a frozen pane (sticky, as
-   Tabulator freezes the row numbers), over the selection's outline, so it draws its own. */
-.grid .tabulator .tabulator-header .tabulator-col.pin, .grid .tabulator-row .tabulator-cell.pin { position: sticky; left: 48px; z-index: 11; border-right: 1px solid var(--rule-2); }
+/* The columns kept in view, the first unless the user freezes more or none, stay put beside the row numbers as the
+   grid scrolls across, as a frozen pane (sticky, as Tabulator freezes the row numbers; each where those before it end,
+   table.js), over the selection's outline, so they draw their own; the last of them ruled darker, as Excel's pane. */
+.grid .tabulator .tabulator-header .tabulator-col.pin, .grid .tabulator-row .tabulator-cell.pin { position: sticky; left: 48px; z-index: 11; }
+.grid .tabulator .tabulator-header .tabulator-col.pin-last, .grid .tabulator-row .tabulator-cell.pin-last { border-right: 1px solid var(--rule-2); }
 .grid .tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left, .grid .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left { border-right-color: var(--rule); }
 .grid .tabulator-row .tabulator-cell.pin { background: var(--surface); }
 .grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell:is(.tabulator-frozen, .pin) { background: var(--selected); }
@@ -63,7 +77,7 @@
 .grid .tabulator-row .tabulator-cell.pin.tabulator-range-selected:not(.tabulator-range-only-cell-selected) { background: var(--selected); }
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A name longer than half the grid goes on to another line rather than be cut (table.js). */
-.grid .tabulator-row .tabulator-cell.pin { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.grid .tabulator-row .tabulator-cell.lead { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
 /* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does. */
 .grid .tabulator .tabulator-tableholder { scroll-snap-type: x mandatory; }
 .grid .tabulator-row .tabulator-cell:not(.pin, .tabulator-row-header) { scroll-snap-align: start; scroll-margin-left: var(--pinned, 48px); }
@@ -112,6 +126,56 @@
   background: var(--chev) no-repeat center; vertical-align: 2px; transform: rotate(-90deg); }
 .grid .tabulator-row.tabulator-group.tabulator-group-visible .tabulator-arrow { transform: none; }
 .grid .tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents { padding: 48px 0; }
+
+/* ---- Above the grid: its columns, and how it's sorted, filtered and grouped, each said while it's on ---- */
+.grid > .tools { flex: none; }
+.tbar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 12px 0 8px; border-bottom: 1px solid var(--rule); background: var(--paper); user-select: none; }
+.tbar > .btn { height: var(--row); padding: 0 8px; color: var(--ink-2); }
+.tbar > .btn:hover { color: var(--ink); }
+.tbar > .btn.on { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent-ink); font-weight: 500; }
+.tbar > .tcount { margin-left: auto; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---- The new row, under the last (or at the grid's foot, where the rows run on past it) ---- */
+.grid.adds > .cells { padding-bottom: var(--row); }
+.grid > .newslot { position: absolute; left: 0; right: 0; height: var(--row); z-index: 12; }
+.grid:not(.adds) > .newslot { display: none; }
+.newrow { display: flex; align-items: center; height: var(--row); border-bottom: 1px solid var(--rule); background: var(--surface); }
+.newrow > .plus { display: grid; place-items: center; width: 48px; height: 100%; flex: none; background: var(--paper); color: var(--ink-3); border-right: 1px solid var(--rule); }
+.newrow > .nr-name, .newrow > .nr-go { width: var(--lead, 240px); max-width: calc(100% - 48px); height: 100%; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; cursor: text; }
+.newrow > .nr-go { color: var(--ink-3); cursor: default; }
+.newrow > .nr-name::placeholder { color: var(--ink-3); }
+.newrow:hover > :is(.nr-name, .nr-go) { background-image: linear-gradient(var(--hover), var(--hover)); }
+.newrow > .nr-name:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); background: var(--surface); }
+
+/* ---- A column's filter: Find, then its values as checkbox rows, each with how many rows have it ---- */
+.tfilter { display: grid; gap: 8px; width: 264px; margin: -4px; }
+.tfilter > .tf-find { width: 100%; }
+.tf-list { max-height: 280px; overflow: auto; margin: 0 -8px; padding: 0 0 2px; }
+.tf-row { display: flex; align-items: center; gap: 8px; min-height: var(--row); padding: 0 8px; border-radius: var(--r); cursor: default; user-select: none; }
+.tf-row:hover { background: var(--hover); }
+.tf-row.all { border-bottom: 1px solid var(--rule); border-radius: 0; margin-bottom: 2px; }
+.tf-row > .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tf-row > .n { color: var(--ink-3); font: var(--t12); font-variant-numeric: tabular-nums; }
+.tf-none { padding: 4px 8px; color: var(--ink-3); }
+.tf-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; margin: 0 -12px; padding-inline: 12px; border-top: 1px solid var(--rule); }
+
+/* ---- Every column, a checkbox each, dragged by its row to reorder ---- */
+.cols { display: grid; width: 280px; max-height: min(480px, calc(100vh - 160px)); overflow: auto; margin: -8px -8px; padding: 4px 0; }
+.colrow { position: relative; display: flex; align-items: center; gap: 4px; min-height: var(--row); padding: 0 8px 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--ink); text-align: left; user-select: none; }
+.colrow.mv:hover { background: var(--hover); }
+.colrow > .grip { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--ink-3); opacity: 0; }
+.colrow.mv:hover > .grip { opacity: 1; cursor: grab; }
+.colrow > label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; min-height: var(--row); }
+.colrow > label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.colrow:not(.mv) > label { color: var(--ink-3); }
+.colrow.new { margin-top: 4px; border-top: 1px solid var(--rule); border-radius: 0; color: var(--ink-2); }
+.colrow.new > .grip { opacity: 1; }
+button.colrow.new:hover { background: var(--hover); color: var(--ink); }
+.colrow.new > input { flex: 1; height: 24px; margin: 2px 0; }
+
+/* ---- The cells selected, at the status bar's end: counted, and their numbers summed and averaged ---- */
+.tstats { display: flex; gap: 16px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--rule); color: var(--ink-3); white-space: nowrap; }
+.tstats b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* ---- The date control: a calendar beside the chart's own days ---- */
 .date-pop { display: grid; gap: 12px; width: 596px; }
