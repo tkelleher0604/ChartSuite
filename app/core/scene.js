@@ -596,7 +596,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     settle(m, DEFAULTS.text);
     for (const label of TEXT_PROPS) if (!m.cand[label] && label !== 'Format') m.settings[label] = host.settings[label];
     const r = state[m.record], t = look(m.settings), name = once(m.record, 'name', () => N.name(tree(m.record)));
-    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name), computed: !!r.computed,
+    // `shownBy`, the note that shows it, where one does: what hiding it where it's shown takes back (see Fields).
+    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name), computed: !!r.computed, shownBy: m.cand.Shown?.note ?? null,
       ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', name), name: N.nameOf(state, m.listed) } }) };
   };
   // A box's relations written in it, one text for each role: the role, for more than one in the plural, and
@@ -652,7 +653,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       if (win?.value !== true || !(win.note.param || scopes.has(win.note))) continue;
       const f = N.formats(et, view), settings = {};
       for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && f[label] ? { value: f[label].value, note: f[label].note } : b.settings[label];
-      const item = { id: `blank:${O}|${edge}`, type: 'text', settings, look: look(settings), text: edge, blank: { at: O, edge }, computed: false };
+      const item = { id: `blank:${O}|${edge}`, type: 'text', settings, look: look(settings), text: edge, blank: { at: O, edge }, computed: false, shownBy: win.note };
       const order = [[N.order(et) ?? Infinity, k]], i = b.texts.findIndex(it => it.listed || ordered(order, orderOf(it.id)) < 0);
       b.texts.splice(i < 0 ? b.texts.length : i, 0, item);
     }

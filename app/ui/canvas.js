@@ -1047,7 +1047,15 @@ function mount(el) {
           tx.note('Shown', pattern, on, { view, ...(param && { param }) });
         }
       }
-    }, { dated: false, say: `${on ? 'Showed' : 'Hid'} ${edge} ${on ? 'in' : 'from'} ${whereSaid(ms, s)}` });
+    }, { dated: false, say: () => {
+      // A group's boxes that a narrower note, or a later group's, keeps as they were, said, as the format bar says a
+      // box keeps its own.
+      const now = App.scene.peek(), kept = s.marks ? [...s.marks].filter(id => { const m = now?.byId.get(id); return m && m.type === ms[0].type && shows(m, edge) !== on; }) : [];
+      const m0 = kept.length && now.byId.get(kept[0]), by = m0 && groupOfNote(m0, m0.texts.find(it => Tree.same(fieldName(it), edge))?.shownBy, now);
+      const why = !kept.length ? '' : by ? `; ${named(by)} still ${on ? 'hides' : 'shows'} it in ${kept.length === 1 ? called(m0) : `${kept.length} of them`}`
+        : `; ${kept.length === 1 ? `${called(m0)} keeps its own` : `${kept.length} ${ms[0].type === 'line' ? 'lines' : 'boxes'} keep their own`}`;
+      return `${on ? 'Showed' : 'Hid'} ${edge} ${on ? 'in' : 'from'} ${whereSaid(ms, s)}${why}`;
+    } });
   }
   // A free text written in a mark at a scope, as it's typed in place (new, where `it` is none): its words, {Entry} and
   // all, its look kept. Left empty, it's taken away (see unText).
@@ -1073,7 +1081,7 @@ function mount(el) {
       if (!s.own) return s.outputs.forEach(p => tx.note('Text', p, undefined, { view }));
       const others = N.notes('Text').some(n => n.view === view && Tree.key(n.pattern) !== Tree.key(rec) && ids.some(id => Tree.fits(s0, id, n.pattern)));
       tx.note('Text', rec, others ? { text: '' } : undefined, { view });
-    }, { dated: false, say: `Took the text from ${whereSaid([m], s)}` });
+    }, { dated: false, say: `Removed the text from ${whereSaid([m], s)}` });
   }
   // A field hidden: its entry, or a blank, at the scope; a free text taken away.
   function hideField(f = fieldNow(), s) {
@@ -1284,9 +1292,17 @@ function mount(el) {
     return [{ label: 'Format', disabled: ro, items: [...(boxy ? [{ label: 'Fill…', run: open('fill') }] : []), { label: 'Outline…', run: open('outline') }, { label: 'Font…', run: open('font') }] },
       ...(bar.copyLook ? [{ label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : []), '-'];
   }
+  // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
+  // as the Key and Styles group them; null for a box's own, or where none says.
+  function groupOfNote(m, note, sc = scene) {
+    if (!note || !note.view || Tree.idsIn(note.pattern).size) return null;
+    return groupsAt(sc, m).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(note.pattern))) ?? null;
+  }
   // A field's own: typed in, hidden from this box or from all like it, its text's look.
   function fieldItems(f) {
-    const ro = still(), g = groupsAt(scene, f.m).find(x => x.marks.size > 1), s = scopeNow(canvas), all = s.own ? g : s;
+    // All like it: the group whose note shows the field here, so hiding it there takes back what showed it; else the
+    // scope's group, or the narrowest.
+    const ro = still(), s = scopeNow(canvas), all = groupOfNote(f.m, f.it.shownBy) ?? (s.own ? groupsAt(scene, f.m).find(x => x.marks.size > 1) : s);
     const name = fieldName(f.it), t = f.it.look, view = viewOf();
     // Its look, at the field's own pattern at the scope, as a format given there lands on its text.
     const restyle = (label, v) => App.change(tx => {
