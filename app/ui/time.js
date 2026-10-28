@@ -420,7 +420,11 @@ const Time = (() => {
     const gone = !i.now.length;
     switch (n.label) {
       case 'Order': return isView ? 'Reordered the views' : n.view ? `Reordered ${N.nameOf(recs, n.view)}` : `Reordered ${of}`;
-      case 'Shown': return gone ? `Reset ${of}${inView}` : `${n.value === false ? 'Hid' : 'Showed'} ${of}${inView}`;
+      // An entry of an entry by its path, as the Columns list says it: Jurisdiction › File Number, not File Number.
+      case 'Shown': { const path = [];
+        for (let t = n.pattern; !n.param && !t.out && t.id === undefined && t.args?.length === 1; t = t.args[0].loc) path.unshift(t.args[0].edge);
+        const what = path.length > 1 ? path.join(' › ') : of;
+        return gone ? `Reset ${what}${inView}` : `${n.value === false ? 'Hid' : 'Showed'} ${what}${inView}`; }
       // A free text (dendra.md, Fields), in a box or a group's, by whose it is.
       case 'Text': { const whose = one ? of : n.view ? grouped(N, n) ?? of : of;
         return gone || !n.value?.text ? `Removed the text from ${whose}${inView}` : i.was.length ? `Edited the text of ${whose}${inView}` : `Added text to ${whose}${inView}`; }
