@@ -494,7 +494,7 @@ async function run() {
     // Whose each tax is, as its summary says it: Annual Tax Due · Fund III, tax year 2026 is Fund III's annual tax
     // for 2026, never "The tax year is 2026, so the annual tax is due …", which seven events would share.
     const taxes = events.filter(e => e.summary.startsWith('Annual Tax Due · ')), owed = e => { const [, who, year] = /^Annual Tax Due · (.+), tax year (\d{4})$/.exec(e.summary) ?? [];
-      return !!who && e.description?.startsWith(`${who}${/s$/.test(who) ? '’' : '’s'} annual tax for ${year} is due `); };
+      return !!who && e.description?.startsWith(`${who}${/s$/.test(who) ? '’' : '’s'} annual tax for ${year} ${overdue.includes(e.id) ? 'was' : 'is'} due `); };
     check('… each tax saying whose, as its summary does: Fund III’s annual tax for 2026 is due June 1, 2027', taxes.length >= 8 && taxes.every(owed) && new Set(taxes.map(e => e.description)).size === taxes.length
       && taxes.some(e => e.summary === 'Annual Tax Due · Fund III, tax year 2026' && e.description === 'Fund III’s annual tax for 2026 is due June 1, 2027.'),
       taxes.filter(e => !owed(e)).slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | ') || taxes.slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | '));
