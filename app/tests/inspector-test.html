@@ -549,6 +549,14 @@ async function run() {
   const dark = getComputedStyle(swatch), page = getComputedStyle(document.body).getPropertyValue('--page').trim();
   check('in dark, a swatch is drawn true, on the page’s white, not turned to the panel’s colours', dark.filter === 'none' && dark.backgroundColor === 'rgb(255, 255, 255)' && page === '#ffffff', `${dark.filter} ${dark.backgroundColor} ${page}`);
   document.documentElement.dataset.theme = theme;
+  // Each 2 px inside its chip, a heavy outline too, so none runs along the chip's edge, where in dark a dashed one
+  // (Not in good standing) would merge with the chip's white.
+  // What a mark covers: its box, and half its outline beyond, but past a line's ends, which are cut square.
+  const reach = c => { const b = c.getBBox(), h = +(c.getAttribute('stroke-width') || 0) / 2, hx = b.height ? h : 0, [, tx = 0, ty = 0] = /translate\(([\d.]+) ([\d.]+)\)/.exec(c.getAttribute('transform') ?? '') ?? [];
+    return [b.x + +tx - hx, b.y + +ty - h, b.x + +tx + b.width + hx, b.y + +ty + b.height + h]; };
+  const outside = $$('svg.sw > *').filter(c => { const [x0, y0, x1, y1] = reach(c); return x0 < 1.99 || y0 < 1.99 || x1 > 26.01 || y1 > 14.01; });
+  check('… each 2 px inside its chip, a heavy outline too, so none runs along its edge', $$('svg.sw > *').length > 5 && !outside.length && $$('svg.sw path[stroke-width="2.5"]').length > 0,
+    outside.map(c => reach(c).map(v => v.toFixed(2)).join(',')).join(' | '));
   // One rule groups a style's outputs, the Key's: a Key row is one row here, its outputs all in it.
   const said = $$('.row.out').map(r => (r.querySelector('.oname')?.textContent ?? (r.querySelector('.v').title || r.querySelector('.cell').value)).split(', '));
   check('… grouped as the Key groups them: outputs that look alike are one row', App.scene.peek().legend.every(g => said.some(ns => g.outputs.every(p => ns.some(x => Tree.same(x, Scene.outputName(N(), p))))))

@@ -742,9 +742,10 @@ function RecordView({ id }) {
   </div>`;
 }
 
-// A style's outputs, each as the legend draws it (Scene's swatch), with its caption.
+// A style's outputs, each as the legend draws it (Scene's swatch), with its caption; each 2 px inside its chip,
+// a box's outline too, however heavy, so none runs along the chip's edge.
 function Swatch({ sw, off }) {
-  const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight);
+  const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight), w = stroke === 'none' ? 0 : Math.min(sw.Weight * Scene.PT, 2.5);
   return html`<svg class=${'sw' + (off ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">${sw.kind === 'line'
     ? html`<path d="M2 8H26" fill="none" stroke=${stroke} stroke-width=${Math.min(sw.Weight * Scene.PT, 3)} stroke-dasharray=${dash} />`
     // A frame as the chart draws one: a bracket over its boxes, or a box round them.
@@ -752,8 +753,8 @@ function Swatch({ sw, off }) {
         stroke-dasharray=${['bracket', 'solid'].includes(sw.Frame) ? null : Scene.dash(sw.Frame === 'dotted' ? 'dotted' : 'dashed', 0.75)} />`
     : sw.kind === 'text' ? html`<text x="14" y="12" text-anchor="middle" font-family=${Scene.fontFamily(sw.Font)} font-size="11" fill=${sw.Color}
         font-weight=${sw.Bold ? 700 : 400} font-style=${sw.Italic ? 'italic' : 'normal'}>Aa</text>`
-    : html`<path d=${Scene.path(sw.Shape ?? 'rect', 25, 13)} transform="translate(1.5 1.5)" fill=${sw.Fill === 'none' ? 'none' : sw.Fill} stroke=${stroke}
-        stroke-width=${Math.min(sw.Weight * Scene.PT, 2.5)} stroke-dasharray=${dash} />`}</svg>`;
+    : html`<path d=${Scene.path(sw.Shape ?? 'rect', 24 - w, 12 - w)} transform=${`translate(${2 + w / 2} ${2 + w / 2})`} fill=${sw.Fill === 'none' ? 'none' : sw.Fill} stroke=${stroke}
+        stroke-width=${w} stroke-dasharray=${dash} />`}</svg>`;
 }
 // A view's styles (those reaching `only`, if given), each with the outputs it formats: an output that only
 // shows or hides is a filter, which the legend doesn't key and nor does this.
