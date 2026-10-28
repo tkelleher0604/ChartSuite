@@ -118,18 +118,26 @@ const FormulaBar = (() => {
   const sameSpot = (a, b) => !!a && !!b && (a.args ? !!b.args && argKey(a.args) === argKey(b.args)
     : !b.args && a.at === b.at && norm(a.edge) === norm(b.edge));
 
-  // Records between two objects that a definition covers, by definition and objects in its edges' order: of the
-  // relations at either, or at anything in either, the last in the state's order where two say the same. Once for
-  // each working-out and pair.
-  const between = new WeakMap();
-  function pairsOf(Rv, a, b) {
-    const memo = between.get(Rv) ?? between.set(Rv, new Map()).get(Rv), k = `${a}|${b}`;
+  // The relations at two objects, or at anything in either, in the state's order: all that can be between them. Once
+  // for each working-out and pair.
+  const nearby = new WeakMap();
+  function nearOf(Rv, a, b) {
+    const memo = nearby.get(Rv) ?? nearby.set(Rv, new Map()).get(Rv), k = `${a}|${b}`;
     if (memo.has(k)) return memo.get(k);
-    const recs = Rv.records, { entries, relations } = Tree.index(recs), near = new Set(), out = new Map();
+    const recs = Rv.records, { entries, relations } = Tree.index(recs), near = new Set(), order = [];
     for (const o of [a, b]) for (let todo = [o], i = 0; i < todo.length; i++) { for (const r of relations.get(todo[i]) ?? []) near.add(r); todo.push(...entries.get(todo[i]) ?? []); }
-    const order = [];
     for (const id in recs) if (near.has(id)) order.push(id);
-    for (const id of order) {
+    memo.set(k, order);
+    return order;
+  }
+  // Records between two objects that a definition covers, by definition and objects in its edges' order, the last in
+  // the state's order where two say the same. Once for each working-out and pair.
+  const pairsKept = new WeakMap();
+  function pairsOf(Rv, a, b) {
+    const memo = pairsKept.get(Rv) ?? pairsKept.set(Rv, new Map()).get(Rv), k = `${a}|${b}`;
+    if (memo.has(k)) return memo.get(k);
+    const recs = Rv.records, out = new Map();
+    for (const id of nearOf(Rv, a, b)) {
       const r = recs[id], def = r.args?.length === 2 && (Rv.computed[id]?.def ?? Rv.covered[id]?.def), d = def && defOf(def);
       if (!d) continue;
       const by = new Map(r.args.map(x => [norm(x.edge), Tree.objectOf(recs, x.at)]));
@@ -311,7 +319,7 @@ const FormulaBar = (() => {
     // is; its reasons are lit, the rest of the chart dulled, only once the bar is pointed at.
     const pair = subject.value?.pair;
     if (pair && !pulse?.size) {
-      const Rv = R.value, both = new Set(pair), between = Object.keys(Rv.records).filter(id => { const as = Rv.records[id].args; return as?.length === 2 && as.every(a => both.has(Tree.objectOf(Rv.records, a.at))) && new Set(as.map(a => Tree.objectOf(Rv.records, a.at))).size === 2; });
+      const Rv = R.value, both = new Set(pair), between = nearOf(Rv, ...pair).filter(id => { const as = Rv.records[id].args; return as?.length === 2 && as.every(a => both.has(Tree.objectOf(Rv.records, a.at))) && new Set(as.map(a => Tree.objectOf(Rv.records, a.at))).size === 2; });
       return canvas?.highlight(between.length ? Object.fromEntries(between.map(id => [id, [1, 0]])) : null);
     }
     if (!map.size && !pulse?.size) return canvas?.highlight(null);
