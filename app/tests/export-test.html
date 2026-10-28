@@ -425,6 +425,60 @@ async function run() {
     check('… and a PDF of every view on Letter has a page for each', (new TextDecoder('latin1').decode(await (await Export.write('pdf', letter, 'Letter', WHO)).arrayBuffer()).match(/\/Type \/Page\b(?!s)/g) ?? []).length === letter.length);
   }
 
+  // ---- The looks: Strike, Spacing, Valign, Transparency, Shadow and Corner, and the fonts, each a word in the
+  // scene's defaults and its drawing, on the canvas, in the PDF and in the deck ----
+  {
+    const looks = Log.open(SAMPLE), main = views[0], at = id => Tree.treeOf(looks.asOf(C, DAY), id);
+    const tx = looks.edit({ chart: C, who: WHO }), N0 = looks.notes(C);
+    for (const [id, label, v] of [['fund', 'Strike', true], ['fund', 'Spacing', 1.5], ['fund', 'Transparency', 40], ['fund', 'Shadow', 'soft'],
+      ['halvard', 'Shape', 'rounded'], ['halvard', 'Corner', 30], ['halvard', 'Valign', 'top'], ['northpine', 'Font', 'Calibri'], ['northpine', 'Valign', 'bottom']])
+      writeNote(tx, N0, label, at(id), main, v);
+    writeNote(tx, N0, 'Bold', { out: { choice: 'Cayman Islands' }, args: [{ edge: 'Jurisdiction', loc: {} }] }, main, true);
+    writeNote(tx, N0, 'Bold', { kind: 'Individual' }, main, true);
+    if (typeof tx.commit() === 'string') throw new Error('no looks');
+    const N = looks.notes(C), R4 = Formulas.computeState(looks.asOf(C, DAY), N.definitions(looks.schema(C)), { relations: N.relations(looks.schema(C)) });
+    const s = { ...Scene.of(looks, C, main, DAY, { state: R4.records, computed: R4 }), name: 'Looks' }, b = id => s.byId.get(id);
+    check('every label but the model’s others is a format property, the new ones among them', ['Strike', 'Spacing', 'Valign', 'Transparency', 'Shadow', 'Corner'].every(l => Notes.FORMATS.has(l))
+      && !['Name', 'Order', 'Formula', 'Caption', 'Position', 'Text'].some(l => Notes.FORMATS.has(l)) && ['Strike', 'Spacing'].every(l => l in Scene.DEFAULTS.text)
+      && ['Valign', 'Transparency', 'Shadow', 'Corner'].every(l => l in Scene.DEFAULTS.box));
+    const fund = b('fund'), pitch = fund.texts.flatMap(it => it.lines.slice(1).map((l, i) => l.y - it.lines[i].y));
+    check('a box’s Strike, Spacing, Transparency and Shadow are its settings, its texts struck and spaced 1.5 times single', fund.settings.Transparency.value === 40 && fund.settings.Shadow.value === 'soft'
+      && fund.texts.every(it => it.look.Strike && it.look.Spacing === 1.5) && pitch.length && pitch.every(p => Math.abs(p - Scene.lineHeight(fund.texts[0].look)) < 0.01)
+      && Math.abs(Scene.lineHeight(fund.texts[0].look) - fund.texts[0].look.Size * Scene.PT * 1.8) < 0.01, j(pitch.map(p => p.toFixed(2))));
+    const hv = b('halvard'), np = b('northpine'), top = it => it.lines[0].y - Scene.baseline(it.look), foot = m => { const it = m.texts.at(-1); return it.lines.at(-1).y - Scene.baseline(it.look) + Scene.lineHeight(it.look); };
+    const inset = 0.3 * 0.29289 * Math.min(hv.w, hv.h);
+    check('a rounded box’s Corner rounds it, and Valign sets its text at its top, PowerPoint’s 0.1 in under its text rect', hv.shape === 'rounded' && hv.settings.Corner.value === 30
+      && Scene.path('rounded', 100, 50, 30).startsWith('M15,0') && Math.abs(top(hv.texts[0]) - (inset + 9.6)) < 0.01, `${top(hv.texts[0])} for ${inset + 9.6}`);
+    const rb = np.shape === 'rounded' ? np.settings.Corner.value / 100 * 0.29289 * Math.min(np.w, np.h) : 0;
+    check('… and at its bottom', Math.abs(foot(np) - (np.h - rb - 9.6)) < 0.01 && np.texts[0].look.Font === 'Calibri', `${foot(np)} for ${np.h - rb - 9.6}`);
+    const caymans = s.marks.filter(m => m.type === 'box' && R4.records[Object.keys(R4.records).find(id => R4.records[id].at === m.record && R4.records[id].edge === 'Jurisdiction')]?.choice === 'Cayman Islands');
+    check('Bold given at an option lands on its boxes, every text in them bold, the option’s own too', caymans.length > 1 && caymans.every(m => m.texts.length > 1 && m.texts.every(it => it.look.Bold)),
+      caymans.map(m => m.texts.map(it => `${it.text}:${it.look.Bold}`).join(',')).join(' / '));
+    check('… and Bold at a kind on its boxes', s.marks.filter(m => m.type === 'box' && R4.records[m.record].kind === 'Individual').every(m => m.texts.every(it => it.look.Bold)));
+    // The deck.
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [s], 'Looks', { author: WHO, R: R4, N }));
+    const d = xml(await zip.file('ppt/slides/slide1.xml').async('string')), sp = m => tags(d, 'p:sp').find(e => nameOf(e) === m.texts[0].text);
+    const fsp = sp(fund), hsp = sp(hv), nsp = sp(np), k = s.page.scale;
+    check('in the deck, a box’s Transparency is its fill’s alpha, its Shadow PowerPoint’s outer shadow, its texts struck and spaced as the scene spaces them',
+      tags(tags(fsp, 'p:spPr')[0], 'a:alpha')[0]?.getAttribute('val') === '60000' && !!tags(fsp, 'a:outerShdw').length
+      && tags(fsp, 'a:rPr').every(r => r.getAttribute('strike') === 'sngStrike') && tags(fsp, 'a:spcPts').every(p => fund.texts.some(it => +p.getAttribute('val') === Math.round(it.look.Size * 1.2 * 1.5 * k * 100))),
+      `${tags(tags(fsp, 'p:spPr')[0], 'a:alpha')[0]?.getAttribute('val')} ${tags(fsp, 'a:spcPts').map(p => p.getAttribute('val'))}`);
+    check('… a rounded box’s Corner its adjustment, its Valign its anchor, its font the font itself', tags(hsp, 'a:gd')[0]?.getAttribute('fmla') === 'val 30000' && tags(hsp, 'a:bodyPr')[0].getAttribute('anchor') === 't'
+      && tags(nsp, 'a:bodyPr')[0].getAttribute('anchor') === 'b' && tags(nsp, 'a:latin')[0].getAttribute('typeface') === 'Calibri');
+    // The PDF, as its SVG: the fill's opacity, the shadow's layers, the strike's rules, and Calibri in Helvetica condensed
+    // wherever Helvetica would set it wider than the scene.
+    await Export.write('pdf', [s], 'Looks', { author: WHO });
+    const doc = new DOMParser().parseFromString(Export.svg(s, { pdf: true }), 'image/svg+xml'), boxAt = m => [...doc.querySelectorAll('g')].filter(gg => gg.getAttribute('transform') === `translate(${+m.x.toFixed(2)} ${+m.y.toFixed(2)})`)[0];
+    const fg = boxAt(fund), paths = fg ? [...fg.querySelectorAll(':scope > path')] : [], layers = fg ? [...fg.querySelectorAll(':scope > g > path')] : [];
+    check('in the PDF, the fill as transparent as its Transparency, a soft shadow in faint layers under it, and a rule through each line struck',
+      paths.some(p => p.getAttribute('fill-opacity') === '0.6') && layers.length === 4 && layers.every(p => p.getAttribute('fill-opacity') === '0.1')
+      && fg.querySelectorAll(':scope > rect').length >= fund.texts.reduce((n, it) => n + it.lines.length, 0), `${paths.length} paths, ${layers.length} layers, ${fg?.querySelectorAll(':scope > rect').length} rules`);
+    const ng = boxAt(np), texts = ng ? [...ng.querySelectorAll('text')] : [], m = new window.jspdf.jsPDF({ unit: 'pt' }); m.setFont('helvetica', np.texts[0].look.Bold ? 'bold' : 'normal');
+    const wider = np.texts[0].lines.filter(l => m.getStringUnitWidth(l.text) * np.texts[0].look.Size * Scene.PT > l.w + 0.01).length;
+    check('… Calibri set in Helvetica, its class’s standard font, each line Helvetica sets wider condensed to the scene’s width', texts.every(t => t.getAttribute('font-family') === 'helvetica')
+      && texts.filter(t => /^matrix\(0\.\d+ 0 0 1 /.test(t.getAttribute('transform') ?? '')).length >= wider, `${wider} wider, ${texts.map(t => t.getAttribute('transform')).join(' | ')}`);
+  }
+
   // ---- In the window: the Export dialog, and the calendar beside the Dates table ----
   // The window on the sample in memory (canvas-harness.html, where no name is set), in a frame. A file is
   // exported as a person exports it: the dialog opened, what's to go picked, Export clicked.
