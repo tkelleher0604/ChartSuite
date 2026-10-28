@@ -854,9 +854,12 @@ const Shell = (() => {
   const problems = () => needs().length > 0;
   [
     { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
-    // What the title bar's Export does, for Find, by what it makes: a chart's slides or pages, and the dates.
+    // What the title bar's Export does, for Find, by what it makes: a chart's slides or pages, the dates, and a table's
+    // sheet, each with why not where it can't.
     ...[['pptx', 'PowerPoint'], ['pdf', 'PDF'], ['ics', 'Calendar']].map(([f, name]) => ({ id: 'export.' + f, name: `Export to ${name}`,
-      enabled: () => typeof Export !== 'undefined' && (f === 'ics' || views.peek().some(v => v.layout === 'chart')), run: () => Export.open(f) })),
+      enabled: () => typeof Export !== 'undefined' && (f === 'ics' || views.peek().some(v => v.layout === 'chart')), why: () => 'Add a chart view first', run: () => Export.open(f) })),
+    { id: 'export.xlsx', name: 'Export to Excel', names: ['Excel', 'Spreadsheet', 'xlsx'], enabled: () => typeof Export !== 'undefined' && many('export').some(x => x.name === 'Excel'),
+      why: () => 'Show a table first', run: () => Export.open('Excel') },
     // Printing is the PDF, as it would print: the browser would print the window.
     { id: 'print', name: 'Print', keys: '$mod+KeyP', inputs: true, enabled: () => typeof Export !== 'undefined', run: () => Export.open(current.peek()?.layout === 'chart' ? 'pdf' : undefined) },
     { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
