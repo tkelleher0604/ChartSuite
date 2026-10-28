@@ -426,17 +426,14 @@ function run() {
       && Object.keys(back.records).join() !== Object.keys(R.records).join(), own);
   }
   {
-    // As of a day before the later funds were formed, Structure keeps today's places, and the page sets what's
-    // left of the chart across its middle: only the white space moves.
+    // As of a day before the later funds were formed, Structure keeps today's places on its page: what's left of the
+    // chart stands where it stood, and only the white space moves.
     const wb = fresh(), now = scene(wb), then = '2023-06-30';
     const N = wb.notes(C), S = wb.schema(C), past = Formulas.computeState(wb.asOf(C, then), N.definitions(S), { relations: N.relations(S) });
     const p = Scene.of(wb, C, MAIN, then, { state: past.records, computed: past }), boxes = p.marks.filter(m => m.type === 'box');
-    const chart = [...boxes, ...p.marks.filter(m => m.type === 'frame')], sheet = r => r * p.page.scale;
-    const left = sheet(Math.min(...chart.map(m => m.x))), right = sheet(Math.max(...chart.map(m => m.x + m.w)));
-    const kept = boxes.every(b => Math.abs(b.x - p.page.offset.x - (now.byId.get(b.id).x - now.page.offset.x)) < 1e-6 && Math.abs(b.y - p.page.offset.y - (now.byId.get(b.id).y - now.page.offset.y)) < 1e-6);
-    const key = p.marks.find(m => m.geometry === 'legend'), k = key && sheet(key.y) < 60 ? sheet(key.x) : null;
-    check('a chart placed by hand sits across the middle of its page, or as far left as the Key beside the title needs, as of any day, its places kept',
-      boxes.length < now.marks.filter(m => m.type === 'box').length && kept && (Math.abs(left - (1280 - right)) < 24 || (k !== null && left >= 47.5 && left < 1280 - right)), j({ left, right, k, kept }));
+    const kept = boxes.every(b => Math.abs(b.x - now.byId.get(b.id).x) < 1e-6 && Math.abs(b.y - now.byId.get(b.id).y) < 1e-6);
+    check('a chart placed by hand stands where it was placed on its page, as of any day: what’s left of it where it stood',
+      p.page.placed && now.page.placed && boxes.length < now.marks.filter(m => m.type === 'box').length && kept, j({ kept, then: p.page.offset, now: now.page.offset }));
   }
 
   // ---- Exhibits: tiers, routes, labels, frames, the page ----

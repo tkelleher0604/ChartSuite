@@ -432,15 +432,17 @@ function blockedRoute(ps, own, solid, avoid, near) {
 // where `bounds` is given (a preview's page, which stays as it was), on it. Worked out again only when what it
 // reads changes.
 // boxes: [{ id, w, h, shape }]; links: the ranking lines { from, to }; lines: every line { id, from, to,
-// trunk, straight }, to route among the boxes already placed; obstacles: free shapes' rects.
+// trunk, straight }, to route among the boxes already placed; obstacles: free shapes' rects; hints: where a box not
+// placed was made, which side of its relatives and which row it goes beside them in, nearest that.
 const arranged = keeping();
 function arrange(a) {
-  const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
+  const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.names]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
+    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h],
+    at(hints)]), () => arranging(a));
 }
-function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
+function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null }) {
   const out = new Map();
   for (const b of boxes) { const p = entered.get(b.id) ?? keep?.get(b.id); if (p) out.set(b.id, { x: p.x, y: p.y }); }
   const rest = boxes.filter(b => !out.has(b.id));
@@ -464,31 +466,43 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const clear = p => p.x >= m / 2 && p.y >= m / 2 && within(p) && !nearBoxes.any(wide(p, 16, 24), i => !apart(p, placedBoxes[i], 16, 24))
     && !nearShapes.any(wide(p, 16, 16), i => !apart(p, obstacles[i], 16, 16)) && !nearSegs.any(wide(p, 8, 8), i => meets(p, segs[i], 8));
   const linked = (id, dir) => [...new Set((dir === 'down' ? downs.get(id)?.map(l => l.to) : ups.get(id)?.map(l => l.from)) ?? [])], main = mainOf(links);
-  for (const b of rest.sort((a, c) => at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
+  // A box over triangles only by lines that say what they are, as a general partner is over its funds, meets their sides,
+  // from beside them, once their owners' lines meet their apexes (see routing): it's placed after the rest, beside them, on
+  // the side its layout puts it.
+  const triangles = id => (downs.get(id) ?? []).filter(l => size.get(l.to)?.shape === 'triangle'), flanking = b => b.shape !== 'triangle' && !ups.has(b.id)
+    && (downs.get(b.id) ?? []).length > 0 && triangles(b.id).length === downs.get(b.id).length && triangles(b.id).every(l => l.names);
+  for (const b of rest.sort((a, c) => flanking(a) - flanking(c) || at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
     const near = [...kids, ...parents];
-    const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all;
-    const x0 = at.get(b.id).x + (Number.isFinite(dx) ? dx : all[0]), y0 = at.get(b.id).y + (Number.isFinite(dy) ? dy : all[1]);
-    // Across, the middle of its relatives; a triangle's, of those whose lines of the main relation meet its apex, where any do.
+    const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all, hint = hints?.get(b.id);
+    const x0 = hint?.x ?? at.get(b.id).x + (Number.isFinite(dx) ? dx : all[0]), y0 = hint?.y ?? at.get(b.id).y + (Number.isFinite(dy) ? dy : all[1]);
+    // Across, the middle of its relatives; a triangle's, of those whose lines of the main relation meet its apex, where any do;
+    // one flanking triangles, beside them, its near side over theirs.
     const owners = b.shape === 'triangle' ? parents.filter(id => ups.get(b.id).some(l => l.from === id && l.trunk === main)) : [], by = owners.length ? owners : near;
-    const cx = by.length ? by.reduce((s, id) => s + geo.get(id).x + geo.get(id).w / 2, 0) / by.length : x0 + b.w / 2;
+    const mid = by.length ? by.reduce((s, id) => s + geo.get(id).x + geo.get(id).w / 2, 0) / by.length : x0 + b.w / 2;
+    const tris = flanking(b) ? kids.map(id => geo.get(id)) : [], left = x0 + b.w / 2 < mid;
+    const cx = !tris.length ? mid : left ? Math.min(...tris.map(t => t.x + t.w / 4)) - b.w / 2 : Math.max(...tris.map(t => t.x + t.w * 3 / 4)) + b.w / 2;
     // The row of the boxes that share its relatives, and the rows between it and them: halfway, or as near
     // halfway as clears the lines that run there.
     const sibs = [...new Set([...kids.flatMap(id => linked(id, 'up')), ...parents.flatMap(id => linked(id, 'down'))])].filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
     const sib = sibs.sort((p, q) => Math.abs(p.x + p.w / 2 - cx) - Math.abs(q.x + q.w / 2 - cx))[0];
+    // And a row of its own over that row (an owner's), or under it, where that row has no room near its relatives.
     const rows = [];
-    if (sib) rows.push({ y: sib.y, cost: 0 });
+    if (sib) rows.push({ y: sib.y, cost: 0 }, ...kids.length && !tris.length ? [{ y: sib.y - b.h - GAP.down, cost: 120 }] : [], ...parents.length ? [{ y: sib.y + sib.h + GAP.down, cost: 120 }] : []);
     rows.push({ y: y0, cost: 120 });
     const between = (lo, hi) => { const mid = (lo + hi - b.h) / 2; for (let y = lo + 24; y <= hi - 24 - b.h; y += 8) rows.push({ y, cost: 120 + Math.abs(y - mid) * 0.5 }); rows.push({ y: mid, cost: 120 }); };
     if (kids.length) { const top = Math.min(...kids.map(id => geo.get(id).y)); between(sib ? sib.y + sib.h : top - b.h - 96, top); }
     if (parents.length) { const bottom = Math.max(...parents.map(id => geo.get(id).y + geo.get(id).h)); between(bottom, sib ? sib.y : bottom + b.h + 96); }
     // On a page that stays as it is, any row on it, nearest first, where none near its relatives is clear.
     if (bounds) for (let y = m / 2; y <= bounds.h - m / 2 - b.h; y += 24) rows.push({ y, cost: 240 + Math.abs(y - y0) * 0.5 });
+    // Along each row, the nearest place that's clear either way, but where it was made, toward that side first, and the
+    // other only where it's nearer by more than a box's gap.
     let best = null;
+    const toward = hint ? Math.sign(x0 + b.w / 2 - cx) || 1 : -1;
     for (const row of rows) {
       const y = Math.max(page.margin / 2, row.y), ideal = cx - b.w / 2;
-      for (let i = 0; i < 600; i++) {
-        const d = (i % 2 ? -1 : 1) * Math.ceil(i / 2) * 8, cost = row.cost + Math.abs(d) + Math.abs(y - y0) * 0.25;
+      for (const [dir, extra] of [[toward, 0], [-toward, hint ? 48 : 0]]) for (let i = 0; i < 300; i++) {
+        const d = dir * i * 8, cost = row.cost + Math.abs(d) + extra + Math.abs(y - y0) * 0.25;
         if (best && cost >= best.cost) break;
         const q = { x: Math.max(page.margin / 2, ideal + d), y, w: b.w, h: b.h };
         if (clear(q)) { best = { ...q, cost }; break; }
@@ -692,10 +706,18 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   // already meeting it there: the stretch beside it 12 pt clear of it and of whatever is next to it there, its
   // `gutter`. It comes down halfway to what's next, 36 pt out at most, but where it can come straight down from its
   // box (see below).
-  const taken = lines.filter(l => l.dir === 'side' && l.y !== undefined).flatMap(l => [[l.from, l.y], [l.to, l.y]]);
+  // Lines of different relations meeting one side of a triangle meet it a lane apart, about its mid-height, the nearer
+  // higher: so none shares another's run into it, and none crosses another there. Lines of one relation share theirs.
+  const taken = lines.filter(l => l.dir === 'side' && l.y !== undefined).flatMap(l => [[l.from, l.y], [l.to, l.y]]), height = new Map();
+  for (const ls of groupBy(lines.filter(x => x.flank), l => `${l.to}|${centerX(G(l.from)) > centerX(G(l.to))}`).values()) {
+    const t = G(ls[0].to), far = l => Math.abs(centerX(G(l.from)) - centerX(t));
+    const kinds = [...groupBy(ls, l => l.trunk).values()].sort((a, b) => Math.min(...a.map(far)) - Math.min(...b.map(far)));
+    const step = Math.min(LANE, t.h / 2 / Math.max(1, kinds.length - 1)), top = t.y + t.h / 2 - step * (kinds.length - 1) / 2;
+    kinds.forEach((group, i) => group.forEach(l => height.set(l, top + step * i)));
+  }
   for (const l of lines.filter(x => x.flank)) {
     const s = G(l.from), t = G(l.to), right = centerX(s) > centerX(t), k = right ? 1 : -1;
-    let my = t.y + t.h / 2;
+    let my = height.get(l);
     const other = taken.filter(([id, y]) => id === t.id && Math.abs(y - my) < 14).map(([, y]) => y);
     if (other.length) my = Math.min(...other) - 30;
     const side = sideX(t, my, right);

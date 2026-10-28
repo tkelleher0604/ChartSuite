@@ -355,6 +355,14 @@ function open(data) {
       // The chart as it would leave it, unmade, as of a day: what asOf would read then, start and end entries and
       // locations included, every record it leaves as it was the very one asOf has.
       asOf: on => holding(d.notes, validAt(items, on), on),
+      // How many rows it adds and removes so far; an item's rows as it leaves them (none where it leaves none); and
+      // the note it leaves at a pattern (and view and param), if any.
+      size: () => adds.size + removes.size,
+      item: id => [...items.get(id) ?? []],
+      noteAt(label, pattern, { view, param } = {}) {
+        if (!noted) { noted = new Map(); for (const r of all()) if ('note' in r) push(noted, noteKey(r), r); }
+        return noted.get(JSON.stringify([label, view ?? null, param ?? null, Tree.key(pattern)]))?.[0] ?? null;
+      },
       commit: () => adds.size || removes.size
         ? apply({ id: newId(), who, when: when ?? now(), chart: c, removes: [...removes], adds: [...adds.values()] }) : null,
     };

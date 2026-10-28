@@ -109,17 +109,23 @@ const App = (() => {
   // The ids the change last previewed gave what it would add (see would), which the next change gives what it adds,
   // in order: so a change made as it was previewed is that change, ids and all. A change pending keeps its own.
   let named = [];
+  // What a change keeps as it is, each a function of its edit: the chart shown keeps its boxes where they stand.
+  const keepers = new Set();
+  const keeping = k => { keepers.add(k); return () => keepers.delete(k); };
   const edit = (dated, ids) => book.peek().edit({ chart: chart.peek(), who: who(), day: typeof dated === 'string' ? dated : dated ? Shell.time.peek()?.asOf ?? null : null, ids });
   // One change, by the user: refused while the past is shown; dated from the day shown, or from the day `dated`
   // gives (a payment, from the day it was made), unless it's false (a view isn't a fact about the world). `say`,
   // a string or a function of the change, is toasted with Undo. `ids`, those its redline gave what it adds. A start
   // or an end it records past the day shown, which takes what it's at out of the chart then, is said, wherever it was
   // typed: "…, so it holds from Mar 2, 2027"; an end says its day itself ("Deleted … from Dec 1, 2026", Time.describe).
-  function change(fn, { say, dated = true, ids, empty } = {}) {
+  // A change that changes something also keeps as they are the boxes it doesn't place in the chart shown (the canvas's
+  // keepers), unless `keep` is false (Tidy).
+  function change(fn, { say, dated = true, ids, empty, keep = true } = {}) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return null; }
     const tx = edit(dated, ids ?? named), was = entered.peek();
     if (!ids) named = [];
     fn(tx);
+    if (keep && tx.size()) for (const k of keepers) k(tx);
     const c = tx.commit();
     if (typeof c === 'string') { Shell.toast(c); return null; }
     if (!c) { empty?.(); return null; }
@@ -613,6 +619,6 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, change, would, asksDay, endOf, From, pending, stage, discard, commit, deleting, Pending, reverse, restore, views, scene, layouts, addView, who, blank,
+    readOnly, change, keeping, would, asksDay, endOf, From, pending, stage, discard, commit, deleting, Pending, reverse, restore, views, scene, layouts, addView, who, blank,
   };
 })();

@@ -121,11 +121,14 @@ async function run() {
   await show(main);
   cv().zoom('fit'); await tick(120);
   check('Fit shows the whole page', whole());
-  const pageWas = sc().page.h;
-  Shell.at({ asOf: '2023-12-31' }); await until(() => sc().page.h !== pageWas || sc().day === '2023-12-31'); await tick(200);
-  check('as of a past day, the page is framed again, its title and as-of line in view', whole(), JSON.stringify(onScreen()));
+  // As of another day the chart holds still: the zoom as it was, and what's left of the chart where it was on screen.
+  const zWas = cv().graph.zoom(), fundAt = () => { const m = sc().byId.get('fund'); return m && cv().graph.localToGraph(m.x, m.y); }, fundWas = fundAt();
+  Shell.at({ asOf: '2023-12-31' }); await until(() => sc().day === '2023-12-31'); await tick(200);
+  const fundThen = fundAt();
+  check('as of a past day, the chart holds still: the zoom as it was, and a box drawn then where it was on screen', cv().graph.zoom() === zWas && !!fundThen
+    && Math.abs(fundThen.x - fundWas.x) < 0.5 && Math.abs(fundThen.y - fundWas.y) < 0.5, JSON.stringify({ zWas, z: cv().graph.zoom(), fundWas, fundThen }));
   Shell.at(null); await tick(200);
-  check('… and as of today', whole());
+  check('… and as of today, framed still', whole() && cv().graph.zoom() === zWas);
 
   // ---- The scope, in two parts: the selection, as in PowerPoint, and all like it, the narrowest group that
   // reaches it; its ▾ offers every group that does: the Styles rows, as the Key says them, under each style's
@@ -346,7 +349,7 @@ async function run() {
   $('[data-fb="like"]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   check('a group’s name cut short is named whole on hover', !!span && (span.scrollWidth <= span.clientWidth || $('[data-fb="like"]').dataset.tip === txt(span)), `${span?.scrollWidth} ${span?.clientWidth} ${$('[data-fb="like"]')?.dataset.tip}`);
   $('[data-fb="arrange"]').click(); await tick(120);
-  $$('.float .menu-item').find(e => txt(e) === 'Tidy')?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(150);
+  $$('.float .menu-item').find(e => txt(e) === 'Tidy')?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(700);
   const tidyShown = sc() !== App.scene.peek();
   await closeMenus(); await tick(100);
   check('at 1024, pointing at Tidy in Arrange draws it as it would be, and closing the menu ends that', tidyShown && sc() === App.scene.peek());
@@ -614,12 +617,18 @@ async function run() {
 
   // ---- Tidy: pointed at, the chart is drawn tidied and nothing changes; made, it's one change, named so
   // everywhere, and the view is framed on its page again ----
-  const tidyBtn = $('[data-fb="tidy"]'), made = App.wb.changes().length, base = () => App.scene.peek();
-  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(200);
+  const tidyBtn = $('[data-fb="tidy"]'), made = App.wb.changes().length, base = () => App.scene.peek(), label = () => $('.dc-previewing');
+  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(250);
+  check('pointing at Tidy draws nothing for a moment: its preview waits till the pointer has rested on it half a second', sc() === base() && !!label()?.hidden);
+  await tick(450);
   const shifted = sc() !== base() && sc().marks.some(m => m.type === 'box' && base().byId.get(m.id) && (base().byId.get(m.id).x !== m.x || base().byId.get(m.id).y !== m.y));
-  check('pointing at Tidy draws the chart as Tidy would lay it out, and changes nothing', shifted && App.wb.changes().length === made);
+  check('… then draws the chart as Tidy would lay it out, and changes nothing', shifted && App.wb.changes().length === made);
+  check('… a label on the chart saying it’s Tidy’s preview', !label().hidden && txt(label()) === 'Tidy preview' && getComputedStyle(label()).display !== 'none', `${label()?.hidden} ${txt(label())}`);
   tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(120);
-  check('… and leaving it draws the chart as it is', sc() === base());
+  check('… and leaving it draws the chart as it is, the label gone', sc() === base() && label().hidden);
+  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(200);
+  tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(500);
+  check('… and passing over it, never resting, draws nothing', sc() === base() && label().hidden);
   cv().zoom(2); await tick(80);
   tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
   tidyBtn.click(); await tick(200);
@@ -658,14 +667,17 @@ async function run() {
     `${Math.round(newKey.w)}×${Math.round(newKey.h)} at ${sc().page.scale}`);
   for (let i = 0; i < 2; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
 
-  // ---- A box moved past the page's edge: in a view framed, the page that grows for it is framed again, so it
-  // stays in view; in one zoomed in, the box stays where it was put on screen as the page grows round it ----
+  // ---- A box moved past the page's edge: the page grows round it, and the chart holds still, the zoom as it was,
+  // in a view framed or zoomed in alike, the box where it was put on screen and every other where it was ----
   cv().zoom('fit'); await tick(120);
   Shell.select(['halvard']); await tick(80);
-  const hv = () => sc().byId.get('halvard'), size0 = `${sc().page.w}×${sc().page.h}`, fits = () => { const { a, b, W, H } = onScreen(); return whole() && (W - (b.x - a.x) <= 57 || H - (b.y - a.y) <= 57); };
+  const hv = () => sc().byId.get('halvard'), size0 = `${sc().page.w}×${sc().page.h}`, zf = g.zoom(), onSc = id => { const m = sc().byId.get(id); return g.localToGraph(m.x, m.y); };
+  const fundBefore = onSc('fund'), hvBefore = onSc('halvard');
   cv().nudge(0, 300); await tick(150);
-  check('a box moved past the page’s edge in a view framed frames the page again, grown for it, whole and as large as fits', `${sc().page.w}×${sc().page.h}` !== size0 && fits(),
-    `${size0} → ${sc().page.w}×${sc().page.h}; ${JSON.stringify(onScreen())}`);
+  const fundAfter = onSc('fund'), hvAfter = onSc('halvard');
+  check('a box moved past the page’s edge in a view framed: the page grows round it, the zoom as it was, the box where it was put and every other where it was',
+    `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === zf && Math.abs(fundAfter.x - fundBefore.x) < 0.5 && Math.abs(fundAfter.y - fundBefore.y) < 0.5
+    && Math.abs(hvAfter.x - hvBefore.x) < 0.5 && Math.abs(hvAfter.y - hvBefore.y - 300 * zf) < 0.5, `${size0} → ${sc().page.w}×${sc().page.h}; ${JSON.stringify({ zf, z: g.zoom(), fundBefore, fundAfter, hvBefore, hvAfter })}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   cv().zoom(1); await tick(80);
   cv().zoomTo('halvard'); await tick(120);
@@ -827,6 +839,8 @@ async function run() {
   // margin or its title many times its size ----
   const pageOf = { id: main.id, kind: 'View' };
   App.change(tx => tx.note('Page', pageOf, { w: 240, h: 135 }), { dated: false }); await tick(200);
+  // (Opened again, after another view: the page's size changed holds the zoom, as every change does.)
+  await show(charts()[1]); await show(main);
   { const p = sc().page, { z, W, H } = onScreen(), t = titleAt();
     check('a page drawn very small opens whole, its title in view', p.scale < 0.2 && z < 0.6 && whole() && t.x >= 0 && t.y >= 0 && t.x < W && t.y < H,
       `scale ${p.scale}, zoom ${z}, title’s words at ${[t.x, t.y].map(Math.round)}`); }
@@ -1026,6 +1040,102 @@ async function run() {
   for (const v of charts()) await step(`${v.name} shown at its own scale`, () => show(v));
   await step(`${mainView.name} last`, () => show(mainView));
   check('what the canvas draws is the scene, after edits, views shown in turn, previews, undoing, Tidy and a past day', !steps.length, steps.join('; '));
+
+  // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
+  await stillAsMade();
+}
+
+async function stillAsMade() {
+  const g = () => cv().graph, R = () => cv().root.getBoundingClientRect();
+  const scr = (x, y) => { const p = g().localToGraph(x, y); return [R().left + p.x, R().top + p.y]; };
+  const mouse = (t, [x, y], on = document) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+  const pointer = (t, [x, y], on = document, buttons = 1) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons, pointerId: 1, isPrimary: true, view: window }));
+  const name = async text => { const ed = $('.dc-edit'); if (!ed) return false; ed.textContent = text; ed.dispatchEvent(new Event('input', { bubbles: true })); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(500); return true; };
+  const box = s => sc().marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith(s));
+  const onScreenAt = m => g().localToGraph(m.x, m.y);
+  const at = () => new Map(sc().marks.filter(m => m.type === 'box').map(m => [m.record, onScreenAt(m)]));
+  const held = (was, but = []) => [...was].filter(([id]) => !but.includes(id)).every(([id, p]) => { const m = sc().byId.get(id), q = m && onScreenAt(m); return q && Math.abs(q.x - p.x) < 0.5 && Math.abs(q.y - p.y) < 0.5; });
+  // A box dragged by the mouse from a point of it, by (dx, dy) on screen.
+  async function drag(m, dx, dy) {
+    const [x, y] = scr(m.x + m.w / 2, m.y + m.h - 3), el = $(`.dc [data-cell-id="${m.id}"]`);
+    mouse('mousedown', [x, y], el.querySelector('path, rect') ?? el);
+    for (let i = 1; i <= 10; i++) { mouse('mousemove', [x + dx * i / 10, y + dy * i / 10]); await tick(16); }
+    mouse('mouseup', [x + dx, y + dy]); await tick(400);
+  }
+  // A dot dragged from a box's side to a point on the page, as a person relates a new box to it.
+  async function dot(m, side, to) {
+    const tri = m.shape === 'triangle', p = { n: [m.x + m.w / 2, m.y], e: [m.x + m.w * (tri ? 0.75 : 1), m.y + m.h / 2], w: [m.x + (tri ? m.w / 4 : 0), m.y + m.h / 2] }[side];
+    pointer('pointerleave', [0, 0], cv().root, 0); pointer('pointermove', scr(...p), cv().root, 0); await tick(60);
+    const h = $$('.dc-handle').find(h => !h.hidden && h.classList.contains(side));
+    if (!h) return false;
+    const hr = h.getBoundingClientRect(), from = [hr.left + hr.width / 2, hr.top + hr.height / 2], end = scr(...to);
+    pointer('pointerdown', from, h); await tick(30);
+    for (let i = 1; i <= 8; i++) { pointer('pointermove', [from[0] + (end[0] - from[0]) * i / 8, from[1] + (end[1] - from[1]) * i / 8], window); await tick(16); }
+    pointer('pointerup', end, document.elementFromPoint(...end) ?? window, 0); await tick(300);
+    return true;
+  }
+  const tickRow = async words => { const r = $$('.rr').find(e => txt(e.querySelector('.nm')).includes(words)); r?.querySelector('[role=checkbox]')?.click(); await tick(700); return !!r; };
+  const add = async () => { const b = $$('.pendbar button').find(b => txt(b) === 'Add'); b?.click(); await tick(700); return !!b; };
+
+  // New chart, from Structure; its first box, added by Add a box and named.
+  await show(charts()[0]);
+  Shell.parts.peek().action.find(a => a.id === 'chart.new').run(); await until(() => sc() && !sc().marks.some(m => m.type === 'box')); await tick(300);
+  const z0 = g().zoom();
+  Shell.parts.peek().canvas.kinds()[0].run(); await tick(150);
+  await name('Larkspur Credit Fund II, L.P.');
+  const fund = box('Larkspur Credit Fund');
+  check('a box added to a new chart stands where it was asked for', !!fund && App.state.peek()[fund.record]?.kind === 'Entity', fund && JSON.stringify([fund.x, fund.y]));
+  if (!fund) return;
+  const n0 = App.wb.changes().length, f0 = onScreenAt(fund), page0 = JSON.stringify([sc().page.w, sc().page.h]);
+  await drag(fund, 140, -80);
+  const f1 = onScreenAt(box('Larkspur Credit Fund')), said = Time.describe(App.wb.changes().at(-1));
+  check('a box dragged in a new chart moves on its page, the first time, as dragged, and the page holds still', Math.abs(f1.x - f0.x - 140) < 12 && Math.abs(f1.y - f0.y + 80) < 12
+    && JSON.stringify([sc().page.w, sc().page.h]) === page0 && g().zoom() === z0, JSON.stringify({ f0, f1, z0, z: g().zoom() }));
+  check('… one change, “Moved …”', App.wb.changes().length === n0 + 1 && said === `Moved Larkspur Credit Fund II, L.P. in ${App.views.peek()[0].name}`, said);
+  const f2 = box('Larkspur Credit Fund'), n1 = App.wb.changes().length;
+  await drag(f2, 0, 0);
+  check('… and a drag that moves nothing writes nothing', App.wb.changes().length === n1);
+  // Its type, then its GP, by a dot dragged to the left, named, and its relation ticked.
+  App.change(tx => tx.add('record', { at: fund.record, edge: 'Entity Type', choice: 'Limited Partnership' })); await tick(400);
+  let was = at();
+  const dotted = await dot(box('Larkspur Credit Fund'), 'w', [box('Larkspur Credit Fund').x - 220, box('Larkspur Credit Fund').y - 120]);
+  const named = await name('Larkspur Credit GP II, LLC');
+  check('a box made by a dot dragged into empty room stands where it was dropped, and nothing else moves', dotted && named && !!box('Larkspur Credit GP') && held(was), JSON.stringify([...at()]));
+  was = at();
+  const gp = box('Larkspur Credit GP').record;
+  await tickRow('is a general partner of');
+  check('… ticked as its general partner, it goes beside the fund, on the side it was made, and nothing else moves', held(was, [gp]) && box('Larkspur Credit GP').x + box('Larkspur Credit GP').w <= box('Larkspur Credit Fund').x + box('Larkspur Credit Fund').w / 2 + 0.5,
+    JSON.stringify([...at()]));
+  // Its manager, on the right, ticked as its adviser: pending, the redline where Enter puts it.
+  was = at();
+  await dot(box('Larkspur Credit Fund'), 'e', [box('Larkspur Credit Fund').x + box('Larkspur Credit Fund').w + 120, box('Larkspur Credit Fund').y - 110]);
+  await name('Larkspur Capital Management, LLC');
+  const mgmt = box('Larkspur Capital Management').record;
+  await tickRow('Management, LLC is an adviser to');
+  const red = sc(), redAt = at();
+  await add();
+  check('a box ticked as an adviser is redlined where Enter puts it, and Enter puts it there, nothing else moving', red !== App.scene.peek() && held(redAt) && held(was, [mgmt]), JSON.stringify([...redAt]));
+  // Its investors, ticked as owners: over the fund's apex, its line straight down, and no other box moving.
+  was = at();
+  await dot(box('Larkspur Credit Fund'), 'n', [box('Larkspur Credit Fund').x + 140, box('Larkspur Credit Fund').y - 180]);
+  await name('Fund II Investors (U.S.)');
+  const inv = box('Fund II Investors').record;
+  await tickRow('Investors (U.S.) is an owner of'); await add();
+  const own = sc().marks.find(m => m.type === 'line' && m.from === inv), f = box('Larkspur Credit Fund');
+  check('an owner added goes over the fund, its line straight down into the apex, and no other box moves on screen', held(was, [inv]) && !!own && own.points.length === 2
+    && Math.abs(own.points[1][0] - (f.x + f.w / 2)) < 0.5, JSON.stringify({ own: own?.points, at: [...at()] }));
+  // No two lines of different relations share a run into a box; the zoom never changed.
+  const legs = sc().marks.filter(m => m.type === 'line').flatMap(l => l.points.slice(1).map((p, i) => ({ l, a: l.points[i], b: p })));
+  const shared = legs.filter((s, i) => legs.some((o, j) => j > i && o.l.record !== s.l.record && o.l.trunk !== s.l.trunk && (() => {
+    const flat = Math.abs(s.a[1] - s.b[1]) < 0.5 && Math.abs(o.a[1] - o.b[1]) < 0.5 && Math.abs(s.a[1] - o.a[1]) < 0.5, up = Math.abs(s.a[0] - s.b[0]) < 0.5 && Math.abs(o.a[0] - o.b[0]) < 0.5 && Math.abs(s.a[0] - o.a[0]) < 0.5;
+    const k = flat ? 0 : 1, lo = (x, y) => Math.min(x[k], y[k]), hi = (x, y) => Math.max(x[k], y[k]);
+    return (flat || up) && Math.min(hi(s.a, s.b), hi(o.a, o.b)) - Math.max(lo(s.a, s.b), lo(o.a, o.b)) > 0.5;
+  })()));
+  check('no two lines of different relations share a run, the GP’s, the adviser’s and the owner’s each its own way into the fund', !shared.length, JSON.stringify(shared.map(s => [s.l.record, s.a, s.b])));
+  check('the zoom is as the chart opened at, through every change', g().zoom() === z0, `${z0} → ${g().zoom()}`);
+  // History says what was done, and nothing of what was kept where it stood.
+  const says = App.wb.changes().slice(n0).map(c => Time.describe(c));
+  check('History says each change as it was made, nothing of the boxes kept where they stood', !says.some(s => /^Moved Larkspur Credit GP|^Moved Larkspur Capital|, and \d+ more/.test(s)), says.join(' | '));
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

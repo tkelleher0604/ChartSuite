@@ -87,6 +87,11 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-field.drop { stroke: var(--accent); stroke-width: 2px; fill: rgb(44 76 124 / .06); }
 .dc-tip { position: absolute; z-index: 4; transform: translateX(-50%); padding: 3px 7px; border-radius: var(--r); background: var(--ink); color: var(--surface); font: var(--t12); white-space: nowrap; pointer-events: none; }
 .dc-over > .dc-tip { pointer-events: none; }
+/* What says the chart drawn is a preview of Tidy, over it at the top, in the middle: a quiet pill, as the
+   window's own words are, never the chart's. */
+.dc-over > .dc-previewing { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px;
+  background: var(--surface); color: var(--ink-2); box-shadow: 0 0 0 1px var(--rule-2); font: var(--t12); white-space: nowrap; pointer-events: none; }
+.dc-over > .dc-previewing[hidden] { display: none; }
 /* `{` in a free text: the record's entries, as a menu offers them, under what's typed. */
 .dc-complete { position: absolute; z-index: 5; min-width: 160px; max-height: 220px; overflow: auto; padding: 4px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow-pop); }
 .dc-complete > .menu-item { padding: 4px 8px; border-radius: 3px; font: var(--t13); color: var(--ink); cursor: default; }
