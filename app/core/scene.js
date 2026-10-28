@@ -32,7 +32,7 @@ const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, sa
 // points stay on PowerPoint's half points and change only in steps. The page is the sheet in the chart's own
 // pixels, the sheet's size over the scale. Its furniture is the sheet's, at the sheet's size: its title and
 // its date at its top left margin, the chart 24 pt under them, and its Key at the chart's foot where it sets least
-// far down, or beside the title, top right, where that draws the chart larger.
+// far down, or beside the title, top right, where that draws the chart larger; nothing in the Key larger than the names.
 const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
 const MARGIN = 48;
@@ -743,7 +743,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
     boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
-    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, says: !!l.label && !l.label.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
+    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
   function* lay(squeeze, grow = 1) {
@@ -903,8 +903,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
 }
 // A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.
 function shapeOf(row, scene) {
-  const u = 1 / (scene.page.scale ?? 1), m = freeShape({ shape: '·new', ...row }, row.text ?? '', u);
-  if (m.geometry === 'legend') layoutLegend(m, scene.legend, u);
+  const s = scene.page.scale ?? 1, k = row.geometry === 'legend' && row.format?.Size == null ? keyAt(scene.marks.filter(m => m.type === 'box'), s) : 1;
+  const m = freeShape({ shape: '·new', ...row }, row.text ?? '', 1 / s, k);
+  if (m.geometry === 'legend') layoutLegend(m, scene.legend, 1 / s, k);
   return m;
 }
 
@@ -1315,15 +1316,15 @@ function legend(N, view, marks) {
 
 // A free shape, from its row and its text as worked out: its geometry, place, formats and text. Its sizes are
 // the sheet's where its row doesn't give them, `u` pixels of the page to one of the sheet: a text box's 12 pt,
-// a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller.
+// a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that.
 // A size its row gives is the page's, as the format bar writes it; a weight is always the sheet's (see the scene).
 const SHAPE_DEFAULTS = { Fill: '#ffffff', Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Layer: 0, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12 };
 // The page's own texts: its title, and its date.
 const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' } };
-function freeShape(row, text, u = 1) {
+function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
-  const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
+  const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
     ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left' }),
     ...(row.geometry === 'line' && { Arrow: 'none' }) };
   const t = { ...base, Size: base.Size * u, ...format, Weight: (format.Weight ?? base.Weight) * u };
@@ -1360,13 +1361,14 @@ function shapeText(row, computed, day) {
   return /^\s*=/.test(text) && computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
 }
 
-// A legend's rows laid out in its columns under its title, `u` pixels of the page to the sheet's. A row
+// A legend's rows laid out in its columns under its title, `sheet` pixels of the page to the sheet's. A row
 // merging outputs that look alike may have a caption of the legend's own, which no output shares. `all` is
 // every row it could show, each `shown` or not. A legend nobody has sized is as wide as its captions need,
-// each up to 120 pt before it wraps.
-function layoutLegend(m, rows, u = 1) {
-  const t = m.look, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
-  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * u } }));
+// each up to 120 pt before it wraps. Its swatches and the room round them are `k` times the sheet's, as its
+// captions are (see keyAt); their weights the sheet's, as the lines they show are drawn.
+function layoutLegend(m, rows, sheet = 1, k = 1) {
+  const t = m.look, u = sheet * k, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
+  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } }));
   m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));
   if (m.auto) m.w = Math.ceil(m.columns * (sw + gap + Math.min(160 * u, Math.max(40 * u, ...shown.map(r => measure(r.caption, t)))) + 16 * u) + 2 * pad);
@@ -1395,6 +1397,9 @@ function layoutLegend(m, rows, u = 1) {
 
 // ---- The page ----
 
+// The Key's size, as a share of the sheet's: none larger than the names it explains, as a page drawn at s prints them,
+// the least of them, its 8 pt where they're as large.
+const keyAt = (boxes, s) => Math.min(1, ...boxes.filter(b => b.texts?.[0]?.look).map(b => half(b.texts[0].look.Size, s) * s / 8));
 // A view's sheet: its Page note at the View object, a named size or { w, h }; a slide where none says. On a
 // paper, that paper's size, turned as the view's own is.
 function pageOf(N, view, paper) {
@@ -1428,8 +1433,10 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
   const meets = (a, b, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
   const fits = r => r.x >= M - 0.5 && r.y >= M - 0.5 && r.x + r.w <= W - M + 0.5 && r.y + r.h <= H - M + 0.5;
   const at = (s, force, footed = false) => {
-    const u = 1 / s, shapes = rows.map(r => freeShape(r, said.get(r.id), u)), places = new Map();
-    for (const m of shapes) if (m.geometry === 'legend') layoutLegend(m, legendRows, u);
+    // (The Key, as wide as `w` where that's given, set no larger than the names it explains: see keyAt.)
+    const u = 1 / s, k = r => r.geometry === 'legend' && r.format?.Size == null ? keyAt(boxes, s) : 1;
+    const keyed = (r, w) => { const m = freeShape(w == null ? r : { ...r, w }, said.get(r.id), u, k(r)); layoutLegend(m, legendRows, u, k(r)); return m; };
+    const shapes = rows.map(r => r.geometry === 'legend' ? keyed(r) : freeShape(r, said.get(r.id), u)), places = new Map();
     const byPage = m => !!m && placedBy(rows.find(r => r.id === m.row));
     let title = shapes.find(m => m.role === 'title' && byPage(m)), key = shapes.find(m => m.geometry === 'legend' && byPage(m));
     const date = shapes.find(m => m.role === 'date' && byPage(m));
@@ -1454,9 +1461,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       const room = W - M - 32 - Math.max(M, ...[title, date].filter(Boolean).map(m => M - INSET + ((m.column?.x ?? 0) + widest(m.texts)) * s));
       let side = key;
       if (key.auto && key.w * s > room && room >= key.columns * (30 + 8 + 80 + 16) + 24) {
-        const row = rows.find(r => r.id === key.row);
-        side = freeShape({ ...row, w: room * u }, said.get(row.id), u);
-        layoutLegend(side, legendRows, u);
+        side = keyed(rows.find(r => r.id === key.row), room * u);
       }
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
       if (!footed && r.w <= room + 0.5 && fits(r)) {
@@ -1483,9 +1488,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         };
         let under = underOf(key);
         for (let w = key.w * s - 8; key.auto && !fits(under) && w >= least; w -= 8) {
-          const narrow = freeShape({ ...row, w: w * u }, said.get(row.id), u);
-          layoutLegend(narrow, legendRows, u);
-          const r = underOf(narrow);
+          const narrow = keyed(row, w * u), r = underOf(narrow);
           if (fits(r)) { shapes[shapes.indexOf(key)] = key = narrow; under = r; }
         }
         const kw = key.w * s, kh = key.h * s, by = Math.max(0, c.x + c.w + 32 + kw - (W - M)), beside = { x: c.x - by + c.w + 32, y: c.y + c.h - kh, w: kw, h: kh };

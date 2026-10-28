@@ -129,7 +129,7 @@ function place({ boxes, links, clusters, room = ROOM }) {
 // → { tier: { id → tier }, wraps: [[each frame's boxes in a column, a row each]], fit: how large they're drawn (see
 // fit) }. Kept by what it reads, which a line's label isn't.
 const tiered = keeping();
-const tiers = (boxes, links, room = ROOM, clusters = []) => tiered(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, !!l.says]),
+const tiers = (boxes, links, room = ROOM, clusters = []) => tiered(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, !!l.names]),
   [room.w, room.h, room.key?.w, room.key?.h, room.key?.under], clusters.map(c => [c.id, c.parent, c.members, c.top])]), () => tiering(boxes, links, room, clusters));
 function tiering(boxes, links, room, clusters) {
   // Each box's outermost frame; boxes filled alike are of one class only in one frame, or in none.
@@ -437,7 +437,7 @@ const arranged = keeping();
 function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
-  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.says]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
+  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.names]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
     at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h]]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null }) {
@@ -463,13 +463,15 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const within = p => !bounds || (p.x + p.w <= bounds.w - m / 2 && p.y + p.h <= bounds.h - m / 2);
   const clear = p => p.x >= m / 2 && p.y >= m / 2 && within(p) && !nearBoxes.any(wide(p, 16, 24), i => !apart(p, placedBoxes[i], 16, 24))
     && !nearShapes.any(wide(p, 16, 16), i => !apart(p, obstacles[i], 16, 16)) && !nearSegs.any(wide(p, 8, 8), i => meets(p, segs[i], 8));
-  const linked = (id, dir) => [...new Set((dir === 'down' ? downs.get(id)?.map(l => l.to) : ups.get(id)?.map(l => l.from)) ?? [])];
+  const linked = (id, dir) => [...new Set((dir === 'down' ? downs.get(id)?.map(l => l.to) : ups.get(id)?.map(l => l.from)) ?? [])], main = mainOf(links);
   for (const b of rest.sort((a, c) => at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
     const near = [...kids, ...parents];
     const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all;
     const x0 = at.get(b.id).x + (Number.isFinite(dx) ? dx : all[0]), y0 = at.get(b.id).y + (Number.isFinite(dy) ? dy : all[1]);
-    const cx = near.length ? near.reduce((s, id) => s + geo.get(id).x + geo.get(id).w / 2, 0) / near.length : x0 + b.w / 2;
+    // Across, the middle of its relatives; a triangle's, of those whose lines of the main relation meet its apex, where any do.
+    const owners = b.shape === 'triangle' ? parents.filter(id => ups.get(b.id).some(l => l.from === id && l.trunk === main)) : [], by = owners.length ? owners : near;
+    const cx = by.length ? by.reduce((s, id) => s + geo.get(id).x + geo.get(id).w / 2, 0) / by.length : x0 + b.w / 2;
     // The row of the boxes that share its relatives, and the rows between it and them: halfway, or as near
     // halfway as clears the lines that run there.
     const sibs = [...new Set([...kids.flatMap(id => linked(id, 'up')), ...parents.flatMap(id => linked(id, 'down'))])].filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
@@ -553,10 +555,11 @@ function exit(g, [tx, ty]) {
 const centerX = g => g.x + g.w / 2;
 const centerOf = g => [g.x + g.w / 2, g.y + g.h / 2];
 const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
-// The chart's main relation, ownership as a rule: the one most lines draw; of as many, the one more of whose lines say
-// more than its name (`says`), as an owner's say its percentage and a general partner's only what it is. Its lines meet
-// a triangle's apex, and a triangle sits under where they come from; another's meet its side.
-const mainOf = ls => [...groupBy(ls, l => l.trunk).entries()].sort((a, b) => b[1].length - a[1].length || b[1].filter(l => l.says).length - a[1].filter(l => l.says).length)[0]?.[0];
+// The chart's main relation, ownership as a rule: the one most lines draw; of as many, the one fewer of whose lines say
+// what they are (`names`), as a general partner's say "General partner", which an owner's never need to, saying their
+// percentage or, before it's typed, nothing. Its lines meet a triangle's apex, and a triangle sits under where they come
+// from; another's meet its side.
+const mainOf = ls => [...groupBy(ls, l => l.trunk).entries()].sort((a, b) => b[1].length - a[1].length || a[1].filter(l => l.names).length - b[1].filter(l => l.names).length)[0]?.[0];
 
 // A box's lines of one look to every box in a frame, and to no others there, land on the frame as one line:
 // each such line is routed to the frame instead of its box. Outer frames first, so the fewest lines show.
@@ -612,7 +615,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   geo = new Map(geo);
   if (frames.length) land(geo, lines, frames);
   const G = id => geo.get(id), solid = [...geo.values()].filter(g => g.shape !== 'frame'), nearSolid = grid(solid);
-  const main = mainOf(lines.map(l => ({ trunk: l.trunk, says: !!l.label && !l.label.shared })));
+  const main = mainOf(lines.map(l => ({ trunk: l.trunk, names: !!l.label?.shared })));
   for (const l of lines) {
     const s = G(l.from), t = G(l.to);
     l.points = null;

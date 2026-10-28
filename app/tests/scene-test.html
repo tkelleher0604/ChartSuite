@@ -56,7 +56,7 @@ function run() {
     tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")' });
     if (key) tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2 });
     if (typeof tx.commit() === 'string') throw new Error('no new chart');
-    if (make) { const t2 = wb.edit({ chart: c, who: WHO }); make(t2); if (typeof t2.commit() === 'string') throw new Error('no records'); }
+    if (make) { const t2 = wb.edit({ chart: c, who: WHO }); make(t2, view); if (typeof t2.commit() === 'string') throw new Error('no records'); }
     const N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, DAY), N.definitions(S), { relations: N.relations(S) });
     return { wb, c, view, s: Scene.of(wb, c, view, DAY, { state: R.records, computed: R, paper }) };
   };
@@ -67,19 +67,30 @@ function run() {
     return [e, tx.add('record', { at: e, edge: 'Entity Type', choice: type })];
   };
   const group = (tx, name) => { const i = tx.add('record', { kind: 'Investor Group' }); tx.add('record', { at: i, edge: 'Name', field: 'text', value: name }); return i; };
-  const owns = (tx, a, b, value) => { const o = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value }); };
+  const owns = (tx, a, b, value) => { const o = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); if (value != null) tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value }); };
   const gpOf = (tx, g, type) => tx.add('record', { args: [{ edge: 'GP', at: g }, { edge: 'Partnership', at: type }], tag: true });
-  // The simplest new fund charts: firstlook9's M3, a fund, its GP and its investors at 100%; and regress9's, the
-  // investors at 99% and the GP at 1%.
+  // The simplest new fund charts: firstlook9's M3, a fund, its GP and its investors at 100%; regress9's, the investors at
+  // 99% and the GP at 1%; and as the window builds one (regress10 2, firstlook10 m4): the GP's relation made first and
+  // the investors' percentage not yet typed, and its boxes placed on the chart, with a person placed beside them whom
+  // no line joins.
+  const larkspur = (tx, pct) => {
+    const [f, type] = entity(tx, 'Larkspur Credit Fund II, L.P.', 'Limited Partnership', { Jurisdiction: 'Delaware' }), [g] = entity(tx, 'Larkspur Credit GP II, LLC', 'Limited Liability Company');
+    const i = group(tx, 'Larkspur Credit Fund II Investors');
+    gpOf(tx, g, type); owns(tx, i, f, pct);
+    return { f, g, i };
+  };
   const NEW_FUNDS = {
-    'a new fund, its GP and its investors': tx => {
-      const [f, type] = entity(tx, 'Larkspur Credit Fund II, L.P.', 'Limited Partnership', { Jurisdiction: 'Delaware' }), [g] = entity(tx, 'Larkspur Credit GP II, LLC', 'Limited Liability Company');
-      gpOf(tx, g, type); owns(tx, group(tx, 'Larkspur Credit Fund II Investors'), f, 1);
-    },
+    'a new fund, its GP and its investors': tx => { larkspur(tx, 1); },
     'a new fund, its investors at 99% and its GP at 1%': tx => {
       const [f, type] = entity(tx, 'Harbor Point Capital Partners I, L.P.', 'Limited Partnership', { 'Vehicle Type': 'Main Fund' }), [g] = entity(tx, 'Harbor Point GP I, LLC', 'Limited Liability Company');
       const i = group(tx, 'Harbor Point Investors');
       gpOf(tx, g, type); owns(tx, i, f, 0.99); owns(tx, g, f, 0.01);
+    },
+    'a new fund, its GP and its investors, their percentage not yet typed': tx => { larkspur(tx, null); },
+    'a new fund, its GP and its investors placed on the chart, and a person placed beside them, the percentage not yet typed': (tx, view) => {
+      const { f, g, i } = larkspur(tx, null), p = tx.add('record', { kind: 'Individual' });
+      tx.add('record', { at: p, edge: 'Name', field: 'text', value: 'Elena V. Sorensen' });
+      for (const [id, kind, x, y] of [[f, 'Entity', 300, 300], [g, 'Entity', 200, 100], [i, 'Investor Group', 400, 100], [p, 'Individual', 60, 100]]) tx.note('Position', { id, kind }, { x, y, loose: true }, { view });
     },
   };
 
@@ -507,9 +518,10 @@ function run() {
     check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(p => Math.abs(p.got - p.v) < 1e-9), j(picked));
     check('… or, where no scale the chart can keep allows it, as near as the page allows, the chart drawn no smaller than holding its scale draws it, and 24 pt or more on a triangle is set',
       nearest.every(p => p.scale >= p.held - 1e-9 && Math.abs(p.got - p.v) <= Math.abs(p.heldPrints - p.v) + 0.25), j(nearest.map(p => [p.v, p.got, p.scale, p.held])));
-    // 10 on 40 Act's fund prints 9, as 9 does, and so at 9's scale; 24 on Structure's prints 18 at 0.65, not 0.6; 14 on Fund III's
-    // prints 13, at 0.8, the largest scale that leaves its Key 16 pt beside Halvard (regress8).
-    check('… at the largest scale of those that print as near', nearest[1].got === 9 && nearest[1].scale === 0.85 && nearest[2].scale >= 0.65 && nearest[4].got === 13 && nearest[4].scale === 0.8, j(nearest.map(p => [p.v, p.got, p.scale])));
+    // 10 on 40 Act's fund prints 10 at 0.85; 24 on Structure's prints 20.5 at 0.6, not 0.55, which prints it so too; 14 on Fund
+    // III's prints 14, at 0.75 (regress8). Each nearer than the Key at 8 pt let it, the Key set no larger than the names.
+    check('… at the largest scale of those that print as near', Math.abs(nearest[1].got - 10) < 1e-9 && nearest[1].scale === 0.85 && Math.abs(nearest[2].got - 20.5) < 1e-9 && nearest[2].scale === 0.6
+      && Math.abs(nearest[4].got - 14) < 1e-9 && nearest[4].scale === 0.75, j(nearest.map(p => [p.v, p.got, p.scale])));
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
       return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });
     check('the title sits at the top left margin, and the date under it', placed.every(p => Math.abs(p.t.x + 9.6 - 48) < 0.5 && Math.abs(p.t.y - 38.4) < 0.5 && Math.abs(p.d.y - (p.t.y + p.t.h)) < 0.5 && Math.abs(p.d.x - p.t.x) < 0.5), j(placed.map(p => [p.t, p.d])));
@@ -608,6 +620,44 @@ function run() {
     const rows = letters.flatMap(s => [...Map.groupBy(boxes(s).filter(b => b.shape === 'triangle'), b => Math.round(b.y)).values()]);
     check('… a row of triangles is one size, each name in the fewest lines that fit it there, four at most', rows.every(ts => new Set(ts.map(b => `${b.w}×${b.h}`)).size === 1
       && ts.every(b => b.texts[0].lines.length <= 4)), j(rows.map(ts => ts.map(b => [b.id, b.w, b.h, b.texts[0].lines.length]))));
+  }
+
+  // ---- Lines as straight on Letter as on the slide, no step, and a Key no larger than the names ----
+  // Every sample view, on the slide and on Letter, as entered, tidied, with an owner added and tidied so (design10 2, 4): no
+  // line steps aside by less than 5 pt as printed between two legs running the same way, as a trunk's stem would where it
+  // left its lane by a branch just beside it; and nothing in the Key is set larger than the smallest name it explains. And
+  // on Letter, a line that drops straight on the slide from a box whose one line it is drops straight where the room beside
+  // the box allows: every one on Fund III, and on Structure all but the U.S. and Non-U.S. investors', who have no room
+  // beside the people at 8 pt.
+  {
+    const owner = wb => edit(wb, tx => { const o = tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'northpine' }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 0.05 }); });
+    const tidy = (wb, v) => edit(wb, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); });
+    const cases = { 'as entered': () => {}, tidied: tidy, 'with an owner added': owner, 'tidied with an owner added': (wb, v) => { owner(wb); tidy(wb, v); } };
+    const steps = [], keys = [], bent = [];
+    for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) {
+      const wb = fresh();
+      f(wb, v);
+      const R = computed(wb), [slide, letter] = [null, 'letter'].map(paper => Scene.of(wb, C, v, DAY, { state: R.records, computed: R, paper }));
+      for (const s of [slide, letter]) {
+        const at = `${what}, ${v}, ${s.page.size}`, pt = s.page.scale * 0.75, lines = [...s.byId.values()].filter(m => m.type === 'line' && !m.merged && m.points?.length);
+        for (const l of lines) l.points.forEach((b, i, P) => {
+          const [a, c, d] = [P[i - 1], P[i + 1], P[i + 2]], up = (p, q) => Math.abs(p[0] - q[0]) < 0.5, flat = (p, q) => Math.abs(p[1] - q[1]) < 0.5;
+          if (!a || !d) return;
+          const run = (up(a, b) && up(c, d) && Math.sign(b[1] - a[1]) === Math.sign(d[1] - c[1])) || (flat(a, b) && flat(c, d) && Math.sign(b[0] - a[0]) === Math.sign(d[0] - c[0])), len = Math.hypot(c[0] - b[0], c[1] - b[1]) * pt;
+          if (run && len > 0.01 && len < 5) steps.push(`${at}: ${l.id} steps ${len.toFixed(1)} pt`);
+        });
+        const key = s.marks.find(m => m.geometry === 'legend'), names = Math.min(...s.marks.filter(m => m.type === 'box').map(b => b.texts[0].look.Size)) * s.page.scale;
+        if (key && Math.max(key.look.Size, ...key.rows.map(r => r.caption.look.Size)) * s.page.scale > names + 1e-9) keys.push(`${at}: Key ${key.look.Size * s.page.scale} pt, names ${names} pt`);
+      }
+      if (what !== 'as entered') continue;
+      const one = id => slide.marks.filter(m => m.type === 'line' && (m.from === id || m.to === id)).length === 1;
+      for (const l of letter.marks.filter(m => m.type === 'line' && slide.byId.get(m.id)?.points.length === 2 && (one(m.from) || one(m.to))))
+        if (l.points.length > 2) bent.push(`${v}: ${l.id}`);
+    }
+    check('no line steps aside by less than 5 pt between two legs running the same way: every view, slide and Letter, as entered, tidied, with an owner added and tidied so', !steps.length, j(steps.slice(0, 4)));
+    check('… nothing in the Key is set larger than the names it explains', !keys.length, j(keys.slice(0, 4)));
+    check('… and on Letter a box’s one line that drops straight on the slide drops straight where the room beside it allows: all on Fund III, and on Structure all but the U.S. and Non-U.S. investors’',
+      j(bent.sort()) === j(['view_main: own_nonus_fdr', 'view_main: own_us_fund']), j(bent));
   }
 
   // ---- Nothing drawn over anything, no line read as another's, and every label on its own line ----
@@ -715,11 +765,11 @@ function run() {
       const R = computed(wb);
       audit(Scene.of(wb, C, v, DAY, { state: R.records, computed: R, paper }), `${what}, ${v}, ${paper ?? 'slide'}`);
     }
-    // And the simplest new fund charts (firstlook9 M3, regress9 4): a fund, its GP and its investors, 100%; and the
-    // investors' 99% with the GP's 1%; laid out as a new chart is, on the slide and on Letter.
+    // And the simplest new fund charts (firstlook9 M3, regress9 4, regress10 2): a fund, its GP and its investors, 100%; the
+    // investors' 99% with the GP's 1%; and as the window builds one; laid out as a new chart is, on the slide and on Letter.
     const funds = Object.entries(NEW_FUNDS).flatMap(([what, make]) => [null, 'letter'].map(paper => { const { s } = newChart(make, paper); audit(s, `${what}, ${paper ?? 'slide'}`); return [what, paper, s]; }));
     check('no line runs through a box it doesn’t end at, or a frame’s caption: every sample view, on the slide and on Letter, as entered, tidied, with an owner added and tidied so, with a 247-character name on each of sixteen entities, after six drags, with an owner added and without, and with an owner’s percentage undone after three; and the simplest new fund charts',
-      LONG.length === 247 && Object.keys(cases).length === 33 && funds.length === 4 && !routes.length, j(routes.slice(0, 4)));
+      LONG.length === 247 && Object.keys(cases).length === 33 && funds.length === 8 && !routes.length, j(routes.slice(0, 4)));
     check('… no line turns down close under a box it doesn’t come from, where its own box isn’t as near over the turn: a drop never seems to leave a box it doesn’t', !turns.length, j(turns.slice(0, 4)));
     check('… no two lines run side by side within 4 pt as printed, upright or level, or over each other where they share no box', !beside.length, j(beside.slice(0, 4)));
     check('… no label sits on a box, a caption or another label', !labels.length, j(labels.slice(0, 4)));
@@ -737,7 +787,7 @@ function run() {
         return Math.abs(lv[0][1] - lv[1][1]) < 0.5 && x > Math.min(lv[0][0], lv[1][0]) + 0.5 && x < Math.max(lv[0][0], lv[1][0]) - 0.5 && y > Math.min(up[0][1], up[1][1]) + 0.5 && y < Math.max(up[0][1], up[1][1]) - 0.5; }));
       return { what, paper, straight, side, crossing: ls.some(a => ls.some(b => a !== b && cross(a, b))) };
     });
-    check('a new fund chart, a fund, its GP and its investors (with or without the GP’s 1%): the investors’ line straight down into the apex, the GP’s into the near slope, no line crossing another, slide and Letter',
+    check('a new fund chart, a fund, its GP and its investors (with or without the GP’s 1%, their percentage typed or not, a person placed beside them or not): the investors’ line straight down into the apex, the GP’s into the near slope, no line crossing another, slide and Letter',
       drawnAs.every(d => d.straight && d.side && !d.crossing), j(drawnAs.filter(d => !d.straight || !d.side || d.crossing)));
   }
 
