@@ -277,6 +277,29 @@ function run() {
       tried > 10 && turns === tried && !wrong.size, `${rows} rows; ${turns} of ${tried} shown ${notDrawn.join(' ')}; ${[...wrong].slice(0, 4).join(' | ')}`);
   }
 
+  // ---- Looks read alone (Scene.looks), and a scene's reach kept ----
+  {
+    const wb = fresh(), R = computed(wb), st = R.records, differ = [], off = [];
+    edit(wb, (tx, N) => note(tx, N, 'Arrow', { args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] }, MAIN, 'auto'));
+    for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) {
+      const s = Scene.of(wb, C, v, DAY, { state: st, computed: R }), l = Scene.looks(wb, C, v, DAY, { state: st, computed: R });
+      const drawn = [...s.byId.values()].filter(m => m.type === 'box' || m.type === 'line');
+      if (drawn.length !== l.marks.length) differ.push(`${v}: ${drawn.length} drawn, ${l.marks.length} read`);
+      for (const m of drawn) for (const [k, x] of Object.entries(m.settings)) {
+        const y = l.byId.get(m.id)?.settings[k], same = k === 'Weight' ? Math.abs(x.value - y?.value / s.page.scale) < 1e-9 : k === 'Arrow' && y?.value === 'auto' ? ['none', 'end'].includes(x.value) : j(x.value) === j(y?.value);
+        if (!same || x.note !== y?.note) differ.push(`${v} ${m.id} ${k}: ${j(x.value)} drawn, ${j(y?.value)} read`);
+      }
+      // What reaches each of its marks, kept for the scene and the state, is what's read afresh, of a copy of the state.
+      for (const m of drawn) {
+        const a = Scene.reach(wb, C, v, s, m.id, st), again = Scene.reach(wb, C, v, s, m.id, st), b = Scene.reach(wb, C, v, s, m.id, { ...st });
+        if (a !== again || j(a) !== j(b)) off.push(`${v} ${m.id}`);
+      }
+    }
+    check('a look read alone gives each box and line its scene draws what the scene gives it, but a weight at the page’s scale and an arrow Auto draws',
+      !differ.length, differ.slice(0, 4).join(' | '));
+    check('… and what reaches each mark, kept for its scene, is what’s read afresh', !off.length, off.slice(0, 4).join(' | '));
+  }
+
   // ---- One order for the groups, and for a row's outputs: the Key's, Styles' and the scope's ----
   {
     const wb = fresh(), VIEWS = ['view_main', 'view_40act', 'view_fund3', 'view_control'], CONTROL = 'view_control';

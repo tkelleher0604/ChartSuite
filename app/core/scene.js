@@ -468,6 +468,11 @@ function readRows(rows, view) {
 }
 
 const of = (...a) => { for (const s = drawing(...a); ;) { const r = s.next(); if (r.done) return r.value; } };
+// Scene.looks(wb, chart, view, day, { state }) → { marks, byId }: each box and line the view draws, by id, with its
+// settings as the notes give them (each { value, note }), and nothing laid out: what a look changed would leave, at
+// a fraction of a scene's cost. A setting the layout derives (a weight at the page's scale, an arrow Auto gives) is as
+// the notes have it.
+const looks = (wb, chart, view, day, opts = {}) => of(wb, chart, view, day, { ...opts, looks: true });
 // The steps: the marks, from the records; then for each layout tried, its boxes sized, ELK's part of it, its
 // routes, again each time a gap is deepened for them, and the rest of it; then the page.
 function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
@@ -477,7 +482,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const preview = !!(opts.keep || opts.reveal?.length), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
   const from = [opts.state, notesAre, shapeRows.map(r => r.id).join(), [...said.values()].join('\n'), day], whence = `${drawnAs}|${opts.paper ?? ''}`;
-  if (!preview) {
+  if (!preview && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
@@ -686,6 +691,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     m.texts = [];
     m.computed = !!state[m.record].computed;
     m.revealed = reveal.has(m.record) && !shownAlone(m);
+  }
+  // Their looks alone (Scene.looks): what the notes give each box and line drawn, before anything is laid out.
+  if (opts.looks) {
+    const ms = [...boxes, ...lines].map(m => ({ id: m.id, type: m.type, record: m.record, settings: m.settings }));
+    return { chart, view, day, marks: ms, byId: new Map(ms.map(m => [m.id, m])), styles };
   }
   for (const m of [...marks.values()].filter(m => m.type === 'text' && drawn(m)).sort(byOrder)) {
     const host = container(m);
@@ -954,13 +964,14 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // (`straight`); and a layout laid again, as it was judged.
   let straight = null, largest = Infinity;
   const bent = () => straight ? lines.filter(l => straight.has(l.id) && l.points?.length > 2).length : 0;
-  const judged = laid => ({ ...laid, faults: faults(laid.s), bent: bent() }), again = (laid, as) => ({ ...laid, faults: as.faults, bent: as.bent });
+  // A layout is judged once there's another to judge it against, while it's still the one laid; one alone needn't be.
+  const judged = laid => laid.faults !== undefined ? laid : { ...laid, faults: faults(laid.s), bent: bent() }, again = (laid, as) => ({ ...laid, faults: as.faults, bent: as.bent });
   // Of two layouts, the better: the one with fewer faults, then the larger, up to the size its own page prints it at on
   // another paper (`largest`), then the one with fewer lines bent, then the one with fewer lines gone around what's drawn.
   const better = (a, b) => { const [p, q] = [a.s, b.s].map(s => Math.min(s, largest));
     return a.faults !== b.faults ? a.faults < b.faults : p !== q ? p > q : a.bent !== b.bent ? a.bent < b.bent : a.around < b.around; };
   yield;
-  let at = judged(yield* lay(1)), grow = 1;
+  let at = yield* lay(1), grow = 1;
   // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
   // where the chart is tall for its page, its names then take fewer lines. A width is laid out only where its rows
   // are drawn larger, roughly (see Layout.fit), than at every width before it; and of those laid out, the best.
@@ -971,6 +982,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       const r = rough(g);
       if (r <= most) continue;
       most = r;
+      at = judged(at);
       const next = judged(yield* lay(1, tried = g));
       if (better(next, at)) [at, grow] = [next, g];
     }
@@ -985,7 +997,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const own = yield* drawing(wb, chart, view, day, { ...opts, paper: null });
     largest = own.page.scale;
     straight = new Set(own.marks.filter(m => m.type === 'line' && m.points?.length === 2).map(m => m.id));
-    at = { ...at, bent: bent() };
+    at = { ...judged(at), bent: bent() };
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
       if (at.s >= largest && !at.faults && !at.bent) break;
@@ -1691,21 +1703,31 @@ function outputPattern(style, t) {
 // The styles that reach a mark: for each of the view's styles, the records in or at the mark that fit it,
 // with their outputs. A box is reached through its object and every record in it; a line through its
 // relation and the records at it.
+// Kept for each scene, read in a state with its notes: the format bar and the canvas ask it of every mark drawn, each
+// time the scene is drawn anew, so each record's box, and each output's caption, are worked out once.
+const reaches = new WeakMap();
 function reach(wb, chart, view, scene, markId, state) {
   const m = scene.byId.get(markId);
   if (!m || (m.type !== 'box' && m.type !== 'line')) return [];
-  const N = wb.notes(chart), ids = Tree.dependents(state, [m.record]);
+  const N = wb.notes(chart);
+  let kept = reaches.get(scene);
+  if (!kept || kept.state !== state || kept.N !== N || kept.view !== view) reaches.set(scene, kept = { state, N, view, by: new Map(), boxes: new Map(), captions: new Map() });
+  if (kept.by.has(markId)) return kept.by.get(markId);
+  const box = id => kept.boxes.get(id) ?? kept.boxes.set(id, boxOf(state, id)).get(id);
+  const ids = [...Tree.dependents(state, [m.record])].filter(id => id === m.record || m.type !== 'box' || box(id) === m.record).map(id => [id, treeOf(state, id)]).filter(([, t]) => t);
+  const captioned = output => { const k = key(output); return kept.captions.get(k) ?? kept.captions.set(k, captionOf(N, output, view)).get(k); };
   const out = [];
   scene.styles.forEach((s, order) => {
-    for (const id of ids) {
-      if (id !== m.record && boxOf(state, id) !== m.record && m.type === 'box') continue;
-      const t = treeOf(state, id);
-      if (!t || !Tree.narrower(t, s.pattern)) continue;
+    const shape = Tree.shapeOf(s.pattern);
+    for (const [id, t] of ids) {
+      // A record fits only a pattern of its shape.
+      if (Tree.shapeOf(t) !== shape || !Tree.narrower(t, s.pattern)) continue;
       const output = outputPattern(s, t);
       if (!out.some(o => o.style === s.key && key(o.output) === key(output)))
-        out.push({ style: s.key, order, record: id, output, caption: captionOf(N, output, view), name: styleName(N, s.pattern) });
+        out.push({ style: s.key, order, record: id, output, caption: captioned(output), name: styleName(N, s.pattern) });
     }
   });
+  kept.by.set(markId, out);
   return out;
 }
 const boxOf = (state, id) => { const r = state[id]; return !r ? null : isObject(r) ? id : r.at ? boxOf(state, r.at) : null; };
@@ -1743,7 +1765,7 @@ function toPage(v, s, scaleAt) {
 }
 
 return {
-  of, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, CORNER, lineHeight, baseline, fontClass,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
