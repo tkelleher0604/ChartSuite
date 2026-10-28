@@ -1189,8 +1189,8 @@ function Prose({ text, put, label, cls = 'desc', auto, done }) {
 // so none twice.
 function RelateView({ a, b }) {
   const r = recs(), n = N(), [picks, setPicks] = useState({}), none = useRef(null), still = App.readOnly.value;
-  // A relation added that asks its day (App.asksDay) is a change pending (begin), ticked and redlined here until
-  // Enter, its day asked in the bar under the view; a click away leaves it pending. Which (its key), as what (its
+  // A relation added is a change pending (begin), ticked and redlined here until Enter, its amount and its day asked
+  // under its row and in the bar under the view; a click away leaves it pending. Which (its key), as what (its
   // tick, role or value). A list's Add, or the New relation form, may have begun one. One held that's being deleted
   // is struck, its box empty, till Enter deletes it.
   const p = App.pending.value, draft = p?.relate?.a === a && p.relate.b === b ? p.relate : null;
