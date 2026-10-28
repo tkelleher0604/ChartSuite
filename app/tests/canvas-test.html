@@ -691,7 +691,7 @@ async function run() {
   // ---- Tidy: pointed at, the chart is drawn tidied and nothing changes; made, it's one change, named so
   // everywhere, and the view is framed on its page again ----
   const tidyBtn = $('[data-fb="tidy"]'), made = App.wb.changes().length, base = () => App.scene.peek(), label = () => $('.dc-previewing');
-  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(250);
+  tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 3 })); await tick(250);
   check('pointing at Tidy draws nothing for a moment: its preview waits till the pointer has rested on it half a second', sc() === base() && !!label()?.hidden);
   await tick(450);
   const shifted = sc() !== base() && sc().marks.some(m => m.type === 'box' && base().byId.get(m.id) && (base().byId.get(m.id).x !== m.x || base().byId.get(m.id).y !== m.y));
@@ -699,11 +699,15 @@ async function run() {
   check('… a label on the chart saying it’s Tidy’s preview', !label().hidden && txt(label()) === 'Tidy preview' && getComputedStyle(label()).display !== 'none', `${label()?.hidden} ${txt(label())}`);
   tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(120);
   check('… and leaving it draws the chart as it is, the label gone', sc() === base() && label().hidden);
-  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(200);
+  tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 3 })); await tick(200);
   tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(500);
   check('… and passing over it, never resting, draws nothing', sc() === base() && label().hidden);
+  // A menu closing over Tidy leaves the pointer on it without moving it there: that's no pointing at it.
+  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(700);
+  check('… nor does the pointer found on it as a menu closes, not moved onto it', sc() === base() && label().hidden);
+  tidyBtn.dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
   cv().zoom(2); await tick(80);
-  tidyBtn.dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
+  tidyBtn.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 3 })); await tick(120);
   tidyBtn.click(); await tick(200);
   const tidyToast = txt($$('.toast').at(-1)), { a: ta, z: tz } = onScreen(), said = Time.describe(App.wb.changes().at(-1));
   check('Tidy is one change, “Tidied the layout” in its toast and History, and the view is framed on its page again', tidyToast.startsWith('Tidied the layout') && said === 'Tidied the layout'
