@@ -185,7 +185,8 @@ const Shell = (() => {
   // ---- Keys, and the Esc stack ----
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc' };
-  const keyLabel = k => !k ? '' : k.replace(/\[Shift\]\+/g, '').replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])|Digit(\d)/g, '$1$2').replace(/\w+/g, w => KEY[w] ?? w);
+  // A shifted mark is said by what it types, as PowerPoint says Ctrl+Shift+>.
+  const keyLabel = k => !k ? '' : k.replace(/Shift\+Period/, 'Shift+>').replace(/Shift\+Comma/, 'Shift+<').replace(/\[Shift\]\+/g, '').replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])|Digit(\d)/g, '$1$2').replace(/\w+/g, w => KEY[w] ?? w);
   // A key a part has already taken (typing over a box, say) isn't the window's too.
   function keys(map, o = {}) {
     const wrapped = {};
@@ -545,7 +546,7 @@ const Shell = (() => {
   function headed(found, all = found) {
     const keyed = new Map(all.filter(x => x.key !== undefined).map(x => [x.key, x])), heads = new Map();
     const kind = x => x.of !== undefined && keyed.has(x.of) ? kind(keyed.get(x.of)) : x.detail ?? '';
-    for (const x of found) { const k = kind(x); if (!heads.has(k)) heads.set(k, []); heads.get(k).push({ ...x, detail: null }); }
+    for (const x of found) { const k = kind(x); if (!heads.has(k)) heads.set(k, []); heads.get(k).push({ ...x, detail: x.why ?? null }); }
     return [...heads].flatMap(([k, xs]) => [...(k ? [{ head: Tree.plural(k) }] : []), ...xs]);
   }
   function answers(q) {
@@ -557,12 +558,15 @@ const Shell = (() => {
       if (r?.error) return [{ label: r.error, danger: true }];
       return r?.items ?? [{ label: String(r?.value ?? '') }];
     }
-    const acts = many('action').filter(a => a.id !== 'find').map(a => ({ id: a.id, label: a.name, names: a.names, detail: 'Action', keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
+    // An action that can't be done now is still found, greyed, saying why where it can, so nothing looked for is
+    // missing; with nothing typed, only what can be done is listed.
+    const acts = many('action').filter(a => a.id !== 'find').map(a => { const off = !!a.enabled && !a.enabled();
+      return { id: a.id, label: a.name, names: a.names, detail: 'Action', why: off ? a.why?.() ?? 'Not now' : null, keys: a.keys, disabled: off, run: a.run }; });
     // The keys, but not the two ways here.
     if (q.startsWith('?')) { const ks = acts.filter(a => a.keys && a.id !== 'keys').map(a => ({ ...a, detail: null })); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
     const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
     if (!q) return headed([...vs, ...can]);
-    const all = [...many('find').flatMap(s => s.items()), ...counted(), ...vs, ...can];
+    const all = [...many('find').flatMap(s => s.items()), ...counted(), ...vs, ...acts];
     return headed(rank(all, q), all);
   }
   // A result chosen keeps the focus it gave itself (a field, a dialog); otherwise the view has the keys, wherever

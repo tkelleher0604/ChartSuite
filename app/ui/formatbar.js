@@ -834,7 +834,16 @@ function mount(el) {
     ['format.clear', 'Clear formatting', '$mod+Space', clearLook],
     ['format.painter', 'Format painter', null, () => arm(true)],
     ['format.scope', 'This box or all like it', '$mod+Shift+KeyA', toggle, can],
-  ].map(([id, name, keys, run, enabled = edit]) => Shell.register('action', { id, name, ...(keys && { keys }), run, enabled }));
+    // The bar's popovers by name, and by the words people look for them by.
+    ['format.font', 'Font…', null, () => open('font'), edit, ['Typeface', 'Font size']],
+    ['format.color', 'Text color…', null, () => open('color'), edit, ['Font color', 'Font colour', 'Text colour']],
+    ['format.fill', 'Fill…', null, () => open('fill'), edit, ['Fill color', 'Background', 'Shading', 'Transparency']],
+    ['format.outline', 'Outline…', null, () => open('outline'), edit, ['Border', 'Line color', 'Line weight', 'Dashes', 'Arrows']],
+    ['format.shape', 'Change shape…', null, () => open('shape'), edit, ['Shape', 'Shadow', 'Rounded corners']],
+    ['format.paragraph', 'Paragraph…', null, () => open('paragraph'), edit, ['Align text', 'Alignment', 'Line spacing']],
+  ].map(([id, name, keys, run, enabled = edit, names]) => Shell.register('action', { id, name, ...(keys && { keys }), ...(names && { names }), run, enabled,
+    // Not now, and why: Find says so beside it, rather than leave it out.
+    why: () => App.readOnly.peek() ? 'Can’t change the past' : !onScreen() ? 'Show a chart first' : 'Select a box, line or shape first' }));
   return () => { stopSel(); stopCue(); stopBrush(); actions.forEach(off => off()); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true);
     preview(); Canvas.active.peek()?.cue(null); render(null, el); };
 }

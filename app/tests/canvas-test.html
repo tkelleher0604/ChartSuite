@@ -308,6 +308,17 @@ async function run() {
     Shell.select([]); await show(main);
   } else check('a view with frames', false);
 
+  // ---- Find reaches the format bar's popovers by the words people look for them by; with nothing selected they're
+  // still found, greyed, saying what they need ----
+  const selWas = Shell.selection.peek();
+  Shell.select([]); await tick(120);
+  Shell.find('border'); await tick(150);
+  const borderRow = $$('.findpal .menu-item').find(e => /^Outline…/.test(e.querySelector('.label')?.textContent ?? ''));
+  check('Find finds Outline… for “border”, greyed with nothing selected, saying what it needs', !!borderRow && borderRow.getAttribute('aria-disabled') === 'true'
+    && /first$/.test(borderRow.querySelector('.detail')?.textContent ?? ''), $$('.findpal .menu-item').map(e => e.textContent).join(' / '));
+  Shell.closeAll(); await tick();
+  Shell.select(selWas); await tick(120);
+
   // ---- Tidy is with the arrangement, not the zoom ----
   Shell.select(['halvard']); await tick(80);
   $('[data-fb="zoom"]').click(); await tick(120);
