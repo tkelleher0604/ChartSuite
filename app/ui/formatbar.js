@@ -193,6 +193,21 @@ function named(c, s) {
   if (s.own) return s.label;
   return `${s.caption} (${(s.marks ?? marksOf(c.scene(), s)).size})`;
 }
+// A group as "all of it" says it, with how many: a noun the Key's row gives in the plural ("All 5 limited
+// partnerships", "All 6 funds", "All 17 entities"), an option or a tag by what it is ("All 13 with Jurisdiction
+// Delaware", "All 11 with Good Standing"), and what's said as a state as it is ("All 1 not in good standing").
+function allOf(s, n) {
+  const caption = s.caption ?? '', ps = s.outputs ?? [], words = caption.split(' ');
+  // An option named as it is (Delaware) or a tag goes by its entry: "with Jurisdiction Delaware".
+  const option = ps.length && ps.every(p => p.out?.choice !== undefined && Tree.same(p.out.choice, caption) && p.args?.length === 1);
+  if (option) return `All ${n} with ${ps[0].args[0].edge} ${caption}`;
+  if (caption.includes(':') || (ps.length && ps.every(p => p.out?.tag === true))) return `All ${n} with ${caption.replace(/:\s*/, ' ')}`;
+  // Said in sentence case ("Limited partnership", "Not in good standing") or a kind: a common noun, lowered.
+  const kind = ps.length && ps.every(p => p.kind && !p.args && !p.out), common = kind || (words.length > 1 && words.slice(1).every(w => !/^[A-Z]/.test(w)));
+  const lower = w => common && /^[A-Z][a-z]/.test(w) ? w[0].toLowerCase() + w.slice(1) : w, last = words.at(-1);
+  if (/^(not|no|in|with|without)$/i.test(words[0])) return `All ${n} ${lower(caption)}`;
+  return `All ${n} ${[...words.slice(0, -1), n === 1 || /s$/i.test(last) ? last : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
+}
 // The scope a change goes to: the group chosen (by its key), or else the selection itself.
 const chosen = signal(null);
 const scopeOf = (scopes, key = chosen.peek()) => scopes.find(s => s.key === key) ?? scopes[0];
@@ -723,7 +738,7 @@ function Bar() {
       ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
         onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
       ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
-        onPointerEnter=${() => cue(like)} onPointerLeave=${() => cue()} onClick=${() => choose(like)}><span>All ${named(c, like)}</span></button>` : null}
+        onPointerEnter=${() => cue(like)} onPointerLeave=${() => cue()} onClick=${() => choose(like)}><span>${allOf(like, (like.marks ?? marksOf(c.scene(), like)).size)}</span></button>` : null}
       ${like && s.scopes.length > 2 ? html`<button class="more" data-fb="groups" aria-label="All like it" data-tip="All like it" aria-haspopup="menu"
         onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue() })} />` : null}
     </div>
@@ -834,6 +849,6 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount });
-return { apply, value, colorName, scope: describe, write: scoped, cue: cueing, open,
+return { apply, value, colorName, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook };
 })();

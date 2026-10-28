@@ -87,8 +87,8 @@ function scopeNow() {
   const s = typeof FormatBar !== 'undefined' && FormatBar.scope?.();
   return s?.outputs?.length ? s : { own: true };
 }
-// A group, as the scope's chip names it: all of what its Key row calls it, and how many it reaches.
-const named = s => `all ${s.caption}${s.marks ? ` (${s.marks.size})` : s.n ? ` (${s.n})` : ''}`;
+// A group, as the scope's toggle names it, mid-sentence: "all 6 funds".
+const named = s => { const a = FormatBar.allOf(s, s.marks?.size ?? s.n ?? 0); return a[0].toLowerCase() + a.slice(1); };
 // The boxes a group of a field's own entry reaches (Jurisdictions: Jurisdiction at no kind) are where the entry is: the
 // object it's at, through the entries it's in, the scope a field of it is shown or hidden at.
 function scopeAt(p, edge) {

@@ -134,7 +134,7 @@ async function run() {
   const chip = () => txt($('[data-fb="scope"] [aria-pressed="true"]'));
   const dulled = () => $$('.dc .x6-cell.dc-dull').map(e => e.getAttribute('data-cell-id'));
   Shell.select(['northpine']); await tick(120);
-  check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^All .+ \(\d+\)$/.test(like()), `${ownPart()} | ${like()}`);
+  check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^All \d+ \S/.test(like()),`${ownPart()} | ${like()}`);
   check('… and nothing on the chart is dulled', !dulled().length, dulled().join());
   Shell.select(['northpine', 'halvard', 'fund']); await tick(120);
   check('three, to “These 3 boxes”', chip() === 'These 3 boxes', chip());
@@ -187,7 +187,7 @@ async function run() {
   check('a box of a group the Key shows as one row is offered that group, by the Key’s caption', !!funds && fundItems.includes(`Funds (${fundReach})`) && fundReach > 2, fundItems.join(' | '));
   await closeMenus();
   Shell.select(['northpine']); await tick(120);
-  check('all like it names the narrowest Styles row that reaches the selection and more', like() === 'All Portfolio companies (4)', like());
+  check('all like it names the narrowest Styles row that reaches the selection and more', like() === 'All 4 portfolio companies', like());
   const pcs = sc().marks.filter(m => m.type === 'box' && App.state.peek()[m.record]?.kind === 'Entity' && JSON.stringify(m.settings.Fill.note?.pattern ?? {}).includes('Portfolio Company')).map(m => m.id);
   const fills = () => Object.fromEntries(pcs.map(id => [id, App.scene.peek().byId.get(id).settings.Fill.value]));
   const was = fills();
@@ -195,13 +195,13 @@ async function run() {
   const now = fills();
   check('a fill with one box selected fills that box alone', now.northpine === '#fff2cc' && pcs.filter(id => id !== 'northpine').every(id => now[id] === was[id]) && pcs.length === 4, JSON.stringify(now));
   $('[data-fb="like"]').click(); await tick(120);
-  check('choosing all like it presses it, and cues the group: the other boxes dulled', chip() === 'All Portfolio companies (4)' && pcs.every(id => !dulled().includes(id)) && dulled().includes('fund'), `${chip()}; ${dulled().length} dulled`);
+  check('choosing all like it presses it, and cues the group: the other boxes dulled', chip() === 'All 4 portfolio companies' && pcs.every(id => !dulled().includes(id)) && dulled().includes('fund'), `${chip()}; ${dulled().length} dulled`);
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
   const kept = txt($$('.toast').at(-1)), np = App.notes.peek().nameOf(App.state.peek(), 'northpine'), groupSaid = Time.describe(App.wb.changes().at(-1));
   check('… which says at once, by the group, that the one keeps its own', kept.startsWith(`Changed Fill for Portfolio companies; ${np} keeps its own`), kept);
   check('… and History names the change by the group, as the Key does', groupSaid === `Changed Fill for Portfolio companies in ${main.name}`, groupSaid);
-  check('… and the group stays chosen after the change', chip() === 'All Portfolio companies (4)', chip());
+  check('… and the group stays chosen after the change', chip() === 'All 4 portfolio companies', chip());
   $('[data-fb="groups"]').click(); await tick(120);
   const clearIt = $$('.float .menu-item').find(e => txt(e).startsWith('Clear '));
   check('… and its ▾ offers to clear what the one keeps', txt(clearIt) === `Clear ${np}’s own Fill`, menuItems().join(' | '));
@@ -213,7 +213,7 @@ async function run() {
   ctrlShiftA(); await tick(100);
   const toOwn = chip();
   ctrlShiftA(); await tick(100);
-  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All Portfolio companies (4)' && !!dulled().length, `${toOwn}, then ${chip()}`);
+  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All 4 portfolio companies' && !!dulled().length, `${toOwn}, then ${chip()}`);
   Shell.select(['halvard']); await tick(120);
   check('another selection is formatted as itself again, and nothing is dulled', chip() === 'This box' && !dulled().length, chip());
   // A group of a box's own, chosen from the ▾ and given a fill, becomes a Styles row, keyed: every Cayman box green.
@@ -226,7 +226,7 @@ async function run() {
   cayman?.click(); await tick(120);
   FormatBar.apply('Fill', '#92d050'); await tick(150);
   const greens = App.scene.peek().marks.filter(m => m.type === 'box' && m.settings.Fill.value === '#92d050').length, keyed = App.scene.peek().legend.find(r => r.swatch.Fill === '#92d050');
-  check('… and a fill for it fills every box of it, and keys it, as Styles does', caymans > 1 && greens === caymans && keyed?.caption === 'Cayman Islands' && chip() === `All Cayman Islands (${caymans})`,
+  check('… and a fill for it fills every box of it, and keys it, as Styles does', caymans > 1 && greens === caymans && keyed?.caption === 'Cayman Islands' && chip() === `All ${caymans} with Jurisdiction Cayman Islands`,
     `${greens} of ${caymans} green; key ${keyed?.caption}; ${chip()}`);
   // Bold for a group of an option lands on its boxes, not on the option's own text, written in them or not.
   FormatBar.apply('Bold', true); await tick(150);

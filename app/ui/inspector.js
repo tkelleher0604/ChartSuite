@@ -546,7 +546,6 @@ const fieldKey = (it, at) => it.id ?? `${at}|${T.norm(it.edge)}`;
 const charted = () => typeof Canvas !== 'undefined';
 const lit = (it, at) => charted() && Canvas.fieldLit.value === fieldKey(it, at);
 const fields = () => charted() ? Canvas.active.peek()?.fields : null;
-const EYE = html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>`;
 // Show on chart: at the row's end, shown in this box a quiet eye, pointed at a way to show or hide it there, at the
 // format bar's scope; the tooltip says where.
 function OnChart({ it, at }) {
@@ -557,7 +556,7 @@ function OnChart({ it, at }) {
   const say = () => { const s = Canvas.scope(); return `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`; };
   return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say()}
     onPointerEnter=${e => { e.currentTarget.dataset.tip = say(); const s = Canvas.scope(); if (s.marks) c.cue?.([...s.marks]); }} onPointerLeave=${() => c.cue?.(null)}
-    onClick=${e => { e.stopPropagation(); c.fields.show(host, it.edge, !on, at); }}>${EYE}</button>`;
+    onClick=${e => { e.stopPropagation(); c.fields.show(host, it.edge, !on, at); }}>${Shell.icon('eye')}</button>`;
 }
 // A row dragged onto the chart, by its grip or its label: the box under the pointer is lit as the target, and dropped
 // there, it shows the entry. `reorder`, where the grip also reorders the row among its siblings, which a drop on the
