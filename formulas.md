@@ -39,14 +39,16 @@ A tag **Ownership Adds Up**, on Entities, Individuals and Investor Groups:
 
 | Label | Row |
 | --- | --- |
-| Owners recorded | `= IF(COUNT(Owners) > 0, SUM(Owners.Percentage) = 100%)` |
+| Owners recorded | `= IF(SUM(Owners.Percentage) = 100%, TRUE)` |
+| Owners missing | `= IF(COUNT(Owners.Percentage) > 0 AND NOT([Vehicle Type] IN {"Portfolio Company", "Business Development Company"}), FALSE)` |
 
 `Owners` is the entity's list of owners: its relatives in the Owner role of Ownership, seen from the Owned side. `Owners.Percentage` is the Percentage on each of those ownerships.
 
 On the sample:
 - it's attested on the fund (71.6% plus 28.4%), the feeder, the blocker, the GP and the management company;
-- it's ruled out on Northpine (64% plus 12%), Halvard (82%) and the BDC (7%), whose other owners aren't charted;
-- individuals and investor groups have no owners, so the IF gives nothing and nothing is recorded.
+- it records nothing on Northpine (64% plus 12%), Halvard (82%) and the BDC (7%), whose other owners aren't charted;
+- individuals and investor groups have no owners, so neither row gives anything and nothing is recorded;
+- nor does an entity whose owners' percentages aren't typed yet: nothing is worked out from nothing. Once one is, it's ruled out until they come to 100%.
 
 A percentage typed as 150% or −5% is kept as typed, and a rule says what's wrong with it. A tag **Percentages In Range**, at Ownership, rules out a holding whose Percentage or Voting Percentage is below 0% or above 100%, by the row that finds it, and says nothing elsewhere:
 
@@ -251,15 +253,19 @@ Due dates are worked out from what's entered, each from when its obligation was 
 
 **One weekend rule each.** A deadline "on or before" a day that falls on a weekend is met by the business day before, `WORKDAY(d + 1, -1)`; one "within" a period that ends on a weekend moves to the next business day, `WORKDAY(d - 1, 1)`. Each deadline's Description says which. So Fund III's LEI, due a year after November 14, 2025, a Saturday, is due November 13, 2026; the Cayman annual returns are due January 29, 2027, the feeder's FATCA return July 30, 2027, and the co-invest vehicle's Form D amendment June 25, 2027, the day before the anniversary of its filing.
 
+**An LEI renewed early.** An LOU renewing an LEI before it lapses extends it a year from the date it was due, not from the renewal; one renewed after it lapsed runs a year from the renewal. The date it was due is the anniversary of its registration that the renewal renewed, the one within six months of it. So **Next Renewal**, "A year on from the anniversary renewed, or from a late renewal", is `= LET(renewed, MAX([Last Renewed], [Registered On]), from, EDATE(renewed, -6), anniversary, DATE(YEAR(from), MONTH([Registered On]), DAY([Registered On])), due, IF(anniversary < from, EDATE(anniversary, 12), anniversary), WORKDAY(EDATE(MAX(due, renewed), 12) + 1, -1))`. Fund III's, renewed October 28, 2026 with November 14 to come, runs to November 14, 2027, a Sunday, so it's due November 12; renewed December 20, after the anniversary, it would run to December 20, 2027. Fund III-A's, registered October 2, 2024 and renewed September 24, 2025, ran to October 2, 2026, overdue. A lapse moves the anniversary, which the last renewal alone can't tell: where an LEI has lapsed and been renewed since, its Next Renewal is entered from GLEIF, and entered wins.
+
 **Each tax year's Delaware tax.** A formula can't tell which tax years have begun, so the tax years are objects of a kind **Tax Year**, each in the chart from its first day, with its Year. A tag relation **Annual Tax** has edges Taxpayer, at Entity › Jurisdiction: Delaware, and Tax Year:
 
 | Label | Row |
 | --- | --- |
-| Each year on the register | `← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company"} AND Taxpayer.[Vehicle Type] <> "Portfolio Company" AND [Tax Year].Year >= YEAR(Taxpayer.[Formation Date])` |
+| Each year on the register | `← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company", "Corporation"} AND Taxpayer.[Vehicle Type] <> "Portfolio Company" AND [Tax Year].Year >= YEAR(Taxpayer.[Formation Date])` |
 
-The tax is owed for every year the entity is on the register, and a payment settles the year it's for, so it's recorded at that year: **Annual Tax Paid**, an entry at the year's Annual Tax, which is entered to bear it, as the rule gives it, since an entry is only ever at a record the timeline holds. At each, **Annual Tax Due** is "June 1 after the tax year, until paid", `= IF(ISBLANK([Annual Tax Paid]), WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1))`, and **Annual Tax Amount** has two rows, "From tax year 2026", `= IF([Tax Year].Year >= 2026, $400)`, and "Through tax year 2025", `= $300`. From the entity's side its list is **Taxed For**. A payment's place is its year's: "Fund III, tax year 2025 › Annual Tax Paid".
+The tax is owed for every year the entity is on the register, from the year it was formed: with no Formation Date, the comparison is nothing, so it owes no year, and its required Formation Date is counted blank instead. A corporation's is its franchise tax, which it pays with its annual report; a limited partnership's or LLC's its annual tax. A payment settles the year it's for, so it's recorded at that year: **Annual Tax Paid**, an entry at the year's Annual Tax, which is entered to bear it, as the rule gives it, since an entry is only ever at a record the timeline holds. At each, **Annual Tax Due** has two rows: "A corporation's franchise tax, with its annual report: March 1 after the tax year, until paid", `= IF(ISBLANK([Annual Tax Paid]) AND Taxpayer.[Entity Type] = "Corporation", WORKDAY(DATE([Tax Year].Year + 1, 3, 1) + 1, -1))`, and "June 1 after the tax year, until paid", `= IF(ISBLANK([Annual Tax Paid]), WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1))`. **Annual Tax Amount**, a limited partnership's or LLC's, has two rows, "From tax year 2026", `= IF(Taxpayer.[Entity Type] <> "Corporation" AND [Tax Year].Year >= 2026, $400)`, and "Through tax year 2025", `= IF(Taxpayer.[Entity Type] <> "Corporation", $300)`; a corporation's turns on its shares, and is entered. From the entity's side its list is **Taxed For**. A payment's place is its year's: "Fund III, tax year 2025 › Annual Tax Paid".
 
-The AIV, formed February 11, 2025, has paid nothing, so it owes 2025, due June 1, 2026 and overdue, and 2026, due June 1, 2027. With the five that paid for 2025 in May 2026, each at that year, and the co-invest vehicle formed that month, seven are due June 1, 2027, $2,800 in all. The reason the AIV owes 2025 is the facts that set it, "… Formation Date February 11, 2025"; the reason it's due June 1, 2026 is its year, and the payment that was nothing, "Annual Tax Paid —".
+**Paid…** records a payment at the earliest year still due of the same taxpayer, whichever year's due date it's beside, entering that year: so each payment is kept, at the year it settles, none overwriting another, and the next due date is the next year's. Fund III Blocker paid its franchise tax for 2023, 2024 and 2025 each February after, so it owes 2026, due March 1, 2027; paid early, on October 28, 2026, it owes nothing more until tax year 2027 begins, due March 1, 2028.
+
+The AIV, formed February 11, 2025, has paid nothing, so it owes 2025, due June 1, 2026 and overdue, and 2026, due June 1, 2027; a payment beside either settles 2025 first. With the five that paid for 2025 in May 2026, each at that year, and the co-invest vehicle formed that month, seven are due June 1, 2027, $2,800 in all. The reason the AIV owes 2025 is the facts that set it, "… Formation Date February 11, 2025"; the reason it's due June 1, 2026 is its year, and the payment that was nothing, "Annual Tax Paid —".
 
 **A fiscal year.** Fiscal Year End is a day of the year, December 31, with no year, and a rule reads its month and day. The Form ADV annual updating amendment is due within 90 days after the fiscal year after the one the last annual amendment covered:
 
@@ -293,14 +299,15 @@ A formula refers to things by name, matched without regard to case, as labels ar
 
 #### Nothing
 
-BLANK is **nothing**: what a missing entry gives, and what a definition with nothing to say records.
-- It drops out of a sum, so `BLANK() + 2` is 2, and it wipes out a product, so `BLANK() * 2` is nothing.
+BLANK is **nothing**: what a missing entry gives, and what a definition with nothing to say records. Nothing is worked out from nothing.
+- It drops out of a sum of what's read, so a look-through with no direct holding is the sum through the holdings alone; and it wipes out a product, so `BLANK() * 2` is nothing.
+- A number written in the formula only moves what's read, so nothing moved by it is nothing: `BLANK() + 2`, `YEAR([Formation Date]) + 1` and `[Last Filed] - 1` of a blank are nothing, never 2, or 1901.
 - SUM, MIN, MAX and AVERAGE of nothing are nothing, and COUNT is 0.
 - IF with no third argument gives nothing where its condition fails.
-- A date of nothing is nothing.
-- In a condition, nothing is FALSE. In a comparison, it takes the least value of the other side's kind, as in Excel: 0, empty text, FALSE, or a date before every date.
+- A date of nothing is nothing, whatever month and day are written beside it: `DATE(YEAR(BLANK()) + 1, 3, 1)` is nothing, and so are YEAR, EDATE, EOMONTH and WORKDAY of nothing. A date of something and nothing, a year with no month, can't be made: `#VALUE!`, which a row says as what it needs.
+- In a condition, nothing is FALSE. It's empty, so it equals 0, empty text and FALSE, as in Excel. But it has no size and no day, so a comparison of order with it (`<`, `>`, `<=`, `>=`) is nothing: `2026 >= YEAR(BLANK())` holds nowhere.
 
-So a missing percentage leaves a look-through through it unknown, rather than smaller. To tell a tag that isn't recorded from a ruled-out one, use `ISBLANK`.
+So a missing percentage leaves a look-through through it unknown, rather than smaller, and a missing formation date leaves the taxes that run from it unknown, rather than owed since forever. To tell a tag that isn't recorded from a ruled-out one, use `ISBLANK`.
 
 **Lists and single values.** A list with one item can be used where one value is expected. An empty list is nothing, and a longer list is `#VALUE!`. Lists of lists flatten. A dot over a list keeps its nothing items, so `Owners.Percentage` lines up with `Owners`.
 

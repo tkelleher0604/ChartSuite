@@ -406,7 +406,10 @@ function mount(el) {
     if (!base) return;
     const view = base.view, s = styledDrawn, r = !s && redDrawn;
     scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
+      { state: stateNow(), computed: App.computed.peek(), reveal: revealIds, ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
+    // A record selected that starts later is drawn faint, with its lines, as what's revealed is.
+    const later = App.later?.peek();
+    if (later && scene !== base) for (const m of scene.marks) if (later[m.record]) m.revealed = true;
     ink = r ? inked(r, scene, base) : null;
     tidyLabel.hidden = !s?.wb.tidy;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
@@ -1414,7 +1417,7 @@ function mount(el) {
       ...(bound.length ? [{ label: 'History', run: () => Time.open('all') }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
-      { label: bound.length ? 'Delete…' : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
+      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
@@ -1643,13 +1646,16 @@ function mount(el) {
   const QUICK = { marks: 400, hidden: 40 };
   let asked = [], redDrawn = null, styled = null, styledDrawn = null, standIns = new Map();
   function reveal(ids) { asked = ids ? [...ids] : []; show(); }
+  // What's drawn from: the chart's state, and a record selected that starts after the day shown, as it will be then
+  // (App.later), revealed where it will be.
+  function stateNow() { const l = App.later?.peek(); return l ? { ...App.state.peek(), ...l } : App.state.peek(); }
   function show(again = false) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
     // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
     if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day))
       red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsOf(base) }) : null);
     const r = red?.scene ? red : null;
-    const st = App.state.peek(), N = App.notes.peek();
+    const st = stateNow(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
     const hidden = id => { const x = st[id]; return x && (Tree.isObject(x) || x.args?.length === 2) && !base?.byId.has(id) && ![id, ...(x.args ?? []).map(a => a.at)].some(away); };
     // A relation the view hides, lit or stepped through, whose two boxes a line drawn here already joins (one
@@ -1665,7 +1671,7 @@ function mount(el) {
       const x = st[id], line = hidden(id) && x.args?.length === 2 && joins.get(pair(...x.args.map(a => Tree.objectOf(st, a.at))));
       if (line) standIns.set(id, line.merged ?? line.id);
     }
-    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : [])])].filter(id => hidden(id) && !standIns.has(id)).sort();
+    const ids = [...new Set([...asked, ...(hl ? hl.map.keys() : []), ...Object.entries(App.later?.peek() ?? {}).filter(([, x]) => Tree.isObject(x)).map(([x]) => x)])].filter(id => hidden(id) && !standIns.has(id)).sort();
     const next = ids.length && ids.length <= QUICK.hidden ? ids : null;
     if (again || JSON.stringify(next) !== JSON.stringify(revealIds) || r !== redDrawn || s !== styledDrawn) { revealIds = next; redDrawn = r; styledDrawn = s; draw(); } else paintStates();
     ahead();
@@ -2079,7 +2085,7 @@ function mount(el) {
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
   // A restyle is of the chart as it was: one that changes ends it.
-  const stopDraw = effect(() => { App.scene.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
+  const stopDraw = effect(() => { App.scene.value; App.later?.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
   // A mark's fields, asked of by the inspector (see Fields): `shown`, whether the mark a record draws shows an entry of a
   // label; `show`, shows or hides one there, at the scope where the mark is what's selected; `light`, outlines the field
   // a row's key names, as its row is pointed at; `over`, the box under a point on screen as a row is dragged, outlined as

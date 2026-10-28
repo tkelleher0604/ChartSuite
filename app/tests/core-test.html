@@ -48,9 +48,10 @@ function run(json) {
   }));
   // 136 changes, each the legal team's own, the last its revisions after a general counsel's review in October
   // 2026: what the app's building changed is folded into the rows it fixed. Each entity's formation document and
-  // governing agreement is among its 55 documents, and each Delaware annual tax paid is at the tax year it settled.
+  // governing agreement is among its 55 documents, and each Delaware tax paid, a corporation's franchise tax
+  // among them, is at the tax year it settled.
   const docs = Object.values(now).filter(r => r.kind === 'Document').length;
-  check('the sample is as big as it should be', Object.keys(now).length === 965 && docs === 55 && wb.changes().length === 136,
+  check('the sample is as big as it should be', Object.keys(now).length === 973 && docs === 55 && wb.changes().length === 136,
     `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
   const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
   const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
@@ -133,7 +134,7 @@ function run(json) {
 
   // ---- What formulas.js takes ----
   const defs = N.definitions(S), def = id => defs.find(d => d.id === id);
-  check('every definition covers what it covered', defs.length === 30 && defs.every(d => d.covers.length && d.rows.length),
+  check('every definition covers what it covered', defs.length === 29 && defs.every(d => d.covers.length && d.rows.length),
     defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
   check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
     && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 5 && def('def_look_through').datatype === 'percent');
@@ -163,11 +164,27 @@ function run(json) {
   check('a fund is absent before its Formation Date, with all that’s at it, and its investors before its first sale', !on('2024-09-15', 'fund3a') && !on('2024-09-15', 'fund3a_name')
     && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && !on('2024-09-16', 'own_inv3a_3a') && on('2024-11-15', 'own_inv3a_3a'));
   check('the Blocker was in good standing from its formation', wb.asOf(C, '2023-12-31').blocker_good?.tag === true && wb.asOf(C, TODAY).blocker_good?.tag === true);
-  check('a filing date renews on the day it names', pct('2026-02-23', 'blocker_juris_frtax') === '2025-02-26' && pct('2026-02-24', 'blocker_juris_frtax') === '2026-02-24');
+  check('a filing date renews on the day it names', pct('2025-11-13', 'fund_lei_renewed') === '2024-11-14' && pct('2025-11-14', 'fund_lei_renewed') === '2025-11-14');
   // A tax year's payment is at that year, from the day it was made; the jurisdiction keeps none.
   check('a payment holds at its tax year from the day it was made', !on('2025-05-27', 'tax_fund_2024_paid') && pct('2025-05-28', 'tax_fund_2024_paid') === '2025-05-28'
     && pct(TODAY, 'tax_fund_2023_paid') === '2024-05-29' && pct(TODAY, 'tax_fund_2025_paid') === '2026-05-27' && N.segmentOf(now, 'tax_fund_2025') === 'Fund III, tax year 2025'
     && N.placeOf(now, 'tax_fund_2025_paid') === 'Fund III, tax year 2025 › Annual Tax Paid' && !Object.values(now).some(r => r.edge === 'Annual Tax Paid' && !now[r.at]?.args), N.placeOf(now, 'tax_fund_2025_paid'));
+  check('… a corporation’s franchise tax too: the Blocker’s for 2024 from February 26, 2025, its jurisdiction keeping no payment of its own', !on('2025-02-25', 'tax_blocker_2024_paid')
+    && pct('2025-02-26', 'tax_blocker_2024_paid') === '2025-02-26' && pct(TODAY, 'tax_blocker_2023_paid') === '2024-02-27' && N.segmentOf(now, 'tax_blocker_2025') === 'Fund III Blocker, tax year 2025'
+    && !Object.values(S).some(t => t.args?.length === 1 && /^Franchise Tax/.test(t.args[0].edge)), N.segmentOf(now, 'tax_blocker_2025'));
+  // One way to record a registered agent: the relation, its agent a service provider. The Corporation Trust Company, once
+  // Fund III's and GP III's, is the relation's too, as the log stood before Jordan's correction in January 2025.
+  const stood = wb.at('2024-12-31T00:00:00Z').asOf(C, TODAY);
+  check('a registered agent is recorded one way, as the relation: no entry is named Registered Agent, and Fund III’s agent was The Corporation Trust Company, then Wilmington Harbor',
+    !Object.values(S).some(t => t.args?.length === 1 && Tree.same(t.args[0].edge, 'Registered Agent')) && N.name(tree('ra_fund')) === 'Registered Agent'
+    && N.listName(tree('ra_fund'), 'Agent') === 'Registered Agents' && stood.fund_agent?.args.find(a => a.edge === 'Agent').at === 'ctc' && N.nameOf(now, 'ctc') === 'The Corporation Trust Company'
+    && !now.fund_agent && now.ra_fund.args.find(a => a.edge === 'Agent').at === 'wilmington', j(stood.fund_agent));
+  // The jurisdictions a fund practice meets are the sample's options: every state and D.C., and the offshore and European ones.
+  const jurisdictions = Object.values(S).filter(t => t.out?.choice && t.args?.length === 1 && Tree.same(t.args[0].edge, 'Jurisdiction') && Tree.same(t.args[0].loc.kind ?? '', 'Entity')).map(t => t.out.choice)
+    .sort((a, b) => N.optionOrder({ out: { choice: a }, args: [{ edge: 'Jurisdiction', loc: { kind: 'Entity' } }] }) - N.optionOrder({ out: { choice: b }, args: [{ edge: 'Jurisdiction', loc: { kind: 'Entity' } }] }));
+  check('Jurisdiction offers 62: Delaware, the Cayman Islands, every state and D.C., then the rest abroad', jurisdictions.length === 62 && j(jurisdictions.slice(0, 4)) === j(['Delaware', 'Cayman Islands', 'Alabama', 'Alaska'])
+    && ['Texas', 'District of Columbia', 'Maryland', 'New York', 'Wyoming'].every(x => jurisdictions.indexOf(x) > 1 && jurisdictions.indexOf(x) < 52)
+    && j(jurisdictions.slice(52)) === j(['Bermuda', 'British Virgin Islands', 'England and Wales', 'Guernsey', 'Hong Kong', 'Ireland', 'Jersey', 'Luxembourg', 'Netherlands', 'Singapore']), jurisdictions.join(', '));
   // ---- The chart's words, and a view's own notes ----
   check('an object reads by its Name, or its Short Name where room is short', N.nameOf(now, 'fund') === 'Calder Ridge Capital Partners III, L.P.' && N.shortOf(now, 'fund') === 'Fund III');
   check('a view reads by its Name note, and an unnamed object as its kind', N.nameOf(now, 'view_40act') === '40 Act' && Tree.isView(now.view_40act)
@@ -247,14 +264,16 @@ function run(json) {
     commit(w, tx => tx.set('fund_name', { ...now.fund_name, value: 'Fund 3' }), { who: 'Ann Lee' });
     check('a change can’t be reversed once it has changed since', typeof back(mine) === 'string' && !w.canReverse(mine.id) && w.asOf(C, TODAY).fund_name.value === 'Fund 3');
     const del = w.deleted(C).find(d => d.item === 'fund_agent');
-    // The registered agents once kept as text, the per-entity Annual Tax Due, Amount and Paid, now one for each
-    // tax year, and the positions views no longer draw.
-    const PER_ENTITY = ['fund_agent', 'gp_agent', 's1b', 'sq', 'fund_juris_tax', 'gp_juris_tax', 'mgmt_juris_tax', 'holdco_juris_tax', 'fund3a_juris_tax'];
+    // The registered agents once recorded, The Corporation Trust Company's two; the per-entity Annual Tax Due, Amount
+    // and Paid, and the jurisdiction's Franchise Tax Due and Paid, its definition and description, now one for each
+    // tax year; and the positions views no longer draw.
+    const PER_ENTITY = ['fund_agent', 'gp_agent', 's1b', 'sq', 'fund_juris_tax', 'gp_juris_tax', 'mgmt_juris_tax', 'holdco_juris_tax', 'fund3a_juris_tax',
+      'blocker_juris_frtax', 'aivblk_juris_frtax', 'def_franchise_tax', 'n28', 'sr'];
     const dropped = w.deleted(C), others = dropped.filter(d => !PER_ENTITY.includes(d.item));
-    check('deleted items are read off the log', dropped.length - others.length === 9 && others.every(d => d.rows.every(r => r.label === 'Position')) && del.rows[0].value === 'The Corporation Trust Company',
+    check('deleted items are read off the log', dropped.length - others.length === 14 && others.every(d => d.rows.every(r => r.label === 'Position')) && del.rows[0].args?.some(a => a.at === 'ctc'),
       j(dropped.map(d => d.item).sort()));
     w.reverse(del.change, WHO);
-    check('restoring an older change brings it back', w.asOf(C, TODAY).fund_agent?.value === 'The Corporation Trust Company' && !w.deleted(C).some(d => d.item === 'fund_agent'));
+    check('restoring an older change brings it back', w.asOf(C, TODAY).fund_agent?.args.some(a => a.at === 'ctc') && !w.deleted(C).some(d => d.item === 'fund_agent'));
     const rows = w.rows(C).length;
     const removal = commit(w, tx => tx.remove('northpine'));
     const gone = w.asOf(C, TODAY);

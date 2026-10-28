@@ -343,7 +343,7 @@ async function run() {
   Shell.select(['fund']); await tick(150);
   $$('.ih > .btn.more').find(b => b.getClientRects().length)?.click(); await tick(120);
   const moreItems = $$('.float .menu-item .label').map(e => e.textContent);
-  check('a record’s panel has ⋯, with its table, Hide in this view and Delete…', ['Open in Entities', 'Hide in this view', 'Delete…'].every(x => moreItems.includes(x)), moreItems.join(' | '));
+  check('a record’s panel has ⋯, with its table, Hide in this view and Delete…, named for what it records, a fund’s Dissolve…', ['Open in Entities', 'Hide in this view', 'Dissolve…'].every(x => moreItems.includes(x)), moreItems.join(' | '));
   Shell.closeAll(); await tick();
 
   // ---- Tidy is with the arrangement, not the zoom ----
@@ -1108,7 +1108,7 @@ async function run() {
     const [bx, by] = boxAt(sc().byId.get(plain));
     document.elementFromPoint(bx, by)?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: bx, clientY: by, button: 2, view: window })); await tick(150);
     const boxMenu = Object.fromEntries($$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]));
-    check('a box’s menu keys Delete to Delete…, and Hide in this view to nothing, with History beside them', boxMenu['Delete…'] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
+    check('a box’s menu keys Delete to Delete…, named for what it records (Dissolve…), and Hide in this view to nothing, with History beside them', boxMenu[`${App.deleteVerb([plain])}…`] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
     $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'History')?.click(); await tick(250);
     check('… its History opens History filtered to it', !!$('.hist') && txt($('.hist-focus')).includes('Ninth Street Holdings LLC'), txt($('.hist-focus')));
     Time.close(); await tick(120);
@@ -1244,6 +1244,8 @@ async function stillAsMade() {
   await tickRow('is a general partner of');
   check('… ticked as its general partner, it goes beside the fund, on the side it was made, and nothing else moves', held(was, [gp]) && box('Larkspur Credit GP').x + box('Larkspur Credit GP').w <= box('Larkspur Credit Fund').x + box('Larkspur Credit Fund').w / 2 + 0.5,
     JSON.stringify([...at()]));
+  // (Ticked, it's pending, as every relation added is, asking its Admission Date; Add makes it.)
+  await add();
   // Its manager, on the right, ticked as its adviser: pending, the redline where Enter puts it.
   was = at();
   await dot(box('Larkspur Credit Fund'), 'e', [box('Larkspur Credit Fund').x + box('Larkspur Credit Fund').w + 120, box('Larkspur Credit Fund').y - 110]);

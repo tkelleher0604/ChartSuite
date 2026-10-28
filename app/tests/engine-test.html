@@ -68,23 +68,25 @@ const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edg
 function theSample() {
   const R = workOut();
   const { definitions } = SAMPLE_INPUTS;
-  check('Notes gives the sample’s 30 definitions, each with what it covers and its rows', definitions.length === 30 && definitions.every(d => d.covers.length && d.rows.length && d.type));
+  check('Notes gives the sample’s 29 definitions, each with what it covers and its rows', definitions.length === 29 && definitions.every(d => d.covers.length && d.rows.length && d.type));
   check('…and none has a problem', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
   const problems = definitions.flatMap(d => d.rows.flatMap(r => Formulas.check(r.formula, { computed: R, def: d.id }).problems.map(p => `${d.id}: ${p.message}`)));
   check('…nor any of their rows, names included', !problems.length, problems.slice(0, 3).join(' | '));
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 598 computed records, with no errors: the 575 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
-    total === 598 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 575, `${total} computed, ${R.errors.length} errors`);
+  check(`The sample works out 600 computed records, with no errors: the 577 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
+    total === 600 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 577, `${total} computed, ${R.errors.length} errors`);
   // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
   // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
-  // The Delaware annual tax 7 → 8: the AIV owes tax years 2025 and 2026. New: Voting Percentage (24 holdings),
-  // Capacity Held (13 signing authorities), the tax years owed (8), CIMA accounts, CRS and FATCA (1 each).
-  // Annual Tax Amount 8 → 22: each of the 14 tax years paid has its amount too. Ownership Adds Up 16 → 11: not
-  // ruled out where the other owners aren't charted, at the four portfolio companies and the BDC.
+  // The Delaware tax 7 → 10: the AIV owes tax years 2025 and 2026, and the two blockers their franchise tax for
+  // 2026, each year its own as the jurisdiction's one Franchise Tax Due (2) was not. New: Voting Percentage (24
+  // holdings), Capacity Held (13 signing authorities), the tax years owed (10), CIMA accounts, CRS and FATCA (1
+  // each). Annual Tax Amount 8 → 22: each of the 14 limited partnership and LLC tax years paid has its amount too;
+  // a corporation's franchise tax has none. Ownership Adds Up 16 → 11: not ruled out where the other owners
+  // aren't charted, at the four portfolio companies and the BDC.
   const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 11, def_tax: 6,
-    def_private_fund: 5, def_investment_company: 1, def_annual_tax: 8, def_annual_tax_amount: 22, def_annual_tax_owed: 8, def_franchise_tax: 2, def_annual_return: 2,
+    def_private_fund: 5, def_investment_company: 1, def_annual_tax: 10, def_annual_tax_amount: 22, def_annual_tax_owed: 10, def_annual_return: 2,
     def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
     def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13 };
   const off = Object.keys({ ...want, ...counts }).filter(d => want[d] !== counts[d]);
@@ -108,6 +110,13 @@ function theSample() {
   const short = withRecords({ own_okfr_gp_pct: { ...SAMPLE_INPUTS.recs.own_okfr_gp_pct, value: 0.3 } });
   check('…but rules it out where every owner is meant to be charted: GP III, its members holding 80%', entryRow(short, 'def_adds_up', 'gp')?.value === false
     && entryRow(short, 'def_adds_up', 'gp').label === 'Owners missing', JSON.stringify(entryRow(short, 'def_adds_up', 'gp')));
+  // Nothing from nothing: owners whose percentages aren't recorded yet neither add up nor fail to; one typed does.
+  const owners = (pcts) => withRecords(Object.fromEntries([['x_f', { kind: 'Entity' }], ['x_f_type', { at: 'x_f', edge: 'Entity Type', choice: 'Limited Partnership' }],
+    ...pcts.flatMap((p, i) => [[`x_o${i}`, { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'x_f' }].map(a => a.edge === 'Owner' ? { ...a, at: ['pension', 'inv_us'][i] } : a), tag: true }],
+      ...(p === null ? [] : [[`x_o${i}_pct`, { at: `x_o${i}`, edge: 'Percentage', field: 'percent', value: p }]])])]));
+  check('…and records nothing where its owners’ percentages are blank, ruling out once one is typed that doesn’t add up', !entryRow(owners([null, null]), 'def_adds_up', 'x_f')
+    && entryRow(owners([0.4, null]), 'def_adds_up', 'x_f')?.value === false && entryRow(owners([0.4, 0.6]), 'def_adds_up', 'x_f')?.value === true,
+    JSON.stringify([entryRow(owners([null, null]), 'def_adds_up', 'x_f'), entryRow(owners([0.4, null]), 'def_adds_up', 'x_f')?.value]));
   // A percentage out of range is the sample's rule to flag, as Ownership Adds Up flags owners that don't add up.
   check('Percentages In Range records nothing where every holding is from 0% to 100%', !rowsOf(R, 'def_in_range').length);
   const odd = withRecords({ own_fund_npine_pct: { ...SAMPLE_INPUTS.recs.own_fund_npine_pct, value: 1.5 }, own_chen_gp_pct: { ...SAMPLE_INPUTS.recs.own_chen_gp_pct, value: -0.05 } });
@@ -185,7 +194,7 @@ function theSample() {
     && rowsOf(R, 'def_annual_tax_amount').filter(a => june27.some(d => d.at === a.at)).reduce((s, a) => s + a.value, 0) === 2800, june27.length);
   // A payment is recorded at the tax year it settles, which is entered to bear it.
   const paidAt = Object.values(R.records).filter(r => r.edge === 'Annual Tax Paid'), fundYears = paidAt.filter(r => objOf(R, R.records[r.at].args.find(a => a.edge === 'Taxpayer').at) === 'fund');
-  check('Each payment is at the tax year it settled, 14 in all: Fund III’s for 2023, 2024 and 2025, paid the May after each', paidAt.length === 14 && paidAt.every(r => !R.records[r.at].computed && R.records[r.at].tag === true)
+  check('Each payment is at the tax year it settled, 18 in all: Fund III’s for 2023, 2024 and 2025, paid the May after each', paidAt.length === 18 && paidAt.every(r => !R.records[r.at].computed && R.records[r.at].tag === true)
     && fundYears.map(r => `${yearOf(R, r)} ${r.value}`).sort().join() === '2023 2024-05-29,2024 2025-05-28,2025 2026-05-27', fundYears.map(r => `${yearOf(R, r)} ${r.value}`).join());
   const dues = (R, obj) => taxRows(R, 'def_annual_tax', obj).filter(r => r.value).map(r => `${yearOf(R, r)} ${r.value.iso}`).sort().join();
   check('…so a year paid owes nothing, has its amount, and agrees with the rule that it was on the register', dues(R, 'fund') === '2026 2027-06-01'
@@ -199,10 +208,58 @@ function theSample() {
   const around = ['2024-07-01', '2025-05-27', '2025-05-28', '2026-05-26', '2026-05-27'].map(dueOn);
   check('Fund III’s tax is due a year at a time: 2024’s until May 28, 2025, then 2025’s until May 27, 2026, then 2026’s', JSON.stringify(around)
     === JSON.stringify(['2024 2025-05-30', '2024 2025-05-30,2025 2026-06-01', '2025 2026-06-01', '2025 2026-06-01,2026 2027-06-01', '2026 2027-06-01']), JSON.stringify(around));
+  // A corporation's franchise tax is its Delaware tax for the year, due March 1 after it, each payment at its year.
+  const blockerPaid = paidAt.filter(r => objOf(R, R.records[r.at].args.find(a => a.edge === 'Taxpayer').at) === 'blocker').map(r => `${yearOf(R, r)} ${r.value}`).sort();
+  check('Fund III Blocker’s franchise tax is its Delaware tax by the year: 2023, 2024 and 2025 paid each February after, 2026 due March 1, 2027; with no amount',
+    blockerPaid.join() === '2023 2024-02-27,2024 2025-02-26,2025 2026-02-24' && dues(R, 'blocker') === '2026 2027-03-01' && dues(R, 'aivblk') === '2026 2027-03-01'
+    && !taxRows(R, 'def_annual_tax_amount', 'blocker').some(r => r.value) && !Object.values(R.records).some(r => /^Franchise Tax/.test(r.edge ?? '')), `${blockerPaid.join()} | ${dues(R, 'blocker')}`);
+  // Paying: Formulas.pay settles the earliest year unsettled, entering the year to bear the payment, as Paid… does.
+  const paying = (due, day, recs = SAMPLE_INPUTS.recs) => {
+    const P = workOut(recs), added = {};
+    let n = 0;
+    const add = r => { if (P.computed[r.at]) { const y = `x_year_${n++}`; added[y] = { args: P.records[r.at].args, tag: true }; r = { ...r, at: y }; } added[`x_paid_${n++}`] = r; return `x_paid_${n - 1}`; };
+    const id = Object.keys(P.records).find(k => P.computed[k] && P.records[k].edge === 'Annual Tax Due' && objOf(P, P.records[P.records[k].at].args.find(a => a.edge === 'Taxpayer').at) === due[0] && yearOf(P, P.records[k]) === due[1]);
+    const said = id && Formulas.pay({ R: P, N: WB.notes(CHART), due: id, day, add });
+    return { said, added, R: workOut({ ...recs, ...added }) };
+  };
+  const early = paying(['blocker', 2026], '2026-10-28');
+  check('Paid early, the franchise tax settles 2026, says so, and keeps the payments before it: nothing more is due this year',
+    early.said === 'Paid Fund III Blocker’s annual tax for 2026 on Oct 28, 2026' && dues(early.R, 'blocker') === ''
+    && Object.values(early.R.records).filter(r => r.edge === 'Annual Tax Paid' && objOf(early.R, early.R.records[r.at].args.find(a => a.edge === 'Taxpayer').at) === 'blocker').length === 4, `${early.said} | ${dues(early.R, 'blocker')}`);
+  const jan = sampleAsOf('2027-01-04'), next = workOut({ ...jan.recs, ...early.added }, jan.definitions, jan.names);
+  check('…and the next due is the next year’s, March 1, 2028, from the day tax year 2027 begins', dues(next, 'blocker') === '2027 2028-03-01', dues(next, 'blocker'));
+  const aivLate = paying(['aiv', 2026], '2026-10-28');
+  check('Paid at its 2026 tax, the AIV’s payment settles 2025, the earliest unsettled, and says so: 2026 is still due', aivLate.said === 'Paid AIV-1’s annual tax for 2025 on Oct 28, 2026'
+    && dues(aivLate.R, 'aiv') === '2026 2027-06-01', `${aivLate.said} | ${dues(aivLate.R, 'aiv')}`);
+  const leiDue = Object.keys(R.records).find(k => R.computed[k]?.def === 'def_lei');
+  check('…and a due date that isn’t a year’s, an LEI’s next renewal, isn’t a payment’s: pay gives nothing and writes nothing', Formulas.pay({ R, due: leiDue, day: DAY, add: () => { throw new Error('added'); } }) === null);
+  // Nothing is due from nothing: an entity added today without its formation date owes no year, and has no date worked out from the blank.
+  const fresh = withRecords({
+    x_lp: { kind: 'Entity' }, x_lp_name: { at: 'x_lp', edge: 'Name', field: 'text', value: 'Harbor Point Co-Invest, L.P.' },
+    x_lp_type: { at: 'x_lp', edge: 'Entity Type', choice: 'Limited Partnership' }, x_lp_juris: { at: 'x_lp', edge: 'Jurisdiction', choice: 'Delaware' },
+    x_co: { kind: 'Entity' }, x_co_type: { at: 'x_co', edge: 'Entity Type', choice: 'Corporation' }, x_co_juris: { at: 'x_co', edge: 'Jurisdiction', choice: 'Delaware' },
+    x_ky: { kind: 'Entity' }, x_ky_type: { at: 'x_ky', edge: 'Entity Type', choice: 'Exempted Company' }, x_ky_juris: { at: 'x_ky', edge: 'Jurisdiction', choice: 'Cayman Islands' },
+    x_lei: { at: 'x_ky', edge: 'LEI Registered', tag: true }, x_cima: { at: 'x_ky', edge: 'CIMA Registered', tag: true },
+  });
+  const fromBlank = Object.keys(fresh.computed).filter(k => ['x_lp', 'x_co', 'x_ky'].includes(objOf(fresh, fresh.records[k].at ?? fresh.records[k].args?.[0].at)) && fresh.records[k].field === 'date');
+  check('Nothing is due from nothing: a Delaware partnership and corporation and a Cayman company added with no dates owe no tax year, and have no date worked out, no 1901, no error',
+    !rowsOf(fresh, 'def_annual_tax_owed').some(r => ['x_lp', 'x_co'].includes(objOf(fresh, r.args.find(a => a.edge === 'Taxpayer').at)))
+    && !fromBlank.length && !fresh.errors.length && Formulas.attention(fresh, WB.notes(CHART), DAY).filter(a => a.kind === 'overdue').length === 2,
+    `${fromBlank.map(k => `${fresh.records[k].edge} ${fresh.records[k].value}`).join(', ')} ${fresh.errors.map(e => e.def).join()}`);
+  const formed = withRecords({ x_lp: { kind: 'Entity' }, x_lp_type: { at: 'x_lp', edge: 'Entity Type', choice: 'Limited Partnership' }, x_lp_juris: { at: 'x_lp', edge: 'Jurisdiction', choice: 'Delaware' },
+    x_lp_formed: { at: 'x_lp', edge: 'Formation Date', field: 'date', value: '2025-03-01' } });
+  const owedFrom = rowsOf(formed, 'def_annual_tax_owed').filter(r => objOf(formed, r.args.find(a => a.edge === 'Taxpayer').at) === 'x_lp').map(r => yearOf(formed, r)).sort();
+  check('…and given its formation date, its tax years begin at its start: 2025 and 2026', owedFrom.join() === '2025,2026', owedFrom.join());
   const due = (def, id) => entryRow(R, def, id)?.value?.iso;
   check('On or before a date on a weekend: the business day before (Fund III’s LEI, Nov 14, 2026; the annual returns, Jan 31, 2027; FATCA, Jul 31, 2027; the Co-Invest Form D, Jun 26, 2027)',
     due('def_lei', 'fund') === '2026-11-13' && due('def_annual_return', 'feeder') === '2027-01-29' && due('def_fatca', 'feeder') === '2027-07-30' && due('def_form_d', 'coinv') === '2027-06-25',
     [due('def_lei', 'fund'), due('def_annual_return', 'feeder'), due('def_fatca', 'feeder'), due('def_form_d', 'coinv')].join());
+  const lei = renewed => entryRow(withRecords({ fund_lei_renewed: { ...SAMPLE_INPUTS.recs.fund_lei_renewed, value: renewed } }), 'def_lei', 'fund')?.value?.iso;
+  check('An LEI renewed early runs a year on from the anniversary it renewed, as an LOU extends it: Fund III’s renewed Oct 28, 2026, before Nov 14, to Nov 12, 2027 (Nov 14, a Sunday); Fund III-A’s renewed Sep 24, 2025, to Oct 2, 2026',
+    lei('2026-10-28') === '2027-11-12' && due('def_lei', 'fund3a') === '2026-10-02', `${lei('2026-10-28')} ${due('def_lei', 'fund3a')}`);
+  const { fund3a_lei_renewed, ...unrenewed } = SAMPLE_INPUTS.recs;
+  check('…renewed late, after the anniversary passed, a year on from the renewal: Dec 20, 2026 to Dec 20, 2027; and never renewed, a year on from its registration',
+    lei('2026-12-20') === '2027-12-20' && entryRow(workOut(unrenewed), 'def_lei', 'fund3a')?.value?.iso === '2025-10-02', `${lei('2026-12-20')} ${entryRow(workOut(unrenewed), 'def_lei', 'fund3a')?.value?.iso}`);
   check('Form ADV and Form PF from the fiscal year after the last annual one: March 31 and April 30, 2027', due('def_form_adv', 'mgmt') === '2027-03-31' && due('def_form_pf', 'mgmt') === '2027-04-30');
   check('The feeder’s audited accounts and Fund Annual Return, and its CRS return, due June 30, 2027', due('def_cima_accounts', 'feeder') === '2027-06-30' && due('def_crs', 'feeder') === '2027-06-30');
   const { mgmt_fye, ...noFye } = SAMPLE_INPUTS.recs, R3 = workOut(noFye);
@@ -260,7 +317,14 @@ function theSample() {
 function semantics() {
   const R = workOut();
   const at = text => Formulas.evaluateAt(R, text, 'fund');
-  check('Nothing drops out of a sum: BLANK() + 2 is 2, and 2 - BLANK() is 2', at('= BLANK() + 2') === 2 && at('= 2 - BLANK()') === 2);
+  check('Nothing drops out of a sum of what’s read: BLANK() + COUNT(Owners) is 2, and COUNT(Owners) - BLANK() is 2', at('= BLANK() + COUNT(Owners)') === 2 && at('= COUNT(Owners) - BLANK()') === 2);
+  check('…but a number written only moves what’s read, and nothing moved is nothing: BLANK() + 2, 2 - BLANK(), YEAR(BLANK()) + 1, and a day before nothing',
+    at('= BLANK() + 2') === null && at('= 2 - BLANK()') === null && at('= YEAR(BLANK()) + 1') === null && at('= MAX([Last Renewed], BLANK()) - 1') === null);
+  check('A date of nothing is nothing, whatever is written beside it: no March 1, 1901', at('= DATE(YEAR(BLANK()) + 1, 3, 1)') === null && at('= WORKDAY(DATE(YEAR(BLANK()) + 1, 1, 31) + 1, -1)') === null
+    && at('= EDATE(BLANK(), 12)') === null && at('= EOMONTH(BLANK(), 6) - 1') === null);
+  check('…but a date of something and nothing can’t be made: DATE(YEAR([Formation Date]), MONTH(BLANK()), 1)', at('= DATE(YEAR([Formation Date]), MONTH(BLANK()), 1)')?.code === '#VALUE!');
+  check('Nothing is in no order: 2026 >= BLANK() and BLANK() < 1 are nothing, so ← 2026 >= BLANK() holds nowhere; but it equals what’s empty, 0 and ""',
+    at('= 2026 >= BLANK()') === null && at('= BLANK() < 1') === null && at('← 2026 >= BLANK()') === false && at('= BLANK() = 0') === true && at('= BLANK() = ""') === true && at('= BLANK() <> "x"') === true);
   check('…and wipes out a product: BLANK() * 2 and 2 / BLANK() are nothing', at('= BLANK() * 2') === null && at('= 2 / BLANK()') === null);
   check('SUM, MIN and MAX of nothing are nothing; COUNT is 0', at('= SUM(BLANK())') === null && at('= MIN(BLANK())') === null && at('= MAX({})') === null && at('= COUNT(BLANK())') === 0);
   check('IF with no third argument gives nothing where its condition fails', at('= IF(FALSE, 1)') === null && at('= IF(TRUE, 1)') === 1);

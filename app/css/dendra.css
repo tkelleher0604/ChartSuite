@@ -184,14 +184,21 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .toast { height: 36px; padding: 0 4px 0 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
 .toast > button { height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; }
 .toast > button:hover { background: rgb(255 255 255 / .08); }
+.toast > button.x { display: grid; place-items: center; width: var(--row); padding: 0; color: var(--toast-ink); opacity: .7; }
+.toast > button.x:hover { opacity: 1; }
+.toast > button.x > svg { width: 14px; height: 14px; }
 
 /* ---- A change pending: the bar under the view, what it does, when it holds, Discard and its verb ---- */
 .pendbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--rule-2); background: var(--paper); }
 .pendbar > .what { flex: 1 1 240px; min-width: 0; color: var(--ink-2); }
 .pendbar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
 .pendbar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
-.pendbar .fails, .asking .fails { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; color: var(--no); font-weight: 500; }
+.pendbar .fails, .asking .fails { display: inline-flex; align-items: center; gap: 6px; margin: 0 8px 0 -4px; padding: 2px 4px; border: 0; border-radius: var(--r); background: none; color: var(--no); font: inherit; font-weight: 500; text-align: left; }
+.pendbar .fails:hover, .asking .fails:hover { background: var(--hover); }
 .pendbar .fails svg, .asking .fails svg { width: 16px; height: 16px; flex: none; }
+/* A relation's amount, asked first as it's added (App.Amount): its name, and the figure typed, in the redline's blue. */
+.amt .amount { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); white-space: nowrap; }
+.amt .amount .cell { width: 7ch; min-width: 5ch; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); color: var(--accent-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 /* A toast rises over the bar, so neither hides the other. */
 #app:has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
 #app:has(.view > .scrub):has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }
@@ -218,6 +225,8 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .asking > .ctls { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; }
 .asking > .ctls > .when { margin-right: auto; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
 .asking .btn { height: 26px; padding: 0 10px; }
+/* Discard and its verb, kept together, at the end of the row they're on. */
+:is(.pendbar, .asking > .ctls) > .acts { display: inline-flex; gap: 8px; margin-left: auto; }
 /* A day other than the day shown, said: a link to the chart then. */
 :is(.from, .pendbar > .when) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 :is(.from, .pendbar > .when) > button.lk:hover { text-decoration-color: currentColor; }
