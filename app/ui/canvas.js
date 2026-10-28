@@ -89,6 +89,8 @@ function scopeNow(c = active.peek()) {
   const said = chip.textContent.trim();
   return groupsAt(sc, m).find(g => said.startsWith(`${g.caption} (`)) ?? { own: true };
 }
+// A group, as the scope's chip names it: all of what its Key row calls it, and how many it reaches.
+const named = s => `all ${s.caption}${s.marks ? ` (${s.marks.size})` : s.n ? ` (${s.n})` : ''}`;
 // A field's pattern at a scope's pattern p, in the mark whose record has tree `rec`: the entry's own, each step bare, with
 // that record put as p, where it fits p; or else, the field beside p in the boxes p reaches, p with the field's label as
 // its param. → [pattern, param]
@@ -732,11 +734,21 @@ function mount(el) {
     if (!kind || kind.type === 'object' || (r && r.args)) return;
     const rect = fieldRect(m, it), at = graph.localToGraph(rect.x, rect.y + rect.h), box = root.getBoundingClientRect(), menuAt = { x: box.left + at.x, y: box.top + at.y + 2 };
     // The record, or a blank's: typed over where it's worked out, as the inspector enters one.
-    const put = out => App.change(tx => r && !r.computed ? tx.update(it.id, out) : tx.add('record', { at: r?.at ?? it.blank.at, edge: r?.edge ?? it.blank.edge, ...out }));
+    // A blank of an entry its record's kind hasn't yet gives the kind the entry, as the inspector's Add does.
+    const put = out => App.change(tx => {
+      if (r && !r.computed) return tx.update(it.id, out);
+      const at = r?.at ?? it.blank.at, edge = r?.edge ?? it.blank.edge, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
+      if (it.blank && !App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
+      tx.add('record', { at, edge, ...out });
+    });
+    // An option is picked from its list, which what's typed narrows; one typed that isn't on it is a new option.
     if (kind.type === 'choice') {
       const now = r?.choice, opts = optionsOf(r ? r.at : it.blank.at, r ? r.edge : it.blank.edge);
-      return Shell.menu(menuAt, [...opts.map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => !(now && Tree.same(o, now)) && put({ choice: o }) })), ...(opts.length ? ['-'] : []),
-        { label: 'New option', run: () => openEditor(it, { ...rect, x: m.x, w: m.w }, typed ?? '', text => { const o = Tree.clean(text); if (o) put({ choice: o }); }, { selectAll: true }) }]);
+      const items = q => {
+        const k = Tree.norm(q ?? ''), xs = opts.filter(o => Tree.norm(o).includes(k)).map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => !(now && Tree.same(o, now)) && put({ choice: o }) }));
+        return k && !opts.some(o => Tree.same(o, q)) ? [...xs, ...(xs.length ? ['-'] : []), { label: `New option: ${Tree.clean(q)}`, run: () => put({ choice: Tree.clean(q) }) }] : xs;
+      };
+      return Shell.menu(menuAt, items, { search: true, query: typed ?? '' });
     }
     if (kind.type === 'tag') return Shell.menu(menuAt, [{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
       { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
@@ -923,8 +935,13 @@ function mount(el) {
   // Where a field's row is in the inspector: its record's, or a blank's place there.
   const rowKey = it => !it ? null : it.blank ? `${it.blank.at}|${Tree.norm(it.blank.edge)}` : it.free ? null : it.id;
   const fieldName = it => it.blank ? it.blank.edge : it.free ? 'Text' : st()[it.id]?.edge ?? '';
-  // The field selected, as the scene now draws it; null once it isn't drawn.
-  const fieldNow = () => { const m = field && scene?.byId.get(field.box), it = m?.texts?.find(x => x.id === field.id); return it ? { m, it } : null; };
+  // The field selected, as the scene now draws it; a blank typed into, its record now; null once it isn't drawn.
+  const filled = (m, id) => { const [at, edge] = id.slice(6).split('|'); return m?.texts?.find(x => st()[x.id]?.at === at && Tree.same(st()[x.id].edge, edge)); };
+  const fieldNow = () => {
+    const m = field && scene?.byId.get(field.box), it = m?.texts?.find(x => x.id === field.id) ?? (field?.id.startsWith('blank:') ? filled(m, field.id) : null);
+    if (it && it.id !== field.id) field = { ...field, id: it.id };
+    return it ? { m, it } : null;
+  };
   // A field's outline, drawn over the chart: pointed at, quiet; selected, the accent's; lit from the inspector, its row
   // pointed at; and a box a row is dragged over, as the drop's target.
   function paintFields() {
@@ -939,6 +956,8 @@ function mount(el) {
     if (!f && field) field = null;
     if (f) draw(fieldRect(f.m, f.it), 'on');
     const h = hovered && scene.byId.get(hovered.box)?.texts?.find(x => x.id === hovered.id);
+    // What was pointed at and is drawn no longer (a blank typed into) is pointed at no longer, till the pointer moves.
+    if (hovered && !h) { hovered = null; tipFor(null); root.classList.remove('on-field'); }
     if (h && hovered.id !== field?.id) draw(fieldRect(scene.byId.get(hovered.box), h), 'hover');
     if (litKey) for (const m of scene.marks) for (const it of m.texts ?? []) if (rowKey(it) === litKey && it.lines?.length) draw(fieldRect(m, it), 'lit');
     const d = dropOn && scene.byId.get(dropOn);
@@ -979,17 +998,21 @@ function mount(el) {
   // The entry a mark's record has of a label: at it, or else nearest it.
   function entryIn(at, edge) {
     const s = st(), es = Tree.index(s).entries;
-    for (const todo = [at], i = 0; i < todo.length; i++) for (const e of es.get(todo[i]) ?? []) { if (Tree.same(s[e].edge, edge)) return e; todo.push(e); }
+    for (let todo = [at], i = 0; i < todo.length; i++) for (const e of es.get(todo[i]) ?? []) { if (Tree.same(s[e].edge, edge)) return e; todo.push(e); }
     return null;
   }
-  // What an entry of a label takes at a record, by the schema: { type, datatype? }, or null where it can't be there.
+  // What an entry of a label takes at a record, by the schema: { type, datatype?, fits }, where `fits` says the record's
+  // kind has it; where it hasn't, what the label takes at an object of any kind, which the kind gets as it's typed (as
+  // the inspector's Add gives it), or null where the chart has no such entry.
   function specOfField(at, edge) {
-    const t = treeOf(at), s = t && Object.values(App.schema.peek()).find(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge) && Tree.narrower(t, x.args[0].loc));
-    return !s ? null : 'field' in s.out ? { type: 'field', datatype: s.out.field } : 'choice' in s.out ? { type: 'choice' } : { type: 'tag' };
+    const t = treeOf(at), S = Object.values(App.schema.peek()).filter(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge));
+    const mine = t && S.find(x => Tree.narrower(t, x.args[0].loc)), s = mine ?? (t && !t.args && S.find(x => !x.args[0].loc.args));
+    return !s ? null : { ...('field' in s.out ? { type: 'field', datatype: s.out.field } : 'choice' in s.out ? { type: 'choice' } : { type: 'tag' }), fits: !!mine };
   }
-  // A choice's options at a record, in their list's order.
+  // A choice's options at a record, in their list's order: its kind's, or where it hasn't the entry, every kind's.
   function optionsOf(at, edge) {
-    const t = treeOf(at), N = App.notes.peek(), specs = Object.values(App.schema.peek()).filter(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge) && t && Tree.narrower(t, x.args[0].loc) && 'choice' in x.out);
+    const t = treeOf(at), N = App.notes.peek(), all = Object.values(App.schema.peek()).filter(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge) && 'choice' in x.out);
+    const fit = all.filter(x => t && Tree.narrower(t, x.args[0].loc)), specs = fit.length ? fit : all.filter(x => !x.args[0].loc.args);
     const rank = o => N.optionOrder({ out: { choice: o }, args: Tree.bare(specs[0]).args }) ?? Infinity;
     return [...new Set(specs.map(s => s.out.choice))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   }
@@ -1004,7 +1027,7 @@ function mount(el) {
   // Whether a mark shows an entry of a label at a record (its own, or one in it), as a field or a blank.
   const shows = (m, edge, at = m.record) => (m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
   // Where a scope reaches, said: a mark by its name, several by their count, a group as the Key calls it.
-  const whereSaid = (ms, s) => s.own ? (ms.length === 1 ? called(ms[0]) : counted(ms.map(m => ({ type: m.type, name: called(m) })))) : `all ${s.caption}`;
+  const whereSaid = (ms, s) => s.own ? (ms.length === 1 ? called(ms[0]) : counted(ms.map(m => ({ type: m.type, name: called(m) })))) : named(s);
 
   // Shows or hides an entry, by its label, in marks at a scope: in each, its record's entry of that label, or a blank
   // where it has none; showing one in an entry, the entries it's in too. The scope's own, the marks' records' each.
@@ -1274,7 +1297,7 @@ function mount(el) {
     return [
       { label: f.it.free ? 'Edit text' : 'Edit', keys: 'Enter', disabled: ro, run: () => editField(f.m, f.it) },
       '-', { label: f.m.type === 'line' ? 'Hide from this line' : 'Hide from this box', keys: s.own ? 'Delete' : undefined, disabled: ro, run: () => hideField(f, { own: true }) },
-      ...(all ? [{ label: `Hide from all ${all.caption}`, keys: s.own ? undefined : 'Delete', disabled: ro, run: () => hideField(f, all) }] : []),
+      ...(all ? [{ label: `Hide from ${named(all)}`, keys: s.own ? undefined : 'Delete', disabled: ro, run: () => hideField(f, all) }] : []),
       '-', { label: 'Format', disabled: ro, items: [
         { label: 'Bold', checked: !!t.Bold, run: () => restyle('Bold', !t.Bold) }, { label: 'Italic', checked: !!t.Italic, run: () => restyle('Italic', !t.Italic) },
         { label: 'Underline', checked: !!t.Underline, run: () => restyle('Underline', !t.Underline) }] },
@@ -1786,7 +1809,6 @@ function mount(el) {
     'Tab': () => next(1), 'Shift+Tab': () => next(-1),
     // A field selected is hidden at the scope (see Fields); anything else, hidden in this view.
     'Delete': () => fieldNow() ? hideField() : remove(), 'Backspace': () => fieldNow() ? hideField() : remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
-    '$mod+Shift+Space': () => selectLike(),
     'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
     'Shift+ArrowLeft': () => nudging(-10, 0), 'Shift+ArrowRight': () => nudging(10, 0), 'Shift+ArrowUp': () => nudging(0, -10), 'Shift+ArrowDown': () => nudging(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
@@ -1801,6 +1823,10 @@ function mount(el) {
   };
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
   const unbind = tinykeys.tinykeys(root, wrapped);
+  // Ctrl+Shift+Space, Select all like this, by the space typed, whatever key code it comes with.
+  root.addEventListener('keydown', e => {
+    if ((e.key === ' ' || e.code === 'Space') && (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && selectLike() !== false) { e.preventDefault(); e.stopPropagation(); }
+  });
   // Typing over a selected box or shape starts editing it, with what was typed; the window's own keys (? for
   // the shortcuts, say) come first.
   const typeOver = e => {
@@ -1873,5 +1899,5 @@ const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 
-return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, scope: () => scopeNow(), groupsAt };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, scope: () => scopeNow(), named, groupsAt };
 })();

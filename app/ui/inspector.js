@@ -552,7 +552,7 @@ function OnChart({ it, at }) {
   if (!host || !c || App.readOnly.value || it.error) return null;
   App.scene.value; Shell.selection.value;
   const on = c.fields.shown(host, it.edge, at);
-  const say = () => { const s = Canvas.scope(); return `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : `all ${s.caption}`}`; };
+  const say = () => { const s = Canvas.scope(); return `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`; };
   return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say()}
     onPointerEnter=${e => { e.currentTarget.dataset.tip = say(); }} onClick=${e => { e.stopPropagation(); c.fields.show(host, it.edge, !on, at); }}>${EYE}</button>`;
 }

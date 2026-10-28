@@ -630,13 +630,14 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // that shows it is at a scope, which names a field of the box, not at the entry wherever there is one: at its object,
   // its kind, or beside an output. Its name stands in its place, `blank`, in its order among the box's texts, and in their
   // look; the box keeps its room, which the canvas draws it faint in, to type into, and an export leaves empty. Only an
-  // entry the box's kind has, a value or a choice; a name is never blank.
+  // entry the chart has at an object, a value or a choice, which a kind without it yet takes as it's typed; a name is
+  // never blank.
   const scoped = N.notes('Shown').filter(n => (!n.view || n.view === view) && !n.param && !n.pattern.out && n.pattern.args?.length === 1
     && !n.pattern.args[0].loc.args && (n.pattern.args[0].loc.kind !== undefined || n.pattern.args[0].loc.id !== undefined));
   const scopes = new Set(scoped);
   const S = scoped.length || fieldsOf.size ? wb.schema(chart) : null, specs = new Map();
-  const typed = (kind, edge) => { const k = `${Tree.norm(kind)}|${Tree.norm(edge)}`;
-    if (!specs.has(k)) specs.set(k, Object.values(S).some(s => s.args?.length === 1 && same(s.args[0].edge, edge) && s.args[0].loc.kind !== undefined && same(s.args[0].loc.kind, kind) && ('field' in s.out || 'choice' in s.out)));
+  const typed = edge => { const k = Tree.norm(edge);
+    if (!specs.has(k)) specs.set(k, Object.values(S).some(s => s.args?.length === 1 && same(s.args[0].edge, edge) && !s.args[0].loc.args && ('field' in s.out || 'choice' in s.out)));
     return specs.get(k); };
   function blanksIn(b) {
     const O = b.record, t = tree(O), fs = fieldsOf.get(b.id), want = new Map();
@@ -645,7 +646,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (!want.size) return;
     const have = new Set((Tree.index(state).entries.get(O) ?? []).map(e => Tree.norm(state[e].edge)));
     for (const [k, edge] of want) {
-      if (have.has(k) || k === 'name' || !typed(state[O].kind, edge)) continue;
+      if (have.has(k) || k === 'name' || !typed(edge)) continue;
       const et = { args: [{ edge, loc: t }] }, at = N.resolve('Shown', et, view), mine = at && { ...at, rank: rankOf(at.note, 0) }, beside = fs?.get(k);
       const win = !mine ? beside : !beside || !beats(beside.rank, mine.rank) ? mine : beside;
       if (win?.value !== true || !(win.note.param || scopes.has(win.note))) continue;
@@ -669,7 +670,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   const entryText = (at, label) => {
     const k = Tree.norm(label), entries = Tree.index(state).entries;
-    for (const todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return textOf(state[e], 'value', state[e].edge); todo.push(e); }
+    for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return textOf(state[e], 'value', state[e].edge); todo.push(e); }
     return '';
   };
   function freeText(h) {
