@@ -1033,7 +1033,7 @@ const Table = (() => {
   // of a kind's table) }. A name pointed at a record (`as`) is that record.
   function changeOf(m, { keys, plan }, as = new Map()) {
     const st = App.state.peek(), entered = App.entered.peek(), records = {}, made = new Map(), kids = new Map();
-    const x = { records, values: 0, rows: [], made: [], skipped: 0, cols: new Set() };
+    const x = { records, values: 0, rows: [], made: [], skipped: 0, matched: 0, cols: new Set() };
     const put = (rec, id = Log.newId()) => { records[id] = rec; return id; };
     const make = (name, kind, kinds, row = false) => {
       const o = put({ kind });
@@ -1051,6 +1051,7 @@ const Table = (() => {
     for (const p of plan) {
       let row = p.row ?? (m.isKind && p.key[0] && as.get(loose(p.key[0]))) ?? null;
       const was = !!row;
+      if (was) x.matched++;
       if (!row) {
         if (!p.key.length || p.key.some(k => !k)) { x.skipped += p.cells.filter(([, raw]) => clean(raw)).length; continue; }
         if (m.isKind) {
@@ -1125,7 +1126,9 @@ const Table = (() => {
     const asked = x.made.filter(o => o.near), plain = x.made.filter(o => !o.near && !o.row), listed = [...asked, ...plain.slice(0, Math.max(0, 3 - asked.length))];
     const more = asked.length + plain.length - listed.length;
     const parts = [x.values && ink(count(x.values, 'value')), x.rows.length && ink(`${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`),
-      ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
+      ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`,
+      // An import says how many of its rows are records the chart has already.
+      file && x.matched && `${x.matched} already in the chart`].filter(Boolean);
     const recs = { ...st, ...x.records }, asks = x.rows.some(id => App.asksDay(x.records[id], recs)), entered = App.entered.peek();
     // What it's at: the records it writes over, and those it adds at.
     const needs = [...new Set(Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]))].filter(id => id in entered);

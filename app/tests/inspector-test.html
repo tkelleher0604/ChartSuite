@@ -1096,6 +1096,115 @@ async function run() {
   check('Find finds the same while nothing changes, and a record just added at once', halvardFound.length > 0 && halvardFound.join() === foundAgain.join() && !halvardFound.includes('Halvard Freight Partners')
     && foundAdded.includes('Halvard Freight Partners') && foundAdded.filter(x => !halvardFound.includes(x)).length === 1, `${halvardFound.join(' / ')} → ${foundAdded.join(' / ')}`);
   Shell.parts.value.undo.undo(); await tick(60);
+
+  // ---- A record that starts after the day shown is never lost: it stays selected, drawn faint where it will be (App.later),
+  // its panel saying when, by its start entry's act, with Show the chart then; its toast offers that day and stays ----
+  Shell.select(['northpine']); await tick(60);
+  await type(rowOf('Formation Date').querySelector('input'), 'January 15, 2027'); await tick(80);
+  const laterPanel = $('.insp > .later');
+  check('a record formed after the day shown stays selected, its panel saying Formed Jan 15, 2027, with Show the chart then', !st().northpine && Shell.selection.peek().join() === 'northpine'
+    && spoken(laterPanel?.querySelector('span') ?? document.body) === 'Formed Jan 15, 2027' && laterPanel?.querySelector('.btn')?.textContent === 'Show the chart then'
+    && /Northpine Software/.test($('.ih')?.textContent ?? ''), $('.insp')?.textContent.slice(0, 200));
+  check('… drawn faint where it will be: the canvas draws it from App.later, as of its first day', !!App.later.peek()?.northpine && Object.values(App.later.peek()).some(r => r.args?.some(a => a.at === 'northpine')),
+    Object.keys(App.later.peek() ?? {}).join());
+  await tick(6500);
+  check('… its toast offering Show Jan 15, 2027, staying till taken or dismissed', showThen().join() === 'Show Jan 15, 2027,Undo' && !!document.querySelector('.toast button.x'), document.querySelector('.toast')?.textContent);
+  laterPanel?.querySelector('.btn')?.click(); await tick(80);
+  check('… Show the chart then shows it as of that day, still selected', Shell.time.peek()?.asOf === '2027-01-15' && !!st().northpine && Shell.selection.peek().join() === 'northpine' && !$('.insp > .later'));
+  Shell.at(null); await tick(60);
+  document.querySelector('.toast button.x')?.click(); await tick();
+  check('… and its toast dismissed by its ×', !document.querySelector('.toast'));
+  Shell.parts.value.undo.undo(); await tick(60);
+
+  // ---- What Delete… is called: for what it records ----
+  Shell.select(['northpine']); await tick(60);
+  $('.ih .btn.more').click(); await tick();
+  const npMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  Shell.closeAll(); await tick();
+  const delAct = Shell.parts.peek().action.find(a => a.id === 'record.delete');
+  check('an entity’s Delete… is Dissolve…, by its Dissolution Date, in its ⋯ and in Find, found by Delete, Remove, Dissolve and End', npMenu.includes('Dissolve…') && !npMenu.includes('Delete…')
+    && delAct.name === 'Dissolve…' && ['Delete', 'Remove', 'Dissolve', 'End'].every(w => delAct.names.includes(w)), `${npMenu.join(' | ')} / ${delAct.name}`);
+  delAct.run(); await tick(80);
+  check('… its bar offering that day, the day shown, as Northpine held before, and Dissolve', App.pending.peek()?.day === Log.today() && $$('.asking .btn').map(b => b.textContent).join() === 'Discard,Dissolve'
+    && pb('.btn.primary')?.textContent === 'Dissolve', pb()?.textContent);
+  pb('.from .sel')?.click(); await tick(); await pick('Never held');
+  check('… or Never held, which deletes, so it’s Delete', pb('.btn.primary')?.textContent === 'Delete' && $('.asking .btn.primary')?.textContent === 'Delete', pb()?.textContent);
+  App.discard(); await tick(60);
+  let slip = null;
+  App.change(tx => { slip = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: slip, edge: 'Name', field: 'text', value: 'Slip Holdings' }); }); await tick(60);
+  Shell.select([slip]); await tick(60);
+  App.deleting([slip], 'Slip Holdings'); await tick(60);
+  check('a record made today begins on Never held, as a slip should, and is Delete', App.pending.peek()?.day === null && pb('.from .sel')?.textContent === 'Never held' && pb('.btn.primary')?.textContent === 'Delete', pb()?.textContent);
+  App.discard(); await tick(60);
+  Shell.parts.value.undo.undo(); await tick(60);
+  check('a relation’s, which asks the day it ends, is End', App.deleteVerb(['own_us_fund']) === 'End' && App.deleteVerb(['fund_ein']) === 'Delete' && App.deleteVerb(['northpine']) === 'Dissolve');
+
+  // ---- A list's + makes what isn't there, one way with Add's list: a search of who, and a new one of each kind ----
+  Shell.select(['fund']); await tick(60);
+  $$('.sect .btn.icon').find(b => b.getAttribute('aria-label') === 'Add to Owners')?.click(); await tick();
+  const f0 = document.querySelector('.float .menu-find'); f0.textContent = 'Harbor University Endowment'; f0.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  const offeredNew = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  check('a list’s + offers a new one named as typed, one for each kind its side can be', ['Entity', 'Investor Group', 'Individual'].every(k => offeredNew.includes(`New ${k}: Harbor University Endowment`)), offeredNew.join(' | '));
+  await pick('New Investor Group: Harbor University Endowment'); await tick(80);
+  check('… picked, it’s a change pending, its Percentage asked first in the bar', App.pending.peek()?.verb === 'Add' && document.activeElement === pb('.amount input') && pb('.amount .word')?.textContent === 'Percentage', pb()?.textContent);
+  App.discard(); await tick(60);
+  $('.addrow .add-entry')?.click(); await tick();
+  check('Add’s list has a search field, as every long menu does', !!document.querySelector('.float .menu-find'));
+  Shell.closeAll(); await tick();
+
+  // ---- What settles a deadline is beside it, always, wherever it's found ----
+  Shell.select(['blocker']); await tick(60);
+  const ftd = rowOf('Franchise Tax Due'), paidBtn = ftd?.querySelector('.filed'), dateBox = ftd?.querySelector('.cell');
+  check('a due date’s Paid… is shown beside it, after it, never over it, not only on hover', !!paidBtn && getComputedStyle(paidBtn).opacity === '1' && getComputedStyle(paidBtn).position === 'static'
+    && (paidBtn.getBoundingClientRect().left >= dateBox.getBoundingClientRect().right - 1 || paidBtn.getBoundingClientRect().top >= dateBox.getBoundingClientRect().bottom - 1), paidBtn?.outerHTML);
+  const ftdId = Tree.entryAt(st(), Tree.entryAt(st(), 'blocker', 'Jurisdiction'), 'Franchise Tax Due');
+  check('… the Dates table’s right-click has it, as Inspector.settling gives it', Inspector.settling(ftdId)?.label === 'Paid…' && Inspector.settling('fund_ein') === null);
+  const settles = await finds('mark paid');
+  check('… and Find, for the record selected', settles.some(x => /^Paid… Franchise Tax Due, Mar 1, 2027$/.test(x)), settles.join(' | '));
+  Shell.select([ftdId]); await tick(60);
+  check('… and its own panel, as the Dates table selects it', !!$(`[data-key="${ftdId}"] .filed`));
+
+  // ---- A view says what it leaves out of a box it draws, by list, with Show; it never changes itself ----
+  const mainV = Shell.view.peek();
+  App.change(tx => tx.note('Shown', { kind: 'Investor Group' }, false, { view: mainV }), { dated: false }); await tick(80);
+  Shell.select(['fund']); await tick(60);
+  const usRow = $$('.row.rel').find(r => r.querySelector('.k')?.textContent.startsWith('U.S. Investors'));
+  check('a box’s list marks a relative the view leaves out, though it draws others of it, Not shown here, with Show', usRow?.querySelector('.facts.here')?.textContent.startsWith('Not shown here')
+    && !$$('.row.rel').find(r => r.querySelector('.k')?.textContent.startsWith('Offshore Feeder'))?.querySelector('.facts.here'), usRow?.textContent);
+  Shell.select([]); await tick(60);
+  const leftRow = $$('section .rr').find(r => /^Not shown here: /.test(spoken(r.querySelector('.nm') ?? r)));
+  check('… and the view’s Hidden list names them: Not shown here: 1 owner of Fund III', !!leftRow && spoken(leftRow.querySelector('.nm')).includes('Not shown here: 1 owner of Fund III'), $$('section .rr').map(r => r.textContent).join(' | '));
+  leftRow?.querySelector('.btn')?.click(); await tick(80);
+  check('… whose Show shows them there, at their own trees', App.scene.peek().byId.has('inv_us') && App.scene.peek().byId.has('own_us_fund'));
+  Shell.parts.value.undo.undo(); await tick(60);
+  Shell.parts.value.undo.undo(); await tick(60);
+
+  // ---- The panel's way of working ----
+  Shell.select(['fund']); await tick(60);
+  const scroller = document.querySelector('.inspector'); scroller.scrollTop = 400; await tick();
+  Shell.select(['blocker']); await tick(60);
+  check('each new record’s panel starts at its top', scroller.scrollTop === 0, scroller.scrollTop);
+  const overdue = Shell.parts.peek().attention.flatMap(p => p.items()).find(a => a.kind === 'overdue'), askedWhy = [];
+  const offWhy2 = Shell.on('why-open', id => askedWhy.push(id));
+  overdue?.go(); await tick(80); offWhy2?.();
+  check('going to an overdue item asks the formula bar about it, as an error’s does', askedWhy.length === 1 && !!st()[askedWhy[0]] && st()[askedWhy[0]].field === 'date', askedWhy.join());
+  // A choice that brings rows under it keeps the rows after it where they are on screen
+  let fresh2 = null;
+  App.change(tx => { fresh2 = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: fresh2, edge: 'Name', field: 'text', value: 'Steady Partners' }); }); await tick(60);
+  Shell.select([fresh2]); await tick(80);
+  const jurTop = () => rowOf('Jurisdiction')?.getBoundingClientRect().top, y0 = jurTop();
+  rowOf('Entity Type').querySelector('.sel').click(); await tick(); await pick('Limited Partnership'); await tick(120);
+  check('a choice that brings rows under it keeps the rows after it where they are on screen', !!rowOf('Tax Classification') && Math.abs(jurTop() - y0) < 2, `${y0} → ${jurTop()}`);
+  Shell.parts.value.undo.undo(); await tick(60); Shell.parts.value.undo.undo(); await tick(60);
+  // A style row clicked lights what it reaches; double-clicked, it's typed over
+  Shell.select([]); await tick(60);
+  const capBtn = $$('.row.out .cap').find(b => b.textContent === 'Funds');
+  capBtn?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(60);
+  const capIn = $$('.row.out .cell').find(c => c.value === 'Funds');
+  check('a style row double-clicked is typed over, its caption selected', !!capIn && document.activeElement === capIn, document.activeElement?.outerHTML.slice(0, 100));
+  if (capIn) await type(capIn, 'Fund vehicles');
+  check('… and kept as its caption', $$('.row.out .cap').some(b => b.textContent === 'Fund vehicles'), $$('.row.out .cap').map(b => b.textContent).join(' | '));
+  Shell.parts.value.undo.undo(); await tick(60);
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {

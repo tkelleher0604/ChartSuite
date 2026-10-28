@@ -389,18 +389,22 @@ function Choice({ r, options, put, fx, over, id, fixed, label, ph, hint, childre
 // and documents) keeps the rows after it where they were on screen, the panel scrolled by what came or went above them,
 // so a click meant for the next row (Jurisdiction) lands on it. Where the panel has no room to scroll, it's given some
 // at its foot, till another record is shown.
+// The row held is set back where it was as the record's panel is next drawn, before it's painted (RecordView), or let go.
+let steadying = null;
 function steady(el, run) {
   const s = host?.closest('.inspector'), mine = el?.closest('.ent') ?? el?.closest('.row');
   const next = s && mine && [...s.querySelectorAll('.insp .row[data-key]')].find(x => !mine.contains(x) && (mine.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING));
-  const key = next?.dataset.key, top = next?.getBoundingClientRect().top;
+  const held = steadying = next ? { s, key: next.dataset.key, top: next.getBoundingClientRect().top } : null;
   run();
-  if (key) requestAnimationFrame(() => {
-    const now = s.querySelector(`.insp .row[data-key="${CSS.escape(key)}"]`), by = now ? now.getBoundingClientRect().top - top : 0;
-    if (!by) return;
-    const room = s.scrollHeight - s.clientHeight - s.scrollTop;
-    if (by > room) host.style.paddingBottom = `${(parseFloat(host.style.paddingBottom) || 0) + by - room}px`;
-    s.scrollTop += by;
-  });
+  setTimeout(() => { if (steadying === held) steadying = null; }, 400);
+}
+function steadied() {
+  const h = steadying, now = h && h.s.querySelector(`.insp .row[data-key="${CSS.escape(h.key)}"]`), by = now ? now.getBoundingClientRect().top - h.top : 0;
+  if (!by) return;
+  steadying = null;
+  const need = h.s.scrollTop + by - (h.s.scrollHeight - h.s.clientHeight);
+  if (need > 0) host.style.minHeight = `${h.s.scrollHeight + need}px`;
+  h.s.scrollTop += by;
 }
 
 // A tag's checkbox: green attested, red ruled out, outlined when computed. Pointed at, or reached by the keys,
@@ -946,6 +950,7 @@ const AddRow = ({ at, items = anchor => addItems(at, anchor), also = null }) => 
 
 function RecordView({ id }) {
   const r = recs()[id];
+  useLayoutEffect(steadied);
   useLayoutEffect(() => {
     const a = aim.peek();
     if (!a) return;
@@ -1017,10 +1022,11 @@ const showHere = (ids, v) => App.change(tx => ids.forEach(x => tx.note('Shown', 
 // it isn't drawn, the relative's box. It's said, never changed by itself. → Map(box → [{ list, items: [{ rid, obj, show }] }])
 const relOne = w => w.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
 function leftOut(sc, ids) {
-  const out = new Map();
+  const out = new Map(), own = x => !!hiddenNote(x, sc.view);
   for (const id of ids) {
     if (!recs()[id]?.kind || !sc.byId.has(id)) continue;
-    const parts = relatives(id).lists.map(([list, items]) => ({ list, items: items.filter(it => !fx(it.rid) && !sc.byId.has(it.rid)), drawn: items.some(it => sc.byId.has(it.rid)) }))
+    // (One hidden by its own note, or its relative's, the Hidden list has already.)
+    const parts = relatives(id).lists.map(([list, items]) => ({ list, items: items.filter(it => !fx(it.rid) && !sc.byId.has(it.rid) && !own(it.rid) && !own(it.obj)), drawn: items.some(it => sc.byId.has(it.rid)) }))
       .filter(x => x.drawn && x.items.length).map(({ list, items }) => ({ list, items: items.map(it => ({ ...it, show: [it.rid, ...(sc.byId.has(it.obj) ? [] : [it.obj])] })) }));
     if (parts.length) out.set(id, parts);
   }
@@ -1035,7 +1041,7 @@ function HiddenList({ v }) {
   if (!hid.length && !left.length) return null;
   const said = x => recs()[x].args ? `${nameOf(x)} · ${segment(x)}` : nameOf(x), still = App.readOnly.value;
   const all = [...hid, ...left.flatMap(g => g.items.flatMap(it => it.show))];
-  return html`<${Section} title="Hidden" n=${hid.length + left.reduce((n, g) => n + g.items.length, 0)} act=${still || all.length < 2 ? null : html`<button class="btn" onClick=${() => showHere(all, v)}>Show all</button>`}>
+  return html`<${Section} title="Hidden" n=${hid.length + left.reduce((n, g) => n + g.items.length, 0)} act=${still || hid.length + left.length < 2 ? null : html`<button class="btn" onClick=${() => showHere(all, v)}>Show all</button>`}>
     ${hid.map(x => html`<div class="rr" key=${x}><span /><span class="nm"><${Go} to=${x}>${said(x)}</${Go}></span>
       <span class="val">${still ? null : html`<button class="btn" onClick=${() => showHere([x], v)}>Show</button>`}</span></div>`)}
     ${left.map(g => html`<div class="rr" key=${g.id + g.list}><span /><span class="nm">Not shown here: <${Go} to=${g.id} title=${g.items.map(it => nameOf(it.obj)).join('\n')}>${g.items.length} ${lower(g.items.length === 1 ? relOne(g.list) : g.list)} of ${bound(shortOf(g.id))}</${Go}></span>
@@ -1459,7 +1465,7 @@ function Many({ ids }) {
 let host = null, aimed = null;
 function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
-  useLayoutEffect(() => { const s = host?.closest('.inspector'); if (host) host.style.paddingBottom = ''; if (s && aimed !== key) s.scrollTop = 0; aimed = null; }, [key]);
+  useLayoutEffect(() => { const s = host?.closest('.inspector'); if (host) host.style.minHeight = ''; if (s && aimed !== key) s.scrollTop = 0; aimed = null; }, [key]);
   return chosen(sel);
 }
 // What a selection key names: a free shape (or a row of a Key) has its own panel; a relation's text in one box
