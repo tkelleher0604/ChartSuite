@@ -327,7 +327,8 @@ function open(data) {
           else if ('spec' in r) { const tree = Tree.rename(r.tree, p, from, to); swap(r, tree === r.tree ? r : { ...r, tree }); }
           else if ('note' in r) {
             const u = { ...r, pattern: Tree.rename(r.pattern, p, from, to) };
-            if (r.param && Tree.same(r.param, from) && Tree.narrower(r.pattern, p)) u.param = to;
+            // A field shown beside an output names its entry by its label (dendra.md, Fields): renamed with it.
+            if (r.param && Tree.same(r.param, from) && (Tree.narrower(r.pattern, p) || (r.label === 'Shown' && p.args?.length === 1 && Tree.same(p.args[0].edge, from)))) u.param = to;
             if (r.label === 'Layout' && typeof r.value?.rows === 'object') u.value = { ...r.value, rows: Tree.rename(r.value.rows, p, from, to) };
             swap(r, JSON.stringify(u) === JSON.stringify(r) ? r : u);
           }

@@ -882,6 +882,9 @@ function run() {
     again(tx => tx.note('Text', own('fund'), { text: 'Formed {Formation Date}\n{No Such Entry}EIN {EIN}', Italic: true }, view));
     check('… a box’s own takes its group’s place: an entry it hasn’t reads as nothing, a line break is kept, its look is its own',
       free('fund')?.text === 'Formed February 14, 2023\nEIN 92-4810337' && free('fund').look.Italic === true && free('fund').settings.Italic.note?.label === 'Text', JSON.stringify(free('fund')?.text));
+    again(tx => tx.rename({ args: [{ edge: 'EIN', loc: {} }] }, 'EIN', 'Tax ID'));
+    check('an entry renamed, the field shown beside an output is still shown, by its new name', texts('feeder').includes('98-1702264')
+      && wb.notes(C).notes('Shown').some(n => n.param === 'Tax ID') && !wb.notes(C).notes('Shown').some(n => n.param === 'EIN'), texts('feeder'));
   }
 }
 
