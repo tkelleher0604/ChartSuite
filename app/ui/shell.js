@@ -56,7 +56,8 @@
 // "Never held"); App.pending, the one change pending, begun by App.stage(…) or App.deleting(ids, what), made by
 // App.commit() and dropped by App.discard(), and App.Pending, its bar, the window's one, which the shell shows under
 // whichever view is shown; App.workOn(day), another day's working-out,
-// as showing it would work it out; App.addView; App.who(); App.blank().
+// as showing it would work it out; App.addView; App.who(); App.blank(); App.showMade(tx, ids, view), boxes a change makes
+// on a chart shown there by it, where the view would hide them.
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)

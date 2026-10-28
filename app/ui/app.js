@@ -381,7 +381,8 @@ const App = (() => {
       // Nor the day it keeps.
       const field = r => !!r.param || (r.pattern.args?.length === 1 && !(r.pattern.out && ('choice' in r.pattern.out || 'tag' in r.pattern.out)));
       const offPage = r => r.value === false && !!r.pattern.kind && !r.pattern.args && r.pattern.id === undefined;
-      const looks = r => !(r.pattern.args?.length === 2 && worked.has(sides(r.pattern)))
+      const given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
+      const looks = r => !given(r.pattern)
         && (r.label === 'Shown' ? field(r) || offPage(r) : ['Text', 'Order'].includes(r.label) || (Notes.FORMATS.has(r.label) && r.label !== 'Position'));
       const house = new Set(src.rows(from).filter(r => 'note' in r && r.view === like && looks(r))), styled = new Set([...house].map(r => Tree.key(r.pattern)));
       const keeps = r => r.view !== like ? !(r.label === 'As Of' && r.pattern.id === like) : house.has(r) || (r.label === 'Caption' && styled.has(Tree.key(r.pattern)));
