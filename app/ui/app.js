@@ -402,6 +402,43 @@ const App = (() => {
     open(c.chart);
     Shell.nameChart();
   }
+  // A copy of the chart shown, as one change: every row it has, each item under a new id and what refers to it
+  // following (a record's place and sides, a note's pattern and view, a shape's view, ends and members), so the copy
+  // is the chart as it stands, its records' days included, with its own History from here on. Named as it begins.
+  function duplicateChart() {
+    const wb = book.peek(), from = chart.peek(), was = wb.charts().find(x => x.chart === from)?.name ?? 'Untitled';
+    const names = new Set(wb.charts().map(x => Tree.norm(x.name)));
+    let name = `${was} copy`, i = 2;
+    while (names.has(Tree.norm(name))) name = `${was} copy ${i++}`;
+    const rows = wb.rows(from).filter(r => Log.typeOf(r) !== 'chart'), fresh = new Map();
+    for (const r of rows) { const k = r[Log.typeOf(r)]; if (!fresh.has(k)) fresh.set(k, Log.newId()); }
+    const to = x => fresh.get(x) ?? x;
+    const loc = p => !p || typeof p !== 'object' ? p : { ...p, ...(p.id !== undefined && { id: to(p.id) }), ...(p.args && { args: p.args.map(a => ({ ...a, ...(a.at !== undefined && { at: to(a.at) }), ...(a.loc && { loc: loc(a.loc) }) })) }) };
+    const c = Log.newId(), tx = wb.edit({ chart: c, who: who() });
+    tx.add('chart', { name }, c);
+    for (const r of rows) {
+      const type = Log.typeOf(r), { id: _, [type]: item, ...x } = r;
+      if (type === 'record') { if (x.at !== undefined) x.at = to(x.at); if (x.args) x.args = loc(x).args; }
+      if (type === 'note') { x.pattern = loc(x.pattern); if (x.view) x.view = to(x.view); }
+      if (type === 'shape') { if (x.view) x.view = to(x.view); if (x.ends) x.ends = x.ends.map(to); if (x.members) x.members = x.members.map(to); }
+      tx.add(type, x, fresh.get(item));
+    }
+    const made = tx.commit();
+    if (typeof made === 'string') return Shell.toast(made);
+    open(c);
+    Shell.nameChart();
+  }
+  // The chart shown taken out of the workbook, as one change, which its toast can take back; another chart is shown.
+  function deleteChart() {
+    const wb = book.peek(), id = chart.peek(), next = wb.charts().find(x => x.chart !== id);
+    if (!next) return;
+    const tx = wb.edit({ chart: id, who: who() });
+    tx.remove(id);
+    const c = tx.commit();
+    if (typeof c === 'string') return Shell.toast(c);
+    open(next.chart);
+    Shell.toast(Time.describe(c), { undo: () => { reverse(c.id); open(id); } });
+  }
   const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) Shell.nameChart(); }); };
   // Renaming the chart, as one change: its name, and each page's title that says its name still (one changed by
   // hand keeps what it says), so its exports are named as it is.
@@ -418,7 +455,8 @@ const App = (() => {
     current: () => chart.value,
     open,
     rename,
-    menu: () => [{ label: 'New chart', run: newChart }, { label: 'Workbooks', items: [
+    menu: () => [{ label: 'New chart', run: newChart }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
+      { label: 'Delete chart', danger: true, disabled: readOnly.value || book.value.charts().length < 2, run: deleteChart }, { label: 'Workbooks', items: [
       ...books.value.map(b => ({ label: b.name, checked: b.id === Store.where()?.id, run: () => b.id !== Store.where()?.id && opened(Store.open({ id: b.id })) })),
       ...(books.value.length ? ['-'] : []), { label: 'New workbook', run: blank }] }],
   });

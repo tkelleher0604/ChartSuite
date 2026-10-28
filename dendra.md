@@ -128,7 +128,7 @@ The window has three coordinates, and every screen is a setting of them:
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The title bar** holds the chart's name, renamed in place as a sheet is, and the chart menu (the workbook's charts and a new one, the workbooks this browser keeps, files, History, Settings, light and dark, the tour), Find, the date, Undo and Redo, and Export.
+**The title bar** holds the chart's name, renamed in place as a sheet is, and the chart menu (the workbook's charts; a new one, a copy of the one shown, its items under new ids and what refers to them following, and deleting it, which its toast takes back; the workbooks this browser keeps, files, History, Settings, light and dark, the tour), Find, the date, the inspector's button, Undo and Redo, and Export; Ctrl+P is Export as PDF.
 
 **The format bar** shows on a chart. A change applies to the selection, as in PowerPoint; a scope chip says so ("This box", "These 3 boxes"), and its menu offers each Styles row that reaches the selection, named as Styles and the Key name it, with its reach ("Funds (6)"); a Key row or a frame selected is formatted as the whole Styles row it's drawn from. A choice pointed at is previewed on the chart.
 

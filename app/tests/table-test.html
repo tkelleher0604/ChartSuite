@@ -1166,6 +1166,23 @@ async function run() {
   check('Opening another chart is a step: Back comes back to the chart it was on, at its view', C() === C1 && Shell.view.peek() === onC1 && among(views()), `${C() === C1} ${Shell.view.peek()}`);
   location.hash = `#v=${encodeURIComponent(atC0)}`; await until(() => Shell.view.peek() === atC0); await tick(100);
   check('A link to a view of another chart opens that chart at it', C() === C0 && Shell.view.peek() === atC0 && among(views()), `${C() === C0} ${Shell.view.peek()}`);
+  // Duplicate chart: the chart as it stands, every record, view and look, under new ids, named as it begins.
+  const name0 = App.wb.charts().find(c => c.chart === C0).name, objects = c => Object.values(App.wb.asOf(c, App.day.peek())).filter(r => r.kind && r.kind !== 'View').length;
+  const viewNames = () => views().map(v => v.name).join();
+  const views0 = viewNames(), charts1 = App.wb.charts().length;
+  $('.titlebar .chartmenu').click(); await tick(60);
+  item('Duplicate chart').click(); await tick(300);
+  const C2 = C();
+  check('Duplicate chart makes a copy of the chart shown, named "… copy" as it begins, with every record and view', C2 !== C0 && App.wb.charts().length === charts1 + 1
+    && naming()?.value === `${name0} copy` && objects(C2) === objects(C0) && viewNames() === views0 && Time.describe(last()) === `Began the chart ${name0} copy`,
+    `${naming()?.value} ${objects(C2)}/${objects(C0)} ${viewNames()} ${Time.describe(last())}`);
+  press('Escape', naming()); await tick(60);
+  check('… its records its own: what it shares with the first is none of its ids', !App.wb.rows(C2).some(r => r.record && App.wb.item(C0, r.record).length));
+  $('.titlebar .chartmenu').click(); await tick(60);
+  item('Delete chart').click(); await tick(200);
+  check('Delete chart takes it out, says so, and shows another', !App.wb.charts().some(c => c.chart === C2) && C() !== C2 && $('.toast span')?.textContent === `Deleted the chart ${name0} copy`, $('.toast span')?.textContent);
+  $('.toast button').click(); await tick(300);
+  check('… and its Undo brings it back, shown', App.wb.charts().some(c => c.chart === C2) && C() === C2 && objects(C2) === objects(C0));
   check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
 }
 

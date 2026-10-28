@@ -251,6 +251,10 @@ const Time = (() => {
       const against = all.filter((_, k) => d[k] && Math.sign(d[k]) !== Math.sign(d.reduce((s, x) => s + Math.sign(x), 0)));
       if (against.length === 1) return `Moved ${title(against[0])} in ${view}`;
     }
+    // A chart begun (new, or a copy) is said by its beginning, what it's begun with being its making; one deleted or
+    // brought back, by its name.
+    const whole = all.find(i => i.type === 'chart' && !(i.was.length && i.now.length));
+    if (whole) return !whole.now.length ?`Deleted the chart ${whole.was[0].name}` : back ? `Restored the chart ${whole.now[0].name}` : `Began the chart ${whole.now[0].name}`;
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
     const moved = new Set([...made, ...gone].map(i => i.id));
