@@ -844,12 +844,12 @@ function mount(el) {
       if (m.geometry === 'text' && !raw?.trim()) escaped = () => App.change(gone);
     }
     if (!it) return;
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped });
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape' });
   }
-  // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't (but does
-  // what `escaped` says), and leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`:
-  // a new box of a kind.
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null } = {}) {
+  // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't, as a cell's in
+  // Excel (but does what `escaped` says), unless it's `kept`, as a shape's text in PowerPoint; and leaving keeps it.
+  // `grow`: it widens as it's typed, a text box nobody has sized; `box`: a new box of a kind.
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false } = {}) {
     over.querySelector('.dc-edit')?.remove();
     tipFor(null);
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
@@ -875,7 +875,7 @@ function mount(el) {
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (list?.key(e)) return;
-      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(kept); }
       else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
       else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
@@ -1129,7 +1129,7 @@ function mount(el) {
       if (!Tree.clean(text)) return it && unText(m);
       App.change(tx => { for (const p of s.own ? [rec] : s.outputs) tx.note('Text', p, { ...(at(p)?.value ?? {}), text: text.trim() }, { view }); },
         { dated: false, say: it ? null : `Added text to ${whereSaid([m], s)}` });
-    }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null });
+    }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null, kept: true });
   }
   // A free text taken away at the scope: the scope's own note goes; and where the mark's own is taken away but a group's
   // would still give it text, it keeps an empty one, the narrowest, which gives none.
@@ -1653,7 +1653,7 @@ function mount(el) {
     const add = it => { let id = null; if (!App.change(tx => { id = tx.add('shape', it); })) return null; Shell.select([id]); return id; };
     if (!typing) return add(row);
     Shell.select([]);
-    openEditor({ look: typing.look }, at, '', text => { if (text.trim()) add({ ...row, text }); }, { multiline: true, grow: !!typing.auto });
+    openEditor({ look: typing.look }, at, '', text => { if (text.trim()) add({ ...row, text }); }, { multiline: true, grow: !!typing.auto, kept: true });
     return null;
   }
   // Delete hides what's selected in this view and deletes a free shape; with `records`, Shift+Delete, it

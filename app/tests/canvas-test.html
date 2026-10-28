@@ -688,6 +688,13 @@ async function run() {
   const typedIn = App.shown.peek().item(App.chart.peek(), Shell.selection.peek()[0] ?? '')[0];
   check('… and one typed in is made, with its text, and selected', App.wb.changes().length === before + 1 && typedIn?.geometry === 'text' && typedIn.text === 'Draft for discussion' && textBoxes() === boxes0 + 1,
     JSON.stringify(typedIn));
+  // Esc keeps what's typed in a shape, as PowerPoint's does, where a value typed over in a box is put back, as Excel's is.
+  cv().insert('text'); await tick(60);
+  { const ed = $('.dc-edit'); if (ed) { ed.textContent = 'Subject to change'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); } }
+  await tick(120);
+  const escaped = App.shown.peek().item(App.chart.peek(), Shell.selection.peek()[0] ?? '')[0];
+  check('… Esc keeping what was typed in it, as PowerPoint does', escaped?.geometry === 'text' && escaped.text === 'Subject to change' && textBoxes() === boxes0 + 2, JSON.stringify(escaped));
+  Shell.parts.peek().undo.undo(); await tick(120);
   let blank = null;
   App.change(tx => { blank = tx.add('shape', { view: sc().view, geometry: 'text', text: '', x: 40, y: 40 }); }); await tick(120);
   cv().edit(blank); await tick(60);
