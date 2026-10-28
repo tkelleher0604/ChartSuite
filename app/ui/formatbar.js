@@ -9,6 +9,11 @@
 // of the selection's own becomes a Styles row and a row of the Key. A free shape keeps its formats in its row.
 // Selecting a legend row engages its group, so the legend is the other way to restyle. A choice pointed at,
 // Tidy's too, is drawn on the chart as it would be, PowerPoint's live preview, until the pointer leaves it.
+// The rest is PowerPoint's Home tab: the font, found as its name is typed, each in its own face; the size, typed or
+// picked, Grow and Shrink; bold, italic, underline, strikethrough, color; the paragraph's alignment, position and
+// spacing; the shape, its rounding and shadow; fill and transparency; outline, its weight, dashes, arrows and route;
+// each palette's eyedropper; arrange; the format painter; and Clear formatting. Its commands are the window's
+// actions, so Find reaches each and ? lists its keys.
 const FormatBar = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
@@ -702,7 +707,9 @@ function Bar() {
   // else the narrowest, which its ▾ chooses among the rest. A Key row or a frame is its group alone.
   liked.value; chosen.value;
   const like = likeOf(s), ownPart = s.scopes.find(x => x.own), armed = painter.value;
-  const font = any ? value('Font') : 'Arial', size = any ? shown(value('Size')) : 10, align = (any && value('Align')) || 'center';
+  // A font or size the selected marks' names don't share is shown blank, as PowerPoint shows one its selection mixes.
+  const several = l => new Set(s.marks.map(m => (m.texts?.[0] ?? m.caption)?.look?.[l]).filter(v => v !== undefined)).size > 1;
+  const font = !any ? 'Arial' : several('Font') ? '' : value('Font'), size = !any ? 10 : several('Size') ? '' : shown(value('Size')), align = (any && value('Align')) || 'center';
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
     <span class="sep" />
@@ -757,19 +764,22 @@ function mount(el) {
   render(html`<${Bar} />`, el);
   document.addEventListener('pointerover', pointed);
   document.addEventListener('pointerdown', painting, true);
-  const keys = Shell.keys({
-    '$mod+KeyB': () => inCanvas() ? apply('Bold', !value('Bold')) : false,
-    '$mod+KeyI': () => inCanvas() ? apply('Italic', !value('Italic')) : false,
-    '$mod+KeyU': () => inCanvas() ? apply('Underline', !value('Underline')) : false,
-    '$mod+Shift+KeyX': () => inCanvas() ? apply('Strike', !value('Strike')) : false,
-    '$mod+Shift+Period': () => inCanvas() ? resize(grown) : false,
-    '$mod+Shift+Comma': () => inCanvas() ? resize(shrunk) : false,
-    '$mod+Shift+KeyC': () => inCanvas() && !App.readOnly.peek() ? (copyLook() ? Shell.toast(`Copied the look of ${copied.from ?? 'the shape'}`) : false) : false,
-    '$mod+Shift+KeyV': () => inCanvas() && copied ? pasteLook() : false,
-    '$mod+Space': () => inCanvas() ? clearLook() : false,
-    '$mod+Shift+KeyA': () => typing() ? false : toggle(),
-  });
-  return () => { stopSel(); stopCue(); stopBrush(); keys(); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true);
+  // Each a window's action, so Find reaches it by its name and ? lists its key: each for what's selected on the chart
+  // shown (its keys, as every action's, not taken while text is being typed).
+  const onScreen = () => (Canvas.active.peek()?.root.clientWidth ?? 0) > 0 && !!Canvas.active.peek().scene();
+  const can = () => onScreen() && !!current?.marks.length, edit = () => can() && !App.readOnly.peek();
+  const flip = label => () => apply(label, !value(label));
+  const actions = [
+    ['format.bold', 'Bold', '$mod+KeyB', flip('Bold')], ['format.italic', 'Italic', '$mod+KeyI', flip('Italic')], ['format.underline', 'Underline', '$mod+KeyU', flip('Underline')],
+    ['format.strike', 'Strikethrough', '$mod+Shift+KeyX', flip('Strike')],
+    ['format.grow', 'Increase font size', '$mod+Shift+Period', () => resize(grown)], ['format.shrink', 'Decrease font size', '$mod+Shift+Comma', () => resize(shrunk)],
+    ['format.copy', 'Copy formatting', '$mod+Shift+KeyC', () => copyLook() && Shell.toast(`Copied the look of ${copied.from ?? 'the shape'}`), can],
+    ['format.paste', 'Paste formatting', '$mod+Shift+KeyV', () => pasteLook(), () => edit() && !!copied],
+    ['format.clear', 'Clear formatting', '$mod+Space', clearLook],
+    ['format.painter', 'Format painter', null, () => arm(true)],
+    ['format.scope', 'This box or all like it', '$mod+Shift+KeyA', toggle, can],
+  ].map(([id, name, keys, run, enabled = edit]) => Shell.register('action', { id, name, ...(keys && { keys }), run, enabled }));
+  return () => { stopSel(); stopCue(); stopBrush(); actions.forEach(off => off()); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true);
     preview(); Canvas.active.peek()?.cue(null); render(null, el); };
 }
 // What the pointer shows while the painter or the eyedropper is armed: Lucide's brush or pipette, ink on a white edge,
@@ -783,7 +793,6 @@ function pointer(name, x, y) {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, copy`;
 }
 const typing = () => !!document.activeElement?.closest?.('input, textarea, [contenteditable], .CodeMirror, .dc-edit');
-const inCanvas = () => !!Canvas.active.peek()?.root.contains(document.activeElement) && !document.activeElement.closest('.dc-edit') && current?.marks.length;
 
 // ---- For the other parts ----
 // FormatBar.scope() → what a look change goes to now, as the bar shows it, or null with nothing to format:
