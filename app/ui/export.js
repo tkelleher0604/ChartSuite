@@ -31,10 +31,10 @@
 // Export.write('pptx' | 'pdf', scenes, name, { author, R, N }?) → a Blob, also saved, R being
 // Formulas.computeState's and N the chart's Notes reader, by which a deck says its lines' relations;
 // Export.svg(scene, { pdf, frame }) → SVG markup; in the window, where Time is, Export.calendar(R, N, chart,
-// name, from?) → the .ics Blob of what falls due, overdue before `from` (today), also saved. Export.onFile, if set, takes
-// each finished file (blob, name) instead of the browser downloading it. In the window, Export.open(format?)
-// opens the dialog: 'pptx', 'pdf' or 'ics', or what the view shown offers (Shell's 'export' parts: a table's
-// CSV), and → the file once it's written.
+// name, from?) → the .ics Blob of what falls due, overdue before `from` (today), also saved. Export.onFile, if
+// set, takes each finished file (blob, name) instead of the browser downloading it. In the window,
+// Export.open(format?) opens the dialog: 'pptx', 'pdf' or 'ics', or what the view shown offers (Shell's 'export'
+// parts: a table's CSV), and → the file once it's written.
 const Export = (() => {
 const PT = Scene.PT;                                    // pixels a point
 const n = v => +v.toFixed(2);
