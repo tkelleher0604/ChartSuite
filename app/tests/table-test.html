@@ -159,7 +159,7 @@ async function run() {
   };
   const vt = await filterOf('Vehicle Type');
   check('… in their order, as the inspector lists them, then by name; and so in its heading’s filter, Blank last', offered('Vehicle Type').slice(0, 3).join() === 'Main Fund,Parallel Fund,Feeder Fund' && offered('Entity Type')[0] === 'Limited Partnership'
-    && vt.values.filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => vt.values.includes(o)).join() && vt.values.at(-1) === 'Blank', `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${vt.values.join()}`);
+    && vt.values.filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => vt.values.includes(o)).join() && vt.values.at(-1) === (vt.values.includes('Blank') ? 'Blank' : 'Third Party'), `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${vt.values.join()}`);
   check('A heading’s filter is Excel’s: Find, Select all and a checkbox for each value; no field in the heading', vt.find && vt.all && !$$('.grid .tabulator-header-filter').length);
 
   // Show/Hide on a column writes a Shown note in the view.

@@ -22,7 +22,7 @@ Every legal entity is an **Entity**. People are **Individuals**. A body of inves
 | Certificate of Incorporation | the same, for a corporation (often a blocker), and authorized shares | Entity Type Corporation, with Authorized Shares at it |
 | Cayman certificate of registration (ELP) | name, registration date, number, registered office | Jurisdiction Cayman Islands with Registration Number and Registered Office; Entity Type Exempted Limited Partnership |
 | Cayman certificate of incorporation (exempted company) | the same | Entity Type Exempted Company |
-| LPA, LLC agreement, offering memorandum | the vehicle's role, fiscal year, target size | Vehicle Type (Main Fund, Feeder Fund, Parallel Fund, AIV, Co-Investment Vehicle, Blocker, General Partner, Management Company, Holding Company, Portfolio Company); Fiscal Year End; Target Commitments; Investment Company Status (3(c)(1) or 3(c)(7) Fund) |
+| LPA, LLC agreement, offering memorandum | the vehicle's role, fiscal year, target size | Vehicle Type (Main Fund, Feeder Fund, Parallel Fund, AIV, Co-Investment Vehicle, Blocker, General Partner, Management Company, Holding Company, Portfolio Company, or Third Party for an investor or buyer that isn't the sponsor's, whose filings aren't tracked); Fiscal Year End; Target Commitments; Investment Company Status (3(c)(1) or 3(c)(7) Fund) |
 | Good standing certificate | standing on a date | Good Standing true, with no day if it's been so all along. If it was lost or restored on a date, give that day |
 | Certificate of cancellation or dissolution | the end | Dissolution Date |
 
