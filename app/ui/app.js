@@ -527,8 +527,8 @@ const App = (() => {
   const listBooks = () => Store.books().then(bs => { books.value = bs; });
   // A new chart, added to a workbook: the chart shown without its records. It keeps the schema, and every
   // note that isn't at one of the records: the definitions, names, descriptions and styles. Of the views, it
-  // keeps those named for what they show (Entities, Ownership), and one chart, Chart, with the styles and
-  // Shown of the chart shown, or else the first; the old chart's own pages stay behind, and its page starts
+  // keeps those named for what they show (Entities, Ownership), and one chart, Chart, in the house look (dendra.md,
+  // Workbook), whatever view is shown as it's begun; the old chart's own pages stay behind, and its page starts
   // afresh. Its chart draws what it records: each relation of two sides no formula gives, of any kind or option
   // at its sides, though the chart it's begun from left it out (Structure, Membership); what that one rules out
   // (not an owner) stays out.
@@ -538,7 +538,7 @@ const App = (() => {
     while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
     const tx = wb.edit({ chart: c, who: who() }), kept = new Map();
     tx.add('chart', { name }, c);
-    const vs = from ? views.peek() : [], like = (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id;
+    const vs = from ? views.peek() : [], like = vs.find(v => v.layout === 'chart')?.id;
     const recorded = new Map();
     if (from) {
       const L = layouts.peek(), own = v => [...L.kinds, ...L.relations, ...L.datatypes].some(l => Tree.same(l.name, v.name) && JSON.stringify(l.rows) === JSON.stringify(v.rows));
@@ -552,7 +552,18 @@ const App = (() => {
       }
       for (const v of vs) if (v.id === like || (v.layout === 'table' && own(v))) kept.set(v.id, tx.add('record', { kind: 'View' }));
       const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: kept.get(t.id) };
-      for (const r of src.rows(from)) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)))
+      // The house look: of the first chart's notes in it, those that give a look (every format property, Text, and the
+      // order of the fields), less a style of a relation a formula gives (§57's affiliates); its Shown notes only of
+      // fields, and those keeping a kind off the page (Documents), never a filter; and the Captions of what it keeps.
+      // Nor the day it keeps.
+      const field = r => !!r.param || (r.pattern.args?.length === 1 && !(r.pattern.out && ('choice' in r.pattern.out || 'tag' in r.pattern.out)));
+      const offPage = r => r.value === false && !!r.pattern.kind && !r.pattern.args && r.pattern.id === undefined;
+      const given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
+      const looks = r => !given(r.pattern)
+        && (r.label === 'Shown' ? field(r) || offPage(r) : ['Text', 'Order'].includes(r.label) || (Notes.FORMATS.has(r.label) && r.label !== 'Position'));
+      const house = new Set(src.rows(from).filter(r => 'note' in r && r.view === like && looks(r))), styled = new Set([...house].map(r => Tree.key(r.pattern)));
+      const keeps = r => r.view !== like ? !(r.label === 'As Of' && r.pattern.id === like) : house.has(r) || (r.label === 'Caption' && styled.has(Tree.key(r.pattern)));
+      for (const r of src.rows(from)) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && keeps(r))
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Chart' : r.value, { view: kept.get(r.view), param: r.param });
     }
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
@@ -567,6 +578,17 @@ const App = (() => {
     tx.add('shape', { view, geometry: 'text', role: 'title', text: title });
     tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")' });
     tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2 });
+  }
+  // What's made on a chart, the chart shows (dendra.md, Views): boxes `ids` that tx makes on chart view `view`, where
+  // the view would draw one nowhere (a filter of the affiliates hides its kind, say), are shown there by the same
+  // change, each at its own tree, the narrowest note. Only a note that hides can hide a box, so with none nothing's
+  // worked out.
+  function showMade(tx, ids, view = Shell.view.peek()) {
+    const N = notes.peek(), d = day.peek();
+    if (views.peek().find(v => v.id === view)?.layout !== 'chart' || !N.notes('Shown').some(n => n.value === false && (!n.view || n.view === view))) return;
+    const after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), { relations: relations.peek(), schema: schema.peek() }, worked);
+    const drawn = Scene.looks(shown.peek(), chart.peek(), view, d, { state: R.records, computed: R }).byId;
+    for (const id of ids) if (after[id]?.kind && !drawn.has(id)) tx.note('Shown', { id, kind: after[id].kind }, true, { view });
   }
   // Another chart, at the view last shown in it (lastView), or else its first: a step on the trail, as another view is.
   function open(id) {
@@ -620,7 +642,8 @@ const App = (() => {
   }
   const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) Shell.nameChart(); }); };
   // Renaming the chart, as one change: its name, and each page's title that says its name still (one changed by
-  // hand keeps what it says), so its exports are named as it is.
+  // hand keeps what it says), so its exports are named as it is. A workbook kept in this browser is named by its first
+  // chart (Store), and the chart menu's list of them says so at once.
   function rename(id, name) {
     const was = book.peek().charts().find(c => c.chart === id)?.name;
     if (id !== chart.peek() || !name || name === was) return;
@@ -628,16 +651,33 @@ const App = (() => {
       tx.set(id, { name });
       for (const r of book.peek().rows(id)) if ('shape' in r && r.role === 'title' && r.text === was) tx.update(r.shape, { text: name });
     }, { dated: false });
+    listBooks();
   }
+  // A workbook this browser keeps, never the one open, deleted from it, after a confirm saying it can't be undone; one
+  // kept in a file or a library stays there.
+  function deleteBook(b) {
+    const text = b.type === 'browser' ? `“${b.name}” and every chart in it go from this browser. This can’t be undone.`
+      : `“${b.name}” goes from this browser’s workbooks, which can’t be undone. Its file stays where it’s kept.`;
+    Shell.confirm(text, { title: 'Delete workbook?', ok: 'Delete workbook', danger: true }).then(ok => ok && Store.forget(b.id)
+      .then(() => { listBooks(); Shell.toast(`Deleted the workbook ${b.name}`); }, e => Shell.toast(e?.message || 'Couldn’t delete it')));
+  }
+  // The chart menu's own: the chart shown's actions first, where they always are, then the workbook's charts and the
+  // workbooks this browser keeps, each a list of its own, however long they grow. What can't be done says why.
   Shell.register('workbook', {
     charts: () => (version.value, book.value.charts().map(c => ({ id: c.chart, name: c.name }))),
     current: () => chart.value,
     open,
     rename,
-    menu: () => [{ label: 'New chart', run: newChart }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
-      { label: 'Delete chart', danger: true, disabled: readOnly.value || book.value.charts().length < 2, run: deleteChart }, { label: 'Workbooks', items: [
-      ...books.value.map(b => ({ label: b.name, checked: b.id === Store.where()?.id, run: () => b.id !== Store.where()?.id && opened(Store.open({ id: b.id })) })),
-      ...(books.value.length ? ['-'] : []), { label: 'New workbook', run: blank }] }],
+    menu: () => {
+      const all = (version.value, book.value.charts()), here = Store.where()?.id, others = books.value.filter(b => b.id !== here);
+      return [{ label: 'New chart', run: newChart }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
+        { label: 'Delete chart', danger: true, disabled: readOnly.value || all.length < 2, tip: all.length < 2 ? 'It’s this workbook’s only chart' : null, run: deleteChart }, '-',
+        { label: 'Charts', items: all.map(c => ({ label: c.name, checked: c.chart === chart.value, run: () => c.chart !== chart.peek() && open(c.chart) })) },
+        { label: 'Workbooks', items: [
+          ...books.value.map(b => ({ label: b.name, checked: b.id === here, run: () => b.id !== here && opened(Store.open({ id: b.id })) })),
+          ...(books.value.length ? ['-'] : []), { label: 'New workbook', run: blank },
+          { label: 'Delete workbook', danger: true, disabled: !others.length, tip: others.length ? null : 'The open workbook can’t be deleted', items: others.map(b => ({ label: b.name, run: () => deleteBook(b) })) }] }];
+    },
   });
   Shell.register('undo', {
     undo, redo,
@@ -790,6 +830,6 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, change, would, asksDay, endOf, From, pending, stage, discard, commit, deleting, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank,
+    readOnly, change, would, asksDay, endOf, From, pending, stage, discard, commit, deleting, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
   };
 })();
