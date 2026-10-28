@@ -620,6 +620,31 @@ async function run() {
     check('with a field selected, the format bar formats that field’s text alone', fieldSelected && juris?.look.Italic && others.length && others.every(it => !it.look.Italic)
       && $('[data-fb="italic"]').getAttribute('aria-pressed') === 'true', fundTexts.map(it => `${it.text}:${it.look.Italic}`).join(', '));
     Shell.parts.peek().undo.undo(); await tick(250);
+    // A toggle says what's there, as Office's: a box whose name is bold and whose jurisdiction isn't shows Bold
+    // unpressed, and pressing it sets them all; then it's pressed.
+    const boldOn = () => $('[data-fb="bold"]').getAttribute('aria-pressed') === 'true', feederTexts = () => App.scene.peek().byId.get('feeder').texts;
+    Shell.select([]); await tick(80); Shell.select(['feeder']); await tick(200);
+    const mixed = feederTexts().some(it => it.look.Bold) && feederTexts().some(it => !it.look.Bold), mixedOn = boldOn();
+    $('[data-fb="bold"]').click(); await tick(250);
+    check('Bold, with a box whose texts are bold and not, shows unpressed, and pressing it bolds them all, then shows pressed', mixed && !mixedOn && feederTexts().every(it => it.look.Bold) && boldOn(),
+      `${mixed} ${mixedOn} ${feederTexts().map(it => `${it.text}:${it.look.Bold}`).join(', ')} ${boldOn()}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    // A field selected at a group changes that field in every box of the group, and nothing else in them: Bold beside
+    // Jurisdiction: Cayman Islands.
+    Shell.select([]); await tick(80); Shell.select(['feeder']); await tick(200);
+    const fj = textAt('feeder', 'feeder_juris');
+    if (fj) await press(fj);
+    $('[data-fb="groups"]').click(); await tick(120);
+    $$('.float .menu-item').find(e => /^Jurisdiction: Cayman Islands/.test(txt(e)))?.click(); await tick(150);
+    const fieldOn = cv().field()?.it.id === 'feeder_juris', jurisOff = !boldOn();
+    const restOf = () => ['feeder', 'caygp'].map(b => App.scene.peek().byId.get(b).texts.filter(it => it.id !== `${b}_juris`).map(it => it.look.Bold).join()).join('|'), restWas = restOf();
+    $('[data-fb="bold"]').click(); await tick(300);
+    const caymanJuris = ['feeder', 'caygp'].map(b => App.scene.peek().byId.get(b)?.texts.find(it => it.id === `${b}_juris`)), caymanSaid = Time.describe(App.wb.changes().at(-1));
+    const namesAlone = restOf() === restWas;
+    check('a field selected at a group changes that field in every box of the group, said so in History', fieldOn && jurisOff && caymanJuris.every(it => it?.look.Bold) && namesAlone && boldOn()
+      && caymanSaid === `Made Jurisdiction bold in the Cayman Islands boxes in ${main.name}`, `${fieldOn} ${jurisOff} ${caymanJuris.map(it => it?.look.Bold)} ${namesAlone} ${caymanSaid}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    Shell.select([]); await tick(80); Shell.select(['fund']); await tick(200);
     // A row copied: Ctrl+C on its label in the inspector, then Ctrl+V on another box.
     const copy = new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: new DataTransfer() });
     const row = $('.insp .row[data-key="fund_juris"]');
@@ -1178,6 +1203,23 @@ async function run() {
   for (const v of charts()) await step(`${v.name} shown at its own scale`, () => show(v));
   await step(`${mainView.name} last`, () => show(mainView));
   check('what the canvas draws is the scene, after edits, views shown in turn, previews, undoing, Tidy and a past day', !steps.length, steps.join('; '));
+
+  // ---- A toast never covers what's being worked on: a field being typed in where it would stand, at the view's foot,
+  // sends it clear; and just come, it takes no click, so one meant for the field goes there ----
+  {
+    Shell.select([]); await tick(80);
+    Shell.toast('Placed'); await tick(80);
+    const home = $('.toasts').getBoundingClientRect(), field = Object.assign(document.createElement('input'), { value: 'typing' });
+    Object.assign(field.style, { position: 'fixed', left: `${home.left}px`, top: `${home.top}px`, width: `${home.width}px`, height: `${home.height}px`, zIndex: 1 });
+    $('#view').append(field); field.focus(); await tick(80);
+    const off = Shell.toast('Placed again', { undo: () => {} }); await tick(80);
+    const at = $('.toasts').getBoundingClientRect(), f = field.getBoundingClientRect(), clear = at.right <= f.left || at.left >= f.right || at.bottom <= f.top || at.top >= f.bottom;
+    const passing = getComputedStyle($('.toast')).pointerEvents === 'none';
+    await tick(500);
+    check('a toast never covers a field being typed in, and just placed it takes no click, then takes one', clear && passing && getComputedStyle($('.toast')).pointerEvents === 'auto',
+      `${JSON.stringify(at)} vs ${JSON.stringify(f)}; ${passing}`);
+    field.remove(); off(); await tick(80);
+  }
 
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
