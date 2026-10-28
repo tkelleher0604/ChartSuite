@@ -1227,15 +1227,13 @@ const Table = (() => {
     if (!fields.length || fields.length > 4 || !table) return;
     const cols = fields.map(f => table.getColumns().find(c => c.getField() === f)).filter(Boolean);
     into(cols.find(c => !current?.byField.get(c.getField())?.check && !PIN.test(c.getDefinition().cssClass)));
-    requestAnimationFrame(() => {
-      for (const col of cols) for (const e of [col.getElement(), ...cells.querySelectorAll(`.tabulator-row .tabulator-cell[tabulator-field="${CSS.escape(col.getField())}"]`)]) {
-        if (!e?.isConnected) continue;
-        e.classList.remove('come');
-        void e.offsetWidth;   // so the light starts again
-        e.classList.add('come');
-        e.addEventListener('animationend', () => e.classList.remove('come'), { once: true });
-      }
-    });
+    for (const col of cols) for (const e of [col.getElement(), ...cells.querySelectorAll(`.tabulator-row .tabulator-cell[tabulator-field="${CSS.escape(col.getField())}"]`)]) {
+      if (!e?.isConnected) continue;
+      e.classList.remove('come');
+      void e.offsetWidth;   // so the light starts again
+      e.classList.add('come');
+      e.addEventListener('animationend', () => e.classList.remove('come'), { once: true });
+    }
   }
   // A column brought whole into view, clear of the columns kept in view, the grid stopping at a column's edge as it does
   // when it's scrolled (table.css): at its own edge, where it's past the left or wider than the room; past the right, at
@@ -1401,12 +1399,15 @@ const Table = (() => {
     let ghost = null, bar = null, to = -1, raf = 0, lastX = x0;
     // Where it can drop, as drawn: before each column, at its left edge, and after the last. A column kept in view is
     // where it's kept; one the grid has scrolled under them can't be dropped before, and the first that shows beside
-    // them is dropped before at their edge.
+    // them is dropped before at their edge. Each is where the rows are scrolled to, which the headings follow a frame later.
     const order = () => movable(), colOf = o => t.getColumns().find(x => x.getField() === field(o));
     const edges = () => {
-      const os = order(), stop = holder().getBoundingClientRect().left + 48 + frozenWidth(t);
-      const at = o => { const col = colOf(o), b = col.getElement().getBoundingClientRect(); return PIN.test(col.getDefinition().cssClass) ? b.left : b.right <= stop + 1 ? null : Math.max(b.left, stop); };
-      return [...os.map(at), Math.max(colOf(os.at(-1)).getElement().getBoundingClientRect().right, stop)];
+      const os = order(), h = holder(), r = h.getBoundingClientRect(), stop = r.left + 48 + frozenWidth(t), x0 = r.left - h.scrollLeft;
+      const at = (o, end) => {
+        const col = colOf(o), e = col.getElement(), x = x0 + e.offsetLeft + (end ? e.offsetWidth : 0);
+        return PIN.test(col.getDefinition().cssClass) ? e.getBoundingClientRect()[end ? 'right' : 'left'] : end ? Math.max(x, stop) : x + e.offsetWidth <= stop + 1 ? null : Math.max(x, stop);
+      };
+      return [...os.map(o => at(o)), at(os.at(-1), true)];
     };
     const place0 = x => {
       ghost.style.left = `${x - dx}px`;
