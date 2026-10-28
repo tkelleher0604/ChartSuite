@@ -272,7 +272,7 @@ try {
       & $note 'Drop it on a box (the two-box panel)' (Timed 'pointerup,mouseup')
       # Entities: a heading dragged to a new place, a column's filter opened, a name typed in the new row and kept.
       $s = At 'button.sheet' 'Entities'; $null = Js '__take([])'
-      Seen '() => document.querySelectorAll(".tabulator-row").length > 20'
+      Prof 'Show Entities'; Seen '() => document.querySelectorAll(".tabulator-row").length > 20'
       Click $s.x $s.y
       & $note 'Show Entities' (Timed 'pointerdown,mousedown,click')
       Pause 1000

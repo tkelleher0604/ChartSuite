@@ -444,7 +444,7 @@ const Table = (() => {
     cells.appendChild(host);
     built = { view: m.view, sig: signature(m) };
     // The rows redlined as built, so they're drawn again as they are once the redline goes.
-    reds = new Set(m.data.filter(isRed).map(r => r.id));
+    reds = new Set(m.red ? m.data.filter(isRed).map(r => r.id) : []);
     flight = null;
     const sorted = look.sort && m.cols.find(c => c.key === look.sort.key && drawn(c)), passes = filterOf(m, look);
     const t = table = new Tabulator(host, {
@@ -569,7 +569,8 @@ const Table = (() => {
     if (flight) { flight.again = true; return; }
     drewFrom = from;
     // Rows keep their place while they're edited; a sort or a filter applies again only when asked.
-    const t = table, lit = p ? [] : since(now), red = new Set(m.data.filter(isRed).map(r => r.id)), first = !reds.size && (m.data.find(r => r._red) ?? m.data.find(isRed))?.id;
+    // (Only a redlined grid has rows redlined.)
+    const t = table, lit = p ? [] : since(now), red = new Set(m.red ? m.data.filter(isRed).map(r => r.id) : []), first = m.red && !reds.size && (m.data.find(r => r._red) ?? m.data.find(isRed))?.id;
     const f = flight = { again: false };
     // Only the rows that say something else are updated, as Tabulator measures every row it's given again; a row that
     // comes (back, by Undo, or pasted) goes where its records put it, after the row before it, not at the end.
