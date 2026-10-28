@@ -1339,6 +1339,8 @@ function mount(el) {
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []), ...(bound.length ? ['-'] : []),
       ...(bound.length ? [{ label: 'Hide in this view', keys: 'Delete', disabled: ro, run: () => remove() }] : []),
+      // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
+      ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
       { label: 'Delete', keys: bound.length ? 'Shift+Delete' : 'Delete', danger: true, disabled: ro, run: () => remove(!!bound.length) },
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]

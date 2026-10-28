@@ -192,11 +192,29 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* A toast rises over the bar, so neither hides the other. */
 #app:has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
 #app:has(.view > .scrub):has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }
-/* The day a change holds from or until, wherever it's asked (App.From): "From" or "Until", a menu with All along or
+/* The day a change holds from, ends on or is made on, wherever it's asked (App.From): "From" or "Ends on", a menu with All along or
    Never held, and the day, typed over; what's said, the day or All along, in the redline's blue. */
 .from { display: inline-flex; align-items: center; gap: 2px; min-height: var(--row); color: var(--ink-2); }
 .from > .sel { margin: 0 2px 0 -7px; color: inherit; }
 .from .cell.date, .from:not(:has(.cell, .lk)) > .sel { color: var(--accent-ink); }
+.from > .word { margin-right: 6px; }
+/* A transfer, as History will say it, with what it asks in place: how much, typed over, and to whom, a dropdown that
+   searches; both in the redline's blue, as what would appear. */
+.transfer { line-height: var(--row); }
+.transfer > .sep { margin: 0 8px; color: var(--ink-3); }
+.asking .transfer > span:not(.sep) { display: block; }
+.asking .transfer > .sep { display: none; }
+.transfer .hug { display: inline-flex; vertical-align: baseline; }
+.transfer .cell.amount { min-width: 5ch; height: 24px; margin: 0 2px 0 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); color: var(--accent-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.transfer .sel { display: inline-flex; align-items: center; gap: 4px; height: 24px; margin: 0 0 0 -2px; padding: 0 4px; vertical-align: baseline; max-width: 100%; color: var(--accent-ink); font-weight: 500; }
+.transfer .sel > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer .sel.ph > span { color: var(--ink-3); font-weight: 400; }
+/* Where it was asked, its controls there too (App.Asking): under a two-box panel's row, or atop a record's panel. */
+.asking { display: grid; gap: 4px; }
+.asking > .what { color: var(--ink-2); }
+.asking > .ctls { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; }
+.asking > .ctls > .when { margin-right: auto; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
+.asking .btn { height: 26px; padding: 0 10px; }
 /* A day other than the day shown, said: a link to the chart then. */
 :is(.from, .pendbar > .when) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 :is(.from, .pendbar > .when) > button.lk:hover { text-decoration-color: currentColor; }
