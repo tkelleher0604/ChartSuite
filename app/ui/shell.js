@@ -65,9 +65,10 @@
 // iconMarkup(name), the same as HTML;
 // store.get/set, this browser's settings; widen() and narrow(), and gliding, a signal true while the inspector
 // glides in or out, so the view's slot has settled once it's false again; theme. A menu item is '-', { head }, or
-// { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point?, icon?, glyph?, font? }, an icon by Shell.icon's name or a
+// { label, detail?, keys?, checked?, disabled?, tip?, danger?, run?, items?, point?, icon?, glyph?, font? }, an icon by Shell.icon's name or a
 // glyph drawn before its label, its label in a font where `font` (a CSS family) says; one without run or items is
-// shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys.
+// shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys; `tip`, its
+// tooltip, says why one is disabled.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
 // (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.
@@ -467,7 +468,7 @@ const Shell = (() => {
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
         : it.seg ? html`<div class="menu-seg" role="group">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
         : html`<div role=${it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked=${it.checked === undefined ? null : !!it.checked} id=${mi(i)}
-            aria-disabled=${it.disabled ? 'true' : null} aria-haspopup=${it.items ? 'menu' : null}
+            aria-disabled=${it.disabled ? 'true' : null} aria-haspopup=${it.items ? 'menu' : null} data-tip=${it.tip ?? null} aria-description=${it.tip ?? null}
             class=${'menu-item' + (i === active ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
             onPointerMove=${() => { if (i !== act && selectable(it)) { setAct(i); if (it.items) openSub(it, el(i)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
             onClick=${() => selectable(it) && run(it)}>
@@ -611,10 +612,11 @@ const Shell = (() => {
       onBlur=${e => done(true, e.target.value, false)} /></div>`;
   }
 
+  // The chart menu: the chart's own (its name, and the workbook's: app.js), then the actions; nothing in it moves as the
+  // workbook's charts are added.
   function chartMenu() {
     const wb = part('workbook'), items = [];
-    if (wb) items.push(...wb.charts().map(c => ({ label: c.name, checked: c.id === wb.current(), run: () => wb.open(c.id) })),
-      { label: 'Rename', disabled: App.readOnly.value, run: nameChart }, ...wb.menu(), '-');
+    if (wb) items.push({ label: 'Rename', disabled: App.readOnly.value, run: nameChart }, ...wb.menu(), '-');
     const themes = { order: 30, seg: THEMES.map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
     const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
     for (const it of [...acts, themes].sort((a, b) => a.order - b.order)) {

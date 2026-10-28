@@ -92,11 +92,14 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-complete > .menu-item { padding: 4px 8px; border-radius: 3px; font: var(--t13); color: var(--ink); cursor: default; }
 .dc-complete > .menu-item.on { background: var(--hover); }
 
-/* Typing in place: over a mark; widening as it's typed, a text box nobody has sized; a new box, its kind
-   shown till its name is typed. */
+/* Typing in place: over a mark; widening as it's typed, a text box nobody has sized; a new box, "New entity" till
+   its name is typed, and its kind beside it, chosen there. */
 .dc-edit { position: absolute; z-index: 3; box-sizing: border-box; outline: 1px solid var(--accent); background: #fff; white-space: pre-wrap; overflow-wrap: break-word; cursor: text; }
 .dc-edit.grow { white-space: pre; overflow-wrap: normal; }
 .dc-edit.new:empty::before { content: attr(data-ph); color: #8a8f8a; font-weight: 400; }
+.dc-kind { position: absolute; z-index: 4; height: 26px; padding: 0 8px 0 10px; gap: 6px; font: var(--t12); background-color: var(--surface); }
+.dc-kinds { position: absolute; z-index: 5; min-width: 160px; }
+.dc-kinds > .menu-item:hover { background: var(--hover); }
 
 /* ---- The format bar, gone while the inspector is widened over the chart ---- */
 .slot:has(> .host > .fb[hidden]) { display: none; }

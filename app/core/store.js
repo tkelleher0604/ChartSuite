@@ -7,7 +7,8 @@
 // One global, `Store`, with nothing on the page:
 //   Store.open({ id?, sample? }) → the workbook (core/README.md) last open in this browser, or the one with
 //     that id; where there's none, a new one in this browser, holding the sample's changes
-//   Store.openFile(file?) → the workbook kept in a file; Store.books() → those this browser keeps, latest first
+//   Store.openFile(file?) → the workbook kept in a file; Store.books() → those this browser keeps, latest first;
+//     Store.forget(id), one of them not open, gone from this browser
 //   Store.saveAs('file' | 'library', name?), Store.download(name?): keep it there from now on, or a copy
 //   Store.status() → { text, tone: '' | 'busy' | 'error', fix?: 'allow' | 'sign-in', detail? }; Store.fix()
 //     does what `fix` says, on a click; Store.subscribe(fn) → unsubscribe, fn(status) when it changes
@@ -304,13 +305,19 @@ const choose = () => new Promise(resolve => {
 
 const books = async () => (await db.books.orderBy('opened').reverse().toArray().catch(() => []))
   .map(b => ({ id: b.id, type: b.type, name: b.name, opened: b.opened }));
+// A workbook this browser keeps, gone from it: its changes and its place in the list, which can't be undone. One kept
+// in a file or a library stays there. Never the one open.
+async function forget(id) {
+  if (s?.where().id === id) throw new Error('The open workbook can’t be deleted');
+  await db.transaction('rw', db.books, db.changes, async () => { await db.changes.where('book').equals(id).delete(); await db.books.delete(id); });
+}
 
 function who() {
   try { return sp()?.account()?.name || localStorage.getItem('dendra.name') || null; } catch { return null; }
 }
 
 return {
-  open, openFile, books,
+  open, openFile, books, forget,
   get wb() { return s?.wb ?? null; },
   where: () => s?.where() ?? null,
   status, subscribe: fn => (listeners.add(fn), () => listeners.delete(fn)),
