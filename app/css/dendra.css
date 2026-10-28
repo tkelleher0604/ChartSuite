@@ -184,6 +184,8 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .toast { height: 36px; padding: 0 4px 0 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
 .toast > button { height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; }
 .toast > button:hover { background: rgb(255 255 255 / .08); }
+/* Just come, or just moved clear of what's worked on, it takes no click: one meant for what was there goes there. */
+.toasts.settling > .toast { pointer-events: none; }
 
 /* ---- A change pending: the bar under the view, what it does, when it holds, Discard and its verb ---- */
 .pendbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--rule-2); background: var(--paper); }
