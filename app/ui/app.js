@@ -187,12 +187,14 @@ const App = (() => {
   // another day shown leave it pending; one begun elsewhere in its place says so, and Undo brings it back.
   const pending = signal(null);
   let staged = 0, unlayer = null;
-  const datedOf = p => p.asks ? p.day ?? false : true;
+  // Its day is the one it said: asked (From, Until), or else the day shown when it was begun, never the day shown at
+  // Enter, so a change begun as of a day and made after going back to today still holds from that day.
+  const datedOf = p => p.asks ? p.day ?? false : p.from ?? false;
   const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting' };
   function stage(p) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return; }
     const was = pending.peek();
-    pending.value = { ids: [], n: ++staged, chart: chart.peek(), ...p };
+    pending.value = { ids: [], n: ++staged, chart: chart.peek(), ...p, ...(!p.asks && { from: 'from' in p ? p.from ?? null : Shell.time.peek()?.asOf ?? null }) };
     unlayer ??= Shell.layer(discard);
     if (was && was.source !== p.source) Shell.toast(`Discarded ${doing[was.verb] ?? was.verb.toLowerCase()} ${was.what}`, { undo: () => stage(was) });
   }

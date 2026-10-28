@@ -404,6 +404,14 @@ async function run() {
   check('a general partner deleted is ended by its Withdrawal Date, which its redline offers', word === 'Withdrawal Date' && endsBy === word && !st()[gpLine] && !!App.wb.asOf(C, '2025-12-31')[gpLine]
     && last().adds.some(r => r.at === gpLine && r.edge === word && r.value === Log.today()), `${word} ${JSON.stringify(last().adds)}`);
   Shell.parts.value.undo.undo(); await tick(60);
+  // A change that asks no day holds from the day shown when it was begun, whatever day is shown at Enter
+  Shell.at({ asOf: '2025-06-30' }); await tick(60);
+  App.deleting(['fund_ein'], 'EIN of Fund III'); await tick(60);
+  Shell.at(null); await tick(60);
+  key(document.body, 'Enter'); await tick(60);
+  check('an entry deleted as of a day, Entered after going back to today, goes from that day, not from every day', !!App.wb.asOf(C, '2025-06-29').fund_ein && !App.wb.asOf(C, '2025-06-30').fund_ein && !st().fund_ein,
+    JSON.stringify(last().adds.concat(last().removes)));
+  Shell.parts.value.undo.undo(); await tick(60);
   // A record whose kind or relation has a start entry asks no day: it holds from that entry, whenever it's added
   const gpOf = { args: [{ edge: 'GP', at: 'mgmt' }, { edge: 'Partnership', at: Object.keys(st()).find(k => st()[k].at === 'fund' && st()[k].edge === 'Entity Type') }], tag: true };
   let formed = null;
