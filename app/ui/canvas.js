@@ -1160,12 +1160,15 @@ function mount(el) {
   // ---- Adding a box: a record of a kind, named as it's typed ----
   // Nothing is made until a name is, and Esc makes nothing. The box is dropped where it was asked for, clear
   // of what's there, and loosely: once a line relates it, it goes beside its relatives (Scene).
-  function create(kind, at, { relate } = {}) {
-    if (still() || !scene || !kind) return;
+  // `guide`, the line a handle was dragged out on, stays drawn to it while it's named, so it's plain the two will be related.
+  function create(kind, at, { relate, guide } = {}) {
+    if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     Shell.store.set('kind', kind);
     const w = 200, h = 44, p = freeSpot(scene, w, h, at), view = viewOf(), [x, y] = own(p.x, p.y);
+    guide?.setAttribute('d', guide.getAttribute('d').replace(/L[^L]*$/, `L${p.x + w / 2},${p.y + h / 2}`));
     openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, '', name => {
+      guide?.remove();
       name = Tree.clean(name);
       if (!name) return;
       let id = null;
@@ -1175,7 +1178,7 @@ function mount(el) {
         tx.note('Position', { id, kind }, { x, y, loose: true }, { view });
       })) return;
       if (relate) Shell.emit('relate-open', [relate, id]); else Shell.select([id]);
-    }, { box: kind });
+    }, { box: kind, escaped: () => guide?.remove() });
   }
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
 
@@ -1292,7 +1295,7 @@ function mount(el) {
       target = boxAt(p);
       if (target) Shell.emit('relate-open', [from.id, target.id]);
       else if (!ev.target.closest?.('.dc') || ev.target.closest?.('.dc-edit') || ev.button !== 0) return;
-      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) create(lastKind(), p, { relate: from.id });
+      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) { const guide = marks.appendChild(line.cloneNode()); create(lastKind(), p, { relate: from.id, guide }); }
     };
     const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(); } };
     addEventListener('pointermove', move);

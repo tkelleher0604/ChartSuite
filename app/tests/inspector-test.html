@@ -299,6 +299,10 @@ async function run() {
   const rr = $$('.rr').filter(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC');
   check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser to /.test(x.textContent))
     && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
+  // First, what the chart would draw as the two stand, the box above on the side drawn on top, then what it records most.
+  const yOf = id => App.scene.peek().byId.get(id).y, higher = yOf('blocker') < yOf('bdc') ? 'fund iii blocker' : 'the bdc';
+  const firstOpen = $$('.rr[data-key*="|"]').find(r => r.querySelector('.nm'));   // what could be, keyed by its sides
+  check('… the first of them puts the box above on top, as its owner', !!firstOpen && spoken(firstOpen.querySelector('.nm')).toLowerCase().startsWith(`${higher} is an owner of`), firstOpen && spoken(firstOpen.querySelector('.nm')));
   // A relation with no start of its own (an ownership) is added from a day said in its redline, before Enter:
   // the day shown, by default, so an owner added today isn't in the chart as of a day before
   const n0r = App.wb.changes().length, owned = () => Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));

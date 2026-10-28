@@ -1104,7 +1104,16 @@ function RelateView({ a, b }) {
   // What someone entered first, then what a formula gives, and last what's ruled out; each by name, then the
   // first's side first.
   const order = (x, y) => (r[x.id].tag === false) - (r[y.id].tag === false) || fx(x.id) - fx(y.id) || x.name.localeCompare(y.name);
-  const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
+  // What could be, those the chart would draw as the two stand first: the box above, on the side drawn on top (an
+  // owner over what it owns, as the chart sets them), so dragging down from a fund offers it as an owner first.
+  const sc = App.scene.value, ya = sc?.byId.get(a)?.y, yb = sc?.byId.get(b)?.y, view = Shell.view.value;
+  const onTop = x => { const p = T.bare(x.s), above = n.value('Above', p, view) ?? n.edges(p)[0]; return T.same(above ?? '', x.ea) === (ya < yb); };
+  const fits = x => ya === undefined || yb === undefined || ya === yb ? 0 : onTop(x) ? 0 : 1;
+  // Then those the chart records most, as Add offers the kinds it draws most.
+  const uses = new Map();
+  for (const id of Object.keys(r)) if (r[id].args?.length > 1 && !fx(id)) { const k = T.norm(nameOf(id)); uses.set(k, (uses.get(k) ?? 0) + 1); }
+  const used = x => uses.get(T.norm(x.name)) ?? 0;
+  const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => fits(x) - fits(y) || used(y) - used(x) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
   const name = x => html`<${Go} to=${x}>${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}</${Go}>`;
   // What else could hold, once asked for; at once where nothing did.
   const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
