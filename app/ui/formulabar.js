@@ -862,8 +862,9 @@ const FormulaBar = (() => {
     } catch { return null; }
   }
   // The sentence the bar says for a record, in full, as plain text, for other panes and exports; null for a
-  // record no row gives. `Rv`, another working-out than the chart's (a change pending's redline).
-  const sentenceFor = (id, Rv = R.peek()) => { const w = whyOf(Rv, id); return w ? plain(Rv.records, w.full) : null; };
+  // record no row gives; sentenceIn, in another working-out than the chart's (a change pending's redline).
+  const sentenceIn = (Rv, id) => { const w = whyOf(Rv, id); return w ? plain(Rv.records, w.full) : null; };
+  const sentenceFor = id => sentenceIn(R.peek(), id);
   // The subject's, but while its definition's rows are being edited.
   const why = computed(() => {
     const m = model.value, dr = draft.value;
@@ -1448,5 +1449,5 @@ const FormulaBar = (() => {
   const toggled = shut => shut ? 'Expand formula bar' : 'Collapse formula bar';
   Shell.register('action', { id: 'formulas', get name() { return toggled(!open.peek()); }, keys: '$mod+Shift+KeyU', run: toggle });
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, light: ids => { lit.value = ids; },
-    reason, citeOf, phrase, sentence: sentenceFor, model, finder, pending, draft, hover, open };
+    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, model, finder, pending, draft, hover, open };
 })();

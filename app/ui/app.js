@@ -162,7 +162,7 @@ const App = (() => {
     made(c);
     const out = outBy(c, was), said = (typeof say === 'function' ? say(c) : say) || (out && typeof Time !== 'undefined' && Time.describe(c));
     // One that takes what it's at out of the chart till a later day offers that day, and stays till it's taken or dismissed.
-    if (said) Shell.toast(said, { undo, ...(out?.holds === 'from' && { go: [`Show ${Tree.formatDate(out.day, 'short')}`, () => Shell.at({ asOf: out.day })] }) });
+    if (said) Shell.toast(said, { undo, ...(out?.holds === 'from' && { go: [`Show ${Tree.formatDate(out.day, 'short')}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] }) });
     return c;
   }
   // The start or end entry a change records that takes what it's at out of the chart as of the day shown, where it
@@ -596,7 +596,7 @@ const App = (() => {
     if (failing.has(R2)) return failing.get(R2);
     const key = a => a.error ? `${a.id} ${a.error.message}` : a.id, now = new Set(needs.peek().filter(a => a.kind === 'error').map(key)), N = notes.peek(), recs = R2.records, st = state.peek();
     const about = a => Tree.objectOf(recs, a.error ? a.error.args?.[0]?.at ?? a.error.at : a.id);
-    const figure = a => { const s = !a.error && typeof FormulaBar !== 'undefined' && FormulaBar.sentence?.(a.id, R2); return s && [...s.matchAll(/\(([^()]*, not [^()]*)\)/g)].at(-1)?.[1]; };
+    const figure = a => { const s = !a.error && typeof FormulaBar !== 'undefined' && FormulaBar.sentenceIn?.(R2, a.id); return s && [...s.matchAll(/\(([^()]*, not [^()]*)\)/g)].at(-1)?.[1]; };
     const out = Formulas.attention(R2, asking.peek(), day.peek()).filter(a => a.kind === 'error' && !now.has(key(a)) && about(a) in st)
       .map(a => { const at = about(a), f = figure(a), whose = bind(N.shortOf(recs, at));
         return { id: a.id, at, text: a.error ? `an error at ${whose}` : `${recs[a.id].edge} at ${whose}${f ? ` (${f})` : ''}` }; });

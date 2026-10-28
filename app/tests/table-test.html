@@ -541,8 +541,8 @@ async function run() {
     // Imported, a name finds its row as people write it, but for case, spaces and punctuation.
     const n1 = N();
     Table.paste('Name\tEIN\nCalder Ridge Capital Partners III L.P.\t92-4810999\n', { file: 'entities.csv' }); await previewed();
-    check('An imported name finds its row as people write it: "…III L.P." is "…III, L.P.", a value changed, no row added', !$$('.grid .tabulator-row.red-add').length
-      && $$('.grid .tabulator-cell .add').some(x => x.textContent === '92-4810999') && /^1 value$/.test($('.pendbar .what')?.textContent ?? '') && N() === n1, $('.pendbar .what')?.textContent);
+    check('An imported name finds its row as people write it: "…III L.P." is "…III, L.P.", a value changed, no row added, the bar saying the row is one already in the chart', !$$('.grid .tabulator-row.red-add').length
+      && $$('.grid .tabulator-cell .add').some(x => x.textContent === '92-4810999') && /^1 value·1 already in the chart$/.test($('.pendbar .what')?.textContent ?? '') && N() === n1, $('.pendbar .what')?.textContent);
     press('Escape'); await tick(150);
     // One close to a name the chart has asks whether it's that one.
     Table.paste('Name\tEIN\nCalder Ridge Capital Partners 3, L.P.\t92-4810999\n', { file: 'entities.csv' }); await previewed();
@@ -711,7 +711,7 @@ async function run() {
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t75%\r\n'); await previewed();
   const failsSaid = $('.pendbar .fails')?.textContent, n3 = N();
   press('Escape', document.body); await tick(150);
-  check('A change that would leave a check failing says so in its bar, before it’s made', failsSaid === 'Fails Ownership Adds Up at Fund III' && N() === n3 && !App.pending.peek(), failsSaid);
+  check('A change that would leave a check failing says so in its bar, before it’s made, with its figure', failsSaid?.replace(/\s/g, ' ') ==='Fails Ownership Adds Up at Fund III (103.4%, not 100%)' && N() === n3 && !App.pending.peek(), failsSaid);
   // As of today, a row added that asks its day, an ownership, holds from the day its bar says: today, typed over,
   // or all along; never on a past day by default.
   Shell.at(null); await tick(100);
@@ -868,7 +868,7 @@ async function run() {
   whole(doomed); await tick(40);
   n0 = N();
   press('Delete', gridKeys); await previewed();
-  check('Delete on a row selected whole strikes it through, with a bar to make it, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && /Delete$/.test($('.pendbar')?.textContent.trim() ?? '') && N() === n0,
+  check('Delete on a row selected whole strikes it through, with a bar to make it, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && /End$/.test($('.pendbar')?.textContent.trim() ?? '') && N() === n0,
     $('.pendbar')?.textContent);
   press('Escape', gridKeys); await tick(100);
   check('… Esc leaves it', !$('.pendbar') && !$$('.grid .tabulator-row.red-go').length && N() === n0 && doomed in st());
@@ -900,7 +900,7 @@ async function run() {
   check('Esc pressed to clear the selection clears it, the change still pending, in the window’s one bar under the view', !Shell.selection.peek().length && App.pending.peek()?.verb === 'Delete' && $$('.pendbar').length === 1 && !!$('.view > .pendbar'),
     `${Shell.selection.peek()} ${App.pending.peek()?.verb}`);
   paste('Owner\tOwned\tPercentage\r\nSponsor Holdings\tFund III\t3%\r\n'); await previewed();
-  check('A paste with another change pending is pasted, taking its place, which says so, with Undo', App.pending.peek()?.verb === 'Paste' && /^Discarded deleting /.test($('.toast span')?.textContent ?? '')
+  check('A paste with another change pending is pasted, taking its place, which says so, with Undo', App.pending.peek()?.verb === 'Paste' && /^Discarded ending /.test($('.toast span')?.textContent ?? '')
     && !!$$('.toast button').find(b => b.textContent === 'Undo'), $('.toast span')?.textContent);
   $$('.toast button').find(b => b.textContent === 'Undo')?.click(); await previewed();
   check('… its Undo bringing the deletion back', App.pending.peek()?.verb === 'Delete' && rowOf(doomed).getElement().classList.contains('red-go'), App.pending.peek()?.verb);

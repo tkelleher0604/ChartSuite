@@ -1010,7 +1010,7 @@ function LaterView({ id }) {
   const start = (T.index(then).entries.get(id) ?? []).find(e => then[e].field === 'date' && then[e].value === d && N().isStart(T.treeOf(then, e)));
   const said = (start && App.actOf(then[start].edge)?.[1]) || 'From', name = x.kind ? N().nameOf(then, id) : `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}`;
   return html`<div class="insp"><${Head} path=${x.kind ? [{ label: x.kind }] : []} title=${bound(name)} />
-    <div class="later"><span>${said} ${short(d)}</span><button class="btn" onClick=${() => Shell.at({ asOf: d })}>Show the chart then</button></div></div>`;
+    <div class="later"><span>${said} ${short(d)}</span><button class="btn" onClick=${() => Shell.at(d === Log.today() ? null : { asOf: d })}>Show the chart then</button></div></div>`;
 }
 // A box or line the chart shown hides by its own note (Delete, Hide in this view): said, with the way to show it
 // there again, its own Shown in the view, as the narrowest decides. Any other way out of a chart is the view's.
