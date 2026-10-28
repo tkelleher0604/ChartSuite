@@ -5,12 +5,13 @@
 //   scale, and every size with it: a text's points are the points it has on the sheet.
 // - PowerPoint: a box is a shape of the same preset geometry, holding its texts in the same fonts on the
 //   scene's lines; a line is a connector glued to its boxes, grouped with its label so the two move together
-//   and named as the two-box panel says its relation, one connector even where another crosses it (see cxn);
-//   lines said as one, a line to a frame or a trunk's lines under one label, one group named for them all, a
-//   frame's by its caption (each of the Funds); a frame its outline and caption, grouped, behind its members;
-//   the legend one group, a swatch and caption for each row, named for it; the title the slide's title; free
-//   shapes shapes like any other. A line's sentence, or its group's, is its alt text as well. A deck's slides
-//   share one size, the smallest that holds every sheet, each in the middle of its slide.
+//   and named as the two-box panel says its relation, solid where another crosses it, as PowerPoint draws a
+//   crossing (the canvas and the PDF hop); lines said as one, a line to a frame or a trunk's lines under one
+//   label, one group named for them all, a frame's by its caption (each of the Funds); a frame its outline and
+//   caption, grouped, behind its members; the legend one group, a swatch and caption for each row, named for it;
+//   the title the slide's title; free shapes shapes like any other. A line's alt text is its name with the
+//   values its label says, as the formula bar says a fact (with a percentage of 50%). A deck's slides share one
+//   size, the smallest that holds every sheet, each in the middle of its slide.
 // - PDF: the scene as SVG, through svg2pdf.js, in the PDF's standard fonts (Helvetica has Arial's widths,
 //   Times Times New Roman's), compressed, in US English. Each page is its sheet, bookmarked by its title. It
 //   declares only the fonts it uses, and embeds none: the only sans vendored, IBM Plex, hasn't Arial's widths, so
@@ -19,9 +20,9 @@
 //   reader, PowerPoint's Reading Order and a PDF's text all follow what's written first.
 // - A file of one page is titled as its page is, of more by the chart's name; its author is whoever exported
 //   it, blank where no name is set.
-// - The calendar: the chart's dates from the day shown on, and what's overdue, on its day, as it's still due;
-//   each said as the Dates table says it, what falls due, then whose (Time.whose), and why it falls then in the
-//   formula bar's sentence (FormulaBar.sentence), where the bar says one.
+// - The calendar: what falls due, each date a formula gives, on its day, what's before the day shown overdue, as
+//   it's still due; each said as the Dates table says it, what falls due, then whose (Time.whose), and why it
+//   falls then in the formula bar's sentence (FormulaBar.sentence), where the bar says one.
 // - The Export dialog, which the title bar's Export opens, previews the file: the same SVG, page by page, on
 //   the slides or pages it will have, a click on a page showing it at full size; for a calendar, its dates.
 // What the canvas shows only on screen (computed italics and dashes, the redline) is no part of the scene.
@@ -30,7 +31,7 @@
 // Export.write('pptx' | 'pdf', scenes, name, { author, R, N }?) → a Blob, also saved, R being
 // Formulas.computeState's and N the chart's Notes reader, by which a deck says its lines' relations;
 // Export.svg(scene, { pdf, frame }) → SVG markup; in the window, where Time is, Export.calendar(R, N, chart,
-// name, from?) → the .ics Blob of the dates from `from` (today) on, also saved. Export.onFile, if set, takes
+// name, from?) → the .ics Blob of what falls due, overdue before `from` (today), also saved. Export.onFile, if set, takes
 // each finished file (blob, name) instead of the browser downloading it. In the window, Export.open(format?)
 // opens the dialog: 'pptx', 'pdf' or 'ics', or what the view shown offers (Shell's 'export' parts: a table's
 // CSV), and → the file once it's written.
@@ -183,7 +184,8 @@ const E = v => Math.round(v * 914400);                 // inches as EMU
 // A deck: a slide for each scene, each written in its XML where PptxGenJS can't write it as PowerPoint does
 // (see slide). The slides' layout is PowerPoint's Title Only, its title where the first slide's is and in its
 // look, and the file's properties are what PowerPoint would write: no subject, and the fonts and titles the
-// slides hold. `say(relations, caption)` names lines' relations as one (see sentence).
+// slides hold. `say(relations, caption, entries?)` names lines' relations as one, and with `entries` says those
+// at them too (see sentence).
 async function pptx(scenes, title, author, say) {
   await LIBS.pptx();
   const p = new PptxGenJS();
@@ -265,9 +267,9 @@ function txBody(items, k, anchor, inset) {
 }
 const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
 const paint = c => none(c) ? '<a:noFill/>' : `<a:solidFill><a:srgbClr val="${hex(c)}"/></a:solidFill>`;
-// An outline at its weight on the slide (k times its page's), its arrowheads, and its paint (its colour).
-const ln = (s, k, heads = '', fill = paint(s.Outline)) => none(s.Outline) ? '<a:ln><a:noFill/></a:ln>'
-  : `<a:ln w="${Math.round(s.Weight * k * 12700)}" cap="${s.Dash === 'dotted' ? 'rnd' : 'flat'}">${fill}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/><a:miter lim="800000"/>${heads}</a:ln>`;
+// An outline at its weight on the slide (k times its page's), and its arrowheads.
+const ln = (s, k, heads = '') => none(s.Outline) ? '<a:ln><a:noFill/></a:ln>'
+  : `<a:ln w="${Math.round(s.Weight * k * 12700)}" cap="${s.Dash === 'dotted' ? 'rnd' : 'flat'}">${paint(s.Outline)}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/><a:miter lim="800000"/>${heads}</a:ln>`;
 // A path through points q, in EMU within w × h.
 const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${w}" h="${h}" fill="none">`
   + q.map(([x, y], i) => `<a:${i ? 'lnTo' : 'moveTo'}><a:pt x="${x}" y="${y}"/></a:${i ? 'lnTo' : 'moveTo'}>`).join('') + '</a:path></a:pathLst></a:custGeom>';
@@ -304,9 +306,9 @@ function together(scene) {
 // them. A text on its own is a text box placed so that its lines fall where the scene sets them. A line is a
 // connector glued to the shapes it joins, so that it follows them when they're moved; what moves as one is
 // grouped: a line and its label, lines said as one (see together), a frame and its caption, the Key. `say`
-// names lines' relations, which is their alt text too. → what finishes the slide's XML once the deck is
-// written, when every shape has its number (PptxGenJS numbers a slide's shapes in the order they're added, from
-// 2): each stand-in replaced by what it stands for.
+// names lines' relations, and with the entries their labels say, describes them. → what finishes the slide's
+// XML once the deck is written, when every shape has its number (PptxGenJS numbers a slide's shapes in the
+// order they're added, from 2): each stand-in replaced by what it stands for.
 function slide(p, scene, { k, ox, oy }, say) {
   const sl = p.addSlide(), parts = [], ids = new Map();
   let count = 0;
@@ -328,12 +330,12 @@ function slide(p, scene, { k, ox, oy }, say) {
   // What `draw` adds, as one group named `name` (and with `alt` its alt text), framed round the rects `draw`
   // gives back. → those rects.
   const group = (name, draw, alt) => { let rects; put(id => grouped(id, name, rects, alt)); rects = draw(); put(() => '</p:grpSp>'); return rects; };
-  // A line, glued where it starts and ends, broken where the scene breaks it (its `runs`); and with `label` ([its
-  // texts, where they're placed from]) its label: the two grouped, named as the line is. Its `alt` text is the
-  // group's, or the connector's where it's alone. → its rects.
-  const connector = (points, s, ends, name, { label = null, runs, alt } = {}) => {
+  // A line, glued where it starts and ends; and with `label` ([its texts, where they're placed from]) its label:
+  // the two grouped, named as the line is. Its `alt` text is the group's, or the connector's where it's alone.
+  // → its rects.
+  const connector = (points, s, ends, name, { label = null, alt } = {}) => {
     const draw = () => {
-      put(id => cxn(id, name, points, s, ends?.map((b, i) => glue(scene.byId.get(b), points, i)), { X, Y, k, alt: label ? null : alt, runs }));
+      put(id => cxn(id, name, points, s, ends?.map((b, i) => glue(scene.byId.get(b), points, i)), { X, Y, k, alt: label ? null : alt }));
       return [...points.map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
     };
     return label ? group(name, draw, alt) : draw();
@@ -354,14 +356,15 @@ function slide(p, scene, { k, ox, oy }, say) {
     if (m.type === 'box') ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : 'ctr', inset: CHART }));
     else if (m.type === 'line') {
       // Lines said as one are one group, named for them all and described so, each line in it named for its own
-      // relation; a line alone is named for its relation.
+      // relation; a line alone is named for its relation. Each is described with what its label says.
       if (done.has(m.id)) continue;
       const ls = fellows.get(m.id), drawn = ls.filter(l => !l.merged), lab = drawn.find(l => l.labelAt && l.texts.length), label = lab ? [lab.texts, lab.labelAt] : null;
       drawn.forEach(l => done.add(l.id));
-      const said = say(ls.map(l => l.record), scene.byId.get(m.landed)?.caption.text), name = said ?? (lab ?? m).texts[0]?.text ?? 'Line';
-      const line = (l, name, more) => connector(l.points, look(l), [l.from, l.to], name, { runs: l.runs, ...more });
-      if (drawn.length === 1) line(m, name, { label, alt: said });
-      else group(name, () => [...drawn.flatMap(l => line(l, say([l.record]) ?? name)), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])], said);
+      const rels = ls.map(l => l.record), caption = scene.byId.get(m.landed)?.caption.text, said = say(rels, caption), name = said ?? (lab ?? m).texts[0]?.text ?? 'Line';
+      const alt = said && say(rels, caption, ls.flatMap(l => l.texts.map(it => it.id)));
+      const line = (l, name, more) => connector(l.points, look(l), [l.from, l.to], name, more);
+      if (drawn.length === 1) line(m, name, { label, alt });
+      else group(name, () => [...drawn.flatMap(l => line(l, say([l.record]) ?? name)), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])], alt);
     }
     else if (m.type === 'frame') {
       // Its outline, a rectangle or a bracket, and its caption; round one box alone, its caption alone.
@@ -409,21 +412,17 @@ function grouped(id, name, rects, alt) {
 // A route as PowerPoint's connector: straight, or an elbow of one to four legs (bentConnector3 for one or
 // three, 2 and 4 for two and four), its legs set by the adjustments, so it stays square when what it joins is
 // moved; a route no connector draws is a freeform. An elbow whose first leg is upright is one whose first leg
-// runs across, turned a quarter. A route the scene breaks where others cross it (its `runs`) is one shape all the
-// same, glued as any other, its outline clear across each break (see clear): so it moves with its boxes as one
-// line, and what it crosses shows through the break at any zoom, whichever is on top.
-function cxn(id, name, ps, s, ends, { X, Y, k, alt, runs = [ps] }) {
-  const at = ([x, y]) => [E(X(x)), E(Y(y))], q = ps.map(at);
+// runs across, turned a quarter.
+function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
+  const q = ps.map(([x, y]) => [E(X(x)), E(Y(y))]);
   const [x0, y0] = q[0], [x1, y1] = q.at(-1), dx = x1 - x0, dy = y1 - y0, legs = q.length - 1;
   const elbow = s.Connector === 'elbow' && (legs > 1 || !dx || !dy), upright = legs > 1 ? q[1][0] === x0 : elbow && !dx;
   const square = legs === 1 || q.slice(1).every((p, i) => (i % 2 === 0) === upright ? p[0] === q[i][0] : p[1] === q[i][1]);
-  const heads = `${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}`;
-  // Each break, from where a run ends to where the next begins, across the slide.
-  const breaks = runs.slice(1).map((r, i) => [at(runs[i].at(-1))[0], at(r[0])[0]]);
+  const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}`);
   const nv = (tag, inner) => `<p:nv${tag}Pr>${cNvPr(id, name || 'Line', alt)}<p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
   if (legs > 4 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
     const x = Math.min(...q.map(p => p[0])), y = Math.min(...q.map(p => p[1])), w = Math.max(...q.map(p => p[0])) - x, h = Math.max(...q.map(p => p[1])) - y;
-    return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${ln(s, k, heads, clear(q, breaks, 1, 0, s.Outline, Math.round(s.Weight * k * 12700) / 2))}</p:spPr></p:sp>`;
+    return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${line}</p:spPr></p:sp>`;
   }
   const W = Math.abs(upright ? dy : dx), H = Math.abs(upright ? dx : dy);
   const flipH = upright ? dy < 0 : dx < 0, flipV = upright ? dx > 0 : dy < 0;
@@ -434,27 +433,7 @@ function cxn(id, name, ps, s, ends, { X, Y, k, alt, runs = [ps] }) {
   const glue = (tag, e) => e ? `<a:${tag} id="${e.id}" idx="${e.idx}"/>` : '';
   return `<p:cxnSp>${nv('CxnSp', glue('stCxn', ends?.[0]) + glue('endCxn', ends?.[1]))}<p:spPr>`
     + xfrm(Math.round(cx - W / 2), Math.round(cy - H / 2), W, H, `${upright ? ' rot="5400000"' : ''}${flipH ? ' flipH="1"' : ''}${flipV ? ' flipV="1"' : ''}`)
-    + `<a:prstGeom prst="${prst}"><a:avLst>${adj.map((a, i) => `<a:gd name="adj${i + 1}" fmla="val ${Math.round(a * 100000)}"/>`).join('')}</a:avLst></a:prstGeom>`
-    + `${ln(s, k, heads, clear(q, breaks, Math.sign(dx) || 1, upright ? 5400000 : 0, s.Outline))}</p:spPr></p:cxnSp>`;
-}
-
-// A route q's paint: `color`, clear across each break. It's a gradient over the route's own extent across the
-// slide, turned `ang` with its shape so it runs across the slide however the shape is turned, and beginning on the
-// side it does (`dir`: -1 where the shape is flipped so its frame runs leftward); a freeform's spread `pad` further
-// either side, half its line's width, as PowerPoint spreads one over its stroke. PowerPoint has no hop, and this
-// one holds at every zoom, on any background, at any weight, whichever line is on top: it won't open a connector
-// of its own path; a dash is counted in widths of the line as drawn, so a break dashed lands elsewhere at each
-// zoom; and a shape laid over a break needs the line it breaks under the one breaking it, which two lines breaking
-// each other can't both be. A break that would clear more of the route than its own stretch, as on an elbow
-// doubling back, stays drawn.
-function clear(q, breaks, dir, ang, color, pad = 0) {
-  const xs = q.map(p => p[0] * dir), lo = Math.min(...xs) - pad, t = x => (x * dir - lo) / (Math.max(...xs) + pad - lo);
-  const legs = q.slice(1).map((p, i) => [t(q[i][0]), t(p[0])].sort((m, n) => m - n));
-  const bands = breaks.map(br => br.map(t).sort((m, n) => m - n)).filter(([m, n]) => legs.filter(([u, v]) => v > m && u < n).length === 1);
-  if (!bands.length) return paint(color);
-  const stop = (pos, through) => `<a:gs pos="${Math.round(pos * 100000)}"><a:srgbClr val="${hex(color)}"${through ? '><a:alpha val="0"/></a:srgbClr>' : '/>'}</a:gs>`;
-  return `<a:gradFill rotWithShape="1"><a:gsLst>${stop(0)}${bands.sort((m, n) => m[0] - n[0]).map(([m, n]) => stop(m) + stop(m, true) + stop(n, true) + stop(n)).join('')}`
-    + `${stop(1)}</a:gsLst><a:lin ang="${ang}" scaled="0"/></a:gradFill>`;
+    + `<a:prstGeom prst="${prst}"><a:avLst>${adj.map((a, i) => `<a:gd name="adj${i + 1}" fmla="val ${Math.round(a * 100000)}"/>`).join('')}</a:avLst></a:prstGeom>${line}</p:spPr></p:cxnSp>`;
 }
 
 // ---- Writing a file ----
@@ -463,7 +442,7 @@ const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*
 // A file of one page is titled as its page is; of more, by `name`, the chart's.
 async function write(format, scenes, name, { author = '', R = null, N = null } = {}) {
   const title = scenes.length === 1 ? titleOf(scenes[0]) || name : name;
-  const blob = format === 'pdf' ? await pdf(scenes, title, author) : await pptx(scenes, title, author, (rels, caption) => R && N ? sentence(R.records, N, rels, caption) : null);
+  const blob = format === 'pdf' ? await pdf(scenes, title, author) : await pptx(scenes, title, author, (rels, caption, entries) => R && N ? sentence(R.records, N, rels, caption, entries) : null);
   save(blob, `${fileName(name)}.${format}`);
   return blob;
 }
@@ -474,19 +453,23 @@ async function write(format, scenes, name, { author = '', R = null, N = null } =
 const plain = s => String(s).split(' · ').map(p => p.replace(/(?:[a-z][a-z0-9+.-]*:\/\/|\\\\|\b[a-z]:\\).*$/i, a => Tree.linkOf(a).short)).join(' · ');
 // A relation as the two-box panel says it, in the formula bar's words where they're to be had, its sides by the
 // place rule (Notes.placed), so each once: Margaret A. Chen signs for Fund III, via GP III; but Margaret A. Chen
-// signs for the Manager, not via it as well. → { p, words, q, rest }: its first two sides' objects in the order
-// the words say them, then the rest as the place rule joins them; or, where a side after the first is named by a
-// number, a period of the other and not a party to it, { text }, as the place rule says it: Fund III, tax year
+// signs for the Manager, not via it as well. → { p, words, q, rest, with }: its first two sides' objects in the
+// order the words say them, then the rest as the place rule joins them, then the entries at it among `entries` as
+// the formula bar says them with a fact (with a percentage of 50%); or, where a side after the first is named by
+// a number, a period of the other and not a party to it, { text }, as the place rule says it: Fund III, tax year
 // 2026. Null for a relation of fewer than two sides.
-function clause(st, N, rel) {
+function clause(st, N, rel, entries = []) {
   const r = st[rel], xs = r?.args ? N.placed(st, rel) : [];
   if (xs.length < 2) return null;
   if (xs.slice(1).some(x => /^\d+$/.test(x.text))) return { text: plain(xs.map(x => x.join + x.text).join('')) };
-  const lower = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
+  const lower = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase()), an = w => /^[aeiou]/i.test(w) ? 'an' : 'a';
   const [a, b, ...rest] = xs, t = Tree.treeOf(st, rel), role = r.choice ?? a.edge;
   const [p, words, q] = (t && typeof FormulaBar !== 'undefined' && FormulaBar.phrase?.(t, a.edge, b.edge, { choice: r.choice, not: r.tag === false }))
-    || [a.edge, ` is ${r.tag === false ? 'not ' : ''}${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${lower(role)} of `, b.edge];
-  return { p: (p === a.edge ? a : b).id, words, q: (q === a.edge ? a : b).id, rest };
+    || [a.edge, ` is ${r.tag === false ? 'not ' : ''}${an(role)} ${lower(role)} of `, b.edge];
+  const at = [...new Set(entries)].map(e => st[e]).filter(e => e?.at === rel && ('field' in e || 'tag' in e));
+  const said = at.map((e, i) => `${!i ? ' ' : i < at.length - 1 ? ', ' : ' and '}${'tag' in e ? `${e.tag ? 'with' : 'without'} ${lower(e.edge)}`
+    : `${i ? '' : 'with '}${an(e.edge)} ${lower(e.edge)} of ${Tree.outputText(e)}`}`).join('');
+  return { p: (p === a.edge ? a : b).id, words, q: (q === a.edge ? a : b).id, rest, with: said };
 }
 // A frame's caption mid-sentence, after "the". A caption is set as a heading is, its first word capitalised as a
 // heading's is. One in title case, a single word among them, is said as written, as a defined term is: each of
@@ -501,13 +484,13 @@ const called = c => {
 // Relations said as one, as one line, or a group of them, draws them all (see together), each object by its
 // short name, one of its own begun with The said "the" after the sentence's first word (the BDC). One relation as
 // `clause` says it; several alike but for one side, that side said once for them all: by `caption`, the frame's
-// they land on (see called), or else in turn (Fund III, Fund III-A and AIV-1); any others, each in turn.
-// → null where none has two sides.
-function sentence(st, N, rels, caption = null) {
-  const cs = rels.map(rel => clause(st, N, rel)).filter(Boolean), [c] = cs;
+// they land on (see called), or else in turn (Fund III, Fund III-A and AIV-1); any others, each in turn. Each
+// with the `entries` at it (see clause). → null where none has two sides.
+function sentence(st, N, rels, caption = null, entries = []) {
+  const cs = rels.map(rel => clause(st, N, rel, entries)).filter(Boolean), [c] = cs;
   if (!c) return null;
   const short = x => plain(N.shortOf(st, x)), term = x => short(x) !== plain(N.nameOf(st, x)) ? short(x).replace(/^The /, 'the ') : short(x);
-  const rest = x => x.rest.map(s => s.join + term(s.id)).join(''), one = x => x.text ?? `${short(x.p)}${x.words}${term(x.q)}${rest(x)}`;
+  const rest = x => x.rest.map(s => s.join + term(s.id)).join('') + (x.rest.length && x.with ? ',' : '') + x.with, one = x => x.text ?? `${short(x.p)}${x.words}${term(x.q)}${rest(x)}`;
   const alike = f => new Set(cs.map(f)).size === 1, p = alike(x => x.p), q = alike(x => x.q);
   if (alike(one)) return one(c);
   if (cs.some(x => x.text) || p === q || !alike(x => x.words + rest(x))) return [...new Set(cs.map(one))].join('; ');
@@ -518,21 +501,21 @@ function sentence(st, N, rels, caption = null) {
 
 // ---- The calendar ----
 
-// The chart's dates from `from` on, and before it what's overdue, which is still due (Formulas.attention), as
-// worked out, in order, each as the Dates table says it: its day, what falls due, and whose (Time.whose), an
-// address by its file's name; and whether it's `overdue`.
+// What falls due: each date a formula gives, or an entry gives in its place, the deadlines the Dates table and
+// the status bar count (Formulas.attention), as worked out, in order, each as the Dates table says it: its day,
+// what falls due, and whose (Time.whose), an address by its file's name; and whether it's `overdue`, before
+// `from`, as it's still due. A date entered (a filing made, renewed today) records what was done.
 function dates(R, N, from = '') {
-  const st = R.records, overdue = new Set(from ? Formulas.attention(R, N, from).filter(a => a.kind === 'overdue').map(a => a.id) : []);
-  return Object.entries(st).filter(([id, r]) => r.field === 'date' && /^\d{4}-\d\d-\d\d$/.test(r.value) && (r.value >= from || overdue.has(id)))
+  const st = R.records;
+  return Object.entries(st).filter(([id, r]) => r.field === 'date' && (R.computed[id] || R.covered[id]) && /^\d{4}-\d\d-\d\d$/.test(r.value))
     .sort((a, b) => a[1].value.localeCompare(b[1].value))
-    .map(([id, r]) => ({ id, day: r.value, what: N.nameOf(st, id), whose: plain(Time.whose(st, r.at, N)), overdue: overdue.has(id) }));
+    .map(([id, r]) => ({ id, day: r.value, what: N.nameOf(st, id), whose: plain(Time.whose(st, r.at, N)), overdue: r.value < from }));
 }
 // A date as the date's popover says it: what falls due, then whose.
 const summary = e => [e.what, e.whose].filter(Boolean).join(' · ');
 // Why a date falls when it does, as the formula bar says it; nothing where the bar says nothing.
 const why = id => FormulaBar.sentence(id) ?? '';
-// The dates from `from` on, and what's overdue, as one all-day event each on its day, for Outlook, titled by its
-// summary and described by why.
+// What falls due, as one all-day event each on its day, for Outlook, titled by its summary and described by why.
 function calendar(R, N, chart, name, from = Log.today()) {
   const text = s => s.replace(/[\\;,]/g, c => `\\${c}`).replace(/\r?\n/g, '\\n');
   // Lines of at most 75 octets, each continued after a space.
