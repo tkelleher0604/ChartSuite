@@ -611,11 +611,11 @@ const Table = (() => {
 
   function build(m) {
     // Built again in its view (a column shown, hidden or kept in view), the grid stays where it was scrolled, with what was
-    // selected in it: its first and last rows and columns, a column selected whole whole.
-    const look = lookOf(m.view), h = table?.rowManager.element, r = ready && table.getRanges()[0];
-    const ends = xs => xs.length ? [xs[0], xs.at(-1)] : null, rs = r && ends(r.getRows().map(x => x.getData().id)), cs = r && ends(r.getColumns().map(c => c.getField()).filter(Boolean));
-    const was = table && ready && built?.view === m.view ? { left: h.scrollLeft, top: h.scrollTop, rs, cs, whole: r && r.getRows().length === table.getRows('active').length,
+    // selected in it, by its records and columns (stay); in another, with nothing.
+    const look = lookOf(m.view), h = table?.rowManager.element;
+    const was = table && ready && built?.view === m.view ? { left: h.scrollLeft, top: h.scrollTop,
       fields: table.getColumns().map(c => c.getField()).filter(Boolean), pins: pinsOf(table).map(c => c.getField()) } : null;
+    if (!was) chosen = null;
     if (table) { table.destroy(); table = null; }
     ready = false;
     cells.replaceChildren();
@@ -664,8 +664,8 @@ const Table = (() => {
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
     t.on('cellEditCancelled', () => back());
     t.on('cellClick', (e, cell) => { if (e.target.closest('.tag')) flip(cell); });
-    t.on('rangeChanged', () => { soon(); tally(); });
-    t.on('rangeAdded', range => { if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
+    t.on('rangeChanged', range => { remember(range); soon(); tally(); });
+    t.on('rangeAdded', range => { remember(range); if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
     t.on('rangeRemoved', tally);
     t.on('dataSorted', sorters => { if (ready && t === table) keepSort(sorters); });
     t.on('columnMoved', () => placeColumns());
@@ -678,9 +678,10 @@ const Table = (() => {
     // What's selected is outlined only where the grid scrolls, never over the columns kept in view (table.css).
     t.on('scrollHorizontal', left => t.element.style.setProperty('--across', `${left}px`));
     for (const ev of ['dataFiltered', 'dataSorted', 'rowAdded', 'rowDeleted', 'groupVisibilityChanged']) t.on(ev, () => requestAnimationFrame(strip));
-    // Filtered or sorted, the cells under the selection are others: they're counted again (a moment later, once the rows are).
-    t.on('dataFiltered', () => { looked.value++; setTimeout(tally); });
-    t.on('dataSorted', () => setTimeout(tally));
+    // Filtered, sorted or grouped, what's selected follows its records (a moment later, once the rows are).
+    t.on('dataFiltered', () => { looked.value++; setTimeout(stay); });
+    t.on('dataSorted', () => setTimeout(stay));
+    t.on('dataGrouped', () => setTimeout(stay));
     // A grid built again before this one was, this one's building done is nothing: it would ready, and lay out, the next.
     t.on('tableBuilt', () => {
       if (t !== table) return;
@@ -693,11 +694,7 @@ const Table = (() => {
       wireHeadings(t);
       tall.set(t, t.element.clientHeight);
       mark();
-      if (was?.rs && was.cs) {
-        const all = t.getRows('active'), row = id => t.rowManager.findRow(id)?.getComponent(), col = f => t.getColumns().find(c => c.getField() === f);
-        const [r0, r1] = was.whole ? [all[0], all.at(-1)] : was.rs.map(row), [c0, c1] = was.cs.map(col);
-        if (r0 && r1 && c0 && c1) hold(r0.getCell(c0), r1.getCell(c1));
-      }
+      if (was) stay();
       reveal(Shell.selection.peek()[0]);
       regain();
       settle();
@@ -789,6 +786,7 @@ const Table = (() => {
       if (first) reveal(first);
       flash(lit);
       regain();
+      stay();
       tally(); looked.value++;
       strip();
       if (f.again) refresh(); else settle();
@@ -1985,7 +1983,37 @@ const Table = (() => {
   const soon = () => { if (arranging || due) return; due = true; queueMicrotask(() => { due = false; pick(); }); };
   function hold(a, b = a) { const r = table.addRange(a, b); quiet.add(r.getComponent()); return r; }
   // No cell active, and none drawn so (Tabulator leaves the last drawn where it was).
-  function unhold() { const sr = table.modules.selectRange; sr.clearRanges(); sr.activeRange = false; sr.layoutElement(); sr.overlay.style.visibility = 'hidden'; }
+  function unhold() { chosen = null; const sr = table.modules.selectRange; sr.clearRanges(); sr.activeRange = false; sr.layoutElement(); sr.overlay.style.visibility = 'hidden'; }
+  // What's selected is records and columns, not places on the screen (`chosen`: the range's rows by their records, its
+  // columns by their fields, as it was last made). Sorted, filtered, grouped, built again, or with rows come or gone, the
+  // range follows them: the run of them in a row from the first that's still shown, or nothing where they're all gone. So
+  // the status bar counts, sums and averages what was selected, always.
+  let chosen = null, following = false;
+  const shownRows = () => table.rowManager.getDisplayRows().filter(r => r.type === 'row').map(r => r.getComponent());
+  function remember(range) {
+    if (following || arranging || !table) return;
+    const r = range ?? table.getRanges().at(-1), rows = r?.getRows() ?? [];
+    chosen = !rows.length ? null : { rows: rows.map(x => x.getData().id), cols: r.getColumns().map(c => c.getField()).filter(Boolean), whole: rows.length > 1 && rows.length === shownRows().length };
+  }
+  function stay() {
+    // A range just made is placed a moment later, and is then what's chosen (remember).
+    const pending = table?.modules.selectRange?.activeRange;
+    if (!chosen || !table || !ready || (pending && !pending.initialized)) return;
+    const shown = shownRows(), at = new Map(shown.map((r, i) => [r.getData().id, i])), was = chosen;
+    const idx = was.whole ? shown.map((_, i) => i) : was.rows.map(id => at.get(id)).filter(i => i !== undefined).sort((x, y) => x - y);
+    const cols = table.getColumns().filter(c => was.cols.includes(c.getField()));
+    following = true;
+    try {
+      if (!idx.length || !cols.length) return unhold();
+      let b = idx[0];
+      while (idx.includes(b + 1)) b++;
+      const rows = shown.slice(idx[0], b + 1), r = table.getRanges()[0], ids = rs => rs.map(x => x.getData().id).join(), fs = cs => cs.map(c => c.getField()).join();
+      if (!r || ids(r.getRows()) !== ids(rows) || fs(r.getColumns().filter(c => c.getField())) !== fs(cols)) hold(rows[0].getCell(cols[0]), rows.at(-1).getCell(cols.at(-1)));
+      chosen = { ...was, rows: rows.map(x => x.getData().id) };
+      // Kept to fewer of them than were selected (the rest gone apart), the records selected are those it keeps.
+      if (!was.whole && rows.length < was.rows.length && was.rows.some(id => Shell.selection.peek().includes(id))) { picking = true; Shell.select(chosen.rows.filter(id => App.state.peek()[id])); picking = false; }
+    } finally { following = false; tally(); }
+  }
   function pick() {
     const range = ready && table?.modules.selectRange?.activeRange;
     if (!range?.initialized || range.destroyed || !current) return;

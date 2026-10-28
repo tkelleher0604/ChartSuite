@@ -446,6 +446,19 @@ async function run() {
     // The status bar counts the cells selected, and sums and averages their numbers.
     Table.grid.addRange(raOf(rows3[0]), raOf(rows3[5])); await tick(100);
     check('Cells selected are counted in the status bar, as Excel counts them', /Count 6/.test($('.status .tstats')?.textContent ?? '') && !/Sum/.test($('.status .tstats').textContent), $('.status .tstats')?.textContent);
+    // What's selected is records and columns: sorted, the range follows them; grouped apart, it keeps the run of them in a
+    // row, never another record's cells; and the status bar counts what it then holds.
+    {
+      const three = rows3.slice(0, 3).map(r => r.getData().id), held = () => Table.grid.getRanges()[0]?.getRows().map(r => r.getData().id) ?? [];
+      Table.grid.addRange(raOf(rows3[0]), raOf(rows3[2])); await tick(150);
+      await menuOf('Name'); item('Sort Z to A').click(); await tick(400);
+      check('Sorted, the cells selected stay on the records selected, the status bar counting those', held().length === 3 && held().every(id => three.includes(id))
+        && Table.grid.getRows('active').at(-1).getData().id === three[0] && /Count 3/.test($('.status .tstats')?.textContent ?? ''), `${held().join()} / ${three.join()} ${$('.status .tstats')?.textContent}`);
+      tool('Group').click(); await tick(); item('Jurisdiction').click(); await tick(500);
+      check('… grouped apart, the run of them in a row, and no other record’s cells', held().length >= 1 && held().every(id => three.includes(id)), `${held().join()} / ${three.join()}`);
+      tool('Grouped by Jurisdiction').click(); await tick(); item('None').click(); await tick(300);
+      tool('Name, Z to A').click(); await tick(); item('Clear sort').click(); await tick(300);
+    }
 
     // The new row: a name typed there adds an entity, as one change.
     n1 = N();
@@ -1070,7 +1083,7 @@ async function run() {
     const heads = $$('.grid .tabulator-group').map(g => g.firstChild?.textContent ?? g.textContent);
     check('Dates are grouped by month till grouped by whose, or what falls due', ways[0] === 'Month' && ways.includes('Whose') && ways.includes('What') && !!tool('Grouped by Whose') && heads.length > 1 && !heads.includes('Overdue'), `${ways.join()} / ${heads.slice(0, 4).join()}`);
     tool('Grouped by Whose').click(); await tick(); item('Month').click(); await tick(300);
-    check('… and Month groups them by month again', !Table.look(dv).group && $$('.grid .tabulator-group')[0]?.textContent.startsWith('Overdue'), $$('.grid .tabulator-group')[0]?.textContent);
+    check('… and Month groups them by month again', !Table.look(dv).group && Table.model(dv).groups[0] === 'overdue' && !!tool('Grouped by month'), Table.model(dv).groups.slice(0, 3).join());
   }
   await addTable(null, 'Documents');
   const docs = Table.model(Shell.view.peek());
