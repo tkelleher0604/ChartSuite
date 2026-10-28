@@ -395,6 +395,8 @@ function mount(el) {
     syncSelection();
     paintStates();
     seek();
+    // A field's name said on hover goes as the chart is drawn again, which may have moved it.
+    tipFor(null);
   }
   // The graph's cells made these. Each is kept by what it's drawn from, in two parts, where it is (a node's
   // place, size and stacking, a line's route) and what it is (its markup, attributes and data): one that only
@@ -1222,7 +1224,7 @@ function mount(el) {
   // Pointing at a box shows its handles, as Lucidchart's do, and at a field, that it's one (see Fields).
   root.addEventListener('pointermove', e => {
     if (!scene || e.target.closest?.('.dc-handle, .dc-edit, .dc-complete')) return;
-    const f = e.buttons || pointing ? null : fieldUnder(e.clientX, e.clientY);
+    const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY);
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
     hover(f);
   });
