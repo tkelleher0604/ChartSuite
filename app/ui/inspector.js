@@ -1291,7 +1291,9 @@ Shell.register('find', { items: () => {
   }
   return out;
 } });
-on('relate-open', d => select(d));
+// The two-box panel asked for (a handle dropped on a box, a box made from one, Relate…) is seen, the panel brought back if
+// it was put away.
+on('relate-open', d => { Shell.showPanel?.(); select(d); });
 // A relation just added offers its entries while its two boxes stay selected.
 on('select', () => { fresh.value = null; });
 // A definition opened from the formula bar widens the inspector, since its statute set out wide is what the
