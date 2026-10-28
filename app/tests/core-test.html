@@ -190,6 +190,18 @@ function run(json) {
       && M.description(Tree.treeOf(w.asOf(C, TODAY), 'gp_ein')) === N.description(tree('gp_ein')));
     commit(w, tx => tx.note('As Of', p, undefined));
     check('… and removes it when given nothing', w.notes(C).value('As Of', p) === undefined);
+    // Within one change, each note written finds the one it replaces, written in that change or before, at its pattern,
+    // view and param alone.
+    const fill = { kind: 'Entity' }, owners = { args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] }, before = w.rows(C).filter(r => 'note' in r).length;
+    commit(w, tx => {
+      tx.note('Fill', fill, 'red', { view: 'view_main' }); tx.note('Fill', fill, 'blue', { view: 'view_main' }); tx.note('Fill', fill, 'green', { view: 'view_40act' });
+      tx.note('Name', owners, 'Holders', { param: 'Owner' }); tx.note('Name', owners, 'Holders of', { param: 'Owner' }); tx.note('Fill', fill, 'gold'); tx.note('Fill', fill, undefined);
+    });
+    const M2 = w.notes(C), at = (l, v, pr) => M2.notes(l).filter(n => Tree.key(n.pattern) === Tree.key(l === 'Name' ? owners : fill) && (n.view ?? null) === (v ?? null) && (n.param ?? null) === (pr ?? null));
+    check('… and in one change, each note written replaces the one at its pattern, view and param, written then or before',
+      j(at('Fill', 'view_main').map(n => n.value)) === j(['blue']) && j(at('Fill', 'view_40act').map(n => n.value)) === j(['green']) && !at('Fill').length
+      && j(at('Name', undefined, 'Owner').map(n => n.value)) === j(['Holders of']) && w.rows(C).filter(r => 'note' in r).length === before + 2,
+      j([at('Fill', 'view_main'), at('Fill', 'view_40act'), at('Fill'), at('Name', undefined, 'Owner')].map(ns => ns.map(n => n.value))));
     commit(w, tx => tx.update('fund_ein', { value: '99-9999999' }), { day: '2025-01-01' });
     check('tx.update changes the version in force, from the day shown', w.asOf(C, TODAY).fund_ein.value === '99-9999999' && w.asOf(C, '2024-12-31').fund_ein.value === '92-4810337');
   }

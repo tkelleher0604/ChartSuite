@@ -246,10 +246,14 @@ function open(data) {
     const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set();
     let named = 0;
     const name = () => !ids ? newId() : named < ids.length ? ids[named++] : (ids[named++] = newId());
-    const put = r => { adds.set(r.id, r); push(items, itemOf(r), r); };
+    // The note rows by what they're at, once a note is written, so each note written finds the one it replaces at once.
+    let noted = null;
+    const noteKey = r => JSON.stringify([r.label, r.view ?? null, r.param ?? null, Tree.key(r.pattern)]);
+    const put = r => { adds.set(r.id, r); push(items, itemOf(r), r); if (noted && 'note' in r) push(noted, noteKey(r), r); };
     const drop = r => {
       if (!adds.delete(r.id)) removes.add(r.id);
       const rs = items.get(itemOf(r)); rs.splice(rs.indexOf(r), 1); if (!rs.length) items.delete(itemOf(r));
+      if (noted && 'note' in r) { const ns = noted.get(noteKey(r)); ns?.splice(ns.indexOf(r), 1); }
     };
     const all = () => [...items.values()].flat();
     const swap = (r, u) => { if (u !== r) { drop(r); put({ ...u, id: newId() }); } };
@@ -298,7 +302,10 @@ function open(data) {
       // A Name that changes renames it in the formulas that cite it.
       note(label, pattern, value, { view, param } = {}) {
         const k = Tree.key(pattern);
-        const old = all().find(r => 'note' in r && r.label === label && (r.view ?? null) === (view ?? null) && (r.param ?? null) === (param ?? null) && Tree.key(r.pattern) === k);
+        if (!noted) { noted = new Map(); for (const r of all()) if ('note' in r) push(noted, noteKey(r), r); }
+        // (Where two disagree, the first of the rows, as they're kept.)
+        const at = noted.get(JSON.stringify([label, view ?? null, param ?? null, k])) ?? [];
+        const old = at.length < 2 ? at[0] : all().find(r => at.includes(r));
         if (value === undefined || value === null) { if (old) drop(old); return; }
         if (old && JSON.stringify(old.value) === JSON.stringify(value)) return;
         const row = { label, pattern, ...(view && { view }), ...(param && { param }), value };
