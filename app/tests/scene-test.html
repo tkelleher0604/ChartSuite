@@ -847,6 +847,42 @@ function run() {
     const t1 = performance.now(); Scene.of(wb, C, MAIN, DAY, { state: worked(wb) }); const again = performance.now() - t1;
     check('a layout is kept, and laid out again only when what it reads changes', again < 50, `${again.toFixed(1)} ms with the engine`);
   }
+
+  // ---- Fields (dendra.md, Fields): a field shown or hidden is a Shown note at the entry's pattern at a scope, or beside
+  // an output; the narrowest decides; one shown at a scope with no record is blank; a Text note is one more text ----
+  {
+    const wb = fresh(), view = { view: MAIN }, own = id => ({ id, kind: 'Entity' }), at = (edge, loc) => ({ args: [{ edge, loc }] });
+    const LP = { out: { choice: 'Limited Partnership' }, args: [{ edge: 'Entity Type', loc: {} }] };
+    let s = scene(wb);
+    const texts = id => s.byId.get(id)?.texts.map(it => it.text) ?? [], items = id => s.byId.get(id)?.texts ?? [];
+    const again = f => { edit(wb, tx => f(tx)); s = scene(wb); };
+    again(tx => ['Main Fund', 'Feeder Fund'].forEach(o => tx.note('Shown', VT(o), true, { ...view, param: 'EIN' })));
+    check('a field shown beside an output (EIN beside Vehicle Type: Main Fund, Feeder Fund) is drawn in each box the output reaches, and in no other',
+      texts('fund').includes('92-4810337') && texts('feeder').includes('98-1702264') && !items('aiv').some(it => tree(wb, it.id)?.args?.[0].edge === 'EIN'), `${texts('fund')} | ${texts('feeder')} | ${texts('aiv')}`);
+    again(tx => tx.note('Shown', at('EIN', own('fund')), false, view));
+    check('… and one box’s own note, the narrowest, hides it in that box alone', !texts('fund').includes('92-4810337') && texts('feeder').includes('98-1702264'), texts('fund'));
+    again(tx => tx.note('Shown', VT('Main Fund'), false, { ...view, param: 'Jurisdiction' }));
+    check('a field hidden beside an output decides over the style that shows the entry wherever it is (Jurisdictions): it’s the entry in those boxes only',
+      !texts('fund').includes('(Delaware)') && texts('aiv').includes('(Delaware)'), `${texts('fund')} | ${texts('aiv')}`);
+    check('… and a field beside an output is no look of a style’s: no Styles row, no Key row', !wb.notes(C).styles(MAIN).some(st => st.outputs.some(o => 'Shown' in o.formats && Tree.key(o.pattern) === Tree.key(VT('Main Fund'))))
+      && !s.legend.some(r => r.outputs.some(o => Tree.key(o) === Tree.key(VT('Main Fund')) && r.caption === 'Main Fund')));
+    again(tx => tx.note('Shown', at('Short Name', { kind: 'Entity' }), true, view));
+    const blank = items('northpine').find(it => it.blank);
+    check('a field shown at a kind is blank in a box whose record has none: its entry’s name, in its order, the box keeping its room',
+      blank?.text === 'Short Name' && blank.blank.at === 'northpine' && blank.lines.length === 1 && items('northpine').indexOf(blank) > 0 && texts('feeder').includes('Offshore Feeder'), JSON.stringify(texts('northpine')));
+    check('… where its kind could have it: no blank in a person’s box', !items('chen').some(it => it.blank));
+    again(tx => { tx.note('Shown', at('Short Name', { kind: 'Entity' }), undefined, view); tx.note('Shown', at('Short Name', {}), true, view); });
+    check('… but a field shown at the entry wherever it is, at no kind, shows it where there is one, and is never blank', !s.marks.some(m => m.texts?.some(it => it.blank)) && texts('feeder').includes('Offshore Feeder'));
+    again(tx => tx.note('Text', LP, { text: 'Formed {Formation Date}' }, view));
+    const free = id => items(id).find(it => it.free);
+    check('a Text note at an output is one more text after the fields of each box it reaches, its {Entry} read as the record reads it',
+      free('fund')?.text === 'Formed February 14, 2023' && items('fund').at(-1) === free('fund') && !!free('aiv') && !free('northpine'), `${free('fund')?.text} | ${free('aiv')?.text}`);
+    again(tx => tx.note('Text', own('aiv'), { text: '' }, view));
+    check('… and a box’s own, empty, the narrowest, gives it none', !free('aiv') && !!free('fund'));
+    again(tx => tx.note('Text', own('fund'), { text: 'Formed {Formation Date}\n{No Such Entry}EIN {EIN}', Italic: true }, view));
+    check('… a box’s own takes its group’s place: an entry it hasn’t reads as nothing, a line break is kept, its look is its own',
+      free('fund')?.text === 'Formed February 14, 2023\nEIN 92-4810337' && free('fund').look.Italic === true && free('fund').settings.Italic.note?.label === 'Text', JSON.stringify(free('fund')?.text));
+  }
 }
 
 // Canvas.writeNote, without the canvas: a note at exactly this pattern, label and view.

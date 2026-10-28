@@ -404,6 +404,30 @@ async function run() {
       Object.values(typed).every(t => on.includes(`Each of the ${t} is a close affiliate of the BDC`)), on.filter(n => n.startsWith('Each of')).join(' | '));
   }
 
+  // ---- A box's fields (dendra.md, Fields): a free text drawn in the deck and the PDF as the scene reads it, {Entry}
+  // and all; a blank field's name never, its room kept, in the deck an empty paragraph ----
+  {
+    const wb5 = Log.open(SAMPLE), main = 'view_main', tx = wb5.edit({ chart: C, who: WHO });
+    tx.note('Text', { out: { choice: 'Limited Partnership' }, args: [{ edge: 'Entity Type', loc: {} }] }, { text: 'Formed {Formation Date}' }, { view: main });
+    tx.note('Shown', { args: [{ edge: 'EIN', loc: { id: 'northpine', kind: 'Entity' } }] }, true, { view: main });
+    const c = tx.commit();
+    if (typeof c === 'string') throw new Error(c);
+    const N = wb5.notes(C), R5 = Formulas.computeState(wb5.asOf(C, DAY), N.definitions(wb5.schema(C)), { relations: N.relations(wb5.schema(C)) });
+    const s = { ...Scene.of(wb5, C, main, DAY, { state: R5.records, computed: R5 }), name: 'Structure' };
+    const free = s.byId.get('fund')?.texts.find(it => it.free), blank = s.byId.get('northpine')?.texts.find(it => it.blank);
+    const d = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s], 'Fields', { R: R5, N }))).file('ppt/slides/slide1.xml').async('string'));
+    const said = tags(d, 'a:t').map(t => t.textContent.replace(/ /g, ' ')), np = tags(d, 'p:sp').find(sp => tags(sp, 'a:t').some(t => /^Northpine/.test(t.textContent)));
+    const empty = np ? tags(np, 'a:p').filter(p => !tags(p, 'a:r').length).length : -1;
+    check('the deck draws a free text as the scene reads it, and a blank field’s name nowhere, its room an empty paragraph in its box',
+      !!free && !!blank && free.lines.every(l => said.includes(l.text.replace(/ /g, ' '))) && !said.includes('EIN') && empty === blank.lines.length, `${free?.lines.map(l => l.text)} | ${empty} empty`);
+    const bytes = new Uint8Array(await (await Export.write('pdf', [s], 'Fields', WHO)).arrayBuffer()), raw = new TextDecoder('latin1').decode(bytes), shown = [];
+    for (const m of raw.matchAll(/\/Length (\d+)\s*\/Filter \/FlateDecode\s*>>\s*stream\r?\n/g)) {
+      const start = m.index + m[0].length, text = new TextDecoder('latin1').decode(await inflate(bytes.subarray(start, start + +m[1])));
+      shown.push(...[...text.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)].map(m => m[1].replace(/\\([0-7]{1,3}|.)/g, (_, c) => /^[0-7]+$/.test(c) ? String.fromCharCode(parseInt(c, 8)) : c)));
+    }
+    check('… and so does the PDF', !!free && free.lines.every(l => shown.some(t => t.replace(/ /g, ' ') === l.text.replace(/ /g, ' '))) && !shown.includes('EIN'), shown.filter(t => /Formed|EIN/.test(t)).join(' | '));
+  }
+
   // ---- On Letter: each view drawn for the paper ----
   {
     const R = R2;

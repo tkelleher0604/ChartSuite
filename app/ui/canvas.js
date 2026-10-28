@@ -927,7 +927,8 @@ function mount(el) {
     for (let i = scene.marks.length - 1; i >= 0; i--) {
       const m = scene.marks[i];
       if (m.type === 'box' ? !inside(m) : !(m.type === 'line' && m.labelAt && m.label && inside({ ...m.labelAt, w: m.label.w, h: m.label.h }, pad))) continue;
-      const it = m.texts.find(x => x.lines?.length && inside(fieldRect(m, x), pad));
+      // The text the point is on, or else the one it's within a few pixels of.
+      const it = m.texts.find(x => x.lines?.length && inside(fieldRect(m, x))) ?? m.texts.find(x => x.lines?.length && inside(fieldRect(m, x), pad));
       return { m, it: isField(it) ? it : null };
     }
     return null;
