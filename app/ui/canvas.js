@@ -321,6 +321,8 @@ function mount(el) {
   root.innerHTML = '<div class="dc-graph"></div><div class="dc-over"></div>';
   el.append(root);
   const gEl = root.firstChild, over = root.lastChild;
+  // What says the chart drawn is Tidy's preview (see restyle).
+  const tidyLabel = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-previewing', textContent: 'Tidy preview', hidden: true }));
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   let cued = null; // the format bar's scope, lit (see cue)
@@ -393,27 +395,28 @@ function mount(el) {
   viewport.appendChild(marks);
 
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
-  // A restyle keeps the view as it was drawn, so its boxes stay where they are, as a highlight does; one that
-  // moves them, Tidy's, is laid out afresh, and not kept as how the view was drawn. A redline is the scene the
+  // A highlight keeps the view as it was drawn, so its boxes stay where they are. A restyle is laid out as the change,
+  // made, lays it out, the boxes it keeps held where they stand (see keep), so what's pointed at is what's picked, a
+  // label on the side it will be; Tidy's afresh. Neither is kept as how the view was drawn. A redline is the scene the
   // change, made, draws, with its ink (see inked).
-  // The page drawn last; and `moving`, while a gesture's change is made (see moveTo).
-  let pageWas = null, moving = false;
+  // The page drawn last.
+  let pageWas = null;
   function draw() {
     const base = App.scene.peek();
     if (!base) return;
     const view = base.view, s = styledDrawn, r = !s && redDrawn;
     scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, keep: !!s && !s.moves, ahead: !!s?.moves }) : r ? r.scene : base;
+      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
     ink = r ? inked(r, scene, base) : null;
+    tidyLabel.hidden = !s?.wb.tidy;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
       data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
     // Each view comes back as it was left; one not seen yet opens on its whole page. Either is so at once,
-    // never drawn for a moment as the view before was. A framed view is framed again on a page that grows or
-    // shrinks, a gesture's or Tidy's preview's too (every other preview keeps the page as it was), so the page
-    // stays in view. Otherwise, and under a gesture, the chart stays where it is on screen as the page sets it
-    // again (by its offset), so what was moved stays under the pointer.
+    // never drawn for a moment as the view before was. Then the chart holds still as it changes, as of another day
+    // too: the zoom stays as it is, whatever the page does, and a chart placed where it stands on its page stays where
+    // it is on screen as the page moves it to hold it (by its offset), so what was moved stays under the pointer.
     const page = scene.page, was = pageWas;
     pageWas = page;
     if (viewShown !== view) {
@@ -423,10 +426,9 @@ function mount(el) {
       framed = z ? z.framed : true;
       left = z && !z.framed ? z : null;
       settle();
-    } else if (was) {
-      const resized = page.w !== was.w || page.h !== was.h, dx = page.offset.x - was.offset.x, dy = page.offset.y - was.offset.y;
-      if (framed && resized) settle();
-      else if ((dx || dy) && (moving || !framed) && screen.w) { const z = graph.zoom(), t = graph.translate(); quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z)); }
+    } else if (was && page.placed && was.placed) {
+      const dx = page.offset.x - was.offset.x, dy = page.offset.y - was.offset.y;
+      if ((dx || dy) && screen.w) { const z = graph.zoom(), t = graph.translate(); quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z)); }
     }
     syncSelection();
     paintStates();
@@ -667,8 +669,10 @@ function mount(el) {
   const viewOf = () => scene.view;
   const treeOf = id => Tree.treeOf(App.state.peek(), id);
   // Places for marks, written: a box's Position at its record in this view, a free shape's own place, kept
-  // on the page; each the chart's own, the page's less its offset (Scene's furnish).
-  const own = (x, y) => [round(x - scene.page.offset.x), round(y - scene.page.offset.y)];
+  // on the page; each where it is on the page, less what the page moved a chart placed so to hold it (Scene's
+  // furnish), as a chart the layout alone placed is placed once anything is.
+  const origin = (page = scene.page) => page.placed ? page.offset : { x: 0, y: 0 };
+  const own = (x, y, page = scene.page) => { const o = origin(page); return [round(x - o.x), round(y - o.y)]; };
   function place(tx, places) {
     const view = viewOf(), n = App.notes.peek(), page = scene.page;
     for (const [id, p] of places) {
@@ -685,12 +689,10 @@ function mount(el) {
       }
     }
   }
-  // Marks moved, written: a gesture, so what was moved stays where it was put as the page sets the chart
-  // again, and a framed page that grows for it is framed again (see draw).
+  // Marks moved, written, as one change; and nothing, where nothing moved. What was moved stays where it was put,
+  // and nothing else moves (see draw, and keep).
   function moveTo(places) {
-    if (!places.size) return;
-    moving = true;
-    try { App.change(tx => place(tx, places)); } finally { moving = false; }
+    if (places.size) App.change(tx => place(tx, places));
   }
   function moved(ids) {
     const places = new Map();
@@ -1582,7 +1584,7 @@ function mount(el) {
   // way of its own among them (Layout.around). It moves nothing: `cells`, what goes, drawn over the scene; `lit`, every
   // cell inked, which a highlight doesn't dim.
   function inked(r, after, before) {
-    const near = (a, b) => Math.abs(a - b) < 0.01, dx = after.page.offset.x - before.page.offset.x, dy = after.page.offset.y - before.page.offset.y;
+    const near = (a, b) => Math.abs(a - b) < 0.01, dx = origin(after.page).x - origin(before.page).x, dy = origin(after.page).y - origin(before.page).y;
     const was = new Map(), texts = new Map(), lit = new Set();
     for (const id of r.changed) { const a = after.byId.get(id), b = before.byId.get(id); if (a?.type === 'text' && b?.type === 'text' && a.text !== b.text) was.set(id, b.text); }
     for (const m of before.marks) if (m.texts && after.byId.has(m.id)) { const its = m.texts.filter(it => r.go.has(it.id) && after.byId.get(it.id)?.type !== 'text'); if (its.length) texts.set(m.id, its); }
@@ -1622,8 +1624,17 @@ function mount(el) {
     paintStates();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
-  // change would leave it, PowerPoint's live preview; with `moves`, laid out again (Tidy). null ends it.
-  function restyle(wb, { moves = false } = {}) { styled = wb && { wb, moves }; show(); }
+  // change would leave it, laid out as making it lays it out (see draw), PowerPoint's live preview. null ends it.
+  // Tidy's (`wb.tidy`), which moves everything, only once the pointer has rested on it half a second, and said on
+  // the chart to be its preview.
+  const RESTING = 500;
+  let resting = 0;
+  function restyle(wb) {
+    clearTimeout(resting);
+    const next = wb && { wb };
+    if (wb?.tidy && !styled?.wb.tidy) { if (styled) { styled = null; show(); } resting = setTimeout(() => { styled = next; show(); }, RESTING); return; }
+    styled = next; show();
+  }
   // Boxes and lines the view hides are drawn while they're highlighted, redlined, or asked for. (An entry
   // isn't: it lights what it sits in, so no box changes size under the pointer. Nor is a record of a kind the
   // view hides, a tax year say, or a relation to one: they aren't of this chart.) A preview is drawn while
@@ -1636,7 +1647,7 @@ function mount(el) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
     // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
     if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day))
-      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true }) : null);
+      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsOf(base) }) : null);
     const r = red?.scene ? red : null;
     const st = App.state.peek(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
@@ -1674,7 +1685,7 @@ function mount(el) {
   // day, however often it's asked for again meanwhile.
   const laidAhead = new WeakMap();
   function* redAhead(r, base) {
-    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true });
+    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsOf(base) });
     (laidAhead.get(r.state) ?? laidAhead.set(r.state, new Map()).get(r.state)).set(`${base.view}|${base.day}`, sc);
     if (red?.state === r.state && !red.scene) show();
   }
@@ -1683,7 +1694,7 @@ function mount(el) {
     if (!base || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
     if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base && aheadOf.soon === soon) return;
     const mine = aheadOf = { wb, state, base, soon }, chart = App.chart.peek(), computed = App.computed.peek();
-    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...r ? [redAhead(r, base)] : styled ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true })] : [],
+    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...r ? [redAhead(r, base)] : styled ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true, holds: styled.wb.tidy ? null : holdsOf(base) })] : [],
       ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
     const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
     const step = idle => {
@@ -1783,7 +1794,7 @@ function mount(el) {
   // What's copied is marks of one view, and their names: pasting a box shows it where it was in the chart, a
   // shape is copied.
   let clip = null;
-  const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x - scene.page.offset.x, y: m.y - scene.page.offset.y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
+  const marksNow = () => ({ view: viewOf(), items: placeable().map(m => m.type === 'box' ? { box: m.record, x: m.x - origin().x, y: m.y - origin().y, w: m.w } : { row: rowOf(m.id) }).filter(x => x.box || x.row) });
   function copy() {
     const c = marksNow();
     if (!c.items.length) return false;
@@ -1916,21 +1927,40 @@ function mount(el) {
   function tidied() {
     const wb = App.shown.peek(), gone = new Set(placedHere().map(n => n.note)), rows = wb.rows(App.chart.peek()).filter(r => !gone.has(r.note));
     const notes = Notes.index(rows.filter(r => 'note' in r));
-    return { ...wb, rows: () => rows, notes: () => notes };
+    return { ...wb, rows: () => rows, notes: () => notes, tidy: true };
   }
   function tidy() {
-    if (!App.change(tx => placedHere().forEach(n => tx.remove(n.note)), { say: 'Tidied the layout' })) return;
+    if (!App.change(tx => placedHere().forEach(n => tx.remove(n.note)), { say: 'Tidied the layout', keep: false })) return;
     framed = true; left = null;
     settle();
   }
 
+  // ---- Keeping: a change made while the chart is shown keeps where they're drawn the boxes it doesn't place itself,
+  // those the layout placed (and one made loosely that stands, though related), entering each where it stands, as
+  // `kept`. So a change moves only what it touches: a box added goes beside its relatives, and nothing else moves. A
+  // change pending is drawn so, as making it will draw it (see show) ----
+  function holdsOf(base) {
+    const o = origin(base.page), out = new Map();
+    for (const m of base.marks) if (m.type === 'box' && !m.placed && !m.revealed) out.set(m.record, { x: round(m.x - o.x), y: round(m.y - o.y), w: round(m.w), kept: true });
+    return out;
+  }
+  const stopKeep = App.keeping(tx => {
+    const base = App.scene.peek();
+    if (!base || still() || active.peek() !== canvas || base.view !== viewShown || Shell.view.peek() !== base.view || !root.clientWidth) return;
+    const view = base.view;
+    for (const [id, p] of holdsOf(base)) {
+      const t = treeOf(id);
+      if (t && tx.item(id).length && (tx.noteAt('Position', t, { view })?.value?.loose ?? true)) tx.note('Position', t, p, { view });
+    }
+  });
+
   // ---- Zoom: the levels, and framing. A view opens on its whole page, as PowerPoint opens a slide, and Fit
-  // (Shift+1) frames it so again. A framed view stays framed as the window and the page change size, until
-  // it's zoomed or scrolled (see draw). Nothing else moves the view:
-  // what's brought on screen is scrolled to, never zoomed to. A canvas that can't be seen (a table shown, the
-  // inspector widened) is never measured or moved: it's framed, or put back as it was left, once it's seen
-  // again ----
-  let framed = true, left = null, quiet = false;
+  // (Shift+1) and Tidy frame it so again. Only they, and the zoom, change it: the chart holds still as it's edited,
+  // the window or the page changing size (see draw). What's brought on screen is scrolled to, never zoomed to. A
+  // canvas that can't be seen (a table shown, the inspector widened) is never measured or moved: it's framed, or put
+  // back as it was left, once it's seen again (`owed`); and one framed is framed again as the window changes size
+  // while the chart is as it was framed (`framedFor`), as the window settles round it ----
+  let framed = true, left = null, quiet = false, owed = true, framedFor = null;
   const quietly = fn => { quiet = true; try { fn(); } finally { quiet = false; } onScreen(); };
   const seen = () => { screen = { w: root.clientWidth, h: root.clientHeight }; return screen.w > 0 && screen.h > 0; };
   const LEVELS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
@@ -1949,10 +1979,12 @@ function mount(el) {
   }
   // The view as it's to be, once it can be seen: as it was left, or framed on its page.
   function settle() {
+    owed = true;
     if (!scene || !seen()) return;
     const p = scene.page;
+    owed = false;
     if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
-    else if (framed) showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), LEAST, 2);
+    else if (framed) { showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), LEAST, 2); framedFor = scene; }
   }
   function zoom(k) {
     if (!scene) return;
@@ -1965,7 +1997,7 @@ function mount(el) {
     } else graph.zoomTo(k);
     zoomLevel.value = graph.zoom();
   }
-  const resized = new ResizeObserver(() => { showHandles(null); seen(); if (framed || left) settle(); onScreen(); });
+  const resized = new ResizeObserver(() => { showHandles(null); seen(); if (owed || (framed && scene === framedFor)) settle(); onScreen(); });
   resized.observe(root);
   // Brings marks on screen at the zoom the view is at, as Excel's Go To scrolls to a cell: by the least that
   // shows them all, or the first of them where they don't all fit, or its top left where it's larger than the
@@ -2047,7 +2079,7 @@ function mount(el) {
   gEl.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) return; e.preventDefault(); const t = graph.translate(); graph.translate(t.tx - e.deltaX, t.ty - e.deltaY); }, { passive: false });
 
   // A restyle is of the chart as it was: one that changes ends it.
-  const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; show(true); });
+  const stopDraw = effect(() => { App.scene.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
   // A mark's fields, asked of by the inspector (see Fields): `shown`, whether the mark a record draws shows an entry of a
   // label; `show`, shows or hides one there, at the scope where the mark is what's selected; `light`, outlines the field
   // a row's key names, as its row is pointed at; `over`, the box under a point on screen as a row is dragged, outlined as
@@ -2072,7 +2104,7 @@ function mount(el) {
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     destroy() {
       nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
-      stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
+      stopDraw(); stopSel(); stopKeep(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };

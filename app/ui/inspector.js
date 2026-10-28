@@ -818,7 +818,7 @@ function LookSection({ look, reset, named }) {
     ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
 }
 // A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
-// scale, and sets the chart across its middle, by its offset), so the numbers are the ones PowerPoint shows:
+// scale, and moves a chart placed only as far as holds it, by its offset), so the numbers are the ones PowerPoint shows:
 // typed over to move it. `at` is in the chart's own terms, as a place is written: a box's Position, or a free shape
 // drawn, less the offset.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
@@ -833,9 +833,11 @@ const resetting = (own, labels) => App.readOnly.value || !own.some(x => labels(x
 
 // A record's look, as the view's scene has it: each property a note decides, from this box (or line) alone, a
 // style's output (by its caption, the style's name first where the caption doesn't say it), or the chart's
-// default, in that order; and its place, where one is entered.
+// default, in that order; and its place, where one is entered, as it's drawn (one made loosely goes beside its
+// relatives once related, and reads where it is).
 function Look({ id }) {
-  const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), pos = recs()[id].kind ? n.position(t, v) : null;
+  const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), entered = recs()[id].kind ? n.position(t, v) : null, drawn = entered && sc.byId.get(id);
+  const pos = drawn ? { x: drawn.x - sc.page.offset.x, y: drawn.y - sc.page.offset.y, w: drawn.w, ...(entered.h != null && { h: drawn.h }) } : entered;
   // This mark's own: a box's at its object, a line's at its relation's own tree, as the format bar notes them.
   const mine = x => x.pattern.id === id || (!!recs()[id].args && T.key(T.bare(x.pattern)) === T.key(T.bare(t)));
   const rank = x => mine(x) ? 0 : x.view ? 1 : 2;
