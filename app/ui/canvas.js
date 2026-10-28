@@ -1629,9 +1629,9 @@ function mount(el) {
   // the chart to be its preview.
   const RESTING = 500;
   let resting = 0;
-  function restyle(wb, { moves = false } = {}) {
+  function restyle(wb) {
     clearTimeout(resting);
-    const next = wb && { wb, moves };
+    const next = wb && { wb };
     if (wb?.tidy && !styled?.wb.tidy) { if (styled) { styled = null; show(); } resting = setTimeout(() => { styled = next; show(); }, RESTING); return; }
     styled = next; show();
   }

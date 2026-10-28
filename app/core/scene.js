@@ -934,9 +934,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       obstacles: obstaclesOf(onPage, last?.page.offset),
       entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, pageSizes, beside, linked), hints, page: { ...sheet, room }, bounds: last?.page ?? null,
     });
-    // A box placed that its texts set wider or narrower than it was placed keeps its middle where it was, so a triangle's
-    // apex stays under its owners' lines.
-    for (const b of boxes) { Object.assign(b, placed.get(b.id)); if (squeeze === 1 && b.entered && b.pos.w && !last?.at.has(b.id)) b.x += (b.pos.w - b.w) / 2; }
+    // A triangle placed that its texts set wider than it was placed keeps its middle where it was, as far as the room on its
+    // left allows, so its apex stays under its owners' lines; else, as any other box, it grows rightward, those beside it
+    // moving aside (see spread).
+    for (const b of boxes) Object.assign(b, placed.get(b.id));
+    if (squeeze === 1) for (const b of [...boxes].sort((p, q) => p.x - q.x)) if (b.entered && b.pos.w && b.shape === 'triangle' && b.w > b.pos.w && !last?.at.has(b.id)) {
+      const level = a => a !== b && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2 && a.x + a.w / 2 < b.x + b.pos.w / 2;
+      const room = b.x - Math.max(-Infinity, ...boxes.filter(level).map(a => a.x + a.w + 8));
+      b.x -= Math.max(0, Math.min((b.w - b.pos.w) / 2, room));
+    }
     yield;
     // What's placed on its own page stands where it was put, but for the room labels need beside it; a place the
     // layout gives makes room too for the lines that come down past what stands over their box.
