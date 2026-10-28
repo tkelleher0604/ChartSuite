@@ -298,6 +298,13 @@ const FormulaBar = (() => {
     const { map } = finder.value, canvas = Shell.parts.peek().canvas, shown = lit.value;
     const pulse = hovered.value ?? (touch.value && new Map(touch.value.map(id => [id, map.get(id)?.[0] ?? 1])));
     if (shown) return canvas?.highlight(shown.length ? Object.fromEntries(shown.map(id => [id, [1, 0]])) : null, { dim: true });
+    // Two boxes selected are being worked on, arranged or related: what holds between them is lit, the rest left as it
+    // is; its reasons are lit, the rest of the chart dulled, only once the bar is pointed at.
+    const pair = subject.value?.pair;
+    if (pair && !pulse?.size) {
+      const Rv = R.value, both = new Set(pair), between = Object.keys(Rv.records).filter(id => { const as = Rv.records[id].args; return as?.length === 2 && as.every(a => both.has(Tree.objectOf(Rv.records, a.at))) && new Set(as.map(a => Tree.objectOf(Rv.records, a.at))).size === 2; });
+      return canvas?.highlight(between.length ? Object.fromEntries(between.map(id => [id, [1, 0]])) : null);
+    }
     if (!map.size && !pulse?.size) return canvas?.highlight(null);
     const colors = Object.fromEntries([...map].map(([id, [c, level]]) => [id, [c, pulse?.has(id) ? 0 : level]]));
     for (const [id, c] of pulse ?? []) colors[id] ??= [c, 0];
