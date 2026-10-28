@@ -190,6 +190,8 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .pendbar > .what { flex: 1 1 240px; min-width: 0; color: var(--ink-2); }
 .pendbar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
 .pendbar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
+.pendbar .fails, .asking .fails { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; color: var(--no); font-weight: 500; }
+.pendbar .fails svg, .asking .fails svg { width: 16px; height: 16px; flex: none; }
 /* A toast rises over the bar, so neither hides the other. */
 #app:has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
 #app:has(.view > .scrub):has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }

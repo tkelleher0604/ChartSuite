@@ -492,9 +492,22 @@ const App = (() => {
   // Its controls: the day it holds from, ends on or is made on (asked, where it asks one), Discard and its verb; in the
   // window's bar, and where it was asked, one state. Esc there discards it; Enter on its day makes it.
   const escaped = e => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); discard(); } };
+  // What it would leave failing that passes now, worked out from its redline as the status bar would count it once
+  // made: each check it fails, by its label at what it's at ("Ownership Adds Up at Fund III"), or a formula's error.
+  const failing = new WeakMap();
+  function failsOf(R2) {
+    if (!R2) return [];
+    if (failing.has(R2)) return failing.get(R2);
+    const key = a => a.error ? `${a.id} ${a.error.message}` : a.id, now = new Set(needs.peek().filter(a => a.kind === 'error').map(key)), N = notes.peek(), recs = R2.records;
+    const out = Formulas.attention(R2, asking.peek(), day.peek()).filter(a => a.kind === 'error' && !now.has(key(a)))
+      .map(a => a.error ? `an error at ${N.segmentOf(recs, a.id)}` : `${recs[a.id].edge} at ${N.segmentOf(recs, recs[a.id].at)}`);
+    failing.set(R2, out);
+    return out;
+  }
   function Controls({ p, auto }) {
     const enter = e => { if (e.key === 'Enter' && !e.defaultPrevented && !e.target.closest('.lk')) { e.preventDefault(); e.stopPropagation(); commit(); } };
-    return html`${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto} asks=${p.asks} word=${p.word} set=${d => amend(p, { day: d })} /></span>`
+    const shown = typeof FormulaBar !== 'undefined' ? FormulaBar.pending.value : null, fails = failsOf(shown?.from === 'pending' ? shown.R2 : null);
+    return html`${fails.length ? html`<span class="fails" title=${fails.length > 1 ? fails.join('\n') : null}>${Shell.icon('alert')}<span>Fails ${fails[0]}${fails.length > 1 ? ` and ${fails.length - 1} more` : ''}</span></span>` : null}${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto} asks=${p.asks} word=${p.word} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
       <button class="btn" onClick=${() => discard()}>Discard</button>
       <button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${p.verb}</button>`;

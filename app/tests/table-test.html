@@ -695,6 +695,7 @@ async function run() {
   check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Entity\s*Halcyon University Endowment/.test(bar)
     && /From$/.test($('.pendbar .from')?.textContent.trim()) && $('.pendbar .from input')?.value === 'Nov 2, 2026' && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
+  check('… and its bar names no check it fails, Fund III’s owners still adding up', !$('.pendbar .fails'), $('.pendbar .fails')?.textContent);
   press('Enter'); await tick(150);
   const c = last();
   check('Pasting is one change', N() === n0 + 1, N() - n0);
@@ -706,6 +707,11 @@ async function run() {
   check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III from 71.6% to 67.3% as of Nov 2, 2026, and 2 more', Time.describe(c));
   undo(); await tick(150);
   check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
+  // A change that would leave a check failing says so in its bar before it's made: Fund III's owners at 103.4%.
+  paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t75%\r\n'); await previewed();
+  const failsSaid = $('.pendbar .fails')?.textContent, n3 = N();
+  press('Escape', document.body); await tick(150);
+  check('A change that would leave a check failing says so in its bar, before it’s made', failsSaid === 'Fails Ownership Adds Up at Fund III' && N() === n3 && !App.pending.peek(), failsSaid);
   // As of today, a row added that asks its day, an ownership, holds from the day its bar says: today, typed over,
   // or all along; never on a past day by default.
   Shell.at(null); await tick(100);
