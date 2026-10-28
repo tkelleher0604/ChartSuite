@@ -533,9 +533,12 @@ const Table = (() => {
     m.groups, m.named && [...m.named.values()]]);
 
   let reds = new Set(), seen = null;
-  // Whether a row's data says what the grid's row does.
+  // Whether a row's data says what the grid's row does, whatever order its columns' fields are in: a column moved
+  // changes no row.
+  const sameIn = (a, b) => typeof a === 'object' && a !== null && typeof b === 'object' && b !== null && Object.keys(a).length === Object.keys(b).length
+    && Object.keys(a).every(k => a[k] === b[k] || (k in b && JSON.stringify(a[k]) === JSON.stringify(b[k])));
   const sameRow = (a, b) => !!b && Object.keys(a).length === Object.keys(b).length
-    && Object.keys(a).every(k => a[k] === b[k] || (typeof a[k] === 'object' && a[k] !== null && JSON.stringify(a[k]) === JSON.stringify(b[k])));
+    && Object.keys(a).every(k => a[k] === b[k] || (typeof a[k] === 'object' && a[k] !== null && (k === '_m' ? sameIn(a[k], b[k]) : JSON.stringify(a[k]) === JSON.stringify(b[k]))));
   function refresh() {
     const view = Shell.view.value, v = viewOf(view), p = FormulaBar.pending.value;
     if (!el || v?.layout !== 'table') return;
@@ -1079,10 +1082,16 @@ const Table = (() => {
     const sr = table.modules.selectRange, r = table.getRanges()[0], rows = table.getRows('active'), first = table.getColumns().find(c => c.getField());
     const whole = r && rows.length > 1 && r.getRows().length === rows.length && r.getColumns().filter(c => c.getField()), lent = !sr.activeRange;
     if (lent && !rows.length) return false;
+    // Tabulator lays each drawn row out again as a column moves, measuring each as it goes, so the grid is laid out once
+    // a row: with the rows out of the page meanwhile, each is only marked to be, and they're drawn again together, where
+    // they were scrolled, measured once.
+    const holder = table.rowManager.element, { scrollTop, scrollLeft } = holder, shown = holder.style.display;
     arranging = true;
     try {
       if (lent) table.addRange(rows[0].getCell(first), rows[0].getCell(first));
-      want.forEach((f, i) => { const at = now()[i]; if (at !== f) table.moveColumn(f, at, false); });
+      holder.style.display = 'none';
+      try { want.forEach((f, i) => { const at = now()[i]; if (at !== f) table.moveColumn(f, at, false); }); }
+      finally { holder.style.display = shown; Object.assign(holder, { scrollTop, scrollLeft }); table.rowManager.renderer.rerenderRows(); sr.layoutElement(); }
       if (whole?.length) { const cs = table.getColumns().filter(c => whole.includes(c)); table.addRange(rows[0].getCell(cs[0]), rows.at(-1).getCell(cs.at(-1))); }
       if (lent) { sr.clearRanges(); sr.activeRange = false; sr.layoutElement(); }
     } finally { arranging = false; }
@@ -1364,7 +1373,7 @@ const Table = (() => {
     if (!m || m.view !== view) return null;
     const l = lookOf(view), by = k => m.cols.find(c => c.key === k);
     const sortC = l.sort && by(l.sort.key), groupC = l.group && m.named && by(l.group), fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean);
-    const total = m.data.filter(r => r._red !== 'add').length, showing = table && ready ? table.getData('active').filter(r => r._red !== 'add').length : total;
+    const total = m.data.filter(r => r._red !== 'add').length, showing = table && ready ? table.getRows('active').filter(r => r.getData()._red !== 'add').length : total;   // the rows as kept, not copies of them
     return html`<div class="tbar" role="toolbar" aria-label="Table">
       <button type="button" class="btn ghost dd" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
       <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? html`Sorted by ${called(sortC)}` : 'Sort'}</button>

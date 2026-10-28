@@ -352,14 +352,19 @@ const Shell = (() => {
   // doesn't; and what's within a thing (AIV-1 › Signatories, of its key) after every thing found, so "blocker"
   // finds both blockers before their lists.
   const words = s => (s.match(/\S*[\p{L}\p{N}]\S*/gu) ?? []).length;
+  // How many others a record is related to, counted once for each state.
+  const relatedBy = new WeakMap();
   function relatives(id) {
-    const st = App.state.peek(), out = new Set();
+    const st = App.state.peek(), known = relatedBy.get(st) ?? relatedBy.set(st, new Map()).get(st);
+    if (known.has(id)) return known.get(id);
+    const out = new Set();
     for (const r of Tree.index(st).relations.get(id) ?? []) for (const a of st[r].args) out.add(Tree.objectOf(st, a.at));
     out.delete(id);
+    known.set(id, out.size);
     return out.size;
   }
   function rank(items, q, limit = 50) {
-    const known = new Map(), related = x => x.key === undefined || typeof App === 'undefined' ? 0 : known.get(x.key) ?? known.set(x.key, relatives(x.key)).get(x.key);
+    const related = x => x.key === undefined || typeof App === 'undefined' ? 0 : relatives(x.key);
     const names = x => [x.label, ...(x.names || [])], hay = [], of = [];
     items.forEach((x, i) => names(x).forEach((n, k) => { hay.push(n); of.push([i, k]); }));
     let [idxs, info, order] = uf.search(hay, q);   // in order, ranked and highlighted
@@ -373,7 +378,7 @@ const Shell = (() => {
     const found = [...best.values()].sort((a, b) => a.extra - b.extra || related(b) - related(a));
     const within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q);
     const things = found.filter(x => !within(x)), named = [...new Set(things.flatMap(names))].map(n => [n, n.toLowerCase()]);
-    const word = (n, s) => new RegExp(`(?:^|[^\\p{L}\\p{N}-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}-])`, 'iu').test(s);
+    const res = new Map(), word = (n, s) => (res.get(n) ?? res.set(n, new RegExp(`(?:^|[^\\p{L}\\p{N}-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}-])`, 'iu')).get(n)).test(s);
     const about = x => { const s = x.label.toLowerCase(); return named.some(([n, l]) => l.length < s.length && s.includes(l) && !names(x).includes(n) && word(n, x.label)); };
     return [...new Set([...found.filter(x => names(x).some(n => norm(n) === typed)), ...things.filter(x => !about(x)), ...things, ...found])].slice(0, limit);
   }

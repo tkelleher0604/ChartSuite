@@ -286,6 +286,11 @@ async function run() {
     // A heading dragged moves its column at once.
     const g0 = Table.grid, from = column('Jurisdiction').getElement().getBoundingClientRect(), to = column('Short Name').getElement().getBoundingClientRect();
     const pe = (type, el, x) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: from.top + 10, button: 0, buttons: 1, pointerId: 7 }));
+    const holder = g0.rowManager.element, upd = g0.updateData;
+    holder.scrollTop = 60; await tick(80);
+    const top0 = holder.scrollTop;
+    let updated = 0;
+    g0.updateData = function (rows) { updated += rows.length; return upd.apply(this, arguments); };
     let n1 = N();
     pe('pointerdown', column('Jurisdiction').getElement().querySelector('.tabulator-col-title'), from.left + 20);
     pe('pointermove', window, from.left - 40); pe('pointermove', window, to.left + 4);
@@ -293,6 +298,12 @@ async function run() {
     pe('pointerup', window, to.left + 4); await tick(200);
     check('A heading dragged moves its column at once: a ghost under the pointer, a bar where it drops, and dropped, one change, the column moved in the grid rather than the grid built again',
       ghosted && titlesOf().slice(0, 3).join() === 'Name,Jurisdiction,Short Name' && N() === n1 + 1 && Table.grid === g0 && !$('.col-ghost'), titlesOf().slice(0, 4).join());
+    g0.updateData = upd;
+    const fields = g0.getColumns().map(c => c.getField()).filter(Boolean).join(), drawn = $$('.grid .tabulator-row');
+    const inOrder = drawn.every(r => [...r.querySelectorAll('.tabulator-cell[tabulator-field]')].map(c => c.getAttribute('tabulator-field')).join() === fields);
+    check('… in place: no row taken as changed for it, every row drawn in the columns’ new order, the grid where it was scrolled',
+      !updated && drawn.length > 0 && inOrder && holder.scrollTop === top0, `${updated} rows updated; ${drawn.length} drawn, in order ${inOrder}; scrolled ${holder.scrollTop} of ${top0}`);
+    holder.scrollTop = 0; await tick(80);
     undo(); await tick(200);
     check('… Undo moves it back', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && Table.grid === g0, titlesOf().slice(0, 6).join());
 

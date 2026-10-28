@@ -118,17 +118,25 @@ const FormulaBar = (() => {
   const sameSpot = (a, b) => !!a && !!b && (a.args ? !!b.args && argKey(a.args) === argKey(b.args)
     : !b.args && a.at === b.at && norm(a.edge) === norm(b.edge));
 
-  // Records between two objects that a definition covers, by definition and objects in its edges' order.
-  const pairs = computed(() => {
-    const Rv = R.value, out = new Map();
-    for (const [id, r] of Object.entries(Rv.records)) if (r.args?.length === 2) {
-      const def = Rv.computed[id]?.def ?? Rv.covered[id]?.def, d = def && defOf(def);
+  // Records between two objects that a definition covers, by definition and objects in its edges' order: of the
+  // relations at either, or at anything in either, the last in the state's order where two say the same. Once for
+  // each working-out and pair.
+  const between = new WeakMap();
+  function pairsOf(Rv, a, b) {
+    const memo = between.get(Rv) ?? between.set(Rv, new Map()).get(Rv), k = `${a}|${b}`;
+    if (memo.has(k)) return memo.get(k);
+    const recs = Rv.records, { entries, relations } = Tree.index(recs), near = new Set(), out = new Map();
+    for (const o of [a, b]) for (let todo = [o], i = 0; i < todo.length; i++) { for (const r of relations.get(todo[i]) ?? []) near.add(r); todo.push(...entries.get(todo[i]) ?? []); }
+    const order = Object.keys(recs);
+    for (const id of [...near].sort((x, y) => order.indexOf(x) - order.indexOf(y))) {
+      const r = recs[id], def = r.args?.length === 2 && (Rv.computed[id]?.def ?? Rv.covered[id]?.def), d = def && defOf(def);
       if (!d) continue;
-      const by = new Map(r.args.map(a => [norm(a.edge), Tree.objectOf(Rv.records, a.at)]));
+      const by = new Map(r.args.map(x => [norm(x.edge), Tree.objectOf(recs, x.at)]));
       out.set(`${def}|${d.edges.map(e => by.get(norm(e))).join('|')}`, id);
     }
+    memo.set(k, out);
     return out;
-  });
+  }
 
   // ---- The model: what the bar shows for its subject ----
   const model = computed(() => describe(subject.value, R.value, draft.value, pick.value));
@@ -168,7 +176,7 @@ const FormulaBar = (() => {
       for (const [a, b] of [s.pair, [s.pair[1], s.pair[0]]]) {
         const at = { [d.edges[0]]: a, [d.edges[1]]: b };
         if (!Formulas.evaluateRow(Rv, def, 0, at)) continue;
-        const id = pairs.value.get(`${def}|${a}|${b}`) ?? null;
+        const id = pairsOf(Rv, ...s.pair).get(`${def}|${a}|${b}`) ?? null;
         options.push({ key: `${def}|${a}|${b}`, d, at, a, b, id, on: id ? Rv.records[id].tag : null });
       }
     }

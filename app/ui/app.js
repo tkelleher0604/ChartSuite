@@ -72,7 +72,9 @@ const App = (() => {
   // What needs attention as of the day shown (Formulas.attention). A check failed (Ownership Adds Up, Capacity
   // Held) is counted here, as an error; going to it selects what it's at, and asks why. The inspector counts
   // the rest, aiming at their rows.
-  const needs = computed(() => Formulas.attention(result.value, notes.value, day.value));
+  // It reads only the Required and Check notes, so a look or a field shown, changed, counts nothing again.
+  const asking = keptWhile(() => JSON.stringify(['Required', 'Check'].flatMap(l => notes.value.notes(l).map(n => [n.note, n.view, n.param, Tree.key(n.pattern), n.value]))), () => notes.peek());
+  const needs = computed(() => Formulas.attention(result.value, asking.value, day.value));
   Shell.register('attention', { items: () => needs.value.filter(a => a.kind === 'error' && !a.error).map(({ id }) => ({ kind: 'error', go: () => {
     const r = state.peek()[id];
     if (!r) return;
