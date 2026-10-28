@@ -247,6 +247,8 @@ const App = (() => {
     // Where the keys were as it was begun: what had them, the row it's in, and its part of the window.
     const was = pending.peek(), a = document.activeElement !== document.body ? document.activeElement : null;
     const back = a && { el: a, key: a.closest?.('[data-key]')?.dataset.key, region: a.closest?.('[data-region]') };
+    // Brought back, what said it was discarded goes.
+    if (p === lastDiscarded.peek()) unsaid?.();
     lastDiscarded.value = null;
     pending.value = { ids: [], chart: chart.peek(), from: Shell.time.peek()?.asOf ?? null, back, ...p, n: ++staged };
     if (was && was.source !== p.source) Shell.toast(discarded(was), { undo: () => stage(was) });
@@ -274,8 +276,9 @@ const App = (() => {
     after(p);
     if (quiet) return;
     lastDiscarded.value = p;
-    Shell.toast(discarded(p), { redo: () => stage(p) });
+    unsaid = Shell.toast(discarded(p), { redo: () => stage(p) });
   }
+  let unsaid = null;
   // Dropped, saying why: what it's at no longer there (an Undo took it, or History, or a change merged), or nothing
   // left to change, once what dropped it has said what it did.
   function drop(p, why) { if (pending.peek() === p) pending.value = null; after(p); setTimeout(() => Shell.toast(`${discarded(p)}${why}`)); }
