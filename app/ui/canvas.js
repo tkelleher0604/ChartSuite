@@ -729,6 +729,8 @@ function mount(el) {
   // ruled out; a blank, its record made as it's typed; a free text, its words, {Entry} and all (see Fields).
   function editField(m, it, typed) {
     if (!it || still()) return;
+    // What's typed in is the field selected, so Tab goes on from it and its row stays lit.
+    if (isField(it)) field = { box: m.id, id: it.id };
     if (it.free) return writeText(m, it, typed);
     const st = App.state.peek(), r = it.blank ? null : st[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
@@ -741,6 +743,13 @@ function mount(el) {
       if (it.blank && !App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
       tx.add('record', { at, edge, ...out });
     });
+    // A menu under the field, from which Tab goes on to the next field, as from one typed in.
+    const picker = (items, o = {}) => {
+      let close = null;
+      const tabbed = e => { if (e.key !== 'Tab') return; e.preventDefault(); e.stopPropagation(); close?.(); stepField(e.shiftKey ? -1 : 1, true); };
+      addEventListener('keydown', tabbed, true);
+      close = Shell.menu(menuAt, items, { ...o, onClose: () => removeEventListener('keydown', tabbed, true) });
+    };
     // An option is picked from its list, which what's typed narrows; one typed that isn't on it is a new option.
     if (kind.type === 'choice') {
       const now = r?.choice, opts = optionsOf(r ? r.at : it.blank.at, r ? r.edge : it.blank.edge);
@@ -748,16 +757,16 @@ function mount(el) {
         const k = Tree.norm(q ?? ''), xs = opts.filter(o => Tree.norm(o).includes(k)).map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => !(now && Tree.same(o, now)) && put({ choice: o }) }));
         return k && !opts.some(o => Tree.same(o, q)) ? [...xs, ...(xs.length ? ['-'] : []), { label: `New option: ${Tree.clean(q)}`, run: () => put({ choice: Tree.clean(q) }) }] : xs;
       };
-      return Shell.menu(menuAt, items, { search: true, query: typed ?? '' });
+      return picker(items, { search: true, query: typed ?? '' });
     }
-    if (kind.type === 'tag') return Shell.menu(menuAt, [{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
+    if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
       { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
     const raw = r ? Tree.format(r.field, r.value) : '';
     openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, text => {
       const v = Tree.parse(kind.datatype ?? Tree.classify(text), text);
       if (v === undefined || Tree.clean(text) === '' || (r && v === r.value)) return;
       put({ field: kind.datatype ?? Tree.classify(text), value: v });
-    }, { selectAll: typed === undefined, ph: it.blank?.edge });
+    }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true) });
   }
   function edit(key, target, typed) {
     const [id, rowKey] = keyParts(key);
@@ -803,7 +812,7 @@ function mount(el) {
   // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't (but does
   // what `escaped` says), and leaving keeps it. `grow`: it widens as it's typed, a text box nobody has sized; `box`:
   // a new box of a kind.
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null } = {}) {
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null } = {}) {
     over.querySelector('.dc-edit')?.remove();
     tipFor(null);
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
@@ -831,6 +840,8 @@ function mount(el) {
       if (list?.key(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); finish(false); }
       else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true); }
+      // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
+      else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
     });
     ed.addEventListener('blur', () => finish(true));
     return ed;
@@ -995,6 +1006,14 @@ function mount(el) {
     field = f?.it && isField(f.it) ? { box: f.m.id, id: f.it.id } : null;
     paintFields();
   }
+  // The field after the one selected in its box (`by` 1), or before it (-1), round; with `edit`, typed in at once.
+  function stepField(by, edit = false) {
+    const f = fieldNow(), all = f?.m.texts.filter(x => isField(x) && x.lines?.length) ?? [];
+    if (!all.length) return false;
+    const it = all[(all.findIndex(x => x.id === f.it.id) + by + all.length) % all.length];
+    pickField({ m: f.m, it });
+    if (edit) editField(f.m, it);
+  }
 
   // The entry a mark's record has of a label: at it, or else nearest it.
   function entryIn(at, edge) {
@@ -1072,7 +1091,7 @@ function mount(el) {
       if (!Tree.clean(text)) return it && unText(m);
       App.change(tx => { for (const p of s.own ? [rec] : s.outputs) tx.note('Text', p, { ...(at(p)?.value ?? {}), text: text.trim() }, { view }); },
         { dated: false, say: it ? null : `Added text to ${whereSaid([m], s)}` });
-    }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels });
+    }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null });
   }
   // A free text taken away at the scope: the scope's own note goes; and where the mark's own is taken away but a group's
   // would still give it text, it keeps an empty one, the narrowest, which gives none.
@@ -1827,7 +1846,8 @@ function mount(el) {
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
   const keyMap = {
-    'Tab': () => next(1), 'Shift+Tab': () => next(-1),
+    // Tab steps through the boxes, or with a field selected, through its box's fields, as a form's.
+    'Tab': () => fieldNow() ? stepField(1) : next(1), 'Shift+Tab': () => fieldNow() ? stepField(-1) : next(-1),
     // A field selected is hidden at the scope (see Fields); anything else, hidden in this view.
     'Delete': () => fieldNow() ? hideField() : remove(), 'Backspace': () => fieldNow() ? hideField() : remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
     'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
