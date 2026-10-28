@@ -171,12 +171,18 @@ const Shell = (() => {
   const glide = () => { gliding.value = true; clearTimeout(glided); glided = setTimeout(() => { gliding.value = false; }, 240); };
   const widen = () => { if (!wide.peek()) { glide(); wide.value = true; } };
   const narrow = () => { if (wide.peek()) { glide(); wide.value = false; } };
+  // The inspector is always beside the view, so nothing moves under the pointer as the selection changes. Only the
+  // user puts it away (its button, Ctrl+\, or its divider dragged to the edge) and brings it back; a flow that needs
+  // it brings it back too (showPanel).
+  const shut = signal(store.get('panel') === 'shut');
+  const setShut = on => { if (shut.peek() === on) return; glide(); shut.value = on; store.set('panel', on ? 'shut' : 'open'); };
+  const showPanel = () => setShut(false);
   // What takes the inspector's place, while it does: History.
   const aside = signal(null);
 
   // ---- Keys, and the Esc stack ----
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-  const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc' };
+  const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc' };
   const keyLabel = k => !k ? '' : k.replace(/\[Shift\]\+/g, '').replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])|Digit(\d)/g, '$1$2').replace(/\w+/g, w => KEY[w] ?? w);
   // A key a part has already taken (typing over a box, say) isn't the window's too.
   function keys(map, o = {}) {
@@ -255,6 +261,7 @@ const Shell = (() => {
   const PATHS = {
     chevron: 'M4.5 6.5 8 10l3.5-3.5', check: 'M3.5 8.5l3 3 6-7', plus: 'M8 3.5v9M3.5 8h9', x: 'M4.5 4.5l7 7m0-7-7 7',
     undo: 'M6.5 3.5 3.5 6.5l3 3M3.5 6.5h6a3 3 0 0 1 0 6h-2', redo: 'M9.5 3.5l3 3-3 3M12.5 6.5h-6a3 3 0 0 0 0 6h2',
+    panel: 'M3 3.5h10a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5ZM9.5 3.5v9',
   };
   const icon = name => html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d=${PATHS[name]} /></svg>`;
   // The mark, the page's one #mark symbol (index.html, from app/assets/mark-small.svg).
@@ -606,6 +613,8 @@ const Shell = (() => {
         ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${t
           ? html`<button class="btn icon" aria-label="Today" data-tip="Today" onClick=${() => part('time').today()}>${icon('x')}</button>` : null}</span>` : null}
         <span class="sep" />
+        <button class="btn icon" aria-label=${away.value ? 'Show panel' : 'Hide panel'} data-tip=${away.value ? 'Show panel' : 'Hide panel'} data-keys=${keyLabel('$mod+Backslash')}
+          aria-pressed=${!away.value} onClick=${() => setShut(!away.peek())}>${icon('panel')}</button>
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
         <button class="btn primary" aria-haspopup="dialog" onClick=${() => Export.open()}>Export</button>
@@ -631,11 +640,8 @@ const Shell = (() => {
     ? html`<div class=${'slot ' + kind} role="region" aria-label=${BARS[kind]} data-region="bars" hidden=${hidden}><${Host} kind=${kind} /></div>` : html`<div hidden />`;
 
   // ---- The view and the inspector; a chart with no box offers its one action ----
-  // A table with nothing selected has the width: the inspector would show only the view's settings. The inspector
-  // glides out as the last row is let go and back as one is selected; another view is shown as it is, at once.
-  const alone = computed(() => current.value?.layout === 'table' && !wide.value && !aside.value && !selection.value.length);
-  let wasAlone = null;
-  effect(() => { const now = { v: view.value, alone: alone.value }; if (wasAlone?.v === now.v && wasAlone.alone !== now.alone) glide(); wasAlone = now; });
+  // Put away, the inspector leaves the view the width, unless History takes its place or it's widened.
+  const away = computed(() => shut.value && !wide.value && !aside.value);
   function Main() {
     const v = current.value, layout = v?.layout || 'chart', kinds = layout === 'chart' && part('canvas')?.kinds;
     const bare = kinds && v && !App.readOnly.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box');
@@ -645,16 +651,18 @@ const Shell = (() => {
       const el = e.currentTarget, W = innerWidth;
       el.setPointerCapture(e.pointerId);
       el.classList.add('drag');
+      // Dragged to the window's edge, it's put away; dragged out again, it's back.
       const move = ev => {
         const w = W - ev.clientX;
         wide.value = w > W - 160;
-        if (!wide.value) insp.value = Math.round(Math.min(Math.max(w, 280), W - 320));
+        shut.value = w < 140;
+        if (!wide.value && !shut.value) insp.value = Math.round(Math.min(Math.max(w, 280), W - 320));
       };
-      const up = () => { el.classList.remove('drag'); el.removeEventListener('pointermove', move); store.set('inspector', insp.value); };
+      const up = () => { el.classList.remove('drag'); el.removeEventListener('pointermove', move); store.set('inspector', insp.value); store.set('panel', shut.peek() ? 'shut' : 'open'); };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up, { once: true });
     };
-    return html`<div class=${'main' + (wide.value ? ' wide' : '') + (alone.value ? ' alone' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
+    return html`<div class=${'main' + (wide.value ? ' wide' : '') + (away.value ? ' shut' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
       <div class="view" id="view" role="tabpanel" aria-labelledby=${v ? 'tab-' + v.id : null} data-region="view" tabindex="-1" aria-hidden=${wide.value ? 'true' : null}>
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
@@ -778,6 +786,7 @@ const Shell = (() => {
     { id: 'view.next', name: 'Next view', keys: '$mod+Shift+PageDown', run: () => stepView(1) },
     { id: 'chart.rename', name: 'Rename chart', enabled: () => !!part('workbook')?.current() && !App.readOnly.peek(), run: nameChart },
     { id: 'view.rename', name: 'Rename view', enabled: () => !!current.peek() && !App.readOnly.peek(), run: () => { editing.value = view.peek(); } },
+    { id: 'panel', get name() { return away.peek() ? 'Show panel' : 'Hide panel'; }, keys: '$mod+Backslash', run: () => setShut(!away.peek()) },
     { id: 'pane.next', name: 'Next pane', keys: 'F6', inputs: true, run: () => region(1) },
     { id: 'pane.prev', name: 'Previous pane', keys: 'Shift+F6', inputs: true, run: () => region(-1) },
     // F8 goes on from a blank field it brought you to, as F6 does.
@@ -817,7 +826,7 @@ const Shell = (() => {
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
     register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store, nameChart,
-    widen, narrow, wide, gliding, theme, setTheme, html, h, signal, computed, effect, parts: reg,
+    widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     aside: c => { aside.value = c; },
   };
 })();

@@ -2,9 +2,6 @@
    ruler under the view, and History in the inspector's place. Tokens are dendra.css's. */
 
 /* ---- The grid ---- */
-/* With nothing selected, the grid has the inspector's width too (shell.js's .alone, which glides). */
-.main.alone { grid-template-columns: minmax(0, 1fr) 0 0; }
-.main.alone > :is(.divider, .inspector) { display: none; }
 .view > .host.grid { display: flex; flex-direction: column; background: var(--surface); }
 .grid > .cells { position: relative; flex: 1; min-height: 0; }
 .grid > .cells > .tabulator { height: 100%; }
