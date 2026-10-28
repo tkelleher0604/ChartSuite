@@ -13,6 +13,7 @@ Each library is pinned, unmodified from jsDelivr, and loads as a classic script 
 | codemirror | 5.65.21 | MIT | `codemirror/`: `codemirror`, `simple`, `show-hint`, `lint`, `matchbrackets` | the formula editor |
 | @floating-ui/dom, core | 1.8.0, 1.8.0 | MIT | `floating-ui/floating-ui.core.umd.min.js`, `.dom.umd.min.js` | menus and popovers (utils is bundled into both) |
 | tinykeys | 4.0.1 | MIT | `tinykeys/tinykeys.umd.js` | keys |
+| lucide | 0.469.0 | ISC | `lucide/lucide.min.js` (its UMD build, `dist/umd/lucide.min.js`) | icons, drawn by `Shell.icon` |
 | @leeoniya/ufuzzy | 1.0.19 | MIT | `ufuzzy/uFuzzy.iife.min.js` | ranking in Find |
 | dexie | 4.4.6 | Apache-2.0 | `dexie/dexie.min.js` | the log in the browser |
 | pptxgenjs | 4.0.1 | MIT | `pptxgenjs/pptxgen.bundle.js` | PowerPoint export |

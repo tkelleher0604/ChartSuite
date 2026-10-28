@@ -64,7 +64,8 @@
 // joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name);
 // store.get/set, this browser's settings; widen() and narrow(), and gliding, a signal true while the inspector
 // glides in or out, so the view's slot has settled once it's false again; theme. A menu item is '-', { head }, or
-// { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point? }; one without run or items is
+// { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point?, icon?, glyph?, font? }, an icon by Shell.icon's name or a
+// glyph drawn before its label, its label in a font where `font` (a CSS family) says; one without run or items is
 // shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys.
 //
 // THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
@@ -251,12 +252,21 @@ const Shell = (() => {
     addEventListener('pointerup', up, { once: true });
   }
 
-  // ---- Icons: only functional ones ----
-  const PATHS = {
-    chevron: 'M4.5 6.5 8 10l3.5-3.5', check: 'M3.5 8.5l3 3 6-7', plus: 'M8 3.5v9M3.5 8h9', x: 'M4.5 4.5l7 7m0-7-7 7',
-    undo: 'M6.5 3.5 3.5 6.5l3 3M3.5 6.5h6a3 3 0 0 1 0 6h-2', redo: 'M9.5 3.5l3 3-3 3M12.5 6.5h-6a3 3 0 0 0 0 6h2',
+  // ---- Icons: only functional ones, each the familiar one, Lucide's (vendor/lucide), at 16 px ----
+  // By the names the parts use: a Lucide icon's own name works too (icon('PaintBucket')).
+  const ICONS = {
+    chevron: 'ChevronDown', 'chevron-right': 'ChevronRight', 'chevron-left': 'ChevronLeft', 'chevron-up': 'ChevronUp', check: 'Check', plus: 'Plus', x: 'X',
+    undo: 'Undo2', redo: 'Redo2', grip: 'GripVertical', search: 'Search', filter: 'Filter', eye: 'Eye', 'eye-off': 'EyeOff', download: 'Download', open: 'ArrowUpRight',
+    fill: 'PaintBucket', outline: 'Pen', color: 'Baseline', bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough',
+    'align-left': 'AlignLeft', 'align-center': 'AlignCenter', 'align-right': 'AlignRight', layers: 'Layers', group: 'Group', ungroup: 'Ungroup',
+    painter: 'Paintbrush', eraser: 'Eraser', grow: 'AArrowUp', shrink: 'AArrowDown', copy: 'Copy', paste: 'ClipboardPaste', trash: 'Trash2',
+    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine',
   };
-  const icon = name => html`<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d=${PATHS[name]} /></svg>`;
+  // `paint`, optionally, gives a part of it attributes of its own: (index, attrs) → attrs.
+  const icon = (name, paint = null) => {
+    const node = typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
+    return html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${node?.[2].map(([tag, a], i) => h(tag, paint ? paint(i, { ...a }) : a)) ?? null}</svg>`;
+  };
   // The mark, the page's one #mark symbol (index.html, from app/assets/mark-small.svg).
   const mark = html`<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#mark" /></svg>`;
 
@@ -310,7 +320,7 @@ const Shell = (() => {
       return stop;
     }, []);
     return html`<div class="float in" popover="manual" ref=${ref}>
-      ${f.kind === 'menu' ? html`<${Menu} f=${f} />` : html`<div class="pop" role="dialog">${f.draw(f.close)}</div>`}</div>`;
+      ${f.kind === 'menu' ? html`<${Menu} f=${f} />` : html`<div class="pop" role="dialog">${f.draw(f.close, f.id)}</div>`}</div>`;
   }
   document.addEventListener('pointerdown', e => {
     const open = floats.peek();
@@ -445,7 +455,8 @@ const Shell = (() => {
             onPointerMove=${() => { if (i !== act && selectable(it)) { setAct(i); if (it.items) openSub(it, el(i)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
             onClick=${() => selectable(it) && run(it)}>
             ${checks ? html`<span class="check">${it.checked ? icon('check') : null}</span>` : null}
-            <span class="label">${marked(it.label, it.ranges)}</span>
+            ${it.icon || it.glyph ? html`<span class="glyph">${it.glyph ?? icon(it.icon)}</span>` : null}
+            <span class="label" style=${it.font ? `font-family:${it.font}` : null}>${marked(it.label, it.ranges)}</span>
             ${it.detail ? html`<span class="detail">${it.detail}</span>` : null}
             ${it.keys ? html`<kbd>${keyLabel(it.keys)}</kbd>` : null}
           </div>`)}
