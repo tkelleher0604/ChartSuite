@@ -319,6 +319,13 @@ async function run() {
   Shell.closeAll(); await tick();
   Shell.select(selWas); await tick(120);
 
+  // ---- What can be done with a record is in its panel too, behind ⋯, as its box's right-click has it ----
+  Shell.select(['fund']); await tick(150);
+  $$('.ih > .btn.more').find(b => b.getClientRects().length)?.click(); await tick(120);
+  const moreItems = $$('.float .menu-item .label').map(e => e.textContent);
+  check('a record’s panel has ⋯, with its table, Hide in this view and Delete…', ['Open in Entities', 'Hide in this view', 'Delete…'].every(x => moreItems.includes(x)), moreItems.join(' | '));
+  Shell.closeAll(); await tick();
+
   // ---- Tidy is with the arrangement, not the zoom ----
   Shell.select(['halvard']); await tick(80);
   $('[data-fb="zoom"]').click(); await tick(120);
@@ -688,6 +695,13 @@ async function run() {
   const typedIn = App.shown.peek().item(App.chart.peek(), Shell.selection.peek()[0] ?? '')[0];
   check('… and one typed in is made, with its text, and selected', App.wb.changes().length === before + 1 && typedIn?.geometry === 'text' && typedIn.text === 'Draft for discussion' && textBoxes() === boxes0 + 1,
     JSON.stringify(typedIn));
+  // Esc keeps what's typed in a shape, as PowerPoint's does, where a value typed over in a box is put back, as Excel's is.
+  cv().insert('text'); await tick(60);
+  { const ed = $('.dc-edit'); if (ed) { ed.textContent = 'Subject to change'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); } }
+  await tick(120);
+  const escaped = App.shown.peek().item(App.chart.peek(), Shell.selection.peek()[0] ?? '')[0];
+  check('… Esc keeping what was typed in it, as PowerPoint does', escaped?.geometry === 'text' && escaped.text === 'Subject to change' && textBoxes() === boxes0 + 2, JSON.stringify(escaped));
+  Shell.parts.peek().undo.undo(); await tick(120);
   let blank = null;
   App.change(tx => { blank = tx.add('shape', { view: sc().view, geometry: 'text', text: '', x: 40, y: 40 }); }); await tick(120);
   cv().edit(blank); await tick(60);

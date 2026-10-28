@@ -1202,6 +1202,14 @@ async function run() {
   check('Delete chart takes it out, says so, and shows another', !App.wb.charts().some(c => c.chart === C2) && C() !== C2 && $('.toast span')?.textContent === `Deleted the chart ${name0} copy`, $('.toast span')?.textContent);
   $('.toast button').click(); await tick(300);
   check('… and its Undo brings it back, shown', App.wb.charts().some(c => c.chart === C2) && C() === C2 && objects(C2) === objects(C0));
+  // Widened, the record's page has its way back in view: a button named for the view it's over, which narrows it, as
+  // the view's own tab does.
+  Shell.select([named('Calder Ridge Capital Partners III, L.P.')]); await tick(60);
+  Shell.widen(); await tick(300);
+  const back = $('.inspector > .back'), viewName = App.views.peek().find(v => v.id === Shell.view.peek())?.name;
+  check('the record’s page, widened, shows the way back, named for the view', !!back && back.textContent.trim() === viewName, `${back?.outerHTML.slice(0, 120)} wide=${Shell.wide.peek()} main=${!!$('.main.wide')} view=${viewName}`);
+  back?.click(); await tick(300);
+  check('… and it goes back', !Shell.wide.peek() && !$('.inspector > .back'));
   check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
 }
 

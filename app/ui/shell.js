@@ -272,7 +272,7 @@ const Shell = (() => {
     fill: 'PaintBucket', outline: 'Pen', color: 'Baseline', bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough',
     'align-left': 'AlignLeft', 'align-center': 'AlignCenter', 'align-right': 'AlignRight', layers: 'Layers', group: 'Group', ungroup: 'Ungroup',
     painter: 'Paintbrush', eraser: 'Eraser', grow: 'AArrowUp', shrink: 'AArrowDown', copy: 'Copy', paste: 'ClipboardPaste', trash: 'Trash2',
-    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight',
+    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight', more: 'Ellipsis',
   };
   const lucideOf = name => typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
   const icon = name => html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${lucideOf(name)?.[2].map(([tag, a]) => h(tag, a)) ?? null}</svg>`;
@@ -638,7 +638,7 @@ const Shell = (() => {
           ? html`<button class="btn icon" aria-label="Today" data-tip="Today" onClick=${() => part('time').today()}>${icon('x')}</button>` : null}</span>` : null}
         <span class="sep" />
         <button class="btn icon" aria-label=${away.value ? 'Show panel' : 'Hide panel'} data-tip=${away.value ? 'Show panel' : 'Hide panel'} data-keys=${keyLabel('$mod+Backslash')}
-          aria-pressed=${!away.value} onClick=${() => setShut(!away.peek())}>${icon('panel')}</button>
+          aria-pressed=${!away.value} onClick=${() => wide.peek() ? narrow() : setShut(!away.peek())}>${icon('panel')}</button>
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
         <button class="btn primary" aria-haspopup="dialog" onClick=${() => Export.open()}>Export</button>
@@ -695,7 +695,7 @@ const Shell = (() => {
         ${part('time') ? h(part('time').Ruler) : null}
       </div>
       <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${resize} onDblClick=${() => wide.value ? narrow() : widen()} />
-      <aside class="inspector" aria-label="Inspector" data-region="inspector" tabindex="-1"><${Host} kind="inspector" hidden=${!!aside.value} />${aside.value ? html`<div class="host aside">${h(aside.value)}</div>` : null}</aside>
+      <aside class="inspector" aria-label="Inspector" data-region="inspector" tabindex="-1">${wide.value && v ? html`<button class="btn ghost back" data-tip="Back" data-keys="Esc" onClick=${narrow}>${icon('chevron-left')}<span>${v.name}</span></button>` : null}<${Host} kind="inspector" hidden=${!!aside.value} />${aside.value ? html`<div class="host aside">${h(aside.value)}</div>` : null}</aside>
     </div>`;
   }
 
@@ -717,8 +717,10 @@ const Shell = (() => {
     useLayoutEffect(more);
     useLayoutEffect(() => { const ro = new ResizeObserver(() => requestAnimationFrame(more)); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, [!!vp]);
     if (!vp) return html`<div class="sheets" />`;
+    // A tab clicked shows its view, the record's page put back first where it was widened over it.
     const down = (e, v) => {
       if (e.button !== 0 || editing.peek()) return;
+      narrow();
       show(v.id);
       drag(e, { item: e.currentTarget, items: [...ref.current.children], axis: 'x', onDrop: (from, i) => vp.move(list[from].id, i) });
     };
