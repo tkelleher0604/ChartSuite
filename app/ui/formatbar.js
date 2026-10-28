@@ -143,26 +143,25 @@ function inMark(st, m) {
 // or relation first, then its options, then its tags, each in their entries' order.
 // → { by: key → { pattern, name, rank, marks }, of: record id → key }.
 const kins = new WeakMap();
+// A record's group, from its tree, and its key: kept with the tree, which is the same while the record stands.
+const generals = new WeakMap();
+const generalOf = (t, root = true) => {
+  if (!t.args) return root ? { kind: t.kind } : {};
+  const out = root && t.out && ('choice' in t.out ? { choice: t.out.choice } : 'tag' in t.out ? { tag: t.out.tag } : null);
+  return { ...(out && { out }), args: t.args.map(a => ({ edge: a.edge, loc: generalOf(a.loc, false) })) };
+};
+const general = t => generals.get(t) ?? generals.set(t, (p => ({ p, key: Tree.key(p) }))(generalOf(t))).get(t);
 function kinOf(sc) {
   let k = kins.get(sc);
   if (k) return k;
   const st = App.state.peek(), N = App.notes.peek(), by = new Map(), of = new Map();
   const markOf = id => { for (let x = id; x && st[x]; x = st[x].at) { const m = sc.byId.get(x); if (m && (m.type === 'box' || m.type === 'line')) return m; } return null; };
-  const general = (id, root) => {
-    const r = st[id];
-    if (!r) return null;
-    if (Tree.isObject(r)) return root ? { kind: r.kind } : {};
-    const args = Tree.argsOf(r).map(a => ({ edge: a.edge, loc: general(a.at, false) }));
-    if (args.some(a => !a.loc)) return null;
-    const out = root && (Tree.isChoice(r) ? { choice: r.choice } : Tree.isTag(r) ? { tag: r.tag } : null);
-    return { ...(out && { out }), args };
-  };
   for (const id in st) {
     const r = st[id];
     if (Tree.isView(r) || (!Tree.isObject(r) && !r.args && !Tree.isChoice(r) && !Tree.isTag(r))) continue;
-    const m = markOf(id), p = m && !m.revealed && general(id, true);
+    const m = markOf(id), t = m && !m.revealed && Tree.treeOf(st, id), kin = t && general(t), p = kin?.p;
     if (!p) continue;
-    const key = Tree.key(p);
+    const key = kin.key;
     of.set(id, key);
     let g = by.get(key);
     if (!g) {

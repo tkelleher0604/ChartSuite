@@ -127,8 +127,9 @@ const FormulaBar = (() => {
     if (memo.has(k)) return memo.get(k);
     const recs = Rv.records, { entries, relations } = Tree.index(recs), near = new Set(), out = new Map();
     for (const o of [a, b]) for (let todo = [o], i = 0; i < todo.length; i++) { for (const r of relations.get(todo[i]) ?? []) near.add(r); todo.push(...entries.get(todo[i]) ?? []); }
-    const order = Object.keys(recs);
-    for (const id of [...near].sort((x, y) => order.indexOf(x) - order.indexOf(y))) {
+    const order = [];
+    for (const id in recs) if (near.has(id)) order.push(id);
+    for (const id of order) {
       const r = recs[id], def = r.args?.length === 2 && (Rv.computed[id]?.def ?? Rv.covered[id]?.def), d = def && defOf(def);
       if (!d) continue;
       const by = new Map(r.args.map(x => [norm(x.edge), Tree.objectOf(recs, x.at)]));

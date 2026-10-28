@@ -343,12 +343,16 @@ function mount(el) {
   // Only the cells on screen, and a margin round it, are drawn, as X6 draws a big graph (`virtual`), so a chart
   // of hundreds of boxes costs what a screenful does; the rest wait in the model, drawn as they come on screen.
   // The canvas says where the screen is the moment the view moves, in place of X6's own, which waits for a
-  // pause; and a canvas that can't be seen draws everything, as it can't say. The screen's size is the one last
-  // read (see seen), as reading it again once anything has moved would lay the window out again.
+  // pause; and a canvas never yet seen draws everything, as it can't say, while one put away (another view
+  // shown) draws what it drew, till it's seen again. The screen's size is the one last read (see seen), as reading
+  // it again once anything has moved would lay the window out again.
   graph.virtualRender.stopListening();
   const AROUND = 120;
-  let screen = { w: 0, h: 0 };
-  const onScreen = () => graph.renderer.setRenderArea(screen.w > 0 && screen.h > 0 ? graph.graphToLocal(0, 0, screen.w, screen.h).inflate(AROUND, AROUND) : undefined);
+  let screen = { w: 0, h: 0 }, everSeen = false;
+  const onScreen = () => {
+    if (screen.w > 0 && screen.h > 0) { everSeen = true; graph.renderer.setRenderArea(graph.graphToLocal(0, 0, screen.w, screen.h).inflate(AROUND, AROUND)); }
+    else if (!everSeen) graph.renderer.setRenderArea(undefined);
+  };
   // What can be selected: a mark this view draws (a cell another view drew is kept hidden; see cellsTo).
   const selectable = c => { const k = c.getData()?.kind; return !!k && !UNMARKED.has(k) && c.isVisible(); };
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
