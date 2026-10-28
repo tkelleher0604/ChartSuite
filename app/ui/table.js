@@ -1082,16 +1082,21 @@ const Table = (() => {
     const sr = table.modules.selectRange, r = table.getRanges()[0], rows = table.getRows('active'), first = table.getColumns().find(c => c.getField());
     const whole = r && rows.length > 1 && r.getRows().length === rows.length && r.getColumns().filter(c => c.getField()), lent = !sr.activeRange;
     if (lent && !rows.length) return false;
-    // Tabulator lays each drawn row out again as a column moves, measuring each as it goes, so the grid is laid out once
-    // a row: with the rows out of the page meanwhile, each is only marked to be, and they're drawn again together, where
-    // they were scrolled, measured once.
-    const holder = table.rowManager.element, { scrollTop, scrollLeft } = holder, shown = holder.style.display;
+    // Moved as Tabulator moves a column (moveColumn), its heading and its cells, but for laying every drawn row out again,
+    // each measured in turn, where nothing in a row but its cells' order changes: each drawn row's cells are put in it in
+    // their new order.
+    const cm = table.columnManager, move = (f, at) => {
+      const a = cm.findColumn(f), b = cm.findColumn(at);
+      b.element.parentNode.insertBefore(a.element, b.element);
+      cm.moveColumnActual(a, b, false);
+      cm.verticalAlignHeaders();
+    };
     arranging = true;
     try {
       if (lent) table.addRange(rows[0].getCell(first), rows[0].getCell(first));
-      holder.style.display = 'none';
-      try { want.forEach((f, i) => { const at = now()[i]; if (at !== f) table.moveColumn(f, at, false); }); }
-      finally { holder.style.display = shown; Object.assign(holder, { scrollTop, scrollLeft }); table.rowManager.renderer.rerenderRows(); sr.layoutElement(); }
+      want.forEach((f, i) => { const at = now()[i]; if (at !== f) move(f, at); });
+      for (const row of table.rowManager.rows) if (row.initialized && row.element && row.cells?.length) row.element.append(...row.cells.map(c => c.getElement()));
+      sr.layoutElement();
       if (whole?.length) { const cs = table.getColumns().filter(c => whole.includes(c)); table.addRange(rows[0].getCell(cs[0]), rows.at(-1).getCell(cs.at(-1))); }
       if (lent) { sr.clearRanges(); sr.activeRange = false; sr.layoutElement(); }
     } finally { arranging = false; }
