@@ -516,6 +516,13 @@ async function run() {
     && ['History', 'Hide in this view', 'Transfer…', 'Delete…'].every(x => ownMenu.includes(x)), ownMenu.join(' | '));
   check('… where it can be transferred: one a formula gives, or of more than two sides, can’t', App.transferable(own) && !App.transferable(Object.keys(st()).find(k => N().nameOf(st(), k) === 'Control'))
     && !App.transferable(Object.keys(App.entered.peek()).find(k => App.entered.peek()[k].args?.length > 2)));
+  // Find reaches it too, by the words a sale goes by, for the one record selected, and says why not without one.
+  const acts = () => Shell.parts.peek().action, transferAct = acts().find(a => a.id === 'record.transfer'), canNow = transferAct?.enabled();
+  Shell.select([]); await tick(30);
+  const whyNot = !transferAct?.enabled() && transferAct?.why?.();
+  Shell.select([own]); await tick(60);
+  check('Find has Transfer… by Sell and Sale, for a relation selected, and says why not with none', canNow && ['Sell', 'Sale'].every(w => transferAct.names?.includes(w))
+    && whyNot === 'Select an ownership or another relation first' && acts().some(a => a.id === 'record.delete'), `${canNow} ${whyNot}`);
   const nT = nP(), quiet = $$('.addrow .add-entry').find(b => /Transfer…/.test(b.textContent));
   check('… and says so quietly in its panel, beside Add', !!quiet && /Add/.test(quiet.previousElementSibling?.textContent ?? ''));
   quiet?.click(); await tick(80);

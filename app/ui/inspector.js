@@ -1385,6 +1385,15 @@ const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' 
 
 Shell.register('inspector', { mount(el) { render(html`<${Inspector} />`, el); return () => render(null, el); } });
 Shell.register('attention', { items: () => attention.value });
+// What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
+// with why not, where they can't be.
+const theOne = () => { const ks = Shell.selection.peek(); return ks.length === 1 && recs()[ks[0]] ? ks[0] : null; };
+const notNow = (can, what) => () => App.readOnly.peek() ? 'Can’t change the past' : !theOne() ? `Select ${what} first` : can;
+Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['Sell', 'Sale', 'Assign', 'Transfer ownership'],
+  enabled: () => !App.readOnly.peek() && !!theOne() && !!App.transferable(theOne()), run: () => App.transferring(theOne()),
+  why: notNow('Only a relation of two sides transfers', 'an ownership or another relation') });
+Shell.register('action', { id: 'record.delete', name: 'Delete…', names: ['Remove', 'Dissolve', 'End'],
+  enabled: () => !App.readOnly.peek() && !!theOne(), run: () => remove(theOne(), { auto: true, inline: true }), why: notNow('', 'what to delete') });
 // Find reaches every record by its name, and every list of relatives by whose it is (AIV-1 › Signatories). They're the
 // same while the state and the notes stand, so they're found once, not at each key typed; and found ahead, an object
 // at a time, while the window is idle after either changes, so the first key typed in Find finds at once.
