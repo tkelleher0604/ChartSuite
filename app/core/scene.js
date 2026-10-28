@@ -1731,6 +1731,9 @@ function outputPattern(style, t) {
 // Tree.dependents finds them, the relations at them, and what's in or at those, being no box's; a line's, its
 // relation and everything in or at it.
 const reaches = new WeakMap();
+// A record's output under a style, kept with its tree, which stands while the record does, so it's keyed once.
+const outputs = new WeakMap();
+const outputIn = (s, t) => { const m = outputs.get(t) ?? outputs.set(t, new Map()).get(t); return m.get(s.key) ?? m.set(s.key, outputPattern(s, t)).get(s.key); };
 function reach(wb, chart, view, scene, markId, state) {
   const m = scene.byId.get(markId);
   if (!m || (m.type !== 'box' && m.type !== 'line')) return [];
@@ -1751,7 +1754,7 @@ function reach(wb, chart, view, scene, markId, state) {
     for (const [id, t] of ids) {
       // A record fits only a pattern of its shape.
       if (Tree.shapeOf(t) !== shape || !Tree.narrower(t, s.pattern)) continue;
-      const output = outputPattern(s, t);
+      const output = outputIn(s, t);
       if (!out.some(o => o.style === s.key && key(o.output) === key(output)))
         out.push({ style: s.key, order, record: id, output, caption: captioned(output), name: styleName(N, s.pattern) });
     }
