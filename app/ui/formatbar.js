@@ -268,7 +268,7 @@ function apply(label, value) {
   // where a later style gives some of it otherwise, puts the group's style after it, or says which still decides.
   const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value);
   const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say].filter(Boolean);
-  App.change(tx => { write(tx, c, label, value); first.also?.(tx); }, { say: says.length ? `Changed ${label} for ${scope.caption}; ${says.join('; ')}` : null });
+  App.change(tx => { write(tx, c, label, value); first.also?.(tx); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : null });
   // Keys go back to the chart, so the next change can be typed.
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
@@ -904,6 +904,6 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount });
-return { apply, value, colorName, allOf, scope: describe, write: scoped, cue: cueing, open,
+return { apply, value, colorName, shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook };
 })();

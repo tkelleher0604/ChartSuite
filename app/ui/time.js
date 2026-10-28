@@ -343,6 +343,26 @@ const Time = (() => {
   // own name.
   const grouped = (N, n) => typeof Scene === 'undefined' ? null : n.label === 'Caption' ? Scene.outputName(N, n.pattern)
     : Scene.groupsOf(N, n.view).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(n.pattern)))?.caption ?? Scene.captionOf(N, n.pattern, n.view);
+  // A look given, said with what it's given, as an audit trail needs it: "Made Funds bold", "Set the font of Fund III
+  // Blocker to Garamond", "Took the fill off Fund III"; a color by the palette's name, a shape by the bar's. A label
+  // with no words of its own is said as changed.
+  const NOUNS = { Font: 'font', Size: 'size', Color: 'text color', Fill: 'fill', Outline: 'outline', Weight: 'outline weight', Shape: 'shape', Align: 'alignment',
+    Valign: 'vertical alignment', Spacing: 'line spacing', Transparency: 'transparency', Corner: 'corners', Arrow: 'arrowheads', Shadow: 'shadow', Frame: 'frame',
+    Connector: 'connector', Layer: 'layer' };
+  const ON = { Bold: ['bold', 'not bold'], Italic: ['italic', 'not italic'], Underline: ['underlined', 'not underlined'], Strike: ['struck through', 'not struck through'] };
+  function looked(label, v, of) {
+    if (ON[label]) return `Made ${of} ${ON[label][v ? 0 : 1]}`;
+    if (label === 'Dash') return `Made the outline of ${of} ${v}`;
+    const noun = NOUNS[label];
+    if (!noun) return `Changed ${label} of ${of}`;
+    if (v === 'none') return `Took the ${noun} off ${of}`;
+    if (label === 'Shadow') return `Gave ${of} a shadow`;
+    if (label === 'Arrow') return `Gave ${of} ${v === 'both' ? 'arrowheads at both ends' : `an arrowhead at its ${v}`}`;
+    const fb = typeof FormatBar !== 'undefined' ? FormatBar : null;
+    const said = label === 'Size' || label === 'Weight' ? `${v} pt` : label === 'Transparency' || label === 'Corner' ? `${v}%`
+      : label === 'Shape' ? (fb?.shapeName?.(v) ?? v).toLowerCase() : /^#[0-9a-f]{3,8}$/i.test(v) ? fb?.colorName?.(v) ?? v.toUpperCase() : String(v);
+    return `Set the ${noun} of ${of} to ${said}`;
+  }
   function notePhrase(i, n, recs, N) {
     // One record's own (a box's, or a line's, its relation's tree), or else a style's or an entry's in general.
     const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {}), line = at === undefined && !!n.pattern.args && Tree.idsIn(n.pattern).size > 0;
@@ -364,6 +384,7 @@ const Time = (() => {
       // A look one record kept of its own, cleared, as the format bar says it.
       default: return gone && at !== undefined && Notes.FORMATS.has(n.label) ? `Cleared ${of.endsWith('s') ? `${of}’` : `${of}’s`} own ${n.label}${inView}`
         : gone && line && Notes.FORMATS.has(n.label) ? `Cleared the ${n.label} of ${of}${inView}`
+        : Notes.FORMATS.has(n.label) && !gone ? `${looked(n.label, n.value, !one && n.view ? grouped(N, n) ?? of : of)}${inView}`
         : `Changed ${n.label}${one ? ' of ' : ' for '}${!one && n.view ? grouped(N, n) ?? of : of}${inView}`;
     }
   }
@@ -460,5 +481,5 @@ const Time = (() => {
   // Its list of what's deleted, which Find reaches by what's done there too.
   Shell.register('action', { id: 'history.deleted', name: 'History › Deleted', names: ['Restore'], run: () => openHistory('deleted') });
 
-  return { events, whose, describe, keep, open: openHistory, close };
+  return { events, whose, describe, looked, keep, open: openHistory, close };
 })();

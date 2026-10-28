@@ -1079,7 +1079,7 @@ async function run() {
   check('A line or a box hidden in a view is said as the chart’s Delete says it, a line by the place rule as the formula bar says it, and several counted', hidings === `Hid Ownership: ${place} in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure`, hidings);
   // A line's own look is said as that line's, not its style's.
   const weighed = { ...stamp, id: 'xw', removes: [], adds: [{ id: 'xw0', note: 'xwn', label: 'Weight', pattern: owns[0], view: 'view_main', value: 2 }] };
-  check('A line formatted alone is said as that line, not its style', Time.describe(weighed) === `Changed Weight of Ownership: ${place} in Structure`, Time.describe(weighed));
+  check('A line formatted alone is said as that line, not its style, with what it’s given', Time.describe(weighed) === `Set the outline weight of Ownership: ${place} to 2 pt in Structure`, Time.describe(weighed));
   App.change(tx => tx.note('Fill', boxOf, '#fff2cc', { view: 'view_main' }), { dated: false });
   App.change(tx => tx.note('Fill', boxOf, undefined, { view: 'view_main' }), { dated: false });
   const cleared = Time.describe(last());

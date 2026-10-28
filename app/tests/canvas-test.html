@@ -199,8 +199,16 @@ async function run() {
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
   const kept = txt($$('.toast').at(-1)), np = App.notes.peek().nameOf(App.state.peek(), 'northpine'), groupSaid = Time.describe(App.wb.changes().at(-1));
-  check('… which says at once, by the group, that the one keeps its own', kept.startsWith(`Changed Fill for Portfolio companies; ${np} keeps its own`), kept);
-  check('… and History names the change by the group, as the Key does', groupSaid === `Changed Fill for Portfolio companies in ${main.name}`, groupSaid);
+  const green = FormatBar.colorName('#e2f0d9');
+  check('… which says at once, by the group, that the one keeps its own', kept.startsWith(`Set the fill of Portfolio companies to ${green}; ${np} keeps its own`), kept);
+  check('… and History names the change by the group, as the Key does, with the color by its name', groupSaid === `Set the fill of Portfolio companies to ${green} in ${main.name}`, groupSaid);
+  // Each look is said with what it's given: a switch by what it makes, none as taken off, a color and a shape by name.
+  const stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: App.chart.peek() }, npBox = { id: 'northpine', kind: 'Entity' };
+  const looks = [['Bold', true], ['Strike', false], ['Fill', 'none'], ['Font', 'Garamond'], ['Shape', 'rounded'], ['Fill', '#fff2cc'], ['Dash', 'dashed']]
+    .map(([label, value], i) => Time.describe({ ...stamp, id: 'xl' + i, removes: [], adds: [{ id: `xl${i}a`, note: `xln${i}`, label, pattern: npBox, view: main.id, value }] }));
+  check('a box’s looks are said as made: bold, not struck through, its fill taken off, its font, shape and fill set, its outline dashed', JSON.stringify(looks) === JSON.stringify([
+    `Made ${np} bold`, `Made ${np} not struck through`, `Took the fill off ${np}`, `Set the font of ${np} to Garamond`, `Set the shape of ${np} to rounded rectangle`,
+    `Set the fill of ${np} to ${FormatBar.colorName('#fff2cc')}`, `Made the outline of ${np} dashed`].map(s => `${s} in ${main.name}`)), looks.join(' / '));
   check('… and the group stays chosen after the change', chip() === 'All 4 portfolio companies', chip());
   $('[data-fb="groups"]').click(); await tick(120);
   const clearIt = $$('.float .menu-item').find(e => txt(e).startsWith('Clear '));
