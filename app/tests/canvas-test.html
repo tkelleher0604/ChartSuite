@@ -541,6 +541,15 @@ async function run() {
       && App.shown.peek().changes().length === changes + 1 && sc().byId.get('aiv').texts.some(it => it.text === '(Delaware)'), `${hid?.value}; ${changes} → ${App.shown.peek().changes().length}`);
     Shell.parts.peek().undo.undo(); await tick(250);
     check('… and Undo takes it back whole', sc().byId.get('fund').texts.some(it => it.id === 'fund_juris'));
+    // The format bar, with a field selected, formats that field's text alone, as a text selected in a PowerPoint shape.
+    Shell.select(['fund']); await tick(200);
+    if (at) await press(at);
+    const fieldSelected = cv().field()?.it.id === 'fund_juris';
+    $('[data-fb="italic"]').click(); await tick(250);
+    const fundTexts = App.scene.peek().byId.get('fund').texts, juris = fundTexts.find(it => it.id === 'fund_juris'), others = fundTexts.filter(it => it !== juris);
+    check('with a field selected, the format bar formats that field’s text alone', fieldSelected && juris?.look.Italic && others.length && others.every(it => !it.look.Italic)
+      && $('[data-fb="italic"]').getAttribute('aria-pressed') === 'true', fundTexts.map(it => `${it.text}:${it.look.Italic}`).join(', '));
+    Shell.parts.peek().undo.undo(); await tick(250);
     // A row copied: Ctrl+C on its label in the inspector, then Ctrl+V on another box.
     const copy = new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: new DataTransfer() });
     const row = $('.insp .row[data-key="fund_juris"]');
@@ -554,7 +563,7 @@ async function run() {
     Shell.parts.peek().undo.undo(); await tick(200);
     // Show on chart, at the scope chosen in the format bar: a group of Vehicle Type writes beside its outputs.
     Shell.select(['fund']); await tick(200);
-    $('[data-fb="scope"]').click(); await tick(120);
+    $('[data-fb="groups"]').click(); await tick(120);
     $$('.float .menu-item').find(e => /^Funds \(\d+\)/.test(txt(e)))?.click(); await tick(150);
     const eye = $('.insp .row[data-key="fund_ein"] .onchart');
     eye?.click(); await tick(300);

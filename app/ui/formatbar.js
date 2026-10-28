@@ -667,7 +667,7 @@ const opener = {
 
 // While the inspector is widened over the chart there's nothing here to format.
 function Bar() {
-  App.scene.value; Shell.selection.value; Canvas.fieldLit?.value;
+  App.scene.value; Shell.selection.value; Canvas.fieldPicked?.value;
   const c = Canvas.active.value;
   if (!c || !c.scene() || Shell.wide.value) return html`<div class="fb" hidden=${Shell.wide.value} />`;
   const s = scopesOf(c), scope = scopeOf(s.scopes, chosen.value);

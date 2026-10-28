@@ -19,6 +19,8 @@ const active = signal(null);
 const zoomLevel = signal(1);
 // The field pointed at or selected on the chart, by its row's key in the inspector, which lights that row.
 const fieldLit = signal(null);
+// The field selected, as its box and record ("fund|fund_juris"), for what formats it (the format bar); null for none.
+const fieldPicked = signal(null);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
 const UNMARKED = new Set(['page', 'label', 'ink']);
@@ -1009,6 +1011,7 @@ function mount(el) {
     const d = dropOn && scene.byId.get(dropOn);
     if (d) draw(d, 'drop', 4);
     fieldLit.value = rowKey((h && hovered ? h : null) ?? fieldNow()?.it) ?? null;
+    fieldPicked.value = field ? `${field.box}|${field.id}` : null;
   }
   // Its entry's name, on hover, a moment after the pointer stops on it, as a tooltip shows.
   const tip = document.createElement('div');
@@ -1997,5 +2000,5 @@ const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 
-return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, scope: () => scopeNow(), named, groupsAt };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt };
 })();
