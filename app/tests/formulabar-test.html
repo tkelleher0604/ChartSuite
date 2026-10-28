@@ -513,7 +513,7 @@ async function checks() {
   check('a value at a relation says whose: Fund III’s annual tax for 2026 is due June 1, 2027, never “the tax year is 2026, so the annual tax is due”',
     await saidOf([`fx:annual tax due=${TAX}`]) === 'Fund III’s annual tax for 2026 is due June 1, 2027.' && FormulaBar.sentence(`fx:annual tax amount=${TAX}`) === 'Fund III’s annual tax amount for 2026 is $400.', said());
   const taxes = [...Object.entries(R().computed), ...Object.entries(R().covered)].filter(([, c]) => /^def_annual_tax/.test(c.def)).map(([id]) => FormulaBar.sentence(id));
-  const whose = s => /^\S.*’s? annual tax (amount )?for \d{4} (is|was) |, so it is taxed for \d{4}\.$/.test(s ?? '') && !/\btax year is\b/.test(s);
+  const whose = s => /^\S.*’s? annual tax (amount )?for \d{4} (is|was) |^\S.* is a corporation, so its annual tax for \d{4} (is|was) due |, so it is taxed for \d{4}\.$/.test(s ?? '') && !/\btax year is\b/.test(s);
   check('… every Delaware tax sentence names whose, and its year once', taxes.length >= 50 && taxes.every(whose), taxes.find(s => !whose(s)));
   check('… so the facts about one subject together, then it: is taxed for 2026', await saidOf([TAX]) === 'Fund III is a limited partnership and its formation date is February 14, 2023, so it is taxed for 2026.', said());
   const vote = id => Object.keys(R().records).find(k => R().records[k].at === ent()[id].at && R().records[k].edge === 'Voting Percentage');
@@ -535,7 +535,7 @@ async function checks() {
     dated.length > 20 && dated.filter(([v]) => v < App.day.peek()).length >= 2 && dated.every(tensed) && sentences.includes('AIV-1’s annual tax for 2025 was due June 1, 2026.'), dated.find(d => !tensed(d))?.[1]);
   check('… and the last of what was done was then: the Manager’s last annual amendment was on March 28, 2026', sentences.some(s => s.startsWith('The Manager’s last annual amendment was on March 28, 2026 and '))
     && sentences.some(s => s.startsWith('The Manager’s last annual update was on April 24, 2026 and ')) && !sentences.some(s => /\blast [a-z ]+ is [A-Z]\w+ \d+, \d{4}/.test(s)), sentences.find(s => /Form ADV/.test(s)));
-  check('… a date of what was done, as done then', /^Fund III Blocker is a corporation and paid its franchise tax on February 24, 2026, so /.test(await saidOf(['fx:franchise tax due=blocker_juris']) ?? ''), said());
+  check('… a date of what was done, as done then', /^Offshore Feeder last paid on January 12, 2026, so its annual fee is due /.test(await saidOf(['fx:annual fee due=feeder_cima']) ?? ''), said());
   check('… its annual return filed on a day, and Form D last filed on one, while its offering is open', /^Offshore Feeder filed its annual return on January 20, 2026, so its annual return is due/.test(await saidOf(['fx:annual return due=feeder_juris']) ?? '')
     && /^The BDC’s offering is open and it last filed on November 10, 2025, so its Form D is due/.test(await saidOf(['fx:form d due=bdc_regd']) ?? ''), said());
   // A date moved off a weekend says so in words, where it was moved and which way; one not moved, nothing more
@@ -596,11 +596,11 @@ async function checks() {
   check('an entered value under a formula shows both, with the amber corner', m.covered && document.querySelector('.fx-out.over') && document.querySelector('.fx-would')?.textContent === 'C Corporation', document.querySelector('.fx-would')?.textContent);
   check('… and says what the rows would give, and why', said() === 'The BDC is a corporation, so its tax classification would be C Corporation.', said());
   check('a value’s place is its object, without the path down to it, where it has one of its kind', M().place === 'The BDC' && (Shell.select(['fx:form pf due=mgmt_pf']), await wait(40), M().place === 'The Manager'), M().place);
-  // … and the path where the object has two: a tax paid at its jurisdiction, and one at its entity type
-  Shell.select(['blocker_juris_frtax']); await wait(40);
+  // … and the path where the object has two: a return filed at its jurisdiction, and one at its entity type
+  Shell.select(['feeder_juris_return']); await wait(40);
   const once = M().place;
-  App.change(tx => tx.add('record', { at: 'blocker_type', edge: 'Franchise Tax Paid', field: 'date', value: '2026-01-02' })); await wait(40);
-  check('… and the path down to it where the object has two of its kind', once === 'Fund III Blocker' && M().place === 'Fund III Blocker › Jurisdiction: Delaware', `${once} | ${M().place}`);
+  App.change(tx => tx.add('record', { at: 'feeder_type', edge: 'Annual Return Filed', field: 'date', value: '2026-01-02' })); await wait(40);
+  check('… and the path down to it where the object has two of its kind', once === 'Offshore Feeder' && M().place === 'Offshore Feeder › Jurisdiction: Cayman Islands', `${once} | ${M().place}`);
   Shell.parts.peek().undo.undo(); await wait(40);
   // One place rule, the core's (Notes.placed), which the bar draws piece by piece: two sides as their line
   // joins them; three as the panel's sentence says them, less its verb; a side named by a number with its kind

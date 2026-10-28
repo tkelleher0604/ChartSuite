@@ -530,13 +530,14 @@ const Shell = (() => {
     actions: [{ label: 'Cancel', value: false, focus: !!o.danger }, { label: o.ok || 'OK', value: true, primary: !o.danger, danger: !!o.danger }],
   });
 
-  // ---- Toasts: a verb, an object and Undo, or Redo once it's undone ----
+  // ---- Toasts: a verb, an object and Undo, or Redo once it's undone; one with a way to see what it did (`go`, [label,
+  // run]: Show Jan 15, 2027) stays till that's taken or it's dismissed ----
   const toasts = signal([]);
   let tid = 0;
   function toast(text, o = {}) {
-    const t = { id: ++tid, text, act: o.undo ? ['Undo', o.undo] : o.redo ? ['Redo', o.redo] : null, timer: 0 };
+    const t = { id: ++tid, text, acts: [...(o.go ? [o.go] : []), ...(o.undo ? [['Undo', o.undo]] : o.redo ? [['Redo', o.redo]] : [])], stay: !!o.go, timer: 0 };
     const dismiss = () => { clearTimeout(t.timer); toasts.value = toasts.peek().filter(x => x !== t); };
-    t.arm = () => { clearTimeout(t.timer); t.timer = setTimeout(dismiss, o.ms || 6000); };
+    t.arm = () => { clearTimeout(t.timer); if (!t.stay) t.timer = setTimeout(dismiss, o.ms || 6000); };
     t.dismiss = dismiss;
     toasts.peek().forEach(x => clearTimeout(x.timer));
     toasts.value = [t];
@@ -584,7 +585,8 @@ const Shell = (() => {
     useLayoutEffect(() => { if (!list.length) return; placeToasts(true); const t = setTimeout(() => placeToasts(), 120); return () => clearTimeout(t); }, [list]);
     return html`<div class="toasts" aria-live="polite">${list.map(t => html`
       <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
-        <span>${t.text}</span>${t.act ? html`<button onClick=${() => { t.dismiss(); t.act[1](); }}>${t.act[0]}</button>` : null}</div>`)}</div>`;
+        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); }}>${label}</button>`)}${t.stay
+          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${t.dismiss}>${icon('x')}</button>` : null}</div>`)}</div>`;
   }
 
   // ---- Find: records, lists, definitions, what needs attention, views and actions, ranked as you type, each
