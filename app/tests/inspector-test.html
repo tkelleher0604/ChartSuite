@@ -71,6 +71,8 @@ const $ = s => document.querySelector('.inspector ' + s), $$ = s => [...document
 // What an element says, its no-break spaces, which bind a name's suffix and numerals, as spaces.
 const spoken = el => el.textContent.replace(/\s/g, ' ');
 const rowOf = label =>$$('.row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === label);
+// A Styles row's caption, as it reads.
+const capOf = el => el?.querySelector('.cap')?.textContent ?? el?.querySelector('.cell')?.value;
 const st = () => App.state.value, last = () => App.wb.changes().at(-1);
 // Whether two records say the same, whatever order their keys were written in.
 const alike = (a, b) => !!a && !!b && JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
@@ -312,10 +314,12 @@ async function run() {
     && pb('.from .sel')?.textContent === 'From' && fromIn?.value === Tree.formatDate(Log.today(), 'short')
     && /^Ownership: Fund III Blocker → The BDC/.test(spoken(pb('.what'))) && /DiscardAdd$/.test(pb().textContent.replace(/\s/g, ''))
     && App.wb.changes().length === n0r && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1, `${asking?.textContent} / ${pb()?.textContent}`);
-  // … and asked where it was ticked too, under its row, the keys there: its day, Discard and Add, the bar's state
-  const askBtns = $$('.rr.adding .ask .btn').map(b => b.textContent);
-  check('… and asked under its row too, where it was ticked, the keys there: From the day shown, Discard and Add', !!hereIn && document.activeElement === hereIn && hereIn.value === fromIn?.value
-    && $('.rr.adding .ask .from .sel')?.textContent === 'From' && askBtns.join() === 'Discard,Add', `${askBtns} ${document.activeElement?.outerHTML.slice(0, 100)}`);
+  // … and asked where it was ticked too, under its row, the keys there: its amount first, then its day, Discard and Add,
+  // the bar's state, the bar setting it out the same
+  const askBtns = $$('.rr.adding .ask .btn').map(b => b.textContent), amountIn = $('.rr.adding .ask .amount input');
+  check('… and asked under its row too, where it was ticked, the keys there: its Percentage first, blank, then From the day shown, Discard and Add', !!amountIn && document.activeElement === amountIn
+    && amountIn.value === '' && $('.rr.adding .ask .amount .word')?.textContent === 'Percentage' && !!hereIn && hereIn.value === fromIn?.value
+    && $('.rr.adding .ask .from .sel')?.textContent === 'From' && askBtns.join() === 'Discard,Add' && pb('.amount .word')?.textContent === 'Percentage', `${askBtns} ${document.activeElement?.outerHTML.slice(0, 100)}`);
   hereIn.value = 'March 2, 2025'; hereIn.dispatchEvent(new Event('input', { bubbles: true })); await tick(30);
   check('… one state: a day typed under the row is the bar’s day too', App.pending.peek()?.day === '2025-03-02' && pb('.from input')?.value === 'Mar 2, 2025', pb('.from input')?.value);
   key(hereIn, 'Escape'); await tick(30);
@@ -325,7 +329,7 @@ async function run() {
   check('… then Esc drops it, saying so, the keys going back to its row, its box not ticked', !$('.rr.adding') && !pb() && !owned() && !FormulaBar.pending.peek() && App.wb.changes().length === n0r
     && dropped === 'Discarded adding Ownership: Fund III Blocker → The BDC' && !!document.activeElement?.matches('.rr[data-key]') && !$('.rr .tag.peek'), `${dropped} ${document.activeElement?.outerHTML.slice(0, 120)}`);
   [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Redo')?.click(); await tick(60);
-  check('… its toast’s Redo brings it back as it was, asked under its row again', !!$('.rr.adding') && !!pb() && App.pending.peek()?.day === Log.today() && document.activeElement === $('.rr.adding .ask .from input'),
+  check('… its toast’s Redo brings it back as it was, asked under its row again', !!$('.rr.adding') && !!pb() && App.pending.peek()?.day === Log.today() && document.activeElement === $('.rr.adding .ask .amount input'),
     document.activeElement?.outerHTML.slice(0, 120));
   $('.rr.adding .ask .btn')?.click(); await tick(60);
   check('… Discard under the row drops it as the bar’s does, saying so', !$('.rr.adding') && !pb() && /^Discarded adding Ownership: Fund III Blocker → The BDC/.test(document.querySelector('.toast span')?.textContent ?? ''));
@@ -407,12 +411,27 @@ async function run() {
   later?.querySelector('.when .lk')?.click(); await tick(60);
   check('… its day a link to the chart then', Shell.time.peek()?.asOf === '2026-12-01');
   Shell.at(null); Shell.parts.value.undo.undo(); await tick(60);
+  // A relation's amount is asked first, in its row and the bar, one state: typed, it's redlined as Enter will add it, and
+  // what it would fail is said as it's typed, named for the record the check is about, with its figure; Enter adds it.
+  Shell.emit('relate-open', ['pension', 'fund']); await tick(60);
+  ghost('Add a relation')?.click(); await tick();
+  $$('.rr').find(r => / is an owner of Fund III$/.test(spoken(r.querySelector('.nm') ?? r)))?.querySelector('.tag').click(); await tick(60);
+  const amt = $('.rr.adding .ask .amount input'), nAmt = App.wb.changes().length, failsAt = () => { const f = $('.rr.adding .ask .fails'); return f && spoken(f).trim(); };
+  const before5 = failsAt();
+  amt.value = '5'; amt.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
+  check('a relation’s amount typed in its row is redlined as Enter will add it, the bar showing it too', App.pending.peek()?.value?.v === 0.05 && pb('.amount input')?.value === '5%'
+    && Object.values(FormulaBar.pending.peek()?.change.records ?? {}).some(r => r?.edge === 'Percentage' && r.value === 0.05), `${App.pending.peek()?.value?.v} ${pb('.amount input')?.value}`);
+  check('… and what it would fail said as it’s typed, by the record the check is about, with its figure', !before5 && failsAt() === 'Fails Ownership Adds Up at Fund III (105%, not 100%)', `${before5} / ${failsAt()}`);
+  key(amt, 'Enter'); await tick(80);
+  const pensionOwn = Object.keys(st()).find(k => st()[k].args && st()[k].tag && st()[k].args.some(a => a.at === 'pension') && st()[k].args.some(a => a.at === 'fund'));
+  check('… Enter adds it with its amount, one change', !!pensionOwn && st()[Tree.entryAt(st(), pensionOwn, 'Percentage')]?.value === 0.05 && App.wb.changes().length === nAmt + 1, pensionOwn);
+  Shell.parts.value.undo.undo(); await tick(60);
   // A list's Add asks the same, in the two-box panel, where its role or value is said too
   Shell.select(['northpine']); await tick(60);
   $$('.sect .btn.icon').find(b => b.getAttribute('aria-label') === 'Add to Owners')?.click(); await tick();
   await pick('Calder Ridge Capital Management, LLC');
   check('a list’s Add asks it there too, redlined, under its row', Shell.selection.peek().join() === 'northpine,mgmt' && /is an owner of Northpine/.test($('.rr.adding .nm')?.textContent ?? '')
-    && document.activeElement === $('.rr.adding .ask .from input'), `${Shell.selection.peek()} ${$('.insp')?.textContent.slice(0, 160)}`);
+    && document.activeElement === $('.rr.adding .ask .amount input'), `${Shell.selection.peek()} ${$('.insp')?.textContent.slice(0, 160)}`);
   key(document.activeElement, 'Escape'); await tick(60);
   // Deleting a relation ends it on the day said, in its redline: Ends on the day shown, the first day it no longer holds,
   // so it's still there before; unticking a held one in the two-box panel asks the same, under its row
@@ -422,7 +441,7 @@ async function run() {
   check('unticking an ownership redlines it going, the bar asking the day it ends on, the day shown', /Ownership: U\.S\. Investors → Fund III/.test(spoken(pb('.what') ?? document.body)) && pb('.from .sel')?.textContent === 'Ends on'
     && pb('.from input')?.value === Tree.formatDate(Log.today(), 'short') && FormulaBar.pending.peek()?.change.records.own_us_fund === null && !!st().own_us_fund, pb()?.textContent);
   check('… and under its row, struck, where it was unticked, the keys there', !!$('.rr.going .ask') && $('.rr.going .ask .from .sel')?.textContent === 'Ends on' && document.activeElement === $('.rr.going .ask .from input')
-    && $$('.rr.going .ask .btn').map(b => b.textContent).join() === 'Discard,Delete', $('.rr.going')?.textContent);
+    && $$('.rr.going .ask .btn').map(b => b.textContent).join() === 'Discard,End', $('.rr.going')?.textContent);
   $('.rr.going .ask .from .sel')?.click(); await tick();
   const endMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
   Shell.closeAll(); await tick();
@@ -512,8 +531,8 @@ async function run() {
   $('.ih .btn.more').click(); await tick();
   const ownMenu = [...document.querySelector('.float .menu').children].map(x => x.classList.contains('menu-sep') ? '-' : x.querySelector('.label')?.textContent);
   Shell.closeAll(); await tick();
-  check('a relation’s ⋯ has no empty section, and offers its History, Transfer… and Delete…', ownMenu[0] !== '-' && ownMenu.at(-1) !== '-' && !ownMenu.some((x, i) => x === '-' && ownMenu[i + 1] === '-')
-    && ['History', 'Hide in this view', 'Transfer…', 'Delete…'].every(x => ownMenu.includes(x)), ownMenu.join(' | '));
+  check('a relation’s ⋯ has no empty section, and offers its History, Transfer… and End…, as deleting it asks the day it ends', ownMenu[0] !== '-' && ownMenu.at(-1) !== '-' && !ownMenu.some((x, i) => x === '-' && ownMenu[i + 1] === '-')
+    && ['History', 'Hide in this view', 'Transfer…', 'End…'].every(x => ownMenu.includes(x)), ownMenu.join(' | '));
   check('… where it can be transferred: one a formula gives, or of more than two sides, can’t', App.transferable(own) && !App.transferable(Object.keys(st()).find(k => N().nameOf(st(), k) === 'Control'))
     && !App.transferable(Object.keys(App.entered.peek()).find(k => App.entered.peek()[k].args?.length > 2)));
   // Find reaches it too, by the words a sale goes by, for the one record selected, and says why not without one.
@@ -633,7 +652,9 @@ async function run() {
   const fxIn = document.querySelector('.formulabar .fx-value');
   fxIn?.focus(); if (fxIn) { fxIn.value = 'September 1, 2025'; fxIn.dispatchEvent(new Event('input', { bubbles: true })); } await tick(60);
   if (fxIn) key(fxIn, 'Enter'); await tick(80);
-  check('a start typed in the formula bar past the day shown takes it out, the toast saying why', !st().fund && /, so it holds from Sep 1, 2025$/.test(toastText()), `${!!fxIn} ${toastText()}`);
+  const showThen = () => [...document.querySelectorAll('.toast button')].map(b => b.textContent).filter(Boolean);
+  check('a start typed in the formula bar past the day shown takes it out, the toast offering the chart then', !st().fund && /Formation Date of Fund III .*Sep 1, 2025/.test(toastText()) && showThen().includes('Show Sep 1, 2025'),
+    `${!!fxIn} ${toastText()} ${showThen()}`);
   Shell.parts.value.undo.undo(); Shell.at(null); await tick(60);
   // One line's own look reads as This line, with Reset, as a box's does
   Shell.select(['own_us_fund']); await tick(60);
@@ -665,14 +686,20 @@ async function run() {
   check('… each such row saying which relation it’s of, so two that read alike are told apart', alike2.length && alike2.every(r => r.querySelector('.why')?.textContent === r.querySelector('.nm .sel').getAttribute('aria-label').split(':')[0])
     && new Set(alike2.map(r => r.querySelector('.why').textContent)).size === alike2.length, alike2.map(r => r.querySelector('.why')?.textContent).join(' | '));
   role?.click(); await tick(); await pick('Director');
-  const posFields = $$('.rr-at .row > .k').map(k => k.textContent.trim());
-  check('… and chosen, kept at once, as a position holds from its Start Date, its fields offered as a form sets them, the role first and the start before the end', posFields.join() === 'Title,Start Date,End Date'
-    && document.activeElement?.getAttribute('aria-label') === 'Title' && !$('.rr.adding'), posFields.join(', '));
+  check('… and chosen, it’s added as any relation is, asking in its row its start entry, as a position holds from its Start Date, the day shown',
+    !!$('.rr.adding') && $('.rr.adding .ask .from .sel')?.textContent === 'Start Date' && $('.rr.adding .ask .from input')?.value === today && App.pending.peek()?.word === 'Start Date', $('.rr.adding')?.textContent);
+  key(document.body, 'Enter'); await tick(80);
+  const posFields = $$('.rr-at .row > .k').map(k => k.textContent.trim()), posOf = Object.keys(st()).find(k => st()[k].args && st()[k].choice === 'Director' && st()[k].args.some(a => a.at === 'halvard') && st()[k].args.some(a => a.at === 'chen'));
+  check('… Enter keeping it, its start given the day, its fields offered as a form sets them, the role first and the start before the end', posFields.join() === 'Title,Start Date,End Date'
+    && document.activeElement?.getAttribute('aria-label') === 'Title' && !$('.rr.adding') && Tree.entryAt(st(), posOf, 'Start Date') && st()[Tree.entryAt(st(), posOf, 'Start Date')].value === Log.today(), posFields.join(', '));
   const director = $$('.rr').find(r => / is a director of Halvard/.test(r.querySelector('.nm')?.textContent));
   check('… held, it has its box, ticked, and its role a dropdown in the sentence', !!director?.querySelector('.ctl .tag.yes') && director.querySelector('.nm .sel')?.textContent === 'director', director?.innerHTML.slice(0, 200));
   check('… as every relation that holds has its box', $('.relate').querySelectorAll(':scope > .rr').length > 1 && [...$('.relate').querySelectorAll(':scope > .rr')].every(r => r.querySelector('.ctl .tag')));
+  // A row just added, the pointer resting on it, never shows itself going, struck, till the pointer has left it
+  director.querySelector('.ctl .tag').dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
+  check('… a row just added never shows itself struck while the pointer rests on it', !director.querySelector('.tag.peek') && !FormulaBar.pending.peek(), JSON.stringify(FormulaBar.pending.peek()?.change ?? null));
   // (the pointer leaving the last box clicked first, as a real one does)
-  director.querySelector('.ctl .tag').dispatchEvent(new PointerEvent('pointerleave'));
+  director.querySelector('.ctl .tag').dispatchEvent(new PointerEvent('pointerleave')); await tick();
   director.querySelector('.ctl .tag').dispatchEvent(new PointerEvent('pointerenter')); await tick(400);
   const going = FormulaBar.pending.peek();
   check('… which, pointed at, redlines it going', Object.values(going?.change.records ?? {})[0] === null && director.querySelector('.tag.peek:not(.yes)'), JSON.stringify(going?.change));
@@ -720,8 +747,8 @@ async function run() {
   check('a start typed past the day shown redlines what it’s at going, with all that’s at it', leaving.northpine === null && Object.values(leaving).filter(x => x === null).length > 3
     && FormulaBar.pending.peek().diff.go.includes('northpine'), JSON.stringify(leaving).slice(0, 200));
   key(formedIn, 'Enter'); await tick(60);
-  check('… and Enter takes it out, the toast saying why', !st().northpine && App.wb.changes().length === nc + 1 && /^(Set|Changed) Formation Date of Northpine Software, LLC .*, so it holds from Mar 2, 2027$/.test(document.querySelector('.toast span')?.textContent ?? ''),
-    document.querySelector('.toast span')?.textContent);
+  check('… and Enter takes it out, the toast offering the chart then, Show Mar 2, 2027, and Undo', !st().northpine && App.wb.changes().length === nc + 1 && /^(Set|Changed) Formation Date of Northpine Software, LLC .*Mar 2, 2027$/.test(document.querySelector('.toast span')?.textContent ?? '')
+    && showThen().join() === 'Show Mar 2, 2027,Undo', document.querySelector('.toast')?.textContent);
   Shell.parts.value.undo.undo(); await tick(60);
   // A deadline: where it is, in words
   const deadline = Object.keys(st()).find(k => st()[k].edge === 'Annual Tax Due' && st()[st()[k].at]?.args);
@@ -772,14 +799,14 @@ async function run() {
   // The view
   Shell.select([]); await tick();
   // A style by its name, or a style that is its one row by that row's caption.
-  const styleNames = () => $$('.style').map(s => s.querySelector('.sname')?.textContent ?? s.querySelector('.cell').value);
+  const styleNames = () => $$('.style').map(s => s.querySelector('.sname')?.textContent ?? capOf(s));
   check('nothing selected shows the view’s layout and its styles, its name left to its tab', !$('.ih') && !!rowOf('Layout') && $$('.style').length > 3 && $$('svg.sw').length > 5, styleNames().join(', '));
-  const outs = $$('.row.out').map(r => `${r.querySelector('.cell').value}/${r.querySelector('.oname')?.textContent ?? ''}`);
+  const outs = $$('.row.out').map(r => `${capOf(r)}/${r.querySelector('.oname')?.textContent ?? ''}`);
   check('a style’s row: its caption, then the outputs it stands for, where it stands for several, as their option list has them', outs.includes('Investors/') && outs.includes('Individual/')
     && outs.includes('Funds/Main Fund, Parallel Fund, Feeder Fund, AIV, Co-Investment Vehicle, Business Development Company') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
-  check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => r.querySelector('.cell').value === 'Investors')?.querySelector('.v').title === 'Investor Group');
+  check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => capOf(r) === 'Investors')?.querySelector('.v').title === 'Investor Group');
   check('a text style uncaptioned is keyed by the texts it sets, as a box style by its boxes: Names, Jurisdictions', outs.includes('Names/') && outs.includes('Jurisdictions/')
-    && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(r.querySelector('.cell').value)), outs.join(' | '));
+    && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(capOf(r))), outs.join(' | '));
   // A swatch is the page's own: drawn true, on the page's white, in dark as in light
   const swatch = $('svg.sw'), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = 'dark';
@@ -795,12 +822,12 @@ async function run() {
   check('… each 2 px inside its chip, a heavy outline too, so none runs along its edge', $$('svg.sw > *').length > 5 && !outside.length && $$('svg.sw path[stroke-width="2.5"]').length > 0,
     outside.map(c => reach(c).map(v => v.toFixed(2)).join(',')).join(' | '));
   // One rule groups a style's outputs, the Key's: a Key row is one row here, its outputs all in it.
-  const said = $$('.row.out').map(r => (r.querySelector('.oname')?.textContent ?? (r.querySelector('.v').title || r.querySelector('.cell').value)).split(', '));
+  const said = $$('.row.out').map(r => (r.querySelector('.oname')?.textContent ?? (r.querySelector('.v').title || capOf(r))).split(', '));
   check('… grouped as the Key groups them: outputs that look alike are one row', App.scene.peek().legend.every(g => said.some(ns => g.outputs.every(p => ns.some(x => Tree.same(x, Scene.outputName(N(), p))))))
     && $$('.row.out').length < N().styles(Shell.view.peek()).flatMap(s => s.outputs).length, App.scene.peek().legend.map(g => g.caption).join(', '));
-  check('… each row a group of Scene.groupsOf, in its order and called by its caption, as the Key and the scope call it', $$('.row.out').map(r => r.querySelector('.cell').value).join(' | ')
-    === Scene.groupsOf(N(), Shell.view.peek()).map(g => g.caption).join(' | '),$$('.row.out').map(r => r.querySelector('.cell').value).join(' | '));
-  check('… and a style that is its one row, that row alone',$$('.style').some(s => !s.querySelector('.sname') && s.querySelector('.row.out.lone .cell')?.value === 'Names'), styleNames().join(', '));
+  check('… each row a group of Scene.groupsOf, in its order and called by its caption, as the Key and the scope call it', $$('.row.out').map(r => capOf(r)).join(' | ')
+    === Scene.groupsOf(N(), Shell.view.peek()).map(g => g.caption).join(' | '),$$('.row.out').map(r => capOf(r)).join(' | '));
+  check('… and a style that is its one row, that row alone',$$('.style').some(s => !s.querySelector('.sname') && capOf(s.querySelector('.row.out.lone')) === 'Names'), styleNames().join(', '));
   const firstStyle = styleNames()[0], s2 = $$('.style')[1], grip = $$('.style')[0].querySelector('.grip');
   const y = el => el.getBoundingClientRect().top + 4;
   grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(grip) }));
@@ -829,7 +856,7 @@ async function run() {
   Shell.parts.value.undo.undo(); await tick();
   // A row's outputs are in its option list's order: the entry's Options, dragged, order its Styles row too.
   Shell.select([Shell.general({ args: [{ edge: 'Vehicle Type', loc: {} }] })]); await tick(80);
-  const optionList = () => $$('[data-drag="opt"] .cell').map(c => c.value), fundsRow = () => $$('.row.out').find(r => r.querySelector('.cell').value === 'Funds')?.querySelector('.oname')?.textContent.split(', ') ?? [];
+  const optionList = () => $$('[data-drag="opt"] .cell').map(c => c.value), fundsRow = () => $$('.row.out').find(r => capOf(r) === 'Funds')?.querySelector('.oname')?.textContent.split(', ') ?? [];
   const inOpts = () => fundsRow().length === 6 && JSON.stringify(fundsRow()) === JSON.stringify(optionList().filter(o => fundsRow().includes(o)));
   check('an entry in general lists its Styles rows’ outputs in its Options’ order', inOpts(), `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
   const mf = $$('[data-drag="opt"]').find(e => e.querySelector('.cell').value === 'Main Fund'), og = mf.querySelector('.grip'), top = $$('[data-drag="opt"]')[0];
@@ -885,7 +912,10 @@ async function run() {
   const okafor = $$('.nots .row').map(r => r.textContent.trim());
   check('… in the formula bar’s words, a side it’s already named never said again ("does not sign for the Manager", not "…, via the Manager")', okafor.includes('Does not sign for the Manager') && !okafor.some(t => /via the Manager/.test(t)), okafor.join(' | '));
   Shell.select(['fund']); await tick(60);
-  check('… and its vote beside it where that differs', says().some(s => /^[\d.]+% · \d+% voting$/.test(s)), says().join(' | '));
+  check('… its vote not beside it where it’s worked out to nothing, a limited partner’s 0%', says().includes('71.6%') && !says().some(s => / · 0% voting$/.test(s)), says().join(' | '));
+  App.change(tx => tx.add('record', { at: 'own_us_fund', edge: 'Voting Percentage', field: 'percent', value: 0.2 })); await tick(60);
+  check('… and beside it where it’s entered and differs', says().includes('71.6% · 20% voting'), says().join(' | '));
+  Shell.parts.value.undo.undo(); await tick(60);
   document.querySelector('.main').style.setProperty('--insp', '384px'); await tick(60);
   const corvane = $$('.row.rel').find(r => r.querySelector('.k').textContent.startsWith('Corvane')), rect = el => el.getBoundingClientRect();
   check('a relative’s name takes the room, its suffix kept to it, and its figure sits at the right', corvane?.querySelector('.k').textContent.endsWith(',\u00a0LLC') && rect(corvane.querySelector('.k')).height <= 28
@@ -996,7 +1026,7 @@ async function run() {
   check('a frame shows the style that draws it, called so', $('.ih .path')?.textContent === 'Style' && !!$('.ih .cell'), $('.ih')?.textContent);
   Shell.select([]); await tick(60);
   const framed = N().styles(v40.id).flatMap(s => s.outputs).filter(o => o.formats.Frame && o.formats.Frame !== 'none').map(o => Scene.captionOf(N(), o.pattern, v40.id));
-  const swatchOf = caption => $$('.row.out').find(r => r.querySelector('.cell').value === caption)?.querySelector('svg.sw');
+  const swatchOf = caption => $$('.row.out').find(r => capOf(r) === caption)?.querySelector('svg.sw');
   check('… and in Styles its swatch is the frame, not text', framed.length > 0 && framed.every(c => swatchOf(c) && !swatchOf(c).querySelector('text')), framed.join(', '));
   Shell.show(here); await tick(200);
 

@@ -862,8 +862,8 @@ const FormulaBar = (() => {
     } catch { return null; }
   }
   // The sentence the bar says for a record, in full, as plain text, for other panes and exports; null for a
-  // record no row gives.
-  const sentenceFor = id => { const Rv = R.peek(), w = whyOf(Rv, id); return w ? plain(Rv.records, w.full) : null; };
+  // record no row gives. `Rv`, another working-out than the chart's (a change pending's redline).
+  const sentenceFor = (id, Rv = R.peek()) => { const w = whyOf(Rv, id); return w ? plain(Rv.records, w.full) : null; };
   // The subject's, but while its definition's rows are being edited.
   const why = computed(() => {
     const m = model.value, dr = draft.value;

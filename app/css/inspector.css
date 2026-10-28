@@ -139,10 +139,11 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .row:hover .btn.ver { background: linear-gradient(var(--hover), var(--hover)) var(--surface); }
 .row:hover .btn.ver, .btn.ver:focus { opacity: 1; }
 .cellbox:has(.cell:focus) > .btn.ver { opacity: 0; pointer-events: none; }
-.btn.ver.filed { border-color: var(--edge); }
-/* Overdue or due soon, a due date's filing is what someone came for: always shown, after the date. */
-.btn.ver.filed.due { position: static; flex: none; margin: 0 -7px 0 auto; opacity: 1; }
-.cellbox:has(> .btn.ver.filed.due) { flex-wrap: wrap; }
+/* A due date's filing (Paid…, Renewed…) is always shown, beside the date, after it, never over it; where the row is
+   too narrow for both, on the line under it. */
+.btn.ver.filed { position: static; flex: none; margin: 0 0 0 8px; border-color: var(--edge); opacity: 1; }
+.cellbox:has(> .btn.ver.filed) { flex-wrap: wrap; }
+.row.rel > .v > .btn.ver.filed { align-self: center; margin: 0 -6px 0 4px; }
 .btn.ver:hover { color: var(--ink); }
 .filing { display: grid; gap: 8px; width: 220px; }
 .filing > .field { display: grid; gap: 4px; font: var(--t12); color: var(--ink-2); }
@@ -178,6 +179,9 @@ section.open > :last-child { margin-bottom: 8px; }
 .row.rel > .v > .lk:hover { color: var(--ink); }
 .row.rel > .v > .open { align-self: center; margin: -4px -6px -4px 0; }
 .row.rel > .facts { grid-column: 1 / -1; margin-top: -4px; padding-bottom: 6px; font: var(--t12); color: var(--ink-3); overflow-wrap: anywhere; }
+/* A relative the chart shown leaves out, though it draws others of its list: said, in amber, with Show. */
+.row.rel > .facts.here { color: var(--due); }
+.row.rel > .facts.here > .lk { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--rule-2); }
 /* What a record is not, said plainly and quietly, after all it is. */
 .nots { padding: 8px 0; border-top: 1px solid var(--rule); color: var(--ink-3); }
 .nots .lk:hover { color: var(--ink-2); }
@@ -202,6 +206,11 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 .row.out > .k { display: flex; align-items: center; height: var(--row); padding: 0; }
 .row.out > .v { padding: 0; }
 .row.out .oname { display: block; margin-top: -4px; padding-bottom: 6px; font: var(--t12); color: var(--ink-3); }
+/* A Styles row's caption: a click lights what it reaches on the chart, a double-click types over it. */
+.row.out .cap { display: block; min-height: var(--row); max-width: calc(100% + 14px); margin: 0 -7px; padding: 3px 6px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); font: inherit; line-height: 20px; text-align: left; overflow-wrap: anywhere; cursor: default; }
+.row.out .cap:hover { border-color: var(--rule); }
+.row.out .cap.on { background: var(--selected); border-color: transparent; }
+.row.out .cap.off { color: var(--ink-3); }
 /* A swatch is the page's own: drawn true, on the page's white, in dark as in light, as a colour chip is. */
 svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; background: var(--page); border-radius: 2px; }
 svg.sw.off { opacity: .35; }
@@ -250,6 +259,8 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 /* A relation ticked or unticked here, pending: confirmed under its row, its day, Discard and its verb (App.Asking). */
 .rr > .ask { grid-column: 2 / -1; padding: 2px 0 10px; }
 .rr:has(> .ask):hover { background-image: none; }
+/* A record that starts after the day shown: when, and the way to the chart then. */
+.insp > .later { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 20px; color: var(--ink-2); }
 /* A record being deleted or transferred: asked atop its panel, as in the bar. */
 .insp > .asking { padding: 12px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); }
 .addrow .k.wide:has(> .add-entry + .add-entry) { display: flex; gap: 12px; }

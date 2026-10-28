@@ -1761,8 +1761,10 @@ const Table = (() => {
     const cell = row.getCells().find(x => x.getElement().contains(e.target) && x.getField()), c = cell && columnOf(cell);
     const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
     const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
-    const v = cell?.getValue();
+    const v = cell?.getValue(), settles = typeof Inspector !== 'undefined' && Inspector.settling?.(row.getData().id);
     Shell.menu({ x: e.clientX, y: e.clientY }, [
+      // A deadline's row: what settles it (Paid…, Filed…), as its panel's button does.
+      ...(settles ? [settles, '-'] : []),
       { label: 'Copy', keys: '$mod+KeyC', run: () => table.copyToClipboard('range') },
       ...(writes ? [{ label: 'Clear contents', keys: 'Delete', run: clear }, { label: 'Fill down', keys: '$mod+KeyD', run: () => fillFrom(true) }] : []),
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, [blank(v) ? null : v]) }] : []),
