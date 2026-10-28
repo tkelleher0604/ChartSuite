@@ -39,14 +39,16 @@ A tag **Ownership Adds Up**, on Entities, Individuals and Investor Groups:
 
 | Label | Row |
 | --- | --- |
-| Owners recorded | `= IF(COUNT(Owners) > 0, SUM(Owners.Percentage) = 100%)` |
+| Owners recorded | `= IF(SUM(Owners.Percentage) = 100%, TRUE)` |
+| Owners missing | `= IF(COUNT(Owners.Percentage) > 0 AND NOT([Vehicle Type] IN {"Portfolio Company", "Business Development Company"}), FALSE)` |
 
 `Owners` is the entity's list of owners: its relatives in the Owner role of Ownership, seen from the Owned side. `Owners.Percentage` is the Percentage on each of those ownerships.
 
 On the sample:
 - it's attested on the fund (71.6% plus 28.4%), the feeder, the blocker, the GP and the management company;
-- it's ruled out on Northpine (64% plus 12%), Halvard (82%) and the BDC (7%), whose other owners aren't charted;
-- individuals and investor groups have no owners, so the IF gives nothing and nothing is recorded.
+- it records nothing on Northpine (64% plus 12%), Halvard (82%) and the BDC (7%), whose other owners aren't charted;
+- individuals and investor groups have no owners, so neither row gives anything and nothing is recorded;
+- nor does an entity whose owners' percentages aren't typed yet: nothing is worked out from nothing. Once one is, it's ruled out until they come to 100%.
 
 A percentage typed as 150% or −5% is kept as typed, and a rule says what's wrong with it. A tag **Percentages In Range**, at Ownership, rules out a holding whose Percentage or Voting Percentage is below 0% or above 100%, by the row that finds it, and says nothing elsewhere:
 

@@ -110,6 +110,13 @@ function theSample() {
   const short = withRecords({ own_okfr_gp_pct: { ...SAMPLE_INPUTS.recs.own_okfr_gp_pct, value: 0.3 } });
   check('…but rules it out where every owner is meant to be charted: GP III, its members holding 80%', entryRow(short, 'def_adds_up', 'gp')?.value === false
     && entryRow(short, 'def_adds_up', 'gp').label === 'Owners missing', JSON.stringify(entryRow(short, 'def_adds_up', 'gp')));
+  // Nothing from nothing: owners whose percentages aren't recorded yet neither add up nor fail to; one typed does.
+  const owners = (pcts) => withRecords(Object.fromEntries([['x_f', { kind: 'Entity' }], ['x_f_type', { at: 'x_f', edge: 'Entity Type', choice: 'Limited Partnership' }],
+    ...pcts.flatMap((p, i) => [[`x_o${i}`, { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'x_f' }].map(a => a.edge === 'Owner' ? { ...a, at: ['pension', 'inv_us'][i] } : a), tag: true }],
+      ...(p === null ? [] : [[`x_o${i}_pct`, { at: `x_o${i}`, edge: 'Percentage', field: 'percent', value: p }]])])]));
+  check('…and records nothing where its owners’ percentages are blank, ruling out once one is typed that doesn’t add up', !entryRow(owners([null, null]), 'def_adds_up', 'x_f')
+    && entryRow(owners([0.4, null]), 'def_adds_up', 'x_f')?.value === false && entryRow(owners([0.4, 0.6]), 'def_adds_up', 'x_f')?.value === true,
+    JSON.stringify([entryRow(owners([null, null]), 'def_adds_up', 'x_f'), entryRow(owners([0.4, null]), 'def_adds_up', 'x_f')?.value]));
   // A percentage out of range is the sample's rule to flag, as Ownership Adds Up flags owners that don't add up.
   check('Percentages In Range records nothing where every holding is from 0% to 100%', !rowsOf(R, 'def_in_range').length);
   const odd = withRecords({ own_fund_npine_pct: { ...SAMPLE_INPUTS.recs.own_fund_npine_pct, value: 1.5 }, own_chen_gp_pct: { ...SAMPLE_INPUTS.recs.own_chen_gp_pct, value: -0.05 } });
