@@ -67,8 +67,8 @@
    grid scrolls across, as a frozen pane (sticky, as Tabulator freezes the row numbers; each where those before it end,
    table.js), over the selection's outline, so they draw their own; the last of them ruled darker, as Excel's pane. */
 .grid .tabulator .tabulator-header .tabulator-col.pin, .grid .tabulator-row .tabulator-cell.pin { position: sticky; left: 48px; z-index: 11; }
-/* …and over the outline of what's selected under them, as the row numbers are (Tabulator's overlay is at their level):
-   it's drawn only where the grid scrolls, clear of them, where the grid is scrolled across to (table.js). */
+/* Tabulator draws the selection's outline at their level: they're lifted over it, as the row numbers are, and it's drawn
+   only where the grid scrolls, clear of them, as far as it's scrolled across (table.js). */
 .grid .tabulator-row .tabulator-cell:is(.pin, .tabulator-frozen) { z-index: 12; }
 .grid .tabulator .tabulator-tableholder .tabulator-range-overlay { clip-path: inset(-100000px -100000px -100000px calc(var(--across, 0px) + var(--pinned, 48px))); }
 .grid .tabulator .tabulator-header .tabulator-col.pin-last, .grid .tabulator-row .tabulator-cell.pin-last { border-right: 1px solid var(--rule-2); }
@@ -118,9 +118,10 @@
 .pendbar .what .named > .add.dd::after { align-self: center; }
 .pendbar .what .named > .add.dd:hover, .pendbar .what .named > .add.dd[aria-expanded="true"] { background: var(--hover); }
 .pendbar .what .named > .or { color: var(--ink-2); }
-.pendbar .what .named > .or > .lk { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline;
+/* A link in words (that one, or Clear filters), as the bar's day after the day shown is. */
+:is(.pendbar .what .named > .or, .tbar > .tout) > .lk { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline;
   text-underline-offset: 3px; text-decoration-color: var(--rule-2); cursor: default; }
-.pendbar .what .named > .or > .lk:hover { text-decoration-color: currentColor; }
+:is(.pendbar .what .named > .or, .tbar > .tout) > .lk:hover { text-decoration-color: currentColor; }
 
 /* Headings a paste brought that nothing matched: each beside the column it is. */
 .match { display: grid; gap: 8px; }
@@ -154,9 +155,6 @@
 .tbar > .tout { display: flex; align-items: center; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--ink-2); white-space: nowrap; }
 .tbar > .tout > b { min-width: 0; margin-right: .3em; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink); }
 .tbar > .tout > .sep { margin: 0 8px; color: var(--ink-3); }
-.tbar > .tout > .lk { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px;
-  text-decoration-color: var(--rule-2); cursor: default; }
-.tbar > .tout > .lk:hover { text-decoration-color: currentColor; }
 .tbar > .tout + .tcount { margin-left: 16px; }
 
 /* ---- The new row, under the last (or at the grid's foot, where the rows run on past it) ---- */
