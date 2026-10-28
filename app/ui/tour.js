@@ -1,4 +1,4 @@
-// The tour: five steps, each done by doing what it teaches, then one card. It runs by itself on the very
+// The tour: six steps, each done by doing what it teaches, then one card. It runs by itself on the very
 // first launch, once the launch screen is gone, if a chart is drawn; after that, from Tour in the chart menu or
 // Find. Enter skips a step, Skip goes to the last card, and Esc ends it. A step waits for its event on the
 // shell's bus; or for what it points at to be clicked, or focused from the keys; or, pointing, for the pointer
@@ -17,11 +17,16 @@ const Tour = (() => {
     const s = Shell.selection.peek();
     preactSignals.batch(() => { Shell.select([], { replace: true }); Shell.select([...s], { replace: true }); });
   }
+  // A field being typed in, left as it was: what's typed is the user's to keep with Enter, not the tour's.
+  const unedit = () => document.querySelector('.dc-edit')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  // All like it chosen, given back: the same selection again is formatted as itself (formatbar.js).
+  const unlike = () => { const s = Shell.selection.peek(); preactSignals.batch(() => { Shell.select([], { replace: true }); Shell.select([...s], { replace: true }); }); };
   const STEPS = [
     { event: 'select', target: 'box', act: 'Click a box.', say: 'Every box is a record.', when: s => s?.length },
-    { event: 'relate-open', target: 'box', act: 'Drag from one box’s edge to another.', say: 'See how they’re related, or relate them.' },
+    { event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
+    { click: true, target: 'like', act: 'Click “All …” above the chart.', say: 'A change then goes to every box like this one, lit; This box takes it back to the one.', ends: unlike },
+    { event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', say: 'See how they’re related, or relate them.' },
     { click: true, target: 'computed', act: 'Click an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', ends: unask },
-    { point: true, target: 'tag', in: 'inspector', act: 'Point at a tag.', say: 'Green is attested, red ruled out. Pointing shows what switching it would change.' },
     { event: 'view-switch', target: 'sheet', act: 'Switch view.', say: 'Views share the records; each has its own styles. Export any of them.' },
   ];
   const at = signal(-1); // the step shown; STEPS.length is the last card
@@ -72,12 +77,14 @@ const Tour = (() => {
   const inView = el => { const r = el.getBoundingClientRect(); return document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2).includes(el); };
   function find(step) {
     const all = [...document.querySelectorAll(`[data-tour="${step.target}"]`)].filter(el => el.getClientRects().length);
-    const mine = all.filter(el => el.closest(`[data-region="${step.in}"]`));
-    return mine.find(inView) ?? all.find(inView) ?? mine[0] ?? all[0];
+    const mine = all.filter(el => el.closest(`[data-region="${step.in}"]`)), sel = Shell.selection.peek()[0];
+    // A box the selection is, before any other: the one just clicked is the one a step about it means.
+    const picked = sel && all.find(el => el.closest(`[data-cell-id="${CSS.escape(sel)}"]`) && inView(el));
+    return picked ?? mine.find(inView) ?? all.find(inView) ?? mine[0] ?? all[0];
   }
   // Where nothing shows what a step points at in the inspector, the first box, in reading order, whose record
-  // holds one is selected first: a value a formula gives, or a tag. Selecting changes nothing in the record.
-  const HOLDS = { computed: (st, R, id) => !!R.computed[id] && !('tag' in st[id]), tag: (st, R, id) => 'tag' in st[id] };
+  // holds one is selected first: a value a formula gives. Selecting changes nothing in the record.
+  const HOLDS = { computed: (st, R, id) => !!R.computed[id] && !('tag' in st[id]) };
   function offer(step) {
     const holds = HOLDS[step.target], sc = App.scene.peek(), st = App.state.peek(), R = App.computed.peek(), ix = Tree.index(st);
     if (!holds || !sc || find(step)) return;

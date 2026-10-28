@@ -1307,7 +1307,7 @@ const FormulaBar = (() => {
     if ('tag' in o) {
       const state = v => v === true ? ' yes' : v === false ? ' no' : '';
       const cls = 'tag' + (a !== undefined ? ' pend' + state(a?.tag) : state(o.tag) + (m.computed ? ' fx' : ''));
-      return html`<span class=${'fx-out' + (m.covered && !m.covered.agrees ? ' over' : '')}><button class=${cls} data-tour="tag" aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
+      return html`<span class=${'fx-out' + (m.covered && !m.covered.agrees ? ' over' : '')}><button class=${cls} aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
         ...${point} onKeyDown=${onward} onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
     }
     if (a !== undefined && a?.value !== m.rec.value && pending.value.from !== 'value')

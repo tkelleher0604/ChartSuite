@@ -770,6 +770,7 @@ function mount(el) {
     if (it.free) return writeText(m, it, typed);
     const st = App.state.peek(), r = it.blank ? null : st[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
+    Shell.emit('field-edit', { box: m.id, id: it.id });
     const rect = fieldRect(m, it), at = graph.localToGraph(rect.x, rect.y + rect.h), box = root.getBoundingClientRect(), menuAt = { x: box.left + at.x, y: box.top + at.y + 2 };
     // The record, or a blank's: typed over where it's worked out, as the inspector enters one.
     // A blank of an entry its record's kind hasn't yet gives the kind the entry, as the inspector's Add does.

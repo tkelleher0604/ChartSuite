@@ -80,7 +80,7 @@ const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
-// The step the card shows ("3 / 5"), 'last' on the last card, or null with no card.
+// The step the card shows ("3 / 6"), 'last' on the last card, or null with no card.
 const step = () => $('.tour-card') ? txt($('.tour-card .step')) || 'last' : null;
 const N = () => App.wb.changes().length;
 const shown = el => { const r = el.getBoundingClientRect(); return r.width > 0 && document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2).includes(el); };
@@ -94,8 +94,8 @@ const beside = () => { const { x, y } = card(); return (x >= 0 && x <= 24 && y <
 
 async function run() {
   await until(() => App.views.peek().length && App.scene.peek() && Canvas.active.peek(), 15000);
-  await until(() => step() === '1 / 5', 8000);
-  check('On the very first launch the tour starts by itself, at its first step', step() === '1 / 5', step());
+  await until(() => step() === '1 / 6', 8000);
+  check('On the very first launch the tour starts by itself, at its first step', step() === '1 / 6', step());
   check('… and it’s kept as toured', localStorage.getItem('dendra.toured') === '1');
   const n0 = N(), began = Shell.selection.peek().join();
 
@@ -106,49 +106,54 @@ async function run() {
   await until(beside, 1000);
   check('… its card beside it', beside(), JSON.stringify(card()));
   Shell.select(['fund']); await tick(150);
-  check('Clicking a box does step 1', step() === '2 / 5', step());
+  check('Clicking a box does step 1', step() === '2 / 6', step());
   await until(beside, 1000);
   check('Step 2’s card is beside the box it points at too', beside() && around(visible('[data-tour="box"]')), JSON.stringify(card()));
 
-  // 2. Drag to another: the canvas asks for the two boxes' relations.
-  Shell.emit('relate-open', ['fund', 'blocker']); await tick(300);
-  check('Dragging from one box to another does step 2', step() === '3 / 5', step());
+  // 2. Double-click a name: it's typed in place, the record's, and left as it was once the next step is done.
+  const fundName = Object.keys(App.state.peek()).find(id => App.state.peek()[id].at === 'fund' && Tree.same(App.state.peek()[id].edge ?? '', 'Name'));
+  const nameEl = $(`[data-text="${fundName}"]`), at = nameEl.getBoundingClientRect();
+  nameEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: at.left + at.width / 2, clientY: at.top + at.height / 2 })); await tick(200);
+  check('Double-clicking a box’s name types in it, and does step 2', step() === '3 / 6' && !!$('.dc-edit'), `${step()} ${!!$('.dc-edit')}`);
 
-  // 3. Click an italic value: what the two boxes show, and any part asking a reason, don't do it.
+  // 3. All like it: the bar's other part, which lights the boxes like the one selected.
+  await until(() => !!visible('[data-tour="like"]') && around(visible('[data-tour="like"]')));
+  const like = visible('[data-tour="like"]');
+  check('Step 3 points at all like it, above the chart', !!like && around(like) && /^All \d+ /.test(txt(like)), like && txt(like));
+  like.click(); await tick(200);
+  check('Clicking it does step 3, and the name typed in is left as it was', step() === '4 / 6' && !$('.dc-edit') && N() === n0, `${step()} ${!!$('.dc-edit')} ${N() - n0}`);
+
+  // 4. Drag to another: the canvas asks for the two boxes' relations.
+  Shell.emit('relate-open', ['fund', 'blocker']); await tick(300);
+  check('Dragging from one box to another does step 4', step() === '5 / 6', step());
+  check('… and all like it, chosen for step 3, is given back: a change goes to the selection again', $('[data-fb="like"]')?.getAttribute('aria-pressed') !== 'true', $('[data-fb="like"]')?.outerHTML.slice(0, 80));
+
+  // 5. Click an italic value: what the two boxes show, and any part asking a reason, don't do it.
   await tick(800);
-  check('Step 3 waits to be done: the two boxes’ relations, shown with their reasons, don’t do it', step() === '3 / 5', step());
+  check('Step 5 waits to be done: the two boxes’ relations, shown with their reasons, don’t do it', step() === '5 / 6', step());
   const computed = Object.keys(App.computed.peek().computed).find(id => !('tag' in App.state.peek()[id]));
   Shell.emit('why-open', computed); await tick(150);
-  check('… nor does a reason asked anywhere but on what it points at', step() === '3 / 5', step());
+  check('… nor does a reason asked anywhere but on what it points at', step() === '5 / 6', step());
   await until(() => !!visible('[data-tour="computed"]') && around(visible('[data-tour="computed"]')));
   const italic = visible('[data-tour="computed"]');
-  check('Step 3 points at an italic value, a formula’s', !!italic && around(italic) && getComputedStyle(italic).fontStyle === 'italic', italic?.outerHTML.slice(0, 160));
+  check('Step 5 points at an italic value, a formula’s', !!italic && around(italic) && getComputedStyle(italic).fontStyle === 'italic', italic?.outerHTML.slice(0, 160));
   await until(beside, 1000);
   check('… its card beside it', beside(), JSON.stringify(card()));
   const asked = [], off = Shell.on('why-open', id => asked.push(id));
   italic.focus(); italic.click(); await tick(200);
   off();
-  check('Clicking it does step 3', step() === '4 / 5', step());
+  check('Clicking it does step 5', step() === '6 / 6', step());
   check('… and the click goes on: the value is asked about, so the formula bar says why', document.activeElement === italic && asked.length > 0, `${document.activeElement?.outerHTML.slice(0, 80)} ${asked.join()}`);
 
-  // 4. Point at a tag: a click there only points.
-  await until(() => !!visible('.inspector [data-tour="tag"]'));
-  await until(beside, 1000);
-  check('Step 4’s card is beside the tag it points at', beside(), JSON.stringify(card()));
-  const tag = visible('.inspector [data-tour="tag"]'), was = tag.className;
-  tag.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
-  tag.click(); await tick(200);
-  check('Pointing at a tag and clicking it does step 4, and switches nothing', step() === '5 / 5' && N() === n0, `${step()} ${N() - n0} changes`);
-
-  // 5. Switch view.
+  // 6. Switch view.
   await until(() => !!visible('[data-tour="sheet"]') && around(visible('[data-tour="sheet"]')));
   const sheet = visible('[data-tour="sheet"]');
-  check('Step 5 points at another view’s tab', !!sheet && around(sheet), sheet && `${JSON.stringify(sheet.getBoundingClientRect())} ${JSON.stringify(hole())}`);
+  check('Step 6 points at another view’s tab', !!sheet && around(sheet), sheet && `${JSON.stringify(sheet.getBoundingClientRect())} ${JSON.stringify(hole())}`);
   await until(beside, 1000);
   check('… its card beside it', beside(), JSON.stringify(card()));
   const other = App.views.peek().find(v => v.layout === 'chart' && v.id !== Shell.view.peek());
   Shell.show(other.id); await tick(400);
-  check('Switching view does step 5, and the last card shows', step() === 'last' && !!$('.tour-card input'), step());
+  check('Switching view does step 6, and the last card shows', step() === 'last' && !!$('.tour-card input'), step());
   check('With the steps done, the selection is the one the tour began on', Shell.selection.peek().join() === began, Shell.selection.peek().join());
   check('… so the view it ends on is whole, not greyed out', !$$('.dc-dim').length, `${$$('.dc-dim').length} dimmed`);
 
@@ -164,9 +169,9 @@ async function run() {
   // Again, from the chart menu, with a box selected: Skip goes to the last card, and Esc ends it, as it found it.
   Shell.select(['gp']); await tick(100);
   Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
-  check('Tour, from the chart menu, starts it again', step() === '1 / 5', step());
+  check('Tour, from the chart menu, starts it again', step() === '1 / 6', step());
   Shell.select(['fund']); await tick(150);
-  check('… its first step done by a box clicked', step() === '2 / 5', step());
+  check('… its first step done by a box clicked', step() === '2 / 6', step());
   $('.tour-card .skip').click(); await tick(150);
   check('Skip goes to the last card, with the selection the tour began on', step() === 'last' && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
   press('Escape', $('.tour-card input')); await tick(150);
