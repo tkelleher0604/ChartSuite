@@ -82,7 +82,7 @@ async function run() {
   const scenes = views.map(v => ({ ...Scene.of(wb, C, v, DAY, { state: st }), name: wb.notes(C).nameOf(st, v) }));
   const main = scenes[0], boxes = s => s.marks.filter(m => m.type === 'box'), lines = s => s.marks.filter(m => m.type === 'line');
   const files = [];
-  Export.onFile = (blob, name) => files.push({ blob, name });
+  Export.onFile = (blob, name, also) => files.push({ blob, name, also });
 
   check('the libraries aren’t loaded before an export needs them', typeof PptxGenJS === 'undefined' && typeof window.jspdf === 'undefined');
 
@@ -501,6 +501,36 @@ async function run() {
     const wider = np.texts[0].lines.filter(l => m.getStringUnitWidth(l.text) * np.texts[0].look.Size * Scene.PT > l.w + 0.01).length;
     check('… Calibri set in Helvetica, its class’s standard font, each line Helvetica sets wider condensed to the scene’s width', texts.every(t => t.getAttribute('font-family') === 'helvetica')
       && texts.filter(t => /^matrix\(0\.\d+ 0 0 1 /.test(t.getAttribute('transform') ?? '')).length >= wider, `${wider} wider, ${texts.map(t => t.getAttribute('transform')).join(' | ')}`);
+  }
+
+  // ---- A PDF's fonts, this computer's: Garamond embedded where it's to be read (the browser's Local Font Access,
+  // stood in for by Windows's own files), as the canvas draws it; one that can't be, in its standard font, and said ----
+  {
+    const read = f => new Promise(ok => { const x = new XMLHttpRequest(); x.open('GET', `file:///C:/Windows/Fonts/${f}`); x.responseType = 'blob'; x.onload = () => ok(x.response?.size ? x.response : null); x.onerror = () => ok(null); x.send(); });
+    if (!await read('GARA.TTF')) check('(this computer has no Garamond to embed)', true);
+    else {
+      const fonts = Log.open(SAMPLE), main = views[0], at = id => Tree.treeOf(fonts.asOf(C, DAY), id);
+      const tx = fonts.edit({ chart: C, who: WHO }), N0 = fonts.notes(C);
+      for (const [id, label, v] of [['northpine', 'Font', 'Garamond'], ['halvard', 'Font', 'Garamond'], ['halvard', 'Italic', true]]) writeNote(tx, N0, label, at(id), main, v);
+      if (typeof tx.commit() === 'string') throw new Error('no fonts');
+      const N = fonts.notes(C), R5 = Formulas.computeState(fonts.asOf(C, DAY), N.definitions(fonts.schema(C)), { relations: N.relations(fonts.schema(C)) });
+      const s = { ...Scene.of(fonts, C, main, DAY, { state: R5.records, computed: R5 }), name: 'Fonts' };
+      const face = (style, file, ps, blob = () => read(file)) => ({ family: 'Garamond', fullName: `Garamond ${style}`, postscriptName: ps, style, blob });
+      const asked = window.queryLocalFonts;
+      window.queryLocalFonts = async () => [face('Regular', 'GARA.TTF', 'Garamond'), face('Bold', 'GARABD.TTF', 'Garamond-Bold'), face('Italic', 'GARAIT.TTF', 'Garamond-Italic'),
+        { family: 'Arial', fullName: 'Arial', postscriptName: 'ArialMT', style: 'Regular', blob: () => read('arial.ttf') }];
+      const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [s], 'Fonts', { author: WHO })).arrayBuffer()), said = files.at(-1).also;
+      const based = [...raw.matchAll(/\/BaseFont \/([\w+-]+)/g)].map(m => m[1]);
+      check('a PDF of boxes set in Garamond embeds Garamond, this computer’s, upright and italic, and Arial stays Helvetica, its standard font', based.some(f => /^[A-Z]{6}\+Garamond$/.test(f)) && based.some(f => /^[A-Z]{6}\+Garamond-Italic$/.test(f))
+        && based.includes('Helvetica') && !based.some(f => /Arial/.test(f)) && /\/FontFile2/.test(raw) && said === '', `${based.join(', ')}; “${said}”`);
+      // Only the letters used: Garamond whole is near 200 KB.
+      check('… with only the letters it uses', raw.length < 150000, `${raw.length} bytes`);
+      // A face whose outlines are PostScript's can't be embedded: in Times, and said as it's saved.
+      window.queryLocalFonts = async () => [face('Regular', '', 'Garamond', async () => new Blob([new Uint8Array([0x4f, 0x54, 0x54, 0x4f, 0, 0, 0, 0])]))];
+      await Export.write('pdf', [s], 'Fonts', { author: WHO });
+      check('… and where Garamond can’t be embedded, it’s Times, and saving it says so', files.at(-1).also === ', with Garamond printed as Times', `“${files.at(-1).also}”`);
+      window.queryLocalFonts = asked;
+    }
   }
 
   // ---- In the window: the Export dialog, and the calendar beside the Dates table ----
