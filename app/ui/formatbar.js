@@ -203,18 +203,20 @@ function named(c, s) {
 }
 // A group as "all of it" says it, with how many: a noun the Key's row gives in the plural ("All 5 limited
 // partnerships", "All 6 funds", "All 17 entities"), an option or a tag by what it is ("All 13 with Jurisdiction
-// Delaware", "All 11 with Good Standing"), and what's said as a state as it is ("All 1 not in good standing").
+// Delaware", "All 11 with Good Standing"), and what's said as a state as it is ("All 2 not in good standing"). A
+// group of one is the only one: "The only name", "The only one with Jurisdiction Delaware".
 function allOf(s, n) {
-  const caption = s.caption ?? '', ps = s.outputs ?? [], words = caption.split(' ');
+  const caption = s.caption ?? '', ps = s.outputs ?? [], words = caption.split(' '), all = n === 1 ? 'The only one' : `All ${n}`;
   // An option named as it is (Delaware) or a tag goes by its entry: "with Jurisdiction Delaware".
   const option = ps.length && ps.every(p => p.out?.choice !== undefined && Tree.same(p.out.choice, caption) && p.args?.length === 1);
-  if (option) return `All ${n} with ${ps[0].args[0].edge} ${caption}`;
-  if (caption.includes(':') || (ps.length && ps.every(p => p.out?.tag === true))) return `All ${n} with ${caption.replace(/:\s*/, ' ')}`;
-  // Said in sentence case ("Limited partnership", "Not in good standing") or a kind: a common noun, lowered.
-  const kind = ps.length && ps.every(p => p.kind && !p.args && !p.out), common = kind || (words.length > 1 && words.slice(1).every(w => !/^[A-Z]/.test(w)));
+  if (option) return `${all} with ${ps[0].args[0].edge} ${caption}`;
+  if (caption.includes(':') || (ps.length && ps.every(p => p.out?.tag === true))) return `${all} with ${caption.replace(/:\s*/, ' ')}`;
+  // Said in sentence case ("Limited partnership", "Funds", "Not in good standing") or a kind: a common noun, lowered.
+  const kind = ps.length && ps.every(p => p.kind && !p.args && !p.out), common = kind || words.slice(1).every(w => !/^[A-Z]/.test(w));
   const lower = w => common && /^[A-Z][a-z]/.test(w) ? w[0].toLowerCase() + w.slice(1) : w, last = words.at(-1);
-  if (/^(not|no|in|with|without)$/i.test(words[0])) return `All ${n} ${lower(caption)}`;
-  return `All ${n} ${[...words.slice(0, -1), n === 1 || /s$/i.test(last) ? last : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
+  if (/^(not|no|in|with|without)$/i.test(words[0])) return `${all} ${lower(caption)}`;
+  const one = w => w.replace(/ies$/i, 'y').replace(/(?<![su])s$/i, '');
+  return `${n === 1 ? 'The only' : all} ${[...words.slice(0, -1), n === 1 ? one(last) : /s$/i.test(last) ? last : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
 }
 // The scope a change goes to: the group chosen (by its key), or else the selection itself.
 const chosen = signal(null);
