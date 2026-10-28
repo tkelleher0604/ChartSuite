@@ -262,10 +262,9 @@ const Shell = (() => {
     painter: 'Paintbrush', eraser: 'Eraser', grow: 'AArrowUp', shrink: 'AArrowDown', copy: 'Copy', paste: 'ClipboardPaste', trash: 'Trash2',
     front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine',
   };
-  // `paint`, optionally, gives a part of it attributes of its own: (index, attrs) → attrs.
-  const icon = (name, paint = null) => {
+  const icon = name => {
     const node = typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
-    return html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${node?.[2].map(([tag, a], i) => h(tag, paint ? paint(i, { ...a }) : a)) ?? null}</svg>`;
+    return html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${node?.[2].map(([tag, a]) => h(tag, a)) ?? null}</svg>`;
   };
   // The mark, the page's one #mark symbol (index.html, from app/assets/mark-small.svg).
   const mark = html`<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#mark" /></svg>`;

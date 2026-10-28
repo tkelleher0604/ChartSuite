@@ -123,19 +123,21 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
 @container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } }
-@container (max-width: 1140px) { .fb .scope { width: 228px; } .fb .font { width: 120px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
+@container (max-width: 1140px) { .fb .scope { width: auto; flex: 0 1 auto; min-width: 120px; max-width: 228px; } .fb > .sep { margin: 0 4px; } .fb .font { width: 112px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
 .fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 18px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }
 .fb .well > i { align-self: end; width: 16px; height: 3.5px; border-radius: 1px; box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .3); }
 .fb .well.a { grid-template-rows: 20px; }
 .fb .well.a > svg { width: 20px; height: 20px; }
+.fb .well.a .edge { stroke: var(--rule-2); stroke-width: 5; stroke-linecap: butt; }
 :root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }
 .fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 .fb .zoom { margin-left: auto; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .fb:has(.btn:disabled) .btn:disabled { opacity: .4; }
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }
+.dc.dropping, .dc.dropping * { cursor: var(--dropper) !important; }
 
 /* The font menu: a field that finds, then the chart's own fonts and every font by its class, each name in its own
    face, one not on this computer greyed. */

@@ -303,7 +303,7 @@ const bar = c => html`<i style=${`background:${!c || c === 'none' ? 'transparent
 const glyph = {
   fill: c => html`<span class="well">${Shell.icon('fill')}${bar(c)}</span>`,
   outline: c => html`<span class="well">${Shell.icon('outline')}${bar(c)}</span>`,
-  color: c => html`<span class="well a">${Shell.icon('color', (i, a) => i === 0 ? { ...a, d: 'M3 21.5h18', stroke: c, 'stroke-width': 4, 'stroke-linecap': 'butt', class: 'ink' } : a)}</span>`,
+  color: c => html`<span class="well a"><svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${(typeof lucide === 'undefined' ? [] : lucide.Baseline[2].slice(1)).map(([t, a]) => h(t, a))}<path class="edge" d="M2.5 21.5h19" /><path d="M3 21.5h18" stroke=${c} stroke-width="4" stroke-linecap="butt" /></svg></span>`,
 };
 const dashGlyph = d => html`<svg viewBox="0 0 28 10"><path d="M1 5h26" stroke-width="1.5" stroke-dasharray=${d === 'dashed' ? '5 3' : d === 'dotted' ? '1.5 2.5' : null} stroke-linecap=${d === 'dotted' ? 'round' : 'butt'} /></svg>`;
 const weightGlyph = w => html`<svg class="ln" viewBox="0 0 40 10"><path d="M2 5h36" stroke-width=${Math.max(0.5, Math.min(6, w * 1.333))} /></svg>`;
@@ -351,6 +351,7 @@ function Palette({ label, none, close, children }) {
       <label class="menu-item"><span class="label">More colors</span>
         <span class="hex">#<input value=${/^#[0-9a-f]{6}$/.test(v) ? v.slice(1).toUpperCase() : ''} maxlength="7" spellcheck="false" autocomplete="off" aria-label="More colors"
           onFocus=${e => e.currentTarget.select()} onInput=${typed} onKeyDown=${entered} /></span></label>
+      <button class="menu-item" onClick=${() => { close?.(); drop(label); }}><span class="label">Eyedropper</span>${Shell.icon('Pipette')}</button>
       ${children}
       ${none ? html`<button class="menu-item" role="menuitemcheckbox" aria-checked=${v === 'none'} autofocus=${v === 'none'} ...${choice(label, 'none', close)}>
         <span class="label">${NONE[label]}</span>${v === 'none' ? Shell.icon('check') : null}</button>` : null}
@@ -548,7 +549,12 @@ function arm(once) {
   unlayer = Shell.layer(disarm);
   painter.value = { once, all: !!chosen.peek() };
 }
-function disarm() { unlayer?.(); unlayer = null; painter.value = null; }
+function disarm() { unlayer?.(); unlayer = null; painter.value = null; dropper.value = null; }
+// The eyedropper, PowerPoint's: armed from a palette, a click on a mark takes its color of that palette's property (a
+// box's fill or outline, its text's color) and gives it to the selection at its scope, as the palette would; Esc or a
+// click on the page puts it down.
+const dropper = signal(null);
+function drop(label) { unlayer?.(); unlayer = Shell.layer(disarm); painter.value = null; dropper.value = { label }; }
 // The look pasted on the selection, at its scope: for the selection, a note of each property its mark doesn't
 // already take so, at its record's own tree in the view (a free shape's, in its row); for a group, a note of each that
 // any mark it reaches doesn't take so, at each of its outputs. One change.
@@ -573,12 +579,19 @@ function pasteLook(look = copied?.look) {
   }, { say: `Pasted ${copied?.from ? `the look of ${copied.from}` : 'a look'} on ${scope.own ? (marks.length === 1 && marks[0].record ? App.notes.peek().nameOf(st, marks[0].record) : named(c, scope).replace(/^This|^These/, m => m === 'This' ? 'this' : 'these')) : named(c, scope)}` });
   return true;
 }
-// A click with the painter armed pastes on what's clicked, selecting it, at its scope; on the page, it disarms.
+// A click with the painter armed pastes on what's clicked, selecting it, at its scope; on the page, it disarms. With
+// the eyedropper, it takes the color clicked.
 function painting(e) {
-  const c = Canvas.active.peek(), p = painter.peek();
-  if (!p || !c || e.button !== 0 || !c.root.contains(e.target) || !e.target.closest('.dc-graph')) return;
+  const c = Canvas.active.peek(), p = painter.peek(), d = dropper.peek();
+  if ((!p && !d) || !c || e.button !== 0 || !c.root.contains(e.target) || !e.target.closest('.dc-graph')) return;
   e.preventDefault(); e.stopPropagation();
   const cell = e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id') ?? '', id = cell.replace(/·label$/, ''), m = c.scene()?.byId.get(id);
+  if (d) {
+    const v = !m ? null : d.label === 'Color' ? (m.texts?.[0] ?? m.caption)?.look?.Color : m.settings?.[d.label]?.value ?? m.look?.[d.label];
+    disarm();
+    if (typeof v === 'string' && (v === 'none' || hexOf(v))) apply(d.label, v === 'none' ? v : hexOf(v));
+    return;
+  }
   if (!m || !['box', 'line', 'shape', 'frame'].includes(m.type) || m.geometry === 'legend') return disarm();
   Shell.select([id]);
   if (p.all) { const s = scopesOf(c), like = likeOf(s); if (like && !like.own) choose(like); }
@@ -738,8 +751,9 @@ function mount(el) {
   // The cue follows the scope, and the chart it's on.
   const stopCue = effect(() => { chosen.value; Shell.selection.value; App.scene.value; if (Canvas.active.value) queueMicrotask(() => cue()); });
   // The painter armed shows the brush wherever the pointer is on the chart, and a click there pastes.
-  document.documentElement.style.setProperty('--brush', brush());
-  const stopBrush = effect(() => { const c = Canvas.active.value, on = !!painter.value; c?.root.classList.toggle('painting', on); if (!c && on) disarm(); });
+  document.documentElement.style.setProperty('--brush', pointer('Paintbrush', 3, 20));
+  document.documentElement.style.setProperty('--dropper', pointer('Pipette', 2, 22));
+  const stopBrush = effect(() => { const c = Canvas.active.value, on = !!painter.value, dropping = !!dropper.value; c?.root.classList.toggle('painting', on); c?.root.classList.toggle('dropping', dropping); if (!c && (on || dropping)) disarm(); });
   render(html`<${Bar} />`, el);
   document.addEventListener('pointerover', pointed);
   document.addEventListener('pointerdown', painting, true);
@@ -758,14 +772,15 @@ function mount(el) {
   return () => { stopSel(); stopCue(); stopBrush(); keys(); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true);
     preview(); Canvas.active.peek()?.cue(null); render(null, el); };
 }
-// The brush the pointer shows while the painter is armed: Lucide's, ink on a white edge, its bristles the spot.
-function brush() {
-  const node = typeof lucide === 'undefined' ? null : lucide.Paintbrush;
+// What the pointer shows while the painter or the eyedropper is armed: Lucide's brush or pipette, ink on a white edge,
+// the spot at its tip.
+function pointer(name, x, y) {
+  const node = typeof lucide === 'undefined' ? null : lucide[name];
   if (!node) return 'copy';
   const paths = node[2].map(([t, a]) => `<${t} ${Object.entries(a).map(([k, v]) => `${k}="${v}"`).join(' ')}/>`).join('');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">`
     + `<g stroke="#ffffff" stroke-width="4.5">${paths}</g><g stroke="#1b1e1d" stroke-width="1.75">${paths}</g></svg>`;
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 3 20, copy`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, copy`;
 }
 const typing = () => !!document.activeElement?.closest?.('input, textarea, [contenteditable], .CodeMirror, .dc-edit');
 const inCanvas = () => !!Canvas.active.peek()?.root.contains(document.activeElement) && !document.activeElement.closest('.dc-edit') && current?.marks.length;

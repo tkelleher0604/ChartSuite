@@ -332,10 +332,10 @@ async function run() {
   const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
   check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Light Gray, Background 2', tips.join(' | '));
   const fillRows = $$('.float .palette .menu-item').map(txt);
-  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then More colors, Transparency and No fill', swatches.length === 70
+  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then More colors, the Eyedropper, Transparency and No fill', swatches.length === 70
     && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
     && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
-    && fillRows.length === 3 && fillRows[0] === 'More colors#' && /^Transparency ?\d+%$/.test(fillRows[1]) && fillRows[2] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
+    && fillRows.length === 4 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Transparency ?\d+%$/.test(fillRows[2]) && fillRows[3] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
   // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
   // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
   const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -697,6 +697,15 @@ async function run() {
   Shell.select(['tessellate']); await tick(120);
   $('[data-fb="clear"]').click(); await tick(200);
   check('Clear formatting takes the look’s notes away, one change, and says what it took', !notesAt('tessellate').length && /^Cleared Tessellate .*’s .*Fill/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  // The Eyedropper, from a palette: the next click takes the color clicked for the selection, which stays selected.
+  Shell.select(['northpine']); await tick(120);
+  $('[data-fb="fill"]').click(); await tick(150);
+  $$('.float .palette .menu-item').find(e => txt(e) === 'Eyedropper')?.click(); await tick(100);
+  const dropping = cv().root.classList.contains('dropping');
+  await brushAt('corvane');
+  check('the Eyedropper takes the fill of the box clicked for the box selected, which stays selected', dropping && App.scene.peek().byId.get('northpine').settings.Fill.value === '#fbe5d6'
+    && Shell.selection.peek().join() === 'northpine' && !cv().root.classList.contains('dropping'), `${dropping} ${App.scene.peek().byId.get('northpine').settings.Fill.value}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
   for (let i = 0; i < 4; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
   check('… and Undo takes back the paint and the look given', !notesAt('corvane').length && !notesAt('halvard').length, `${notesAt('corvane')} ${notesAt('halvard')}`);
   // A group's look cleared: every note of its outputs' looks in the view, Funds' fill among them.
