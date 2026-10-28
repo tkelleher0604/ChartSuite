@@ -22,6 +22,9 @@
 .x6-node.dc-dim > * { stroke-opacity: .22; }
 .x6-node.dc-dim text { fill-opacity: .22; }
 .x6-node.dc-dim image { opacity: .22; }
+/* The format bar's scope while a group is chosen or pointed at: what it doesn't reach dulled whole, fill and all, so
+   what it reaches stands out (see cue). */
+.dc .x6-cell.dc-dull { opacity: .35; }
 
 /* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
    small on screen for its side handles shows only its corners. */
@@ -54,8 +57,9 @@
 .dc-hl.strong { --w: 3px; }
 .dc-hl.deep { --w: 1px; --o: .5; }
 .dc-row, .dc-group { --hue: var(--accent); --w: 1px; --o: 1; }
+.dc-cue { --hue: var(--accent); --w: 1.5px; --o: 1; }
 .dc-sel { --hue: var(--accent); --w: 2px; --o: 1; }
-path:is(.dc-hl, .dc-row, .dc-group), .x6-edge:is(.dc-hl, .dc-row, .dc-sel) > path + path {
+path:is(.dc-hl, .dc-row, .dc-group, .dc-cue), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue) > path + path {
   fill: none; stroke: var(--hue); stroke-width: var(--w); stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dc-group { stroke-dasharray: 4 3; }
 path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms var(--ease) 2; }
@@ -84,11 +88,20 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .btn { height: 28px; padding: 0 8px; border-color: transparent; background: transparent; flex: none; }
 .fb .btn:hover:not(:disabled) { border-color: transparent; }
 .fb .btn.icon { width: 28px; }
-/* The scope chip gives way first when the bar is short of room, so the zoom never leaves the window; its
-   name is then cut short, and shown whole on hover. */
-.fb .scope { flex: 0 1 auto; min-width: 56px; max-width: 220px; border-color: var(--rule-2); background: var(--surface); font-weight: 500; }
-.fb .scope > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.fb .scope.own { color: var(--ink-2); font-weight: 400; }
+/* The scope: two parts, the selection and all like it, the one a change goes to pressed in the accent, and the
+   ▾ that chooses the group joined to its part. It gives way first when the bar is short of room, so the zoom
+   never leaves the window; the group's name is then cut short, and shown whole on hover. */
+.fb .scope { display: inline-flex; flex: 0 1 auto; min-width: 0; max-width: 360px; height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.fb .scope > button { height: 26px; padding: 0 10px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
+.fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fb .scope > [data-fb="own"] { flex: none; }
+.fb .scope > [data-fb="like"] { flex: 0 1 auto; min-width: 64px; }
+.fb .scope > * + * { border-left: 1px solid var(--rule-2); }
+.fb .scope > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
+.fb .scope > button[aria-pressed="true"] { background-color: var(--selected); color: var(--accent-ink); font-weight: 500; }
+.fb .scope > .more { flex: none; width: 22px; padding: 0; justify-content: center; }
+.fb .scope > .more::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; }
+.fb .scope > [aria-pressed="true"] + .more { background-color: var(--selected); border-left-color: transparent; }
 .fb .font { width: 132px; justify-content: space-between; }
 .fb .size { width: 52px; justify-content: space-between; }
 .fb .letter { width: 28px; padding: 0; font: 500 14px/1 var(--sans); }

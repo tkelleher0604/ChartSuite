@@ -1,11 +1,14 @@
 // The format bar: one bar over the chart, in place of the ribbon. Insert adds a box of one of the chart's
-// kinds, or a shape, a text box, a line or the key. A scope chip names what a change applies to: the
-// selection, as in PowerPoint ("This box", "These 3 boxes"); its menu offers the Styles rows that reach it,
-// as Styles lists and calls them, with their reach ("Funds (6)"). A change writes format notes: for the
-// selection, at each record's own tree in the view; for a group, at each of its outputs' patterns in the
-// view. A free shape keeps its formats in its row. Selecting a legend row engages its group, so the legend is
-// the other way to restyle. A choice pointed at, Tidy's too, is drawn on the chart as it would be,
-// PowerPoint's live preview, until the pointer leaves it.
+// kinds, or a shape, a text box, a line or the key. The scope says what a change applies to, in two parts: the
+// selection, as in PowerPoint ("This box", "These 3 boxes"), and all like it ("All Funds (6)"), the narrowest
+// group that reaches it, whose ▾ offers every group that does: the Styles rows, as Styles lists and calls them,
+// and the selection's own groups, its kind and each of its options and tags ("Jurisdiction: Delaware (13)"),
+// each with its reach. While a group is chosen, or pointed at, the chart cues it: what it reaches lit, the
+// rest dulled. Ctrl+Shift+A goes from one part to the other. A change writes format notes: for the selection,
+// at each record's own tree in the view; for a group, at each of its outputs' patterns in the view, so a group
+// of the selection's own becomes a Styles row and a row of the Key. A free shape keeps its formats in its row.
+// Selecting a legend row engages its group, so the legend is the other way to restyle. A choice pointed at,
+// Tidy's too, is drawn on the chart as it would be, PowerPoint's live preview, until the pointer leaves it.
 const FormatBar = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
@@ -62,6 +65,8 @@ let current = null; // { canvas, scopes, scope, marks }
 
 // ---- What the selection is, and what reaches it ----
 
+// A group's key, the same for the same outputs however it's come by: a Styles row, or one of a record's own groups.
+const keyOf = ps => JSON.stringify(ps.map(p => Tree.key(p)).sort());
 function scopesOf(c) {
   const sc = c.scene(), keys = c.keys();
   // A group is formatted as its members.
@@ -74,24 +79,88 @@ function scopesOf(c) {
   const groups = Scene.groupsOf(App.notes.peek(), sc.view);
   const whole = (style, outputs) => { const gs = groups.filter(g => g.style === style && g.outputs.some(p => outputs.some(q => Tree.key(q) === Tree.key(p))));
     return { caption: gs[0]?.caption, outputs: gs.length ? gs.flatMap(g => g.outputs) : outputs }; };
+  const styled = (o, style) => ({ ...o, style, marks: marksOf(sc, { style, outputs: o.outputs }) });
   const rowKey = keys.length === 1 ? Canvas.keyParts(keys[0])[1] : null;
   if (rowKey) {
     const r = marks[0].rows?.find(x => x.key === rowKey), w = r && whole(r.style, r.outputs);
-    if (r) return { marks, row: r, scopes: [{ key: 'row', caption: w.caption ?? r.caption.text, outputs: w.outputs, style: r.style }] };
+    if (r) return { marks, row: r, scopes: [styled({ key: 'row', caption: w.caption ?? r.caption.text, outputs: w.outputs }, r.style)] };
   }
   const bound = marks.filter(m => m.type === 'box' || m.type === 'line');
   if (marks.some(m => m.type === 'frame')) {
     const f = marks.find(m => m.type === 'frame'), style = Tree.key(Tree.bare(f.output));
-    return { marks, scopes: [{ key: 'frame', caption: f.caption.text, outputs: whole(style, f.outputs).outputs, style }] };
+    return { marks, scopes: [styled({ key: 'frame', caption: f.caption.text, outputs: whole(style, f.outputs).outputs }, style)] };
   }
   const own = { key: 'own', label: these(marks), own: true };
-  if (!bound.length) return { marks, group, scopes: [own] };
-  // Then the Styles rows that reach the selection, and only those, in Styles' order: each with an output that a
+  if (!bound.length || bound.length < marks.length) return { marks, group, scopes: [own] };
+  // Then every group that reaches the selection. First the Styles rows, in Styles' order: each with an output that a
   // record in or at a selected mark fits.
   const reached = new Set();
   for (const m of bound) for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
     for (const g of groups) if (g.style === r.style && g.outputs.some(p => Tree.narrower(r.output, p))) reached.add(g);
-  return { marks, group, scopes: [own, ...groups.filter(g => reached.has(g)).map(g => ({ ...g, key: `${g.style} ${g.key}` }))] };
+  const rows = groups.filter(g => reached.has(g)).map(g => ({ ...g, key: keyOf(g.outputs), marks: marksOf(sc, g) }));
+  // Then the selection's own groups, those every selected mark is in (see kinOf), but a Styles row already offered as
+  // it is: its kind or relation first, then its options and tags in the order its entries have.
+  const st = App.state.peek(), kin = kinOf(sc), have = new Set(rows.map(r => r.key));
+  const mine = bound.map(m => new Set(inMark(st, m).map(id => kin.of.get(id)).filter(Boolean)));
+  const ownGroups = [...mine[0]].filter(k => mine.every(s => s.has(k)) && !have.has(keyOf([kin.by.get(k).pattern])))
+    .map(k => kin.by.get(k)).sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
+    .map(g => ({ key: keyOf([g.pattern]), caption: g.name, outputs: [g.pattern], marks: g.marks, kin: true }));
+  // The group "all like it" names when none is chosen, of those that reach all of the selection and more than it:
+  // the narrowest Styles row that styles boxes or lines (not Names, which styles every name), as the view already
+  // tells such marks apart; or else the narrowest of its options (Jurisdiction: Cayman Islands); or else its kind or
+  // relation; or else any of them, its tags last.
+  const ids = new Set(bound.map(m => m.merged ?? m.id)), all = s => [...ids].every(id => s.marks.has(id));
+  const like = [...rows, ...ownGroups].filter(all), wider = like.filter(s => s.marks.size > ids.size);
+  const least = xs => xs.reduce((a, s) => !a || s.marks.size < a.marks.size ? s : a, null);
+  const entry = s => s.kin && s.outputs[0].args?.length === 1, choice = s => entry(s) && 'choice' in s.outputs[0].out, kind = s => s.kin && !entry(s);
+  const narrowest = least(wider.filter(s => !s.kin && s.swatch?.kind !== 'text')) ?? least(wider.filter(choice)) ?? least(wider.filter(kind)) ?? least(wider) ?? least(like);
+  return { marks, group, narrowest, scopes: [own, ...rows, ...ownGroups] };
+}
+// The records a box or line draws, its own and those in it at any depth.
+function inMark(st, m) {
+  const { entries } = Tree.index(st), out = [], todo = [m.record];
+  while (todo.length) { const id = todo.pop(); out.push(id); todo.push(...entries.get(id) ?? []); }
+  return out;
+}
+// The groups of a scene's records, each a pattern with the marks it reaches: for each record of a kind, an object
+// (its box) or a relation (its line), and for each option or tag of an entry, at any depth, the record's tree with
+// every object in it made any object, and every option or tag but its own taken away: Entity, Ownership,
+// Jurisdiction: Delaware, Not Good Standing. Each is named by what it is, an option with its entry's name, never by
+// a Caption, which names a Styles row: so a group of one's own is never mistaken for the row it's part of. Its kind
+// or relation first, then its options, then its tags, each in their entries' order.
+// → { by: key → { pattern, name, rank, marks }, of: record id → key }.
+const kins = new WeakMap();
+function kinOf(sc) {
+  let k = kins.get(sc);
+  if (k) return k;
+  const st = App.state.peek(), N = App.notes.peek(), by = new Map(), of = new Map();
+  const markOf = id => { for (let x = id; x && st[x]; x = st[x].at) { const m = sc.byId.get(x); if (m && (m.type === 'box' || m.type === 'line')) return m; } return null; };
+  const general = (id, root) => {
+    const r = st[id];
+    if (!r) return null;
+    if (Tree.isObject(r)) return root ? { kind: r.kind } : {};
+    const args = Tree.argsOf(r).map(a => ({ edge: a.edge, loc: general(a.at, false) }));
+    if (args.some(a => !a.loc)) return null;
+    const out = root && (Tree.isChoice(r) ? { choice: r.choice } : Tree.isTag(r) ? { tag: r.tag } : null);
+    return { ...(out && { out }), args };
+  };
+  for (const id in st) {
+    const r = st[id];
+    if (Tree.isView(r) || (!Tree.isObject(r) && !r.args && !Tree.isChoice(r) && !Tree.isTag(r))) continue;
+    const m = markOf(id), p = m && !m.revealed && general(id, true);
+    if (!p) continue;
+    const key = Tree.key(p);
+    of.set(id, key);
+    let g = by.get(key);
+    if (!g) {
+      const choice = !r.args && Tree.isChoice(r), order = Math.min(1e3, N.order(Tree.treeOf(st, id)) ?? 1e3) / 1e4;
+      by.set(key, g = { pattern: p, name: !p.args ? p.kind : choice ? `${N.name(Tree.bare(p))}: ${r.choice}` : r.args ? N.name(Tree.bare(p)) : Scene.outputName(N, p),
+        rank: !p.args || r.args ? 0 : choice ? 1 + order : 2 + order, marks: new Set() });
+    }
+    g.marks.add(m.merged ?? m.id);
+  }
+  kins.set(sc, k = { by, of });
+  return k;
 }
 // The selection, as a scope, by what's drawn: "This box", "These 3 boxes", "This line" (the lines drawn as one
 // included), "These 2 shapes".
@@ -118,9 +187,9 @@ const marksOf = (sc, s) => new Set([...reachOf(sc).get(s.style)?.values() ?? []]
 // how many of the view's marks it reaches: "Funds (6)".
 function named(c, s) {
   if (s.own) return s.label;
-  return `${s.caption} (${marksOf(c.scene(), s).size})`;
+  return `${s.caption} (${(s.marks ?? marksOf(c.scene(), s)).size})`;
 }
-// The scope a change goes to: the one chosen, or else the selection itself.
+// The scope a change goes to: the group chosen (by its key), or else the selection itself.
 const chosen = signal(null);
 const scopeOf = (scopes, key = chosen.peek()) => scopes.find(s => s.key === key) ?? scopes[0];
 // The marks a group reaches that keep their own value of a property, entered for them alone in the view,
@@ -128,7 +197,7 @@ const scopeOf = (scopes, key = chosen.peek()) => scopes.find(s => s.key === key)
 function keeping(c, scope, labels) {
   const sc = c.scene(), N = App.notes.peek(), out = [];
   if (!scope?.outputs) return out;
-  for (const id of marksOf(sc, scope)) {
+  for (const id of scope.marks ?? marksOf(sc, scope)) {
     const m = sc.byId.get(id), t = Tree.treeOf(App.state.peek(), m.record);
     const notes = labels.map(l => N.resolve(l, t, sc.view)?.note).filter(n => n && n.view === sc.view && n.pattern.id === m.record);
     if (notes.length) out.push({ m, notes });
@@ -266,7 +335,14 @@ function Palette({ label, none, close }) {
 const seg = (label, items, v, { as = x => x, close } = {}) => html`<div class="seg" onPointerLeave=${() => preview()}>${items.map(([k, text]) =>
   html`<button aria-pressed=${v === k} autofocus=${v === k} ...${choice(label, as(k), close)}>${text}</button>`)}</div>`;
 // A popover of the bar's, whose preview ends as it closes.
-const pop = (e, draw) => Shell.popover(e.currentTarget, close => draw(close), { placement: 'bottom-start', onClose: () => preview() });
+const pop = (e, draw) => Shell.popover(e.currentTarget ?? e, close => draw(close), { placement: 'bottom-start', onClose: () => preview() });
+// The popovers the canvas's menus offer too, at an element or a point.
+const opener = {
+  fill: at => pop(at, close => html`<${Palette} label="Fill" none close=${close} />`),
+  outline: at => pop(at, close => html`<${Palette} label="Outline" none close=${close} />`),
+  color: at => pop(at, close => html`<${Palette} label="Color" close=${close} />`),
+  font: at => offer(at, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => apply('Font', f), tries: ['Font', f] }))),
+};
 // A menu of the bar's, whose items with `tries` ([label, value]) are previewed while the pointer is on them;
 // they're found by their label, as the menu draws them. A second click on its button closes it.
 let offered = null;   // { anchor, items }, while one is open
@@ -281,8 +357,33 @@ function pointed(e) {
   const it = label && offered.items.flatMap(x => [x, ...x.items ?? []]).find(x => x.label === label);
   it?.tries ? preview(...it.tries) : preview();
 }
-// A name cut short is shown whole on hover.
-const whole = e => { const b = e.currentTarget, t = b.firstElementChild; if (t && t.scrollWidth > t.clientWidth) b.dataset.tip = t.textContent; else delete b.dataset.tip; };
+// A name cut short is shown whole on hover, or else what the control does.
+const whole = e => { const b = e.currentTarget, t = b.firstElementChild; b.dataset.tip = t && t.scrollWidth > t.clientWidth ? t.textContent : 'All like it'; };
+
+// ---- The scope, on the chart ----
+
+// A group chosen: what the next change goes to, cued on the chart; the selection itself clears the cue. The group
+// last chosen for a selection is the one its right part names again.
+const liked = signal(null);
+function choose(x) { chosen.value = x?.own ? null : x?.key ?? null; if (chosen.peek()) liked.value = chosen.peek(); cue(); }
+// The two parts: the selection, and the group all like it names (the one last chosen, or the narrowest).
+const likeOf = s => { const sc = scopeOf(s.scopes); return !sc ? null : !sc.own ? sc : s.scopes.find(x => x.key === liked.peek()) ?? s.narrowest; };
+// Ctrl+Shift+A: from one part to the other.
+function toggle() {
+  const c = Canvas.active.peek();
+  if (!c?.scene()) return false;
+  const s = scopesOf(c), sc = scopeOf(s.scopes), like = likeOf(s);
+  if (!sc || !like || !s.scopes.some(x => x.own)) return false;
+  choose(sc.own ? like : s.scopes.find(x => x.own));
+}
+// The cue: the group pointed at, for as long as it's pointed at; else the group chosen, if any. (A Key row or a
+// frame is lit by the canvas as it is.)
+function cue(x) {
+  const c = Canvas.active.peek();
+  if (!c?.scene()) return;
+  const s = x === undefined ? (() => { const all = scopesOf(c), sc = scopeOf(all.scopes); return all.scopes.some(o => o.own) && !sc?.own ? sc : null; })() : x;
+  c.cue(s?.marks ? [...s.marks] : null);
+}
 
 const SHAPES = [['rect', 'Rectangle'], ['rounded', 'Rounded rectangle'], ['oval', 'Oval'], ['triangle', 'Triangle'], ['diamond', 'Diamond'], ['hexagon', 'Hexagon'],
   ['octagon', 'Octagon'], ['parallelogram', 'Parallelogram'], ['trapezoid', 'Trapezoid'], ['pentagon', 'Pentagon'], ['chevron', 'Chevron'], ['arrow', 'Arrow'], ['cylinder', 'Cylinder']];
@@ -341,23 +442,33 @@ function Bar() {
   const view = c.scene().view, tidy = { label: 'Tidy', disabled: App.readOnly.peek() || !App.notes.peek().notes('Position').some(n => n.view === view),
     run: () => { tried = null; c.tidy(); }, tries: ['Tidy'] };
   // The selection; then its Styles rows as Styles lists them, each style's under its name, and apart after them
-  // those under none (Names); and, where members of the group chosen keep their own look of what the group is
-  // given here, a way to clear it.
+  // those under none (Names); then its own groups; and, where members of the group chosen keep their own look of
+  // what the group is given here, a way to clear it. Each group pointed at is cued on the chart.
   const scopes = () => {
-    const item = x => ({ label: named(c, x), checked: x === scope, run: () => { chosen.value = x.key; } });
-    const rows = s.scopes.filter(x => !x.own), headed = rows.filter(x => x.name);
+    const item = x => ({ label: named(c, x), checked: x === scope, run: () => choose(x), ...(!x.own && { point: on => cue(on ? x : undefined) }) });
+    const rows = s.scopes.filter(x => !x.own && !x.kin), headed = rows.filter(x => x.name);
     const kept = scope?.outputs ? keeping(c, scope, givenTo(view, scope)) : [], whose = kept.length && possessive(keepers(kept));
     const what = listed([...new Set(kept.flatMap(k => k.notes.map(n => n.label)))]);
     const clear = kept.length ? [{ label: `Clear ${whose} own ${what}`, disabled: App.readOnly.peek(),
       run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }] : [];
     return [s.scopes.filter(x => x.own).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
-      rows.filter(x => !x.name).map(item), clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
+      rows.filter(x => !x.name).map(item), s.scopes.filter(x => x.kin).map(item), clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
+  // The scope as two parts, PowerPoint's selection on the left and all like it on the right: the group chosen, or
+  // else the narrowest, which its ▾ chooses among the rest. A Key row or a frame is its group alone.
+  liked.value; chosen.value;
+  const like = likeOf(s), ownPart = s.scopes.find(x => x.own);
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
     <span class="sep" />
-    ${none ? null : html`<button class=${'btn dd scope' + (scope?.own ? ' own' : '')} data-fb="scope" onPointerOver=${whole} onClick=${e => Shell.menu(e.currentTarget, scopes())}>
-      <span>${scope && named(c, scope)}</span></button>`}
+    ${none ? null : html`<div class=${'scope' + (scope?.own ? ' own' : '')} role="group" aria-label="Format" data-fb="scope">
+      ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
+        onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
+      ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
+        onPointerEnter=${() => cue(like)} onPointerLeave=${() => cue()} onClick=${() => choose(like)}><span>All ${named(c, like)}</span></button>` : null}
+      ${like && s.scopes.length > 2 ? html`<button class="more" data-fb="groups" aria-label="All like it" data-tip="All like it" aria-haspopup="menu"
+        onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue() })} />` : null}
+    </div>`}
     <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => offer(e.currentTarget, FONTS.map(f => ({ label: f, checked: value('Font') === f, run: () => set('Font', f), tries: ['Font', f] })))}>
       <span>${any ? value('Font') : 'Arial'}</span></button>
     <button class="btn dd size" data-fb="size" disabled=${none} onClick=${e => offer(e.currentTarget, SIZES.map(z => ({ label: String(z), checked: shown(value('Size')) === z, run: () => set('Size', sized(z)), get tries() { return ['Size', sized(z)]; } })))}>
@@ -389,19 +500,45 @@ function Bar() {
 }
 
 function mount(el) {
-  // Another selection is formatted as itself, until a style is chosen for it.
-  const stopSel = effect(() => { Shell.selection.value; chosen.value = null; });
+  // Another selection is formatted as itself, until a group is chosen for it.
+  const stopSel = effect(() => { Shell.selection.value; chosen.value = null; liked.value = null; });
+  // The cue follows the scope, and the chart it's on.
+  const stopCue = effect(() => { chosen.value; Shell.selection.value; App.scene.value; if (Canvas.active.value) queueMicrotask(() => cue()); });
   render(html`<${Bar} />`, el);
   document.addEventListener('pointerover', pointed);
   const keys = Shell.keys({
     '$mod+KeyB': () => inCanvas() ? apply('Bold', !value('Bold')) : false,
     '$mod+KeyI': () => inCanvas() ? apply('Italic', !value('Italic')) : false,
     '$mod+KeyU': () => inCanvas() ? apply('Underline', !value('Underline')) : false,
+    '$mod+Shift+KeyA': () => typing() ? false : toggle(),
   });
-  return () => { stopSel(); keys(); document.removeEventListener('pointerover', pointed); preview(); render(null, el); };
+  return () => { stopSel(); stopCue(); keys(); document.removeEventListener('pointerover', pointed); preview(); Canvas.active.peek()?.cue(null); render(null, el); };
 }
+const typing = () => !!document.activeElement?.closest?.('input, textarea, [contenteditable], .CodeMirror, .dc-edit');
 const inCanvas = () => !!Canvas.active.peek()?.root.contains(document.activeElement) && !document.activeElement.closest('.dc-edit') && current?.marks.length;
 
+// ---- For the other parts ----
+// FormatBar.scope() → what a look change goes to now, as the bar shows it, or null with nothing to format:
+//   { own, label, view, patterns, marks, records }: `own`, the selection itself ("This box", "These 3 boxes"), with
+//   `patterns` null; or a group (`label` "Funds (6)"), with `patterns` its outputs, at which its look is noted in the
+//   view. `marks` are the marks it reaches, boxes and lines by id, and `records` their records.
+// FormatBar.write(tx, label, value) writes one look at that scope on tx, as the bar's own changes do: for the
+//   selection, a note at each record's own tree in the view (a free shape, in its row); for a group, at each output.
+// FormatBar.cue(on): the scope's cue on the chart while on (as the bar's own part shows it pointed at), and back to
+//   the bar's own when off.
+// FormatBar.open(kind, anchor): one of the bar's popovers, 'fill', 'outline' or 'font', at an element or a point
+//   { x, y } on screen, for a menu that offers them (the canvas's Format ▸).
+function describe() {
+  const c = Canvas.active.peek();
+  if (!c?.scene()) return null;
+  const s = scopesOf(c), sc = scopeOf(s.scopes);
+  if (!sc) return null;
+  const by = c.scene().byId, marks = sc.own ? s.marks.map(m => m.id) : [...sc.marks ?? []];
+  return { own: !!sc.own, label: named(c, sc), view: c.scene().view, patterns: sc.outputs ?? null, marks, records: [...new Set(marks.map(id => by.get(id)?.record).filter(Boolean))] };
+}
+function scoped(tx, label, v) { const c = Canvas.active.peek(); if (c?.scene()) write(tx, c, label, v); }
+function cueing(on) { const c = Canvas.active.peek(); if (!c?.scene()) return; if (!on) return cue(); const s = scopesOf(c), sc = scopeOf(s.scopes); cue(sc?.own ? null : sc); }
+
 Shell.register('formatbar', { mount });
-return { apply, value, colorName };
+return { apply, value, colorName, scope: describe, write: scoped, cue: cueing, open: (kind, anchor) => opener[kind]?.(anchor) };
 })();

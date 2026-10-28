@@ -545,7 +545,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     drawnMemo.set(m, d);
     return d;
   };
-  for (const id of ids) for (const [label, res] of Object.entries(formats.get(id))) if (label !== 'Shown' && label !== 'Frame') land(id, label, res, drawn);
+  // A look given at an entry's option or tag (Jurisdiction: Delaware, Not Good Standing) is a look of what has it: it
+  // lands on the box or line the entry is in, as a filter's Shown does, never on the entry's own text, so Bold for
+  // every Delaware box bolds those boxes whether or not they write their jurisdiction. Format, how the entry's own
+  // text reads, stays its own.
+  const about = note => filters(note) && note.pattern.args?.length === 1;
+  for (const id of ids) for (const [label, res] of Object.entries(formats.get(id))) if (label !== 'Shown' && label !== 'Frame')
+    land(id, label, res, label !== 'Format' && about(res.note) ? m => m.type !== 'text' && drawn(m) : drawn);
 
   const settle = (m, defaults) => {
     m.settings = {};

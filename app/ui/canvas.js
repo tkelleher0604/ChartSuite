@@ -223,6 +223,7 @@ function mount(el) {
   const gEl = root.firstChild, over = root.lastChild;
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
+  let cued = null; // the format bar's scope, lit (see cue)
   let pointing = false, hold = false;
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
@@ -920,11 +921,11 @@ function mount(el) {
     const id = keyParts(k)[0].split('@')[0], m = hostOf(id);
     return m ? [m] : (App.state.peek()[id]?.args ?? []).map(a => hostOf(a.at)).filter(Boolean);
   }))];
-  // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's.
-  const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+  // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's, the scope's.
+  const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'dc-cue', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
   function paintStates(extra) {
     if (!scene) return;
-    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group').forEach(n => n.remove());
+    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-cue').forEach(n => n.remove());
     // A box or a text is outlined over the chart; a line is traced where it lies, under the boxes, so a
     // line lit never crosses a name. A line drawn once for others traces them, in the strongest light of
     // theirs: the deeper reasons are lit first, so a witness's is over them.
@@ -965,6 +966,9 @@ function mount(el) {
       for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, 'dc-row', 3);
     }
     for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, 'dc-group', 4);
+    // The format bar's scope, while a group is chosen or pointed at: each mark it reaches lit, as a group is.
+    const cuedHere = cued && new Set([...cued].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
+    for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
     // A selected line is traced in the accent, as Office marks one.
     for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
     const dim = !!hl?.dim && lit.size;
@@ -974,6 +978,8 @@ function mount(el) {
       const k = c.getData()?.kind, id = k === 'label' ? c.getData().mark : c.id, el = v.container;
       // What a pending change would add or take away isn't dimmed: it's what's being asked about.
       el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !ink?.lit.has(id));
+      // And every mark the scope doesn't reach is dulled, the page's own furniture with them.
+      el.classList.toggle('dc-dull', !!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
   }
@@ -1033,6 +1039,15 @@ function mount(el) {
     for (const m of after.marks) if (r.appear.has(m.record) || texts.has(m.id) || m.texts?.some(it => was.has(it.id) || r.appear.has(it.id))) lit.add(m.id);
     for (const c of cells) lit.add(c.id);
     return { appear: r.appear, go: r.go, was, texts, cells, lit };
+  }
+  // The format bar's scope on the chart, its cue: `ids`, the marks a group of the selection reaches (boxes and lines,
+  // by id), each lit with the group light and every other mark dulled; null clears it. It's drawn over the scene and
+  // changes nothing in it, so no export draws it.
+  function cue(ids) {
+    const next = ids ? new Set(ids) : null;
+    if (JSON.stringify(next && [...next]) === JSON.stringify(cued && [...cued])) return;
+    cued = next;
+    paintStates();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
   // change would leave it, PowerPoint's live preview; with `moves`, laid out again (Tidy). null ends it.
@@ -1432,7 +1447,7 @@ function mount(el) {
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; styled = styledDrawn = null; show(true); });
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
       nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
@@ -1447,7 +1462,7 @@ function mount(el) {
 // The other parts call the canvas shown through the shell (Shell.parts.value.canvas).
 const call = name => (...a) => active.peek()?.[name](...a);
 Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); },
-  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), point: call('point'), toward: call('toward'), zoomTo: call('zoomTo'),
+  highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), cue: call('cue'), point: call('point'), toward: call('toward'), zoomTo: call('zoomTo'),
   kinds: () => kinds().map(k => ({ label: k, run: () => call('create')(k) })) });
 // A chart is shown, not just kept behind a table.
 const here = () => !!active.value && active.value.root.clientWidth > 0;
