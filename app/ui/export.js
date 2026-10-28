@@ -50,11 +50,13 @@ const script = f => scripts.get(f) ?? scripts.set(f, new Promise((ok, fail) => d
   document.createElement('script'), { src: new URL(f, VENDOR).href, onload: ok, onerror: () => { scripts.delete(f); fail(new Error(`Couldn’t load ${f}`)); } })))).get(f);
 const LIBS = { pptx: () => script('pptxgenjs/pptxgen.bundle.js'), pdf: () => script('jspdf/jspdf.umd.min.js').then(() => script('svg2pdf/svg2pdf.umd.min.js')) };
 
+// Saved where the browser saves downloads, and said so by its name, as every other act of the window says what it did.
 function save(blob, name) {
   if (api.onFile) return api.onFile(blob, name);
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  if (typeof Shell !== 'undefined') Shell.toast(`Downloaded ${name}`);
 }
 
 // ---- Text, as the scene sets it ----

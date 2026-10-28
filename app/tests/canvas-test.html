@@ -610,6 +610,9 @@ async function run() {
     document.activeElement.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt })); await tick(300);
     const pasted = sc().byId.get('chen')?.texts.find(it => it.blank);
     check('a row copied and pasted on a box of another kind shows that entry there, blank, to type into', held === 'Delaware' && pasted?.blank.edge === 'Jurisdiction', `${held}; ${sc().byId.get('chen')?.texts.map(it => it.text)}`);
+    const seen = () => { const el = pasted && $(`.dc text[data-text="${CSS.escape(pasted.id)}"]`); return el && getComputedStyle(el).visibility; }, seenOn = seen();
+    Shell.select(['fund']); await tick(200);
+    check('… its name shown while its box is selected, and its room empty once it isn’t, as it prints', seenOn === 'visible' && seen() === 'hidden', `${seenOn} → ${seen()}`);
     Shell.parts.peek().undo.undo(); await tick(200);
     // Show on chart, at the scope chosen in the format bar: a group of Vehicle Type writes beside its outputs.
     Shell.select(['fund']); await tick(200);
