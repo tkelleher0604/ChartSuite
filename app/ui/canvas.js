@@ -395,8 +395,9 @@ function mount(el) {
   viewport.appendChild(marks);
 
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
-  // A restyle keeps the view as it was drawn, so its boxes stay where they are, as a highlight does; one that
-  // moves them, Tidy's, is laid out afresh, and not kept as how the view was drawn. A redline is the scene the
+  // A highlight keeps the view as it was drawn, so its boxes stay where they are. A restyle is laid out as the change,
+  // made, lays it out, the boxes it keeps held where they stand (see keep), so what's pointed at is what's picked, a
+  // label on the side it will be; Tidy's afresh. Neither is kept as how the view was drawn. A redline is the scene the
   // change, made, draws, with its ink (see inked).
   // The page drawn last.
   let pageWas = null;
@@ -405,7 +406,7 @@ function mount(el) {
     if (!base) return;
     const view = base.view, s = styledDrawn, r = !s && redDrawn;
     scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, keep: !!s && !s.moves, ahead: !!s?.moves }) : r ? r.scene : base;
+      { state: App.state.peek(), computed: App.computed.peek(), reveal: revealIds, ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
     ink = r ? inked(r, scene, base) : null;
     tidyLabel.hidden = !s?.wb.tidy;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
@@ -1621,7 +1622,7 @@ function mount(el) {
     paintStates();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
-  // change would leave it, PowerPoint's live preview; with `moves`, laid out again (a size, or Tidy). null ends it.
+  // change would leave it, laid out as making it lays it out (see draw), PowerPoint's live preview. null ends it.
   // Tidy's (`wb.tidy`), which moves everything, only once the pointer has rested on it half a second, and said on
   // the chart to be its preview.
   const RESTING = 500;
@@ -1691,7 +1692,7 @@ function mount(el) {
     if (!base || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
     if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base && aheadOf.soon === soon) return;
     const mine = aheadOf = { wb, state, base, soon }, chart = App.chart.peek(), computed = App.computed.peek();
-    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...r ? [redAhead(r, base)] : styled ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true })] : [],
+    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...r ? [redAhead(r, base)] : styled ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true, holds: styled.wb.tidy ? null : holdsOf(base) })] : [],
       ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
     const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
     const step = idle => {

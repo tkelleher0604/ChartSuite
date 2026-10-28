@@ -934,7 +934,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       obstacles: obstaclesOf(onPage, last?.page.offset),
       entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, pageSizes, beside, linked), hints, page: { ...sheet, room }, bounds: last?.page ?? null,
     });
-    for (const b of boxes) Object.assign(b, placed.get(b.id));
+    // A box placed that its texts set wider or narrower than it was placed keeps its middle where it was, so a triangle's
+    // apex stays under its owners' lines.
+    for (const b of boxes) { Object.assign(b, placed.get(b.id)); if (squeeze === 1 && b.entered && b.pos.w && !last?.at.has(b.id)) b.x += (b.pos.w - b.w) / 2; }
     yield;
     // What's placed on its own page stands where it was put, but for the room labels need beside it; a place the
     // layout gives makes room too for the lines that come down past what stands over their box.
@@ -1581,6 +1583,7 @@ function shapeText(row, computed, day) {
 // every row it could show, each `shown` or not. A legend nobody has sized is as wide as its captions need,
 // each up to 120 pt before it wraps. Its swatches and the room round them are `k` times the sheet's, as its
 // captions are (see keyAt); their weights the sheet's, as the lines they show are drawn.
+const SWATCH = { h: 11 };
 function layoutLegend(m, rows, sheet = 1, k = 1) {
   const t = m.look, u = sheet * k, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
   rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } }));
@@ -1599,9 +1602,10 @@ function layoutLegend(m, rows, sheet = 1, k = 1) {
     // A caption stops 12 pt short of the next column.
     const x = pad + col * colW, caption = { id: `${m.id}:${r.key}`, type: 'text', look: { ...t, Align: 'left' }, text: r.caption, column: { x: x + sw + gap, width: colW - sw - gap - 16 * u } };
     caption.lines = breakLines(r.caption, caption.look, caption.column.width);
-    const h = Math.max(lh, caption.lines.length * lh);
+    // A row is as tall as its swatch and a little more, and the next 5 px under it, so no two swatches touch or crowd.
+    const h = Math.max(lh, SWATCH.h * u + 2 * u, caption.lines.length * lh);
     stack(caption, caption.column.x, caption.column.width, y + (h - caption.lines.length * lh) / 2);
-    const row = { key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, x, y, w: colW, h, sw: { x, y: y + h / 2 - 7 * u, w: sw, h: 14 * u }, caption };
+    const row = { key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, x, y, w: colW, h, sw: { x, y: y + h / 2 - SWATCH.h * u / 2, w: sw, h: SWATCH.h * u }, caption };
     y += h + 5 * u;
     return row;
   });

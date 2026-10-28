@@ -847,6 +847,45 @@ function run() {
     check('a new fund chart, a fund, its GP and its investors (with or without the GP’s 1%, their percentage typed or not, a person placed beside them or not): the investors’ line straight down into the apex, the GP’s into the near slope, no line crossing another, slide and Letter',
       drawnAs.every(d => d.straight && d.side && !d.crossing), j(drawnAs.filter(d => !d.straight || !d.side || d.crossing)));
   }
+  {
+    // Rita's Larkspur chart (gui1 R-5): the GP and the manager beside each other over the fund's left slope, the investors
+    // over its apex. The GP's line and the adviser's meet the slope apart, the nearer higher, sharing no run and crossing
+    // nothing, placed by hand or laid out.
+    const advises = (tx, a, b) => tx.add('record', { args: [{ edge: 'Adviser', at: a }, { edge: 'Client', at: b }], tag: true });
+    const larkspur = (placed, paper = null) => newChart((tx, view) => {
+      const [f, type] = entity(tx, 'Larkspur Credit Fund II, L.P.', 'Limited Partnership'), [g] = entity(tx, 'Larkspur Credit GP II, LLC', 'Limited Liability Company');
+      const [m] = entity(tx, 'Larkspur Capital Management, LLC', 'Limited Liability Company'), us = group(tx, 'Fund II Investors (U.S.)'), non = group(tx, 'Fund II Investors (Non-U.S.)');
+      gpOf(tx, g, type); advises(tx, m, f); owns(tx, us, f, 0.6); owns(tx, non, f, 0.4);
+      tx.note('Shown', { out: { tag: true }, args: [{ edge: 'Adviser', loc: {} }, { edge: 'Client', loc: {} }] }, true, { view });
+      if (placed) for (const [id, kind, x, y] of [[g, 'Entity', 60, 150], [m, 'Entity', 260, 150], [us, 'Investor Group', 460, 150], [non, 'Investor Group', 660, 150], [f, 'Entity', 450, 300]])
+        tx.note('Position', { id, kind }, { x, y, w: id === f ? 176 : 150 }, { view });
+    }, paper).s;
+    const runs = s => {
+      const legs = s.marks.filter(m => m.type === 'line').flatMap(l => l.points.slice(1).map((p, i) => ({ l, a: l.points[i], b: p })));
+      return legs.filter((u, i) => legs.some((v, k) => k > i && u.l.trunk !== v.l.trunk && [0, 1].some(d => Math.abs(u.a[d] - u.b[d]) < 0.5 && Math.abs(v.a[d] - v.b[d]) < 0.5 && Math.abs(u.a[d] - v.a[d]) < 0.5
+        && Math.min(Math.max(u.a[1 - d], u.b[1 - d]), Math.max(v.a[1 - d], v.b[1 - d])) - Math.max(Math.min(u.a[1 - d], u.b[1 - d]), Math.min(v.a[1 - d], v.b[1 - d])) > 0.5))).map(u => [u.l.texts[0]?.text, u.a, u.b]);
+    };
+    const met = s => { const into = s.marks.filter(m => m.type === 'line' && s.byId.get(m.to)?.shape === 'triangle' && ['General partner', 'Investment adviser'].includes(m.texts[0]?.text));
+      return Object.fromEntries(into.map(l => [l.texts[0].text, l.points.at(-1)[1]])); };
+    const seen = [true, false].flatMap(p => [null, 'letter'].map(paper => { const s = larkspur(p, paper), y = met(s); return { placed: p, paper, shared: runs(s), y }; }));
+    check('lines of different relations into one side of a fund never share a run: the GP’s and the adviser’s meet its slope apart, the nearer higher, placed by hand or laid out, slide and Letter',
+      seen.every(x => !x.shared.length && x.y['General partner'] - x.y['Investment adviser'] > 10), j(seen));
+  }
+  {
+    // A font pointed at in the bar is drawn as picking it will lay the chart out (gui1 R-17): every label on the side it was.
+    const wb = fresh(), s = scene(wb), rows = wb.rows(C).concat([{ id: '·font', note: '·font', label: 'Font', pattern: { out: { field: 'text' }, args: [{ edge: 'Name', loc: {} }] }, view: MAIN, value: 'Garamond' }]);
+    const notes = Notes.index(rows.filter(r => 'note' in r)), tried = { ...wb, rows: () => rows, notes: () => notes }, R = computed(wb);
+    const p = Scene.of(tried, C, MAIN, DAY, { state: R.records, computed: R, ahead: true }), sides = x => new Map(x.marks.filter(m => m.type === 'line' && m.labelAt).map(l => [l.id, l.labelAt.x < l.points.at(-1)[0]]));
+    const was = sides(s), now = sides(p), swapped = [...was].filter(([id, left]) => now.has(id) && now.get(id) !== left).map(([id]) => id);
+    check('a font pointed at keeps every label on the side it was', p.marks.some(m => m.texts?.[0]?.look.Font === 'Garamond') && !swapped.length, j(swapped));
+  }
+  {
+    // The Key's rows (gui1 R-16): its swatches never touch, half one's height or more between one and the next.
+    const s = scene(fresh()), key = s.marks.find(m => m.geometry === 'legend');
+    const cols = [...new Set(key.rows.map(r => r.x))].map(x => key.rows.filter(r => r.x === x).sort((a, b) => a.sw.y - b.sw.y));
+    const near = cols.flatMap(c => c.slice(1).map((r, i) => [r.sw.y - (c[i].sw.y + c[i].sw.h), c[i].sw.h])).filter(([g, h]) => g < h / 2 - 0.01);
+    check('the Key’s swatches never touch: half one’s height or more between each and the next', key.rows.length > 6 && !near.length, j(near));
+  }
 
   // ---- A new box among entered ones ----
   {

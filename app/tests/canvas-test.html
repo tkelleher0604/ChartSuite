@@ -860,6 +860,8 @@ async function run() {
     check('a page drawn very small opens whole, its title in view', p.scale < 0.2 && z < 0.6 && whole() && t.x >= 0 && t.y >= 0 && t.x < W && t.y < H,
       `scale ${p.scale}, zoom ${z}, title’s words at ${[t.x, t.y].map(Math.round)}`); }
   Shell.parts.peek().undo.undo(); await tick(200);
+  // (The page as it was, the zoom held for the very small one: Fit frames it again.)
+  cv().zoom('fit'); await tick(120);
 
   // ---- Deleting as of a past day ends it then, by its own end entry, which its redline asks first ----
   Shell.at({ asOf: '2025-06-30' }); await tick(200);
@@ -1215,9 +1217,9 @@ async function stillAsMade() {
   await name('Larkspur Capital Management, LLC');
   const mgmt = box('Larkspur Capital Management').record;
   await tickRow('Management, LLC is an adviser to');
-  const red = sc(), redAt = at();
+  const red = sc(), pendingOn = App.scene.peek(), redAt = at();
   await add();
-  check('a box ticked as an adviser is redlined where Enter puts it, and Enter puts it there, nothing else moving', red !== App.scene.peek() && held(redAt) && held(was, [mgmt]), JSON.stringify([...redAt]));
+  check('a box ticked as an adviser is redlined where Enter puts it, and Enter puts it there, nothing else moving', red !== pendingOn && held(redAt) && held(was, [mgmt]), JSON.stringify({ was: [...was], redAt: [...redAt], now: [...at()] }));
   // Its investors, ticked as owners: over the fund's apex, its line straight down, and no other box moving.
   was = at();
   await dot(box('Larkspur Credit Fund'), 'n', [box('Larkspur Credit Fund').x + 140, box('Larkspur Credit Fund').y - 180]);

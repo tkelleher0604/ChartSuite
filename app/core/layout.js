@@ -444,7 +444,8 @@ function arrange(a) {
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null }) {
   const out = new Map();
-  for (const b of boxes) { const p = entered.get(b.id) ?? keep?.get(b.id); if (p) out.set(b.id, { x: p.x, y: p.y }); }
+  // (A preview keeps each box where it was drawn, an entered one too, as the gaps its lanes took had moved it.)
+  for (const b of boxes) { const p = keep?.get(b.id) ?? entered.get(b.id); if (p) out.set(b.id, { x: p.x, y: p.y }); }
   const rest = boxes.filter(b => !out.has(b.id));
   if (!rest.length) return out;
   const ups = groupBy(links, l => l.to), downs = groupBy(links, l => l.from);
