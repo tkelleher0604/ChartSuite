@@ -228,6 +228,13 @@ async function run() {
   check('Enter makes it, and the redline goes', !$('.pendbar') && !$$('.grid .tabulator-row.red-add').length && !$$('.grid .tabulator-cell .del, .grid .tabulator-cell .add').length);
   undo(); await tick(150);
   check('Undo takes the new entry and the new row back', !named('Hollis Bay Holdings, LLC') && !column('Fund Counsel'));
+  // Import is a paste of a file with a heading row: the same plan, its verb Import, saying the file.
+  n0 = N();
+  Table.paste('Name\tFormation Date\nHollis Bay Holdings, LLC\t3/2/2026\n', { file: 'entities.csv' }); await previewed();
+  check('A file imported is redlined as a paste is, its bar’s verb Import', $$('.grid .tabulator-row.red-add').length === 1 && $('.pendbar .btn.primary')?.textContent === 'Import' && N() === n0, $('.pendbar')?.textContent);
+  press('Enter'); await tick(150);
+  check('… and Enter makes it, said with the file’s name', !!named('Hollis Bay Holdings, LLC') && N() === n0 + 1 && $('.toast span')?.textContent === 'Imported 1 entity from entities.csv', $('.toast span')?.textContent);
+  undo(); await tick(150);
 
   // A link pasted onto a row isn't written over a cell: it goes on, to link a document to the row's record.
   n0 = N();
