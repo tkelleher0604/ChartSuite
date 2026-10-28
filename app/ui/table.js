@@ -1200,7 +1200,7 @@ const Table = (() => {
   // at a record (`as`) is that record.
   function changeOf(m, { keys, plan }, as = new Map()) {
     const st = App.state.peek(), entered = App.entered.peek(), records = {}, made = new Map(), kids = new Map();
-    const x = { records, values: 0, rows: [], made: [], skipped: 0, cols: new Set(), rels: [], ends: [] };
+    const x = { records, values: 0, rows: [], made: [], skipped: 0, matched: 0, cols: new Set(), rels: [], ends: [] };
     const put = (rec, id = Log.newId()) => { records[id] = rec; return id; };
     const make = (name, kind, kinds, row = false) => {
       const o = put({ kind });
@@ -1218,6 +1218,7 @@ const Table = (() => {
     for (const p of plan) {
       let row = p.row ?? (m.isKind && p.key[0] && as.get(loose(p.key[0]))) ?? null;
       const was = !!row;
+      if (was) x.matched++;
       if (!row) {
         if (!p.key.length || p.key.some(k => !k)) { x.skipped += p.cells.filter(([, raw]) => clean(raw)).length; continue; }
         if (m.isKind) {
@@ -1333,7 +1334,9 @@ const Table = (() => {
     const more = asked.length + plain.length - listed.length;
     const ended = x.ends.length > 2 ? [count(x.ends.length, N.nameOf(st, x.ends[0]).toLowerCase())] : x.ends.map(rel);
     const parts = [x.values && ink(count(x.values, 'value')), x.rows.length && ink(`${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`),
-      ...related.map(ink), ...ended.map(t => html`<span class="del">${t}</span>`), ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
+      ...related.map(ink), ...ended.map(t => html`<span class="del">${t}</span>`), ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`,
+      // An import says how many of its rows are records the chart has already.
+      file && x.matched && `${x.matched} already in the chart`].filter(Boolean);
     const entered = App.entered.peek();
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
@@ -2016,7 +2019,10 @@ const Table = (() => {
     const cell = row.getCells().find(x => x.getElement().contains(e.target) && x.getField()), c = cell && columnOf(cell);
     const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
     const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
+    const settles = typeof Inspector !== 'undefined' && Inspector.settling?.(row.getData().id);
     Shell.menu({ x: e.clientX, y: e.clientY }, [
+      // A deadline's row: what settles it (Paid…, Filed…), as its panel's button does.
+      ...(settles ? [settles, '-'] : []),
       { label: 'Copy', keys: '$mod+KeyC', run: () => table.copyToClipboard('range') },
       ...(writes ? [{ label: 'Clear contents', keys: 'Delete', run: clear }, { label: 'Fill down', keys: '$mod+KeyD', run: () => fillFrom(true) }] : []),
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
