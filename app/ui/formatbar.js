@@ -254,9 +254,11 @@ function apply(label, value) {
   const c = Canvas.active.peek();
   if (!c) return;
   preview();
-  // A change for a group says at once what of it keeps its own, which the scope's menu then offers to clear.
-  const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]);
-  App.change(tx => write(tx, c, label, value), { say: kept.length ? `Changed ${label} for ${scope.caption}; ${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own` : null });
+  // A change for a group says at once what of it keeps its own, which the scope's menu then offers to clear; and
+  // where a later style gives some of it otherwise, puts the group's style after it, or says which still decides.
+  const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value);
+  const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say].filter(Boolean);
+  App.change(tx => { write(tx, c, label, value); first.also?.(tx); }, { say: says.length ? `Changed ${label} for ${scope.caption}; ${says.join('; ')}` : null });
   // Keys go back to the chart, so the next change can be typed.
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
@@ -271,22 +273,55 @@ function preview(label, value) {
   tried = key;
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
-  c.restyle(trying(c, label, value), label === 'Size' ? { moves: true } : undefined);
+  c.restyle(trying(c, label, value, firstFor(c, scopeOf(scopesOf(c).scopes), label, value).also), label === 'Size' ? { moves: true } : undefined);
 }
-// The chart with a change written on its rows, uncommitted.
-function trying(c, label, value) {
+// The chart with a change written on its rows, uncommitted; `more`, what else the change writes.
+function trying(c, label, value, more) {
   const wb = App.shown.peek(), same = (r, l, k, view) => 'note' in r && r.label === l && (r.view ?? null) === (view ?? null) && !r.param && Tree.key(r.pattern) === k;
   let rows = wb.rows(App.chart.peek());
-  write({
+  const tx = {
     note(l, pattern, v, { view } = {}) {
       const k = Tree.key(pattern), id = `·tried${++n}`;
       rows = rows.filter(r => !same(r, l, k, view));
       if (v !== undefined && v !== null) rows.push({ id, note: id, label: l, pattern, ...(view && { view }), value: v });
     },
     update(id, changes) { rows = rows.map(r => r.shape === id ? { ...r, ...changes } : r); },
-  }, c, label, value);
+  };
+  write(tx, c, label, value);
+  more?.(tx);
   const notes = Notes.index(rows.filter(r => 'note' in r));
   return { ...wb, rows: () => rows, notes: () => notes };
+}
+// A look given a group is what each of its marks then has. Where a later style gives some of them otherwise (Funds'
+// fill over the limited partnerships'), the group's style goes after those in Styles, as Styles' own drag puts it,
+// where that changes nothing else drawn; otherwise it's said which style still decides. Worked out once for each
+// scene, scope and value, as pointing at a choice previews it and picking it makes it: { also(tx), say }.
+const firsts = new WeakMap();
+function firstFor(c, scope, label, value) {
+  const sc = c?.scene();
+  if (!sc || !scope?.outputs || (TEXT_LABELS.has(label) && label !== 'Format' && fieldOf(c))) return {};
+  const memo = firsts.get(sc) ?? firsts.set(sc, new Map()).get(sc), k = JSON.stringify([scope.key, label, value]);
+  if (memo.has(k)) return memo.get(k);
+  const view = sc.view, N = App.notes.peek(), all = N.styles(view), groups = Scene.groupsOf(N, view), same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const sceneOf = wb => Scene.of(wb, App.chart.peek(), view, sc.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true });
+  const ids = [...marksOf(sc, scope)], one = sceneOf(trying(c, label, value)), got = (s, id) => s.byId.get(id)?.settings?.[label];
+  const masked = ids.filter(id => got(one, id) && !same(got(one, id).value, value));
+  const mine = new Set(scope.outputs.map(p => Tree.key(Tree.bare(p)))), at = new Map(all.map((s, i) => [s.key, i]));
+  const by = new Set(masked.map(id => got(one, id).note).filter(n => n?.view === view && !Tree.idsIn(n.pattern).size).map(n => Tree.key(Tree.bare(n.pattern))).filter(k => at.has(k) && !mine.has(k)));
+  let out = {};
+  if (masked.length && by.size) {
+    const last = Math.max(...[...by].map(k => at.get(k))), moved = [...all.filter((s, i) => !mine.has(s.key) && i <= last), ...all.filter(s => mine.has(s.key)), ...all.filter((s, i) => !mine.has(s.key) && i > last)];
+    const also = tx => moved.forEach((s, i) => s.order !== i + 1 && tx.note('Order', s.pattern, i + 1, { view }));
+    const two = sceneOf(trying(c, label, value, also));
+    const clean = ids.every(id => !got(two, id) || same(got(two, id).value, value))
+      && two.marks.every(m => { const o = one.byId.get(m.id); return !o?.settings || Object.entries(m.settings ?? {}).every(([l, s]) => l === label || same(s.value, o.settings[l]?.value)); });
+    const nameOf = k => groups.find(g => g.style === k)?.name ?? groups.find(g => g.style === k)?.caption, mineName = nameOf([...mine][0]);
+    const theirs = listed([...by].map(nameOf).filter(Boolean));
+    out = clean && mineName && theirs ? { also, say: `${mineName} now comes after ${theirs} in Styles` }
+      : { say: `${theirs || 'another style'} still ${by.size > 1 ? 'decide' : 'decides'} it for ${masked.length} of them` };
+  }
+  memo.set(k, out);
+  return out;
 }
 // A size picked is the size on the slide, where the chart can keep a scale for it, and otherwise as near as the
 // page allows, never shrinking the chart more than holding the scale would (Scene.toPage). Worked out once for

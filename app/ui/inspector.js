@@ -256,12 +256,12 @@ function begin(a, b, key, out, rec) {
 // reason's own words.
 const Go = ({ to, cls = '', title, tip, children }) => html`<button class=${'lk ' + cls} title=${title} data-tip=${tip || null} onClick=${() => select([].concat(to))}>${children}</button>`;
 
-// Where Enter goes from a value or a tag's box, as in Excel: down (d = 1) or up (-1) to the next value to type
-// in its part of the panel (a section, or a relation's entries), or else to its own row, so that a key typed
-// next is the window's.
+// Where Enter goes from a value or a tag's box, as in Excel: down (d = 1) or up (-1) to the next value to type in its
+// part of the panel (a section, or a relation's entries), never one a formula gives, whose why would take the chart
+// over; or else to its own row, so that a key typed next is the window's.
 const PART = 'section, .rr-at, .relate';
 function onward(el, d) {
-  const part = el.closest(PART), all = [...el.closest('.insp')?.querySelectorAll('.hug > .cell') ?? []].filter(x => x.closest(PART) === part && !x.disabled);
+  const part = el.closest(PART), all = [...el.closest('.insp')?.querySelectorAll('.hug > .cell') ?? []].filter(x => x.closest(PART) === part && !x.disabled && !('fx' in x.dataset));
   const after = x => el.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING;
   const to = d > 0 ? all.find(after) : all.findLast(x => x !== el && !after(x)), row = !to && el.closest('.row, .rr, .ih');
   if (row) row.tabIndex = -1;
@@ -331,7 +331,7 @@ function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', ti
   return html`<label class=${'cellbox' + (title ? ' title' : '') + cls}>${dirty && raw ? html`<s class=${'del' + ((r?.field ?? datatype) === 'date' ? ' date' : '')}>${shown}</s>` : null}<span class=${'hug' + (over ? ' over' : '') + (due && text === null ? ' ' + due : '')}>
     <${Box} ref=${ref} rows=${wrap ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && text === null ? ' fx' : '') + (dirty && T.clean(text) ? ' add' : '') + (bad ? ' bad' : '')}
       value=${text ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph} disabled=${App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null}
-      aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph} data-tour=${fx ? 'computed' : null}
+      aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph} data-tour=${fx ? 'computed' : null} data-fx=${fx ? '' : null}
       onPointerDown=${e => { clicked.current = document.activeElement !== e.currentTarget; }} onMouseUp=${e => { if (clicked.current) e.preventDefault(); clicked.current = false; }}
       onFocus=${e => { const el = e.currentTarget; if (doc) { type(raw); setTimeout(() => el.select()); } else el.select(); if (fx) emit('why-open', id); }}
       onInput=${e => { type(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${done}

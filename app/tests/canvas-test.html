@@ -234,6 +234,19 @@ async function run() {
   check('… and Bold for it bolds every text of its boxes, the jurisdiction they write too', caymanBoxes.length === caymans && caymanBoxes.every(b => b.texts.length > 1 && b.texts.every(it => it.look.Bold)),
     caymanBoxes.map(b => b.texts.map(it => `${it.text}:${it.look.Bold}`).join(',')).join(' / '));
   Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
+  // A look given a group is what each of its marks then has: where a later style gave some of them otherwise (Funds'
+  // fill over the limited partnerships'), the group's style goes after it in Styles, in the same change, saying so.
+  const lpBox = drawnBoxes.find(b => { const e = entryOf(b, 'Entity Type'); return e && rs[e].choice === 'Limited Partnership'; });
+  Shell.select([lpBox.id]); await tick(120);
+  $('[data-fb="groups"]').click(); await tick(120);
+  const lpRow = $$('.float .menu-item').find(e => txt(e).startsWith('Limited partnership ('));
+  lpRow?.click(); await tick(120);
+  const lps = [...FormatBar.scope().marks], n1 = App.wb.changes().length;
+  FormatBar.apply('Fill', '#fbe5d6'); await tick(150);
+  const peach = lps.filter(id => App.scene.peek().byId.get(id)?.settings.Fill.value === '#fbe5d6').length, lpSaid = $('.toast span')?.textContent ?? '';
+  check('a look given a group that a later style overrode reaches every mark of it, the style put after, in one change', lps.length > 1 && peach === lps.length
+    && App.wb.changes().length === n1 + 1 && /now comes after .* in Styles$/.test(lpSaid), `${peach} of ${lps.length}; ${lpSaid}`);
+  Shell.parts.peek().undo.undo(); await tick(120);
   Shell.select(['halvard']); await tick(120);
 
   // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
