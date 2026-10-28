@@ -657,6 +657,17 @@ async function run() {
   check('Choosing a result selects it, and leaves the keys in the view', Shell.selection.peek().join() === named('Northpine Software, LLC') && !!document.activeElement?.closest('[data-region="view"]'), document.activeElement?.outerHTML.slice(0, 80));
   Shell.select([]);
   Shell.closeAll(); await tick();
+  // A document named for what it's about, in fewer words than the entity's own name (Form D, Co-Invest (Corvane)),
+  // still comes after it: a name that holds another found comes after every name that doesn't.
+  got = await found('corvane');
+  const corvaneDocs = ['Form D, Co-Invest (Corvane)', 'Limited Partnership Agreement, Co-Invest (Corvane)'].map(x => got.indexOf(x));
+  document.activeElement?.blur?.();
+  press('Enter', $('.findpal .menu-find')); await tick(150);
+  check('… and the entities a document names before the document: “corvane” finds Corvane first, and Co-Invest (Corvane) before Form D, Co-Invest (Corvane); Enter opens Corvane', got[0] === '#Entities'
+    && got[1] === 'Corvane Specialty Chemicals Holdings, LLC' && got.indexOf('Calder Ridge III Co-Invest (Corvane), L.P.') > 0 && corvaneDocs.every(d => d > got.indexOf('Calder Ridge III Co-Invest (Corvane), L.P.'))
+    && Shell.selection.peek().join() === named('Corvane Specialty Chemicals Holdings, LLC'), got.slice(0, 8).join(' / '));
+  Shell.select([]);
+  Shell.closeAll(); await tick();
   // A table chosen in Find takes the keys at its active cell, as a sheet shown in Excel does: the arrows move in it.
   await found('Documents');
   document.activeElement?.blur?.();
