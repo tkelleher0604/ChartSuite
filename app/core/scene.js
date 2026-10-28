@@ -680,7 +680,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const text = String(v.text ?? '').replace(/\{([^{}\n]+)\}/g, (_, l) => entryText(h.record, l)).split('\n').map(s => s.replace(/[ \t]+/g, ' ').trim()).join('\n').trim();
     const settings = {};
     for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
-    return text ? [{ id: `text@${h.id}`, type: 'text', settings, look: look(settings), text, free: { note: c.note.note, text: v.text }, computed: false }] : [];
+    return text ? [{ id: `text@${h.id}`, type: 'text', settings, look: look(settings), text, free: { note: c.note.note, text: v.text }, computed: false, shownBy: c.note }] : [];
   }
   for (const b of boxes) { blanksIn(b); b.texts = [...gather(b.texts), ...freeText(b)]; }
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a

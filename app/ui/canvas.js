@@ -91,6 +91,13 @@ function scopeNow(c = active.peek()) {
 }
 // A group, as the scope's chip names it: all of what its Key row calls it, and how many it reaches.
 const named = s => `all ${s.caption}${s.marks ? ` (${s.marks.size})` : s.n ? ` (${s.n})` : ''}`;
+// The boxes a group of a field's own entry reaches (Jurisdictions: Jurisdiction at no kind) are where the entry is: the
+// object it's at, through the entries it's in, the scope a field of it is shown or hidden at.
+function scopeAt(p, edge) {
+  if (!(p.args?.length === 1 && !p.out && Tree.same(p.args[0].edge, edge))) return p;
+  for (p = p.args[0].loc; p.args?.length === 1 && !p.out; p = p.args[0].loc);
+  return p;
+}
 // A field's pattern at a scope's pattern p, in the mark whose record has tree `rec`: the entry's own, each step bare, with
 // that record put as p, where it fits p; or else, the field beside p in the boxes p reaches, p with the field's label as
 // its param. → [pattern, param]
@@ -1062,7 +1069,7 @@ function mount(el) {
         const steps = e ? Tree.pathOf(s0, e).slice(Tree.pathOf(s0, m.record).length) : [];
         const trees = e ? (on ? steps : steps.slice(-1)).map(x => treeOf(x)) : [{ args: [{ edge, loc: rec }] }];
         for (const t of trees) for (const p of s.own ? [rec] : s.outputs) {
-          const [pattern, param] = fieldAt(t, rec, p, t.args[0].edge);
+          const [pattern, param] = fieldAt(t, rec, scopeAt(p, t.args[0].edge), t.args[0].edge);
           tx.note('Shown', pattern, on, { view, ...(param && { param }) });
         }
       }
@@ -1317,8 +1324,14 @@ function mount(el) {
   // as the Key and Styles group them; null for a box's own, or where none says.
   function groupOfNote(m, note, sc = scene) {
     if (!note || !note.view || Tree.idsIn(note.pattern).size) return null;
-    return groupsAt(sc, m).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(note.pattern))) ?? null;
+    // Or, at a pattern no style keys, the boxes whose texts it gives, called by what it's at.
+    return groupsAt(sc, m).find(g => g.outputs.some(p => Tree.key(p) === Tree.key(note.pattern)))
+      ?? { caption: calledAt(note.pattern), outputs: [note.pattern], marks: new Set(sc.marks.filter(x => x.texts?.some(it => it.shownBy === note)).map(x => x.id)) };
   }
+  // What a pattern a note is at calls the boxes it reaches: an entry's at a kind, that kind's (Entities); at no kind,
+  // boxes; an output, by its name (Main Fund).
+  const calledAt = p => { const loc = p.args?.length === 1 && !p.out ? p.args[0].loc : null;
+    return loc && !loc.args ? (loc.kind ? Tree.plural(loc.kind) : 'boxes') : !p.args ? (p.kind ? Tree.plural(p.kind) : 'boxes') : Scene.outputName(App.notes.peek(), p); };
   // A field's own: typed in, hidden from this box or from all like it, its text's look.
   function fieldItems(f) {
     // All like it: the group whose note shows the field here, so hiding it there takes back what showed it; else the
@@ -1330,7 +1343,7 @@ function mount(el) {
       if (f.it.free) { const N = App.notes.peek(), n = N.notes('Text').find(x => x.note === f.it.free.note); if (n) tx.note('Text', n.pattern, { ...n.value, [label]: v }, { view }); return; }
       // A group that names the boxes by another of their entries can't name this one's text: it's this box's.
       const rec = treeOf(f.m.record), e = f.it.blank ? { args: [{ edge: name, loc: rec }] } : treeOf(f.it.id);
-      for (const p of s.own ? [rec] : s.outputs) { const [pattern, param] = fieldAt(e, rec, p, name); tx.note(label, param ? fieldAt(e, rec, rec, name)[0] : pattern, v, { view }); }
+      for (const p of s.own ? [rec] : s.outputs) { const [pattern, param] = fieldAt(e, rec, scopeAt(p, name), name); tx.note(label, param ? fieldAt(e, rec, rec, name)[0] : pattern, v, { view }); }
     }, { dated: false });
     return [
       { label: f.it.free ? 'Edit text' : 'Edit', keys: 'Enter', disabled: ro, run: () => editField(f.m, f.it) },
