@@ -897,6 +897,15 @@ async function run() {
   check('… and its chart shown again, its bar back', App.chart.peek() === C && !!pb() && /U\.S\. Investors → Fund III/.test(pb()?.textContent ?? ''));
   check('… noted for the tab, so a reload that drops it says so', stored?.verb === 'Delete' && /U\.S\. Investors → Fund III/.test(stored?.what ?? ''), JSON.stringify(stored));
   App.discard(); await tick(60);
+  // A box the chart shown hides by its own note says so, with Show, which shows it there again; nothing hidden is lost.
+  const chartV = App.views.peek().find(v => v.layout === 'chart'), hidN = App.notes.peek().notes('Shown').find(n => n.view === chartV.id && n.value === false && n.pattern.id !== undefined && st()[n.pattern.id]?.kind);
+  Shell.show(chartV.id); await tick(200);
+  Shell.select([hidN.pattern.id]); await tick(120);
+  const hiddenHead = $$('.insp section .sect').find(h => h.textContent.startsWith(`Hidden in ${chartV.name}`));
+  check('a box hidden in the chart shown says so in its panel, with Show', !!hiddenHead && !!hiddenHead.querySelector('.btn'), $$('.insp section .sect').map(h => h.textContent).join(' | '));
+  hiddenHead?.querySelector('.btn').click(); await tick(150);
+  check('… and Show shows it there again, at its own tree', App.notes.peek().resolve('Shown', Tree.treeOf(st(), hidN.pattern.id), chartV.id)?.value === true && /^Showed /.test(Time.describe(App.wb.changes().at(-1))));
+  Shell.parts.value.undo.undo(); await tick(100);
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {

@@ -873,8 +873,28 @@ function RecordView({ id }) {
       ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} />`}
     </div>
     <${Relatives} id=${id} />
+    <${HiddenHere} id=${id} />
     ${(r.kind || r.args) && App.scene.value?.byId.has(id) ? html`<${Look} id=${id} />` : null}
   </div>`;
+}
+// A box or line the chart shown hides by its own note (Delete, Hide in this view): said, with the way to show it
+// there again, its own Shown in the view, as the narrowest decides. Any other way out of a chart is the view's.
+const hiddenNote = (id, view) => { const n = N().resolve('Shown', tree(id), view); return n?.value === false && n.note.view === view && n.note.pattern.id === id ? n.note : null; };
+const showHere = (ids, v) => App.change(tx => ids.forEach(x => tx.note('Shown', tree(x), true, { view: v.id })), { say: ch => Time.describe(ch) });
+// What a chart hides one by one, each a click from being shown again there, so nothing hidden is lost from sight.
+function HiddenList({ v }) {
+  const hid = [...new Set(N().notes('Shown').filter(n => n.view === v.id && n.value === false && n.pattern.id !== undefined).map(n => n.pattern.id))]
+    .filter(x => recs()[x] && (recs()[x].kind || recs()[x].args) && hiddenNote(x, v.id));
+  if (!hid.length) return null;
+  const said = x => recs()[x].args ? `${nameOf(x)} · ${segment(x)}` : nameOf(x);
+  return html`<${Section} title="Hidden" n=${hid.length} act=${App.readOnly.value || hid.length < 2 ? null : html`<button class="btn" onClick=${() => showHere(hid, v)}>Show all</button>`}>
+    ${hid.map(x => html`<div class="rr" key=${x}><span /><span class="nm"><${Go} to=${x}>${said(x)}</${Go}></span>
+      <span class="val">${App.readOnly.value ? null : html`<button class="btn" onClick=${() => showHere([x], v)}>Show</button>`}</span></div>`)}</${Section}>`;
+}
+function HiddenHere({ id }) {
+  const v = viewShown(), r = recs()[id];
+  if (!v || v.layout !== 'chart' || !(r.kind || r.args) || App.scene.value?.byId.has(id) || !hiddenNote(id, v.id)) return null;
+  return html`<${Section} title=${`Hidden in ${v.name}`} act=${App.readOnly.value ? null : html`<button class="btn" onClick=${() => showHere([id], v)}>Show</button>`} />`;
 }
 
 // A style's outputs, each as the legend draws it (Scene's swatch), with its caption; each 2 px inside its chip,
@@ -939,6 +959,7 @@ function ViewPanel() {
     </div>
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
     ${v.layout === 'table' && typeof Table !== 'undefined' ? html`<${Section} title="Columns"><${Table.Columns} view=${v.id} /></${Section}>` : null}
+    ${v.layout === 'chart' ? html`<${HiddenList} v=${v} />` : null}
   </div>`;
 }
 
