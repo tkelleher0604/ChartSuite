@@ -519,13 +519,13 @@ async function run() {
     const sheetHeads = async () => { const w = await Table.workbook(), s = w.Sheets[w.SheetNames[0]]; return Table.grid.getColumns().filter(c => c.getField()).map((_, j) => s[XLSX.utils.encode_cell({ r: 0, c: j })]?.v); };
     // With the columns placed (a heading moved), one shown goes after them all, far to the right, as Sam's did.
     await drag('Formation Date', edge() + 2); await scrollTo(0);
-    await showing('Jurisdiction › Registered Agent');
-    const ra = column('Registered Agent'), raHead = ra?.getElement();
-    check('A column shown, though it goes far to the right, is scrolled whole into view, and lit', !!ra && titlesOf().at(-1) === 'Registered Agent' && seen('Registered Agent') && lit('Registered Agent') && holder().scrollLeft > 0,
-      `${titlesOf().slice(-2).join()}; seen ${seen('Registered Agent')}, lit ${lit('Registered Agent')}, at ${holder().scrollLeft}`);
+    await showing('Jurisdiction › Registered Office');
+    const ro = column('Registered Office'), roHead = ro?.getElement();
+    check('A column shown, though it goes far to the right, is scrolled whole into view, and lit', !!ro && titlesOf().at(-1) === 'Registered Office' && seen('Registered Office') && lit('Registered Office') && holder().scrollLeft > 0,
+      `${titlesOf().slice(-2).join()}; seen ${seen('Registered Office')}, lit ${lit('Registered Office')}, at ${holder().scrollLeft}`);
     const xs = await sheetHeads();
-    check('… headed by its own name, in the grid and in Excel, where no other column reads alike', !raHead.querySelector('.up') && raHead.querySelector('.t').textContent === 'Registered Agent'
-      && xs.at(-1) === 'Registered Agent' && ra.getDefinition().titleDownload === 'Registered Agent', `${heads().at(-1)} / ${xs.at(-1)} / ${ra.getDefinition().titleDownload}`);
+    check('… headed by its own name, in the grid and in Excel, where no other column reads alike', !roHead.querySelector('.up') && roHead.querySelector('.t').textContent === 'Registered Office'
+      && xs.at(-1) === 'Registered Office' && ro.getDefinition().titleDownload === 'Registered Office', `${heads().at(-1)} / ${xs.at(-1)} / ${ro.getDefinition().titleDownload}`);
     await showing('Jurisdiction › File Number'); await showing('Regulation D Offering › File Number');
     const fileHeads = heads().filter(h => /File Number$/.test(h)), fileSheet = (await sheetHeads()).filter(h => /File Number$/.test(h ?? ''));
     check('Two that would read alike are headed by as much of their path as tells them apart, in the grid and in Excel',
@@ -533,16 +533,16 @@ async function run() {
     tool('Sort').click(); await tick();
     const sortsBy = $$('.float .menu-item').map(x => x.textContent.trim());
     Shell.closeAll(); await tick();
-    check('… and so in the menus that list the columns shown', sortsBy.includes('Registered Agent') && sortsBy.includes('Jurisdiction › File Number') && !sortsBy.includes('Jurisdiction › Registered Agent'), sortsBy.slice(-4).join());
+    check('… and so in the menus that list the columns shown', sortsBy.includes('Registered Office') && sortsBy.includes('Jurisdiction › File Number') && !sortsBy.includes('Jurisdiction › Registered Office'), sortsBy.slice(-4).join());
     for (let i = 0; i < 4; i++) { undo(); await tick(200); }
-    check('… and hidden again, gone, the columns as they were', !column('Registered Agent') && !column('File Number') && N() === nA + 20
+    check('… and hidden again, gone, the columns as they were', !column('Registered Office') && !column('File Number') && N() === nA + 20
       && titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date', `${titlesOf().slice(0, 6).join()} … ${titlesOf().slice(-3).join()}; ${N() - nA}`);
 
     // Imported, a name finds its row as people write it, but for case, spaces and punctuation.
     const n1 = N();
     Table.paste('Name\tEIN\nCalder Ridge Capital Partners III L.P.\t92-4810999\n', { file: 'entities.csv' }); await previewed();
-    check('An imported name finds its row as people write it: "…III L.P." is "…III, L.P.", a value changed, no row added', !$$('.grid .tabulator-row.red-add').length
-      && $$('.grid .tabulator-cell .add').some(x => x.textContent === '92-4810999') && /^1 value$/.test($('.pendbar .what')?.textContent ?? '') && N() === n1, $('.pendbar .what')?.textContent);
+    check('An imported name finds its row as people write it: "…III L.P." is "…III, L.P.", a value changed, no row added, the bar saying the row is one already in the chart', !$$('.grid .tabulator-row.red-add').length
+      && $$('.grid .tabulator-cell .add').some(x => x.textContent === '92-4810999') && /^1 value·1 already in the chart$/.test($('.pendbar .what')?.textContent ?? '') && N() === n1, $('.pendbar .what')?.textContent);
     press('Escape'); await tick(150);
     // One close to a name the chart has asks whether it's that one.
     Table.paste('Name\tEIN\nCalder Ridge Capital Partners 3, L.P.\t92-4810999\n', { file: 'entities.csv' }); await previewed();
@@ -711,7 +711,7 @@ async function run() {
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t75%\r\n'); await previewed();
   const failsSaid = $('.pendbar .fails')?.textContent, n3 = N();
   press('Escape', document.body); await tick(150);
-  check('A change that would leave a check failing says so in its bar, before it’s made', failsSaid === 'Fails Ownership Adds Up at Fund III' && N() === n3 && !App.pending.peek(), failsSaid);
+  check('A change that would leave a check failing says so in its bar, before it’s made, with its figure', failsSaid?.replace(/\s/g, ' ') ==='Fails Ownership Adds Up at Fund III (103.4%, not 100%)' && N() === n3 && !App.pending.peek(), failsSaid);
   // As of today, a row added that asks its day, an ownership, holds from the day its bar says: today, typed over,
   // or all along; never on a past day by default.
   Shell.at(null); await tick(100);
@@ -868,7 +868,7 @@ async function run() {
   whole(doomed); await tick(40);
   n0 = N();
   press('Delete', gridKeys); await previewed();
-  check('Delete on a row selected whole strikes it through, with a bar to make it, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && /Delete$/.test($('.pendbar')?.textContent.trim() ?? '') && N() === n0,
+  check('Delete on a row selected whole strikes it through, with a bar to make it, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && /End$/.test($('.pendbar')?.textContent.trim() ?? '') && N() === n0,
     $('.pendbar')?.textContent);
   press('Escape', gridKeys); await tick(100);
   check('… Esc leaves it', !$('.pendbar') && !$$('.grid .tabulator-row.red-go').length && N() === n0 && doomed in st());
@@ -900,7 +900,7 @@ async function run() {
   check('Esc pressed to clear the selection clears it, the change still pending, in the window’s one bar under the view', !Shell.selection.peek().length && App.pending.peek()?.verb === 'Delete' && $$('.pendbar').length === 1 && !!$('.view > .pendbar'),
     `${Shell.selection.peek()} ${App.pending.peek()?.verb}`);
   paste('Owner\tOwned\tPercentage\r\nSponsor Holdings\tFund III\t3%\r\n'); await previewed();
-  check('A paste with another change pending is pasted, taking its place, which says so, with Undo', App.pending.peek()?.verb === 'Paste' && /^Discarded deleting /.test($('.toast span')?.textContent ?? '')
+  check('A paste with another change pending is pasted, taking its place, which says so, with Undo', App.pending.peek()?.verb === 'Paste' && /^Discarded ending /.test($('.toast span')?.textContent ?? '')
     && !!$$('.toast button').find(b => b.textContent === 'Undo'), $('.toast span')?.textContent);
   $$('.toast button').find(b => b.textContent === 'Undo')?.click(); await previewed();
   check('… its Undo bringing the deletion back', App.pending.peek()?.verb === 'Delete' && rowOf(doomed).getElement().classList.contains('red-go'), App.pending.peek()?.verb);
@@ -943,7 +943,7 @@ async function run() {
   const jul9 = Time.events.peek().find(e => e.day === '2024-07-09');
   check('Each day is said in the chart’s words: whose by the place rule, as History and the bar say it', jul9?.items.some(x => x.what === 'Admission Date' && x.of === 'Cayman GP → Offshore Feeder'), JSON.stringify(jul9?.items));
   const whose = Object.fromEntries(Table.model(views().find(v => v.rows === 'date').id).data.map(r => [r['f:$entry'] + '|' + r['f:$of'], true]));
-  check('Dates says whose in words, a tax year as the place rule says it: AIV-1, tax year 2025; AIV-1 Blocker (Delaware)', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Franchise Tax Due|AIV-1 Blocker (Delaware)'], Object.keys(whose).slice(0, 6).join(' / '));
+  check('Dates says whose in words, a tax year as the place rule says it: AIV-1, tax year 2025; AIV-1 Blocker, tax year 2026', whose['Annual Tax Due|AIV-1, tax year 2025'] && whose['Annual Tax Due|AIV-1 Blocker, tax year 2026'], Object.keys(whose).slice(0, 6).join(' / '));
   check('… and a tax paid at the year it settled: Fund III, tax year 2025', whose['Annual Tax Paid|Fund III, tax year 2025'] && whose['Annual Tax Paid|Fund III-A, tax year 2024']
     && !Object.keys(whose).some(k => /^Annual Tax Paid\|/.test(k) && !/, tax year \d{4}$/.test(k)), Object.keys(whose).filter(k => /^Annual Tax Paid/.test(k)).join(' / '));
   // The list of days opens on the day shown, or the last of the chart's days before it.
@@ -1328,16 +1328,16 @@ async function run() {
   $$('.hist-head .menu-seg button')[1].click(); await tick(60);
   // The sample deleted two registered agents; what this test added and undid was never there.
   const gone = () => $$('.hist-row.gone').map(x => x.querySelector('.what').textContent);
-  check('Deleted lists what was deleted and not restored', ['Registered Agent · GP III', 'Registered Agent · Fund III'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
+  check('Deleted lists what was deleted and not restored', ['Registered Agent · The Corporation Trust Company → GP III', 'Registered Agent · The Corporation Trust Company → Fund III'].every(x => gone().includes(x)) && !gone().some(x => /^Name/.test(x)), gone().join());
   check('An addition undone isn’t listed as deleted', !gone().includes('Halcyon University Endowment') && !gone().includes('Hollis Bay Holdings, LLC'), gone().join());
   n0 = N();
   const k = gone().length;
-  $$('.hist-row.gone').find(x => x.textContent.includes('Registered Agent · GP III')).querySelector('.btn').click(); await tick(100);
+  $$('.hist-row.gone').find(x => x.textContent.includes('Registered Agent · The Corporation Trust Company → GP III')).querySelector('.btn').click(); await tick(100);
   check('Restore brings it back, as one change', N() === n0 + 1 && gone().length === k - 1 && !!st().gp_agent);
   undo(); await tick(60);
   check('Undo takes the restore back, and says it undid a restore', !st().gp_agent && /^Undid: Restored /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   await tick(60);
-  check('… and it’s listed as deleted again', gone().includes('Registered Agent · GP III'), gone().join());
+  check('… and it’s listed as deleted again', gone().includes('Registered Agent · The Corporation Trust Company → GP III'), gone().join());
   // One payment a revision removed: restored, it comes back alone, and the revision's tax years stand.
   const years = () => Object.values(st()).filter(r => r.kind === 'Tax Year').length, y0 = years();
   n0 = N();
@@ -1357,8 +1357,8 @@ async function run() {
   undo(); await tick(100);
   check('… so Undo straight after leaves it whole', C() === C1 && App.wb.charts().some(c => c.chart === C1) && views().length > 0 && /Nothing to undo/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
   const kept = views().map(v => v.name), chart1 = views().find(v => v.layout === 'chart');
-  check('It keeps the views named for what they show, and one chart, Chart; none of the old chart’s own pages', ['Chart', 'Entities', 'Ownership', 'Dates', 'Documents'].every(n => kept.includes(n))
-    && !['Structure', '40 Act', 'Fund III', 'Management and control', 'Entities 2'].some(n => kept.includes(n)) && views().filter(v => v.layout === 'chart').length === 1, kept.join());
+  check('It keeps the views named for what they show, and one chart, Structure; none of the old chart’s own pages', ['Structure', 'Entities', 'Ownership', 'Dates', 'Documents'].every(n => kept.includes(n))
+    && !['40 Act', 'Fund III', 'Management and control', 'Entities 2'].some(n => kept.includes(n)) && views().filter(v => v.layout === 'chart').length === 1, kept.join());
   check('… its chart with the styles and Shown of the old chart’s first', chart1 && App.notes.peek().resolve('Shown', { kind: 'Document' }, chart1.id)?.note.view === chart1.id);
   const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
   check('Each of its pages has a title, its name, an as-of line and a Key', pages.length > 0 && pages.every(v => furniture(v).some(s => s.role === 'title' && s.text === name1)
@@ -1386,7 +1386,7 @@ async function run() {
   type(naming(), 'Something else'); press('Escape', naming()); await tick(60);
   check('A double-click on it types over it too, and Esc puts it back, the keys on it again', chartName1() === 'Harbor Point Fund I, L.P.' && !naming() && document.activeElement === $('.titlebar .chartmenu'), document.activeElement?.outerHTML.slice(0, 60));
   App.change(tx => tx.note('Name', { id: views()[0].id, kind: 'View' }, 'Overview'), { dated: false }); await tick(60);
-  check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Chart'));
+  check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Structure'));
   // Its chart draws what it records, though the chart it was begun from leaves that out: a managing member, which
   // Structure doesn't draw, joined to its LLC; what Structure rules out (not an owner) and what a formula gives, not.
   const rels = {};
@@ -1397,7 +1397,7 @@ async function run() {
     rels.member = tx.add('record', { args: [{ edge: 'Member', at: elena }, { edge: 'LLC', at: type }], choice: 'Managing Member' });
     rels.notOwner = tx.add('record', { args: [{ edge: 'Owner', at: elena }, { edge: 'Owned', at: fund }], tag: false });
   }); await tick(200);
-  const worked = App.computed.peek(), chartView = views().find(v => v.name === 'Chart').id, drawsIt = id => App.notes.peek().value('Shown', Tree.treeOf(worked.records, id), chartView) === true;
+  const worked = App.computed.peek(), chartView = views().find(v => v.name === 'Structure').id, drawsIt = id => App.notes.peek().value('Shown', Tree.treeOf(worked.records, id), chartView) === true;
   rels.control = Object.keys(worked.computed).find(id => worked.records[id]?.args?.length === 2);
   check('… and draws what it records: a managing member, which Structure leaves out, joined to its LLC; not what Structure rules out, nor what a formula gives', drawsIt(rels.member)
     && !drawsIt(rels.notOwner) && !!rels.control && !drawsIt(rels.control), Object.entries(rels).map(([k, id]) => `${k} ${drawsIt(id)}`).join(', '));
