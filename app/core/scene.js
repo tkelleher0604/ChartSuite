@@ -251,10 +251,9 @@ const linesOf = (it, width) => it.text ? breakLines(it.text, it.look, width, tru
 const dash = (d, w) => { const p = w * PT; return d === 'dashed' ? `${Math.max(4, p * 4)} ${Math.max(3, p * 3)}` : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
 // A line of text's height: single spacing, 1.2 times its size, times its Spacing.
 const lineHeight = t => t.Size * PT * 1.2 * (t.Spacing ?? 1);
-const RISE = 0.8;
-// How far under the top of its line a line's baseline is: 0.93 of its size at single spacing, and the room more
-// spacing makes above it, as PowerPoint sets a line spaced exactly.
-const baseline = t => t.Size * PT * (0.93 + 1.2 * ((t.Spacing ?? 1) - 1) * RISE);
+// How far under the top of its line a line's baseline is: the same share of the line's height at any spacing, 0.93
+// of its size at single spacing, as PowerPoint sets a line spaced exactly.
+const baseline = t => lineHeight(t) * 0.775;
 // A text's lines stacked from y, each placed by its alignment within [x0, x0 + width]: its baseline and
 // its anchor, which is its start, middle or end; a line `hung` an em in, which the text's `hang` says.
 function stack(item, x0, width, y) {
