@@ -108,7 +108,7 @@ async function run() {
   Shell.select(['fund']); await tick(150);
   check('Clicking a box does step 1', step() === '2 / 6', step());
   await until(beside, 1000);
-  check('Step 2’s card is beside the box it points at too', beside() && around(visible('[data-tour="box"]')), JSON.stringify(card()));
+  check('Step 2’s card is beside the box it points at too, the one selected', beside() && around($('[data-cell-id="fund"] [data-tour="box"]')), JSON.stringify(card()));
 
   // 2. Double-click a name: it's typed in place, the record's, and left as it was once the next step is done.
   const fundName = Object.keys(App.state.peek()).find(id => App.state.peek()[id].at === 'fund' && Tree.same(App.state.peek()[id].edge ?? '', 'Name'));
