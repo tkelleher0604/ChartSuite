@@ -41,11 +41,18 @@ const SCALES = Array.from({ length: 20 }, (_, i) => (20 - i) / 20);
 const half = (v, s, under = false) => Math.max(1, under ? Math.floor(v * s * 2 + 1e-9) : Math.round(v * s * 2)) / 2 / s;
 
 // Each sort of mark's properties, and their values where no note gives one. Notes calls every label that
-// isn't Name, Order and the like a format property, so a new one is only a word here. A box's and a
-// line's text properties are what the texts in it take, where nothing sets their own.
-const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Color: '#000000', Align: 'center', Format: 'value' };
+// isn't Name, Order and the like a format property, so a new one is only a word here, and its drawing. A box's
+// and a line's text properties are what the texts in it take, where nothing sets their own: Strike is a line
+// through each line of text; Spacing, how far apart its lines are, a multiple of single spacing (1.2 times its
+// size), as PowerPoint's Line Spacing is. A box's Valign sets its text block at its top, middle or bottom; its
+// Transparency (0–100) is its fill's, PowerPoint's; its Shadow is none, or soft, PowerPoint's outer shadow set
+// below and to the right; and its Corner, a rounded rectangle's, is the radius of its corners as a percentage of
+// its shorter side, up to 50, PowerPoint's adjustment of the shape.
+const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: '#000000', Align: 'center', Spacing: 1, Format: 'value' };
+const CORNER = 16.667;
 const DEFAULTS = {
-  box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Outline: '#000000', Weight: 0.75, Dash: 'solid', Frame: 'none', Layer: 0, ...TEXT },
+  box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle',
+    Frame: 'none', Layer: 0, ...TEXT },
   line: { Shown: false, Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
   text: { Shown: false, ...TEXT },
 };
@@ -53,8 +60,8 @@ const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
-const KEYED = { box: ['Shape', 'Fill', 'Outline', 'Weight', 'Dash'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow'], frame: ['Frame'],
-  text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Color'] };
+const KEYED = { box: ['Shape', 'Fill', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow'], frame: ['Frame'],
+  text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'] };
 // A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
 function swatch(kind, f) {
   const sw = { kind, ...DEFAULTS[kind === 'frame' ? 'box' : kind] };
@@ -67,20 +74,64 @@ function swatchOf(p, f) {
   const kind = p.args?.length > 1 ? 'line' : !p.args || KEYED.box.some(k => k in f) ? 'box' : 'text';
   return swatch(!none(f.Frame) && !KEYED[kind].some(k => k !== 'Shown' && k in f) ? 'frame' : kind, f);
 }
-const FONTS = { Arial: "Arial, 'Liberation Sans', Helvetica, sans-serif", Calibri: 'Calibri, Carlito, sans-serif',
-  'Times New Roman': "'Times New Roman', 'Liberation Serif', Times, serif", Georgia: 'Georgia, Gelasio, serif' };
-const fontFamily = f => FONTS[f] ?? `'${f}', sans-serif`;
+// The fonts offered by name, those people know from Office, Windows and the Mac, each with its class (sans serif,
+// serif or monospace) and the fonts that stand in for it where it isn't installed, those of its metrics first
+// (Calibri's Carlito, Arial's Liberation Sans): so a chart set in one draws in the nearest face a computer has. A
+// font typed by name, not among them, is drawn in itself, its class guessed from its name.
+const FONTS = {
+  Aptos: ['sans', "Aptos, 'Segoe UI', Calibri, Carlito, sans-serif"],
+  Arial: ['sans', "Arial, 'Liberation Sans', Arimo, Helvetica, sans-serif"],
+  'Arial Narrow': ['sans', "'Arial Narrow', 'Liberation Sans Narrow', 'Helvetica Neue Condensed', sans-serif"],
+  'Arial Black': ['sans', "'Arial Black', 'Helvetica Neue', Arial, sans-serif"],
+  'Avenir Next': ['sans', "'Avenir Next', Avenir, 'Century Gothic', sans-serif"],
+  Calibri: ['sans', 'Calibri, Carlito, sans-serif'],
+  Candara: ['sans', 'Candara, Calibri, Carlito, sans-serif'],
+  'Century Gothic': ['sans', "'Century Gothic', 'URW Gothic', 'URW Gothic L', 'Avant Garde', sans-serif"],
+  Corbel: ['sans', 'Corbel, Calibri, Carlito, sans-serif'],
+  'Franklin Gothic Book': ['sans', "'Franklin Gothic Book', 'Franklin Gothic Medium', 'Libre Franklin', sans-serif"],
+  Futura: ['sans', "Futura, 'Century Gothic', 'URW Gothic', sans-serif"],
+  'Gill Sans MT': ['sans', "'Gill Sans MT', 'Gill Sans', Calibri, sans-serif"],
+  Helvetica: ['sans', "Helvetica, 'Helvetica Neue', Arial, 'Liberation Sans', sans-serif"],
+  'Helvetica Neue': ['sans', "'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', sans-serif"],
+  'Lucida Sans': ['sans', "'Lucida Sans', 'Lucida Sans Unicode', 'Lucida Grande', sans-serif"],
+  Optima: ['sans', "Optima, Candara, 'Segoe UI', sans-serif"],
+  'Segoe UI': ['sans', "'Segoe UI', 'Helvetica Neue', Arial, sans-serif"],
+  Tahoma: ['sans', "Tahoma, 'DejaVu Sans', Verdana, sans-serif"],
+  'Trebuchet MS': ['sans', "'Trebuchet MS', 'Lucida Grande', sans-serif"],
+  Verdana: ['sans', "Verdana, 'DejaVu Sans', sans-serif"],
+  Baskerville: ['serif', "Baskerville, 'Baskerville Old Face', 'Libre Baskerville', Georgia, serif"],
+  'Book Antiqua': ['serif', "'Book Antiqua', Palatino, 'Palatino Linotype', 'URW Palladio L', serif"],
+  'Bookman Old Style': ['serif', "'Bookman Old Style', 'URW Bookman', 'URW Bookman L', serif"],
+  Cambria: ['serif', 'Cambria, Caladea, serif'],
+  'Century Schoolbook': ['serif', "'Century Schoolbook', 'New Century Schoolbook', 'TeX Gyre Schola', serif"],
+  Constantia: ['serif', 'Constantia, Cambria, Caladea, serif'],
+  Didot: ['serif', "Didot, 'Bodoni MT', 'Bodoni 72', serif"],
+  Garamond: ['serif', "Garamond, 'EB Garamond', 'Adobe Garamond Pro', 'Cormorant Garamond', serif"],
+  Georgia: ['serif', 'Georgia, Gelasio, serif'],
+  'Goudy Old Style': ['serif', "'Goudy Old Style', Garamond, serif"],
+  'Palatino Linotype': ['serif', "'Palatino Linotype', Palatino, 'Book Antiqua', 'URW Palladio L', serif"],
+  Perpetua: ['serif', 'Perpetua, Garamond, serif'],
+  Rockwell: ['serif', "Rockwell, 'Roboto Slab', 'Courier New', serif"],
+  'Times New Roman': ['serif', "'Times New Roman', 'Liberation Serif', Tinos, Times, serif"],
+  'Cascadia Mono': ['mono', "'Cascadia Mono', 'Cascadia Code', Consolas, monospace"],
+  Consolas: ['mono', "Consolas, Inconsolata, 'Liberation Mono', monospace"],
+  'Courier New': ['mono', "'Courier New', 'Liberation Mono', Cousine, Courier, monospace"],
+  'Lucida Console': ['mono', "'Lucida Console', Monaco, monospace"],
+  Menlo: ['mono', "Menlo, Monaco, Consolas, monospace"],
+};
+const fontClass = f => FONTS[f]?.[0] ?? (/mono|courier|consol|code/i.test(f) ? 'mono' : /serif|roman|times|garamond|georgia|book|old style/i.test(f) && !/sans/i.test(f) ? 'serif' : 'sans');
+const fontFamily = f => FONTS[f]?.[1] ?? `'${String(f).replace(/['\\]/g, '')}', ${{ sans: 'sans-serif', serif: 'serif', mono: 'monospace' }[fontClass(f)]}`;
 const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
 const none = c => !c || c === 'none';
 
 // ---- Geometry: PowerPoint's preset shapes, by plain names, as paths in a w × h frame ----
 
 const GEOMETRIES = ['rect', 'rounded', 'oval', 'triangle', 'diamond', 'hexagon', 'octagon', 'parallelogram', 'trapezoid', 'pentagon', 'chevron', 'arrow', 'cylinder'];
-function path(shape, w, h) {
+function path(shape, w, h, corner = CORNER) {
   const s = Math.min(w, h), n = v => +v.toFixed(2);
   const poly = ps => `M${ps.map(([x, y]) => `${n(x)},${n(y)}`).join(' L')} Z`;
   switch (shape) {
-    case 'rounded': { const r = s * 0.16667; return `M${n(r)},0 H${n(w - r)} A${n(r)},${n(r)} 0 0 1 ${n(w)},${n(r)} V${n(h - r)} A${n(r)},${n(r)} 0 0 1 ${n(w - r)},${n(h)} H${n(r)} A${n(r)},${n(r)} 0 0 1 0,${n(h - r)} V${n(r)} A${n(r)},${n(r)} 0 0 1 ${n(r)},0 Z`; }
+    case 'rounded': { const r = s * Math.min(50, Math.max(0, corner)) / 100; return `M${n(r)},0 H${n(w - r)} A${n(r)},${n(r)} 0 0 1 ${n(w)},${n(r)} V${n(h - r)} A${n(r)},${n(r)} 0 0 1 ${n(w - r)},${n(h)} H${n(r)} A${n(r)},${n(r)} 0 0 1 0,${n(h - r)} V${n(r)} A${n(r)},${n(r)} 0 0 1 ${n(r)},0 Z`; }
     case 'oval': return `M0,${n(h / 2)} A${n(w / 2)},${n(h / 2)} 0 1 1 ${n(w)},${n(h / 2)} A${n(w / 2)},${n(h / 2)} 0 1 1 0,${n(h / 2)} Z`;
     case 'triangle': return poly([[w / 2, 0], [w, h], [0, h]]);
     case 'diamond': return poly([[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]]);
@@ -104,12 +155,12 @@ const TEXT_AREA = { oval: 0.78, diamond: 0.56, hexagon: 0.8, octagon: 0.8, penta
 // parallelogram's and a trapezoid's by their slant; a cylinder's under its top. So a line set left starts
 // where PowerPoint starts it, and a block sits where PowerPoint sets it.
 const TEXT_RECT = {
-  rounded: (w, h) => { const x = 0.16667 * 0.29289 * Math.min(w, h); return { x, top: x, bottom: x }; },
+  rounded: (w, h, corner = CORNER) => { const x = Math.min(50, Math.max(0, corner)) / 100 * 0.29289 * Math.min(w, h); return { x, top: x, bottom: x }; },
   parallelogram: (w, h) => { const q = (1 + 1.25 * Math.min(w, h) / w) / 12; return { x: q * w, top: q * h, bottom: q * h }; },
   trapezoid: (w, h) => { const x = Math.min(w, h) / 6; return { x, top: x * h / w, bottom: 0 }; },
   cylinder: (w, h) => { const y = Math.min(w, h) / 8; return { x: 0, top: 2 * y, bottom: y }; },
 };
-const textRect = (shape, w, h) => TEXT_RECT[shape]?.(w, h) ?? { x: 0, top: 0, bottom: 0 };
+const textRect = (shape, w, h, corner) => TEXT_RECT[shape]?.(w, h, corner) ?? { x: 0, top: 0, bottom: 0 };
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
 // A box's width where none is entered: about 100 pt, so that a chart's names wrap rather than its page
 // widens; a triangle's a little more, its text sitting in its lower half.
@@ -198,19 +249,27 @@ function fill(words, t, width, inset = 0) {
 const linesOf = (it, width) => it.text ? breakLines(it.text, it.look, width, true, !!it.hangs && it.look.Align === 'left') : [];
 // A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels.
 const dash = (d, w) => { const p = w * PT; return d === 'dashed' ? `${Math.max(4, p * 4)} ${Math.max(3, p * 3)}` : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
-const lineHeight = t => t.Size * PT * 1.2;
+// A line of text's height: single spacing, 1.2 times its size, times its Spacing.
+const lineHeight = t => t.Size * PT * 1.2 * (t.Spacing ?? 1);
+const RISE = 0.8;
+// How far under the top of its line a line's baseline is: 0.93 of its size at single spacing, and the room more
+// spacing makes above it, as PowerPoint sets a line spaced exactly.
+const baseline = t => t.Size * PT * (0.93 + 1.2 * ((t.Spacing ?? 1) - 1) * RISE);
 // A text's lines stacked from y, each placed by its alignment within [x0, x0 + width]: its baseline and
 // its anchor, which is its start, middle or end; a line `hung` an em in, which the text's `hang` says.
 function stack(item, x0, width, y) {
   const t = item.look, lh = lineHeight(t), em = t.Size * PT;
   item.lines.forEach((l, i) => {
     l.x = t.Align === 'left' ? x0 + (l.hung ? em : 0) : t.Align === 'right' ? x0 + width : x0 + width / 2;
-    l.y = y + i * lh + t.Size * PT * 0.93;
+    l.y = y + i * lh + baseline(t);
   });
   if (item.lines.some(l => l.hung)) item.hang = em; else delete item.hang;
   return y + item.lines.length * lh;
 }
 const blockHeight = items => items.reduce((h, it) => h + it.lines.length * lineHeight(it.look), 0);
+// Where a block of text tb tall starts in a text rect from top to bottom, set at its top or bottom `inset` in from
+// it, or in its middle: a Valign.
+const valigned = (valign, top, bottom, tb, inset) => valign === 'top' ? top + inset : valign === 'bottom' ? bottom - inset - tb : top + (bottom - top - tb) / 2;
 const widest = items => Math.max(0, ...items.flatMap(it => it.lines.map(l => l.w)));
 // A text set again at the sheet's half point nearest its size (or `under` it), on a page drawn at s, its lines as
 // they broke.
@@ -230,7 +289,7 @@ function snap(it, s, under = false) {
 // Kept by what it reads, the latest few thousand, as the next scene sets the same triangles again.
 const pyramids = new Map();
 function pyramid(texts, w, wide) {
-  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic])]);
+  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic, it.look.Spacing])]);
   let p = pyramids.get(k);
   if (!p) {
     p = fitPyramid(texts, w, wide);
@@ -1019,13 +1078,14 @@ function move(m, dx, dy) {
   if (m.type !== 'line') Object.assign(m, { x: m.x + dx, y: m.y + dy });
 }
 
-// A box's texts placed in it, once its height is known: at a triangle's base, 7 pt up; in the middle of
-// anything else. Its `column` is where its lines are set: the width they were broken to (a triangle's, its
-// pyramid's), set in as PowerPoint sets in its text rect (see TEXT_RECT).
+// A box's texts placed in it, once its height is known: at a triangle's base, 7 pt up; at anything else's top,
+// middle or bottom, as its Valign says, in from its text rect by PowerPoint's 0.1 in. Its `column` is where its
+// lines are set: the width they were broken to (a triangle's, its pyramid's), set in as PowerPoint sets in its
+// text rect (see TEXT_RECT).
 function setText(b) {
-  const tb = blockHeight(b.texts), r = textRect(b.shape, b.w, b.h), width = Math.max(32, b.w * (TEXT_AREA[b.shape] ?? 1) - 2 * INSET) - 2 * r.x;
+  const tb = blockHeight(b.texts), r = textRect(b.shape, b.w, b.h, b.settings?.Corner?.value), width = Math.max(32, b.w * (TEXT_AREA[b.shape] ?? 1) - 2 * INSET) - 2 * r.x;
   if (b.shape !== 'triangle') b.column = { x: (b.w - width) / 2, width };
-  let y = b.shape === 'triangle' ? b.h - BASE - tb : r.top + (b.h - r.top - r.bottom - tb) / 2;
+  let y = b.shape === 'triangle' ? b.h - BASE - tb : valigned(b.settings?.Valign?.value, r.top, b.h - r.bottom, tb, INSET);
   for (const it of b.texts) y = stack(it, b.column.x, b.column.width, y);
 }
 // A line's label: its texts stacked from its top left, as wide as the widest line. It's `shared` where it's
@@ -1289,14 +1349,14 @@ function legend(N, view, marks) {
 // the sheet's where its row doesn't give them, `u` pixels of the page to one of the sheet: a text box's 12 pt,
 // a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller.
 // A size its row gives is the page's, as the format bar writes it; a weight is always the sheet's (see the scene).
-const SHAPE_DEFAULTS = { Fill: '#ffffff', Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Layer: 0, ...TEXT };
-const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12 };
+const SHAPE_DEFAULTS = { Fill: '#ffffff', Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Layer: 0, ...TEXT };
+const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12, Valign: 'top' };
 // The page's own texts: its title, and its date.
 const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' } };
 function freeShape(row, text, u = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
-    ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left' }),
+    ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left', Valign: 'top' }),
     ...(row.geometry === 'line' && { Arrow: 'none' }) };
   const t = { ...base, Size: base.Size * u, ...format, Weight: (format.Weight ?? base.Weight) * u };
   t.Size = half(t.Size, 1 / u);
@@ -1316,11 +1376,12 @@ function freeShape(row, text, u = 1) {
     const inset = 9.6 * u, share = TEXT_AREA[m.geometry] ?? 1, lines = breakLines(text, t, m.auto ? Infinity : Math.max(16 * u, m.w * share - 2 * inset), !!row.role);
     if (m.auto) m.w = Math.ceil(widest([{ lines }]) + 2 * inset + 1);
     // Set in as PowerPoint sets in its text rect (see TEXT_RECT).
-    const r = textRect(m.geometry, m.w, m.h), avail = Math.max(16 * u, m.w * share - 2 * inset) - 2 * r.x;
+    const r = textRect(m.geometry, m.w, m.h, t.Corner), avail = Math.max(16 * u, m.w * share - 2 * inset) - 2 * r.x;
     const it = { id: shape, type: 'text', look: t, settings: m.settings, text, lines };
     const tb = blockHeight([it]);
     if (m.geometry === 'text') m.h = m.auto ? tb + 9.6 * u : Math.max(m.h, tb + 9.6 * u);
-    stack(it, (m.w - avail) / 2, avail, m.geometry === 'frame' ? 5 * u : m.geometry === 'text' ? 4.8 * u : r.top + (m.h - r.top - r.bottom - tb) / 2);
+    // At its top, middle or bottom, PowerPoint's 0.05 in from its edge (a frame's caption at its top, 5 pt in).
+    stack(it, (m.w - avail) / 2, avail, m.geometry === 'frame' && t.Valign === 'top' ? 5 * u : valigned(t.Valign, r.top, m.h - r.bottom, tb, 4.8 * u));
     m.texts.push(it);
     m.column = { x: (m.w - avail) / 2, width: avail };
   }
@@ -1549,6 +1610,7 @@ function toPage(v, s, scaleAt) {
 
 return {
   of, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, FONTS: Object.keys(FONTS),
+  toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, CORNER, lineHeight, baseline, fontClass,
+  FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();

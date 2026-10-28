@@ -88,16 +88,42 @@ function textMarkup(it, red, faint) {
     },
     children: it.lines.map(l => {
       const r = l.red ?? it.redline ?? red;
-      const deco = [t.Underline && 'underline', r === 'go' && 'line-through'].filter(Boolean).join(' ');
+      const deco = [t.Underline && 'underline', (t.Strike || r === 'go') && 'line-through'].filter(Boolean).join(' ');
       return { tagName: 'tspan', attrs: { x: l.x, y: l.y, fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(t.Color), ...(deco && { 'text-decoration': deco }), ...(l.ink && { 'data-ink': '' }) }, textContent: l.text };
     }),
   };
 }
 const paint = v => !v || v === 'none' ? 'none' : v;
+// A box's or shape's body: its shape (a rounded rectangle's corners as its Corner says), its fill as transparent
+// as its Transparency, its outline, and its Shadow.
 function bodyMarkup(shape, w, h, s, red, extra = {}) {
-  const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline);
-  return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h), fill: paint(s.Fill), stroke, 'stroke-width': px(s.Weight),
-    'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter', ...extra } };
+  const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0));
+  return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner), fill: paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
+    stroke, 'stroke-width': px(s.Weight), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
+    ...(s.Shadow === 'soft' && { filter: `url(#${shadow(drawnAt)})` }), ...extra } };
+}
+// PowerPoint's soft outer shadow, as a filter for a page drawn at a scale: 3 pt below and to the right, blurred 4 pt,
+// black at 40%, each the sheet's, as a weight is, however much smaller the chart is drawn. One filter for each scale,
+// in a page of the document's own, which every canvas's drawing refers to.
+let drawnAt = 1;
+const shadows = new Set();
+function shadow(s) {
+  const id = `dc-shadow-${Math.round(s * 1000)}`;
+  if (shadows.has(id) && document.getElementById(id)) return id;
+  shadows.add(id);
+  let defs = document.getElementById('dc-shadows');
+  if (!defs) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+    svg.innerHTML = '<defs id="dc-shadows"></defs>';
+    document.body.append(svg);
+    defs = svg.firstChild;
+  }
+  const d = px(3) * Math.SQRT1_2 / s, blur = px(2) / s;
+  defs.insertAdjacentHTML('beforeend', `<filter id="${id}" x="-25%" y="-25%" width="160%" height="160%" color-interpolation-filters="sRGB">`
+    + `<feDropShadow dx="${d}" dy="${d}" stdDeviation="${blur}" flood-color="#000000" flood-opacity="0.4"/></filter>`);
+  return id;
 }
 const look = m => m.look ?? Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
 // An arrowhead, X6's block, at a line's end; on a route, no longer than the leg it ends (`leg`, its two points), so
@@ -140,13 +166,14 @@ function moveCell(cell, c, was) {
 // struck in red, and a text that would go struck in red where it is. Ink moves nothing: every cell is where the
 // scene puts it.
 function cellsOf(scene, ink = null) {
+  drawnAt = scene.page?.scale ?? 1;
   const cells = [], z = new Map(scene.marks.map((m, i) => [m.id, i * 2]));
   const node = (m, kind, markup, extra = {}) => cells.push({ id: m.id, shape: 'dendra', x: m.x, y: m.y, width: Math.max(1, m.w), height: Math.max(1, m.h),
     zIndex: z.get(m.id), markup, data: { kind, mark: m.id }, ...extra });
   const red = m => ink?.go.has(m.record) ? 'go' : ink?.appear.has(m.record) ? 'appear' : null;
   // A text as the ink has it: a changed one's new lines under its old, struck; one appearing, blue.
   const inkOn = it => {
-    const was = ink?.was.get(it.id), lh = px(it.look.Size) * 1.2;
+    const was = ink?.was.get(it.id), lh = Scene.lineHeight(it.look);
     return was === undefined ? (ink?.appear.has(it.id) ? { ...it, redline: 'appear' } : it)
       : { ...it, redline: 'appear', lines: [{ ...it.lines[0], y: it.lines[0].y - lh, text: was, red: 'go', ink: true }, ...it.lines] };
   };
@@ -200,7 +227,8 @@ function swatchMarkup(sw, box) {
   if (sw.kind === 'line') return { tagName: 'path', attrs: { d: `M${x},${y + h / 2} H${x + w}`, stroke: paint(sw.Outline), 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash(sw.Dash, sw.Weight), fill: 'none' } };
   if (sw.kind === 'frame') return { tagName: 'rect', attrs: { x, y, width: w, height: h, fill: 'none', stroke: '#595959', 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash('dashed', sw.Weight) } };
   const shape = sw.Shape ?? 'rect', sh = shape === 'triangle' ? h + 2 : h, sy = shape === 'triangle' ? y - 1 : y;
-  return { tagName: 'path', attrs: { d: Scene.path(shape, w, sh), transform: `translate(${x},${sy})`, fill: paint(sw.Fill), stroke: paint(sw.Outline), 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash(sw.Dash, sw.Weight) } };
+  const { selector, ...body } = bodyMarkup(shape, w, sh, sw, null, { transform: `translate(${x},${sy})` });
+  return body;
 }
 function legendMarkup(m, s) {
   return [
@@ -954,7 +982,7 @@ function mount(el) {
         lit.add(h.id);
         const o = h.type === 'line' ? h.labelAt ?? { x: 0, y: 0 } : h;
         const xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0)), ys = m.lines.map(l => l.y);
-        outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - px(m.look.Size), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * px(m.look.Size) * 1.2 }, cls, 1.5);
+        outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - Scene.baseline(m.look), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * Scene.lineHeight(m.look) }, cls, 1.5);
       } else { lit.add(m.merged ?? m.id); outline(m, cls); }
     }
     // A selected legend row, and an entered or selected group.

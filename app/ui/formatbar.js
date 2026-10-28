@@ -14,7 +14,7 @@ const { h, render } = preact;
 const html = htm.bind(h);
 const { signal, effect } = preactSignals;
 
-const FONTS = Scene.FONTS;
+const FONTS = Scene.FONTS.map(f => f.name);
 // Sizes and weights are shown and chosen as the slide has them: a size the page's, drawn smaller by its scale;
 // a weight the slide's own, one of PowerPoint's.
 const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32];

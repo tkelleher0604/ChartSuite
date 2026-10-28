@@ -60,8 +60,8 @@ function save(blob, name) {
 // ---- Text, as the scene sets it ----
 
 // A text's block within its mark: its first line's top and its last line's foot, from the scene's baselines.
-const lh = t => t.Size * PT * 1.2;
-const top = it => it.lines[0].y - it.look.Size * PT * 0.93;
+const lh = t => Scene.lineHeight(t);
+const top = it => it.lines[0].y - Scene.baseline(it.look);
 const block = items => ({ top: top(items[0]), bottom: top(items[0]) + items.reduce((h, it) => h + it.lines.length * lh(it.look), 0) });
 // How much of a line lies before its x, by its alignment.
 const BEFORE = { left: 0, center: 0.5, right: 1 };
@@ -75,18 +75,43 @@ const reading = marks => { const first = ['title', 'date'].flatMap(role => marks
 // ---- SVG: the PDF, and the preview ----
 
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
-const STANDARD = f => /courier|consolas|mono/i.test(f) ? 'courier' : /times|georgia|garamond|cambria|serif/i.test(f) && !/sans/i.test(f) ? 'times' : 'helvetica';
+// The PDF's standard font for a font: Helvetica for a sans serif, Times for a serif, Courier for a monospace (see
+// Scene's FONTS), in the weight and slant asked; and how wide it sets a line at a size, by jsPDF's own metrics.
+const STANDARD = f => ({ sans: 'helvetica', serif: 'times', mono: 'courier' })[Scene.fontClass(f)];
+let metrics = null;
+function standardWidth(t, text, size) {
+  if (!window.jspdf) return 0;
+  metrics ??= new window.jspdf.jsPDF({ unit: 'pt' });
+  metrics.setFont(STANDARD(t.Font), t.Bold && t.Italic ? 'bolditalic' : t.Bold ? 'bold' : t.Italic ? 'italic' : 'normal');
+  return metrics.getStringUnitWidth(text) * size;
+}
 const stroke = (s, w = s.Weight) => none(s.Outline) ? 'stroke="none"'
   : `stroke="${s.Outline}" stroke-width="${n(w * PT)}"${Scene.dash(s.Dash, w) ? ` stroke-dasharray="${Scene.dash(s.Dash, w)}"` : ''}${s.Dash === 'dotted' ? ' stroke-linecap="round"' : ''}`;
-const body = (shape, w, h, s) => `<path d="${Scene.path(shape, w, h)}" fill="${none(s.Fill) ? 'none' : s.Fill}" ${stroke(s)} stroke-linejoin="miter"/>`;
 const g = (x, y, inner) => `<g transform="translate(${n(x)} ${n(y)})">${inner}</g>`;
-// Each line of the texts where the scene put it; an underline as a rule, which every reader draws alike.
+// A body as the canvas draws it: its shape and corners, its fill as transparent as its Transparency, its outline;
+// and under it its Shadow, which a PDF can't blur, so it's drawn in layers, each a little smaller and as faint: 3 pt
+// below and right, 4 pt soft at its edge, 40% black at its heart, as PowerPoint's is, at the sheet's size (`at`, the
+// page's scale, as the scene drawn sets it).
+let at = 1;
+function body(shape, w, h, s) {
+  const d = Scene.path(shape, w, h, s.Corner), clear = Math.min(100, Math.max(0, s.Transparency ?? 0)), off = 3 * PT * Math.SQRT1_2 / at, soft = 4 * PT / at;
+  const shade = s.Shadow !== 'soft' ? '' : g(off, off, [1, 2 / 3, 1 / 3, 0].map(k => `<path d="${d}" fill="#000000" fill-opacity="0.1"`
+    + (k ? ` stroke="#000000" stroke-opacity="0.1" stroke-width="${n(soft * k)}" stroke-linejoin="round"` : '') + '/>').join(''));
+  return `${shade}<path d="${d}" fill="${none(s.Fill) ? 'none' : s.Fill}"${clear && !none(s.Fill) ? ` fill-opacity="${n(1 - clear / 100)}"` : ''} ${stroke(s)} stroke-linejoin="miter"/>`;
+}
+// Each line of the texts where the scene put it; an underline and a strikethrough as rules, which every reader draws
+// alike. In a PDF, a line its standard font sets wider than the scene sets it is condensed to the scene's width,
+// scaled across as jsPDF scales text, so no text ever leaves its box.
 function texts(items, pdf) {
   return items.map(it => {
     const t = it.look, size = t.Size * PT, anchor = ANCHOR[t.Align] ?? 'middle';
     const font = `font-family="${esc(pdf ? STANDARD(t.Font) : Scene.fontFamily(t.Font))}" font-size="${n(size)}" font-weight="${t.Bold ? 'bold' : 'normal'}" font-style="${t.Italic ? 'italic' : 'normal'}"`;
-    return it.lines.map(l => `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="${anchor}" ${font} fill="${t.Color}">${esc(l.text)}</text>`
-      + (t.Underline ? `<rect x="${n(l.x - l.w * { start: 0, middle: 0.5, end: 1 }[anchor])}" y="${n(l.y + size * 0.106)}" width="${n(l.w)}" height="${n(size * 0.073)}" fill="${t.Color}"/>` : '')).join('');
+    const rule = (l, y, h) => `<rect x="${n(l.x - l.w * { start: 0, middle: 0.5, end: 1 }[anchor])}" y="${n(y)}" width="${n(l.w)}" height="${n(h)}" fill="${t.Color}"/>`;
+    return it.lines.map(l => {
+      const wide = pdf ? standardWidth(t, l.text, size) : 0, k = l.w > 0 && wide > l.w + 0.01 ? l.w / wide : 1;
+      return `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="${anchor}" ${font} fill="${t.Color}"${k < 1 ? ` transform="matrix(${+k.toFixed(4)} 0 0 1 ${n(l.x * (1 - k))} 0)"` : ''}>${esc(l.text)}</text>`
+        + (t.Underline ? rule(l, l.y + size * 0.106, size * 0.073) : '') + (t.Strike ? rule(l, l.y - size * 0.3, size * 0.073) : '');
+    }).join('');
   }).join('');
 }
 // A route, in its runs where another line breaks it, with an arrowhead at an end as the canvas draws one (X6's
@@ -132,6 +157,7 @@ const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid:
 // middle of a larger sheet, as a deck's slides hold a smaller one.
 function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
   const { w, h } = scene.page, k = fit(scene.page), fw = frame.w / k, fh = frame.h / k, x = (w - fw) / 2, y = (h - fh) / 2;
+  at = scene.page.scale ?? 1;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(fw)}" height="${n(fh)}" viewBox="${n(x)} ${n(y)} ${n(fw)} ${n(fh)}">`
     + `<rect x="${n(x)}" y="${n(y)}" width="${n(fw)}" height="${n(fh)}" fill="#ffffff"/>${reading(scene.marks).map(m => markSvg(m, pdf)).join('')}</svg>`;
 }
@@ -256,17 +282,23 @@ function typed(it) {
 function txBody(items, k, anchor, inset) {
   const ps = items.flatMap(it => {
     const t = it.look, sz = Math.max(100, Math.round(t.Size * k * 100)), font = esc(t.Font);
-    const rPr = `<a:rPr lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''} dirty="0">`
+    const rPr = `<a:rPr lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0">`
       + `<a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
     const hang = it.hang ? ` marL="${E(it.hang * k / 96)}" indent="${-E(it.hang * k / 96)}"` : '';
-    return typed(it).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${hang}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * k * 100)}"/></a:lnSpc></a:pPr>`
+    return typed(it).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${hang}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc></a:pPr>`
       + ls.map(l => `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`) + `<a:endParaRPr lang="en-US" sz="${sz}" dirty="0"/></a:p>`);
   });
   const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(inset)}"`).join('');
   return `<p:txBody><a:bodyPr${ps.length ? ' wrap="none"' : ''}${margins} rtlCol="0" anchor="${anchor}"/><a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
 }
 const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
-const paint = c => none(c) ? '<a:noFill/>' : `<a:solidFill><a:srgbClr val="${hex(c)}"/></a:solidFill>`;
+// A color, as transparent as `clear` (0–100) says.
+const paint = (c, clear = 0) => none(c) ? '<a:noFill/>'
+  : `<a:solidFill><a:srgbClr val="${hex(c)}"${clear > 0 ? `><a:alpha val="${Math.round((100 - Math.min(100, clear)) * 1000)}"/></a:srgbClr>` : '/>'}</a:solidFill>`;
+// PowerPoint's soft outer shadow (its preset Offset: Bottom Right): 3 pt below and right, 4 pt blur, black at 40%.
+const SHADOW = '<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="2700000" algn="tl" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw></a:effectLst>';
+// The anchor of a box's text, by its Valign.
+const VALIGN = { top: 't', middle: 'ctr', bottom: 'b' };
 // An outline at its weight on the slide (k times its page's), and its arrowheads.
 const ln = (s, k, heads = '') => none(s.Outline) ? '<a:ln><a:noFill/></a:ln>'
   : `<a:ln w="${Math.round(s.Weight * k * 12700)}" cap="${s.Dash === 'dotted' ? 'rnd' : 'flat'}">${paint(s.Outline)}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/><a:miter lim="800000"/>${heads}</a:ln>`;
@@ -277,8 +309,10 @@ const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnL
 // (inches within r); a text box (`box`), or the slide's title placeholder (`title`); holding `body`.
 function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = {}) {
   const nv = title ? '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr>' : `<p:cNvSpPr${box ? ' txBox="1"' : ''}/><p:nvPr/>`;
-  const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}"><a:avLst/></a:prstGeom>`;
-  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill)}${'Outline' in s ? ln(s, k) : ''}</p:spPr>${body}</p:sp>`;
+  // A rounded rectangle's corners, PowerPoint's adjustment of it: their radius in thousandths of its shorter side.
+  const adj = geometry === 'rounded' ? `<a:gd name="adj" fmla="val ${Math.round(Math.min(50, Math.max(0, s.Corner ?? Scene.CORNER)) * 1000)}"/>` : '';
+  const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}">${adj ? `<a:avLst>${adj}</a:avLst>` : '<a:avLst/>'}</a:prstGeom>`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${s.Shadow === 'soft' ? SHADOW : ''}</p:spPr>${body}</p:sp>`;
 }
 
 // Lines said as one, as the chart says them: those landing on a frame along one route, the first drawn standing
@@ -353,7 +387,7 @@ function slide(p, scene, { k, ox, oy }, say) {
   const fellows = together(scene), done = new Set();
   for (const m of reading(scene.marks)) {
     const s = look(m);
-    if (m.type === 'box') ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : 'ctr', inset: CHART }));
+    if (m.type === 'box') ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART }));
     else if (m.type === 'line') {
       // Lines said as one are one group, named for them all and described so, each line in it named for its own
       // relation; a line alone is named for its relation. Each is described with what its label says.
@@ -395,7 +429,7 @@ function slide(p, scene, { k, ox, oy }, say) {
     else if (m.geometry !== 'group') {
       const text = m.geometry === 'text' || m.geometry === 'frame';
       shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.texts[0]?.text ?? 'Shape',
-        { items: m.texts, anchor: text ? 't' : 'ctr', box: m.geometry === 'text', title: m.role === 'title' });
+        { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title' });
     }
   }
   return xml => xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·(\d+)·">[\s\S]*?<\/p:sp>/g, (_, id, j) => parts[j](+id));

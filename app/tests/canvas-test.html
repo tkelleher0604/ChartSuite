@@ -126,68 +126,114 @@ async function run() {
   Shell.at(null); await tick(200);
   check('… and as of today', whole());
 
-  // ---- The scope: the selection, as in PowerPoint; its menu, the groups of the styles that reach it, as the
-  // Key says them, under each style's name, by their reach ----
-  const chip = () => txt($('[data-fb="scope"]'));
+  // ---- The scope, in two parts: the selection, as in PowerPoint, and all like it, the narrowest group that
+  // reaches it; its ▾ offers every group that does: the Styles rows, as the Key says them, under each style's
+  // name, then the selection's own groups, its kind and its options and tags, each by its reach ----
+  const ownPart = () => txt($('[data-fb="own"]')), like = () => txt($('[data-fb="like"]'));
+  const chip = () => txt($('[data-fb="scope"] [aria-pressed="true"]'));
+  const dulled = () => $$('.dc .x6-cell.dc-dull').map(e => e.getAttribute('data-cell-id'));
   Shell.select(['northpine']); await tick(120);
-  check('one box selected, a format goes to “This box”', chip() === 'This box', chip());
+  check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^All .+ \(\d+\)$/.test(like()), `${ownPart()} | ${like()}`);
+  check('… and nothing on the chart is dulled', !dulled().length, dulled().join());
   Shell.select(['northpine', 'halvard', 'fund']); await tick(120);
   check('three, to “These 3 boxes”', chip() === 'These 3 boxes', chip());
   const line = sc().marks.find(m => m.type === 'line' && !m.computed);
   Shell.select([line.id]); await tick(120);
   check('a line, to “This line”', chip() === 'This line', chip());
   Shell.select(['northpine']); await tick(120);
-  $('[data-fb="scope"]').click(); await tick(120);
+  $('[data-fb="groups"]').click(); await tick(120);
   const items = menuItems(), heads = $$('.float .menu-head').map(txt), menu = $$('.float .menu-head, .float .menu-item').map(txt);
-  check('its menu offers the selection, then each group that reaches it, as the Key says it, with its reach', items[0] === 'This box' && items.slice(1).every(t => /^\S.* \(\d+\)$/.test(t) && !t.startsWith('All '))
+  const seps = $$('.float .menu-sep, .float .menu-head, .float .menu-item').map(e => e.classList.contains('menu-sep') ? '-' : txt(e));
+  check('its ▾ offers the selection, then each group that reaches it, with its reach', items[0] === 'This box' && items.slice(1).every(t => /^\S.* \(\d+\)$/.test(t) && !t.startsWith('All '))
     && items.includes('Portfolio companies (4)'), menu.join(' | '));
   const pcHead = menu.slice(0, menu.indexOf('Portfolio companies (4)')).filter(t => heads.includes(t)).at(-1);
-  const seps = $$('.float .menu-sep, .float .menu-head, .float .menu-item').map(e => e.classList.contains('menu-sep') ? '-' : txt(e));
-  check('… each under its style’s name, and a style that is its one group (Names) is that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
+  check('… the Styles rows each under its style’s name, and a style that is its one group (Names) that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
     && items.includes('Names (24)') && !heads.includes('Name') && menu.indexOf('Names (24)') > menu.indexOf(heads.at(-1))
     && seps.slice(0, seps.indexOf('Names (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
-  // Exactly the Styles rows that reach the box, by Styles' captions: none for an output no style formats; and as
-  // Styles lists them (Scene.groupsOf's order), under their styles' names, then those under none after them all.
+  // The Styles rows that reach the box, by Styles' captions, as Styles lists them (Scene.groupsOf's order), under
+  // their styles' names, then those under none; then apart, the box's own groups, its kind first.
   const reaching = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), 'northpine', App.state.peek())
-    .some(r => r.style === g.style && g.outputs.some(p => Tree.narrower(r.output, p)))), rowsReaching = reaching.map(g => g.caption);
+    .some(r => r.style === g.style && g.outputs.some(p => Tree.narrower(r.output, p))));
   const listedSo = reaching.flatMap((g, i) => [...(g.name && g.style !== reaching[i - 1]?.style ? ['#' + g.name] : []), ...(!g.name && reaching[i - 1]?.name ? ['-'] : []), g.caption]);
-  const menuSays = seps.slice(seps.indexOf('This box') + 2).map(t => heads.includes(t) ? '#' + t : t.replace(/ \(\d+\)$/, ''));
-  check('… in the order Styles lists them, each style’s under its name, and those under none after them all', JSON.stringify(menuSays) === JSON.stringify(listedSo)
+  const ownAt = seps.findIndex((t, i) => t === '-' && i > seps.indexOf('This box') + 1 && /^Entity \(\d+\)$/.test(seps[i + 1] ?? ''));
+  const menuSays = seps.slice(seps.indexOf('This box') + 2, ownAt).map(t => heads.includes(t) ? '#' + t : t.replace(/ \(\d+\)$/, ''));
+  check('… in the order Styles lists them, each style’s under its name, and those under none after them all', ownAt > 0 && JSON.stringify(menuSays) === JSON.stringify(listedSo)
     && listedSo.indexOf('Names') > listedSo.indexOf('Portfolio companies'), `${menuSays.join(' | ')} vs ${listedSo.join(' | ')}`);
-  check('… and its groups are exactly the Styles rows that reach the selection, called as Styles calls them', JSON.stringify(items.slice(1).map(t => t.replace(/ \(\d+\)$/, '')).sort()) === JSON.stringify(rowsReaching.sort())
-    && !items.some(t => /^(Entity|Good Standing|Delaware) \(/.test(t)), `${items.join(' | ')} vs ${rowsReaching.join(' | ')}`);
-  await closeMenus();
+  // Its own groups: every box of its kind, and of each of its options and tags, by the boxes drawn that have it.
+  const rs = App.state.peek(), drawnBoxes = sc().marks.filter(m => m.type === 'box'), entryOf = (b, edge) => Object.keys(rs).find(id => rs[id].at === b.record && rs[id].edge === edge);
+  const reachOf = (edge, out) => drawnBoxes.filter(b => { const e = entryOf(b, edge); return e && Object.entries(out).every(([k, v]) => rs[e][k] === v); }).length;
+  const entities = drawnBoxes.filter(b => rs[b.record].kind === 'Entity').length, delaware = reachOf('Jurisdiction', { choice: 'Delaware' });
+  const ownGroups = seps.slice(ownAt + 1).filter(t => t !== '-' && !t.startsWith('Clear '));
+  // (One a Styles row already is alone, its Vehicle Type, is offered once, as that row: Portfolio companies.)
+  check('… then the box’s own groups: its kind, then its options by their entries’ names, then its tags, each by the boxes drawn that have it, but those Styles rows already are',
+    ownGroups[0] === `Entity (${entities})` && ownGroups.includes(`Jurisdiction: Delaware (${delaware})`) && !ownGroups.some(t => t.startsWith('Vehicle Type: Portfolio Company'))
+    && ownGroups.findIndex(t => /^[^:]+ \(\d+\)$/.test(t) && t !== ownGroups[0]) > ownGroups.findLastIndex(t => t.includes(': ')) && !ownGroups.some(t => /^Portfolio companies/.test(t)), ownGroups.join(' | '));
+  // Pointing at one cues it: what it reaches lit, the rest dulled; leaving it, the cue is the scope's again.
+  const delawareItem = $$('.float .menu-item').find(e => txt(e).startsWith('Jurisdiction: Delaware'));
+  delawareItem?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(100);
+  const cued = new Set(drawnBoxes.filter(b => { const e = entryOf(b, 'Jurisdiction'); return e && rs[e].choice === 'Delaware'; }).map(b => b.id)), dull = dulled();
+  check('… and pointing at a group cues it on the chart, every box it reaches lit and every other mark dulled, its title too',
+    [...cued].every(id => !dull.includes(id) && $(`.dc-marks .dc-cue`)) && drawnBoxes.filter(b => !cued.has(b.id)).every(b => dull.includes(b.id))
+    && dull.includes(sc().marks.find(m => m.role === 'title')?.id) && $$('.dc-marks path.dc-cue').length === cued.size, `${dull.length} dulled, ${$$('.dc-marks path.dc-cue').length} lit`);
+  await closeMenus(); await tick(80);
+  check('… and the cue goes once the menu does, the selection being the scope', !dulled().length && !$$('.dc-marks .dc-cue').length, dulled().join());
   // The groups are the Key's: a style's outputs that look alike are one group, Funds, its reach every box of them.
   Shell.select(['fund']); await tick(120);
-  $('[data-fb="scope"]').click(); await tick(120);
+  $('[data-fb="groups"]').click(); await tick(120);
   const fundItems = menuItems(), funds = sc().legend.find(r => r.caption === 'Funds');
   const fundReach = sc().marks.filter(m => m.type === 'box' && Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), m.id, App.state.peek())
     .some(r => funds?.outputs.some(p => Tree.key(p) === Tree.key(r.output)))).length;
   check('a box of a group the Key shows as one row is offered that group, by the Key’s caption', !!funds && fundItems.includes(`Funds (${fundReach})`) && fundReach > 2, fundItems.join(' | '));
   await closeMenus();
   Shell.select(['northpine']); await tick(120);
+  check('all like it names the narrowest Styles row that reaches the selection and more', like() === 'All Portfolio companies (4)', like());
   const pcs = sc().marks.filter(m => m.type === 'box' && App.state.peek()[m.record]?.kind === 'Entity' && JSON.stringify(m.settings.Fill.note?.pattern ?? {}).includes('Portfolio Company')).map(m => m.id);
   const fills = () => Object.fromEntries(pcs.map(id => [id, App.scene.peek().byId.get(id).settings.Fill.value]));
   const was = fills();
   FormatBar.apply('Fill', '#fff2cc'); await tick(120);
   const now = fills();
   check('a fill with one box selected fills that box alone', now.northpine === '#fff2cc' && pcs.filter(id => id !== 'northpine').every(id => now[id] === was[id]) && pcs.length === 4, JSON.stringify(now));
-  $('[data-fb="scope"]').click(); await tick(120);
-  $$('.float .menu-item').find(e => txt(e).startsWith('Portfolio companies'))?.click(); await tick(120);
-  check('choosing a group names it on the chip', chip() === 'Portfolio companies (4)', chip());
+  $('[data-fb="like"]').click(); await tick(120);
+  check('choosing all like it presses it, and cues the group: the other boxes dulled', chip() === 'All Portfolio companies (4)' && pcs.every(id => !dulled().includes(id)) && dulled().includes('fund'), `${chip()}; ${dulled().length} dulled`);
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
   const kept = txt($$('.toast').at(-1)), np = App.notes.peek().nameOf(App.state.peek(), 'northpine'), groupSaid = Time.describe(App.wb.changes().at(-1));
   check('… which says at once, by the group, that the one keeps its own', kept.startsWith(`Changed Fill for Portfolio companies; ${np} keeps its own`), kept);
   check('… and History names the change by the group, as the Key does', groupSaid === `Changed Fill for Portfolio companies in ${main.name}`, groupSaid);
-  $('[data-fb="scope"]').click(); await tick(120);
+  check('… and the group stays chosen after the change', chip() === 'All Portfolio companies (4)', chip());
+  $('[data-fb="groups"]').click(); await tick(120);
   const clearIt = $$('.float .menu-item').find(e => txt(e).startsWith('Clear '));
-  check('… and the scope’s menu offers to clear what the one keeps', txt(clearIt) === `Clear ${np}’s own Fill`, menuItems().join(' | '));
+  check('… and its ▾ offers to clear what the one keeps', txt(clearIt) === `Clear ${np}’s own Fill`, menuItems().join(' | '));
   clearIt?.click(); await tick(120);
   check('… which gives it the group’s fill', fills().northpine === '#e2f0d9' && txt($$('.toast').at(-1)).startsWith(`Cleared ${np}’s own Fill`), `${fills().northpine} ${txt($$('.toast').at(-1))}`);
   await closeMenus();
+  // Ctrl+Shift+A goes from one part to the other.
+  const ctrlShiftA = () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'A', code: 'KeyA', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  ctrlShiftA(); await tick(100);
+  const toOwn = chip();
+  ctrlShiftA(); await tick(100);
+  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All Portfolio companies (4)' && !!dulled().length, `${toOwn}, then ${chip()}`);
   Shell.select(['halvard']); await tick(120);
-  check('another selection is formatted as itself again', chip() === 'This box', chip());
+  check('another selection is formatted as itself again, and nothing is dulled', chip() === 'This box' && !dulled().length, chip());
+  // A group of a box's own, chosen from the ▾ and given a fill, becomes a Styles row, keyed: every Cayman box green.
+  const feeder = drawnBoxes.find(b => { const e = entryOf(b, 'Jurisdiction'); return e && rs[e].choice === 'Cayman Islands'; });
+  Shell.select([feeder.id]); await tick(120);
+  $('[data-fb="groups"]').click(); await tick(120);
+  const cayman = $$('.float .menu-item').find(e => txt(e).startsWith('Jurisdiction: Cayman Islands'));
+  const caymans = reachOf('Jurisdiction', { choice: 'Cayman Islands' });
+  check('a box’s option is offered as a group of its own', !!cayman && txt(cayman) === `Jurisdiction: Cayman Islands (${caymans})`, menuItems().join(' | '));
+  cayman?.click(); await tick(120);
+  FormatBar.apply('Fill', '#92d050'); await tick(150);
+  const greens = App.scene.peek().marks.filter(m => m.type === 'box' && m.settings.Fill.value === '#92d050').length, keyed = App.scene.peek().legend.find(r => r.swatch.Fill === '#92d050');
+  check('… and a fill for it fills every box of it, and keys it, as Styles does', caymans > 1 && greens === caymans && keyed?.caption === 'Cayman Islands' && chip() === `All Cayman Islands (${caymans})`,
+    `${greens} of ${caymans} green; key ${keyed?.caption}; ${chip()}`);
+  // Bold for a group of an option lands on its boxes, not on the option's own text, written in them or not.
+  FormatBar.apply('Bold', true); await tick(150);
+  const caymanBoxes = App.scene.peek().marks.filter(m => m.type === 'box' && m.settings.Fill.value === '#92d050');
+  check('… and Bold for it bolds every text of its boxes, the jurisdiction they write too', caymanBoxes.length === caymans && caymanBoxes.every(b => b.texts.length > 1 && b.texts.every(it => it.look.Bold)),
+    caymanBoxes.map(b => b.texts.map(it => `${it.text}:${it.look.Bold}`).join(',')).join(' / '));
+  Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
+  Shell.select(['halvard']); await tick(120);
 
   // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
   const changes = App.wb.changes().length, fillOf = id => sc().byId.get(id).settings.Fill.value;
@@ -261,12 +307,12 @@ async function run() {
   // ---- At 1024 the chip gives way, and the zoom stays in the window ----
   await size(1024, 768);
   Shell.select(['gp']); await tick(120);
-  $('[data-fb="scope"]').click(); await tick(120);
-  $$('.float .menu-item').find(e => txt(e).startsWith('Limited liability company'))?.click(); await tick(120);
-  const zr = $('[data-fb="zoom"]').getBoundingClientRect(), shell = $('.shell').getBoundingClientRect(), span = $('[data-fb="scope"] > span');
+  $('[data-fb="groups"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e).startsWith('Investment Company Status'))?.click(); await tick(120);
+  const zr = $('[data-fb="zoom"]').getBoundingClientRect(), shell = $('.shell').getBoundingClientRect(), span = $('[data-fb="like"] > span');
   check('at 1024 the zoom stays in the window', zr.right <= shell.right + 0.5 && zr.width > 0, `${zr.right} of ${shell.right}`);
-  $('[data-fb="scope"]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
-  check('a scope cut short is named whole on hover', span.scrollWidth <= span.clientWidth || $('[data-fb="scope"]').dataset.tip === txt(span), `${span.scrollWidth} ${span.clientWidth} ${$('[data-fb="scope"]').dataset.tip}`);
+  $('[data-fb="like"]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+  check('a group’s name cut short is named whole on hover', !!span && (span.scrollWidth <= span.clientWidth || $('[data-fb="like"]').dataset.tip === txt(span)), `${span?.scrollWidth} ${span?.clientWidth} ${$('[data-fb="like"]')?.dataset.tip}`);
   $('[data-fb="arrange"]').click(); await tick(120);
   $$('.float .menu-item').find(e => txt(e) === 'Tidy')?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); await tick(150);
   const tidyShown = sc() !== App.scene.peek();
