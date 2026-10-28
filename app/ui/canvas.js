@@ -1412,6 +1412,8 @@ function mount(el) {
       ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []),
       // History, as the title menu's opens it with these selected: of them.
       ...(bound.length ? [{ label: 'History', run: () => Time.open('all') }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
+      // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
+      ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
       { label: bound.length ? 'Delete…' : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]

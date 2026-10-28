@@ -420,6 +420,177 @@ async function run() {
     check('Undone, the columns and the rows are as they were', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && !titlesOf().includes('Process Agent') && !named('Harbor Point Holdings, LLC'), titlesOf().join());
   }
 
+  // ---- A heading moved beside, into, out of and across the columns kept in view: it shows where it's dropped, and
+  // nothing goes under them unseen. A column shown, or moved, comes whole into view, lit ----
+  {
+    const titlesOf = () => Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean), holder = () => Table.grid.rowManager.element;
+    const pins = () => $$('.grid .tabulator-header .tabulator-col.pin').map(e => e.querySelector('.t').textContent);
+    const edge = () => holder().getBoundingClientRect().left + 48 + $$('.grid .tabulator-header .tabulator-col.pin').reduce((s, e) => s + e.offsetWidth, 0);
+    // Where a column is drawn, as the rows are scrolled (the headings follow them a frame later): one kept in view where
+    // it's kept.
+    const leftOf = title => { const e = column(title).getElement(); return e.classList.contains('pin') ? e.getBoundingClientRect().left : holder().getBoundingClientRect().left - holder().scrollLeft + e.offsetLeft; };
+    const rightOf = title => leftOf(title) + column(title).getElement().offsetWidth;
+    // Whole in view: kept in view, or between those kept in view and the grid's right edge.
+    const seen = title => { const e = column(title)?.getElement();
+      return !!e && (e.classList.contains('pin') || (leftOf(title) >= edge() - 1 && rightOf(title) <= holder().getBoundingClientRect().left + holder().clientWidth + 1)); };
+    const scrollTo = async x => { holder().scrollLeft = x; holder().dispatchEvent(new Event('scroll')); await tick(120); };
+    // Lit since the last act: a heading given its light, however soon the light's gone.
+    const litLog = new Set(), litWatch = new MutationObserver(ms => { for (const m of ms) if (m.target.classList?.contains('come') && m.target.classList.contains('tabulator-col')) litLog.add(m.target.querySelector('.t')?.textContent); });
+    litWatch.observe($('.grid'), { attributes: true, attributeFilter: ['class'], subtree: true });
+    const lit = title => litLog.has(title), act = () => litLog.clear();
+    const pointer = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 9 }));
+    // A heading dragged by its name and dropped at x, as a hand drags it.
+    const drag = async (title, x) => {
+      act();
+      const el = column(title).getElement(), b = el.getBoundingClientRect(), y = b.top + 10;
+      pointer('pointerdown', el.querySelector('.tabulator-col-title'), b.left + 20, y);
+      pointer('pointermove', window, b.left + 40, y); pointer('pointermove', window, x, y); pointer('pointerup', window, x, y);
+      await tick(250);
+    };
+    // Scrolled across to the edge of the nth column the grid scrolls, as the wheel stops it.
+    const across = async n => { const cs = Table.grid.getColumns().filter(c => c.getField() && !c.getElement().classList.contains('pin')); await scrollTo(cs[n].getElement().offsetLeft - (edge() - holder().getBoundingClientRect().left)); };
+    const menuOf = async title => { column(title).getElement().querySelector('.col-menu').click(); await tick(); };
+    const nA = N();
+
+    // Beside the first column, kept in view, unscrolled: there, and the grid where it was (it snapped back to the
+    // column it had stopped at, so the one dropped went under the names).
+    await scrollTo(0);
+    await drag('Jurisdiction', edge() + 2);
+    check('A heading dropped beside the column kept in view is there, in view, lit, the grid where it was scrolled',
+      titlesOf()[1] === 'Jurisdiction' && holder().scrollLeft === 0 && seen('Jurisdiction') && lit('Jurisdiction') && N() === nA + 1, `${titlesOf().slice(0, 3).join()} at ${holder().scrollLeft}; seen ${seen('Jurisdiction')}, lit ${lit('Jurisdiction')}`);
+    act(); undo(); await tick(250);
+    check('… and Undo puts it back where it was, brought into view, lit', titlesOf().indexOf('Jurisdiction') === 4 && seen('Jurisdiction') && lit('Jurisdiction'), `${titlesOf().slice(0, 6).join()}; seen ${seen('Jurisdiction')}`);
+    // Scrolled across, beside them: there too, the columns scrolled under them staying so.
+    await across(3);
+    const left0 = holder().scrollLeft, mover = titlesOf().find((t, i) => i > 5 && seen(t) && t !== 'Name');
+    await drag(mover, edge() + 2);
+    check('… and scrolled across, dropped beside them it shows beside them, the grid still scrolled where it was', seen(mover) && Math.abs(holder().scrollLeft - left0) <= 1
+      && Math.abs(leftOf(mover) - edge()) <= 1, `${mover} at ${Math.round(leftOf(mover))} of ${Math.round(edge())}, scrolled ${holder().scrollLeft} of ${left0}`);
+    undo(); await tick(250);
+    // Where it can drop, scrolled across: never before a column the grid has scrolled under those kept in view.
+    await across(3);
+    {
+      const el = column('Formation Date').getElement(), y = el.getBoundingClientRect().top + 10, fx = leftOf('Formation Date'), under = { left: leftOf('Entity Type'), right: rightOf('Entity Type') };
+      pointer('pointerdown', el.querySelector('.tabulator-col-title'), fx + 20, y); pointer('pointermove', window, fx - 20, y); pointer('pointermove', window, under.left + 2, y);
+      const bar = $('.grid .col-drop'), cells = $('.grid > .cells').getBoundingClientRect(), at = parseFloat(bar?.style.left) + cells.left + 1;
+      const allowed = [leftOf('Name'), edge()];
+      check('… a drop, scrolled across, is offered only where it’s drawn: before what’s kept in view, or at their edge, never before a column scrolled under them',
+        under.right <= edge() + 1 && !!bar && allowed.some(x => Math.abs(x - at) <= 1), `bar at ${at}, allowed ${allowed.map(Math.round).join()}; under ${Math.round(under.left)}–${Math.round(under.right)}`);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
+      check('… and Esc leaves it', !$('.col-ghost') && !$('.grid .col-drop') && N() === nA + 4 && titlesOf().indexOf('Formation Date') === 5, titlesOf().slice(0, 7).join());
+    }
+    // Into them: dropped before the names, it's kept in view in their place, and the names, pushed out, are shown.
+    await across(3);
+    await drag('Jurisdiction', holder().getBoundingClientRect().left + 50);
+    check('Dropped before the column kept in view, it’s kept in view in its place, and the one pushed out of it is brought into view',
+      titlesOf()[0] === 'Jurisdiction' && pins().join() === 'Jurisdiction' && seen('Name') && lit('Name') && lit('Jurisdiction'), `${titlesOf().slice(0, 3).join()}; kept ${pins().join()}; Name seen ${seen('Name')}`);
+    // Out of them: dragged out, it's where it's dropped, in view, and the next is kept in view in its place.
+    await drag('Jurisdiction', leftOf('Vehicle Type') + 2);
+    check('Dragged out of them, it’s where it’s dropped, in view, the column after it kept in view in its place',
+      titlesOf().slice(0, 4).join() === 'Name,Short Name,Jurisdiction,Vehicle Type' && pins().join() === 'Name' && seen('Jurisdiction') && lit('Jurisdiction'), `${titlesOf().slice(0, 4).join()}; kept ${pins().join()}`);
+    undo(); await tick(200); undo(); await tick(250);
+    // Across two kept in view: one dropped between them is kept, the second pushed out and shown; dragged out again, it's
+    // where it's dropped and the second kept again.
+    column('Short Name').getElement().querySelector('.col-menu').click(); await tick(); item('Freeze up to here').click(); await tick(300);
+    await across(1);
+    const between = leftOf('Short Name') + 2;
+    await drag('Entity Type', between);
+    check('Dropped between two kept in view, it’s kept in view, and the one pushed out of them is brought into view, lit',
+      pins().join() === 'Name,Entity Type' && titlesOf()[2] === 'Short Name' && seen('Short Name') && lit('Short Name'), `kept ${pins().join()}; ${titlesOf().slice(0, 4).join()}; Short Name seen ${seen('Short Name')}`);
+    await drag('Entity Type', rightOf('Jurisdiction') - 2);
+    check('… and dragged out again, it’s where it’s dropped, in view, the one after it kept in view again',
+      pins().join() === 'Name,Short Name' && seen('Entity Type') && titlesOf().indexOf('Entity Type') === titlesOf().indexOf('Jurisdiction') + 1, `kept ${pins().join()}; ${titlesOf().slice(0, 6).join()}`);
+    undo(); await tick(200); undo(); await tick(250);
+    column('Name').getElement().querySelector('.col-menu').click(); await tick(); item('Freeze up to here').click(); await tick(300);
+    check('… and back: one kept in view, the columns as they were', pins().join() === 'Name' && titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && N() === nA + 12,
+      `${pins().join()}; ${titlesOf().slice(0, 6).join()}; ${N() - nA}`);
+    // What's selected under them is never outlined over them.
+    await scrollTo(0);
+    Table.grid.addRange(rowOf(fund).getCell(column('Short Name')), rowOf(halvard).getCell(column('Short Name'))); await tick(80);
+    await across(2);
+    const overlay = $('.grid .tabulator-range-overlay'), clip = getComputedStyle(overlay).clipPath, inset = parseFloat(/inset\([^)]*?(-?[\d.]+)px\)/.exec(clip)?.[1] ?? 'NaN');
+    check('Scrolled across, what’s selected under the columns kept in view isn’t outlined over them', Math.abs(inset - (holder().scrollLeft + edge() - holder().getBoundingClientRect().left)) <= 1, `${clip} at ${holder().scrollLeft}`);
+    Shell.select([]); await scrollTo(0);
+
+    // Shown, a column comes whole into view, lit, headed by its own name where no other column reads alike.
+    const tool = label => $$('.tbar .btn').find(b => b.textContent === label);
+    const showing = async label => { act(); tool('Columns').click(); await tick(); $$('.cols .colrow.mv').find(r => r.textContent.trim() === label).querySelector('input').click(); await tick(300); Shell.closeAll(); await tick(); };
+    const heads = () => Table.grid.getColumns().filter(c => c.getField()).map(c => { const e = c.getElement(); return [e.querySelector('.up')?.textContent, e.querySelector('.t').textContent].filter(Boolean).join(' › '); });
+    const sheetHeads = async () => { const w = await Table.workbook(), s = w.Sheets[w.SheetNames[0]]; return Table.grid.getColumns().filter(c => c.getField()).map((_, j) => s[XLSX.utils.encode_cell({ r: 0, c: j })]?.v); };
+    // With the columns placed (a heading moved), one shown goes after them all, far to the right, as Sam's did.
+    await drag('Formation Date', edge() + 2); await scrollTo(0);
+    await showing('Jurisdiction › Registered Agent');
+    const ra = column('Registered Agent'), raHead = ra?.getElement();
+    check('A column shown, though it goes far to the right, is scrolled whole into view, and lit', !!ra && titlesOf().at(-1) === 'Registered Agent' && seen('Registered Agent') && lit('Registered Agent') && holder().scrollLeft > 0,
+      `${titlesOf().slice(-2).join()}; seen ${seen('Registered Agent')}, lit ${lit('Registered Agent')}, at ${holder().scrollLeft}`);
+    const xs = await sheetHeads();
+    check('… headed by its own name, in the grid and in Excel, where no other column reads alike', !raHead.querySelector('.up') && raHead.querySelector('.t').textContent === 'Registered Agent'
+      && xs.at(-1) === 'Registered Agent' && ra.getDefinition().titleDownload === 'Registered Agent', `${heads().at(-1)} / ${xs.at(-1)} / ${ra.getDefinition().titleDownload}`);
+    await showing('Jurisdiction › File Number'); await showing('Regulation D Offering › File Number');
+    const fileHeads = heads().filter(h => /File Number$/.test(h)), fileSheet = (await sheetHeads()).filter(h => /File Number$/.test(h ?? ''));
+    check('Two that would read alike are headed by as much of their path as tells them apart, in the grid and in Excel',
+      fileHeads.sort().join() === 'Jurisdiction › File Number,Regulation D Offering › File Number' && fileSheet.sort().join() === fileHeads.join(), `${fileHeads.join()} / ${fileSheet.join()}`);
+    tool('Sort').click(); await tick();
+    const sortsBy = $$('.float .menu-item').map(x => x.textContent.trim());
+    Shell.closeAll(); await tick();
+    check('… and so in the menus that list the columns shown', sortsBy.includes('Registered Agent') && sortsBy.includes('Jurisdiction › File Number') && !sortsBy.includes('Jurisdiction › Registered Agent'), sortsBy.slice(-4).join());
+    for (let i = 0; i < 4; i++) { undo(); await tick(200); }
+    check('… and hidden again, gone, the columns as they were', !column('Registered Agent') && !column('File Number') && N() === nA + 20
+      && titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date', `${titlesOf().slice(0, 6).join()} … ${titlesOf().slice(-3).join()}; ${N() - nA}`);
+
+    // Imported, a name finds its row as people write it, but for case, spaces and punctuation.
+    const n1 = N();
+    Table.paste('Name\tEIN\nCalder Ridge Capital Partners III L.P.\t92-4810999\n', { file: 'entities.csv' }); await previewed();
+    check('An imported name finds its row as people write it: "…III L.P." is "…III, L.P.", a value changed, no row added', !$$('.grid .tabulator-row.red-add').length
+      && $$('.grid .tabulator-cell .add').some(x => x.textContent === '92-4810999') && /^1 value$/.test($('.pendbar .what')?.textContent ?? '') && N() === n1, $('.pendbar .what')?.textContent);
+    press('Escape'); await tick(150);
+    // One close to a name the chart has asks whether it's that one.
+    Table.paste('Name\tEIN\nCalder Ridge Capital Partners 3, L.P.\t92-4810999\n', { file: 'entities.csv' }); await previewed();
+    const askedIt = $('.pendbar .what .named');
+    check('… and a new one close to a name the chart has asks: "new Entity …, or" that one?', !!askedIt && /^new Entity Calder Ridge Capital Partners 3, L\.P\., or Calder Ridge Capital Partners III, L\.P\.\?$/.test(askedIt.textContent.trim())
+      && $$('.grid .tabulator-row.red-add').length === 1, askedIt?.textContent);
+    askedIt.querySelector('.or .lk').click(); await previewed(); await tick(100);
+    check('… one click takes the one the chart has: its row, no row added, still pending', !$('.pendbar .what .named') && !$$('.grid .tabulator-row.red-add').length && App.pending.peek()?.verb === 'Import'
+      && $$('.grid .tabulator-cell .add').some(x => x.textContent === '92-4810999') && N() === n1, $('.pendbar .what')?.textContent);
+    press('Escape'); await tick(150);
+
+    // Find with a filter on: the record found stays selected though the filter leaves it out, and the bar says so.
+    await menuOf('Entity Type'); item('Filter…').click(); await tick(80);
+    const fRow = label => $$('.tfilter .tf-row').find(r => r.querySelector('.v').textContent === label);
+    fRow('Select all').querySelector('input').click(); await tick(60); fRow('Limited Liability Company').querySelector('input').click(); await tick(60);
+    Shell.closeAll(); await tick(100);
+    Table.grid.addRange(Table.grid.getRows('active')[2].getCells()[1]); await tick(80);
+    const was = Shell.selection.peek().join();
+    // As Find does: the record selected, then the view given the keys.
+    Shell.select([fund]); await tick(40); Table.focus(); await tick(150);
+    const sr = Table.grid.modules.selectRange;
+    check('Found with a filter on that leaves it out, a record stays selected: the grid’s own cell never takes its place', Shell.selection.peek().join() === fund && was !== fund && !sr.activeRange,
+      `${Shell.selection.peek().join()} (was ${was}); active ${!!sr.activeRange}`);
+    check('… and the bar says it’s filtered out, with Clear filters', /^Fund III is filtered out·Clear filters$/.test($('.tbar .tout')?.textContent ?? '') && !!$('.tbar .tout .lk'), $('.tbar .tout')?.textContent);
+    press('ArrowDown', holder()); await tick(120);
+    check('… a key that moves makes a cell active, selecting nothing', !!sr.activeRange && Shell.selection.peek().join() === fund, Shell.selection.peek().join());
+    press('Enter', holder()); await tick(120);
+    const second = Table.grid.getRows('active')[1].getData().id;
+    check('… the next selects its row', Shell.selection.peek().join() === second, `${Shell.selection.peek().join()} / ${second}`);
+    Shell.select([fund]); await tick(80);
+    $('.tbar .tout .lk').click(); await tick(250);
+    check('… Clear filters shows it, selected, its row the keys’', !Table.look(ent).filters && Shell.selection.peek().join() === fund && sr.getActiveCell()?.row.getData().id === fund && !$('.tbar .tout'),
+      `${JSON.stringify(Table.look(ent).filters)} ${Shell.selection.peek().join()} ${sr.getActiveCell()?.row.getData().id}`);
+    // Selected elsewhere, a record the grid shows is brought into view as its row, the keys there.
+    Shell.select([halvard]); await tick(120);
+    check('Selected elsewhere, a record the grid shows has its row made the keys’', sr.getActiveCell()?.row.getData().id === halvard && Shell.selection.peek().join() === halvard, sr.getActiveCell()?.row.getData().id);
+    // A click on a cell selects its row alone: never, on the way, the rows from the first to it (Tabulator first makes
+    // the first cell a range, then moves its start, then its end).
+    Shell.select([fund]); await tick(80);
+    const sizes = [], offSel = Shell.on('select', s => sizes.push(s.length)), target = rowOf(halvard).getCell(column('Vehicle Type')).getElement();
+    target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 })); await tick(120);
+    offSel();
+    check('A cell clicked selects its row alone, and nothing else on the way', Shell.selection.peek().join() === halvard && sizes.every(n => n <= 1), `${Shell.selection.peek().join()} via ${sizes.join()}`);
+    Shell.select([]); await tick(60);
+    litWatch.disconnect();
+  }
+
   // The tabs: renamed, moved, duplicated and deleted, each one change.
   const tabs = Shell.parts.peek().views;
   n0 = N();
@@ -588,6 +759,48 @@ async function run() {
   press('Escape'); await tick(150);
   check('Esc leaves it unmade',!$('.pendbar') && N() === n0 && !$$('.grid .tabulator-cell .add').length && pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.716);
 
+  // ---- An import names its sides as people write them: the closing's investors (Sam's CSV) ----
+  {
+    const fundName = 'Calder Ridge Capital Partners III, L.P.', newRows = () => $$('.grid .tabulator-row.red-add').map(r => r.querySelector('[tabulator-field="f:@owned"]')?.textContent.trim());
+    n0 = N();
+    Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\nMeridian Family Office LLC\tcalder ridge capital partners iii lp\t2%\n', { file: 'closing-investors.csv' }); await previewed();
+    const said = $('.pendbar .what')?.textContent ?? '';
+    check('Imported, "…III L.P." and "…iii lp" are "…III, L.P.": no second fund, its two new owners, each a choice in the bar', !/new Entity Calder Ridge/i.test(said)
+      && newRows().length === 2 && newRows().every(n => n === fundName) && $$('.pendbar .what .named > .add.dd').map(b => b.textContent).join() === 'new Entity Harborview Pension Fund,new Entity Meridian Family Office LLC'
+      && N() === n0, `${said} / ${newRows().join(' | ')}`);
+    // A row clicked that only the import has selects nothing: never the rows above it.
+    Table.grid.addRange(Table.grid.getRows('active')[0].getCells()[1]); await tick(80);
+    const sizes = [], offSel = Shell.on('select', s => sizes.push(s.length)), pending = $('.grid .tabulator-row.red-add .tabulator-cell[tabulator-field="f:@owned"]');
+    pending.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 })); await tick(120);
+    offSel();
+    check('A row only the import has, clicked, selects nothing, and never on the way the rows above it', !Shell.selection.peek().length && sizes.every(n => n <= 1), `${Shell.selection.peek().length} selected, via ${sizes.join()}`);
+    // Its new names: chosen from the bar, one the chart has instead, the closest first.
+    $$('.pendbar .what .named > .add.dd')[0].click(); await tick(80);
+    const offered = $$('.float .menu-item').map(x => x.textContent.trim());
+    const f = $('.float .menu-find'); f.textContent = 'Northstar'; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);
+    press('Enter', $('.float .menu')); await previewed(); await tick(100);
+    const owners = () => $$('.grid .tabulator-row.red-add').map(r => r.querySelector('[tabulator-field="f:@owner"]')?.textContent.trim());
+    check('… a new name in the bar is a choice of the records it could be, the new one last; one chosen, the import is pending as it then is', offered.at(-1) === 'New Entity Harborview Pension Fund'
+      && owners().includes('Northstar Teachers’ Retirement System') && !owners().includes('Harborview Pension Fund') && $$('.pendbar .what .named').length === 1 && App.pending.peek()?.verb === 'Import' && N() === n0,
+      `${offered.slice(0, 3).join(' | ')} … ${offered.at(-1)} / ${owners().join(' | ')}`);
+    press('Escape'); await tick(150);
+    // Close to a name the chart has, a new one asks if it's that: one click takes it, from the day said in the bar.
+    Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners 3 L.P.\t4.5%\n', { file: 'closing-investors.csv' }); await previewed();
+    const q = $$('.pendbar .what .named').find(x => /Partners 3/.test(x.textContent));
+    check('… and one close to a name the chart has asks: "new Entity …, or" that one?', /^new Entity Calder Ridge Capital Partners 3 L\.P\., or Calder Ridge Capital Partners III, L\.P\.\?$/.test(q?.textContent.trim() ?? '')
+      && newRows().join() === 'Calder Ridge Capital Partners 3 L.P.', q?.textContent);
+    $('.pendbar .from .sel').click(); await tick(); item('All along').click(); await tick(60);
+    q.querySelector('.or .lk').click(); await previewed(); await tick(100);
+    check('… one click takes it, the day said still said', newRows().join() === fundName && !$$('.pendbar .what .named').some(x => /Partners 3/.test(x.textContent)) && $('.pendbar .from')?.textContent.trim() === 'All along'
+      && App.pending.peek()?.day === null && N() === n0, `${newRows().join()} / ${$('.pendbar .what')?.textContent} / ${$('.pendbar .from')?.textContent}`);
+    press('Enter', Table.grid.rowManager.element); await tick(200);
+    check('… and made, the fund has its new owner, and no fund was added', N() === n0 + 1 && pct('Harborview Pension Fund', fundName, '2023-12-31') === 0.045 && !named('Calder Ridge Capital Partners 3 L.P.'),
+      `${N() - n0} ${pct('Harborview Pension Fund', fundName, '2023-12-31')}`);
+    undo(); await tick(150);
+    Shell.select([]); await tick();
+  }
+
   // ---- A check: a tag a Check note covers says only where it fails, and a failure needs attention ----
   // The sample's Check notes are area F's; where they aren't yet, they're stood in for here.
   if (!App.notes.peek().notes('Check').length) App.change(tx => ['def_in_range', 'def_adds_up', 'def_capacity_held'].forEach(id => {
@@ -639,10 +852,10 @@ async function run() {
   item('Delete row').click(); await previewed();
   const untilIn = () => $('.pendbar .from input');
   check('… and chosen, redlines it with the bar, asking until when: the day shown, to type over', N() === n0 && rowOf(doomed).getElement().classList.contains('red-go')
-    && $('.pendbar .from .sel')?.textContent === 'Until' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
+    && $('.pendbar .from .sel')?.textContent === 'Ends on' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
   press('Enter', Table.grid.rowManager.element); await tick(150);
   check('… Enter ends it that day, as one change, said so, the redline gone: it\'s gone today, and was there before', N() === n0 + 1 && !(doomed in st()) && !!App.wb.asOf(C(), '2025-12-31')[doomed]
-    && /^Deleted Ownership: .* from /.test($('.toast span')?.textContent ?? '') && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek() && !$('.pendbar'), $('.toast span')?.textContent);
+    && /^Ended Ownership: .* on /.test($('.toast span')?.textContent ?? '') && !$$('.grid .tabulator-row.red-go').length && !FormulaBar.pending.peek() && !$('.pendbar'), $('.toast span')?.textContent);
   undo(); await tick(150);
   // The Delete key deletes the rows selected whole, by their numbers, after the redline: Enter deletes, Esc doesn't.
   const whole = id => { Table.grid.addRange(rowOf(id).getCells()[1], rowOf(id).getCells().at(-1)); }, gridKeys = Table.grid.rowManager.element;
@@ -659,7 +872,7 @@ async function run() {
   $('.pendbar .from .sel').click(); await tick();
   const untilMenu = $$('.float .menu-item').map(x => x.textContent.trim()).join();
   item('Never held').click(); await tick(60);
-  check('… or Never held, from its menu', untilMenu === 'Until,Never held' && $('.pendbar .from')?.textContent.trim() === 'Never held' && !untilIn(), untilMenu);
+  check('… or Never held, from its menu', untilMenu === 'Ends on,Never held' && $('.pendbar .from')?.textContent.trim() === 'Never held' && !untilIn(), untilMenu);
   press('Enter', gridKeys); await tick(150);
   check('… and Enter deletes it as if it never held, as one change', N() === n0 + 1 && !(doomed in st()) && !App.wb.asOf(C(), '2025-12-31')[doomed] && !$('.pendbar') && /^Deleted Ownership: .* as never held$/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   undo(); await tick(150);
@@ -1079,7 +1292,7 @@ async function run() {
   check('A line or a box hidden in a view is said as the chart’s Delete says it, a line by the place rule as the formula bar says it, and several counted', hidings === `Hid Ownership: ${place} in Structure / Hid Northpine Software, LLC in Structure / Hid 2 lines in Structure`, hidings);
   // A line's own look is said as that line's, not its style's.
   const weighed = { ...stamp, id: 'xw', removes: [], adds: [{ id: 'xw0', note: 'xwn', label: 'Weight', pattern: owns[0], view: 'view_main', value: 2 }] };
-  check('A line formatted alone is said as that line, not its style', Time.describe(weighed) === `Changed Weight of Ownership: ${place} in Structure`, Time.describe(weighed));
+  check('A line formatted alone is said as that line, not its style, with what it’s given', Time.describe(weighed) === `Set the outline weight of Ownership: ${place} to 2 pt in Structure`, Time.describe(weighed));
   App.change(tx => tx.note('Fill', boxOf, '#fff2cc', { view: 'view_main' }), { dated: false });
   App.change(tx => tx.note('Fill', boxOf, undefined, { view: 'view_main' }), { dated: false });
   const cleared = Time.describe(last());

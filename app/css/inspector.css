@@ -245,6 +245,12 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr.adding > .form > :is(.cell, .side) { color: var(--accent-ink); }
 .rr.going > .nm, .rr.going > .val { color: var(--no); text-decoration: line-through; }
 .rr > .when { grid-column: 2 / -1; padding-bottom: 4px; }
+/* A relation ticked or unticked here, pending: confirmed under its row, its day, Discard and its verb (App.Asking). */
+.rr > .ask { grid-column: 2 / -1; padding: 2px 0 10px; }
+.rr:has(> .ask):hover { background-image: none; }
+/* A record being deleted or transferred: asked atop its panel, as in the bar. */
+.insp > .asking { padding: 12px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); }
+.addrow .k.wide:has(> .add-entry + .add-entry) { display: flex; gap: 12px; }
 
 
 /* An error where a value would be: what it needs, quietly, or its code in red. */

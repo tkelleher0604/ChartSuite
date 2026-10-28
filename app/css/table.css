@@ -67,6 +67,10 @@
    grid scrolls across, as a frozen pane (sticky, as Tabulator freezes the row numbers; each where those before it end,
    table.js), over the selection's outline, so they draw their own; the last of them ruled darker, as Excel's pane. */
 .grid .tabulator .tabulator-header .tabulator-col.pin, .grid .tabulator-row .tabulator-cell.pin { position: sticky; left: 48px; z-index: 11; }
+/* Tabulator draws the selection's outline at their level: they're lifted over it, as the row numbers are, and it's drawn
+   only where the grid scrolls, clear of them, as far as it's scrolled across (table.js). */
+.grid .tabulator-row .tabulator-cell:is(.pin, .tabulator-frozen) { z-index: 12; }
+.grid .tabulator .tabulator-tableholder .tabulator-range-overlay { clip-path: inset(-100000px -100000px -100000px calc(var(--across, 0px) + var(--pinned, 48px))); }
 .grid .tabulator .tabulator-header .tabulator-col.pin-last, .grid .tabulator-row .tabulator-cell.pin-last { border-right: 1px solid var(--rule-2); }
 .grid .tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left, .grid .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left { border-right-color: var(--rule); }
 .grid .tabulator-row .tabulator-cell.pin { background: var(--surface); }
@@ -76,8 +80,9 @@
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A name longer than half the grid goes on to another line rather than be cut (table.js). */
 .grid .tabulator-row .tabulator-cell.lead { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
-/* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does. */
-.grid .tabulator .tabulator-tableholder { scroll-snap-type: x mandatory; }
+/* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does; swiped on past its
+   edge, it stays, rather than the window going back a view. */
+.grid .tabulator .tabulator-tableholder { scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
 .grid .tabulator-row .tabulator-cell:not(.pin, .tabulator-row-header) { scroll-snap-align: start; scroll-margin-left: var(--pinned, 48px); }
 .grid .tabulator-row .tabulator-cell.fx { font-style: italic; }
 .grid .tabulator-row .tabulator-cell.due { color: var(--no); }
@@ -100,9 +105,24 @@
 .grid .tabulator-row.red-go .tabulator-cell { color: var(--no); }
 .grid .tabulator-row.red-go .tabulator-cell:not(.rn, .c-tag) { text-decoration: line-through; }
 .grid .tabulator-row .tabulator-cell .del + .add { margin-left: 2px; }
-/* What a change just made lights for a moment. */
+/* What a change just made lights for a moment: its cells; and a column come into the grid or moved in it, heading and
+   all, held a moment longer, as the eye goes to it. */
 .grid .tabulator-row .tabulator-cell.lit { animation: lit 1.6s var(--ease); }
 @keyframes lit { from { background-color: var(--selected); } }
+.grid .tabulator-row .tabulator-cell.come, .grid .tabulator .tabulator-header .tabulator-col.come { animation: come 2.2s var(--ease); }
+@keyframes come { 0%, 35% { background-color: var(--selected); } }
+
+/* A paste's or an import's new names, in the bar: each a choice of a record the chart has instead, and one close to a
+   name the chart has asking "or" it. */
+.pendbar .what .named > .add.dd { display: inline-flex; align-items: baseline; gap: 4px; margin: 0 -2px; padding: 0 2px; border: 0; border-radius: var(--r);
+  background: none; font: inherit; color: var(--accent-ink); text-align: left; cursor: default; }
+.pendbar .what .named > .add.dd::after { align-self: center; }
+.pendbar .what .named > .add.dd:hover, .pendbar .what .named > .add.dd[aria-expanded="true"] { background: var(--hover); }
+.pendbar .what .named > .or { color: var(--ink-2); }
+/* A link in words (that one, or Clear filters), as the bar's day after the day shown is. */
+:is(.pendbar .what .named > .or, .tbar > .tout) > .lk { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-color: var(--rule-2); cursor: default; }
+:is(.pendbar .what .named > .or, .tbar > .tout) > .lk:hover { text-decoration-color: currentColor; }
 
 /* Headings a paste brought that nothing matched: each beside the column it is. */
 .match { display: grid; gap: 8px; }
@@ -132,6 +152,11 @@
 .tbar > .btn:hover { color: var(--ink); }
 .tbar > .btn.on { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent-ink); font-weight: 500; }
 .tbar > .tcount { margin-left: auto; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The record selected a row the filters leave out: said, with Clear filters, before the count. */
+.tbar > .tout { display: flex; align-items: center; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--ink-2); white-space: nowrap; }
+.tbar > .tout > b { min-width: 0; margin-right: .3em; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink); }
+.tbar > .tout > .sep { margin: 0 8px; color: var(--ink-3); }
+.tbar > .tout + .tcount { margin-left: 16px; }
 
 /* ---- The new row, under the last (or at the grid's foot, where the rows run on past it) ---- */
 .grid.adds > .cells { padding-bottom: var(--row); }
