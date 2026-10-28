@@ -42,15 +42,13 @@ const nameOf = id => App.notes.peek().nameOf(App.state.peek(), id);
 const lowered = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
 const viewName = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
 
-// The kinds a box can be added as here: the chart's, less those the view keeps off its page (a Shown note at the
-// kind itself: Documents; a filter hides no kind, as what's made here is shown here), the most drawn first; in a
+// The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first; in a
 // chart with none yet, an Entity.
 function kinds(scene = App.scene.peek()) {
   const st = App.state.peek(), N = App.notes.peek(), count = new Map();
   for (const m of scene?.marks ?? []) if (m.type === 'box') { const k = st[m.record]?.kind; if (k) count.set(k, (count.get(k) ?? 0) + 1); }
   const all = new Set([...count.keys(), ...Object.values(App.schema.peek()).filter(s => !s.args && s.kind && !Tree.isView(s)).map(s => s.kind)]);
-  const off = k => { const r = N.resolve('Shown', { kind: k }, scene.view); return r?.value === false && Tree.same(r.note.pattern.kind ?? '', k) && !r.note.pattern.args; };
-  const ks = [...all].filter(k => count.has(k) || !scene || !off(k))
+  const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
     .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
   return ks.length ? ks : ['Entity'];
 }
