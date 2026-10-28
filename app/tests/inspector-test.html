@@ -970,8 +970,10 @@ async function run() {
   check('Paid… records the payment at the tax year, entering the year as it stood', payment?.value === '2026-10-26' && last().adds.length === 2 && year?.tag === true
     && JSON.stringify(year.args) === JSON.stringify(App.wb.asOf(C, '2026-10-26')[year.record]?.args) && N().segmentOf(st(), year.record) === 'AIV-1, tax year 2025', JSON.stringify(last().adds));
   check('… so that year is due no more, and the next still is', !dueAt(taxYear('AIV-1', 2025)) && st()[nextYear]?.value === '2027-06-01', dueAt(taxYear('AIV-1', 2025)));
-  check('… and History says it at the year, and so does its toast', Time.describe(last()) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026'
-    && document.querySelector('.toast')?.textContent.startsWith(Time.describe(last())), Time.describe(last()));
+  // (Its toast in the payment's words, Formulas.pay's: whose tax, for which year, on what day.)
+  const paidSaid = Formulas.pay ? 'Paid AIV-1’s annual tax for 2025 on Oct 26, 2026' : Time.describe(last());
+  check('… and History says it at the year, and its toast as a payment', Time.describe(last()) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026'
+    && document.querySelector('.toast')?.textContent.startsWith(paidSaid), `${Time.describe(last())} / ${document.querySelector('.toast')?.textContent}`);
   check('… the selection staying on the year, now entered, at the payment’s row', Shell.selection.peek()[0] === year?.record && document.activeElement?.closest('[data-key]')?.dataset.key === payment?.record,
     `${Shell.selection.peek()} ${document.activeElement?.outerHTML.slice(0, 120)}`);
   // As the sample's are, a payment is recorded from the day it was made, the year with it: as of a day
@@ -1153,16 +1155,25 @@ async function run() {
   Shell.closeAll(); await tick();
 
   // ---- What settles a deadline is beside it, always, wherever it's found ----
-  Shell.select(['blocker']); await tick(60);
-  const ftd = rowOf('Franchise Tax Due'), paidBtn = ftd?.querySelector('.filed'), dateBox = ftd?.querySelector('.cell');
-  check('a due date’s Paid… is shown beside it, after it, never over it, not only on hover', !!paidBtn && getComputedStyle(paidBtn).opacity === '1' && getComputedStyle(paidBtn).position === 'static'
-    && (paidBtn.getBoundingClientRect().left >= dateBox.getBoundingClientRect().right - 1 || paidBtn.getBoundingClientRect().top >= dateBox.getBoundingClientRect().bottom - 1), paidBtn?.outerHTML);
-  const ftdId = Tree.entryAt(st(), Tree.entryAt(st(), 'blocker', 'Jurisdiction'), 'Franchise Tax Due');
-  check('… the Dates table’s right-click has it, as Inspector.settling gives it', Inspector.settling(ftdId)?.label === 'Paid…' && Inspector.settling('fund_ein') === null);
-  const settles = await finds('mark paid');
-  check('… and Find, for the record selected', settles.some(x => /^Paid… Franchise Tax Due, Mar 1, 2027$/.test(x)), settles.join(' | '));
+  // (The Fund III Blocker's tax: a due date a formula gives, of the blocker or of a relation of its, that a payment settles.)
+  const ofBlocker = k => Tree.objectOf(st(), k) === 'blocker' || (st()[st()[k].at]?.args ?? []).some(a => Tree.objectOf(st(), a.at) === 'blocker');
+  const ftdId = Object.keys(st()).find(k => App.computed.peek().computed[k] && st()[k].field === 'date' && ofBlocker(k) && Inspector.settling(k)?.label === 'Paid…');
   Shell.select([ftdId]); await tick(60);
-  check('… and its own panel, as the Dates table selects it', !!$(`[data-key="${ftdId}"] .filed`));
+  const ftd = $(`[data-key="${ftdId}"]`), paidBtn = ftd?.querySelector('.filed'), dateBox = ftd?.querySelector('.cell');
+  check('a due date’s Paid… is shown beside it, after it, never over it, not only on hover, in its own panel, as the Dates table selects it', !!paidBtn && getComputedStyle(paidBtn).opacity === '1'
+    && getComputedStyle(paidBtn).position === 'static' && (paidBtn.getBoundingClientRect().left >= dateBox.getBoundingClientRect().right - 1 || paidBtn.getBoundingClientRect().top >= dateBox.getBoundingClientRect().bottom - 1), paidBtn?.outerHTML);
+  check('… the Dates table’s right-click has it, as Inspector.settling gives it', Inspector.settling(ftdId)?.label === 'Paid…' && Inspector.settling('fund_ein') === null);
+  // Paid… writes a payment of its own, where the chart has the payment model (Formulas.pay): the ones before kept.
+  const paidBefore = Object.values(App.entered.peek()).filter(r => r.edge === 'Annual Tax Paid').length, nPay = App.wb.changes().length;
+  paidBtn?.click(); await tick(80);
+  key(document.querySelector('.filing input'), 'Enter'); await tick(120);
+  const paidAfter = Object.values(App.entered.peek()).filter(r => r.edge === 'Annual Tax Paid').length;
+  if (Formulas.pay) check('… and paying it records a payment of its own, the ones before kept, saying whose tax and which year', App.wb.changes().length === nPay + 1 && paidAfter === paidBefore + 1
+    && /^Paid Fund III Blocker’s .* for \d{4} on /.test(document.querySelector('.toast span')?.textContent ?? ''), `${paidBefore} → ${paidAfter} ${document.querySelector('.toast span')?.textContent}`);
+  Shell.parts.value.undo.undo(); await tick(60);
+  Shell.select(['blocker']); await tick(60);
+  const settles = await finds('mark paid');
+  check('… and Find, for the record selected, its own deadlines and its relations’', settles.some(x => x.startsWith('Paid… ') && x.includes(Tree.formatDate(st()[ftdId].value, 'short'))), settles.join(' | '));
 
   // ---- A view says what it leaves out of a box it draws, by list, with Show; it never changes itself ----
   const mainV = Shell.view.peek();

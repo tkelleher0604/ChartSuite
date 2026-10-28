@@ -826,7 +826,7 @@ function Relatives({ id }) {
       <div class=${'k' + (d.role || d.facts.length || d.doc ? '' : ' wide')}><${Go} to=${it.obj} cls=${f ? 'fx' : ''} title=${nameOf(it.obj)}>${bound(shortOf(it.obj))}</${Go}></div>
       <div class="v">${d.role || d.facts.length ? html`<${Go} to=${it.rid} cls=${f ? 'fx' : ''} tip=${d.tip}>${d.role ?? facts(d.facts, true)}</${Go}>` : null}
         ${d.doc ? html`<a class="btn icon open" href=${d.doc.href} target="_blank" rel="noopener" aria-label=${`Open ${d.doc.name}`} data-tip=${d.doc.name}>${OPEN}</a>` : null}
-        ${entriesAt(it.rid).filter(dueOf).map(e => html`<${Filed} key=${e} id=${e} />`)}</div>
+        ${entriesAt(it.rid).filter(e => fx(e) && recs()[e].field === 'date').map(e => html`<span class="due-at" data-key=${e}><${Filed} id=${e} /></span>`)}</div>
       ${d.role && d.facts.length ? html`<div class="facts">${facts(d.facts)}</div>` : null}
       ${out ? html`<div class="facts here">Not shown here${App.readOnly.value ? null : html` · <button class="lk" onClick=${() => showHere(out, v)}>Show</button>`}</div>` : null}</div>`; };
   // A document by its name, its first choice and date beneath, and a way to open it.
@@ -1524,12 +1524,15 @@ Shell.register('action', { id: 'record.hide', get name() { return theOne() && !d
   enabled: () => !App.readOnly.peek() && !!theOne() && viewShown()?.layout === 'chart' && !!(recs()[theOne()].kind || recs()[theOne()].args),
   run: () => { const id = theOne(), v = viewShown(); if (drawnHere()) App.change(tx => tx.note('Shown', tree(id), false, { view: v.id }), { say: ch => Time.describe(ch) }); else showHere([id], v); },
   why: () => viewShown()?.layout !== 'chart' ? 'Show a chart first' : notNow('Only a box or a line is hidden', 'a box or a line')() });
-// Settling a deadline of the record selected, or the deadline selected, as its Paid… or Filed… does, by the words for it.
+// Settling a deadline of the record selected, or the deadline selected, as its Paid… or Filed… does, by the words for it:
+// the record's own, and those of its relations (its tax years).
 Shell.register('find', { items: () => {
   const id = theOne();
   if (!id || App.readOnly.peek()) return [];
-  const dates = recs()[id].field === 'date' ? [id] : within(objectOf(id)).filter(x => recs()[x].field === 'date' && fx(x));
-  return dates.map(x => [x, settling(x)]).filter(([, s]) => s).map(([x, s]) => ({ label: `${s.label} ${recs()[x].edge}, ${short(recs()[x].value)}`, detail: 'Action',
+  const own = within(objectOf(id)), at = [...own, ...own.flatMap(x => relationsAt(x)).flatMap(within)];
+  const dates = recs()[id].field === 'date' ? [id] : [...new Set(at)].filter(x => recs()[x]?.field === 'date' && fx(x));
+  const whose = x => recs()[recs()[x].at]?.args ? ` · ${segment(recs()[x].at)}` : '';
+  return dates.map(x => [x, settling(x)]).filter(([, s]) => s).map(([x, s]) => ({ label: `${s.label} ${recs()[x].edge}, ${short(recs()[x].value)}${whose(x)}`, detail: 'Action',
     names: ['Mark paid', 'Paid', 'Pay', 'Mark filed', 'Filed', 'File', 'Renewed', 'Renew', 'Affirmed', 'Settle'], run: s.run }));
 } });
 // Add to each of the selected record's lists, by the word for one of it ("Add owner"), as its + does: Find opens its search.

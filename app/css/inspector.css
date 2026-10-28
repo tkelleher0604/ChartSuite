@@ -143,7 +143,8 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
    too narrow for both, on the line under it. */
 .btn.ver.filed { position: static; flex: none; margin: 0 0 0 8px; border-color: var(--edge); opacity: 1; }
 .cellbox:has(> .btn.ver.filed) { flex-wrap: wrap; }
-.row.rel > .v > .btn.ver.filed { align-self: center; margin: 0 -6px 0 4px; }
+.row.rel > .v > .due-at { align-self: center; display: flex; }
+.row.rel > .v > .due-at > .btn.ver.filed { margin: 0 -6px 0 4px; }
 .btn.ver:hover { color: var(--ink); }
 .filing { display: grid; gap: 8px; width: 220px; }
 .filing > .field { display: grid; gap: 4px; font: var(--t12); color: var(--ink-2); }
