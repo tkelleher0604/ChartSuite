@@ -203,6 +203,10 @@ function run(json) {
       && !w.asOf(C, '2025-01-01').own_okfr_mgmt_pct && !w.deleted(C).some(d => d.item === 'own_okfr_mgmt'));
     const id = commit(w, tx => tx.add('record', { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'fund' }], tag: true }, 'own_halcyon'), { day: '2023-09-01' });
     check('a record added with a day shown starts on it', id && !w.asOf(C, '2023-08-31').own_halcyon && w.asOf(C, '2023-09-01').own_halcyon);
+    commit(w, tx => tx.add('record', { at: 'own_halcyon', edge: 'Percentage', field: 'percent', value: 0.05 }, 'own_halcyon_pct'));
+    const ended = commit(w, tx => tx.remove('own_halcyon'), { day: '2023-09-01' });
+    check('… and removed on that same day, it goes whole, with an entry typed at it since, which never outlasts it', typeof ended === 'string' ? false : ended
+      && !w.item(C, 'own_halcyon').some(r => Log.validOn(r, '2023-09-01') || Log.validOn(r, '2023-08-31')) && !w.asOf(C, '2026-01-01').own_halcyon_pct, String(ended));
   }
 
   // ---- Reversing, which Undo, Redo and Restore do ----

@@ -174,7 +174,7 @@ const App = (() => {
       { label: words[0], checked: !always, run: () => { if (always) { setText(null); set(Shell.time.peek()?.asOf ?? Log.today()); } } },
       { label: words[1], checked: always, run: () => set(null) }]);
     return html`<span class="from"><button ref=${button} type="button" class="sel dd" aria-haspopup="menu" aria-label=${word} onClick=${pick}><span>${word}</span></button>
-      ${always ? null : html`<span class="hug"><input ref=${input} class="cell date" value=${text ?? Tree.formatDate(day, 'short')} aria-label=${words[0]} spellcheck=${false} autocomplete="off"
+      ${always ? null : html`<span class="hug"><input ref=${input} class="cell date" value=${text ?? (day ? Tree.formatDate(day, 'short') : '')} aria-label=${words[0]} spellcheck=${false} autocomplete="off"
         aria-invalid=${day === undefined ? 'true' : null} onInput=${e => { setText(e.target.value); set(Tree.parseDate(Tree.clean(e.target.value)) ?? undefined); }} /></span>`}</span>`;
   }
 

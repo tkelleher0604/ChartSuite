@@ -277,12 +277,19 @@ function open(data) {
         const rs = items.get(id);
         if (!rs) return;
         if (!('record' in rs[0])) return rs.slice().forEach(drop);
-        const gone = Tree.dependents(rawOf(items), [id]);
+        const raw = rawOf(items), gone = Tree.dependents(raw, [id]);
         // A removed object's notes, and a removed view's notes and shapes, are its dependents.
         if (!day) for (const r of all()) if (('note' in r || 'shape' in r) && (gone.has(r.view) || [...Tree.idsIn(r.pattern ?? {})].some(x => gone.has(x)))) drop(r);
-        for (const x of gone) for (const r of (items.get(x) ?? []).slice()) {
-          if (!day || (r.since && r.since >= day)) drop(r);
-          else if (!r.before || r.before > day) swap(r, { ...r, before: day });
+        // From the top down: a record whose location goes whole (it began on the day) goes with it, never outlasting
+        // what it's at; any other ends on the day.
+        const order = [], seen = new Set(), visit = x => { if (seen.has(x)) return; seen.add(x); for (const a of raw[x] ? Tree.argsOf(raw[x]) : []) if (gone.has(a.at)) visit(a.at); order.push(x); };
+        gone.forEach(visit);
+        for (const x of order) {
+          const under = raw[x] && Tree.argsOf(raw[x]).some(a => gone.has(a.at) && !items.has(a.at));
+          for (const r of (items.get(x) ?? []).slice()) {
+            if (!day || under || (r.since && r.since >= day)) drop(r);
+            else if (!r.before || r.before > day) swap(r, { ...r, before: day });
+          }
         }
       },
       // A note at exactly this pattern (and view and param): set to `value`, or removed when it's undefined.
