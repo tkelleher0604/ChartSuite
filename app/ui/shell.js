@@ -61,7 +61,8 @@
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)
 // as shown; aside(component | null), in the inspector's place; layer(close) → remove, the Esc stack every layer
-// joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name);
+// joins; drag(e, { item, items, axis, onDrop, onClick }), reordering by drag; find(query); icon(name), a Lucide icon, and
+// iconMarkup(name), the same as HTML;
 // store.get/set, this browser's settings; widen() and narrow(), and gliding, a signal true while the inspector
 // glides in or out, so the view's slot has settled once it's false again; theme. A menu item is '-', { head }, or
 // { label, detail?, keys?, checked?, disabled?, danger?, run?, items?, point?, icon?, glyph?, font? }, an icon by Shell.icon's name or a
@@ -262,10 +263,11 @@ const Shell = (() => {
     painter: 'Paintbrush', eraser: 'Eraser', grow: 'AArrowUp', shrink: 'AArrowDown', copy: 'Copy', paste: 'ClipboardPaste', trash: 'Trash2',
     front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine',
   };
-  const icon = name => {
-    const node = typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
-    return html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${node?.[2].map(([tag, a]) => h(tag, a)) ?? null}</svg>`;
-  };
+  const lucideOf = name => typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
+  const icon = name => html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${lucideOf(name)?.[2].map(([tag, a]) => h(tag, a)) ?? null}</svg>`;
+  // The same as markup, for what's drawn as HTML (a table's headings).
+  const iconMarkup = name => `<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${(lucideOf(name)?.[2] ?? [])
+    .map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k, v]) => `${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
   // The mark, the page's one #mark symbol (index.html, from app/assets/mark-small.svg).
   const mark = html`<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#mark" /></svg>`;
 
@@ -826,7 +828,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, store, nameChart,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, iconMarkup, store, nameChart,
     widen, narrow, wide, gliding, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     aside: c => { aside.value = c; },
   };
