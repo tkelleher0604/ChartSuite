@@ -176,9 +176,9 @@ const App = (() => {
   // typed over as Paid… types its day, or "All along", from the menu its first word opens; or, `until` (true, or the
   // end entry that ends it), "Until" (or that entry) and the day, or "Never held". `day` is an ISO day, null (all
   // along, never held), or undefined while what's typed isn't a day; `set` takes the next. `auto` takes the focus, the
-  // day selected, as it's shown. Esc puts back what was typed, keeping the keys there, as a value's does. A day after
-  // the day shown, once it's left, is a link to the chart then, where the change is drawn, as the two-box panel's later
-  // relation is.
+  // day selected, as it's shown. Esc puts back what was typed, keeping the keys there, as a value's does; left, a day
+  // typed is set as a day. One after the day shown, once it's left, is a link to the chart then, where the change is
+  // drawn, as the two-box panel's later relation is.
   function From({ day, set, auto, until }) {
     const { useState, useRef, useLayoutEffect } = preactHooks;
     const [text, setText] = useState(null), [typing, setTyping] = useState(false), input = useRef(), button = useRef(), once = useRef(auto), was = useRef();
@@ -203,7 +203,7 @@ const App = (() => {
         spellcheck=${false} autocomplete="off" aria-invalid=${day === undefined ? 'true' : null} onFocus=${() => setTyping(true)} onBlur=${() => { setTyping(false); if (day) setText(null); }} onKeyDown=${key}
         onInput=${e => { if (text === null) was.current = day; setText(e.target.value); set(Tree.parseDate(Tree.clean(e.target.value)) ?? undefined); }} /></span>`}</span>`;
   }
-  // A day a change holds from or until, said where it isn't the day shown: a link to the chart then.
+  // A day a change holds from or until, said where it's after the day shown: a link to the chart then, where it's drawn.
   const dayLink = d => html`<button type="button" class="lk" onClick=${() => Shell.at(d === Log.today() ? null : { asOf: d })}>${Tree.formatDate(d, 'short')}</button>`;
 
   // ---- A change pending (dendra.md, Part 2: pending changes are redlined): shown before it's made, exactly as it
@@ -324,7 +324,7 @@ const App = (() => {
       <span class="what">${(p.parts ?? [html`<span class=${p.verb === 'Delete' ? 'del' : 'add'}>${p.what}</span>`]).map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
       ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${p.auto} until=${p.asks === 'until' && p.word}
           set=${d => { if (pending.peek()?.n === p.n) pending.value = { ...pending.peek(), day: d }; }} /></span>`
-        : p.from ? html`<span class="when">From ${p.from === day.value ? Tree.formatDate(p.from, 'short') : dayLink(p.from)}</span>` : null}
+        : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
       <button class="btn" onClick=${discard}>Discard</button>
       <button class="btn primary" disabled=${p.asks && p.day === undefined} onClick=${commit}>${p.verb}</button>
     </div>`;

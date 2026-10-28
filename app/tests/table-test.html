@@ -481,6 +481,11 @@ async function run() {
   gridKeys.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(100);
   check('Esc pressed to clear the selection clears it, the change still pending, in the window’s one bar under the view', !Shell.selection.peek().length && App.pending.peek()?.verb === 'Delete' && $$('.pendbar').length === 1 && !!$('.view > .pendbar'),
     `${Shell.selection.peek()} ${App.pending.peek()?.verb}`);
+  paste('Owner\tOwned\tPercentage\r\nSponsor Holdings\tFund III\t3%\r\n'); await previewed();
+  check('A paste with another change pending is pasted, taking its place, which says so, with Undo', App.pending.peek()?.verb === 'Paste' && /^Discarded deleting /.test($('.toast span')?.textContent ?? '')
+    && !!$$('.toast button').find(b => b.textContent === 'Undo'), $('.toast span')?.textContent);
+  $$('.toast button').find(b => b.textContent === 'Undo')?.click(); await previewed();
+  check('… its Undo bringing the deletion back', App.pending.peek()?.verb === 'Delete' && rowOf(doomed).getElement().classList.contains('red-go'), App.pending.peek()?.verb);
   $$('.pendbar .btn').find(b => b.textContent === 'Discard').click(); await tick(100);
   check('… till Discard drops it', !$('.pendbar') && !App.pending.peek() && doomed in st() && N() === n0 + 4);
 

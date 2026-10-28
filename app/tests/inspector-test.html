@@ -344,7 +344,8 @@ async function run() {
     `${pb()?.textContent} ${document.activeElement?.outerHTML.slice(0, 80)}`);
   key(rb, 'Enter'); await tick();
   check('New relation makes one, and names it, from the day its bar says', Object.entries(st()).some(([id, r]) => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc' && App.wb.item(C, id)[0].since === Log.today())
-    && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right' && !$('.rr.new input') && !pb() && App.wb.changes().length === nNew + 1);
+    && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right' && !$('.rr.new input') && !pb() && App.wb.changes().length === nNew + 1
+    && Time.describe(last()) === `Added Co-Investment Right: Fund III Blocker → The BDC from ${Tree.formatDate(Log.today(), 'short')}`, Time.describe(last()));
 
   // … or all along, for what was always so, from its menu: then it's in the chart as of 2023
   Shell.emit('relate-open', ['holdco', 'halvard']); await tick(60);

@@ -249,6 +249,11 @@ const Time = (() => {
     const moved = new Set([...made, ...gone].map(i => i.id));
     // A view made or deleted goes by the Name note that goes with it.
     const named = id => all.find(i => i.type === 'note' && rec(i).label === 'Name' && rec(i).pattern.id === id);
+    // A relation of a new name, added with its name and its sides' order (the two-box panel's New relation), is said
+    // by its adding alone: those notes are its naming.
+    const fresh = all.filter(i => i.type === 'record' && !i.was.length && rec(i).args).map(rec);
+    const naming = (i, n) => !i.was.length && (n.label === 'Name' || n.label === 'Order') && !n.view && n.pattern.args && !Tree.idsIn(n.pattern).size
+      && fresh.some(r => r.args.length === n.pattern.args.length && n.pattern.args.every(a => r.args.some(b => Tree.same(b.edge, a.edge))));
     const phrases = [];
     // Boxes and lines hidden in a view, as the chart's Delete says it: a box by its name, a line as its relation's,
     // several counted.
@@ -279,7 +284,7 @@ const Time = (() => {
         phrases.push(recordPhrase(i, r, recs, N, named(i.id), back));
       } else if (i.type === 'note') {
         const n = rec(i);
-        if (hid.includes(i) || [...Tree.idsIn(n.pattern)].some(id => moved.has(id)) || moved.has(n.view)) continue;
+        if (hid.includes(i) || [...Tree.idsIn(n.pattern)].some(id => moved.has(id)) || moved.has(n.view) || naming(i, n)) continue;
         phrases.push(notePhrase(i, n, recs, N));
       } else if (i.type === 'shape') {
         // A page's title that follows the chart's name is part of renaming it.

@@ -408,7 +408,9 @@ const Table = (() => {
     t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu(e, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
     t.on('renderComplete', regain);
+    // A grid built again before this one was, this one's building done is nothing: it would ready, and lay out, the next.
     t.on('tableBuilt', () => {
+      if (t !== table) return;
       ready = true;
       // The first column stays put beside the row numbers (table.css), so the keys scroll a cell clear of both.
       const sr = t.modules.selectRange, numbers = sr.getRowHeaderWidth.bind(sr);
@@ -683,9 +685,11 @@ const Table = (() => {
   // a relation's sides, and entries under headings the table hasn't got. A heading nothing matches is asked
   // about, never guessed by its place. Without a heading row, the cells fill the grid from the active cell.
   // Either way the paste is redlined in the grid, and Enter makes it, as one change.
+  // Pasted while another change is pending, it's pasted into the table as it is, and takes that one's place, which says
+  // so (App.stage); never dropped without a word.
   function paste(textIn) {
     const m = real, grid = tsv(textIn);
-    if (!m || m !== current || !grid.length || App.readOnly.peek()) return;
+    if (!m || !grid.length || App.readOnly.peek()) return;
     let head = headings(m, grid);
     if (head && m.isDatatype) { grid.shift(); head = null; }   // a datatype's rows have no names to match by
     if (!head) return stage(m, byPlace(m, grid));

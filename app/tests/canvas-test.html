@@ -337,9 +337,14 @@ async function run() {
   const second = Shell.selection.peek()[0];
   key('Tab', { shiftKey: true }); await tick(60);
   check('Tab selects the first box in reading order, then the next; Shift+Tab goes back', first === reading[0] && second === reading[1] && Shell.selection.peek()[0] === reading[0], `${first} ${second} ${Shell.selection.peek()[0]}`);
-  const x0 = sc().byId.get(first).x;
-  key('ArrowRight'); await tick(120);
-  check('an arrow key nudges the box selected', Math.abs(sc().byId.get(first).x - x0 - 1) <= 0.5, `${x0} → ${sc().byId.get(first).x}`);
+  const x0 = sc().byId.get(first).x, nx = App.wb.changes().length, cellX = () => cv().graph.getCellById(first)?.getPosition().x;
+  key('ArrowRight'); await tick(60);
+  const movedAtOnce = cellX() - x0;
+  key('ArrowRight'); await tick(60); key('ArrowRight', { shiftKey: true }); await tick(700);
+  check('an arrow key nudges the box selected at once, and nudges one after another are one change, as History lists it', Math.abs(movedAtOnce - 1) <= 0.5 && Math.abs(sc().byId.get(first).x - x0 - 12) <= 0.5
+    && App.wb.changes().length === nx + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${movedAtOnce} ${x0} → ${sc().byId.get(first).x}, ${App.wb.changes().length - nx} changes`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  check('… which one Undo takes back', Math.abs(sc().byId.get(first).x - x0) <= 0.5 && App.wb.changes().length === nx + 2, `${sc().byId.get(first).x}`);
   Shell.select([]); cv().root.focus();
   key('Tab', { shiftKey: true }); await tick(60);
   check('Shift+Tab from nothing selects the last box', Shell.selection.peek()[0] === reading.at(-1));

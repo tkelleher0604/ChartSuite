@@ -1223,6 +1223,33 @@ function mount(el) {
   // Ctrl+D copies in place, leaving the clipboard as it was.
   const duplicate = () => paste(marksNow());
   const nudge = (dx, dy) => moveTo(new Map(placeable().map(m => [m.id, { x: m.x + dx, y: m.y + dy, ...(m.points && { dx, dy }) }])));
+  // The arrow keys nudge: one after another, of one selection, they're one change, as History lists it. The marks move
+  // at once, as a drag moves them, and the change is made as the nudging stops: a moment after the last, or as anything
+  // else is done (another key, a click, another selection).
+  let run = null;
+  function nudging(dx, dy) {
+    const ms = placeable(), key = ms.map(m => m.id).join();
+    if (still() || !ms.length) return nudge(dx, dy);
+    if (run && run.key !== key) nudged();
+    run ??= { key, ms, dx: 0, dy: 0, timer: 0 };
+    run.dx += dx; run.dy += dy;
+    showHandles(null);
+    graph.batchUpdate(() => { for (const m of ms) graph.getCellById(m.id)?.translate(dx, dy); });
+    for (const m of ms) { const c = graph.getCellById(m.id); if (c?.isNode()) follow(c); else astray(m.id); }
+    clearTimeout(run.timer);
+    run.timer = setTimeout(nudged, 600);
+  }
+  function nudged() {
+    const r = run;
+    if (!r) return;
+    run = null;
+    clearTimeout(r.timer);
+    moveTo(new Map(r.ms.map(m => [m.id, { x: m.x + r.dx, y: m.y + r.dy, ...(m.points && { dx: r.dx, dy: r.dy }) }])));
+  }
+  const nudgeEnds = e => { if (run && !(e.type === 'keydown' && /^(Arrow|Shift)/.test(e.key))) nudged(); };
+  addEventListener('keydown', nudgeEnds, true);
+  addEventListener('pointerdown', nudgeEnds, true);
+  const stopNudge = Shell.on('select', () => nudged());
   function align(how) {
     const ms = placeable();
     if (!ms.length) return;
@@ -1364,8 +1391,8 @@ function mount(el) {
   const keyMap = {
     'Tab': () => next(1), 'Shift+Tab': () => next(-1),
     'Delete': () => remove(), 'Backspace': () => remove(), 'Shift+Delete': () => remove(true), 'Shift+Backspace': () => remove(true),
-    'ArrowLeft': () => nudge(-1, 0), 'ArrowRight': () => nudge(1, 0), 'ArrowUp': () => nudge(0, -1), 'ArrowDown': () => nudge(0, 1),
-    'Shift+ArrowLeft': () => nudge(-10, 0), 'Shift+ArrowRight': () => nudge(10, 0), 'Shift+ArrowUp': () => nudge(0, -10), 'Shift+ArrowDown': () => nudge(0, 10),
+    'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
+    'Shift+ArrowLeft': () => nudging(-10, 0), 'Shift+ArrowRight': () => nudging(10, 0), 'Shift+ArrowUp': () => nudging(0, -10), 'Shift+ArrowDown': () => nudging(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
     '$mod+KeyD': () => duplicate(), '$mod+KeyG': () => group(), '$mod+Shift+KeyG': () => ungroup(),
     '$mod+BracketRight': () => order('forward'), '$mod+BracketLeft': () => order('backward'),
@@ -1408,6 +1435,7 @@ function mount(el) {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
     destroy() {
+      nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
       stopDraw(); stopSel(); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
