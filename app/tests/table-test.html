@@ -448,6 +448,58 @@ async function run() {
     check('Undone, the columns and the rows are as they were', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && !titlesOf().includes('Process Agent') && !named('Harbor Point Holdings, LLC'), titlesOf().join());
   }
 
+  // ---- A list of relatives as a column: Registered Agents, each cell the other side's names; typed into, it relates, as a
+  // paste does; cleared, it ends what it held, as Delete… asks ----
+  {
+    const tool = label => $$('.tbar .btn').find(b => b.textContent === label), keyIn = (key, el, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...o }));
+    const fund = named('Calder Ridge Capital Partners III, L.P.'), cellOf = (id, title) => rowOf(id).getCells().find(c => c.getColumn().getDefinition().title === title);
+    const ra = () => Table.model(ent).cols.find(c => c.title === 'Registered Agents');
+    tool('Columns').click(); await tick(60);
+    const listed = $$('.cols .colrow label span').map(x => x.textContent);
+    check('A list of relatives is a column, offered by its name in the Columns list, hidden at first', listed.includes('Registered Agents') && listed.includes('Owners') && ra()?.type === 'list' && !ra().shown, listed.filter(x => !x.includes('›')).join());
+    $$('.cols .colrow').find(r => r.textContent.trim() === 'Registered Agents').querySelector('input').click(); await tick(250);
+    Shell.closeAll(); await tick();
+    const agents = () => (Tree.index(st()).entries.get(fund) ?? []).flatMap(e => (Tree.index(st()).relations.get(e) ?? []).filter(r => st()[r].args?.some(a => a.edge === 'Agent')));
+    check('… shown, its cells are the names of the other side, as the record’s panel lists them', !!column('Registered Agents') && cellOf(fund, 'Registered Agents').getValue() === 'Wilmington Harbor Agent Services, LLC'
+      && agents().length === 1, cellOf(fund, 'Registered Agents')?.getValue());
+    // Typed into: a name the chart has, as people write it, or a new one; a change pending, as a paste is.
+    const halvard = named('Halvard Logistics Holdings, Inc.');
+    let n1 = N(), c = cellOf(halvard, 'Registered Agents');
+    c.edit(true); await tick();
+    let i = c.getElement().querySelector('input'); i.value = 'wilmington harbor agent services llc'; keyIn('Enter', i); await previewed();
+    check('Typing a name into it relates the row to the record of that name, read as people write it, as a change pending: Add, From the day shown',
+      N() === n1 && $('.pendbar .btn.primary')?.textContent === 'Add' && /Registered Agent: Wilmington Harbor Agent Services, LLC → Halvard/.test($('.pendbar .what')?.textContent) && !!$('.pendbar .when'), $('.pendbar')?.textContent);
+    press('Enter'); await tick(200);
+    const hj = (Tree.index(st()).entries.get(halvard) ?? []).find(e => st()[e].edge === 'Jurisdiction'), held = (Tree.index(st()).relations.get(hj) ?? []).map(r => st()[r]).filter(r => r.args?.some(a => a.edge === 'Agent'));
+    check('… and Enter relates it, at the side it’s seen from: the agent of Halvard’s Jurisdiction', N() === n1 + 1 && held.length === 1 && App.notes.peek().nameOf(st(), held[0].args.find(a => a.edge === 'Agent').at) === 'Wilmington Harbor Agent Services, LLC'
+      && cellOf(halvard, 'Registered Agents').getValue() === 'Wilmington Harbor Agent Services, LLC', held.length);
+    // A name the chart hasn't got is a new record, its kind the list's commonest, a choice in the bar.
+    c = cellOf(fund, 'Registered Agents'); c.edit(true); await tick();
+    i = c.getElement().querySelector('input'); i.value = 'Corporation Service Company'; keyIn('Enter', i); await previewed();
+    const bar = $('.pendbar .what')?.textContent ?? '';
+    check('… a name it hasn’t got a new record, of the kind the list’s are, a choice in the bar; the one it no longer names struck, ending then',
+      /new Service Provider Corporation Service Company/.test(bar) && /Wilmington Harbor Agent Services, LLC → Fund III/.test($('.pendbar .what .del')?.textContent ?? ''), bar);
+    $$('.pendbar .btn').find(b => b.textContent === 'Discard').click(); await tick(150);
+    // Cleared, what it held ends, as Delete… asks: Ends on the day shown, or Never held.
+    Table.grid.addRange(cellOf(halvard, 'Registered Agents')); await tick(60);
+    keyIn('Delete', Table.grid.rowManager.element); await previewed();
+    check('Clearing it ends what it held, as Delete… asks', $('.pendbar .btn.primary')?.textContent === 'Delete' && /Ends on/.test($('.pendbar .when')?.textContent ?? '') && N() === n1 + 1, $('.pendbar')?.textContent);
+    $$('.pendbar .btn').find(b => b.textContent === 'Discard').click(); await tick(150);
+    // Filtered by its names, each a value of its own; and so in the workbook, as text.
+    const seven = Table.model(ent).data.filter(d => d['f:~registered agents']?.includes('Seven Mile')).length;
+    column('Registered Agents').getElement().querySelector('.col-menu').click(); await tick(); item('Filter…').click(); await tick(80);
+    const vs = $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent);
+    $$('.tfilter .tf-row').find(r => r.querySelector('.v').textContent === 'Select all').querySelector('input').click(); await tick(60);
+    $$('.tfilter .tf-row').find(r => r.querySelector('.v').textContent === 'Seven Mile Corporate Services Ltd.').querySelector('input').click(); await tick(100);
+    Shell.closeAll(); await tick(100);
+    check('… it filters by the names, each a checkbox of its own', vs.includes('Wilmington Harbor Agent Services, LLC') && vs.includes('Seven Mile Corporate Services Ltd.') && seven === 2 && Table.grid.getDataCount('active') === seven, `${vs.join()} ${Table.grid.getDataCount('active')}`);
+    const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Registered Agents');
+    check('… and exports as text', ws[XLSX.utils.encode_cell({ r: 0, c: j })]?.v === 'Registered Agents' && ws[XLSX.utils.encode_cell({ r: 1, c: j })]?.v === 'Seven Mile Corporate Services Ltd.', JSON.stringify(ws[XLSX.utils.encode_cell({ r: 1, c: j })]));
+    tool('Clear filters').click(); await tick(100);
+    undo(); await tick(150); undo(); await tick(150);
+    check('Undone, Halvard has no agent and the column is hidden again', !cellOf(halvard, 'Name') || !column('Registered Agents'), !!column('Registered Agents'));
+  }
+
   // ---- A heading moved beside, into, out of and across the columns kept in view: it shows where it's dropped, and
   // nothing goes under them unseen. A column shown, or moved, comes whole into view, lit ----
   {

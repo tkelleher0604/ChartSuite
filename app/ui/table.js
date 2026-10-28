@@ -93,6 +93,42 @@ const Table = (() => {
     for (const t of specs) if ('choice' in t.out) rank.set(t.out.choice, Math.min(rank.get(t.out.choice) ?? Infinity, N.optionOrder(t) ?? Infinity));
     return { ...c, type, options: [...rank.keys()].sort((a, b) => rank.get(a) - rank.get(b) || a.localeCompare(b)) };
   }
+  // A record's lists of relatives as columns (dendra.md, Views: Columns): each list a relation of two sides makes, of the
+  // schema's, one side at the row's record (or at an entry down from it: a Principal at its Jurisdiction), named as its
+  // panel names it (Registered Agents, Owners, Holdings); its cells the other side's names. Its pattern is the relation's,
+  // with the side listed its param, as a relation's side is a column; its documents are the record's documents, not a list.
+  const shape = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: shape(a.loc) })) } : {};
+  function listColumns(S, base, N, up) {
+    const root = loc => loc.args ? root(loc.args[0].loc) : loc.kind;
+    const pathTo = loc => !loc.args ? (loc.kind !== undefined && same(loc.kind, base.kind) ? [] : null) : loc.args.length === 1 ? (p => p && [...p, loc.args[0].edge])(pathTo(loc.args[0].loc)) : null;
+    const docs = new Set(Object.values(S).filter(s => s.out?.field === 'document' && s.args?.length === 1 && s.args[0].loc.kind !== undefined).map(s => norm(s.args[0].loc.kind)));
+    const lists = new Map();
+    for (const s of Object.values(S)) if (s.args?.length === 2 && s.out && !('field' in s.out)) for (const mine of s.args) {
+      const other = s.args.find(a => a !== mine), minePath = pathTo(mine.loc), kind = root(other.loc);
+      if (!minePath || kind === undefined || docs.has(norm(kind))) continue;
+      const pattern = shape(s), title = N.listName(pattern, other.edge), k = Tree.key(pattern) + '|' + norm(other.edge);
+      if (!lists.has(k)) lists.set(k, { key: '~' + norm(title), title, type: 'list', pattern, param: other.edge, mine: mine.edge, other: other.edge, minePath, up,
+        otherLoc: shape(other.loc), kinds: new Set(), kindNames: [], base: [Infinity, Infinity, Infinity], fx: !!N.resolve('Formula', pattern), choice: false });
+      const c = lists.get(k);
+      if (!c.kinds.has(norm(kind))) { c.kinds.add(norm(kind)); c.kindNames.push(kind); }
+      if ('choice' in s.out) c.choice = true;
+    }
+    // Two lists of one name are told apart by the side they're seen from.
+    const out = [...lists.values()], taken = new Map();
+    for (const c of out) taken.set(c.key, (taken.get(c.key) ?? 0) + 1);
+    for (const c of out) if (taken.get(c.key) > 1) c.key += '|' + norm(c.mine);
+    return out;
+  }
+  // The relatives a list's cell names, at the record its side is at: each relation of it held there, by the other side's name.
+  const relativesIn = (st, at, c, N = App.notes.peek()) => (Tree.index(st).relations.get(at) ?? []).flatMap(rid => {
+    const r = st[rid];
+    if (r.args?.length !== 2 || r.tag === false) return [];
+    const mine = r.args.find(a => a.at === at && same(a.edge, c.mine)), other = mine && r.args.find(a => a !== mine && same(a.edge, c.other));
+    const obj = other && Tree.objectOf(st, other.at);
+    return obj && Tree.fits(st, rid, c.pattern) ? [{ rid, obj, name: N.nameOf(st, obj) }] : [];
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  // Names as a list's cell holds them, each on its own or after a semicolon.
+  const namesIn = raw => String(raw ?? '').split(/[;\n]/).map(clean).filter(Boolean);
 
   function model(view, R = App.computed.value, S = App.schema.value, look = lookOf(view)) {
     const st = R.records, N = App.notes.value;
@@ -140,12 +176,13 @@ const Table = (() => {
         have.add(c.key);
         cols.push(c);
       }
-      // In the view, Order places a column and Shown shows it; by default every entry at the row shows. A tag
-      // a Check note covers is a check, which says only where it fails.
+      if (!base.args) cols.push(...listColumns(S, base, N, up));
+      // In the view, Order places a column and Shown shows it; by default every entry at the row shows, and no list. A
+      // tag a Check note covers is a check, which says only where it fails.
       for (const c of cols) {
         const o = c.pattern && N.resolve('Order', c.pattern, view, c.param);
         c.place = o?.note.view === view ? o.value : Infinity;
-        c.shown = !c.pattern || (N.value('Shown', c.pattern, view, c.param) ?? (!!c.param || c.path.length === 1));
+        c.shown = !c.pattern || (N.value('Shown', c.pattern, view, c.param) ?? (c.type !== 'list' && (!!c.param || c.path.length === 1)));
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
       }
       const lex = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? -2) - (b[i] ?? -2); if (d) return d; } return 0; };
@@ -166,6 +203,11 @@ const Table = (() => {
       if (c.key === '$entry') return { v: N.nameOf(st, row) };
       if (c.key === '$of') return { v: Time.whose(st, st[row].args ? row : st[row].at, N) };
       let at = c.up ? st[row].at : row;
+      if (c.type === 'list') {
+        for (const e of c.minePath) at = entryAt(st, at, e);
+        const rels = at ? relativesIn(st, at, c, N) : [];
+        return { at, v: rels.length ? rels.map(x => x.name).join('; ') : undefined, names: rels.map(x => x.name), rels: rels.map(x => x.rid) };
+      }
       for (const e of c.path.slice(0, -1)) at = entryAt(st, at, e);
       const id = entryAt(st, at, c.path.at(-1));
       return { id, at, v: valueOf(st[id]) };
@@ -177,8 +219,8 @@ const Table = (() => {
         row[f] = m.v ?? null;
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
-        const fx = !!R.computed?.[m.id], cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r.field === 'date' && r.value < today, ...(type !== c.type && { type }) };
+        const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }) };
       }
       row._ruled = st[id].tag === false;
       return row;
@@ -254,7 +296,7 @@ const Table = (() => {
   // ---- How cells read, copy and edit ----
   const NUMERIC = new Set(['number', 'percent', 'money']);
   const text = (type, v) => v === null || v === undefined ? '' : type === 'tag' ? (v ? 'Yes' : 'No')
-    : type === 'date' ? Tree.formatDate(v, 'short') : Tree.format(type, v);
+    : type === 'date' ? Tree.formatDate(v, 'short') : type === 'list' ? String(v) : Tree.format(type, v);
   // What a cell copies and exports as: a document as its address, so the link survives.
   const plain = (type, v) => type === 'document' ? String(v ?? '') : type === 'date' ? (v ? Tree.formatDate(v) : '') : text(type, v);
   const typing = (type, v) => v === null || v === undefined ? '' : type === 'date' ? Tree.formatDate(v) : type === 'document' ? String(v) : text(type, v);
@@ -490,7 +532,7 @@ const Table = (() => {
         hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
         sorter: sorter(c),
         formatter: formatter(c),
-        editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
+        editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
@@ -882,13 +924,15 @@ const Table = (() => {
   // The datatype what's typed is read as: the value's own where there is one, else its column's; in a column with no
   // values yet, what it reads as, as a pasted column's first values say theirs (newColumn).
   const typeFor = (c, r, s) => r ? typeIn(c, r) : c.fresh ? (/^(yes|no|true|false|y|n|x|✓|✔)$/i.test(s) ? 'tag' : Tree.classify(s)) : c.type;
-  const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell), s = clean(raw); return !s || c.type === 'edge' || !!value(typeFor(c, m.id && App.state.value[m.id], s), s); };
-  // What typing `raw` into a cell writes: { put: [id, record] }, a value entered; { gone: id }, one cleared; or { side:
-  // [row, edge, name] }, a relation's side moved. Null where it writes nothing; false where it can't be read.
+  const readable = (cell, raw) => { const c = columnOf(cell), m = meta(cell), s = clean(raw); return !s || c.type === 'edge' || c.type === 'list' || !!value(typeFor(c, m.id && App.state.value[m.id], s), s); };
+  // What typing `raw` into a cell writes: { put: [id, record] }, a value entered; { gone: id }, one cleared; { side:
+  // [row, edge, name] }, a relation's side moved; or { list: [row, column, names] }, a list's relatives named. Null where
+  // it writes nothing; false where it can't be read.
   function writing(cell, raw) {
     const c = columnOf(cell), m = meta(cell), st = App.state.peek(), r = m?.id && st[m.id], entered = !!m?.id && m.id in App.entered.peek();
     if (!c || !m) return null;
     if (c.type === 'edge') return clean(raw) ? { side: [cell.getRow().getData().id, c.edge, raw] } : null;
+    if (c.type === 'list') return m.at && !c.fx && !c.choice && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [cell.getRow().getData().id, c, raw] } : null;
     const s = clean(raw);
     if (!s) return entered ? { gone: m.id } : null;
     const out = value(typeFor(c, r, s), s);
@@ -897,10 +941,15 @@ const Table = (() => {
     const p = placed(m, c, out);
     return p ? { put: p } : null;
   }
-  // What several cells write, as one change: a correction, or with a day shown, from that day on.
+  // What several cells write, as one change: a correction, or with a day shown, from that day on. Relatives named in a
+  // list's cells relate it as a paste does, a change pending (stage), and those it no longer names end, as Delete… asks.
   function write(ws, say) {
     ws = ws.filter(Boolean);
     if (!ws.length || App.readOnly.peek() || current?.red) return false;
+    const lists = ws.filter(w => w.list);
+    ws = ws.filter(w => !w.list);
+    if (lists.length) stage(real, () => ({ keys: [], plan: lists.map(({ list: [row, c, raw] }) => ({ row, key: [], cells: [[c, raw]] })) }), { verb: 'Add' });
+    if (!ws.length) return true;
     const st = App.state.peek(), records = Object.fromEntries(ws.filter(w => w.put).map(w => w.put));
     return edit(tx => { fill(tx, records); ws.forEach(w => w.gone ? tx.remove(w.gone) : w.side && side(tx, st, ...w.side)); }, say);
   }
@@ -932,13 +981,15 @@ const Table = (() => {
     if (v === false && entered) edit(tx => tx.remove(m.id));
     else { const p = placed(m, c, { tag: v !== true }); if (p) enter(Object.fromEntries([p])); }
   }
-  // Clears the cells of the range: the values entered there go, as one change.
+  // Clears the cells of the range: the values entered there go, as one change; a list's relatives end, as Delete… asks.
   function clear() {
-    const ids = new Set(), entered = App.entered.value;
+    const ids = new Set(), entered = App.entered.value, lists = [];
     for (const r of table.getRanges()) for (const cell of r.getCells().flat()) {
       const m = cell.getField() && meta(cell);
-      if (m?.id && m.id in entered && columnOf(cell).type !== 'edge' && columnOf(cell).key !== '$out') ids.add(m.id);
+      if (columnOf(cell)?.type === 'list') lists.push(writing(cell, ''));
+      else if (m?.id && m.id in entered && columnOf(cell).type !== 'edge' && columnOf(cell).key !== '$out') ids.add(m.id);
     }
+    if (lists.some(Boolean)) write(lists);
     if (ids.size) edit(tx => ids.forEach(id => tx.remove(id)), () => `Cleared ${count(ids.size, 'value')}`);
   }
 
@@ -988,9 +1039,9 @@ const Table = (() => {
     // A file's first row is its headings, though none of them is a column's yet: they're asked about.
     let head = headings(m, grid) ?? (file && grid.length > 1 ? grid[0].map(h => clean(h) ? named(m, h) : null) : null);
     if (head && m.isDatatype) { grid.shift(); head = null; }   // a datatype's rows have no names to match by
-    if (!head) { const r = byPlace(m, grid); return stage(m, () => r, file); }
+    if (!head) { const r = byPlace(m, grid); return stage(m, () => r, { file, single: !file && grid.length === 1 && grid[0].length === 1 }); }
     const asked = grid[0].some((h, j) => !head[j] && clean(h));
-    (asked ? ask(m, grid, head) : Promise.resolve(head)).then(h => h && stage(m, as => byName(m, grid, h, as), file));
+    (asked ? ask(m, grid, head) : Promise.resolve(head)).then(h => h && stage(m, as => byName(m, grid, h, as), { file }));
   }
 
   // The column a heading names: by its title, or its place, as much of it as is given (Entity Type › Tax Classification),
@@ -1095,10 +1146,11 @@ const Table = (() => {
 
   // The change a plan makes, as FormulaBar.preview takes one, its new records under new ids; with what it does. `made`,
   // each object it adds, named: { kind, name, kinds (those it could be instead), near (one it's close to), row (a row
-  // of a kind's table) }. A name pointed at a record (`as`) is that record.
+  // of a kind's table) }; `rels`, the relations a list's cells add, and `ends`, those they no longer name. A name pointed
+  // at a record (`as`) is that record.
   function changeOf(m, { keys, plan }, as = new Map()) {
     const st = App.state.peek(), entered = App.entered.peek(), records = {}, made = new Map(), kids = new Map();
-    const x = { records, values: 0, rows: [], made: [], skipped: 0, cols: new Set() };
+    const x = { records, values: 0, rows: [], made: [], skipped: 0, cols: new Set(), rels: [], ends: [] };
     const put = (rec, id = Log.newId()) => { records[id] = rec; return id; };
     const make = (name, kind, kinds, row = false) => {
       const o = put({ kind });
@@ -1129,7 +1181,9 @@ const Table = (() => {
           x.rows.push(row);
         }
       }
+      const lists = [];
       for (const [c, raw] of p.cells) {
+        if (c.type === 'list') { lists.push([c, raw]); continue; }
         if (!clean(raw) || (!was && c.key === '$out')) continue;
         if (c.key === '$entry' || c.key === '$of' || c.type === 'edge') { x.skipped++; continue; }
         const path = c.key === '$value' || c.key === '$out' ? null : c.path;
@@ -1147,8 +1201,36 @@ const Table = (() => {
         if (was) x.values++;
         x.cols.add(c.key);
       }
+      // A list's cell names the row's relatives in it, once what's at the row is (a Principal at the Jurisdiction pasted
+      // beside it): each named that isn't, a record the chart has by its name as people write it or a new one, is related;
+      // each it no longer names ends.
+      for (const [c, raw] of lists) {
+        let at = c.up ? (records[row] ?? st[row])?.at : row;
+        for (const e of c.minePath) at = at && childAt(at, e);
+        if (!at || c.fx || c.choice) { if (clean(raw)) x.skipped++; continue; }
+        const had = st[at] ? relativesIn(st, at, c) : [], want = [];
+        for (const name of namesIn(raw)) {
+          const pick = as.get(loose(name)), o = (typeof pick === 'string' ? pick : null) ?? find(st, name, c.kinds) ?? made.get(loose(name)) ?? make(name, pick?.kind ?? listKind(m, c), c.kinds);
+          if (!want.includes(o)) want.push(o);
+        }
+        for (const o of want) if (!had.some(h => h.obj === o)) {
+          const to = follow({ ...st, ...records }, o, c.otherLoc);
+          if (to) x.rels.push(put({ args: [{ edge: c.mine, at }, { edge: c.other, at: to }], tag: true })); else x.skipped++;
+        }
+        for (const h of had) if (!want.includes(h.obj)) x.ends.push(h.rid);
+        x.cols.add(c.key);
+      }
     }
     return x;
+  }
+  // The kind most of a list's relatives are, for a new one named in it; else the first it can be.
+  function listKind(m, c) {
+    const st = App.state.peek(), n = new Map();
+    for (const d of m.data) for (const rid of d._m[field(c)]?.rels ?? []) {
+      const r = st[rid], a = r?.args.find(x => same(x.edge, c.other)), k = a && st[Tree.objectOf(st, a.at)]?.kind;
+      if (k) n.set(k, (n.get(k) ?? 0) + 1);
+    }
+    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? c.kindNames[0];
   }
   // The kind most of a relation's sides are, for a new object on that side.
   function kindAt(m, edge) {
@@ -1163,24 +1245,34 @@ const Table = (() => {
   // with it, as a closing's schedule is; a deletion asks until when, as App.deleting does. Until what's typed there is
   // a day, it isn't made. Each name it adds is a choice in the bar, of a record the chart has instead, the closest first;
   // one close to a name the chart has asks "or" that one, taken by a click. Taken, the paste is pending again as it then
-  // is, from the day it was asked from ----
-  function stage(m, planOf, file = null, as = new Map()) {
+  // is, from the day it was asked from. A list's cells typed or pasted are the same, their verb Add: what they relate is
+  // added from the day asked, and what they no longer name ends then; naming none, they're a deletion, which asks until
+  // when. One cell pasted that only changes a value is made at once, as one typed is, Undo taking it back ----
+  function stage(m, planOf, { file = null, as = new Map(), verb = null, single = false } = {}) {
     const r = planOf(as);
     if (typeof r === 'string') return Shell.toast(r);
-    const x = changeOf(m, r, as), st = App.state.peek(), N = App.notes.peek();
-    // Pointed at what the chart has, a paste that then changes nothing is done with.
+    const x = changeOf(m, r, as), st = App.state.peek(), N = App.notes.peek(), source = 'paste ' + m.view, was = App.pending.peek();
+    const rel = id => `${N.nameOf(st, id)}: ${Time.whose(st, id, N)}`;
+    // Pointed at what the chart has, a paste that then changes nothing is done with; one that only ends what a list named,
+    // a deletion.
     if (!Object.keys(x.records).length) {
-      if (as.size && App.pending.peek()?.source === 'paste ' + m.view) App.discard();
+      if (as.size && was?.source === source) App.discard();
+      if (x.ends.length) { App.deleting(x.ends, x.ends.length > 1 ? count(x.ends.length, N.nameOf(st, x.ends[0]).toLowerCase()) : rel(x.ends[0]), { source }); return back(); }
       return Shell.toast(x.skipped ? `Left out ${count(x.skipped, 'value')}` : `Nothing new to ${file ? `import from ${file}` : 'paste'}`);
     }
-    const made = x.made.filter(o => !o.row).map(o => o.name), noun = m.noun, source = 'paste ' + m.view, was = App.pending.peek();
-    const added = [x.rows.length && count(x.rows.length, noun), ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
-    const say = [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
-      .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
+    const made = x.made.filter(o => !o.row).map(o => o.name), noun = m.noun, recs = { ...st, ...x.records };
+    const related = x.rels.length > 2 ? [count(x.rels.length, N.nameOf(recs, x.rels[0]).toLowerCase())] : x.rels.map(id => `${N.nameOf(recs, id)}: ${N.placed(recs, id).map(s => s.join + s.text).join('')}`);
+    const added = [x.rows.length && count(x.rows.length, noun), ...related, ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
+    const say = !x.values && !x.rows.length ? ch => Time.describe(ch)
+      : [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
+        .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
+    const asks = [...x.rows, ...x.rels].some(id => App.asksDay(x.records[id], recs));
+    const make = (tx, d, p) => { fill(tx, x.records); for (const id of x.ends) tx.remove(id, p?.asks === 'from' ? d : App.day.peek()); };
+    if (single && !x.rows.length && !x.made.length && !x.rels.length && !x.ends.length && !asks) { App.change(tx => make(tx), { say }); return back(); }
     const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
     // What it does, in the redline's ink, as the bar says it; what's left out, which it doesn't do, plain. The names it
     // adds, each a choice: those close to one the chart has, every one, asking; then the rest, three in all.
-    const ink = t => html`<span class="add">${t}</span>`, take = (o, id) => stage(m, planOf, file, new Map([...as, [loose(o.name), id]]));
+    const ink = t => html`<span class="add">${t}</span>`, take = (o, id) => stage(m, planOf, { file, verb, as: new Map([...as, [loose(o.name), id]]) });
     const choose = (anchor, o) => Shell.menu(anchor, q => {
       const t = norm(q), l = loose(q), hit = rivals(st, o.name, o.kinds).filter(y => !q || norm(y.name).includes(t) || norm(y.short).includes(t) || loose(y.name).includes(l));
       return [...hit.slice(0, 60).map(y => ({ label: y.name, run: () => take(o, y.id) })), ...(hit.length ? ['-'] : []), { label: `New ${o.kind} ${o.name}`, checked: true, run: () => {} }];
@@ -1189,13 +1281,14 @@ const Table = (() => {
       ? html`<span class="or">, or <button type="button" class="lk" onClick=${() => take(o, o.near)}>${N.nameOf(st, o.near)}</button>?</span>` : null}</span>`;
     const asked = x.made.filter(o => o.near), plain = x.made.filter(o => !o.near && !o.row), listed = [...asked, ...plain.slice(0, Math.max(0, 3 - asked.length))];
     const more = asked.length + plain.length - listed.length;
+    const ended = x.ends.length > 2 ? [count(x.ends.length, N.nameOf(st, x.ends[0]).toLowerCase())] : x.ends.map(rel);
     const parts = [x.values && ink(count(x.values, 'value')), x.rows.length && ink(`${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`),
-      ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
-    const recs = { ...st, ...x.records }, asks = x.rows.some(id => App.asksDay(x.records[id], recs)), entered = App.entered.peek();
-    // What it's at: the records it writes over, and those it adds at.
-    const needs = [...new Set(Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]))].filter(id => id in entered);
-    App.stage({ verb: file ? 'Import' : 'Paste', what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : App.day.peek() }), make: tx => fill(tx, x.records), done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+      ...related.map(ink), ...ended.map(t => html`<span class="del">${t}</span>`), ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`].filter(Boolean);
+    const entered = App.entered.peek();
+    // What it's at: the records it writes over, those it adds at, and those it ends.
+    const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
+    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : App.day.peek() }), make, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -1338,7 +1431,7 @@ const Table = (() => {
   // A column with no values yet goes with its notes.
   const dropColumn = c => edit(tx => { note(tx, 'Shown', c, current.view, undefined); note(tx, 'Order', c, current.view, undefined); }, `Deleted column ${c.title}`);
   // An entry's column can be renamed; not a relation's side, nor a row's Name, by which everything names it.
-  const renamable = c => !!c?.pattern && c.type !== 'edge' && !(c.path?.length === 1 && same(c.title, 'Name'));
+  const renamable = c => !!c?.pattern && c.type !== 'edge' && c.type !== 'list' && !(c.path?.length === 1 && same(c.title, 'Name'));
   // Renamed, an entry is renamed wherever it's at a row of this kind: its records, its specification, its notes.
   // How it's looked at goes with it: its width, its sort, its filter, its grouping.
   function renameColumn(c, to) {
@@ -1359,10 +1452,22 @@ const Table = (() => {
     funnels();
     if (!was !== !now || was?.key !== now?.key) setTimeout(relayout);
   }
-  // A filter keeps the rows whose value in each filtered column is one of those chosen (null, Blank).
+  // A filter keeps the rows whose value in each filtered column is one of those chosen (null, Blank), a list's any of its
+  // names; or, a date's, in a range of days from the day shown: before it (overdue), the next 30, 60 or 90, or between two.
+  const valuesIn = (c, d) => c.type === 'list' ? (d._m[field(c)]?.names?.length ? d._m[field(c)].names : [null]) : [blank(d[field(c)]) ? null : d[field(c)]];
+  const later = (day, n) => { const [y, mo, d] = day.split('-').map(Number); return Tree.isoOf(new Date(y, mo - 1, d + n)); };
+  function rangeOf(r, today = App.day.peek()) {
+    return r.range === 'overdue' ? { to: later(today, -1) } : typeof r.range === 'number' ? { from: today, to: later(today, r.range) } : { from: r.from, to: r.to };
+  }
+  const rangeWords = r => r.range === 'overdue' ? 'overdue' : typeof r.range === 'number' ? `next ${r.range} days`
+    : `${r.from ? Tree.formatDate(r.from, 'short') : '…'} to ${r.to ? Tree.formatDate(r.to, 'short') : '…'}`;
   function filterOf(m, l = lookOf(m.view)) {
-    const fs = Object.entries(l.filters ?? {}).filter(([k]) => m.cols.some(c => c.key === k)).map(([k, vs]) => ['f:' + k, new Set(vs.map(v => JSON.stringify(v)))]);
-    return fs.length ? d => fs.every(([f, ok]) => ok.has(JSON.stringify(blank(d[f]) ? null : d[f]))) : null;
+    const fs = Object.entries(l.filters ?? {}).map(([k, vs]) => [m.cols.find(c => c.key === k), vs]).filter(([c]) => c).map(([c, vs]) => {
+      if (!Array.isArray(vs)) { const { from, to } = rangeOf(vs), f = field(c); return d => !blank(d[f]) && (!from || d[f] >= from) && (!to || d[f] <= to); }
+      const ok = new Set(vs.map(v => JSON.stringify(v)));
+      return d => valuesIn(c, d).some(v => ok.has(JSON.stringify(v)));
+    });
+    return fs.length ? d => fs.every(ok => ok(d)) : null;
   }
   function filterBy(c, values) {
     const m = current, fs = { ...lookOf(m.view).filters };
@@ -1562,24 +1667,27 @@ const Table = (() => {
     const view = current.view;
     Shell.popover(anchor, close => html`<${Filter} c=${c} view=${view} close=${close} />`, { placement: 'bottom-start' });
   }
+  // A date's, above its values: Overdue (before the day shown), the next 30, 60 or 90 days, or between two days.
+  const RANGES = [['overdue', 'Overdue'], [30, 'Next 30 days'], [60, 'Next 60 days'], [90, 'Next 90 days']];
   function Filter({ c, view, close }) {
     looked.value;
     const [q, setQ] = useState('');
     const m = shownM.value;
     if (!m || m.view !== view) return null;
-    const l = lookOf(view), f = field(c), on = l.filters?.[c.key] ?? null, rest = { ...l.filters };
+    const l = lookOf(view), on = l.filters?.[c.key] ?? null, ranged = !!on && !Array.isArray(on), rest = { ...l.filters };
     delete rest[c.key];
-    const others = filterOf(m, { ...l, filters: rest });
+    const others = filterOf(m, { ...l, filters: rest }), inRange = ranged && filterOf(m, { filters: { [c.key]: on } });
     const counts = new Map();
-    for (const r of m.data) if (r._red !== 'add' && (!others || others(r))) {
-      const v = blank(r[f]) ? null : r[f], k = JSON.stringify(v);
-      if (!counts.has(k)) counts.set(k, { v, k, n: 0, label: v === null ? 'Blank' : text(typeOf(c, r), v) });
+    for (const r of m.data) if (r._red !== 'add' && (!others || others(r))) for (const v of valuesIn(c, r)) {
+      const k = JSON.stringify(v);
+      if (!counts.has(k)) counts.set(k, { v, k, n: 0, label: v === null ? 'Blank' : c.type === 'list' ? v : text(typeOf(c, r), v), in: false });
       counts.get(k).n++;
+      if (inRange && inRange(r)) counts.get(k).in = true;
     }
-    for (const v of on ?? []) { const k = JSON.stringify(v); if (!counts.has(k)) counts.set(k, { v, k, n: 0, label: v === null ? 'Blank' : text(c.type, v) }); }
+    for (const v of Array.isArray(on) ? on : []) { const k = JSON.stringify(v); if (!counts.has(k)) counts.set(k, { v, k, n: 0, label: v === null ? 'Blank' : text(c.type, v) }); }
     const cmp = sorter(c), vals = [...counts.values()].sort((a, b) => cmp(a.v, b.v, null, null, null, 'asc'));
     const t = q.trim().toLowerCase(), list = t ? vals.filter(x => x.label.toLowerCase().includes(t)) : vals;
-    const kept = new Set((on ?? vals.map(x => x.v)).map(v => JSON.stringify(v))), isOn = x => kept.has(x.k);
+    const kept = new Set(ranged ? vals.filter(x => x.in).map(x => x.k) : (on ?? vals.map(x => x.v)).map(v => JSON.stringify(v))), isOn = x => kept.has(x.k);
     // Every value kept is no filter at all.
     const set = ks => filterBy(c, vals.every(x => ks.has(x.k)) ? null : vals.filter(x => ks.has(x.k)).map(x => x.v));
     const toggle = x => { const ks = new Set(kept); if (ks.has(x.k)) ks.delete(x.k); else ks.add(x.k); set(ks); };
@@ -1587,8 +1695,16 @@ const Table = (() => {
     const flipAll = () => { const ks = new Set(kept); list.forEach(x => every ? ks.delete(x.k) : ks.add(x.k)); set(ks); };
     // Enter, with something typed, keeps just what it finds.
     const keys = e => { if (e.key === 'Enter' && t) { e.preventDefault(); filterBy(c, list.map(x => x.v)); close(); } };
+    const today = App.day.peek(), between = ranged && on.range === 'between';
+    const day = (label, k) => html`<input class="cell date" aria-label=${label} spellcheck=${false} autocomplete="off" value=${on?.[k] ? Tree.formatDate(on[k], 'short') : ''}
+      onChange=${e => { const d = Tree.parseDate(clean(e.target.value)); if (d || !clean(e.target.value)) filterBy(c, { ...on, [k]: d ?? null }); else e.target.setAttribute('aria-invalid', 'true'); }} />`;
     return html`<div class="tfilter">
       <input type="search" class="tf-find" placeholder="Find" aria-label="Find" value=${q} autofocus spellcheck=${false} onInput=${e => setQ(e.target.value)} onKeyDown=${keys} />
+      ${c.type === 'date' ? html`<div class="tf-ranges" role="radiogroup" aria-label="Days">
+        ${RANGES.map(([r, label]) => html`<label class="tf-row"><input type="radio" name="tf-range" checked=${ranged && on.range === r} onChange=${() => filterBy(c, { range: r })} /><span class="v">${label}</span></label>`)}
+        <label class="tf-row"><input type="radio" name="tf-range" checked=${between} onChange=${() => filterBy(c, { range: 'between', from: today, to: later(today, 30) })} /><span class="v">Between…</span></label>
+        ${between ? html`<div class="tf-between">${day('From', 'from')}<span>and</span>${day('To', 'to')}</div>` : null}
+      </div>` : null}
       <div class="tf-list" role="group" aria-label=${headed(c)}>
         ${list.length ? html`<label class="tf-row all"><input type="checkbox" ref=${x => { if (x) x.indeterminate = some && !every; }} checked=${every} onChange=${flipAll} /><span class="v">Select all</span></label>` : html`<div class="tf-none">No match</div>`}
         ${list.map(x => html`<label class="tf-row" key=${x.k}><input type="checkbox" checked=${isOn(x)} onChange=${() => toggle(x)} /><span class=${'v' + (x.v === null ? ' muted' : '')}>${x.label}</span><span class="n">${x.n}</span></label>`)}
@@ -1611,7 +1727,7 @@ const Table = (() => {
     return html`<div class="tbar" role="toolbar" aria-label="Table">
       <button type="button" class="btn ghost dd" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
       <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? html`Sorted by ${headed(sortC)}` : 'Sort'}</button>
-      <button type="button" class=${'btn ghost dd' + (fs.length ? ' on' : '')} aria-haspopup="menu" onClick=${e => filterMenu(e.currentTarget)}>${fs.length ? html`Filtered by ${list(fs.map(headed))}` : 'Filter'}</button>
+      <button type="button" class=${'btn ghost dd' + (fs.length ? ' on' : '')} aria-haspopup="menu" onClick=${e => filterMenu(e.currentTarget)}>${fs.length ? html`Filtered by ${list(fs.map(c => Array.isArray(l.filters[c.key]) ? headed(c) : `${headed(c)}, ${rangeWords(l.filters[c.key])}`))}` : 'Filter'}</button>
       ${m.rows === 'date' ? null : html`<button type="button" class=${'btn ghost dd' + (groupC ? ' on' : '')} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? html`Grouped by ${headed(groupC)}` : 'Group'}</button>`}
       ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
       ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
@@ -1826,11 +1942,10 @@ const Table = (() => {
     const cell = row.getCells().find(x => x.getElement().contains(e.target) && x.getField()), c = cell && columnOf(cell);
     const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
     const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
-    const v = cell?.getValue();
     Shell.menu({ x: e.clientX, y: e.clientY }, [
       { label: 'Copy', keys: '$mod+KeyC', run: () => table.copyToClipboard('range') },
       ...(writes ? [{ label: 'Clear contents', keys: 'Delete', run: clear }, { label: 'Fill down', keys: '$mod+KeyD', run: () => fillFrom(true) }] : []),
-      ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, [blank(v) ? null : v]) }] : []),
+      ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
       ...(!current.isDatatype && writes ? ['-', { label: `New ${current.noun}`, run: () => rowEl?.querySelector('input, button')?.[current.isKind ? 'focus' : 'click']() }] : []),
       ...(d ? [{ label: ids.length > 1 || many ? `Delete ${count(ids.length, 'row')}` : 'Delete row', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
     ]);
