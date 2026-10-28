@@ -1030,6 +1030,17 @@ async function run() {
   await tick(200);
   console.warn = warn0;
   check('Going through every view with a record selected warns of nothing', !warned.length, warned.join(' / '));
+  // The formula bar's subject follows the view: a date selected in Dates, then Entities shown, the bar names Entities,
+  // not the date; an entity selected there, the entity.
+  const R1 = App.computed.peek().records, aDate = Object.keys(R1).find(id => R1[id].field === 'date' && R1[R1[id].at]?.args);
+  const datesView = views().find(v => v.name === 'Dates'), entitiesView = views().find(v => v.name === 'Entities');
+  Shell.show(datesView.id); Shell.select([aDate]); await tick(150);
+  const onDate = $('.fxbar .fx-name')?.textContent;
+  Shell.show(entitiesView.id); await tick(150);
+  const onEntities = $('.fxbar .fx-view')?.textContent, stillDate = !!$('.fxbar .fx-name');
+  Shell.select([fund]); await tick(100);
+  check('The formula bar follows the view: a date selected in Dates, Entities named once it’s shown, and an entity selected there', !!onDate && onEntities === 'Entities' && !stillDate
+    && $('.fxbar .fx-name')?.textContent === App.notes.peek().nameOf(st(), fund), `${onDate} | ${onEntities} ${stillDate} | ${$('.fxbar .fx-name')?.textContent}`);
   Shell.select([]); await tick(60);
 
   // ---- F8 goes to the worst first, wherever the chart has it (the inspector's attention, stood in for) ----

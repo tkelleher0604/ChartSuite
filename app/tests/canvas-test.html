@@ -1166,8 +1166,8 @@ async function run() {
     // The chart menu: the chart's own actions first, where they stay, its charts and the workbooks each a list of their own.
     const items = () => Shell.parts.peek().workbook.menu();
     const del = () => items().find(x => x.label === 'Delete chart');
-    check('the chart menu keeps its actions first and its lists in submenus', items().slice(0, 3).map(x => x.label).join() === 'New chart,Duplicate chart,Delete chart'
-      && items().find(x => x.label === 'Charts')?.items?.length === App.wb.charts().length && items().find(x => x.label === 'Workbooks')?.items?.some(x => x.label === 'Delete workbook'), items().map(x => x.label ?? x).join());
+    check('the chart menu keeps its actions first, New workbook among them, and its lists in submenus', items().slice(0, 4).map(x => x.label).join() === 'New chart,New workbook,Duplicate chart,Delete chart'
+      && items().find(x => x.label === 'Charts')?.items?.length === App.wb.charts().length && items().find(x => x.label === 'Workbooks')?.items?.some(x => x.label === 'Delete workbook') && !items().find(x => x.label === 'Workbooks')?.items?.some(x => x.label === 'New workbook'), items().map(x => x.label ?? x).join());
     check('… Delete chart on a workbook’s only chart greyed, saying why', App.wb.charts().length > 1 || (del().disabled && /only chart/.test(del().tip ?? '')), JSON.stringify(del()));
     // A new chart begins in the house look, whichever view is shown: the first chart view's looks, never its filter, nor the
     // style of a relation a formula gives. (40 Act, its filter and its affiliates' styles and all, put first for this.)
