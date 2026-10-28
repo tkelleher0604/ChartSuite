@@ -467,6 +467,29 @@ async function run() {
     nr.focus(); nr.value = 'Harbor Point Holdings, LLC'; keyIn('Enter', {}, nr); await tick(300);
     const hp = named('Harbor Point Holdings, LLC');
     check('… a name typed there adds the entity, as one change, its row in the grid, the new row ready for the next', N() === n1 + 1 && st()[hp]?.kind === 'Entity' && !!rowOf(hp) && nr.value === '' && document.activeElement === nr);
+    // Typed under a filter, the new row stays in view till it's left; then the filter applies, as the toast says.
+    {
+      const shownIds = () => Table.grid.rowManager.getDisplayRows().filter(r => r.type === 'row').map(r => r.getData().id);
+      await menuOf('Jurisdiction'); item('Filter…').click(); await tick(80);
+      const fr = label => $$('.tfilter .tf-row').find(r => r.querySelector('.v').textContent === label);
+      fr('Select all').querySelector('input').click(); await tick(60); fr('Delaware').querySelector('input').click(); await tick(60);
+      Shell.closeAll(); await tick(150);
+      nr.focus(); nr.value = 'Harbor Point Offshore, Ltd.'; keyIn('Tab', {}, nr); await tick(600);
+      const off = named('Harbor Point Offshore, Ltd.');
+      check('Typed under a filter that leaves it out, a new row stays in view, its next cell the keys’', !!off && shownIds().includes(off)
+        && Table.grid.modules.selectRange.getActiveCell()?.row.getData().id === off, `${!!off} ${shownIds().includes(off)} ${$('.toast span')?.textContent}`);
+      const other = Table.grid.getRows('active').find(r => r.getData().id !== off);
+      other.getCells()[1].getElement().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })); await tick(200);
+      check('… left, the filter applies to it, as the toast says', !shownIds().includes(off) && /^Added Harbor Point Offshore, Ltd\., which a filter hides/.test($('.toast span')?.textContent ?? ''), `${shownIds().includes(off)} ${$('.toast span')?.textContent}`);
+      tool('Clear filters').click(); await tick(150);
+      // Sorted, rows that come take their place in the sort.
+      await menuOf('Formation Date'); item('Sort newest first').click(); await tick(200);
+      Table.paste('Name\tFormation Date\nHarbor Point Fund I, L.P.\t3/14/2026\n', { file: 'more.csv' }); await previewed();
+      press('Enter'); await tick(400);
+      const hpf = named('Harbor Point Fund I, L.P.'), days = Table.grid.getRows('active').map(r => r.getData()['f:formation date']), dated = days.filter(Boolean);
+      check('Sorted, a row imported takes its place in the sort, as the rest are', !!hpf && dated.join() === [...dated].sort().reverse().join() && days[Table.grid.getRows('active').findIndex(r => r.getData().id === hpf)] === '2026-03-14', `${days[Table.grid.getRows('active').findIndex(r => r.getData().id === hpf)]} at ${Table.grid.getRows('active').findIndex(r => r.getData().id === hpf)} of ${days.length} ${Table.grid.getSorters().map(s => s.field + s.dir)} ${dated.join()}`);
+      tool('Formation Date, newest first').click(); await tick(); item('Clear sort').click(); await tick(200);
+    }
 
     // The Excel workbook: what the grid shows, in its order, a date a date and a tag Yes or No.
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], heads2 = titlesOf(), at = (r, c) => ws[XLSX.utils.encode_cell({ r, c })];

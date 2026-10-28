@@ -615,7 +615,7 @@ const Table = (() => {
     const look = lookOf(m.view), h = table?.rowManager.element;
     const was = table && ready && built?.view === m.view ? { left: h.scrollLeft, top: h.scrollTop,
       fields: table.getColumns().map(c => c.getField()).filter(Boolean), pins: pinsOf(table).map(c => c.getField()) } : null;
-    if (!was) chosen = null;
+    if (!was) chosen = keeping = null;
     if (table) { table.destroy(); table = null; }
     ready = false;
     cells.replaceChildren();
@@ -625,7 +625,7 @@ const Table = (() => {
     // The rows redlined as built, so they're drawn again as they are once the redline goes.
     reds = new Set(m.red ? m.data.filter(isRed).map(r => r.id) : []);
     flight = null;
-    const sorted = look.sort && m.cols.find(c => c.key === look.sort.key && drawn(c)), passes = filterOf(m, look);
+    const sorted = look.sort && m.cols.find(c => c.key === look.sort.key && drawn(c)), passes = gridFilter(m, look);
     const t = table = new Tabulator(host, {
       // A column is sized at its heading's edge, as Excel's is, and a row is only its cells. A field is a column's
       // key as it stands, dots and all. The grid is laid out again as settle says, not as Tabulator watches its size.
@@ -753,14 +753,16 @@ const Table = (() => {
     // One update at a time: another asked for meanwhile follows it.
     if (flight) { flight.again = true; return; }
     drewFrom = from;
-    // Rows keep their place while they're edited; a sort or a filter applies again only when asked.
-    // (Only a redlined grid has rows redlined.)
+    // Rows keep their place while they're edited; a sort or a filter applies again only when asked, or to rows that come
+    // (an import's, a paste's: resort), or a row typed once it's left (leave). (Only a redlined grid has rows redlined.)
     const t = table, lit = p ? [] : since(now), red = new Set(m.red ? m.data.filter(isRed).map(r => r.id) : []), first = m.red && !reds.size && (m.data.find(r => r._red) ?? m.data.find(isRed))?.id;
     const f = flight = { again: false };
     // Only the rows that say something else are updated, as Tabulator measures every row it's given again; a row that
     // comes (back, by Undo, or pasted) goes where its records put it, after the row before it, not at the end.
     const had = new Map(t.getRows().map(row => [row.getData().id, row.getData()])), changed = m.data.filter(r => !sameRow(r, had.get(r.id)));
     const updated = changed.filter(r => had.has(r.id)), there = new Set(had.keys());
+    // Rows come: new to the grid, or made from the redline's (an import's, a paste's), which the sort then places.
+    const came = m.data.some(r => !r._red && (!had.has(r.id) || had.get(r.id)._red === 'add'));
     const come = () => m.data.filter(r => !had.has(r.id)).reduce((p, r) => p.then(() => {
       const before = m.data.slice(0, m.data.indexOf(r)).findLast(x => there.has(x.id));
       there.add(r.id);
@@ -774,6 +776,9 @@ const Table = (() => {
       if (t !== table) return;
       const keep = new Set(m.data.map(r => r.id)), rows = new Map();
       for (const row of t.getRows()) if (!keep.has(row.getData().id)) row.delete(); else rows.set(row.getData().id, row);
+      // A row come after one the filters leave out is placed only among all the rows: the filters are run again, so it's
+      // shown as they say (and the row being typed, as it is).
+      if (t.getFilters().length && m.data.some(r => !had.has(r.id))) t.refreshFilter();
       for (const id of new Set([...reds, ...red])) rows.get(id)?.reformat();
       reds = red;
       t.restoreRedraw();
@@ -782,6 +787,7 @@ const Table = (() => {
       if (flight === f) flight = null;
       if (t !== table) return;
       if (!ok) return build(current);
+      if (came) resort();
       mark();
       if (first) reveal(first);
       flash(lit);
@@ -849,6 +855,8 @@ const Table = (() => {
   document.addEventListener('pointerdown', e => {
     inside = !!cells?.contains(e.target); pressed = e.timeStamp;
     if (inside) tabbed = null;
+    // Pressed in the grid off the row being typed, it's left.
+    if (keeping && inside && table?.getRows().find(x => x.getElement().contains(e.target))?.getData().id !== keeping) setTimeout(leave);
     // A right-click before anything's selected selects the cell, or the row by its number, as a click would:
     // Tabulator, keeping a range the cell is in, would look in a range that isn't there.
     const row = inside && e.button === 2 && ready && !table.modules.selectRange?.activeRange ? e.target.closest('.tabulator-row') : null;
@@ -919,7 +927,10 @@ const Table = (() => {
     const a = sr.getActiveCell();
     if (col && a && a.column !== col && col.visible) { const cell = a.row.getCell(col)?.getComponent(); if (cell) table.addRange(cell, cell); }
     across();
+    offRow();
   }
+  // The keys gone on from the row being typed, it's left.
+  const offRow = () => { const a = keeping && table?.modules.selectRange?.getActiveCell(); if (a && a.row.getData().id !== keeping) setTimeout(leave); };
 
   // ---- Writing: each edit, paste or deletion one change ----
   const edit = (fn, say, dated) => !!App.change(fn, { say, dated });
@@ -1489,7 +1500,7 @@ const Table = (() => {
   const clearFilters = () => { setLook(current.view, { filters: null }); refilter(); };
   function refilter() {
     if (!table || !ready) return;
-    const p = filterOf(current);
+    const p = gridFilter(current);
     if (current.groups) table.setGroupValues([grouped(current, p)]);
     if (p) table.setFilter(p); else table.clearFilter();
     funnels();
@@ -1497,6 +1508,24 @@ const Table = (() => {
   }
   // The groups a grid shows: those the filters leave a row in, as a pivot leaves out what's empty.
   const grouped = (m, p) => m.groups.filter(g => m.data.some(r => r._g === g && (!p || p(r))));
+  // ---- A row being typed stays where it is, in view, till it's left: then the filters and the sort apply to it, as to
+  // any row come or changed, and the toast says where a filter hides it ----
+  let keeping = null;
+  // The grid's filter: the view's, but for the row being typed.
+  const gridFilter = (m, l) => { const p = filterOf(m, l); return p && (d => d.id === keeping || p(d)); };
+  function leave() {
+    const id = keeping;
+    if (!id || !table || !ready) return void (keeping = null);
+    keeping = null;
+    const p = filterOf(current), d = current.data.find(r => r.id === id);
+    if (p && d && !p(d)) { refilter(); Shell.toast(`Added ${App.notes.peek().nameOf(App.state.peek(), id)}, which a filter hides`); }
+    resort();
+  }
+  // Sorted, the rows are sorted again, so a row come or changed takes its place; not while a row is being typed.
+  function resort() {
+    const s = !keeping && table?.getSorters();
+    if (s?.length) table.setSort(s.map(x => ({ column: x.field, dir: x.dir })));
+  }
   // A heading's arrow or funnel coming or going, its column is fitted again, so its name stays whole.
   const relayout = () => { if (table && ready) { laid.delete(table); settle(); } };
   // A filtered column's heading shows its funnel, and a sorted one's its arrow, each with room for it.
@@ -1737,7 +1766,7 @@ const Table = (() => {
     const sortC = l.sort && by(l.sort.key), groupC = l.group && m.named && by(l.group), fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean);
     const total = m.data.filter(r => r._red !== 'add').length, showing = table && ready ? table.getRows('active').filter(r => r.getData()._red !== 'add').length : total;   // the rows as kept, not copies of them
     // The record selected (in Find, say) a row the filters leave out: it stays selected, and the bar says so.
-    const sel = Shell.selection.value[0], passes = fs.length && filterOf(m, l), out = passes && m.data.find(r => r.id === sel && r._red !== 'add' && !passes(r));
+    const sel = Shell.selection.value[0], passes = fs.length && gridFilter(m, l), out = passes && m.data.find(r => r.id === sel && r._red !== 'add' && !passes(r));
     return html`<div class="tbar" role="toolbar" aria-label="Table">
       <button type="button" class="btn ghost dd" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
       <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? `${headed(sortC)}, ${sortWords(sortC)[l.sort.dir === "desc" ? 1 : 0]}` : "Sort"}</button>
@@ -1826,7 +1855,9 @@ const Table = (() => {
     e.preventDefault();
     const m = current;
     let id = null;
-    if (!App.change(tx => { id = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); })) return;
+    leave();
+    // The row made is the row being typed, kept in view under the filters till it's left.
+    if (!App.change(tx => { id = keeping = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); })) { keeping = null; return; }
     input.value = '';
     landed(id, () => {
       if (e.key !== 'Tab') return reveal(id);
@@ -1840,7 +1871,7 @@ const Table = (() => {
       go();
     });
   }
-  // Once a record made is a row of the grid (or the grid's filters leave it out, which the toast says).
+  // Once a record made is a row of the grid (or the grid's filters leave it out, a relation's, which the toast says).
   function landed(id, then, tries = 40) {
     if (inGrid(id)) return then();
     if (table?.rowManager.findRow(id)) return Shell.toast(`Added ${App.notes.peek().nameOf(App.state.peek(), id)}, which a filter hides`, { undo: () => Shell.parts.peek().undo?.undo() });
@@ -2072,6 +2103,7 @@ const Table = (() => {
       if (e.key === 'Home') { const h = holder(); if (h) h.scrollLeft = 0; return; }
       return across();
     }
+    if (/^(Arrow|Page)/.test(e.key)) offRow();
     if (/^(ArrowLeft|ArrowRight)$/.test(e.key)) return across();
     if (mod && (k === 'd' || k === 'r') && !e.shiftKey && !e.altKey) { e.preventDefault(); if (canWrite()) fillFrom(k === 'd'); return; }
     if (e.key === 'F2') { e.preventDefault(); if (canEdit(cell)) { ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } return; }
@@ -2123,7 +2155,7 @@ const Table = (() => {
         effect(() => { if (!Shell.gliding.value) preactSignals.untracked(settle); }),
         effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view, its row the keys'.
-        effect(() => { const id = Shell.selection.value[0]; mark(); if (!picking) preactSignals.untracked(() => track(id)); }),
+        effect(() => { const ids = Shell.selection.value, id = ids[0]; mark(); if (!picking) preactSignals.untracked(() => track(id)); if (keeping && ids.length && !ids.includes(keeping)) setTimeout(leave); }),
       ];
       return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); preact.render(null, tools); preact.render(null, rowEl); table?.destroy(); table = null; el = cells = rowEl = pins = null; };
     },
