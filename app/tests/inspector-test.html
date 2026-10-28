@@ -542,6 +542,7 @@ async function run() {
     `${owners(oct)} / ${owners(nov)} ${JSON.stringify(t1.adds).slice(0, 300)}`);
   check('… History and its toast say it as asked', Time.describe(t1) === 'Transferred 82% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2026'
     && toastText() === Time.describe(t1), `${Time.describe(t1)} / ${toastText()}`);
+  check('… its panel, today, saying the day it ends on, a link to the chart then', Shell.selection.peek().join() === own && rowOf('Ends on')?.querySelector('.lk')?.textContent === 'November 1, 2026', $('.insp')?.textContent.slice(0, 200));
   Shell.parts.value.undo.undo(); await tick(60);
   check('… one Undo takes it back whole, saying what it undid', nP() === nT + 2 && owners(App.wb.asOf(C, '2026-11-01')).join() === own && toastText() === `Undid: ${Time.describe(t1)}`, toastText());
   // A part, today, to one the chart has: the old one's amount less the part, from the day; the new one the part

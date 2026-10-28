@@ -436,7 +436,7 @@ const App = (() => {
     const term = (o, s = N.shortOf(recs, o)) => s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s;
     const amt = tr.amount && entered.value[tr.amount], name = x => bind(term(Tree.objectOf(recs, x)));
     const key = e => {
-      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); e.target.blur(); commit(); }
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (ready(pending.peek() ?? {})) { e.target.blur(); commit(); } }
       else if (e.key === 'Escape' && text !== null) { e.preventDefault(); e.stopPropagation(); setText(null); set({ part: was.current }); setTimeout(() => much.current?.select()); }
     };
     const typed = e => {

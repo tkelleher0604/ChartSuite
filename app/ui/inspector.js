@@ -906,12 +906,16 @@ function RecordView({ id }) {
   const p = App.pending.value, here = p?.chart === App.chart.value && (p.transfer?.rid === id || (p.verb === 'Delete' && p.needs?.length === 1 && p.needs[0] === id)) ? p : null;
   const moving = !here && !App.readOnly.value && r.args && App.transferable(id)
     ? html`<button class="btn ghost add-entry" onClick=${() => App.transferring(id)}>${icon('ArrowRightLeft')}Transfer…</button>` : null;
+  // A record whose period ends after the day shown (deleted, or transferred, from a later day) says the day it ends on,
+  // the first it no longer holds, a link to the chart then.
+  const ends = App.shown.value.item(App.chart.value, id).find(v => Log.validOn(v, App.day.value))?.before;
   return html`<div class=${'insp' + (goes(id) ? ' going' : '')}>${head}
     ${here ? html`<${App.Asking} key=${here.n} p=${here} />` : null}
     <div class="rows">
       ${sides.map(a => { const way = trail(a.at);
         return html`<div class="row" key=${a.edge}><div class="k">${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)}>${bound(nameOf(objectOf(a.at)))}</${Go}>
         ${way ? html`<span class="muted"> › ${way}</span>` : null}</div></div>`; })}
+      ${ends ? html`<div class="row ends" key="ends"><div class="k">Ends on</div><div class="v"><button class="lk" onClick=${() => Shell.at({ asOf: ends })}>${T.formatDate(ends)}</button></div></div>` : null}
       ${r.kind || boxed(id) ? null : html`<div class="row" data-key=${id}><div class="k"><span class="lbl">${name}</span></div>
         <div class="v ctl"><${Output} id=${id} slot=${r} label=${name} /></div></div>`}
       ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} also=${moving} />`}
