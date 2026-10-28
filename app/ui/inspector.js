@@ -1395,7 +1395,7 @@ const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' 
     if (why) emit('why-open', why);
   };
   const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
-  return { kind: a.kind, go: a.error ? go(p?.at, p?.edge, a.id) : go(a.id, a.edge) };
+  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error ? go(p?.at, p?.edge, a.id) : go(a.id, a.edge) };
 }));
 
 Shell.register('inspector', { mount(el) { render(html`<${Inspector} />`, el); return () => render(null, el); } });

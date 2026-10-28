@@ -1443,6 +1443,24 @@ const FormulaBar = (() => {
     return { value: show(v, /%/.test(text) || names.some(n => percents.has(n))) };
   });
 
+  // What needs attention (Formulas.attention's items), in its words and where, as the status bar's lists say it: what
+  // it is, whose, and its figure where it has one. A check failed by what failed ("Ownership Adds Up", Fund III,
+  // "101.6%, not 100%"); a date by what falls due, whose and its day, as the Dates table says it ("Annual Tax Due",
+  // "AIV-1, tax year 2025", "Jun 1, 2026"); a blank by the entry missing and whose; an error by its definition, where,
+  // and its code. → { what, where, figure }
+  function needOf({ kind, id, edge, error }) {
+    const Rv = R.peek(), recs = Rv.records, n = N(), r = recs[id];
+    const whose = x => recs[x] ? Time.whose(recs, x, n) : '';
+    if (error) return { what: defOf(error.def)?.name ?? error.error.code, where: error.args ? placeText(argsOf(Rv, error, null), 'short') : whose(error.at), figure: error.error.code };
+    if (!r) return { what: edge ?? '', where: '', figure: '' };
+    if (kind === 'blank') return { what: edge, where: whose(id), figure: '' };
+    const where = r.args ? n.segmentOf(recs, id) : whose(r.at);
+    if (kind === 'overdue' || kind === 'soon') return { what: n.nameOf(recs, id), where, figure: Tree.formatDate(r.value, 'short') };
+    const failed = notsOf(Rv, id)?.failed.find(f => f.then || f.not);
+    return { what: n.nameOf(recs, id), where, figure: failed?.then ?? (failed?.not ? `not ${failed.not.text}` : '') };
+  }
+  Shell.register('needs', needOf);
+
   Shell.register('formulabar', Bar);
   // What the chevron and its key will do, said as it will do it.
   const toggled = shut => shut ? 'Expand formula bar' : 'Collapse formula bar';

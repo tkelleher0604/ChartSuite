@@ -1034,19 +1034,37 @@ async function run() {
 
   // ---- F8 goes to the worst first, wherever the chart has it (the inspector's attention, stood in for) ----
   // The checks failed (app.js) are errors too, counted with the inspector's.
-  const visits = [], needs = ['blank', 'soon', 'overdue', 'blank', 'error'].map((kind, i) => ({ kind, go: () => visits.push(kind + i) })), failing = errorsNow();
+  const dueIds = Object.keys(App.computed.peek().records).filter(id => App.computed.peek().records[id].field === 'date');
+  const stood = [{ id: fund, edge: 'EIN' }, { id: dueIds[0] }, { id: dueIds[1] }, { id: halvard, edge: 'Fiscal Year End' }, {}];
+  const visits = [], needs = ['blank', 'soon', 'overdue', 'blank', 'error'].map((kind, i) => ({ kind, ...stood[i], go: () => visits.push(kind + i) })), failing = errorsNow();
   // (The status bar counts once the window has drawn, a frame later.)
   const unneed = Shell.register('attention', { items: () => needs }); await tick(150);
   for (let i = 0; i < needs.length + failing; i++) Shell.parts.peek().action.find(a => a.id === 'attend').run();
   check('F8 goes to what’s overdue, then errors, then what’s due soon, then blanks', visits.join() === 'overdue2,error4,soon1,blank0,blank3', visits.join());
   check('… and the status bar counts them in that order, a check failed as an error', $$('.status .counts .btn').map(b => b.textContent).join(' · ') === `1 overdue · ${failing + 1} errors · 1 due soon · 2 blank`, $$('.status .counts .btn').map(b => b.textContent).join(' · '));
   visits.length = 0;
-  $$('.status .counts .btn').find(b => b.textContent === '1 due soon').click();
-  Shell.parts.peek().action.find(a => a.id === 'attend').run();
-  check('A count goes to the first of its kind, and F8 goes on from there, in the whole list', visits.join() === 'soon1,blank0', visits.join());
+  // A count clicked opens its items, each in its words and where, found as they're typed; choosing one goes there.
+  const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const soonCount = $$('.status .counts .btn').find(b => b.textContent === '1 due soon');
+  check('“Due soon” says on hover what soon is', soonCount?.dataset.tip === 'Due within 30 days', soonCount?.dataset.tip);
+  $$('.status .counts .btn').find(b => b.textContent === '2 blank').click(); await tick(120);
+  const R0 = App.computed.peek().records, whoseOf = id => Time.whose(R0, id, App.notes.peek());
+  const needsListed = $$('.float .menu.needs .menu-item').map(e => txt(e.querySelector('.label')));
+  check('A count clicked opens its items, each in its words and where: the entry blank, and whose', JSON.stringify(needsListed) === JSON.stringify([`EIN · ${whoseOf(fund)}`, `Fiscal Year End · ${whoseOf(halvard)}`])
+    && !!$('.float .menu.needs .menu-find'), needsListed.join(' / '));
+  $$('.float .menu.needs .menu-item')[1]?.click(); await tick(80);
+  check('… and choosing one goes there, nothing else stepped', visits.join() === 'blank3' && !$('.float .menu.needs'), visits.join());
   visits.length = 0;
-  for (let i = 0; i < 3; i++) $$('.status .counts .btn').find(b => b.textContent === '2 blank').click();
-  check('A count clicked again goes to the next of its kind, and round to the first', visits.join() === 'blank3,blank0,blank3', visits.join());
+  $$('.status .counts .btn').find(b => b.textContent === '1 overdue').click(); await tick(120);
+  const due = $('.float .menu.needs .menu-item'), dueRec = R0[dueIds[1]];
+  check('… a date by what falls due and whose, its day at its end', txt(due?.querySelector('.label')) === `${App.notes.peek().nameOf(R0, dueIds[1])} · ${whoseOf(dueRec.at)}`
+    && txt(due?.querySelector('.detail')) === Tree.formatDate(dueRec.value, 'short'), `${txt(due?.querySelector('.label'))} | ${txt(due?.querySelector('.detail'))}`);
+  Shell.closeAll(); await tick(60);
+  $$('.status .counts .btn').find(b => b.textContent === '1 due soon').click(); await tick(60);
+  Shell.parts.peek().action.find(a => a.id === 'attend').run();
+  check('A count clicked steps nothing; F8 goes on in the whole list', visits.join() === 'overdue2', visits.join());
+  Shell.closeAll(); await tick(60);
+  visits.length = 0;
   // Find reaches them by the bar's words, and a deadline by what settles it.
   const problems = async q => { Shell.find(q); await tick(120); const got = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent); Shell.closeAll(); await tick(); return got; };
   let said = await problems('overdue');
@@ -1056,7 +1074,9 @@ async function run() {
   visits.length = 0;
   Shell.find('overdue'); await tick(120);
   press('Enter', $('.findpal .menu-find')); await tick(120);
-  check('… choosing one goes where the status bar’s count does', visits.join() === 'overdue2', visits.join());
+  const opened = !!$('.float .menu.needs');
+  $('.float .menu.needs .menu-item')?.click(); await tick(80);
+  check('… choosing one opens its list, as the status bar’s count does, and an item there goes to it', opened && visits.join() === 'overdue2', `${opened} ${visits.join()}`);
   // A blank F8 went to leaves the keys in its field, and F8 goes on from there.
   const field = document.createElement('input');
   $('.inspector').append(field); field.focus();

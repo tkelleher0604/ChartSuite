@@ -32,9 +32,10 @@
 // 'find' { items() → menu items }, Find's records, lists and definitions, an item with its kind (detail:
 // 'Entity', which heads it), any other names it goes by (names: […]) and a key, and what's within it (a list,
 // "AIV-1 › Signatories") with of: that key; 'export' { name, run }; 'status' { render() }; 'attention'
-// { items() → [{ kind: 'overdue' | 'error' | 'soon' | 'blank', go() }] }, what needs attention, counted in the
-// status bar and stepped through by F8 in that order, the worst first, from App.needs (Formulas.attention):
-// inspector.js counts deadlines, blanks and errors, aiming at their rows; app.js the checks failed, as errors.
+// { items() → [{ kind: 'overdue' | 'error' | 'soon' | 'blank', id, edge?, error?, go() }] }, what needs attention,
+// counted in the status bar, listed by a count clicked and stepped through by F8 in that order, the worst first, from
+// App.needs (Formulas.attention): inspector.js counts deadlines, blanks and errors, aiming at their rows; app.js the
+// checks failed, as errors. One 'needs' (item) → { what, where, figure } says an item in its words (formulabar.js).
 //
 // THE BUS, for what more than one part hears (Shell.on(name, fn) → off, Shell.emit(name, detail)):
 //   select        the selection changed; its keys       the shell        → the tour, the formula bar
@@ -795,26 +796,31 @@ const Shell = (() => {
   }
 
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
-  // Each kind as the bar says it, and the words Find reaches it by besides: a deadline is settled by Paid… or
-  // Filed… (inspector.js).
+  // Each kind as the bar says it, what it means on hover where its name doesn't say, and the words Find reaches it by
+  // besides: a deadline is settled by Paid… or Filed… (inspector.js).
   const KINDS = [['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
-    ['soon', n => `${n} due soon`, ['Paid', 'Filed']], ['blank', n => `${n} blank`, []]];
+    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []]];
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   const needs = () => many('attention').flatMap(a => a.items());
-  // A count goes to the first of its kind, clicked again to the next of its kind, round to the first; F8 goes on from
-  // wherever it is through them all.
+  // F8 goes on from wherever it is through them all.
   let stepAt = -1;
-  function attend(d = 1, kind) {
+  function attend(d = 1) {
     const items = needs().sort((a, b) => worst(a) - worst(b));
-    if (kind) {
-      const of = items.flatMap((it, i) => it.kind === kind ? [i] : []), k = of.indexOf(stepAt);
-      stepAt = of.length ? of[(k + 1) % of.length] : -1;
-    } else stepAt = items.length ? (stepAt + d + items.length) % items.length : -1;
+    stepAt = items.length ? (stepAt + d + items.length) % items.length : -1;
     items[stepAt]?.go();
   }
-  const counts = () => { const items = needs(); return KINDS.map(([k, say, names]) => ({ k, say, names, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
-  // In Find, each count goes where the bar's does.
-  const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => attend(1, c.k) }));
+  // A count clicked opens its items, each in its words and where (the 'needs' part: what, whose, its figure), found as
+  // they're typed; choosing one goes there.
+  function listOf(kind, anchor) {
+    const say = part('needs');
+    const items = needs().filter(it => it.kind === kind).map(it => { const w = say?.(it) ?? { what: '', where: '', figure: '' };
+      return { label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go }; });
+    if (anchor) menu(anchor, items, { search: true, cls: 'needs', placement: 'top-end' });
+  }
+  const countButton = kind => document.querySelector(`.status .counts > .${kind}`);
+  const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
+  // In Find, each count opens its list, as the bar's does.
+  const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => setTimeout(() => listOf(c.k, countButton(c.k))) }));
   // The bar counts once the window has drawn what changed, as Excel's catches up, for on a big chart counting takes
   // a while; whatever it counts is of the workbook, the chart and the time shown.
   const tally = signal([]);
@@ -826,7 +832,8 @@ const Shell = (() => {
     useLayoutEffect(() => effect(() => { if (part('workbook')) { App.version.value; App.chart.value; } time.value; recount(); }), []);
     // The counts are announced as they change; how the workbook is kept, which ages by the minute, isn't.
     return html`<div class="status">
-      <span class="counts" role="status">${tally.value.map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} onClick=${() => attend(1, c.k)}>${c.say(c.n)}</button>`)}</span>
+      <span class="counts" role="status">${tally.value.map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} aria-haspopup="menu" data-tip=${c.tip ?? null}
+        onClick=${e => listOf(c.k, e.currentTarget)}>${c.say(c.n)}</button>`)}</span>
       ${many('status').map(s => s.render())}
     </div>`;
   }

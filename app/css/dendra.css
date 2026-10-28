@@ -318,6 +318,8 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 /* Find: a menu over the title bar's field, its answers ranked as you type. */
 .menu.findpal { width: min(600px, calc(100vw - 32px)); max-width: none; max-height: min(480px, calc(100vh - 80px)); }
 .menu.findpal > .menu-find { height: 40px; line-height: 40px; }
+/* A count's list: each item in its words and where, its figure at its end. */
+.menu.needs { width: min(560px, calc(100vw - 32px)); max-width: none; }
 .menu-item.said { height: auto; min-height: var(--row); padding-block: 4px; white-space: pre-wrap; cursor: text; user-select: text; }
 
 /* Dragging to reorder: the item dragged, faint, and a line where it would go. */

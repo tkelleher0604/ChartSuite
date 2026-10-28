@@ -75,7 +75,7 @@ const App = (() => {
   // It reads only the Required and Check notes, so a look or a field shown, changed, counts nothing again.
   const asking = keptWhile(() => JSON.stringify(['Required', 'Check'].flatMap(l => notes.value.notes(l).map(n => [n.note, n.view, n.param, Tree.key(n.pattern), n.value]))), () => notes.peek());
   const needs = computed(() => Formulas.attention(result.value, asking.value, day.value));
-  Shell.register('attention', { items: () => needs.value.filter(a => a.kind === 'error' && !a.error).map(({ id }) => ({ kind: 'error', go: () => {
+  Shell.register('attention', { items: () => needs.value.filter(a => a.kind === 'error' && !a.error).map(({ id }) => ({ kind: 'error', id, go: () => {
     const r = state.peek()[id];
     if (!r) return;
     Shell.select([r.args ? id : r.at]);
