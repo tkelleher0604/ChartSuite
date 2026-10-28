@@ -80,8 +80,9 @@
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A name longer than half the grid goes on to another line rather than be cut (table.js). */
 .grid .tabulator-row .tabulator-cell.lead { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
-/* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does. */
-.grid .tabulator .tabulator-tableholder { scroll-snap-type: x mandatory; }
+/* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does; swiped on past its
+   edge, it stays, rather than the window going back a view. */
+.grid .tabulator .tabulator-tableholder { scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
 .grid .tabulator-row .tabulator-cell:not(.pin, .tabulator-row-header) { scroll-snap-align: start; scroll-margin-left: var(--pinned, 48px); }
 .grid .tabulator-row .tabulator-cell.fx { font-style: italic; }
 .grid .tabulator-row .tabulator-cell.due { color: var(--no); }

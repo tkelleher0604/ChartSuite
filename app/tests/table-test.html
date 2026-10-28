@@ -434,10 +434,14 @@ async function run() {
     const seen = title => { const e = column(title)?.getElement();
       return !!e && (e.classList.contains('pin') || (leftOf(title) >= edge() - 1 && rightOf(title) <= holder().getBoundingClientRect().left + holder().clientWidth + 1)); };
     const scrollTo = async x => { holder().scrollLeft = x; holder().dispatchEvent(new Event('scroll')); await tick(120); };
-    const lit = title => !!column(title)?.getElement().classList.contains('come');
+    // Lit since the last act: a heading given its light, however soon the light's gone.
+    const litLog = new Set(), litWatch = new MutationObserver(ms => { for (const m of ms) if (m.target.classList?.contains('come') && m.target.classList.contains('tabulator-col')) litLog.add(m.target.querySelector('.t')?.textContent); });
+    litWatch.observe($('.grid'), { attributes: true, attributeFilter: ['class'], subtree: true });
+    const lit = title => litLog.has(title), act = () => litLog.clear();
     const pointer = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 9 }));
     // A heading dragged by its name and dropped at x, as a hand drags it.
     const drag = async (title, x) => {
+      act();
       const el = column(title).getElement(), b = el.getBoundingClientRect(), y = b.top + 10;
       pointer('pointerdown', el.querySelector('.tabulator-col-title'), b.left + 20, y);
       pointer('pointermove', window, b.left + 40, y); pointer('pointermove', window, x, y); pointer('pointerup', window, x, y);
@@ -454,7 +458,7 @@ async function run() {
     await drag('Jurisdiction', edge() + 2);
     check('A heading dropped beside the column kept in view is there, in view, lit, the grid where it was scrolled',
       titlesOf()[1] === 'Jurisdiction' && holder().scrollLeft === 0 && seen('Jurisdiction') && lit('Jurisdiction') && N() === nA + 1, `${titlesOf().slice(0, 3).join()} at ${holder().scrollLeft}; seen ${seen('Jurisdiction')}, lit ${lit('Jurisdiction')}`);
-    undo(); await tick(250);
+    act(); undo(); await tick(250);
     check('… and Undo puts it back where it was, brought into view, lit', titlesOf().indexOf('Jurisdiction') === 4 && seen('Jurisdiction') && lit('Jurisdiction'), `${titlesOf().slice(0, 6).join()}; seen ${seen('Jurisdiction')}`);
     // Scrolled across, beside them: there too, the columns scrolled under them staying so.
     await across(3);
@@ -510,7 +514,7 @@ async function run() {
 
     // Shown, a column comes whole into view, lit, headed by its own name where no other column reads alike.
     const tool = label => $$('.tbar .btn').find(b => b.textContent === label);
-    const showing = async label => { tool('Columns').click(); await tick(); $$('.cols .colrow.mv').find(r => r.textContent.trim() === label).querySelector('input').click(); await tick(300); Shell.closeAll(); await tick(); };
+    const showing = async label => { act(); tool('Columns').click(); await tick(); $$('.cols .colrow.mv').find(r => r.textContent.trim() === label).querySelector('input').click(); await tick(300); Shell.closeAll(); await tick(); };
     const heads = () => Table.grid.getColumns().filter(c => c.getField()).map(c => { const e = c.getElement(); return [e.querySelector('.up')?.textContent, e.querySelector('.t').textContent].filter(Boolean).join(' › '); });
     const sheetHeads = async () => { const w = await Table.workbook(), s = w.Sheets[w.SheetNames[0]]; return Table.grid.getColumns().filter(c => c.getField()).map((_, j) => s[XLSX.utils.encode_cell({ r: 0, c: j })]?.v); };
     // With the columns placed (a heading moved), one shown goes after them all, far to the right, as Sam's did.
@@ -584,6 +588,7 @@ async function run() {
     offSel();
     check('A cell clicked selects its row alone, and nothing else on the way', Shell.selection.peek().join() === halvard && sizes.every(n => n <= 1), `${Shell.selection.peek().join()} via ${sizes.join()}`);
     Shell.select([]); await tick(60);
+    litWatch.disconnect();
   }
 
   // The tabs: renamed, moved, duplicated and deleted, each one change.

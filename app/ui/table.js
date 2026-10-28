@@ -1451,6 +1451,8 @@ const Table = (() => {
       if (!ghost) return;
       ghost.remove(); bar.remove(); colEl.classList.remove('moving');
       holder().style.scrollSnapType = '';
+      // Dropped where it's no longer drawn (another view shown meanwhile), it isn't dropped.
+      if (!el?.offsetParent || t !== table) return;
       const os = order(), from = os.indexOf(c);
       if (drop && to >= 0 && to !== from && to !== from + 1) { os.splice(to > from ? to - 1 : to, 0, os.splice(from, 1)[0]); place(os, undefined, undefined, c); }
     };
