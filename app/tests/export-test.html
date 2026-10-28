@@ -70,8 +70,9 @@ async function run() {
       tx.add('shape', { view, geometry: 'legend', x: 48, y: 1200, w: 520, title: 'Key', columns: 2 });
       tx.add('shape', { view, geometry: 'text', x: 640, y: 1200, w: 640, h: 30, text: 'Calder Ridge Capital Partners III, L.P.', format: { Size: 20, Bold: true } });
     }
-    // A picture, and an arrow drawn by hand.
-    tx.add('shape', { view: views[0], geometry: 'picture', x: 1300, y: 1200, w: 60, h: 40, src: `data:image/png;base64,${PNG}` });
+    // A picture, and an arrow drawn by hand; the picture placed far out, so that the page holding it draws the chart very
+    // small, its names under 1 pt.
+    tx.add('shape', { view: views[0], geometry: 'picture', x: 26000, y: 14000, w: 60, h: 40, src: `data:image/png;base64,${PNG}` });
     tx.add('shape', { view: views[0], geometry: 'line', points: [[1400, 1220], [1500, 1220], [1500, 1260]], format: { Arrow: 'end' } });
     const c = tx.commit();
     if (typeof c === 'string') throw new Error(c);

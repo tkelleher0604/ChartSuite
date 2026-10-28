@@ -32,7 +32,7 @@ const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, sa
 // points stay on PowerPoint's half points and change only in steps. The page is the sheet in the chart's own
 // pixels, the sheet's size over the scale. Its furniture is the sheet's, at the sheet's size: its title and
 // its date at its top left margin, the chart 24 pt under them, and its Key at the chart's foot where it sets least
-// far down, or beside the title, top right, where that draws the chart larger.
+// far down, or beside the title, top right, where that draws the chart larger; nothing in the Key larger than the names.
 const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
 const MARGIN = 48;
@@ -715,11 +715,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     layoutLegend(k, legendRows);
     room.key = { w: k.w, h: k.h, under: k.w > sheet.w - MARGIN - 32 - Math.max(MARGIN, ...furnished.map(m => MARGIN - INSET + (m.column?.x ?? 0) + widest(m.texts))) };
   }
-  let heights = null;
+  // Each box's size on its own page, for another paper (see squeezed).
+  let pageSizes = null;
   // The room a line's label needs between the two boxes it joins side by side: its width and 3 pt either side, and
   // its arrowhead, where it has one (see Layout's labels).
   const roomFor = new Map();
   for (const l of lines) if (l.label && !l.revealed) for (const k of [`${l.from}|${l.to}`, `${l.to}|${l.from}`]) roomFor.set(k, Math.max(roomFor.get(k) ?? 0, l.label.w + 8 + (l.settings.Arrow.value === 'none' ? 0 : 10.7)));
+  const beside = (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0;
+  // The boxes a box's lines run to.
+  const ends = groupBy(lines.flatMap(l => [[l.from, l.to], [l.to, l.from]]), ([id]) => id), linked = id => (ends.get(id) ?? []).map(([, o]) => o);
   // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have, or none but
   // against the router's rules; labels with no free place, as they're drawn on a page at s (see relabel); and names
   // cut, no longer as typed.
@@ -739,7 +743,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
     boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
-    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, says: !!l.label && !l.label.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
+    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
   function* lay(squeeze, grow = 1) {
@@ -749,13 +753,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       keep: last?.at ?? null, ...ranked(boxes),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
       obstacles: obstaclesOf(onPage, last?.page.offset),
-      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, heights), page: { ...sheet, room }, bounds: last?.page ?? null,
+      entered: squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, pageSizes, beside, linked), page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     for (const b of boxes) Object.assign(b, placed.get(b.id));
     yield;
     // What's placed on its own page stands where it was put, but for the room labels need beside it; a place the
     // layout gives makes room too for the lines that come down past what stands over their box.
-    const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id)), beside = (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0, stood = b => !!last?.at.has(b.id);
+    const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id)), stood = b => !!last?.at.has(b.id);
     spread(boxes, beside, stood);
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level). A preview keeps every
     // box as it stood, and what it adds is placed clear of them, and sized among themselves.
@@ -772,23 +776,48 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const framing = id => [...frames.values()].filter(f => inFrame(frames, f).includes(id)).map(f => f.id).join();
     clearTops(boxes, lines.filter(l => l.ranks && framing(l.from) === framing(l.to)), given);
     frameBounds(frames, boxes);
-    const stand = !!last || boxes.some(b => b.entered);
-    routes(boxes, lines, frames, stand).forEach((r, i) => Object.assign(lines[i], r));
+    const stand = !!last || boxes.some(b => b.entered), tops = boxes.map(b => b.y);
+    let rs = routes(boxes, lines, frames, stand);
+    rs.forEach((r, i) => Object.assign(lines[i], r));
     for (let n = 0; n < 3 && !last && deepen(boxes, lines); n++) {
       yield;
       frameBounds(frames, boxes);
-      routes(boxes, lines, frames, stand).forEach((r, i) => Object.assign(lines[i], r));
+      (rs = routes(boxes, lines, frames, stand)).forEach((r, i) => Object.assign(lines[i], r));
+    }
+    // A line that goes around what's drawn though its trunk gave it a lane takes none: the routes are found again with it
+    // aside, the gaps as they were and deepened only for the lanes then drawn, where no more lines go around for it. So a
+    // line added that goes around moves no lane, gap or box it doesn't touch.
+    const off = last ? [] : lines.filter(l => l.around && l.placing.laned).map(l => l.id);
+    if (off.length) {
+      const astray = () => lines.filter(l => l.blocked || l.astray || l.strained).length, was = { ys: boxes.map(b => b.y), rs, around: lines.filter(l => l.around).length, astray: astray() };
+      boxes.forEach((b, i) => { b.y = tops[i]; });
+      frameBounds(frames, boxes);
+      (rs = routes(boxes, lines, frames, stand, off)).forEach((r, i) => Object.assign(lines[i], r));
+      for (let n = 0; n < 3 && deepen(boxes, lines); n++) {
+        yield;
+        frameBounds(frames, boxes);
+        (rs = routes(boxes, lines, frames, stand, off)).forEach((r, i) => Object.assign(lines[i], r));
+      }
+      if (lines.filter(l => l.around).length > was.around || astray() > was.astray) {
+        boxes.forEach((b, i) => { b.y = was.ys[i]; });
+        frameBounds(frames, boxes);
+        was.rs.forEach((r, i) => Object.assign(lines[i], r));
+      }
     }
     yield;
     if (last) still(last, boxes, lines, frames);
     const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy });
     return { ...laid, around: lines.filter(l => l.around).length };
   }
-  // A layout just laid, with its faults; and a layout laid again, as it was judged.
-  const judged = laid => ({ ...laid, faults: faults(laid.s) }), again = (laid, as) => ({ ...laid, faults: as.faults });
-  // Of two layouts, the better: the one with fewer faults, then the larger, then the one with fewer lines gone
-  // around what's drawn.
-  const better = (a, b) => a.faults !== b.faults ? a.faults < b.faults : a.s !== b.s ? a.s > b.s : a.around < b.around;
+  // A layout just laid, with its faults, and on another paper its lines bent that drop straight on the view's own page
+  // (`straight`); and a layout laid again, as it was judged.
+  let straight = null, largest = Infinity;
+  const bent = () => straight ? lines.filter(l => straight.has(l.id) && l.points?.length > 2).length : 0;
+  const judged = laid => ({ ...laid, faults: faults(laid.s), bent: bent() }), again = (laid, as) => ({ ...laid, faults: as.faults, bent: as.bent });
+  // Of two layouts, the better: the one with fewer faults, then the larger, up to the size its own page prints it at on
+  // another paper (`largest`), then the one with fewer lines bent, then the one with fewer lines gone around what's drawn.
+  const better = (a, b) => { const [p, q] = [a.s, b.s].map(s => Math.min(s, largest));
+    return a.faults !== b.faults ? a.faults < b.faults : p !== q ? p > q : a.bent !== b.bent ? a.bent < b.bent : a.around < b.around; };
   yield;
   let at = judged(yield* lay(1)), grow = 1;
   // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
@@ -806,15 +835,19 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     if (tried !== grow) at = again(yield* lay(1, grow), at);
   }
-  heights = new Map(boxes.map(b => [b.id, b.h]));
+  pageSizes = new Map(boxes.map(b => [b.id, { w: b.w, h: b.h }]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at, and
-  // never so close that a line can't pass or a label has no place.
+  // never so close that a line can't pass or a label has no place; and of those as large, the one with the fewest
+  // lines bent that drop straight on its own page.
   if (onPaper && boxes.length) {
-    const target = (yield* drawing(wb, chart, view, day, { ...opts, paper: null })).page.scale;
+    const own = yield* drawing(wb, chart, view, day, { ...opts, paper: null });
+    largest = own.page.scale;
+    straight = new Set(own.marks.filter(m => m.type === 'line' && m.points?.length === 2).map(m => m.id));
+    at = { ...at, bent: bent() };
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
-      if (at.s >= target && !at.faults) break;
+      if (at.s >= largest && !at.faults && !at.bent) break;
       const next = judged(yield* lay(tried = f, grow));
       if (better(next, at)) [at, best] = [next, f];
     }
@@ -891,8 +924,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
 }
 // A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.
 function shapeOf(row, scene) {
-  const u = 1 / (scene.page.scale ?? 1), m = freeShape({ shape: '·new', ...row }, row.text ?? '', u);
-  if (m.geometry === 'legend') layoutLegend(m, scene.legend, u);
+  const s = scene.page.scale ?? 1, k = row.geometry === 'legend' && row.format?.Size == null ? keyAt(scene.marks.filter(m => m.type === 'box'), s) : 1;
+  const m = freeShape({ shape: '·new', ...row }, row.text ?? '', 1 / s, k);
+  if (m.geometry === 'legend') layoutLegend(m, scene.legend, 1 / s, k);
   return m;
 }
 
@@ -983,26 +1017,48 @@ function clearTops(boxes, links, given) {
     if (!boxes.some(g => g !== c && g.y < c.y + c.h + 16 && g.y + g.h + 16 > c.y && g.x < x + c.w + 21 && g.x + g.w + 21 > x)) c.x = x;
   }
 }
-// Entered places on a paper narrower than their page: each box's middle `f` times as far from the chart's
-// left, the box `f` times as wide. A rank whose names wrap more grows up into the space over it, down to 40 pt
-// from the rank above, and the rest of what it grew moves every rank under it down (`was`, each box's height on
-// its page), so that the space between ranks stays as it was where it's no more than that.
-function squeezed(positions, boxes, f, was) {
-  const x0 = Math.min(...[...positions.values()].map(p => p.x)), by = new Map(boxes.map(b => [b.id, b]));
-  const ranks = groupBy([...positions].filter(([id]) => by.has(id)), ([, p]) => Math.round(p.y / 4));
+// Entered places on a paper narrower than their page: each box's middle `f` times as far from the chart's left as
+// on its page (`was`, each box's size there), as wide as it's sized now, and moved aside as spread moves it. A box
+// whose one line runs to a box over or under it that it stood straight over or under on its page (`linked`, the boxes
+// a box's lines run to) stands so again, as one standing so over or under that in turn does, where the boxes beside it
+// leave it the room within the chart's width, those moving aside as far as that needs: so a line that dropped straight
+// drops straight where the paper allows. A rank whose names wrap more grows up into the space over it, down to 40 pt
+// from the rank above, and the rest of what it grew moves every rank under it down, so that the space between ranks
+// stays as it was where it's no more than that.
+function squeezed(positions, boxes, f, was, room = () => 0, linked = () => []) {
+  const by = new Map(boxes.map(b => [b.id, b])), placed = [...positions].filter(([id]) => by.has(id));
+  const ranks = groupBy(placed, ([, p]) => Math.round(p.y / 4)), then = id => was.get(id) ?? by.get(id);
   let shift = 0, floor = -Infinity;
   const at = new Map([...ranks.keys()].sort((a, b) => a - b).map(r => {
     const ids = ranks.get(r).map(([id]) => id), top = Math.min(...ranks.get(r).map(([, p]) => p.y));
-    const now = Math.max(...ids.map(id => by.get(id).h)), then = Math.max(...ids.map(id => was.get(id) ?? by.get(id).h)), grew = Math.max(0, now - then);
+    const now = Math.max(...ids.map(id => by.get(id).h)), grew = Math.max(0, now - Math.max(...ids.map(id => then(id).h)));
     const up = Math.min(grew, Math.max(0, top + shift - floor - 53)), moved = shift - up;
     shift += grew - up;
     floor = top + moved + now;
     return [r, moved];
   }));
-  return new Map([...positions].map(([id, p]) => {
-    const w = by.get(id)?.w ?? 0, wide = p.w ?? w / f;
-    return [id, { ...p, x: x0 + (p.x + wide / 2 - x0) * f - w / 2, y: p.y + (at.get(Math.round(p.y / 4)) ?? shift) }];
+  const x0 = Math.min(...placed.map(([, p]) => p.x)), mid = (id, p) => p.x + (p.w ?? then(id).w) / 2;
+  const gs = placed.map(([id, p]) => { const b = by.get(id); return { id, x: x0 + (mid(id, p) - x0) * f - b.w / 2, y: p.y + at.get(Math.round(p.y / 4)), w: b.w, h: b.h, shape: b.shape }; });
+  spread(gs, room);
+  const g = new Map(gs.map(b => [b.id, b])), c = b => b.x + b.w / 2, level = (a, b) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2;
+  // Each box's lead, the one its one line runs to, where it stood straight over or under it; and where each would
+  // stand: as it stood to its lead's lead, and so on, or where it is.
+  const page = new Map(placed), off = (a, b) => mid(a, page.get(a)) - mid(b, page.get(b)), lead = new Map(gs.map(b => {
+    const [o, ...more] = linked(b.id).map(id => g.get(id));
+    return [b.id, o && !more.length && !level(b, o) && Math.abs(off(b.id, o.id)) <= Math.min(then(b.id).w, then(o.id).w) / 2 ? o.id : null];
   }));
+  const root = (id, seen = new Set()) => lead.get(id) && !seen.has(id) ? root(lead.get(id), seen.add(id)) : id;
+  const want = new Map(gs.map(b => { const r = root(b.id); return [b.id, c(g.get(r)) + off(b.id, r) * f]; }));
+  if (gs.every(b => Math.abs(want.get(b.id) - c(b)) < 0.5)) return new Map([...positions].map(([id, p]) => [id, { ...p, ...g.has(id) && { x: g.get(id).x, y: g.get(id).y } }]));
+  // Left to right as they stand, each where it would stand, or as far right of what's beside it on its left as they need,
+  // 16 pt apart, or as near as they stand, or as far as the line joining them needs; then right to left, as far left as
+  // what's beside it on its right needs, and the chart's right end.
+  const order = [...gs].sort((a, b) => c(a) - c(b)), at0 = new Map(gs.map(b => [b.id, c(b)]));
+  const need = (a, b) => (a.w + b.w) / 2 + Math.max(Math.min(21, Math.max(0, at0.get(b.id) - at0.get(a.id) - (a.w + b.w) / 2)), room(a, b) ? room(a, b) - gives(a, b) : 0);
+  const left = Math.min(...gs.map(b => b.x)), right = Math.max(...gs.map(b => b.x + b.w)), to = new Map();
+  order.forEach((b, i) => to.set(b.id, Math.max(want.get(b.id), left + b.w / 2, ...order.slice(0, i).filter(a => level(a, b)).map(a => to.get(a.id) + need(a, b)))));
+  for (let i = order.length - 1; i >= 0; i--) { const b = order[i]; to.set(b.id, Math.min(to.get(b.id), right - b.w / 2, ...order.slice(i + 1).filter(a => level(a, b)).map(a => to.get(a.id) - need(b, a)))); }
+  return new Map([...positions].map(([id, p]) => [id, { ...p, ...g.has(id) && { x: to.get(id) - g.get(id).w / 2, y: g.get(id).y } }]));
 }
 // A mark moved by (dx, dy), with everything placed in it.
 function move(m, dx, dy) {
@@ -1070,12 +1126,12 @@ function reflow(scene, rects) {
 // found no free place (`crowded`); and what its label is placed by again (see relabel). The router's working
 // is left behind. Lines may land on frames (Layout.route says when), and keep clear of frames' captions. Where
 // boxes `stand` where they were put, no gap deepens for a lane to keep out of a box's shade.
-function routes(boxes, lines, frames = new Map(), stand = true) {
+function routes(boxes, lines, frames = new Map(), stand = true, aside = []) {
   const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label, arrow: l.settings?.Arrow?.value }));
   const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
-  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames), stand });
+  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames), stand, aside });
   return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, strained: c.strained, blocked: c.blocked, crowded: c.crowded,
-    placing: { quiet: c.quiet, lane: c.lane, apex: c.apex, crowd: c.crowd, kin: c.kin, lack: c.lack, size: c.label && { w: c.label.w, h: c.label.h } } }));
+    placing: { quiet: c.quiet, lane: c.lane, apex: c.apex, crowd: c.crowd, kin: c.kin, lack: c.lack, laned: c.laned, size: c.label && { w: c.label.w, h: c.label.h } } }));
 }
 // Where the lanes in a gap between ranks need more room than the gap leaves them (Layout.route's `lack`: a lane
 // each, and under the lowest the room their labels take), the boxes from the gap's bottom down move down as far
@@ -1281,15 +1337,15 @@ function legend(N, view, marks) {
 
 // A free shape, from its row and its text as worked out: its geometry, place, formats and text. Its sizes are
 // the sheet's where its row doesn't give them, `u` pixels of the page to one of the sheet: a text box's 12 pt,
-// a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller.
+// a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that.
 // A size its row gives is the page's, as the format bar writes it; a weight is always the sheet's (see the scene).
 const SHAPE_DEFAULTS = { Fill: '#ffffff', Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Layer: 0, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12 };
 // The page's own texts: its title, and its date.
 const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' } };
-function freeShape(row, text, u = 1) {
+function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
-  const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
+  const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
     ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left' }),
     ...(row.geometry === 'line' && { Arrow: 'none' }) };
   const t = { ...base, Size: base.Size * u, ...format, Weight: (format.Weight ?? base.Weight) * u };
@@ -1326,13 +1382,14 @@ function shapeText(row, computed, day) {
   return /^\s*=/.test(text) && computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
 }
 
-// A legend's rows laid out in its columns under its title, `u` pixels of the page to the sheet's. A row
+// A legend's rows laid out in its columns under its title, `sheet` pixels of the page to the sheet's. A row
 // merging outputs that look alike may have a caption of the legend's own, which no output shares. `all` is
 // every row it could show, each `shown` or not. A legend nobody has sized is as wide as its captions need,
-// each up to 120 pt before it wraps.
-function layoutLegend(m, rows, u = 1) {
-  const t = m.look, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
-  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * u } }));
+// each up to 120 pt before it wraps. Its swatches and the room round them are `k` times the sheet's, as its
+// captions are (see keyAt); their weights the sheet's, as the lines they show are drawn.
+function layoutLegend(m, rows, sheet = 1, k = 1) {
+  const t = m.look, u = sheet * k, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
+  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } }));
   m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));
   if (m.auto) m.w = Math.ceil(m.columns * (sw + gap + Math.min(160 * u, Math.max(40 * u, ...shown.map(r => measure(r.caption, t)))) + 16 * u) + 2 * pad);
@@ -1361,6 +1418,9 @@ function layoutLegend(m, rows, u = 1) {
 
 // ---- The page ----
 
+// The Key's size, as a share of the sheet's: none larger than the names it explains, as a page drawn at s prints them,
+// the least of them, its 8 pt where they're as large.
+const keyAt = (boxes, s) => Math.min(1, ...boxes.filter(b => b.texts?.[0]?.look).map(b => half(b.texts[0].look.Size, s) * s / 8));
 // A view's sheet: its Page note at the View object, a named size or { w, h }; a slide where none says. On a
 // paper, that paper's size, turned as the view's own is.
 function pageOf(N, view, paper) {
@@ -1394,8 +1454,10 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
   const meets = (a, b, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
   const fits = r => r.x >= M - 0.5 && r.y >= M - 0.5 && r.x + r.w <= W - M + 0.5 && r.y + r.h <= H - M + 0.5;
   const at = (s, force, footed = false) => {
-    const u = 1 / s, shapes = rows.map(r => freeShape(r, said.get(r.id), u)), places = new Map();
-    for (const m of shapes) if (m.geometry === 'legend') layoutLegend(m, legendRows, u);
+    // (The Key, as wide as `w` where that's given, set no larger than the names it explains: see keyAt.)
+    const u = 1 / s, k = r => r.geometry === 'legend' && r.format?.Size == null ? keyAt(boxes, s) : 1;
+    const keyed = (r, w) => { const m = freeShape(w == null ? r : { ...r, w }, said.get(r.id), u, k(r)); layoutLegend(m, legendRows, u, k(r)); return m; };
+    const shapes = rows.map(r => r.geometry === 'legend' ? keyed(r) : freeShape(r, said.get(r.id), u)), places = new Map();
     const byPage = m => !!m && placedBy(rows.find(r => r.id === m.row));
     let title = shapes.find(m => m.role === 'title' && byPage(m)), key = shapes.find(m => m.geometry === 'legend' && byPage(m));
     const date = shapes.find(m => m.role === 'date' && byPage(m));
@@ -1420,9 +1482,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       const room = W - M - 32 - Math.max(M, ...[title, date].filter(Boolean).map(m => M - INSET + ((m.column?.x ?? 0) + widest(m.texts)) * s));
       let side = key;
       if (key.auto && key.w * s > room && room >= key.columns * (30 + 8 + 80 + 16) + 24) {
-        const row = rows.find(r => r.id === key.row);
-        side = freeShape({ ...row, w: room * u }, said.get(row.id), u);
-        layoutLegend(side, legendRows, u);
+        side = keyed(rows.find(r => r.id === key.row), room * u);
       }
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
       if (!footed && r.w <= room + 0.5 && fits(r)) {
@@ -1449,9 +1509,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         };
         let under = underOf(key);
         for (let w = key.w * s - 8; key.auto && !fits(under) && w >= least; w -= 8) {
-          const narrow = freeShape({ ...row, w: w * u }, said.get(row.id), u);
-          layoutLegend(narrow, legendRows, u);
-          const r = underOf(narrow);
+          const narrow = keyed(row, w * u), r = underOf(narrow);
           if (fits(r)) { shapes[shapes.indexOf(key)] = key = narrow; under = r; }
         }
         const kw = key.w * s, kh = key.h * s, by = Math.max(0, c.x + c.w + 32 + kw - (W - M)), beside = { x: c.x - by + c.w + 32, y: c.y + c.h - kh, w: kw, h: kh };
