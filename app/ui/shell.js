@@ -325,8 +325,10 @@ const Shell = (() => {
   // Ranked as uFuzzy ranks their names (a label, and any others), except that a name typed exactly comes
   // first; a name with fewer words around what matched before one with more (Fund III before Fund III
   // Blocker, Northpine Software before a document naming Northpine); between those alike, a record related
-  // to more others first (the fund before its general partner); and what's within a thing (AIV-1 ›
-  // Signatories, of its key) after every thing found, so "blocker" finds both blockers before their lists.
+  // to more others first (the fund before its general partner); a name that holds another's found too, as a
+  // document's names what it's about (Form D, Co-Invest (Corvane) holds Co-Invest), after every name that
+  // doesn't; and what's within a thing (AIV-1 › Signatories, of its key) after every thing found, so "blocker"
+  // finds both blockers before their lists.
   const words = s => (s.match(/\S*[\p{L}\p{N}]\S*/gu) ?? []).length;
   function relatives(id) {
     const st = App.state.peek(), out = new Set();
@@ -348,7 +350,10 @@ const Shell = (() => {
     }
     const found = [...best.values()].sort((a, b) => a.extra - b.extra || related(b) - related(a));
     const within = x => x.of !== undefined || x.label.includes(' › '), typed = norm(q);
-    return [...new Set([...found.filter(x => names(x).some(n => norm(n) === typed)), ...found.filter(x => !within(x)), ...found])].slice(0, limit);
+    const things = found.filter(x => !within(x)), named = [...new Set(things.flatMap(names))].map(n => [n, n.toLowerCase()]);
+    const word = (n, s) => new RegExp(`(?:^|[^\\p{L}\\p{N}-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}-])`, 'iu').test(s);
+    const about = x => { const s = x.label.toLowerCase(); return named.some(([n, l]) => l.length < s.length && s.includes(l) && !names(x).includes(n) && word(n, x.label)); };
+    return [...new Set([...found.filter(x => names(x).some(n => norm(n) === typed)), ...things.filter(x => !about(x)), ...things, ...found])].slice(0, limit);
   }
   const marked = (label, ranges) => !ranges ? label : uFuzzy.highlight(label, ranges, (p, m) => m ? html`<b>${p}</b>` : p, [], (a, p) => { a.push(p); });
   const selectable = it => it && it !== '-' && !it.head && !it.seg && !it.disabled && (it.run || it.items);

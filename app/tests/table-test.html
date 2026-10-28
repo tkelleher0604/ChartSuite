@@ -671,6 +671,17 @@ async function run() {
   check('Choosing a result selects it, and leaves the keys in the view', Shell.selection.peek().join() === named('Northpine Software, LLC') && !!document.activeElement?.closest('[data-region="view"]'), document.activeElement?.outerHTML.slice(0, 80));
   Shell.select([]);
   Shell.closeAll(); await tick();
+  // A document named for what it's about, in fewer words than the entity's own name (Form D, Co-Invest (Corvane)),
+  // still comes after it: a name that holds another found comes after every name that doesn't.
+  got = await found('corvane');
+  const corvaneDocs = ['Form D, Co-Invest (Corvane)', 'Limited Partnership Agreement, Co-Invest (Corvane)'].map(x => got.indexOf(x));
+  document.activeElement?.blur?.();
+  press('Enter', $('.findpal .menu-find')); await tick(150);
+  check('… and the entities a document names before the document: “corvane” finds Corvane first, and Co-Invest (Corvane) before Form D, Co-Invest (Corvane); Enter opens Corvane', got[0] === '#Entities'
+    && got[1] === 'Corvane Specialty Chemicals Holdings, LLC' && got.indexOf('Calder Ridge III Co-Invest (Corvane), L.P.') > 0 && corvaneDocs.every(d => d > got.indexOf('Calder Ridge III Co-Invest (Corvane), L.P.'))
+    && Shell.selection.peek().join() === named('Corvane Specialty Chemicals Holdings, LLC'), got.slice(0, 8).join(' / '));
+  Shell.select([]);
+  Shell.closeAll(); await tick();
   // A table chosen in Find takes the keys at its active cell, as a sheet shown in Excel does: the arrows move in it.
   await found('Documents');
   document.activeElement?.blur?.();
@@ -951,6 +962,21 @@ async function run() {
   check('A double-click on it types over it too, and Esc puts it back, the keys on it again', chartName1() === 'Harbor Point Fund I, L.P.' && !naming() && document.activeElement === $('.titlebar .chartmenu'), document.activeElement?.outerHTML.slice(0, 60));
   App.change(tx => tx.note('Name', { id: views()[0].id, kind: 'View' }, 'Overview'), { dated: false }); await tick(60);
   check('Its own edits undo as ever', Shell.parts.peek().undo.canUndo() && (undo(), views()[0].name === 'Chart'));
+  // Its chart draws what it records, though the chart it was begun from leaves that out: a managing member, which
+  // Structure doesn't draw, joined to its LLC; what Structure rules out (not an owner) and what a formula gives, not.
+  const rels = {};
+  App.change(tx => {
+    const named = (kind, name) => { const o = tx.add('record', { kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: name }); return o; };
+    const gp = named('Entity', 'Larkspur Credit GP II, LLC'), type = tx.add('record', { at: gp, edge: 'Entity Type', choice: 'Limited Liability Company' });
+    const elena = named('Individual', 'Elena V. Sorensen'), fund = named('Entity', 'Larkspur Credit Fund II, L.P.');
+    rels.member = tx.add('record', { args: [{ edge: 'Member', at: elena }, { edge: 'LLC', at: type }], choice: 'Managing Member' });
+    rels.notOwner = tx.add('record', { args: [{ edge: 'Owner', at: elena }, { edge: 'Owned', at: fund }], tag: false });
+  }); await tick(200);
+  const worked = App.computed.peek(), chartView = views().find(v => v.name === 'Chart').id, drawsIt = id => App.notes.peek().value('Shown', Tree.treeOf(worked.records, id), chartView) === true;
+  rels.control = Object.keys(worked.computed).find(id => worked.records[id]?.args?.length === 2);
+  check('… and draws what it records: a managing member, which Structure leaves out, joined to its LLC; not what Structure rules out, nor what a formula gives', drawsIt(rels.member)
+    && !drawsIt(rels.notOwner) && !!rels.control && !drawsIt(rels.control), Object.entries(rels).map(([k, id]) => `${k} ${drawsIt(id)}`).join(', '));
+  undo(); await tick(100);
   const onC1 = Shell.view.peek(), among = vs => vs.some(v => v.id === Shell.view.peek());
   Shell.parts.peek().workbook.open(C0); await tick(200);
   check('Back on the first chart, its Undo is its own', C() === C0 && Shell.parts.peek().undo.canUndo());

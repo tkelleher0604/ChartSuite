@@ -659,7 +659,9 @@ const FormulaBar = (() => {
     // A date named for what was done on it says it was done then: it last filed on …; it filed its annual return on ….
     const done = r.field === 'date' && /^(?:(last|first) )?(?:(.+) )?(\S+ed|paid)(?: on)?$/i.exec(Tree.clean(r.edge));
     if (done) return Object.assign(c, { subj: O, pre: [` ${[would && 'would have', done[1]?.toLowerCase(), done[3].toLowerCase(), done[2] && `its ${lower(done[2])}`, 'on '].filter(Boolean).join(' ')}`, term(id, v)] });
-    return Object.assign(c, { subj: O, poss: true, pre: [` ${lower(r.edge)}`, be(), term(id, v)] });
+    // One named for the last or first of what's done is past too: the Manager's last annual amendment was on ….
+    const once = r.field === 'date' && /^(?:last|first)\s/i.test(Tree.clean(r.edge));
+    return Object.assign(c, { subj: O, poss: true, pre: [` ${lower(r.edge)}`, once ? (would ? ' would have been on ' : ' was on ') : be(), term(id, v)] });
   }
   // A relation's sides past the second as the place rule says them (Notes.placed): each after its label, none
   // twice.
@@ -676,12 +678,14 @@ const FormulaBar = (() => {
   }
   // What the subject is, as the sentence's last clause: a relation, or a tag, as a fact; a value by its name,
   // and whose it is: the Manager's Form ADV is due March 31, 2027; Fund III's annual tax for 2026 is due June 1,
-  // 2027. A date its row moved off a weekend says so (rollOf).
+  // 2027. A date before the day shown, overdue, was due: AIV-1's annual tax for 2025 was due June 1, 2026. A date
+  // its row moved off a weekend says so (rollOf).
   function givenOf(Rv, id, would, row) {
     const recs = Rv.records, r = would ?? recs[id], d = defOfRecord(Rv, id);
     if (r.args || 'tag' in r) return factOf(Rv, id, [], would);
     const name = d?.name ?? r.edge, due = /^(.*\S)\s+Due$/.exec(name), roll = d && rollOf(Rv, d, row, id);
-    const what = lower(due?.[1] ?? name), is = (would ? ' would be' : plural(what) ? ' are' : ' is') + (due ? ' due ' : ' ');
+    const what = lower(due?.[1] ?? name), past = !would && r.field === 'date' && r.value < App.day.peek();
+    const is = (would ? ' would be' : plural(what) ? (past ? ' were' : ' are') : past ? ' was' : ' is') + (due || past ? ' due ' : ' ');
     const point = { term: Tree.outputText(r), id, fx: !!Rv.computed[id] || !!would };
     return { id, ids: [id], ...whose(Rv, id, what), post: [is, point, ...(roll ? [` (${roll})`] : [])] };
   }
@@ -790,8 +794,9 @@ const FormulaBar = (() => {
   const possessive = (Rv, id) => /s$/.test(N().shortOf(Rv.records, id)) ? '’' : '’s';
   // The pieces as runs, each clause said after the one before: the same subject again is "it" (a person is
   // named again), and after "and" or "but" isn't said, nor is "is" after "and" and a clause that ends at its
-  // object; and a relation said again, as whose a value is, is "the" (so the capacity is held). What a value
-  // isn't follows it: is a member, not a managing member, of GP III.
+  // object; and a relation said again, as whose a value is, is "the" (so the capacity is held). A name that ends
+  // in a parenthesis takes no possessive: the voting percentage of Fund III-A Investors (U.S. ERISA Plans) in Fund
+  // III-A, an "of" after it "in". What a value isn't follows it: is a member, not a managing member, of GP III.
   function sentence(Rv, pieces) {
     const runs = [], said = new Set();
     let prev = null;
@@ -800,12 +805,16 @@ const FormulaBar = (() => {
       if (p.join) runs.push({ text: p.join });
       const c = said.has(p.c.of) ? { ...p.c, subj: null, poss: false, pre: [`the${p.c.pre[0]}`, ...p.c.pre.slice(1)], obj: [] } : p.c;
       const again = !!c.subj && c.subj === prev?.subj, and = !!p.join && p.join !== ', so ';
-      let subj = !c.subj ? [] : again && !isPerson(Rv, c.subj) ? [c.poss ? 'its' : 'it'] : [{ name: c.subj }, ...(c.poss ? [possessive(Rv, c.subj)] : [])], pre = c.pre;
+      let subj = !c.subj ? [] : again && !isPerson(Rv, c.subj) ? [c.poss ? 'its' : 'it'] : [{ name: c.subj }, ...(c.poss ? [possessive(Rv, c.subj)] : [])], pre = c.pre, obj = c.obj;
       if (again && and && !c.poss && !prev.poss) {
         subj = [];
         pre = pre[0] === ' is ' && prev.pre[0] === ' is ' && !prev.post.length && p.join !== ', but ' ? pre.slice(1) : [String(pre[0]).trimStart(), ...pre.slice(1)];
       }
-      const segs = [...subj, ...pre, ...c.obj, ...c.post].filter(s => s !== ''), k = c.not ? segs.findIndex(s => s.term && c.not.ids.includes(s.id)) : -1;
+      if (subj.length === 2 && /\)$/.test(N().shortOf(Rv.records, c.subj))) {
+        [subj, pre] = [[], [`the${pre[0]}`, ' of ', subj[0], ...pre.slice(1)]];
+        if (obj[0] === ' of ') obj = [' in ', ...obj.slice(1)];
+      }
+      const segs = [...subj, ...pre, ...obj, ...c.post].filter(s => s !== ''), k = c.not ? segs.findIndex(s => s.term && c.not.ids.includes(s.id)) : -1;
       if (k >= 0) segs.splice(k + 1, 0, `, not ${c.not.text}${k < segs.length - 1 ? ',' : ''}`);
       runs.push({ fact: c, self: !!p.self || !c.ids?.length, segs });
       if (p.cite) runs.push({ cite: p.cite });

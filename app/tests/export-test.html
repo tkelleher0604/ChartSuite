@@ -49,41 +49,8 @@ const fitOf = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
 const tags = (el, name) => [...el.getElementsByTagName(name)];
 const inflate = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
 const nameOf = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('name');
-// Where a point of a shape's own frame, in EMU from its top left before it's flipped and turned, lies on the slide.
-function onSlide(sp, [lx, ly]) {
-  const xf = tags(sp, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0];
-  const [x, y, w, h] = [+off.getAttribute('x'), +off.getAttribute('y'), +ext.getAttribute('cx'), +ext.getAttribute('cy')];
-  const u = (xf.getAttribute('flipH') === '1' ? w - lx : lx) - w / 2, v = (xf.getAttribute('flipV') === '1' ? h - ly : ly) - h / 2, a = (+xf.getAttribute('rot') || 0) / 60000 * Math.PI / 180;
-  return [x + w / 2 + u * Math.cos(a) - v * Math.sin(a), y + h / 2 + u * Math.sin(a) + v * Math.cos(a)];
-}
-// How far a shape's line reaches across its own frame (`across`) or down it, in EMU, as PowerPoint spreads a
-// gradient over it: a connector's path, an elbow's middle legs where its adjustments put them, past its frame where
-// it doubles back (bentConnector3's from 0 to adj1 of its width, then to its width; bentConnector4's to adj1 of its
-// width and adj2 of its height); a freeform's stroke, half its line's width past its path either side.
-function reach(sp, across) {
-  const ext = tags(tags(sp, 'a:xfrm')[0], 'a:ext')[0], w = +ext.getAttribute('cx'), h = +ext.getAttribute('cy'), prst = tags(sp, 'a:prstGeom')[0]?.getAttribute('prst');
-  const adj = i => +(tags(sp, 'a:gd').find(g => g.getAttribute('name') === `adj${i}`)?.getAttribute('fmla').split(' ')[1] ?? 50000) / 100000;
-  const turns = prst === 'bentConnector3' ? (across ? [adj(1) * w] : []) : prst === 'bentConnector4' ? [across ? adj(1) * w : adj(2) * h] : [];
-  const pad = prst ? 0 : +tags(sp, 'a:ln')[0].getAttribute('w') / 2;
-  return [Math.min(0, ...turns) - pad, Math.max(across ? w : h, ...turns) + pad];
-}
-// The stretches a shape's outline leaves clear, across the slide in EMU: its gradient, over its line as far as it
-// reaches in its own frame (see reach), flipped and turned with it, from each stop where it turns
-// clear to the stop where it turns back; only where it turns at once, its stops in pairs at one place, opaque in
-// `color`, as a break has no fade, else null. → [] for one colour.
-function clearOf(sp, color) {
-  const grad = tags(tags(sp, 'a:ln')[0], 'a:gradFill')[0];
-  if (!grad) return [];
-  const ext = tags(tags(sp, 'a:xfrm')[0], 'a:ext')[0], w = +ext.getAttribute('cx'), h = +ext.getAttribute('cy'), across = tags(grad, 'a:lin')[0].getAttribute('ang') === '0';
-  const stops = tags(grad, 'a:gs').map(gs => ({ pos: +gs.getAttribute('pos') / 100000, clear: tags(gs, 'a:alpha')[0]?.getAttribute('val') === '0', color: tags(gs, 'a:srgbClr')[0].getAttribute('val') }));
-  if (grad.getAttribute('rotWithShape') !== '1' || stops.some((s, i) => s.color !== color || (i && s.clear !== stops[i - 1].clear && s.pos !== stops[i - 1].pos)) || stops[0].clear || stops.at(-1).clear) return null;
-  const [lo, hi] = reach(sp, across), l = pos => lo + pos * (hi - lo), x = pos => onSlide(sp, across ? [l(pos), h / 2] : [w / 2, l(pos)])[0], out = [];
-  stops.forEach((s, i) => { if (s.clear && !stops[i - 1].clear) out.push([x(s.pos)]); else if (!s.clear && stops[i - 1]?.clear) out.at(-1).push(x(s.pos)); });
-  return out.map(([a, b]) => [Math.min(a, b), Math.max(a, b)]);
-}
-// Whether two lists of stretches are the same, within a twentieth of a point.
-const sameStretches = (a, b) => a?.length === b.length && a.every((s, i) => Math.abs(s[0] - b[i][0]) < 635 && Math.abs(s[1] - b[i][1]) < 635);
-const inPt = ss => (ss ?? []).map(([a, b]) => `${(a / 12700).toFixed(2)}–${(b / 12700).toFixed(2)}`).join(', ') || (ss ? 'none' : 'not hard-edged in its colour');
+// A shape's outline: one colour, `color`, along its whole length, as PowerPoint draws a line crossing another.
+const solid = (sp, color) => { const ln = tags(sp, 'a:ln')[0], fill = ln && tags(ln, 'a:solidFill')[0]; return !!fill && !tags(ln, 'a:gradFill').length && tags(fill, 'a:srgbClr')[0]?.getAttribute('val') === color; };
 
 async function run() {
   // ---- The sample, dressed ----
@@ -281,15 +248,20 @@ async function run() {
     // the date, then the chart.
     const firsts = docs.map(d => [...tags(d, 'p:spTree')[0].children].filter(el => /^(sp|grpSp|cxnSp|pic)$/.test(el.localName)).slice(0, 2).map(name));
     check('each slide reads its title first, then its date: the first two shapes in its tree', firsts.every(f => j(f) === j(['Title', 'Date'])), firsts.map(f => f.join(', ')).join(' | '));
-    // A line's sentence is its alt text: its group's, where it's grouped with its label or its pieces, or with
-    // the lines said as one with it; else its connector's. Each line has one, and nothing else says one.
+    // A line's sentence is its alt text: its group's, where it's grouped with its label, or with the lines said as
+    // one with it; else its connector's. Each line has one, and nothing else says one. It's the line's name, with
+    // what its label says, as the formula bar says a fact: with a percentage of 71.6%.
     const alt = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('descr'), atTop = el => el.parentNode.localName === 'spTree';
     const described = [...tags(doc, 'p:grpSp'), ...cxns, ...sps].filter(alt), relational = cxns.filter(c => / is (an? |not )/.test(name(c)));
     const holders = c => { const hs = []; for (let e = c; e.localName !== 'spTree'; e = e.parentNode) if (alt(e)) hs.push(e); return hs; };
     check('each line’s sentence is its alt text, on its group, or its connector where it’s one alone, and no other shape has any', relational.length >= lines(main).length
-      && relational.every(c => holders(c).length === 1 && atTop(holders(c)[0])) && described.every(el => alt(el) === name(el) && / is (an? |not )/.test(alt(el)) && atTop(el)
+      && relational.every(c => holders(c).length === 1 && atTop(holders(c)[0])) && described.every(el => / is (an? |not )/.test(alt(el)) && atTop(el)
         && (el.localName === 'cxnSp' || tags(el, 'p:cxnSp').length)) && described.some(el => el.localName === 'grpSp') && docs.some(d => tags(d, 'p:cxnSp').some(c => alt(c) && atTop(c))),
       `${described.length} described for ${lines(main).length} lines: ${described.slice(0, 2).map(alt).join(' | ')}`);
+    const valued = groups.filter(g => tags(g, 'p:sp').some(sp => /^[\d.]+%$/.test(textOf(sp)[0] ?? ''))), pct = g => textOf(tags(g, 'p:sp').find(sp => /^[\d.]+%$/.test(textOf(sp)[0] ?? '')))[0];
+    check('… with the value its label says: “U.S. Investors is an owner of Fund III with a percentage of 71.6%”', valued.length > 5
+      && alt(owner) === `U.S. Investors is an owner of Fund III with a percentage of ${pct(owner)}` && valued.every(g => alt(g).includes(` of ${pct(g)}`))
+      && described.every(el => alt(el) === name(el) || / with /.test(alt(el))), valued.filter(g => !alt(g).includes(` of ${pct(g)}`)).slice(0, 2).map(alt).join(' | ') || alt(owner));
   }
 
   // ---- PDF ----
@@ -357,27 +329,26 @@ async function run() {
     const sizes = [...new Set(docs.flatMap(d => tags(d, 'a:rPr').map(r => +r.getAttribute('sz'))))].sort((a, b) => a - b);
     check('every size in the sample’s deck is a whole or half point; its title, date and Key 20, 11 and 8 pt on every slide', sizes.every(z => z % 50 === 0)
       && docs.every(d => sz(named(d, 'Title')) === 2000 && sz(named(d, 'Date')) === 1100 && sz(named(d, 'Key')) === 800), sizes.join(' '));
-    // A line broken where another crosses it is one connector all the same, glued where it starts and where it
-    // ends, so it moves with its boxes as one line; its outline its colour but clear across each break, just where
-    // the scene breaks it, so the line it crosses shows through whichever is on top. No other line is cleared.
+    // A line the scene breaks where another crosses it is one connector all the same, glued where it starts and
+    // where it ends, so it moves with its boxes as one line, and solid: PowerPoint draws a crossing as two solid
+    // lines, and a hop of its own would slide off the crossing once a box is moved. No line has a gradient.
     const hex = c => c.slice(1).toUpperCase(), look = m => Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
     const said = slides.flatMap((s, i) => s.marks.filter(m => m.type === 'line' && m.runs).map(l => {
-      const k = fitOf(s.page), ox = (1280 - s.page.w * k) / 2, idOf = b => tags(docs[i], 'p:sp').find(sp => nameOf(sp) === s.byId.get(b).texts[0].text)?.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
-      const want = l.runs.slice(1).map((r, j) => [l.runs[j].at(-1)[0], r[0][0]].map(x => (ox + x * k) * EMU).sort((a, b) => a - b));
-      const c = tags(docs[i], 'p:cxnSp').find(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === idOf(l.from) && tags(c, 'a:endCxn')[0]?.getAttribute('id') === idOf(l.to) && tags(c, 'a:gradFill').length);
-      return { slide: i + 1, id: l.id, want, got: c && clearOf(c, hex(look(l).Outline)) };
+      const idOf = b => tags(docs[i], 'p:sp').find(sp => nameOf(sp) === s.byId.get(b).texts[0].text)?.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
+      const cs = tags(docs[i], 'p:cxnSp').filter(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === idOf(l.from) && tags(c, 'a:endCxn')[0]?.getAttribute('id') === idOf(l.to));
+      return { slide: i + 1, id: l.id, ok: cs.length === 1 && solid(cs[0], hex(look(l).Outline)) };
     }));
-    const gradients = docs.flatMap(d => tags(d, 'p:cxnSp').filter(c => tags(c, 'a:gradFill').length)).length;
-    check('a line broken where another crosses it is one connector, glued at both ends, its outline clear just where the scene breaks it, and no other is', said.length >= 6
-      && new Set(said.map(r => r.slide)).size >= 2 && said.every(r => sameStretches(r.got, r.want)) && gradients === said.length,
-      said.map(r => `${r.slide} ${r.id}: ${inPt(r.want)} / ${inPt(r.got)}`).join('; '));
+    const lns = docs.flatMap(d => tags(d, 'a:ln')), unglued = docs.flatMap(d => tags(d, 'p:cxnSp')).filter(c => !tags(c, 'a:stCxn').length !== !tags(c, 'a:endCxn').length);
+    check('a line broken where another crosses it is one connector, glued at both ends, solid in its colour; no line on any slide has a gradient', said.length >= 6
+      && new Set(said.map(r => r.slide)).size >= 2 && said.every(r => r.ok) && !lns.some(l => tags(l, 'a:gradFill').length) && !unglued.length,
+      said.filter(r => !r.ok).map(r => `${r.slide} ${r.id}`).join('; ') || `${said.length} broken lines, ${lns.length} outlines`);
   }
 
-  // ---- Breaks, however a line runs ----
+  // ---- Broken lines, however they run ----
   // A page drawn by hand, as the scene draws one: six lines, each broken 4 px either side of where it's crossed, at
   // `cuts`. One runs across first, rightward; one leftward, flipped; one up first, turned and flipped both ways,
-  // with arrowheads at both ends; one across first twice broken. One doubles back past its box, and one of five legs
-  // (a freeform) doubles back across itself: of each one break would clear more than its own stretch, and stays drawn.
+  // with arrowheads at both ends; one across first twice broken; one doubles back past its box; and one of five
+  // legs, a freeform. Each is one shape, whole and solid.
   {
     const text = id => [{ text: id, look: { Size: 10, Font: 'Arial', Color: '#000000', Align: 'center' }, lines: [{ text: id, x: 40, y: 24, w: 30 }] }];
     const box = (id, x, y) => ({ type: 'box', id, x, y, w: 80, h: 40, shape: 'rect', texts: text(id), look: { Fill: '#FFFFFF', Outline: '#000000', Weight: 0.75, Dash: 'solid' } });
@@ -406,18 +377,12 @@ async function run() {
     const idOf = b => tags(d, 'p:sp').find(sp => nameOf(sp) === b)?.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
     const shapeOf = l => tags(d, 'p:cxnSp').find(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === idOf(l.from) && tags(c, 'a:endCxn')[0]?.getAttribute('id') === idOf(l.to))
       ?? tags(d, 'p:sp').find(sp => nameOf(sp) === 'Line' && tags(sp, 'a:custGeom').length);
-    const breaks = l => l.runs.slice(1).map((r, i) => [l.runs[i].at(-1)[0], r[0][0]].map(x => x * EMU).sort((a, b) => a - b));
     const ls = marks.filter(m => m.type === 'line'), by = id => ls.find(l => l.id === id), xf = id => tags(shapeOf(by(id)), 'a:xfrm')[0], attr = (id, a) => xf(id).getAttribute(a);
-    // Of the two that double back, only the first break is cleared: the second would clear another leg too.
-    const wants = { back: breaks(by('back')).slice(0, 1), five: breaks(by('five')).slice(0, 1) };
-    const rows = ls.map(l => ({ id: l.id, el: shapeOf(l), want: wants[l.id] ?? breaks(l) })).map(r => ({ ...r, got: r.el && clearOf(r.el, '1F4E79') }));
-    check('… however it runs: across, back, up first, turned and flipped, twice broken, in five legs; one shape, clear just at its breaks', rows.every(r => r.el && sameStretches(r.got, r.want))
-      && rows.filter(r => r.el.localName === 'cxnSp').length === 5 && rows.find(r => r.id === 'five').el.localName === 'sp' && rows.find(r => r.id === 'twice').want.length === 2
-      && !attr('right', 'rot') && !attr('right', 'flipH') && !attr('left', 'rot') && attr('left', 'flipH') === '1' && attr('up', 'rot') === '5400000' && attr('up', 'flipH') === '1' && attr('up', 'flipV') === '1',
-      rows.map(r => `${r.id}: ${inPt(r.want)} / ${inPt(r.got)}`).join('; '));
-    const up = shapeOf(by('up'));
-    check('… a break that would clear more of its line than its own stretch stays drawn, and a line’s arrowheads are its one shape’s, at both ends', ['back', 'five'].every(id => breaks(by(id)).length === 2
-      && rows.find(r => r.id === id).got?.length === 1) && tags(up, 'a:headEnd').length === 1 && tags(up, 'a:tailEnd').length === 1);
+    const rows = ls.map(l => ({ id: l.id, el: shapeOf(l) })), up = shapeOf(by('up'));
+    check('… however it runs: across, back, up first, turned and flipped, twice broken, in five legs; one shape, solid, its arrowheads at its ends', rows.every(r => r.el && solid(r.el, '1F4E79'))
+      && rows.filter(r => r.el.localName === 'cxnSp').length === 5 && rows.find(r => r.id === 'five').el.localName === 'sp' && by('twice').runs.length === 3
+      && !attr('right', 'rot') && !attr('right', 'flipH') && !attr('left', 'rot') && attr('left', 'flipH') === '1' && attr('up', 'rot') === '5400000' && attr('up', 'flipH') === '1' && attr('up', 'flipV') === '1'
+      && tags(up, 'a:headEnd').length === 1 && tags(up, 'a:tailEnd').length === 1, rows.filter(r => !r.el || !solid(r.el, '1F4E79')).map(r => r.id).join(', '));
   }
 
   // ---- A caption mid-sentence ----
@@ -485,25 +450,27 @@ async function run() {
       id: /UID:([^\r]*)@dendra/.exec(e)?.[1].slice(A.chart.peek().length + 1), day: /DTSTART;VALUE=DATE:(\d{8})/.exec(e)?.[1], end: /DTEND;VALUE=DATE:(\d{8})/.exec(e)?.[1],
       summary: unesc(/^SUMMARY:(.*)\r$/m.exec(e)?.[1] ?? ''), description: /^DESCRIPTION:(.*)\r$/m.exec(e) && unesc(/^DESCRIPTION:(.*)\r$/m.exec(e)[1]) }));
 
-    // The calendar, as the dialog writes it: the dates from the day shown on, and before it what's overdue, which
-    // is still due, as the status bar counts it. Its preview marks what's overdue as the inspector does.
+    // The calendar, as the dialog writes it: what falls due, each date a formula gives, and before the day shown
+    // what's overdue, which is still due, as the status bar counts it. Its preview marks what's overdue as the
+    // inspector does.
     let marked = [];
     const cal = await exported('ics', d => { marked = [...d.querySelectorAll('.dayrow .overdue')].map(el => el.textContent); });
     const ics = await cal.blob.text(), rows = ics.split('\r\n'), events = eventsOf(ics), overdue = A.needs.peek().filter(a => a.kind === 'overdue').map(a => a.id);
+    const due = id => !!(R.computed[id] || R.covered[id]);
     check('the calendar the Export dialog writes is .ics, named for the chart', cal.name === `${chart}.ics` && cal.blob.type === 'text/calendar' && rows[0] === 'BEGIN:VCALENDAR' && rows.at(-2) === 'END:VCALENDAR', cal.name);
     check('… its lines ended in CRLF and folded within 75 octets', !/[^\r]\n/.test(ics) && rows.every(r => new TextEncoder().encode(r).length <= 75));
-    check('… one all-day event for each date from the day shown on, and each overdue before it, in order', events.length > 10
-      && events.every((e, i) => (e.day >= day.replace(/-/g, '') || overdue.includes(e.id)) && (!i || e.day >= events[i - 1].day) && +e.end > +e.day), `${events.length} events`);
+    check('… one all-day event for each date a formula gives, from the day shown on, and each overdue before it, in order', events.length > 10
+      && events.every((e, i) => due(e.id) && (e.day >= day.replace(/-/g, '') || overdue.includes(e.id)) && (!i || e.day >= events[i - 1].day) && +e.end > +e.day), `${events.length} events`);
     check('… what’s overdue in it, each on its day, as the status bar counts it; marked so in the preview, red, and to a screen reader', overdue.length >= 2
       && overdue.every(id => events.filter(e => e.id === id && e.day === st[id].value.replace(/-/g, '')).length === 1) && marked.length === overdue.length && marked.every(t => / \(overdue\)$/.test(t)),
       `${overdue.length} overdue: ${events.filter(e => overdue.includes(e.id)).map(e => `${e.day} ${e.summary}`).join(' | ')}; preview ${marked.join(', ')}`);
     // Each said as the Dates table says it: what falls due, then whose; what's overdue, its Overdue group.
     const table = G('Table').model(A.views.peek().find(v => v.rows === 'date').id), col = key => 'f:' + key;
-    const rowsSaid = from => table.data.filter(r => /^\d{4}-\d\d-\d\d$/.test(r[col('$value')]) && (r[col('$value')] >= from || r._g === 'overdue')).map(r => `${r[col('$entry')]} · ${r[col('$of')]}`).sort();
-    check('each event says what falls due, then whose, as the Dates table says it, one for each of its rows from the day shown on and of its Overdue group', j(events.map(e => e.summary).sort()) === j(rowsSaid(day))
+    const rowsSaid = () => table.data.filter(r => /^\d{4}-\d\d-\d\d$/.test(r[col('$value')]) && due(r.id)).map(r => `${r[col('$entry')]} · ${r[col('$of')]}`).sort();
+    check('each event says what falls due, then whose, as the Dates table says it, one for each of its rows a formula gives, its Overdue group among them', j(events.map(e => e.summary).sort()) === j(rowsSaid())
       && table.data.filter(r => r._g === 'overdue').length === overdue.length
       && events.some(e => e.summary === 'Next Renewal · The Manager (LEI Registered)') && events.some(e => e.summary === 'Affirmation Due · Fund III (4.13(a)(3) Exemption)'),
-      events.filter(e => !rowsSaid(day).includes(e.summary)).slice(0, 3).map(e => e.summary).join(' | ') || events.slice(0, 3).map(e => e.summary).join(' | '));
+      events.filter(e => !rowsSaid().includes(e.summary)).slice(0, 3).map(e => e.summary).join(' | ') || events.slice(0, 3).map(e => e.summary).join(' | '));
     // One name for each thing, its short name, as the table says it: never its full legal name.
     const named = Object.keys(st).filter(id => Tree.isObject(st[id]) && N.nameOf(st, id) !== N.shortOf(st, id)).map(id => N.nameOf(st, id));
     const twice = named.filter(nm => events.some(e => e.summary.includes(nm) || e.description?.includes(nm)));
@@ -527,7 +494,7 @@ async function run() {
     // Whose each tax is, as its summary says it: Annual Tax Due · Fund III, tax year 2026 is Fund III's annual tax
     // for 2026, never "The tax year is 2026, so the annual tax is due …", which seven events would share.
     const taxes = events.filter(e => e.summary.startsWith('Annual Tax Due · ')), owed = e => { const [, who, year] = /^Annual Tax Due · (.+), tax year (\d{4})$/.exec(e.summary) ?? [];
-      return !!who && e.description?.startsWith(`${who}${/s$/.test(who) ? '’' : '’s'} annual tax for ${year} is due `); };
+      return !!who && e.description?.startsWith(`${who}${/s$/.test(who) ? '’' : '’s'} annual tax for ${year} ${overdue.includes(e.id) ? 'was' : 'is'} due `); };
     check('… each tax saying whose, as its summary does: Fund III’s annual tax for 2026 is due June 1, 2027', taxes.length >= 8 && taxes.every(owed) && new Set(taxes.map(e => e.description)).size === taxes.length
       && taxes.some(e => e.summary === 'Annual Tax Due · Fund III, tax year 2026' && e.description === 'Fund III’s annual tax for 2026 is due June 1, 2027.'),
       taxes.filter(e => !owed(e)).slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | ') || taxes.slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | '));
@@ -546,19 +513,21 @@ async function run() {
       && events.some(e => /, so its annual return is due January 29, 2027 \(January 31, a Sunday, so the Friday before\)\.$/.test(e.description ?? '') && e.day === '20270129'),
       untrue.slice(0, 2).map(e => `${e.day}: ${e.description}`).join(' | ') || events.find(e => /annual return/.test(e.description ?? ''))?.description);
 
-    // Every date there is, from no day: the table's every row, no two alike.
-    const every = eventsOf(await X.calendar(R, N, A.chart.peek(), 'Every date', '').text()).map(e => e.summary);
-    check('… and from no day, every date there is, as the table has each, no two alike', j([...every].sort()) === j(rowsSaid('')) && new Set(every).size === every.length
-      && every.includes('Annual Tax Paid · Fund III, tax year 2025'), `${every.length} of ${rowsSaid('').length}; ${every.filter((s, i) => every.indexOf(s) !== i).slice(0, 2).join(' | ')}`);
-    // A document known by its address goes by its file's name, and nothing says a formula or a path.
+    // What was done is no event, though it's dated the day shown: Fund III-A's LEI renewed today, as Renewed…
+    // records it, and a document dated today, known by its address. Fund III-A's next renewal, overdue before, is
+    // a year on; and nothing says a formula or a path.
+    const renewed = Object.keys(st).find(id => st[id].edge === 'Last Renewed' && G('Time').whose(st, st[id].at, N) === 'Fund III-A (LEI Registered)');
     A.change(tx => {
+      tx.update(renewed, { value: day });
       const doc = tx.add('record', { kind: 'Document' });
       tx.add('record', { at: doc, edge: 'Name', field: 'text', value: '\\\\fs01\\Legal\\Calder Ridge\\Side Letter - Halcyon.pdf' });
-      tx.add('record', { at: doc, edge: 'Document Date', field: 'date', value: '2026-03-02' });
+      tx.add('record', { at: doc, edge: 'Document Date', field: 'date', value: day });
     });
-    const said = eventsOf(await X.calendar(A.computed.peek(), A.notes.peek(), A.chart.peek(), 'Every date', '').text()).flatMap(e => [e.summary, e.description ?? '']).filter(Boolean);
-    const leaks = said.filter(s => /[=←]|\b[A-Z]{2,}\(|\\|:\/\//.test(s));
-    check('no formula text and no file paths: a document known by its address goes by its file’s name', !leaks.length && said.includes('Document Date · Side Letter - Halcyon.pdf'), leaks.slice(0, 3).join(' | '));
+    const after = eventsOf(await X.calendar(A.computed.peek(), A.notes.peek(), A.chart.peek(), 'Renewed', day).text()), next = after.find(e => e.summary === 'Next Renewal · Fund III-A (LEI Registered)');
+    const said = after.flatMap(e => [e.summary, e.description ?? '']).filter(Boolean), leaks = said.filter(s => /[=←]|\b[A-Z]{2,}\(|\\|:\/\//.test(s));
+    check('what was done is no event, though it’s dated the day shown: an LEI renewed today, a document dated today; its next renewal a year on; no formula text, no file path', !!renewed
+      && !after.some(e => /^(Last Renewed|Document Date) · /.test(e.summary)) && next?.day > day.replace(/-/g, '') && events.find(e => e.summary === next.summary)?.day < day.replace(/-/g, '') && !leaks.length,
+      `${after.slice(0, 2).map(e => `${e.day} ${e.summary}`).join(' | ')}; ${next?.day}; ${leaks.slice(0, 3).join(' | ')}`);
     G('Shell').parts.peek().undo.undo();
 
     // A deck of the view shown, with no name set: titled as its page is, by no one.

@@ -346,7 +346,9 @@ const App = (() => {
   // note that isn't at one of the records: the definitions, names, descriptions and styles. Of the views, it
   // keeps those named for what they show (Entities, Ownership), and one chart, Chart, with the styles and
   // Shown of the chart shown, or else the first; the old chart's own pages stay behind, and its page starts
-  // afresh.
+  // afresh. Its chart draws what it records: each relation of two sides no formula gives, of any kind or option
+  // at its sides, though the chart it's begun from left it out (Structure, Membership); what that one rules out
+  // (not an owner) stays out.
   function startChart(wb) {
     const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name))), from = chart.peek(), src = book.peek();
     let name = 'Untitled', i = 2;
@@ -354,15 +356,24 @@ const App = (() => {
     const tx = wb.edit({ chart: c, who: who() }), kept = new Map();
     tx.add('chart', { name }, c);
     const vs = from ? views.peek() : [], like = (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id;
+    const recorded = new Map();
     if (from) {
       const L = layouts.peek(), own = v => [...L.kinds, ...L.relations, ...L.datatypes].some(l => Tree.same(l.name, v.name) && JSON.stringify(l.rows) === JSON.stringify(v.rows));
-      for (const tree of Object.values(src.schema(from))) tx.add('spec', { tree });
+      const sides = t => t.args.map(a => a.edge).sort().join('|'), worked = new Set(src.notes(from).notes('Formula').filter(n => n.pattern.args?.length === 2).map(n => sides(n.pattern)));
+      const shape =t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: shape(a.loc) })) } : {};
+      for (const tree of Object.values(src.schema(from))) {
+        tx.add('spec', { tree });
+        if (tree.args?.length !== 2 || worked.has(sides(tree))) continue;
+        const p = { ...(tree.out && 'tag' in tree.out && { out: { tag: true } }), ...shape(tree) };
+        recorded.set(Tree.key(p), p);
+      }
       for (const v of vs) if (v.id === like || (v.layout === 'table' && own(v))) kept.set(v.id, tx.add('record', { kind: 'View' }));
       const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: kept.get(t.id) };
       for (const r of src.rows(from)) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)))
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Chart' : r.value, { view: kept.get(r.view), param: r.param });
     }
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
+    for (const p of recorded.values()) tx.note('Shown', p, true, { view: first });
     tx.note('Name', viewTree(first), 'Chart');
     page(tx, first, name);
     return tx.commit();
