@@ -402,14 +402,14 @@ async function run() {
   Shell.emit('relate-open', ['pension', 'northpine']); await tick(60);
   ghost('Add a relation')?.click(); await tick();
   $$('.rr').find(r => / is an owner of Northpine/.test(r.querySelector('.nm')?.textContent))?.querySelector('.tag').click(); await tick(60);
-  await type(pb('.from input'), 'December 1, 2026');
+  await type(pb('.from input'), 'December 1, 2027');
   Shell.select([]); Shell.emit('relate-open', ['pension', 'northpine']); await tick(60);
   ghost('Add a relation')?.click(); await tick();
   const later = $('.rr.later'), offeredAgain = $$('.rr:not(.later) .nm').some(x => / is an owner of Northpine/.test(x.textContent));
-  check('a relation recorded from a later day is said with that day, and not offered again', !!later && / is an owner of Northpine/.test(later.textContent) && later.querySelector('.when')?.textContent === 'From Dec 1, 2026' && !offeredAgain,
+  check('a relation recorded from a later day is said with that day, and not offered again', !!later && / is an owner of Northpine/.test(later.textContent) && later.querySelector('.when')?.textContent === 'From Dec 1, 2027' && !offeredAgain,
     `${later?.textContent} / ${offeredAgain}`);
   later?.querySelector('.when .lk')?.click(); await tick(60);
-  check('… its day a link to the chart then', Shell.time.peek()?.asOf === '2026-12-01');
+  check('… its day a link to the chart then', Shell.time.peek()?.asOf === '2027-12-01');
   Shell.at(null); Shell.parts.value.undo.undo(); await tick(60);
   // A relation's amount is asked first, in its row and the bar, one state: typed, it's redlined as Enter will add it, and
   // what it would fail is said as it's typed, named for the record the check is about, with its figure; Enter adds it.
@@ -501,11 +501,11 @@ async function run() {
   [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Redo')?.click(); await tick(60);
   check('… its toast’s Redo bringing it back', !!App.pending.peek() && !!pb() && nP() === nU);
   const later1 = pb('.from input');
-  later1.focus(); later1.value = 'December 1, 2026'; later1.dispatchEvent(new Event('input', { bubbles: true })); await tick(); later1.blur(); await tick(60);
+  later1.focus(); later1.value = 'December 1, 2027'; later1.dispatchEvent(new Event('input', { bubbles: true })); await tick(); later1.blur(); await tick(60);
   const link = pb('.from .lk');
-  check('a day after the day shown, said in the bar, is a link to the chart then, where the change is drawn', link?.textContent === 'Dec 1, 2026' && !pb('.from input') && !FormulaBar.pending.peek(), pb()?.innerHTML.slice(0, 300));
+  check('a day after the day shown, said in the bar, is a link to the chart then, where the change is drawn', link?.textContent === 'Dec 1, 2027' && !pb('.from input') && !FormulaBar.pending.peek(), pb()?.innerHTML.slice(0, 300));
   link?.click(); await tick(60);
-  check('… which shows that day, the change redlined there, its day typed over there', Shell.time.peek()?.asOf === '2026-12-01' && !!FormulaBar.pending.peek() && pb('.from input')?.value === 'Dec 1, 2026', pb()?.textContent);
+  check('… which shows that day, the change redlined there, its day typed over there', Shell.time.peek()?.asOf === '2027-12-01' && !!FormulaBar.pending.peek() && pb('.from input')?.value === 'Dec 1, 2027', pb()?.textContent);
   Shell.at(null); App.discard(); await tick(60);
   // A deletion pending whose record an older change undone (History's) takes away is dropped, saying why
   let ownAdded = null;
@@ -559,18 +559,18 @@ async function run() {
     red[own] === null && !!newLine && Object.values(red).some(r => r?.kind === 'Entity') && pctOf(red, newLine) === 0.82 && !!$('.insp.going') && document.activeElement === $('.asking .amount')
     && !pb('.btn.primary').disabled && /to Northwind Holdings LLC/.test(spoken($('.asking .transfer'))), `${JSON.stringify(red).slice(0, 300)} ${document.activeElement?.outerHTML.slice(0, 80)}`);
   const onIn = $('.asking .from input');
-  onIn.focus(); onIn.value = 'November 1, 2026'; onIn.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  onIn.focus(); onIn.value = 'November 1, 2027'; onIn.dispatchEvent(new Event('input', { bubbles: true })); await tick();
   key(onIn, 'Enter'); await tick(80);
-  const t1 = last(), nov = App.wb.asOf(C, '2026-11-01'), oct = App.wb.asOf(C, '2026-10-31'), to1 = owners(nov).find(k => k !== own);
+  const t1 = last(), nov = App.wb.asOf(C, '2027-11-01'), oct = App.wb.asOf(C, '2027-10-31'), to1 = owners(nov).find(k => k !== own);
   const buyer = to1 && nov[to1].args.find(a => a.edge === 'Owner').at;
   check('Enter makes it, one change: the old ownership ends on the day, still held the day before; the new one holds from it, all 82%, its new owner made with it',
     nP() === nT + 1 && !!oct[own] && !nov[own] && !!to1 && !oct[to1] && pctOf(nov, to1) === 0.82 && N().nameOf(nov, buyer) === 'Northwind Holdings LLC' && !oct[buyer] && !App.pending.peek() && !pb(),
     `${owners(oct)} / ${owners(nov)} ${JSON.stringify(t1.adds).slice(0, 300)}`);
-  check('… History and its toast say it as asked', Time.describe(t1) === 'Transferred 82% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2026'
+  check('… History and its toast say it as asked', Time.describe(t1) === 'Transferred 82% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2027'
     && toastText() === Time.describe(t1), `${Time.describe(t1)} / ${toastText()}`);
-  check('… its panel, today, saying the day it ends on, a link to the chart then', Shell.selection.peek().join() === own && rowOf('Ends on')?.querySelector('.lk')?.textContent === 'November 1, 2026', $('.insp')?.textContent.slice(0, 200));
+  check('… its panel, today, saying the day it ends on, a link to the chart then', Shell.selection.peek().join() === own && rowOf('Ends on')?.querySelector('.lk')?.textContent === 'November 1, 2027', $('.insp')?.textContent.slice(0, 200));
   Shell.parts.value.undo.undo(); await tick(60);
-  check('… one Undo takes it back whole, saying what it undid', nP() === nT + 2 && owners(App.wb.asOf(C, '2026-11-01')).join() === own && toastText() === `Undid: ${Time.describe(t1)}`, toastText());
+  check('… one Undo takes it back whole, saying what it undid', nP() === nT + 2 && owners(App.wb.asOf(C, '2027-11-01')).join() === own && toastText() === `Undid: ${Time.describe(t1)}`, toastText());
   // A part, today, to one the chart has: the old one's amount less the part, from the day; the new one the part
   Shell.select([own]); await tick(60);
   App.transferring(own); await tick(80);
@@ -641,10 +641,10 @@ async function run() {
   check('a deletion pending shows in the inspector: the end entry it gives in blue, the record struck', rowOf('Dissolution Date')?.querySelector('.v.redline .add')?.textContent === today && !!$('.insp.going'),
     rowOf('Dissolution Date')?.outerHTML.slice(0, 200));
   check('… and what follows from it counted, as for a line', (FormulaBar.pending.peek()?.deltas ?? []).length > 0, JSON.stringify(FormulaBar.pending.peek()?.deltas ?? null));
-  await type(pb('.from input'), 'December 1, 2026');
+  await type(pb('.from input'), 'December 1, 2027');
   const dissolved = Tree.entryAt(st(), 'northpine', 'Dissolution Date');
-  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2026-12-01'
-    && !App.wb.item(C, dissolved)[0].since && /^Ended Northpine Software, LLC on Dec 1, 2026/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
+  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2027-12-01'
+    && !App.wb.item(C, dissolved)[0].since && /^Ended Northpine Software, LLC on Dec 1, 2027/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // A start typed in the formula bar past the day shown: the toast says why, as from the inspector
   Shell.at({ asOf: '2025-06-30' }); await tick(60);
