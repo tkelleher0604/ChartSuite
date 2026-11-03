@@ -1340,6 +1340,28 @@ async function run() {
     const out = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent + (e.querySelector('.detail') ? ` |${e.querySelector('.detail').textContent}` : ''));
     return out;
   };
+  // The table's commands, each by the words for it, with why not where they can't run.
+  {
+    const was = Shell.view.peek(), tab = views().find(v => v.rows?.kind === 'Entity');
+    const words = { sort: 'Sort by…', filter: 'Filter…', group: 'Group by…', freeze: 'Freeze…', 'fit columns': 'Fit columns', autofit: 'Fit columns', unfreeze: 'Freeze…', subtotal: 'Group by…' };
+    Shell.show(views()[0].id); await tick(200);
+    const whyNot = await found('freeze'); Shell.closeAll(); await tick();
+    check('On a chart, a table’s command is still found, saying why not', whyNot.includes('Freeze… |Show a table first'), whyNot.join(' / '));
+    Shell.show(tab.id); await until(() => !!$('.tbar') && !!Table.grid); await tick(300);
+    const hits = {};
+    for (const q of Object.keys(words)) { hits[q] = (await found(q)).filter(x => !x.startsWith('#')); Shell.closeAll(); await tick(); }
+    check('On a table, Find has Sort by…, Filter…, Group by…, Freeze… and Fit columns, each by the words for it', Object.entries(words).every(([q, w]) => hits[q].includes(w)), JSON.stringify(hits).slice(0, 300));
+    Shell.find('freeze'); await tick(120); press('Enter', $('.findpal .menu') ?? $('.findpal')); await tick(200);
+    const freezes = $$('.float .menu-item').map(x => x.textContent.trim());
+    item('Freeze up to Short Name').click(); await tick(300);
+    check('… Freeze… choosing how many stay in view', freezes[0] === 'Freeze up to Name' && freezes.at(-1) === 'Unfreeze columns' && Table.look(tab.id).frozen === 2, freezes.slice(0, 3).join());
+    Shell.parts.peek().action.find(a => a.id === 'table.freeze').run(); await tick(100);
+    item('Freeze up to Name').click(); await tick(300);
+    const named0 = column('Name').getWidth();
+    Shell.store.set(`table.${C()}.${tab.id}`, JSON.stringify({ ...Table.look(tab.id), widths: { name: 700 } })); Shell.parts.peek().action.find(a => a.id === 'table.fit').run(); await tick(400);
+    check('… and Fit columns lets the widths given them go, each as wide as what it holds', !Table.look(tab.id).widths && column('Name').getWidth() < 700, `${column('Name').getWidth()} of ${named0}`);
+    Shell.show(was); await tick(200);
+  }
   let got = await found('fund iii');
   check('Find puts each kind under its head, the best first, and no answer says its kind', got[0] === '#Entities' && got[1] === 'Calder Ridge Capital Partners III, L.P.' && got.includes('#Views') && !got.some(x => x.includes(' |')), got.slice(0, 8).join(' / '));
   check('… a record before a view of the same name, so Enter goes to the record', got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Fund III'), got.slice(0, 8).join(' / '));

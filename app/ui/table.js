@@ -1815,10 +1815,10 @@ const Table = (() => {
     // The record selected (in Find, say) a row the filters leave out: it stays selected, and the bar says so.
     const sel = Shell.selection.value[0], passes = fs.length && gridFilter(m, l), out = passes && m.data.find(r => r.id === sel && r._red !== 'add' && !passes(r));
     return html`<div class="tbar" role="toolbar" aria-label="Table">
-      <button type="button" class="btn ghost dd" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
-      <button type="button" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? `${headed(sortC)}, ${sortWords(sortC)[l.sort.dir === "desc" ? 1 : 0]}` : "Sort"}</button>
-      <button type="button" class=${'btn ghost dd' + (fs.length ? ' on' : '')} aria-haspopup="menu" onClick=${e => filterMenu(e.currentTarget)}>${fs.length ? html`Filtered by ${list(fs.map(c => Array.isArray(l.filters[c.key]) ? headed(c) : `${headed(c)}, ${rangeWords(l.filters[c.key])}`))}` : 'Filter'}</button>
-      <button type="button" class=${"btn ghost dd" + (groupC ? " on" : "")} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? `Grouped by ${headed(groupC)}` : m.rows === "date" ? "Grouped by month" : "Group"}</button>
+      <button type="button" class="btn ghost dd" data-tool="columns" aria-haspopup="dialog" onClick=${e => Shell.popover(e.currentTarget, () => html`<${Columns} view=${view} />`, { placement: 'bottom-start' })}>Columns</button>
+      <button type="button" data-tool="sort" class=${'btn ghost dd' + (sortC ? ' on' : '')} aria-haspopup="menu" onClick=${e => sortMenu(e.currentTarget)}>${sortC ? `${headed(sortC)}, ${sortWords(sortC)[l.sort.dir === "desc" ? 1 : 0]}` : "Sort"}</button>
+      <button type="button" data-tool="filter" class=${'btn ghost dd' + (fs.length ? ' on' : '')} aria-haspopup="menu" onClick=${e => filterMenu(e.currentTarget)}>${fs.length ? html`Filtered by ${list(fs.map(c => Array.isArray(l.filters[c.key]) ? headed(c) : `${headed(c)}, ${rangeWords(l.filters[c.key])}`))}` : 'Filter'}</button>
+      <button type="button" data-tool="group" class=${"btn ghost dd" + (groupC ? " on" : "")} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? `Grouped by ${headed(groupC)}` : m.rows === "date" ? "Grouped by month" : "Group"}</button>
       ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
       ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
       ${out ? html`<span class="tout" role="status"><b>${rowName(sel)}</b> is filtered out<span class="sep">·</span><button type="button" class="lk" onClick=${() => { clearFilters(); setTimeout(() => track(sel)); }}>Clear filters</button></span>` : null}
@@ -1846,6 +1846,21 @@ const Table = (() => {
     const m = current, g = lookOf(m.view).group;
     Shell.menu(anchor, [{ label: m.rows === 'date' ? 'Month' : 'None', checked: !g, run: () => group(null) }, '-', ...m.cols.filter(drawn).map(c => ({ label: headed(c), checked: c.key === g, run: () => group(c) }))]);
   }
+  // How many columns stay in view: up to any of them, as its heading's menu says it, or none.
+  function freezeMenu(anchor) {
+    const m = current, frozen = frozenOf(lookOf(m.view)), cs = table.getColumns().filter(c => c.getField()).map(c => m.byField.get(c.getField()));
+    Shell.menu(anchor, [...cs.map((c, i) => ({ label: `Freeze up to ${headed(c)}`, checked: frozen === i + 1, run: () => freeze(i + 1) })), '-', { label: 'Unfreeze columns', checked: frozen === 0, run: () => freeze(0) }]);
+  }
+  // Every column as wide as what it holds, the widths given it let go.
+  const fitColumns = () => { setLook(current.view, { widths: null }); rebuild(); };
+  // The table's commands, for Find, by the words for each, with why not where they can't run.
+  const tool = name => el?.querySelector(`.tbar [data-tool="${name}"]`);
+  [{ id: 'table.sort', name: 'Sort by…', names: ['Sort', 'Sort column', 'Sort rows', 'Order by'], run: () => sortMenu(tool('sort')) },
+    { id: 'table.filter', name: 'Filter…', names: ['Filter', 'Filter column', 'Filter rows', 'Show only'], run: () => filterMenu(tool('filter')) },
+    { id: 'table.group', name: 'Group by…', names: ['Group', 'Subtotal', 'Pivot'], run: () => groupMenu(tool('group')) },
+    { id: 'table.freeze', name: 'Freeze…', names: ['Freeze columns', 'Freeze panes', 'Unfreeze', 'Lock columns'], run: () => freezeMenu(tool('columns')) },
+    { id: 'table.fit', name: 'Fit columns', names: ['Autofit', 'Fit width', 'Column width', 'Resize columns'], run: fitColumns },
+  ].forEach(a => Shell.register('action', { ...a, enabled: () => viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready, why: () => 'Show a table first' }));
   // Every column, each a checkbox that shows or hides it, dragged by its row to reorder; and a new one, named as it's typed.
   const GRIP = Shell.iconMarkup('grip');
   function Columns({ view }) {
