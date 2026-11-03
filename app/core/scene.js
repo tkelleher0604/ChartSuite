@@ -838,7 +838,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const p = placeOf.get(b.id);
     b.pos = p && !(p.pos.loose && givesWay(b)) ? p.pos : null;
     b.entered = !!b.pos;
-    b.placed = !!b.pos && !(b.pos.loose && ranking.has(b.id));
+    b.placed = b.stands = !!b.pos && !(b.pos.loose && ranking.has(b.id));
     if (b.pos) positions.set(b.id, b.pos);
     else if (p) hints.set(b.id, p.pos);
   }
@@ -959,7 +959,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // moving aside (see spread).
     // (Where the layout puts each box, in the terms of a place entered, before anything moves it for the room its lanes and
     // labels need: its `laid` place, which a change keeping it where it's drawn enters, so it's drawn there again.)
-    for (const b of boxes) { Object.assign(b, placed.get(b.id)); b.laid = { ...placed.get(b.id) }; }
+    // (A box slid aside to make room in its row is the layout's to place, till a change keeps it there.)
+    for (const b of boxes) { Object.assign(b, placed.get(b.id)); b.laid = { ...placed.get(b.id) }; b.placed = b.stands && !(squeeze === 1 && !last && b.pos && Math.abs(b.x - b.pos.x) > 0.01); }
     if (squeeze === 1) for (const b of [...boxes].sort((p, q) => p.x - q.x)) if (b.entered && b.pos.w && b.shape === 'triangle' && b.w > b.pos.w && !last?.at.has(b.id)) {
       const level = a => a !== b && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2 && a.x + a.w / 2 < b.x + b.pos.w / 2;
       const room = b.x - Math.max(-Infinity, ...boxes.filter(level).map(a => a.x + a.w + 8));
@@ -1136,7 +1137,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // A label said once for several lines, a trunk's or a frame's, is said for them all: the line that carries it keeps
   // their ids, its `kin`.
   for (const ls of groupBy(lines.filter(l => l.placing?.kin != null), l => l.placing.kin).values()) for (const l of ls) if (ls.length > 1 && l.labelAt) l.kin = ls.map(o => o.id);
-  for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; if (m.type !== 'shape') delete m.ends; }
+  for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; delete m.stands; if (m.type !== 'shape') delete m.ends; }
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
   if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
   return scene;

@@ -452,10 +452,11 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   // The lines already routed among what's placed, which a new box mustn't sit on.
   const routed = lines.filter(l => geo.has(l.from) && geo.has(l.to) && l.from !== l.to).map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight }));
   route(geo, routed, { labels: false });
-  const segs = routed.flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p]));
+  let segs = routed.flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p]));
   const meets = (r, [a, b], pad) => Math.max(a[0], b[0]) >= r.x - pad && Math.min(a[0], b[0]) <= r.x + r.w + pad && Math.max(a[1], b[1]) >= r.y - pad && Math.min(a[1], b[1]) <= r.y + r.h + pad;
   const apart = (p, q, gx, gy) => p.x >= q.x + q.w + gx || p.x + p.w + gx <= q.x || p.y >= q.y + q.h + gy || p.y + p.h + gy <= q.y;
-  const placedBoxes = [...geo.values()], nearBoxes = grid(placedBoxes), nearShapes = grid(obstacles), nearSegs = grid(segs.map(span));
+  const placedBoxes = [...geo.values()], nearBoxes = grid(placedBoxes), nearShapes = grid(obstacles), slidIn = new Map();
+  let nearSegs = grid(segs.map(span));
   const wide = (p, gx, gy) => ({ x: p.x - gx, y: p.y - gy, w: p.w + 2 * gx, h: p.h + 2 * gy }), m = page.margin;
   const within = p => !bounds || (p.x + p.w <= bounds.w - m / 2 && p.y + p.h <= bounds.h - m / 2);
   const clear = p => p.x >= m / 2 && p.y >= m / 2 && within(p) && !nearBoxes.any(wide(p, 16, 24), i => !apart(p, placedBoxes[i], 16, 24))
@@ -466,7 +467,8 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   // the side its layout puts it.
   const triangles = id => (downs.get(id) ?? []).filter(l => size.get(l.to)?.shape === 'triangle'), flanking = b => b.shape !== 'triangle' && !ups.has(b.id)
     && (downs.get(b.id) ?? []).length > 0 && triangles(b.id).length === downs.get(b.id).length && triangles(b.id).every(l => l.names);
-  for (const b of rest.sort((a, c) => flanking(a) - flanking(c) || at.get(a.id).y - at.get(c.id).y || at.get(a.id).x - at.get(c.id).x)) {
+  const madeAt = new Map(boxes.map((b, i) => [b.id, i]));
+  for (const b of rest.sort((a, c) => flanking(a) - flanking(c) || at.get(a.id).y - at.get(c.id).y || (a.order ?? Infinity) - (c.order ?? Infinity) || madeAt.get(a.id) - madeAt.get(c.id))) {
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
     const near = [...kids, ...parents];
     const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all, hint = hints?.get(b.id);
@@ -487,14 +489,30 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     // Where it was made, so a box dropped stays near where it was dropped, on that side of its relatives; but made within its
     // width of their middle, or made elsewhere, at their middle, square over or under them.
     const from = hint && Math.abs(x0 + b.w / 2 - cx) > b.w ? x0 : cx - b.w / 2;
-    // In the row of its own relation's, where it has room, nearest that, at its end where nothing nearer is clear, the page
-    // growing to hold it; only where the row is full, on a page that stays as it is, is it put in a row of its own.
+    // In the row of its own relation's, where it has room, nearest that. A box made elsewhere than by a hand on the chart
+    // (imported, bought in or added from a list) that would stand further than one box off them makes room beside them, that
+    // row's boxes sliding apart by the least that's needed, in their order (see roomBeside); what's dropped or tidied around
+    // what stands moves nothing. Only where the row is full, on a page that stays as it is, is it put in a row of its own.
     if (sib && alike.length) {
       const y = Math.max(m / 2, sib.y), toward = hint ? Math.sign(x0 + b.w / 2 - cx) || 1 : -1;
       let found = null;
       for (let i = 0; i < 600 && !found; i++) for (const dir of i ? [toward, -toward] : [toward]) {
         const q = { x: Math.max(m / 2, from + dir * i * 8), y, w: b.w, h: b.h };
         if (clear(q)) { found = q; break; }
+      }
+      const row = placedBoxes.filter(g => Math.min(g.y + g.h, y + b.h) - Math.max(g.y, y) > Math.min(g.h, b.h) / 2).sort((p, q) => p.x - q.x);
+      const off = found && Math.min(...alike.filter(g => row.includes(g)).map(g => row.filter(o => (o.x + o.w / 2 - g.x - g.w / 2) * (o.x + o.w / 2 - found.x - b.w / 2) < 0).length));
+      if (!hint && !b.around && !keep && !bounds && (!found || off > 1)) {
+        // (Clear of the lines that pass the row: its boxes' own move with them.)
+        const passing = routed.filter(l => !row.some(g => g.id === l.from || g.id === l.to)).flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p]));
+        const fits = q => !obstacles.some(o => !apart(q, o, 16, 16)) && !passing.some(s => meets(q, s, -1)), rowKey = Math.round(y);
+        const r = roomBeside(b, y, row, alike, slidIn.get(rowKey), cx, Math.min(...placedBoxes.map(g => g.x)), fits, placedBoxes.filter(g => !row.includes(g)));
+        if (r) {
+          for (const [g, dx] of r.moves) { g.x += dx; out.get(g.id).x = g.x; nearBoxes.add(g, placedBoxes.indexOf(g)); }
+          if (r.moves.length) { route(geo, routed, { labels: false }); segs = routed.flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p])); nearSegs = grid(segs.map(span)); }
+          found = { x: r.x, y, w: b.w, h: b.h };
+          slidIn.set(rowKey, b.id);
+        }
       }
       if (found) {
         geo.set(b.id, { id: b.id, ...found, shape: b.shape });
@@ -533,6 +551,38 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     out.set(b.id, { x: p.x, y: p.y });
   }
   return out;
+}
+// Room for b in its row beside `alike`, the boxes that share its relatives by its relation: in a gap next to one of them (or,
+// `after` a box put in this row just before it, next to that, so what's added stays in the order it's added), the gap's
+// boxes on one side sliding away from it by the least that's needed, each pushing the next only as far as the gaps run out
+// (to 16 pt apart, or as near as they stood), never past the chart's left (`left`), and none landing on what `fits`
+// says it mustn't or on another box (`others`). Of those, the one that moves the least, and then nearest their middle.
+// → { x, moves: [[box, dx]] }, or null where no gap will do.
+function roomBeside(b, y, row, alike, after, cx, left, fits, others) {
+  const G = GAP.across, n = row.length, ok = g => !others.some(o => o.x < g.x + g.w + 8 && g.x < o.x + o.w + 8 && o.y < g.y + g.h + 8 && g.y < o.y + o.h + 8);
+  let best = null;
+  for (let i = 0; i <= n; i++) {
+    const L = row[i - 1], R = row[i];
+    if (after ? L?.id !== after : !(alike.includes(L) || alike.includes(R))) continue;
+    const need = (L ? G : 0) + b.w + (R ? G : 0), has = (R ? R.x : Infinity) - (L ? L.x + L.w : Math.min(left, R ? R.x : left)), d = Math.max(0, need - has);
+    const slide = (from, step, dir) => {
+      const moves = [];
+      for (let j = from, push = d; push > 0.01 && j >= 0 && j < n; j += step) {
+        moves.push([row[j], dir * push]);
+        const next = row[j + step], gap = next ? (step > 0 ? next.x - row[j].x - row[j].w : row[j].x - next.x - next.w) : Infinity;
+        push = Math.max(0, push - (gap - Math.min(gap, G)));
+      }
+      return moves;
+    };
+    for (const [moves, x] of [[slide(i, 1, 1), L ? L.x + L.w + G : Math.min(left, R ? R.x : left)], ...L ? [[slide(i - 1, -1, -1), R ? R.x - G - b.w : L.x + L.w + G]] : []]) {
+      if (moves.some(([g, dx]) => g.x + dx < left - 0.01)) continue;
+      const q = { x, y, w: b.w, h: b.h };
+      if (!fits(q) || !ok(q) || moves.some(([g, dx]) => { const r = { x: g.x + dx, y: g.y, w: g.w, h: g.h }; return !fits(r) || !ok(r); })) continue;
+      const cost = moves.reduce((s, [, dx]) => s + Math.abs(dx), 0) + Math.abs(x + b.w / 2 - cx) / 4;
+      if (!best || cost < best.cost) best = { x, moves, cost };
+    }
+  }
+  return best;
 }
 // Where the boxes not yet placed would go, roughly, in place of ELK's layout: a row below what ranks a box,
 // or above what it ranks, nearest relatives first; a box related to nothing placed, in a row under all.

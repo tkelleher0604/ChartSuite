@@ -979,9 +979,26 @@ function run() {
     const on = s.marks.filter(m => m.type === 'line' && m.from !== e && m.to !== e && m.points.slice(1).some((p, i) => meets([m.points[i], p])));
     const over = s.marks.filter(m => m.type === 'box' && m.id !== e && b.x < m.x + m.w && m.x < b.x + b.w && b.y < m.y + m.h && m.y < b.y + b.h);
     check('a new owner is placed on no line it isn’t on, and over no box', !on.length && !over.length, j({ at: [b.x, b.y], on: on.map(m => m.id), over: over.map(m => m.id) }));
-    // (Fund III-A's owners' row is the investors', which has room only at its end.)
-    const owner = s.byId.get('inv_3a');
-    check('and over what it owns, in the row of the owners of what it owns, where that row has room', b.y + b.h < fund3a.y && Math.abs(b.y - owner.y) < 0.5, j({ at: [b.x, b.y], row: owner.y }));
+    const owner = s.byId.get('inv_3a'), next = (x, g) => Math.abs(x.x + x.w - g.x) < 60 || Math.abs(g.x + g.w - x.x) < 60;
+    check('and over what it owns, in the row of the owners of what it owns, beside them', b.y + b.h < fund3a.y && Math.abs(b.y - owner.y) < 0.5 && next(b, owner), j({ at: [b.x, b.y], owner: [owner.x, owner.w] }));
+  }
+  {
+    // Two owners imported (gui2 L-1.4): beside their fund's other owner, in the order they were made, the row's boxes sliding apart
+    // by the least that's needed, keeping their order, and nothing else moving; so no long line across the chart.
+    const wb = fresh(), s0 = scene(wb), ids = [];
+    edit(wb, tx => { for (const [n, p] of [['Harborview Pension Fund', 0.045], ['Meridian Family Office LLC', 0.02]]) { const [e] = entity(tx, n, 'Limited Liability Company'); owns(tx, e, 'fund', p); ids.push(e); } });
+    const s1 = scene(wb), own = (s, m) => [m.x - s.page.offset.x, m.y - s.page.offset.y], [h, m] = ids.map(id => s1.byId.get(id)), us = s1.byId.get('inv_us'), row = s0.marks.filter(x => x.type === 'box' && Math.abs(x.y - s0.byId.get('inv_us').y) < 2).map(x => x.id);
+    const across = s => row.map(id => s.byId.get(id)).sort((a, b) => a.x - b.x).map(x => x.id).join();
+    const elsewhere = s0.marks.filter(x => x.type === 'box' && !row.includes(x.id) && Math.abs(own(s0, x)[0] - own(s1, s1.byId.get(x.id))[0]) > 0.5).map(x => x.id);
+    const reach = l => l.points.slice(1).reduce((n, p, i) => n + Math.abs(p[0] - l.points[i][0]), 0), lines = ids.map(id => s1.marks.find(x => x.type === 'line' && x.from === id));
+    check('owners imported go beside their fund’s other owners, in the order made, the row sliding apart by the least, keeping its order, and nothing else moving across',
+      Math.abs(h.y - us.y) < 0.5 && Math.abs(m.y - us.y) < 0.5 && Math.abs(h.x - (us.x + us.w + 21)) < 1 && Math.abs(m.x - (h.x + h.w + 21)) < 1 && across(s0) === across(s1) && !elsewhere.length && lines.every(l => reach(l) < 2 * us.w + 2 * h.w),
+      j({ h: [h.x, h.y], m: [m.x, m.y], us: [us.x, us.y, us.w], before: across(s0), after: across(s1), elsewhere, reach: lines.map(reach) }));
+    const dropped = fresh(), d0 = scene(dropped);
+    let e;
+    edit(dropped, tx => { [e] = entity(tx, 'Harborview Pension Fund', 'Limited Liability Company'); owns(tx, e, 'fund', 0.045); tx.note('Position', { id: e, kind: 'Entity' }, { x: 80, y: 700, loose: true }, { view: MAIN }); });
+    const d1 = scene(dropped), still = d0.marks.filter(x => x.type === 'box' && j(own(d0, x)) !== j(own(d1, d1.byId.get(x.id))));
+    check('… but a box dropped by hand moves nothing: it joins its owners’ row where there’s room nearest where it was dropped', !still.length && Math.abs(d1.byId.get(e).y - d1.byId.get('inv_us').y) < 0.5, j({ moved: still.map(x => x.id), at: d1.byId.get(e).y }));
   }
 
   // ---- How long it takes ----

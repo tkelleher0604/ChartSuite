@@ -1997,7 +1997,8 @@ function mount(el) {
     const view = base.view;
     for (const [id, p] of holdsOf(base)) {
       const t = treeOf(id);
-      if (t && tx.item(id).length && (tx.noteAt('Position', t, { view })?.value?.loose ?? true)) tx.note('Position', t, p, { view });
+      const old = t && tx.noteAt('Position', t, { view })?.value;
+      if (t && tx.item(id).length && (old?.loose ?? true)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
     }
   });
 
