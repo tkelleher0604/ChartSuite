@@ -570,12 +570,13 @@ const Table = (() => {
   }
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
   // The kinds of object a relation's side can be at, as the schema has them (under the entry it's at, if any).
-  function sideKinds(m, edge) {
-    const kinds = new Set(), root = loc => loc.args ? root(loc.args[0].loc) : loc.kind;
+  function sideKindNames(m, edge) {
+    const kinds = new Map(), root = loc => loc.args ? root(loc.args[0].loc) : loc.kind;
     for (const t of Object.values(App.schema.value)) if (t.args?.length > 1 && Tree.narrower(t, m.rows))
-      for (const a of t.args) if (same(a.edge, edge) && root(a.loc)) kinds.add(norm(root(a.loc)));
-    return kinds;
+      for (const a of t.args) if (same(a.edge, edge) && root(a.loc) && !kinds.has(norm(root(a.loc)))) kinds.set(norm(root(a.loc)), root(a.loc));
+    return [...kinds.values()];
   }
+  const sideKinds = (m, edge) => new Set(sideKindNames(m, edge).map(norm));
   const objects = (m, c) => { const st = App.state.value; return [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => App.notes.peek().nameOf(st, id)).sort(); };
   const objectsOf = (st, kinds) => [...kinds].flatMap(k => Tree.index(st).kinds.get(norm(k)) ?? []);
   // ---- Names as people write them ----
@@ -1196,27 +1197,31 @@ const Table = (() => {
 
   // The change a plan makes, as FormulaBar.preview takes one, its new records under new ids; with what it does. `made`,
   // each object it adds, named: { kind, name, kinds (those it could be instead), near (one it's close to), row (a row
-  // of a kind's table) }; `rels`, the relations a list's cells add, and `ends`, those they no longer name. A name pointed
-  // at a record (`as`) is that record.
+  // of a kind's table), names (the kinds it could be, as they're called) }; `rels`, the relations a list's cells add, and
+  // `ends`, those they no longer name. A name pointed at a record (`as`, its id) is that record; at a kind (`as`, { kind }),
+  // a new one of it.
   function changeOf(m, { keys, plan }, as = new Map()) {
     const st = App.state.peek(), entered = App.entered.peek(), records = {}, made = new Map(), kids = new Map();
     const x = { records, values: 0, rows: [], made: [], skipped: 0, matched: 0, cols: new Set(), rels: [], ends: [] };
     const put = (rec, id = Log.newId()) => { records[id] = rec; return id; };
-    const make = (name, kind, kinds, row = false) => {
+    const make = (name, kind, kinds, row = false, names = [kind]) => {
       const o = put({ kind });
       put({ at: o, edge: 'Name', field: 'text', value: name });
       made.set(loose(name), o);
-      x.made.push({ kind, name, kinds, near: near(st, name, kinds), row });
+      x.made.push({ kind, name, kinds, names, near: near(st, name, kinds), row });
       return o;
     };
+    const asId = name => { const a = as.get(loose(name)); return typeof a === 'string' ? a : null; };
     const childAt = (at, edge) => kids.get(`${at}|${norm(edge)}`) ?? entryAt(st, at, edge);
-    // A side named in the paste: an object of the kinds that side can be, or a new one of the commonest.
-    const sideAt = (edge, name) => {
-      const kinds = sideKinds(m, edge), o = as.get(loose(name)) ?? find(st, name, kinds) ?? made.get(loose(name)) ?? make(name, kindAt(m, edge), kinds);
+    // A side named in the paste: an object of the kinds that side can be, or a new one, of the kind it's pointed at, or
+    // else of the kind those like it are (kindAt), `other` being the rest of its row, each side's record the chart has.
+    const has = (edge, name) => asId(name) ?? find(st, name, sideKinds(m, edge)) ?? made.get(loose(name));
+    const sideAt = (edge, name, other) => {
+      const o = has(edge, name) ?? make(name, as.get(loose(name))?.kind ?? kindAt(m, edge, other), sideKinds(m, edge), false, sideKindNames(m, edge));
       return follow(st, o, sideLoc(m, edge));
     };
     for (const p of plan) {
-      let row = p.row ?? (m.isKind && p.key[0] && as.get(loose(p.key[0]))) ?? null;
+      let row = p.row ?? (m.isKind && p.key[0] && asId(p.key[0])) ?? null;
       const was = !!row;
       if (was) x.matched++;
       if (!row) {
@@ -1225,7 +1230,8 @@ const Table = (() => {
           row = made.get(loose(p.key[0]));
           if (!row) { row = make(p.key[0], m.rows.kind, new Set([norm(m.rows.kind)]), true); x.rows.push(row); }
         } else {
-          const args = keys.map((k, i) => ({ edge: k.edge, at: sideAt(k.edge, p.key[i]) }));
+          const other = new Map(keys.map((k, i) => [norm(k.edge), has(k.edge, p.key[i])]));
+          const args = keys.map((k, i) => ({ edge: k.edge, at: sideAt(k.edge, p.key[i], other) }));
           if (args.some(a => !a.at)) { x.skipped += p.cells.length; continue; }
           const own = p.cells.find(([c]) => c.key === '$out');
           row = put({ args, ...(own ? value(own[0].type, clean(own[1])) ?? { tag: true } : { tag: true }) });
@@ -1261,7 +1267,7 @@ const Table = (() => {
         if (!at || c.fx || c.choice) { if (clean(raw)) x.skipped++; continue; }
         const had = st[at] ? relativesIn(st, at, c) : [], want = [];
         for (const name of namesIn(raw)) {
-          const pick = as.get(loose(name)), o = (typeof pick === 'string' ? pick : null) ?? find(st, name, c.kinds) ?? made.get(loose(name)) ?? make(name, pick?.kind ?? listKind(m, c), c.kinds);
+          const o = asId(name) ?? find(st, name, c.kinds) ?? made.get(loose(name)) ?? make(name, as.get(loose(name))?.kind ?? listKind(m, c), c.kinds, false, c.kindNames);
           if (!want.includes(o)) want.push(o);
         }
         for (const o of want) if (!had.some(h => h.obj === o)) {
@@ -1283,11 +1289,18 @@ const Table = (() => {
     }
     return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? c.kindNames[0];
   }
-  // The kind most of a relation's sides are, for a new object on that side.
-  function kindAt(m, edge) {
-    const st = App.state.value, n = new Map();
-    for (const d of m.data) { const a = st[d.id].args.find(x => same(x.edge, edge)), k = a && st[Tree.objectOf(st, a.at)]?.kind; if (k) n.set(k, (n.get(k) ?? 0) + 1); }
-    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Entity';
+  // The kind a new record on a relation's side starts on: the one most of those like it in the table's rows are of. Like it,
+  // first, beside it: in a row with the rest of its row (`other`, the records named there, by edge); and as it's new, on no
+  // row at the other side, as an investor among a fund's owners is, where a feeder that has owners of its own isn't. So an
+  // investor imported among investor groups is one; failing those, the rest of its row's, those on no other side, or any.
+  function kindAt(m, edge, other = new Map()) {
+    const st = App.state.value, sideOf = (d, e) => { const a = st[d.id]?.args?.find(x => same(x.edge, e)); return a && Tree.objectOf(st, a.at); };
+    const rest = m.cols.filter(c => c.type === 'edge' && !same(c.edge, edge)).map(c => c.edge), mine = m.data.map(d => [d, sideOf(d, edge)]).filter(([, o]) => st[o]?.kind);
+    const elsewhere = new Set(m.data.flatMap(d => rest.map(e => sideOf(d, e))));
+    const beside = ([d]) => rest.some(e => other.get(norm(e))) && rest.every(e => !other.get(norm(e)) || sideOf(d, e) === other.get(norm(e))), alone = ([, o]) => !elsewhere.has(o);
+    const like = [mine.filter(x => beside(x) && alone(x)), mine.filter(beside), mine.filter(alone), mine].find(l => l.length) ?? [], n = new Map();
+    for (const [, o] of like) n.set(st[o].kind, (n.get(st[o].kind) ?? 0) + 1);
+    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? sideKindNames(m, edge)[0] ?? 'Entity';
   }
 
   // ---- A paste or a deletion: a change pending (App.stage), redlined in the grid, with the window's bar saying what
@@ -1323,10 +1336,13 @@ const Table = (() => {
     const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
     // What it does, in the redline's ink, as the bar says it; what's left out, which it doesn't do, plain. The names it
     // adds, each a choice: those close to one the chart has, every one, asking; then the rest, three in all.
-    const ink = t => html`<span class="add">${t}</span>`, take = (o, id) => stage(m, planOf, { file, verb, as: new Map([...as, [loose(o.name), id]]) });
+    const ink = t => html`<span class="add">${t}</span>`, take = (o, to) => stage(m, planOf, { file, verb, as: new Map([...as, [loose(o.name), to]]) });
+    // A new one, of each kind it could be, that it is checked; then the records it could be, the closest first; those first
+    // once something's typed to find them by.
     const choose = (anchor, o) => Shell.menu(anchor, q => {
       const t = norm(q), l = loose(q), hit = rivals(st, o.name, o.kinds).filter(y => !q || norm(y.name).includes(t) || norm(y.short).includes(t) || loose(y.name).includes(l));
-      return [...hit.slice(0, 60).map(y => ({ label: y.name, run: () => take(o, y.id) })), ...(hit.length ? ['-'] : []), { label: `New ${o.kind} ${o.name}`, checked: true, run: () => {} }];
+      const anew = o.names.map(k => ({ label: `New ${k} ${o.name}`, checked: same(k, o.kind), run: () => { if (!same(k, o.kind)) take(o, { kind: k }); } })), found = hit.slice(0, 60).map(y => ({ label: y.name, checked: false, run: () => take(o, y.id) }));
+      return found.length ? (q ? [...found, '-', ...anew] : [...anew, '-', ...found]) : anew;
     }, { search: true, placement: 'top-start' });
     const named = o => html`<span class="named"><button type="button" class="add dd" aria-haspopup="menu" onClick=${e => choose(e.currentTarget, o)}>new ${o.kind} ${o.name}</button>${o.near
       ? html`<span class="or">, or <button type="button" class="lk" onClick=${() => take(o, o.near)}>${N.nameOf(st, o.near)}</button>?</span>` : null}</span>`;
@@ -1914,20 +1930,20 @@ const Table = (() => {
     const next = i => {
       if (i === sides.length) return addRelation(m, sides, picked);
       choosing.value = { picked: sides.slice(0, i).map(c => say(picked[c.edge])), next: sides[i].title };
-      pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); });
+      pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); }, new Map(sides.filter(c => typeof picked[c.edge] === 'string').map(c => [norm(c.edge), picked[c.edge]])));
     };
     next(0);
   }
-  // One side, from the objects it can be, found as they're typed; or a new one of the kind most of its rows have.
-  function pickSide(anchor, m, c, done) {
-    const st = App.state.peek(), N = App.notes.peek(), kind = kindAt(m, c.edge);
+  // One side, from the objects it can be, found as they're typed; or a new one of each kind it can be, that most like it first.
+  function pickSide(anchor, m, c, done, other = new Map()) {
+    const st = App.state.peek(), N = App.notes.peek(), first = kindAt(m, c.edge, other), kinds = [first, ...sideKindNames(m, c.edge).filter(k => !same(k, first))];
     const all = [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => ({ id, name: N.nameOf(st, id), short: N.shortOf(st, id) }))
       .sort((a, b) => a.name.localeCompare(b.name));
     Shell.menu(anchor, q => {
       // Found as typed, or as people write it ("Partners III LP"); a new one offered only where none reads alike.
       const t = norm(q), l = loose(q), hit = all.filter(x => !t || norm(x.name).includes(t) || norm(x.short).includes(t) || (l && loose(x.name).includes(l)));
       return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, run: () => done(x.id) })),
-        ...(q && l && !all.some(x => loose(x.name) === l || loose(x.short) === l) ? [{ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) }] : [])];
+        ...(q && l && !all.some(x => loose(x.name) === l || loose(x.short) === l) ? kinds.map(kind => ({ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) })) : [])];
     }, { search: true, placement: 'top-start', onClose: () => { choosing.value = null; } });
   }
   function addRelation(m, sides, picked) {
@@ -2260,12 +2276,40 @@ const Table = (() => {
         for (const [k, c] of Object.entries(ws)) if (k[0] !== '!' && c.t === 'n' && c.z && X.SSF.is_date(c.z)) { const d = X.SSF.parse_date_code(c.v); c.w = `${d.y}-${pad(d.m)}-${pad(d.d)}`; }
         const text = X.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false });
         if (!text.trim()) return Shell.toast(`${f.name} has no rows`);
-        paste(text, { file: f.name });
+        importing(text, f.name);
       } catch (e) { Shell.toast(`Couldn’t read ${f.name}`); }
     };
     input.click();
   }
-  Shell.register('action', { id: 'table.import', name: 'Import…', enabled: () => viewOf(Shell.view.peek())?.layout === 'table' && !!real && !real.isDatatype, run: importFile });
+  // From anywhere: the file goes to the table shown, where its headings fit it; else to the table they fit best, which opens
+  // with it staged, as if it had been imported there; fitting none, to the table shown, which asks about its headings, or,
+  // from a chart, to the table asked for. A table is fitted where its headings name the columns its rows are found by (a
+  // Name, a relation's sides); the best, where they name the most of its columns.
+  const importTables = () => App.views.peek().filter(v => v.layout === 'table' && v.rows && typeof v.rows !== 'string');
+  function fitOf(view, headings) {
+    const m = model(view);
+    if (!m) return 0;
+    const head = headings.map(h => clean(h) ? named(m, h) : null), keys = keysOf(m, head);
+    return keys.length && keys.every(k => head.includes(k)) ? head.filter(Boolean).length : 0;
+  }
+  function importing(text, file) {
+    const tables = importTables(), headings = tsv(text)[0] ?? [], shown = Shell.view.peek(), fits = tables.map(v => [v.id, fitOf(v.id, headings)]);
+    if (!tables.length) return Shell.toast('Add a table first');
+    const best = fits.reduce((a, b) => b[1] > a[1] ? b : a), here = fits.find(([v]) => v === shown);
+    const to = here?.[1] ? shown : best[1] ? best[0] : here ? shown : null;
+    if (to) return importInto(to, text, file);
+    let v = tables[0].id;
+    Shell.dialog({ title: `Import ${file} into`, width: 360, body: html`<select class="import-to" aria-label="Table" onChange=${e => { v = e.target.value; }}>${tables.map(t => html`<option value=${t.id}>${t.name}</option>`)}</select>`,
+      actions: [{ label: 'Cancel', value: false }, { label: 'Import', value: true, primary: true }] }).then(ok => { if (ok) importInto(v, text, file); });
+  }
+  // Staged in the table, once it's shown and built.
+  function importInto(view, text, file, tries = 200) {
+    if (Shell.view.peek() !== view) Shell.show(view);
+    if (real?.view === view && built?.view === view && ready && el?.offsetParent) return paste(text, { file });
+    if (tries) setTimeout(() => importInto(view, text, file, tries - 1), 25);
+  }
+  Shell.register('action', { id: 'table.import', name: 'Import…', names: ['Import a file', 'Import CSV', 'Import Excel', 'Upload'], enabled: () => !App.readOnly.peek() && importTables().length > 0,
+    why: () => App.readOnly.peek() ? 'Can’t change the past' : 'Add a table first', run: importFile });
   let unexport = null;
   effect(() => {
     const on = viewOf(Shell.view.value)?.layout === 'table';
@@ -2282,5 +2326,5 @@ const Table = (() => {
     if (!on && unexport) { unexport(); unexport = null; }
   });
 
-  return { model, paste, focus, look: lookOf, workbook, Columns, get grid() { return table; } };
+  return { model, paste, focus, look: lookOf, workbook, Columns, importFile, importing, get grid() { return table; } };
 })();

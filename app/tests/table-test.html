@@ -832,7 +832,7 @@ async function run() {
   const rows0 = Table.grid.getRows().length;
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed();
   const bar = $('.pendbar')?.textContent ?? '';
-  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Entity\s*Halcyon University Endowment/.test(bar)
+  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Investor Group\s*Halcyon University Endowment/.test(bar)
     && /From$/.test($('.pendbar .from')?.textContent.trim()) && $('.pendbar .from input')?.value === 'Nov 2, 2026' && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
   check('… and its bar names no check it fails, Fund III’s owners still adding up', !$('.pendbar .fails'), $('.pendbar .fails')?.textContent);
@@ -912,7 +912,7 @@ async function run() {
     Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\nMeridian Family Office LLC\tcalder ridge capital partners iii lp\t2%\n', { file: 'closing-investors.csv' }); await previewed();
     const said = $('.pendbar .what')?.textContent ?? '';
     check('Imported, "…III L.P." and "…iii lp" are "…III, L.P.": no second fund, its two new owners, each a choice in the bar', !/new Entity Calder Ridge/i.test(said)
-      && newRows().length === 2 && newRows().every(n => n === fundName) && $$('.pendbar .what .named > .add.dd').map(b => b.textContent).join() === 'new Entity Harborview Pension Fund,new Entity Meridian Family Office LLC'
+      && newRows().length === 2 && newRows().every(n => n === fundName) && $$('.pendbar .what .named > .add.dd').map(b => b.textContent).join() === 'new Investor Group Harborview Pension Fund,new Investor Group Meridian Family Office LLC'
       && N() === n0, `${said} / ${newRows().join(' | ')}`);
     // A row clicked that only the import has selects nothing: never the rows above it.
     Table.grid.addRange(Table.grid.getRows('active')[0].getCells()[1]); await tick(80);
@@ -927,10 +927,26 @@ async function run() {
     const f = $('.float .menu-find'); f.textContent = 'Northstar'; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);
     press('Enter', $('.float .menu')); await previewed(); await tick(100);
     const owners = () => $$('.grid .tabulator-row.red-add').map(r => r.querySelector('[tabulator-field="f:@owner"]')?.textContent.trim());
-    check('… a new name in the bar is a choice of the records it could be, the new one last; one chosen, the import is pending as it then is', offered.at(-1) === 'New Entity Harborview Pension Fund'
+    check('… a new name in the bar is a choice of the kinds it could be, then the records it could be; a record chosen, the import is pending as it then is', offered.slice(0, 3).join() === 'New Investor Group Harborview Pension Fund,New Entity Harborview Pension Fund,New Individual Harborview Pension Fund' && offered.includes('U.S. Investors')
       && owners().includes('Northstar Teachers’ Retirement System') && !owners().includes('Harborview Pension Fund') && $$('.pendbar .what .named').length === 1 && App.pending.peek()?.verb === 'Import' && N() === n0,
       `${offered.slice(0, 3).join(' | ')} … ${offered.at(-1)} / ${owners().join(' | ')}`);
     press('Escape'); await tick(150);
+    // A new name's kind: it starts on the kind those like it are of, an investor group among a fund's owners that have no
+    // owners of their own; another kind, chosen, the import is pending as it then is, and so it's made.
+    {
+      Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\n', { file: 'closing-investors.csv' }); await previewed();
+      const started = $('.pendbar .what .named > .add.dd')?.textContent;
+      $('.pendbar .what .named > .add.dd').click(); await tick(80);
+      const checked = $$('.float .menu-item').filter(x => x.getAttribute('aria-checked') === 'true').map(x => x.textContent.trim());
+      item('New Entity Harborview Pension Fund').click(); await previewed(); await tick(100);
+      check('A new name starts on the kind those like it are of: among investor groups, one; another kind chosen in its menu, the import is pending as it then is', started === 'new Investor Group Harborview Pension Fund'
+        && checked.join() === 'New Investor Group Harborview Pension Fund' && $('.pendbar .what .named > .add.dd')?.textContent === 'new Entity Harborview Pension Fund' && App.pending.peek()?.verb === 'Import', `${started} / ${checked.join()} / ${$('.pendbar .what')?.textContent}`);
+      const n2 = N();
+      press('Enter', Table.grid.rowManager.element); await tick(200);
+      check('… and made, it’s that kind', N() === n2 + 1 && st()[named('Harborview Pension Fund')]?.kind === 'Entity', st()[named('Harborview Pension Fund')]?.kind);
+      undo(); await tick(150);
+      n0 = N();
+    }
     // Close to a name the chart has, a new one asks if it's that: one click takes it, from the day said in the bar.
     Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners 3 L.P.\t4.5%\n', { file: 'closing-investors.csv' }); await previewed();
     const q = $$('.pendbar .what .named').find(x => /Partners 3/.test(x.textContent));
@@ -945,6 +961,32 @@ async function run() {
       `${N() - n0} ${pct('Harborview Pension Fund', fundName, '2023-12-31')}`);
     undo(); await tick(150);
     Shell.select([]); await tick();
+  }
+
+  // ---- Import from anywhere: from a chart, the file goes to the table its headings fit, staged as if imported there ----
+  {
+    const act = () => Shell.parts.peek().action.find(a => a.id === 'table.import'), was = Shell.view.peek(), shown = () => views().find(v => v.id === Shell.view.peek());
+    const pendingIn = async () => { await until(() => App.pending.peek()?.verb === 'Import'); await previewed(); };
+    Shell.show(views()[0].id); await tick(200);
+    check('Import… can be run from a chart', shown().layout === 'chart' && act().enabled() && !act().why().includes('Not now'), act().why());
+    Table.importing('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\n', 'closing-investors.csv'); await pendingIn();
+    check('From a chart, a file headed Owner and Owned goes to Ownership, which opens with it staged', !!shown().rows?.args && App.notes.peek().name(shown().rows) === 'Ownership' && $$('.grid .tabulator-row.red-add').length === 1
+      && $('.pendbar .btn.primary')?.textContent === 'Import', `${shown().name} ${$('.pendbar')?.textContent}`);
+    press('Escape'); await tick(150);
+    Shell.show(views()[0].id); await tick(200);
+    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await pendingIn();
+    check('… and one headed Name to Entities', shown().rows?.kind === 'Entity' && $$('.grid .tabulator-row.red-add').length === 1, `${shown().name} ${$('.pendbar')?.textContent}`);
+    press('Escape'); await tick(150);
+    Shell.show(was); await tick(200);
+    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await pendingIn();
+    check('From a table its headings don’t fit, it goes to the one they do', shown().rows?.kind === 'Entity' && shown().id !== was, shown().name);
+    press('Escape'); await tick(150);
+    Shell.show(views()[0].id); await tick(200);
+    Table.importing('Color\tSize\nRed\t3\n', 'odd.csv'); await tick(150);
+    const asked = $('dialog.dlg');
+    check('… and from a chart, fitting no table, it asks which', !!asked?.querySelector('select.import-to') && /Import odd\.csv into/.test(asked.textContent), asked?.textContent);
+    $$('dialog.dlg .btn').find(b => b.textContent === 'Cancel').click(); await tick(120);
+    Shell.show(was); await tick(200);
   }
 
   // ---- A check: a tag a Check note covers says only where it fails, and a failure needs attention ----

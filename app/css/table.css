@@ -131,7 +131,7 @@
 .match-row > .h > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .match-row > .h > b { font-weight: 500; }
 .match-row > .h > .muted { font: var(--t12); }
-.match-row > select { width: 100%; }
+.match-row > select, select.import-to { width: 100%; }
 /* A choice reads as a dropdown where it can be changed. */
 .grid .tabulator-row .tabulator-cell.c-choice.tabulator-editable:hover { padding-right: 22px; background: var(--chev) no-repeat right 8px center; }
 

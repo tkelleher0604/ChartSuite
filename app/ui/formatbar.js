@@ -715,6 +715,7 @@ function insertMenu(e, c) {
     <div class="menu-sep" />
     ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) =>
       item(name, () => g === 'picture' ? picture(c) : c.insert(g), close))}
+    ${App.readOnly.peek() || typeof Table === 'undefined' ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
   </div>`, { placement: 'bottom-start' });
 }
 function picture(c) {
