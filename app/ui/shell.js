@@ -678,7 +678,7 @@ const Shell = (() => {
     const u = part('undo'), t = time.value;
     return html`<header class="titlebar" data-region="bars">
       <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu" onPointerOver=${whole}
-        ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}</div>
+        ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}${part('keeping')?.render()}</div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
         ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${t
