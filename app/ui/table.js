@@ -2210,9 +2210,9 @@ const Table = (() => {
   // the grid reads it in: a number a number, a percentage a percentage, an amount of money money, a date a date; a link
   // to a document a link, named as the grid names it; a tag Yes or No. Its columns as wide as the grid's, with Excel's
   // filter on its headings. A row a change pending would add isn't there yet, and a value it would change is as it is.
-  function sheet(X) {
+  function sheet(X, all = false) {
     const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c);
-    const rows = table.getRows('active').map(r => r.getData()).filter(d => d._red !== 'add');
+    const rows = (all ? table.getRows() : table.getRows('active')).map(r => r.getData()).filter(d => d._red !== 'add');
     const value = (d, c) => { const mm = d._m[field(c)]; return mm && 'was' in mm ? mm.was : d[field(c)]; };
     const ws = {}, at = (r, j) => X.utils.encode_cell({ r, c: j });
     cols.forEach(([, c], j) => {
@@ -2232,14 +2232,14 @@ const Table = (() => {
     ws['!autofilter'] = { ref: ws['!ref'] };
     return ws;
   }
-  async function workbook() {
+  async function workbook(all = false) {
     const X = await loadSheetJS(), wb = X.utils.book_new(), name = viewOf(Shell.view.peek())?.name ?? 'Table';
-    X.utils.book_append_sheet(wb, sheet(X), name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Table');
+    X.utils.book_append_sheet(wb, sheet(X, all), name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Table');
     wb.Props = { Title: fileName('xlsx').replace(/\.xlsx$/, ''), Author: App.who() ?? '' };
     return wb;
   }
-  async function excel() {
-    const X = await loadSheetJS(), blob = new Blob([X.write(await workbook(), { bookType: 'xlsx', type: 'array', compression: true })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  async function excel(all = false) {
+    const X = await loadSheetJS(), blob = new Blob([X.write(await workbook(all), { bookType: 'xlsx', type: 'array', compression: true })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     if (typeof Export !== 'undefined' && Export.onFile) return Export.onFile(blob, fileName('xlsx'));
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: fileName('xlsx') });
     a.click();
@@ -2270,8 +2270,13 @@ const Table = (() => {
   effect(() => {
     const on = viewOf(Shell.view.value)?.layout === 'table';
     if (on && !unexport) {
-      const offs = [Shell.register('export', { name: 'Excel', run: () => table && excel().catch(e => Shell.toast(e?.message || 'Couldn’t export')) }),
-        Shell.register('export', { name: 'CSV', run: () => table?.download('csv', fileName('csv'), { bom: true }) })];
+      // What a file writes, as the Export dialog says it: the rows as shown, filtered and sorted so, or every row; and the
+      // columns shown, in their order.
+      const writes = all => { const m = current, l = lookOf(m.view), by = k => m.cols.find(c => c.key === k), n = table.getRows().length, shown = table.getRows('active').length;
+        const fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean).map(headed), s = !all && l.sort && by(l.sort.key), cols = table.getColumns().filter(c => c.getField() && m.byField.get(c.getField())).length;
+        return `${all || shown === n ? `All ${count(n, m.noun)}` : `${shown} of ${count(n, m.noun)}, filtered by ${list(fs)}`}${s ? `, sorted by ${headed(s)}` : ''}; ${count(cols, 'column')}, in their order`; };
+      const offs = [Shell.register('export', { name: 'Excel', says: writes, run: ({ all } = {}) => table && excel(all).catch(e => Shell.toast(e?.message || 'Couldn’t export')) }),
+        Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : 'active') })];
       unexport = () => offs.forEach(f => f());
     }
     if (!on && unexport) { unexport(); unexport = null; }

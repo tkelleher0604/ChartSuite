@@ -21,11 +21,11 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-end { margin-left: auto; padding-left: 8px; display: flex; align-items: center; gap: 12px; flex: none; font: var(--t12); color: var(--ink-3); }
 .fx-link { border: 0; padding: 0; background: none; font: inherit; color: var(--ink-2); text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; }
 .fx-link:hover { color: var(--ink); text-decoration-style: solid; }
-.fx-delta { display: flex; gap: 16px; font: var(--t13); color: var(--ink-2); }
+.fx-delta { display: flex; gap: 4px; white-space: nowrap; font: var(--t13); color: var(--ink-2); }
 .fx-delta b { font-weight: 500; }
-.fx-delta .plus { color: var(--accent-ink); }
-.fx-delta .minus { color: var(--no); }
-.fx-delta .changed { color: var(--due); font-weight: 500; }
+.fx-delta .add { color: var(--accent-ink); }
+.fx-delta .take { color: var(--no); }
+.fx-delta .change { color: var(--due); font-weight: 500; }
 .fx-acts { display: flex; gap: 4px; }
 .fx-acts > .btn { height: 24px; padding: 0 8px; font: var(--t13); }
 .fx-open { width: 24px; height: 24px; }
@@ -97,6 +97,10 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-foot { display: flex; align-items: center; min-height: 28px; font: var(--t12); color: var(--ink-3); }
 .fx-foot:empty { display: none; }
 .fx-add { width: 24px; height: 24px; margin-left: -6px; color: var(--ink-3); }
+.fx-show { height: 24px; margin-left: -8px; padding: 0 8px; font: var(--t12); color: var(--ink-2); }
+.fx-add + .fx-show { margin-left: 4px; }
+/* With the formula hidden, its foot follows why at once. */
+.fx-said:has(+ .fx-foot) { margin-bottom: 4px; }
 .fx-used { margin-left: auto; }
 
 /* A grip, shown on hover, to drag a row to another place. */

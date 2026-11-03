@@ -1,10 +1,12 @@
-// The tour: six steps, each done by doing what it teaches, then one card. It runs by itself on the very
+// The tour: seven steps, each done by doing what it teaches, then one card. It runs by itself on the very
 // first launch, once the launch screen is gone, if a chart is drawn; after that, from Tour in the chart menu or
-// Find. Enter skips a step, Skip goes to the last card, and Esc ends it. A step waits for its event on the
-// shell's bus; or for what it points at to be clicked, or focused from the keys; or, pointing, for the pointer
-// to rest on what it points at and leave. It points at what the parts mark with data-tour. The tour changes
-// nothing in the record: a click on what a pointing step points at only points, what a step opened closes once
-// the next step is under way, and the selection it ends on is the one it began on.
+// Find. Enter skips a step and Skip goes to the last card. Esc is the window's while a step is shown, so it leaves
+// what's being done (a name typed, a field selected, a menu) as it always does, never the tour; on the tour's
+// card, or its last card, it ends it. A step waits for its event on the shell's bus; or for what it points at to
+// be clicked, or focused from the keys; or, pointing, for the pointer to rest on what it points at and leave. It
+// points at what the parts mark with data-tour. The tour changes nothing in the record: a click on what a
+// pointing step points at only points, what a step opened closes once the next step is under way, and the
+// selection it ends on is the one it began on.
 const Tour = (() => {
   const { html, signal, on, store } = Shell;
   const { render } = preact;
@@ -25,17 +27,19 @@ const Tour = (() => {
     { event: 'select', target: 'box', act: 'Click a box.', say: 'Every box is a record.', when: s => s?.length },
     { event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
     { click: true, target: 'like', act: 'Click “All …” above the chart.', say: 'A change then goes to every box like this one, lit; This box takes it back to the one.', ends: unlike },
-    { event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', say: 'See how they’re related, or relate them.' },
+    { event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', say: 'The panel then says how the two are related.' },
+    // What the drag made, the two boxes' panel, shown before anything takes its place.
+    { point: true, target: 'pair', act: 'Point at what holds between them.', say: 'Tick a relation to add it; one a formula gives is italic.' },
     { click: true, target: 'computed', act: 'Click an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', ends: unask },
     { event: 'view-switch', target: 'sheet', act: 'Switch view.', say: 'Views share the records; each has its own styles. Export any of them.' },
   ];
   const at = signal(-1); // the step shown; STEPS.length is the last card
-  let unlayer = null, rest = null, began = [];
+  let rest = null, began = [];
 
   function start() {
     store.set('toured', '1');
     Shell.closeAll();
-    if (at.peek() < 0) { unlayer = Shell.layer(end); began = Shell.selection.peek(); }
+    if (at.peek() < 0) began = Shell.selection.peek();
     at.value = 0;
   }
   // What a step opened stays while the next step is read, and closes once that one is begun or done. Once the
@@ -46,7 +50,7 @@ const Tour = (() => {
   const done = () => { leave(); settle(); Shell.select(began, { replace: true }); };
   const next = () => { const i = at.peek(); if (i < 0 || i >= STEPS.length) return; if (i < STEPS.length - 1) leave(); else done(); at.value = i + 1; };
   const skip = () => { done(); at.value = STEPS.length; };
-  function end() { if (at.peek() < 0) return; if (at.peek() < STEPS.length) done(); at.value = -1; unlayer(); }
+  function end() { if (at.peek() < 0) return; if (at.peek() < STEPS.length) done(); at.value = -1; }
   for (const [i, s] of STEPS.entries()) if (s.event) on(s.event, d => { if (at.peek() === i && (!s.when || s.when(d))) next(); });
   Shell.launched.then(() => { if (store.get('toured') !== '1' && Shell.parts.peek().canvas) start(); });
   document.addEventListener('keydown', e => {
@@ -142,7 +146,7 @@ const Tour = (() => {
     // A step is said, and leaves focus in the window to do it; the last card is a dialog, which keeps it.
     return html`
       <div class="tour-hole" ref=${hole} />
-      ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite">
+      ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite" onKeyDown=${e => { if (e.key === 'Escape') { e.preventDefault(); end(); } }}>
           <div class="step">${i + 1} / ${STEPS.length}</div>
           <p><b>${step.act}</b> ${step.say}</p>
           <div class="acts"><button class="skip" onClick=${skip}>Skip</button></div>

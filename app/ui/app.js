@@ -103,7 +103,7 @@ const App = (() => {
   // It reads only the Required and Check notes, so a look or a field shown, changed, counts nothing again.
   const asking = keptWhile(() => JSON.stringify(['Required', 'Check'].flatMap(l => notes.value.notes(l).map(n => [n.note, n.view, n.param, Tree.key(n.pattern), n.value]))), () => notes.peek());
   const needs = computed(() => Formulas.attention(result.value, asking.value, day.value));
-  Shell.register('attention', { items: () => needs.value.filter(a => a.kind === 'error' && !a.error).map(({ id }) => ({ kind: 'error', go: () => {
+  Shell.register('attention', { items: () => needs.value.filter(a => a.kind === 'error' && !a.error).map(({ id }) => ({ kind: 'error', id, go: () => {
     const r = state.peek()[id];
     if (!r) return;
     Shell.select([r.args ? id : r.at]);
@@ -801,12 +801,12 @@ const App = (() => {
     rename,
     menu: () => {
       const all = (version.value, book.value.charts()), here = Store.where()?.id, others = books.value.filter(b => b.id !== here);
-      return [{ label: 'New chart', run: newChart }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
+      return [{ label: 'New chart', run: newChart }, { label: 'New workbook', run: blank }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
         { label: 'Delete chart', danger: true, disabled: readOnly.value || all.length < 2, tip: all.length < 2 ? 'It’s this workbook’s only chart' : null, run: deleteChart }, '-',
         { label: 'Charts', items: all.map(c => ({ label: c.name, checked: c.chart === chart.value, run: () => c.chart !== chart.peek() && open(c.chart) })) },
         { label: 'Workbooks', items: [
           ...books.value.map(b => ({ label: b.name, checked: b.id === here, run: () => b.id !== here && opened(Store.open({ id: b.id })) })),
-          ...(books.value.length ? ['-'] : []), { label: 'New workbook', run: blank },
+          ...(books.value.length ? ['-'] : []),
           { label: 'Delete workbook', danger: true, disabled: !others.length, tip: others.length ? null : 'The open workbook can’t be deleted', items: others.map(b => ({ label: b.name, run: () => deleteBook(b) })) }] }];
     },
   });

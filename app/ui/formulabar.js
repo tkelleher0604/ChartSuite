@@ -97,8 +97,22 @@ const FormulaBar = (() => {
   const touch = signal(null);     // the records of a fact under the pointer, in the sentence that says why
   const trail = signal([]);       // [{ id, title, clause }]: the records stepped down from, for the breadcrumb
   const aim = signal(null);       // a row to put the cursor in, by its key
+  const formula = signal(Shell.store.get('formula') === 'shown');   // the rows shown under why, as asked for once
+  const wanted = signal(false);   // the rows asked for while they're open: a row aimed at, or one edited
+  effect(() => { if (!open.value) wanted.value = false; });
   on('why-open', id => { asked.value = { id, clause: finder.peek().via.get(id) ?? null, under: Shell.selection.peek() }; });
 
+  // The bar's subject follows the view: a table shows what's selected only where it's a row of it, or in one (a record
+  // of its kind, a relation it lists, an entry of its datatype); elsewhere it names the view, as with nothing selected.
+  // A chart draws whatever is selected, revealing what it hides.
+  const inView = (st, id) => {
+    const v = App.views.value.find(x => x.id === Shell.view.value), rows = v?.layout === 'table' ? v.rows : null, r = st[id];
+    if (!rows || !r) return true;
+    if (typeof rows === 'string') return r.field === rows;
+    if (!rows.args) { const o = st[Tree.objectOf(st, id)]; return !!o && Tree.same(o.kind ?? '', rows.kind); }
+    for (let x = id; x && st[x]; x = st[x].at) if (st[x].args?.length > 1) return Tree.fits(st, x, rows);
+    return false;
+  };
   const subject = computed(() => {
     const ed = editing.value;
     if (ed) return ed.subject;
@@ -106,7 +120,7 @@ const FormulaBar = (() => {
     if (a?.under === keys && (Rv.records[a.id] || errorOf(Rv, a.id))) return { id: a.id, clause: a.clause };
     const p = keys.length === 1 && Shell.pattern(keys[0]), def = p && App.notes.value.resolve('Formula', p)?.note;
     if (def) return { general: def.note };
-    const known = keys.filter(k => Rv.records[k] || errorOf(Rv, k));
+    const known = keys.filter(k => (Rv.records[k] && inView(Rv.records, k)) || errorOf(Rv, k));
     if (known.length === 1) return { id: known[0] };
     if (known.length === 2 && known.every(k => isObj(Rv.records[k]))) return { pair: known };
     return null;
@@ -1032,7 +1046,7 @@ const FormulaBar = (() => {
     open.value = !open.peek();
   }
   // The rows open with the cursor in one, to type into.
-  const openAt = key => { claimed = true; open.value = true; aim.value = key; };
+  const openAt = key => { claimed = true; open.value = true; wanted.value = true; aim.value = key; };
   // While a row is edited, a click on the chart names a record in it (point mode), and the panel holds just
   // that row.
   function startEditing(cm, key) {
@@ -1308,12 +1322,17 @@ const FormulaBar = (() => {
     }, []);
     // Opened, and as a row is edited and the panel holds just it, the chart it's about is brought clear of it.
     useLayoutEffect(clear, [m.id ?? m.def?.id, !!editing.value]);
-    const w = why.value;
+    // Read as a person reads it: why, in full, the formula behind "Show the formula", which stays shown once asked for,
+    // until hidden. Where there's no why to read (a definition in general, an error), or a row is asked for or edited,
+    // the rows show.
+    const w = why.value, said = !!w, rows = !said || formula.value || wanted.value || !!editing.value || draft.value?.def === m.def?.id;
+    const showing = on => { formula.value = on; Shell.store.set('formula', on ? 'shown' : null); };
     return html`<div class=${'fx-panel' + (editing.value ? ' editing' : '')} ref=${ref}>
       ${w ? html`<p class="fx-said"><${Said} runs=${w.full} cls="fx-why" /></p>` : null}
-      <div class="fx-rows">${m.rows.map(r => html`<${Row} key=${r.key} r=${r} m=${m} colors=${r.cited || editing.value?.key === r.key || hover.value?.key === r.key ? f.colors : null} editable=${editable} />`)}</div>
+      <div class="fx-rows" hidden=${!rows}>${rows ? m.rows.map(r => html`<${Row} key=${r.key} r=${r} m=${m} colors=${r.cited || editing.value?.key === r.key || hover.value?.key === r.key ? f.colors : null} editable=${editable} />`) : null}</div>
       <div class="fx-foot">
-        ${editable ? html`<button class="btn icon fx-add" aria-label="Add a row" data-tip="Add a row" onClick=${() => addRow(m)}>${Shell.icon('plus')}</button>` : null}
+        ${rows && editable ? html`<button class="btn icon fx-add" aria-label="Add a row" data-tip="Add a row" onClick=${() => addRow(m)}>${Shell.icon('plus')}</button>` : null}
+        ${said ? html`<button class="btn ghost fx-show" onClick=${() => { wanted.value = false; showing(!rows); }}>${rows ? 'Hide the formula' : 'Show the formula'}</button>` : null}
         <${Uses} m=${m} />
       </div>
     </div>`;
@@ -1382,9 +1401,15 @@ const FormulaBar = (() => {
       ? html`, <button class="fx-link" onClick=${e => Shell.menu(e.currentTarget, by.slice(3).map(d => ({ label: d.name, run: () => openDef(d.id) })), { placement: 'bottom-end' })}>${by.length - 3} more</button>` : null}</span>`;
   }
 
-  // What a pending change does, per definition, in words: Control: 11 fewer.
-  const Delta = ({ p }) => p && html`<span class="fx-delta">${p.deltas.slice(0, 3).map(d => html`<span>${d.name}: ${[d.plus && html`<b class="plus">${d.plus} more</b>`,
-    d.minus && html`<b class="minus">${d.minus} fewer</b>`, d.changed && html`<b class="changed">${d.changed} changed</b>`].filter(Boolean).map((x, i) => html`${i ? ', ' : ''}${x}`)}</span>`)}</span>`;
+  // What a pending change does to what formulas give, in plain words, by what each definition gives, the most first:
+  // "Adds 2 annual taxes; takes away 11 controls; changes 1 voting percentage".
+  const VERBS = [['plus', 'Adds', 'add'], ['minus', 'Takes away', 'take'], ['changed', 'Changes', 'change']];
+  const counted = (n, name) => `${n} ${n === 1 ? lower(name) : Tree.plural(lower(name))}`;
+  const Delta = ({ p }) => {
+    const ds = p?.deltas.slice(0, 3) ?? [], said = VERBS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => counted(d[k], d.name))] : null; }).filter(Boolean);
+    return said.length ? html`<span class="fx-delta">${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map((x, j) =>
+      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<b class=${cls}>${x}</b>`)}${i < said.length - 1 ? ';' : ''}</span>`)}</span>` : null;
+  };
 
   function pickMenu(e, m) {
     const Rv = R.peek();
@@ -1443,6 +1468,24 @@ const FormulaBar = (() => {
     try { names = Formulas.tokenize(Formulas.splitFormula(text).body).filter(t => t.k === 'name').map(t => norm(t.v)); } catch {}
     return { value: show(v, /%/.test(text) || names.some(n => percents.has(n))) };
   });
+
+  // What needs attention (Formulas.attention's items), in its words and where, as the status bar's lists say it: what
+  // it is, whose, and its figure where it has one. A check failed by what failed ("Ownership Adds Up", Fund III,
+  // "101.6%, not 100%"); a date by what falls due, whose and its day, as the Dates table says it ("Annual Tax Due",
+  // "AIV-1, tax year 2025", "Jun 1, 2026"); a blank by the entry missing and whose; an error by its definition, where,
+  // and its code. → { what, where, figure }
+  function needOf({ kind, id, edge, error }) {
+    const Rv = R.peek(), recs = Rv.records, n = N(), r = recs[id];
+    const whose = x => recs[x] ? Time.whose(recs, x, n) : '';
+    if (error) return { what: defOf(error.def)?.name ?? error.error.code, where: error.args ? placeText(argsOf(Rv, error, null), 'short') : whose(error.at), figure: error.error.code };
+    if (!r) return { what: edge ?? '', where: '', figure: '' };
+    if (kind === 'blank') return { what: edge, where: whose(id), figure: '' };
+    const where = r.args ? n.segmentOf(recs, id) : whose(r.at);
+    if (kind === 'overdue' || kind === 'soon') return { what: n.nameOf(recs, id), where, figure: Tree.formatDate(r.value, 'short') };
+    const failed = notsOf(Rv, id)?.failed.find(f => f.then || f.not);
+    return { what: n.nameOf(recs, id), where, figure: failed?.then ?? (failed?.not ? `not ${failed.not.text}` : '') };
+  }
+  Shell.register('needs', needOf);
 
   Shell.register('formulabar', Bar);
   // What the chevron and its key will do, said as it will do it.

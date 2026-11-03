@@ -15,8 +15,8 @@ KINDS (an object of each is a box on a chart)
 Entity
   Name: text
   Short Name: text
-  Vehicle Type: one of “AIV”, “Blocker”, “Business Development Company”, “Co-Investment Vehicle”, “Feeder Fund”, “General Partner”, “Holding Company”, “Main Fund”, “Management Company”, “Parallel Fund” or “Portfolio Company”
-  Entity Type: one of “Corporation”, “Exempted Company”, “Exempted Limited Partnership”, “Governmental Plan”, “Limited Liability Company” or “Limited Partnership” · required
+  Vehicle Type: one of “Main Fund”, “Parallel Fund”, “Feeder Fund”, “AIV”, “Co-Investment Vehicle”, “Business Development Company”, “General Partner”, “Management Company”, “Holding Company”, “Blocker”, “Portfolio Company” or “Third Party” · required
+  Entity Type: one of “Limited Partnership”, “Exempted Limited Partnership”, “Limited Liability Company”, “Corporation”, “Exempted Company” or “Governmental Plan” · required
     at “Limited Partnership”:
       Formation Document on File: a checkbox · worked out (Formation Document on File) · a check
       Governing Agreement on File: a checkbox · worked out (Governing Agreement on File) · a check
@@ -37,17 +37,14 @@ Entity
     at “Exempted Company”:
       Formation Document on File: a checkbox · worked out (Formation Document on File) · a check
       Governing Agreement on File: a checkbox · worked out (Governing Agreement on File) · a check
-  Jurisdiction: one of “Cayman Islands”, “Delaware” or “Maryland” · required
-    at “Delaware”:
-      File Number: text
-      Franchise Tax Due: date · worked out (Franchise Tax Due)
-      Franchise Tax Paid: date
-      Registered Agent: text
+  Jurisdiction: one of “Delaware”, “Cayman Islands”, “Alabama”, “Alaska”, “Arizona”, “Arkansas”, “California”, “Colorado”, “Connecticut”, “District of Columbia”, “Florida”, “Georgia”, “Hawaii”, “Idaho”, “Illinois”, “Indiana”, “Iowa”, “Kansas”, “Kentucky”, “Louisiana”, “Maine”, “Maryland”, “Massachusetts”, “Michigan”, “Minnesota”, “Mississippi”, “Missouri”, “Montana”, “Nebraska”, “Nevada”, “New Hampshire”, “New Jersey”, “New Mexico”, “New York”, “North Carolina”, “North Dakota”, “Ohio”, “Oklahoma”, “Oregon”, “Pennsylvania”, “Rhode Island”, “South Carolina”, “South Dakota”, “Tennessee”, “Texas”, “Utah”, “Vermont”, “Virginia”, “Washington”, “West Virginia”, “Wisconsin”, “Wyoming”, “Bermuda”, “British Virgin Islands”, “England and Wales”, “Guernsey”, “Hong Kong”, “Ireland”, “Jersey”, “Luxembourg”, “Netherlands” or “Singapore” · required
     at “Cayman Islands”:
       Annual Return Due: date · worked out (Annual Return Due)
       Annual Return Filed: date
       Registered Office: text
       Registration Number: text
+    at “Delaware”:
+      File Number: text
   Formation Date: date · required · starts it
   Fiscal Year End: day of the year
     The day each fiscal year ends.
@@ -135,7 +132,7 @@ Document
   Name: text
   Document Type: one of “Advisory Agreement”, “Articles of Incorporation”, “Bylaws”, “Certificate of Formation”, “Certificate of Incorporation”, “Certificate of Limited Partnership”, “Certificate of Registration”, “Compliance Analysis”, “Consent”, “Correspondence”, “Exemptive Relief”, “Incumbency Certificate”, “Limited Partnership Agreement”, “Memorandum and Articles”, “Minutes”, “Operating Agreement”, “Policy”, “Regulatory Filing”, “Resolution”, “Side Letter” or “Tax Document” · required
   Document Date: date · required
-  Status: one of “Draft”, “Executed”, “Filed”, “Final” or “Superseded” · required
+  Status: one of “Draft”, “Final”, “Executed”, “Filed” or “Superseded” · required
   Version: text
   Link: document · required
 
@@ -157,11 +154,11 @@ Evidence
 Annual Tax · worked out (Annual Tax)
   Taxpayer: Entity whose Jurisdiction is Delaware
   Tax Year: Tax Year
-  The Delaware annual tax a limited partnership or LLC owes for a tax year: owed for every year it is on the register, at any time in the year, and settled by the payment recorded at it.
+  The Delaware tax an entity owes for a tax year, a corporation’s franchise tax or a limited partnership’s or LLC’s annual tax: owed for every year it is on the register, at any time in the year, and…
   Annual Tax Amount: money · worked out (Annual Tax Amount)
-    The Delaware annual tax for the tax year: $300 through tax year 2025, $400 from tax year 2026 (HB 400).
+    The Delaware annual tax of a limited partnership or LLC for the tax year: $300 through tax year 2025, $400 from tax year 2026 (HB 400).
   Annual Tax Due: date · worked out (Annual Tax Due)
-    When the tax year’s Delaware annual tax is due, until it’s paid: on or before June 1 of the next year, or the business day before when that falls on a weekend.
+    When the tax year’s Delaware tax is due, until it’s paid: a corporation’s franchise tax and annual report on or before March 1 of the next year, a limited partnership’s or LLC’s annual tax on or…
   Annual Tax Paid: date
 
 Look-Through Ownership · percent · worked out (Look-Through Ownership)

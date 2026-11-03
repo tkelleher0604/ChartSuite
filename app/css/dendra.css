@@ -187,6 +187,12 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .toast > button.x { display: grid; place-items: center; width: var(--row); padding: 0; color: var(--toast-ink); opacity: .7; }
 .toast > button.x:hover { opacity: 1; }
 .toast > button.x > svg { width: 14px; height: 14px; }
+/* Just come, or just moved clear of what's worked on, it takes no click: one meant for what was there goes there. */
+.toasts.settling > .toast { pointer-events: none; }
+
+/* ---- History: a change picked, its Undo, and why not where it can't run; what's ended, by its day ---- */
+.hist-row > .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; }
+.hist-row > .acts > .why { font: var(--t12); color: var(--ink-2); }
 
 /* ---- A change pending: the bar under the view, what it does, when it holds, Discard and its verb ---- */
 .pendbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--rule-2); background: var(--paper); }
@@ -228,8 +234,8 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* Discard and its verb, kept together, at the end of the row they're on. */
 :is(.pendbar, .asking > .ctls) > .acts { display: inline-flex; gap: 8px; margin-left: auto; }
 /* A day other than the day shown, said: a link to the chart then. */
-:is(.from, .pendbar > .when) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
-:is(.from, .pendbar > .when) > button.lk:hover { text-decoration-color: currentColor; }
+:is(.from, .pendbar > .when, .hist-row .why) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
+:is(.from, .pendbar > .when, .hist-row .why) > button.lk:hover { text-decoration-color: currentColor; }
 
 /* ---- Tabs, inside panels ---- */
 .tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--rule); }
@@ -325,6 +331,8 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 /* Find: a menu over the title bar's field, its answers ranked as you type. */
 .menu.findpal { width: min(600px, calc(100vw - 32px)); max-width: none; max-height: min(480px, calc(100vh - 80px)); }
 .menu.findpal > .menu-find { height: 40px; line-height: 40px; }
+/* A count's list: each item in its words and where, its figure at its end. */
+.menu.needs { width: min(560px, calc(100vw - 32px)); max-width: none; }
 .menu-item.said { height: auto; min-height: var(--row); padding-block: 4px; white-space: pre-wrap; cursor: text; user-select: text; }
 
 /* Dragging to reorder: the item dragged, faint, and a line where it would go. */

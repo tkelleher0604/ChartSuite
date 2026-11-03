@@ -298,6 +298,12 @@ function open(data) {
           }
         }
       },
+      // Reopening what ended on a day: the record and what's at it that ended with it (each row of them ending that
+      // day) hold on, as they did before it ended. History's Restore of what Delete… ended.
+      reopen(id, on) {
+        const raw = rawOf(items);
+        for (const x of Tree.dependents(raw, [id])) for (const r of (items.get(x) ?? []).slice()) if (r.before === on) { const { before: _, ...rest } = r; swap(r, rest); }
+      },
       // A note at exactly this pattern (and view and param): set to `value`, or removed when it's undefined.
       // A Name that changes renames it in the formulas that cite it.
       note(label, pattern, value, { view, param } = {}) {

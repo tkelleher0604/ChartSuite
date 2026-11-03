@@ -268,7 +268,7 @@ function markSvg(m, pdf) {
 // How much smaller a page is drawn on its sheet: its scale, exactly, so it fills the sheet.
 const fit = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
 // The papers a page can be drawn on, by the names the dialog gives them.
-const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid: 'Tabloid', a4: 'A4', a3: 'A3' };
+const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid: 'Tabloid 11×17', a4: 'A4', a3: 'A3' };
 // The scene as SVG, in its own pixels, on white; with `frame` (a sheet's size, in the sheet's pixels), in the
 // middle of a larger sheet, as a deck's slides hold a smaller one. For a PDF, `pdf` its fonts (see fontsOf); true,
 // its standard fonts.
@@ -732,27 +732,31 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <span class="w"><span class="it"><b>${e.what}</b>${e.whose ? html` · ${e.whose}` : null}</span></span></div>`)}`)}</div>`;
   };
   // What's exported, on what size of page, and the file's pages, fitted to the well, two across where there
-  // are more, each captioned; a click shows one at full size. A PDF goes on Letter, unless another paper is
-  // picked.
+  // are more, each captioned; a click shows one at full size. The views are a checklist, in tab order, so any of
+  // them go, at least one; every paper there is is offered, a deck's slides of that size. A table's file is as the
+  // table shows it, or every row, as it says.
   function Choice({ choice, here, others }) {
-    const [format, setFormat] = useState(choice.format), [which, setWhich] = useState(choice.which), [paper, setPaper] = useState(choice.paper);
-    const [picked, setPicked] = useState(false), [full, setFull] = useState(null);
-    const drawn = format === 'pptx' || format === 'pdf';
+    const [format, setFormat] = useState(choice.format), [ids, setIds] = useState(choice.views), [papers, setPapers] = useState(choice.papers);
+    const [all, setAll] = useState(choice.all), [full, setFull] = useState(null);
+    const drawn = format === 'pptx' || format === 'pdf', paper = drawn ? papers[format] : null, table = format.startsWith('x') ? others[+format.slice(1)] : null;
     const scenes = useMemo(() => drawn ? views(paper) : [], [drawn, paper]);
-    Object.assign(choice, { format, which, paper, scenes });
-    const pages = drawn ? sheets(format, which === 'all' ? scenes : scenes.filter(s => s.view === here.id)) : [], one = pages[full] ?? null;
-    const papers = here ? [...new Set(['slide', 'letter', pageOf(here)])] : [];
-    const pick = f => { setFull(null); setFormat(f); if (!picked && (f === 'pptx' || f === 'pdf')) setPaper(f === 'pdf' ? 'letter' : pageOf(here)); };
+    const chosen = scenes.filter(s => ids.includes(s.view));
+    Object.assign(choice, { format, views: ids, papers, all, scenes: chosen });
+    const pages = drawn ? sheets(format, chosen) : [], one = pages[full] ?? null;
+    const tick = (id, on) => { setFull(null); setIds(now => charts().map(v => v.id).filter(x => x === id ? on : now.includes(x))); };
     return html`<div class="ex">
       <div class="ex-pick">
-        <select aria-label="Format" value=${format} onChange=${e => pick(e.target.value)}>
+        <select aria-label="Format" value=${format} onChange=${e => { setFull(null); setFormat(e.target.value); }}>
           ${FORMATS.filter(([f]) => here || f === 'ics').map(([f, name]) => html`<option value=${f}>${name}</option>`)}
           ${others.map((x, i) => html`<option value=${`x${i}`}>${x.name}</option>`)}</select>
-        ${drawn ? html`<select aria-label="Views" value=${which} onChange=${e => { setFull(null); setWhich(e.target.value); }} disabled=${charts().length < 2}>
-          <option value="this">${here.name}</option><option value="all">Every view</option></select>
-        <select aria-label="Page size" value=${paper} onChange=${e => { setFull(null); setPicked(true); setPaper(e.target.value); }}>
-          ${papers.map(p => html`<option value=${p}>${PAPERS[p]}</option>`)}</select>` : null}
+        ${drawn ? html`<select aria-label="Page size" value=${paper} onChange=${e => { setFull(null); setPapers({ ...papers, [format]: e.target.value }); }}>
+          ${Object.entries(PAPERS).map(([p, name]) => html`<option value=${p}>${name}</option>`)}</select>` : null}
+        ${table?.says ? html`<div class="menu-seg ex-rows" role="group" aria-label="Rows">${[[false, 'As shown'], [true, 'Every row']].map(([v, label]) => html`
+          <button type="button" aria-pressed=${all === v} onClick=${() => setAll(v)}>${label}</button>`)}</div>` : null}
       </div>
+      ${drawn && charts().length > 1 ? html`<div class="ex-views" role="group" aria-label="Views">${charts().map(v => html`<label>
+        <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
+      ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
       ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
           <button type="button" aria-label=${pg.name} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button>
@@ -760,21 +764,33 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       </div>` : format === 'ics' ? html`<div class="ex-well"><${Dates} /></div>` : null}
     </div>`;
   }
+  // The dialog remembers, for each chart in this browser, what it last exported: the format, the views, each
+  // format's paper, and a table's rows.
+  const memo = () => `export.${App.chart.peek()}`;
+  const recalled = () => { try { return JSON.parse(Shell.store.get(memo()) ?? '{}') ?? {}; } catch { return {}; } };
+  // `format` is 'pptx', 'pdf' or 'ics', or a table's by its name ('Excel'); or else the one last exported, or what the
+  // view shown offers first where it's a table, then a chart's slides.
   async function open(format) {
     readable = await mayRead();
-    const shown = Shell.view.peek(), list = charts(), others = Shell.parts.peek().export ?? [];
-    const here = list.find(v => v.id === shown) ?? list[0] ?? null;
-    // What the view shown offers comes first where it's a table; then a chart's slides.
-    const first = format ?? (!list.some(v => v.id === shown) && others.length ? 'x0' : here ? 'pptx' : 'ics');
-    const choice = { format: first, which: 'this', paper: first === 'pdf' ? 'letter' : here ? pageOf(here) : 'slide' };
+    const shown = Shell.view.peek(), list = charts(), others = Shell.parts.peek().export ?? [], was = recalled();
+    const here = list.find(v => v.id === shown) ?? list[0] ?? null, other = name => { const i = others.findIndex(x => x.name === name); return i < 0 ? null : `x${i}`; };
+    const asked = format && (FORMATS.some(([f]) => f === format) ? format : other(format));
+    const usable = f => !!f && (f === 'ics' || (!!here && (f === 'pptx' || f === 'pdf')));
+    const tableShown = !list.some(v => v.id === shown) && others.length;
+    const first = asked ?? (tableShown ? other(was.table) ?? 'x0' : usable(was.format) ? was.format : here ? 'pptx' : 'ics');
+    const kept = (was.views ?? []).filter(id => list.some(v => v.id === id));
+    const choice = { format: first, views: kept.length ? kept : here ? [here.id] : [], all: !!was.all,
+      papers: { pptx: PAPERS[was.papers?.pptx] ? was.papers.pptx : here ? pageOf(here) : 'slide', pdf: PAPERS[was.papers?.pdf] ? was.papers.pdf : 'letter' } };
     const go = await Shell.dialog({ title: 'Export', width: 720, body: () => html`<${Choice} choice=${choice} here=${here} others=${others} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
+    const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;
+    Shell.store.set(memo(), JSON.stringify({ format: x ? was.format : choice.format, table: x ? x.name : was.table, views: choice.views, papers: choice.papers, all: choice.all }));
     if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName(), App.day.peek());
-    if (choice.format.startsWith('x')) return others[+choice.format.slice(1)]?.run();
-    // By whoever exports it, blank where no name is set.
-    const all = choice.which === 'all';
-    return write(choice.format, all ? choice.scenes : choice.scenes.filter(s => s.view === here.id), all ? chartName() : fileName(chartName(), here.name),
+    if (x) return x.run({ all: choice.all });
+    // A file of one view is named for it; of more, for the chart. By whoever exports it, blank where no name is set.
+    const one = choice.scenes.length === 1 ? list.find(v => v.id === choice.scenes[0].view) : null;
+    return write(choice.format, choice.scenes, one ? fileName(chartName(), one.name) : chartName(),
       { author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
   api.open = open;

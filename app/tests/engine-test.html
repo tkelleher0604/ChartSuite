@@ -236,20 +236,36 @@ function theSample() {
   // Nothing is due from nothing: an entity added today without its formation date owes no year, and has no date worked out from the blank.
   const fresh = withRecords({
     x_lp: { kind: 'Entity' }, x_lp_name: { at: 'x_lp', edge: 'Name', field: 'text', value: 'Harbor Point Co-Invest, L.P.' },
-    x_lp_type: { at: 'x_lp', edge: 'Entity Type', choice: 'Limited Partnership' }, x_lp_juris: { at: 'x_lp', edge: 'Jurisdiction', choice: 'Delaware' },
-    x_co: { kind: 'Entity' }, x_co_type: { at: 'x_co', edge: 'Entity Type', choice: 'Corporation' }, x_co_juris: { at: 'x_co', edge: 'Jurisdiction', choice: 'Delaware' },
-    x_ky: { kind: 'Entity' }, x_ky_type: { at: 'x_ky', edge: 'Entity Type', choice: 'Exempted Company' }, x_ky_juris: { at: 'x_ky', edge: 'Jurisdiction', choice: 'Cayman Islands' },
+    x_lp_type: { at: 'x_lp', edge: 'Entity Type', choice: 'Limited Partnership' }, x_lp_juris: { at: 'x_lp', edge: 'Jurisdiction', choice: 'Delaware' }, x_lp_vehicle: { at: 'x_lp', edge: 'Vehicle Type', choice: 'Main Fund' },
+    x_co: { kind: 'Entity' }, x_co_type: { at: 'x_co', edge: 'Entity Type', choice: 'Corporation' }, x_co_juris: { at: 'x_co', edge: 'Jurisdiction', choice: 'Delaware' }, x_co_vehicle: { at: 'x_co', edge: 'Vehicle Type', choice: 'Blocker' },
+    x_ky: { kind: 'Entity' }, x_ky_type: { at: 'x_ky', edge: 'Entity Type', choice: 'Exempted Company' }, x_ky_juris: { at: 'x_ky', edge: 'Jurisdiction', choice: 'Cayman Islands' }, x_ky_vehicle: { at: 'x_ky', edge: 'Vehicle Type', choice: 'Feeder Fund' },
     x_lei: { at: 'x_ky', edge: 'LEI Registered', tag: true }, x_cima: { at: 'x_ky', edge: 'CIMA Registered', tag: true },
   });
   const fromBlank = Object.keys(fresh.computed).filter(k => ['x_lp', 'x_co', 'x_ky'].includes(objOf(fresh, fresh.records[k].at ?? fresh.records[k].args?.[0].at)) && fresh.records[k].field === 'date');
-  check('Nothing is due from nothing: a Delaware partnership and corporation and a Cayman company added with no dates owe no tax year, and have no date worked out, no 1901, no error',
+  check('Nothing is due from nothing: a Delaware fund and blocker and a Cayman feeder added with no dates owe no tax year, and have no date worked out, no 1901, no error',
     !rowsOf(fresh, 'def_annual_tax_owed').some(r => ['x_lp', 'x_co'].includes(objOf(fresh, r.args.find(a => a.edge === 'Taxpayer').at)))
     && !fromBlank.length && !fresh.errors.length && Formulas.attention(fresh, WB.notes(CHART), DAY).filter(a => a.kind === 'overdue').length === 2,
     `${fromBlank.map(k => `${fresh.records[k].edge} ${fresh.records[k].value}`).join(', ')} ${fresh.errors.map(e => e.def).join()}`);
   const formed = withRecords({ x_lp: { kind: 'Entity' }, x_lp_type: { at: 'x_lp', edge: 'Entity Type', choice: 'Limited Partnership' }, x_lp_juris: { at: 'x_lp', edge: 'Jurisdiction', choice: 'Delaware' },
-    x_lp_formed: { at: 'x_lp', edge: 'Formation Date', field: 'date', value: '2025-03-01' } });
+    x_lp_vehicle: { at: 'x_lp', edge: 'Vehicle Type', choice: 'Main Fund' }, x_lp_formed: { at: 'x_lp', edge: 'Formation Date', field: 'date', value: '2025-03-01' } });
   const owedFrom = rowsOf(formed, 'def_annual_tax_owed').filter(r => objOf(formed, r.args.find(a => a.edge === 'Taxpayer').at) === 'x_lp').map(r => yearOf(formed, r)).sort();
   check('…and given its formation date, its tax years begin at its start: 2025 and 2026', owedFrom.join() === '2025,2026', owedFrom.join());
+  // Ours to track: what's owed, and what's to be on file, is the chart's only for an entity whose Vehicle Type says it's ours.
+  const typed = (vehicle, more = {}) => withRecords({ x_n: { kind: 'Entity' }, x_n_type: { at: 'x_n', edge: 'Entity Type', choice: 'Limited Liability Company' },
+    x_n_juris: { at: 'x_n', edge: 'Jurisdiction', choice: 'Delaware' }, x_n_formed: { at: 'x_n', edge: 'Formation Date', field: 'date', value: '2025-03-01' },
+    ...(vehicle ? { x_n_vehicle: { at: 'x_n', edge: 'Vehicle Type', choice: vehicle } } : {}), ...more });
+  const owesYears = X => rowsOf(X, 'def_annual_tax_owed').filter(r => objOf(X, r.args.find(a => a.edge === 'Taxpayer').at) === 'x_n').length;
+  const docsChecked = X => ['def_formation_on_file', 'def_governing_on_file'].map(d => entryRow(X, d, 'x_n')?.value);
+  const needed = X => Formulas.attention(X, WB.notes(CHART), DAY).filter(a => a.id === 'x_n' || objOf(X, a.id) === 'x_n').map(a => `${a.kind} ${a.edge ?? ''}`.trim());
+  const untyped = typed(null, { x_n_lei: { at: 'x_n', edge: 'LEI Registered', tag: true }, x_n_lei_on: { at: 'x_n_lei', edge: 'Registered On', field: 'date', value: '2025-03-01' } });
+  check('Ours to track: a Delaware LLC formed in 2025 with no Vehicle Type, as Northwind was, owes no tax year, has no renewal due and fails no document check: its one item is its Vehicle Type, blank',
+    !owesYears(untyped) && docsChecked(untyped).every(v => v === undefined) && !entryRow(untyped, 'def_lei', 'x_n') && needed(untyped).join() === 'blank Vehicle Type', needed(untyped).join());
+  const asFund = typed('Main Fund');
+  check('…given Main Fund, it owes 2025 and 2026, and its documents are checked, neither on file', owesYears(asFund) === 2 && docsChecked(asFund).every(v => v === false)
+    && needed(asFund).filter(x => x === 'error').length === 2 && !needed(asFund).includes('blank Vehicle Type'), needed(asFund).join());
+  check('…and a third party or a portfolio company owes nothing tracked either', ['Third Party', 'Portfolio Company'].every(v => !owesYears(typed(v)) && docsChecked(typed(v)).every(x => x === undefined)));
+  check('…and the sample’s own third party, Northstar Teachers’ Retirement System, is typed so, leaving no Vehicle Type blank', SAMPLE_INPUTS.recs.pension_vehicle?.choice === 'Third Party'
+    && !Formulas.attention(R, WB.notes(CHART), DAY).some(a => a.edge === 'Vehicle Type'));
   const due = (def, id) => entryRow(R, def, id)?.value?.iso;
   check('On or before a date on a weekend: the business day before (Fund III’s LEI, Nov 14, 2026; the annual returns, Jan 31, 2027; FATCA, Jul 31, 2027; the Co-Invest Form D, Jun 26, 2027)',
     due('def_lei', 'fund') === '2026-11-13' && due('def_annual_return', 'feeder') === '2027-01-29' && due('def_fatca', 'feeder') === '2027-07-30' && due('def_form_d', 'coinv') === '2027-06-25',
