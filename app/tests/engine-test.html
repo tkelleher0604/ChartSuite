@@ -219,18 +219,18 @@ function theSample() {
     let n = 0;
     const add = r => { if (P.computed[r.at]) { const y = `x_year_${n++}`; added[y] = { args: P.records[r.at].args, tag: true }; r = { ...r, at: y }; } added[`x_paid_${n++}`] = r; return `x_paid_${n - 1}`; };
     const id = Object.keys(P.records).find(k => P.computed[k] && P.records[k].edge === 'Annual Tax Due' && objOf(P, P.records[P.records[k].at].args.find(a => a.edge === 'Taxpayer').at) === due[0] && yearOf(P, P.records[k]) === due[1]);
-    const said = id && Formulas.pay({ R: P, N: WB.notes(CHART), due: id, day, add });
-    return { said, added, R: workOut({ ...recs, ...added }) };
+    const settled = id && Formulas.pay({ R: P, due: id, day, add });
+    return { settled: settled && yearOf(P, { at: settled }), added, R: workOut({ ...recs, ...added }) };
   };
   const early = paying(['blocker', 2026], '2026-10-28');
-  check('Paid early, the franchise tax settles 2026, says so, and keeps the payments before it: nothing more is due this year',
-    early.said === 'Paid Fund III Blocker’s annual tax for 2026 on Oct 28, 2026' && dues(early.R, 'blocker') === ''
-    && Object.values(early.R.records).filter(r => r.edge === 'Annual Tax Paid' && objOf(early.R, early.R.records[r.at].args.find(a => a.edge === 'Taxpayer').at) === 'blocker').length === 4, `${early.said} | ${dues(early.R, 'blocker')}`);
+  check('Paid early, the tax settles 2026, and keeps the payments before it: nothing more is due this year',
+    early.settled === 2026 && dues(early.R, 'blocker') === ''
+    && Object.values(early.R.records).filter(r => r.edge === 'Annual Tax Paid' && objOf(early.R, early.R.records[r.at].args.find(a => a.edge === 'Taxpayer').at) === 'blocker').length === 4, `${early.settled} | ${dues(early.R, 'blocker')}`);
   const jan = sampleAsOf('2027-01-04'), next = workOut({ ...jan.recs, ...early.added }, jan.definitions, jan.names);
   check('…and the next due is the next year’s, March 1, 2028, from the day tax year 2027 begins', dues(next, 'blocker') === '2027 2028-03-01', dues(next, 'blocker'));
   const aivLate = paying(['aiv', 2026], '2026-10-28');
-  check('Paid at its 2026 tax, the AIV’s payment settles 2025, the earliest unsettled, and says so: 2026 is still due', aivLate.said === 'Paid AIV-1’s annual tax for 2025 on Oct 28, 2026'
-    && dues(aivLate.R, 'aiv') === '2026 2027-06-01', `${aivLate.said} | ${dues(aivLate.R, 'aiv')}`);
+  check('Paid at its 2026 tax, the AIV’s payment settles 2025, the earliest unsettled: 2026 is still due', aivLate.settled === 2025
+    && dues(aivLate.R, 'aiv') === '2026 2027-06-01', `${aivLate.settled} | ${dues(aivLate.R, 'aiv')}`);
   const leiDue = Object.keys(R.records).find(k => R.computed[k]?.def === 'def_lei');
   check('…and a due date that isn’t a year’s, an LEI’s next renewal, isn’t a payment’s: pay gives nothing and writes nothing', Formulas.pay({ R, due: leiDue, day: DAY, add: () => { throw new Error('added'); } }) === null);
   // Nothing is due from nothing: an entity added today without its formation date owes no year, and has no date worked out from the blank.
