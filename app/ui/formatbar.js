@@ -766,10 +766,10 @@ function Bar() {
     { label: 'Send backward', icon: 'backward', keys: '$mod+[', run: () => c.order('backward') }, { label: 'Send to back', icon: 'back', keys: '$mod+Shift+[', run: () => c.order('back') },
   ];
   const grouping = s.group ? { label: 'Ungroup', icon: 'ungroup', keys: '$mod+Shift+G', run: () => c.ungroup() } : { label: 'Group', icon: 'group', keys: '$mod+G', disabled: placeable < 2, run: () => c.group() };
-  // Tidy lays the whole view out again, with nothing to do where nothing in it was placed by hand; pointed
+  // Tidy lays the view out again, or with boxes selected, those around what stands, as its name says, with nothing to do where nothing in it was placed by hand; pointed
   // at, the pointer moved onto it (not found on it as a menu over it closes), it's drawn as it would be once the
   // pointer has rested there (the canvas's restyle). Made, the change ends the preview.
-  const view = c.scene().view, tidy = { label: 'Tidy', disabled: ro || !App.notes.peek().notes('Position').some(n => n.view === view),
+  const view = c.scene().view, tidy = { label: c.tidyName(), disabled: ro || !c.tidyable(),
     run: () => { tried = null; c.tidy(); }, tries: ['Tidy'] };
   // The selection; then its Styles rows as Styles lists them, each style's under its name, and apart after them
   // those under none (Names); then its own groups; and, where members of the group chosen keep their own look of
@@ -827,7 +827,7 @@ function Bar() {
     <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
     <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: none })), '-', grouping, tidy])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
-    <button class="btn" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>Tidy</button>
+    <button class="btn" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label}</button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
       ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: Math.abs(z * 100 - zoom) < 0.5, run: () => c.zoom(z) }))], { placement: 'bottom-end' })}>${zoom}%</button>
   </div>`;

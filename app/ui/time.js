@@ -241,10 +241,13 @@ const Time = (() => {
     const worked = i => { const r = rec(i); return r.args && 'tag' in r && App.definitions.peek().some(d => Tree.same(d.name, N.nameOf(recs, i.id))); };
     const bearers = new Set(all.filter(i => i.type === 'record' && !(i.was.length && i.now.length) && all.some(j => j.type === 'record' && rec(j).at === i.id) && worked(i)).map(i => i.id));
     const touched = new Set(all.filter(i => i.type === 'record' && !bearers.has(i.id)).map(i => i.id));
-    // Tidy takes a view's positions away, and undoing it puts them back.
-    if (all.length > 1 && all.every(i => i.type === 'note' && rec(i).label === 'Position')) {
-      if (!c.adds.length) return 'Tidied the layout';
-      if (back && !c.removes.length) return 'Restored the layout';
+    // Tidy takes a view's positions away, but for where each box stood across, and undoing it puts them back; of boxes
+    // selected, theirs alone, around what stands.
+    if (all.length && all.every(i => i.type === 'note' && rec(i).label === 'Position')) {
+      const ordered = r => Number.isFinite(r?.value?.order), made = all.filter(i => i.now.length && ordered(Log.latest(i.now)));
+      if (made.length && made.every(i => Log.latest(i.now).value.around)) return `Tidied ${made.length === 1 ? N.nameOf(recs, rec(made[0]).pattern.id) : `${made.length} boxes`} in ${N.nameOf(recs, rec(made[0]).view)}`;
+      if (made.length || (all.length > 1 && !c.adds.length)) return 'Tidied the layout';
+      if (back && (all.some(i => i.was.length && ordered(Log.latest(i.was))) || (all.length > 1 && !c.removes.length))) return 'Restored the layout';
     }
     // A view's columns put in another order: by the one that moved against the rest, or the two that swapped.
     if (all.length > 1 && all.every(i => i.type === 'note' && rec(i).label === 'Order' && rec(i).view && rec(i).view === rec(all[0]).view && i.was.length && i.now.length)) {
@@ -441,7 +444,9 @@ const Time = (() => {
       // A free text (dendra.md, Fields), in a box or a group's, by whose it is.
       case 'Text': { const whose = one ? of : n.view ? grouped(N, n) ?? of : of;
         return gone || !n.value?.text ? `Removed the text from ${whose}${inView}` : i.was.length ? `Edited the text of ${whose}${inView}` : `Added text to ${whose}${inView}`; }
-      case 'Position': return gone ? `Reset the position of ${of}${inView}` : `${i.was.length && resized(Log.latest(i.was).value, n.value) ? 'Resized' : 'Moved'} ${of}${inView}`;
+      // A line's Position is its label's, dragged.
+      case 'Position': return Number.isFinite(n.value?.along) ? `${gone ? 'Reset' : 'Moved'} the label of ${of}${inView}`
+        : gone ? `Reset the position of ${of}${inView}` : `${i.was.length && resized(Log.latest(i.was).value, n.value) ? 'Resized' : 'Moved'} ${of}${inView}`;
       case 'Formula': return gone ? `Deleted the formula of ${of}` : i.was.length ? `Changed the formula of ${of}` : `Defined ${of}`;
       case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? (Tree.same(of, n.value) ? `Named ${n.value}` : `Named ${of} ${n.value}`)
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;

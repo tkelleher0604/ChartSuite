@@ -407,12 +407,13 @@ function mount(el) {
     if (!base) return;
     const view = base.view, s = styledDrawn, r = !s && redDrawn;
     scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: stateNow(), computed: App.computed.peek(), reveal: revealIds, ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
+      { state: stateNow(), computed: App.computed.peek(), reveal: s?.wb.tidy ? null : revealIds, ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
     // A record selected that starts later is drawn faint, with its lines, as what's revealed is.
     const later = App.later?.peek();
     if (later && scene !== base) for (const m of scene.marks) if (later[m.record]) m.revealed = true;
     ink = r ? inked(r, scene, base) : null;
     tidyLabel.hidden = !s?.wb.tidy;
+    if (s?.wb.tidy) tidyLabel.textContent = `${s.wb.tidy} preview`;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
       data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
@@ -1941,16 +1942,37 @@ function mount(el) {
     const gs = selected().filter(m => m.geometry === 'group');
     if (gs.length && App.change(tx => gs.forEach(g => tx.remove(g.id)))) Shell.select(gs.flatMap(g => g.members));
   }
-  // Tidy: the view's entered positions gone, the layout's in their place (dendra.md, The layout), and the view
-  // framed on its page again, as it opens. `tidied` is the workbook as Tidy would leave it, which a preview draws.
+  // Tidy (dendra.md, The layout): the boxes selected, or with none, the view's. Each one's place goes, but for where it
+  // stands across, its `order` among what's beside it, which the layout keeps; and with none selected, a label's place
+  // goes too, and the view is framed on its page again, as it opens. Boxes selected are tidied `around` what stands,
+  // which stays where it is, those the layout placed kept where they're drawn. `tidied` is the workbook as Tidy would
+  // leave it, which a preview draws; `tidyName`, what it's called, by which.
   const placedHere = () => App.notes.peek().notes('Position').filter(n => n.view === viewOf());
+  const tidyBoxes = () => { const base = App.scene.peek(); return !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); };
+  const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
+  const tidyName = () => { const n = tidyBoxes().length; return n ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
+  // Whether there's anything to tidy: a selection; with none, a place entered in the view.
+  const tidyable = () => !!tidyBoxes().length || placedHere().some(n => Number.isFinite(n.value?.x) || Number.isFinite(n.value?.along));
+  function tidying() {
+    const base = App.scene.peek(), some = tidyBoxes(), writes = new Map();
+    for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
+    if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id)) writes.set(id, p);
+    const ws = [...writes].map(([id, value]) => ({ t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
+    return { writes: ws, gone: some.length ? [] : placedHere().filter(n => !keys.has(Tree.key(n.pattern))), n: some.length };
+  }
+  let triedTidy = 0;
   function tidied() {
-    const wb = App.shown.peek(), gone = new Set(placedHere().map(n => n.note)), rows = wb.rows(App.chart.peek()).filter(r => !gone.has(r.note));
+    const { writes, gone } = tidying(), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+    // (Each note tried is new, as a look tried is, so nothing worked out from another is kept for it.)
+    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))),
+      ...writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; })];
     const notes = Notes.index(rows.filter(r => 'note' in r));
-    return { ...wb, rows: () => rows, notes: () => notes, tidy: true };
+    return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
   }
   function tidy() {
-    if (!App.change(tx => placedHere().forEach(n => tx.remove(n.note)), { say: 'Tidied the layout', keep: false })) return;
+    const { writes, gone, n } = tidying(), view = viewOf();
+    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, w.value, { view })); }, { say: n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout', keep: false, dated: false })) return;
+    if (n) return;
     framed = true; left = null;
     settle();
   }
@@ -2125,7 +2147,7 @@ function mount(el) {
   };
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, zoom,
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom,
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },

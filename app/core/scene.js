@@ -823,9 +823,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // drawn is every other box (see the canvas).
   const ranking = new Map();
   for (const l of lines) if (l.ranks) for (const [a, b] of [[l.from, l.to], [l.to, l.from]]) (ranking.get(a) ?? ranking.set(a, new Set()).get(a)).add(b);
+  // A place Tidy took away (see the canvas) leaves only where the box stood across, its `order` among what's beside it,
+  // and, of boxes tidied around what stands, `around`.
+  const tidiedAs = new Map();
   const placeOf = new Map(boxes.map(b => {
-    const res = N.resolve('Position', tree(b.record), view), held = opts.holds?.get(b.record);
-    return [b.id, held && (!res || res.value?.loose) ? { pos: held, at: '' } : res?.value ? { pos: res.value, at: res.note.note } : null];
+    const res = N.resolve('Position', tree(b.record), view), held = opts.holds?.get(b.record), v = res?.value, place = Number.isFinite(v?.x) ? v : null;
+    if (!place && Number.isFinite(v?.order)) tidiedAs.set(b.id, v);
+    return [b.id, held && (!place || place.loose) ? { pos: held, at: '' } : place ? { pos: place, at: res.note.note } : null];
   }));
   const givesWay = b => [...ranking.get(b.id) ?? []].some(id => { const p = placeOf.get(id); return !p?.pos.loose || p.at < placeOf.get(b.id).at; });
   // (One that gives way goes beside its relatives on the side it was made on: its place is the layout's `hint`.)
@@ -937,7 +941,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
-    boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null })),
+    boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });

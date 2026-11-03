@@ -657,7 +657,8 @@ function run() {
       j(near.filter(([, , sl, le, pt]) => pt < 8 - 1e-9 && le < sl - 0.05 - 1e-9)));
     // The labels of drops into one tier sit on one baseline, each at the foot of its drop: every sample view, on the slide and
     // on Letter, as entered and tidied (design9 10, Okafor's 50% on Letter).
-    const tidiedOf = (v, paper) => { const w = fresh(); edit(w, (tx, N) => { for (const n of N.notes('Position')) if (n.view === v) tx.remove(n.note); }); const Rw = computed(w); return Scene.of(w, C, v, DAY, { state: Rw.records, computed: Rw, paper }); };
+    // (Tidied as Tidy tidies: each box's place gone but for where it stood across.)
+    const tidiedOf = (v, paper) => { const w = fresh(), s0 = scene(w, v), st0 = worked(w); edit(w, (tx, N) => { const bs = s0.marks.filter(m => m.type === 'box'), keys = new Set(bs.map(b => Tree.key(Tree.treeOf(st0, b.record)))); for (const n of N.notes('Position')) if (n.view === v && !keys.has(Tree.key(n.pattern))) tx.remove(n.note); for (const b of bs) note(tx, N, 'Position', Tree.treeOf(st0, b.record), v, { order: b.x }); }); const Rw = computed(w); return Scene.of(w, C, v, DAY, { state: Rw.records, computed: Rw, paper }); };
     const offRow = [...letters, ...slides, ...views.flatMap(v => [null, 'letter'].map(p => tidiedOf(v, p)))].flatMap(s => {
       const drops = s.marks.filter(m => m.type === 'line' && m.labelAt && (([a, b]) => Math.abs(a[0] - b[0]) < 0.5 && b[1] > a[1])(m.points.slice(-2)));
       return [...Map.groupBy(drops, l => Math.round(s.byId.get(l.to).y)).values()].filter(ls => (ys => Math.max(...ys) - Math.min(...ys) > 1)(ls.map(l => l.labelAt.y + l.label.h)))
@@ -913,6 +914,24 @@ function run() {
     check('owners’ lines run together into a fund’s apex: each percentage on its own drop, just under its owner, never on the run they share, placed by hand or laid out, slide and Letter',
       combs.every(c => c.owners === 4 && !c.teeth.length), j(combs));
     check('… and a label never touches its own line: “General partner” 2 pt or more clear of its drop and its lane', combs.every(c => c.gp && !c.touches), j(combs));
+    // Laid out with nothing placed, what's beside each other stands in the order it was made (gui2 D-15), never reversed.
+    const laid = halvard(false), across = ['State Teachers', 'Ridgeway', 'Harbor', 'Coastal'].map(n => laid.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith(n)).x);
+    check('laid out with nothing placed, siblings stand in the order they were made: Dana’s four owners, left to right', across.every((x, i) => !i || x > across[i - 1]), j(across));
+  }
+  {
+    // Tidy (gui2 D-15, L-2.2) takes each box's place away but for where it stood across: every row of every sample view, on
+    // its slide, stands in the order it stood in; and a text box at the page's right edge doesn't pull the chart from its middle.
+    const tidied = (w, v) => { const s0 = scene(w, v), st0 = worked(w); edit(w, (tx, N) => { const bs = s0.marks.filter(m => m.type === 'box'), keys = new Set(bs.map(b => Tree.key(Tree.treeOf(st0, b.record))));
+      for (const n of N.notes('Position')) if (n.view === v && !keys.has(Tree.key(n.pattern))) tx.remove(n.note);
+      for (const b of bs) note(tx, N, 'Position', Tree.treeOf(st0, b.record), v, { order: b.x }); }); return s0; };
+    const out = ['view_main', 'view_40act', 'view_fund3', 'view_control'].flatMap(v => { const w = fresh(), s0 = tidied(w, v), s1 = scene(w, v), rows = Map.groupBy(s1.marks.filter(m => m.type === 'box'), b => Math.round(b.y));
+      return [...rows.values()].flatMap(r => { const by = [...r].sort((a, b) => a.x - b.x), was = by.map(b => s0.byId.get(b.id).x); return was.every((x, i) => !i || x >= was[i - 1]) ? [] : [`${v}: ${by.map(b => b.id).join()}`]; }); });
+    check('Tidy keeps the left-to-right order boxes stand in: every row of every sample view', !out.length, j(out));
+    const w = fresh(), s0 = scene(w);
+    edit(w, tx => { tx.add('shape', { view: MAIN, geometry: 'text', x: s0.page.w - 400, y: 30, text: 'Draft – privileged and confidential' }); });
+    tidied(w, MAIN);
+    const s1 = scene(w), xs = s1.marks.filter(m => m.type === 'box').flatMap(b => [b.x, b.x + b.w]), left = Math.min(...xs), right = s1.page.w - Math.max(...xs);
+    check('… and sets the chart across the middle of the page, though a text box stands at its right', Math.abs(left - right) < 40 / s1.page.scale, j([left, right, s1.page.w]));
   }
   {
     // A label dragged (gui2 D-14) is the line's Position in the view: kept by its line as it runs, that far along it and as far

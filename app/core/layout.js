@@ -229,14 +229,12 @@ function elkPlace(boxes, links, clusters, options, room) {
   const block = new Map(boxes.map(b => [b.id, b.id])), find = id => block.get(id) === id ? id : find(block.get(id));
   const level = ranked.filter(l => tier.get(l.from) === tier.get(l.to) && home.get(l.from) === home.get(l.to));
   for (const l of level) block.set(find(l.to), find(l.from));
-  // Deep branches first, so that ELK, where nothing else decides, sets them to the left, and what reaches least
-  // far down to the right, where the Key goes under the chart.
-  const below = new Map(), reach = id => {
-    if (!below.has(id)) { below.set(id, tier.get(id)); below.set(id, Math.max(tier.get(id), ...ranked.filter(l => l.from === id && tier.get(l.to) > tier.get(id)).map(l => reach(l.to)))); }
-    return below.get(id);
-  };
-  const deep = bs => Math.max(...bs.map(b => reach(b.id)));
-  const blocks = [...groupBy(boxes, b => find(b.id)).values()].map(bs => lineUp(bs, level)).sort((a, b) => deep(b) - deep(a)), inBlock = new Map();
+  // In each tier, in the order they stand in across (`order`, what Tidy keeps of a place), or else the order they were
+  // made in, the order given: so ELK's order, which it keeps where any stands so, and leaves only where that saves
+  // lines crossing where none does. So siblings are never reversed.
+  const made = new Map(boxes.map((b, i) => [b.id, i])), rankOf = b => [b.order ?? Infinity, made.get(b.id)], earlier = (p, q) => p[0] - q[0] || p[1] - q[1];
+  const firstOf = bs => bs.map(rankOf).sort(earlier)[0], standing = boxes.some(b => b.order != null);
+  const blocks = [...groupBy(boxes, b => find(b.id)).values()].map(bs => bs.every(b => b.order != null) ? [...bs].sort((a, b) => a.order - b.order) : lineUp(bs, level)).sort((a, b) => earlier(firstOf(a), firstOf(b))), inBlock = new Map();
   // Boxes in a block 16 pt apart, or as far as the label of a line joining them needs (`room`), less what a
   // triangle's side gives, a quarter of its width in where the line meets it.
   const inset = g => g.shape === 'triangle' ? g.w / 4 : 0;
@@ -244,7 +242,8 @@ function elkPlace(boxes, links, clusters, options, room) {
   for (const bs of blocks) bs.reduce((x, b, i) => { inBlock.set(b.id, { block: bs, x }); return x + b.w + (i < bs.length - 1 ? apart(b, bs[i + 1]) : 0); }, 0);
   const widthOf = bs => inBlock.get(bs.at(-1).id).x + bs.at(-1).w;
   const nodeOf = id => inBlock.get(id).block.length > 1 ? `·blk:${inBlock.get(id).block[0].id}` : id;
-  const root = { id: '·root', layoutOptions: { ...options, 'elk.layered.layering.strategy': 'INTERACTIVE', 'elk.layered.cycleBreaking.strategy': 'INTERACTIVE', 'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES' }, children: [], edges: [] }, node = new Map([[null, root]]);
+  const root = { id: '·root', layoutOptions: { ...options, 'elk.layered.layering.strategy': 'INTERACTIVE', 'elk.layered.cycleBreaking.strategy': 'INTERACTIVE', 'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+    ...(standing ? { 'elk.layered.crossingMinimization.forceNodeModelOrder': 'true' } : { 'elk.layered.considerModelOrder.crossingCounterNodeInfluence': '0.01' }) }, children: [], edges: [] }, node = new Map([[null, root]]);
   for (const c of clusters) node.set(c.id, { id: c.id, x: 0, y: (first.get(c.id) - topOf(c.parent)) * K, width: 1, height: 1, children: [],
     layoutOptions: { 'elk.padding': `[top=${c.top},left=10,bottom=10,right=10]`, 'elk.layered.layering.strategy': 'INTERACTIVE' } });
   for (const c of clusters) node.get(c.parent ?? null).children.push(node.get(c.id));
@@ -255,6 +254,10 @@ function elkPlace(boxes, links, clusters, options, room) {
       .map(([k, y, side]) => ({ id: `${n.id}|${b.id}|${k}`, x: inBlock.get(b.id).x + b.w / 2, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': side } }))) });
     node.get(home.get(bs[0].id) ?? null).children.push(n);
   });
+  // (A frame among them by the first of what's in it.)
+  const ranks = new Map(blocks.map(bs => [nodeOf(bs[0].id), firstOf(bs)]));
+  const rankIn = n => ranks.get(n.id) ?? (ranks.set(n.id, n.children.map(rankIn).sort(earlier)[0] ?? [Infinity, Infinity]), ranks.get(n.id));
+  for (const n of node.values()) n.children.sort((a, b) => earlier(rankIn(a), rankIn(b)));
   const end = (id, k) => ported(inBlock.get(id).block) ? `${nodeOf(id)}|${id}|${k}` : id, seen = new Set(), main = mainOf(links), shape = new Map(boxes.map(b => [b.id, b.shape]));
   ranked.forEach((l, i) => {
     const [s, t] = [end(l.from, 's'), end(l.to, 'n')], e = `${s}>${t}`;
@@ -267,15 +270,6 @@ function elkPlace(boxes, links, clusters, options, room) {
   for (const b of boxes) { const p = at.get(nodeOf(b.id)); out.set(b.id, { x: p.x + inBlock.get(b.id).x, y: p.y }); }
   // A tier's boxes top-aligned, as ELK sets them on their middles.
   for (const bs of groupBy(boxes, b => tier.get(b.id)).values()) { const y = Math.min(...bs.map(b => out.get(b.id).y)); for (const b of bs) out.get(b.id).y = y; }
-  // Of the layout and its mirror image, the one that leaves the Key more room under the chart's right end, where
-  // the page sets it when it isn't beside the title.
-  if (room.key && !wraps.length) {
-    const x0 = Math.min(...boxes.map(b => out.get(b.id).x)), x1 = Math.max(...boxes.map(b => out.get(b.id).x + b.w));
-    const y0 = Math.min(...boxes.map(b => out.get(b.id).y)), y1 = Math.max(...boxes.map(b => out.get(b.id).y + b.h));
-    const kw = room.key.w / Math.min(1, room.w / (x1 - x0), room.h / (y1 - y0)), xOf = (b, flip) => flip ? x0 + x1 - out.get(b.id).x - b.w : out.get(b.id).x;
-    const rise = flip => Math.max(y0, ...boxes.filter(b => xOf(b, flip) + b.w > x1 - kw).map(b => out.get(b.id).y + b.h));
-    if (rise(true) < rise(false) - 0.5) for (const b of boxes) out.get(b.id).x = xOf(b, true);
-  }
   // A column of frames has them under one another from one left, 12 pt apart, as panels; the first stays where
   // ELK put it unless it's alone in its tier, and what's under the column comes up with it. What reaches into
   // them from above stands over their left, its middle 12 pt short of it, so its lines run down its side and
@@ -438,7 +432,7 @@ const arranged = keeping();
 function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
-  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.names]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
+  return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null, b.order ?? null, !!b.around]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.names]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
     at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h],
     at(hints)]), () => arranging(a));
 }
