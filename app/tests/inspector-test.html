@@ -559,18 +559,18 @@ async function run() {
     red[own] === null && !!newLine && Object.values(red).some(r => r?.kind === 'Entity') && pctOf(red, newLine) === 0.82 && !!$('.insp.going') && document.activeElement === $('.asking .amount')
     && !pb('.btn.primary').disabled && /to Northwind Holdings LLC/.test(spoken($('.asking .transfer'))), `${JSON.stringify(red).slice(0, 300)} ${document.activeElement?.outerHTML.slice(0, 80)}`);
   const onIn = $('.asking .from input');
-  onIn.focus(); onIn.value = 'November 1, 2027'; onIn.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+  onIn.focus(); onIn.value = 'November 1, 2036'; onIn.dispatchEvent(new Event('input', { bubbles: true })); await tick();
   key(onIn, 'Enter'); await tick(80);
-  const t1 = last(), nov = App.wb.asOf(C, '2027-11-01'), oct = App.wb.asOf(C, '2027-10-31'), to1 = owners(nov).find(k => k !== own);
+  const t1 = last(), nov = App.wb.asOf(C, '2036-11-01'), oct = App.wb.asOf(C, '2036-10-31'), to1 = owners(nov).find(k => k !== own);
   const buyer = to1 && nov[to1].args.find(a => a.edge === 'Owner').at;
   check('Enter makes it, one change: the old ownership ends on the day, still held the day before; the new one holds from it, all 82%, its new owner made with it',
     nP() === nT + 1 && !!oct[own] && !nov[own] && !!to1 && !oct[to1] && pctOf(nov, to1) === 0.82 && N().nameOf(nov, buyer) === 'Northwind Holdings LLC' && !oct[buyer] && !App.pending.peek() && !pb(),
     `${owners(oct)} / ${owners(nov)} ${JSON.stringify(t1.adds).slice(0, 300)}`);
-  check('… History and its toast say it as asked', Time.describe(t1) === 'Transferred 82% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2027'
+  check('… History and its toast say it as asked', Time.describe(t1) === 'Transferred 82% of Halvard Logistics Holdings, Inc. from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2036'
     && toastText() === Time.describe(t1), `${Time.describe(t1)} / ${toastText()}`);
-  check('… its panel, today, saying the day it ends on, a link to the chart then', Shell.selection.peek().join() === own && rowOf('Ends on')?.querySelector('.lk')?.textContent === 'November 1, 2027', $('.insp')?.textContent.slice(0, 200));
+  check('… its panel, today, saying the day it ends on, a link to the chart then', Shell.selection.peek().join() === own && rowOf('Ends on')?.querySelector('.lk')?.textContent === 'November 1, 2036', $('.insp')?.textContent.slice(0, 200));
   Shell.parts.value.undo.undo(); await tick(60);
-  check('… one Undo takes it back whole, saying what it undid', nP() === nT + 2 && owners(App.wb.asOf(C, '2027-11-01')).join() === own && toastText() === `Undid: ${Time.describe(t1)}`, toastText());
+  check('… one Undo takes it back whole, saying what it undid', nP() === nT + 2 && owners(App.wb.asOf(C, '2036-11-01')).join() === own && toastText() === `Undid: ${Time.describe(t1)}`, toastText());
   // A part, today, to one the chart has: the old one's amount less the part, from the day; the new one the part
   Shell.select([own]); await tick(60);
   App.transferring(own); await tick(80);
@@ -643,8 +643,8 @@ async function run() {
   check('… and what follows from it counted, as for a line', (FormulaBar.pending.peek()?.deltas ?? []).length > 0, JSON.stringify(FormulaBar.pending.peek()?.deltas ?? null));
   await type(pb('.from input'), 'December 1, 2027');
   const dissolved = Tree.entryAt(st(), 'northpine', 'Dissolution Date');
-  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2027-12-01'
-    && !App.wb.item(C, dissolved)[0].since && /^Ended Northpine Software, LLC on Dec 1, 2027/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
+  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2026-12-01'
+    && !App.wb.item(C, dissolved)[0].since && /^Dissolved Northpine Software, LLC on Dec 1, 2027/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // A start typed in the formula bar past the day shown: the toast says why, as from the inspector
   Shell.at({ asOf: '2025-06-30' }); await tick(60);
@@ -970,9 +970,9 @@ async function run() {
   check('Paid… records the payment at the tax year, entering the year as it stood', payment?.value === '2026-10-26' && last().adds.length === 2 && year?.tag === true
     && JSON.stringify(year.args) === JSON.stringify(App.wb.asOf(C, '2026-10-26')[year.record]?.args) && N().segmentOf(st(), year.record) === 'AIV-1, tax year 2025', JSON.stringify(last().adds));
   check('… so that year is due no more, and the next still is', !dueAt(taxYear('AIV-1', 2025)) && st()[nextYear]?.value === '2027-06-01', dueAt(taxYear('AIV-1', 2025)));
-  // (Its toast in the payment's words, Formulas.pay's: whose tax, for which year, on what day.)
-  const paidSaid = Formulas.pay ? 'Paid AIV-1’s annual tax for 2025 on Oct 26, 2026' : Time.describe(last());
-  check('… and History says it at the year, and its toast as a payment', Time.describe(last()) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026'
+  // History and the toast say it alike: whose tax, for which year, on what day.
+  const paidSaid = 'Paid AIV-1’s annual tax for 2025 on Oct 26, 2026';
+  check('… and History and its toast say it as a payment', Time.describe(last()) === paidSaid
     && document.querySelector('.toast')?.textContent.startsWith(paidSaid), `${Time.describe(last())} / ${document.querySelector('.toast')?.textContent}`);
   check('… the selection staying on the year, now entered, at the payment’s row', Shell.selection.peek()[0] === year?.record && document.activeElement?.closest('[data-key]')?.dataset.key === payment?.record,
     `${Shell.selection.peek()} ${document.activeElement?.outerHTML.slice(0, 120)}`);

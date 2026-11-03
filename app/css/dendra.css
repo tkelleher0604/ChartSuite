@@ -279,6 +279,11 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .chartmenu { max-width: 100%; padding: 0 8px; gap: 8px; font-weight: 600; }
 .chartmenu > svg { width: 16px; height: 16px; flex: none; color: var(--ink); }
 .chartmenu > .name { overflow: hidden; text-overflow: ellipsis; }
+/* How the workbook is kept, beside its name, as a document's is: quiet until there's something to do about it. */
+.keeping { flex: none; padding: 0 4px; color: var(--ink-3); white-space: nowrap; }
+.keeping.is-error { color: var(--no); }
+.keeping.fix { height: 24px; border: 0; border-radius: var(--r); background: none; color: var(--due); font-weight: 500; }
+.keeping.fix:hover { background: var(--hover); }
 /* Renamed in place, the name is a field just where it was, as a sheet tab's is. */
 .chartmenu.naming { display: flex; align-items: center; min-width: 0; height: var(--row); border: 1px solid transparent; }
 .chartmenu.naming > input.name { min-width: 8ch; max-width: 100%; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 600; }
@@ -370,12 +375,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .foot > .btn.icon.views + .btn.icon { margin-left: 0; }
 .status { margin-left: auto; padding: 0 16px; flex: none; color: var(--ink-2); }
 .status, .status > .counts { display: flex; align-items: center; gap: 4px; }
-.status .btn, .status-fix { height: 24px; padding: 0 4px; }
-.status .overdue, .status .error, .status-store.is-error { color: var(--no); }
-.status .soon, .status .blank, .status-fix { color: var(--due); }
-.status-fix { border: 0; border-radius: var(--r); background: none; font-weight: 500; }
-.status-fix:hover { background: var(--hover); }
-.status-store.is-busy { color: var(--ink-3); }
+.status .btn { height: 24px; padding: 0 4px; }
+.status .overdue, .status .error { color: var(--no); }
+.status .soon, .status .blank { color: var(--due); }
 
 /* The launch cover, set before first paint by the head script, so nothing of the app shows first. */
 html[data-splash]::after { content: ""; position: fixed; inset: 0; z-index: 2147483647; background: #727f95; }

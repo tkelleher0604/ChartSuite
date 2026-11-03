@@ -223,7 +223,7 @@ const App = (() => {
     appointment: ['Appoint', 'Appointed'], retirement: ['Retire', 'Retired'], expiration: ['Expire', 'Expired'], expiry: ['Expire', 'Expired'],
     cancellation: ['Cancel', 'Cancelled'], redemption: ['Redeem', 'Redeemed'], merger: ['Merge', 'Merged'], incorporation: ['Incorporate', 'Incorporated'],
     organization: ['Organize', 'Organized'], registration: ['Register', 'Registered'], commencement: ['Commence', 'Commenced'], closing: ['Close', 'Closed'],
-    start: ['Start', 'Started'], end: ['End', 'Ended'] };
+    start: ['Start', 'Started'], end: ['End', 'Ended'], paid: ['Pay', 'Paid'], filed: ['File', 'Filed'] };
   const actOf = label => ACTS[Tree.norm(label ?? '').replace(/\s+(date|day)$/, '').split(/\s+/).at(-1)] ?? null;
   // What deleting records is called, as its menus, Find and its bar's button name it: for what it records. Where it asks
   // the day they end, End, or the act their end entry records (Dissolve, for an entity's Dissolution Date); where it
@@ -910,14 +910,14 @@ const App = (() => {
   // Find reaches each definition, as its pattern in general: the statute it encodes (inspector.js).
   Shell.register('find', { items: () => { const N = notes.peek(); return N.notes('Formula').map(n => ({ label: N.name(n.pattern), detail: 'Definition', run: () => Shell.select([Shell.general(n.pattern)]) })); } });
 
-  // ---- Where the workbook is kept: its status at the foot, and opening and saving it in the chart menu ----
+  // ---- Where the workbook is kept: its status beside its name, and opening and saving it in the chart menu ----
   const status = signal(Store.status());
   Store.subscribe(st => { status.value = st; });
-  Shell.register('status', {
+  Shell.register('keeping', {
     render: () => {
       const st = status.value;
-      return st.fix ? html`<button class="status-fix" onClick=${() => Store.fix()}>${st.text}</button>`
-        : html`<span class=${'status-store' + (st.tone ? ' is-' + st.tone : '')} title=${st.detail ?? ''}>${st.text}</span>`;
+      return st.fix ? html`<button class="keeping fix" onClick=${() => Store.fix()}>${st.text}</button>`
+        : html`<span class=${'keeping' + (st.tone ? ' is-' + st.tone : '')} title=${st.detail ?? ''}>${st.text}</span>`;
     },
   });
   const opened = p => p.then(wb => wb && use(wb), e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t open it'));

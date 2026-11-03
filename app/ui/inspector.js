@@ -465,10 +465,9 @@ const settling = x => { const slot = !App.readOnly.peek() && recs()[x] && fx(x) 
 function Filing({ due, slot, close }) {
   const [text, setText] = useState(T.formatDate(App.day.peek(), 'short')), value = T.parse('date', T.clean(text) || '-');
   const rec = value ? { at: slot.at, edge: slot.edge, field: 'date', value } : null;
-  let made = slot.id, said = null;
+  let made = slot.id;
   const write = tx => {
-    const paid = Formulas.pay?.({ tx, R: App.computed.peek(), N: N(), due, day: value, add: r => (made = tx.add('record', enterAt(tx, r))) });
-    if (paid) { said = typeof paid === 'string' ? paid : null; return; }
+    if (Formulas.pay?.({ R: App.computed.peek(), due, day: value, add: r => (made = tx.add('record', enterAt(tx, r))) })) return;
     if (slot.id) tx.set(slot.id, rec); else made = tx.add('record', enterAt(tx, rec));
   };
   useLayoutEffect(() => { FormulaBar.preview(rec ? App.would(write, { dated: value }) : null); }, [value]);
@@ -477,7 +476,7 @@ function Filing({ due, slot, close }) {
     if (!rec) return;
     close();
     const sel = Shell.selection.peek(), at = was.at;
-    if (!App.change(write, { dated: value, say: c => said ?? Time.describe(c) })) return;
+    if (!App.change(write, { dated: value, say: c => Time.describe(c) })) return;
     const where = recs()[made]?.at, to = [...new Set(sel.map(k => recs()[k] ? k : k === at && where ? where : made))];
     aim.value = made;
     select(to);
