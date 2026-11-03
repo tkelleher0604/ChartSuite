@@ -299,13 +299,14 @@ async function run() {
   Table.grid.moveColumn(column('Jurisdiction').getField(), column('Name').getField(), true); await tick(150);
   const order = Table.model(ent).cols.filter(x => x.shown).map(x => x.title);
   check('Moving a column places it, as Order notes in the view, one change', N() === n0 + 1 && order[1] === 'Jurisdiction' && App.notes.peek().resolve('Order', jur.pattern, ent)?.note.view === ent, order.slice(0, 3).join());
-  // Moved again, History says which column moved against the rest, or which two swapped, as its toast and Undo do.
+  // A move reads one way, in its toast, Undo and History: which column moved, and after which, the view's first move too,
+  // whose order before is the table's own.
+  const entName = App.views.peek().find(v => v.id === ent).name, firstMove = Time.describe(last()), firstToast = $('.toast span')?.textContent;
   Table.grid.moveColumn(column('Jurisdiction').getField(), column('Entity Type').getField(), true); await tick(150);
   const movedSaid = Time.describe(last());
   Table.grid.moveColumn(column('Jurisdiction').getField(), column('Entity Type').getField(), false); await tick(150);
-  const entName = App.views.peek().find(v => v.id === ent).name;
-  check('A column moved is said by its name, and two side by side as swapped', movedSaid === `Moved Jurisdiction in ${entName}` && [`Swapped Jurisdiction and Entity Type in ${entName}`, `Swapped Entity Type and Jurisdiction in ${entName}`].includes(Time.describe(last())),
-    `${movedSaid}; ${Time.describe(last())}`);
+  check('A column moved says which, and after which: the view’s first move, and each after', firstMove === `Moved Jurisdiction after Name in ${entName}` && firstToast === firstMove && movedSaid === `Moved Jurisdiction after Entity Type in ${entName}`
+    && Time.describe(last()) === `Moved Entity Type after Jurisdiction in ${entName}`, `${firstMove}; ${firstToast}; ${movedSaid}; ${Time.describe(last())}`);
   undo(); await tick(150); undo(); await tick(150);
   undo(); await tick(150);
 
@@ -604,8 +605,8 @@ async function run() {
     await across(3);
     const left0 = holder().scrollLeft, mover = titlesOf().find((t, i) => i > 5 && seen(t) && t !== 'Name');
     await drag(mover, edge() + 2);
-    check('… and scrolled across, dropped beside them it shows beside them, the grid still scrolled where it was', seen(mover) && Math.abs(holder().scrollLeft - left0) <= 1
-      && Math.abs(leftOf(mover) - edge()) <= 1, `${mover} at ${Math.round(leftOf(mover))} of ${Math.round(edge())}, scrolled ${holder().scrollLeft} of ${left0}`);
+    check('… and scrolled across, dropped beside them it lands beside them, never past a column hidden under them, the grid scrolled back to show it, the toast saying where', seen(mover) && titlesOf()[1] === mover && holder().scrollLeft < left0
+      && Math.abs(leftOf(mover) - edge()) <= 1 && $('.toast span')?.textContent === `Moved ${mover} after Name in ${App.views.peek().find(v => v.id === ent).name}`, `${titlesOf().slice(0, 3).join()}: ${mover} at ${Math.round(leftOf(mover))} of ${Math.round(edge())}, scrolled ${holder().scrollLeft} of ${left0}; ${$('.toast span')?.textContent}`);
     undo(); await tick(250);
     // Where it can drop, scrolled across: never before a column the grid has scrolled under those kept in view.
     await across(3);

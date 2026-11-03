@@ -137,6 +137,11 @@ const Table = (() => {
   // Names as a list's cell holds them, each on its own or after a semicolon.
   const namesIn = raw => String(raw ?? '').split(/[;\n]/).map(clean).filter(Boolean);
 
+  // A table's own order of its columns, where the view doesn't place them: as its entries are ordered, then by name.
+  function ownOrder(a, b) {
+    for (let i = 0; i < Math.max(a.base.length, b.base.length); i++) { const d = (a.base[i] ?? -2) - (b.base[i] ?? -2); if (d) return d; }
+    return a.key.localeCompare(b.key);
+  }
   function model(view, R = App.computed.value, S = App.schema.value, look = lookOf(view)) {
     const st = R.records, N = App.notes.value;
     const rows = viewOf(view)?.rows;
@@ -194,8 +199,7 @@ const Table = (() => {
         c.said = said !== undefined;
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
       }
-      const lex = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? -2) - (b[i] ?? -2); if (d) return d; } return 0; };
-      cols.sort((a, b) => a.place - b.place || lex(a.base, b.base) || a.key.localeCompare(b.key));
+      cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
       // Beside a row's Name, its link says where the document is filed rather than its name again.
       if (isKind && cols.some(c => c.path?.length === 1 && same(c.title, 'Name'))) for (const c of cols) if (c.type === 'document' && c.path.length === 1) c.filed = true;
     }
@@ -1388,6 +1392,28 @@ const Table = (() => {
     if (!ok) moving = null;
     return ok;
   }
+  // What a move says (Time.describe), from the Order notes a change wrote in a table's view, each with its place before if
+  // it had one: the one column that moved against the order before, the table's own where a place wasn't given, and the
+  // column shown it's now after: "Moved EIN after Name in Entities", or, first of them, before the next. Those shown are
+  // read first, as a first move places the hidden after them, then all. Two side by side, either moved: the one that went
+  // right. Null where it isn't a table's columns, or more than one moved.
+  function moved(view, notes) {
+    const m = viewOf(view)?.layout === 'table' ? (real?.view === view ? real : model(view)) : null;
+    if (!m?.cols) return null;
+    const keyOf = (p, param) => `${Tree.key(p)}|${norm(param ?? '')}`, cols = new Map(m.cols.filter(c => c.pattern).map(c => [keyOf(c.pattern, c.param), c]));
+    const cs = notes.map(n => ({ c: cols.get(keyOf(n.note.pattern, n.note.param)), now: n.note.value, was: n.was ?? Infinity }));
+    if (cs.some(x => !x.c)) return null;
+    const after = xs => [...xs].sort((a, b) => a.now - b.now), before = xs => [...xs].sort((a, b) => a.was - b.was || ownOrder(a.c, b.c));
+    const against = xs => {
+      const a = after(xs), b = before(xs), rest = x => a.filter(y => y !== x).every((y, i) => y === b.filter(z => z !== x)[i]);
+      const it = a.filter(rest).sort((x, y) => (a.indexOf(y) - b.indexOf(y)) - (a.indexOf(x) - b.indexOf(x)))[0];
+      return it && a.indexOf(it) !== b.indexOf(it) ? it : null;
+    };
+    const went = against(cs.filter(x => x.c.shown)) ?? against(cs);
+    if (!went) return null;
+    const shown = after(cs).filter(y => y === went || y.c.shown), at = shown.indexOf(went), name = viewOf(view).name;
+    return at > 0 ? `Moved ${called(went.c)} after ${called(shown[at - 1].c)} in ${name}` : shown[1] ? `Moved ${called(went.c)} before ${called(shown[1].c)} in ${name}` : null;
+  }
   // As the grid has them, its columns moved by Tabulator (moveColumn); not while the grid is being put in the model's order.
   let arranging = false;
   function placeColumns() {
@@ -1662,14 +1688,15 @@ const Table = (() => {
     const x0 = e.clientX, colEl = col.getElement(), box = colEl.getBoundingClientRect(), dx = x0 - box.left;
     let ghost = null, bar = null, to = -1, raf = 0, lastX = x0;
     // Where it can drop, as drawn: before each column, at its left edge, and after the last. A column kept in view is
-    // where it's kept; one the grid has scrolled under them can't be dropped before, and the first that shows beside
-    // them is dropped before at their edge. Each is where the rows are scrolled to, which the headings follow a frame later.
+    // where it's kept; one whose edge the grid has scrolled under them can't be dropped before, but the first that scrolls
+    // is dropped before at their edge, so a heading dropped beside them lands beside them, never past a column hidden
+    // under them, and comes into view there. Each is where the rows are scrolled to, which the headings follow a frame later.
     const order = () => movable(), colOf = o => t.getColumns().find(x => x.getField() === field(o));
     const edges = () => {
-      const os = order(), h = holder(), r = h.getBoundingClientRect(), stop = r.left + 48 + frozenWidth(t), x0 = r.left - h.scrollLeft;
+      const os = order(), h = holder(), r = h.getBoundingClientRect(), stop = r.left + 48 + frozenWidth(t), x0 = r.left - h.scrollLeft, free = os.find(o => !PIN.test(colOf(o).getDefinition().cssClass));
       const at = (o, end) => {
         const col = colOf(o), e = col.getElement(), x = x0 + e.offsetLeft + (end ? e.offsetWidth : 0);
-        return PIN.test(col.getDefinition().cssClass) ? e.getBoundingClientRect()[end ? 'right' : 'left'] : end ? Math.max(x, stop) : x + e.offsetWidth <= stop + 1 ? null : Math.max(x, stop);
+        return PIN.test(col.getDefinition().cssClass) ? e.getBoundingClientRect()[end ? 'right' : 'left'] : end ? Math.max(x, stop) : x >= stop - 1 ? x : o === free ? stop : null;
       };
       return [...os.map(o => at(o)), at(os.at(-1), true)];
     };
@@ -2341,5 +2368,5 @@ const Table = (() => {
     if (!on && unexport) { unexport(); unexport = null; }
   });
 
-  return { model, paste, focus, look: lookOf, workbook, Columns, importFile, importing, get grid() { return table; } };
+  return { model, paste, focus, look: lookOf, workbook, Columns, importFile, importing, moved, get grid() { return table; } };
 })();
