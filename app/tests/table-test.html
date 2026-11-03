@@ -1508,7 +1508,7 @@ async function run() {
   const owed = Object.keys(st()).find(k => st()[k].args && App.notes.peek().segmentOf(st(), k) === 'AIV-1, tax year 2025');
   const paid = { id: 'xp', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'xpy', record: 'xpt', args: st()[owed].args, tag: true },
     { id: 'xpr', record: 'xpc', at: 'xpt', edge: 'Annual Tax Paid', field: 'date', value: '2026-10-26' }] };
-  check('… and a payment at the tax year it settles, as the place rule says it', Time.describe(paid) === 'Set Annual Tax Paid of AIV-1, tax year 2025 to Oct 26, 2026', Time.describe(paid));
+  check('… and a payment at the tax year it settles, whose and for which', Time.describe(paid) === 'Paid AIV-1’s annual tax for 2025 on Oct 26, 2026', Time.describe(paid));
   const pos = App.wb.rows(C()).filter(r => r.label === 'Position').slice(0, 3), stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: C() };
   const tidied = { ...stamp, id: 'xt', removes: pos.map(r => r.id), adds: [] }, untidied = { ...stamp, id: 'xu', reverses: 'xt', removes: [], adds: pos }, retidied = { ...stamp, id: 'xr', reverses: 'xu', removes: pos.map(r => r.id), adds: [] };
   check('Tidy, its undoing and its redoing are each said so', [tidied, untidied, retidied].map(Time.describe).join() === 'Tidied the layout,Restored the layout,Tidied the layout', [tidied, untidied, retidied].map(Time.describe).join(' / '));

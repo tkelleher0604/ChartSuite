@@ -370,7 +370,14 @@ const Time = (() => {
     // A relation added that asked its day (App.asksDay) says it: from the day said, or all along.
     const when = r.args && !back && App.asksDay(r, recs) ? r.since ? ` from ${short(r.since)}` : ' all along' : '';
     const end = r.field === 'date' && all[r.at] && !back && (t => !!t && N.isEnd(t))(Tree.treeOf(all, i.id));
-    if (!i.was.length) return end ? `Ended ${itOf(r.at, said(all, r.at, N))} on ${short(r.value)}`
+    // A date entry recording an act says the act: at an object, by its end entry ("Dissolved Tessellate on Nov 15, 2026"); at a
+    // relation of a record and a year, whose and for which ("Paid AIV-1’s annual tax for 2025 on Jun 1, 2026").
+    const act = r.field === 'date' && !back ? App.actOf(r.edge) : null, sides = act && all[r.at]?.args ? N.placed(all, r.at) : [];
+    if (!i.was.length && sides.length === 2 && /^\d+$/.test(sides[1].text)) {
+      const whose = sides[0].text, tax = said(all, r.at, N)[0].replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
+      return `${act[1]} ${/\)$/.test(whose) ? `the ${tax} of ${whose}` : `${whose}${whose.endsWith('s') ? '’' : '’s'} ${tax}`} for ${sides[1].text} on ${short(r.value)}`;
+    }
+    if (!i.was.length) return end ? `${(Tree.isObject(all[r.at]) && act?.[1]) || 'Ended'} ${itOf(r.at, said(all, r.at, N))} on ${short(r.value)}`
       : Tree.isObject(r) || fact ? `${added} ${it}${fact ? when : ''}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}${when}` : `Set ${it} to ${valueText(r)}`;
     if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}${back || Tree.isView(r) ? '' : ' as never held'}` : `Cleared ${it}`;
     const was = Log.latest(i.was), ended = i.now.every(x => x.before) && !was.before;

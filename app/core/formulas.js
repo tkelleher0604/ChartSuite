@@ -3581,9 +3581,8 @@ function attention(R, N, day) {
 // on, blank, is entered (Annual Tax Paid). The payment settles the earliest year unsettled: of the relation's
 // records with the same first side that have that due date, the one due first. It's written as that entry
 // there, `{ at, edge, field: 'date', value: day }`, through `add`, which enters the year's relation where only
-// a formula gives it, in a change dated the day paid. It gives the words that say so, the year named ("Paid
-// Fund III Blocker’s annual tax for 2026 on Oct 28, 2026"), or null where `due` is no such date.
-function pay({ R, N, due, day, add }) {
+// a formula gives it, in a change dated the day paid. It gives the year settled, or null where `due` is no such date.
+function pay({ R, due, day, add }) {
   const S = R.state, recs = S.recs, r = recs[due], c = R.computed[due];
   const L = r && c && recs[r.at], d = c && S.P.byId.get(c.def), rel = L && isRelation(L) && relationOf(S, L);
   if (!rel || !d?.rows[c.row]?.ast || L.args.length < 2 || r.field !== 'date' || !r.value) return null;
@@ -3609,11 +3608,7 @@ function pay({ R, N, due, day, add }) {
   }
   if (!year) return null;
   add({ at: year, edge: label, field: 'date', value: day });
-  // The words: whose tax, for which year, on what day.
-  const Y = recs[year], who = objectOf(S, holder.at), other = Y.args.find(a => normal(a.edge) !== first);
-  const whose = N?.shortOf ? N.shortOf(recs, who) : nameOf(S, who), when = other ? nameOf(S, objectOf(S, other.at)) : '';
-  const what = rel.name.split(' ').map(w => /^[A-Z][a-z]/.test(w) ? w.toLowerCase() : w).join(' ');
-  return `Paid ${/\)$/.test(whose) ? `the ${what} of ${whose}` : `${whose}’s ${what}`}${when ? ` for ${when}` : ''} on ${Tree.formatDate(day, 'short')}`;
+  return year;
 }
 
 return {

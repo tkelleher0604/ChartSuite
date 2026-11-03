@@ -223,7 +223,7 @@ const App = (() => {
     appointment: ['Appoint', 'Appointed'], retirement: ['Retire', 'Retired'], expiration: ['Expire', 'Expired'], expiry: ['Expire', 'Expired'],
     cancellation: ['Cancel', 'Cancelled'], redemption: ['Redeem', 'Redeemed'], merger: ['Merge', 'Merged'], incorporation: ['Incorporate', 'Incorporated'],
     organization: ['Organize', 'Organized'], registration: ['Register', 'Registered'], commencement: ['Commence', 'Commenced'], closing: ['Close', 'Closed'],
-    start: ['Start', 'Started'], end: ['End', 'Ended'] };
+    start: ['Start', 'Started'], end: ['End', 'Ended'], paid: ['Pay', 'Paid'], filed: ['File', 'Filed'] };
   const actOf = label => ACTS[Tree.norm(label ?? '').replace(/\s+(date|day)$/, '').split(/\s+/).at(-1)] ?? null;
   // What deleting records is called, as its menus, Find and its bar's button name it: for what it records. Where it asks
   // the day they end, End, or the act their end entry records (Dissolve, for an entity's Dissolution Date); where it
