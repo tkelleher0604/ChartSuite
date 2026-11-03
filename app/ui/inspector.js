@@ -374,39 +374,18 @@ function Choice({ r, options, put, fx, over, id, fixed, label, ph, hint, childre
   if (typing) return html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label=${label ?? 'New option'} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
     onKeyDown=${e => { if (e.key === 'Enter') { const t = T.clean(e.target.value); setTyping(false); if (t) put({ choice: t }); } else if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); } }}
     onBlur=${() => setTyping(false)} /></span>`;
-  // An option chosen keeps where they are on screen the rows after its own, as the entries it brings come or go (steady).
   const open = e => {
     const at = e.currentTarget;
     if (fx) emit('why-open', id);
-    menu(at, [...options.map(o => ({ label: o, checked: !!r && T.same(o, r.choice), run: () => !(r && T.same(o, r.choice)) && steady(at, () => put({ choice: o })) })),
-      ...(fixed ? [] : [...(options.length ? ['-'] : []), { label: 'New option', run: () => setTyping(true) }])]);
+    // A long list is found in, what's typed that it hasn't offered as a new option, asked for by name (see Menu).
+    menu(at, [...options.map(o => ({ label: o, checked: !!r && T.same(o, r.choice), run: () => !(r && T.same(o, r.choice)) && put({ choice: o }) })),
+      ...(fixed ? [] : [...(options.length ? ['-'] : []), { label: 'New option', asked: true, run: () => setTyping(true) }])],
+      { search: options.length > 7, more: fixed ? null : q => options.some(o => T.same(o, q)) ? [] : ['-', { label: `New option: ${q}`, asked: true, run: () => put({ choice: q }) }] });
   };
   return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'sel dd' + (fx ? ' fx' : '')} disabled=${App.readOnly.value} data-tour=${fx ? 'computed' : null}
     aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open}><span class=${r ? null : 'ph'}>${r?.choice ?? ph ?? ''}</span></button></span>${!r && hint && !App.readOnly.value
-      ? html`<button class="lk hint" data-tip="From its name" onClick=${e => { const at = e.currentTarget; steady(at, () => put({ choice: hint })); }}>${hint}?</button>` : null}${children}</span>`;
+      ? html`<button class="lk hint" data-tip="From its name" onClick=${() => put({ choice: hint })}>${hint}?</button>` : null}${children}</span>`;
 }
-// A change made from a row of the panel that brings rows under it or takes them away (an Entity Type's Tax Classification
-// and documents) keeps the rows after it where they were on screen, the panel scrolled by what came or went above them,
-// so a click meant for the next row (Jurisdiction) lands on it. Where the panel has no room to scroll, it's given some
-// at its foot, till another record is shown.
-// The row held is set back where it was as the record's panel is next drawn, before it's painted (RecordView), or let go.
-let steadying = null;
-function steady(el, run) {
-  const s = host?.closest('.inspector'), mine = el?.closest('.ent') ?? el?.closest('.row');
-  const next = s && mine && [...s.querySelectorAll('.insp .row[data-key]')].find(x => !mine.contains(x) && (mine.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING));
-  const held = steadying = next ? { s, key: next.dataset.key, top: next.getBoundingClientRect().top } : null;
-  run();
-  setTimeout(() => { if (steadying === held) steadying = null; }, 400);
-}
-function steadied() {
-  const h = steadying, now = h && h.s.querySelector(`.insp .row[data-key="${CSS.escape(h.key)}"]`), by = now ? now.getBoundingClientRect().top - h.top : 0;
-  if (!by) return;
-  steadying = null;
-  const need = h.s.scrollTop + by - (h.s.scrollHeight - h.s.clientHeight);
-  if (need > 0) host.style.minHeight = `${h.s.scrollHeight + need}px`;
-  h.s.scrollTop += by;
-}
-
 // A tag's checkbox: green attested, red ruled out, outlined when computed. Pointed at, or reached by the keys,
 // it shows the other state, and the formula bar redlines what switching it would change; a click or Space
 // switches it, as a checkbox's do, and Enter goes on, as from any value, so no key meant to move on changes
@@ -949,7 +928,6 @@ const AddRow = ({ at, items = anchor => addItems(at, anchor), also = null }) => 
 
 function RecordView({ id }) {
   const r = recs()[id];
-  useLayoutEffect(steadied);
   useLayoutEffect(() => {
     const a = aim.peek();
     if (!a) return;
@@ -1305,16 +1283,24 @@ function RelateView({ a, b }) {
   // What someone entered first, then what a formula gives, and last what's ruled out; each by name, then the
   // first's side first.
   const order = (x, y) => (r[x.id].tag === false) - (r[y.id].tag === false) || fx(x.id) - fx(y.id) || x.name.localeCompare(y.name);
-  // What could be, those the chart would draw as the two stand first: the box above, on the side drawn on top (an
-  // owner over what it owns, as the chart sets them), so dragging down from a fund offers it as an owner first.
-  const sc = App.scene.value, ya = sc?.byId.get(a)?.y, yb = sc?.byId.get(b)?.y, view = Shell.view.value;
+  // What could be: first what a box's name says, a word of its name being its side's (…GP, LLC, the side named GP); then
+  // those the chart would draw as the two stand. One above the other, the box above on the side drawn on top, a solid line
+  // before a dashed one (an owner over what it owns), so dragging down from a fund offers it as an owner first; side by
+  // side, a dashed line, as a chart draws a general partner or an adviser, but one the other box already has goes after,
+  // as a fund has one general partner.
+  const sc = App.scene.value, ma = sc?.byId.get(a), mb = sc?.byId.get(b), ya = ma?.y, yb = mb?.y, view = Shell.view.value;
+  const upright = !!ma && !!mb && Math.abs(ya + ma.h / 2 - yb - mb.h / 2) > (ma.h + mb.h) / 4;
   const onTop = x => { const p = T.bare(x.s), above = n.value('Above', p, view) ?? n.edges(p)[0]; return T.same(above ?? '', x.ea) === (ya < yb); };
-  const fits = x => ya === undefined || yb === undefined || ya === yb ? 0 : onTop(x) ? 0 : 1;
+  const dashed = x => (n.resolve('Dash', x.s, view)?.value ?? n.resolve('Dash', T.bare(x.s), view)?.value ?? 'solid') !== 'solid';
+  const fits = x => !ma || !mb ? 0 : upright ? (!onTop(x) ? 2 : dashed(x) ? 1 : 0) : dashed(x) ? 0 : 1;
+  const says = (id, edge) => T.norm(nameOf(id)).split(/[\s,.()]+/).includes(T.norm(edge));
+  const named = x => says(a, x.ea) || says(b, x.eb) ? 0 : 1;
+  const filled = x => dashed(x) && Object.keys(r).some(id => r[id].args?.some(s => s.at === x.lb && T.same(s.edge, x.eb)) && !fx(id) && T.same(nameOf(id), x.name)) ? 1 : 0;
   // Then those the chart records most, as Add offers the kinds it draws most.
   const uses = new Map();
   for (const id of Object.keys(r)) if (r[id].args?.length > 1 && !fx(id)) { const k = T.norm(nameOf(id)); uses.set(k, (uses.get(k) ?? 0) + 1); }
   const used = x => uses.get(T.norm(x.name)) ?? 0;
-  const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => fits(x) - fits(y) || used(y) - used(x) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
+  const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => named(x) - named(y) || filled(x) - filled(y) || fits(x) - fits(y) || used(y) - used(x) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
   const name = x => html`<${Go} to=${x}>${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}</${Go}>`;
   // What else could hold, once asked for; at once where nothing did.
   const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
@@ -1464,7 +1450,7 @@ function Many({ ids }) {
 let host = null, aimed = null;
 function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
-  useLayoutEffect(() => { const s = host?.closest('.inspector'); if (host) host.style.minHeight = ''; if (s && aimed !== key) s.scrollTop = 0; aimed = null; }, [key]);
+  useLayoutEffect(() => { const s = host?.closest('.inspector'); if (s && aimed !== key) s.scrollTop = 0; aimed = null; }, [key]);
   return chosen(sel);
 }
 // What a selection key names: a free shape (or a row of a Key) has its own panel; a relation's text in one box

@@ -1307,6 +1307,18 @@ async function stillAsMade() {
   const fund = box('Larkspur Credit Fund');
   check('a box added to a new chart stands where it was asked for', !!fund && App.state.peek()[fund.record]?.kind === 'Entity', fund && JSON.stringify([fund.x, fund.y]));
   if (!fund) return;
+  // A chart left with nothing to draw by a start past the day shown goes to that day, and says so, offering today; opened again, a
+  // chart with nothing to draw today opens on its first day. Today, asked for, stays.
+  {
+    const fid = sc().marks.find(m => m.type === 'box').record, soon = '2036-03-01';
+    App.change(tx => tx.add('record', { at: fid, edge: 'Formation Date', field: 'date', value: soon })); await tick(200);
+    const said = txt($$('.toast').at(-1)), drawn = sc().marks.some(m => m.type === 'box');
+    check('a start past the day shown, on a chart left with nothing to draw, takes the chart to that day and says so, offering today', Shell.time.peek()?.asOf === soon && drawn && /showing the chart as of then/.test(said) && /Today/.test(said), `${JSON.stringify(Shell.time.peek())} ${drawn} ${said}`);
+    Shell.at(null); await tick(200);
+    check('… and today asked for stays, with the chart bare', !Shell.time.peek() && !App.scene.peek().marks.some(m => m.type === 'box'), JSON.stringify(Shell.time.peek()));
+    Shell.parts.peek().undo.undo(); await tick(200);
+    Shell.at(null); await tick(200);
+  }
   const n0 = App.wb.changes().length, f0 = onScreenAt(fund), page0 = JSON.stringify([sc().page.w, sc().page.h]);
   await drag(fund, 140, -80);
   const f1 = onScreenAt(box('Larkspur Credit Fund')), said = Time.describe(App.wb.changes().at(-1));
