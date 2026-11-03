@@ -173,6 +173,11 @@
 .tbar > .tout > b { min-width: 0; margin-right: .3em; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink); }
 .tbar > .tout > .sep { margin: 0 8px; color: var(--ink-3); }
 .tbar > .tout + .tcount { margin-left: 16px; }
+/* What a table as of a day leaves out for starting later: said, a link to the chart then. */
+.tbar > .tout.later { gap: 4px; min-width: 0; overflow: hidden; }
+.tbar > .tout + .tout { margin-left: 16px; }
+.tbar > .tout.later > .lk { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbar > .tout.later > .lk > b { margin: 0; font-weight: 500; color: inherit; }
 
 /* ---- The new row, under the last (or at the grid's foot, where the rows run on past it) ---- */
 .grid.adds > .cells { padding-bottom: var(--row); }

@@ -137,6 +137,39 @@ const Table = (() => {
   // Names as a list's cell holds them, each on its own or after a semicolon.
   const namesIn = raw => String(raw ?? '').split(/[;\n]/).map(clean).filter(Boolean);
 
+  // ---- What's scheduled: read off the log, what starts, ends or changes after the day shown, which the chart as of that day
+  // doesn't show: each { id, day, what, whose, owner }. A record or relation not in the chart then that holds later, from
+  // the first day it does, as its start entry says it where that's the day (Formation Date), or else "Ownership starts"; one
+  // whose rows end later; a value at what the chart has now, from a later day, as a transfer's part is ("Percentage changes
+  // to 41%"). Kept while the log and the day stand ----
+  let scheduling = null;
+  function scheduled() {
+    const wb = App.shown.peek(), c = App.chart.peek(), day = App.day.peek(), version = App.version.peek();
+    if (scheduling?.wb === wb && scheduling.c === c && scheduling.day === day && scheduling.version === version) return scheduling.out;
+    const N = App.notes.peek(), entered = App.entered.peek(), rows = wb.rows(c).filter(r => 'record' in r), by = new Map(), out = [], then = new Map();
+    for (const r of rows) (by.get(r.record) ?? by.set(r.record, []).get(r.record)).push(r);
+    const asOf = d => then.get(d) ?? then.set(d, wb.asOf(c, d)).get(d);
+    // What the chart keeps off its first page (a tax year, a document) is no event of the structure's.
+    const page = App.views.peek().find(v => v.layout === 'chart')?.id, kept = o => !page || N.value('Shown', { kind: o.kind }, page) !== false;
+    const onPage = (recs, id) => { const r = recs[id]; return r.args ? r.args.every(a => kept(recs[Tree.objectOf(recs, a.at)] ?? {})) : !Tree.isObject(r) || kept(r); };
+    const put = (id, on, what, recs = asOf(on), starts = false) => { if (recs[id]) out.push({ id, day: on, what, starts, onPage: onPage(recs, id), whose: Time.whose(recs, recs[id].args || Tree.isObject(recs[id]) ? id : recs[id].at, N), owner: N.shortOf(recs, ownerOf(recs, id, N)) }); };
+    const asked = (recs, id) => Tree.isObject(recs[id]) ? recs[id].kind : N.nameOf(recs, id);
+    for (const [id, rs] of by) {
+      const r = rs[0];
+      if (Tree.isObject(r) || r.args?.length > 1) {
+        if (!entered[id]) {
+          const on = App.heldFrom(id, day);
+          if (on) put(id, on, rows.find(x => x.at === id && x.field === 'date' && x.value === on)?.edge ?? `${asked(asOf(on), id)} starts`, asOf(on), true);
+        } else {
+          const now = rs.find(x => Log.validOn(x, day));
+          if (now?.before && !rs.some(x => x.since === now.before)) put(id, now.before, `${asked(entered, id)} ends`, entered);
+        }
+      } else if (entered[r.at] && r.field !== 'date') for (const x of rs) if (x.since > day && 'field' in x) put(id, x.since, `${x.edge} changes to ${Tree.format(x.field, x.value)}`);
+    }
+    out.sort((a, b) => a.day.localeCompare(b.day));
+    scheduling = { wb, c, day, version, out };
+    return out;
+  }
   // A table's own order of its columns, where the view doesn't place them: as its entries are ordered, then by name.
   function ownOrder(a, b) {
     for (let i = 0; i < Math.max(a.base.length, b.base.length); i++) { const d = (a.base[i] ?? -2) - (b.base[i] ?? -2); if (d) return d; }
@@ -242,6 +275,16 @@ const Table = (() => {
       row._fails = fails.get(id) ?? null;
       return row;
     });
+    // What's scheduled is among a list of dates' deadlines, by its day, as no entry there is; and a table of records says
+    // which of its rows start later (Tools).
+    let later = [];
+    if (rows === 'date') { if (cols.some(c => c.key === '$of')) for (const s of scheduled()) if (s.onPage) data.push({ id: `later:${s.id}:${s.day}:${s.what}`, _rec: s.id, _red: null, _ruled: false, _fails: null, 'f:$value': s.day, ...(cols.some(c => c.key === '$entry') && { 'f:$entry': s.what }), 'f:$of': s.whose,
+      _m: { 'f:$value': {}, 'f:$entry': {}, 'f:$of': { group: s.owner } } }); }
+    else if (!isDatatype) {
+      const wb = App.shown.peek(), c = App.chart.peek(), then = s => wb.asOf(c, s.day);
+      later = scheduled().filter(s => s.starts && (isKind ? same(then(s)[s.id].kind ?? '', rows.kind) : !!then(s)[s.id].args && Tree.fits(then(s), s.id, rows)))
+        .map(s => ({ id: s.id, day: s.day, name: isKind ? N.nameOf(then(s), s.id) : s.whose }));
+    }
     // A check's column is shown, unless the view says, only while a row fails it, as the inspector shows a check only where it
     // fails; ticked, it shows with its every box.
     for (const c of cols) if (c.check) { c.fails = data.some(r => r[field(c)] === false); if (!c.said) c.shown = c.fails; }
@@ -275,7 +318,7 @@ const Table = (() => {
     }
 
     const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
-    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, grec, fails, noun };
+    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, grec, fails, later, noun };
     entitle(m);
     return m;
   }
@@ -725,8 +768,9 @@ const Table = (() => {
       wireHeadings(t);
       tall.set(t, t.element.clientHeight);
       mark();
-      if (was) stay();
-      reveal(Shell.selection.peek()[0]);
+      // Built again in its view, it stays where it was scrolled: bringing the record selected into view first would draw
+      // the rows there, and being put back where it was, with no scroll for the rows to hear of, leave the grid blank.
+      if (was) stay(); else reveal(Shell.selection.peek()[0]);
       regain();
       settle();
       if (was) { t.rowManager.element.scrollLeft = was.left; t.rowManager.element.scrollTop = was.top; }
@@ -1849,6 +1893,7 @@ const Table = (() => {
       ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
       ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
       ${out ? html`<span class="tout" role="status"><b>${rowName(sel)}</b> is filtered out<span class="sep">·</span><button type="button" class="lk" onClick=${() => { clearFilters(); setTimeout(() => track(sel)); }}>Clear filters</button></span>` : null}
+      ${m.later?.length ? html`<span class="tout later" role="status">${m.later.length} ${m.later.length === 1 ? 'starts' : 'start'} later:${' '}<button type="button" class="lk" onClick=${() => Shell.at({ asOf: m.later[0].day })}><b>${m.later[0].name}</b>, ${Tree.formatDate(m.later[0].day, 'short')}</button>${m.later.length > 1 ? ` and ${m.later.length - 1} more` : ''}</span>` : null}
       <span class="tcount">${showing !== total ? `${showing} of ${count(total, m.noun)}` : count(total, m.noun)}</span>
     </div>`;
   }
@@ -2085,7 +2130,8 @@ const Table = (() => {
       ...(writes ? [{ label: 'Clear contents', keys: 'Delete', run: clear }, { label: 'Fill down', keys: '$mod+KeyD', run: () => fillFrom(true) }] : []),
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
       ...(!current.isDatatype && writes ? ['-', { label: `New ${current.noun}`, run: () => rowEl?.querySelector('input, button')?.[current.isKind ? 'focus' : 'click']() }] : []),
-      ...(d ? [{ label: ids.length > 1 || many ? `Delete ${count(ids.length, 'row')}` : 'Delete row', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
+      // Named for what it records, as the panel's and the chart's are (App.deleteVerb).
+      ...(d ? [{ label: `${App.deleteVerb(ids)}${ids.length > 1 || many ? ` ${count(ids.length, 'row')}` : ''}…`, danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
     ]);
   }
 
@@ -2142,7 +2188,8 @@ const Table = (() => {
     if (!range?.initialized || range.destroyed || !current) return;
     const rows = range.getComponent().getRows(), all = table.getRows('active').length;
     if (!rows.length || (rows.length === all && all > 1)) return;
-    const st = App.state.peek(), ids = [...new Set(rows.map(r => r.getData().id))].filter(id => st[id]);
+    // A scheduled date's row is the record it's of, though that starts later.
+    const st = App.state.peek(), ids = [...new Set(rows.map(r => r.getData()._rec ?? r.getData().id))].filter(id => st[id] || App.heldFrom(id));
     picking = true;
     Shell.select(ids.slice(0, 50));
     picking = false;

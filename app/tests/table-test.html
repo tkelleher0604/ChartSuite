@@ -1057,9 +1057,10 @@ async function run() {
   pressedOn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 2 })); await tick(60);
   check('A right-click on a cell before anything’s selected selects it, and throws nothing', !errors.length && Shell.selection.peek().join() === doomed, `${errors.join(' / ')} ${Shell.selection.peek().join()}`);
   rowOf(doomed).getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
-  hover(item('Delete row')); await previewed();
-  check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
-  item('Delete row').click(); await previewed();
+  const delWord = $$('.float .menu-item').map(x => x.textContent.trim()).find(t => /…$/.test(t) && /^End|^Delete|^Dissolve/.test(t)); hover(item(delWord)); await previewed();
+  check('A row’s menu names its deletion for what it records, as the panel’s does', delWord === 'End…' && delWord === `${App.deleteVerb([doomed])}…`, delWord);
+  check('Pointed at, a row’s End… strikes the row through, and ends nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
+  item(delWord).click(); await previewed();
   const untilIn = () => $('.pendbar .from input');
   check('… and chosen, redlines it with the bar, asking until when: the day shown, to type over', N() === n0 && rowOf(doomed).getElement().classList.contains('red-go')
     && $('.pendbar .from .sel')?.textContent === 'Ends on' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
@@ -1163,6 +1164,45 @@ async function run() {
     check('Dates are grouped by month till grouped by whose, or what falls due', ways[0] === 'Month' && ways.includes('Whose') && ways.includes('What') && !!tool('Grouped by Whose') && heads.length > 1 && !heads.includes('Overdue'), `${ways.join()} / ${heads.slice(0, 4).join()}`);
     tool('Grouped by Whose').click(); await tick(); item('Month').click(); await tick(300);
     check('… and Month groups them by month again', !Table.look(dv).group && Table.model(dv).groups[0] === 'overdue' && !!tool('Grouped by month'), Table.model(dv).groups.slice(0, 3).join());
+  }
+  // Another day shown with a row selected, however it's scrolled, the rows are drawn where the grid stands.
+  {
+    const drawnNow = () => { const h = Table.grid.rowManager.element.getBoundingClientRect(); return $$('.grid .tabulator-row').filter(r => { const b = r.getBoundingClientRect(); return b.bottom > h.top + 2 && b.top < h.bottom - 2; }).length; };
+    const blanks = [];
+    for (const top of [0, 1500, 4000]) for (const d of ['2027-06-01', '2020-01-01', '2024-06-01', null, '2026-01-15']) {
+      Table.grid.rowManager.element.scrollTop = top; await tick(60);
+      const r = Table.grid.getRows('active').find(x => x.getElement()?.isConnected && x.getElement().getBoundingClientRect().top > Table.grid.rowManager.element.getBoundingClientRect().top + 4);
+      if (r) { Table.grid.addRange(r.getCells()[1]); await tick(60); }
+      Shell.at(d ? { asOf: d } : null); await tick(250);
+      if (!drawnNow()) blanks.push(`${top} ${d}`);
+    }
+    Shell.at(null); await tick(200); Table.grid.rowManager.element.scrollTop = 0; await tick(80);
+    check('Another day shown with a row selected, the grid draws its rows, however it’s scrolled', !blanks.length, blanks.join(' / '));
+  }
+  // What starts later is said: a table of records names it, a link to the chart then; Dates lists what's scheduled, by its day.
+  {
+    const dv = Shell.view.peek(), tabs = views(), entities = tabs.find(v => v.rows?.kind === 'Entity').id, ownership = tabs.find(v => v.rows?.args && App.notes.peek().name(v.rows) === 'Ownership').id;
+    const fundId = named('Calder Ridge Capital Partners III, L.P.'), blockerRel = Object.keys(st()).find(id => st()[id].args?.some(a => a.edge === 'Owner' && a.at === named('Calder Ridge III Blocker, Inc.'))), pctId = (Tree.index(st()).entries.get(blockerRel) ?? []).find(e => st()[e].edge === 'Percentage');
+    let later = null, rel = null;
+    App.change(tx => { later = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: later, edge: 'Name', field: 'text', value: 'Northwind Holdings LLC' }); tx.add('record', { at: later, edge: 'Formation Date', field: 'date', value: '2027-01-15' }); });
+    App.change(tx => { rel = tx.add('record', { args: [{ edge: 'Owner', at: fundId }, { edge: 'Owned', at: named('Halvard Logistics Holdings, Inc.') }], tag: true }); }, { dated: '2027-03-01' });
+    App.change(tx => tx.update(pctId, { value: 0.41 }), { dated: '2027-03-01' });
+    await tick(300);
+    const rowsOf = () => Table.model(dv).data.filter(r => r._rec).map(r => [r['f:$value'], r['f:$entry'], r['f:$of']]);
+    const has = (d, w, of) => rowsOf().some(([a, b, c]) => a === d && b === w && (!of || c.includes(of)));
+    check('Dates lists what’s scheduled among its deadlines, by its day: a start by its entry, a relation’s, a value’s change from a later day', has('2027-01-15', 'Formation Date', 'Northwind') && has('2027-03-01', 'Ownership starts') && has('2027-03-01', 'Percentage changes to 41%'), JSON.stringify(rowsOf()));
+    const sched = Table.grid.getRows().find(r => r.getData()._rec === later);
+    check('… a row of its month, read only', !!sched && sched.getData()._g === '2027-01' && !sched.getCells()[1].getColumn().getDefinition().editable(sched.getCells()[1]), sched?.getData()._g);
+    Shell.show(entities); await until(() => !!$('.tbar .tout.later')); await tick(100);
+    check('A table of records says what it leaves out for starting later, a link to the chart then', $('.tbar .tout.later')?.textContent.replace(/\s+/g, ' ').trim() === '1 starts later: Northwind Holdings LLC, Jan 15, 2027', $('.tbar .tout.later')?.textContent);
+    Shell.show(ownership); await until(() => !!$('.tbar .tout.later')); await tick(100);
+    check('… a table of relations too, by its sides', /^1 starts later: Fund III → Halvard Logistics Holdings, Inc\., Mar 1, 2027$/.test($('.tbar .tout.later')?.textContent.replace(/\s+/g, ' ').trim()), $('.tbar .tout.later')?.textContent);
+    Shell.show(entities); await until(() => !!$('.tbar .tout.later')); await tick(100);
+    $('.tbar .tout.later .lk').click(); await tick(300);
+    check('… and the link shows the chart then, the record in it, nothing more left out', App.day.peek() === '2027-01-15' && !!Table.model(entities).data.find(r => r.id === later) && !$('.tbar .tout.later'), App.day.peek());
+    Shell.at(null); await tick(150);
+    undo(); await tick(120); undo(); await tick(120); undo(); await tick(150);
+    Shell.show(dv); await tick(250);
   }
   await addTable(null, 'Documents');
   const docs = Table.model(Shell.view.peek());
