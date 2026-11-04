@@ -2186,6 +2186,19 @@ function findableNow() {
   return findable;
 }
 Shell.register('find', { items: () => { const f = findableNow(); while (!f.steps.next().done); return f.out; } });
+// And what the chart has only on another day: what's to come, and what's ended, said so, each gone to as any is, its panel saying when.
+let away = null;
+Shell.register('find', { items: () => {
+  const c = App.chart.peek(), wb = App.shown.peek(), st = App.state.peek(), day = App.day.peek(), version = App.version.peek();
+  if (away?.version === version && away.c === c && away.day === day) return away.out;
+  const out = new Map();
+  for (const r of wb.rows(c)) if (r.kind && r.kind !== 'View' && !st[r.record] && !out.has(r.record)) {
+    const on = App.heldFrom(r.record, day), off = on ? null : App.heldUntil(r.record, day), then = (on ?? off?.last) && wb.asOf(c, on ?? off.last);
+    out.set(r.record, then?.[r.record] ? { key: r.record, label: N().nameOf(then, r.record), detail: `${r.kind}, ${on ? 'from' : 'ended'} ${short(on ?? off.day)}`, run: () => select([r.record]) } : null);
+  }
+  away = { version, c, day, out: [...out.values()].filter(Boolean) };
+  return away.out;
+} });
 let warming = false;
 preactSignals.effect(() => {
   App.state.value; App.notes.value;

@@ -1345,6 +1345,9 @@ const FormulaBar = (() => {
     const put = f => { if (!seen.has(f.message)) { seen.add(f.message); out.push(f); } };
     for (const [def, fs] of Object.entries(R2.flaws ?? {})) for (const f of fs) if (def === d.def || (!f.warn && !was[def]?.some(x => x.message === f.message))) put({ ...f, def, key: def === d.def ? rows[f.row]?.key ?? null : null });
     for (const b of Formulas.broken(R2).roots) if (b.def === d.def) b.problems.forEach(message => put({ message, def: b.def, code: b.code, key: null }));
+    // What it can't work out where it could, as a date compared with a number: no conclusion, however few the places.
+    const ek = e => `${e.def}|${e.id}`, had = new Set((R.peek().errors ?? []).map(ek)), errs = (R2.errors ?? []).filter(e => e.def === (d.fresh?.id ?? d.def) && !had.has(ek(e)));
+    if (errs.length) put({ message: `It can’t be worked out at ${errs.length} ${errs.length === 1 ? 'place' : 'places'}: ${errs[0].error.msg ?? errs[0].error.code}`, def: d.def, key: null });
     return out;
   }
   // In the bar's words, what a change does to what's worked out (Delta), and for each what it counts: a relation or a noun

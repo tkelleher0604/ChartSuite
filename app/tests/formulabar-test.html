@@ -942,6 +942,11 @@ async function ruleChecks() {
   const firstRow = document.querySelector('.fxbar .fx-row')?.dataset.key, firstCm = cmOf(firstRow);
   firstCm.replaceRange('← 1 = 1', { line: 0, ch: 0 }, { line: firstCm.lineCount(), ch: 0 }, '+input'); await wait(80);
   check('a rule’s edit that clears a failing check says how many errors go', /takes away \d+ errors?/i.test(delta()), delta());
+  // A formula that can't be worked out where it could: said, and Done stops, as for a name misspelled.
+  firstCm.replaceRange('← 1 + "x" > 2', { line: 0, ch: 0 }, { line: firstCm.lineCount(), ch: 0 }, '+input'); await wait(80);
+  const nWrong = App.wb.changes().length;
+  document.querySelector('.fx-done, .fxbar .btn.primary')?.click(); await wait(60);
+  check('a formula of the wrong kinds is said, and Done makes nothing, Save anyway apart', /can’t be worked out at \d+ place/.test(flaws()) && App.wb.changes().length === nWrong && [...document.querySelectorAll('.fxbar button')].some(b => b.textContent === 'Save anyway'), `${flaws()} | ${delta()}`);
   FormulaBar.discard(); await wait(30);
   if (FormulaBar.open.peek()) { document.querySelector('.fx-open').click(); await wait(20); }
 }

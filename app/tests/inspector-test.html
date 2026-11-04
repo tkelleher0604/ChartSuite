@@ -964,6 +964,13 @@ async function run() {
   const found = Shell.parts.peek().find.flatMap(s => s.items());
   check('Find reaches records by name and lists by whose they are', found.some(x => x.label === 'Calder Ridge Capital Partners III, L.P.') && found.some(x => x.label === 'Fund III › Owners'),
     found.filter(x => x.detail === 'List').slice(0, 3).map(x => x.label).join(' | '));
+  // … and what holds only on another day, said so, gone to as any is, its panel saying when
+  let farOff; App.change(tx => { farOff = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: farOff, edge: 'Name', field: 'text', value: 'Far Off Holdings, LLC' }); tx.add('record', { at: farOff, edge: 'Formation Date', field: 'date', value: '2037-05-04' }); }); await tick(60);
+  const farFound = Shell.parts.peek().find.flatMap(s => s.items()).find(x => x.key === farOff);
+  check('Find reaches what holds only from a later day, saying so', farFound?.label === 'Far Off Holdings, LLC' && /from May 4, 2037/.test(farFound?.detail ?? ''), JSON.stringify(farFound));
+  farFound?.run(); await tick(60);
+  check('… and goes to it, its panel saying when', Shell.selection.peek().join() === farOff && /May 4, 2037/.test(document.querySelector('.insp')?.textContent ?? ''), document.querySelector('.insp')?.textContent);
+  Shell.select([]); Shell.parts.value.undo.undo(); await tick(60);
 
   // A ruled-out relation is no relative: said once, plainly, on the side its edges name first
   Shell.select(['blocker']); await tick(60);

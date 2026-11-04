@@ -696,6 +696,12 @@ function run() {
       check('a box a hand puts out of a column of frames rescales no page and moves nothing else', s1.page.scale === s0.page.scale && s0.marks.filter(m => m.type === 'box' && m.id !== out.id).every(b => Math.abs(s1.byId.get(b.id).x - b.x) < 0.5 && Math.abs(s1.byId.get(b.id).y - b.y) < 0.5), `${s0.page.scale} ${s1.page.scale}`);
       check('… the column of frames going out with it, as one', new Set(after.map(f => Math.round(f.x + f.w))).size === 1, j(after.map(f => [f.caption?.lines?.[0]?.text, Math.round(f.x), Math.round(f.x + f.w)])));
     }
+    // A Key over a frame is said, as one over a box is.
+    {
+      const s0 = scene(fresh(), 'view_40act'), f = s0.marks.find(m => m.type === 'frame' && !m.lone && m.members.length === 4);
+      const said = Scene.says({ ...s0, marks: [...s0.marks, { type: 'shape', geometry: 'legend', role: null, x: f.x + f.w - 60, y: f.y + 4, w: 40, h: 10, look: {}, texts: [] }] });
+      check('a Key over a frame is said at Export', said.includes(`The Key overlaps the ${f.caption.text} frame`), JSON.stringify(said));
+    }
     // A box placed in a frame goes among its frame's boxes, not beside its relatives elsewhere.
     {
       const rect = (id, x, y) => ({ id, w: 100, h: 40, shape: 'rect', x, y }), [a, c, d, e] = [rect('a', 40, 40), rect('c', 200, 40), rect('d', 40, 160), rect('e', 200, 160)], n = { id: 'n', w: 100, h: 40, shape: 'rect' };
