@@ -483,7 +483,9 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     // and the rows between it and them: halfway, or as near halfway as clears the lines that run there.
     const share = dir => [...new Set((dir === 'down' ? downs.get(b.id) ?? [] : ups.get(b.id) ?? []).flatMap(l => { const o = dir === 'down' ? l.to : l.from;
       return !geo.has(o) ? [] : (dir === 'down' ? ups.get(o) ?? [] : downs.get(o) ?? []).filter(x => x.trunk === l.trunk).map(x => dir === 'down' ? x.from : x.to); }))];
-    const alike = [...share('down'), ...share('up')].filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
+    // (A box in a frame is in the frame's row: its frame's boxes are those it stands among, or it would draw its frame across another's.)
+    const framed = clusters.find(c => c.members.includes(b.id))?.members.filter(id => id !== b.id && geo.has(id)) ?? [];
+    const alike = (framed.length ? framed : [...share('down'), ...share('up')]).filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
     // Related, it stands on the right side of what it's related to, wherever it was made: over what it owns, by as much as its
     // line needs to come down, and under what owns it; never level with them or past them (but one flanking triangles, which
     // meets their side). So of those that share them, only a row on that side is its row.
@@ -1089,7 +1091,11 @@ function bentRoute(s, t, mid) {
     const cx = centerX(g), under = y > g.y + g.h / 2;
     return [[cx, meets(g, cx, under)], [cx, y]];
   };
-  return [...end(s, mid[0]), ...mid, ...end(t, mid.at(-1)).reverse()];
+  // (A corner in the run of a leg is no corner: a leg dragged back into line with the next is one leg.)
+  return [...end(s, mid[0]), ...mid, ...end(t, mid.at(-1)).reverse()].filter((p, i, ps) => {
+    const a = ps[i - 1], b = ps[i + 1], on = c => Math.abs(a[c] - p[c]) < 0.25 && Math.abs(b[c] - p[c]) < 0.25;
+    return !a || !b || !(on(0) || on(1));
+  });
 }
 // The height a side-to-side line runs at: the middle of where the two boxes overlap, or a triangle's
 // mid-height, where it's within that.
@@ -1125,9 +1131,9 @@ function arrivals(t, starts, after = [], clear = null) {
 // it meets (below the bottom, going up), or left of it on that baseline, so a row's labels share one; on a level
 // last leg, above it, just past the arrowhead. Where that
 // place isn't free, the label steps away from what it reaches, a line's height at a time, as far as the leg
-// goes; then it sits over the level leg before, just short of the turn into the last, or under it; then it looks
-// along its lane, or beside its longest legs; and then anywhere beside its route, on either
-// side, from the end it reaches back. A place is free where the label is on its own line, and on nothing else:
+// goes; then it sits over the level leg before, just short of the turn into the last, or under it; and then anywhere
+// beside its route, on either side, from the end it reaches back, so it stays with the box it reads from. A place is
+// free where the label is on its own line, and on nothing else:
 // its route (or its kin's, the lines it's said once for) within 4 pt of it, no other line within 4 pt and no
 // line through it; no caption, other label or box of its line within 3 pt of its words' ends, or 1 pt of the
 // leading over and under them, as its ink is 3 pt from them there too; and no other box within 3 pt of it at all,
@@ -1260,19 +1266,9 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
       }
       // A last leg too short to hold it: on the level leg before it, just short of the turn, nearest what it reaches.
       yield* corner;
-      for (const g of [...legs].sort((p, q) => q.len - p.len).slice(0, 2)) {
-        for (const f of [0.5, 0.3, 0.7]) {
-          const x = g.a[0] + (g.b[0] - g.a[0]) * f, y = g.a[1] + (g.b[1] - g.a[1]) * f;
-          yield upright(g) ? { x: x + 4, y: y - h / 2 } : { x: x - w / 2, y: y - h - 2 };
-        }
-        // Across a short leg, the label may hang past either end of it, above or below.
-        if (!upright(g)) {
-          const [x0, x1] = [Math.min(g.a[0], g.b[0]), Math.max(g.a[0], g.b[0])], y = g.a[1];
-          for (const s of [{ x: x0, y: y - h - 2 }, { x: x1 - w, y: y - h - 2 }, { x: (x0 + x1 - w) / 2, y: y + 3 }, { x: x0, y: y + 3 }, { x: x1 - w, y: y + 3 }]) yield s;
-        }
-      }
-      // Anywhere beside the route, every 3 pt along each leg from the end it reaches back: right of an upright
-      // leg, then left; over a level one, then under, hanging past its ends as far as its width.
+      // Or else anywhere beside the route, every 4 pt along each leg from the end it reaches back, so it stays with the
+      // box it reads from, never beside another's: right of an upright leg, then left; over a level one, then under,
+      // hanging past its ends as far as its width.
       for (const g of [...legs].reverse()) {
         if (upright(g)) {
           const dir = Math.sign(g.b[1] - g.a[1]) || 1;

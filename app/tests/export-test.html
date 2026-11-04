@@ -355,8 +355,8 @@ async function run() {
   // ---- Broken lines, however they run ----
   // A page drawn by hand, as the scene draws one: six lines, each broken 4 px either side of where it's crossed, at
   // `cuts`. One runs across first, rightward; one leftward, flipped; one up first, turned and flipped both ways,
-  // with arrowheads at both ends; one across first twice broken; one doubles back past its box; and one of five
-  // legs, a freeform. Each is one shape, whole and solid.
+  // with arrowheads at both ends; one across first twice broken; one doubles back past its box; one of five legs,
+  // PowerPoint's longest elbow; one of five whose ends line up; and one of seven, a freeform. Each is one shape, whole and solid.
   {
     const text = id => [{ text: id, look: { Size: 10, Font: 'Arial', Color: '#000000', Align: 'center' }, lines: [{ text: id, x: 40, y: 24, w: 30 }] }];
     const box = (id, x, y) => ({ type: 'box', id, x, y, w: 80, h: 40, shape: 'rect', texts: text(id), look: { Fill: '#FFFFFF', Outline: '#000000', Weight: 0.75, Dash: 'solid' } });
@@ -378,8 +378,11 @@ async function run() {
       line('twice', 'A6', 'B6', [[580, 640], [720, 640], [720, 680], [800, 680]], [[620, 640], [670, 640]]),
       line('back', 'A4', 'B4', [[680, 420], [900, 420], [900, 540], [780, 540]], [[720, 420], [850, 420]]),
       line('five', 'A5', 'B5', [[1040, 140], [1040, 200], [1200, 200], [1200, 300], [1100, 300], [1100, 600]], [[1070, 200], [1150, 200]]),
+      line('lined', 'A7', 'B7', [[60, 240], [60, 260], [20, 260], [20, 300], [60, 300], [60, 320]], []),
+      line('seven', 'A8', 'B8', [[440, 300], [440, 320], [480, 320], [480, 340], [520, 340], [520, 360], [560, 360], [560, 380]], []),
       box('A1', 100, 100), box('B1', 400, 200), box('A2', 900, 100), box('B2', 600, 200), box('A3', 100, 600), box('B3', 300, 400),
-      box('A4', 600, 400), box('B4', 700, 520), box('A5', 1000, 100), box('B5', 1060, 600), box('A6', 500, 620), box('B6', 800, 660)];
+      box('A4', 600, 400), box('B4', 700, 520), box('A5', 1000, 100), box('B5', 1060, 600), box('A6', 500, 620), box('B6', 800, 660),
+      box('A7', 20, 200), box('B7', 20, 320), box('A8', 400, 260), box('B8', 520, 380)];
     const page = { page: { w: 1280, h: 720, sheet: { w: 1280, h: 720 }, scale: 1 }, marks, byId: new Map(marks.map(m => [m.id, m])), name: 'Breaks' };
     const d = xml(await (await JSZip.loadAsync(await Export.write('pptx', [page], 'Breaks'))).file('ppt/slides/slide1.xml').async('string'));
     const idOf = b => tags(d, 'p:sp').find(sp => nameOf(sp) === b)?.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
@@ -387,8 +390,10 @@ async function run() {
       ?? tags(d, 'p:sp').find(sp => nameOf(sp) === 'Line' && tags(sp, 'a:custGeom').length);
     const ls = marks.filter(m => m.type === 'line'), by = id => ls.find(l => l.id === id), xf = id => tags(shapeOf(by(id)), 'a:xfrm')[0], attr = (id, a) => xf(id).getAttribute(a);
     const rows = ls.map(l => ({ id: l.id, el: shapeOf(l) })), up = shapeOf(by('up'));
+    const prst = id => tags(shapeOf(by(id)), 'a:prstGeom')[0]?.getAttribute('prst'), adjs = id => tags(shapeOf(by(id)), 'a:gd').length;
+    check('a bent line is PowerPoint’s elbow as far as its legs go: five legs a bentConnector5 of three adjustments, its ends lined up or not; seven, a drawing', prst('five') === 'bentConnector5' && adjs('five') === 3 && prst('lined') === 'bentConnector5' && adjs('lined') === 3 && rows.find(r => r.id === 'seven').el.localName === 'sp', `${prst('five')} ${prst('lined')}`);
     check('… however it runs: across, back, up first, turned and flipped, twice broken, in five legs; one shape, solid, its arrowheads at its ends', rows.every(r => r.el && solid(r.el, '1F4E79'))
-      && rows.filter(r => r.el.localName === 'cxnSp').length === 5 && rows.find(r => r.id === 'five').el.localName === 'sp' && by('twice').runs.length === 3
+      && rows.filter(r => r.el.localName === 'cxnSp').length === 7 && by('twice').runs.length === 3
       && !attr('right', 'rot') && !attr('right', 'flipH') && !attr('left', 'rot') && attr('left', 'flipH') === '1' && attr('up', 'rot') === '5400000' && attr('up', 'flipH') === '1' && attr('up', 'flipV') === '1'
       && tags(up, 'a:headEnd').length === 1 && tags(up, 'a:tailEnd').length === 1, rows.filter(r => !r.el || !solid(r.el, '1F4E79')).map(r => r.id).join(', '));
   }

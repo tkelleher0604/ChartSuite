@@ -112,7 +112,7 @@ function fieldAt(t, rec, p, edge) {
 // frame, shape and label by `gap`, and of every line by a lane's width either side, so nothing new is ever drawn on
 // a line or reads as on it: just there where it's clear, or else on a grid; with `bands`, clear of the chart too, in the
 // page's bands above, below or beside it. Where the page has no such place, null; or, `last`, just below everything.
-function freeSpot(scene, w, h, near, { bands = false, gap = 16, last = false } = {}) {
+function freeSpot(scene, w, h, near, { bands = false, gap = 16, lane = 24, last = false } = {}) {
   const page = scene.page, m = page.margin, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
   const take = (x, y, r, d) => Object.assign(chart, { x: Math.min(chart.x, x), y: Math.min(chart.y, y), r: Math.max(chart.r, r), d: Math.max(chart.d, d) });
   for (const k of scene.marks) {
@@ -125,7 +125,7 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16, last = false } =
       if (k.type !== 'shape') take(k.x, k.y, k.x + k.w, k.y + k.h);
     }
   }
-  const g = Math.max(gap, 24);
+  const g = Math.max(gap, lane);
   const clear = (x, y) => !(bands && x < chart.r + gap && x + w + gap > chart.x && y < chart.d + gap && y + h + gap > chart.y)
     && !rects.some(r => x < r.x + r.w + gap && x + w + gap > r.x && y < r.y + r.h + gap && y + h + gap > r.y)
     && !segs.some(([a, b]) => Math.max(a[0], b[0]) >= x - g && Math.min(a[0], b[0]) <= x + w + g && Math.max(a[1], b[1]) >= y - g && Math.min(a[1], b[1]) <= y + h + g);
@@ -262,12 +262,14 @@ function cellsOf(scene, ink = null) {
     } else if (m.type === 'line') {
       const ps = m.points, dashed = Scene.dash(s.Dash, s.Weight) ?? (m.computed && !m.settings.Dash.note ? Scene.dash('dashed', s.Weight) : null) ?? (red(m) === 'go' ? '4 3' : null);
       const arrow = s.Arrow, r = red(m);
-      cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: 'line', mark: m.id },
+      // A very short line is picked by a little more than it shows: over the boxes it joins, and past its ends into them.
+      const short = ps.reduce((n, p, i) => n + (i ? Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) : 0), 0) < 16;
+      cells.push({ id: m.id, shape: 'edge', zIndex: short ? scene.marks.length * 2 + z.get(m.id) : z.get(m.id), data: { kind: 'line', mark: m.id },
         source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] },
         vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
         attrs: { line: { stroke: r === 'appear' ? BLUE : r === 'go' ? RED : paint(s.Outline), ...widthOf(ps, px(s.Weight), arrow === 'start' || arrow === 'both', arrow === 'end' || arrow === 'both'), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2), Scene.headOf(s, 'end')),
-          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
+          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: short ? 14 : 10, ...(short && { strokeLinecap: 'square' }) } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
         zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: textsOf(m).map(it => textMarkup(it, r)) });
     } else if (m.type === 'frame') {
@@ -847,6 +849,9 @@ function mount(el) {
     }
     const k = lockedOf(m) ? ('w' in at ? { h: at.w * m.h / m.w } : 'h' in at ? { w: at.h * m.w / m.h } : {}) : {};
     moveTo(new Map([[id, { x: m.x, y: m.y, ...k, ...at, typed: true }]]));
+    // Read back as typed, or it says why not: a free shape stays on its page, and a text box holds its text.
+    const now = m.type === 'shape' && App.scene.peek()?.byId.get(id), name = { w: 'Width', h: 'Height', x: 'Left', y: 'Top' }, pts = v => `${+(Scene.toSlide(scene.page, v / Scene.PT)).toFixed(1)} pt`;
+    if (now) for (const f of Object.keys(at)) if (Math.abs(now[f] - at[f]) > 0.6) { Shell.toast(`${name[f]} stays ${pts(now[f])}: ${m.geometry === 'text' && f === 'h' && now[f] > at[f] ? 'its text needs that' : 'it stays on the page'}`, { ms: 3500 }); break; }
   }
   // A free shape turned, by its handle or its Rotation typed, by degrees clockwise, its row's own.
   const turn = (id, angle) => { const a = ((Math.round(angle * 10) / 10) % 360 + 360) % 360, m = scene.byId.get(id); if (m && a !== (m.rotate ?? 0)) App.change(tx => tx.update(id, { rotate: a || undefined }), { dated: false, say: `Rotated ${called(m)} to ${a}°` }); };
@@ -1274,11 +1279,17 @@ function mount(el) {
     tip.hidden = true;
     if (!f?.it) return;
     tipTimer = setTimeout(() => {
-      // (Over the box it's in, so it covers no name and no box beside or under it.)
-      const r = fieldRect(f.m, f.it), a = graph.localToGraph(r.x + r.w / 2, f.m.type === 'box' ? f.m.y : r.y);
       tip.textContent = f.it.blank ? `${fieldName(f.it)}, blank` : fieldName(f.it);
-      Object.assign(tip.style, { left: `${a.x}px`, top: `${a.y - 26}px` });
-      tip.hidden = false;
+      tip.style.visibility = 'hidden'; tip.hidden = false;
+      // It covers nothing that's read: over what it names, or under it, or beside it, the first place clear of every box,
+      // label and shape on the page (and where there's none, the row its inspector lights says it, alone).
+      const z = graph.zoom(), w = tip.offsetWidth / z, h = tip.offsetHeight / z, g = 5 / z, r = fieldRect(f.m, f.it), o = f.m.type === 'box' ? f.m : r, mid = r.y + r.h / 2 - h / 2;
+      const taken = scene.marks.flatMap(m => m.type === 'line' ? (m.labelAt && m.label ? [{ ...m.labelAt, w: m.label.w, h: m.label.h }] : []) : m.geometry === 'group' || m.geometry === 'line' || m.type === 'frame' ? [] : [m]);
+      const at = [[o.x + o.w / 2, o.y - h - g], [o.x + o.w / 2, o.y + o.h + g], [o.x + o.w + g + w / 2, mid], [o.x - g - w / 2, mid]]
+        .find(([x, y]) => !taken.some(q => x - w / 2 < q.x + q.w && x + w / 2 > q.x && y < q.y + q.h && y + h > q.y));
+      if (!at) { tip.hidden = true; tip.style.visibility = ''; return; }
+      const a = graph.localToGraph(at[0], at[1]);
+      Object.assign(tip.style, { left: `${a.x}px`, top: `${a.y}px`, visibility: '' });
     }, 450);
   }
   // The pointer says what a click does: the text pointer over a field, move over a selected box's room.
@@ -1501,6 +1512,8 @@ function mount(el) {
     const dots = tri ? [[m.x, m.y + m.h], [m.x + m.w, m.y + m.h], ...m.w * z >= 40 ? [[m.x + m.w / 2, m.y + m.h]] : []]
       : !gripped ? [] : [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => (fx !== 0.5 || fy !== 0.5) && (fx !== 0.5 || m.w * z >= 40) && (fy !== 0.5 || m.h * z >= 40))
       .map(fy => [m.x + m.w * fx, m.y + m.h * fy]));
+    // (And a free shape's selected beside it, whose grips are its own to drag.)
+    for (const [c] of transform.widgets) if (c !== cell && c.getData()?.kind === 'shape') { const q = c.getPosition(), s = c.getSize(); for (const fx of [0, 0.5, 1]) for (const fy of [0, 0.5, 1]) if (fx !== 0.5 || fy !== 0.5) dots.push([q.x + s.width * fx, q.y + s.height * fy]); }
     const clear = p => segs.every(([a, b]) => toSegment(p, a, b) * z >= CLEAR) && dots.every(d => Math.hypot(p[0] - d[0], p[1] - d[1]) * z >= CLEAR);
     for (const h of handles) {
       const side = h.classList[1], p = ALONG.map(f => sidePoint(m, side, f)).find(p => p && clear(p));
@@ -1524,6 +1537,8 @@ function mount(el) {
   // Pointing at a box shows its handles, as Lucidchart's do, and at a field, that it's one (see Fields).
   root.addEventListener('pointermove', e => {
     if (!scene || e.target.closest?.('.dc-handle, .dc-edit, .dc-complete')) return;
+    // A free shape is no box: on one, or on its grips, there's nothing to relate, whatever box is under or beside it.
+    if (e.target.closest?.('.x6-widget-transform') || graph.getCellById(e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id') ?? '')?.getData()?.kind === 'shape') { showHandles(null); return hover(null); }
     const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY);
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
     hover(f);
@@ -1542,15 +1557,19 @@ function mount(el) {
     root.classList.add('relating');
     const at = ev => graph.clientToLocal(ev.clientX, ev.clientY);
     const boxAt = p => scene.marks.find(m => m.type === 'box' && m.id !== from.id && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h) ?? null;
+    // Begun from a menu, nothing else says what comes next: it's said beside the box, and then beside the pointer, where the eye is.
+    const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: scene.marks.some(m => m.type === 'box' && m.id !== from.id) ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
+    if (next) { const g = graph.localToGraph(from.x + from.w, from.y + from.h / 2); Object.assign(next.style, { left: `${g.x + 8}px`, top: `${g.y - 12}px` }); }
     const move = ev => {
       const p = at(ev);
       target = boxAt(p);
       line.setAttribute('d', `M${start[0]},${start[1]} L${p.x},${p.y}`);
+      if (next) { const r = root.getBoundingClientRect(); Object.assign(next.style, { left: `${ev.clientX - r.left + 14}px`, top: `${ev.clientY - r.top + 14}px` }); }
       paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
     };
     const end = () => {
       removeEventListener('pointermove', move); removeEventListener(click ? 'mousedown' : 'pointerup', up, true); removeEventListener('keydown', esc, true);
-      unlayer?.(); line.remove(); root.classList.remove('relating'); paintStates();
+      unlayer?.(); line.remove(); next?.remove(); root.classList.remove('relating'); paintStates();
     };
     // Dropped on another box, the two's relations are asked for, in the two-box panel, a relation ticked there pending
     // through the bar; dropped in empty room, a new box goes there, of the kind last made, named as it's typed, as
@@ -1602,7 +1621,8 @@ function mount(el) {
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
       ...formatItems(ms, ro),
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
-      ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []),
+      // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
+      ...(one?.type === 'box' && !ro ? [...addsOf(one), { label: 'Relate…', run: () => relating(one) }] : []),
       // Their own History.
       ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-', { label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
       ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
@@ -1617,6 +1637,8 @@ function mount(el) {
       '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
     ];
   }
+  // Add owner…, Add holding…: its search opens under the box, where the eye is, as the list's + opens it.
+  const addsOf = m => (Shell.parts.peek().inspector?.adds?.(m.record) ?? []).map(x => ({ label: x.label, run: () => { const g = graph.localToClient(m.x + m.w / 2, m.y + m.h); x.run({ x: g.x, y: g.y + 4 }); } }));
   // Show on chart: each entry the selection's records have, or could have, a checkbox row, ticked where every one of
   // them shows it; switched at the scope.
   const showItems = ms => entriesOf(ms[0]).filter(e => ms.every(m => entriesOf(m).some(x => Tree.same(x, e))))
@@ -1755,44 +1777,78 @@ function mount(el) {
     }
     paintFields();
   }
-  // A line selected alone: a yellow grip on each leg that can move, those between its first and last, as PowerPoint's on an
-  // elbow connector. Dragged, the leg moves square to itself; let go, the route's middle legs are the line's Bend, in a
-  // place's terms, which the router leaves alone. A click that moves it by nothing writes nothing.
+  // A line selected alone: a yellow grip on each of its legs, as PowerPoint's on an elbow connector, its first and last among
+  // them. Dragged, the leg moves square to itself; let go, the route's middle legs are the line's Bend, in a place's terms,
+  // which the router leaves alone. A click that moves it by nothing writes nothing.
   function bendGrips() {
     marks.querySelectorAll('.dc-bend').forEach(n => n.remove());
     const cs = sel.getSelectedCells(), m = cs.length === 1 && cs[0].isEdge() && !still() ? scene.byId.get(cs[0].id) : null;
-    if (m?.type !== 'line' || m.straight || !m.points || m.points.length < 4) return;
+    if (m?.type !== 'line' || m.straight || !m.points || m.points.length < 2) return;
     const z = graph.zoom();
-    m.points.slice(1, -2).forEach((p, i) => {
-      const q = m.points[i + 2], up = Math.abs(p[0] - q[0]) < 0.5, flat = Math.abs(p[1] - q[1]) < 0.5;
+    m.points.slice(1).forEach((q, i) => {
+      const p = m.points[i], up = Math.abs(p[0] - q[0]) < 0.5, flat = Math.abs(p[1] - q[1]) < 0.5;
       if (up === flat) return;
       const c = document.createElementNS(NS, 'rect'), s = 9 / z, [x, y] = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
       c.setAttribute('class', 'dc-bend' + (up ? ' across' : ' updown'));
       Object.entries({ x: x - s / 2, y: y - s / 2, width: s, height: s, rx: s / 2, 'stroke-width': 1 / z }).forEach(([k, v]) => c.setAttribute(k, v));
-      c.addEventListener('pointerdown', e => bendLeg(e, m, i + 1, up, c));
+      c.addEventListener('pointerdown', e => bendLeg(e, m, i, up, c));
       c.addEventListener('mousedown', e => e.stopPropagation());
+      // (Right-clicked, it's the line.)
+      c.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); Shell.menu({ x: e.clientX, y: e.clientY }, markItems()); });
       marks.appendChild(c);
     });
+  }
+  // How far along its edge a box takes a leg moved square to itself: a leg upright at any x over its width (axis 0), or a
+  // leg level at any y over its height (axis 1), a little in from its corners; a triangle's apex takes what comes down
+  // to it, there alone. `away`, the leg's other end. → [lo, hi]
+  function edgeTakes(b, axis, away) {
+    if (!b) return [Infinity, -Infinity];
+    if (axis === 0 && b.shape === 'triangle' && away[1] < b.y + b.h / 2) return [b.x + b.w / 2, b.x + b.w / 2];
+    const [at, len] = axis ? [b.y, b.h] : [b.x, b.w], inset = Math.min(8, len / 4);
+    return [at + inset, at + len - inset];
+  }
+  // A line's route with its k-th leg moved to v on its axis. A leg between others takes its two corners with it. A first or
+  // last leg goes on leaving its box square, along the edge, as far as the box takes it; past that it adds a jog, from where
+  // the edge ends, a stub's length out, across to where it was dragged. So a straight line, which is both, moved aside
+  // keeps its ends and adds a jog at each it must.
+  function legMoved(m, k, axis, v) {
+    const ps = m.points, n = ps.length - 1, at = (p, c) => (axis ? [p[0], c] : [c, p[1]]);
+    const end = (b, p, q) => {
+      const [lo, hi] = edgeTakes(b, axis, q);
+      if (v >= lo && v <= hi) return [at(p, v)];
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]), s = Math.min(16, len / 3) / (len || 1), o = at(p, lo > hi ? p[axis] : clamp(v, lo, hi));
+      const j = [o[0] + (q[0] - p[0]) * s, o[1] + (q[1] - p[1]) * s];
+      return [o, j, at(j, v)];
+    };
+    const head = k === 0 ? end(scene.byId.get(m.from), ps[0], ps[1]) : ps.slice(0, k).concat([at(ps[k], v)]);
+    const tail = k === n - 1 ? end(scene.byId.get(m.to), ps[n], ps[n - 1]).reverse() : [at(ps[k + 1], v)].concat(ps.slice(k + 2));
+    return [...head, ...tail];
   }
   function bendLeg(e, m, k, up, grip) {
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
     const axis = up ? 0 : 1, start = graph.clientToLocal(e.clientX, e.clientY), was = m.points[k][axis], cell = graph.getCellById(m.id);
-    const lab = graph.getCellById(`${m.id}·label`), at = v => m.points.map((p, i) => i === k || i === k + 1 ? (axis ? [p[0], v] : [v, p[1]]) : p);
+    const lab = graph.getCellById(`${m.id}·label`);
     let v = was;
     astray(m.id); if (lab) astray(lab.id);
     cell?.setConnector({ name: 'normal' });
+    // (The rest of its grips stand on legs that are moving: they're back with the line drawn.)
+    marks.querySelectorAll('.dc-bend').forEach(n => { if (n !== grip) n.remove(); });
     const move = ev => {
       const q = graph.clientToLocal(ev.clientX, ev.clientY);
       v = was + (axis ? q.y - start.y : q.x - start.x);
-      cell?.setVertices(at(v).slice(1, -1).map(([x, y]) => ({ x, y })));
+      const r = legMoved(m, k, axis, v);
+      cell?.setSource({ x: r[0][0], y: r[0][1] }); cell?.setTarget({ x: r.at(-1)[0], y: r.at(-1)[1] });
+      cell?.setVertices(r.slice(1, -1).map(([x, y]) => ({ x, y })));
       grip.setAttribute(axis ? 'y' : 'x', v - +grip.getAttribute(axis ? 'height' : 'width') / 2);
     };
     const end = () => {
       removeEventListener('pointermove', move, true); removeEventListener('pointerup', end, true);
       // (A click on it that moves nothing is a click on the line there.)
       if (Math.abs(v - was) < 0.5) { pressed = { id: m.id, p: [start.x, start.y], was: Shell.selection.peek(), more: false }; reselect(); return show(true); }
-      const o = origin(), ps = at(round(v)).slice(1, -1).map(([x, y]) => [round(x - o.x), round(y - o.y)]);
+      const o = origin(), r = legMoved(m, k, axis, round(v)).map(([x, y]) => [round(x - o.x), round(y - o.y)]);
+      // (Its middle legs; a straight line slid along both its boxes has none, and a point on it says where it runs.)
+      const ps = r.length > 2 ? r.slice(1, -1) : [[(r[0][0] + r[1][0]) / 2, (r[0][1] + r[1][1]) / 2]];
       const c = App.change(tx => tx.note('Bend', treeOf(m.record), { points: ps }, { view: viewOf() }), { dated: false, say: `Bent ${called(m)}` });
       if (!c) show(true);
     };
@@ -1963,13 +2019,13 @@ function mount(el) {
   // of it (ROOM), and as it's made, a longer one is placed again, nearest where it was typed, so it never lands on a
   // box, a line or the Key.
   const SIZE = { line: [160, 8], 'arrow-line': [160, 8], frame: [320, 200], picture: [160, 100] }, ROOM = px(216);
-  const spot = (s, w, h, near, banded) => {
-    const p = (banded && freeSpot(s, w, h, near, { bands: true })) || freeSpot(s, w, h, near) || freeSpot(s, w, h, near, { last: true });
+  const spot = (s, w, h, near, banded, close = false) => {
+    const p = (banded && freeSpot(s, w, h, near, { bands: true })) || (close && freeSpot(s, w, h, near, { gap: 5, lane: 5 })) || freeSpot(s, w, h, near) || freeSpot(s, w, h, near, { last: true });
     return { x: clamp(p.x, 0, s.page.w - w), y: clamp(p.y, 0, s.page.h - h) };
   };
   function insert(geometry, opts = {}) {
     const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable();
-    let row = { view, geometry, ...opts };
+    let row = { view, geometry, ...opts }, besideIt = null;
     if (geometry === 'arrow-line') row = { ...row, geometry: 'line', format: { Arrow: 'end' } };
     if (geometry === 'legend') row = { title: 'Key', columns: 2, ...row };
     if (geometry === 'text') row.text = opts.text ?? '';
@@ -1981,7 +2037,9 @@ function mount(el) {
     else if (opts.x === undefined) {
       const drawn = geometry === 'text' || geometry === 'legend' ? Scene.shapeOf(row, s) : null;
       const [w, h] = drawn ? [drawn.w, drawn.h] : [opts.w, opts.h].every(Number.isFinite) ? [opts.w, opts.h] : SIZE[geometry] ?? [140, 70];
-      const p = spot(s, geometry === 'text' && !row.text ? Math.max(w, ROOM) : w, h, geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, ['text', 'legend', 'frame'].includes(geometry));
+      // With something selected, a note is about it: the free room nearest beside it, first on its right, on its level.
+      if (geometry === 'text' && sel0.length) { const b = sel0.reduce((r, m) => ({ x: Math.max(r.x, m.x + m.w), y: Math.min(r.y, m.y) }), { x: -Infinity, y: Infinity }), ofIt = sel0.find(m => m.y === b.y); besideIt = { left: b.x + 8, y: ofIt.y + ofIt.h / 2 }; }
+      const p = spot(s, geometry === 'text' && !row.text && !besideIt ? Math.max(w, ROOM) : w, h, besideIt ? { x: besideIt.left + w / 2, y: besideIt.y } : geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, !besideIt && ['text', 'legend', 'frame'].includes(geometry), !!besideIt);
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
@@ -1995,7 +2053,7 @@ function mount(el) {
     Shell.select([]);
     openEditor({ look: typing.look }, at, '', text => {
       if (!text.trim()) return;
-      const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = spot(scene, made.w, made.h, { x: at.x + made.w / 2, y: at.y + made.h / 2 }, true);
+      const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = spot(scene, made.w, made.h, besideIt ? { x: besideIt.left + made.w / 2, y: besideIt.y } : { x: at.x + made.w / 2, y: at.y + made.h / 2 }, !besideIt, !!besideIt);
       add({ ...row, x: round(q.x), y: round(q.y), text });
     }, { multiline: true, grow: !!typing.auto, kept: true });
     return null;
@@ -2544,6 +2602,14 @@ Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
+// A line's route: its elbow or straight, in the Outline menu, and its yellow grips; what a hand bent, taken away. The panel's Reset does that too.
+const lineNow = () => { const s = here() ? active.peek().selected() : []; return s.length === 1 && s[0].type === 'line' ? s[0] : null; };
+const bendNote = () => { const m = lineNow(), t = m && Tree.treeOf(App.state.peek(), m.record); return t ? App.notes.peek().resolve('Bend', t, active.peek().scene().view)?.note : null; };
+Shell.register('action', { id: 'chart.route', name: 'Route…', names: ['Bend', 'Bend a line', 'Move a line', 'Jog', 'Reroute', 'Elbow', 'Straight', 'Connector'], enabled: () => !App.readOnly.peek() && !!lineNow(), run: () => FormatBar.open('outline'),
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line first, then drag a yellow grip on it' });
+Shell.register('action', { id: 'chart.unbend', name: 'Reset the route', names: ['Bend', 'Route', 'Unbend', 'Take away the bend', 'Straighten'], enabled: () => !App.readOnly.peek() && !!bendNote(),
+  run: () => { const m = lineNow(), n = bendNote(); if (n) App.change(tx => tx.remove(n), { dated: false, say: `Reset the route of ${App.notes.peek().nameOf(App.state.peek(), m.record)}` }); },
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line a hand has bent first' });
 
 return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, keyCaption };
 })();
