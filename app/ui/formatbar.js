@@ -137,7 +137,9 @@ function scopesNow(c, sc, keys) {
   const like = [...rows, ...ownGroups].filter(all), wider = like.filter(s => s.marks.size > ids.size);
   const least = xs => xs.reduce((a, s) => !a || s.marks.size < a.marks.size ? s : a, null);
   const entry = s => s.kin && s.outputs[0].args?.length === 1, choice = s => entry(s) && 'choice' in s.outputs[0].out, kind = s => s.kin && !entry(s);
-  const narrowest = least(wider.filter(s => !s.kin && s.swatch?.kind !== 'text')) ?? least(wider.filter(choice)) ?? least(wider.filter(kind)) ?? least(wider) ?? least(like);
+  // (Several selected that are a group exactly, as Select all like this leaves them, are named as that: the two counts agree.)
+  const exact = ids.size > 1 ? like.filter(s => s.marks.size === ids.size) : [];
+  const narrowest = exact.find(s => !s.kin && s.swatch?.kind !== 'text') ?? exact.find(choice) ?? exact[0] ?? least(wider.filter(s => !s.kin && s.swatch?.kind !== 'text')) ?? least(wider.filter(choice)) ?? least(wider.filter(kind)) ?? least(wider) ?? least(like);
   return { marks, group, narrowest, scopes: [own, ...rows, ...ownGroups] };
 }
 // The records a box or line draws, its own and those in it at any depth.
@@ -651,6 +653,15 @@ function fade() {
   cue();
 }
 function wake() { faded = false; clearTimeout(fading); Canvas.active.peek()?.root.classList.remove('cue-fading'); cue(); }
+// The group that's lit, a Styles row aimed at or the scope's group chosen, which what comes next takes (dendra.md, What's lit is what's
+// meant); null where it's the selection itself. And what it reaches of a page, whatever a look keeps off it just now.
+function lit() {
+  const c = Canvas.active.peek();
+  if (!c?.scene()) return null;
+  const s = scopesOf(c), sc = scopeOf(s.scopes);
+  return (s.aim || s.scopes.some(o => o.own)) && sc && !sc.own && !sc.root && sc.marks ? sc : null;
+}
+const litOn = (g, page) => (g.style ? marksOf(page, g) : g.marks);
 
 // ---- The popovers ----
 
@@ -975,7 +986,8 @@ const sayLies = before => { const was = new Set(Scene.keyLies(before).map(x => x
 function painting(e) {
   const c = Canvas.active.peek(), p = painter.peek(), d = dropper.peek();
   // A press on the chart ends an aim, the painter's and the eyedropper's aside.
-  if (!p && !d && aimed.peek() && c?.root.contains(e.target)) aim(null);
+  // (But a right-click, which asks what comes next of what's lit.)
+  if (!p && !d && e.button !== 2 && aimed.peek() && c?.root.contains(e.target)) aim(null);
   if (d && e.button === 0) {
     e.preventDefault(); e.stopPropagation();
     const v = colorAt(e.target, e);
@@ -1568,6 +1580,6 @@ function open(what, at) {
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
 return { apply, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
-  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt, selectDiffers,
+  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt, lit, litOn, selectDiffers,
   reachOf: reachOfRow };
 })();

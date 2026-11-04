@@ -432,6 +432,8 @@ function open(data) {
       // What it says of itself, where what it does is one act of many rows ("Gave 40 Act the look of Structure"), which
       // History and Undo say in place of going through them.
       says(text) { said = text; },
+      // What it would remove and add, unmade: a look, which is a change kept in no log (dendra.md, Workbook).
+      made: () => ({ removes: [...removes], adds: [...adds.values()] }),
       commit: () => adds.size || removes.size
         ? apply({ id: newId(), who, when: when ?? now(), chart: c, ...(note && { note }), removes: [...removes], adds: [...adds.values()], ...(said && { says: said }), ...(amended && { amends: amended }) }) : null,
     };

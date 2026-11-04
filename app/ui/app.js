@@ -12,7 +12,7 @@ const App = (() => {
   let lastChart = null;
   const chart = computed(() => {
     const wb = book.value, v = Shell.view.value, ids = wb.charts().map(c => c.chart), has = c => ids.includes(c);
-    return lastChart = (v && [lastChart, ...ids].find(c => has(c) && wb.item(c, v).length)) || (has(lastChart) ? lastChart : ids[0] ?? null);
+    return lastChart = (v && [lastChart, ...ids].find(c => has(c) && (wb.item(c, v).length || looks.value[c]?.[v]))) || (has(lastChart) ? lastChart : ids[0] ?? null);
   });
   let unsubscribe = null;
   function use(wb) {
@@ -50,19 +50,124 @@ const App = (() => {
   // Why it can't be changed now, as a toast says it.
   const whyNot = () => Shell.time.peek()?.stood ? 'Can’t change the past' : 'Viewing: switch to Editing to change this';
   const refuse = () => { Shell.toast(whyNot()); return null; };
-  // Viewing, what a chart shows and hides is the session's, in no log, as a table's columns are, though never of the past: by
-  // view, each record and whether it shows (Scene's `seen`). In Editing, it's a change, the view's.
-  const seen = signal(new Map());
-  const seeing = () => viewing.value && !Shell.time.value?.stood;
-  const seenIn = view => seeing() ? seen.value.get(view) ?? null : null;
-  function see(view, ids, on) { const m = new Map(seen.peek()), v = new Map(m.get(view) ?? []); for (const id of ids) v.set(id, on); m.set(view, v); seen.value = m; }
+  // What can still be asked, though nothing can be made: a look and a what-if, in Editing and Viewing alike, never of the past.
+  const canAsk = () => !Shell.time.value?.stood;
+  const seeing =() => viewing.value && !Shell.time.value?.stood;
+
+  // ---- Looks (dendra.md, Workbook): what a person does only to see, which is this window's, in no log, signed by no one and
+  // no step of Undo's from an edit. By chart and view, for the tab: `only`, the boxes shown; `filters`, what's kept by what a
+  // box knows; `ticks`, a record shown or hidden one by one (Viewing's Hidden list); `compare`, what it's compared with, and
+  // `table`, a table opened to read, each with `change`, a change kept here and read over the log. Keep makes one the chart's.
+  const LOOKS = 'dendra.looks';
+  const looks = signal((() => { try { return JSON.parse(sessionStorage.getItem(LOOKS)) ?? {}; } catch { return {}; } })());
+  const lookOf = (view, c = chart.peek()) => looks.peek()[c]?.[view] ?? null;
+  const putLook = (c, view, l) => {
+    const by = { ...looks.peek()[c] };
+    if (l && Object.keys(l).length) by[view] = l; else delete by[view];
+    looks.value = { ...looks.peek(), [c]: by };
+    try { sessionStorage.setItem(LOOKS, JSON.stringify(looks.peek())); } catch {}
+  };
+  // A change as a look: what it would remove and add, unmade.
+  const lookChange = fn => { const c = chart.peek(), tx = book.peek().edit({ chart: c, who: who(), ids: [] }); fn(tx); const m = tx.made(); return m.adds.length || m.removes.length ? { id: Log.newId(), who: who(), when: new Date().toISOString(), chart: c, ...m } : null; };
+  // Undo's steps of them, this window's, apart from its steps of changes: taken back in Viewing, or where there's no change of yours to take.
+  const lookSteps = signal({}), lookStepsOf = c => lookSteps.value[c] ?? { undo: [], redo: [] };
+  function lookStep(say, undo, redo) { const c = chart.peek(); lookSteps.value = { ...lookSteps.peek(), [c]: { undo: [...lookStepsOf(c).undo, { say, undo, redo }], redo: [] } }; }
+  // A look given a view: what's given and not undefined kept, what's undefined let go; one step back.
+  function looking(view, patch, say) {
+    const c = chart.peek(), was = lookOf(view, c), now = { ...was, ...patch };
+    for (const k of Object.keys(now)) if (now[k] === undefined || now[k] === null) delete now[k];
+    if (JSON.stringify(was ?? {}) === JSON.stringify(now)) return;
+    putLook(c, view, now);
+    lookStep(say, () => putLook(c, view, was), () => putLook(c, view, now));
+  }
+  // A look kept, gone as a look, with no step: what it said is the chart's now.
+  const letGo = (view, ...keys) => { const c = chart.peek(), l = { ...lookOf(view, c) }; for (const k of keys) delete l[k]; putLook(c, view, l); };
+  // What a box knows, as a table's columns know its row: its kind, and each entry down from it by its path, as it reads there.
+  const KIND = '$kind';
+  function valueAt(st, id, key) {
+    if (key === KIND) return st[id]?.kind ?? null;
+    let at = id;
+    for (const e of key.split(' › ')) { at = Tree.entryAt(st, at, e); if (!at) return null; }
+    return Tree.outputText(st[at]) || null;
+  }
+  // Each object the look keeps off the page, and each it shows, by id, as of `st` (Scene's `seen`); null where there's none.
+  function seenIn(view, st) {
+    if (Shell.time.value?.stood) return null;
+    const l = looks.value[chart.value]?.[view];
+    if (!l || !(l.only || l.filters?.length || l.ticks)) return null;
+    const m = new Map(Object.entries(l.ticks ?? {})), recs = st ?? state.value, only = l.only && new Set(l.only);
+    if (only || l.filters?.length) for (const id in recs) {
+      if (m.has(id) || recs[id].kind === undefined || Tree.isView(recs[id])) continue;
+      if ((only && !only.has(id)) || l.filters?.some(f => !f.values.includes(valueAt(recs, id, f.key)))) m.set(id, false);
+    }
+    return m.size ? m : null;
+  }
+  // One by one (the Hidden list's ticks, Hide in this view), as Viewing has them.
+  function see(view, ids, on) {
+    const l = lookOf(view), ticks = { ...l?.ticks };
+    for (const id of ids) ticks[id] = on;
+    looking(view, { ticks: Object.keys(ticks).length ? ticks : undefined }, `${on ? 'Showed' : 'Hid'} ${ids.length === 1 ? notes.peek().nameOf(state.peek(), ids[0]) : `${ids.length} boxes`}`);
+  }
+  // The boxes alone, whatever else the look had kept off, as Show only these asks.
+  const showOnly = (view, ids, say) => looking(view, { only: ids, filters: undefined, ticks: undefined }, say);
+  // What's kept by a value of what a box knows, or not by that any more.
+  function filterBy(view, key, label, values) {
+    const rest = (lookOf(view)?.filters ?? []).filter(f => f.key !== key), filters = values ? [...rest, { key, label, values }] : rest;
+    looking(view, { filters: filters.length ? filters : undefined, only: undefined }, values ? `Filtered by ${label}` : `Took the filter off ${label}`);
+  }
+  // Back to what the page has, nothing that was never on it added.
+  const showAll = view => looking(view, { only: undefined, filters: undefined, ticks: undefined }, 'Showed all');
+  // The look's boxes made the page's, as one change: each it keeps off hidden by its own note.
+  function keepShown(view) {
+    const m = seenIn(view), name = views.peek().find(v => v.id === view)?.name;
+    if (!m) return;
+    // (Only what the page draws, or what's shown over what it doesn't: nothing need be said of what was never on it.)
+    const drawn = drawnPage.peek(), writes = [...m].filter(([id, on]) => state.peek()[id] && (on || drawn?.byId.has(id))), hid = writes.filter(([, on]) => !on).map(([id]) => id);
+    if (!change(tx => { for (const [id, on] of writes) tx.note('Shown', Tree.treeOf(state.peek(), id), on, { view }); }, { dated: false, say: `Hid ${hid.length === 1 ? notes.peek().nameOf(state.peek(), hid[0]) : `${hid.length} boxes`} in ${name}` })) return;
+    letGo(view, 'only', 'filters', 'ticks');
+  }
+  // A table opened to read: a tab of this window, made as a view is, which Keep makes the chart's and Close takes away.
+  function lookTable(name, rows, why = false) {
+    const taken = new Set(views.peek().map(v => Tree.norm(v.name)));
+    let n = name, i = 2;
+    while (taken.has(Tree.norm(n))) n = `${name} ${i++}`;
+    const id = Log.newId(), made = lookChange(tx => writeView(tx, id, n, rows, { why }));
+    looking(id, { table: { name: n, rows, why, change: made } }, `Opened ${n}`);
+    return id;
+  }
+  function closeLook(view) {
+    if (Shell.view.peek() === view) Shell.show(views.peek().find(v => v.id !== view && !v.look)?.id ?? null);
+    putLook(chart.peek(), view, null);
+  }
+  // Kept: the same view, as one change, its id and all, so how it's sorted and what's asked of it stay.
+  function keepTable(view) {
+    const t = lookOf(view)?.table;
+    if (!t) return;
+    if (readOnly.peek()) return refuse();
+    // (As one, so it's never for a moment gone from under the tab shown.)
+    batch(() => {
+      const c = change(tx => writeView(tx, view, t.name, t.rows, { why: t.why, order: true }), { dated: false, say: `Kept the table ${t.name}` });
+      if (c) putLook(chart.peek(), view, null);
+    });
+  }
+  // The log with what's looked at read over it. Kept with what it's of: another change only merged, as the log itself takes one.
+  let over = null;
+  const overlaid = computed(() => {
+    const wb = book.value, by = looks.value[chart.value];
+    version.value;
+    const more = by ? Object.values(by).flatMap(l => [l.table?.change, l.compare?.change]).filter(Boolean) : [];
+    if (!more.length) { over = null; return null; }
+    if (over?.wb !== wb || over.more.length !== more.length || over.more.some((x, i) => x !== more[i])) over = { wb, more, log: Log.open([...wb.changes(), ...more]) };
+    else over.log.merge(wb.changes());
+    return over.log;
+  });
   const stood = computed(() => {
     const t = Shell.time.value;
     if (!t?.stood) return null;
     const wb = book.value;
     return wb.at(t.at ?? wb.changes().find(c => c.id === t.stood)?.when);
   });
-  const shown = computed(() => { version.value; return stood.value ?? book.value; });
+  const shown = computed(() => { version.value; return stood.value ?? overlaid.value ?? book.value; });
   const entered = computed(() => { version.value; return chart.value ? shown.value.asOf(chart.value, day.value) : {}; });
   // The notes and the schema are kept while they say the same, so what's worked out from them is kept too:
   // the notes while no note changes, the schema while no record's shape does.
@@ -149,13 +254,15 @@ const App = (() => {
   const keep = (c, s) => { stacks.value = { ...stacks.peek(), [c]: s }; try { sessionStorage.setItem('dendra.undo', JSON.stringify(stacks.peek())); } catch {} };
   const made = c => { lastDiscarded.value = null; const s = stackOf(c.chart); keep(c.chart, { undo: [...s.undo, { id: c.id, act: c.id }], redo: [] }); return c; };
   function step(back) {
-    if (readOnly.peek()) return refuse();
+    if (Shell.time.peek()?.stood) return refuse();
     // With a change pending, Undo discards it first, and says so, Redo bringing it back; it never undoes past it. A
     // change pending discarded is the latest thing undone, so Redo brings it back first, until something's made or begun.
     const p = mine();
     if (back && p) return discard();
     if (!back && !p && lastDiscarded.peek()?.chart === chart.peek()) return stage(lastDiscarded.peek());
     const c = chart.peek(), s = stacks.peek()[c] ?? { undo: [], redo: [] }, [from, to] = back ? ['undo', 'redo'] : ['redo', 'undo'], top = s[from].at(-1);
+    // A look is no step from a change: Viewing, or with no change of yours to take, Undo takes back what you last looked at.
+    if (viewing.peek() || !top) return stepLook(back);
     const r = top ? book.peek().reverse(top.id, who()) : null;
     // A change kept from before a reload that never reached the workbook is passed over.
     if (r === null && top) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back); }
@@ -165,12 +272,21 @@ const App = (() => {
     Shell.toast(Time.describe(r), back ? { redo } : { undo });
   }
   const undo = () => step(true), redo = () => step(false);
+  // A look taken back or put back, as Viewing's Undo does it, and a look's own toast.
+  function stepLook(back) {
+    const [from, to] = back ? ['undo', 'redo'] : ['redo', 'undo'], c = chart.peek(), l = lookStepsOf(c), last = l[from].at(-1);
+    if (!last) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
+    (back ? last.undo : last.redo)();
+    lookSteps.value = { ...lookSteps.peek(), [c]: { [from]: l[from].slice(0, -1), [to]: [...l[to], last] } };
+    Shell.toast(`${back ? 'Undid' : 'Redid'}: ${last.say}`, back ? { redo: () => stepLook(false) } : { undo: () => stepLook(true) });
+  }
   // Undo's list: the steps it can take back, the latest first, each by its words.
-  const steps = () => stackOf(chart.value).undo.map(s => book.peek().changes().find(x => x.id === s.act)).filter(Boolean).reverse().map(c => Time.describe(c));
+  const lookWords = () => [...lookStepsOf(chart.value).undo].reverse().map(l => l.say);
+  const steps = () => { const mine = viewing.value ? [] : stackOf(chart.value).undo.map(s => book.peek().changes().find(x => x.id === s.act)).filter(Boolean).reverse().map(c => Time.describe(c)); return mine.length ? mine : lookWords(); };
   // Back to there: the steps from the latest through the `n`th of that list, one toast saying how many, Redo putting them
   // all back.
   function undoTo(n) {
-    if (readOnly.peek()) return refuse();
+    if (Shell.time.peek()?.stood) return refuse();
     const again = k => { batch(() => { for (let i = 0; i < k; i++) step(false); }); Shell.toast(`Redid ${k} changes`, { undo: () => undoTo(k) }); };
     if (mine()) discard();
     if (n === 1) return step(true);
@@ -256,13 +372,15 @@ const App = (() => {
   // previews (FormulaBar.preview), so the chart laid out ahead for it is the chart the change, made, draws. Null
   // where it changes no record shown, or the past is. `ids`, a change pending's own list of the ids it adds.
   function would(fn, { dated = true, ids } = {}) {
-    if (readOnly.peek()) return null;
+    // (Viewing, only a change pending, which is a what-if, previews: nothing else there's begun.)
+    if (Shell.time.peek()?.stood || (viewing.peek() && !ids)) return null;
     const mine = ids ?? [], tx = edit(dated, mine), now = entered.peek(), records = {};
     fn(tx);
     if (!ids) named = mine;
     const after = tx.asOf(day.peek());
     for (const id in after) if (after[id] !== now[id]) records[id] = after[id];
-    for (const id in now) if (!(id in after)) records[id] = null;
+    // (A table opened only to read isn't in the log an edit reads, and doesn't go for that.)
+    for (const id in now) if (!(id in after) && !Tree.isView(now[id])) records[id] = null;
     return Object.keys(records).length ? { records } : null;
   }
   // When a record added holds from (dendra.md, Time). One whose kind or relation has a start entry holds from
@@ -477,7 +595,7 @@ const App = (() => {
   }
   // The keys on a bar just opened, where it's asked in the panel or else under the view: its day, or its amount first.
   const keysOnBar = focus => setTimeout(() => {
-    const box = [...document.querySelectorAll('.asking, .pendbar')].find(x => x.getClientRects().length);
+    const box = [...document.querySelectorAll('.pendbar')].find(x => x.getClientRects().length);
     const el = (focus === 'day' ? null : box?.querySelector('.amount input, input.amount')) ?? box?.querySelector('.when input') ?? box?.querySelector('.transfer .sel');
     el?.focus(); el?.select?.();
   }, 60);
@@ -544,9 +662,8 @@ const App = (() => {
   // change, of the day said), asks ('from', 'until' or 'on', where it asks its day, as `day`; `word`, the start entry a
   // 'from' gives or the end entry an 'until' gives), value (a relation's amount it asks first, { edge, field, v }),
   // ready(p) (whether what else it asks is given), needs (the records it's at), source (where it began), act (what its
-  // button calls it, a deletion's Dissolve), say, done(change), auto (its controls take the keys as it's begun), inline
-  // (those where it was asked take them, not the bar's), reverse (the change it reverses, History's Undo this change, which
-  // make redlines) }; and `from`, the day shown as it was begun. It's the chart's it
+  // button calls it, a deletion's Dissolve), say, done(change), auto (its controls take the keys as it's begun), reverse (the
+  // change it reverses, History's Undo this change, which make redlines) }; and `from`, the day shown as it was begun. It's the chart's it
   // was begun in: a click away, another view, another day or another chart shown leave it pending; one begun elsewhere in
   // its place says so, and Undo brings it back.
   const pending = signal(null);
@@ -571,7 +688,8 @@ const App = (() => {
     return `Discarded ${doing[act] ?? (act !== p.verb ? act.toLowerCase().replace(/e$/, '') + 'ing' : p.verb.toLowerCase())} ${p.what}`;
   };
   function stage(p) {
-    if (readOnly.peek()) { refuse(); return; }
+    // (Viewing, it's a what-if: redlined in full, and made only from Editing.)
+    if (Shell.time.peek()?.stood) { refuse(); return; }
     // Where the keys were as it was begun: what had them, the row it's in, and its part of the window.
     const was = pending.peek(), a = document.activeElement !== document.body ? document.activeElement : null;
     const back = a && { el: a, key: a.closest?.('[data-key]')?.dataset.key, region: a.closest?.('[data-region]') };
@@ -579,7 +697,7 @@ const App = (() => {
     if (p === lastDiscarded.peek()) unsaid?.();
     lastDiscarded.value = null;
     why.value = p.note ?? '';
-    pending.value = { ids: [], chart: chart.peek(), from: Shell.time.peek()?.asOf ?? null, back, ...p, n: ++staged };
+    pending.value = { ids: [], chart: chart.peek(), from: Shell.time.peek()?.asOf ?? null, back, day0: p.day, ...p, n: ++staged };
     if (was && was.source !== p.source) Shell.toast(discarded(was), { undo: () => stage(was) });
   }
   // What it asks, given: a day typed, a transfer's whom or how much.
@@ -619,6 +737,7 @@ const App = (() => {
   function commit() {
     const p = mine();
     if (!p || !ready(p)) return null;
+    if (viewing.peek()) { Shell.toast(makesIn); return null; }
     if (!there(p)) return drop(p, gone(p)), null;
     let empty = false;
     const c = batch(() => {
@@ -679,7 +798,7 @@ const App = (() => {
     if (!m) return null;
     const side = Object.values(schema.value).filter(s => s.args?.length === 2 && Tree.same(N.name(Tree.bare(s)), m.rel.name)).map(s => s.args.find(a => Tree.same(a.edge, m.rel.edges[1]))).filter(Boolean);
     const list = q => Object.keys(recs).filter(x => recs[x].kind !== undefined && !p.needs.includes(x) && side.some(a => Tree.narrower(Tree.treeOf(recs, x), a.loc)) && Tree.norm(N.nameOf(recs, x) + ' ' + N.shortOf(recs, x)).includes(Tree.norm(q ?? '')))
-      .sort((a, b) => (Tree.norm(N.nameOf(recs, a)).startsWith(Tree.norm(q ?? '')) ? 0 : 1) - (Tree.norm(N.nameOf(recs, b)).startsWith(Tree.norm(q ?? '')) ? 0 : 1) || N.nameOf(recs, a).localeCompare(N.nameOf(recs, b))).map(x => ({ label: N.nameOf(recs, x), checked: m.to?.at === x, run: () => { amend(p, { merge: { ...pending.peek().merge, to: { at: x } } }); setTimeout(() => at.current?.closest('.asking, .pendbar')?.querySelector('.when input')?.focus()); } }));
+      .sort((a, b) => (Tree.norm(N.nameOf(recs, a)).startsWith(Tree.norm(q ?? '')) ? 0 : 1) - (Tree.norm(N.nameOf(recs, b)).startsWith(Tree.norm(q ?? '')) ? 0 : 1) || N.nameOf(recs, a).localeCompare(N.nameOf(recs, b))).map(x => ({ label: N.nameOf(recs, x), checked: m.to?.at === x, run: () => { amend(p, { merge: { ...pending.peek().merge, to: { at: x } } }); setTimeout(() => at.current?.closest('.pendbar')?.querySelector('.when input')?.focus()); } }));
     const choose = el => Shell.menu(el, list, { search: true });
     useLayoutEffect(() => { if (!auto || m.to || !at.current) return; at.current.focus(); choose(at.current); }, []);
     const word = m.rel.lists?.[m.rel.edges[0]]?.[m.rel.edges[1]] ?? m.rel.name, ends = endsWords(p.needs[0], recs);
@@ -743,7 +862,7 @@ const App = (() => {
   function merging(id) {
     const m = endsOf(id).find(e => e.rel);
     if (!m) return;
-    deleting([id], notes.peek().nameOf(state.peek(), id), { source: 'delete', auto: true, inline: true });
+    deleting([id], notes.peek().nameOf(state.peek(), id), { source: 'delete', auto: true });
     amend(pending.peek(), { word: m.edge, act: actOf(m.edge)?.[0] ?? 'Delete', merge: { rel: m.rel, to: null }, Fill: Merging, day: day.peek() });
   }
   // What a deletion pending breaks, ended with it (see failsOf). → nothing; its bar then says the two.
@@ -887,7 +1006,7 @@ const App = (() => {
     const recs = state.peek(), N = notes.peek();
     let to = null, fresh = null, holder = null;
     stage({ verb: 'Transfer', what: `${N.nameOf(recs, rid)}: ${N.segmentOf(recs, rid)}`, source: 'transfer ' + rid, needs: [rid], transfer: { rid, to: null, part: null },
-      asks: 'on', day: day.peek(), auto: true, inline: true, Fill: Transferring, ready: p => !!p.transfer.to && p.transfer.part !== undefined,
+      asks: 'on', day: day.peek(), auto: true, Fill: Transferring, ready: p => !!p.transfer.to && p.transfer.part !== undefined,
       make: (tx, d, p) => {
         const on = book.peek().asOf(chart.peek(), d);
         to = transfer(tx, rid, p.transfer, d);
@@ -961,7 +1080,7 @@ const App = (() => {
     step(low);
     let made = null, fresh = false, on = null;
     stage({ verb: 'Insert', what: `${name}: ${N.segmentOf(recs, rid)}`, source: 'insert ' + rid, needs: [rid], transfer: { rid, to: null, part: null }, between: true,
-      asks: 'on', day: day.peek(), auto: true, inline: true, Fill: Transferring, ready: p => !!p.transfer.to,
+      asks: 'on', day: day.peek(), auto: true, Fill: Transferring, ready: p => !!p.transfer.to,
       make: (tx, d, p) => {
         made = interpose(tx, rid, p.transfer.to, d);
         fresh = p.transfer.to.kind ?? false;
@@ -1137,7 +1256,7 @@ const App = (() => {
     // (A transfer being changed reads the chart without it, as of its day: dendra.md, Change.)
     const { rid, to, part, base } = p.transfer, then = base?.(p.day ?? p.transfer.day) ?? null, recs = then ?? state.value, ent = then ?? entered.value, N = notes.value, tr = recs[rid] && transferable(rid, ent);
     const set = x => amend(p, { transfer: { ...pending.peek().transfer, ...x } });
-    const on = () => setTimeout(() => { const el = much.current ?? whom.current?.closest('.asking, .pendbar')?.querySelector('.when input'); el?.focus(); el?.select?.(); });
+    const on = () => setTimeout(() => { const el = much.current ?? whom.current?.closest('.pendbar')?.querySelector('.when input'); el?.focus(); el?.select?.(); });
     const fits = x => !p.between || fitsBetween(rid, recs, tr, x);
     const choose = (anchor, query) => Shell.menu(anchor, q => {
       const { found: all, kinds: every } = takers(rid, q, then), named = Tree.clean(q ?? ''), found = all.filter(f => fits(Tree.treeOf(recs, f.at))), kinds = every.filter(k => fits({ kind: k }));
@@ -1180,6 +1299,8 @@ const App = (() => {
     if (p && !there(p)) return drop(p, gone(p));
     if (!p || p.chart !== c) { previewed = null; if (shown?.from === 'pending') FormulaBar.preview(null); return; }
     if ((shown && shown.from !== 'pending') || !ready(p)) return;
+    // (A day later than the day shown waits for the chart to get there, what it said standing till then.)
+    if (shown && p.asks && p.day > d) return;
     if (shown && previewed?.p === p && previewed.v === v && previewed.d === d) return;
     previewed = { p, v, d };
     FormulaBar.preview(would(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids }), 'pending');
@@ -1250,11 +1371,15 @@ const App = (() => {
     // (Asked for, it takes the keys.)
     preactHooks.useLayoutEffect(() => { if (on && asked.current) { asked.current = false; field.current?.focus(); } }, [on]);
     if (!on) return html`<button type="button" class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Why…</button>`;
-    return html`<label class="why-in" onKeyDown=${enter}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
+    // (Esc leaves what's typed here, then the field; only from the bar's other controls does it drop the change.)
+    const esc = e => { if (e.key !== 'Escape') return enter(e); e.preventDefault(); e.stopPropagation(); if (why.peek()) why.value = ''; else setOn(false); };
+    return html`<label class="why-in" onKeyDown=${esc}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
   }
+  // Viewing, a change pending is a what-if: what would make it is said in place of its verb.
+  const makesIn = 'Viewing: switch to Editing to make this';
   function Controls({ p, auto, hint }) {
     const enter = e => { if (e.key === 'Enter' && !e.defaultPrevented && !e.target.closest('.lk')) { e.preventDefault(); e.stopPropagation(); commit(); } };
-    const shown = typeof FormulaBar !== 'undefined' ? FormulaBar.pending.value : null, fails = failsOf(shown?.from === 'pending' ? shown.R2 : null);
+    const shown = typeof FormulaBar !== 'undefined' ? FormulaBar.pending.value : null, fails = failsOf(shown?.from === 'pending' ? shown.R2 : null), reading = viewing.value;
     // A check it fails, clicked, is asked about in the formula bar, at the record it's about.
     const why = f => { Shell.select([f.at]); Shell.emit('why-open', f.id); };
     const endable = p.verb === 'Delete' ? fails.filter(f => f.ends) : [];
@@ -1267,26 +1392,44 @@ const App = (() => {
       ${hint && p.asks ? html`<kbd class="tokey">F6</kbd>` : null}
       ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} along=${p.along} bad=${p.bad?.(p)} change=${String(p.source).startsWith('amend')} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
-      <${Why} key=${p.n} p=${p} enter=${enter} />
+      ${ownDay.value?.p === p.n ? html`<span class="own-day">Shown as of ${Tree.formatDate(ownDay.value.at, 'short')}</span>` : null}
+      ${reading ? null : html`<${Why} key=${p.n} p=${p} enter=${enter} />`}
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>
-      <button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${actOn(p)}</button></span>`;
+      ${reading ? html`<button class="btn" onClick=${() => setViewing(false)}>Switch to Editing to make this</button>`
+        : html`<button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${actOn(p)}</button>`}</span>`;
   }
-  // The window's one bar, under the view shown, while a change is pending in the chart shown: what it does, in the
-  // redline's ink, and its controls, which take the keys as it's begun unless those where it was asked do.
+  // The window's one bar, under the view shown, while a change is pending in the chart shown, its one home (dendra.md): what
+  // it does, in the redline's ink, and its controls, which take the keys as it's begun; what else it asks (Fill) first.
   function Pending() {
     const p = pending.value;
     if (!p || p.chart !== chart.value) return null;
     return html`<div class="pendbar" role="region" aria-label=${p.verb} data-region="bar" onKeyDown=${escaped}>
-      <span class="what">${p.Fill ? html`<${p.Fill} p=${p} />` : (p.parts ?? [html`<span class=${p.verb === 'Delete' ? 'del' : 'add'}>${p.what}</span>`]).map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
-      <${Controls} p=${p} auto=${p.auto && !p.inline} hint=${!!p.typed} />
+      <span class="what">${p.Fill ? html`<${p.Fill} p=${p} auto=${p.auto} />` : (p.parts ?? [html`<span class=${p.verb === 'Delete' ? 'del' : 'add'}>${p.what}</span>`]).map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
+      <${Controls} p=${p} auto=${p.auto && !p.Fill} hint=${!!p.typed} />
     </div>`;
   }
-  // Where it was asked, its controls there too, the bar's state, so it's confirmed where the eye is: under the two-box
-  // panel's row of a relation ticked or unticked; atop the panel of a record being deleted or transferred, with what
-  // else it asks (Fill), which takes the keys as it's begun, or else its day does.
-  const Asking = ({ p }) => html`<div class="asking" role="group" aria-label=${p.verb} onKeyDown=${escaped}>
-    ${p.Fill ? html`<div class="what"><${p.Fill} p=${p} auto=${p.auto} /></div>` : null}
-    <div class="ctls"><${Controls} p=${p} auto=${p.auto && !p.Fill} /></div></div>`;
+  // A what-if looks at its own day (dendra.md, Pending): dated later than the day shown, the chart's shown as of its day for as long as
+  // it's pending, and goes back when it's made or discarded. A day typed moves it once it's been left a moment, so a day half typed
+  // doesn't; another day asked for by hand is that person's, which it leaves alone. `ownDay`, { p, at, back } while it's so.
+  const ownDay = signal(null);
+  let dayTimer = 0;
+  Shell.ready.then(() => effect(() => {
+    const p = pending.value, t = Shell.time.value, own = ownDay.value, on = p && p.chart === chart.value && !t?.stood && p.asks && p.day ? p.day : null;
+    clearTimeout(dayTimer);
+    const back = () => batch(() => { ownDay.value = null; Shell.at(own.back, { replace: true }); });
+    // (Asked for another day by hand, it's theirs; what it comes back to is that.)
+    if (own && (t?.asOf ?? null) !== own.at) { ownDay.value = null; return; }
+    if (own && own.p !== p?.n) return back();
+    const base = own ? own.back?.asOf ?? Log.today() : t?.asOf ?? Log.today();
+    if (!on || on <= base) { if (own) dayTimer = setTimeout(back, on ? 250 : 0); return; }
+    if (own?.at === on) return;
+    const go = () => {
+      const t0 = Shell.time.peek(), was = ownDay.peek();
+      batch(() => { ownDay.value = { p: p.n, at: on, back: was ? was.back : t0 }; Shell.at({ asOf: on }, { replace: true }); });
+    };
+    // (One it's begun on at once; a day typed once it's been left a moment.)
+    if (!own && on === p.day0) go(); else dayTimer = setTimeout(go, 300);
+  }));
   // From History: an older change undone or redone (its reverse), or an item deleted restored, made now, and
   // said as History says it.
   function remake(c) {
@@ -1315,7 +1458,7 @@ const App = (() => {
     while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
     const tx = wb.edit({ chart: c, who: who() }), kept = new Map();
     tx.add('chart', { name }, c);
-    const vs = from ? views.peek() : [], like = vs.find(v => v.layout === 'chart')?.id;
+    const vs = from ? views.peek().filter(v => !v.look) : [], like = vs.find(v => v.layout === 'chart')?.id;
     const recorded = new Map();
     let look = null, given = () => false;
     if (from) {
@@ -1481,8 +1624,8 @@ const App = (() => {
   });
   Shell.register('undo', {
     undo, redo, steps, undoTo,
-    canUndo: () => !readOnly.value && stackOf(chart.value).undo.length > 0,
-    canRedo: () => !readOnly.value && (stackOf(chart.value).redo.length > 0 || (!!lastDiscarded.value && lastDiscarded.value.chart === chart.value && !pending.value)),
+    canUndo: () => !Shell.time.value?.stood && ((!viewing.value && stackOf(chart.value).undo.length > 0) || lookStepsOf(chart.value).undo.length > 0 || (viewing.value && !!pending.value)),
+    canRedo: () => !Shell.time.value?.stood && ((!viewing.value && stackOf(chart.value).redo.length > 0) || lookStepsOf(chart.value).redo.length > 0 || (!!lastDiscarded.value && lastDiscarded.value.chart === chart.value && !pending.value)),
   });
 
   // ---- Views: View objects, each described by its own notes, never dated ----
@@ -1494,19 +1637,42 @@ const App = (() => {
     return { id, name: N.nameOf(st, id), layout: lay && typeof lay === 'object' ? 'table' : 'chart', rows: lay?.rows ?? null,
       keeps: N.value('As Of', t) ?? null, changes: N.value('Changes', t) ?? null, plan: N.value('Plan', t) ?? null, order: N.order(t) ?? Infinity };
   }).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-  const viewsNow = computed(() => viewsIn(entered.value, notes.value));
+  const viewsNow = computed(() => { const by = looks.value[chart.value] ?? {}; return viewsIn(entered.value, notes.value).map(v => by[v.id]?.table ? { ...v, look: true } : v); });
   const views = keptWhile(() => JSON.stringify(viewsNow.value), () => viewsNow.value);
   const lastView = new Map();
   effect(() => { const c = chart.value, v = Shell.view.value; if (c && views.value.some(x => x.id === v)) lastView.set(c, v); });
   // The view shown, drawn: what the canvas, the format bar and the inspector's Look read.
-  const scene = computed(() => {
+  const drawnPage = computed(() => {
     // It reads the workbook's notes and shapes as well as the state (Scene keeps what's drawn from the same).
     version.value;
     const v = views.value.find(x => x.id === Shell.view.value);
-    if (v?.layout !== 'chart') return null;
-    const as = { state: state.value, computed: result.value }, drawn = Scene.of(shown.value, chart.value, v.id, day.value, as), looks = seenIn(v.id);
-    return looks?.size ? Scene.of(shown.value, chart.value, v.id, day.value, { ...as, seen: looks }) : drawn;
+    return v?.layout !== 'chart' || typeof Scene === 'undefined' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
   });
+  const scene = computed(() => {
+    const drawn = drawnPage.value, kept = drawn && seenIn(drawn.view);
+    return kept?.size ? Scene.of(shown.value, chart.value, drawn.view, day.value, { state: state.value, computed: result.value, seen: kept }) : drawn;
+  });
+  // What the look shows of the page: how many of its boxes, and any it hides otherwise. → { kept, of, more } or null.
+  function shownOf(sc = scene.value, p = drawnPage.value) {
+    if (!sc || !p || sc === p) return null;
+    const boxes = s => new Set(s.marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.id)), has = boxes(p), now = boxes(sc), kept = [...now].filter(x => has.has(x)).length;
+    return { kept, of: has.size, more: now.size - kept };
+  }
+  const lookWordsOf = view => { const l = looks.value[chart.value]?.[view]; return [...(l?.filters ?? []).map(f => `${f.label}: ${f.values.map(v => v ?? 'Blank').join(', ')}`)]; };
+  // The band a look on a chart says itself by, with its way back: "Showing 13 of 28", Show all, which adds nothing that was never
+  // on the page, and Keep, which makes it the page's.
+  function LookBand() {
+    const v = views.value.find(x => x.id === Shell.view.value);
+    if (!v || Shell.time.value?.stood) return null;
+    if (v.look) {
+      const can = !readOnly.value;
+      return html`<div class="pastband lookband" role="status"><span>${v.name} is only in this window</span><button class="btn" aria-disabled=${can ? null : 'true'} title=${can ? null : whyNot()} onClick=${() => keepTable(v.id)}>Keep</button><button class="btn" onClick=${() => closeLook(v.id)}>Close</button></div>`;
+    }
+    const n = shownOf();
+    if (!n) return null;
+    const can = !readOnly.value, said = lookWordsOf(v.id);
+    return html`<div class="pastband lookband" role="status"><span>Showing ${n.kept} of ${n.of}${n.more ? ` and ${n.more} more` : ''}${said.length ? ` · ${said.join(' · ')}` : ''}</span><button class="btn" onClick=${() => showAll(v.id)}>Show all</button><button class="btn" aria-disabled=${can ? null : 'true'} title=${can ? null : whyNot()} onClick=${() => (can ? keepShown(v.id) : refuse())}>Keep</button></div>`;
+  }
   // The words an exported file says what it shows in, the one place they're made: the day, or while the past is shown the
   // moment. Its name's, where that isn't today ("as of Dec 31, 2026"; "as it stood on Dec 31, 2026, 3.15 PM", a file's name
   // holding no colon), and an Excel sheet's first line.
@@ -1534,8 +1700,19 @@ const App = (() => {
   // else of the first, but not where it put things, and its page starts afresh. A new table opens with a few of its
   // columns (Table.opening). `also(tx, id)`, what else the one change makes of it; `blank`, a chart with every box hidden;
   // `title`, what a copy's page is titled; `then(tx, id)`, what the change writes last, over what's copied; `say`, its toast.
+  // A table made, in a change or a look (lookTable): its name, its rows and the columns it opens with; in the tabs' order but
+  // for a look, which comes after them.
+  function writeView(tx, id, n, rows, { why, order } = {}) {
+    const t = viewTree(id);
+    tx.add('record', { kind: 'View' }, id);
+    tx.note('Name', t, n);
+    if (order) [...views.peek().filter(v => !v.look && v.id !== id), { id }].forEach((v, k) => tx.note('Order', viewTree(v.id), k + 1));
+    tx.note('Layout', t, { rows });
+    if (typeof Table !== 'undefined') Table.opening(tx, id, rows);
+    if (why) tx.note('Shown', t, true, { view: id, param: 'Why' });
+  }
   function addView(name, rows, from, also, blank = false, { title, then, say } = {}) {
-    const vs = views.peek(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(vs.map(v => Tree.norm(v.name)));
+    const vs = views.peek().filter(v => !v.look), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(views.peek().map(v => Tree.norm(v.name)));
     const like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
     let n = name, i = 2;
     while (taken.has(Tree.norm(n))) n = `${name} ${i++}`;
@@ -1562,7 +1739,7 @@ const App = (() => {
     }, { dated: false, say });
     return id;
   }
-  const order = ids => change(tx => ids.forEach((id, k) => tx.note('Order', viewTree(id), k + 1)), { dated: false });
+  const order = ids => change(tx => ids.filter(id => !views.peek().find(v => v.id === id)?.look).forEach((id, k) => tx.note('Order', viewTree(id), k + 1)), { dated: false });
   // What a view can show, as menu items: a chart, or a table of a kind's records, a relation's, or every date or
   // document, each picked as pick(name, rows). Given a view, what it shows is checked.
   function shows(pick, v) {
@@ -1573,23 +1750,26 @@ const App = (() => {
   }
   Shell.register('views', {
     list: () => views.value,
-    // (A page titled by its name, as a step is, stays so.)
-    rename: (id, name) => change(tx => {
+    // (A page titled by its name, as a step is, stays so. A table only in this window, named, is kept.)
+    rename: (id, name) => { if (lookOf(id)?.table) keepTable(id); return change(tx => {
       const was = views.peek().find(v => v.id === id)?.name, title = book.peek().rows(chart.peek()).find(r => 'shape' in r && r.view === id && r.role === 'title' && r.text === was);
       tx.note('Name', viewTree(id), name);
       if (title) tx.update(title.shape, { text: name });
-    }, { dated: false }),
+    }, { dated: false }); },
     move: (id, i) => { const ids = views.peek().map(v => v.id).filter(x => x !== id); ids.splice(i, 0, id); order(ids); },
     // A new view of what's picked: its id, or null if none is.
+    // (Viewing, a table only: opened to read, for this window, as a list's is. A chart has nothing to show that isn't here.)
     add: anchor => new Promise(done => {
       let chosen = false;
-      Shell.menu(anchor, shows((name, rows, blank) => { chosen = true; done(addView(name, rows, undefined, undefined, blank)); if (rows) Shell.showPanel(); }),
+      const reading = viewing.peek(), items = shows((name, rows, blank) => { chosen = true; done(reading ? lookTable(name, rows) : addView(name, rows, undefined, undefined, blank)); if (rows) Shell.showPanel(); });
+      Shell.menu(anchor, reading ? items.map(x => (x === '-' || x.items || x.label !== 'Chart' && x.label !== 'Blank chart' ? x : { ...x, disabled: true, tip: whyNot() })) : items,
         { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
     }),
     // A view's own menu, on its tab: what it shows, as the inspector's view panel sets it, and copying or
     // deleting it.
     menu: id => {
       const v = views.peek().find(x => x.id === id), writes = readOnly.peek() ? { disabled: true, tip: whyNot() } : {};
+      if (v.look) return [{ label: 'Keep this table', ...writes, run: () => keepTable(id) }, { label: 'Close', run: () => closeLook(id) }];
       return [
         { label: 'Show', ...writes, items: shows((_, rows) => change(tx => tx.note('Layout', viewTree(id), rows && { rows }), { dated: false }), v) },
         ...(v.layout === 'chart' && typeof FormatBar !== 'undefined' ? ['-', ...FormatBar.lookMenu(id)] : []),
@@ -1658,7 +1838,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone, annotate, broken,
   };
 })();
