@@ -21,7 +21,7 @@
 .grid .tabulator .tabulator-header .tabulator-col.c-tag :is(.tabulator-col-sorter, .funnel) { top: 2px; bottom: auto !important; }
 .grid .tabulator-col-title .up { display: block; font-weight: 400; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator .tabulator-header .tabulator-col.tabulator-range-highlight,
-.grid .tabulator .tabulator-header .tabulator-col.tabulator-range-selected { background: var(--paper) linear-gradient(var(--press), var(--press)); color: var(--ink); }
+.grid .tabulator .tabulator-header .tabulator-col.tabulator-range-selected { background: var(--selected); color: var(--ink); }
 /* A heading is dragged to move its column (table.js): while it's dragged, faint, a ghost of it under the pointer and a
    bar where it will drop. */
 .grid .tabulator .tabulator-header .tabulator-col.moving { color: var(--ink-3); }

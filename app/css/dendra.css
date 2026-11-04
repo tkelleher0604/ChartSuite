@@ -372,7 +372,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .view:has(> .host:not([hidden]) > .dc) > .slot.formulabar:has(.fx-view):not(:has(.fx-delta)) { display: none; }
 .view:has(> .pastband, > .fx-band):has(> .host:not([hidden]) > .dc) > .slot.formulabar { top: 40px; }
 .view:has(> .pastband, > .fx-band):not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar { margin-top: 40px; }
-.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .fxbar { height: auto; min-height: 36px; flex-wrap: wrap; }
+.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .fxbar:has(> .fx-panel) { height: auto; min-height: 36px; padding-top: 6px; row-gap: 6px; flex-wrap: wrap; }
 .view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .fx-panel { position: static; flex: 0 0 calc(100% + 24px); width: auto; margin: 0 -8px 0 -16px; max-height: min(34vh, 360px); border-top: 1px solid var(--rule); border-bottom: 0; box-shadow: none; clip-path: none; }
 .divider { position: relative; background: var(--rule); cursor: col-resize; z-index: 2; }
 .divider::before { content: ""; position: absolute; inset: 0 -4px; }
