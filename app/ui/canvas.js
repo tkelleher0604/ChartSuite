@@ -1973,7 +1973,7 @@ function mount(el) {
   const placedHere = () => App.notes.peek().notes('Position').filter(n => n.view === viewOf());
   const tidyBoxes = () => { const base = App.scene.peek(); return !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); };
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
-  const tidyName = () => { const n = tidyBoxes().length; return n ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
+  const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
   // Whether there's anything to tidy: a selection; with none, a place entered in the view.
   const tidyable = () => !!tidyBoxes().length || placedHere().some(n => Number.isFinite(n.value?.x) || Number.isFinite(n.value?.along));
   function tidying() {

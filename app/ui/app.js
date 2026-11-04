@@ -150,6 +150,7 @@ const App = (() => {
   // typed: a start with Show Mar 2, 2027, the chart then; an end says its day itself ("Ended … on Dec 1, 2026", Time.describe).
   // A change that changes something also keeps as they are the boxes it doesn't place in the chart shown (the canvas's
   // keepers), unless `keep` is false (Tidy).
+  let staying = null;
   function change(fn, { say, dated = true, ids, empty, keep = true } = {}) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return null; }
     const tx = edit(dated, ids ?? named), was = entered.peek();
@@ -159,13 +160,15 @@ const App = (() => {
     const c = tx.commit();
     if (typeof c === 'string') { Shell.toast(c); return null; }
     if (!c) { empty?.(); return null; }
+    // What a toast that stays offered was of the change before: this one's Undo would be another's.
+    staying?.(); staying = null;
     made(c);
     const out = outBy(c, was), said = (typeof say === 'function' ? say(c) : say) || (out && typeof Time !== 'undefined' && Time.describe(c));
     // One that takes what it's at out of the chart till a later day offers that day, and stays till it's taken or dismissed;
     // where that leaves the chart nothing to draw, the chart goes to that day (see firstDrawn), and offers today.
     const when = out?.holds === 'from' ? Tree.formatDate(out.day, 'short') : null, bare = when && nothingDrawn();
     if (bare) { keptToday.add(chart.peek()); Shell.at({ asOf: out.day }); }
-    if (said) Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when && { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] }) });
+    if (said) { const off = Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when && { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] }) }); if (when) staying = off; }
     return c;
   }
   // A chart with nothing to draw on the day shown, every box of it not yet formed, opens on the first day it has one: a fund
