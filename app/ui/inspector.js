@@ -1242,7 +1242,7 @@ function Look({ id }) {
   // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
   const beside = n.notes('Size').length ? ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'].flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
-  const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
+  const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ only: id, say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   // (Its position before its look, so a row or a section the look gains moves no field under the pointer.)
   return html`${drawn ? html`<${Place} at=${drawn} put=${(k, x) => cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
     <${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />`;
@@ -1486,7 +1486,7 @@ function HiddenHere({ id }) {
 // A style's outputs, each as the legend draws it (Scene's swatch), with its caption; each 2 px inside its chip,
 // a box's outline too, however heavy, so none runs along the chip's edge.
 function Swatch({ sw, off }) {
-  const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight), w = stroke === 'none' ? 0 : Math.min(sw.Weight * Scene.PT, 2.5);
+  const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight), w = stroke === 'none' ? 0 : Math.max(1, Math.min(sw.Weight * Scene.PT, 2.5));
   return html`<svg class=${'sw' + (off ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">${sw.kind === 'line'
     ? html`<path d="M2 8H26" fill="none" stroke=${stroke} stroke-width=${Math.min(sw.Weight * Scene.PT, 3)} stroke-dasharray=${dash} />
       ${['end', 'both'].includes(sw.Arrow) && stroke !== 'none' ? html`<path d="M27 8l-6-3.2v6.4z" fill=${stroke} />` : null}${['start', 'both'].includes(sw.Arrow) && stroke !== 'none' ? html`<path d="M1 8l6-3.2v6.4z" fill=${stroke} />` : null}`
@@ -2017,7 +2017,8 @@ function GeneralView({ p, style }) {
   };
   const flag = (label, q, v) => App.change(tx => tx.note(label, q, v));
   const options = type === 'choice' ? optionsOf(specs) : [];
-  const reorderOpts = (from, i) => App.change(tx => moved(options, from, i).forEach((o, k) => tx.note('Order', { out: { choice: o }, args: p.args }, k + 1)));
+  // (At each specification of the option, as what's noted there is what says its place.)
+  const reorderOpts = (from, i) => App.change(tx => moved(options, from, i).forEach((o, k) => specs.filter(s => s.out?.choice === o).forEach(s => tx.note('Order', { out: { choice: o }, args: s.args }, k + 1))));
   const ats = kind ? [] : rel ? n.edges(p).map(e => [e, [...new Set(specs.map(s => where(s.args.find(a => T.same(a.edge, e)).loc)))].join(', ')])
     : [['At', [...new Set(specs.map(s => where(s.args[0].loc)))].join('\n')]];
   const below = kind ? [...new Map(Object.values(S).filter(s => s.args?.length === 1 && s.args[0].loc.kind && T.same(s.args[0].loc.kind, p.kind)).map(s => [T.norm(s.args[0].edge), s])).values()] : [];

@@ -61,12 +61,13 @@ const printed = (it, s) => (it.typedAt === s ? it.look.Size : half(it.look.Size,
 // Transparency (0–100) is its fill's, PowerPoint's; its Shadow is none, or soft, PowerPoint's outer shadow set
 // below and to the right; and its Corner, a rounded rectangle's, is the radius of its corners as a percentage of
 // its shorter side, up to 50, PowerPoint's adjustment of the shape.
-const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: '#000000', Align: 'center', Spacing: 1, Format: 'value' };
+const INK = '#1c2733', RULE = '#3a4653';
+const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
 const CORNER = 16.667;
 const DEFAULTS = {
-  box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle',
+  box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Transparency: 0, Outline: RULE, Weight: 0.5, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle',
     Frame: 'none', Layer: 0, ...TEXT },
-  line: { Shown: false, Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
+  line: { Shown: false, Outline: RULE, Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
   text: { Shown: false, ...TEXT },
 };
 const TEXT_PROPS = Object.keys(TEXT);
@@ -224,7 +225,7 @@ const textRect = (shape, w, h, corner) => TEXT_RECT[shape]?.(w, h, corner) ?? { 
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
 // A box's width where none is entered: about 100 pt, so that a chart's names wrap rather than its page
 // widens; a triangle's a little more, its text sitting in its lower half.
-const WIDTH = { box: 132, triangle: 176 };
+const WIDTH = { box: 132, triangle: 176 }, SPREAD = 20;
 
 // ---- Text ----
 
@@ -248,7 +249,14 @@ function measure(text, t) {
 // wider than the line.
 const SUFFIX = /, (Inc\.|LLC|L\.L\.C\.|L\.P\.|LP|LLP|Ltd\.|Limited|S\.à r\.l\.|S\.A\.|GmbH|mbH|N\.V\.|B\.V\.|plc)(?=$|[\s:;,)])/g;
 const NUMERAL = / (?=(?:[IVX]+|\d+)(?:-[A-Z0-9]+)?(?:$|[\s,;:)]))/g;
-const bind = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(/ /g, '\u00a0')}`).replace(NUMERAL, '\u00a0');
+// And a person's initial to what follows it ("A. Chen"), and what's in a parenthesis to itself, so a line never breaks inside one where it fits a line.
+const INITIAL = /(?<=^|\s)([A-Z]\.) (?=\S)/g, PAREN = /\([^()\n]*\)/g;
+const bind = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(/ /g, '\u00a0')}`).replace(NUMERAL, '\u00a0').replace(INITIAL, '$1\u00a0').replace(PAREN, p => p.replace(/ /g, '\u00a0'));
+// A name's words kept together: of three or more, its first two stand on one line where they fit one, so it never opens on a word
+// alone that's only part of what it's called ("Calder / Ridge Capital"). Its lines then break where its words allow.
+const opening = (words, t, most) => words.length > 2 && measure(`${words[0]} ${words[1]}`, t) <= most ? [`${words[0]} ${words[1]}`, ...words.slice(2)] : words;
+// A name that opens so all the same, in three lines or more, is a reason to widen (see size).
+const opensAlone = it => !!it?.name && it.lines.length > 2 && !it.lines[0].text.includes(' ');
 // What's bound, wider than `most`, come apart as little as it must: after a role's colon first, then at its suffix,
 // then its numeral's binding, and so on. \u2192 its pieces.
 function apart(w, t, most) {
@@ -265,14 +273,14 @@ function apart(w, t, most) {
 // that runs on, and breaks them to the width less that. Kept, the latest few thousand, as the next scene breaks the
 // same texts again.
 const broken = new Map();
-function breakLines(text, t, width, balanced = true, hang = false) {
-  const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${t.Font}|${width}|${balanced}|${hang}|${text}`, em = hang ? t.Size * PT : 0;
+function breakLines(text, t, width, balanced = true, hang = false, name = false) {
+  const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${t.Font}|${width}|${balanced}|${hang}|${name}|${text}`, em = hang ? t.Size * PT : 0;
   let ls = broken.get(k);
   if (!ls) {
     ls = [];
     for (const para of bind(text).split('\n')) {
       let split = false;
-      const words = para.split(/ +/).flatMap(w => { const ps = apart(w, t, width - em); split ||= ps.filter(p => !p.endsWith(':')).length > 1; return ps; });
+      const parts = para.split(/ +/).flatMap(w => { const ps = apart(w, t, width - em); split ||= ps.filter(p => !p.endsWith(':')).length > 1; return ps; }), words = name ? opening(parts, t, width) : parts;
       let some = fill(words, t, width, em);
       if (balanced && some.length > 1 && !some.some(l => l.cut)) {
         let lo = Math.max(...words.map(w => measure(w, t))) + em, hi = width;
@@ -306,7 +314,7 @@ function fill(words, t, width, inset = 0) {
   return out;
 }
 // A text's lines, all of them. One set left that `hangs` hangs (see breakLines).
-const linesOf = (it, width) => it.text ? breakLines(it.text, it.look, width, true, !!it.hangs && it.look.Align === 'left') : [];
+const linesOf = (it, width) => it.text ? breakLines(it.text, it.look, width, true, !!it.hangs && it.look.Align === 'left', !!it.name) : [];
 // A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels. PowerPoint's set: Round
 // Dot (dotted), Square Dot, Dash (dashed), Dash Dot, Long Dash, Long Dash Dot, and Long Dash Dot Dot, each in its multiples of the weight.
 const DASHES = { dashed: [4, 3], 'square-dot': [3, 1], 'dash-dot': [4, 3, 1, 3], 'long-dash': [8, 3], 'long-dash-dot': [8, 3, 1, 3], 'long-dash-dot-dot': [8, 3, 1, 3, 1, 3] };
@@ -361,7 +369,7 @@ function snap(it, s, under = false) {
 // Kept by what it reads, the latest few thousand, as the next scene sets the same triangles again.
 const pyramids = new Map();
 function pyramid(texts, w, wide) {
-  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic, it.look.Spacing])]);
+  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic, it.look.Spacing, !!it.name])]);
   let p = pyramids.get(k);
   if (!p) {
     p = fitPyramid(texts, w, wide);
@@ -386,7 +394,7 @@ function fitPyramid(texts, w, wide) {
     };
     // The shortest, or the fewest lines no more than a line taller than that.
     const h0 = least(), n = shaped(texts, w, h0 + step).flat().length, h = least(n, h0), lines = shaped(texts, w, h);
-    const cap = Math.max((lines[0].length > 4 || lines.flat().some(l => l.split)) && w < wide.lines ? wide.lines : 0, h > w * 0.9 && w < wide.tall ? wide.tall : 0);
+    const cap = Math.max((lines[0].length > 4 || lines.flat().some(l => l.split)) && w < wide.lines ? wide.lines : 0, h > w * (wide.ratio ?? 1) && w < wide.tall ? wide.tall : 0, wide.opens && w < wide.opens && opensAlone({ name: texts[0]?.name, lines: lines[0] }) ? wide.opens : 0);
     if (!cap) return { w, h: Math.ceil(h), lines };
     w = Math.min(cap, w + 12);
   }
@@ -398,7 +406,7 @@ function shaped(texts, w, h) {
   let d = BASE;
   for (let i = texts.length - 1; i >= 0; i--) {
     const it = texts[i], t = it.look, lh = lineHeight(t), most = w * 0.75 - 2 * INSET;
-    const paras = it.text ? bind(it.text).split('\n').map(p => units(p, t, most)) : [];
+    const paras = it.text ? bind(it.text).split('\n').map(p => units(p, t, most, !!it.name)) : [];
     for (let p = paras.length - 1; p >= 0; p--) {
       const words = paras[p], m = words.length, room = k => w * (h - d - (k + 1) * lh) / h - 2 * PAD;
       const said = (a, b) => words.slice(a, b).map(x => x.text).join(' ');
@@ -438,13 +446,13 @@ function shaped(texts, w, h) {
 // A paragraph's words for a triangle, each no wider than `most`: what's bound wider comes apart (see apart),
 // each piece after the first `bound` to the one before; a word still wider is hyphenated, each piece but the
 // last `cut`.
-function units(para, t, most) {
+function units(para, t, most, name = false) {
   const out = [];
   for (const word of para.split(/ +/).filter(Boolean)) apart(word, t, most).forEach((w, k) => {
     if (measure(w, t) <= most) return out.push({ text: w, bound: k > 0 });
     fill([w], t, most).forEach((l, j, ls) => out.push({ text: l.text, bound: k > 0 && j === 0, cut: j < ls.length - 1 }));
   });
-  return out;
+  return name && out.length > 2 && !out[0].cut && !out[1].cut && measure(`${out[0].text} ${out[1].text}`, t) <= most ? [{ text: `${out[0].text} ${out[1].text}`, bound: false }, ...out.slice(2)] : out;
 }
 
 // A box's size: its width entered or its shape's own, `squeeze` times that on a paper narrower than its page,
@@ -456,8 +464,9 @@ function units(para, t, most) {
 // tallest any of them needs (see level). A box whose name's size is typed is `wider` as that needs (see typedAt): nobody
 // having sized it, as its name is larger than the chart's own, and sized, as it printed where it was sized.
 function size(b, squeeze, at = null, grow = 1) {
-  const shape = b.settings.Shape.value, own = b.pos?.w && b.pos.w * (b.wider?.own ?? 1), base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box'] * grow * (b.wider?.free ?? 1)) * squeeze;
-  const wide = { lines: own ?? base * 1.5, tall: base * 2 };
+  const shape = b.settings.Shape.value, own = b.pos?.w && b.pos.w * (b.wider?.own ?? 1), base = (own ?? (shape === 'triangle' ? WIDTH.triangle : shape === 'oval' ? WIDTH.box : WIDTH.box * grow) * (b.wider?.free ?? 1)) * squeeze;
+  // (On a paper narrower than its page, which has the room down it, a triangle stands taller for its width.)
+  const wide = { lines: own ?? base * 1.5, tall: base * 2, ratio: 1 / (squeeze * squeeze), opens: b.texts[0]?.typedAt == null && !own ? base * 1.25 : 0 };
   let w = at ?? base, h;
   // Sized by a hand, a box is the size it was given, its text as it falls in that; a height typed stands, as a width does.
   if (b.exact) {
@@ -488,10 +497,18 @@ function size(b, squeeze, at = null, grow = 1) {
       const tb = blockHeight(b.texts.filter(it => it.lines.length));
       h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
       // How far it's to widen yet: none, or to a cap.
-      const lines = ((b.texts[0]?.lines.length ?? 0) > 4 || b.texts.some(it => it.lines.some(l => l.split))) && w < wide.lines;
-      return Math.max(lines ? wide.lines : 0, h > w && w < wide.tall ? wide.tall : 0);
+      const lines = ((b.texts[0]?.lines.length ?? 0) > 3 || b.texts.some(it => it.lines.some(l => l.split))) && w < wide.lines;
+      // (A word that would fit a line of its own is never broken: the box is as wide as that needs, up to three times its size.)
+      const word = !b.texts.some(it => it.lines.some(l => l.cut)) ? 0 : Math.min(3 * base, Math.max(...b.texts.flatMap(it => String(it.text).split(/\s+/).map(x => measure(x, it.look)))) + 2 * INSET + 1) / (TEXT_AREA[shape] ?? 1);
+      return Math.max(lines ? wide.lines : 0, h > w && w < wide.tall ? wide.tall : 0, word > w ? word : 0, wide.opens && w < wide.opens && opensAlone(b.texts[0]) ? wide.opens : 0);
     };
     for (let cap; (cap = lay());) w = Math.min(cap, w + 12);
+    // And a little wider, nobody having sized it, where that takes a line off its name: a fifth at most, the least that does.
+    const name = b.texts[0]?.name && b.texts[0];
+    if (name && !own && at === null && name.lines.length > 1) {
+      const n = name.lines.length, width = v => Math.max(32, v * (TEXT_AREA[shape] ?? 1) - 2 * INSET);
+      for (let v = w + 4; v <= base * 1.2; v += 4) if (linesOf(name, width(v)).length < n) { w = v; lay(); break; }
+    }
   }
   b.texts = b.texts.filter(it => it.lines.length);
   Object.assign(b, { w, h: Math.max(h, b.pos?.h ?? 0), shape, base });
@@ -676,8 +693,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
-    const N0 = wb.notes(chart), fielded = [...N0.notes('Text'), ...['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param))].some(n => n.view === view);
-    const formatsOf = (recs, id) => { const t = treeOf(recs, id); return fielded && recs[id]?.at ? { Text: true } : t ? N0.formats(t, view) : {}; };
+    const N0 = wb.notes(chart), reads = N0.notes('Text').some(n => n.view === view), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
+    const formatsOf = (recs, id) => { const r = recs[id], t = treeOf(recs, id); return r?.at && (reads || fielded.has(Tree.norm(r.edge ?? ''))) ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
       if (d.laid && !opts.ahead) laidOut.set(drawnAs, d.laid);
@@ -852,6 +869,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
   };
   const look = s => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v.value]));
+  // What's beside a name in a box is the chart's own too, as the name is, and a size smaller: so it scales with the name, never left large as the chart falls. A size given it, or its box, is as given.
+  const besideName = (host, s) => host.type === 'box' && !s.Size?.note ? { ...s, Size: { value: BESIDE_NAME, note: null } } : s;
 
   // The texts drawn in each box and on each line, in their entries' order. A text's properties reach it
   // through its own record and through its box's (or line's); as everywhere, the later style wins, and its
@@ -871,9 +890,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     settle(m, DEFAULTS.text);
     for (const label of TEXT_PROPS) if (!m.cand[label] && label !== 'Format') m.settings[label] = host.settings[label];
+    if (!m.cand.Size && !named(m)) m.settings = besideName(host, m.settings);
     const r = state[m.record], t = look(m.settings), name = once(m.record, 'name', () => N.name(tree(m.record)));
     // `shownBy`, the note that shows it, where one does: what hiding it where it's shown takes back (see Fields).
-    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name), computed: !!r.computed, shownBy: m.cand.Shown?.note ?? null,
+    return { id: m.record, type: 'text', settings: m.settings, look: t, text: textOf(r, t.Format, name), computed: !!r.computed, shownBy: m.cand.Shown?.note ?? null, ...(named(m) && { name: true }),
       ...(m.listed && { listed: { role: t.Format === 'none' ? '' : textOf(r, 'value', name), name: N.nameOf(state, m.listed) } }) };
   };
   // A box's relations written in it, one text for each role: the role, for more than one in the plural, and
@@ -933,9 +953,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       const et = { args: [{ edge, loc: t }] }, at = N.resolve('Shown', et, view), mine = at && { ...at, rank: rankOf(at.note, 0) }, beside = fs?.get(k);
       const win = !mine ? beside : !beside || !beats(beside.rank, mine.rank) ? mine : beside;
       if (win?.value !== true || !(win.note.param || scopes.has(win.note))) continue;
-      const f = N.formats(et, view), settings = {};
-      for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && f[label] ? { value: f[label].value, note: f[label].note } : b.settings[label];
-      const item = { id: `blank:${O}|${edge}`, type: 'text', settings, look: look(settings), text: edge, blank: { at: O, edge }, computed: false, shownBy: win.note };
+      const f = N.formats(et, view), given = {};
+      for (const label of TEXT_PROPS) given[label] = label !== 'Format' && f[label] ? { value: f[label].value, note: f[label].note } : b.settings[label];
+      const settings = besideName(b, given), item = { id: `blank:${O}|${edge}`, type: 'text', settings, look: look(settings), text: edge, blank: { at: O, edge }, computed: false, shownBy: win.note };
       const order = [[N.order(et) ?? Infinity, k]], i = b.texts.findIndex(it => it.listed || ordered(order, orderOf(it.id)) < 0);
       b.texts.splice(i < 0 ? b.texts.length : i, 0, item);
     }
@@ -960,8 +980,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const c = freeOf.get(h.id), v = c?.value;
     if (!v || typeof v !== 'object') return [];
     const text = String(v.text ?? '').replace(/\{([^{}\n]+)\}/g, (_, l) => entryText(h.record, l)).split('\n').map(s => s.replace(/[ \t]+/g, ' ').trim()).join('\n').trim();
-    const settings = {};
-    for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
+    const given = {};
+    for (const label of TEXT_PROPS) given[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
+    const settings = besideName(h, given);
     return text ? [{ id: `text@${h.id}`, type: 'text', settings, look: look(settings), text, free: { note: c.note.note, text: v.text }, computed: false, shownBy: c.note }] : [];
   }
   // A text that says otherwise now than it did on the day compared with has what it said before it, struck, in the look of
@@ -1129,6 +1150,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const rowOf = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.key])));
   const classOf = new Map(boxes.map(b => { const n = b.settings.Fill.note; return [b.id, n && n.view === view && !idsIn(n.pattern).size && !isChange(n.pattern) ? rowOf.get(key(n.pattern)) ?? null : null]; }));
   if (new Set([...classOf.values()].filter(Boolean)).size < 2) classOf.clear();
+  // And triangles, whatever they're filled, as a page's subject may be: a feeder and the fund it invests in are peers.
+  for (const b of boxes) if (b.settings.Shape.value === 'triangle') classOf.set(b.id, 'triangle');
   // The room the chart has on its sheet, as the layout fills it: within the margins, under the title and date;
   // and the Key's size there, which the page sets beside the title where it fits there, or else `under` the
   // chart's right end (see furnish).
@@ -1179,6 +1202,12 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       const w = Math.max(...ts.map(b => b.w));
       for (const b of ts) if (b.w < w) size(b, squeeze, w, grow);
       level(ts);
+    }
+    // A box whose one line runs down to a triangle nothing else owns stands over it as wide as it is, a column (see Layout's columns).
+    const byId = new Map(bs.map(b => [b.id, b])), ranks = lines.filter(l => l.ranks), main = Layout.mainOf(ranks.map(l => ({ trunk: l.trunk, names: !!l.label?.shared })));
+    for (const b of bs) {
+      const down = ranks.filter(l => l.from === b.id), t = byId.get(down[0]?.to);
+      if (b.shape !== 'triangle' && !b.exact && !b.pos?.w && down.length === 1 && down[0].trunk === main && t?.shape === 'triangle' && ranks.filter(l => l.to === t.id && l.trunk === main && byId.get(l.from)?.shape !== 'triangle').length === 1 && t.w > b.w) size(b, squeeze, t.w, grow);
     }
     return bs;
   }
@@ -1324,8 +1353,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const judged = laid => laid.faults !== undefined ? laid : { ...laid, faults: faults(laid.s), bent: bent() }, again = (laid, as) => ({ ...laid, faults: as.faults, bent: as.bent });
   // Of two layouts, the better: the one with fewer faults, then the larger, up to the size its own page prints it at on
   // another paper (`largest`), then the one with fewer lines bent, then the one with fewer lines gone around what's drawn.
+  // (A stem kept straight is worth a twentieth or two: of two as near in size, on another paper, the one that keeps its columns.)
   const better = (a, b) => { const [p, q] = [a.s, b.s].map(s => Math.min(s, largest));
-    return a.faults !== b.faults ? a.faults < b.faults : p !== q ? p > q : a.bent !== b.bent ? a.bent < b.bent : a.around < b.around; };
+    if (a.faults !== b.faults) return a.faults < b.faults;
+    if (a.bent !== b.bent && Math.abs(p - q) < 0.11) return a.bent < b.bent;
+    return p !== q ? p > q : a.bent !== b.bent ? a.bent < b.bent : a.around < b.around; };
   yield;
   // (A free shape on another paper stands as it stands on the view's own page: see furnish.)
   const ownScene = onPaper ? yield* drawing(wb, chart, view, day, { ...opts, paper: null }) : null, ownPage = ownScene?.page ?? null;
@@ -1350,6 +1382,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (tried !== grow || unsettled(at)) at = again(yield* settled(1, grow, unsettled(at) ? at.s : at.ceil), at);
   }
   pageSizes = new Map(boxes.map(b => [b.id, { w: b.w, h: b.h }]));
+  let fit = 1;
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
   // and their places closer, as far as that prints it larger, up to the size its own page prints it at, and
   // never so close that a line can't pass or a label has no place; and of those as large, the one with the fewest
@@ -1365,6 +1398,27 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       if (better(next, at)) [at, best] = [next, f];
     }
     if (tried !== best || unsettled(at)) at = again(yield* settled(best, grow, unsettled(at) ? at.s : at.ceil), at);
+    fit = best;
+  }
+  // A chart the layout alone places uses the width its scale leaves it, every gap in it alike (see Layout's columns), and a
+  // little of the height, where that draws it no smaller and with no more faults, the height first to go. (One too large for
+  // columns is as it's placed.)
+  if (!last && !positions.size && boxes.length > 1 && !frames.size && boxes.length + lines.length <= Layout.BIG) {
+    const wide = Math.max(...boxes.map(b => b.x + b.w)) - Math.min(...boxes.map(b => b.x)), want = (room.w - 2) / at.s;
+    const tall = Math.max(...boxes.map(b => b.y + b.h)) - Math.min(...boxes.map(b => b.y)), rows = new Set(boxes.map(b => Math.round(b.y))).size;
+    const spread = rows < 2 ? 0 : Math.min(SPREAD, Math.max(0, ((room.h - (room.key?.under ? room.key.h + 32 : 0) - 2) / at.s - tall) / (rows - 1)));
+    const tried = [...spread > 2 ? [{ fill: want, spread }] : [], ...wide < want - 8 ? [{ fill: want, spread: 0 }] : []];
+    if (tried.length) {
+      at = judged(at);
+      let taken = null;
+      for (const t of tried) {
+        Object.assign(room, t);
+        const next = judged(yield* settled(fit, grow, at.ceil));
+        if (next.s >= at.s - 1e-9 && next.faults <= at.faults) { taken = next; break; }
+      }
+      if (taken) at = taken;
+      else { delete room.fill; delete room.spread; at = again(yield* settled(fit, grow, at.ceil), at); }
+    }
   }
   const s = at.s;
   // The chart sits on its page where the page puts it, by its `offset`, which a place written from the page
@@ -1760,14 +1814,15 @@ function still(last, boxes, lines, frames) {
   for (const c of mine) lines[copies.indexOf(c)].labelAt = c.labelAt;
 }
 
-// Where a solid line runs across another, upright over level, the level one is broken 3 pt either side of
-// the crossing, as Visio's line jumps are, so that no crossing reads as a junction: its `runs`, the pieces
-// it's drawn in, `gap` either side of each crossing. Lines revealed for a while neither break nor are broken.
+// Where a line runs across another, upright over level, the level one is broken 3 pt either side of the crossing, as
+// Visio's line jumps are, whatever their dashes, so that no crossing reads as a junction, a dashed branch as a dashed
+// crossing; and a dashed line half as far again, as its own gaps are that long: its `runs`, the pieces it's drawn in, each
+// beginning on a dash. Lines revealed for a while neither break nor are broken.
 function jumps(lines, gap) {
-  const solid = lines.filter(l => !l.merged && !l.revealed && l.settings.Dash.value === 'solid' && !none(l.settings.Outline.value) && l.points?.length > 1);
+  const drawn = lines.filter(l => !l.merged && !l.revealed && !none(l.settings.Outline.value) && l.points?.length > 1);
   const legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
-  const ups = solid.flatMap(l => legs(l).filter(([a, b]) => Math.abs(a[0] - b[0]) < 0.5).map(([a, b]) => ({ l, x: a[0], y0: Math.min(a[1], b[1]), y1: Math.max(a[1], b[1]) })));
-  for (const l of solid) {
+  const ups = drawn.flatMap(l => legs(l).filter(([a, b]) => Math.abs(a[0] - b[0]) < 0.5).map(([a, b]) => ({ l, x: a[0], y0: Math.min(a[1], b[1]), y1: Math.max(a[1], b[1]) })));
+  for (const l of drawn) {
     delete l.runs;
     const cuts = legs(l).map(([a, b]) => {
       if (Math.abs(a[1] - b[1]) >= 0.5) return [];
@@ -1775,14 +1830,14 @@ function jumps(lines, gap) {
       return ups.filter(u => u.l !== l && u.x > x0 + gap && u.x < x1 - gap && y > u.y0 + gap && y < u.y1 - gap).map(u => u.x);
     });
     if (!cuts.some(c => c.length)) continue;
-    const runs = [[l.points[0]]];
+    const runs = [[l.points[0]]], off = l.settings.Dash.value === 'solid' ? gap : gap * 1.5;
     legs(l).forEach(([a, b], i) => {
       const dir = Math.sign(b[0] - a[0]), gaps = [];
       for (const x of [...cuts[i]].sort((p, q) => (p - q) * dir)) {
         const g = gaps.at(-1);
-        if (g && Math.abs(x - g[1]) < 2 * gap) g[1] = x; else gaps.push([x, x]);
+        if (g && Math.abs(x - g[1]) < 2 * off) g[1] = x; else gaps.push([x, x]);
       }
-      for (const [p, q] of gaps) { runs.at(-1).push([p - dir * gap, a[1]]); runs.push([[q + dir * gap, a[1]]]); }
+      for (const [p, q] of gaps) { runs.at(-1).push([p - dir * off, a[1]]); runs.push([[q + dir * off, a[1]]]); }
       runs.at(-1).push(b);
     });
     l.runs = runs;
@@ -1970,7 +2025,9 @@ function layoutLegend(m, rows, sheet = 1, k = 1) {
   const t = m.look, u = sheet * k, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
   // In the Key's own order, where it has one; a row new to it after those it lists.
   const at = new Map((m.order ?? []).map((k, i) => [k, i]));
-  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } })).sort((a, b) => (at.get(a.key) ?? Infinity) - (at.get(b.key) ?? Infinity));
+  // (A dashed outline at no more than a point, so that its dashes read as dashes round a thing this small.)
+  const swWeight = s => s.kind === 'box' && s.Dash !== 'solid' ? Math.min(s.Weight, 1) : s.Weight;
+  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: swWeight(r.swatch) * sheet } })).sort((a, b) => (at.get(a.key) ?? Infinity) - (at.get(b.key) ?? Infinity));
   m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));
   if (m.auto) m.w = Math.ceil(m.columns * (sw + gap + Math.min(160 * u, Math.max(40 * u, ...shown.map(r => measure(r.caption, t)))) + 16 * u) + 2 * pad);
@@ -1989,7 +2046,9 @@ function layoutLegend(m, rows, sheet = 1, k = 1) {
     // A row is as tall as its swatch and a little more, and the next 5 px under it, so no two swatches touch or crowd.
     const h = Math.max(lh, SWATCH.h * u + 2 * u, caption.lines.length * lh);
     stack(caption, caption.column.x, caption.column.width, y + (h - caption.lines.length * lh) / 2);
-    const row = { key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, x, y, w: colW, h, sw: { x, y: y + h / 2 - SWATCH.h * u / 2, w: sw, h: SWATCH.h * u }, caption };
+    // (A triangle as it stands on the chart, as tall as it's wide, in its swatch's room; anything else that room.)
+    const tall = r.swatch.Shape === 'triangle' ? { x: x + (sw - (SWATCH.h + 1) * u) / 2, y: y + h / 2 - (SWATCH.h + 1) * u / 2, w: (SWATCH.h + 1) * u, h: (SWATCH.h + 1) * u } : { x, y: y + h / 2 - SWATCH.h * u / 2, w: sw, h: SWATCH.h * u };
+    const row = { key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, x, y, w: colW, h, sw: tall, caption };
     y += h + 5 * u;
     return row;
   });
@@ -2167,10 +2226,22 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
           if (fits(r)) { shapes[shapes.indexOf(key)] = key = narrow; under = r; }
         }
         const kw = key.w * s, kh = key.h * s, by = Math.max(0, c.x + c.w + 32 + kw - (W - M)), beside = { x: c.x - by + c.w + 32, y: c.y + c.h - kh, w: kw, h: kh };
+        // Or any room the sheet has clear of the chart, its corners first, lowest and rightmost before the rest: so a Key moves clear of what grows, before the chart falls.
+        const clearOf = () => {
+          const xs = [...new Set([W - M - kw, M, ...withFree.flatMap(q => [q.x + q.w + 21, q.x - 21 - kw])])].filter(x => x >= M - 0.5 && x + kw <= W - M + 0.5);
+          const ys = [...new Set([H - M - kh, ...withFree.map(q => q.y + q.h + 21)])].filter(v => v >= y + 8 && v + kh <= H - M + 0.5).sort((a, b) => b - a);
+          for (const v of ys) for (const x of xs) { const q = { x, y: v, w: kw, h: kh }; if (!withFree.some(o => meets(o, q, 21))) return q; }
+          return null;
+        };
         if (fits(under) || force) places.set(key.row, under);
         else if (kh <= c.h && c.x - by >= M - 0.5 && (!placed || !by) && fits(beside)) { dx -= by / s; places.set(key.row, beside); }
-        else if (over) places.set(key.row, keptAt ? { ...keptAt, w: kw, h: kh } : r);
-        else return null;
+        else {
+          const clear = clearOf();
+          if (clear) places.set(key.row, clear);
+          // (A Key goes over what a hand put, rather than the scale fall for that; never over what the layout places.)
+          else if (over && !own.some(q => meets(q, keptAt ? { ...keptAt, w: kw, h: kh } : r, 8))) places.set(key.row, keptAt ? { ...keptAt, w: kw, h: kh } : r);
+          else return null;
+        }
         alongside = places.get(key.row);
       }
     }
@@ -2272,7 +2343,7 @@ function says(scene, name, paper) {
 
 return {
   of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  toSlide, fromSlide, says, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
+  toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();
