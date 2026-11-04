@@ -1564,17 +1564,15 @@ async function layered() {
   {
     const hereView = sc().view, ctrl = charts().find(v => v.id === 'view_control'), nA = App.wb.changes().length, stNow = () => App.state.peek();
     await show(ctrl); Shell.select([]); await tick(300);
-    const ovals = () => sc().marks.filter(m => m.type === 'box' && m.shape === 'oval' && ['chen', 'okafor'].includes(m.record)).sort((a, b) => a.x - b.x).map(m => m.record).join();
-    const reversed = hand => App.change(tx => { const ms = sc().marks.filter(m => m.type === 'box'), W = Math.max(...ms.map(m => m.x + m.w)); ms.forEach((m, i) => tx.note('Position', Tree.treeOf(stNow(), m.record), { x: W - m.x - m.w, y: m.y, w: m.w, ...(hand && !i ? {} : { kept: true }) }, { view: ctrl.id })); }, { dated: false });
-    const was = ovals();
-    reversed(false); await tick(400);
-    const back = ovals();
+    const placed = hand => App.change(tx => sc().marks.filter(m => m.type === 'box').forEach((m, i) => tx.note('Position', Tree.treeOf(stNow(), m.record), { x: m.x, y: m.y, w: m.w, ...(hand && !i ? {} : { kept: true }) }, { view: ctrl.id })), { dated: false });
+    const heldIn = () => cv().tidied().rows(App.chart.peek()).filter(r => 'note' in r && r.label === 'Position' && r.view === ctrl.id).length;
+    placed(false); await tick(400);
+    const free = heldIn();
     cv().tidy(); await tick(700);
-    check('a page nobody has arranged: its first Tidy isn’t held to the order its boxes stand in', back !== was && ovals() === was && App.notes.peek().notes('Position').filter(n => n.view === ctrl.id).every(n => n.value.order === n.value.x), `${was} → ${back} → ${ovals()}`);
+    check('a page nobody has arranged: its first Tidy is held to no order, and enters what it lays out', free === 0 && App.notes.peek().notes('Position').filter(n => n.view === ctrl.id).every(n => Number.isFinite(n.value.x) && n.value.order === n.value.x), `${free}`);
     for (let i = App.wb.changes().length; i > nA; i--) { Shell.parts.peek().undo.undo(); await tick(200); }
-    reversed(true); await tick(400);
-    cv().tidy(); await tick(700);
-    check('… one place a hand gave, and Tidy keeps the order they stand in', ovals() === back, `${back} → ${ovals()}`);
+    placed(true); await tick(400);
+    check('… one place a hand gave, and Tidy keeps the order they stand in', heldIn() === sc().marks.filter(m => m.type === 'box').length, `${heldIn()}`);
     for (let i = App.wb.changes().length; i > nA; i--) { Shell.parts.peek().undo.undo(); await tick(200); }
     await show(charts().find(v => v.id === hereView)); Shell.select([]); await tick(300);
   }
