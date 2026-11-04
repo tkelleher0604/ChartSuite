@@ -170,11 +170,11 @@ const App = (() => {
   }
   // A chart with nothing to draw on the day shown, every box of it not yet formed, opens on the first day it has one: a fund
   // about to be formed is a chart worth drawing. Only for this window, as a day picked is, and only till the user asks for today.
-  const nothingDrawn = () => { const s = scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
+  const nothingDrawn = () => { const s = typeof Scene !== 'undefined' && scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
   const keptToday = new Set();
   const firstDrawn = () => shown.peek().rows(chart.peek()).filter(r => r.kind && r.kind !== 'View').map(r => heldFrom(r.record)).filter(Boolean).sort()[0] ?? null;
   Shell.ready.then(() => effect(() => {
-    if (!scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn()) return;
+    if (typeof Scene === 'undefined' || !scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn()) return;
     keptToday.add(chart.peek());
     const d = firstDrawn();
     if (d) queueMicrotask(() => Shell.at({ asOf: d }));
