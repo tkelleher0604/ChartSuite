@@ -2105,13 +2105,13 @@ function mount(el) {
     const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0, view = viewOf(), all = scene.marks.filter(m => m.geometry !== 'group'), them = new Set(ms.map(m => m.id));
     const up = how === 'front' || how === 'forward', at = m => all.indexOf(m), rest = all.filter(m => !them.has(m.id));
     const past = up ? rest.filter(o => ms.some(m => at(o) > at(m))) : rest.filter(o => ms.some(m => at(o) < at(m)));
-    const rectOf = m => m.points ? (({ x0, y0, x1, y1 }) => ({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }))({ x0: Math.min(...m.points.map(p => p[0])), y0: Math.min(...m.points.map(p => p[1])), x1: Math.max(...m.points.map(p => p[0])), y1: Math.max(...m.points.map(p => p[1])) }) : m;
+    const rectOf = m => m.points ? extent([m]) : m;
     const meets = (a, b) => { const [p, q] = [rectOf(a), rectOf(b)]; return p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h; };
     if (!past.length) return Shell.toast(up ? 'Already at the front' : 'Already at the back', { ms: 2500 });
     const top = Math.max(...all.map(layer)), bottom = Math.min(...all.map(layer));
     // (Forward and backward go past the next it overlaps, or the next there is: a layer's a layer, so what's level is gone past by one.)
     const near = past.filter(o => ms.some(m => meets(o, m))), by = up ? Math.min(...(near.length ? near : past).map(layer)) : Math.max(...(near.length ? near : past).map(layer));
-    const said = `${how === 'front' ? 'Brought' : how === 'back' ? 'Sent' : how === 'forward' ? 'Brought' : 'Sent'} ${ms.length === 1 ? called(ms[0]) : `${ms.length} items`} ${how === 'front' ? 'to front' : how === 'back' ? 'to back' : how === 'forward' ? 'forward' : 'backward'}`;
+    const said = `${up ? 'Brought' : 'Sent'} ${ms.length === 1 ? called(ms[0]) : `${ms.length} items`} ${{ front: 'to front', back: 'to back', forward: 'forward', backward: 'backward' }[how]}`;
     App.change(tx => {
       for (const m of ms) {
         const v = how === 'front' ? top + 1 : how === 'back' ? bottom - 1 : up ? Math.max(layer(m), by) + 1 : Math.min(layer(m), by) - 1;

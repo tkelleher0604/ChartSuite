@@ -1413,6 +1413,11 @@ async function reloaded() {
   check('… and before it comes, the line that skips it runs straight through its empty place', !!skip && (skip.points.length === 2 || new Set(skip.points.slice(-2).map(p => Math.round(p[0]))).size === 1) && skip.points.at(-1)[1] - skip.points.at(-2)[1] > h.h, JSON.stringify(skip?.points));
   const off2 = await sameAsFresh();
   check('… and each day draws what a page opened on the log draws', !off2.length, off2.join());
+  // A new chart's first layout (gui3 N-6.7) has no stray rectangle of lines round its top row: no line runs over the boxes it leaves.
+  await on(D[1]);
+  const whole = App.addView('Whole'); Shell.show(whole); await until(() => sc()?.view === whole); await tick(300);
+  const tops = App.scene.peek().marks.filter(m => m.type === 'box'), top = Math.min(...tops.map(m => m.y)), over = App.scene.peek().marks.filter(m => m.type === 'line' && m.points.some(p => p[1] < top - 1)).map(m => m.id);
+  check('a new chart’s first layout runs no line round its top row', !over.length, over.join());
   frame.remove();
   Shell.at(null); await show(charts()[0]); Shell.select([]); await tick(150);
 }
@@ -1475,6 +1480,22 @@ async function layered() {
   check('Bring to front brings it over everything', order().at(-1) === band || before('blocker', band), order().slice(-3).join());
   for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
   check('(undone)', !sc().byId.has(band));
+  Shell.select([]); await tick(150);
+  // The Key dropped on a box (gui3 P-31): Export says so; and no line runs under it where its way round isn't long.
+  const key = sc().marks.find(m => m.geometry === 'legend'), n2 = App.wb.changes().length, target = sc().byId.get('northpine');
+  if (key) {
+    App.change(tx => tx.update(key.id, { x: target.x - 10, y: target.y - 6 }), { dated: false }); await tick(350);
+    check('a Key dropped on a box warns on Export', Scene.cautions(sc()).some(w => /^The Key covers /.test(w) && /Northpine/.test(w)), JSON.stringify(Scene.cautions(sc())));
+    const k = sc().marks.find(m => m.geometry === 'legend'), under = sc().marks.filter(m => m.type === 'line' && m.points.slice(1).some((p, i) => { const q = m.points[i]; return Math.max(p[0], q[0]) > k.x + 1 && Math.min(p[0], q[0]) < k.x + k.w - 1 && Math.max(p[1], q[1]) > k.y + 1 && Math.min(p[1], q[1]) < k.y + k.h - 1 && m.from !== 'northpine' && m.to !== 'northpine'; }));
+    check('… and a line goes round it where its way isn’t long', under.length <= 3, under.map(m => m.id).join());
+    for (let i = App.wb.changes().length; i > n2; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  }
+  // A percentage clear of an arrowhead (gui3 P-16).
+  const n3 = App.wb.changes().length, own = sc().byId.get('own_blkr_hlvd') ?? sc().marks.find(m => m.type === 'line' && m.labelAt && m.points.length === 2), base = own.labelAt.x - own.points.at(-1)[0];
+  App.change(tx => tx.note('Arrow', Tree.treeOf(App.state.peek(), own.record), 'end', { view: sc().view }), { dated: false }); await tick(350);
+  const tipped = sc().byId.get(own.id), clear = tipped.labelAt.x - tipped.points.at(-1)[0];
+  check('a percentage stands clear of an arrowhead', clear > base + 3 && clear >= 7, `${base} → ${clear}`);
+  for (let i = App.wb.changes().length; i > n3; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
   Shell.select([]); await tick(150);
 }
 
