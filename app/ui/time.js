@@ -358,7 +358,8 @@ const Time = (() => {
     const lineAt = id => { const seen = new Set(), up = [id]; for (const x of up) { if (seen.has(x)) continue; seen.add(x); if (saidAt.has(x)) return saidAt.get(x); up.push(...Tree.argsOf(recs[x] ?? {}).map(a => a.at)); } return null; };
     for (const i of later) {
       const r = rec(i);
-      if (i.type === 'record') under(lineAt(i.id) ?? lines[0], ofRecord(i), changedFrom(i, r));
+      // (What's made is said by its name, which needn't be said again.)
+      if (i.type === 'record') { if (!(moved.has(r.at) && Tree.same(r.edge ?? '', 'Name'))) under(lineAt(i.id) ?? lines[0], ofRecord(i), changedFrom(i, r)); }
       else if (i.type === 'note') under(lineAt([...Tree.idsIn(r.pattern)].find(id => moved.has(id)) ?? r.view) ?? lines[0], ofNote(i), noteFrom(i, r));
       else under(lineAt(r.view) ?? lines[0], shapePhrase(i, r, recs, N, back));
     }
@@ -625,9 +626,11 @@ const Time = (() => {
   const KINDS = [['all', 'All kinds'], ['records', 'Records'], ['rules', 'Rules'], ['looks', 'Looks and layout']];
   // Which kinds of change a change holds: records, what they are (a definition, a requirement, a name at no view) or how a
   // view draws them; what it keeps where it's drawn is none. The schema's own rows go with what they came with.
-  const RULES = new Set(['Formula', 'Required', 'Check', 'Start', 'End', 'Description', 'Name', 'Order']);
+  const RULES = new Set(['Formula', 'Required', 'Check', 'Start', 'End', 'Description', 'Name', 'Order']), kindsKept = new WeakMap();
   function kindsOf(c) {
+    if (kindsKept.has(c)) return kindsKept.get(c);
     const { rows } = ever.peek(), out = new Set();
+    kindsKept.set(c, out);
     let spec = false;
     for (const r of [...c.adds, ...c.removes.map(id => rows.get(id)).filter(Boolean)]) {
       if ('spec' in r) spec = true;
@@ -817,12 +820,12 @@ const Time = (() => {
         <div class="menu-seg">${[['all', 'Changes'], ['deleted', 'Deleted']].map(([x, label]) => html`<button aria-pressed=${m === x} onClick=${() => { mode.value = x; }}>${label}</button>`)}</div>
         <button class="btn icon" aria-label="Close" data-tip="Close" data-keys="Esc" onClick=${close}>${Shell.icon('x')}</button>
       </div>
-      <div class="hist-filter">
+      ${m === 'all' || of.length ? html`<div class="hist-filter">
         ${of.length ? html`<div class="of">Changes to ${of.map(nameOf).join(', ')}</div>` : null}
         <div class="by">${m === 'all' ? html`<button class="btn ghost dd" aria-haspopup="menu" onClick=${kinds}>${KINDS.find(([x]) => x === k)[1]}</button>` : null}
           ${selected.length && !of.length ? html`<button class="btn ghost only" onClick=${() => { focus.value = selected; }}>Only ${selected.length === 1 ? nameOf(selected[0]) : `these ${selected.length}`}</button>` : null}
           ${of.length || (k !== 'all' && m === 'all') ? html`<button class="btn every" onClick=${everything}>All changes</button>` : null}</div>
-      </div>
+      </div>` : null}
       <div class="hist-list" ref=${ref}>
         ${m === 'all' ? runs.map(({ undone: cancels, es }) => {
           if (!cancels) return es.map(row);

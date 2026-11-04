@@ -39,8 +39,6 @@ const App = (() => {
   function setViewing(on) {
     modes.value = { ...modes.peek(), [chart.peek()]: on };
     try { sessionStorage.setItem('dendra.modes', JSON.stringify(modes.peek())); } catch {}
-    if (Shell.time.peek()?.stood) return;
-    Shell.toast(on ? 'Viewing: nothing you do here changes the chart' : 'Editing', { ms: 3000 });
   }
   function setOpensViewing(on) {
     store.set(opensKey(chart.peek()), on ? '1' : null);
@@ -1013,6 +1011,10 @@ const App = (() => {
     { id: 'file.download', name: 'Download a copy', run: () => Store.download() },
   ].forEach((a, i) => Shell.register('action', { ...a, menu: 'chart', order: 1 + i }));
   Shell.register('action', { id: 'settings', name: 'Settings', menu: 'chart', order: 20, run: settings });
+  // Editing or Viewing, for Find, by the words it goes by.
+  Shell.register('action', { id: 'mode.viewing', name: 'Viewing', names: ['Read only', 'Read-only', 'View only', 'Lock'], run: () => setViewing(true) });
+  Shell.register('action', { id: 'mode.editing', name: 'Editing', names: ['Edit', 'Unlock'], run: () => setViewing(false) });
+  Shell.register('action', { id: 'mode.opens', get name() { return opensViewing.peek() ? 'Open this chart in Editing' : 'Open this chart in Viewing'; }, run: () => setOpensViewing(!opensViewing.peek()) });
   Shell.register('action', { id: 'chart.new', name: 'New chart', run: newChart });
   Shell.register('action', { id: 'file.new', name: 'New workbook', run: blank });
 

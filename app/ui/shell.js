@@ -22,9 +22,10 @@
 //                  id or null, menu(id) → items }          the sheet tabs           (app.js)
 //   'workbook'   { charts() → [{ id, name }], current() → id, open(id), rename(id, name), menu() → items }
 //                  the chart menu, and the chart's name in the title bar, renamed there (app.js)
-//   'undo'       { undo(), redo(), canUndo(), canRedo() }                                    (app.js)
-//   'time'       { When({ close }), Ruler(), today() }   the date's popover, the ruler under the view, and
-//                back to today from another day or the past                                  (time.js)
+//   'undo'       { undo(), redo(), canUndo(), canRedo(), steps() → the words of what Undo takes back, the latest first,
+//                undoTo(n) }                                                                 (app.js)
+//   'time'       { When({ close }), Ruler(), Band(), today() }   the date's popover, the ruler under the view, the band
+//                across it as it stood, and back to today from another day or the past       (time.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order?, names? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
@@ -45,7 +46,9 @@
 // Anything else one part asks of another is a call: FormulaBar.preview(change), App.change(fn), Canvas.zoom.
 // Shell.ready and Shell.launched are promises: the window is drawn; the launch screen is gone.
 //
-// APP (app.js) is the workbook: App.wb; signals version, day, readOnly (in History); computed chart (the one the
+// APP (app.js) is the workbook: App.wb; signals version, day, readOnly (in History, or Viewing), viewing, set by
+// App.setViewing(on), and opensViewing, by App.setOpensViewing(on); App.whyNot(), why it can't be changed now, in words;
+// computed chart (the one the
 // view shown is of, so the address opens it), shown, entered, schema, notes, definitions, relations, computed
 // (Formulas.computeState's), state, views
 // ([{ id, name, layout, rows, keeps }]), scene (the view shown, drawn), layouts; App.change(fn(tx), { say,
@@ -838,7 +841,8 @@ const Shell = (() => {
   function listOf(kind, anchor) {
     if (!anchor) return;
     const say = part('needs'), within = signal(30);
-    const of = () => (kind === 'soon' && within.value !== 30 ? many('attention').flatMap(a => a.within?.(within.value) ?? []).filter(it => it.kind === 'soon') : needs().filter(it => it.kind === kind)).map(it => {
+    const dated = it => App.state.peek()[it.id]?.value ?? '';
+    const of = () => (kind === 'soon' && within.value !== 30 ? many('attention').flatMap(a => a.within?.(within.value) ?? []) : needs().filter(it => it.kind === kind)).sort((a, b) => kind === 'soon' || kind === 'overdue' ? String(dated(a)).localeCompare(String(dated(b))) : 0).map(it => {
       const w = say?.(it) ?? { what: '', where: '', figure: '' };
       return { w, label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go };
     });
