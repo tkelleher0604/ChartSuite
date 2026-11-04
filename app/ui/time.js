@@ -1025,7 +1025,8 @@ const Time = (() => {
   // A rule's changes, the last last, for its page: what's said at its pattern, or any wider it goes by (`keys`, Tree.key's), as its
   // own History lists them. Each { change, who, when, reasons, fx }, fx what it did as worked out, asked for once it's shown.
   function ruleLog(keys) {
-    const k = new Set(keys), E = ever.value, all = [...entries.value].filter(e => !struck(e) && !e.change.about && !e.change.reverses
+    // (As it stood, what had been said by then.)
+    const k = new Set(keys), E = ever.value, t = Shell.time.value, upto = t?.stood ? t.at ?? E.byId.get(t.stood)?.when : null, all = [...entries.value].filter(e => !struck(e) && !e.change.about && !e.change.reverses && (!upto || e.change.when <= upto)
       && [...e.change.adds, ...e.change.removes.map(id => E.rows.get(id)).filter(Boolean)].some(r => 'note' in r && !r.view && k.has(Tree.key(r.pattern)) && r.label !== 'Order'));
     worked.value;
     return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? headOf(read(e.change, { rule: k })) }));

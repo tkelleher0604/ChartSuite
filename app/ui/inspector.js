@@ -1661,14 +1661,14 @@ const checkRow = (label, on, set) => html`<label class="row chk" key=${label}><s
 // Who last changed a rule, when and why, what it did, and its History: what a regulator asks of it, asked of the rule. Each of its
 // changes is what's said at its pattern (`keys`), the rest of what the change held left out.
 function RuleLog({ keys, name }) {
-  const log = Time.ruleLog(keys), last = log.at(-1), [typing, setTyping] = useState(false), still = App.viewing.value;
+  const log = Time.ruleLog(keys), last = log.at(-1), [typing, setTyping] = useState(false), still = App.readOnly.value;
   useLayoutEffect(() => { if (last && !last.fx) Time.ask(last.change); }, [last?.change.id]);
   if (!last) return null;
   const say = e => { if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); } else if (e.key === 'Enter') { e.preventDefault(); const text = e.target.value; setTyping(false); App.annotate(last.change.id, text); } };
   return html`<div class="rule-log">
     <p class="who"><span class="what">${last.head}</span> · ${last.who} · ${whenTyped(last.when)}</p>
     ${last.reasons.map(r => html`<p class="why">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(T.isoOf(new Date(r.when)))}</span>`}</p>`)}
-    ${last.fx?.said ? html`<p class="did">${last.fx.said}</p>` : null}
+    ${last.fx?.said ? html`<p class="did" title=${last.fx.said}>${last.fx.said}</p>` : null}
     ${typing ? html`<label class="why-in"><span>Why</span><input class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onKeyDown=${say} onBlur=${() => setTyping(false)} /></label>`
       : html`<p class="acts">${still ? null : html`<button class="lk why-add" onClick=${() => setTyping(true)}>Why…</button>`}<button class="lk" onClick=${() => Time.ofRule(keys, name)}>History</button></p>`}
   </div>`;

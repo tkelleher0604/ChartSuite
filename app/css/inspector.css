@@ -366,7 +366,7 @@ button.st-n:hover { text-decoration: underline; text-underline-offset: 3px; }
 .rule-log > .who > .what { color: var(--ink); }
 .rule-log > .why { color: var(--ink); }
 .rule-log > .why > .by { color: var(--ink-3); }
-.rule-log > .did { color: var(--ink-2); }
+.rule-log > .did { color: var(--ink-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .rule-log > .acts { display: flex; gap: 12px; }
 .rule-log .lk, .typedover > .lk, .rows .to-rule { border: 0; padding: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 .rows .to-rule { margin-left: 8px; font: var(--t12); }
