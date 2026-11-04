@@ -8,7 +8,7 @@
 .grid .tabulator .tabulator-tableholder .tabulator-table { min-width: 100%; }   /* rows to the edge, whatever the columns */
 .grid .tabulator .tabulator-tableholder:focus-visible { outline: none; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
-.grid .tabulator .tabulator-header .tabulator-col { background: var(--paper); border-right-color: var(--rule); cursor: grab; }
+.grid .tabulator .tabulator-header .tabulator-col { min-height: var(--heading, 0); background: var(--paper); border-right-color: var(--rule); cursor: grab; }
 .grid .tabulator .tabulator-header .tabulator-col:active { cursor: grabbing; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 4px 8px; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 26px; }
@@ -79,7 +79,8 @@
 .grid .tabulator-row .tabulator-cell.pin.tabulator-range-selected:not(.tabulator-range-only-cell-selected) { background: var(--selected); }
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A name longer than half the grid goes on to another line rather than be cut (table.js). */
-.grid .tabulator-row .tabulator-cell.lead { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.grid .tabulator-row .tabulator-cell.lead, .grid .tabulator-row .tabulator-cell.c-why { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.grid .tabulator-row .tabulator-cell .na { color: var(--ink-3); font-style: normal; }
 /* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does; swiped on past its
    edge, it stays, rather than the window going back a view. */
 .grid .tabulator .tabulator-tableholder { scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
@@ -215,6 +216,8 @@
 .cols { display: grid; grid-template-columns: minmax(0, 1fr); width: 320px; margin: -8px; }
 .cols > .cols-list { display: grid; grid-template-columns: minmax(0, 1fr); max-height: min(440px, calc(100vh - 200px)); overflow: auto; padding: 4px 0; }
 .cols > .col-find { margin: 4px 4px 0; }
+.cols > .col-all { display: flex; gap: 4px; margin: 4px 4px 0; }
+.colrow > label .up { color: var(--ink-3); }
 .colrow { position: relative; min-width: 0; display: flex; align-items: center; gap: 4px; min-height: var(--row); padding: 0 8px 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--ink); text-align: left; user-select: none; }
 .colrow.mv:hover { background: var(--hover); }
 .colrow > .colgrip { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--ink-3); opacity: 0; }

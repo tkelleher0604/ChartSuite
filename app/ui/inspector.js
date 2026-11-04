@@ -120,8 +120,10 @@ function slots(at, all) {
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
-  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
-  const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
+  // A tag its rule hasn't tested here says so, apart from no (dendra.md, Definitions: Not tested).
+  const untested = App.definitions.value.filter(d => d.type === 'tag' && !d.edges && Formulas.silence(N(), App.schema.value, r, at, d.name) === 'untested' && ![...errors, ...blanks].some(x => T.same(x.edge, d.name))).map(d => slot(d.name, { at, na: true }));
+  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks, ...untested].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
+  const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...untested, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));
   // Offered, the first not yet given, blank or not, is typed into at once.
   const first = all && out.find(x => x.open || x.blank);
@@ -495,6 +497,7 @@ const boxed = id => 'tag' in recs()[id] && !disagreeing.value.get(id);
 
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
+  if (slot?.na) return html`<span class="na" data-tip="Not tested: its rule doesn’t apply here">n/a</span>`;
   // An error where the value would be: what it needs, in words ("Needs Fiscal Year End"), its code on hover;
   // with no words, its code, in red. Clicked, the bar says why.
   if (slot?.error) { const { code, msg } = slot.error.error, say = msg?.replace(/\.$/, '');
@@ -646,7 +649,7 @@ const fields = () => charted() ? Canvas.active.peek()?.fields : null;
 // pointed at and clicked, as it may have been chosen since.
 function OnChart({ it, at }) {
   const c = charted() ? Canvas.active.value : null, host = c && hostIn(at), [pointed, setPointed] = useState(null);
-  if (!host || !c || App.readOnly.value || it.error) return null;
+  if (!host || !c || App.readOnly.value || it.error || it.na) return null;
   App.scene.value; Shell.selection.value;
   const state = () => { const s = Canvas.scope(); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : [...s.marks].every(id => { const x = alikeIn(host, at, id); return !!x && c.fields.shown(id, it.edge, x); }) }; };
   const { s, on } = pointed ?? state();
@@ -702,7 +705,7 @@ function copied(e, it, at) {
 // two-box panel draws one; its entries beneath it. Pointed at, its field on the chart lights, and the other way round.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
-  const tag = r ? boxed(it.id) : !it.error && kindAt(tree(at), it.edge).type === 'tag', day = ending(at, it.edge), end = day !== r?.value ? day : null;
+  const tag = r ? boxed(it.id) : it.na || (!it.error && kindAt(tree(at), it.edge).type === 'tag'), day = ending(at, it.edge), end = day !== r?.value ? day : null;
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
   // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it onto the chart.
   const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); carry(e, it); };
@@ -865,6 +868,8 @@ function notText(it, held) {
     : `${says} ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
 }
 
+// A list a formula gives can be opened as a table, of its relation's rows and why each holds (Table.openList).
+const asTable = () => typeof Table !== 'undefined';
 // A document linked to a record, from its Documents section's +: an object's by a link; a relation's (an ownership, a position)
 // by the relation it's evidenced by, one the chart has, or a new one named as it's typed, as a list's Add asks who.
 const docList = id => recs()[id].args ? listsOf(id, true)[0] ?? null : null;
@@ -923,6 +928,7 @@ function Relatives({ id }) {
   // A list a formula gives is folded where it's long; a short answer (a fund's Controllers) shows.
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${counted(items)}
       cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${items.map(item)}
+      ${worked(items) && asTable() ? html`<button class="lk as-table" onClick=${() => Table.openList(name, items[0].rid, id)}>Open ${name} as a table</button>` : null}
       ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t…</button></div>` : null}</${Section}>`)}
     ${docs.length || typing || docList(id) ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
       ${docs.map(docRow)}
@@ -1684,6 +1690,12 @@ Shell.register('find', { items: () => {
         s?.querySelector('.sect .btn.icon')?.click();
       }, 150);
     } }));
+} });
+// Each list a formula gives the selected record, as a table with why each holds.
+Shell.register('find', { items: () => {
+  const id = theOne();
+  if (!id || !asTable() || !recs()[id].kind) return [];
+  return relatives(id).lists.filter(([, items]) => items.every(it => fx(it.rid))).map(([list, items]) => ({ label: `Open ${list} as a table`, detail: 'Action', names: [`${list} table`, 'As a table', `Why ${list}`], run: () => Table.openList(list, items[0].rid, id) }));
 } });
 // Find reaches every record by its name, and every list of relatives by whose it is (AIV-1 › Signatories). They're the
 // same while the state and the notes stand, so they're found once, not at each key typed; and found ahead, an object
