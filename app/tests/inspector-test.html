@@ -601,6 +601,8 @@ async function run() {
   await findIn('Northwind Holdings LLC');
   const offeredTo = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
   check('… a name typed offers a new one, of each kind that side takes', offeredTo.includes('New Entity: Northwind Holdings LLC') && offeredTo.includes('New Investor Group: Northwind Holdings LLC'), offeredTo.join(' | '));
+  const firstKind = name => App.newKinds(['Investor Group', 'Individual', 'Entity'], name)[0];
+  check('… in one order, the one a name says first: a person’s, Individual; any other as it was', firstKind('Elena Vasquez') === 'Individual' && firstKind('J. R. Okafor') === 'Individual' && firstKind('Harbor University Endowment') === 'Entity' && firstKind('Northwind Holdings LLC') === 'Entity' && firstKind('northwind') === 'Entity' && firstKind('Vasquez') === 'Entity', ['Elena Vasquez', 'J. R. Okafor', 'Harbor University Endowment'].map(firstKind).join());
   await pick('New Entity: Northwind Holdings LLC'); await tick(80);
   const red = FormulaBar.pending.peek()?.change.records ?? {}, newLine = Object.keys(red).find(k => red[k]?.args?.some(a => a.at === 'halvard'));
   check('… picked, it’s redlined: the old line going, the new owner and its line coming, with all 82%; the panel struck; the keys on to how much',

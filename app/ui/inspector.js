@@ -624,8 +624,8 @@ function whoFor(id, l, q) {
     out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), rank: recs()[b].args && !App.transferable(b)?.amount ? 1 : 0, run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
-  // The kinds a new one can be, in one order, as Insert offers them, so the top of the list is where it was.
-  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()].sort((a, b) => a.sl.loc.kind.localeCompare(b.sl.loc.kind)), named = T.clean(q ?? '');
+  // The kinds a new one can be, in one order, as Insert offers them, the one its name says first.
+  const named = T.clean(q ?? ''), kinds = App.newKinds([...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()], named, w => w.sl.loc.kind);
   if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.map(w => ({ label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) })));
   return out;
 }

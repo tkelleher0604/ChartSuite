@@ -749,9 +749,17 @@ const App = (() => {
       .sort((x, y) => order(x) - order(y) || recs[x].edge.localeCompare(recs[y].edge))[0] ?? null;
     return { first, rest: r.args.filter(a => a !== first), amount };
   }
+  // A name that reads as a person's: two to four words, each capitalized or an initial, none a word a firm's name has.
+  const FIRM = /\b(fund|funds|capital|partners?|holdings?|holdco|trust|group|investors?|compan(y|ies)|co|corp|corporation|inc|incorporated|llc|lp|llp|ltd|limited|plc|gmbh|ag|sa|bv|sarl|pte|foundation|endowment|university|college|school|bank|management|advis[eo]rs?|services|associates|ventures|equity|pension|retirement|system|plan|family|estate|blocker|feeder|gp|software|logistics|industries|international|global|committee|board|office)\b/i;
+  const readsAsPerson = name => { const w = Tree.clean(name).split(' '); return w.length > 1 && w.length < 5 && w.every(x => /^\p{Lu}[\p{L}’'.-]*$/u.test(x)) && !FIRM.test(w.join(' ').replace(/\./g, '')); };
+  // The kinds a new one can be, in one order, so the top of a list is where it was, the one its name says first (dendra.md, Part 2).
+  const newKinds = (kinds, name, of = k => k) => {
+    const person = readsAsPerson(name), first = k => (person && /^(individual|person|natural person)$/i.test(of(k)) ? 0 : 1);
+    return [...kinds].sort((a, b) => first(a) - first(b) || of(a).localeCompare(of(b)));
+  };
   // Who it can go to, by what's typed: each record the chart has that fits its first side where its other side fits as
   // it is, by name, but the one it's from and the one it's of; and the kinds a new one can be, named as it's typed,
-  // those the chart draws most first, as Insert offers them.
+  // in that order, as a list's Add offers them.
   function takers(rid, q, base = null) {
     const recs = base ?? state.peek(), r = recs[rid], tr = r && transferable(rid, base ?? entered.peek());
     if (!tr) return { found: [], kinds: [] };
@@ -770,8 +778,7 @@ const App = (() => {
       seen.add(b);
       found.push({ at: x, name: names[0], short: names[1], kind: recs[b].kind });
     }
-    const drawn = typeof Canvas !== 'undefined' && Canvas.kinds ? Canvas.kinds().map(Tree.norm) : [], rank = k => { const i = drawn.indexOf(Tree.norm(k)); return i < 0 ? Infinity : i; };
-    const kinds = [...new Set(ways.map(w => w.mine.loc).filter(l => l.kind && !l.args).map(l => l.kind))].sort((a, b) => rank(a) - rank(b));
+    const kinds = newKinds(new Set(ways.map(w => w.mine.loc).filter(l => l.kind && !l.args).map(l => l.kind)), q);
     // A name typed whole first, then those it begins, then the rest, each by name.
     const near = f => [f.name, f.short].some(s => Tree.same(s, q ?? '')) ? 0 : [f.name, f.short].some(s => Tree.norm(s).startsWith(words)) ? 1 : 2;
     return { found: found.sort((a, b) => near(a) - near(b) || a.name.localeCompare(b.name)), kinds };
@@ -1555,7 +1562,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
   };
 })();
