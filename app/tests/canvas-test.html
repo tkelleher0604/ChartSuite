@@ -2437,6 +2437,14 @@ async function format() {
   Shell.select(['northpine']); await tick(200);
   const handle = () => $('.dc-over > .dc-adjust');
   check('a rounded shape selected shows its corner handle', !!handle() && sc().byId.get('northpine').shape === 'rounded');
+  // A redline that moves the box takes the handle with it, and back.
+  const handleAt = () => [parseFloat(handle().style.left), parseFloat(handle().style.top)], handleWas = handleAt(), nowState = App.state.peek();
+  const without = Object.fromEntries(Object.entries(nowState).filter(([, r]) => !r.args?.some(a => a.at === 'northpine')));
+  cv().redline({ appear: [], go: [], changed: {}, records: without }); await tick(300);
+  const inRed = cv().scene().byId.get('northpine'), handleRed = handleAt(), redAt = cv().graph.localToGraph(inRed.x + Math.min(50, inRed.settings.Corner.value) / 100 * Math.min(inRed.w, inRed.h), inRed.y);
+  check('a redline moving a selected rounded box takes its handle along', (handleRed[0] !== handleWas[0] || handleRed[1] !== handleWas[1]) && Math.abs(handleRed[0] - redAt.x) < 1 && Math.abs(handleRed[1] - redAt.y) < 1, `${handleWas} ${handleRed} ${redAt.x},${redAt.y}`);
+  cv().redline(null); await tick(300);
+  check('… and it comes back with the box', handleAt().join() === handleWas.join(), `${handleAt()} ${handleWas}`);
   const hr = handle().getBoundingClientRect(), hx = hr.left + hr.width / 2, hy = hr.top + hr.height / 2, opts = o => ({ bubbles: true, cancelable: true, pointerId: 1, button: 0, ...o });
   handle().setPointerCapture = () => {};
   const ownCorner = () => sc().byId.get('northpine').settings.Corner;

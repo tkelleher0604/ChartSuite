@@ -555,6 +555,8 @@ function mount(el) {
     seek();
     // A field's name said on hover goes as the chart is drawn again, which may have moved it.
     tipFor(null);
+    // (What's over a mark goes where it's drawn, a preview's or the chart's: the rounding handle, see FormatBar.)
+    graph.trigger('drawn');
   }
   // The graph's cells made these. Each is kept by what it's drawn from, in two parts, where it is (a node's
   // place, size and stacking, a line's route) and what it is (its markup, attributes and data): one that only

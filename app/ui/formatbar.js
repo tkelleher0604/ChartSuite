@@ -1029,7 +1029,10 @@ const opener = {
 
 // ---- A rounded shape's corner handle, PowerPoint's: yellow, on its top edge where its corner ends, dragged along it ----
 
+let adjusting = false;
 function cornerHandles() {
+  // (Not the one in a hand, whose preview draws the chart as it goes.)
+  if (adjusting) return;
   const c = Canvas.active.peek(), over = c?.root.querySelector('.dc-over');
   over?.querySelectorAll('.dc-adjust').forEach(el => el.remove());
   if (!c?.scene() || App.readOnly.peek() || Shell.wide.peek()) return;
@@ -1044,9 +1047,11 @@ function cornerHandles() {
       if (e.button !== 0) return;
       e.preventDefault(); e.stopPropagation();
       el.setPointerCapture(e.pointerId);
+      adjusting = true;
+      el.addEventListener('lostpointercapture', () => { adjusting = false; }, { once: true });
       let v = corner;
       const move = ev => { v = Math.round(Math.min(50, Math.max(0, (c.graph.clientToLocal(ev.clientX, ev.clientY).x - m.x) / s * 100))); place(v); preview('Corner', v); };
-      const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); if (Math.round(corner) !== v) apply('Corner', v); else preview(); };
+      const up = () => { adjusting = false; el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); if (Math.round(corner) !== v) apply('Corner', v); else preview(); };
       el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
     });
   }
@@ -1358,7 +1363,7 @@ function mount(el) {
   const stopCue = effect(() => { chosen.value; aimed.value; Shell.selection.value; App.scene.value; if (Canvas.active.value) queueMicrotask(() => cue()); });
   // A rounded shape selected has its corner handle, wherever the chart is drawn on screen.
   const stopCorners = effect(() => { App.scene.value; Shell.selection.value; App.readOnly.value; Shell.wide.value; if (Canvas.active.value) requestAnimationFrame(cornerHandles); });
-  const stopFollow = effect(() => { const c = Canvas.active.value; if (!c) return; c.graph.on('scale', cornerHandles); c.graph.on('translate', cornerHandles); return () => { c.graph.off('scale', cornerHandles); c.graph.off('translate', cornerHandles); }; });
+  const stopFollow = effect(() => { const c = Canvas.active.value; if (!c) return; for (const on of ['scale', 'translate', 'drawn']) c.graph.on(on, cornerHandles); return () => { for (const on of ['scale', 'translate', 'drawn']) c.graph.off(on, cornerHandles); }; });
   // The painter armed shows the brush wherever the pointer is on the chart, and a click there pastes.
   document.documentElement.style.setProperty('--brush', pointer('Paintbrush', 3, 20));
   document.documentElement.style.setProperty('--dropper', pointer('Pipette', 2, 22));
