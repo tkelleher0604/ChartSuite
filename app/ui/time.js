@@ -429,7 +429,8 @@ const Time = (() => {
   const ON = { Bold: ['bold', 'not bold'], Italic: ['italic', 'not italic'], Underline: ['underlined', 'not underlined'], Strike: ['struck through', 'not struck through'] };
   function looked(label, v, of) {
     if (ON[label]) return `Made ${of} ${ON[label][v ? 0 : 1]}`;
-    if (label === 'Dash') return `Made the outline of ${of} ${v}`;
+    if (label === 'Dash') return `Made the outline of ${of} ${String(v).replace(/-/g, ' ')}`;
+    if (label === 'Arrowhead') return `Changed the arrowheads of ${of}`;
     const noun = NOUNS[label];
     if (!noun) return `Changed ${label} of ${of}`;
     if (v === 'none') return `Took the ${noun} off ${of}`;

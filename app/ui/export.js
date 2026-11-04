@@ -209,9 +209,13 @@ const g = (x, y, inner) => `<g transform="translate(${n(x)} ${n(y)})">${inner}</
 // page's scale, as the scene drawn sets it).
 let at = 1;
 function body(shape, w, h, s) {
-  const d = Scene.path(shape, w, h, s.Corner), clear = Math.min(100, Math.max(0, s.Transparency ?? 0)), off = 3 * PT * Math.SQRT1_2 / at, soft = 4 * PT / at;
-  const shade = s.Shadow !== 'soft' ? '' : g(off, off, [1, 2 / 3, 1 / 3, 0].map(k => `<path d="${d}" fill="#000000" fill-opacity="0.1"`
-    + (k ? ` stroke="#000000" stroke-opacity="0.1" stroke-width="${n(soft * k)}" stroke-linejoin="round"` : '') + '/>').join(''));
+  const d = Scene.path(shape, w, h, s.Corner), clear = Math.min(100, Math.max(0, s.Transparency ?? 0)), o = Scene.shadowOf(s.Shadow);
+  let shade = '';
+  if (o) {
+    const a = o.angle * Math.PI / 180, dx = o.distance * PT * Math.cos(a) / at, dy = o.distance * PT * Math.sin(a) / at, soft = o.blur * PT / at, each = n((1 - o.transparency / 100) / 4);
+    shade = g(dx, dy, [1, 2 / 3, 1 / 3, 0].map(k => `<path d="${d}" fill="${o.color}" fill-opacity="${each}"`
+      + (k ? ` stroke="${o.color}" stroke-opacity="${each}" stroke-width="${n(soft * k)}" stroke-linejoin="round"` : '') + '/>').join(''));
+  }
   return `${shade}<path d="${d}" fill="${none(s.Fill) ? 'none' : s.Fill}"${clear && !none(s.Fill) ? ` fill-opacity="${n(1 - clear / 100)}"` : ''} ${stroke(s)} stroke-linejoin="miter"/>`;
 }
 // Each line of the texts where the scene put it; an underline and a strikethrough as rules, which every reader draws
@@ -234,13 +238,18 @@ function texts(items, pdf) {
 // block marker).
 function route(points, s, runs = [points]) {
   const out = [`<path d="${runs.map(r => `M${r.map(p => `${n(p[0])},${n(p[1])}`).join(' L')}`).join(' ')}" fill="none" ${stroke(s)} stroke-linejoin="miter"/>`];
-  const w = s.Weight * PT, len = 5 + w * 3, half = (4 + w * 2.4) / 2;
-  const head = ([x, y], [px, py]) => {
-    const d = Math.hypot(x - px, y - py) || 1, ux = (x - px) / d, uy = (y - py) / d, bx = x - ux * len, by = y - uy * len;
-    return `<path d="M${n(x)},${n(y)} L${n(bx - uy * half)},${n(by + ux * half)} L${n(bx + uy * half)},${n(by - ux * half)} Z" fill="${s.Outline}"/>`;
+  const w = s.Weight * PT;
+  // Of its style and size: drawn from its tip back along the line (ux, uy) and across it (-uy, ux).
+  const head = ([x, y], [px, py], h) => {
+    const { len, wide } = Scene.headSize(h, w), half = wide / 2, d = Math.hypot(x - px, y - py) || 1, ux = (x - px) / d, uy = (y - py) / d;
+    const at = (along, across) => `${n(x - ux * along - uy * across)},${n(y - uy * along + ux * across)}`, shape = pts => `M${pts.join(' L')}`;
+    if (h.type === 'open') return `<path d="${shape([at(len, half), at(0, 0), at(len, -half)])}" fill="none" stroke="${s.Outline}" stroke-width="${n(w)}" stroke-linejoin="miter"/>`;
+    if (h.type === 'oval') return `<ellipse cx="${n(x - ux * len / 2)}" cy="${n(y - uy * len / 2)}" rx="${n(len / 2)}" ry="${n(half)}" transform="rotate(${n(Math.atan2(uy, ux) * 180 / Math.PI)} ${n(x - ux * len / 2)} ${n(y - uy * len / 2)})" fill="${s.Outline}"/>`;
+    const pts = h.type === 'stealth' ? [at(0, 0), at(len, half), at(len * 0.75, 0), at(len, -half)] : h.type === 'diamond' ? [at(0, 0), at(len / 2, half), at(len, 0), at(len / 2, -half)] : [at(0, 0), at(len, half), at(len, -half)];
+    return `<path d="${shape(pts)} Z" fill="${s.Outline}"/>`;
   };
-  if (!none(s.Outline) && (s.Arrow === 'end' || s.Arrow === 'both')) out.push(head(points.at(-1), points.at(-2)));
-  if (!none(s.Outline) && (s.Arrow === 'start' || s.Arrow === 'both')) out.push(head(points[0], points[1]));
+  if (!none(s.Outline) && (s.Arrow === 'end' || s.Arrow === 'both')) out.push(head(points.at(-1), points.at(-2), Scene.headOf(s, 'end')));
+  if (!none(s.Outline) && (s.Arrow === 'start' || s.Arrow === 'both')) out.push(head(points[0], points[1], Scene.headOf(s, 'start')));
   return out.join('');
 }
 const FRAME = { stroke: '#595959' };
@@ -259,8 +268,13 @@ function markSvg(m, pdf) {
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
-  if (m.geometry === 'picture') return g(m.x, m.y, `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
-    + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' })));
+  if (m.geometry === 'picture') {
+    // Cropped, the whole of it placed where what's left falls in its frame, clipped to the frame.
+    const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? m.w / (1 - (c.left + c.right) / 100) : m.w, fh = c ? m.h / (1 - (c.top + c.bottom) / 100) : m.h;
+    const image = !c ? `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
+      : `<clipPath id="crop-${esc(m.id)}"><rect width="${n(m.w)}" height="${n(m.h)}"/></clipPath><g clip-path="url(#crop-${esc(m.id)})"><image href="${esc(m.src ?? '')}" x="${n(-fw * c.left / 100)}" y="${n(-fh * c.top / 100)}" width="${n(fw)}" height="${n(fh)}" preserveAspectRatio="none"/></g>`;
+    return g(m.x, m.y, image + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' })));
+  }
   if (m.geometry === 'legend') return g(m.x, m.y, body('rect', m.w, m.h, { ...s, Dash: 'solid' }) + texts(m.texts, pdf)
     + m.rows.map(r => swatch(r.swatch, r.sw) + texts([r.caption], pdf)).join(''));
   return g(m.x, m.y, body(m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry, m.w, m.h, s) + texts(m.texts, pdf));
@@ -311,13 +325,20 @@ async function pdf(scenes, title, author, fonts = PLAIN) {
 // ---- PowerPoint ----
 
 const PRESET = { rect: 'rect', rounded: 'roundRect', oval: 'ellipse', triangle: 'triangle', diamond: 'diamond', hexagon: 'hexagon', octagon: 'octagon',
-  parallelogram: 'parallelogram', trapezoid: 'trapezoid', pentagon: 'pentagon', chevron: 'chevron', arrow: 'rightArrow', cylinder: 'can' };
+  parallelogram: 'parallelogram', trapezoid: 'trapezoid', pentagon: 'pentagon', chevron: 'chevron', arrow: 'rightArrow', cylinder: 'can',
+  rtriangle: 'rtTriangle', snip: 'snip1Rect', snip2: 'snip2SameRect', round1: 'round1Rect', round2: 'round2SameRect', plaque: 'plaque', heptagon: 'heptagon', decagon: 'decagon', dodecagon: 'dodecagon',
+  homeplate: 'homePlate', folded: 'foldedCorner', cube: 'cube' };
 // Each preset's connection sites facing up, left, down and right, as PowerPoint numbers them; where a side
 // has two, the first is the nearer its start.
 const SITES = { rect: [0, 1, 2, 3], rounded: [0, 1, 2, 3], diamond: [0, 1, 2, 3], oval: [0, 2, 4, 6], triangle: [0, 1, 3, 5],
   hexagon: [[4, 5], 3, [2, 1], 0], octagon: [[6, 7], [5, 4], [3, 2], [0, 1]], parallelogram: [0, 5, 4, 2], trapezoid: [0, 1, 2, 3],
-  pentagon: [0, 1, 3, 5], chevron: [0, 1, 2, 3], arrow: [0, 1, 2, 3], cylinder: [1, 2, 3, 4] };
-const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot' };
+  pentagon: [0, 1, 3, 5], chevron: [0, 1, 2, 3], arrow: [0, 1, 2, 3], cylinder: [1, 2, 3, 4],
+  rtriangle: [0, 1, 3, 5], snip: [3, 2, 1, 0], snip2: [3, 2, 1, 0], round1: [3, 2, 1, 0], round2: [3, 2, 1, 0], plaque: [0, 1, 2, 3], heptagon: [6, 4, [3, 2], 1], decagon: [[8, 9], 6, [4, 3], 1],
+  dodecagon: [[10, 11], [8, 7], [5, 4], [1, 2]], homeplate: [0, 1, 2, 3], folded: [0, 1, 2, 3], cube: [0, 2, 3, 5] };
+const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot', 'square-dot': 'sysDash', 'dash-dot': 'dashDot', 'long-dash': 'lgDash', 'long-dash-dot': 'lgDashDot', 'long-dash-dot-dot': 'lgDashDotDot' };
+// A line's end as PowerPoint holds it, by its Arrowhead's style and size.
+const HEAD_TYPE = { triangle: 'triangle', stealth: 'stealth', open: 'arrow', oval: 'oval', diamond: 'diamond' }, HEAD_SIZE = { small: 'sm', medium: 'med', large: 'lg' };
+const headEnd = (tag, h) => `<a:${tag} type="${HEAD_TYPE[h.type] ?? 'triangle'}" w="${HEAD_SIZE[h.size] ?? 'sm'}" len="${HEAD_SIZE[h.size] ?? 'sm'}"/>`;
 const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 // The page's own texts, by the names PowerPoint's Selection Pane gives them; any other shape, as a box is, by
 // what it says.
@@ -415,8 +436,8 @@ const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"
 // A color, as transparent as `clear` (0–100) says.
 const paint = (c, clear = 0) => none(c) ? '<a:noFill/>'
   : `<a:solidFill><a:srgbClr val="${hex(c)}"${clear > 0 ? `><a:alpha val="${Math.round((100 - Math.min(100, clear)) * 1000)}"/></a:srgbClr>` : '/>'}</a:solidFill>`;
-// PowerPoint's soft outer shadow (its preset Offset: Bottom Right): 3 pt below and right, 4 pt blur, black at 40%.
-const SHADOW = '<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="2700000" algn="tl" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw></a:effectLst>';
+// PowerPoint's outer shadow: its blur and distance in EMU on the slide, its direction in 60,000ths of a degree, its color and how opaque.
+const shadowXml = v => { const o = Scene.shadowOf(v); return !o ? '' : `<a:effectLst><a:outerShdw blurRad="${Math.round(o.blur * 12700)}" dist="${Math.round(o.distance * 12700)}" dir="${Math.round(((o.angle % 360) + 360) % 360 * 60000)}" algn="tl" rotWithShape="0"><a:srgbClr val="${hex(o.color)}"><a:alpha val="${Math.round((100 - o.transparency) * 1000)}"/></a:srgbClr></a:outerShdw></a:effectLst>`; };
 // The anchor of a box's text, by its Valign.
 const VALIGN = { top: 't', middle: 'ctr', bottom: 'b' };
 // An outline at its weight on the slide (k times its page's), and its arrowheads.
@@ -432,7 +453,7 @@ function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = 
   // A rounded rectangle's corners, PowerPoint's adjustment of it: their radius in thousandths of its shorter side.
   const adj = geometry === 'rounded' ? `<a:gd name="adj" fmla="val ${Math.round(Math.min(50, Math.max(0, s.Corner ?? Scene.CORNER)) * 1000)}"/>` : '';
   const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}">${adj ? `<a:avLst>${adj}</a:avLst>` : '<a:avLst/>'}</a:prstGeom>`;
-  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${s.Shadow === 'soft' ? SHADOW : ''}</p:spPr>${body}</p:sp>`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${shadowXml(s.Shadow)}</p:spPr>${body}</p:sp>`;
 }
 
 // Lines said as one, as the chart says them: those landing on a frame along one route, the first drawn standing
@@ -531,7 +552,9 @@ function slide(p, scene, { k, ox, oy }, say) {
       });
     } else if (m.geometry === 'line') connector(m.points, s, m.ends ?? null, 'Line');
     else if (m.geometry === 'picture') {
-      if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) } });
+      // Cropped, as PowerPoint holds it: the whole picture's size, and the part of it shown, its frame on the slide.
+      const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? L(m.w) / (1 - (c.left + c.right) / 100) : L(m.w), fh = c ? L(m.h) / (1 - (c.top + c.bottom) / 100) : L(m.h);
+      if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: fw, h: fh, sizing: c ? { type: 'crop', x: fw * c.left / 100, y: fh * c.top / 100, w: L(m.w), h: L(m.h) } : { type: 'contain', w: L(m.w), h: L(m.h) } });
       if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture');
     } else if (m.geometry === 'legend') group(m.title || 'Legend', () => {
       shape(rect(m), 'rect', { ...s, Dash: 'solid' }, m.title || 'Legend');
@@ -572,7 +595,7 @@ function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
   const [x0, y0] = q[0], [x1, y1] = q.at(-1), dx = x1 - x0, dy = y1 - y0, legs = q.length - 1;
   const elbow = s.Connector === 'elbow' && (legs > 1 || !dx || !dy), upright = legs > 1 ? q[1][0] === x0 : elbow && !dx;
   const square = legs === 1 || q.slice(1).every((p, i) => (i % 2 === 0) === upright ? p[0] === q[i][0] : p[1] === q[i][1]);
-  const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? '<a:headEnd type="triangle" w="sm" len="sm"/>' : ''}${['end', 'both'].includes(s.Arrow) ? '<a:tailEnd type="triangle" w="sm" len="sm"/>' : ''}`);
+  const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? headEnd('headEnd', Scene.headOf(s, 'start')) : ''}${['end', 'both'].includes(s.Arrow) ? headEnd('tailEnd', Scene.headOf(s, 'end')) : ''}`);
   const nv = (tag, inner) => `<p:nv${tag}Pr>${cNvPr(id, name || 'Line', alt)}<p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
   if (legs > 4 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
     const x = Math.min(...q.map(p => p[0])), y = Math.min(...q.map(p => p[1])), w = Math.max(...q.map(p => p[0])) - x, h = Math.max(...q.map(p => p[1])) - y;

@@ -5,6 +5,7 @@
 .dc { position: absolute; inset: 0; outline: none; background: var(--side); overflow: hidden; }
 .dc-graph { position: absolute; inset: 0; }
 .dc-graph svg { overflow: visible; }
+.dc-graph svg.dc-crop { overflow: hidden; }
 .dc-over { position: absolute; inset: 0; pointer-events: none; }
 .dc-over > * { pointer-events: auto; }
 
@@ -80,6 +81,10 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc.relating-on .dc-handle { opacity: 1; }
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
+
+/* A rounded shape's corner handle, PowerPoint's yellow; and where a Key's row dragged would go. */
+.dc-over > .dc-adjust { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #ffc600; border: 1px solid #6b5300; box-shadow: 0 0 0 1px #fff; cursor: ew-resize; touch-action: none; }
+.dc-over > .dc-keydrop { position: absolute; height: 2px; margin-top: -1px; background: var(--accent); pointer-events: none; }
 
 /* A box's fields: the text pointer over one, and move over a selected box's own room; one pointed at outlined
    quietly, one selected in the accent, washed; one its inspector row lights, in the accent; a box a row is dragged
@@ -170,6 +175,10 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }
 .dc.dropping, .dc.dropping * { cursor: var(--dropper) !important; }
+/* The eyedropper's own swatch, under the pointer: the color it would take, and its hex. */
+.dc-dropper { position: fixed; left: 0; top: 0; z-index: 2000; display: inline-flex; align-items: center; gap: 6px; padding: 3px 7px 3px 4px; border-radius: var(--r); background: var(--ink); color: var(--surface); font: var(--t12); font-variant-numeric: tabular-nums; pointer-events: none; }
+.dc-dropper[hidden] { display: none; }
+.dc-dropper > i { width: 16px; height: 16px; border-radius: 3px; box-shadow: 0 0 0 1px rgb(255 255 255 / .6); }
 
 /* The font menu: a field that finds, then the chart's own fonts and every font by its class, each name in its own
    face, one not on this computer greyed. */
@@ -185,12 +194,28 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .menu-item.slider { gap: 10px; }
 .menu-item.slider > .label { flex: none; }
 .menu-item.slider > input { flex: 1; min-width: 60px; width: 0; accent-color: var(--accent); }
-.menu-item.slider > output { flex: none; width: 34px; text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* A number typed, with its unit. */
+.typed { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); flex: none; }
+.typed > input { width: 44px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-align: right; }
+.typed > .unit { min-width: 12px; font: var(--t12); }
+.menu-item.withfield { display: flex; align-items: center; gap: 8px; padding: 0; }
+.menu-item.withfield > .sub { flex: 1; min-width: 0; }
+/* The shadow: which way it's thrown, then what it is, each typed. */
+.shadow { display: grid; gap: 2px; }
+.shadow > .k { color: var(--ink-3); font: var(--t12); margin-bottom: 4px; }
+.shadow > .throw { display: grid; grid-template-columns: repeat(3, 40px); gap: 2px; margin-bottom: 4px; }
+.shadow > .throw > button { height: 30px; padding: 0; border: 0; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; place-items: center; }
+.shadow > .throw > button:hover { background: var(--hover); }
+.shadow > .throw > button[aria-pressed="true"] { background: var(--selected); color: var(--accent-ink); }
+.shadow > .menu-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; padding: 0 4px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; border-radius: var(--r); }
+.shadow > .menu-item:is(:hover, :focus-within) { background: var(--hover); }
+.shadow .hex { display: flex; align-items: center; gap: 4px; color: var(--ink-3); }
+.shadow .hex > input { width: 64px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-transform: uppercase; }
+.glyph.sh { width: 22px; height: 18px; fill: var(--surface); stroke: currentColor; }
 /* A submenu's glyph: a line's weight, dash, arrowheads, a frame. */
 .menu-item > .glyph:has(svg.ln) { width: 40px; }
 svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: visible; }
 .glyph.sh .shade { fill: currentColor; stroke: none; opacity: .45; }
-.picker .seg .glyph.sh { width: 20px; height: 16px; fill: var(--surface); }
 
 /* The palette and the pickers in the format bar's popovers: PowerPoint's theme colors, its first row apart
    from the tints and shades under it, as PowerPoint sets it, then its standard colors and the chart's own; and

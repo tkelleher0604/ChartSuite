@@ -835,13 +835,18 @@ function Relatives({ id }) {
 // shown; what's recorded at it (a line's percentage) is a text of its own, so a line can hide its name and
 // still draw its 64%.
 const TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
-const labelOf = (label, named) => label !== 'Format' ? label : named ? 'Name' : 'Text';
+const labelOf = (label, named) => label === 'Corner' ? 'Rounding' : label !== 'Format' ? label : named ? 'Name' : 'Text';
+const DASHES = { dotted: 'Round dot', 'square-dot': 'Square dot', dashed: 'Dash', 'dash-dot': 'Dash dot', 'long-dash': 'Long dash', 'long-dash-dot': 'Long dash dot', 'long-dash-dot-dot': 'Long dash dot dot' };
+const shadowSaid = v => { const o = Scene.shadowOf(v); return !o ? 'None' : `${o.blur} pt blur, ${o.distance} pt at ${o.angle}°`; };
+const headSaid = v => Object.entries(v ?? {}).map(([end, h]) => `${upper(end)}: ${h.type}, ${h.size}`).join('; ') || 'Triangle, small';
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
 const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
   : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
   : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
   : label === 'Format' ? (named ? (v === 'none' ? 'Hidden' : 'Shown') : TEXTS[v] ?? upper(String(v)))
-  : label === 'Shape' ? SHAPES[v] ?? upper(String(v)) : upper(String(v));
+  : label === 'Corner' || label === 'Transparency' ? `${Math.round(v)}%`
+  : label === 'Shadow' ? shadowSaid(v) : label === 'Arrowhead' ? headSaid(v) : label === 'Dash' ? DASHES[v] ?? upper(String(v))
+  : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))];
@@ -1138,11 +1143,13 @@ function ShapeView({ id, part }) {
   const g = row.geometry ?? 'rect', name = SHAPES[g] ?? g[0].toUpperCase() + g.slice(1), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
   const look = Object.entries(row.format ?? {}).map(([label, value]) => ({ label, value, from: null }));
   const reset = still || !look.length ? null : html`<button class="btn ghost reset" onClick=${() => set({ format: {} }, 'Reset the look')}>Reset</button>`;
-  // The Key's rows, those drawn and then those hidden, each a box to show or hide it.
-  const hidden = (row.hide ?? []).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
-    .map(o => ({ key: T.key(o.pattern), caption: Scene.captionOf(n, o.pattern, v), swatch: Scene.swatchOf(o.pattern, o.formats) }));
-  const rows = key ? [...(m?.rows ?? []).map(r => ({ key: r.key, caption: r.caption.text, swatch: r.swatch })), ...hidden] : [];
+  // The Key's rows in its order, each with a box to show or hide it, which leaves it where it is, so nothing moves under
+  // the pointer; hidden ones it has no row for now (nothing drawn is keyed by them) after them.
+  const all = m?.all ?? [], hidden = (row.hide ?? []).filter(k => !all.some(r => r.key === k)).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
+    .map(o => ({ key: T.key(o.pattern), outputs: [o.pattern], caption: Scene.captionOf(n, o.pattern, v), swatch: Scene.swatchOf(o.pattern, o.formats) }));
+  const rows = key ? [...all, ...hidden] : [];
   const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
+  const keyOrder = (from, i) => set({ order: moved(rows.map(r => r.key), from, i) }, 'Reordered the Key');
   return html`<div class="insp">
     <${Head} path=${key ? [{ label: name }] : []} title=${key ? row.title ?? 'Key' : name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title
       put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>
@@ -1151,12 +1158,39 @@ function ShapeView({ id, part }) {
       ${key ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']}
         put=${out => set({ columns: +out.choice })} /></div></div>` : null}
     </div>
-    ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<label class=${'row keyrow' + (r.key === part ? ' on' : '')} key=${r.key}>
-      <span class="k"><input type="checkbox" checked=${!(row.hide ?? []).includes(r.key)} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
-      <span class="v">${r.caption}</span></label>`)}</${Section}>` : null}
+    ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     <${LookSection} look=${look} reset=${reset} />
+    ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} />` : null}
     ${m && g !== 'line' ? html`<${Place} at=${m} onPage keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => set({ [k]: x })} />` : null}
   </div>`;
+}
+// A row of the Key's panel: its grip, dragged among the rest; its box, which shows or hides it where it stands; and its
+// caption, clicked to select the row, double-clicked to type over it. Its right-click offers Rename, Hide and Reset.
+function KeyRow({ r, id, row, m, on, shown, show, order, still }) {
+  const [typing, setTyping] = useState(false), rename = () => { if (!still) setTyping(true); };
+  const owned = !!row.captions?.[r.key] || !!row.order?.includes(r.key) || !shown || r.outputs?.some(p => { const c = N().resolve('Caption', p, App.scene.peek()?.view); return c?.note && T.key(c.note.pattern) === T.key(p) && c.note.view; });
+  const reset = () => App.change(tx => { const v = App.scene.peek().view, { [r.key]: _, ...captions } = row.captions ?? {};
+    tx.update(id, { captions, hide: (row.hide ?? []).filter(k => k !== r.key), order: (row.order ?? []).filter(k => k !== r.key) });
+    if (r.outputs?.length === 1) tx.note('Caption', r.outputs[0], undefined, { view: v }); }, { dated: false, say: `Reset the Key’s row ${r.caption}` });
+  const put = out => { setTyping(false); App.change(tx => Canvas.keyCaption(tx, { ...m, id }, r, out?.value ?? ''), { dated: false }); };
+  const menuOf = e => { e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', keys: 'F2', disabled: still, run: rename }, { label: shown ? 'Hide' : 'Show', disabled: still, run: () => show(r.key, !shown) }, { label: 'Reset', disabled: still || !owned, run: reset }]); };
+  return html`<div class=${'row keyrow' + (on ? ' on' : '')} data-drag="keyrow" onContextMenu=${menuOf}>
+    ${still ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`}
+    <span class="k"><input type="checkbox" aria-label=${shown ? `Hide ${r.caption}` : `Show ${r.caption}`} checked=${shown} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
+    <span class="v">${typing ? html`<span class="cellbox" onFocusOut=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setTyping(false); }}><${Field} r=${{ field: 'text', value: r.caption }} datatype="text" label="Caption" auto put=${put} /></span>`
+      : html`<button type="button" class="cap" onClick=${() => Shell.select([`${id}#${r.key}`])} onDblClick=${rename} onKeyDown=${e => { if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); rename(); } }}>${r.caption}</button>`}</span>
+  </div>`;
+}
+// A picture's Crop: how much of each side of it is cut off, in percent of the whole picture, typed. The picture stays the
+// size and where it was on the page: what's cut goes, and its frame shrinks round the rest.
+function Crop({ m, row, set }) {
+  const c = { left: 0, top: 0, right: 0, bottom: 0, ...row.crop }, fullW = m.w / (1 - (c.left + c.right) / 100), fullH = m.h / (1 - (c.top + c.bottom) / 100), page = App.scene.value?.page;
+  const put = (side, x) => { const was = c[side], v = Math.max(0, Math.min(95 - (side === 'left' || side === 'right' ? c.left + c.right - was : c.top + c.bottom - was), x)), d = (v - was) / 100, crop = { ...c, [side]: v };
+    set({ crop, ...(side === 'left' && { x: m.x + fullW * d, w: m.w - fullW * d }), ...(side === 'right' && { w: m.w - fullW * d }), ...(side === 'top' && { y: m.y + fullH * d, h: m.h - fullH * d }), ...(side === 'bottom' && { h: m.h - fullH * d }) }, 'Cropped the picture'); };
+  const any = Object.values(c).some(Boolean);
+  return html`<${Section} title="Crop" act=${any && !App.readOnly.value ? html`<button class="btn ghost reset" onClick=${() => set({ crop: null, x: m.x - fullW * c.left / 100, y: m.y - fullH * c.top / 100, w: fullW, h: fullH }, 'Took the crop off the picture')}>Reset</button>` : null}>
+    ${[['Left', 'left'], ['Top', 'top'], ['Right', 'right'], ['Bottom', 'bottom']].map(([label, side]) => html`<div class="row" key=${side}><div class="k">${label}</div><div class="v ctl">
+      <${Field} r=${{ field: 'number', value: c[side] }} datatype="number" label=${`Crop ${label}`} put=${out => out && put(side, out.value)}><span class="unit">%</span></${Field}></div></div>`)}</${Section}>`;
 }
 
 // Prose typed over in place, its box growing with it: kept on leaving, put back with Esc. `auto` focuses

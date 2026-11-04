@@ -69,6 +69,7 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana J
 <script src="../ui/formulabar.js"></script>
 <script src="../ui/export.js"></script>
 <script>
+window.EyeDropper = undefined;  // (the way a browser without its own goes, which this window can click; `format` tries both)
 // Checks of the canvas (canvas.js) and the format bar (formatbar.js) in the window, on the sample, each
 // driven as a person would: how a view opens, the scope a format goes to and its live preview, sizes in
 // slide points, the keys, how a highlight draws, and that what's drawn is the scene however it came to be. The
@@ -1588,6 +1589,170 @@ async function format() {
   FormatBar.pasteLook(); await tick(400);
   check('a look pasted on a style is the look pasted on a box, sizes and text colors included', lookIs(FP()) === onBox && FP().settings.Fill.value === boxFill && /Jurisdiction,#ffffff,false,true/.test(onBox), `${lookIs(FP())} vs ${onBox}`);
   Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+
+  // ---- The eyedropper: the browser's own where there is one, undimmed; else the next click, a swatch under the pointer ----
+  const palette = async label => { $(`[data-fb="${label}"]`).click(); await tick(120); $$('.float .palette .menu-item').find(e => txt(e) === 'Eyedropper')?.click(); await tick(120); };
+  Shell.select(['northpine']); await tick(120);
+  $('[data-fb="groups"]').click(); await tick(120); $$('.float .menu-item').find(e => txt(e).startsWith('Portfolio companies'))?.click(); await tick(120);
+  const dulledAt = [];
+  window.EyeDropper = class { open() { dulledAt.push($$('.dc .x6-cell.dc-dull').length); return Promise.resolve({ sRGBHex: '#123456' }); } };
+  await palette('fill'); await tick(200);
+  check('the browser’s own eyedropper, where there is one: the chart undimmed as it opens, what it takes given the scope', dulledAt[0] === 0 && sc().byId.get('northpine').settings.Fill.value === '#123456', `${dulledAt} ${sc().byId.get('northpine').settings.Fill.value}`);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  window.EyeDropper = class { open() { return Promise.reject(Object.assign(new Error('x'), { name: 'AbortError' })); } };
+  await palette('fill'); await tick(150);
+  check('… and put down, it says so', /Put the eyedropper down/.test(txt($('.toasts'))), txt($('.toasts')));
+  window.EyeDropper = undefined;
+  await palette('fill');
+  const armed = cv().root.classList.contains('dropping'), down = (el, x = 1, y = 1) => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+  document.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 300 })); await tick(60);
+  down($('.dc-graph')); await tick(120);
+  check('where there’s none, it arms; a click on nothing it can read says so, and it stays armed', armed && cv().root.classList.contains('dropping') && /No color to take/.test(txt($('.toasts'))), txt($('.toasts')));
+  const body = id => $(`.dc [data-cell-id="${id}"] path`);
+  body('corvane') && down(body('tessellate')); await tick(250);
+  const fromPage = rgb => rgb;
+  check('… a click on a mark takes the color drawn there, whatever dims it, and disarms', !cv().root.classList.contains('dropping') && sc().byId.get('northpine').settings.Fill.value === sc().byId.get('tessellate').settings.Fill.value, sc().byId.get('northpine').settings.Fill.value);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  await palette('fill');
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
+  check('… and Esc puts it down', !cv().root.classList.contains('dropping'));
+  Shell.select([]); await tick(150);
+
+  // ---- Corners: a yellow handle on a rounded shape selected; the Shape menu stays open, Rounding typed, in the panel's unit ----
+  Shell.select(['northpine']); await tick(200);
+  const handle = () => $('.dc-over > .dc-adjust');
+  check('a rounded shape selected shows its corner handle', !!handle() && sc().byId.get('northpine').shape === 'rounded');
+  const hr = handle().getBoundingClientRect(), hx = hr.left + hr.width / 2, hy = hr.top + hr.height / 2, opts = o => ({ bubbles: true, cancelable: true, pointerId: 1, button: 0, ...o });
+  handle().setPointerCapture = () => {};
+  const ownCorner = () => sc().byId.get('northpine').settings.Corner;
+  handle().dispatchEvent(new PointerEvent('pointerdown', opts({ clientX: hx, clientY: hy })));
+  const live = handle(); live.dispatchEvent(new PointerEvent('pointermove', opts({ clientX: hx + 24, clientY: hy }))); live.dispatchEvent(new PointerEvent('pointerup', opts({ clientX: hx + 24, clientY: hy }))); await tick(300);
+  const dragged = ownCorner().value;
+  check('… dragged, it rounds the shape', dragged > Scene.CORNER && !!ownCorner().note, dragged);
+  $('[data-fb="shape"]').click(); await tick(150);
+  const roundingField = $('.float .slider input[aria-label="Rounding"]:not([type=range])');
+  check('the Shape menu says the number the panel does, in one unit', +roundingField.value === Math.round(dragged) && $$('.insp .row .k').some(e => txt(e) === 'Rounding') && $$('.insp .row').some(r => txt(r) === `Rounding${Math.round(dragged)}%`), `${roundingField.value} ${$$('.insp .row').map(txt).filter(t => /Rounding/.test(t))}`);
+  roundingField.value = '30'; roundingField.dispatchEvent(new Event('input', { bubbles: true })); roundingField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
+  check('… it’s typed', ownCorner().value === 30, ownCorner().value);
+  $$('.float .shapes button').find(b => b.getAttribute('aria-label') === 'Hexagon').click(); await tick(300);
+  check('… and it stays open as a shape is picked', !!$('.float .picker.shape') && sc().byId.get('northpine').shape === 'hexagon' && !handle());
+  $$('.float .shapes button').find(b => b.getAttribute('aria-label') === 'Rounded rectangle').click(); await tick(300);
+  check('… its Rounding there once it’s rounded', !$('.float .slider input[type=range]').disabled);
+  // ---- Shadow, by which way it's thrown and each thing typed ----
+  $$('.float .throw button').find(b => b.getAttribute('aria-label') === 'Top left').click(); await tick(300);
+  const shadowNow = () => Scene.shadowOf(sc().byId.get('northpine').settings.Shadow.value);
+  check('a shadow thrown a way it’s named', shadowNow()?.angle === 225 && shadowNow().distance > 0 && !!$('.float .throw button[aria-pressed="true"]'), JSON.stringify(shadowNow()));
+  const blurField = $('.float .shadow input[aria-label="Blur"]');
+  blurField.value = '9'; blurField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
+  const colorField = $('.float .shadow input[aria-label="Shadow color"]');
+  colorField.value = '1F3864'; colorField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
+  check('… Blur and Color typed, what it had staying', shadowNow().blur === 9 && shadowNow().color === '#1f3864' && shadowNow().angle === 225, JSON.stringify(shadowNow()));
+  await closeMenus();
+  // ---- A line: arrowheads by style and size at each end, PowerPoint's dashes, a weight typed ----
+  const settingsOf = m => Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
+  const lineId = sc().marks.find(m => m.type === 'line' && !m.computed && !m.merged).id, lineM = () => sc().byId.get(lineId);
+  Shell.select([lineId]); await tick(200);
+  $('[data-fb="outline"]').click(); await tick(150);
+  const weightField = $('.float .withfield input');
+  weightField.value = '2.25'; weightField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
+  check('a line’s weight is typed', Math.abs(Scene.toSlide(sc().page, lineM().settings.Weight.value) - 2.25) < 0.01, lineM().settings.Weight.value);
+  const sub = async name => { const b = $$('.float .sub').find(e => txt(e).startsWith(name)); b.dispatchEvent(new PointerEvent('pointerenter')); b.click(); await tick(150); };
+  await sub('Dashes');
+  check('Dashes offers PowerPoint’s set', ['Solid', 'Round dot', 'Square dot', 'Dash', 'Dash dot', 'Long dash', 'Long dash dot', 'Long dash dot dot'].every(n => menuItems().includes(n)), menuItems().join());
+  $$('.float .menu-item').find(e => txt(e) === 'Long dash dot').click(); await tick(300);
+  check('… one picked is the line’s', lineM().settings.Dash.value === 'long-dash-dot' && !!Scene.dash('long-dash-dot', 1));
+  $('[data-fb="outline"]').click(); await tick(150);
+  await sub('Arrows');
+  await sub('End style');
+  $$('.float .menu-item').find(e => txt(e) === 'Stealth').click(); await tick(300);
+  check('an arrowhead’s style picked gives that end its head', lineM().settings.Arrow.value === 'end' && Scene.headOf(settingsOf(lineM()), 'end').type === 'stealth', JSON.stringify(lineM().settings.Arrowhead?.value));
+  $('[data-fb="outline"]').click(); await tick(150);
+  await sub('Arrows'); await sub('Start size');
+  $$('.float .menu-item').find(e => txt(e) === 'Large').click(); await tick(300);
+  check('… and a size at the other end, both ends then', lineM().settings.Arrow.value === 'both' && Scene.headOf(settingsOf(lineM()), 'start').size === 'large' && Scene.headOf(settingsOf(lineM()), 'end').type === 'stealth', lineM().settings.Arrow.value);
+  await closeMenus();
+  // ---- Canvas, PDF and deck draw them ----
+  const edgeEl = $(`.dc [data-cell-id="${lineId}"]`), hasMarkers = edgeEl.querySelector('[marker-end], [marker-start]') !== null || edgeEl.innerHTML.includes('marker');
+  check('the canvas draws the line’s heads and its dash', hasMarkers && edgeEl.innerHTML.includes(Scene.dash('long-dash-dot', Scene.toSlide({ scale: 1 }, lineM().settings.Weight.value)).split(' ')[0]), edgeEl.innerHTML.slice(0, 200));
+  App.change(tx => { tx.note('Shape', Tree.treeOf(App.state.peek(), 'corvane'), 'rtriangle', { view: st.id }); tx.note('Shape', Tree.treeOf(App.state.peek(), 'tessellate'), 'cube', { view: st.id }); tx.note('Shape', Tree.treeOf(App.state.peek(), 'halvard'), 'decagon', { view: st.id }); }, { dated: false }); await tick(400);
+  Export.onFile = () => {};
+  const deck = await Export.write('pptx', [sc()], 'f3', { author: 'Dana Jordan', R: App.computed.peek(), N: App.notes.peek() }), zip = await JSZip.loadAsync(deck), x = await zip.file('ppt/slides/slide1.xml').async('string');
+  check('the deck holds the dash, the heads and the shadow as PowerPoint does', x.includes('prstDash val="lgDashDot"') && /<a:headEnd type="triangle" w="lg" len="lg"\/><a:tailEnd type="stealth" w="sm" len="sm"\/>/.test(x) && /outerShdw blurRad="114300" dist="\d+" dir="13500000"[^>]*><a:srgbClr val="1F3864"/i.test(x), x.match(/<a:outerShdw[^>]*>.{0,40}/)?.[0]);
+  check('… each shape a real preset', ['rtTriangle', 'cube', 'decagon'].every(p => x.includes(`prst="${p}"`)));
+  const svgText = Export.svg?.(sc());
+  if (svgText) check('… and the PDF’s drawing has them', svgText.includes(Scene.dash('long-dash-dot', Scene.toSlide({ scale: 1 }, lineM().settings.Weight.value)).split(' ')[0]));
+  for (let i = 0; i < 12; i++) { Shell.parts.peek().undo.undo(); await tick(120); }
+  check('(all undone)', !Scene.shadowOf(sc().byId.get('northpine').settings.Shadow.value) && lineM().settings.Arrow.value !== 'both', lineM().settings.Arrow.value);
+
+  // ---- The Key's rows: a grip and their own order, none moving under the pointer; a caption double-clicked is typed over ----
+  const keyM = () => sc().marks.find(m => m.geometry === 'legend'), keyId = keyM().id;
+  Shell.select([keyId]); await tick(200);
+  const keyRows = () => $$('.keyrow').map(r => txt(r.querySelector('.cap'))), rowEl = name => $$('.keyrow').find(r => txt(r.querySelector('.cap')) === name), before2 = keyRows();
+  check('the Key’s rows have grips', $$('.keyrow .grip').length === before2.length && before2.length > 3, before2.join());
+  const second = before2[1], box2 = rowEl(second).querySelector('input');
+  box2.click(); await tick(300);
+  check('a row unticked stays where it is', keyRows().join() === before2.join() && !keyM().rows.some(r => r.caption.text === second), keyRows().join());
+  box2.isConnected ? rowEl(second).querySelector('input').click() : null; await tick(300);
+  const capBtn = rowEl(before2[2]).querySelector('.cap');
+  capBtn.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(150);
+  const capField = $('.keyrow .cell');
+  check('a caption double-clicked is typed over, and no row is hidden by it', !!capField && keyM().rows.length === before2.length, `${keyM().rows.length}`);
+  capField.value = 'LPs'; capField.dispatchEvent(new Event('input', { bubbles: true })); capField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
+  check('… and kept, as the Key says it', keyM().rows.some(r => r.caption.text === 'LPs'), keyM().rows.map(r => r.caption.text).join());
+  await openMenu(rowEl('LPs').querySelector('.cap'));
+  check('a row’s right-click offers Rename, Hide and Reset', ['Rename', 'Hide', 'Reset'].every(l => menuItems().some(t => t.startsWith(l))), menuItems().join());
+  $$('.float .menu-item').find(e => txt(e).startsWith('Reset')).click(); await tick(300);
+  check('… Reset putting it back', keyRows().includes(before2[2]), keyRows().join());
+  const posOf = () => [keyM().x, keyM().y];
+  const keyWas = posOf(), rowOn = keyM().rows[0], g = () => cv().graph, rowClient = r => { const m = keyM(), p = g().localToGraph(m.x + r.x + r.w / 2, m.y + r.y + r.h / 2), b = cv().root.getBoundingClientRect(); return { x: b.left + p.x, y: b.top + p.y }; };
+  const lastRow = keyM().rows.at(-1), a = rowClient(rowOn), z = rowClient(lastRow), target = $(`.dc [data-cell-id="${keyId}"] [data-row="${CSS.escape(rowOn.key)}"]`) ?? $(`.dc [data-cell-id="${keyId}"] [data-row]`);
+  target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientX: a.x, clientY: a.y }));
+  window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: z.x, clientY: z.y + 4 }));
+  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: z.x, clientY: z.y + 4 })); await tick(300);
+  document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); await tick(100);
+  check('a Key row dragged on the page moves that row, not the Key', keyM().rows.at(-1).key === rowOn.key && posOf().join() === keyWas.join(), keyM().rows.map(r => r.caption.text).join());
+  check('… which its own panel lists in that order', keyRows()[keyRows().length - 1] === rowOn.caption.text || keyRows().indexOf(rowOn.caption.text) > keyRows().indexOf(lastRow.caption.text), keyRows().join());
+  Shell.parts.peek().undo.undo(); await tick(300);
+  const lookOrder = Notes.houseLook(rows(), st.id).furniture.key;
+  check('the Key’s order goes with a look', 'columns' in lookOrder);
+
+  // ---- A picture's crop: in the panel, on the canvas, in the PDF and the deck ----
+  const dot = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  await show(st);
+  cv().insert('picture', { src: dot, w: 100, h: 50 }); await tick(400);
+  const pic = () => sc().marks.find(m => m.geometry === 'picture'), picId = pic().id;
+  Shell.select([picId]); await tick(200);
+  check('a picture has no font box', $('[data-fb="font"]').disabled && $('[data-fb="size"]').disabled && !$('[data-fb="scope"].off'));
+  const cropAt = label => $$('.insp .row').find(r => txt(r.querySelector('.k')) === label && r.closest('details, section, .sec, div')?.textContent.includes('Crop'));
+  const was = { x: pic().x, y: pic().y, w: pic().w, h: pic().h };
+  App.change(tx => tx.update(picId, { crop: { left: 20, top: 0, right: 0, bottom: 0 }, x: was.x + 0.2 * was.w, w: was.w * 0.8 }), { dated: false }); await tick(300);
+  check('the panel has a picture’s Crop', $$('.insp [aria-label="Crop Left"]').length === 1 && $$('.insp').some(e => /Crop/.test(txt(e))), txt($('.insp')));
+  check('… the canvas cuts what’s cropped', !!$(`.dc [data-cell-id="${picId}"] svg.dc-crop image`));
+  const deck2 = await Export.write('pptx', [sc()], 'f3', { author: 'Dana Jordan', R: App.computed.peek(), N: App.notes.peek() }), z2 = await JSZip.loadAsync(deck2), x2 = await z2.file('ppt/slides/slide1.xml').async('string');
+  check('… and the deck holds it as a crop', /<a:srcRect l="20000" r="0" t="0" b="0"/.test(x2), x2.match(/<a:srcRect[^>]*>/)?.[0]);
+  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
+  Shell.select([]); await tick(150);
+
+  // ---- The bar keeps its places ----
+  const places = () => ['insert', 'painter', 'clear', 'scope', 'font', 'size', 'bold', 'color', 'shape', 'fill', 'outline', 'zoom'].map(k => Math.round($(`[data-fb="${k}"]`).getBoundingClientRect().left));
+  const none0 = places().join();
+  Shell.select(['northpine']); await tick(150); const box0 = places().join();
+  Shell.select([lineId]); await tick(150); const line0 = places().join();
+  $('[data-fb="groups"]')?.click(); await tick(120); $$('.float .menu-item')[2]?.click(); await tick(150); const group0 = places().join();
+  Shell.select([]); await tick(150);
+  check('the ribbon’s controls keep their places, whatever’s selected', none0 === box0 && box0 === line0 && line0 === group0, `${none0} / ${box0} / ${line0} / ${group0}`);
+  $('[data-fb="fill"]').disabled = false;
+  Shell.select(['northpine']); await tick(150);
+  $('[data-fb="fill"]').click(); await tick(150);
+  const moreAt = $('.float .more').getBoundingClientRect().top;
+  await closeMenus();
+  const colorsWas = moreAt;
+  App.change(tx => tx.note('Fill', Tree.treeOf(App.state.peek(), 'northpine'), '#123456', { view: st.id }), { dated: false }); await tick(250);
+  $('[data-fb="fill"]').click(); await tick(150);
+  check('a menu’s recent colors have their room from the start, nothing shifting', Math.abs($('.float .more').getBoundingClientRect().top - colorsWas) < 0.5, `${colorsWas} → ${$('.float .more').getBoundingClientRect().top}`);
+  await closeMenus();
+  Shell.parts.peek().undo.undo(); await tick(200);
   Shell.select([]); await tick(150);
 }
 

@@ -54,14 +54,14 @@ const CORNER = 16.667;
 const DEFAULTS = {
   box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle',
     Frame: 'none', Layer: 0, ...TEXT },
-  line: { Shown: false, Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
+  line: { Shown: false, Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
   text: { Shown: false, ...TEXT },
 };
 const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
-const KEYED = { box: ['Shape', 'Fill', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow'], frame: ['Frame'],
+const KEYED = { box: ['Shape', 'Fill', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'], frame: ['Frame'],
   text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'] };
 // A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
 function swatch(kind, f) {
@@ -143,11 +143,25 @@ function inkOn(b) {
 
 // ---- Geometry: PowerPoint's preset shapes, by plain names, as paths in a w × h frame ----
 
-const GEOMETRIES = ['rect', 'rounded', 'oval', 'triangle', 'diamond', 'hexagon', 'octagon', 'parallelogram', 'trapezoid', 'pentagon', 'chevron', 'arrow', 'cylinder'];
+const GEOMETRIES = ['rect', 'rounded', 'oval', 'triangle', 'diamond', 'hexagon', 'octagon', 'parallelogram', 'trapezoid', 'pentagon', 'chevron', 'arrow', 'cylinder',
+  'rtriangle', 'snip', 'snip2', 'round1', 'round2', 'plaque', 'heptagon', 'decagon', 'dodecagon', 'homeplate', 'folded', 'cube'];
 function path(shape, w, h, corner = CORNER) {
-  const s = Math.min(w, h), n = v => +v.toFixed(2);
+  const s = Math.min(w, h), n = v => +v.toFixed(2), a = s * 0.16667;
   const poly = ps => `M${ps.map(([x, y]) => `${n(x)},${n(y)}`).join(' L')} Z`;
+  const arc = (x, y, r = a, sweep = 1) => `A${n(r)},${n(r)} 0 0 ${sweep} ${n(x)},${n(y)}`;
   switch (shape) {
+    case 'rtriangle': return poly([[0, 0], [w, h], [0, h]]);
+    case 'snip': return poly([[0, 0], [w - a, 0], [w, a], [w, h], [0, h]]);
+    case 'snip2': return poly([[a, 0], [w - a, 0], [w, a], [w, h], [0, h], [0, a]]);
+    case 'round1': return `M0,0 H${n(w - a)} ${arc(w, a)} V${n(h)} H0 Z`;
+    case 'round2': return `M${n(a)},0 H${n(w - a)} ${arc(w, a)} V${n(h)} H0 V${n(a)} ${arc(a, 0)} Z`;
+    case 'plaque': return `M0,${n(a)} ${arc(a, 0, a, 0)} H${n(w - a)} ${arc(w, a, a, 0)} V${n(h - a)} ${arc(w - a, h, a, 0)} H${n(a)} ${arc(0, h - a, a, 0)} Z`;
+    case 'heptagon': { const cx = w / 2, rx = cx * 1.02572, ry = h / 2 * 1.05210, cy = h / 2 * 1.05210; return poly([[cx - rx * 0.97493, cy + ry * 0.22252], [cx - rx * 0.78183, cy - ry * 0.62349], [cx, 0], [cx + rx * 0.78183, cy - ry * 0.62349], [cx + rx * 0.97493, cy + ry * 0.22252], [cx + rx * 0.43388, cy + ry * 0.90097], [cx - rx * 0.43388, cy + ry * 0.90097]]); }
+    case 'decagon': { const cx = w / 2, cy = h / 2, ry = h / 2 * 1.05146, dx1 = cx * 0.80902, dx2 = cx * 0.30902, dy1 = ry * 0.58779, dy2 = ry * 0.95106; return poly([[0, cy], [cx - dx1, cy - dy1], [cx - dx2, cy - dy2], [cx + dx2, cy - dy2], [cx + dx1, cy - dy1], [w, cy], [cx + dx1, cy + dy1], [cx + dx2, cy + dy2], [cx - dx2, cy + dy2], [cx - dx1, cy + dy1]]); }
+    case 'dodecagon': { const [x1, x2, x3, x4] = [2894, 7906, 13694, 18706].map(k => w * k / 21600), [y1, y2, y3, y4] = [2894, 7906, 13694, 18706].map(k => h * k / 21600); return poly([[0, y2], [x1, y1], [x2, 0], [x3, 0], [x4, y1], [w, y2], [w, y3], [x4, y4], [x3, h], [x2, h], [x1, y4], [0, y3]]); }
+    case 'homeplate': return poly([[0, 0], [w - s / 2, 0], [w, h / 2], [w - s / 2, h], [0, h]]);
+    case 'folded': return `M0,0 H${n(w)} V${n(h - a)} L${n(w - a)},${n(h)} H0 Z M${n(w - a)},${n(h)} L${n(w - a + a / 5)},${n(h - a + a / 5)} L${n(w)},${n(h - a)}`;
+    case 'cube': { const d = s * 0.25; return `M0,${n(d)} H${n(w - d)} V${n(h)} H0 Z M0,${n(d)} L${n(d)},0 H${n(w)} L${n(w - d)},${n(d)} M${n(w)},0 V${n(h - d)} L${n(w - d)},${n(h)}`; }
     case 'rounded': { const r = s * Math.min(50, Math.max(0, corner)) / 100; return `M${n(r)},0 H${n(w - r)} A${n(r)},${n(r)} 0 0 1 ${n(w)},${n(r)} V${n(h - r)} A${n(r)},${n(r)} 0 0 1 ${n(w - r)},${n(h)} H${n(r)} A${n(r)},${n(r)} 0 0 1 0,${n(h - r)} V${n(r)} A${n(r)},${n(r)} 0 0 1 ${n(r)},0 Z`; }
     case 'oval': return `M0,${n(h / 2)} A${n(w / 2)},${n(h / 2)} 0 1 1 ${n(w)},${n(h / 2)} A${n(w / 2)},${n(h / 2)} 0 1 1 0,${n(h / 2)} Z`;
     case 'triangle': return poly([[w / 2, 0], [w, h], [0, h]]);
@@ -176,6 +190,19 @@ const TEXT_RECT = {
   parallelogram: (w, h) => { const q = (1 + 1.25 * Math.min(w, h) / w) / 12; return { x: q * w, top: q * h, bottom: q * h }; },
   trapezoid: (w, h) => { const x = Math.min(w, h) / 6; return { x, top: x * h / w, bottom: 0 }; },
   cylinder: (w, h) => { const y = Math.min(w, h) / 8; return { x: 0, top: 2 * y, bottom: y }; },
+  // (`shift`, where its rect sits off its middle, how far its middle is from the shape's.)
+  rtriangle: (w, h) => ({ x: w / 4, shift: -w / 6, top: h * 7 / 12, bottom: h / 12 }),
+  snip: (w, h) => { const a = Math.min(w, h) * 0.16667; return { x: a / 4, shift: -a / 4, top: a / 2, bottom: 0 }; },
+  snip2: (w, h) => { const a = Math.min(w, h) * 0.16667; return { x: a / 2, top: a / 2, bottom: 0 }; },
+  round1: (w, h) => { const i = Math.min(w, h) * 0.16667 * 0.29289; return { x: i / 2, shift: -i / 2, top: 0, bottom: 0 }; },
+  round2: (w, h) => { const i = Math.min(w, h) * 0.16667 * 0.29289; return { x: i, top: i, bottom: 0 }; },
+  plaque: (w, h) => { const i = Math.min(w, h) * 0.16667 * 0.70711; return { x: i, top: i, bottom: i }; },
+  heptagon: (w, h) => ({ x: w * 0.09903, top: h * 0.19806, bottom: 0 }),
+  decagon: (w, h) => ({ x: w * 0.09549, top: h * 0.19098, bottom: h * 0.19098 }),
+  dodecagon: (w, h) => ({ x: w * 2894 / 21600, top: h * 2894 / 21600, bottom: h * 2894 / 21600 }),
+  homeplate: (w, h) => { const a = Math.min(w, h) / 2; return { x: a / 4, shift: -a / 4, top: 0, bottom: 0 }; },
+  folded: (w, h) => ({ x: 0, top: 0, bottom: Math.min(w, h) * 0.16667 }),
+  cube: (w, h) => { const d = Math.min(w, h) * 0.25; return { x: d / 2, shift: -d / 2, top: d, bottom: 0 }; },
 };
 const textRect = (shape, w, h, corner) => TEXT_RECT[shape]?.(w, h, corner) ?? { x: 0, top: 0, bottom: 0 };
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
@@ -264,8 +291,20 @@ function fill(words, t, width, inset = 0) {
 }
 // A text's lines, all of them. One set left that `hangs` hangs (see breakLines).
 const linesOf = (it, width) => it.text ? breakLines(it.text, it.look, width, true, !!it.hangs && it.look.Align === 'left') : [];
-// A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels.
-const dash = (d, w) => { const p = w * PT; return d === 'dashed' ? `${Math.max(4, p * 4)} ${Math.max(3, p * 3)}` : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
+// A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels. PowerPoint's set: Round
+// Dot (dotted), Square Dot, Dash (dashed), Dash Dot, Long Dash, Long Dash Dot, and Long Dash Dot Dot, each in its multiples of the weight.
+const DASHES = { dashed: [4, 3], 'square-dot': [1, 1], 'dash-dot': [4, 3, 1, 3], 'long-dash': [8, 3], 'long-dash-dot': [8, 3, 1, 3], 'long-dash-dot-dot': [8, 3, 1, 3, 1, 3] };
+const dash = (d, w) => { const p = w * PT; return DASHES[d] ? DASHES[d].map(k => Math.max(k, p * k)).join(' ') : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
+// A Shadow as it's drawn, or null for none: PowerPoint's outer shadow, its blur and its distance from the shape in points on
+// the sheet, whatever scale the chart is drawn at, its angle in degrees clockwise from the right, its color and how transparent.
+// 'soft' is its Offset: Bottom Right.
+const SOFT = { blur: 4, distance: 3, angle: 45, color: '#000000', transparency: 60 };
+const shadowOf = v => !v || v === 'none' ? null : v === 'soft' ? SOFT : { ...SOFT, ...v };
+// A line's end as it's drawn: its Arrowhead's for that end, or else a small triangle.
+const HEADS = { small: 1, medium: 1.4, large: 1.8 };
+const headOf = (s, end) => ({ type: 'triangle', size: 'small', ...s.Arrowhead?.[end] });
+// An arrowhead's length and width in pixels, for a line `w` pixels wide, as the canvas and the PDF draw them.
+const headSize = (head, w) => { const k = HEADS[head.size] ?? 1; return { len: (5 + w * 3) * k, wide: (4 + w * 2.4) * k }; };
 // A line of text's height: single spacing, 1.2 times its size, times its Spacing.
 const lineHeight = t => t.Size * PT * 1.2 * (t.Spacing ?? 1);
 // How far under the top of its line a line's baseline is: the same share of the line's height at any spacing, 0.93
@@ -829,7 +868,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // The layout and the routes read the relation a line draws, never its look, so restyling a line moves
     // nothing; lines of one look along one route are drawn as one (see below), which is drawing.
     l.trunk = once(l.record, 'relation', () => `${N.name(t)}|${Tree.shapeOf(t)}`);
-    l.alike = ['Outline', 'Weight', 'Dash', 'Arrow'].map(k => l.settings[k].value).join('|');
+    l.alike = ['Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'].map(k => JSON.stringify(l.settings[k].value)).join('|');
     l.straight = l.settings.Connector.value === 'straight';
   }
 
@@ -1320,7 +1359,7 @@ function move(m, dx, dy) {
 // text rect (see TEXT_RECT).
 function setText(b) {
   const tb = blockHeight(b.texts), r = textRect(b.shape, b.w, b.h, b.settings?.Corner?.value), width = Math.max(32, b.w * (TEXT_AREA[b.shape] ?? 1) - 2 * INSET) - 2 * r.x;
-  if (b.shape !== 'triangle') b.column = { x: (b.w - width) / 2, width };
+  if (b.shape !== 'triangle') b.column = { x: (b.w - width) / 2 + (r.shift ?? 0), width };
   let y = b.shape === 'triangle' ? b.h - BASE - tb : valigned(b.settings?.Valign?.value, r.top, b.h - r.bottom, tb, INSET);
   for (const it of b.texts) y = stack(it, b.column.x, b.column.width, y);
 }
@@ -1600,7 +1639,7 @@ function legend(N, view, marks) {
 // the sheet's where its row doesn't give them, `u` pixels of the page to one of the sheet: a text box's 12 pt,
 // a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that.
 // A size its row gives is the page's, as the format bar writes it; a weight is always the sheet's (see the scene).
-const SHAPE_DEFAULTS = { Fill: '#ffffff', Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Layer: 0, ...TEXT };
+const SHAPE_DEFAULTS = { Fill: '#ffffff', Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12, Valign: 'top' };
 // The page's own texts: its title, and its date.
 const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' } };
@@ -1619,9 +1658,9 @@ function freeShape(row, text, u = 1, k = 1) {
     if (row.ends?.some(Boolean)) m.ends = row.ends;
     Object.assign(m, bounds(m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 }))));
   }
-  if (m.geometry === 'picture') m.src = row.src;
+  if (m.geometry === 'picture') { m.src = row.src; if (row.crop) m.crop = row.crop; }
   if (m.geometry === 'group') m.members = row.members ?? [];
-  if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [], captions: row.captions ?? {}, auto: row.w == null });
+  if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [], captions: row.captions ?? {}, order: row.order ?? [], auto: row.w == null });
   // A text box nobody has sized grows with its text, a line to each paragraph, as PowerPoint's does.
   if (m.geometry === 'text' && row.w == null) Object.assign(m, { auto: true, w: 120 * u, h: lineHeight(t) + 9.6 * u });
   if (text && !['line', 'picture', 'group', 'legend'].includes(m.geometry)) {
@@ -1633,9 +1672,9 @@ function freeShape(row, text, u = 1, k = 1) {
     const tb = blockHeight([it]);
     if (m.geometry === 'text') m.h = m.auto ? tb + 9.6 * u : Math.max(m.h, tb + 9.6 * u);
     // At its top, middle or bottom, PowerPoint's 0.05 in from its edge (a frame's caption at its top, 5 pt in).
-    stack(it, (m.w - avail) / 2, avail, m.geometry === 'frame' && t.Valign === 'top' ? 5 * u : valigned(t.Valign, r.top, m.h - r.bottom, tb, 4.8 * u));
+    stack(it, (m.w - avail) / 2 + (r.shift ?? 0), avail, m.geometry === 'frame' && t.Valign === 'top' ? 5 * u : valigned(t.Valign, r.top, m.h - r.bottom, tb, 4.8 * u));
     m.texts.push(it);
-    m.column = { x: (m.w - avail) / 2, width: avail };
+    m.column = { x: (m.w - avail) / 2 + (r.shift ?? 0), width: avail };
   }
   return m;
 }
@@ -1653,7 +1692,9 @@ function shapeText(row, computed, day) {
 const SWATCH = { h: 11 };
 function layoutLegend(m, rows, sheet = 1, k = 1) {
   const t = m.look, u = sheet * k, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
-  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } }));
+  // In the Key's own order, where it has one; a row new to it after those it lists.
+  const at = new Map((m.order ?? []).map((k, i) => [k, i]));
+  rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } })).sort((a, b) => (at.get(a.key) ?? Infinity) - (at.get(b.key) ?? Infinity));
   m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));
   if (m.auto) m.w = Math.ceil(m.columns * (sw + gap + Math.min(160 * u, Math.max(40 * u, ...shown.map(r => measure(r.caption, t)))) + 16 * u) + 2 * pad);
@@ -1901,7 +1942,7 @@ function toPage(v, s, scaleAt) {
 
 return {
   of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, CORNER, lineHeight, baseline, fontClass,
+  toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, CORNER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();
