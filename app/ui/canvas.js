@@ -332,8 +332,8 @@ function mount(el) {
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
   const still = () => App.readOnly.peek();
-  // The page, as X6 restricts a move to it: a free shape stays on it; a box or frame only off its left and top.
-  const pageRect = all => ({ x: 0, y: 0, width: all ? scene.page.w : 1e6, height: all ? scene.page.h : 1e6 });
+  // The page, as X6 restricts a move to it: a free shape stays on it; a box or frame goes where it's put, on it or off it.
+  const pageRect = all => all ? { x: 0, y: 0, width: scene.page.w, height: scene.page.h } : { x: -1e6, y: -1e6, width: 2e6, height: 2e6 };
 
   const graph = new Graph({
     container: gEl, autoResize: true, async: false, virtual: true, background: false, grid: false,
@@ -367,14 +367,17 @@ function mount(el) {
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: selectable });
   graph.use(sel);
   const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind) && !still();
-  const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true }, rotating: false });
+  const lockedCell = n => { const m = scene?.byId.get(n.id); return !!m && (m.type === 'box' || m.type === 'shape') && lockedOf(m); };
+  const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true, preserveAspectRatio: lockedCell }, rotating: false });
   graph.use(transform);
   transform.stopListening(); // it would put handles on whatever is clicked; grips() decides
 
   // Resize handles on a shape selected alone, however it came to be selected; a box too small on screen for
-  // its side handles shows only its corners, as Office's does.
+  // its side handles shows only its corners, as Office's does. (Locked, it has only its corners, and they keep its proportions.)
+  let gripsLocked = false;
   const grips = () => {
-    const cs = sel.getSelectedCells();
+    const cs = sel.getSelectedCells(), locked = cs.length === 1 && resizable(cs[0]) && lockedCell(cs[0]);
+    if (locked !== gripsLocked) { transform.clearWidgets(); gripsLocked = locked; }
     if (cs.length === 1 && resizable(cs[0])) { if (!transform.widgets.has(cs[0])) transform.createWidget(cs[0]); } else transform.clearWidgets();
     const z = graph.zoom();
     for (const [cell, w] of transform.widgets) {
@@ -679,31 +682,34 @@ function mount(el) {
   const viewOf = () => scene.view;
   const treeOf = id => Tree.treeOf(App.state.peek(), id);
   // Places for marks, written: a box's Position at its record in this view, where it is on the page less what the page
-  // moved a chart placed so to hold it (Scene's furnish), as a chart the layout alone placed is placed once anything is;
-  // a free shape's own place, where it is on the page, kept on it, as a PowerPoint shape's is.
+  // moved a chart placed so to hold it (Scene's furnish), as a chart the layout alone placed is placed once anything is,
+  // `hand`, so it stands exactly there, as large as it's made; a free shape's own place, where it is on the page, kept on
+  // it, as a PowerPoint shape's is.
   const origin = (page = scene.page) => page.placed ? page.offset : { x: 0, y: 0 };
   const own = (x, y, page = scene.page) => { const o = origin(page); return [round(x - o.x), round(y - o.y)]; };
+  let baked = null;
   function place(tx, places) {
     const view = viewOf(), n = App.notes.peek(), page = scene.page;
-    // (In a chart placed, a box's in a place's terms, as the layout reads it: less what the room the lanes over it take moves
-    // what stands at that height, so it's drawn where it's dropped; see `laid`.)
-    const lift = y => {
-      if (!page.placed) return 0;
-      let near = null;
-      for (const b of scene.marks) if (b.type === 'box' && b.laid && !places.has(b.id)) { const d = b.y - page.offset.y; if (d <= y + 1 && (!near || d > near.d)) near = { d, by: d - b.laid.y }; }
-      return near?.by ?? 0;
-    };
+    // (In a chart with a box a hand put somewhere, no box moves for the lanes: so what the room for them had moved stands
+    // where it's drawn from now on, as a place of its own.)
+    baked = new Set();
+    if (page.placed && [...places.keys()].some(id => scene.byId.get(id)?.type === 'box')) for (const b of scene.marks) {
+      if (b.type !== 'box' || !b.laid || b.hand || places.has(b.id) || Math.abs(b.y - page.offset.y - b.laid.y) < 0.01) continue;
+      const t = treeOf(b.record), old = t && n.position(t, view), [x, y] = own(b.x, b.y);
+      if (t) { tx.note('Position', t, { x, y, w: round(b.w), ...(old?.h && { h: old.h }), kept: true }, { view }); baked.add(b.record); }
+    }
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box') {
-        const old = n.position(treeOf(m.record), view), [x, drawnAt] = own(Math.max(0, p.x), Math.max(0, p.y)), y = round(drawnAt - lift(drawnAt));
-        tx.note('Position', treeOf(m.record), { x, y, w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
+        // (A drag lands on the half pixel; what's typed is kept as typed.)
+        const old = n.position(treeOf(m.record), view), o = origin(page), r = p.typed ? v => v : round;
+        tx.note('Position', treeOf(m.record), { x: r(p.x - o.x), y: r(p.y - o.y), w: r(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: r(p.h ?? old.h) }), ...(old?.lock && { lock: true }), hand: true }, { view });
       } else if (m.type === 'shape') {
-        const points = rowOf(id)?.points;
+        const points = rowOf(id)?.points, r = p.typed ? v => v : round;
         if (points) { tx.update(id, { x: round(p.x), y: round(p.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
         const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
-        tx.update(id, { x: round(clamp(p.x, 0, page.w - w)), y: round(clamp(p.y, 0, page.h - h)), ...(p.w !== undefined && { w: round(w), h: round(h) }) });
+        tx.update(id, { x: r(clamp(p.x, 0, page.w - w)), y: r(clamp(p.y, 0, page.h - h)), ...((p.w !== undefined || p.h !== undefined) && { w: r(w), h: r(h) }) });
       }
     }
   }
@@ -711,6 +717,25 @@ function mount(el) {
   // and nothing else moves (see draw, and keep).
   function moveTo(places) {
     if (places.size) App.change(tx => place(tx, places));
+  }
+  // A place or size typed, in the page's terms: what's locked keeps its proportions; a group's members go with it, as one.
+  const lockedOf = m => { if (m.type !== 'box') return !!rowOf(m.id)?.lock; const t = treeOf(m.record); return !!t && !!App.notes.peek().position(t, viewOf())?.lock; };
+  function put(id, at) {
+    const m = scene.byId.get(id);
+    if (!m) return;
+    if (m.geometry === 'group') {
+      const fx = (at.w ?? m.w) / m.w, fy = (at.h ?? m.h) / m.h, x = at.x ?? m.x, y = at.y ?? m.y;
+      return moveTo(new Map(m.members.map(i => scene.byId.get(i)).filter(Boolean).map(b => [b.id, { x: x + (b.x - m.x) * fx, y: y + (b.y - m.y) * fy, ...(fx !== 1 && { w: b.w * fx }), ...(fy !== 1 && { h: b.h * fy }) }])));
+    }
+    const k = lockedOf(m) ? ('w' in at ? { h: at.w * m.h / m.w } : 'h' in at ? { w: at.h * m.w / m.h } : {}) : {};
+    moveTo(new Map([[id, { x: m.x, y: m.y, ...k, ...at, typed: true }]]));
+  }
+  // Its proportions locked, as PowerPoint's Lock aspect ratio: as either is typed or a corner dragged, the other follows.
+  function lockSize(id, on) {
+    const m = scene.byId.get(id);
+    if (m?.type !== 'box') return;
+    const old = App.notes.peek().position(treeOf(m.record), viewOf()), [x, y] = own(m.x, m.y);
+    App.change(tx => tx.note('Position', treeOf(m.record), { ...old, x: old?.x ?? x, y: old?.y ?? y, w: old?.w ?? round(m.w), ...(on ? { lock: true, h: old?.h ?? round(m.h) } : { lock: undefined }), hand: true }, { view: viewOf() }), { dated: false, say: `${on ? 'Locked' : 'Unlocked'} the proportions of ${called(m)}` });
   }
   function moved(ids) {
     const places = new Map();
@@ -727,16 +752,19 @@ function mount(el) {
       if (m.type === 'frame') {
         const dx = p.x - m.x, dy = p.y - m.y;
         if (dx || dy) for (const b of membersOf(m)) places.set(b.id, { x: b.x + dx, y: b.y + dy });
-      } else if (Math.abs(p.x - m.x) > 0.01 || Math.abs(p.y - m.y) > 0.01 || Math.abs(sz.width - m.w) > 0.01 || Math.abs(sz.height - m.h) > 0.01) {
-        places.set(id, { x: p.x, y: p.y, ...(Math.abs(sz.width - m.w) > 0.01 || Math.abs(sz.height - m.h) > 0.01 ? { w: sz.width, h: sz.height } : {}) });
+      } else {
+        // (A height dragged is the box's own; a width alone leaves its height to its text. A free shape's are both its own.)
+        const dw = Math.abs(sz.width - m.w) > 0.01, dh = Math.abs(sz.height - m.h) > 0.01;
+        if (dw || dh || Math.abs(p.x - m.x) > 0.01 || Math.abs(p.y - m.y) > 0.01) places.set(id, { x: p.x, y: p.y, ...(dw && { w: sz.width }), ...(dh && { h: sz.height }) });
       }
     }
-    // A box dropped with its middle level with a row of its like joins it, its top on theirs, so it shares their height.
+    // A box dropped with its middle level with a row of its like joins it, its top on theirs, so it shares their height;
+    // but one dropped on another stays just where it was dropped.
     if (places.size === 1) {
       const [[id, p]] = places, m = scene.byId.get(id), tri = m?.shape === 'triangle';
-      const row = m?.type === 'box' && p.w === undefined ? scene.marks.filter(b => b.type === 'box' && b.id !== id && (b.shape === 'triangle') === tri && p.y + m.h / 2 > b.y && p.y + m.h / 2 < b.y + b.h && Math.abs(b.y - p.y) <= m.h / 2) : [];
+      const row = m?.type === 'box' && p.w === undefined && p.h === undefined ? scene.marks.filter(b => b.type === 'box' && b.id !== id && (b.shape === 'triangle') === tri && p.y + m.h / 2 > b.y && p.y + m.h / 2 < b.y + b.h && Math.abs(b.y - p.y) <= m.h / 2) : [];
       const near = row.sort((a, b) => Math.abs(a.x + a.w / 2 - p.x - m.w / 2) - Math.abs(b.x + b.w / 2 - p.x - m.w / 2))[0];
-      if (near) p.y = near.y;
+      if (near && !row.some(b => p.x < b.x + b.w && b.x < p.x + m.w)) p.y = near.y;
     }
     moveTo(places);
   }
@@ -1935,7 +1963,7 @@ function mount(el) {
     const ms = placeable();
     if (ms.length < 2) return;
     const v = ms[0][dim === 'width' ? 'w' : 'h'];
-    moveTo(new Map(ms.map(m => [m.id, { x: m.x, y: m.y, w: dim === 'width' ? v : m.w, h: dim === 'height' ? v : m.h }])));
+    moveTo(new Map(ms.map(m => [m.id, { x: m.x, y: m.y, ...(dim === 'width' ? { w: v } : { h: v }) }])));
   }
   function order(how) {
     const ms = selected().filter(m => m.type !== 'frame');
@@ -1996,12 +2024,12 @@ function mount(el) {
     const notes = Notes.index(rows.filter(r => 'note' in r));
     return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
   }
-  function tidy() {
+  function tidy(o) {
     const { writes, gone, n } = tidying(), view = viewOf(), base = App.scene.peek();
     // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
     const laid = holdsOf(Scene.of(tidied(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && m.byPage)?.id;
     const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value }; };
-    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); }, { say: n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout', keep: false, dated: false })) return;
+    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
     if (n) return;
     framed = true; left = null;
     settle();
@@ -2028,11 +2056,13 @@ function mount(el) {
     const base = App.scene.peek();
     if (!base || still() || active.peek() !== canvas || base.view !== viewShown || Shell.view.peek() !== base.view || !root.clientWidth) return;
     const view = base.view;
+    const done = baked;
+    baked = null;
     for (const [id, p] of holdsOf(base)) {
       const t = treeOf(id);
       if (!t) { const was = rowOf(id)?.kept; if (rowOf(id) && (was?.x !== p.x || was?.y !== p.y)) tx.update(id, { kept: p }); continue; }
       const old = tx.noteAt('Position', t, { view })?.value;
-      if (tx.item(id).length && (old?.loose ?? true)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
+      if (tx.item(id).length && !done?.has(id) && (old?.loose ?? true)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
     }
   });
 
@@ -2182,7 +2212,7 @@ function mount(el) {
   };
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom,
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom, put, lockSize,
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
@@ -2199,13 +2229,17 @@ function mount(el) {
 
 // The other parts call the canvas shown through the shell (Shell.parts.value.canvas).
 const call = name => (...a) => active.peek()?.[name](...a);
-Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); },
+Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); }, active: () => active.peek(),
   highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), cue: call('cue'), point: call('point'), toward: call('toward'), zoomTo: call('zoomTo'),
   kinds: () => kinds().map(k => ({ label: k, run: () => call('create')(k) })) });
 // A chart is shown, not just kept behind a table.
 const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
+// A box's size, typed in its panel; so with a shape's.
+Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 'Width', 'Resize', 'Lock proportions', 'Aspect ratio'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && ['box', 'shape'].includes(active.peek().selected()[0].type),
+  run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="h"] input') ?? document.querySelector('.insp [data-place="w"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select one box first' });
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select one box first' });
 

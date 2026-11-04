@@ -849,27 +849,26 @@ function LookSection({ look, reset, named }) {
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
     ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
 }
-// A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
-// scale, and moves a chart placed only as far as holds it, by its offset), so the numbers are the ones PowerPoint shows:
-// typed over to move it. `at` is in the chart's own terms, as a place is written: a box's Position, less the offset;
-// or, `onPage`, a free shape's, which stands on the page where it was put.
+// A place on the page, where it's drawn, in points on the slide (the page is drawn smaller to fit it, by its scale), so the
+// numbers are the ones PowerPoint shows: typed over to move or size it, and read back as typed, to a tenth. `lock`, keeping
+// its proportions as either is typed: { on, set }.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
-const Place = ({ at, put, reset, keys = 'xyw', onPage = false }) => { const page = App.scene.value?.page, off = k => onPage ? 0 : page?.offset?.[k] ?? 0;
+const Place = ({ at, put, reset, keys = 'xywh', lock }) => { const page = App.scene.value?.page;
   return html`<${Section} title="Position" act=${reset}>
-  ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl">
-    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, (at[k] + off(k)) / Scene.PT)) }} datatype="number" label=${label}
-      put=${out => out && put(k, Math.round((Scene.fromSlide(page, out.value) * Scene.PT - off(k)) * 2) / 2)}><span class="unit">pt</span></${Field}></div></div>`)}</${Section}>`; };
+  ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
+    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" label=${label}
+      put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 100) / 100)}><span class="unit">pt</span></${Field}></div></div>`)}
+  ${lock ? html`<label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${!!lock.on} disabled=${App.readOnly.value} onChange=${e => lock.set(e.target.checked)} />Lock proportions</span></label>` : null}</${Section}>`; };
 // Reset takes away what's entered for this mark alone, and says what, as History says it.
 const resetting = (own, labels) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
   : html`<button class="btn ghost reset" onClick=${() => App.change(tx => own.filter(x => labels(x.label)).forEach(x => tx.remove(x.note)), { say: c => Time.describe(c), dated: false })}>Reset</button>`;
 
 // A record's look, as the view's scene has it: each property a note decides, from this box (or line) alone, a
 // style's output (by its caption, the style's name first where the caption doesn't say it), or the chart's
-// default, in that order; and its place, where one is entered, as it's drawn (one made loosely goes beside its
-// relatives once related, and reads where it is).
+// default, in that order; and a box's place and size, as it's drawn, however it came to be there. Reset takes its place
+// away alone, the box going beside its relatives around what stands (the canvas's Tidy of that box).
 function Look({ id }) {
-  const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), entered = recs()[id].kind ? n.position(t, v) : null, drawn = entered && sc.byId.get(id);
-  const pos = drawn ? { x: drawn.x - sc.page.offset.x, y: drawn.y - sc.page.offset.y, w: drawn.w, ...(entered.h != null && { h: drawn.h }) } : entered;
+  const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), drawn = recs()[id].kind ? sc.byId.get(id) : null, entered = drawn ? n.position(t, v) : null, cv = Shell.parts.peek().canvas?.active?.();
   // This mark's own: a box's at its object, a line's at its relation's own tree, as the format bar notes them.
   const mine = x => x.pattern.id === id || (!!recs()[id].args && T.key(T.bare(x.pattern)) === T.key(T.bare(t)));
   const rank = x => mine(x) ? 0 : x.view ? 1 : 2;
@@ -878,9 +877,9 @@ function Look({ id }) {
   const look = Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
     .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })).sort((a, b) => a.rank - b.rank);
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && mine(x));
-  const move = (k, x) => App.change(tx => tx.note('Position', t, { ...pos, [k]: x }, { view: v }), { dated: false });
+  const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   return html`<${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />
-    ${pos ? html`<${Place} at=${pos} put=${move} reset=${resetting(own, l => l === 'Position')} />` : null}`;
+    ${drawn ? html`<${Place} at=${drawn} put=${(k, x) => cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}`;
 }
 
 // ---- The views of a selection ----
@@ -1144,7 +1143,7 @@ function ShapeView({ id, part }) {
       <span class="k"><input type="checkbox" checked=${!(row.hide ?? []).includes(r.key)} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
       <span class="v">${r.caption}</span></label>`)}</${Section}>` : null}
     <${LookSection} look=${look} reset=${reset} />
-    ${m && g !== 'line' ? html`<${Place} at=${m} onPage keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => set({ [k]: x })} />` : null}
+    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} />` : null}
   </div>`;
 }
 

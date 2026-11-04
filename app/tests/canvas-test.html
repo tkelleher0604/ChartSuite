@@ -1166,7 +1166,7 @@ async function run() {
     check('a text box inserted lands on no box and not on the Key', !!tb && !solid().some(m => meets(m, tb)), tb && solid().filter(m => meets(m, tb)).map(m => m.id).join());
     await tick(150);
     const left = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Left'), top = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Top');
-    const page = sc().page, want = v => String(Math.round(Scene.toSlide(page, v / Scene.PT)));
+    const page = sc().page, want = v => String(Math.round(Scene.toSlide(page, v / Scene.PT) * 10) / 10);
     check('… its Position reads in the page’s points from the page’s top left, as a box’s does', !!tb && left?.value === want(tb.x) && top?.value === want(tb.y) && +left.value >= 0, `${left?.value},${top?.value} for ${tb && [want(tb.x), want(tb.y)]}`);
     Shell.parts.peek().undo.undo(); await tick(150);
     // The chart menu: the chart's own actions first, where they stay, its charts and the workbooks each a list of their own.
@@ -1241,9 +1241,94 @@ async function run() {
     field.remove(); off(); await tick(80);
   }
 
+  await reloaded();
+  await wherePut();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
-  await reloaded();
+}
+
+// ---- Boxes go where they're put (gui3 P-21 to P-24): dragged or typed, a box stands exactly there, over another if that's
+// where it was put; its bottom handle sizes it alone; Reset takes its place alone; a group moves as one; a height is typed as a
+// width is, and locks to it ----
+async function wherePut() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const n0 = App.wb.changes().length, boxes = () => sc().marks.filter(m => m.type === 'box');
+  // (In the chart's own terms, less what the page moves it by as a whole.)
+  const offs = () => sc().page.offset;
+  const at = () => new Map(boxes().map(m => [m.id, [m.x - offs().x, m.y - offs().y, m.w, m.h]]));
+  const routes = () => new Map(sc().marks.filter(m => m.type === 'line').map(m => [m.id, JSON.stringify(m.points.map(([x, y]) => [Math.round(x - offs().x), Math.round(y - offs().y)]))]));
+  const near = (a, b, d = 0.75) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= d);
+  const others = (was, but) => [...was].filter(([id, p]) => !but.includes(id) && !near(p, at().get(id))).map(([id, p]) => [id, p.map(Math.round), at().get(id)?.map(Math.round)]);
+  // (Northpine, in the chart's midst, so the page has no call to move anything for it.)
+  const a = 'northpine', neighbour = sc().byId.get('blocker');
+  const undo = async () => { Shell.parts.peek().undo.undo(); await tick(350); };
+
+  // Dragged right onto its neighbour.
+  let was = at(), m = sc().byId.get(a); Shell.select([a]); await tick(150);
+  await drag(m, (neighbour.x - m.x + 12) * cv().graph.zoom(), (neighbour.y - m.y + 9) * cv().graph.zoom());
+  let now = sc().byId.get(a);
+  check('a box dragged onto another stands exactly there, over it, and nothing else moves', Math.abs(now.x - neighbour.x - 12) <= 6 && Math.abs(now.y - neighbour.y - 9) <= 6 && !others(was, [a]).length, JSON.stringify({ now: [now.x, now.y], neighbour: [neighbour.x, neighbour.y], moved: others(was, [a]) }));
+  check('… said as moved', /^Moved /.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  await undo();
+
+  // Typed Left and Top read back as typed; a Height too, the row's others keeping theirs.
+  Shell.select([a]); await tick(250);
+  const field = k => $(`.insp [data-place="${k}"] input`);
+  const type = async (k, v) => { const f = field(k); f.focus(); f.value = String(v); f.dispatchEvent(new Event('input', { bubbles: true })); f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(350); };
+  was = at();
+  const mark = () => sc().byId.get(a), slide = v => Scene.toSlide(sc().page, v / Scene.PT), px = v => Scene.fromSlide(sc().page, v) * Scene.PT;
+  const L = Math.round(slide(mark().x)) + 8.5, T = Math.round(slide(mark().y)) - 11;
+  await type('x', L); await type('y', T);
+  check('Left and Top typed read back as typed, and the box stands there, moving nothing else', field('x')?.value === String(L) && field('y')?.value === String(T) && !others(was, [a]).length, `${field('x')?.value},${field('y')?.value} for ${L},${T} ${JSON.stringify(others(was, [a]))}`);
+  check('… where the numbers say on the page', Math.abs(mark().x - px(L)) < 0.01 && Math.abs(mark().y - px(T)) < 0.01, JSON.stringify([mark().x, px(L)]));
+  await undo(); await undo();
+  Shell.select([a]); await tick(250);
+  was = at(); let lines = routes(), own = sc().marks.filter(l => l.type === 'line' && (l.from === a || l.to === a)).map(l => l.id), h0 = mark().h;
+  await type('h', Math.round(Scene.toSlide(sc().page, (h0 + 30) / Scene.PT)));
+  const typedH = field('h')?.value, moved0 = others(was, [a]), rerouted = [...lines].filter(([id, r]) => !own.includes(id) && routes().get(id) !== r);
+  check('a Height typed is that box’s alone, read back as typed: nothing else moves, and no line but its own reroutes', typedH === String(Math.round(Scene.toSlide(sc().page, (h0 + 30) / Scene.PT))) && Math.abs(mark().h - h0 - 30) < 2 && !moved0.length && !rerouted.length, JSON.stringify({ typedH, h: mark().h, h0, moved0, rerouted }));
+  await undo();
+
+  // Its bottom handle dragged.
+  Shell.select([a]); await tick(250);
+  was = at(); lines = routes(); h0 = mark().h;
+  const grip = $('.x6-widget-transform-resize[data-position="bottom"]'), gr = grip?.getBoundingClientRect(), mouse = (t, x, y, on = document.body) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+  if (gr) { const [x, y] = [gr.left + gr.width / 2, gr.top + gr.height / 2]; mouse('mousedown', x, y, grip); for (let i = 1; i <= 8; i++) { mouse('mousemove', x, y + i * 3); await tick(16); } mouse('mouseup', x, y + 24); await tick(400); }
+  check('a bottom handle dragged sizes that box alone, an entered height of its own: nothing else moves, and no line but its own reroutes', !!gr && mark().h > h0 + 5 && !others(was, [a]).length && ![...lines].some(([id, r]) => !own.includes(id) && routes().get(id) !== r) && App.notes.peek().position(Tree.treeOf(App.state.peek(), a), sc().view)?.h > 0,
+    JSON.stringify({ h0, h: mark().h, moved: others(was, [a]) }));
+  check('… said as resized', /^Resized /.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  await undo();
+
+  // Reset position: that box alone.
+  Shell.select([a]); await tick(250);
+  await drag(mark(), 0, 30); Shell.select([a]); await tick(250);
+  was = at();
+  const resetBtn = $$('.insp .sect').find(s => /Position/.test(txt(s)))?.querySelector('.reset');
+  resetBtn?.click(); await tick(450);
+  check('Reset position moves that box alone', !!resetBtn && !others(was, [a]).length && /^Reset the position/.test(txt($$('.toast').at(-1))), JSON.stringify({ moved: others(was, [a]), toast: txt($$('.toast').at(-1)) }));
+  await undo(); await undo();
+
+  // A group moves as one: its members keep their distances exactly.
+  const [g1, g2] = ['blocker', 'caygp'].map(id => sc().byId.get(id)), gap = () => { const p = sc().byId.get(g1.id), q = sc().byId.get(g2.id); return [q.x - p.x, q.y - p.y]; };
+  Shell.select([g1.id, g2.id]); await tick(200); cv().group(); await tick(350);
+  const gap0 = gap(); was = at();
+  await drag(sc().byId.get(g1.id), 0, -20);
+  const dropped = at().get(g1.id)[1] - was.get(g1.id)[1];
+  check('a group dragged is rigid: its members keep their distances exactly, and nothing else moves', near(gap(), gap0, 0.51) && Math.abs(dropped + 20 / cv().graph.zoom()) < 8 && !others(was, [g1.id, g2.id]).length, JSON.stringify({ gap: gap(), gap0, dropped, moved: others(was, [g1.id, g2.id]) }));
+  await undo(); await undo();
+
+  // A height in Find, and proportions locked.
+  Shell.select([a]); await tick(250);
+  const find = Shell.parts.peek().action.find(x => x.id === 'chart.size');
+  check('Find reaches a box’s size by Height, Width and Size', !!find?.enabled() && find.names.includes('Height') && find.name === 'Size…', JSON.stringify(find?.names));
+  const box = () => $$('.insp .lockrow input')[0];
+  box()?.click(); await tick(350);
+  const w0 = mark().w, h1 = mark().h;
+  await type('w', Math.round(Scene.toSlide(sc().page, 2 * w0 / Scene.PT)));
+  check('with its proportions locked, a width typed takes its height with it', !!App.notes.peek().position(Tree.treeOf(App.state.peek(), a), sc().view)?.lock && Math.abs(mark().w - 2 * w0) < 2 && Math.abs(mark().h - 2 * h1) < 3, JSON.stringify({ w0, h1, w: mark().w, h: mark().h }));
+  await undo(); await undo();
+  check('… and every step undone, the log’s as it was but for its undoing', [...at()].every(([id, p]) => near(p, was.get(id), 60)), '');
+  Shell.select([]); await tick(150);
 }
 
 // ---- A reload changes nothing (gui3 N-6.2): a page of six boxes tidied on one day, looked at on others and edited, as Nora's
@@ -1367,7 +1452,7 @@ async function drag(m, dx, dy) {
   const mouse = (t, [x, y], on = document) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
   mouse('mousedown', [x, y], el.querySelector('path, rect') ?? el);
   for (let i = 1; i <= 10; i++) { mouse('mousemove', [x + dx * i / 10, y + dy * i / 10]); await tick(16); }
-  mouse('mouseup', [x + dx, y + dy]); await tick(400);
+  mouse('mouseup', [x + dx, y + dy], document.elementFromPoint(x + dx, y + dy) ?? document.body); await tick(400);
 }
 
 async function stillAsMade() {

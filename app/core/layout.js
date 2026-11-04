@@ -431,7 +431,7 @@ function blockedRoute(ps, own, solid, avoid, near) {
 const arranged = keeping();
 function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null } = a;
-  const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y]);
+  const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y, !!p.hand]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null, b.order ?? null, !!b.around]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.names]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
     at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h],
     at(hints)]), () => arranging(a));
@@ -448,7 +448,7 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const known = [...out.keys()];
   const shift = ids => [0, 1].map(k => ids.reduce((s, id) => s + (k ? out.get(id).y - at.get(id).y : out.get(id).x - at.get(id).x), 0) / ids.length);
   const all = shift(known);
-  const geo = new Map(known.map(id => [id, { id, ...out.get(id), w: size.get(id).w, h: size.get(id).h, shape: size.get(id).shape }]));
+  const geo = new Map(known.map(id => [id, { id, ...out.get(id), w: size.get(id).w, h: size.get(id).h, shape: size.get(id).shape, hand: !!entered.get(id)?.hand }]));
   // The lines already routed among what's placed, which a new box mustn't sit on.
   const routed = lines.filter(l => geo.has(l.from) && geo.has(l.to) && l.from !== l.to).map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight }));
   route(geo, routed, { labels: false });
@@ -581,7 +581,8 @@ function roomBeside(b, y, row, alike, after, cx, left, fits, others) {
       return moves;
     };
     for (const [moves, x] of [[slide(i, 1, 1), L ? L.x + L.w + G : Math.min(left, R ? R.x : left)], ...L ? [[slide(i - 1, -1, -1), R ? R.x - G - b.w : L.x + L.w + G]] : []]) {
-      if (moves.some(([g, dx]) => g.x + dx < left - 0.01)) continue;
+      // (What a hand put somewhere doesn't slide.)
+      if (moves.some(([g, dx]) => g.hand || g.x + dx < left - 0.01)) continue;
       const q = { x, y, w: b.w, h: b.h };
       if (!fits(q) || !ok(q) || moves.some(([g, dx]) => { const r = { x: g.x + dx, y: g.y, w: g.w, h: g.h }; return !fits(r) || !ok(r); })) continue;
       const cost = moves.reduce((s, [, dx]) => s + Math.abs(dx), 0) + Math.abs(x + b.w / 2 - cx) / 4;

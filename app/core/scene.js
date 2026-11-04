@@ -386,6 +386,23 @@ function size(b, squeeze, at = null, grow = 1) {
   const shape = b.settings.Shape.value, own = b.pos?.w, base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box'] * grow) * squeeze;
   const wide = { lines: own ?? base * 1.5, tall: base * 2 };
   let w = at ?? base, h;
+  // Sized by a hand, a box is the size it was given, its text as it falls in that; a height typed stands, as a width does.
+  if (b.hand) {
+    if (shape === 'triangle') {
+      const fit = pyramid(b.texts, w, { lines: w, tall: w }), lines = b.pos.h > fit.h ? shaped(b.texts, w, b.pos.h) : null;
+      b.texts.forEach((it, i) => { it.lines = (lines ?? fit.lines)[i]; });
+      h = fit.h;
+    } else {
+      const avail = Math.max(32, w * (TEXT_AREA[shape] ?? 1) - 2 * INSET);
+      for (const it of b.texts) it.lines = linesOf(it, avail);
+      const tb = blockHeight(b.texts.filter(it => it.lines.length));
+      h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
+    }
+    b.texts = b.texts.filter(it => it.lines.length);
+    Object.assign(b, { w, h: b.pos.h ?? h, shape, base });
+    if (shape === 'triangle') b.column = columnOf(b);
+    return;
+  }
   if (shape === 'triangle') {
     const fit = pyramid(b.texts, w, wide);
     b.texts.forEach((it, i) => { it.lines = fit.lines[i]; });
@@ -842,6 +859,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     b.pos = p && !(p.pos.loose && givesWay(b)) ? p.pos : null;
     b.entered = !!b.pos;
     b.placed = b.stands = !!b.pos && !(b.pos.loose && ranking.has(b.id));
+    // Put there by a hand (dragged, typed, aligned), it's `hand`: it stands exactly there and as large as it was made, over
+    // another if that's where it was put, and nothing the layout does moves it, or moves anything else for it. (But on another
+    // paper, which draws the chart closer.)
+    b.hand = !!b.pos?.hand && !(opts.paper && opts.paper !== pageOf(N, view).size);
     if (b.pos) positions.set(b.id, b.pos);
     else if (p) hints.set(b.id, p.pos);
   }
@@ -900,7 +921,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
   // (The place of a box not drawn yet is where it will stand: as far down as the room for the lanes over them has moved what stands at its height.)
   const lowered = y => last.lowered.filter(([at]) => at <= y + 4).reduce((a, b) => b[0] > a[0] ? b : a, [-Infinity, 0])[1];
-  if (last) for (const m of [positions, hints]) for (const [id, p] of m) m.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y + (last.at.has(id) ? 0 : lowered(p.y)) });
+  if (last) for (const m of [positions, hints]) for (const [id, p] of m) m.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y + (last.at.has(id) || p.hand ? 0 : lowered(p.y)) });
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
   // Boxes a style fills alike, one row of the Key, are a class: peers the layout sets in one tier where it can.
   // Where the Key has fewer than two such rows, the fill tells nothing apart, and nothing is.
@@ -937,7 +958,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // and one size of name widened as the widest of them is, but for one that stands alone (see level).
   function sizes(bs, squeeze, grow) {
     for (const b of bs) size(b, squeeze, null, grow);
-    for (const ts of groupBy(bs.filter(b => b.shape === 'triangle'), b => alone(b) ? b.id : `${Math.round(b.base)}|${b.texts[0]?.look.Size}`).values()) {
+    for (const ts of groupBy(bs.filter(b => b.shape === 'triangle' && !b.hand), b => alone(b) ? b.id : `${Math.round(b.base)}|${b.texts[0]?.look.Size}`).values()) {
       const w = Math.max(...ts.map(b => b.w));
       for (const b of ts) if (b.w < w) size(b, squeeze, w, grow);
       level(ts);
@@ -980,7 +1001,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // box as it stood, and what it adds is placed clear of them and sized among themselves, but that it stands where a
     // place entered puts it, as tall as the rank it joins there.
     const added = b => !!last && !last.at.has(b.id);
-    for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) { level(rank.filter(b => !added(b))); level(rank.filter(added)); level(rank.filter(b => added(b) && b.entered), rank); }
+    // (A height entered is the box's own, and no part of its rank's.)
+    for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle' && !(b.hand && b.pos.h != null)), b => Math.round(b.y / 4)).values()) { level(rank.filter(b => !added(b))); level(rank.filter(added)); level(rank.filter(b => added(b) && b.entered), rank); }
     push(boxes.filter(b => !added(b)), frames, lines.filter(l => l.ranks));
     // And again where that left a line from side to side short of the room its label needs, as the height it runs at
     // moves with the boxes it joins.
@@ -1184,8 +1206,9 @@ function spread(boxes, room = () => 0, stood = () => false) {
   const BAND = 64, bands = new Map(), placed = new Map(), beside = (a, b) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > Math.min(a.h, b.h) / 2;
   const bandsOf = b => { const ks = []; for (let k = Math.floor(b.y / BAND); k <= Math.floor((b.y + b.h) / BAND); k++) ks.push(k); return ks; };
   for (const b of [...boxes].sort((a, c) => a.x - c.x || a.y - c.y)) {
-    const done = [...new Set(bandsOf(b).flatMap(k => bands.get(k) ?? []))].filter(a => beside(a, b)).sort((a, c) => placed.get(a) - placed.get(c));
-    for (let moved = true; moved;) {
+    // (What a hand put somewhere neither moves nor moves what it was put over.)
+    const done = [...new Set(bandsOf(b).flatMap(k => bands.get(k) ?? []))].filter(a => beside(a, b) && !a.hand).sort((a, c) => placed.get(a) - placed.get(c));
+    for (let moved = !b.hand; moved;) {
       moved = false;
       for (const a of done) {
         const need = stood(b) || !room(a, b) ? 0 : room(a, b) - gives(a, b);
@@ -1212,11 +1235,14 @@ function push(boxes, frames, links = []) {
   const COL = 96, columns = new Map(), over = new Map(), cols = (a, b) => Array.from({ length: Math.floor(b / COL) - Math.floor(a / COL) + 1 }, (_, i) => Math.floor(a / COL) + i);
   for (const rank of [...groupBy(boxes, b => Math.round(b.y / 4)).values()].sort((a, b) => a[0].y - b[0].y)) {
     let d = 0;
+    // (What a hand put somewhere is neither moved nor moves another.)
     for (const c of rank) {
+      if (c.hand) continue;
       const fc = chain.get(c.id) ?? [], [x0, x1] = c.shape === 'triangle' ? [c.x + c.w / 4, c.x + c.w * 3 / 4] : [c.x, c.x + c.w];
       const near = new Set(cols(x0, x1).flatMap(k => columns.get(k) ?? []));
       for (const l of ups.get(c.id) ?? []) if (over.has(l.from)) near.add(over.get(l.from));
       for (const b of near) {
+        if (b.hand) continue;
         const down = joined.has(`${b.id}>${c.id}`) && Math.min(b.y + b.h, c.y + c.h) - Math.max(b.y, c.y) <= Math.min(b.h, c.h) / 2;
         if ((x0 >= b.x + b.w || b.x >= x1) && !down) continue;
         const fb = chain.get(b.id) ?? [];
@@ -1224,7 +1250,7 @@ function push(boxes, frames, links = []) {
         d = Math.max(d, b.y + b.h + room + (!room && ups.has(c.id) ? 40 : 16) - c.y);
       }
     }
-    if (d > 0.5) for (const c of rank) c.y += d;
+    if (d > 0.5) for (const c of rank) if (!c.hand) c.y += d;
     for (const b of rank) { over.set(b.id, b); for (const k of cols(b.x, b.x + b.w)) (columns.get(k) ?? columns.set(k, []).get(k)).push(b); }
   }
 }
@@ -1370,6 +1396,8 @@ function routes(boxes, lines, frames = new Map(), stand = true, aside = []) {
 // as that needs: each gap once, from the top, less what deepening one over it has given it. So a label always
 // has a place on its own line, as the layout promises. → whether anything moved.
 function deepen(boxes, lines) {
+  // (In a chart with a box a hand put somewhere, the lines take what room they're given: no box moves for them.)
+  if (boxes.some(b => b.hand)) return false;
   const gaps = [...new Map(lines.map(l => l.placing.lack).filter(Boolean).map(g => [`${g.top}|${g.bottom}`, g])).values()].sort((a, b) => a.bottom - b.bottom || a.top - b.top);
   const moves = [], by = y => moves.reduce((d, m) => d + (y > m.at - 4 ? m.by : 0), 0);
   for (const g of gaps) { const d = g.by - (by(g.bottom) - by(g.top)); if (d > 0.25) moves.push({ at: g.bottom, by: d }); }
