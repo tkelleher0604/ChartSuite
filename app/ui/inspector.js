@@ -2082,7 +2082,7 @@ function Inspector() {
     // Else, the keys here, Esc backs out a step, as from anywhere: to the view, at what's selected, which stays so; and with nothing selected, it puts the
     // panel away, as its button and Ctrl+\ do, the view having the keys.
     const esc = e => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.target.closest('input, textarea, select, [contenteditable], .CodeMirror, .float, .asking, dialog')) return;
+      if (e.key !== 'Escape' || e.defaultPrevented || e.target.closest('input, textarea, select, [contenteditable], .CodeMirror, .float, dialog')) return;
       e.preventDefault(); e.stopPropagation();
       if (App.pending.peek()?.typed) return App.discard();
       if (Shell.wide.peek()) { Shell.narrow(); return Shell.enter('view'); }
@@ -2310,8 +2310,8 @@ preactSignals.effect(() => {
 });
 // The two-box panel asked for (a handle dropped on a box, a box made from one, Relate…) is seen, the panel brought back if
 // it was put away.
-// (By the keys, they go with it, to the first tick or the first thing to fill: the two are chosen so as to say how.)
-on('relate-open', d => { Shell.showPanel?.(); select(d); if (Shell.usingKeys.peek()) setTimeout(() => document.querySelector('.insp[data-tour="pair"] .relate .rr :is(button.tag, button.sel, input)')?.focus()); });
+// (By the keys, they go with it, to the first tick or the first thing to fill: the two are chosen so as to say how. The tour teaches the way there itself.)
+on('relate-open', d => { Shell.showPanel?.(); select(d); if (Shell.usingKeys.peek() && !document.querySelector('.tour-card')) setTimeout(() => document.querySelector('.insp[data-tour="pair"] .relate .rr :is(button.tag, button.sel, input)')?.focus()); });
 // A relation just added offers its entries while its two boxes stay selected.
 on('select', () => { fresh.value = null; if (ticked.peek().size) ticked.value = new Set(); if (offered.peek().length) offered.value = []; });
 // A definition opened from the formula bar widens the inspector, since its statute set out wide is what the

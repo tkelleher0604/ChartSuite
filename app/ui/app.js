@@ -1356,11 +1356,11 @@ const App = (() => {
   // saying; a word away on anything else. Kept apart from the change pending, so what's typed here redlines nothing.
   const why = signal('');
   function Why({ p, enter }) {
-    const asks = p.act === 'Rule out' || p.act === 'Attest', [on, setOn] = preactHooks.useState(asks || !!why.peek()), asked = preactHooks.useRef(false), field = preactHooks.useRef(), offer = preactHooks.useRef(), left = preactHooks.useRef(false);
+    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!why.peek()), asked = preactHooks.useRef(false), field = preactHooks.useRef(), offer = preactHooks.useRef(), left = preactHooks.useRef(false);
     // (Asked for, it takes the keys; left, they go back to what asked it.)
     preactHooks.useLayoutEffect(() => { if (on && asked.current) { asked.current = false; field.current?.focus(); } if (!on && left.current) { left.current = false; offer.current?.focus(); } }, [on]);
-    // Esc here leaves this and no more: what's typed first, then the field; never the change, which has its own Discard. Where it's asked of itself, an override, it goes on to that.
-    const esc = e => { if (e.key !== 'Escape') return; if (why.peek()) { e.preventDefault(); e.stopPropagation(); why.value = ''; return; } if (asks) return; e.preventDefault(); e.stopPropagation(); left.current = true; setOn(false); };
+    // Esc here leaves this and no more: what's typed first, then the field; never the change, which has its own Discard.
+    const esc = e => { if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); if (why.peek()) { why.value = ''; return; } left.current = true; setOn(false); };
     if (!on) return html`<button type="button" ref=${offer} class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Say why…</button>`;
     return html`<label class="why-in" onKeyDown=${enter}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} onKeyDown=${esc} /></label>`;
   }
@@ -1398,7 +1398,7 @@ const App = (() => {
       const t = setTimeout(() => {
         const a = document.activeElement, bar = document.querySelector('.pendbar');
         if (!bar || (a && a !== document.body && !a.closest('.dc, .cells, .hist') )) return;
-        if (a?.closest?.('.asking, .pendbar, .float, dialog') || a?.matches?.('input, textarea, [contenteditable]')) return;
+        if (a?.closest?.('.pendbar, .float, dialog') || a?.matches?.('input, textarea, [contenteditable]')) return;
         (bar.querySelector('.when input') ?? bar.querySelector('.when .sel') ?? bar.querySelector('.btn.primary:not(:disabled)'))?.focus();
       });
       return () => clearTimeout(t);

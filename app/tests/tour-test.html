@@ -218,6 +218,54 @@ async function run() {
     kd('ArrowUp'); await tick(40); kd('Enter'); await tick(80);
     check('… and Enter runs the item it’s on', ran === 'after' && !$('.float .menu'), ran);
   }
+  // Where the keys go when nothing's said: back where they were, with nothing written; Esc from a pane to the view; Relate on to the panel; a message a stop of F6.
+  {
+    const kd = (k, el = document.activeElement) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true, cancelable: true }));
+    const pane = () => document.activeElement?.closest?.('[data-region]')?.dataset.region ?? null, cv = Canvas.active.peek();
+    kd('F13');
+    Shell.show(App.views.peek().find(v => v.layout === 'chart').id); await tick(200);
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('tabs'); await tick(40);
+    kd('Escape'); await tick(80);
+    check('Esc from a pane that isn’t the view takes the keys to the view, what’s selected staying', pane() === 'view' && Shell.selection.peek().join() === 'gp', `${pane()} ${Shell.selection.peek().join()}`);
+    kd('Escape'); await tick(80);
+    check('… and there, Esc lets go of it', !Shell.selection.peek().length, Shell.selection.peek().join());
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('inspector'); await tick(40);
+    check('(the keys in the panel)', pane() === 'inspector', pane());
+    document.activeElement.blur(); await tick(60);
+    check('What had the keys letting go of them, they go back to the pane they were in', pane() === 'inspector', pane());
+    const n1 = N();
+    document.activeElement.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', code: 'KeyX', bubbles: true, cancelable: true })); await tick(80);
+    check('… at the latest with the next key, which is spent finding them: nothing typed anywhere', pane() === 'inspector' && !$('.dc-edit') && N() === n1, `${pane()} ${!!$('.dc-edit')} ${N() - n1}`);
+    Shell.enter('view'); await tick(40);
+    document.activeElement.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', code: 'KeyX', bubbles: true, cancelable: true })); await tick(80);
+    check('… on a chart too: a box selected isn’t typed over by a key meant for something gone', pane() === 'view' && !$('.dc-edit') && N() === n1, `${pane()} ${!!$('.dc-edit')} ${N() - n1}`);
+    // Relate… by the keys goes on to the two's relations; With… asks for a box and makes none.
+    Shell.select(['gp']); await tick(120);
+    cv.root.focus(); await tick(40);
+    cv.relate(); await tick(60);
+    kd('Tab', cv.root); await tick(80);
+    kd('Enter', cv.root); await tick(250);
+    check('Relate… by the keys takes the keys on to the two’s first relation, to tick', !!document.activeElement?.closest('.insp[data-tour="pair"] .relate .rr') && document.activeElement.matches('button.tag, button.sel, input'), document.activeElement?.outerHTML.slice(0, 80));
+    Shell.select(['gp']); await tick(120);
+    cv.root.focus(); await tick(40);
+    cv.withAnother(); await tick(60);
+    kd('x', cv.root); await tick(80);
+    check('With… by the keys: a name typed makes no box, as With… asks for one that’s there', cv.root.classList.contains('relating') && !$('.dc-edit'), `${cv.root.classList.contains('relating')} ${!!$('.dc-edit')}`);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+    // A message with something to do is a stop of F6; it stays while the keys are on it; pressed, the keys go to the view.
+    let undone = false;
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('view'); await tick(40);
+    Shell.toast('Something', { undo: () => { undone = true; } }); await tick(60);
+    Shell.parts.peek().action.find(a => a.id === 'pane.next').run(); await tick(60);
+    check('A message with something to do is a stop of F6, on what it offers', pane() === 'toast' && document.activeElement.matches('.toast button'), `${pane()} ${document.activeElement?.className}`);
+    document.activeElement.click(); await tick(80);
+    check('… pressed, it’s done and gone, and the keys go to the view', undone && !$('.toast') && pane() === 'view', `${undone} ${!!$('.toast')} ${pane()}`);
+  }
   check('Nothing threw', !errors.length, errors.join(' / '));
 }
 

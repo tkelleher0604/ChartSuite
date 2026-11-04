@@ -249,7 +249,8 @@ const Shell = (() => {
   // view, the bar a change pending has, a message with something to do, the inspector, the tabs.
   const REGIONS = ['title', 'format', 'formula', 'tools', 'view', 'bar', 'toast', 'inspector', 'tabs'], lastIn = {};
   let lastHeld = null;
-  document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) { lastIn[r.dataset.region] = e.target; lastHeld = r.dataset.region; } });
+  // (A message comes and goes over the rest: from it, the keys go back to the pane they came from.)
+  document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) { lastIn[r.dataset.region] = e.target; if (r.dataset.region !== 'toast') lastHeld = r.dataset.region; } });
   const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
   // A region given the keys: the view's part, where it takes them itself (a table, at its active cell, as a sheet
   // shown in Excel does); else where it last had them, or else its first control, or itself.
@@ -262,6 +263,8 @@ const Shell = (() => {
     (last?.isConnected && shown(last) && !last.disabled && last.closest('[data-region]')?.dataset.region === n ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
   }
   function region(d) {
+    // (From a menu or Find, it's left first, as a step out: nothing stays open behind the keys.)
+    if (floats.peek().length) return closeAll();
     const here = document.activeElement?.closest?.('[data-region]')?.dataset.region ?? (orphan() ? lastHeld : null);
     // (A bar with nothing to take the keys isn't a stop, unless they're there already.)
     const live = REGIONS.filter(n => n === here || els(n).some(el => tabbables(el).length || el.tabIndex >= 0)), at = live.indexOf(here);
@@ -279,7 +282,8 @@ const Shell = (() => {
   // a moment after, or at the latest with the next key pressed. A grid takes that key, as what's typed into a sheet;
   // anywhere else it's spent finding them, so that a key meant for something gone never rewrites what's here (a box's name).
   const orphan = () => { const a = document.activeElement; return (!a || a === document.body) && !document.querySelector('dialog[open], .tour-card') && !floats.peek().length; };
-  const home = () => lastHeld && els(lastHeld).some(el => tabbables(el).length) ? lastHeld : 'view';
+  // (Not the formula bar: its first control may be a row, and a row given the keys begins to be written.)
+  const home = () => lastHeld && lastHeld !== 'formula' && els(lastHeld).some(el => tabbables(el).length) ? lastHeld : 'view';
   const land = () => setTimeout(() => { if (orphan()) enter(home()); });
   addEventListener('keydown', e => {
     if (!started || !isLive || e.target !== document.body || e.ctrlKey || e.metaKey || e.altKey || !orphan() || (e.key.length !== 1 && !/^(Arrow|Enter$|Tab$|Home$|End$|Page|Delete$|Backspace$)/.test(e.key))) return;
@@ -698,12 +702,11 @@ const Shell = (() => {
     const list = toasts.value;
     // Placed as it comes, and again once the view has drawn what the change did (a table's cells laid out anew).
     useLayoutEffect(() => { if (!list.length) return; placeToasts(true); const t = setTimeout(() => placeToasts(), 120); return () => clearTimeout(t); }, [list]);
-    // (It stays while the keys are on it, as while the pointer is. What's pressed takes it away, and the keys go to the view.)
-    const away = () => { if (keyed) setTimeout(() => enter('view')); };
+    // (It stays while the keys are on it, as while the pointer is. What's pressed takes it away, and the keys go back where they came from, unless what it did took them.)
     return html`<div class="toasts" data-region="toast" aria-live="polite">${list.map(t => html`
       <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm} onFocusIn=${() => clearTimeout(t.timer)} onFocusOut=${t.arm}>
-        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); away(); }}>${label}</button>`)}${t.stay
-          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${() => { t.dismiss(); away(); }}>${icon('x')}</button>` : null}</div>`)}</div>`;
+        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); land(); }}>${label}</button>`)}${t.stay
+          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${() => { t.dismiss(); land(); }}>${icon('x')}</button>` : null}</div>`)}</div>`;
   }
 
   // ---- Find: records, lists, definitions, what needs attention, views and actions, ranked as you type, each
@@ -1067,12 +1070,12 @@ const Shell = (() => {
   ].forEach(a => register('action', a));
   keys({
     '$mod+Shift+KeyZ': () => part('undo') ? part('undo').redo() : false,
-    // With no layer open: the widened inspector narrows; from a pane that isn't the view (a toolbar, the tabs), or from nowhere, the
-    // keys go to the view, what's selected staying; and there the selection clears.
-    'Escape': () => {
-      const at = document.activeElement?.closest?.('[data-region]')?.dataset.region;
+    // With no layer open: the widened inspector narrows; from a pane that isn't the view (a toolbar, the tabs), the keys go to the
+    // view, what's selected staying; and there the selection clears.
+    'Escape': e => {
+      const at = e.target.closest?.('[data-region]')?.dataset.region;
       if (wide.peek()) narrow();
-      else if (isLive && (at ? at !== 'view' : orphan())) enter('view');
+      else if (isLive && at && at !== 'view') enter('view');
       else if (selection.peek().length) select([]);
       else return false;
     },
