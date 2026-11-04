@@ -1901,11 +1901,11 @@ const obstaclesOf = rows => rows.filter(r => r.x != null && r.y != null && !['li
 // → { s, dx, dy, shapes, places: rowId → { x, y }, placed }, in the page's pixels.
 function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null, ceil = 1, held = null, own: ownPage = null }) {
   const W = sheet.w, H = sheet.h, M = MARGIN, hands = new Set(boxes.filter(b => b.hand).map(b => b.id));
-  // What the chart draws, each as a rect, those of what a hand put `hand`.
+  // What the chart draws, each as a rect, those of what a hand put `hand`: a box, and a line bent or to one it put.
   const rects = [...boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h, hand: hands.has(b.id) })),
     ...[...frames.values()].map(f => ({ x: f.x, y: f.y, w: f.lone ? Math.max(f.w, widest([f.caption])) : f.w, h: f.h, hand: inFrame(frames, f).some(id => hands.has(id)) }))];
   for (const l of lines) if (!l.merged && l.points) {
-    const hand = hands.has(l.from) || hands.has(l.to);
+    const hand = hands.has(l.from) || hands.has(l.to) || !!l.bend;
     l.points.slice(1).forEach((p, i) => { const q = l.points[i]; rects.push({ x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]), w: Math.abs(p[0] - q[0]), h: Math.abs(p[1] - q[1]), hand }); });
     if (l.labelAt && l.label) rects.push({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h, hand });
   }
@@ -1956,7 +1956,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     const drawn = over ? mine : rects, free = shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x * s, y: m.y * s, w: m.w * s, h: m.h * s }));
     let dx = !boxes.length ? 0 : !placed ? (W - E.w * s) / 2 / s - E.x : some ? Math.max(hx, M / s - E.x) : hx;
     if (placed && boxes.length) top = some ? Math.max(top, (E.y + hy) * s) : hy * s;
-    const set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s }));
+    const set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s, hand: r.hand }));
     const R = t => ({ x: (E.x + dx) * s, y: t, w: E.w * s, h: E.h * s }), clearOfFree = r => !free.some(q => meets(q, r, 21));
     if (!force && boxes.length && some && !fits(R(top))) return null;
     if (key) {
@@ -1969,10 +1969,11 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         side = keyed(rows.find(r => r.id === key.row), room * u);
       }
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
-      // Where a change kept it, on the sheet (`keptAt`), while that's clear of the chart and what's over it there.
+      // Where a change kept it, on the sheet (`keptAt`), while that's clear of what the layout places and what's over it
+      // there, and nothing a hand put stands on it: what a hand puts near it moves it no more than it moves anything.
       if (keptAt && !footed) {
         const under = keptAt.y < y, k = under ? side : key, kw = k.w * s, q = { x: Math.min(keptAt.x, W - M - kw), y: Math.min(keptAt.y, H - M - k.h * s), w: kw, h: k.h * s };
-        if (fits(q) && clearOfFree(q) && !set(top).some(c => meets(c, q, 21)) && (!under || q.x >= W - M - room - 0.5)) { places.set(key.row, q); shapes[shapes.indexOf(key)] = key = k; alongside = q; }
+        if (fits(q) && !free.some(f => meets(f, q)) && !set(top).some(c => meets(c, q, c.hand ? 0 : 21)) && (!under || q.x >= W - M - room - 0.5)) { places.set(key.row, q); shapes[shapes.indexOf(key)] = key = k; alongside = q; }
       }
       if (!places.has(key.row) && !footed && r.w <= room + 0.5 && fits(r) && clearOfFree(r)) {
         const under = Math.max(top, r.y + r.h + 32), by = Math.max(0, ...set(top).filter(q => q.y < r.y + r.h + 21).map(q => q.x + q.w + 21 - r.x));

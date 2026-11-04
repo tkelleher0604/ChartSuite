@@ -1750,11 +1750,14 @@ Shell.register('find', { items: () => {
       }, 150);
     } }));
 } });
-// Each list a formula gives the selected record, as a table with why each holds.
+// Each list a formula gives the selected record, as a table with why each holds; and all of what each relation a formula
+// gives holds, where no such list of the record's goes by its name.
 Shell.register('find', { items: () => {
-  const id = theOne();
-  if (!id || !asTable() || !recs()[id].kind) return [];
-  return relatives(id).lists.filter(([, items]) => items.every(it => fx(it.rid))).map(([list, items]) => ({ label: `Open ${list} as a table`, detail: 'Action', names: [`${list} table`, 'As a table', `Why ${list}`], run: () => Table.openList(list, items[0].rid, id) }));
+  if (!asTable()) return [];
+  const id = theOne(), st = recs(), N = App.notes.peek(), opened = (list, rid, at) => ({ label: `Open ${list} as a table`, detail: 'Action', names: [`${list} table`, 'As a table', `Why ${list}`], run: () => Table.openList(list, rid, at) });
+  const mine = id && st[id].kind ? relatives(id).lists.filter(([, items]) => items.every(it => fx(it.rid))).map(([list, items]) => opened(list, items[0].rid, id)) : [];
+  const given = new Set(N.notes('Formula').filter(n => n.pattern.args?.length > 1).map(n => T.norm(N.name(n.pattern)))), told = new Set(mine.map(x => x.label));
+  return [...mine, ...App.layouts.peek().relations.filter(l => given.has(T.norm(l.name))).flatMap(l => { const rid = Object.keys(st).find(x => st[x].args?.length > 1 && T.fits(st, x, l.rows)), it = rid && opened(T.plural(l.name), rid); return it && !told.has(it.label) ? [it] : []; })];
 } });
 // Find reaches every record by its name, and every list of relatives by whose it is (AIV-1 › Signatories). They're the
 // same while the state and the notes stand, so they're found once, not at each key typed; and found ahead, an object

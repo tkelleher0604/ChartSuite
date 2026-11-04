@@ -740,13 +740,17 @@ async function run() {
   // is at, as Excel's Go To scrolls; a reason the formula bar steps down to is too, and nothing is zoomed ----
   const inView = id => { const m = sc().byId.get(id), a = g.localToGraph(m.x, m.y), b = g.localToGraph(m.x + m.w, m.y + m.h); return a.x >= 0 && a.y >= 0 && b.x <= cv().root.clientWidth && b.y <= cv().root.clientHeight; };
   const offScreen = () => sc().marks.find(m => m.type === 'box' && !inView(m.id) && !Shell.selection.peek().includes(m.id));
-  Shell.select([]); cv().zoom(1); await tick(120);
+  Shell.select([]); cv().zoom(1.25); await tick(120);
+  const asTables = Shell.parts.peek().find.flatMap(x => x.items('')).filter(i => i.label?.endsWith('as a table')).map(i => i.label);
+  check('With nothing selected, Find offers all of what a relation a formula gives holds, as a table', asTables.includes('Open Close Affiliates as a table'), asTables.join());
+  const zoomedTo = g.zoom(), pageWide = () => sc().page.w * g.zoom();
+  check('the zoom said is the page’s: at 125% the page is a quarter over its size, whatever scale the chart is drawn at on it', Math.abs(Canvas.zoom.value - 1.25) < 1e-6 && Math.abs(pageWide() - 1.25 * sc().page.sheet.w) < 0.5, `${Canvas.zoom.value} ${pageWide()} ${sc().page.sheet.w}`);
   const far = offScreen();
   Shell.select([far?.id]); await tick(120);
-  check('a box selected from elsewhere is brought on screen, at the zoom the view is at', !!far && inView(far.id) && Math.abs(g.zoom() - 1) < 1e-6, `${far?.id} at ${g.zoom()}`);
+  check('a box selected from elsewhere is brought on screen, at the zoom the view is at', !!far && inView(far.id) && Math.abs(g.zoom() - zoomedTo) < 1e-6, `${far?.id} at ${g.zoom()}`);
   const farther = offScreen();
   Shell.parts.peek().canvas.zoomTo([farther?.record]); await tick(120);
-  check('… and a reason the formula bar steps down to is brought on screen, never zoomed to', !!farther && inView(farther.id) && Math.abs(g.zoom() - 1) < 1e-6, `${farther?.id} at ${g.zoom()}`);
+  check('… and a reason the formula bar steps down to is brought on screen, never zoomed to', !!farther && inView(farther.id) && Math.abs(g.zoom() - zoomedTo) < 1e-6, `${farther?.id} at ${g.zoom()}`);
   // Okafor's signing for Fund III, via GP III, which this view draws no line for: its three boxes.
   g.translate(3000, 3000); await tick(60);
   Shell.select(['sign_okfr_fund']); await tick(120);

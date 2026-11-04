@@ -765,13 +765,14 @@ const Time = (() => {
   const lineMore = l => html`${l.rows ? html`<${Rows} was=${l.rows.was} now=${l.rows.now} />` : null}${l.was != null
     ? html`<div class="hist-val">From <span class="del">${l.was}</span>${l.now != null ? html` to <span class="add">${l.now}</span>` : null}</div>` : null}`;
 
-  // Picking a change shows the chart as it stood just after it; back at now, the view picked from shows again,
-  // though while it stood the window may have shown another (a view not yet made then).
+  // Picking a change shows the chart as it stood just after it; back at now, the view picked from shows again where the
+  // past took it away (a view not yet made then). A view gone to by a hand while it stood stays.
   let home = null, unlayer = null;
   const stand = c => { if (!Shell.time.peek()?.stood) home = Shell.view.peek(); Shell.at({ stood: c.id, at: c.when }); };
   function now() {
+    const took = !App.views.peek().some(v => v.id === home);
     if (Shell.time.peek()?.stood) Shell.at(null);
-    if (home && home !== Shell.view.peek() && App.views.peek().some(v => v.id === home)) Shell.show(home, { replace: true });
+    if (took && home && home !== Shell.view.peek() && App.views.peek().some(v => v.id === home)) Shell.show(home, { replace: true });
     home = null;
   }
   const dayLabel = when => {

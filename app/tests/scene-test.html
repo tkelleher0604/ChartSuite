@@ -1025,13 +1025,15 @@ function run() {
       if (typeof tx.commit() === 'string') throw new Error('not kept');
       const N = n.wb.notes(n.c), R = Formulas.computeState(n.wb.asOf(n.c, DAY), N.definitions(n.wb.schema(n.c)), { relations: N.relations(n.wb.schema(n.c)) }), s = Scene.of(n.wb, n.c, n.view, DAY, { state: R.records, computed: R });
       const k = s.marks.find(m => m.geometry === 'legend'), boxes = s.marks.filter(m => m.type === 'box').map(m => [m.x - s.page.offset.x, m.y - s.page.offset.y]);
-      return { x: k.x * s.page.scale, y: k.y * s.page.scale, w: k.w * s.page.scale, right: s.page.w * s.page.scale, boxes, over: s.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith('State')), s: s.page.scale };
+      return { x: k.x * s.page.scale, y: k.y * s.page.scale, w: k.w * s.page.scale, right: s.page.w * s.page.scale, boxes, over: s.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith('State')), fund: s.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith('Halvard')), s: s.page.scale };
     };
     const free = kept(null), foot = kept({ x: 700, y: 560 }), wide = kept({ x: 5000, y: 560 }), taken = kept({ x: free.over.x * free.s + 4, y: free.over.y * free.s + 4 });
     const same = (a, b) => Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1, boxesSame = (a, b) => j(a.boxes) === j(b.boxes);
     check('the Key stands where a change kept it on the sheet, the chart as it was', Math.abs(foot.x - 700) < 1 && Math.abs(foot.y - 560) < 1 && boxesSame(foot, free), j({ foot: [foot.x, foot.y], free: [free.x, free.y] }));
     check('… its right edge within the margin, however wide it’s grown', wide.x + wide.w <= wide.right && Math.abs(wide.y - 560) < 1, j([wide.x, wide.w, wide.right]));
     check('… and where the chart has taken its room, it goes where it would', same(taken, free) && boxesSame(taken, free), j({ taken: [taken.x, taken.y], free: [free.x, free.y] }));
+    const near = { x: (free.fund.x + free.fund.w) * free.s + 8, y: free.fund.y * free.s }, beside = kept(near);
+    check('… but what a hand put near it and not on it moves it no more than it moves anything', same(beside, near), j({ beside: [beside.x, beside.y], near }));
   }
   {
     // Tidy (gui2 D-15, L-2.2) takes each box's place away but for where it stood across: every row of every sample view, on

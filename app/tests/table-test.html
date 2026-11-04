@@ -173,6 +173,27 @@ async function historyChecks(ours, fund) {
   check('Viewing a past moment, a band says the moment, with Back to now', /^As it stood on \w+ \d+, /.test($('.pastband span')?.textContent ?? '') && $('.pastband .btn')?.textContent === 'Back to now', $('.pastband')?.textContent);
   $('.pastband .btn').click(); await tick(120);
   check('… which comes back to now', Shell.time.peek() === null && !$('.pastband'));
+  {
+    // Back at now, a view gone to while the past was shown stays; one the past took away comes back, and a grid built as the
+    // window left it is fitted to its rows once it shows.
+    const named_ = name => views().find(v => v.name === name).id, entities = named_('Entities'), older = () => $$('.hist-row').find(r => !r.classList.contains('undone') && !/Made later/.test(r.textContent));
+    if (!$('.hist-row')) { historyAction.run(); await tick(150); }
+    Shell.show(named_('Ownership')); await tick(150);
+    older().click(); await tick(200);
+    Shell.show(entities); await tick(250);
+    $('.pastband .btn').click(); await tick(250);
+    check('Back at now, a view gone to while the past was shown stays', Shell.view.peek() === entities, Shell.view.peek());
+    const later = App.addView('Made later', { kind: 'Entity' }); await tick(250);
+    Shell.show(later); await tick(250);
+    older().click(); await tick(250);
+    const took = Shell.view.peek() !== later;
+    $('.pastband .btn').click(); await tick(300);
+    check('… and one the past took away comes back', took && Shell.view.peek() === later, `${took} ${Shell.view.peek()}`);
+    Shell.show(entities); await tick(300);
+    const nameWide = Table.grid.getColumns().find(c => c.getField() && c.getDefinition().title === 'Name')?.getWidth();
+    check('… and the grid left as it went is fitted to its rows', nameWide > 200, nameWide);
+    undo(); await tick(200);
+  }
 
   // ---- A record's own: its changes, as itself, each with when it held and when it was typed ----
   const holding = Object.keys(st()).find(id => st()[id].args?.some(a => a.edge === 'Owned' && App.notes.peek().nameOf(st(), a.at) === 'Corvane Specialty Chemicals Holdings, LLC') && st()[id].args.some(a => App.notes.peek().nameOf(st(), a.at) === 'Calder Ridge Capital Partners III, L.P.'));
@@ -2080,6 +2101,8 @@ async function tablesG3() {
     check('With a search typed, Show all shows what it finds, and no more', N() === n1 + 1 && heads().includes('Registration Number') && heads().length < 12, heads().join());
     allBtn('Hide all').click(); await tick(400);
     check('… and Hide all hides it', N() === n1 + 2 && !heads().includes('Registration Number'), heads().join());
+    await find('annual tax');
+    check('A list is found by what it holds as well as what it’s called', $$('.cols .colrow.mv').some(r => r.textContent.trim() === 'Taxed For'), $$('.cols .colrow.mv').map(r => r.textContent.trim()).join());
     await find('');
     undo(); await tick(300); undo(); await tick(300);
   });

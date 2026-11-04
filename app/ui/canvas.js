@@ -345,6 +345,9 @@ function mount(el) {
   const tidyLabel = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-previewing', textContent: 'Tidy preview', hidden: true }));
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
+  // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
+  const pageScale = () => scene?.page.scale ?? 1;
+  const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); };
   let cued = null; // the format bar's scope, lit (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
@@ -529,6 +532,7 @@ function mount(el) {
       const dx = page.offset.x - was.offset.x, dy = page.offset.y - was.offset.y;
       if ((dx || dy) && screen.w) { const z = graph.zoom(), t = graph.translate(); quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z)); }
     }
+    zoomRead();
     syncSelection();
     paintStates();
     paintAids();
@@ -1525,7 +1529,7 @@ function mount(el) {
     hover(f);
   });
   root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomLevel.value = graph.zoom(); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
   // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
@@ -2348,7 +2352,7 @@ function mount(el) {
     const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi);
     const at = (x, w, room) => w * s > room - 2 * pad ? pad - x * s : (room - w * s) / 2 - x * s;
     quietly(() => { graph.zoomTo(s); graph.translate(at(r.x, r.w, W), at(r.y, r.h, H)); });
-    zoomLevel.value = graph.zoom();
+    zoomRead();
   }
   // The view as it's to be, once it can be seen: as it was left, or framed on its page.
   function settle() {
@@ -2356,19 +2360,20 @@ function mount(el) {
     if (!scene || !seen()) return;
     const p = scene.page;
     owed = false;
-    if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomLevel.value = graph.zoom(); }
+    if (left) { const z = left; left = null; quietly(() => { graph.zoomTo(z.s); graph.translate(z.t.tx, z.t.ty); }); zoomRead(); }
     else if (framed) { showRect({ x: 0, y: 0, w: p.w, h: p.h }, Math.round(clamp(Math.min(root.clientWidth, root.clientHeight) * 0.03, 12, 28)), LEAST, 2); framedFor = scene; }
   }
   function zoom(k) {
     if (!scene) return;
     if (k === 'fit') { framed = true; left = null; return settle(); }
     if (!seen()) return;
+    const s = pageScale();
     if (k === 'in' || k === 'out') {
-      const z = graph.zoom(), next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? LEAST;
+      const z = graph.zoom() / s, next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? LEVELS[0];
       const c = graph.getGraphArea().center ?? null;
-      graph.zoomTo(next, c ? { center: graph.graphToLocal(c) } : undefined);
-    } else graph.zoomTo(k);
-    zoomLevel.value = graph.zoom();
+      graph.zoomTo(next * s, c ? { center: graph.graphToLocal(c) } : undefined);
+    } else graph.zoomTo(k * s);
+    zoomRead();
   }
   const resized = new ResizeObserver(() => { showHandles(null); seen(); if (owed || (framed && scene === framedFor)) settle(); onScreen(); });
   resized.observe(root);

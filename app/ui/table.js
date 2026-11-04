@@ -117,7 +117,7 @@ const Table = (() => {
       const pattern = N.relationPattern(s), title = N.listName(pattern, other.edge), k = Tree.key(pattern) + '|' + norm(other.edge);
       if (!lists.has(k)) lists.set(k, { key: '~' + norm(title), title, type: 'list', pattern, param: other.edge, mine: mine.edge, other: other.edge, minePath, up,
         otherLoc: shape(other.loc), kinds: new Set(), kindNames: [], base: [Infinity, Infinity, Infinity], fx: !!N.resolve('Formula', pattern), choice: false,
-        reach: N.name(other.loc) });
+        reach: N.name(other.loc), holds: N.name(pattern) });
       const c = lists.get(k);
       if (!c.kinds.has(norm(kind))) { c.kinds.add(norm(kind)); c.kindNames.push(kind); }
       // A side that's a relation (Evidence's Evidenced) is read in the cell by its place, and can't be named there.
@@ -609,6 +609,8 @@ const Table = (() => {
   // go, then every one measured, then every one set, so the grid is laid out once to measure them, not once a column.
   Tabulator.extendModule('layout', 'modes', { fitDataSlack(columns) {
     const shown = columns.filter(c => c.visible), free = shown.filter(c => !c.widthFixed || sized.has(c)), full = new Map(), w = widthOf(this.table);
+    // (Its slot hidden as it's laid out, built as the window went to another view: it has no width to fit to, and is fitted once it shows: settle.)
+    if (!w) { laid.delete(this.table); return; }
     const plain = free.filter(c => !TAG.test(c.definition.cssClass)), fits = new Map();
     for (const c of plain) { c.widthFixed = false; c.dispatch('column-width-fit-before', c); c.element.style.width = ''; c.cells.forEach(x => x.clearWidth()); }
     for (const c of free) fits.set(c, TAG.test(c.definition.cssClass) ? twoLines(c)
@@ -969,7 +971,8 @@ const Table = (() => {
     const t = table;
     if (!t || !ready || flight || t.modules.edit?.currentCell) return;
     const h = t.element.clientHeight;
-    if (laid.get(t) !== widthOf(t)) t.redraw();
+    // (Built with its slot hidden, it's never been fitted, and has no rows drawn to fit it to: it's drawn afresh.)
+    if (laid.get(t) !== widthOf(t)) t.redraw(!laid.has(t));
     else if (tall.get(t) !== h) t.rowManager.redraw();
     else return;
     tall.set(t, h);
@@ -2063,7 +2066,8 @@ const Table = (() => {
     const first = opened.current.first, rows = [...m.cols.filter(c => first.has(c.key)), ...m.cols.filter(c => !first.has(c.key))];
     // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all, after the
     // row it's dropped after, and among the ticked or the rest as that row is.
-    const t = q.trim().toLowerCase(), found = c => !t || called(c).toLowerCase().includes(t);
+    // (A list is found by what it holds as well as what it's called: Taxed For, by "annual tax".)
+    const t = q.trim().toLowerCase(), found = c => !t || [called(c), c.holds, c.reach].some(x => x?.toLowerCase().includes(t));
     const writes = canWrite(), shows = canShow(), mv = m.cols.filter(c => c.pattern), vis = rows.filter(c => c.pattern && found(c)), kept = keptOf(m);
     const down = (e, c) => {
       if (!writes || e.target.closest('input, button')) return;

@@ -233,7 +233,7 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .from { display: inline-flex; align-items: center; gap: 2px; min-height: var(--row); color: var(--ink-2); }
 .from > .sel { margin: 0 2px 0 -7px; color: inherit; }
 .from .cell.date, .from:not(:has(.cell, .lk)) > .sel { color: var(--accent-ink); }
-.from > .word { margin-right: 6px; }
+.from > .word { margin-right: 10px; }
 /* A transfer, as History will say it, with what it asks in place: how much, typed over, and to whom, a dropdown that
    searches; both in the redline's blue, as what would appear. */
 .transfer { line-height: var(--row); }

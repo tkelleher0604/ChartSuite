@@ -667,13 +667,13 @@ const FormulaBar = (() => {
     if (op === '=' && one && v?.t === 'rec' && v.id) return [{ parts, not: { ids: [v.id], text: notOf(recs, v.id, w, pct) } }];
     return [{ parts, want, then: miss && (one ? miss : `${show(v, pct)}, ${miss}`) }];
   }
-  // A total, said by what it counted and what's asked of it: no voting percentage counted (more than 25%); a voting
-  // percentage of 7% counted (more than 25%).
+  // A total, said by what it counted and what's asked of it: no voting percentage (more than 25% needed); a voting
+  // percentage of 7% (more than 25% needed).
   function noneCounted(Rv, d, id, lets, n, found) {
     const e = /^SUM\(.*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))\s*\)$/i.exec(found.text), t = thresholdOf(n.text);
     if (!e) return null;
     const what = lower(e[1] ?? e[2]), v = ask(Rv, d, id, lets, found.text)?.value;
-    return [{ clause: { subj: null, pre: [typeof v === 'number' && v ? `${article(what)} ${what} of ${show(v, /%/.test(n.text))} counted` : `no ${what} counted`], obj: [], post: t ? [` (${t})`] : [] } }];
+    return [{ clause: { subj: null, pre: [typeof v === 'number' && v ? `${article(what)} ${what} of ${show(v, /%/.test(n.text))}` : `no ${what}`], obj: [], post: t ? [` (${t} needed)`] : [] } }];
   }
   // A relation a formula calls, with what it says of the sides: its pattern, for its names; its edges; the text at
   // each side; and the clauses cited of it, each a label after a dot: [Affiliated Person](x, @).[(C)].
