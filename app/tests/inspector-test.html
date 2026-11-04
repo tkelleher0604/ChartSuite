@@ -1291,7 +1291,8 @@ async function run() {
     check('Next step is one change: a copy keeping that date, its title the name typed, marking what’s changed since the page before', !!step && App.wb.changes().length === n0 + 1 && step.keeps === D1 && titled === 'Step X' && !!step.changes?.page, JSON.stringify(step));
     check('… shown, after the page it’s from', Shell.view.peek() === step?.id && App.views.peek().findIndex(v => v.id === step?.id) === App.views.peek().findIndex(v => v.id === A.id) + 1);
     check('… the page it’s from holding still, and the two one plan', source.keeps === today && !!step.plan && step.plan === source.plan, JSON.stringify(source));
-    check('… its style a Styles row like any other, last', Scene.isChange(App.notes.peek().styles(step.id).at(-1).pattern) && Scene.groupsOf(App.notes.peek(), step.id).filter(g => g.outputs.every(Scene.isChange)).map(g => g.caption).join() === 'New or changed,Gone');
+    const stepStyles = App.notes.peek().styles(step.id), changesAt = stepStyles.findIndex(s => Scene.isChange(s.pattern));
+    check('… its style a Styles row like any other, after the rest but a tag’s, so what’s failed stays red', changesAt > 0 && stepStyles.slice(changesAt + 1).every(s => s.outputs.some(o => o.pattern.out && 'tag' in o.pattern.out)) && Scene.groupsOf(App.notes.peek(), step.id).filter(g => g.outputs.every(Scene.isChange)).map(g => g.caption).join() === 'New or changed,Gone');
     // A place put on one page is put on every page of the plan, one change, said once.
     const box = App.scene.peek().marks.find(m => m.type === 'box'), t = Tree.treeOf(App.state.peek(), box.record), moved = { x: 40, y: 40, w: box.w, hand: true };
     App.change(tx => tx.note('Position', t, moved, { view: step.id }), { dated: false });

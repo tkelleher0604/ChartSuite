@@ -63,13 +63,14 @@ function index(rows) {
 
   // How a view draws a record: each format property that a note decides, with its note; a note at a pattern leaving a
   // location open (what a comparison says of a mark: see Scene) fitting records of any shape.
-  const openLooks = [...new Set(rows.filter(n => FORMATS.has(n.label) && isOpen(n.pattern)).map(n => n.label))];
+  let openLooks = null;
   function formats(t, view) {
     const out = {};
     for (const label of byShape.get(shapeOf(t)) ?? []) if (FORMATS.has(label)) {
       const r = resolve(label, t, view);
       if (r) out[label] = r;
     }
+    openLooks ??= [...new Set(rows.filter(n => FORMATS.has(n.label) && isOpen(n.pattern)).map(n => n.label))];
     for (const label of openLooks) if (!(label in out)) {
       const r = resolve(label, t, view);
       if (r) out[label] = r;

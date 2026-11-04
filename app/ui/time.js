@@ -104,8 +104,8 @@ const Time = (() => {
 
   // ---- What a page marks as changed (dendra.md, Changes), a note at the view, and the look it begins in ----
   const changeNotes = view => App.shown.peek().rows(App.chart.peek()).filter(r => 'note' in r && r.view === view && Scene.isChange(r.pattern));
-  // (After every style the view has, so what it says of a mark decides, as a look given a group goes after those in Styles. `like`,
-  // the view a copy's styles are from, which the change has copied.)
+  // (After the styles the view has, so what it says of a mark decides, as a look given a group goes after those in Styles; but
+  // before a tag's, so what's failed stays red. `like`, the view a copy's styles are from, which the change has copied.)
   function styleChanges(tx, view, like = view) {
     if (changeNotes(like).length) return;
     for (const [what, look] of Object.entries(Scene.CHANGE_LOOKS)) {
@@ -113,9 +113,9 @@ const Time = (() => {
       for (const [label, v] of Object.entries(look)) tx.note(label, p, v, { view });
       tx.note('Caption', p, Scene.CHANGE_CAPTIONS[what], { view });
     }
-    const styles = App.notes.peek().styles(like);
-    styles.forEach((s, k) => { if (s.order !== k + 1) tx.note('Order', s.pattern, k + 1, { view }); });
-    tx.note('Order', Tree.bare(Scene.changeOutput('New')), styles.length + 1, { view });
+    const styles = App.notes.peek().styles(like), tagged = s => s.outputs.some(o => o.pattern.out && 'tag' in o.pattern.out);
+    [...styles.filter(s => !tagged(s)), { pattern: Tree.bare(Scene.changeOutput('New')) }, ...styles.filter(tagged)]
+      .forEach((s, k) => { if (s.order !== k + 1) tx.note('Order', s.pattern, k + 1, { view }); });
   }
   const changesSaid = (v, value) => !value ? `Took the changes off ${v.name}` : value.since ? `Showed the changes since ${short(value.since)} in ${v.name}` : `Showed the changes since the page before in ${v.name}`;
   // Set on a view, its look begun; taken off, its look goes with it where nobody has changed it.
