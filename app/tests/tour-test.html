@@ -243,6 +243,10 @@ async function run() {
     document.activeElement.blur();
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', code: 'KeyX', bubbles: true, cancelable: true })); await tick(80);
     check('… on a chart too: a box selected isn’t typed over by a key meant for something gone', pane() === 'view' && !$('.dc-edit') && N() === n1, `${pane()} ${!!$('.dc-edit')} ${N() - n1}`);
+    document.activeElement.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', code: 'Slash', shiftKey: true, bubbles: true, cancelable: true })); await tick(80);
+    check('… but what’s the window’s own goes on to it: ? opens the list of keys', !!$('.menu.findpal'), document.activeElement?.className);
+    Shell.closeAll(); await tick(60);
     // Relate… by the keys goes on to the two's relations; With… asks for a box and makes none.
     Shell.select(['gp']); await tick(120);
     cv.root.focus(); await tick(40);

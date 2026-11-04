@@ -293,6 +293,9 @@ const Shell = (() => {
   const land = () => setTimeout(() => { if (orphan()) enter(home()); });
   addEventListener('keydown', e => {
     if (!started || !isLive || e.target !== document.body || e.ctrlKey || e.metaKey || e.altKey || !orphan() || (e.key.length !== 1 && !/^(Arrow|Enter$|Tab$|Home$|End$|Page|Delete$|Backspace$)/.test(e.key))) return;
+    // (What's the window's own goes on to it: ? is the list of keys, and Enter makes a change pending. Enter lands them only after, so it presses nothing it lands on.)
+    if (e.key === '?') return;
+    if (e.key === 'Enter') return land();
     enter(home());
     const a = document.activeElement;
     if (!a || a === document.body) return;
