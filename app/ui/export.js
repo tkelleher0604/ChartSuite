@@ -372,7 +372,9 @@ function footMaster(m, r, k, level) {
 }
 // On a slide, `master` being what its master says of it: { r, look, k }.
 function footSlide(id, m, r, k, master) {
-  const f = FOOT[m.role], it = m.texts[0], t = it.look, same = RUN_LOOK.every(l => master.look[l] === t[l]) && master.k === k, moved = ['x', 'y', 'w', 'h'].some(d => E(master.r[d]) !== E(r[d]));
+  // (As it prints, whatever scale its page is drawn at; and where it stands by the edge it's set from, the footer's left, a number's right, however wide it is.)
+  const f = FOOT[m.role], it = m.texts[0], t = it.look, printed = (x, kk) => Math.round(x.Size * kk * 100), same = RUN_LOOK.every(l => l === 'Size' ? printed(master.look, master.k) === printed(t, k) : master.look[l] === t[l]);
+  const edge = x => m.role === 'number' ? x.x + x.w : x.x, moved = Math.abs(edge(master.r) - edge(r)) > 0.02 || Math.abs(master.r.y - r.y) > 0.02;
   const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
   const line = l => m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum">${rPr}<a:t>${esc(l.text)}</a:t></a:fld>` : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`;
   const ps = typed(it).map(ls => `<a:p>${ls.map(line).join(`<a:br>${rPr}</a:br>`)}</a:p>`).join('');

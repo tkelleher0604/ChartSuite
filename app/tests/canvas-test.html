@@ -2154,7 +2154,7 @@ async function format() {
   FormatBar.apply('Weight', 3); await tick(400);
   Shell.select([]); await tick(150);
   const corpG = Scene.groupsOf(App.notes.peek(), stE.id).find(g => g.caption === 'Corporation');
-  check('a Styles row with a member of its own says so', FormatBar.reachOf(corpG).own === 1 && $$('.row.out .oname .lk').some(b => /keeps its own/.test(txt(b))), JSON.stringify(FormatBar.reachOf(corpG)));
+  check('a Styles row with a member of its own says so', FormatBar.reachOf(corpG).own === 1 && $$('.row.out .onote .lk').some(b => /keeps its own/.test(txt(b))), JSON.stringify(FormatBar.reachOf(corpG)));
   FormatBar.selectDiffers(); await tick(250);
   check('Select what differs selects and lists the one-offs on the view', Shell.selection.peek().includes('blocker') && $$('.float .menu-item').some(e => /Weight 3 pt/.test(txt(e))), $$('.float .menu-item').map(txt).join(' | '));
   await closeMenus();

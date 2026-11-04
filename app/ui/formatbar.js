@@ -541,7 +541,7 @@ function Palette({ label, none, close, children }) {
   // Off the swatches, the chart is drawn in the color typed, while it's being typed.
   const rest = el => { const f = el.querySelector('.hex > input'), c = f === document.activeElement && hexOf(f.value); c ? preview(label, c) : preview(); };
   const typed = e => { const f = e.currentTarget; f.toggleAttribute('aria-invalid', !!f.value.trim() && !hexOf(f.value)); rest(f.closest('.palette')); };
-  const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { close?.(); apply(label, c); } };
+  const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); e.stopPropagation(); close?.(); apply(label, c); } };
   // The chart's own colors have their row from the start, so nothing moves down as the first comes.
   return html`<div class="palette" onPointerLeave=${e => rest(e.currentTarget)}>${THEME.map((c, i) => swatch(c, THEME_NAMES[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
     <i />${own.map(c => swatch(c, c.toUpperCase()))}${Array.from({ length: 10 - own.length }, () => html`<span class="room" />`)}
@@ -1087,7 +1087,7 @@ function withLook(id, look) {
 function leftOf(id, look) {
   const N = App.notes.peek(), has = new Set(look.notes.map(n => Tree.key(Tree.bare(n.pattern)))), rows = Scene.groupsOf(N, id).filter(g => !has.has(g.style)).map(g => g.caption);
   const own = oneOffs(sceneOf(id));
-  return [...rows.length ? [`${listed(rows)}, which the look doesn’t style`] : [], ...own.length ? [own.length === 1 ? `${own[0].name}’s own look` : `the own looks of ${own.length} marks`] : []];
+  return [...rows.length ? [`${listed(rows)}, which the look doesn’t style`] : [], ...own.length ? [own.length === 1 ? `${own[0].name.replace(/^The /, 'the ')}’s own look` : `the own looks of ${own.length} marks`] : []];
 }
 // Views take a look, as one change, one Undo, said as one act: its paper with what placing them on it does, as Page setup's
 // does, what a hand placed keeping its distance from the sheet's nearest corner. Said with what it leaves, and a Key it now puts over a box.
@@ -1103,7 +1103,8 @@ function giveLook(ids, look, say) {
       const named = id => ids.length > 1 ? `${viewNamed(id)}: ` : '', over = ids.flatMap(id => Scene.says(sceneOf(id), b => App.notes.peek().shortOf(App.state.peek(), b.record)).filter(t => t.startsWith('The Key overlaps')).slice(0, 1).map(t => named(id) + t));
       const keeps = leaves.map(([id, l]) => `${ids.length > 1 ? `${viewNamed(id)} keeps` : 'It keeps'} ${listed(l)}`), bits = [...keeps, ...over, ...left ? [`${left} ${left === 1 ? 'setting' : Tree.plural('setting')} of what this chart hasn’t got stayed behind`] : []];
       return bits.length ? `${say}. ${bits.join('. ')}` : say; },
-      go: () => ids.includes(Shell.view.peek()) && oneOffs(sceneOf(Shell.view.peek())).length ? ['What differs', selectDiffers] : null,
+      // (A Key now over a box: Tidy sets the chart clear of it. Else what differs from its style, of the page shown.)
+      go: () => { const here = Shell.view.peek(), sc = ids.includes(here) ? sceneOf(here) : null; return !sc ? null : Scene.says(sc).some(t => t.startsWith('The Key overlaps')) ? ['Tidy, to make room', () => Canvas.active.peek()?.tidy()] : oneOffs(sc).length ? ['What differs', selectDiffers] : null; },
       empty: () => Shell.toast(`${ids.length > 1 ? 'They already have' : `${viewNamed(ids[0])} already has`} that look`) });
   if (c && shown) Canvas.active.peek()?.zoom('fit');
 }

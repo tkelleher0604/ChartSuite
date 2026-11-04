@@ -1182,9 +1182,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null, ceil, held, own: ownPage });
     let laid = furnished();
     // A Key a hand put on the page: no line runs under it where the router has another way.
-    const dropped = !last && laid.shapes.find(m => m.geometry === 'legend' && (!laid.places.has(m.row) || !!theKey?.corner));
+    const dropped = !last && laid.shapes.find(m => m.geometry === 'legend' && !laid.places.has(m.row));
     if (dropped) {
-      const stands = laid.places.get(dropped.row) ?? dropped, q = { x: stands.x - laid.dx, y: stands.y - laid.dy, w: dropped.w, h: dropped.h }, under = l => l.points?.some((p, i) => i && Math.max(p[0], l.points[i - 1][0]) > q.x && Math.min(p[0], l.points[i - 1][0]) < q.x + q.w && Math.max(p[1], l.points[i - 1][1]) > q.y && Math.min(p[1], l.points[i - 1][1]) < q.y + q.h);
+      const q = { x: dropped.x - laid.dx, y: dropped.y - laid.dy, w: dropped.w, h: dropped.h }, under = l => l.points?.some((p, i) => i && Math.max(p[0], l.points[i - 1][0]) > q.x && Math.min(p[0], l.points[i - 1][0]) < q.x + q.w && Math.max(p[1], l.points[i - 1][1]) > q.y && Math.min(p[1], l.points[i - 1][1]) < q.y + q.h);
       const long = ps => ps.slice(1).reduce((s, p, k) => s + Math.hypot(p[0] - ps[k][0], p[1] - ps[k][1]), 0), runUnder = lines.filter(under);
       // (A way that isn't twice as long, and a little: a Key dropped in the chart's midst leaves its lines be, rather than send them round the page.)
       if (runUnder.length) {
@@ -1983,12 +1983,19 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     if (key) {
       // In a corner, by name or as far from one as a look's Key stood: there, however large it is, under the title where it
       // would run over it. What a hand or a look puts there the page doesn't move, nor anything for it, unless the layout
-      // alone places the chart, which is then set clear of it, the scale falling as far as that needs.
+      // alone places the chart (Tidy), which is then set clear of it: to its side, as far as the margin lets it, or else
+      // smaller, the scale falling as far as that needs but no further than leaves its gaps a chart's; past that the Key goes
+      // over it, and Export says so.
       const corner = rows.find(r => r.id === key.row).corner;
       if (corner) {
         const kw = key.w * s, kh = key.h * s, kx = corner.h === 'left' ? corner.dx ?? M : W - (corner.dx ?? M) - kw, heads = [title, date].filter(Boolean).map(m => M - INSET + ((m.column?.x ?? 0) + widest(m.texts)) * s);
         const ky = corner.v === 'top' ? Math.max(corner.dy ?? M, kx < Math.max(0, ...heads) ? y + 8 : 0) : H - (corner.dy ?? M) - kh, q = { x: kx, y: ky, w: kw, h: kh };
-        if (!force && !held && boxes.length && set(top).some(c => meets(c, q, 21))) return null;
+        const hit = !force && !held && !placed && !ownPage && boxes.length ? set(top).filter(c => meets(c, q, 21)) : [];
+        if (hit.length) {
+          const left = corner.h === 'left', by = left ? Math.max(...hit.map(c => q.x + q.w + 21 - c.x)) : Math.max(...hit.map(c => c.x + c.w + 21 - q.x)), free = Math.max(0, left ? W - M - R(top).x - E.w * s : R(top).x - M);
+          if (by > free + 0.5 && s > 0.65 + 1e-9) return null;
+          dx += (left ? 1 : -1) * Math.min(by, free) / s;
+        }
         places.set(key.row, q);
         alongside = q;
       }
