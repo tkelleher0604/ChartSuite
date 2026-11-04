@@ -5,6 +5,7 @@
 .dc { position: absolute; inset: 0; outline: none; background: var(--side); overflow: hidden; }
 .dc-graph { position: absolute; inset: 0; }
 .dc-graph svg { overflow: visible; }
+.dc-graph svg.dc-crop { overflow: hidden; }
 .dc-over { position: absolute; inset: 0; pointer-events: none; }
 .dc-over > * { pointer-events: auto; }
 
@@ -25,6 +26,8 @@
 /* The format bar's scope while a group is chosen or pointed at: what it doesn't reach dulled whole, fill and all, so
    what it reaches stands out (see cue). */
 .dc .x6-cell.dc-dull { opacity: .35; }
+/* After a change, the cue fades, over two seconds, so the change can be seen. */
+.dc.cue-fading .x6-cell, .dc.cue-fading .x6-cell * { transition: opacity 2s var(--ease); }
 /* A blank field's name shows in a box selected, pointed at or in the scope chosen; elsewhere its room is empty, as
    it prints. */
 .dc .x6-cell:not(:hover, .dc-on) text.dc-blank { visibility: hidden; }
@@ -81,6 +84,10 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
 
+/* A rounded shape's corner handle, PowerPoint's yellow; and where a Key's row dragged would go. */
+.dc-over > .dc-adjust { position: absolute; box-sizing: border-box; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #ffc000; border: 1px solid #7f6000; cursor: ew-resize; touch-action: none; }
+.dc-over > .dc-keydrop { position: absolute; height: 2px; margin-top: -1px; background: var(--accent); pointer-events: none; }
+
 /* A box's fields: the text pointer over one, and move over a selected box's own room; one pointed at outlined
    quietly, one selected in the accent, washed; one its inspector row lights, in the accent; a box a row is dragged
    over, as the drop's target. The entry's name, a moment after the pointer stops on it. */
@@ -120,9 +127,10 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .btn:hover:not(:disabled) { border-color: transparent; }
 .fb .btn.icon { width: 28px; }
 /* The scope: two parts, the selection and all like it, the one a change goes to pressed in the accent, and the
-   ▾ that chooses the group joined to its part. It keeps one width, so nothing after it in the bar moves as the group
-   it names changes; a name too long for it is cut short, and shown whole on hover. */
-.fb .scope { display: inline-flex; flex: 0 1 300px; min-width: 200px; height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+   ▾ that chooses the group joined to its part. It keeps one width, selected or not, so nothing after it in the bar moves
+   as what it names changes; a name too long for it is cut short, and shown whole on hover. */
+.fb .scope { display: inline-flex; flex: none; width: clamp(138px, calc(100cqw - 1164px), 300px); height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.fb .scope.off { opacity: .4; }
 .fb .scope > button { height: 26px; padding: 0 10px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
 .fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fb .scope > [data-fb="own"] { flex: none; }
@@ -139,7 +147,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .font, .fb .combo { height: 28px; border: 1px solid var(--rule-2); background: var(--surface); }
 .fb .font { width: 148px; justify-content: space-between; padding: 0 6px 0 8px; }
 .fb .font > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.fb .font:hover:not(:disabled) { border-color: var(--edge); }
+.fb .font:hover:not(:disabled, [aria-disabled="true"]) { border-color: var(--edge); }
 .fb .combo { display: inline-flex; align-items: center; border-radius: var(--r); flex: none; margin-left: 4px; }
 .fb .combo:hover:not(.off), .fb .combo:focus-within { border-color: var(--edge); }
 .fb .combo > input { width: 40px; height: 26px; padding: 0 0 0 8px; border: 0; background: transparent; font-variant-numeric: tabular-nums; }
@@ -154,7 +162,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
 @container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } }
-@container (max-width: 1140px) { .fb .scope { width: auto; flex: 0 1 auto; min-width: 120px; max-width: 228px; } .fb > .sep { margin: 0 4px; } .fb .font { width: 112px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
+@container (max-width: 1310px) { .fb .font { width: 110px; } .fb .scope { width: clamp(120px, calc(100cqw - 1106px), 240px); } }
+@container (max-width: 1230px) { .fb .scope { width: 138px; } .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
 .fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 18px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }
@@ -165,10 +174,14 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 :root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }
 .fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 .fb .zoom { margin-left: auto; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.fb:has(.btn:disabled) .btn:disabled { opacity: .4; }
+.fb .btn:disabled, .fb .btn[aria-disabled="true"] { opacity: .4; }
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }
 .dc.dropping, .dc.dropping * { cursor: var(--dropper) !important; }
+/* The eyedropper's own swatch, under the pointer: the color it would take, and its hex. */
+.dc-dropper { position: fixed; left: 0; top: 0; z-index: 2000; display: inline-flex; align-items: center; gap: 6px; padding: 3px 7px 3px 4px; border-radius: var(--r); background: var(--ink); color: var(--surface); font: var(--t12); font-variant-numeric: tabular-nums; pointer-events: none; }
+.dc-dropper[hidden] { display: none; }
+.dc-dropper > i { width: 16px; height: 16px; border-radius: 3px; box-shadow: 0 0 0 1px rgb(255 255 255 / .6); }
 
 /* The font menu: a field that finds, then the chart's own fonts and every font by its class, each name in its own
    face, one not on this computer greyed. */
@@ -184,12 +197,28 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .menu-item.slider { gap: 10px; }
 .menu-item.slider > .label { flex: none; }
 .menu-item.slider > input { flex: 1; min-width: 60px; width: 0; accent-color: var(--accent); }
-.menu-item.slider > output { flex: none; width: 34px; text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* A number typed, with its unit. */
+.amount { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); flex: none; }
+.amount > input { width: 44px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-align: right; }
+.amount > .unit { min-width: 12px; font: var(--t12); }
+.menu-item.withfield { display: flex; align-items: center; gap: 8px; padding: 0; }
+.menu-item.withfield > .sub { flex: 1; min-width: 0; }
+/* The shadow: which way it's thrown, then what it is, each typed. */
+.shadow { display: grid; gap: 2px; }
+.shadow > .k { color: var(--ink-3); font: var(--t12); margin-bottom: 4px; }
+.shadow > .throw { display: grid; grid-template-columns: repeat(3, 40px); gap: 2px; margin-bottom: 4px; }
+.shadow > .throw > button { height: 30px; padding: 0; border: 0; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; place-items: center; }
+.shadow > .throw > button:hover { background: var(--hover); }
+.shadow > .throw > button[aria-pressed="true"] { background: var(--selected); color: var(--accent-ink); }
+.shadow > .menu-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; padding: 0 4px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; border-radius: var(--r); }
+.shadow > .menu-item:is(:hover, :focus-within) { background: var(--hover); }
+.shadow .hex { display: flex; align-items: center; gap: 4px; color: var(--ink-3); }
+.shadow .hex > input { width: 64px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-transform: uppercase; }
+.glyph.sh { width: 22px; height: 18px; fill: var(--surface); stroke: currentColor; }
 /* A submenu's glyph: a line's weight, dash, arrowheads, a frame. */
 .menu-item > .glyph:has(svg.ln) { width: 40px; }
 svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: visible; }
 .glyph.sh .shade { fill: currentColor; stroke: none; opacity: .45; }
-.picker .seg .glyph.sh { width: 20px; height: 16px; fill: var(--surface); }
 
 /* The palette and the pickers in the format bar's popovers: PowerPoint's theme colors, its first row apart
    from the tints and shades under it, as PowerPoint sets it, then its standard colors and the chart's own; and
@@ -198,6 +227,7 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .palette { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; }
 .palette > :nth-child(-n + 10) { margin-bottom: 4px; }
 .palette > i { grid-column: 1 / -1; height: 4px; }
+.palette > .room { width: 20px; height: 20px; }
 .palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid var(--rule-2); border-radius: 3px; background-clip: padding-box; cursor: default; }
 .palette > button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .palette > .more { grid-column: 1 / -1; display: grid; margin: 4px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }

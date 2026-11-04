@@ -207,5 +207,71 @@ function index(rows) {
   };
 }
 
-return { index, FORMATS };
+// ---- The house look (dendra.md, Workbook): a view's look, as a set of notes at no record ----
+
+// Of a chart view, its notes in it at no record: every format property, Text, and the Captions of what it keeps; of
+// its Shown notes, those of fields and those keeping a kind off the page, never a filter; the order of its styles; and
+// its furniture: the title's and date's formats, and the Key's, with its title, columns, row order, hidden rows and
+// captions; and the paper it's on and the chart's footer, for a chart begun in it. Nothing in it names a record, so a chart
+// that has none of them can take it; nor a place, a bend or a scale, which are what they are only where they were put.
+// → { notes: [{ label, pattern, param?, value }], order: [pattern], furniture: { title?, date?, key? }, page?, footer? }
+const FURNITURE = { title: ['format'], date: ['format'], key: ['format', 'title', 'columns', 'order', 'hide', 'captions'] };
+const furnitureOf = r => r.role ?? (r.geometry === 'legend' ? 'key' : null);
+const isOption = p => !!p.out && ('choice' in p.out || 'tag' in p.out);
+const shownInLook = r => !!r.param || (r.pattern.args?.length === 1 && !isOption(r.pattern)) || (r.value === false && !!r.pattern.kind && !r.pattern.args);
+const looksLike = r => FORMATS.has(r.label) && r.label !== 'Shown' || r.label === 'Text' || r.label === 'Caption';
+function houseLook(rows, view) {
+  const own = rows.filter(r => 'note' in r && r.view === view && !Tree.idsIn(r.pattern).size);
+  const kept = own.filter(r => r.label === 'Shown' ? shownInLook(r) : looksLike(r) && r.label !== 'Caption'), styled = new Set(kept.map(r => key(r.pattern)));
+  const note = ({ label, pattern, param, value }) => ({ label, pattern, ...(param && { param }), value });
+  const furniture = {};
+  for (const r of rows) if ('shape' in r && r.view === view) {
+    const f = furnitureOf(r), keys = FURNITURE[f];
+    if (keys) furniture[f] = Object.fromEntries(keys.filter(k => r[k] !== undefined).map(k => [k, r[k]]));
+  }
+  const page = rows.find(r => 'note' in r && r.label === 'Page' && r.pattern.id === view)?.value, footer = rows.find(r => 'note' in r && r.label === 'Footer' && !r.view)?.value;
+  return { notes: [...kept, ...own.filter(r => r.label === 'Caption' && styled.has(key(r.pattern)))].map(note), order: index(own).styles(view).map(s => s.pattern), furniture, ...(page && { page }), ...(footer && { footer }) };
+}
+// A view takes a look, on tx. A style both have takes the look's: what the view gives its outputs and the look doesn't
+// goes. A style only in the look comes across; a style only in the view stays, after them, so what it says still
+// holds. What says what a mark is and where, not how it looks, stays the view's own: its Shown, its frames, what's drawn
+// above what, its layers, a relation written in its box rather than drawn, its words, and every place; so does the paper
+// those places are on and the chart's footer. Only a view `begun` takes those. A caption is a word: a style that comes across
+// comes with its own, and a view's stays. `has`, whether this chart has what a pattern reaches: what it hasn't doesn't come, so
+// a look from another chart leaves no row that reaches nothing.
+const owned = n => ['Shown', 'Frame', 'Above', 'Layer'].includes(n.label) || (n.label === 'Connector' && n.value === 'none');
+function takeLook(tx, rows, view, look, { begun = false, has = () => true } = {}) {
+  const fits = look.notes.filter(n => (begun || !owned(n)) && has(n.pattern)), lands = new Set(fits.filter(n => n.label !== 'Caption').map(n => key(n.pattern)));
+  const own = rows.filter(r => 'note' in r && r.view === view && !Tree.idsIn(r.pattern).size), called = new Set(own.filter(r => r.label === 'Caption').map(r => key(r.pattern)));
+  const come = fits.filter(n => n.label !== 'Caption' || (lands.has(key(n.pattern)) && !called.has(key(n.pattern))));
+  const at = n => JSON.stringify([n.label, n.param ?? null, key(n.pattern)]), coming = new Set(come.map(at));
+  for (const r of own) if (looksLike(r) && r.label !== 'Caption' && !owned(r) && lands.has(key(r.pattern)) && !coming.has(at(r))) tx.note(r.label, r.pattern, undefined, { view, param: r.param });
+  for (const n of come) tx.note(n.label, n.pattern, n.value, { view, param: n.param });
+  const first = look.order.filter(has), seen = new Set(first.map(key));
+  [...first, ...index(own).styles(view).filter(s => !seen.has(s.key)).map(s => s.pattern)].forEach((p, i) => tx.note('Order', p, i + 1, { view }));
+  for (const r of rows) if ('shape' in r && r.view === view) {
+    const f = furnitureOf(r), keys = FURNITURE[f], given = look.furniture?.[f];
+    if (!keys || !given) continue;
+    const changes = Object.fromEntries(keys.map(k => [k, given[k]]));
+    if (keys.some(k => JSON.stringify(r[k] ?? null) !== JSON.stringify(given[k] ?? null))) tx.update(r.shape, changes);
+  }
+  if (begun && look.page) tx.note('Page', { id: view, kind: 'View' }, look.page);
+  if (begun && look.footer) tx.note('Footer', { kind: 'View' }, look.footer);
+  return { left: look.notes.filter(n => (begun || !owned(n)) && !has(n.pattern)).length };
+}
+// A look read from a file, as far as it's one: what a look may hold and nothing else, never a record. Null if it isn't one.
+function lookFrom(data) {
+  try {
+    const clean = p => { if (!p || typeof p !== 'object' || Tree.idsIn(p).size) throw new Error('not a pattern'); key(p); return p; };
+    const notes = data.notes.filter(n => typeof n.label === 'string' && (looksLike(n) || n.label === 'Shown') && n.value !== undefined && n.value !== null)
+      .map(({ label, pattern, param, value }) => ({ label, pattern: clean(pattern), ...(typeof param === 'string' && { param }), value }));
+    const furniture = {}, fits = { format: v => !!v && typeof v === 'object' && !Array.isArray(v), title: v => typeof v === 'string', columns: v => Number.isInteger(v) && v > 0 && v < 10, order: v => Array.isArray(v) && v.every(k => typeof k === 'string'), hide: v => Array.isArray(v) && v.every(k => typeof k === 'string'), captions: v => !!v && typeof v === 'object' && Object.values(v).every(c => typeof c === 'string') };
+    for (const [f, keys] of Object.entries(FURNITURE)) if (data.furniture?.[f]) furniture[f] = Object.fromEntries(keys.filter(k => fits[k](data.furniture[f][k])).map(k => [k, data.furniture[f][k]]));
+    const paper = v => typeof v === 'string' || (!!v && typeof v === 'object' && !Array.isArray(v) && (typeof v.size === 'string' || (v.w > 0 && v.h > 0)));
+    const foot = data.footer && typeof data.footer === 'object' ? { ...(typeof data.footer.text === 'string' && { text: data.footer.text }), ...(data.footer.number === true && { number: true }) } : {};
+    return { notes, order: (data.order ?? []).map(clean), furniture, ...(paper(data.page) && { page: data.page }), ...(Object.keys(foot).length && { footer: foot }) };
+  } catch { return null; }
+}
+
+return { index, FORMATS, isOption, looksLike, houseLook, takeLook, lookFrom };
 })();

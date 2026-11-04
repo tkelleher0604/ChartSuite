@@ -945,13 +945,18 @@ function Relatives({ id }) {
 // shown; what's recorded at it (a line's percentage) is a text of its own, so a line can hide its name and
 // still draw its 64%.
 const TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
-const labelOf = (label, named) => label !== 'Format' ? label : named ? 'Name' : 'Text';
+const labelOf = (label, named) => label === 'Corner' ? 'Rounding' : label === 'Dash' ? 'Dashes' : label !== 'Format' ? label : named ? 'Name' : 'Text';
+const DASHES = { dotted: 'Round dot', 'square-dot': 'Square dot', dashed: 'Dash', 'dash-dot': 'Dash dot', 'long-dash': 'Long dash', 'long-dash-dot': 'Long dash dot', 'long-dash-dot-dot': 'Long dash dot dot' };
+const shadowSaid = v => { const o = Scene.shadowOf(v); return !o ? 'None' : `${o.blur} pt blur, ${o.distance} pt at ${o.angle}°`; };
+const headSaid = v => Object.entries(v ?? {}).map(([end, h]) => `${upper(end)}: ${h.type}, ${h.size}`).join('; ') || 'Triangle, small';
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
 const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
   : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${v} pt`
   : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
   : label === 'Format' ? (named ? (v === 'none' ? 'Hidden' : 'Shown') : TEXTS[v] ?? upper(String(v)))
-  : label === 'Shape' ? SHAPES[v] ?? upper(String(v)) : upper(String(v));
+  : label === 'Corner' || label === 'Transparency' ? `${Math.round(v)}%`
+  : label === 'Shadow' ? shadowSaid(v) : label === 'Arrowhead' ? headSaid(v) : label === 'Dash' ? DASHES[v] ?? upper(String(v))
+  : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))];
@@ -988,7 +993,9 @@ function Look({ id }) {
   const bent = n.resolve('Bend', t, v)?.note;
   const look = [...Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
     .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
-  const own = [...Object.values(n.formats(t, v)).map(r => r.note), n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
+  // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
+  const beside = n.notes('Size').length ? ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'].flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
+  const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
   const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   return html`<${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />
     ${drawn ? html`<${Place} at=${drawn} put=${(k, x) => cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}`;
@@ -1191,41 +1198,50 @@ function Styles({ v, only }) {
   // A caption typed as an output's own name is no caption.
   const cap = (ps, text) => App.change(tx => ps.forEach(p => tx.note('Caption', p, text && text !== Scene.outputName(n, p) ? text : undefined, { view: v })));
   const grip = part => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order(part))}>${GRIP}</button>`;
+  // Its own place among those of its part, a step up or down: what a row's menu offers beside its grip.
+  const steps = (part, s) => { const i = part.findIndex(b => b.s.key === s.key), go = to => order(part)(i, to);
+    return only ? [] : [{ label: 'Move up', disabled: i < 1, run: () => go(i - 1) }, { label: 'Move down', disabled: i >= part.length - 1, run: () => go(i + 1) }]; };
   // A row: its swatch, its caption (the Key's word, typed over, which captions each output in it), and, where a
   // caption calls it, what it stands for: beneath, where several, or on hover. A style's one row, `alone`, is
-  // dragged among that part.
-  const output = (g, alone) => {
+  // dragged among that part. Its swatch clicked is its caption clicked.
+  const output = (g, alone, part, s) => {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]);
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key}>${alone ? grip(alone) : null}<div class="k"><${Swatch} sw=${g.swatch} off=${g.off} /></div>
-      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Caption} g=${g} label=${names.join(', ')} put=${out => cap(g.outputs, out?.value ?? '')} />
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onClick=${e => { if (!e.target.closest('.grip, .cellbox, input')) aimAt(g); }}>${alone ? grip(alone) : null}<div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Caption} g=${g} label=${names.join(', ')} put=${out => cap(g.outputs, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
-    ${lone ? output(rows[0], part) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname"><${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}></div></div>${rows.map(g => output(g))}`}
+    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname"><${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}></div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`));
 }
 
-// A Styles row's caption. Clicked, it lights on the chart the boxes and lines it reaches, as the scope's group is cued,
-// till it's left; double-clicked, F2 or Enter, or Rename from its menu, it's typed over, as a name is.
-function Caption({ g, label, put }) {
-  const [typing, setTyping] = useState(false), [on, setOn] = useState(false);
+// A Styles row aimed at: the ribbon's scope, what it reaches lit on the chart (the format bar's aim), till it's clicked again.
+const aimAt = g => { if (typeof FormatBar !== 'undefined') FormatBar.aim?.(FormatBar.aimedAt?.(g) ? null : g); };
+// What a Styles row's right-click offers, as they apply: Rename; a step up or down; Copy look and Paste look; Delete, which
+// takes away what it gives the view.
+function styleMenu(e, g, v, moves, rename) {
+  e.preventDefault();
+  const fb = typeof FormatBar !== 'undefined' && FormatBar.aim ? FormatBar : null, ro = App.readOnly.peek(), keys = new Set(g.outputs.map(p => T.key(p)));
+  const look = () => { const on = !fb.aimedAt(g); if (on) fb.aim(g); };
+  const given = App.shown.peek().rows(App.chart.peek()).filter(x => 'note' in x && x.view === v && keys.has(T.key(x.pattern)) && Notes.looksLike(x));
+  menu({ x: e.clientX, y: e.clientY }, [
+    ...(rename ? [{ label: 'Rename', keys: 'F2', disabled: ro, run: rename }] : []), ...moves.map(m => ({ ...m, disabled: ro || m.disabled })),
+    ...(fb ? [...(rename || moves.length ? ['-'] : []), { label: 'Copy look', run: () => { look(); fb.copyLook(); Shell.toast(`Copied the look of ${g.caption}`); } }, { label: 'Paste look', disabled: ro || !fb.canPasteLook(), run: () => { look(); fb.pasteLook(); } }] : []),
+    ...(given.length ? ['-', { label: 'Delete', danger: true, disabled: ro, run: () => { if (fb?.aimedAt(g)) fb.aim(null); App.change(tx => { given.forEach(x => tx.remove(x.note)); tx.says(`Deleted the style ${g.caption} in ${N().nameOf(App.state.peek(), v)}`); }, { dated: false }); } }] : []),
+  ]);
+}
+// A Styles row's caption. Clicked, it aims the ribbon at the row; double-clicked, F2 or Enter, or Rename from its menu,
+// it's typed over, as a name is.
+function Caption({ g, label, put, moves, v }) {
+  const [typing, setTyping] = useState(false);
   if (typing) return html`<span class="cellbox" onFocusOut=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setTyping(false); }}>
     <${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${label} cls=${g.off ? ' off' : ''} auto put=${out => { setTyping(false); put(out); }} /></span>`;
-  const c = charted() ? Canvas.active.peek() : null;
-  const light = () => { const sc = App.scene.peek(); if (!c || !sc) return; setOn(true); c.cue?.(reachedBy(sc, g.outputs)); };
-  const dark = () => { if (!on) return; setOn(false); typeof FormatBar !== 'undefined' ? FormatBar.cue?.(false) : c?.cue?.(null); };
-  const rename = () => { dark(); if (!App.readOnly.peek()) setTyping(true); };
-  return html`<button type="button" class=${'cap' + (on ? ' on' : '') + (g.off ? ' off' : '')} aria-label=${label} aria-pressed=${on} onClick=${() => (on ? dark() : light())} onDblClick=${rename} onBlur=${dark}
+  const on = typeof FormatBar !== 'undefined' && !!FormatBar.aimedAt?.(g);
+  const rename = () => App.readOnly.peek() ? Shell.toast(App.whyNot()) : setTyping(true);
+  return html`<button type="button" class=${'cap' + (on ? ' on' : '') + (g.off ? ' off' : '')} aria-label=${label} aria-pressed=${on} onDblClick=${rename}
     onKeyDown=${e => { if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); rename(); } }}
-    onContextMenu=${e => { e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', keys: 'F2', disabled: App.readOnly.peek(), run: rename }]); }}>${g.caption}</button>`;
-}
-// The boxes and lines of a scene that a Styles row's outputs reach, as the scope's groups reach them.
-function reachedBy(sc, outputs) {
-  const out = new Set();
-  for (const m of sc.marks) if ((m.type === 'box' || m.type === 'line') && !m.revealed)
-    for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, recs())) if (outputs.some(p => T.narrower(r.output, p))) out.add(m.id);
-  return [...out];
+    onContextMenu=${e => styleMenu(e, g, v, moves, rename)}>${g.caption}</button>`;
 }
 
 // The view: its layout and its rows (its own notes), and its styles in their order. Its name is its tab's,
@@ -1262,11 +1278,13 @@ function ShapeView({ id, part }) {
   const g = row.geometry ?? 'rect', name = SHAPES[g] ?? g[0].toUpperCase() + g.slice(1), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
   const look = Object.entries(row.format ?? {}).map(([label, value]) => ({ label, value, from: null }));
   const reset = still || !look.length ? null : html`<button class="btn ghost reset" onClick=${() => set({ format: {} }, 'Reset the look')}>Reset</button>`;
-  // The Key's rows, those drawn and then those hidden, each a box to show or hide it.
-  const hidden = (row.hide ?? []).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
-    .map(o => ({ key: T.key(o.pattern), caption: Scene.captionOf(n, o.pattern, v), swatch: Scene.swatchOf(o.pattern, o.formats) }));
-  const rows = key ? [...(m?.rows ?? []).map(r => ({ key: r.key, caption: r.caption.text, swatch: r.swatch })), ...hidden] : [];
+  // The Key's rows in its order, each with a box to show or hide it, which leaves it where it is, so nothing moves under
+  // the pointer; hidden ones it has no row for now (nothing drawn is keyed by them) after them.
+  const all = m?.all ?? [], hidden = (row.hide ?? []).filter(k => !all.some(r => r.key === k)).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
+    .map(o => ({ key: T.key(o.pattern), outputs: [o.pattern], caption: Scene.captionOf(n, o.pattern, v), swatch: Scene.swatchOf(o.pattern, o.formats) }));
+  const rows = key ? [...all, ...hidden] : [];
   const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
+  const keyOrder = (from, i) => set({ order: moved(rows.map(r => r.key), from, i) }, 'Reordered the Key');
   return html`<div class="insp">
     <${Head} path=${key ? [{ label: name }] : []} title=${key ? row.title ?? 'Key' : name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title
       put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>
@@ -1275,12 +1293,39 @@ function ShapeView({ id, part }) {
       ${key ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']}
         put=${out => set({ columns: +out.choice })} /></div></div>` : null}
     </div>
-    ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<label class=${'row keyrow' + (r.key === part ? ' on' : '')} key=${r.key}>
-      <span class="k"><input type="checkbox" checked=${!(row.hide ?? []).includes(r.key)} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
-      <span class="v">${r.caption}</span></label>`)}</${Section}>` : null}
+    ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     <${LookSection} look=${look} reset=${reset} />
+    ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} />` : null}
     ${m && g !== 'line' ? html`<${Place} at=${m} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
   </div>`;
+}
+// A row of the Key's panel: its grip, dragged among the rest; its box, which shows or hides it where it stands; and its
+// caption, clicked to select the row, double-clicked to type over it. Its right-click offers Rename, Hide and Reset.
+function KeyRow({ r, id, row, m, on, shown, show, order, still }) {
+  const [typing, setTyping] = useState(false), rename = () => still ? Shell.toast(App.whyNot()) : setTyping(true);
+  const owned = !!row.captions?.[r.key] || !!row.order?.includes(r.key) || !shown || r.outputs?.some(p => { const c = N().resolve('Caption', p, App.scene.peek()?.view); return c?.note && T.key(c.note.pattern) === T.key(p) && c.note.view; });
+  const reset = () => App.change(tx => { const v = App.scene.peek().view, { [r.key]: _, ...captions } = row.captions ?? {};
+    tx.update(id, { captions, hide: (row.hide ?? []).filter(k => k !== r.key), order: (row.order ?? []).filter(k => k !== r.key) });
+    if (r.outputs?.length === 1) tx.note('Caption', r.outputs[0], undefined, { view: v }); }, { dated: false, say: `Reset the Key’s row ${r.caption}` });
+  const put = out => { setTyping(false); App.change(tx => Canvas.keyCaption(tx, { ...m, id }, r, out?.value ?? ''), { dated: false }); };
+  const menuOf = e => { e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', keys: 'F2', disabled: still, run: rename }, { label: shown ? 'Hide' : 'Show', disabled: still, run: () => show(r.key, !shown) }, { label: 'Reset', disabled: still || !owned, run: reset }]); };
+  return html`<div class=${'row keyrow' + (on ? ' on' : '')} data-drag="keyrow" onContextMenu=${menuOf}>
+    ${still ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order)}>${GRIP}</button>`}
+    <span class="k"><input type="checkbox" aria-label=${shown ? `Hide ${r.caption}` : `Show ${r.caption}`} checked=${shown} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
+    <span class="v">${typing ? html`<span class="cellbox" onFocusOut=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setTyping(false); }}><${Field} r=${{ field: 'text', value: r.caption }} datatype="text" label="Caption" auto put=${put} /></span>`
+      : html`<button type="button" class="cap" onClick=${() => Shell.select([`${id}#${r.key}`])} onDblClick=${rename} onKeyDown=${e => { if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); rename(); } }}>${r.caption}</button>`}</span>
+  </div>`;
+}
+// A picture's Crop: how much of each side of it is cut off, in percent of the whole picture, typed. The picture stays the
+// size and where it was on the page: what's cut goes, and its frame shrinks round the rest.
+function Crop({ m, row, set }) {
+  const c = { left: 0, top: 0, right: 0, bottom: 0, ...row.crop }, fullW = m.w / (1 - (c.left + c.right) / 100), fullH = m.h / (1 - (c.top + c.bottom) / 100), page = App.scene.value?.page;
+  const put = (side, x) => { const was = c[side], v = Math.max(0, Math.min(95 - (side === 'left' || side === 'right' ? c.left + c.right - was : c.top + c.bottom - was), x)), d = (v - was) / 100, crop = { ...c, [side]: v };
+    set({ crop, ...(side === 'left' && { x: m.x + fullW * d, w: m.w - fullW * d }), ...(side === 'right' && { w: m.w - fullW * d }), ...(side === 'top' && { y: m.y + fullH * d, h: m.h - fullH * d }), ...(side === 'bottom' && { h: m.h - fullH * d }) }, 'Cropped the picture'); };
+  const any = Object.values(c).some(Boolean);
+  return html`<${Section} title="Crop" act=${any && !App.readOnly.value ? html`<button class="btn ghost reset" onClick=${() => set({ crop: null, x: m.x - fullW * c.left / 100, y: m.y - fullH * c.top / 100, w: fullW, h: fullH }, 'Took the crop off the picture')}>Reset</button>` : null}>
+    ${[['Left', 'left'], ['Top', 'top'], ['Right', 'right'], ['Bottom', 'bottom']].map(([label, side]) => html`<div class="row" key=${side}><div class="k">${label}</div><div class="v ctl">
+      <${Field} r=${{ field: 'number', value: c[side] }} datatype="number" label=${`Crop ${label}`} put=${out => out && put(side, out.value)}><span class="unit">%</span></${Field}></div></div>`)}</${Section}>`;
 }
 
 // Prose typed over in place, its box growing with it: kept on leaving, put back with Esc. `auto` focuses

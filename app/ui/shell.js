@@ -574,6 +574,8 @@ const Shell = (() => {
   function placeToasts(fresh = false) {
     const el = document.querySelector('.toasts'), view = document.getElementById('view')?.getBoundingClientRect();
     if (!el || !el.children.length || !view) return;
+    // One being pointed at stays, or a press on its button would move it out from under the click.
+    if (!fresh && el.matches(':hover')) return;
     const was = el.style.translate;
     el.style.translate = '';
     const r = el.getBoundingClientRect(), hit = busy(), gap = 16;

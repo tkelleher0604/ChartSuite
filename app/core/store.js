@@ -9,6 +9,8 @@
 //     that id; where there's none, a new one in this browser, holding the sample's changes
 //   Store.openFile(file?) → the workbook kept in a file; Store.books() → those this browser keeps, latest first;
 //     Store.forget(id), one of them not open, gone from this browser
+//   Store.houseStyles() → the house styles this browser keeps, by name; Store.keepHouseStyle({ id, name, look }),
+//     Store.forgetHouseStyle(id)
 //   Store.saveAs('file' | 'library', name?), Store.download(name?): keep it there from now on, or a copy
 //   Store.status() → { text, tone: '' | 'busy' | 'error', fix?: 'allow' | 'sign-in', detail? }; Store.fix()
 //     does what `fix` says, on a click; Store.subscribe(fn) → unsubscribe, fn(status) when it changes
@@ -19,6 +21,7 @@ const Store = (() => {
 // The database is the page's own, or the one its script tag names (data-db), as a test's is.
 const db = new Dexie(document.currentScript?.dataset.db || 'dendra');
 db.version(1).stores({ changes: '[book+id], book', books: 'id, opened' });
+db.version(2).stores({ houseStyles: 'id, name' });
 const SAVE_AFTER = 1500, LOOK_EVERY = 20000;
 const TYPES = [{ description: 'Dendra workbook', accept: { 'application/json': ['.json'] } }];
 const canKeepFiles = typeof showOpenFilePicker === 'function';
@@ -316,8 +319,13 @@ function who() {
   try { return sp()?.account()?.name || localStorage.getItem('dendra.name') || null; } catch { return null; }
 }
 
+// The house styles this browser keeps, by name, as it keeps its workbooks; each { id, name, look } (Notes.houseLook).
+const houseStyles = async () => (await db.houseStyles.toArray().catch(() => [])).sort((a, b) => a.name.localeCompare(b.name));
+const keepHouseStyle = style => db.houseStyles.put(style);
+const forgetHouseStyle = id => db.houseStyles.delete(id);
+
 return {
-  open, openFile, books, forget,
+  open, openFile, books, forget, houseStyles, keepHouseStyle, forgetHouseStyle,
   get wb() { return s?.wb ?? null; },
   where: () => s?.where() ?? null,
   status, subscribe: fn => (listeners.add(fn), () => listeners.delete(fn)),

@@ -164,15 +164,15 @@ function bodyMarkup(shape, w, h, s, red, extra = {}) {
   const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0));
   return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner), fill: paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
     stroke, 'stroke-width': px(s.Weight), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
-    ...(s.Shadow === 'soft' && { filter: `url(#${shadow(drawnAt)})` }), ...extra } };
+    ...(Scene.shadowOf(s.Shadow) && { filter: `url(#${shadow(drawnAt, Scene.shadowOf(s.Shadow))})` }), ...extra } };
 }
-// PowerPoint's soft outer shadow, as a filter for a page drawn at a scale: 3 pt below and to the right, blurred 4 pt,
-// black at 40%, each the sheet's, as a weight is, however much smaller the chart is drawn. One filter for each scale,
-// in a page of the document's own, which every canvas's drawing refers to.
+// PowerPoint's outer shadow, as a filter for a page drawn at a scale: its distance, blur and color, each the sheet's, as a
+// weight is, however much smaller the chart is drawn. One filter for each scale and shadow, in a page of the document's own,
+// which every canvas's drawing refers to.
 let drawnAt = 1;
 const shadows = new Set();
-function shadow(s) {
-  const id = `dc-shadow-${Math.round(s * 1000)}`;
+function shadow(s, o) {
+  const id = `dc-shadow-${Math.round(s * 1000)}-${[o.blur, o.distance, o.angle, o.color.replace('#', ''), o.transparency].join('-').replace(/[^\w-]/g, '_')}`;
   if (shadows.has(id) && document.getElementById(id)) return id;
   shadows.add(id);
   let defs = document.getElementById('dc-shadows');
@@ -184,18 +184,19 @@ function shadow(s) {
     document.body.append(svg);
     defs = svg.firstChild;
   }
-  const d = px(3) * Math.SQRT1_2 / s, blur = px(2) / s;
-  defs.insertAdjacentHTML('beforeend', `<filter id="${id}" x="-25%" y="-25%" width="160%" height="160%" color-interpolation-filters="sRGB">`
-    + `<feDropShadow dx="${d}" dy="${d}" stdDeviation="${blur}" flood-color="#000000" flood-opacity="0.4"/></filter>`);
+  const a = o.angle * Math.PI / 180, dx = px(o.distance) * Math.cos(a) / s, dy = px(o.distance) * Math.sin(a) / s, blur = px(o.blur) / 2 / s;
+  defs.insertAdjacentHTML('beforeend', `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">`
+    + `<feDropShadow dx="${dx}" dy="${dy}" stdDeviation="${blur}" flood-color="${o.color}" flood-opacity="${1 - o.transparency / 100}"/></filter>`);
   return id;
 }
 const look = m => m.look ?? Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
-// An arrowhead, X6's block, at a line's end; on a route, no longer than the leg it ends (`leg`, its two points), so
-// that it never reaches back past the turn into that leg (regress9 8).
-const marker = (on, w, leg = null) => {
+// An arrowhead, of its Arrowhead's style and size, at a line's end; on a route, no longer than the leg it ends (`leg`, its
+// two points), so that it never reaches back past the turn into that leg (regress9 8).
+const MARKERS = { triangle: () => ({ name: 'block' }), stealth: () => ({ name: 'classic', factor: 0.75 }), open: () => ({ name: 'block', open: true, fill: 'none' }), oval: (l, w) => ({ name: 'ellipse', rx: l / 2, ry: w / 2, cx: l / 2 }), diamond: () => ({ name: 'diamond' }) };
+const marker = (on, w, leg = null, head = { type: 'triangle', size: 'small' }) => {
   if (!on) return null;
-  const k = leg ? Math.min(1, Math.hypot(leg[1][0] - leg[0][0], leg[1][1] - leg[0][1]) / (5 + w * 3)) : 1;
-  return { name: 'block', width: (5 + w * 3) * k, height: (4 + w * 2.4) * k, offset: 0 };
+  const { len, wide } = Scene.headSize(head, w), k = leg ? Math.min(1, Math.hypot(leg[1][0] - leg[0][0], leg[1][1] - leg[0][1]) / len) : 1;
+  return { width: len * k, height: wide * k, offset: 0, ...(MARKERS[head.type] ?? MARKERS.triangle)(len * k, wide * k) };
 };
 // A line's width, `w`, through `ps` with an arrowhead at its start or end. X6 ends a path short of an arrowhead's end by
 // the width its attributes give the line, back toward the point before: where the leg an arrowhead ends is shorter than
@@ -265,8 +266,8 @@ function cellsOf(scene, ink = null) {
         source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] },
         vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
         attrs: { line: { stroke: r === 'appear' ? BLUE : r === 'go' ? RED : paint(s.Outline), ...widthOf(ps, px(s.Weight), arrow === 'start' || arrow === 'both', arrow === 'end' || arrow === 'both'), strokeDasharray: dashed,
-          strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2)),
-          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
+          strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2), Scene.headOf(s, 'end')),
+          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: 10 } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
         zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: textsOf(m).map(it => textMarkup(it, r)) });
     } else if (m.type === 'frame') {
@@ -280,10 +281,10 @@ function cellsOf(scene, ink = null) {
         const ps = m.points;
         cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: 'shape', mark: m.id },
           source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] }, vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })),
-          attrs: { line: { stroke: paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: Scene.dash(s.Dash, s.Weight), targetMarker: marker(s.Arrow === 'end' || s.Arrow === 'both', px(s.Weight)),
-            sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight)) }, wrap: { strokeWidth: 10 } } });
+          attrs: { line: { stroke: paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: Scene.dash(s.Dash, s.Weight), targetMarker: marker(s.Arrow === 'end' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'end')),
+            sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'start')) }, wrap: { strokeWidth: 10 } } });
       } else if (m.geometry === 'legend') node(m, 'shape', legendMarkup(m, s));
-      else if (m.geometry === 'picture') node(m, 'shape', [{ tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } },
+      else if (m.geometry === 'picture') node(m, 'shape', [m.crop ? croppedImage(m) : { tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } },
         { tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent', stroke: paint(s.Outline === '#000000' ? 'none' : s.Outline), 'stroke-width': px(s.Weight) } }]);
       else if (m.geometry === 'group') continue;
       else {
@@ -298,6 +299,11 @@ function cellsOf(scene, ink = null) {
   return cells;
 }
 
+// A picture cropped: the whole of it placed where what's left falls in its frame, the rest cut by the frame.
+function croppedImage(m) {
+  const c = { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = m.w / (1 - (c.left + c.right) / 100), fh = m.h / (1 - (c.top + c.bottom) / 100);
+  return { tagName: 'svg', attrs: { class: 'dc-crop', width: m.w, height: m.h, viewBox: `0 0 ${m.w} ${m.h}` }, children: [{ tagName: 'image', attrs: { href: m.src, x: -fw * c.left / 100, y: -fh * c.top / 100, width: fw, height: fh, preserveAspectRatio: 'none' } }] };
+}
 function swatchMarkup(sw, box) {
   const { x, y, w, h } = box;
   if (sw.kind === 'line') return { tagName: 'path', attrs: { d: `M${x},${y + h / 2} H${x + w}`, stroke: paint(sw.Outline), 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash(sw.Dash, sw.Weight), fill: 'none' } };
@@ -314,6 +320,16 @@ function legendMarkup(m, s) {
       { tagName: 'rect', attrs: { x: r.x - 2, y: r.y - 1, width: r.w, height: r.h + 2, fill: 'transparent' } },
       swatchMarkup(r.swatch, r.sw), textMarkup(r.caption)] })),
   ];
+}
+
+// A Key row's caption typed: a row of one output captions that output in this view, wherever it's named (a caption
+// typed as its own name is no caption); a row merging outputs that look alike takes a caption of the Key's own, so no
+// output's caption changes.
+function keyCaption(tx, m, r, text) {
+  const scene = active.peek().scene(), view = scene.view, N = App.notes.peek(), { [r.key]: _, ...rest } = m.captions ?? {}, own = Tree.clean(text), base = scene.legend.find(x => x.key === r.key)?.caption;
+  if (r.outputs.length > 1) return tx.update(m.id, { captions: own && own !== base ? { ...rest, [r.key]: own } : rest });
+  tx.note('Caption', r.outputs[0], own && own !== Scene.outputName(N, r.outputs[0]) ? own : undefined, { view });
+  if (r.key in (m.captions ?? {})) tx.update(m.id, { captions: rest });
 }
 
 // ---- The canvas ----
@@ -349,9 +365,35 @@ function mount(el) {
     interacting: view => {
       const k = view.cell.getData()?.kind;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still(), edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && (!UNMARKED.has(k) || k === 'label') };
+      return { nodeMovable: !pointing && !still() && !rowDrag && (!UNMARKED.has(k) || k === 'label') };
     },
   });
+  // A Key's row dragged moves that row among the rest, a line showing where it would go, never the Key: which is
+  // moved by its title or its edge. Let go with nothing moved, it's a click on the row.
+  let rowDrag = null;
+  const rowDropLine = () => over.querySelector('.dc-keydrop') ?? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-keydrop' }));
+  gEl.addEventListener('mousedown', e => {
+    const g = e.button === 0 && !still() && e.target.closest?.('[data-row]'), id = g && e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id'), m = id && scene?.byId.get(id);
+    rowDrag = m?.geometry === 'legend' ? { m, key: g.getAttribute('data-row'), x: e.clientX, y: e.clientY, to: null } : null;
+    if (!rowDrag) return;
+    const move = ev => {
+      if (!rowDrag.to && Math.hypot(ev.clientX - rowDrag.x, ev.clientY - rowDrag.y) < 4) return;
+      const p = graph.clientToLocal(ev.clientX, ev.clientY), near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y), mid = r => ({ x: m.x + r.x + r.w / 2, y: m.y + r.y + r.h / 2 }), r = m.rows.reduce((a, x) => near(mid(x), p) < near(mid(a), p) ? x : a), after = p.y > m.y + r.y + r.h / 2;
+      rowDrag.to = { key: r.key, after };
+      const line = rowDropLine(), at = graph.localToGraph(m.x + r.x, m.y + r.y + (after ? r.h + 2 : -2));
+      Object.assign(line.style, { left: `${at.x}px`, top: `${at.y}px`, width: `${r.w * graph.zoom()}px` });
+    };
+    const up = () => {
+      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true);
+      over.querySelector('.dc-keydrop')?.remove();
+      const was = rowDrag; rowDrag = null;
+      if (!was?.to || was.to.key === was.key) return;
+      const keys = m.all.map(r => r.key).filter(k => k !== was.key), i = keys.indexOf(was.to.key);
+      keys.splice(i + (was.to.after ? 1 : 0), 0, was.key);
+      App.change(tx => tx.update(m.id, { order: keys }), { dated: false, say: 'Reordered the Key' });
+    };
+    addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
+  }, true);
   // Only the cells on screen, and a margin round it, are drawn, as X6 draws a big graph (`virtual`), so a chart
   // of hundreds of boxes costs what a screenful does; the rest wait in the model, drawn as they come on screen.
   // The canvas says where the screen is the moment the view moves, in place of X6's own, which waits for a
@@ -983,11 +1025,7 @@ function mount(el) {
       rect = { x: m.x + r.x + r.sw.w + 6, y: m.y + r.y, w: r.w - r.sw.w - 6, h: r.h + 2 };
       // A row of one output captions that output in this view, wherever it's named. A row merging outputs
       // that look alike takes a caption of the legend's own, so no output's caption changes.
-      save = text => App.change(tx => {
-        const { [r.key]: _, ...rest } = m.captions, own = Tree.clean(text), base = scene.legend.find(x => x.key === r.key)?.caption;
-        if (r.outputs.length > 1) tx.update(m.id, { captions: own && own !== base ? { ...rest, [r.key]: own } : rest });
-        else { caption(tx, r.outputs[0], text); if (r.key in m.captions) tx.update(m.id, { captions: rest }); }
-      });
+      save = text => App.change(tx => keyCaption(tx, m, r, text));
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
       const legend = m.geometry === 'legend';
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
@@ -2502,5 +2540,5 @@ Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
 
-return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, keyCaption };
 })();

@@ -390,7 +390,8 @@ const Time = (() => {
   function reading(c) {
     const v = App.version.peek(), k = readings.get(c);
     if (k?.v === v) return k.lines;
-    const lines = read(c);
+    // (A change that says what it did, as a look given does, says so, what's under it its records read.)
+    const raw = read(c), lines = c.says ? [{ text: c.says, sub: raw.length > 1 ? raw : [] }] : raw;
     readings.set(c, { v, lines });
     return lines;
   }
@@ -559,7 +560,8 @@ const Time = (() => {
   }
   function looked(label, v, of) {
     if (ON[label]) return `Made ${of} ${ON[label][v ? 0 : 1]}`;
-    if (label === 'Dash') return `Made the outline of ${of} ${v}`;
+    if (label === 'Dash') return `Made the outline of ${of} ${String(v).replace(/-/g, ' ')}`;
+    if (label === 'Arrowhead') return `Changed the arrowheads of ${of}`;
     const noun = NOUNS[label];
     if (!noun) return `Changed ${label} of ${of}`;
     if (v === 'none') return `Took the ${noun} off ${of}`;
