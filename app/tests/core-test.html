@@ -308,6 +308,14 @@ function run(json) {
     const u0 = back(c0), undone = target(), r0 = back(u0), redone = target();
     back(r0);
     check('a reverse takes a change back, and its own reverse puts it back', undone === 750000000 && redone === 800000000 && target() === 750000000 && u0.reverses === c0.id);
+    {
+      const c1 = commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: 900000000 })), tx = w.edit({ chart: C, who: WHO });
+      tx.reverse(c1.id);
+      check('… and an edit reads as that reverse will leave it, unmade, till it’s made', tx.asOf(TODAY).fund_target.value === 750000000 && target() === 900000000, `${tx.asOf(TODAY).fund_target.value} ${target()}`);
+      back(c1);
+      const at = w.changes().at(-1).when;
+      check('The log as it stood at a moment knows its moment', w.at(at).moment === at && !w.moment);
+    }
     const steps = [], made = [1, 2, 3].map(n => commit(w, tx => tx.set('fund_target', { ...now.fund_target, value: n })));
     const undos = [...made].reverse().map(c => { const u = back(c); steps.push(target()); return u; });
     const redos = [...undos].reverse().map(u => { const r = back(u); steps.push(target()); return r; });

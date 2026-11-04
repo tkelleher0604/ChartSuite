@@ -937,6 +937,19 @@ async function run() {
   const formD = rowOf('Form D Due');
   check('a due date within 30 days is amber, and says so', !!formD?.querySelector('.hug.soon') && /due soon$/.test(formD.querySelector('input').getAttribute('aria-label')));
   check('… and attention counts it', Shell.parts.value.attention.flatMap(a => a.items()).some(i => i.kind === 'soon'));
+  // The status list of what's due soon says how soon, and the next 90 days are a click away.
+  {
+    const soonBtn = document.querySelector('.status .counts > .soon');
+    if (soonBtn) {
+      soonBtn.click(); await tick(120);
+      const seg = () => [...document.querySelectorAll('.float .menu.needs .menu-seg button')], listed = () => document.querySelectorAll('.float .menu.needs .menu-item').length, n30 = listed();
+      check('The status list of what’s due soon says its 30 days', seg()[0]?.textContent === 'Next 30 days' && seg()[0]?.getAttribute('aria-pressed') === 'true' && seg()[1]?.textContent === 'Next 90 days', seg().map(b => b.textContent).join());
+      seg()[1]?.click(); await tick(120);
+      const days = [...document.querySelectorAll('.float .menu.needs .menu-item .detail')].map(d => new Date(d.textContent).getTime());
+      check('… and Next 90 days is a click away, the soonest first', listed() >= n30 && seg()[1]?.getAttribute('aria-pressed') === 'true' && days.every((d, i) => !i || days[i - 1] <= d), `${n30} → ${listed()}`);
+      Shell.closeAll(); await tick(40);
+    }
+  }
   const filing = formD.querySelector('.btn.ver.filed');
   check('… its filing always shown, not only on hover', filing?.classList.contains('due') && getComputedStyle(filing).opacity === '1');
   formD.querySelector('.btn.ver').click(); await tick(80);

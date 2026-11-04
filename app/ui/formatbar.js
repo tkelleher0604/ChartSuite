@@ -869,7 +869,7 @@ function mount(el) {
     ['format.paragraph', 'Paragraph…', null, () => open('paragraph'), edit, ['Align text', 'Alignment', 'Line spacing']],
   ].map(([id, name, keys, run, enabled = edit, names]) => Shell.register('action', { id, name, ...(keys && { keys }), ...(names && { names }), run, enabled,
     // Not now, and why: Find says so beside it, rather than leave it out.
-    why: () => App.readOnly.peek() ? 'Can’t change the past' : !onScreen() ? 'Show a chart first' : 'Select a box, line or shape first' }));
+    why: () => App.readOnly.peek() ? App.whyNot() : !onScreen() ? 'Show a chart first' : 'Select a box, line or shape first' }));
   // Insert's, for Find, by what each makes: a box of each of the chart's kinds, as the page's right-click says it ("New
   // entity", found by Add or Insert too), then its text box, frame, Key and picture.
   actions.push(Shell.register('find', { items: () => {

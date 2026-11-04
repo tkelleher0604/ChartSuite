@@ -46,6 +46,11 @@ const Table = (() => {
   }
   const looked = Shell.signal(0);
   const frozenOf = l => l.frozen ?? 1;
+  // Viewing, the columns shown and hidden, for this tab: by view, a column's key and whether it shows. A column shown in
+  // Editing is the view's, and logged.
+  const viewed = Shell.signal(new Map());
+  const seeColumns = (view, cs, on) => { const m = new Map(viewed.peek()), v = new Map(m.get(view) ?? []); for (const c of cs) v.set(c.key, on); m.set(view, v); viewed.value = m; return true; };
+  const seen = (view, c) => c.pattern && App.viewing.peek() ? viewed.peek().get(view)?.get(c.key) : undefined;
 
   // A tag's cell where its rule hasn't tested the record (Formulas.notTested): its own value, apart from Yes, No and blank.
   const NA = 'n/a';
@@ -248,7 +253,7 @@ const Table = (() => {
         c.place = o?.note.view === view ? o.value : Infinity;
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
         const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
-        c.shown = !c.pattern || (said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
+        c.shown = !c.pattern || (seen(view, c) ?? said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
       }
       cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
       // Beside a row's Name, its link says where the document is filed rather than its name again.
@@ -259,7 +264,8 @@ const Table = (() => {
     let why = null;
     if (rows === 'date' || (!isKind && !isDatatype && Object.values(S).some(t => t.args?.length > 1 && Tree.narrower(t, rows) && N.resolve('Formula', t)))) {
       const pattern = { id: view, kind: 'View' }, o = N.resolve('Order', pattern, view, 'Why');
-      why = { key: '$why', title: 'Why', type: 'text', pattern, param: 'Why', shown: N.value('Shown', pattern, view, 'Why') === true, place: o?.value ?? Infinity, base: [Infinity] };
+      why = { key: '$why', title: 'Why', type: 'text', pattern, param: 'Why', place: o?.value ?? Infinity, base: [Infinity] };
+      why.shown = (seen(view, why) ?? N.value('Shown', pattern, view, 'Why')) === true;
     }
     if (why && base) { const at = cols.findIndex(c => c.place > why.place); cols.splice(at < 0 ? cols.length : at, 0, why); }
     cols = [...lead, ...cols, ...trail, ...(why && !base ? [why] : [])];
@@ -875,7 +881,7 @@ const Table = (() => {
     owed = !el.offsetParent;
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
-    const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value];
+    const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
     if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
     const now = model(view);
     real = now;
@@ -1504,7 +1510,11 @@ const Table = (() => {
   const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
   const called = c => c.parent ? `${c.parent} › ${c.title}` : c.title;
   const canWrite = () => !App.readOnly.peek() && !current?.red;
-  const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), ch => Time.describe(ch));
+  // Columns shown or hidden, every way there is of asking: in Editing, the view's, as one change; Viewing, the session's.
+  const showing = (cs, on, say = ch => Time.describe(ch)) => App.viewing.peek() ? seeColumns(current.view, cs, on) : edit(tx => cs.forEach(c => note(tx, 'Shown', c, current.view, on)), say);
+  const show = (c, on) => showing([c], on);
+  // Whether columns can be shown and hidden: in Editing, as a change; Viewing, for the session.
+  const canShow = () => canWrite() || (App.viewing.peek() && !Shell.time.peek()?.stood && !current?.red);
   // The columns in this order, as Order notes in the view, as one change: those given, then the rest as they were;
   // `also`, what else the change does (a column inserted shows); `moved`, the column a gesture moved, which the grid
   // then shows where it went (arrive). It says what it did as History says it.
@@ -1660,9 +1670,9 @@ const Table = (() => {
   // What's always kept in a table: what names its rows, a Name or a relation's sides.
   const naming = c => c.type === 'edge' || (c.path?.length === 1 && same(c.title, 'Name'));
   const keptOf = m => { const cs = m.cols.filter(c => c.pattern && naming(c)); return cs.length || m.cols.some(c => !c.pattern) ? cs : m.cols.filter(c => c.pattern).slice(0, 1); };
-  // Show all and Hide all, as one change: every column, or every one but what names the rows, saying how many.
+  // Show all and Hide all: every column, or every one but what names the rows, shown as one is, saying how many.
   const showEvery = (m, on) => { const keep = on ? [] : keptOf(m), cs = m.cols.filter(c => c.pattern && !keep.includes(c) && !!c.shown !== on);
-    return !!cs.length && edit(tx => cs.forEach(c => note(tx, 'Shown', c, m.view, on)), `${on ? 'Showed' : 'Hid'} ${count(cs.length, 'column')} in ${viewOf(m.view)?.name}`); };
+    return !!cs.length && showing(cs, on, `${on ? 'Showed' : 'Hid'} ${count(cs.length, 'column')} in ${viewOf(m.view)?.name}`); };
   // A new table opens with what names its rows and a few more, in its own order, and its columns offered beside it: the
   // rest it would show are hidden by the change that makes it.
   const FEW = 5;
@@ -1780,7 +1790,7 @@ const Table = (() => {
     if (!c) return;
     const l = lookOf(m.view), [up, down] = sortWords(c), sorted = l.sort?.key === c.key, filtered = !!l.filters?.[c.key];
     const shown = table.getColumns().filter(x => x.getField()), i = shown.indexOf(col), frozen = Math.min(frozenOf(l), shown.length);
-    const order = movable(), k = order.indexOf(c), writes = canWrite() && !!c.pattern;
+    const order = movable(), k = order.indexOf(c), writes = canWrite() && !!c.pattern, shows = canShow() && !!c.pattern;
     col.getElement().classList.add('open');
     return Shell.menu(at, [
       { label: `Sort ${up}`, run: () => sortBy(c, 'asc') },
@@ -1791,14 +1801,14 @@ const Table = (() => {
       '-',
       ...(m.base && canWrite() ? [{ label: 'Insert column left', run: () => insert(col, false) }, { label: 'Insert column right', run: () => insert(col, true) }] : []),
       ...(writes && renamable(c) ? [{ label: 'Rename column', run: () => rename(col) }] : []),
-      ...(writes ? [{ label: 'Hide column', run: () => show(c, false) },
-        { label: 'Move left', disabled: k <= 0, run: () => shift(c, -1) }, { label: 'Move right', disabled: k < 0 || k === order.length - 1, run: () => shift(c, 1) }] : []),
+      ...(shows ? [{ label: 'Hide column', run: () => show(c, false) }] : []),
+      ...(writes ? [{ label: 'Move left', disabled: k <= 0, run: () => shift(c, -1) }, { label: 'Move right', disabled: k < 0 || k === order.length - 1, run: () => shift(c, 1) }] : []),
       ...(writes && c.fresh ? [{ label: 'Delete column', danger: true, run: () => dropColumn(c) }] : []),
       '-',
       i === frozen - 1 ? { label: 'Unfreeze columns', run: () => freeze(0) } : { label: 'Freeze up to here', run: () => freeze(i + 1) },
       { label: 'Fit width', run: () => fit(col) },
       l.group === c.key ? { label: 'Ungroup', run: () => group(null) } : { label: 'Group by this column', run: () => group(c) },
-      ...(c.pattern && canWrite() ? ['-', { label: 'Columns', items: columnItems(m) }] : []),
+      ...(c.pattern && canShow() ? ['-', { label: 'Columns', items: columnItems(m) }] : []),
     ], { onClose: () => col.getElement().classList.remove('open') });
   }
 
@@ -2050,7 +2060,7 @@ const Table = (() => {
     // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all, after the
     // row it's dropped after, and among the ticked or the rest as that row is.
     const t = q.trim().toLowerCase(), found = c => !t || called(c).toLowerCase().includes(t);
-    const writes = canWrite(), mv = m.cols.filter(c => c.pattern), vis = rows.filter(c => c.pattern && found(c)), kept = keptOf(m);
+    const writes = canWrite(), shows = canShow(), mv = m.cols.filter(c => c.pattern), vis = rows.filter(c => c.pattern && found(c)), kept = keptOf(m);
     const down = (e, c) => {
       if (!writes || e.target.closest('input, button')) return;
       Shell.drag(e, { item: e.currentTarget, items: [...ref.current.querySelectorAll('.colrow.mv')], onDrop: (from, i) => {
@@ -2063,12 +2073,12 @@ const Table = (() => {
     const add = e => { if (e.key === 'Enter') { e.preventDefault(); if (addColumn(e.target.value)) e.target.value = ''; } else if (e.key === 'Escape') { e.stopPropagation(); setNaming(false); } };
     return html`<div class="cols" ref=${ref}>
       <input type="search" class="col-find" placeholder="Find" aria-label="Find" value=${q} spellcheck=${false} onInput=${e => setQ([e.target.value, view])} />
-      ${mv.length ? html`<div class="col-all"><button type="button" class="btn ghost" disabled=${!writes || mv.every(c => c.shown)} onClick=${() => showEvery(m, true)}>Show all</button>
-        <button type="button" class="btn ghost" disabled=${!writes || mv.every(c => !c.shown || kept.includes(c))} onClick=${() => showEvery(m, false)}>Hide all</button></div>` : null}
+      ${mv.length ? html`<div class="col-all"><button type="button" class="btn ghost" disabled=${!shows || mv.every(c => c.shown)} onClick=${() => showEvery(m, true)}>Show all</button>
+        <button type="button" class="btn ghost" disabled=${!shows || mv.every(c => !c.shown || kept.includes(c))} onClick=${() => showEvery(m, false)}>Hide all</button></div>` : null}
       <div class="cols-list">
       ${rows.filter(found).map(c => c.pattern
         ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
-            <label><input type="checkbox" checked=${c.shown} disabled=${!writes} onChange=${() => show(c, !c.shown)} /><span>${pathed(c)}</span></label></div>`
+            <label><input type="checkbox" checked=${c.shown} disabled=${!shows} onChange=${() => show(c, !c.shown)} /><span>${pathed(c)}</span></label></div>`
         : html`<div class="colrow" key=${c.key}><span class="colgrip" /><label><input type="checkbox" checked disabled /><span>${pathed(c)}</span></label></div>`)}
       ${m.base && writes ? typingName
         ? html`<div class="colrow new"><span class="colgrip" /><input class="col-new" placeholder="New column" aria-label="New column" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} onKeyDown=${add} onBlur=${e => { if (!clean(e.target.value)) setNaming(false); }} /></div>`
@@ -2082,11 +2092,14 @@ const Table = (() => {
   // this record's, by a filter of its side.
   function openList(name, rid, at) {
     const st = App.state.peek(), N = App.notes.peek(), rows = App.layouts.peek().relations.find(l => Tree.fits(st, rid, l.rows))?.rows;
-    if (!rows || App.readOnly.peek()) return;
+    if (!rows) return;
+    // Viewing, a table the chart has shows Why for the session; a new one can't be made, which is said.
     const why = (tx, id) => tx.note('Shown', { id, kind: 'View' }, true, { view: id, param: 'Why' });
     let v = App.views.peek().find(x => x.layout === 'table' && JSON.stringify(x.rows) === JSON.stringify(rows))?.id;
+    if (!v && App.readOnly.peek()) return Shell.toast(App.whyNot());
     if (!v) v = App.addView(name, rows, undefined, why);
-    else if (N.value('Shown', { id: v, kind: 'View' }, v, 'Why') !== true) App.change(tx => why(tx, v), { dated: false, say: ch => Time.describe(ch) });
+    else if (App.viewing.peek()) seeColumns(v, [{ key: '$why' }], true);
+    else if (!App.readOnly.peek() && N.value('Shown', { id: v, kind: 'View' }, v, 'Why') !== true) App.change(tx => why(tx, v), { dated: false, say: ch => Time.describe(ch) });
     if (!v) return;
     const side = st[rid].args.find(a => Tree.objectOf(st, a.at) === at), held = new Set(Object.keys(st).filter(id => st[id].args?.length > 1 && Tree.fits(st, id, rows)).map(id => Tree.objectOf(st, st[id].args.find(a => same(a.edge, side?.edge))?.at)));
     if (side && held.size > 1) setLook(v, { filters: { ...lookOf(v).filters, ['@' + norm(side.edge)]: [N.nameOf(st, at)] } });
@@ -2383,11 +2396,12 @@ const Table = (() => {
     if (mod && (k === 'd' || k === 'r') && !e.shiftKey && !e.altKey) { e.preventDefault(); if (canWrite()) fillFrom(k === 'd'); return; }
     if (e.key === 'F2') { e.preventDefault(); if (canEdit(cell)) { ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } return; }
     // Delete clears the cells of the range; rows selected whole, by their numbers, it deletes, after the redline.
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); const ids = wholeRows(); if (ids.length) deletion(ids).stage(); else clear(); }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); if (App.readOnly.peek()) return Shell.toast(App.whyNot()); const ids = wholeRows(); if (ids.length) deletion(ids).stage(); else clear(); }
     else if (e.key === ' ' && columnOf(cell)?.type === 'tag') { e.preventDefault(); flip(cell); }
     else if (e.key.length === 1 && !mod && !e.altKey && cell.getField()) {
       const c = columnOf(cell);
-      if (c.type === 'tag' || App.readOnly.peek() || !canEdit(cell)) return;
+      if (App.readOnly.peek() && c.type !== 'tag') return Shell.toast(App.whyNot());
+      if (c.type === 'tag' || !canEdit(cell)) return;
       // What's typed begins the value, or in a choice finds its option.
       typed0 = e.key; ranged = cellsOf();
       e.preventDefault();
@@ -2491,7 +2505,7 @@ const Table = (() => {
   // what's new is added, the headings nothing matches asked about, the whole redlined until Enter. A date reads as its
   // day, whatever format the sheet shows it in.
   function importFile() {
-    if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
     const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.xlsx,.xlsm,.xls,.csv,.tsv,.txt' });
     input.onchange = async () => {
       const f = input.files[0];
@@ -2534,7 +2548,7 @@ const Table = (() => {
     if (tries) setTimeout(() => importInto(view, text, file, tries - 1), 25);
   }
   Shell.register('action', { id: 'table.import', name: 'Import…', names: ['Import a file', 'Import CSV', 'Import Excel', 'Upload'], enabled: () => !App.readOnly.peek() && importTables().length > 0,
-    why: () => App.readOnly.peek() ? 'Can’t change the past' : 'Add a table first', run: importFile });
+    why: () => App.readOnly.peek() ? App.whyNot() : 'Add a table first', run: importFile });
   let unexport = null;
   effect(() => {
     const on = viewOf(Shell.view.value)?.layout === 'table';
