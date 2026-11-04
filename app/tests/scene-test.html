@@ -1219,6 +1219,16 @@ function run() {
       && wb.notes(C).notes('Shown').some(n => n.param === 'Tax ID') && !wb.notes(C).notes('Shown').some(n => n.param === 'EIN'), texts('feeder'));
   }
 
+  // ---- The Key doesn't reshuffle as the day changes (dendra.md, The legend): each row keeps its column ----
+  {
+    const wb = fresh(), N = wb.notes(C), S = wb.schema(C), keyOn = d => { const R = Formulas.computeState(wb.asOf(C, d), N.definitions(S), { relations: N.relations(S), schema: S }); return Scene.of(wb, C, MAIN, d, { state: R.records, computed: R }).marks.find(m => m.geometry === 'legend'); };
+    const days = ['2021-06-01', '2023-03-01', '2024-07-01', '2025-04-01', '2036-01-01'].map(keyOn).filter(Boolean), col = new Map();
+    let moved = '';
+    for (const k of days) for (const r of k.rows) { const c = r.caption.text; if (!col.has(c)) col.set(c, r.x); else if (Math.abs(col.get(c) - r.x) > 0.5) moved += ` ${c}`; }
+    check('A row of the Key keeps its column from day to day', days.length >= 3 && col.size >= 5 && !moved, `${days.length} days, ${col.size} rows;${moved}`);
+    check('… and the Key its width', new Set(days.map(k => Math.round(k.w))).size === 1, days.map(k => Math.round(k.w)).join());
+  }
+
   // ---- What's changed (dendra.md, Changes): the view compared with a day, by what it draws; a style like any other ----
   {
     const wb = fresh(), D1 = '2037-01-01', D2 = '2037-06-01', V = { id: MAIN, kind: 'View' };

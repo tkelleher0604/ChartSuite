@@ -366,7 +366,7 @@ function mount(el) {
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
   const pageScale = () => scene?.page.scale ?? 1;
-  const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); };
+  const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); root.style.setProperty('--dc-dz', graph.zoom() * (devicePixelRatio || 1)); };
   let cued = null; // the format bar's scope, lit (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
@@ -599,7 +599,7 @@ function mount(el) {
     syncing = true;
     if (!screen.w || !screen.h) seen();
     onScreen();
-    if (leaving) queueMicrotask(() => land(leaving));
+    if (leaving) { landing = true; queueMicrotask(() => { landing = false; land(leaving); }); }
     graph.batchUpdate(() => {
       for (const c of graph.getCells()) {
         if (mine.has(c.id)) continue;
@@ -651,7 +651,7 @@ function mount(el) {
   let FLIGHT = 360;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   // Whether this draw travels: not a look pointed at, which changes as fast as the pointer moves (Tidy's preview does, which is rested on).
-  let calmDraw = false, flight = null;
+  let calmDraw = false, flight = null, landing = false;
   // (A hand on the chart lands it, so what's taken hold of is where it's drawn.)
   gEl.addEventListener('pointerdown', () => grounded(), true);
   const ghosts = document.createElementNS(NS, 'g');
@@ -1157,11 +1157,10 @@ function mount(el) {
   // The snap shows as it's dragged, not as it's let go: a row a box would join, and the grid.
   function snapMoving(node) {
     if (sel.getSelectedCells().length > 1) return;
-    const m = scene.byId.get(node.id), p = node.getPosition();
-    let y = (m?.type === 'box' && rowJoined(m, p.x, p.y)) ?? null, x = p.x;
-    if (y === false) y = null;
-    if (aids.peek().snap) { const step = gridStep(); x = Math.round(x / step) * step; y = Math.round((y ?? p.y) / step) * step; }
-    if ((y !== null && Math.abs(y - p.y) > 0.01) || Math.abs(x - p.x) > 0.01) node.setPosition(x, y ?? p.y);
+    const p = node.getPosition();
+    let x = p.x, y = rowJoined(scene.byId.get(node.id), p.x, p.y) ?? p.y;
+    if (aids.peek().snap) { const step = gridStep(); x = Math.round(x / step) * step; y = Math.round(y / step) * step; }
+    if (Math.abs(y - p.y) > 0.01 || Math.abs(x - p.x) > 0.01) node.setPosition(x, y);
   }
   graph.on('node:moving', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else { snapMoving(node); follow(node); } });
   graph.on('node:resizing', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); follow(node); });
@@ -1774,8 +1773,12 @@ function mount(el) {
     const b = root.getBoundingClientRect();
     for (const h of handles) if (h.at) { const g = graph.localToGraph(h.at[0], h.at[1]); h.classList.toggle('close', Math.hypot(e.clientX - b.left - g.x, e.clientY - b.top - g.y) < 20); }
   }
-  // What a press lands on: no name said of it, till the pointer has moved on.
-  root.addEventListener('pointerdown', e => { tipFor(null); tipQuiet = { x: e.clientX, y: e.clientY }; }, true);
+  // What a press lands on: no name said of it, no frame round its words and no grips or dots, till the pointer has moved on.
+  root.addEventListener('pointerdown', e => {
+    tipFor(null); tipQuiet = { x: e.clientX, y: e.clientY };
+    if (e.target.closest?.('.dc-handle, .x6-widget-transform, .dc-edit')) return;
+    root.classList.remove('near-grips'); showHandles(null); hover(null);
+  }, true);
   for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); snapSoon(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
@@ -1998,8 +2001,13 @@ function mount(el) {
       for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, 'dc-row', 3);
     }
     for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, 'dc-group', 4);
-    // A box selected is outlined by its own shape, not by a frame round it; X6's is hidden (see the stylesheet).
-    root.querySelectorAll('.x6-widget-selection-box').forEach(b => { const m = scene.byId.get(b.dataset.cellId); const own = m?.type === 'box'; b.classList.toggle('by-shape', own); if (own) outline(m, 'dc-group dc-shaped', 2); });
+    // What's selected is outlined by its own shape, not by a frame round it; X6's frame shows only while it's dragged (see the stylesheet).
+    for (const c of sel.getSelectedCells()) if (c.isNode()) {
+      const m = scene.byId.get(c.id);
+      if (!m || m.points) continue;
+      outline(m, 'dc-group dc-shaped', 2);
+      if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2 + 2} ${m.h / 2 + 2})`);
+    }
     // The format bar's scope, while a group is chosen or pointed at: each mark it reaches lit, as a group is.
     const cuedHere = cued && new Set([...cued].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
     for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
@@ -2672,7 +2680,8 @@ function mount(el) {
   }
   function zoom(k) {
     if (!scene) return;
-    if (k === 'fit') { framed = true; left = null; return settle(); }
+    const was = aboutToGlide();
+    if (k === 'fit') { framed = true; left = null; settle(); return glide(was); }
     if (!seen()) return;
     const s = pageScale();
     if (k === 'in' || k === 'out') {
@@ -2681,6 +2690,18 @@ function mount(el) {
       graph.zoomTo(next * s, c ? { center: graph.graphToLocal(c) } : undefined);
     } else graph.zoomTo(k * s);
     zoomRead();
+    glide(was);
+  }
+  // The whole page glides from where it was, as what's on it travels, where only the view of it changes: a zoom asked for, or what's
+  // brought on screen. (The wheel is a hand on it, and goes as the hand does.)
+  const aboutToGlide = () => ({ s: graph.zoom(), t: graph.translate() });
+  function glide(was) {
+    const s = graph.zoom(), t = graph.translate();
+    if (reduced.matches || flight || landing || !root.clientWidth || graph.getCells().length > FLIGHT || (s === was.s && t.tx === was.t.tx && t.ty === was.t.ty)) return;
+    const a = viewport.animate([{ transform: `translate(${was.t.tx}px, ${was.t.ty}px) scale(${was.s})` }, { transform: `translate(${t.tx}px, ${t.ty}px) scale(${s})` }], TRAVEL), mine = flight = { anims: [a], rects: new Map(), lines: new Map() };
+    root.classList.add('flying');
+    const done = () => { if (flight === mine) { flight = null; root.classList.remove('flying'); } };
+    a.finished.then(done, () => {});
   }
   const resized = new ResizeObserver(() => { showHandles(null); seen(); if (owed || (framed && scene === framedFor)) settle(); onScreen(); });
   resized.observe(root);
@@ -2695,7 +2716,7 @@ function mount(el) {
     const into = (lo, hi, room, top = pad) => lo < top ? top - lo : hi > room - pad ? Math.max(top - lo, room - pad - hi) : 0;
     // (Clear of the formula bar, over the chart's top as what's brought is selected.)
     const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H, Math.max(pad, 44)), t = graph.translate();
-    if (dx || dy) graph.translate(t.tx + dx, t.ty + dy);
+    if (dx || dy) { const was = aboutToGlide(); graph.translate(t.tx + dx, t.ty + dy); glide(was); }
   }
 
   // Tab and Shift+Tab select the next box and the one before, in reading order (by rows, top down, then

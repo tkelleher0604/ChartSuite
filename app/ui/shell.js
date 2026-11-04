@@ -516,7 +516,8 @@ const Shell = (() => {
   const hands = document.documentElement;
   hands.dataset.hand = 'mouse';
   addEventListener('pointerdown', () => { hands.dataset.hand = 'mouse'; }, true);
-  addEventListener('keydown', e => { if (/^(Tab|Arrow|Home$|End$|Page|F6$|F8$|Enter$|Escape$| $)/.test(e.key)) hands.dataset.hand = 'keys'; }, true);
+  // (By what goes from one thing to another: not Enter or Esc, which end what's being done, nor an arrow that nudges what's on the chart.)
+  addEventListener('keydown', e => { if (/^(Tab|Home$|End$|Page|F6$|F8$)/.test(e.key) || (e.key.startsWith('Arrow') && !e.target.closest?.('.dc'))) hands.dataset.hand = 'keys'; }, true);
   function Tip() {
     const el = tip.value, ref = useRef();
     // (In the panel, over the view beside it: under a row it would cover the next, which is what's read next.)
@@ -551,10 +552,10 @@ const Shell = (() => {
       else if (e.key === 'Tab') setOpen(false);
     };
     return html`<span class=${'pick' + (wide ? ' wide' : '')}>
-      <button type="button" class="btn dd" ref=${btn} aria-label=${label} aria-haspopup="listbox" aria-expanded=${open} onClick=${() => open ? setOpen(false) : show()}
+      <button type="button" class="btn dd" ref=${btn} aria-label=${label} data-value=${value} aria-haspopup="listbox" aria-expanded=${open} onClick=${() => open ? setOpen(false) : show()}
         onKeyDown=${e => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); show(); } }}><span>${said}</span></button>
       ${open ? html`<div class="menu pick-list" popover="manual" role="listbox" tabindex="-1" aria-label=${label} ref=${list} onKeyDown=${keys}>
-        ${options.map(([v, name], i) => html`<div class=${'menu-item' + (i === at ? ' on' : '')} role="option" aria-selected=${v === value} onPointerMove=${() => setAt(i)} onClick=${() => take(v)}><span class="check">${v === value ? icon('check') : null}</span><span class="label">${name}</span></div>`)}
+        ${options.map(([v, name], i) => html`<div class=${'menu-item' + (i === at ? ' on' : '')} role="option" data-value=${v} aria-selected=${v === value} onPointerMove=${() => setAt(i)} onClick=${() => take(v)}><span class="check">${v === value ? icon('check') : null}</span><span class="label">${name}</span></div>`)}
       </div>` : null}
     </span>`;
   }

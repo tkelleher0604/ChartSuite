@@ -373,6 +373,8 @@ async function checks() {
   const shift = { x: 0, y: 0 }, put = () => [[view.clientWidth - 40, 20], [100, 40]].forEach(([x, y], i) => { graph.children[i].style.cssText = `position: absolute; width: 80px; height: 40px; left: ${x + shift.x}px; top: ${y + shift.y}px`; });
   graph.addEventListener('wheel', e => { shift.x -= e.deltaX; shift.y -= e.deltaY; put(); });
   put(); view.append(graph);
+  // (A chart's shown, for what the stylesheet does with the bar over one: what it opens to lies over the view, and it keeps its height.)
+  view.insertAdjacentHTML('beforeend', '<div class="host" style="display: none"><div class="dc"></div></div>');
   await openRows();
   const room = view.getBoundingClientRect(), below = document.querySelector('.fx-panel').getBoundingClientRect().bottom;
   const inRoom = [...graph.children].map(b => b.getBoundingClientRect()).every(b => b.left >= room.left && b.right <= room.right && b.top >= below && b.bottom <= room.bottom);

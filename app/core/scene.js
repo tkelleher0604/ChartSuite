@@ -978,7 +978,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
   // (Its rows of every day, so a row keeps its column as the day shown changes: see layoutLegend.)
-  legendRows.every = keyedEver(N, view, rows);
+  legendRows.ever = keyedEver(N, view, rows);
   // The footer, the chart's, at no view (dendra.md, The page), and its number, a view's place among the chart's views: the
   // sheet's own, as its title is.
   const footing = N.resolve('Footer', { id: view, kind: 'View' })?.value, footLook = footing?.format && { format: footing.format };
@@ -1913,9 +1913,11 @@ function legend(N, view, marks) {
 // kind, an option or a tag said, a relation. (What only a formula gives isn't among those, and takes its place where it's drawn.)
 const everSaid = new WeakMap();
 function keyedEver(N, view, rows) {
-  let said = everSaid.get(rows);
-  if (!said) {
-    everSaid.set(rows, said = new Set());
+  let kept = everSaid.get(rows);
+  if (kept?.views.has(view)) return kept.views.get(view);
+  if (!kept) {
+    everSaid.set(rows, kept = { said: new Set(), views: new Map() });
+    const said = kept.said;
     for (const r of rows) if ('record' in r) {
       if (r.kind) said.add(`k:${r.kind}`);
       if (r.edge != null && 'choice' in r) said.add(`c:${Tree.norm(r.edge)}|${Tree.norm(r.choice)}`);
@@ -1923,9 +1925,11 @@ function keyedEver(N, view, rows) {
       if (r.args) said.add(`r:${r.args.map(a => Tree.norm(a.edge)).sort().join('|')}`);
     }
   }
-  const has = p => !p.args ? said.has(`k:${p.kind}`) : p.args.length > 1 ? said.has(`r:${p.args.map(a => Tree.norm(a.edge)).sort().join('|')}`)
+  const said = kept.said, has = p => !p.args ? said.has(`k:${p.kind}`) : p.args.length > 1 ? said.has(`r:${p.args.map(a => Tree.norm(a.edge)).sort().join('|')}`)
     : p.out && 'choice' in p.out ? said.has(`c:${Tree.norm(p.args[0].edge)}|${Tree.norm(p.out.choice)}`) : p.out && 'tag' in p.out ? said.has(`t:${Tree.norm(p.args[0].edge)}|${p.out.tag}`) : false;
-  return groupsOf(N, view).filter(g => !g.off && g.swatch.kind !== 'text' && g.outputs.some(has));
+  const groups = groupsOf(N, view).filter(g => !g.off && g.swatch.kind !== 'text' && g.outputs.some(has));
+  kept.views.set(view, groups);
+  return groups;
 }
 
 // ---- Free shapes ----
@@ -1988,7 +1992,7 @@ const SWATCH = { h: 11 };
 function layoutLegend(m, rows, sheet = 1, k = 1) {
   const t = m.look, u = sheet * k, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
   // In the Key's own order, where it has one; a row new to it after those it lists.
-  const at = new Map((m.order ?? []).map((k, i) => [k, i])), ever = rows.every ?? [];
+  const at = new Map((m.order ?? []).map((k, i) => [k, i])), ever = rows.ever ?? [];
   rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } })).sort((a, b) => (at.get(a.key) ?? Infinity) - (at.get(b.key) ?? Infinity));
   m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));

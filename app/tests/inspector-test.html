@@ -102,11 +102,13 @@ async function run() {
   document.querySelector('.main').style.setProperty('--insp', '384px'); await tick(60);
   check('… and wide, beside it', beside(rowOf('EIN')) && beside(rowOf('Investment Company Status')));
   const labels = $$('.rows .row:not(.chk) > .k:not(.wide)'), ics = rowOf('Investment Company Status').querySelector(':scope > .k');
-  check('… its labels in a column as wide as the longest, so none wraps, and every value starts at one edge', labels.every(k => box(k).height <= 28) && box(ics).right - box(ics).left >= ics.scrollWidth - 1
-    && new Set($$('.rows .row:not(.chk) > .v').map(v => Math.round(box(v).left))).size === 1, labels.filter(k => box(k).height > 28).map(k => k.textContent).join(', '));
+  void labels; void ics;
+  // One value column for every record: it's a share of the panel, whatever the labels, so a value never jumps sideways from record to record.
+  check('… every value starts at one edge, a share of the panel whatever its labels', new Set($$('.rows .row:not(.chk) > .v').map(v => Math.round(box(v).left))).size === 1
+    && Math.abs(box($$('.rows .row:not(.chk) > .v')[0]).left - box(document.querySelector('.inspector')).left - (20 + (384 - 40 - 12 + 12) * 0.42)) < 40);
   document.querySelector('.main').style.removeProperty('--insp'); await tick(60);
   const chev = rowOf('Vehicle Type').querySelector('.sel');
-  check('a choice’s chevron follows its last word', getComputedStyle(chev, '::after').content === 'none' && getComputedStyle(chev.querySelector('span'), '::after').content !== 'none');
+  check('a choice’s chevron stands at its column’s end, one edge down the panel', getComputedStyle(chev, '::after').content !== 'none' && getComputedStyle(chev.querySelector('span'), '::after').content === 'none' && Math.abs(box(chev).right - box(rowOf('Vehicle Type').querySelector(':scope > .v')).right) < 10);
   const title = $('.ih .cell'), changes = App.wb.changes().length;
   await type(title, '');
   check('clearing a record’s title keeps its Name, and puts the title back', st().fund_name?.value === 'Calder Ridge Capital Partners III, L.P.' && Tree.clean($('.ih .cell').value) === st().fund_name.value && App.wb.changes().length === changes,

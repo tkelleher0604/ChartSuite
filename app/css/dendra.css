@@ -75,7 +75,7 @@ body { margin: 0; background: var(--paper); color: var(--ink); font: var(--t13);
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 :focus:not(:focus-visible) { outline: none; }
 [data-region]:focus-visible, .view > .host > :focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-html[data-hand="mouse"] :focus-visible:not(input, textarea, select, [contenteditable]) { outline: none; }
+html[data-hand="mouse"] :focus-visible:not(input, textarea, select, [contenteditable]) { outline: none !important; }
 html[data-hand="mouse"] .CodeMirror-focused { outline: 1px solid var(--focus); outline-offset: 0; }
 * { scrollbar-width: thin; scrollbar-color: var(--rule-2) transparent; }
 ::placeholder { color: var(--ink-3); opacity: 1; }
@@ -232,7 +232,7 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* Editing or Viewing, the title bar's switch; Viewing filled, as a day other than today is. */
 .mode { display: flex; align-items: center; border-radius: var(--r); }
 .mode > .btn { color: var(--ink-2); }
-.mode.viewing { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.mode.viewing { background: var(--selected); }
 .mode.viewing > .btn { color: var(--accent-ink); font-weight: 500; }
 /* The arrow beside Undo, and the list it drops, the steps a pick takes lit. */
 .titlebar .btn.icon.undo-list { width: 16px; margin-left: -4px; }
@@ -372,8 +372,8 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .view:has(> .host:not([hidden]) > .dc) > .slot.formulabar:has(.fx-view):not(:has(.fx-delta)) { display: none; }
 .view:has(> .pastband, > .fx-band):has(> .host:not([hidden]) > .dc) > .slot.formulabar { top: 40px; }
 .view:has(> .pastband, > .fx-band):not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar { margin-top: 40px; }
-.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .fx-panel { position: static; width: 100%; border-width: 1px 0 0; box-shadow: none; }
-.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .host { display: flow-root; }
+.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .fxbar { height: auto; min-height: 36px; flex-wrap: wrap; }
+.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .fx-panel { position: static; flex: 0 0 calc(100% + 24px); width: auto; margin: 0 -8px 0 -16px; max-height: min(34vh, 360px); border-top: 1px solid var(--rule); border-bottom: 0; box-shadow: none; clip-path: none; }
 .divider { position: relative; background: var(--rule); cursor: col-resize; z-index: 2; }
 .divider::before { content: ""; position: absolute; inset: 0 -4px; }
 .divider:hover, .divider.drag { background: var(--rule-2); }
@@ -393,7 +393,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .view > .void > .btn { pointer-events: auto; }
 /* The time's ruler (table.css): over a chart's foot, so the page doesn't move as it comes and goes, and the bar over it; under a table's last row. */
 .view:has(> .scrub):not(:has(> .host:not([hidden]) > .dc)) { padding-bottom: 48px; }
-.view:has(> .host:not([hidden]) > .dc) > .scrub ~ .pendbar, .view:has(> .scrub):has(> .host:not([hidden]) > .dc) > .pendbar { margin-bottom: 48px; }
+.view:has(> .scrub):has(> .host:not([hidden]) > .dc) > .pendbar { margin-bottom: 48px; }
 .inspector > .host { min-height: 100%; }
 /* What takes the inspector's place (History) fills it, and scrolls itself. */
 .inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }

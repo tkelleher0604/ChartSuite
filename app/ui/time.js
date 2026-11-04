@@ -270,7 +270,7 @@ const Time = (() => {
   // From the first of the days the structure changes, a day at a time, each once it's drawn and has stood a moment, back to the day it began on.
   function play(days) {
     if (playing.peek()) return stopPlay?.();
-    const began = Shell.time.peek()?.asOf ?? null, went = Shell.view.peek(), STAND = 520;
+    const began = Shell.time.peek()?.asOf ?? null, went = Shell.view.peek(), STAND = 420;
     let i = 0, timer = 0, unlayer = null;
     const stop = () => { clearTimeout(timer); timer = 0; playing.value = false; stopPlay = null; unlayer?.(); unlayer = null; };
     const step = () => {
@@ -342,7 +342,7 @@ const Time = (() => {
     const said = years.map(([y, p]) => { const x = width.value * p / span, room = !width.value || (x - lastAt >= 40 && width.value - x >= 16); if (room) lastAt = x; return [y, p, room]; });
     const moved = days.filter(d => (weights.get(d) ?? 0) >= 2);
     return html`<div class=${'scrub' + (playing.value ? ' playing' : '')} data-floats-on="1" onPointerLeave=${e => { if (!e.buttons) holding.value = false; }}>
-      <button class="btn icon scrub-play" aria-label=${playing.value ? 'Stop' : 'Play the chart through its days'} data-tip=${playing.value ? 'Stop' : 'Play the chart through its days'} aria-pressed=${playing.value} onClick=${() => play(moved.includes(today) ? moved : [...moved, today])}>${Shell.icon(playing.value ? 'square' : 'play')}</button>
+      <button class="btn icon scrub-play" aria-label=${playing.value ? 'Stop' : 'Play the chart through its days'} data-tip=${playing.value ? 'Stop' : 'Play the chart through its days'} aria-pressed=${playing.value} onClick=${() => { Shell.closeAll(); play(moved.includes(today) ? moved : [...moved, today]); }}>${Shell.icon(playing.value ? 'square' : 'play')}</button>
       <div class="scrub-track" ref=${el => { ref.current = el; if (el && el !== measured) { measure.disconnect(); measure.observe(measured = el); width.value = el.clientWidth; } }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
         onPointerDown=${down} onPointerMove=${e => { if (!e.buttons) setHot(nearest(e)); }} onPointerLeave=${() => setHot(null)} onKeyDown=${key}>
         ${said.map(([y, p, room]) => html`<span class="yr" style=${`left:${at(p)}`}>${room ? html`<span>${y}</span>` : null}</span>`)}

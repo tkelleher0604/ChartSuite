@@ -43,8 +43,9 @@
 .dc .x6-widget-selection-inner { display: none !important; }
 .dc .x6-widget-selection-rubberband { background: rgb(44 76 124 / .06) !important; border: 1px solid var(--accent) !important; opacity: 1 !important; }
 .dc .x6-widget-transform { border: 0 !important; margin: -3px 0 0 -3px !important; padding: 3px !important; box-shadow: none !important; }
-/* At rest, one quiet outline: what can be taken hold of stands up as the pointer nears it. A triangle or an oval is outlined by its own shape. */
-.dc .x6-widget-selection-box.by-shape { visibility: hidden; }
+/* At rest, one quiet outline, by the mark's own shape: what can be taken hold of stands up as the pointer nears it. Dragged, a frame goes with it. */
+.dc .x6-widget-selection-box-node { visibility: hidden; }
+.dc.dragging .x6-widget-selection-box-node { visibility: visible; }
 .dc-group.dc-shaped { stroke-dasharray: none; }
 .dc.dragging .dc-shaped { visibility: hidden; }
 .dc .x6-widget-transform-resize { width: 6px !important; height: 6px !important; margin: 0 !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; opacity: 0; transition: opacity var(--quick) var(--ease); }
@@ -192,7 +193,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .well.a { grid-template-rows: 20px; }
 .fb .well.a > svg { width: 20px; height: 20px; }
 .fb .well.a .edge { stroke: var(--rule-2); stroke-width: 5; stroke-linecap: butt; }
-:root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }
+:root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--ink-3); }
+:root[data-theme="dark"] .fb .well.a .edge { stroke: var(--ink-3); }
 .fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 /* Tidy says what it tidies in room kept for that, so nothing beside it moves (where the bar is short, by the count alone, the rest on hover); the zoom is of one width, at the bar's end, and stays there however little room the bar has. */
 .fb [data-fb="tidy"] { display: inline-block; width: 110px; line-height: 26px; text-align: left; overflow: hidden; white-space: nowrap; }
@@ -227,7 +229,11 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .amount > input { width: 44px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-align: right; }
 .amount > .unit { min-width: 12px; font: var(--t12); }
 .menu-item.withfield { display: flex; align-items: center; gap: 8px; padding: 0; }
+.menu-item.withfield { position: relative; }
 .menu-item.withfield > .sub { flex: 1; min-width: 0; }
+/* (Its chevron at the row's end, as every submenu's is, and what's typed just before it.) */
+.menu-item.withfield > .sub.menu-item::after { position: absolute; right: 8px; top: calc(50% - 5px); }
+.menu-item.withfield > .amount { margin-right: 24px; }
 /* The shadow: which way it's thrown, then what it is, each typed. */
 .shadow { display: grid; gap: 2px; }
 .shadow > .k { color: var(--ink-3); font: var(--t12); margin-bottom: 4px; }
@@ -252,7 +258,8 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .palette { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; }
 .palette > :nth-child(-n + 10) { margin-bottom: 4px; }
 .palette > i { grid-column: 1 / -1; height: 4px; }
-.palette > .room { width: 20px; height: 20px; }
+/* (Room kept for the colors used of late, so nothing moves as they come: said as slots, not left as a gap.) */
+.palette > .room { width: 20px; height: 20px; border: 1px dashed var(--rule-2); border-radius: 3px; }
 .palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid var(--rule-2); border-radius: 3px; background-clip: padding-box; cursor: default; }
 .palette > button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .palette > .more { grid-column: 1 / -1; display: grid; margin: 4px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }
