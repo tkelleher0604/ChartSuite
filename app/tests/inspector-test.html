@@ -1470,6 +1470,7 @@ async function saysWhen(C, keep) {
   FormulaBar.commitEdit(); await tick(120);
   const kpNote = N().notes('Formula').find(x => N().name(x.pattern) === 'Keyperson Clause');
   check('… Done defines it, as one change, and what was typed goes to the rule', !!kpNote && !Object.values(App.entered.peek()).some(r => r.at === 'fund' && r.edge === 'Keyperson Clause') && App.computed.peek().computed[Object.keys(st()).find(k => st()[k].at === 'fund' && st()[k].edge === 'Keyperson Clause')]?.holds !== undefined, JSON.stringify(kpRec()));
+  for (let i = 0; i < 40 && !$('.rule-log .did'); i++) await tick(50);   // (What it did is worked out when idle: Time.ask.)
   check('… and the rule’s page says who, when, and what it did', /Defined Keyperson Clause/.test($('.rule-log .who')?.textContent ?? '') && /Keyperson Clause at \d+ entit/.test($('.rule-log .did')?.textContent ?? ''), $('.rule-log')?.textContent);
   check('… and how many hold', $$('.insp *').some(x => !x.childElementCount && /^\d+ holds?(, \d+ don’t)?$/.test(x.textContent.trim())), $$('.insp *').map(x => x.childElementCount ? '' : x.textContent.trim()).filter(x => /hold|don’t/.test(x)).join());
   Shell.parts.value.undo.undo(); await tick(60);

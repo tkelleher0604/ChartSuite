@@ -665,10 +665,10 @@ function renaming() {
 // A rule in error (formulas.md, Errors): what's wrong as it's written is said, what reads it can't be relied on, and it never passes
 // as a clean smaller answer.
 function ruleInError() {
-  const C = 'calder-ridge', DAY = '2036-10-26';
+  const C = 'calder-ridge', DAY = '2037-10-26';
   const worked = wb => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S), schema: S }); };
   const before = worked(Log.open(SAMPLE));
-  const ruled = (name, rows) => {
+  const ruled =(name, rows) => {
     const wb = Log.open(SAMPLE), N = wb.notes(C), n = N.notes('Formula').find(x => N.name(x.pattern) === name), tx = wb.edit({ chart: C, who: 'Dana Jordan' });
     tx.note('Formula', n.pattern, rows(n.value));
     const c = tx.commit();

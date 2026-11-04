@@ -383,6 +383,8 @@ Whether a loop is monotone is read off its rows. Each place a row reads the loop
 
 And since the output is the first row that gives something, a row that reads the loop must not be able to take over from a row after it: past it, every row is `←`. For a tag, a `=` row that reads the loop could give FALSE, which can go down.
 
+A monotone loop each of whose rows gives something only through the loop, with nothing typed for it to go on from (`← [X]`, of X), settles at nothing, so it never holds: that's a flaw of the rule, said as such, not a clean no.
+
 Any other loop is a circular reference, and every record it would give shows `#CIRCULAR!`. So does a monotone loop whose numbers never settle, such as the 3(c)(1) count around a cycle (after 1,000 rounds), and a number that goes down after all, as a sum of a negative amount can. The engine says where each row reads its loop, so the formula bar can underline it.
 
 ## Why a record is there
