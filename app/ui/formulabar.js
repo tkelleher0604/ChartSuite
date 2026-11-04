@@ -1330,7 +1330,12 @@ const FormulaBar = (() => {
     const ek = e => `${e.def}|${e.id}`, inA = new Set(A.errors.map(ek)), inB = new Set(B.errors.map(ek)), plus = B.errors.filter(e => !inA.has(ek(e))), minus = A.errors.filter(e => !inB.has(ek(e)));
     const whereErr = (X, n, e) => (e.at ? [e.at] : (e.args ?? []).map(a => a.at)).filter(at => X.records[at]).map(at => n.shortOf(X.records, Tree.objectOf(X.records, at))).join(' → ');
     const said = (X, n, e) => ({ id: ek(e), get say() { return `${whereErr(X, n, e)}: ${e.error.msg ?? e.error.code}`; } });
-    if (plus.length || minus.length) out.unshift({ name: 'error', def: { id: null, name: 'error', type: 'error', edges: [] }, plus: plus.length, minus: minus.length, changed: 0, of: { plus: plus.map(e => said(B, NB, e)), minus: minus.map(e => said(A, NA, e)), changed: [] } });
+    // And what fails a check where it didn't, or no longer does, as the status bar counts it: a no that comes or goes is otherwise no conclusion.
+    const failing = (X, n) => Object.keys(X.records).filter(id => X.records[id].tag === false && n.check(Tree.treeOf(X.records, id)));
+    const failsA = failing(A, NA), failsB = failing(B, NB), failure = (X, n, id) => ({ id, get say() { return `${who(X, n, id)}: ${name(X, id) ?? Tree.treeOf(X.records, id).args?.[0]?.edge ?? 'a check'} fails`; } });
+    const fails = failsB.filter(id => !failsA.includes(id)).map(id => failure(B, NB, id)), clears = failsA.filter(id => !failsB.includes(id)).map(id => failure(A, NA, id));
+    const errs = { plus: [...plus.map(e => said(B, NB, e)), ...fails], minus: [...minus.map(e => said(A, NA, e)), ...clears] };
+    if (errs.plus.length || errs.minus.length) out.unshift({ name: 'error', def: { id: null, name: 'error', type: 'error', edges: [] }, plus: errs.plus.length, minus: errs.minus.length, changed: 0, of: { ...errs, changed: [] } });
     return out;
   }
   // A definition's flaws as a draft would leave it (Formulas: A rule in error), and any other rule's it would newly flaw, each with

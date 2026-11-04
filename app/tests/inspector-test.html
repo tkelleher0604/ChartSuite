@@ -70,6 +70,7 @@ const tick = (ms = 30) => new Promise(r => setTimeout(r, ms));
 const $ = s => document.querySelector('.inspector ' + s), $$ = s => [...document.querySelectorAll('.inspector ' + s)];
 // What an element says, its no-break spaces, which bind a name's suffix and numerals, as spaces.
 const spoken = el => el.textContent.replace(/\s/g, ' ');
+const plainly = c => Time.describe(c).replace(/\s/g, ' ');
 const rowOf = label =>$$('.row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === label);
 // A Styles row's caption, as it reads.
 const capOf = el => el?.querySelector('.cap')?.textContent ?? el?.querySelector('.cell')?.value;
@@ -1532,16 +1533,16 @@ async function saysWhen(C, keep) {
   const pIn = pb('.amount'); pIn.value = '15%'; pIn.dispatchEvent(new Event('input', { bubbles: true })); await tick(60);
   const dIn = pb('.from input'); await type(dIn, 'December 1, 2036'); await tick(100);
   const tr2 = last(), mid36 = App.wb.asOf(C, '2036-11-15'), dec36 = App.wb.asOf(C, '2036-12-01');
-  check('made, it’s one change that says what it amends and what moved', tr2.amends === tr1.id && App.wb.changes().length === nAm + 1 && Time.describe(tr2) === 'Changed the transfer: 10% → 15%, Nov 1 → Dec 1' && spoken(document.querySelector('.toast span')) === Time.describe(tr2), Time.describe(tr2));
+  check('made, it’s one change that says what it amends and what moved', tr2.amends === tr1.id && App.wb.changes().length === nAm + 1 && plainly(tr2) === 'Changed the transfer of Halvard Logistics Holdings, Inc.: 10% → 15%, Nov 1 → Dec 1' && spoken(document.querySelector('.toast span')) === plainly(tr2), plainly(tr2));
   check('… both sides together: 82% until then, 67% and 15% from it, the relation it made keeping its id', amPct(mid36, halvardStake) === 0.82 && !mid36[madeRel] && amPct(dec36, halvardStake) === 0.67 && amPct(dec36, madeRel) === 0.15, `${amPct(mid36, halvardStake)} ${amPct(dec36, halvardStake)} ${amPct(dec36, madeRel)}`);
   check('… it reads as the act it now is, and can be changed again', (a => a?.type === 'transfer' && a.q === 0.15 && a.day === '2036-12-01' && a.made === madeRel)(Time.act(tr2)), JSON.stringify(Time.act(tr2)));
   Time.open('all'); await tick(150);
   const amHeads = $$('.hist-row .what').map(x => spoken(x));
-  check('History has the one entry, what it was folded in it', amHeads.includes(Time.describe(tr2)) && !amHeads.includes(Time.describe(tr1)), amHeads.slice(0, 3).join(' | '));
+  check('History has the one entry, what it was folded in it', amHeads.includes(plainly(tr2)) && !amHeads.includes(Time.describe(tr1)), amHeads.slice(0, 3).join(' | '));
   Time.close(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(80);
   const back36 = App.wb.asOf(C, '2036-11-15');
-  check('Undo takes back the amendment alone, and the first stands as it was', amPct(back36, halvardStake) === 0.72 && amPct(back36, madeRel) === 0.1 && amToast() === `Undid: ${Time.describe(tr2)}`, amToast());
+  check('Undo takes back the amendment alone, and the first stands as it was', amPct(back36, halvardStake) === 0.72 && amPct(back36, madeRel) === 0.1 && amToast() === `Undid: ${plainly(tr2)}`, amToast());
   // A later change that rests on it is said, and it can't be begun
   Shell.select([halvardStake]); await tick(60);
   App.change(tx => tx.update(Object.keys(back36).find(k => back36[k].at === halvardStake && back36[k].edge === 'Percentage'), { value: 0.5 }), { dated: '2037-02-01' }); await tick(60);
@@ -1584,7 +1585,7 @@ async function saysWhen(C, keep) {
   check('… as the survivor’s panel does, each by what it held and what it holds there, or Add', Shell.selection.peek().join() === 'corvane' && /What did they receive\?/.test(amAsked?.textContent ?? '') && /held 64%/.test(amAsked?.textContent ?? '') && /held 12%/.test(amAsked?.textContent ?? '') && /here/.test(amAsked?.textContent ?? '') && !!amAsked?.querySelector('.add-entry'), amAsked?.textContent);
   App.amending(mg1); await tick(120);
   await type(pb('.from input'), 'March 1, 2037'); await tick(100);
-  check('a merger changed is one entry saying what moved, its date and its relation moved', last().amends === mg1.id && Time.describe(last()) === 'Changed the merger: Feb 1 → Mar 1' && !!App.wb.asOf(C, '2037-02-15').northpine && !App.wb.asOf(C, '2037-03-01').northpine, Time.describe(last()));
+  check('a merger changed is one entry saying what moved, its date and its relation moved', last().amends === mg1.id && plainly(last()) === 'Changed the merger of Northpine Software, LLC: Feb 1 → Mar 1' && !!App.wb.asOf(C, '2037-02-15').northpine && !App.wb.asOf(C, '2037-03-01').northpine, Time.describe(last()));
   Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
   check('… all back as it was', App.wb.changes().length === nMg + 4 && !!st().northpine, `${App.wb.changes().length - nMg}`);
   // An insertion: what stays with the stake that ends, and its day offered as the new company's start
@@ -1596,7 +1597,7 @@ async function saysWhen(C, keep) {
   App.amending(ins1); await tick(120);
   await type(pb('.from input'), 'February 1, 2037'); await tick(100);
   const insOn = App.wb.asOf(C, '2037-02-01');
-  check('an insertion changed: one entry, its new company and its two stakes keeping their ids, from the new day', last().amends === ins1.id && Time.describe(last()) === 'Changed the insertion: Jan 1 → Feb 1' && !!insOn[insAct.up] && !!insOn[insAct.made] && !App.wb.asOf(C, '2037-01-15')[insAct.up], Time.describe(last()));
+  check('an insertion changed: one entry, its new company and its two stakes keeping their ids, from the new day', last().amends === ins1.id && plainly(last()) === 'Changed the insertion in Fund III Blocker: Jan 1 → Feb 1' && !!insOn[insAct.up] && !!insOn[insAct.made] && !App.wb.asOf(C, '2037-01-15')[insAct.up], Time.describe(last()));
   Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
   // A box's kind: a dropdown, offering what its relations still fit, saying why not
   Shell.select(['chen']); await tick(60);

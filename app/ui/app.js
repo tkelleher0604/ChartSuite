@@ -960,6 +960,8 @@ const App = (() => {
   // What moved, as History says it: "10% → 15%", "Dec 15 → Dec 20", a day's year only where the two differ.
   const moved = (a, b) => (a === b ? null : `${a} → ${b}`);
   const movedDay = (a, b) => { const y = !!a && !!b && a.slice(0, 4) === b.slice(0, 4), f = d => { if (!d) return 'all along'; const s = Tree.formatDate(d, 'short'); return y ? s.replace(/, \d{4}$/, '') : s; }; return a === b ? null : `${f(a)} → ${f(b)}`; };
+  // Whose stake a change's act was of, by the side a relation doesn't begin from: so its entry says which, among many.
+  const stakeIn = (on, rid) => { const t = Tree.treeOf(on, rid), first = notes.peek().edges(t)[0]; return on[rid].args.find(a => !Tree.same(a.edge, first))?.at; };
   const whatMoved = (noun, parts) => `Changed ${noun}: ${parts.filter(Boolean).join(', ')}`;
   // The chart as of a day without what a change recorded: what its act reads, made again.
   const without = c => { const kept = new Map(); return d => { if (!kept.has(d)) { const tx = edit(false, []); tx.unmake(c.id); kept.set(d, tx.asOf(d)); } return kept.get(d); }; };
@@ -990,7 +992,7 @@ const App = (() => {
         tx.unmake(c.id);
         const at = tx.asOf(d), amt = transferable(act.rid, at)?.amount, whole = amt ? at[amt].value : null, f = v => Tree.format(act.field ?? at[amt]?.field, v);
         transfer(tx, act.rid, p.transfer, d, { at, made: act.made, keep: keptAt(c, act.made) });
-        tx.says(whatMoved('the transfer', [act.field && moved(f(act.q), f(part ?? whole)), moved(label(toWas), label(to)), movedDay(act.day, d)]));
+        tx.says(whatMoved(`the transfer of ${nameIn(on, stakeIn(on, act.rid))}`, [act.field && moved(f(act.q), f(part ?? whole)), moved(label(toWas), label(to)), movedDay(act.day, d)]));
       }, say: x => Time.describe(x) });
     return true;
   }
@@ -1007,7 +1009,7 @@ const App = (() => {
         if (!d || (d === act.day && label(to) === label(toWas))) return;
         tx.unmake(c.id);
         interpose(tx, act.rid, to, d, { at: tx.asOf(d), made: act.made, up: act.up, keep: keptAt(c, act.made), keepUp: keptAt(c, act.up) });
-        tx.says(whatMoved('the insertion', [moved(label(toWas), label(to)), movedDay(act.day, d)]));
+        tx.says(whatMoved(`the insertion in ${nameIn(on, stakeIn(on, act.rid))}`, [moved(label(toWas), label(to)), movedDay(act.day, d)]));
       }, say: x => Time.describe(x) });
     return true;
   }
@@ -1022,7 +1024,7 @@ const App = (() => {
         if (d === act.day && to === act.into) return;
         tx.unmake(c.id);
         if (d) { tx.add('record', { at: act.id, edge: act.edge, field: 'date', value: d }, act.end); tx.add('record', { args: [{ edge: m.rel.edges[0], at: act.id }, { edge: m.rel.edges[1], at: to }], tag: true }, act.rel); }
-        tx.says(d ? whatMoved('the merger', [moved(label(act.into), label(to)), movedDay(act.day, d)]) : `Took back the merger of ${label(act.id)} into ${label(act.into)}`);
+        tx.says(d ? whatMoved(`the merger of ${label(act.id)}`, [moved(label(act.into), label(to)), movedDay(act.day, d)]) : `Took back the merger of ${label(act.id)} into ${label(act.into)}`);
       }, say: x => Time.describe(x) });
     return true;
   }

@@ -1014,7 +1014,7 @@ const Time = (() => {
     let lastDay = null;
     const row = e => {
       // An entry struck offers to redo it; what's in the log for it now is its last.
-      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), u = reversalOf(c), fx = known(c), has = lines.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!fx?.which?.length || !!e.was, shows = opened.has(c.id);
+      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), u = reversalOf(c), fx = known(c), shown = x => !(x.k === 'error' && /\berrors?\b/.test(fx?.said ?? '')), has = lines.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!fx?.which?.length || !!e.was, shows = opened.has(c.id);
       // What it was before it was changed, each step, each a click from the chart as it stood then.
       const before = []; for (let w = e.was; w; w = w.was) before.push(w);
       // A change that can be changed says so where it's read; one a later change rests on says that, as its Undo does.
@@ -1032,7 +1032,7 @@ const Time = (() => {
         ${App.wb.reasons(c.id).map(r => html`<div class="note">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(Tree.isoOf(new Date(r.when)))}</span>`}</div>`)}
         <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Why…</button>` : null}</div>
         ${giving.value === c.id ? html`<${Reason} id=${c.id} done=${() => { giving.value = null; }} />` : null}
-        ${fx?.moved.length ? html`<div class="effect">${fx.moved.map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(' · ')}</div>` : null}
+        ${fx?.moved.some(shown) ? html`<div class="effect">${fx.moved.filter(shown).map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(' · ')}</div>` : null}
         ${fx?.said ? html`<div class="effect said">${fx.said}</div>` : null}
         ${shows ? html`<div class="hist-more" onClick=${ev => ev.stopPropagation()}>
           ${lines.map(l => html`${lines.length > 1 ? html`<div class="ln">${l.text}</div>` : null}${lineMore(l)}${l.sub.map(s => html`<div class="ln sub">${s.text}</div>${lineMore(s)}`)}`)}
