@@ -1075,7 +1075,7 @@ function Styles({ v, only }) {
   // dragged among that part. Its swatch clicked is its caption clicked.
   const output = (g, alone, part, s) => {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]);
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key}>${alone ? grip(alone) : null}<div class="k" onClick=${() => aimAt(g)} onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onClick=${e => { if (!e.target.closest('.grip, .cellbox, input')) aimAt(g); }}>${alone ? grip(alone) : null}<div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
       <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Caption} g=${g} label=${names.join(', ')} put=${out => cap(g.outputs, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
@@ -1108,7 +1108,7 @@ function Caption({ g, label, put, moves, v }) {
     <${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${label} cls=${g.off ? ' off' : ''} auto put=${out => { setTyping(false); put(out); }} /></span>`;
   const on = typeof FormatBar !== 'undefined' && !!FormatBar.aimedAt?.(g);
   const rename = () => { if (!App.readOnly.peek()) setTyping(true); };
-  return html`<button type="button" class=${'cap' + (on ? ' on' : '') + (g.off ? ' off' : '')} aria-label=${label} aria-pressed=${on} onClick=${() => aimAt(g)} onDblClick=${rename}
+  return html`<button type="button" class=${'cap' + (on ? ' on' : '') + (g.off ? ' off' : '')} aria-label=${label} aria-pressed=${on} onDblClick=${rename}
     onKeyDown=${e => { if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); rename(); } }}
     onContextMenu=${e => styleMenu(e, g, v, moves, rename)}>${g.caption}</button>`;
 }

@@ -160,7 +160,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
 @container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } }
-@container (max-width: 1310px) { .fb .scope { width: 138px; } .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
+@container (max-width: 1310px) { .fb .font { width: 110px; } .fb .scope { width: clamp(120px, calc(100cqw - 1106px), 240px); } }
+@container (max-width: 1230px) { .fb .scope { width: 138px; } .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
 .fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 18px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }

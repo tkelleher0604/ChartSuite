@@ -858,7 +858,9 @@ function pasteLook(look = copied?.look) {
     }
   };
   if (!marks.some(m => markLabels(m).some(l => markDiffers(m, l)) || textLabels.some(l => textDiffers(m, l))) && !s.aim) { Shell.toast('Already has that look'); return true; }
+  const said = `Pasted ${copied?.from ? `the look of ${copied.from}` : 'a look'} on ${scope.own ? (marks.length === 1 && marks[0].record ? App.notes.peek().nameOf(st, marks[0].record) : named(c, scope).replace(/^This|^These/, m => m === 'This' ? 'this' : 'these')) : named(c, scope)}`;
   App.change(tx => {
+    tx.says(said);
     if (scope.outputs) {
       for (const p of scope.outputs) give(tx, p, marks);
       if (textStyle) for (const l of textLabels) everyField(tx, sc, scope, l, at(l, look[l]));
@@ -868,7 +870,7 @@ function pasteLook(look = copied?.look) {
       if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, at(l, look[l])])) } });
       else { give(tx, Tree.treeOf(st, m.record), [m]); for (const l of textLabels) ownFields(tx, m, l); }
     }
-  }, { say: `Pasted ${copied?.from ? `the look of ${copied.from}` : 'a look'} on ${scope.own ? (marks.length === 1 && marks[0].record ? App.notes.peek().nameOf(st, marks[0].record) : named(c, scope).replace(/^This|^These/, m => m === 'This' ? 'this' : 'these')) : named(c, scope)}` });
+  }, { say: said });
   fade();
   return true;
 }
@@ -1162,7 +1164,7 @@ function Bar() {
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-tip="Shape and shadow" data-fb="shape" disabled=${!boxy} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
     <button class="btn dd" aria-label="Fill" data-tip="Fill" data-fb="fill" disabled=${!boxy} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
-    <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any ? value('Outline') : 'none')}</button>
+    <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none || textStyle} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle ? value('Outline') : 'none')}</button>
     <span class="sep" />
     <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" disabled=${!layered} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
