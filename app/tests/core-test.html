@@ -172,7 +172,9 @@ function run(json) {
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
   check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range', 'def_one_survivor'])
-    && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(tree('fund_good')) && !N.check(patternOf('def_remote')), j(checked));
+    && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(patternOf('def_remote')), j(checked));
+  // At an entry typed by hand, a Check note says its "no" needs attention: shown in amber, counted as no error (inspector-test).
+  check('Good Standing’s “no” needs attention, and is no check', N.heeds(tree('fund_good')) && !N.check(tree('fund_good')));
 
   // ---- Time: as of a day ----
   const on = (d, id) => !!wb.asOf(C, d)[id];

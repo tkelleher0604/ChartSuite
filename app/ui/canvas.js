@@ -862,10 +862,10 @@ function mount(el) {
     const rect = fieldRect(m, it), at = graph.localToGraph(rect.x, rect.y + rect.h), box = root.getBoundingClientRect(), menuAt = { x: box.left + at.x, y: box.top + at.y + 2 };
     // The record, or a blank's: typed over where it's worked out, as the inspector enters one.
     // A blank of an entry its record's kind hasn't yet gives the kind the entry, as the inspector's Add does.
-    const put = out => App.change(tx => {
-      if (r && !r.computed) return tx.update(it.id, out);
-      const at = r?.at ?? it.blank.at, edge = r?.edge ?? it.blank.edge, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
-      if (it.blank && !App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
+    // One that has one to replace goes as the inspector's does, asking from when where it has history to keep (App.put).
+    const put = (out, auto = true) => r ? App.put(it.id, r, out, { auto }) : App.change(tx => {
+      const { at, edge } = it.blank, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
+      if (!App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
       tx.add('record', { at, edge, ...out });
     });
     // A menu under the field, from which Tab goes on to the next field, as from one typed in.
@@ -887,10 +887,10 @@ function mount(el) {
     if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
       { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
     const raw = r ? Tree.format(r.field, r.value) : '';
-    openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, text => {
+    openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, (text, keys) => {
       const v = Tree.parse(kind.datatype ?? Tree.classify(text), text);
       if (v === undefined || Tree.clean(text) === '' || (r && v === r.value)) return;
-      put({ field: kind.datatype ?? Tree.classify(text), value: v });
+      put({ field: kind.datatype ?? Tree.classify(text), value: v }, !!keys);
     }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true) });
   }
   function edit(key, target, typed) {
@@ -956,12 +956,12 @@ function mount(el) {
     s.removeAllRanges(); s.addRange(range);
     let done = false;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box);
-    const finish = ok => { if (done) return; done = true; list?.close(); kind?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else escaped?.(); };
+    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys); else escaped?.(); };
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (list?.key(e) || kind?.key(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); finish(kept); }
-      else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true); }
+      else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true, true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
       else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
     });
@@ -1491,6 +1491,7 @@ function mount(el) {
       ...(bound.length ? [{ label: 'History', run: () => Time.open('all') }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
+      ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: ro, run: () => App.interposing(one.record) }] : []),
       { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
@@ -1728,7 +1729,7 @@ function mount(el) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
     // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
     if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day))
-      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsOf(base) }) : null);
+      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsFor(base) }) : null);
     const r = red?.scene ? red : null;
     const st = stateNow(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
@@ -1766,7 +1767,7 @@ function mount(el) {
   // day, however often it's asked for again meanwhile.
   const laidAhead = new WeakMap();
   function* redAhead(r, base) {
-    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsOf(base) });
+    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsFor(base) });
     (laidAhead.get(r.state) ?? laidAhead.set(r.state, new Map()).get(r.state)).set(`${base.view}|${base.day}`, sc);
     if (red?.state === r.state && !red.scene) show();
   }
@@ -2220,8 +2221,26 @@ function mount(el) {
     drop(edge) { const m = marked(dropOn); dropOn = null; paintFields(); return m && setField([m], edge, true, scoped(m)); },
     clip: (edge, text) => { clip = { items: [], text, field: edge }; },
   };
+  // A box inserted between two (App.interposing): set square over the lower, midway under the upper; where that hasn't the
+  // room for it and a lane either side, the lower and what it holds move down to make it, each from where it stands.
+  // → Map(record → place), the new box's under `id`. A redline is laid out with them held, as Enter will enter them.
+  function placesBetween(base, { up, low, under, id }) {
+    const a = base?.byId.get(up), b = base?.byId.get(low), out = new Map();
+    if (!a || !b || still() || base.view !== viewShown || active.peek() !== canvas) return out;
+    const N = App.notes.peek(), holds = holdsOf(base), LANE = 24, room = b.y - (a.y + a.h), dy = Math.max(0, b.h + 2 * LANE - room);
+    if (dy) for (const x of [low, ...under]) {
+      const t = treeOf(x), old = t && N.resolve('Position', t, base.view)?.value, p = old && Number.isFinite(old.x) && !old.loose ? old : holds.get(x);
+      if (base.byId.has(x) && p) out.set(x, { ...p, y: round(p.y + dy) });
+    }
+    const [x, y] = own(b.x, a.y + a.h + (room + dy - b.h) / 2, base.page);
+    out.set(id, { x, y, w: round(b.w), kept: true });
+    return out;
+  }
+  function between(tx, at, kind) { const base = App.scene.peek(); for (const [x, p] of placesBetween(base, at)) tx.note('Position', x === at.id ? { id: x, kind } : treeOf(x), p, { view: base.view }); }
+  // What a change pending keeps where it stands, and what it places itself, over any place entered.
+  function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom,
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.

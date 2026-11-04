@@ -274,7 +274,7 @@ const Time = (() => {
     // brought back, by its name.
     const whole = all.find(i => i.type === 'chart' && !(i.was.length && i.now.length));
     if (whole) return !whole.now.length ?`Deleted the chart ${whole.was[0].name}` : back ? `Restored the chart ${whole.now[0].name}` : `Began the chart ${whole.now[0].name}`;
-    const moved_ = !back && transferIn(all, rec, recs, N);
+    const moved_ = !back && (mergedIn(all, rec, recs, N) ?? interposedIn(all, rec, recs, N) ?? transferIn(all, rec, recs, N));
     if (moved_) return moved_;
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
@@ -331,6 +331,33 @@ const Time = (() => {
   // side, added from that day, or its amount raised from it. Said as "Transferred 82% of Halvard Logistics Holdings, Inc.
   // from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2026"; one without an amount, by its option or its name.
   const FIGURES = new Set(['number', 'percent', 'money']);
+  // A merger (dendra.md, Time), read back as a transfer is: an end entry at an object, and the relation it's named for, from
+  // that object, added with it. "Merged Northpine Software, LLC into Corvane on Feb 1, 2027".
+  function mergedIn(all, rec, recs, N) {
+    const end = all.find(i => { const r = rec(i); return i.type === 'record' && r.field === 'date' && i.now.length && !i.was.length && recs[r.at]?.kind !== undefined && (t => !!t && N.isEnd(t))(Tree.treeOf(recs, i.id)); });
+    if (!end) return null;
+    const r = rec(end), noun = r.edge.replace(/\s+(date|day)$/i, ''), rel = all.find(i => i.type === 'record' && rec(i).args?.length === 2 && rec(i).args.some(a => a.at === r.at) && !i.was.length && Tree.same(N.nameOf(recs, i.id), noun));
+    if (!rel) return null;
+    const other = rec(rel).args.find(a => a.at !== r.at)?.at, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
+    return `${App.actOf(r.edge)?.[1] ?? 'Ended'} ${name(r.at)} into ${name(other)} on ${short(r.value)}`;
+  }
+  // One inserted between (dendra.md, Time), read back as a transfer is: a relation of two sides ended on a day, and two of
+  // its name added from that day, its holder over another and that other over what it held. "Inserted Holdco between Fund
+  // III and Fund III Blocker on Jan 1, 2027".
+  function interposedIn(all, rec, recs, N) {
+    // (What evidences a stake ends with it, and isn't what's inserted between.)
+    const relation = i => i.type === 'record' && rec(i).args?.length === 2 && rec(i).args.every(a => recs[a.at] && !recs[a.at].args);
+    const gone = all.filter(i => relation(i) && i.was.length && i.now.length && i.now.every(x => x.before) && !Log.latest(i.was).before);
+    const fresh = all.filter(i => relation(i) && !i.was.length && i.now.length && Log.latest(i.now).since);
+    if (gone.length !== 1 || fresh.length !== 2) return null;
+    const F = rec(gone[0]), day = Log.latest(gone[0].now).before, T = Tree.treeOf(recs, gone[0].id), first = T && N.edges(T)[0];
+    if (!first || fresh.some(i => Log.latest(i.now).since !== day || !Tree.same(N.nameOf(recs, i.id), N.nameOf(recs, gone[0].id)))) return null;
+    const side = (r, own) => r.args.find(a => Tree.same(a.edge, first) === own)?.at, [a, b] = fresh.map(rec);
+    const up = side(a, true) === side(F, true) ? a : b, down = up === a ? b : a;
+    if (side(up, true) !== side(F, true) || side(down, false) !== side(F, false) || side(up, false) !== side(down, true)) return null;
+    const name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
+    return `Inserted ${name(side(down, true))} between ${name(side(F, true))} and ${name(side(F, false))} on ${short(day)}`;
+  }
   function transferIn(all, rec, recs, N) {
     // A relation of two sides, neither itself a relation: what evidences a stake ends with it, and isn't what's transferred.
     const pair = r => r?.args?.length === 2 && r.args.every(a => recs[a.at] && !recs[a.at].args);

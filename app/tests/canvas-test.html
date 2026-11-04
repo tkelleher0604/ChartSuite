@@ -1012,6 +1012,7 @@ async function run() {
       check('… drawing only what the view shows: no line it hides, the look-through it works out among them', !!typed && !typed.marks.some(m => m.revealed) && shownLines === linesBefore.split(',').sort().join()
         && typed.marks.filter(m => m.type === 'line').map(m => m.id).join() === linesBefore, `${shownLines.length} ${linesBefore.length}`);
       pct?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(160);
+      $('.pendbar .btn.primary')?.click(); await tick(160);   // (it asks from when: Enter on its day, or its verb, makes it)
       const typedBad = drawnAsScene();
       check('a value typed in the inspector is laid out while it’s redlined, as Enter will draw it, and Enter draws that scene, as it is', !!typed && sc() === typed && !typedBad.length,
         `${!!typed} ${sc() === typed} ${typedBad.slice(0, 3).join(', ')}`);
@@ -1060,10 +1061,12 @@ async function run() {
     await pending('a start typed past the day shown', async () => { Shell.select(['northpine']); await tick(120);
       field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Formation Date'); field.focus(); await tick(); field.value = 'March 2, 2027'; field.dispatchEvent(new Event('input', { bubbles: true })); },
       enterField, true);
+    // (A value typed, or a ruling, asks from when: Enter on its value begins it, and its verb makes it.)
+    const asked = async () => { await tick(120); $('.pendbar .btn.primary')?.click(); };
     await pending('a value typed', async () => { Shell.select(['own_us_fund']); await tick(120);
-      field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Percentage'); field.focus(); await tick(); field.value = '40%'; field.dispatchEvent(new Event('input', { bubbles: true })); }, enterField);
+      field = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Percentage'); field.focus(); await tick(); field.value = '40%'; field.dispatchEvent(new Event('input', { bubbles: true })); }, async () => { enterField(); await asked(); });
     await pending('a ruling pointed at and clicked', async () => { cv().root.focus(); Shell.select([]); await tick(60); Shell.select(['own_us_fund']); await tick(120); $('.fx-out button.tag')?.dispatchEvent(new PointerEvent('pointerenter')); },
-      () => $('.fx-out button.tag')?.click());
+      async () => { $('.fx-out button.tag')?.click(); await asked(); });
     check('every kind of pending change is drawn as the scene Enter makes, less its ink, no line through the Key, and Enter draws that scene', !off.length, off.join('; '));
     // A relation of a new name, named in the two-box panel, is pending till Enter as one ticked is; no style of the view
     // draws it, so its redline is the chart as it is, and Enter draws that

@@ -231,7 +231,7 @@ const Table = (() => {
         const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
         c.shown = !c.pattern || (said ?? (c.type !== 'list' && (!!c.param || c.path.length === 1)));
         c.said = said !== undefined;
-        c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
+        c.check = c.type === 'tag' && !!c.specs?.some(s => N.check(s));
       }
       cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
       // Beside a row's Name, its link says where the document is filed rather than its name again.
@@ -376,7 +376,7 @@ const Table = (() => {
 
   function formatter(c) {
     // A tag's box, blank, attested or ruled out.
-    const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
+    const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : `no ${m?.id ? App.noTone(m.id) : ''}`}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
     const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? box(v, m)
       : type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
       : esc(text(type, v));
