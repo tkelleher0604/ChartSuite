@@ -1305,6 +1305,13 @@ async function run() {
     check('A plan’s pages have one set of places', App.notes.peek().position(t, A.id)?.x === 40 && App.notes.peek().position(t, step.id)?.x === 40, JSON.stringify(App.notes.peek().position(t, A.id)));
     Shell.parts.value.undo.undo(); await tick(60);
     check('… and Undo takes it from them all', App.notes.peek().position(t, A.id)?.x !== 40 && App.notes.peek().position(t, step.id)?.x !== 40);
+    // One look too: a style put on one page is on them all; what it shows and a box's free text stay its own.
+    const noteOf = (label, view) => App.shown.peek().rows(App.chart.peek()).find(r => 'note' in r && r.label === label && r.view === view && Tree.key(r.pattern) === Tree.key(t))?.value;
+    App.change(tx => { tx.note('Fill', t, '#abcdef', { view: step.id }); tx.note('Shown', t, false, { view: step.id }); tx.note('Text', t, 'Only here', { view: step.id }); }, { dated: false });
+    await tick(60);
+    check('A plan’s pages have one look; what a page shows and its free text are its own', noteOf('Fill', A.id) === '#abcdef' && noteOf('Fill', step.id) === '#abcdef' && noteOf('Shown', A.id) === undefined && noteOf('Text', A.id) === undefined && noteOf('Shown', step.id) === false, `${noteOf('Fill', A.id)} ${noteOf('Shown', A.id)} ${noteOf('Text', A.id)}`);
+    Shell.parts.value.undo.undo(); await tick(60);
+    check('… and Undo takes the look from them all', noteOf('Fill', A.id) === undefined && noteOf('Fill', step.id) === undefined);
     Shell.parts.value.undo.undo(); await tick(120);
     Time.keep(A.id, null); await tick(60);
     Shell.show(was); Shell.at(null); await tick(120);
