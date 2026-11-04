@@ -127,12 +127,14 @@ async function run() {
     const lined = sp => tags(sp, 'a:p').flatMap(p => { const ls = [''];
       for (const el of p.children) if (el.localName === 'br') ls.push(''); else if (el.localName === 'r') ls[ls.length - 1] += tags(el, 'a:t')[0].textContent;
       return ls; }).filter((l, i, all) => l || all.length === 1);
-    const wrong = boxes(main).filter(b => { const sp = shapeOf(b); return tags(sp, 'a:bodyPr')[0].getAttribute('wrap') !== 'none' || j(lined(sp)) !== j(b.texts.flatMap(it => it.lines.map(l => plain(l.text)))); });
-    check('PowerPoint never wraps a box’s text again: it doesn’t wrap, and its lines are the scene’s, each ended by a line break', !wrong.length,
+    const wrapOf = sp => tags(sp, 'a:bodyPr')[0].getAttribute('wrap'), sceneLines = b => b.texts.flatMap(it => it.lines.map(l => plain(l.text)));
+    const wrong = boxes(main).filter(b => { const sp = shapeOf(b), wraps = wrapOf(sp) === 'square'; return !wraps && wrapOf(sp) !== 'none' || (wraps ? lined(sp).join(' ') !== sceneLines(b).join(' ') : j(lined(sp)) !== j(sceneLines(b))); });
+    check('a box’s text is the scene’s: that wraps, so a box widened in PowerPoint sets it again, with no break in it; or its lines the scene’s, each ended by a line break', !wrong.length && boxes(main).some(b => wrapOf(shapeOf(b)) === 'square'),
       wrong.map(b => `${b.id}: ${j(lined(shapeOf(b)))}`).join('; '));
+    check('… a triangle’s keeping its breaks, which its slopes set', boxes(main).filter(b => b.shape === 'triangle').every(b => wrapOf(shapeOf(b)) === 'none' && j(lined(shapeOf(b))) === j(sceneLines(b))));
     const all = await Promise.all(slides.map(f => zip.file(f).async('string').then(xml)));
-    const texted = all.flatMap(d => tags(d, 'p:txBody')).filter(b => tags(b, 'a:t').length);
-    check('… nor any other text, on any slide', texted.length > 100 && texted.every(b => tags(b, 'a:bodyPr')[0].getAttribute('wrap') === 'none'), `${texted.length} texts`);
+    const texted = all.flatMap(d => tags(d, 'p:txBody')).filter(b => tags(b, 'a:t').length), wrapping = texted.filter(b => tags(b, 'a:bodyPr')[0].getAttribute('wrap') !== 'none');
+    check('… and no other text wraps, on any slide', texted.length > 100 && wrapping.every(b => tags(b, 'a:bodyPr')[0].getAttribute('wrap') === 'square') && wrapping.length <= scenes.flatMap(boxes).length, `${wrapping.length} of ${texted.length} texts`);
     const nbsp = all.flatMap(d => tags(d, 'a:t')).filter(t => /\u00a0/.test(t.textContent));
     check('its spaces are plain, so PowerPoint’s Find finds a name as it’s typed', !nbsp.length && all.flatMap(d => tags(d, 'a:t')).some(t => t.textContent === 'GP III, LLC' || /GP III, LLC/.test(t.textContent)),
       nbsp.slice(0, 3).map(t => j(t.textContent)).join(' '));
@@ -140,8 +142,10 @@ async function run() {
     // box's; the page's own shapes PowerPoint's own, written as nothing.
     const insets = d => [...new Set(tags(d, 'a:bodyPr').map(b => ['lIns', 'tIns', 'rIns', 'bIns'].map(a => b.getAttribute(a) ?? '').join(' ')))];
     const marginOf = s => Array(4).fill(String(Math.round(0.1 * fitOf(s.page) * 914400))).join(' '), chart = marginOf(main);
-    check('every shape has one margin: the chart’s 0.1 in at its scale, all round, or PowerPoint’s own', all.every((d, i) => insets(d).every(s => s === '   ' || s === marginOf(scenes[i])))
-      && boxes(main).every(b => insets(shapeOf(b))[0] === chart), all.map(insets).map(s => s.join(' / ')).join(' | '));
+    // (Across, a text that wraps has what sets its lines where the scene's are, the same each side.)
+    const oneMargin = (s, m) => { const [l, t, r, b] = s.split(' '), [, mt, , mb] = m.split(' '); return s === m || (t === mt && b === mb && l === r); };
+    check('every shape has one margin: the chart’s 0.1 in at its scale, top and bottom, and across the same each side, or PowerPoint’s own', all.every((d, i) => insets(d).every(s => s === '   ' || oneMargin(s, marginOf(scenes[i]))))
+      && boxes(main).every(b => oneMargin(insets(shapeOf(b))[0], chart)) && boxes(main).filter(b => b.shape === 'triangle').every(b => insets(shapeOf(b))[0] === chart), all.map(insets).map(s => s.join(' / ')).join(' | '));
     // Paragraphs as the schema orders them: a paragraph's properties once, first; then its runs and breaks.
     const unordered = all.flatMap(d => tags(d, 'a:p')).filter(p => !/^(pPr,)?((r|br|fld),)*(endParaRPr,)?$/.test([...p.children].map(el => el.localName + ',').join('')));
     check('every paragraph is in the schema’s order: its properties once and first, then its runs and line breaks, its end last', !unordered.length,
@@ -405,7 +409,8 @@ async function run() {
     const all = [...d.getElementsByTagName('*')].filter(e => e.nodeName === 'p:cxnSp'), casing = all.filter(e => nameOf(e).startsWith('Gap: ')), glued = c => [tags(c, 'a:stCxn')[0]?.getAttribute('id'), tags(c, 'a:endCxn')[0]?.getAttribute('id')];
     const gaps = s.marks.filter(m => m.type === 'line' && m.runs).reduce((n, l) => n + l.runs.length - 1, 0);
     check('a line that breaks another has a casing in the deck: a white connector, wider, glued to the same two boxes, and there’s no loose patch', gaps > 0 && casing.length > 0 && casing.every(c => tags(c, 'a:srgbClr')[0]?.getAttribute('val')?.toUpperCase() === 'FFFFFF' && glued(c).every(Boolean)) && !tags(d, 'p:sp').some(p => nameOf(p) === 'Crossing'), `${casing.length} for ${gaps} breaks`);
-    check('… written under its line and over what it breaks', casing.every(c => { const i = all.indexOf(c), line = all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c))); return line > i && i > 0; }));
+    // (Over what it breaks where that order allows: lines that cross each other both ways round can't all be.)
+    check('… written under its line and over what it breaks', casing.every(c => { const i = all.indexOf(c), line = all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c))); return line > i; }) && casing.some(c => all.indexOf(c) > all.findIndex(o => !nameOf(o).startsWith('Gap: '))), casing.map(c => { const i = all.indexOf(c); return `${i}/${all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c)))} ${nameOf(c)}`; }).join('; '));
     // Over a shape filled behind the lines, where white would show, a line crosses plainly.
     const w = Log.open(SAMPLE), tx = w.edit({ chart: C, who: WHO }); tx.add('shape', { view: views[0], geometry: 'rect', x: 0, y: 0, w: 2000, h: 1200, format: { Fill: '#ffeecc', Layer: -1 } });
     if (typeof tx.commit() === 'string') throw new Error('no shape');
@@ -565,7 +570,7 @@ async function run() {
     const s = Scene.of(w, C, main, DAY, { state: Rw.records, computed: Rw }), texts = s.marks.flatMap(m => [...m.texts ?? [], ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]);
     const bad = texts.filter(it => it.look.Font !== 'Georgia' && !(it.look.Font === 'Courier New' && w.notes(C).nameOf(Rw.records, it.id) !== null));
     check('All text: every text on the page in that font, the title, date, Key, footer, number, a text box and what’s on a line, but what a narrower note gives', !bad.length && texts.some(it => it.look.Font === 'Courier New') && ['title', 'date', 'footer', 'number'].every(r => s.marks.find(m => m.role === r)?.texts[0].look.Font === 'Georgia') && s.byId.get(note).look.Font === 'Georgia', bad.slice(0, 3).map(it => `${it.text} ${it.look.Font}`).join());
-    check('… only on that page', Scene.of(w, C, views[2], DAY, { state: Rw.records, computed: Rw }).marks.find(m => m.role === 'title').texts[0].look.Font !== 'Georgia');
+    check('… only on that page', Scene.of(w, C, views[2], DAY, { state: Rw.records, computed: Rw }).marks.find(m => m.type === 'box').texts[0].look.Font !== 'Georgia');
     const zip = await JSZip.loadAsync(await Export.write('pptx', [{ ...s, name: 'Structure' }], 'Rooted', { author: WHO })), theme = await zip.file('ppt/theme/theme1.xml').async('string');
     check('… in the deck it’s the theme’s font, major and minor', /<a:majorFont><a:latin typeface="Georgia"/.test(theme) && /<a:minorFont><a:latin typeface="Georgia"/.test(theme), theme.match(/<a:m\w+Font><a:latin[^>]*>/g)?.join());
     // A look carries it, and a file does too.
@@ -579,13 +584,13 @@ async function run() {
     // A PDF that couldn't use the font says so, by name, with what to do, never silently Times.
     window.queryLocalFonts = async () => { throw new DOMException('no', 'NotAllowedError'); };
     await Export.write('pdf', [sg], 'NoRead', { author: WHO });
-    check('a PDF the browser wouldn’t let read its fonts says which printed as what, and what to do', /Garamond printed as Times: this browser hasn’t let it read your fonts/.test(files.at(-1).also), `“${files.at(-1).also}”`);
+    check('a PDF the browser wouldn’t let read its fonts says which printed as what, and what to do', /Garamond printed as Times( and Georgia printed as Times)?: this browser hasn’t let it read your fonts/.test(files.at(-1).also), `“${files.at(-1).also}”`);
     window.queryLocalFonts = async () => [];
     await Export.write('pdf', [sg], 'NoRead', { author: WHO });
-    check('… as where it’s told nothing', /Garamond printed as Times: this browser/.test(files.at(-1).also), `“${files.at(-1).also}”`);
+    check('… as where it’s told nothing', /Garamond printed as Times( and Georgia printed as Times)?: this browser/.test(files.at(-1).also), `“${files.at(-1).also}”`);
     window.queryLocalFonts = async () => [{ family: 'Arial', fullName: 'Arial', postscriptName: 'ArialMT', style: 'Regular', blob: async () => new Blob([]) }];
     await Export.write('pdf', [sg], 'NoRead', { author: WHO });
-    check('… and one this computer hasn’t got', /Garamond printed as Times: it isn’t on this computer/.test(files.at(-1).also), `“${files.at(-1).also}”`);
+    check('… and one this computer hasn’t got', /Garamond printed as Times( and Georgia printed as Times)?: it isn’t on this computer/.test(files.at(-1).also), `“${files.at(-1).also}”`);
     window.queryLocalFonts = undefined;
     await Export.write('pdf', [sg], 'NoRead', { author: WHO });
     check('… and a browser that can’t be asked', /Garamond printed as Times/.test(files.at(-1).also), `“${files.at(-1).also}”`);
@@ -802,7 +807,8 @@ async function run() {
     const glue = [];
     for (const [i, v] of charts.entries()) {
       const x = await wz.file(`ppt/slides/slide${i + 1}.xml`).async('string'), drawn = sceneOf(v).marks.filter(m => m.type === 'line' && !m.merged).length;
-      glue.push([drawn, (x.match(/<a:stCxn id="\d+" idx="\d+"\/><a:endCxn id="\d+" idx="\d+"\/>/g) ?? []).length]);
+      // (Less the casings of lines that break others, glued as their lines are.)
+      glue.push([drawn, (x.match(/<a:stCxn id="\d+" idx="\d+"\/><a:endCxn id="\d+" idx="\d+"\/>/g) ?? []).length - (x.match(/name="Gap: /g) ?? []).length]);
     }
     check('in the deck every line between two boxes is a connector glued to both, so it follows a box moved in PowerPoint', glue.every(([d, g]) => d > 0 && d === g), JSON.stringify(glue));
     const act = charts.findIndex(v => sceneOf(v).marks.some(m => m.type === 'line' && m.landed)), s2 = act >= 0 && sceneOf(charts[act]), on = act >= 0 ? await described(act) : [];

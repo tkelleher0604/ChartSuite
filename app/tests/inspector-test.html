@@ -926,15 +926,15 @@ async function run() {
   // A row's outputs are in its option list's order: the entry's Options, dragged, order its Styles row too.
   Shell.select([Shell.general({ args: [{ edge: 'Vehicle Type', loc: {} }] })]); await tick(80);
   const optionList = () => $$('[data-drag="opt"] .cell').map(c => c.value), fundsRow = () => $$('.row.out').find(r => capOf(r) === 'Funds')?.querySelector('.oname')?.textContent.split(', ') ?? [];
-  const inOpts = () => fundsRow().length === 6 && JSON.stringify(fundsRow()) === JSON.stringify(optionList().filter(o => fundsRow().includes(o)));
+  const inOpts = () => fundsRow().length === 5 && JSON.stringify(fundsRow()) === JSON.stringify(optionList().filter(o => fundsRow().includes(o)));
   check('an entry in general lists its Styles rows’ outputs in its Options’ order', inOpts(), `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
-  const mf = $$('[data-drag="opt"]').find(e => e.querySelector('.cell').value === 'Main Fund'), og = mf.querySelector('.grip'), top = $$('[data-drag="opt"]')[0];
+  const mf = $$('[data-drag="opt"]').find(e => e.querySelector('.cell').value === 'AIV'), og = mf.querySelector('.grip'), top = $$('[data-drag="opt"]')[0];
   og.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(og) }));
   dispatchEvent(new PointerEvent('pointermove', { clientY: y(mf) - 40 }));
   dispatchEvent(new PointerEvent('pointermove', { clientY: top.getBoundingClientRect().top + 2 }));
   dispatchEvent(new PointerEvent('pointerup', {})); await tick();
-  check('… and Main Fund dragged to the head of its Options heads its Styles row, here and in the view’s Key', optionList()[0] === 'Main Fund' && fundsRow()[0] === 'Main Fund' && inOpts()
-    && Scene.outputName(N(), App.scene.peek().legend.find(r => r.caption === 'Funds').outputs[0]) === 'Main Fund', `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
+  check('… and AIV dragged to the head of its Options heads its Styles row, here and in the view’s Key', optionList()[0] === 'AIV' && fundsRow()[0] === 'AIV' && inOpts()
+    && Scene.outputName(N(), App.scene.peek().legend.find(r => r.caption === 'Funds').outputs[0]) === 'AIV', `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
   Shell.parts.value.undo.undo(); await tick();
   Shell.select([]); await tick();
 

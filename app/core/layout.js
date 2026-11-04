@@ -282,7 +282,7 @@ function elkPlace(boxes, links, clusters, options, room) {
   // A tier's boxes top-aligned, as ELK sets them on their middles.
   for (const bs of groupBy(boxes, b => tier.get(b.id)).values()) { const y = Math.min(...bs.map(b => out.get(b.id).y)); for (const b of bs) out.get(b.id).y = y; }
   // With no frames, what ELK gave is the order of each tier, and the columns are the layout's own (see columns).
-  if (!clusters.length && boxes.length + links.length <= BIG) columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, standing, fill: room.fill });
+  if (!clusters.length && boxes.length + links.length <= BIG) columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, standing, fill: room.fill, spread: room.spread ?? 0 });
   // A column of frames has them under one another from one left, 12 pt apart, as panels; the first stays where
   // ELK put it unless it's alone in its tier, and what's under the column comes up with it. What reaches into
   // them from above stands over their left, its middle 12 pt short of it, so its lines run down its side and
@@ -323,9 +323,9 @@ function elkPlace(boxes, links, clusters, options, room) {
 // own lines cross fewest of them, a trunk counted once, keeping the tier's order. Boxes of one tier owned by the same two or
 // more stand together, a gap apart (`together`), in the order they had. What's left is set as near its relatives as the rest
 // leave it, the chart no wider than it must be, or as wide as `fill`, every gap in it alike, up to WIDEST.
-// `out` gives the order and takes the places: rows top-aligned, each TIERS under the one over it, which their lanes deepen as they need.
+// `out` gives the order and takes the places: rows top-aligned, each TIERS and `spread` under the one over it, which their lanes deepen as they need.
 const WIDEST = 72, TIERS = 44;
-function columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, standing, fill }) {
+function columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, standing, fill, spread }) {
   const size = new Map(boxes.map(b => [b.id, b]));
   // Each tier's units: its blocks in the order ELK stood them, those of boxes owned by the same two or more drawn together.
   const downs = ranked.filter(l => tier.get(l.from) < tier.get(l.to)), mains = downs.filter(l => l.trunk === main);
@@ -458,7 +458,7 @@ function columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, sta
   let y = 0;
   for (const t of [...rows.keys()].sort((a, b) => a - b)) {
     for (const u of rows.get(t)) { const [r, d] = find(u); for (const b of u.bs) { const p = out.get(b.id); p.x = q(place.get(r) + d + u.at.get(b.id) - b.w / 2); p.y = y; } }
-    y += Math.max(...rows.get(t).flatMap(u => u.bs.map(b => b.h))) + TIERS;
+    y += Math.max(...rows.get(t).flatMap(u => u.bs.map(b => b.h))) + TIERS + spread;
   }
 }
 // A block's boxes side by side, in the order of the level lines that join them: along them where they make a
@@ -594,7 +594,7 @@ function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y, !!p.hand]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null, b.order ?? null, !!b.around]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.names]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under, page.room.fill], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h],
+    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under, page.room.fill, page.room.spread], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h],
     at(hints)]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null }) {

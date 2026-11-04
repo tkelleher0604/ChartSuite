@@ -225,7 +225,7 @@ const textRect = (shape, w, h, corner) => TEXT_RECT[shape]?.(w, h, corner) ?? { 
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
 // A box's width where none is entered: about 100 pt, so that a chart's names wrap rather than its page
 // widens; a triangle's a little more, its text sitting in its lower half.
-const WIDTH = { box: 132, triangle: 176 };
+const WIDTH = { box: 132, triangle: 176 }, SPREAD = 20;
 
 // ---- Text ----
 
@@ -1399,16 +1399,23 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (tried !== best || unsettled(at)) at = again(yield* settled(best, grow, unsettled(at) ? at.s : at.ceil), at);
     fit = best;
   }
-  // A chart the layout alone places uses the width its scale leaves it, every gap in it alike (see Layout's columns), where that
-  // draws it no smaller and with no more faults.
+  // A chart the layout alone places uses the width its scale leaves it, every gap in it alike (see Layout's columns), and a
+  // little of the height, where that draws it no smaller and with no more faults, the height first to go.
   if (!last && !positions.size && boxes.length > 1 && !frames.size) {
-    const wide = () => Math.max(...boxes.map(b => b.x + b.w)) - Math.min(...boxes.map(b => b.x)), want = (room.w - 2) / at.s;
-    if (wide() < want - 8) {
+    const wide = Math.max(...boxes.map(b => b.x + b.w)) - Math.min(...boxes.map(b => b.x)), want = (room.w - 2) / at.s;
+    const tall = Math.max(...boxes.map(b => b.y + b.h)) - Math.min(...boxes.map(b => b.y)), rows = new Set(boxes.map(b => Math.round(b.y))).size;
+    const spread = rows < 2 ? 0 : Math.min(SPREAD, Math.max(0, ((room.h - (room.key?.under ? room.key.h + 32 : 0) - 2) / at.s - tall) / (rows - 1)));
+    const tried = [...spread > 2 ? [{ fill: want, spread }] : [], ...wide < want - 8 ? [{ fill: want, spread: 0 }] : []];
+    if (tried.length) {
       at = judged(at);
-      room.fill = want;
-      const next = judged(yield* settled(fit, grow, at.ceil));
-      if (next.s >= at.s - 1e-9 && next.faults <= at.faults) at = next;
-      else { delete room.fill; at = again(yield* settled(fit, grow, at.ceil), at); }
+      let taken = null;
+      for (const t of tried) {
+        Object.assign(room, t);
+        const next = judged(yield* settled(fit, grow, at.ceil));
+        if (next.s >= at.s - 1e-9 && next.faults <= at.faults) { taken = next; break; }
+      }
+      if (taken) at = taken;
+      else { delete room.fill; delete room.spread; at = again(yield* settled(fit, grow, at.ceil), at); }
     }
   }
   const s = at.s;
