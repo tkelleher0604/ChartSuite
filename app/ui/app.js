@@ -987,7 +987,7 @@ const App = (() => {
       const looks = r => !given(r.pattern)
         && (r.label === 'Shown' ? field(r) || offPage(r) : ['Text', 'Order'].includes(r.label) || (Notes.FORMATS.has(r.label) && r.label !== 'Position'));
       const house = new Set(src.rows(from).filter(r => 'note' in r && r.view === like && looks(r))), styled = new Set([...house].map(r => Tree.key(r.pattern)));
-      const keeps = r => r.view !== like ? !(r.label === 'As Of' && r.pattern.id === like) : house.has(r) || (r.label === 'Caption' && styled.has(Tree.key(r.pattern)));
+      const keeps = r => r.view !== like ? !(['As Of', 'Scale'].includes(r.label) && r.pattern.id === like) : house.has(r) || (r.label === 'Caption' && styled.has(Tree.key(r.pattern)));
       for (const r of src.rows(from)) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && keeps(r))
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
     }
@@ -1132,6 +1132,13 @@ const App = (() => {
     const v = views.value.find(x => x.id === Shell.view.value);
     return v?.layout !== 'chart' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
   });
+  // The words an exported file says what it shows in, the one place they're made: the day, or while the past is shown the
+  // moment. Its name's, where that isn't today ("as of Dec 31, 2026"; "as it stood on Dec 31, 2026, 3.15 PM", a file's name
+  // holding no colon), and an Excel sheet's first line.
+  const asOfWords = (d = day.peek()) => {
+    const m = shown.peek().moment, line = m ? Log.stoodText(m, 'short') : `As of ${Tree.formatDate(d, 'short')}`;
+    return { name: !m && d === Log.today() ? '' : (line[0].toLowerCase() + line.slice(1)).replace(':', '.'), line };
+  };
   // What a table's rows can be: each kind, each relation (its edges, every other label removed), and dates
   // and documents.
   const strip = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: strip(a.loc) })) } : {};
@@ -1265,7 +1272,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, viewing, setViewing, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, viewing, setViewing, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
     enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
   };
 })();

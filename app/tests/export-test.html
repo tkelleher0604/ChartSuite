@@ -178,13 +178,17 @@ async function run() {
     const labels = lines(main).filter(l => l.labelAt && l.texts.length).flatMap(l => l.texts.map(it => it.text));
     const textBox = sp => tags(sp, 'p:cNvSpPr')[0].getAttribute('txBox') === '1';
     check('each line’s label is a text box beside it', labels.every(t => sps.some(sp => textOf(sp).includes(t) && textBox(sp))), labels.length);
-    // Lines said as one are one group of their lines, each named as it is (see below); any other group of a
-    // line's is the line, its pieces and its label named as it.
+    // Lines said as one are one group of their lines, each named as it is (see below). A line's own label is grouped with
+    // the box at its owned end, so moving that box takes the label with it and the connector, glued, follows.
     const groups = tags(doc, 'p:grpSp').filter(g => tags(g, 'p:cxnSp').length && name(g) !== 'Key');
     const inner = g => [...g.children].filter(el => /^(sp|grpSp|cxnSp)$/.test(el.localName)), ofLines = g => inner(g).filter(el => el.localName !== 'sp');
     const several = g => ofLines(g).length > 1 && new Set(ofLines(g).map(name)).size === ofLines(g).length;
-    check('a line and its label are one group, so they move together', groups.length >= lines(main).filter(l => l.labelAt && l.texts.length).length
-      && groups.every(g => tags(g, 'p:sp').length <= 1 && (several(g) || tags(g, 'p:cxnSp').every(c => name(c) === name(g)))), `${groups.length} groups`);
+    const fellowsOf = id => groups.some(g => ofLines(g).some(c => c.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === id));
+    const carriedBy = g => inner(g).slice(1).map(sp => textOf(sp)[0]), boxGroups = tags(doc, 'p:grpSp').filter(g => !tags(g, 'p:cxnSp').length && inner(g).length > 1 && main.marks.some(m => m.type === 'box' && m.texts[0]?.text === name(g)));
+    const owned = lines(main).filter(l => l.labelAt && l.texts.length && l.points.length && !l.kin);
+    const carried = owned.filter(l => boxGroups.some(g => name(g) === main.byId.get(l.to).texts[0].text && carriedBy(g).includes(l.texts[0].text)));
+    check('a line’s own label is grouped with the box at its owned end, the box first, so it moves with that box', carried.length > 5 && boxGroups.every(g => name(inner(g)[0]) === name(g) && textOf(inner(g)[0]).length > 0), `${carried.length} of ${owned.length} in ${boxGroups.length} groups`);
+    check('… any group of lines is lines said as one', groups.every(g => tags(g, 'p:sp').length <= 1 && several(g)), `${groups.length} groups`);
     // A trunk's label said once, on its lane, is grouped with the trunk's lines, not with one of them: the group
     // named for them all, the side they share once, the others in the order they're reached across the page.
     const quiet = lines(main).filter(l => l.label?.shared && !l.labelAt), sayer = quiet.length && lines(main).find(l => l.labelAt && l.from === quiet[0].from && l.label.text === quiet[0].label.text);
@@ -197,9 +201,10 @@ async function run() {
     // Named as the two-box panel says its relation, both its sides by their short names; its label keeps its text.
     const st0 = R.records, short = id => wb.notes(C).shortOf(st0, main.byId.get(id).record).toLowerCase();
     const unsaid = lines(main).filter(l => !cxns.some(c => name(c).toLowerCase().includes(short(l.from)) && name(c).toLowerCase().includes(short(l.to)) && / is (an? |not )/.test(name(c))));
-    const owner = groups.find(g => name(g) === 'U.S. Investors is an owner of Fund III'), its = owner && tags(owner, 'p:sp')[0];
-    check('… named as the two-box panel says its relation, not by its label, which keeps its own text', !unsaid.length && !groups.some(g => /^[\d.]+%$/.test(name(g)))
-      && its && name(its) === textOf(its)[0] && /^[\d.]+%$/.test(textOf(its)[0]), unsaid.map(l => l.id).join(', ') || groups.slice(0, 4).map(name).join(' | '));
+    const owner = cxns.find(c => name(c) === 'U.S. Investors is an owner of Fund III'), usLabel = main.byId.get('own_us_fund').texts[0].text;
+    const its = boxGroups.flatMap(inner).find(sp => textOf(sp)[0] === usLabel);
+    check('… named as the two-box panel says its relation, not by its label, which keeps its own text', !unsaid.length && !cxns.some(c => /^[\d.]+%$/.test(name(c)))
+      && owner && its && name(its) === textOf(its)[0] && /^[\d.]+%$/.test(textOf(its)[0]), unsaid.map(l => l.id).join(', ') || groups.slice(0, 4).map(name).join(' | '));
     // A frame: its outline and its caption, one group behind its members; a bracket's outline its path.
     const top = [...tags(doc, 'p:spTree')[0].children].filter(el => /^(sp|grpSp|cxnSp|pic)$/.test(el.localName)).map(name);
     const frame = n => tags(doc, 'p:grpSp').find(g => name(g) === n);
@@ -252,8 +257,8 @@ async function run() {
     // the date, then the chart.
     const firsts = docs.map(d => [...tags(d, 'p:spTree')[0].children].filter(el => /^(sp|grpSp|cxnSp|pic)$/.test(el.localName)).slice(0, 2).map(name));
     check('each slide reads its title first, then its date: the first two shapes in its tree', firsts.every(f => j(f) === j(['Title', 'Date'])), firsts.map(f => f.join(', ')).join(' | '));
-    // A line's sentence is its alt text: its group's, where it's grouped with its label, or with the lines said as
-    // one with it; else its connector's. Each line has one, and nothing else says one. It's the line's name, with
+    // A line's sentence is its alt text: its group's, where it's grouped with the lines said as one with it; else its
+    // connector's. Each line has one, and nothing else says one. It's the line's name, with
     // what its label says, as the formula bar says a fact: with a percentage of 71.6%.
     const alt = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('descr'), atTop = el => el.parentNode.localName === 'spTree';
     const described = [...tags(doc, 'p:grpSp'), ...cxns, ...sps].filter(alt), relational = cxns.filter(c => / is (an? |not )/.test(name(c)));
@@ -262,10 +267,9 @@ async function run() {
       && relational.every(c => holders(c).length === 1 && atTop(holders(c)[0])) && described.every(el => / is (an? |not )/.test(alt(el)) && atTop(el)
         && (el.localName === 'cxnSp' || tags(el, 'p:cxnSp').length)) && described.some(el => el.localName === 'grpSp') && docs.some(d => tags(d, 'p:cxnSp').some(c => alt(c) && atTop(c))),
       `${described.length} described for ${lines(main).length} lines: ${described.slice(0, 2).map(alt).join(' | ')}`);
-    const valued = groups.filter(g => tags(g, 'p:sp').some(sp => /^[\d.]+%$/.test(textOf(sp)[0] ?? ''))), pct = g => textOf(tags(g, 'p:sp').find(sp => /^[\d.]+%$/.test(textOf(sp)[0] ?? '')))[0];
+    const valued = cxns.filter(c => atTop(c) && / with a percentage of [\d.]+%$/.test(alt(c) ?? ''));
     check('… with the value its label says: “U.S. Investors is an owner of Fund III with a percentage of 71.6%”', valued.length > 5
-      && alt(owner) === `U.S. Investors is an owner of Fund III with a percentage of ${pct(owner)}` && valued.every(g => alt(g).includes(` of ${pct(g)}`))
-      && described.every(el => alt(el) === name(el) || / with /.test(alt(el))), valued.filter(g => !alt(g).includes(` of ${pct(g)}`)).slice(0, 2).map(alt).join(' | ') || alt(owner));
+      && alt(owner) === `U.S. Investors is an owner of Fund III with a percentage of ${usLabel}` && described.every(el => alt(el) === name(el) || / with /.test(alt(el))), `${valued.length}: ${alt(owner)}`);
   }
 
   // ---- PDF ----
@@ -450,6 +454,49 @@ async function run() {
       && Math.abs(main.page.w * k - 1056) < 0.01 && off && Math.abs(+off.getAttribute('x') / EMU + 9.6 - 48) < 0.5 && Math.abs(+off.getAttribute('y') / EMU + 9.6 - 48) < 0.5,
       `${sz.getAttribute('cx')} × ${sz.getAttribute('cy')}, title at ${off && [+off.getAttribute('x') / EMU, +off.getAttribute('y') / EMU]}`);
     check('… and a PDF of every view on Letter has a page for each', (new TextDecoder('latin1').decode(await (await Export.write('pdf', letter, 'Letter', WHO)).arrayBuffer()).match(/\/Type \/Page\b(?!s)/g) ?? []).length === letter.length);
+  }
+
+  // ---- The deck holds what's typed, the page holds what's put: sizes exact, a paragraph's mark in its text's look, a group a
+  // group; a free shape on another paper as far from the nearest corner; a footer in the sheet's furniture ----
+  {
+    const w = Log.open(SAMPLE), main = views[0], N0 = w.notes(C), textOf = el => tags(el, 'a:t').map(t => t.textContent);
+    let logo, group;
+    const tx = w.edit({ chart: C, who: WHO });
+    writeNote(tx, N0, 'Size', { args: [{ edge: 'Name', loc: {} }] }, main, 9);
+    writeNote(tx, N0, 'Size', { args: [{ edge: 'Jurisdiction', loc: {} }] }, main, 7.3);
+    writeNote(tx, N0, 'Font', { args: [{ edge: 'Name', loc: {} }] }, main, 'Garamond');
+    group = tx.add('shape', { view: main, geometry: 'group', members: ['blocker', 'halvard'] });
+    const page0 = Scene.of(w, C, main, DAY, { state: R2.records, computed: R2 }).page;
+    logo = tx.add('shape', { view: main, geometry: 'rect', x: page0.w - 140, y: 40, w: 100, h: 50, format: { Size: 11 } });
+    tx.note('Footer', { kind: 'View' }, { text: 'Privileged and confidential', number: true });
+    if (typeof tx.commit() === 'string') throw new Error('no look');
+    const Rw = (() => { const N = w.notes(C), S = w.schema(C); return Formulas.computeState(w.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); })();
+    const on = paper => Scene.of(w, C, main, DAY, { state: Rw.records, computed: Rw, ...(paper && { paper }) }), slide = on(), legal = on('legal'), letter = on('letter');
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [{ ...slide, name: 'Structure' }], 'Typed', { author: WHO })), doc = xml(await zip.file('ppt/slides/slide1.xml').async('string'));
+    const shapeNamed = n => tags(doc, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === n);
+    const box = shapeNamed(slide.byId.get('fund').texts[0].text), sizes = tags(box, 'a:rPr').map(r => +r.getAttribute('sz')), marks = tags(box, 'a:endParaRPr');
+    check('the deck holds a size as typed, to the hundredth: names 9, jurisdictions 7.3', sizes[0] === 900 && sizes.at(-1) === 730, j(sizes));
+    check('… and a paragraph’s mark is in its text’s font and size, none left in the theme’s', marks.length >= 2 && marks[0].getAttribute('sz') === '900' && tags(marks[0], 'a:latin')[0]?.getAttribute('typeface') === 'Garamond' && marks[0].getAttribute('b') === tags(box, 'a:rPr')[0].getAttribute('b'), new XMLSerializer().serializeToString(marks[0]));
+    const blockerName = slide.byId.get('blocker').texts[0].text, halvardName = slide.byId.get('halvard').texts[0].text, joined = tags(doc, 'p:grpSp').find(g => g.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === `${blockerName} and ${halvardName}`);
+    check('a group in the chart is a group in the deck, its boxes in it and glued as ever', !!joined && [blockerName, halvardName].every(n => [...joined.getElementsByTagName('p:sp')].some(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === n)),
+      tags(doc, 'p:grpSp').slice(0, 3).map(g => g.getElementsByTagName('p:cNvPr')[0].getAttribute('name')).join(' | '));
+    // A free shape: as large as it printed on its own page, and as far from the nearest corner of the sheet, on any paper.
+    const sheetRect = s => { const m = s.byId.get(logo), k = s.page.scale; return { right: s.page.sheet.w - (m.x + m.w) * k, top: m.y * k, w: m.w * k, h: m.h * k }; };
+    const [r0, r1, r2] = [slide, legal, letter].map(sheetRect), near = (a, b) => Math.abs(a - b) < 0.6;
+    check('a free shape on another paper keeps its distance from the nearest corner, as large as it printed', [r1, r2].every(r => near(r.right, r0.right) && near(r.top, r0.top) && near(r.w, r0.w) && near(r.h, r0.h)), j([r0, r1, r2]));
+    // A footer: the sheet's, at the sheet's foot, the same size on every view and paper; the number its place in the file.
+    const footOf = s => s.marks.find(m => m.role === 'footer'), numOf = s => s.marks.find(m => m.role === 'number');
+    const on2 = Scene.of(w, C, views[2], DAY, { state: Rw.records, computed: Rw });
+    check('a footer is on every chart view, at 9 pt in the margin at the sheet’s foot, its number beside it', [slide, legal, letter, on2].every(s => { const f = footOf(s), n = numOf(s), k = s.page.scale;
+      return f?.texts[0].text === 'Privileged and confidential' && Math.abs(f.look.Size * k - 9) < 1e-6 && f.y * k >= s.page.sheet.h - 48 && (f.y + f.h) * k <= s.page.sheet.h && Math.abs(f.x * k - 38.4) < 0.5 && n && (n.x + n.w) * k <= s.page.sheet.w - 38 && n.y * k >= s.page.sheet.h - 48; }),
+      j([slide, legal, letter, on2].map(s => [footOf(s)?.x, footOf(s)?.y, s.page.sheet])));
+    check('… and the chart’s boxes stand as they do without it', j(slide.marks.filter(m => m.type === 'box').map(b => [b.id, b.x, b.y])) === j(Scene.of((() => { const o = Log.open(SAMPLE), t2 = o.edit({ chart: C, who: WHO }), N2 = o.notes(C); writeNote(t2, N2, 'Size', { args: [{ edge: 'Name', loc: {} }] }, main, 9); writeNote(t2, N2, 'Size', { args: [{ edge: 'Jurisdiction', loc: {} }] }, main, 7.3); writeNote(t2, N2, 'Font', { args: [{ edge: 'Name', loc: {} }] }, main, 'Garamond'); t2.commit(); return o; })(), C, main, DAY, { state: Rw.records, computed: Rw }).marks.filter(m => m.type === 'box').map(b => [b.id, b.x, b.y])));
+    check('… in the PDF too, the scene’s SVG being what it draws', Export.svg(slide, { pdf: true }).includes('Privileged and confidential'));
+    const two = await JSZip.loadAsync(await Export.write('pptx', [{ ...on2, name: 'b' }, { ...slide, name: 'a' }], 'Footed', { author: WHO })), numbers = await Promise.all([1, 2].map(async i => { const d = xml(await two.file(`ppt/slides/slide${i}.xml`).async('string')); return textOf(tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === 'Page number'))[0]; }));
+    check('… a page’s number its place in the file', j(numbers) === j(['1', '2']), j(numbers));
+    // What's amiss with a page is said: a free shape over a box on a paper where it now stands on one.
+    const says = Scene.says({ ...slide, marks: slide.marks.map(m => m.id === logo ? { ...m, x: slide.byId.get('fund').x, y: slide.byId.get('fund').y } : m) }, null, null);
+    check('a shape over a box is said', says.some(t => t.endsWith(`overlaps ${slide.byId.get('fund').texts[0].text}`)), j(says));
   }
 
   // ---- The looks: Strike, Spacing, Valign, Transparency, Shadow and Corner, and the fonts, each a word in the
@@ -685,16 +732,22 @@ async function run() {
     const raw = new TextDecoder('latin1').decode(await doc.blob.arrayBuffer());
     check('a PDF of every view the dialog writes is titled for the chart, by whoever exported it', doc.name === `${chart}.pdf` && raw.includes(`/Title (${chart})`) && raw.includes(`/Author (${WHO})`)
       && (raw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === A.views.peek().filter(v => v.layout === 'chart').length, `${doc.name}: ${/\/Author \([^)]*\)/.exec(raw)?.[0]}`);
-    // The dialog remembers, for the chart, what it last exported: opened again, it's on that format, those views and
-    // that paper; and it offers every paper there is.
+    // The dialog remembers, for the chart, what it last exported: opened again, it's on that format and those views, on
+    // the page's paper; and it offers every paper there is.
     const dlg = () => W.document.querySelector('dialog.dlg'), cancel = async done => { dlg().querySelector('.dlg-foot .btn:not(.primary)').click(); await done; };
     let opening = X.open();
     await until(() => dlg()?.querySelector('.btn.primary'));
     const sel = l => dlg().querySelector(`select[aria-label="${l}"]`), ticked = () => [...dlg().querySelectorAll('.ex-views input')].map(b => b.checked);
-    check('Export opened again is on what it last exported: PDF, every view, Letter', sel('Format').value === 'pdf' && ticked().length === charts.length && ticked().every(Boolean) && sel('Page size').value === 'letter',
+    const pickIn = async (s, v) => { s.value = v; s.dispatchEvent(new W.Event('change', { bubbles: true })); await tick(60); }, saying = () => [...dlg().querySelectorAll('.ex-says')].map(p => p.textContent).join(' | ');
+    check('Export opened again is on what it last exported, PDF and every view, on the page’s paper', sel('Format').value === 'pdf' && ticked().length === charts.length && ticked().every(Boolean) && sel('Page size').value === 'slide',
       `${sel('Format').value} ${ticked()} ${sel('Page size').value}`);
     check('… and offers every paper there is', [...sel('Page size').options].map(o => o.textContent).join() === 'Slide 16:9,Letter,Legal,Tabloid 11×17,A4,A3', [...sel('Page size').options].map(o => o.textContent).join());
-    // The views a checklist: Structure and Fund III alone, on Tabloid, which is remembered too.
+    check('… saying nothing of the paper while it’s the page’s', !saying().includes('for this file only'), saying());
+    await pickIn(sel('Page size'), 'legal');
+    check('another paper is said to be for this file alone', saying().includes('Legal for this file only. The page stays Slide 16:9.'), saying());
+    await pickIn(sel('Format'), 'pptx');
+    check('… and changing the format never changes it', sel('Page size').value === 'legal', sel('Page size').value);
+    // The views a checklist: Structure and Fund III alone, on Tabloid, for this file.
     const pickTwo = async d => {
       for (const [i, box] of [...d.querySelectorAll('.ex-views input')].entries()) if (box.checked !== [0, 2].includes(i)) { box.click(); await tick(60); }
       const s = d.querySelector('select[aria-label="Page size"]'); s.value = 'tabloid'; s.dispatchEvent(new W.Event('change', { bubbles: true })); await tick(60);
@@ -705,8 +758,27 @@ async function run() {
       && /\/MediaBox \[([^\]]+)\]/.exec(twoRaw)?.[1].trim().split(/\s+/).map(Number).join() === '0,0,1224,792', `${two.name} ${(twoRaw.match(/\/Type \/Page\b(?!s)/g) ?? []).length} ${/\/MediaBox \[[^\]]*\]/.exec(twoRaw)?.[0]}`);
     opening = X.open();
     await until(() => dlg()?.querySelector('.btn.primary'));
-    check('… which it remembers', JSON.stringify(ticked()) === JSON.stringify(charts.map((_, i) => [0, 2].includes(i))) && sel('Page size').value === 'tabloid', `${ticked()} ${sel('Page size').value}`);
+    check('… those views remembered, the paper not: it opens on the page’s', JSON.stringify(ticked()) === JSON.stringify(charts.map((_, i) => [0, 2].includes(i))) && sel('Page size').value === 'slide', `${ticked()} ${sel('Page size').value}`);
     await cancel(opening);
+    // A file says what it is: an as-of day other than today in its name, one punctuation throughout. One view of the chart, as of a far-off day.
+    const Sh = G('Shell'), one = async d => { const boxes = [...d.querySelectorAll('.ex-views input')]; for (const [i, box] of boxes.entries()) if (box.checked !== (i === 0)) { box.click(); await tick(60); } };
+    Sh.at({ asOf: '2037-12-31' }); await tick(300);
+    const dated = await exported('pdf', one);
+    Sh.at(null); await tick(300);
+    check('an as-of day other than today is in the file’s name', dated.name === `${chart} - ${charts[0].name} - as of Dec 31, 2037.pdf`, dated.name);
+    // While the past is shown, the moment is: in the file's name, on its page, and on a calendar's; and nothing's written.
+    const past = A.wb.changes().at(-1), logged = () => A.wb.changes().length, logged0 = logged();
+    Sh.at({ stood: past.id, at: past.when }); await tick(400);
+    const words = Log.stoodText(past.when, 'short'), inName = words[0].toLowerCase() + words.slice(1).replace(':', '.');
+    const pastFile = await exported('pdf', one), pastCal = await exported('ics');
+    check('While the past is shown, a file’s name says the moment, without a colon', pastFile.name === `${chart} - ${charts[0].name} - ${inName}.pdf` && /, \d+\.\d\d [AP]M\.pdf$/.test(pastFile.name), pastFile.name);
+    check('… as the page’s date line does, as a calendar’s name does, and nothing is written', A.scene.peek().marks.filter(m => m.role === 'date').every(m => m.texts[0].text.startsWith('As it stood on ')) && pastCal.name === `${chart} - ${inName}.ics` && logged() === logged0, j([pastCal.name, logged() - logged0]));
+    Sh.at(null); await tick(300);
+    // In Viewing, Export works and writes nothing.
+    A.setViewing(true); await tick(200);
+    const viewed = await exported('pdf', one);
+    check('In Viewing, Export writes its file and nothing else', viewed.name === `${chart} - ${charts[0].name}.pdf` && viewed.blob.size > 0 && logged() === logged0, j([viewed.name, logged() - logged0]));
+    A.setViewing(false); await tick(200);
     // A table's file says what it writes: as the table shows it, or every row.
     const S = G('Shell'), entities = A.views.peek().find(v => v.name === 'Entities'), back = S.view.peek();
     S.show(entities.id); await until(() => (S.parts.peek().export ?? []).some(x => x.name === 'Excel'), 3000);
@@ -718,6 +790,54 @@ async function run() {
       && /^All \d+ entities; \d+ columns, in their order$/.test(says()), `${asShown} | ${says()}`);
     await cancel(opening);
     S.show(back); await tick(200);
+
+    // Page setup: the view's paper and which way it's turned, one change, the canvas drawing that page; the footer the chart's.
+    const setUp = async pick => { const done = X.setup(); await until(() => dlg()?.querySelector('.btn.primary')); await pick(dlg()); await tick(120); dlg().querySelector('.btn.primary').click(); await done; await tick(300); };
+    const changes0 = A.wb.changes().length, wasPage = A.scene.peek().page, boxes0 = j(A.scene.peek().marks.filter(m => m.type === 'box').map(b => [b.id, b.x, b.y]));
+    await setUp(async d => { await pickIn(d.querySelector('select[aria-label="Paper"]'), 'legal'); });
+    const legal = A.scene.peek();
+    check('Page setup puts the view on its paper as one change, and the canvas draws that page', legal.page.size === 'legal' && legal.page.sheet.w === 1344 && legal.page.sheet.h === 816 && A.wb.changes().length === changes0 + 1, j([legal.page.size, legal.page.sheet, A.wb.changes().length - changes0]));
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    check('… Export opens on it, and says nothing of it being a one-off', sel('Page size').value === 'legal' && !saying().includes('for this file only'), `${sel('Page size').value} ${saying()}`);
+    await cancel(opening);
+    S.parts.peek().undo.undo(); await tick(300);
+    check('… and Undo takes it all back', A.scene.peek().page.size === wasPage.size && j(A.scene.peek().marks.filter(m => m.type === 'box').map(b => [b.id, b.x, b.y])) === boxes0, A.scene.peek().page.size);
+    await setUp(async d => { const b = [...d.querySelectorAll('[aria-label="Orientation"] button')].find(x => x.textContent === 'Portrait'); b.click(); await tick(120); });
+    const turned = A.scene.peek();
+    check('Portrait turns the page', turned.page.sheet.w === 720 && turned.page.sheet.h === 1280 && turned.page.portrait === true, j(turned.page.sheet));
+    S.parts.peek().undo.undo(); await tick(300);
+    await setUp(async d => { const t = d.querySelector('input[aria-label="Footer"]'); t.value = 'Privileged'; t.dispatchEvent(new W.Event('input', { bubbles: true })); t.dispatchEvent(new W.Event('change', { bubbles: true })); await tick(60); d.querySelector('.ex-foot input[type="checkbox"]').click(); await tick(60); });
+    const foot = A.scene.peek().marks.find(m => m.role === 'footer'), other = A.views.peek().find(v => v.layout === 'chart' && v.id !== S.view.peek());
+    check('A footer set there is on every chart view, one change, and its number with it', foot?.texts[0].text === 'Privileged' && !!A.scene.peek().marks.find(m => m.role === 'number')
+      && !!Scene.of(A.shown.peek(), A.chart.peek(), other.id, A.day.peek(), { state: A.state.peek(), computed: A.computed.peek() }).marks.find(m => m.role === 'footer'), foot?.texts[0].text);
+    S.parts.peek().undo.undo(); await tick(300);
+    // A box a hand puts off the sheet stays there, the page saying so, and Fit to page brings it in.
+    const CV = G('Canvas').active.peek(), scale0 = A.scene.peek().page.scale, off0 = j(A.scene.peek().page.offset);
+    S.select(['halvard']); await tick(120);
+    CV.nudge(0, 2000); await tick(300);
+    const gone = A.scene.peek(), sayOff = Scene.says(gone, b => b.id === 'halvard' ? 'Halvard' : null);
+    check('a box a hand puts off the sheet stays there: neither the scale nor the chart move, a kept note History doesn’t say', gone.page.scale === scale0 && j(gone.page.offset) === off0 && gone.byId.get('halvard').y > gone.page.h
+      && !!A.notes.peek().notes('Scale').find(n => n.pattern.id === S.view.peek()) && !/scale/i.test(G('Time').describe(A.wb.changes().at(-1))), j([gone.page.scale, gone.page.offset, G('Time').describe(A.wb.changes().at(-1))]));
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    const fitBtn = () => [...dlg().querySelectorAll('.ex-off button')].find(b => b.textContent === 'Fit to page');
+    check('… Export says it runs off the page, with Fit to page beside it', sayOff.includes('Halvard runs off the page') && !!fitBtn() && saying().includes('runs off the page'), saying());
+    await cancel(opening);
+    A.setViewing(true); await tick(200);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    check('… in Viewing it still says so, with nothing offered to change it', saying().includes('runs off the page') && !fitBtn(), saying());
+    await cancel(opening);
+    A.setViewing(false); await tick(200);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    fitBtn().click(); await tick(400);
+    const back2 = A.scene.peek(), h2 = back2.byId.get('halvard');
+    check('… which brings it in, beside its relatives, the rest kept, in one change, said by History', h2.y + h2.h <= back2.page.h && h2.x + h2.w <= back2.page.w && !saying().includes('runs off the page') && /^Fit .* to its page$/.test(G('Time').describe(A.wb.changes().at(-1))), j([h2.x, h2.y, back2.page.w, back2.page.h, saying(), G('Time').describe(A.wb.changes().at(-1))]));
+    await cancel(opening);
+    S.parts.peek().undo.undo(); await tick(200); S.parts.peek().undo.undo(); await tick(200);
+    S.select([]); await tick(60);
     f.remove();
   }
 }

@@ -711,12 +711,21 @@ async function run() {
     // The Excel workbook: what the grid shows, in its order, a date a date and a tag Yes or No.
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], heads2 = titlesOf(), at = (r, c) => ws[XLSX.utils.encode_cell({ r, c })];
     const fd = heads2.indexOf('Formation Date'), shown = Table.grid.getRows('active').map(r => r.getData()), withDay = shown.findIndex(d => d['f:formation date']);
-    const day = at(withDay + 1, fd), gs = heads2.indexOf('Good Standing'), tagged = shown.findIndex(d => d['f:good standing'] === true);
-    check('Export to Excel: its headings in the grid’s order, a date an Excel date in the grid’s format, a tag Yes, its columns as wide as the grid’s, with a filter on its headings',
-      wb.SheetNames[0] === views().find(v => v.id === ent).name && heads2.every((h, j) => at(0, j)?.v === h) && day?.t === 'n' && day.z === 'mmm d, yyyy'
+    const day = at(withDay + 2, fd), gs = heads2.indexOf('Good Standing'), tagged = shown.findIndex(d => d['f:good standing'] === true);
+    check('Export to Excel: a first line saying its day, its sheet named for the view, its headings in the grid’s order, a date an Excel date in the grid’s format, a tag Yes, its columns as wide as the grid’s, with a filter on its headings',
+      at(0, 0)?.v === `As of ${Tree.formatDate(App.day.peek(), 'short')}` && ws['!autofilter']?.ref.startsWith('A2:')
+      && wb.SheetNames[0] === views().find(v => v.id === ent).name && heads2.every((h, j) => at(1, j)?.v === h) && day?.t === 'n' && day.z === 'mmm d, yyyy'
       && day.v === (Date.UTC(...shown[withDay]['f:formation date'].split('-').map((x, i) => i === 1 ? x - 1 : +x)) - Date.UTC(1899, 11, 30)) / 864e5
-      && at(tagged + 1, gs)?.v === 'Yes' && ws['!cols'].length === heads2.length && ws['!cols'][0].wpx === Math.round(column('Name').getWidth()) && !!ws['!autofilter'], JSON.stringify([day, at(tagged + 1, gs), ws['!cols']?.[0]]));
+      && at(tagged + 2, gs)?.v === 'Yes' && ws['!cols'].length === heads2.length && ws['!cols'][0].wpx === Math.round(column('Name').getWidth()) && !!ws['!autofilter'], JSON.stringify([day, at(tagged + 2, gs), ws['!cols']?.[0]]));
     check('… offered first in Export while a table shows, CSV beside it', Shell.parts.peek().export.map(x => x.name).join() === 'Excel,CSV', Shell.parts.peek().export.map(x => x.name).join());
+    // While the past is shown, its first line and its name say the moment.
+    {
+      const past = App.wb.changes().at(-1);
+      Shell.at({ stood: past.id, at: past.when }); await tick(300);
+      const then = await Table.workbook(), line = then.Sheets[then.SheetNames[0]].A1?.v, words = Log.stoodText(past.when, 'short');
+      Shell.at(null); await tick(300);
+      check('While the past is shown, an Excel workbook’s first line and its title say the moment', line === words && then.Props.Title.endsWith(` - ${words[0].toLowerCase()}${words.slice(1).replace(':', '.')}`), `${line} / ${then.Props.Title}`);
+    }
 
     // All of it undone, and the look let go.
     const made = N() - nStart - 2;   // all but the move and its Undo
@@ -771,7 +780,7 @@ async function run() {
     Shell.closeAll(); await tick(100);
     check('… it filters by the names, each a checkbox of its own', vs.includes('Wilmington Harbor Agent Services, LLC') && vs.includes('Seven Mile Corporate Services Ltd.') && seven === 2 && Table.grid.getDataCount('active') === seven, `${vs.join()} ${Table.grid.getDataCount('active')}`);
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Registered Agents');
-    check('… and exports as text', ws[XLSX.utils.encode_cell({ r: 0, c: j })]?.v === 'Registered Agents' && ws[XLSX.utils.encode_cell({ r: 1, c: j })]?.v === 'Seven Mile Corporate Services Ltd.', JSON.stringify(ws[XLSX.utils.encode_cell({ r: 1, c: j })]));
+    check('… and exports as text', ws[XLSX.utils.encode_cell({ r: 1, c: j })]?.v === 'Registered Agents' && ws[XLSX.utils.encode_cell({ r: 2, c: j })]?.v === 'Seven Mile Corporate Services Ltd.', JSON.stringify(ws[XLSX.utils.encode_cell({ r: 2, c: j })]));
     tool('Clear filters').click(); await tick(100);
     undo(); await tick(150); undo(); await tick(150);
     check('Undone, Halvard has no agent and the column is hidden again', !cellOf(halvard, 'Name') || !column('Registered Agents'), !!column('Registered Agents'));
@@ -873,7 +882,7 @@ async function run() {
     const tool = label => $$('.tbar .btn').find(b => b.textContent === label);
     const showing = async label => { act(); tool('Columns').click(); await tick(); $$('.cols .colrow.mv').find(r => r.textContent.trim() === label).querySelector('input').click(); await tick(300); Shell.closeAll(); await tick(); };
     const heads = () => Table.grid.getColumns().filter(c => c.getField()).map(c => { const e = c.getElement(); return [e.querySelector('.up')?.textContent, e.querySelector('.t').textContent].filter(Boolean).join(' › '); });
-    const sheetHeads = async () => { const w = await Table.workbook(), s = w.Sheets[w.SheetNames[0]]; return Table.grid.getColumns().filter(c => c.getField()).map((_, j) => s[XLSX.utils.encode_cell({ r: 0, c: j })]?.v); };
+    const sheetHeads = async () => { const w = await Table.workbook(), s = w.Sheets[w.SheetNames[0]]; return Table.grid.getColumns().filter(c => c.getField()).map((_, j) => s[XLSX.utils.encode_cell({ r: 1, c: j })]?.v); };
     // With the columns placed (a heading moved), one shown goes after them all, far to the right, as Sam's did.
     await drag('Formation Date', edge() + 2); await scrollTo(0);
     await showing('Jurisdiction › Registered Office');
@@ -1023,7 +1032,7 @@ async function run() {
     const say = v => Tree.format('percent', +v.toPrecision(12)), sum = vs.reduce((a, b) => a + b, 0);
     check('Percentages selected are counted, summed and averaged in the status bar, as percentages', $('.status .tstats')?.textContent === `Count 3Sum ${say(sum)}Average ${say(+(sum / 3).toFixed(4))}`, `${$('.status .tstats')?.textContent} / ${vs.join()}`);
     // In Excel, a percentage is a number in a percentage's format, as precise as the grid says it.
-    const wbo = await Table.workbook(), ws = wbo.Sheets[wbo.SheetNames[0]], cell = ws && ws[XLSX.utils.encode_cell({ r: 1, c: 2 })], first = Table.grid.getRows('active')[0].getData()['f:percentage'];
+    const wbo = await Table.workbook(), ws = wbo.Sheets[wbo.SheetNames[0]], cell = ws && ws[XLSX.utils.encode_cell({ r: 2, c: 2 })], first = Table.grid.getRows('active')[0].getData()['f:percentage'];
     check('… and in Excel a percentage is a number in a percentage’s format, as precise as the grid says it', cell?.t === 'n' && cell.v === first && /^0(\.0+)?%$/.test(cell.z)
       && cell.z === `0${String(+(first * 100).toFixed(4)).includes('.') ? '.' + '0'.repeat(String(+(first * 100).toFixed(4)).split('.')[1].length) : ''}%`, JSON.stringify(cell));
     Shell.select([]); await tick(60);
@@ -2119,7 +2128,7 @@ async function tablesG3() {
   {
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === fm);
     const i = Table.grid.getRows('active').findIndex(r => r.getData().id === corvane), at = (r, c) => ws[XLSX.utils.encode_cell({ r, c })]?.v;
-    check('… and exports as n/a, a Yes as Yes', at(i + 1, j) === 'n/a' && at(Table.grid.getRows('active').findIndex(r => r.getData().id === fund3) + 1, j) === 'Yes', `${at(i + 1, j)}`);
+    check('… and exports as n/a, a Yes as Yes', at(i + 2, j) === 'n/a' && at(Table.grid.getRows('active').findIndex(r => r.getData().id === fund3) + 2, j) === 'Yes', `${at(i + 2, j)}`);
   }
 
   // A computed tick is no click from a false fact: clicked, or by Space, it opens its reason, and writes nothing.
@@ -2142,7 +2151,7 @@ async function tablesG3() {
     quietBox.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
     check('A blank a rule says no by its silence ticks nothing, and says so on hover', N() === n && quietBox.getElement().dataset.tip === 'No: worked out by a formula', `${N() - n} ${quietBox.getElement().dataset.tip}`);
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Private Fund');
-    check('… and it exports as No', ws[XLSX.utils.encode_cell({ r: Table.grid.getRows('active').findIndex(r => r.getData().id === corvane) + 1, c: j })]?.v === 'No');
+    check('… and it exports as No', ws[XLSX.utils.encode_cell({ r: Table.grid.getRows('active').findIndex(r => r.getData().id === corvane) + 2, c: j })]?.v === 'No');
     column('Private Fund').getElement().querySelector('.col-menu').click(); await tick();
     item('Filter…').click(); await tick(80);
     check('… and its filter says Yes and No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join() === 'Yes,No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join());
@@ -2184,7 +2193,7 @@ async function tablesG3() {
     check('Dates can show Why, as the reason says it', heads().at(-1) === 'Why' && !!reason && row[f] === reason, `${heads().join()} ${row[f]}`);
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Why');
     const i = Table.grid.getRows('active').findIndex(r => r.getData().id === row.id);
-    check('… and it exports, whole', ws[XLSX.utils.encode_cell({ r: 0, c: j })]?.v === 'Why' && ws[XLSX.utils.encode_cell({ r: i + 1, c: j })]?.v === reason, ws[XLSX.utils.encode_cell({ r: i + 1, c: j })]?.v);
+    check('… and it exports, whole', ws[XLSX.utils.encode_cell({ r: 1, c: j })]?.v === 'Why' && ws[XLSX.utils.encode_cell({ r: i + 2, c: j })]?.v === reason, ws[XLSX.utils.encode_cell({ r: i + 2, c: j })]?.v);
     check('… and History says it as a column', Time.describe(last()) === `Showed Why in ${views().find(x => x.id === Shell.view.peek()).name}`, Time.describe(last()));
     const bdc = named('Calder Ridge Capital BDC, Inc.'), s = st(), close = Object.keys(s).find(id => s[id].args?.some(a => a.edge === 'BDC') && s[id].args.some(a => a.edge === 'Close Affiliate'));
     n = N();

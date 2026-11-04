@@ -14,6 +14,9 @@ const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v
 let counter = 0, lastMs = 0;
 const newId = () => { const ms = Date.now(); counter = ms === lastMs ? counter + 1 : 0; lastMs = ms; return ms.toString(36) + counter.toString(36).padStart(2, '0') + Math.random().toString(36).slice(2, 6); };
 const today = () => Tree.isoOf(new Date());
+// A moment of the log in words, the one place they're made: what a page's date line says while the log is shown as it
+// stood, and a file exported then.
+const stoodText = (moment, style) => { const d = new Date(moment); return `As it stood on ${Tree.formatDate(Tree.isoOf(d), style)}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, ' ')}`; };
 const byTime = (a, b) => a.when < b.when ? -1 : a.when > b.when ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 const validOn = (r, d) => (!r.since || r.since <= d) && (!r.before || d < r.before);
 const overlap = (a, b) => (!a.since || !b.before || a.since < b.before) && (!b.since || !a.before || b.since < a.before);
@@ -402,5 +405,5 @@ function open(data) {
 }
 const changesOf = x => !x ? [] : Array.isArray(x) ? x : typeof x.changes === 'function' ? x.changes() : x.changes ?? [];
 
-return { open, newId, today, validOn, typeOf, latest, outOn };
+return { open, newId, today, stoodText, validOn, typeOf, latest, outOn };
 })();

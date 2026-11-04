@@ -2460,35 +2460,37 @@ const Table = (() => {
   let sheetjs = null;
   const loadSheetJS = () => sheetjs ??= new Promise((ok, fail) => document.head.append(Object.assign(document.createElement('script'), {
     src: new URL('xlsx/xlsx.full.min.js', VENDOR).href, onload: () => ok(window.XLSX), onerror: () => { sheetjs = null; fail(new Error('Couldn’t load the Excel writer')); } })));
-  const fileName = ext => `${[App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(Shell.view.peek())?.name].filter(Boolean).join(' – ').replace(/[\\/:*?"<>|]+/g, '') || 'Table'}.${ext}`;
+  // (Named as a chart's file is, its as-of day in it where that's not today, or the moment while the past is shown: "… - Tax - as of Feb 1, 2027.xlsx".)
+  const fileName = ext => `${[App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(Shell.view.peek())?.name, App.asOfWords().name].filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '') || 'Table'}.${ext}`;
   // A day as Excel counts it, from December 30, 1899.
   const serial = iso => { const [y, m, d] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
   // A percentage as precise as the grid says it, to four places: 28.4% is 0.0%, 100% is 0%.
   const pct = v => { const s = String(+(v * 100).toFixed(4)), i = s.indexOf('.'); return `0${i < 0 ? '' : '.' + '0'.repeat(s.length - i - 1)}%`; };
-  // The sheet: the headings, then each row the grid shows, in its order, each value Excel's own kind of cell in the format
-  // the grid reads it in: a number a number, a percentage a percentage, an amount of money money, a date a date; a link
-  // to a document a link, named as the grid names it; a tag Yes or No. Its columns as wide as the grid's, with Excel's
-  // filter on its headings. A row a change pending would add isn't there yet, and a value it would change is as it is.
+  // The sheet: a first line saying the day it's as of or the moment it stood, the headings, then each row the grid shows, in its order, each value
+  // Excel's own kind of cell in the format the grid reads it in: a number a number, a percentage a percentage, an amount of
+  // money money, a date a date; a link to a document a link, named as the grid names it; a tag Yes or No. Its columns as
+  // wide as the grid's, with Excel's filter on its headings. A row a change pending would add isn't there yet, and a value it
+  // would change is as it is.
   function sheet(X, all = false) {
     const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c);
     const rows = (all ? table.getRows() : table.getRows('active')).map(r => r.getData()).filter(d => d._red !== 'add');
     const value = (d, c) => { const mm = d._m[field(c)]; return read(c, d, mm && 'was' in mm ? mm.was : d[field(c)]); };
-    const ws = {}, at = (r, j) => X.utils.encode_cell({ r, c: j });
+    const ws = { A1: { t: 's', v: App.asOfWords().line } }, at = (r, j) => X.utils.encode_cell({ r, c: j });
     cols.forEach(([, c], j) => {
-      ws[at(0, j)] = { t: 's', v: headed(c) };
+      ws[at(1, j)] = { t: 's', v: headed(c) };
       rows.forEach((d, i) => {
         const v = value(d, c), type = typeOf(c, d);
         if (blank(v)) return;
-        ws[at(i + 1, j)] = type === 'tag' ? { t: 's', v: text('tag', v) }
+        ws[at(i + 2, j)] = type === 'tag' ? { t: 's', v: text('tag', v) }
           : typeof v === 'number' && NUMERIC.has(type) ? { t: 'n', v, ...(type === 'percent' ? { z: pct(v) } : type === 'money' ? { z: `"$"#,##0${Number.isInteger(v) ? '' : '.00'}` } : {}) }
           : type === 'date' && /^\d{4}-\d\d-\d\d$/.test(v) ? { t: 'n', v: serial(v), z: 'mmm d, yyyy' }
           : type === 'document' ? { t: 's', v: c.filed ? filed(v) : Tree.format('document', v), l: { Target: String(v) } }
           : { t: 's', v: text(type, v) };
       });
     });
-    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: Math.max(0, cols.length - 1) } });
+    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length + 1, c: Math.max(0, cols.length - 1) } });
     ws['!cols'] = cols.map(([col]) => ({ wpx: Math.round(col.getWidth()) }));
-    ws['!autofilter'] = { ref: ws['!ref'] };
+    ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 1, c: 0 }, e: { r: rows.length + 1, c: Math.max(0, cols.length - 1) } }) };
     return ws;
   }
   async function workbook(all = false) {
@@ -2503,6 +2505,7 @@ const Table = (() => {
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: fileName('xlsx') });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    Shell.toast(`Downloaded ${fileName('xlsx')}`);
     return blob;
   }
   // Import: a file of rows, Excel's or CSV, read as a paste with a heading row, so its rows are found by their names and
@@ -2517,7 +2520,8 @@ const Table = (() => {
       try {
         const X = await loadSheetJS(), wb = X.read(await f.arrayBuffer(), { cellNF: true }), ws = wb.Sheets[wb.SheetNames[0]], pad = n => String(n).padStart(2, '0');
         for (const [k, c] of Object.entries(ws)) if (k[0] !== '!' && c.t === 'n' && c.z && X.SSF.is_date(c.z)) { const d = X.SSF.parse_date_code(c.v); c.w = `${d.y}-${pad(d.m)}-${pad(d.d)}`; }
-        const text = X.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false });
+        // (A sheet this exported says its day in a first line, over its headings.)
+        const text = X.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false }).replace(/^As (of|it stood on) [^\t\n]*\t*\n/, '');
         if (!text.trim()) return Shell.toast(`${f.name} has no rows`);
         importing(text, f.name);
       } catch (e) { Shell.toast(`Couldn’t read ${f.name}`); }
@@ -2563,7 +2567,7 @@ const Table = (() => {
         const fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean).map(headed), s = !all && l.sort && by(l.sort.key), cols = table.getColumns().filter(c => c.getField() && m.byField.get(c.getField())).length;
         return `${all || shown === n ? `All ${count(n, m.noun)}` : `${shown} of ${count(n, m.noun)}, filtered by ${list(fs)}`}${s ? `, sorted by ${headed(s)}` : ''}; ${count(cols, 'column')}, in their order`; };
       const offs = [Shell.register('export', { name: 'Excel', says: writes, run: ({ all } = {}) => table && excel(all).catch(e => Shell.toast(e?.message || 'Couldn’t export')) }),
-        Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : 'active') })];
+        Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => { table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : 'active'); Shell.toast(`Downloaded ${fileName('csv')}`); } })];
       unexport = () => offs.forEach(f => f());
     }
     if (!on && unexport) { unexport(); unexport = null; }
