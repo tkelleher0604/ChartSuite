@@ -1369,6 +1369,7 @@ const FormulaBar = (() => {
   const moves = (d, done = false) => MOVES.filter(([k]) => d.of[k]?.length).map(([k, would, did, plural_, cls, pre = '']) => { const of = d.of[k], n = of.length, words = done ? (n === 1 ? did : plural_) : would, who = n === 1 ? of[0].who : String(n); return { k, cls, of, pre, who, words, said: `${pre}${who}${words ? ` ${words}` : ''}` }; });
   // A rule that says nothing of anyone, though it could say both yes and no, applies to no one, which isn't everyone being fine (dendra.md, Definitions: Not tested). → what to say, or null.
   function nobody(Rv, def) {
+    if (Rv.rows?.[def]?.length) return null;
     const c = Formulas.coverage(Rv, def);
     if (!c || c.silent !== 'untested' || c.says || !c.quiet?.length) return null;
     const recs = Rv.records, kinds = new Set(c.quiet.map(x => recs[Tree.objectOf(recs, x)]?.kind)), k = kinds.size === 1 ? [...kinds][0] : null, n = c.quiet.length;
@@ -1388,7 +1389,7 @@ const FormulaBar = (() => {
   // What any change would leave of the rules, whatever it's a change of (a record renamed, say): those it would break, and those it would leave applying to no one, that apply to some now.
   function spoilt(A, B) {
     const was = new Set(Formulas.broken(A).roots.map(r => r.def)), breaks = Formulas.broken(B).roots.filter(r => !was.has(r.def));
-    const emptied = N().notes('Check').flatMap(n => { const d = App.definitions.peek().find(x => x.name === n.pattern.args?.[0]?.edge && !x.edges); return d ? [d] : []; }).filter(d => !was.has(d.id) && !breaks.some(r => r.def === d.id) && Formulas.coverage(A, d.id)?.says && nobody(B, d.id));
+    const emptied = N().notes('Check').flatMap(n => { const d = App.definitions.peek().find(x => x.name === n.pattern.args?.[0]?.edge && !x.edges); return d ? [d] : []; }).filter(d => !was.has(d.id) && !breaks.some(r => r.def === d.id) && A.rows?.[d.id]?.length && nobody(B, d.id));
     return { breaks, emptied };
   }
   // A definition's flaws as a draft would leave it (Formulas: A rule in error), and any other rule's it would newly flaw, each with

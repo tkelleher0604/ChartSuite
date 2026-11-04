@@ -4011,7 +4011,7 @@ function attention(R, N, day, within = 30) {
 function coverage(R, def) {
   const S = R?.state, d = S?.P.byId.get(def);
   if (!d || d.error) return null;
-  const out = { holds: [], fails: [], cant: [], typed: [], broken: [], quiet: d.isRelation ? null : [], silent: null, says: 0 }, at = new Set();
+  const out = { holds: [], fails: [], cant: [], typed: [], broken: [], quiet: null, silent: null, says: 0 }, at = new Set();
   for (const row of R.rows[def] ?? []) {
     if (!row.args) at.add(row.at);
     if (row.entered) {
@@ -4022,7 +4022,7 @@ function coverage(R, def) {
     else if (d.type === 'tag' && row.value === false) out.fails.push(row.id);
     else out.holds.push(row.id);
   }
-  if (out.quiet) for (const ps of d.params) for (const id of S.bySpec.get(ps[0]?.spec) ?? []) if (!at.has(id) && !out.quiet.includes(id) && !S.byAtName.get(`${id}|${normal(d.name)}`)) out.quiet.push(id);
+  if (!d.isRelation) { const quiet = new Set(); for (const ps of d.params) for (const id of S.bySpec.get(ps[0]?.spec) ?? []) if (!at.has(id) && !S.byAtName.get(`${id}|${normal(d.name)}`)) quiet.add(id); out.quiet = [...quiet]; }
   if (d.type === 'tag') { const [yes, no] = rowsSay(d.rows.map(r => ({ formula: r.text }))); out.silent = yes && no ? 'untested' : yes ? 'no' : no ? 'fine' : null; }
   out.says = out.holds.length + out.fails.length + out.cant.length + out.typed.length + out.broken.length;
   return out;
