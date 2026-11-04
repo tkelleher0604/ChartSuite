@@ -1,6 +1,7 @@
 // Log: a workbook is its log (dendra.md, Time and Change).
 //
-// A change is { id, who, when, chart, removes: [row id], adds: [row], reverses? }. A row is a version of an
+// A change is { id, who, when, chart, removes: [row id], adds: [row], reverses?, note?, about? }: `note` a line of why, and
+// `about` the change a note given afterwards is about, which removes and adds nothing. A row is a version of an
 // item, and names the item under its type: { id, chart, name }, { id, spec, tree }, { id, record, …record },
 // { id, note, …note } or { id, shape, … }. A record's row carries its validity: since and before, ISO days,
 // either absent. A row is live if a change added it and none removed it, so the order changes arrive in
@@ -90,7 +91,7 @@ function open(data) {
   // Live rows by content: a reverse brings rows back as fresh copies, which are still as a change left them.
   const twins = new Map(), twinKey = (c, r) => `${c}|${contentOf(r)}`;
   const twin = (c, r) => twins.get(twinKey(c, r))?.values().next().value;
-  let cache = new Map(), carried = new Map(), sorted = null, last = 0;
+  let cache = new Map(), carried = new Map(), sorted = null, noted = null, last = 0;
 
   function take(c) {
     if (changes.has(c.id)) return false;
@@ -114,7 +115,7 @@ function open(data) {
   // values or periods.
   const changed = cs => {
     const was = cache;
-    cache = new Map(); carried = new Map(); sorted = null;
+    cache = new Map(); carried = new Map(); sorted = null; noted = null;
     for (const [c, d] of was) {
       const mine = cs.filter(x => x.chart === c), removed = mine.flatMap(x => x.removes.map(id => added.get(id)).filter(Boolean)), adds = mine.flatMap(x => x.adds);
       if (!mine.length) cache.set(c, d);
@@ -176,12 +177,25 @@ function open(data) {
   // The reverse of a change removes what it added and adds fresh copies of what it removed, while what it
   // added is all still as it left it. Undo and Redo, a window's own, are reverses; so is undoing an older one.
   const canReverse = id => { const c = changes.get(id); return !!c && c.adds.every(r => twin(c.chart, r)); };
-  function reverse(id, who) {
+  function reverse(id, who, note = null) {
     const c = changes.get(id);
     if (!c) return null;
     if (!canReverse(id)) return 'It has changed since.';
-    return apply({ id: newId(), who, when: now(), chart: c.chart, removes: c.adds.map(r => twin(c.chart, r)),
+    return apply({ id: newId(), who, when: now(), chart: c.chart, ...(note && { note }), removes: c.adds.map(r => twin(c.chart, r)),
       adds: c.removes.map(rid => ({ ...added.get(rid), id: newId() })), reverses: c.id });
+  }
+  // A reason given a change afterwards: a change of its own, which removes and adds nothing and says what it's about, so
+  // the log stays append-only and says who gave the reason, and when. As it stood before then, it hadn't been given.
+  const annotate = ({ chart: c, who, about, note }) => apply({ id: newId(), who, when: now(), chart: c, removes: [], adds: [], about, note });
+  // Why a change was made: its own note, then each given it since and not taken back, the first first: [{ text, who, when, own, change }].
+  function reasons(id) {
+    const c = changes.get(id);
+    if (!c) return [];
+    if (!noted) { noted = new Map(); for (const x of list()) if (x.about) push(noted, x.about, x); }
+    const given = noted.get(id) ?? [], own = c.note ? [{ text: c.note, who: c.who, when: c.when, own: true, change: c.id }] : [];
+    if (!given.length) return own;
+    const taken = new Map(list().filter(x => x.reverses).map(x => [x.reverses, x.id])), stands = x => { let n = 0; for (let y = x; taken.has(y); y = taken.get(y)) n++; return n % 2 === 0; };
+    return [...own, ...given.filter(x => stands(x.id)).map(x => ({ text: x.note, who: x.who, when: x.when, own: false, change: x.id }))];
   }
 
   // Items with rows in the log and none live, each with the change that deleted it, the last to remove one of
@@ -390,7 +404,7 @@ function open(data) {
   }
 
   const wb = {
-    apply, edit, asOf, schema, canReverse, reverse, deleted, restore, disagreements,
+    apply, edit, asOf, schema, canReverse, reverse, annotate, reasons, deleted, restore, disagreements,
     changes: list,
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,

@@ -503,3 +503,11 @@ li.CodeMirror-hint-active { background: var(--hover); color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
+
+/* Why, on a change pending and on a History entry: a word away, or typed. */
+.why-in { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 200px; min-width: 160px; color: var(--ink-2); font-weight: 400; }
+.why-in > .cell { flex: 1 1 auto; min-width: 0; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); }
+button.lk.why-add { margin: 0; padding: 0 2px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
+.hist-row > .note > .by { color: var(--ink-3); }
+.hist-row > .why-in { display: flex; margin-top: 4px; }
+.hist-row > .effect.said { color: var(--ink-2); }

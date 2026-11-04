@@ -2013,7 +2013,7 @@ const Table = (() => {
       ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
       ${out ? html`<span class="tout" role="status"><b>${rowName(sel)}</b> is filtered out<span class="sep">·</span><button type="button" class="lk" onClick=${() => { clearFilters(); setTimeout(() => track(sel)); }}>Clear filters</button></span>` : null}
       ${m.later?.length ? html`<span class="tout later" role="status">${m.later.length} ${m.later.length === 1 ? 'starts' : 'start'} later:${' '}<button type="button" class="lk" onClick=${() => Shell.at({ asOf: m.later[0].day })}><b>${m.later[0].name}</b>, ${Tree.formatDate(m.later[0].day, 'short')}</button>${m.later.length > 1 ? ` and ${m.later.length - 1} more` : ''}</span>` : null}
-      <span class="tcount">${showing !== total ? `${showing} of ${count(total, m.noun)}` : count(total, m.noun)}</span>
+      <span class="tcount">${m.rows?.args && App.definitions.value.some(d => d.edges && App.broken.value.reach.has(d.id) && Tree.same(d.name, App.notes.value.name(m.rows))) ? html`<span class="no">Can’t be relied on</span> · ` : null}${showing !== total ? `${showing} of ${count(total, m.noun)}` : count(total, m.noun)}</span>
     </div>`;
   }
   // A row's record by name, short as a list of dates says it (Time.whose): an object by its short name, a relation by its
