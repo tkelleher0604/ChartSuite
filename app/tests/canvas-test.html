@@ -79,7 +79,7 @@ window.EyeDropper = undefined;  // (the way a browser without its own goes, whic
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 // (A little under what's asked: the page is near what a run of the suite gives it.)
-const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.95));
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.9));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -1379,6 +1379,14 @@ async function drawnByHand() {
   const spans = mk(tb).texts[0].lines[0].spans;
   check('… kept as a run: the scene’s line has a span of it, bold, and its width', rowOf(tb).runs?.[0]?.from === 6 && rowOf(tb).runs[0].Bold === true && spans?.length === 2 && spans[1].text === 'world' && spans[1].look.Bold === true, JSON.stringify(rowOf(tb).runs));
   check('… drawn so on the chart and in the PDF', /font-weight[^<]*700/.test(JSON.stringify(cv().graph.getCellById(tb).getMarkup())) && /font-weight="bold"[^>]*>world/.test(Export.svg(App.scene.peek(), {})));
+  // Enter, as PowerPoint's: a paragraph; Ctrl+Enter ends the typing.
+  Shell.select([tb]); await tick(50); cv().edit(tb); await tick(50);
+  { const ed2 = $('.dc-edit'); getSelection().selectAllChildren(ed2); getSelection().collapseToEnd();
+    ed2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(50);
+    const stays = $('.dc-edit') === ed2;
+    document.execCommand('insertText', false, 'More');
+    ed2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })); await tick(90);
+    check('in a shape’s words, Enter begins a paragraph and Ctrl+Enter ends the typing, its runs kept', stays && !$('.dc-edit') && rowOf(tb).text === 'Hello world\nMore' && rowOf(tb).runs?.[0]?.from === 6 && rowOf(tb).runs[0].to === 11, JSON.stringify([stays, rowOf(tb).text, rowOf(tb).runs])); }
   // Same height: what's selected, and only that.
   await undoAll();
   const tops = sc().byId.get('inv_aiv').y, inRow = sc().marks.filter(m => m.type === 'box' && Math.abs(m.y - tops) < 1 && !['inv_us', 'inv_aiv'].includes(m.id)), others = inRow.map(m => m.h);

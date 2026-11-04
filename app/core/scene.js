@@ -1621,10 +1621,12 @@ function labelOf(l, shared = l.label?.shared ?? false, pin = l.label?.pin) {
   l.label = l.texts.length ? { w: l.texts.some(it => it.inline) ? Math.max(...l.texts.flatMap(it => it.lines.map(q => q.x + q.w))) : widest(l.texts), h: y, base: lastLine?.y ?? y, text: l.texts.map(it => it.text).join('\n'), shared, ...(pin && { pin }) } : null;
 }
 
-// The middle of the side of a box that faces a point (a triangle's: its slope's, or its base's, or its apex).
-function edgePoint(g, [x, y]) {
-  const cx = g.x + g.w / 2, cy = g.y + g.h / 2, dx = x - cx, dy = y - cy, tri = (g.shape ?? g.geometry) === 'triangle';
-  return Math.abs(dx) * g.h > Math.abs(dy) * g.w ? [cx + (dx > 0 ? 1 : -1) * g.w / (tri ? 4 : 2), cy] : [cx, dy > 0 ? g.y + g.h : g.y];
+// The middle of the side of a box that faces a point (a triangle's: its slope's, or its base's, or its apex). A free shape turned turns its sides with it.
+function edgePoint(g, at) {
+  const cx = g.x + g.w / 2, cy = g.y + g.h / 2, turn = (g.rotate ?? 0) * Math.PI / 180, spin = ([u, v], a) => [cx + (u - cx) * Math.cos(a) - (v - cy) * Math.sin(a), cy + (u - cx) * Math.sin(a) + (v - cy) * Math.cos(a)];
+  const [x, y] = turn ? spin(at, -turn) : at, dx = x - cx, dy = y - cy, tri = (g.shape ?? g.geometry) === 'triangle';
+  const p = Math.abs(dx) * g.h > Math.abs(dy) * g.w ? [cx + (dx > 0 ? 1 : -1) * g.w / (tri ? 4 : 2), cy] : [cx, dy > 0 ? g.y + g.h : g.y];
+  return turn ? spin(p, turn) : p;
 }
 // A free line's ends, as what it's glued to says (`find`, what an id is): each where it faces the other, and an elbow's legs
 // square between them, going off a box square to the edge it leaves by; or, glued to nothing, along whichever way it runs furthest.

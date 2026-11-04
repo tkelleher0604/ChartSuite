@@ -977,7 +977,7 @@ function mount(el) {
     const at = Layout.pin(m.points, { x: p.x, y: p.y, w: m.label.w, h: m.label.h });
     App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
   }
-  graph.on('node:moved', ({ node }) => { dragging = null; if (node.getData()?.kind === 'label') return movedLabel(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
+  graph.on('node:moved', ({ node }) => { dragging = null; if (node.getData()?.kind === 'label') return movedLabel(node); if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
   graph.on('node:resized', ({ node }) => { dragging = null; moved([node.id]); spilt([node.id]); });
   graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
   graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });

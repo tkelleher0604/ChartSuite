@@ -363,11 +363,13 @@ function attach(x) {
       const [P, S, Q, T] = axis ? ['y', 'h', 'x', 'w'] : ['x', 'w', 'y', 'h'], overlaps = o => o[Q] < r[Q] + r[T] && o[Q] + o[T] > r[Q];
       const line = rest.filter(overlaps).sort((a, b) => a[P] - b[P]), before = line.filter(o => o[P] + o[S] <= r[P] + 0.5), after = line.filter(o => o[P] >= r[P] + r[S] - 0.5);
       const L = before.at(-1), R = after[0], c = r[Q] + r[T] / 2;
-      if (L && R && Math.abs((r[P] - (L[P] + L[S])) - (R[P] - (r[P] + r[S]))) < tol) { mark(L[P] + L[S], r[P], c, axis); mark(r[P] + r[S], R[P], c, axis); continue; }
+      // (Near enough, it's drawn to them: the gaps it shows the same are the same. The next move of the pointer lets it go again.)
+      if (L && R && Math.abs((r[P] - (L[P] + L[S])) - (R[P] - (r[P] + r[S]))) < tol) { r[P] = (L[P] + L[S] + R[P] - r[S]) / 2; mark(L[P] + L[S], r[P], c, axis); mark(r[P] + r[S], R[P], c, axis); continue; }
       const LL = before.at(-2), RR = after[1];
-      if (L && LL && Math.abs((r[P] - (L[P] + L[S])) - (L[P] - (LL[P] + LL[S]))) < tol) { mark(LL[P] + LL[S], L[P], c, axis); mark(L[P] + L[S], r[P], c, axis); }
-      else if (R && RR && Math.abs((R[P] - (r[P] + r[S])) - (RR[P] - (R[P] + R[S]))) < tol) { mark(r[P] + r[S], R[P], c, axis); mark(R[P] + R[S], RR[P], c, axis); }
+      if (L && LL && Math.abs((r[P] - (L[P] + L[S])) - (L[P] - (LL[P] + LL[S]))) < tol) { r[P] = L[P] + L[S] + L[P] - (LL[P] + LL[S]); mark(LL[P] + LL[S], L[P], c, axis); mark(L[P] + L[S], r[P], c, axis); }
+      else if (R && RR && Math.abs((R[P] - (r[P] + r[S])) - (RR[P] - (R[P] + R[S]))) < tol) { r[P] = R[P] - (RR[P] - (R[P] + R[S])) - r[S]; mark(r[P] + r[S], R[P], c, axis); mark(R[P] + R[S], RR[P], c, axis); }
     }
+    if (r.x !== pos.x || r.y !== pos.y) node.setPosition(r.x, r.y);
   }
   graph.on('node:moving', ({ node }) => { if (['box', 'shape'].includes(node.getData()?.kind)) equalGaps(node); });
   graph.on('node:moved', clearGaps);
