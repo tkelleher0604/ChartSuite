@@ -1975,8 +1975,8 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     const f = at(s) ?? (held ? at(s, false, false, true) : null);
     if (f) return f.titled && !placed ? at(s, false, true) ?? f : f;
   }
-  // Too big for any of them: as large as the chart fits.
-  return at(Math.max(0.005, Math.min(0.05, most)), true);
+  // Too big for any of them: as large as the chart fits, and never larger than the view keeps it.
+  return at(Math.max(0.005, Math.min(0.05, most, ceil)), true);
 }
 
 // ---- For the format bar and the inspector ----
