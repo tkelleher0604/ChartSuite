@@ -1310,8 +1310,8 @@ async function saysWhen(C, keep) {
   Shell.closeAll(); await tick(30);
   // A long panel's strip names its sections, Look and Position always there, each a click from it
   const strip = $('.strip');
-  check('a long panel has a strip of its sections, Look and Position at its end', !!strip && !strip.classList.contains('none') && spoken(strip.querySelector('.names .lk')) === 'Record'
-    && [...strip.querySelectorAll('.pinned .lk')].map(b => b.textContent).join().startsWith('Position') === !$$('section').some(s => s.dataset.title === 'Look') && getComputedStyle(strip).position === 'sticky', strip?.textContent);
+  check('a long panel has a strip of its sections, Position and Look at its end', !!strip && !strip.classList.contains('none') && spoken(strip.querySelector('.names .lk')) === 'Record'
+    && [...strip.querySelectorAll('.pinned .lk')].map(b => b.textContent).join() === ($$('section').some(s => s.dataset.title === 'Look') ? 'Position,Look' : 'Position') && getComputedStyle(strip).position === 'sticky', strip?.textContent);
   [...strip.querySelectorAll('.names .lk')].find(b => b.textContent === 'Affiliated Person Of')?.click(); await tick(60);
   const apo = $$('section').find(s => s.dataset.title === 'Affiliated Person Of');
   check('… one clicked opens it, and brings it to the top', apo?.classList.contains('open') && Math.abs(apo.getBoundingClientRect().top - strip.getBoundingClientRect().bottom) < 4, `${apo?.getBoundingClientRect().top} ${strip.getBoundingClientRect().bottom}`);
