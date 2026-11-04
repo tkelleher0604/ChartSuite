@@ -43,7 +43,7 @@ Opened as of November 3, 2026, the chart has 1,029 entered records. The definiti
 | Management and control | The sponsor entities, with their directors and officers as text in the boxes |
 | Entities, Ownership, Dates, Documents | Tables |
 
-Each chart view has a title, an as-of line and a Key on a 16:9 page.
+Each chart view has a title, an as-of line and a Key on a 16:9 page, in the look the app's new charts begin from: a title in Georgia and a page's subject in navy (the main fund on Structure and Fund III, the BDC on 40 Act), the rest in slate, sand and stone. Structure's places are composed by hand; Fund III and Management and control are as the layout places them, keeping the order they had.
 
 ## What to look at first
 

@@ -323,8 +323,7 @@ function swatchMarkup(sw, box) {
     return heads.length ? { tagName: 'g', children: [line, ...heads] } : line;
   }
   if (sw.kind === 'frame') return { tagName: 'rect', attrs: { x, y, width: w, height: h, fill: 'none', stroke: '#595959', 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash('dashed', sw.Weight) } };
-  const shape = sw.Shape ?? 'rect', sh = shape === 'triangle' ? h + 2 : h, sy = shape === 'triangle' ? y - 1 : y;
-  const { selector, ...body } = bodyMarkup(shape, w, sh, sw, null, { transform: `translate(${x},${sy})` });
+  const { selector, ...body } = bodyMarkup(sw.Shape ?? 'rect', w, h, sw, null, { transform: `translate(${x},${y})` });
   return body;
 }
 function legendMarkup(m, s) {
@@ -2299,7 +2298,8 @@ function mount(el) {
   // after. `tidied` is the workbook as the layout finds it for Tidy, which a preview draws; `tidyName`, what it's called, by which.
   const placedHere = () => [...App.notes.peek().notes('Position'), ...App.notes.peek().notes('Bend')].filter(n => n.view === viewOf());
   const scaleHere = () => App.notes.peek().notes('Scale').filter(n => n.pattern.id === viewOf());
-  const tidyBoxes = () => { const base = App.scene.peek(); return !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); };
+  // (Two or more: one box selected is only what was last worked on, and Tidy is of the page.)
+  const tidyBoxes = () => { const base = App.scene.peek(), ms = !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); return ms.length > 1 ? ms : []; };
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
   const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
   // Whether there's anything to tidy: a selection; with none, a place other than Tidy gave, a box drawn beside Tidy's with none, or a Key in a corner over a box, which Tidy sets the chart clear of.
@@ -2556,6 +2556,15 @@ function mount(el) {
 
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; App.later?.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
+  // A Key that has come to stand over a box, as a chart grew under one a hand put, or a corner holds, says so as it happens, with what mends it.
+  let keyOver = null, keyView = null;
+  const stopKeyOver = effect(() => {
+    const sc = App.scene.value;
+    if (!sc || sc.view !== viewShown) return;
+    const over = Scene.says(sc, b => App.notes.peek().shortOf(App.state.peek(), b.record)).filter(t => t.startsWith('The Key overlaps')), fresh = keyView === sc.view && keyOver ? over.filter(t => !keyOver.includes(t)) : [];
+    keyOver = over; keyView = sc.view;
+    if (fresh.length && active.peek() === canvas && !App.readOnly.peek()) Shell.toast(fresh[0], { go: ['Tidy, to make room', () => tidy()] });
+  });
   // A mark's fields, asked of by the inspector (see Fields): `shown`, whether the mark a record draws shows an entry of a
   // label; `show`, shows or hides one there, at the scope where the mark is what's selected; `light`, outlines the field
   // a row's key names, as its row is pointed at; `over`, the box under a point on screen as a row is dragged, outlined as
@@ -2622,7 +2631,7 @@ function mount(el) {
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
       nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
-      stopDraw(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
+      stopDraw(); stopKeyOver(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };

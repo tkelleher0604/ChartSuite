@@ -175,6 +175,15 @@ function tiering(boxes, links, room, clusters) {
     return { ms, framed: !!f, w: f ? w + 20 + GAP.across : w, h: f ? h + pad.get(f) + 10 : h };
   });
   let rows = [...groupBy(boxes, b => tier.get(b.id)).entries()].sort((a, b) => a[0] - b[0]).map(([, bs]) => bs);
+  // A box that's related to nothing, in no frame, stands in rows of its own under the chart, as wide as what's over them, so it widens nothing.
+  const joined = new Set(links.flatMap(l => [l.from, l.to])), apart = boxes.filter(b => !joined.has(b.id) && !framed.has(b.id));
+  if (apart.length && apart.length < boxes.length) {
+    rows = rows.map(r => r.filter(b => !apart.includes(b))).filter(r => r.length);
+    const most = Math.max(...rows.map(r => r.reduce((w, b) => w + b.w + GAP.across, -GAP.across)));
+    let row = [], used = 0;
+    for (const b of apart) { if (row.length && used + b.w > most) { rows.push(row); row = []; used = 0; } row.push(b); used += b.w + GAP.across; }
+    rows.push(row);
+  }
   const unitsOf = new WeakMap(), fitOf = rs => fit(rs.map(r => unitsOf.get(r) ?? unitsOf.set(r, units(r)).get(r)), room), into = groupBy(links, l => l.to);
   for (let t = 0; t < rows.length - 1; t++) {
     const here = new Set(rows[t].map(b => b.id)), next = rows[t + 1];
@@ -270,6 +279,8 @@ function elkPlace(boxes, links, clusters, options, room) {
   for (const b of boxes) { const p = at.get(nodeOf(b.id)); out.set(b.id, { x: p.x + inBlock.get(b.id).x, y: p.y }); }
   // A tier's boxes top-aligned, as ELK sets them on their middles.
   for (const bs of groupBy(boxes, b => tier.get(b.id)).values()) { const y = Math.min(...bs.map(b => out.get(b.id).y)); for (const b of bs) out.get(b.id).y = y; }
+  // With no frames, what ELK gave is the order of each tier, and the columns are the layout's own (see columns).
+  if (!clusters.length && boxes.length + links.length <= BIG) columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, standing, fill: room.fill });
   // A column of frames has them under one another from one left, 12 pt apart, as panels; the first stays where
   // ELK put it unless it's alone in its tier, and what's under the column comes up with it. What reaches into
   // them from above stands over their left, its middle 12 pt short of it, so its lines run down its side and
@@ -299,6 +310,153 @@ function elkPlace(boxes, links, clusters, options, room) {
     }
   }
   return out;
+}
+// The columns (dendra.md, The layout). A structure chart reads down its stems, so what's across is set by them: each tier
+// in the order ELK gave it, a box and what its stem joins it to in one column, so the line between them drops straight (an
+// investor over its fund, a blocker under its fund), and every other box as near over or under its relatives as the columns
+// leave it. In order, the first that holds wins: a stem that's each end's only line of the main relation; a parent's
+// stem to the one of its only-owned children nearest the middle of them; a box's one line to what it joins, nearest that
+// box's middle. No stem is taken that can't stand with those taken before it, a tier's boxes needing the room they need.
+// A stem that passes a tier stands in that tier as a thing no box may be put across: each box goes on the side of it where its
+// own lines cross fewest of them, a trunk counted once, keeping the tier's order. Boxes of one tier owned by the same two or
+// more stand together, a gap apart (`together`), in the order they had. What's left is set as near its relatives as the rest
+// leave it, the chart no wider than it must be, or as wide as `fill`, every gap in it alike, up to WIDEST.
+// `out` gives the order and takes the places: rows top-aligned, each TIERS under the one over it, which their lanes deepen as they need.
+const WIDEST = 72, TIERS = 44;
+function columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, standing, fill }) {
+  const size = new Map(boxes.map(b => [b.id, b]));
+  // Each tier's units: its blocks in the order ELK stood them, those of boxes owned by the same two or more drawn together.
+  const downs = ranked.filter(l => tier.get(l.from) < tier.get(l.to)), mains = downs.filter(l => l.trunk === main);
+  const ownersOf = groupBy(mains, l => l.to), kidsOf = groupBy(mains, l => l.from);
+  const owners = id => [...new Set((ownersOf.get(id) ?? []).map(l => l.from))].sort().join('|');
+  const rows = new Map();
+  for (const bs of [...blocks].sort((a, b) => out.get(a[0].id).x - out.get(b[0].id).x)) {
+    const t = tier.get(bs[0].id), row = rows.get(t) ?? rows.set(t, []).get(t), lone = bs.length === 1, k = lone ? owners(bs[0].id) : '', i = !k.includes('|') ? -1 : row.findLastIndex(u => u.key === k);
+    // (Where Tidy keeps the order they stood in, only those that stood side by side.)
+    if (i >= 0 && (!standing || i === row.length - 1)) row[i].bs.push(bs[0]);
+    else row.push({ bs: [...bs], key: k.includes('|') && lone ? k : null, block: !lone });
+  }
+  const units = [...rows.values()].flat(), unitOf = new Map(units.flatMap(u => u.bs.map(b => [b.id, u])));
+  // A unit's width and each box's middle in it, for a gap G between the boxes of those drawn together.
+  const shape = G => { for (const u of units) { let x = 0; u.at = new Map(); u.bs.forEach((b, i) => { u.at.set(b.id, (u.block ? inBlock.get(b.id).x + i * (G - GAP.across) : x) + b.w / 2); x += b.w + G; }); u.w = u.block ? widthOf(u.bs) + (u.bs.length - 1) * (G - GAP.across) : x - G; } };
+  const up = new Map(), find = u => { let d = 0; while (up.get(u)) { d += up.get(u).d; u = up.get(u).to; } return [u, d]; };
+  const middle = id => { const u = unitOf.get(id), [r, d] = find(u); return { r, x: d + u.at.get(id) }; };
+  // The columns, of the stems taken, for a gap G: each stem's two middles one.
+  const taken = [];
+  const link = () => { up.clear(); for (const l of taken) { const a = find(unitOf.get(l.from)), b = find(unitOf.get(l.to)); if (a[0] !== b[0]) up.set(b[0], { to: a[0], d: middle(l.from).x - middle(l.to).x }); } };
+  // The tiers' constraints, as each thing stands to the next in its tier, for columns as they are and a gap G; `at`, each unit's place (see solve).
+  const PASS = 16;
+  function solve(G, withPasses, at0) {
+    shape(G);
+    link();
+    const roots = units.filter(u => !up.get(u)), edges = [];
+    const unitItem = u => { const [r, d] = find(u); return { r, lo: d, hi: d + u.w, u }; };
+    const passes = [];
+    for (const l of downs) { if (tier.get(l.to) - tier.get(l.from) < 2) continue; const a = middle(l.from), b = middle(l.to); if (a.r === b.r && Math.abs(a.x - b.x) < 0.5) passes.push({ l, r: a.r, x: a.x }); }
+    const X = at0, xOf = id => { const m = middle(id); return X ? X.get(m.r) + m.x : out.get(id).x + size.get(id).w / 2; };
+    for (const [t, row] of rows) {
+      let items = row.map(unitItem);
+      const here = !withPasses ? [] : passes.filter(p => tier.get(p.l.from) < t && tier.get(p.l.to) > t).sort((p, q) => xOf(p.l.from) - xOf(q.l.from));
+      if (here.length) {
+        // Each unit's side of each stem, keeping the tier's order: where its lines cross fewest of them, a trunk once.
+        const cost = (u, j, right) => {
+          const px = xOf(here[j].l.from), own = new Set([here[j].l.from, here[j].l.to]);
+          let c = 0;
+          for (const b of u.bs) {
+            const ls = ranked.filter(l => (l.from === b.id || l.to === b.id) && !own.has(l.from) && !own.has(l.to));
+            for (const part of groupBy(ls, l => `${l.trunk}|${l.from === b.id}`).values()) if (part.some(l => { const o = l.from === b.id ? l.to : l.from, ox = xOf(o); return right ? ox < px - 0.5 : ox > px + 0.5; })) c++;
+          }
+          const mine = u.bs.reduce((s, b) => s + xOf(b.id), 0) / u.bs.length;
+          return c + (right === mine > px ? 0 : 0.01);
+        };
+        let best = Array.from({ length: here.length + 1 }, () => ({ c: 0, by: [] }));
+        for (const u of row) {
+          best = best.map((_, s) => {
+            const c = here.reduce((n, __, j) => n + cost(u, j, j < s), 0);
+            let m = null;
+            for (let q = 0; q <= s; q++) if (!m || best[q].c < m.c) m = best[q];
+            return { c: m.c + c, by: [...m.by, s] };
+          });
+        }
+        const slots = best.reduce((a, b) => b.c < a.c ? b : a).by, merged = [];
+        here.forEach((p, j) => { row.forEach((u, i) => { if (slots[i] === j && !merged.includes(items[i])) merged.push(items[i]); }); merged.push({ r: p.r, lo: p.x, hi: p.x, pass: true }); });
+        row.forEach((u, i) => { if (!merged.includes(items[i])) merged.push(items[i]); });
+        items = merged;
+      }
+      items.slice(1).forEach((b, i) => { const a = items[i]; edges.push({ a: a.r, b: b.r, w: a.hi - b.lo + (a.pass || b.pass ? PASS : G) }); });
+    }
+    // The least places that hold them all, by the longest way to each: null where none do.
+    const at = new Map(roots.map(r => [r, 0]));
+    for (let n = 0; n <= roots.length; n++) {
+      let moved = false;
+      for (const e of edges) { const v = at.get(e.a) + e.w; if (v > at.get(e.b) + 0.001) { if (e.a === e.b) return null; at.set(e.b, v); moved = true; } }
+      if (!moved) return { at, edges, roots };
+      if (n === roots.length) return null;
+    }
+    return null;
+  }
+  // The stems, each end's only line first.
+  const G0 = GAP.across, lined = m => (m ?? []).length, nearest = (ls, of, to) => [...ls].sort((p, q) => Math.abs(out.get(of(p)).x + size.get(of(p)).w / 2 - to) - Math.abs(out.get(of(q)).x + size.get(of(q)).w / 2 - to))[0];
+  const stems = [];
+  for (const l of mains) if (lined(kidsOf.get(l.from)) === 1 && lined(ownersOf.get(l.to)) === 1) stems.push(l);
+  for (const [from, ls] of kidsOf) {
+    if (ls.length < 2) continue;
+    const xs = ls.map(l => out.get(l.to).x + size.get(l.to).w / 2).sort((a, b) => a - b), mid = xs[xs.length >> 1], only = ls.filter(l => lined(ownersOf.get(l.to)) === 1);
+    if (only.length) stems.push(nearest(only, l => l.to, mid));
+  }
+  for (const [to, ls] of ownersOf) {
+    if (ls.length < 2) continue;
+    const only = ls.filter(l => lined(kidsOf.get(l.from)) === 1);
+    if (only.length) stems.push(nearest(only, l => l.from, out.get(to).x + size.get(to).w / 2));
+  }
+  let plan = solve(G0, true, null);
+  if (!plan) return;
+  for (const l of stems) {
+    if (find(unitOf.get(l.from))[0] === find(unitOf.get(l.to))[0]) continue;
+    taken.push(l);
+    const tried = solve(G0, true, plan.at);
+    if (tried) plan = tried; else { taken.pop(); solve(G0, true, plan.at); }
+  }
+  // As wide as it's to be, every gap alike; then each column as near its relatives as the rest leave it.
+  const extent = p => { const ends = units.map(u => { const [r, d] = find(u); return [p.at.get(r) + d, p.at.get(r) + d + u.w]; }); return Math.max(...ends.map(e => e[1])) - Math.min(...ends.map(e => e[0])); };
+  let G = G0;
+  if (fill && extent(plan) < fill) {
+    let [lo, hi] = [G0, WIDEST];
+    for (let n = 0; n < 12; n++) { const mid = (lo + hi) / 2, p = solve(mid, true, plan.at); if (p && extent(p) <= fill) lo = mid; else hi = mid; }
+    G = Math.floor(lo * 4) / 4;
+    const p = solve(G, true, plan.at);
+    if (p) plan = p; else { G = G0; plan = solve(G0, true, plan.at); }
+  }
+  const place = plan.at, left = Math.min(...units.map(u => { const [r, d] = find(u); return place.get(r) + d; })), right = Math.max(...units.map(u => { const [r, d] = find(u); return place.get(r) + d + u.w; }));
+  const pull = l => l.trunk === main ? 1 : 0.2, lo = new Map(), hi = new Map();
+  const rootsAt = plan.roots.map(r => ({ r, units: units.filter(u => find(u)[0] === r) }));
+  const extentOf = new Map(rootsAt.map(({ r, units: us }) => [r, [Math.min(...us.map(u => find(u)[1])), Math.max(...us.map(u => find(u)[1] + u.w))]]));
+  for (let sweep = 0; sweep < 24; sweep++) {
+    const order = sweep % 2 ? [...rootsAt].reverse() : rootsAt;
+    for (const { r, units: us } of order) {
+      let sum = 0, weight = 0;
+      for (const u of us) for (const b of u.bs) for (const l of ranked) {
+        if (l.from !== b.id && l.to !== b.id) continue;
+        const o = middle(l.from === b.id ? l.to : l.from);
+        if (o.r === r) continue;
+        const w = pull(l);
+        sum += w * (place.get(o.r) + o.x - (place.get(r) + middle(b.id).x));
+        weight += w;
+      }
+      if (!weight) continue;
+      lo.set(r, Math.max(left - extentOf.get(r)[0], ...plan.edges.filter(e => e.b === r && e.a !== r).map(e => place.get(e.a) + e.w)));
+      hi.set(r, Math.min(right - extentOf.get(r)[1], ...plan.edges.filter(e => e.a === r && e.b !== r).map(e => place.get(e.b) - e.w)));
+      if (lo.get(r) <= hi.get(r)) place.set(r, Math.min(hi.get(r), Math.max(lo.get(r), place.get(r) + sum / weight)));
+    }
+  }
+  // (Each box to the quarter pixel, as a route is, so what's in a column is in it exactly; and the rows.)
+  const q = v => Math.round(v * 4) / 4;
+  for (const r of plan.roots) place.set(r, q(place.get(r)));
+  let y = 0;
+  for (const t of [...rows.keys()].sort((a, b) => a - b)) {
+    for (const u of rows.get(t)) { const [r, d] = find(u); for (const b of u.bs) { const p = out.get(b.id); p.x = q(place.get(r) + d + u.at.get(b.id) - b.w / 2); p.y = y; } }
+    y += Math.max(...rows.get(t).flatMap(u => u.bs.map(b => b.h))) + TIERS;
+  }
 }
 // A block's boxes side by side, in the order of the level lines that join them: along them where they make a
 // path, each line's upper end first; else out from the box with the most, alternately right and left.
@@ -433,7 +591,7 @@ function arrange(a) {
   const { boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null } = a;
   const at = m => m && [...m].map(([id, p]) => [id, p.x, p.y, !!p.hand]);
   return arranged(JSON.stringify([boxes.map(b => [b.id, b.w, b.h, b.shape, b.class ?? null, b.order ?? null, !!b.around]), links.map(l => [l.from, l.to, l.trunk, l.room ?? 0, !!l.names]), clusters.map(c => [c.id, c.parent, c.members, c.top]),
-    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h],
+    at(entered), page.margin, page.room && [page.room.w, page.room.h, page.room.key?.w, page.room.key?.h, page.room.key?.under, page.room.fill], lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight]), obstacles.map(o => [o.x, o.y, o.w, o.h]), at(keep), bounds && [bounds.w, bounds.h],
     at(hints)]), () => arranging(a));
 }
 function arranging({ boxes, links, clusters, entered, page, lines = [], obstacles = [], keep = null, bounds = null, hints = null }) {
@@ -468,11 +626,17 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   const triangles = id => (downs.get(id) ?? []).filter(l => size.get(l.to)?.shape === 'triangle'), flanking = b => b.shape !== 'triangle' && !ups.has(b.id)
     && (downs.get(b.id) ?? []).length > 0 && triangles(b.id).length === downs.get(b.id).length && triangles(b.id).every(l => l.names);
   const madeAt = new Map(boxes.map((b, i) => [b.id, i]));
+  // Where the next box related to nothing goes: along a row under what stands, as wide as that is, then another under it.
+  const standing = [...geo.values()], leftAll = Math.min(...standing.map(g => g.x)), rightAll = Math.max(...standing.map(g => g.x + g.w));
+  let loose = { x: leftAll, y: Math.max(...standing.map(g => g.y + g.h)) + GAP.down, h: 0 };
+  const looseAt = b => { if (loose.x > leftAll && loose.x + b.w > rightAll) loose = { x: leftAll, y: loose.y + loose.h + GAP.down, h: 0 }; const p = { x: loose.x, y: loose.y }; loose = { x: loose.x + b.w + GAP.across, y: loose.y, h: Math.max(loose.h, b.h) }; return p; };
   for (const b of rest.sort((a, c) => flanking(a) - flanking(c) || at.get(a.id).y - at.get(c.id).y || (a.order ?? Infinity) - (c.order ?? Infinity) || madeAt.get(a.id) - madeAt.get(c.id))) {
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
     const near = [...kids, ...parents];
     const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all, hint = hints?.get(b.id);
-    const x0 = hint?.x ?? at.get(b.id).x + (Number.isFinite(dx) ? dx : all[0]), y0 = hint?.y ?? at.get(b.id).y + (Number.isFinite(dy) ? dy : all[1]);
+    // (Related to nothing placed, made nowhere in particular, it goes in a row under what stands, from its left, so it widens nothing: see tiers.)
+    const under = !near.length && !hint && !keep && !bounds ? looseAt(b) : null;
+    const x0 = under?.x ?? hint?.x ?? at.get(b.id).x + (Number.isFinite(dx) ? dx : all[0]), y0 = under?.y ?? hint?.y ?? at.get(b.id).y + (Number.isFinite(dy) ? dy : all[1]);
     // Across, the middle of its relatives; a triangle's, of those whose lines of the main relation meet its apex, where any do;
     // one flanking triangles, beside them, its near side over theirs.
     const owners = b.shape === 'triangle' ? parents.filter(id => ups.get(b.id).some(l => l.from === id && l.trunk === main)) : [], by = owners.length ? owners : near;
@@ -646,6 +810,8 @@ function exit(g, [tx, ty]) {
 }
 const centerX = g => g.x + g.w / 2;
 const centerOf = g => [g.x + g.w / 2, g.y + g.h / 2];
+// How far in from its ends a line may meet a box's top or bottom: 9 pt, and past where a rounded box's corner has begun, so no stem lands on its curve.
+const inFrom = g => Math.min(Math.max(12, g.shape === 'rounded' ? Math.min(g.w, g.h) * (g.settings?.Corner?.value ?? 16.667) / 100 + 4 : 0), g.w / 4);
 const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
 // The chart's main relation, ownership as a rule: the one most lines draw; of as many, the one fewer of whose lines say
 // what they are (`names`), as a general partner's say "General partner", which an owner's never need to, saying their
@@ -698,7 +864,7 @@ function land(geo, lines, frames) {
 const routes = keeping();
 const ROUTED = ['from', 'to', 'points', 'labelAt', 'down', 'landed', 'around', 'astray', 'strained', 'blocked', 'crowded', 'quiet', 'lane', 'apex', 'crowd', 'kin', 'lack', 'laned'];
 function route(geo, lines, opts = {}) {
-  const k = JSON.stringify([[...geo.values()].map(g => [g.id, g.x, g.y, g.w, g.h, g.shape]), opts.frames?.map(f => [f.id, f.x, f.y, f.w, f.h, f.members, f.depth]), opts.labels, !!opts.stand, opts.aside ?? [],
+  const k = JSON.stringify([[...geo.values()].map(g => [g.id, g.x, g.y, g.w, g.h, g.shape, g.settings?.Corner?.value]), opts.frames?.map(f => [f.id, f.x, f.y, f.w, f.h, f.members, f.depth]), opts.labels, !!opts.stand, opts.aside ?? [],
     opts.avoid?.map(r => [r.x, r.y, r.w, r.h]), lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight, l.arrow, l.bend, l.label && [l.label.w, l.label.h, l.label.base, l.label.shared, l.label.text, l.label.pin]])]);
   const out = routes(k, () => { routing(geo, lines, opts); return lines.map(l => Object.fromEntries(ROUTED.map(p => [p, l[p]]))); });
   lines.forEach((l, i) => Object.assign(l, out[i]));
@@ -814,7 +980,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   // triangle's side, over its gutter, where the box spans some of it, nearest the box's middle. And a trunk's one line
   // meeting a triangle's side comes straight down its gutter from where it leaves its box, where that's over it.
   for (const group of groupBy(trunks, t => `${t.from}|${t.dir}`).values()) for (const t of group) {
-    const l = t.ls[0], s = G(t.from), m = Math.min(12, s.w / 4), alone = group.length === 1;
+    const l = t.ls[0], s = G(t.from), m = inFrom(s), alone = group.length === 1;
     if (t.ls.length !== 1 || (s.shape === 'triangle' && t.dir === 'up')) continue;
     if (l.flank) {
       const lo = Math.max(l.gutter[0], alone ? s.x + m : t.x), hi = Math.min(l.gutter[1], alone ? s.x + s.w - m : t.x);
@@ -833,7 +999,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   // A trunk's stem moves along its box's edge onto a branch it would leave its lane by within 8 pt of it (see BESIDE),
   // where the edge allows, so that the two are one straight line and not a step.
   for (const t of trunks) {
-    const s = G(t.from), m = Math.min(12, s.w / 4);
+    const s = G(t.from), m = inFrom(s);
     if (s.shape === 'triangle' && t.dir === 'up') continue;
     const x = t.lands.map(l => l.flank ? l.gx : l.tx).filter(x => Math.abs(x - t.x) > 0.25 && Math.abs(x - t.x) < BESIDE && x >= s.x + m && x <= s.x + s.w - m).sort((a, b) => Math.abs(a - t.x) - Math.abs(b - t.x))[0];
     if (x === undefined) continue;
@@ -846,7 +1012,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   // the stem's, as lines meeting at an apex do, may run on with it.
   const drops = trunks.flatMap(t => t.lands).filter(l => l.dir === 'down' && !l.flank && l.tx !== undefined);
   for (const t of trunks.filter(t => t.dir === 'down')) {
-    const s = G(t.from), m = Math.min(12, s.w / 4), own = new Set(t.ls.flatMap(l => [l.from, l.to]));
+    const s = G(t.from), m = inFrom(s), own = new Set(t.ls.flatMap(l => [l.from, l.to]));
     const past = drops.filter(l => l.from !== t.from && l.ty > t.edge && G(l.from).y + G(l.from).h <= t.edge + LANE).map(l => [l.tx, own.has(l.from) || own.has(l.to)]);
     const clear = x => past.every(([p, mate]) => Math.abs(p - x) >= BESIDE || (mate && Math.abs(p - x) <= 0.5));
     if (clear(t.x)) continue;
@@ -1036,7 +1202,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
     if (!aside.has(l) && (pass ? !strays(l.points, G(l.from), G(l.to), boxesNear, drawn.without(i), mates(l)) : !blockedRoute(l.points, new Set([l.from, l.to]), solid, avoid, near))) continue;
     // (Where it leaves its box's top or bottom, it may leave anywhere along that edge, 9 pt in from its ends: see search.)
     const port = (p, q, at, g) => { const dx = Math.sign(Math.round(p[0] - q[0])), dy = Math.sign(Math.round(p[1] - q[1])), dir = dy < 0 ? 0 : dx > 0 ? 1 : dy > 0 ? 2 : 3, [ux, uy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][dir];
-      const m = g && Math.min(12, g.w / 4), slide = g && g.shape !== 'frame' && (dir === 2 || (dir === 0 && g.shape !== 'triangle')) ? [g.x + m, g.x + g.w - m] : null;
+      const m = g && inFrom(g), slide = g && g.shape !== 'frame' && (dir === 2 || (dir === 0 && g.shape !== 'triangle')) ? [g.x + m, g.x + g.w - m] : null;
       return pad => ({ at, out: [at[0] + ux * (pad + 0.25), at[1] + uy * (pad + 0.25)], dir, ...slide && { slide } }); };
     const ps = l.points, n = ps.length;
     ends.set(l, [port(ps[1], ps[0], ps[0], G(l.from)), port(ps[n - 2], ps[n - 1], ps[n - 1])]);
@@ -1110,7 +1276,7 @@ function sideY(s, t) {
 // each starts, if the box reaches that far; otherwise spread evenly; and never closer than each one's room
 // (`after`, the space its label takes beside it), as far as the box allows.
 function arrivals(t, starts, after = [], clear = null) {
-  const n = starts.length, m = Math.min(12, t.w / 4), [x0, x1] = clear ?? [t.x, t.x + t.w];
+  const n = starts.length, m = inFrom(t), [x0, x1] = clear ?? [t.x, t.x + t.w];
   const lo = Math.max(t.x + m, x0), hi = Math.max(lo, Math.min(t.x + t.w - m, x1));
   const even = starts.map((_, i) => x0 + (x1 - x0) * (i + 1) / (n + 1));
   const xs = starts.map((s, i) => s >= lo && s <= hi ? s : even[i]);
@@ -1538,5 +1704,5 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   return way.filter((p, i) => i === 0 || i === way.length - 1 || !((p[0] === way[i - 1][0] && p[0] === way[i + 1][0]) || (p[1] === way[i - 1][1] && p[1] === way[i + 1][1])));
 }
 
-return { place, arrange, route, around, labels: placeLabels, pin, pinned, sideY, sideX, keepIn, OPTIONS, fit: ({ boxes, links, clusters, room }) => tiers(boxes, links, room, clusters).fit };
+return { place, arrange, route, around, labels: placeLabels, pin, pinned, sideY, sideX, keepIn, mainOf, OPTIONS, fit: ({ boxes, links, clusters, room }) => tiers(boxes, links, room, clusters).fit };
 })();
