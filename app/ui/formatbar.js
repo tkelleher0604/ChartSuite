@@ -339,8 +339,10 @@ function apply(label, value) {
   const inView = `${Time.looked(label, value, scope.caption)} in ${scope.root ? lookTaker(c.scene().view) : App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
   // (The footer's the chart's, on every page.)
   const marks = scopesOf(c).marks, ofFoot = !!marks.length && marks.every(isFoot) && Time.looked(label, value, 'the footer');
+  // (A free shape's look is its row's, which History can't read words from: said as it's done.)
+  const ofFree = !ofFoot && freeSaid(marks, label, value);
   const sceneWas = App.scene.peek();
-  App.change(tx => { write(tx, c, label, value); if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || null,
+  App.change(tx => { write(tx, c, label, value); if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null,
     go: () => first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? null });
   if (label === 'Fill' && scope.own) sayLies(sceneWas);
   fade();
@@ -355,9 +357,11 @@ function applyAll(pairs) {
   const c = Canvas.active.peek();
   if (!c) return;
   preview();
-  App.change(tx => pairs.forEach(([l, v]) => write(tx, c, l, v)));
+  const ofFree = freeSaid(scopesOf(c).marks, ...pairs[0]);
+  App.change(tx => { pairs.forEach(([l, v]) => write(tx, c, l, v)); if (ofFree) tx.says(ofFree); }, { say: ofFree || null });
   fade();
 }
+const freeSaid = (marks, label, value) => !!marks.length && marks.every(m => m.type === 'shape') && Time.looked(label, value, marks.length > 1 ? `these ${marks.length} shapes` : marks[0].geometry === 'line' ? 'the line' : marks[0].geometry === 'text' ? 'the text box' : 'the shape');
 // A choice pointed at, drawn on the chart as it would be: the change written, uncommitted, on the chart's
 // rows, and the canvas asked to draw from them; for a size, laid out afresh, as the page may grow for it, and for
 // Tidy, the chart laid out with nothing entered. With nothing, the chart is drawn as it is again. Each note tried
@@ -1276,6 +1280,7 @@ function holdsOf(look) {
     return Object.entries(f).filter(([l]) => !['Shown', 'Caption', 'Layer', 'Above'].includes(l)).map(([l, v]) => l === 'Shape' ? shapeWord(v) : l === 'Fill' || l === 'Outline' || l === 'Color' ? `${l.toLowerCase()} ${v === 'none' ? 'none' : String(v).toUpperCase()}` : l === 'Weight' || l === 'Size' ? `${l === 'Size' ? 'size' : 'weight'} ${v} pt` : l === 'Font' ? v : l === 'Arrow' ? (v === 'auto' ? 'arrow auto' : `arrow ${ARROWS[v] ?? v}`) : l === 'Dash' ? (DASH_NAMES.find(([d]) => d === v)?.[1] ?? v).toLowerCase() : typeof v === 'boolean' ? (v ? l.toLowerCase() : `not ${l.toLowerCase()}`) : typeof v === 'object' ? l.toLowerCase() : `${l.toLowerCase()} ${v}`).join(', '); };
   const k = look.furniture?.key, corner = k?.corner, foot = look.footer;
   return { rows: [['Paper', paperSaid(look.page)], ['All text', fmtSaid(look.root) || 'Arial'],
+    ...look.palette?.colors ? [['Colors', look.palette.colors.slice(4).map(c => c.toUpperCase()).join(', ')]] : [], ...look.rest?.Fill ? [['Everything else', `fill ${String(look.rest.Fill).toUpperCase()}`]] : [],
     ...look.furniture?.title?.format ? [['Title', fmtSaid(look.furniture.title.format)]] : [], ...look.furniture?.date?.format ? [['Date', fmtSaid(look.furniture.date.format)]] : [],
     ...foot ? [['Footer', [foot.text ? `“${foot.text}”` : null, foot.number ? 'page numbers' : null, fmtSaid(foot.format)].filter(Boolean).join(', ')]] : [],
     ...k ? [['Key', [corner ? `${corner.v} ${corner.h}` : 'placed by the page', k.columns ? `${k.columns} ${k.columns === 1 ? 'column' : 'columns'}` : null, k.hide?.length ? `${k.hide.length} ${k.hide.length === 1 ? 'row' : 'rows'} hidden` : null, Object.values(k.captions ?? {}).length ? `captions ${Object.values(k.captions).join(', ')}` : null].filter(Boolean).join(', ')]] : []],
@@ -1446,7 +1451,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="align" ...${writes(null, none)} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" ...${writes(null, !layered)} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" ...${writes(null, grouping.disabled)} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [...aligns.map(a => a === '-' || a.head ? a : { ...a, disabled: a.disabled || none || ro }), '-', { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Order', disabled: !layered || ro, items: orders }, grouping, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', ...[['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers'], ['Margins', 'margins'], ['Guides', 'guides']].map(([label, k]) => ({ label, checked: Canvas.aids.peek()[k], run: Canvas.aidToggle(k) }))])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [...aligns.map(a => a === '-' || a.head ? a : { ...a, disabled: a.disabled || none || ro }), '-', { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Order', disabled: !layered || ro, items: orders }, grouping, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" ...${writes(tidy.label === 'Tidy' ? null : tidy.label, tidy.disabled)} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label.replace(/ \D+$/, '')}<span class="wide">${tidy.label.match(/ \D+$/)?.[0]}</span></button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',

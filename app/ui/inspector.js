@@ -1800,7 +1800,7 @@ function RelateView({ a, b }) {
       asks: 'from', day: was ? was.day : App.day.peek(), needs: [a, b], say: c => Time.describe(c),
       // (Its lists go by their roles, plural, as any list's name is: Holders, Funds.)
       // (And drawn on the page it's made on, a line and a row in its Styles, as what it's drawn to say.)
-      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); const view = App.scene.peek()?.view; if (view) tx.note('Shown', p, true, { view }); },
+      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); const view = Shell.view.peek(); if (view) tx.note('Shown', p, true, { view }); },
       done: () => { naming.value = null; fresh.value = { a, b, key: [ra, rb, a, b].join('|').toLowerCase() }; } });
   };
   // Enter goes on to the next it asks, until it's all given, and then makes it.

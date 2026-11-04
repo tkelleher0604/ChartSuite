@@ -1400,7 +1400,7 @@ const FormulaBar = (() => {
     if (!p || p.flaws?.some(f => !f.warn)) return canvas?.redline(null);
     const text = (X, id) => { const r = X.records[id]; return !r || isObj(r) ? '' : Tree.outputText(r); };
     const changed = Object.fromEntries(p.diff.change.map(id => [id, { before: text(R.peek(), id), after: text(p.R2, id) }]));
-    canvas?.redline({ appear: p.diff.appear, go: p.diff.go, changed, records: p.R2.records });
+    canvas?.redline({ appear: p.diff.appear, go: p.diff.go, changed, records: p.R2.records, shows: p.change?.shows });
   });
   // The subject as the pending change would leave it: undefined if unchanged, null if gone, or its record.
   function after(m) {

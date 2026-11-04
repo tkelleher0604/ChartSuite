@@ -50,6 +50,9 @@ function attach(x) {
   function arm(geometry, opts = {}) {
     disarm();
     if (x.still()) return Shell.toast(App.whyNot());
+    // (A line with two things selected that can be glued joins them, there being nothing left to aim.)
+    const two = x.selectedNow();
+    if ((geometry === 'line' || geometry === 'arrow-line') && two.length === 2 && two.every(gluable)) return x.connect(two[0], two[1], null, geometry === 'arrow-line' ? { Arrow: 'end' } : {});
     armed = { geometry, opts };
     root.classList.add('drawing');
     unarm = Shell.layer(disarm);
@@ -245,7 +248,7 @@ function attach(x) {
   x.gEl.addEventListener('mousedown', e => {
     if (e.button !== 0 || !(e.ctrlKey || e.metaKey) || e.shiftKey || armed) return;
     const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), cell = id && graph.getCellById(id), k = cell?.getData?.()?.kind;
-    if (!cell || !['box', 'shape', 'line'].includes(k) || (k === 'line') || e.target.closest?.('.dc-end')) return;
+    if (!cell || !['box', 'shape'].includes(k) || e.target.closest?.('.dc-end')) return;
     const m = scene().byId.get(id);
     if (!m || m.role || m.geometry === 'legend') return;
     e.stopPropagation(); e.preventDefault();
@@ -293,7 +296,7 @@ function attach(x) {
     did(() => flip(how));
   }
   // Turned by `by` degrees, clockwise: a free shape about its middle, a line about its middle, a group about the group's, each member with it; a box doesn't turn, which is said.
-  function turnBy(by, ms = x.selectedNow()) {
+  function turnBy(by, ms = x.selectedNow(), to = null) {
     if (x.still()) return Shell.toast(App.whyNot());
     const groups = ms.filter(m => m.geometry === 'group'), one = ms.filter(m => m.geometry !== 'group' && flippable(m));
     const members = groups.flatMap(g => g.members.map(id => scene().byId.get(id)).filter(Boolean));
@@ -303,12 +306,12 @@ function attach(x) {
     App.change(tx => {
       for (const m of turnable) {
         const g = groups.find(q => q.members.includes(m.id)), about = g ? mid(g) : m.points ? mid(x.extent([m])) : mid(m), row = x.rowOf(m.id);
-        if (m.geometry === 'line') { const pts = (row.points ?? m.points).map(q => spin(q, about).map(round)); tx.update(m.id, { points: pts, x: pts[0][0], y: pts[0][1] }); continue; }
+        if (m.geometry === 'line') { const pts = (row.points ?? m.points).map(q => spin(q, about).map(v => Math.round(v * 100) / 100)); tx.update(m.id, { points: pts, x: pts[0][0], y: pts[0][1] }); continue; }
         const [nx, ny] = g ? spin(mid(m), about) : mid(m), r = (((row.rotate ?? 0) + by) % 360 + 360) % 360;
         tx.update(m.id, { rotate: r || undefined, ...(g && { x: round(nx - m.w / 2), y: round(ny - m.h / 2) }) });
       }
       for (const g of groups) { const row = x.rowOf(g.id); tx.update(g.id, { rotate: ((((row?.rotate ?? 0) + by) % 360 + 360) % 360) || undefined }); }
-    }, { dated: false, say: `Turned ${groups.length === 1 && !one.length ? 'the group' : turnable.length === 1 ? x.called(turnable[0]) : `${turnable.length} shapes`} ${by}°${stay.length ? `; ${stay.length === 1 ? `${x.called(stay[0])} stays square` : `${stay.length} boxes stay square`}` : ''}` });
+    }, { dated: false, say: `Turned ${groups.length === 1 && !one.length ? 'the group' : turnable.length === 1 ? x.called(turnable[0]) : `${turnable.length} shapes`} ${to != null ? `to ${Math.round(to * 10) / 10}` : Math.round(by * 10) / 10}°${stay.length ? `; ${stay.length === 1 ? `${x.called(stay[0])} stays square` : `${stay.length} boxes stay square`}` : ''}` });
     did(() => turnBy(by));
   }
   // A line's angle, as its panel reads it and takes it typed: from its start to its end, clockwise from the right.
@@ -318,15 +321,16 @@ function attach(x) {
     if (!m?.points || !row) return;
     const by = angle - angleOf(m);
     if (Math.abs(by) < 0.05) return;
-    turnBy(by, [m]);
+    turnBy(by, [m], ((angle % 360) + 360) % 360);
   }
 
   // ---- Shift and Ctrl on a drag: proportions kept, a turn snapped, sized from the middle ----
   let centre = null;
-  addEventListener('pointermove', e => {
+  const heldKeys = e => {
     for (const [cell, w] of x.transform.widgets) { if (w.options) { w.options.preserveAspectRatio = x.lockedCell(cell) || e.shiftKey; w.options.rotateGrid = e.shiftKey ? 15 : 1; } }
     if (centre) centre.ctrl = e.ctrlKey || e.metaKey, centre.px = e.clientX, centre.py = e.clientY;
-  }, true);
+  };
+  addEventListener('pointermove', heldKeys, true);
   graph.on('node:resize', ({ node, e }) => { const p = node.getPosition(), s = node.getSize(); centre = { node, cx: p.x + s.width / 2, cy: p.y + s.height / 2, ctrl: e.ctrlKey || e.metaKey, ratio: s.width / (s.height || 1), px: e.clientX, py: e.clientY }; });
   graph.on('node:resizing', ({ node, e }) => {
     if (!centre || centre.node !== node || !(e.ctrlKey || e.metaKey)) return;
@@ -579,7 +583,7 @@ function attach(x) {
   }
 
   return { arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
-    destroy() { removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
+    destroy() { removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
 }
 return { attach };
 })();

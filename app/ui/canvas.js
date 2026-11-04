@@ -1129,7 +1129,7 @@ function mount(el) {
     const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !/^\s*=/.test(raw ?? '');
     openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
   }
-  // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't, as a cell's in
+  // Typing in place, over the mark: Enter keeps it (a shape's begins a paragraph: see below), Esc doesn't, as a cell's in
   // Excel (but does what `escaped` says), unless it's `kept`, as a shape's text in PowerPoint; and leaving keeps it.
   // `grow`: it widens as it's typed, a text box nobody has sized; `box`: a new box, named as it's typed, its kind
   // chosen beside it (see kindChooser) from `box.kinds`, `box.kind` first, each chosen told to `box.pick`.
@@ -1167,12 +1167,26 @@ function mount(el) {
       if (list?.key(e) || kind?.key(e)) return;
       if (parts?.key(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); finish(kept); }
-      else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true, true); }
+      // A shape's words, as PowerPoint's: Enter begins a paragraph, Ctrl+Enter, Esc or a click away ends the typing. (With nothing typed there's no paragraph to end: it ends.)
+      else if (e.key === 'Enter' && multiline && !(e.ctrlKey || e.metaKey) && (e.shiftKey || ed.textContent)) { e.preventDefault(); paragraph(ed); }
+      else if (e.key === 'Enter') { e.preventDefault(); finish(true, true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
       else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
     });
     ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); finish(true); });
     return ed;
+  }
+  // A new line at the caret, as text, so a run's places stay in its characters. (At the very end, a second, which keeping the words takes off, as a last line break draws nothing to type on.)
+  function paragraph(ed) {
+    const s = getSelection();
+    if (!s.rangeCount) return;
+    const r = s.getRangeAt(0), rest = r.cloneRange();
+    r.deleteContents();
+    rest.selectNodeContents(ed); rest.setStart(r.endContainer, r.endOffset);
+    const n = document.createTextNode(rest.toString() ? '\n' : '\n\n');
+    r.insertNode(n);
+    r.setStart(n, 1); r.collapse(true); s.removeAllRanges(); s.addRange(r);
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
   }
   // Words being typed set part by part (Scene's runs). Each run is a span of the editor's, saying what it is, so typing in it stays in it; what's selected, or else the word the
   // caret's in, takes a look; Ctrl+B, Ctrl+I, Ctrl+U, Ctrl+Shift+X, and Ctrl+Shift+= and Ctrl+= for a superscript and subscript, as PowerPoint's; Ctrl+] and Ctrl+[ its size.
@@ -1707,10 +1721,10 @@ function mount(el) {
   for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); });
 
   // A connector: a line glued to what it joins, a free shape's row with no record and no meaning attached, in the deck a real connector. From one to another, or from one to a point. Selected, as what was just made.
-  function connect(a, b, q = null) {
+  function connect(a, b, q = null, given = {}) {
     let id = null;
     if (still()) return Shell.toast(App.whyNot());
-    const pts = [Scene.edgePoint(a, b ? [b.x + b.w / 2, b.y + b.h / 2] : q), b ? Scene.edgePoint(b, [a.x + a.w / 2, a.y + a.h / 2]) : q].map(([u, v]) => [round(u), round(v)]), look = hand.newLook('line');
+    const pts = [Scene.edgePoint(a, b ? [b.x + b.w / 2, b.y + b.h / 2] : q), b ? Scene.edgePoint(b, [a.x + a.w / 2, a.y + a.h / 2]) : q].map(([u, v]) => [round(u), round(v)]), look = { ...hand.newLook('line'), ...given };
     if (App.change(tx => { id = tx.add('shape', { view: viewOf(), geometry: 'line', x: pts[0][0], y: pts[0][1], points: pts, ends: [a.id, b?.id ?? null], ...(Object.keys(look).length && { format: look }) }); }, { dated: false, say: `Drew a line from ${called(a)}${b ? ` to ${called(b)}` : ''}` })) Shell.select([id]);
   }
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
@@ -1814,9 +1828,8 @@ function mount(el) {
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
-      ...(one?.type === 'box' && App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []),
-      // A company's own: each stake in it, sold or ended from the company, not only from its thin line.
-      ...(one?.type === 'box' ? stakeItems(one) : []),
+      // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)
+      ...(one?.type === 'box' ? (deals => deals.length ? [{ label: 'Transactions', items: deals }] : [])([...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)]) : []),
       // Their own History.
       ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-'] : []),
       { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
@@ -1858,8 +1871,8 @@ function mount(el) {
     if (!ms.length) return [];
     const bar = typeof FormatBar !== 'undefined' ? FormatBar : {}, open = what => () => bar.open ? bar.open(what) : document.querySelector(`.fb [data-fb="${what}"]`)?.click();
     const boxy = ms.some(m => m.type === 'box' || (m.type === 'shape' && m.geometry !== 'line'));
-    return [{ label: 'Format', disabled: ro, items: [...(boxy ? [{ label: 'Fill…', run: open('fill') }] : []), { label: 'Outline…', run: open('outline') }, { label: 'Font…', run: open('font') }] },
-      ...(bar.copyLook ? [{ label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : []), '-'];
+    return [{ label: 'Format', items: [...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, { label: 'Font…', disabled: ro, run: open('font') },
+      ...(bar.copyLook ? ['-', { label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : [])] }, '-'];
   }
   // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
   // as the Key and Styles group them; null for a box's own, or where none says.
@@ -1916,7 +1929,7 @@ function mount(el) {
     { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, { label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, '-',
     { label: 'Page setup…', disabled: still(), run: () => Export.setup() }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-',
     ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-',
-    ...[['Gridlines', 'grid'], ['Rulers', 'rulers'], ['Margins', 'margins'], ['Guides', 'guides']].map(([label, k]) => ({ label, checked: aids.peek()[k], run: aidToggle(k) })), '-',
+    aidsRow(), '-',
     { label: 'Tidy', disabled: still(), run: tidy },
   ];
   const placedAt = (p, w, h) => ({ x: round(clamp(p.x - w / 2, 0, scene.page.w - w)), y: round(clamp(p.y - h / 2, 0, scene.page.h - h)), w, h });
@@ -2094,7 +2107,7 @@ function mount(el) {
   function redline(r) {
     const R2 = typeof FormulaBar !== 'undefined' && FormulaBar.pending.peek()?.R2;
     red = r ? { state: r.records, computed: r.computed ?? (R2?.records === r.records ? R2 : App.computed.peek()), appear: new Set(r.appear ?? []), go: new Set(r.go ?? []),
-      changed: new Set(Object.keys(r.changed ?? {})), scene: null } : null;
+      changed: new Set(Object.keys(r.changed ?? {})), scene: null, wb: r?.shows ? (rows => ({ ...App.shown.peek(), rows: () => rows, notes: () => Notes.index(rows.filter(x => 'note' in x)) }))([...App.shown.peek().rows(App.chart.peek()), ...r.shows]) : null } : null;
     if (r) return show();
     if (!clearing) { clearing = true; queueMicrotask(() => { clearing = false; show(); }); }
   }
@@ -2170,7 +2183,7 @@ function mount(el) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
     // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
     if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day))
-      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsFor(base) }) : null);
+      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(red.wb ?? App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsFor(base) }) : null);
     const r = red?.scene ? red : null;
     const st = stateNow(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
@@ -2208,7 +2221,7 @@ function mount(el) {
   // day, however often it's asked for again meanwhile.
   const laidAhead = new WeakMap();
   function* redAhead(r, base) {
-    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsFor(base) });
+    const sc = yield* Scene.steps(r.wb ?? App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsFor(base) });
     (laidAhead.get(r.state) ?? laidAhead.set(r.state, new Map()).get(r.state)).set(`${base.view}|${base.day}`, sc);
     if (red?.state === r.state && !red.scene) show();
   }
@@ -2874,7 +2887,7 @@ function mount(el) {
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
-  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected });
+  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect });
   active.value = canvas;
   return canvas;
 }
@@ -2914,6 +2927,8 @@ const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 const aidToggle = k => () => { aids.value = { ...aids.peek(), [k]: !aids.peek()[k] }; };
+// What helps the eye and never prints, one row of a menu, its ticks a step in, so the menus it's on fit the window they open in.
+const aidsRow = () => ({ label: 'Gridlines and guides', items: [['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers'], ['Margins', 'margins'], ['Guides', 'guides']].map(([label, k]) => ({ label, checked: aids.peek()[k], run: aidToggle(k) })) });
 for (const [id, name, k, names] of [['chart.grid', 'Gridlines', 'grid', ['Grid', 'Show grid']], ['chart.snap', 'Snap to grid', 'snap', ['Grid', 'Snap', 'Align to grid']], ['chart.rulers', 'Rulers', 'rulers', ['Ruler', 'Show rulers', 'Guides']]])
   Shell.register('action', { id, name, names, enabled: here, run: aidToggle(k) });
 Shell.register('action', { id: 'chart.rotate', name: 'Rotate…', names: ['Rotation', 'Turn', 'Angle'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && active.peek().selected()[0].type === 'shape',
@@ -2943,5 +2958,5 @@ Shell.register('action', { id: 'chart.unbend', name: 'Reset the route', names: [
   run: () => { const m = lineNow(), n = bendNote(); if (n) App.change(tx => tx.remove(n.note), { dated: false, say: `Reset the route of ${App.notes.peek().nameOf(App.state.peek(), m.record)}: ${App.notes.peek().segmentOf(App.state.peek(), m.record)}` }); },
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line a hand has bent first' });
 
-return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, rich, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, keyCaption, keyCorner };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, rich, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, aidsRow, keyCaption, keyCorner };
 })();

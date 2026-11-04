@@ -381,7 +381,9 @@ const App = (() => {
     for (const id in after) if (after[id] !== now[id]) records[id] = after[id];
     // (A table opened only to read isn't in the log an edit reads, and doesn't go for that.)
     for (const id in now) if (!(id in after) && !Tree.isView(now[id])) records[id] = null;
-    return Object.keys(records).length ? { records } : null;
+    // (And what it shows of what it adds, so its redline is what it'll draw: a relation of a new name, its line.)
+    const shows = tx.added().filter(r => 'note' in r);
+    return Object.keys(records).length ? { records, ...(shows.some(r => r.label === 'Shown') && { shows }) } : null;
   }
   // When a record added holds from (dendra.md, Time). One whose kind or relation has a start entry holds from
   // that, whenever it's recorded: a fund from its Formation Date, a general partner from its Admission Date.
