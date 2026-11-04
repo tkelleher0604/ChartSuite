@@ -599,7 +599,7 @@ async function checks() {
   check('… and from two records, back to the two', stepped1 && Shell.selection.peek().join() === 'pension,bdc' && M().options?.length > 0 && !document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel'), `${stepped1} ${Shell.selection.peek().join()}`);
   // A figure down a chain multiplies the whole chain
   const LT_AIV = 'fx:investment=tessellate&investor=inv_aiv';
-  check('a look-through says each link, then the whole sum', FormulaBar.because(LT_AIV) === 'AIV-1 Investors (Fund III and III-A Partners) is an owner of AIV-1 with a percentage of 100%, AIV-1 is an owner of AIV-1 Blocker with a percentage of 100% and AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so the look-through ownership of AIV-1 Investors (Fund III and III-A Partners) in Tessellate Dental Partners Holdco, LLC is 100% × 100% × 66% = 66%.', FormulaBar.because(LT_AIV));
+  check('a look-through says each link, then the whole sum', FormulaBar.because(LT_AIV) === 'AIV-1 Investors is an owner of AIV-1 with a percentage of 100%, AIV-1 is an owner of AIV-1 Blocker with a percentage of 100% and AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so AIV-1 Investors’ look-through ownership of Tessellate Dental Partners Holdco, LLC is 100% × 100% × 66% = 66%.', FormulaBar.because(LT_AIV));
   check('… and a holding of one link, as it is', FormulaBar.because('fx:investment=tessellate&investor=aivblk') === 'AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so its look-through ownership of Tessellate Dental Partners Holdco, LLC is 66%.', FormulaBar.because('fx:investment=tessellate&investor=aivblk'));
   // What's between two records: what holds, with its figure and chain; and what doesn't, why not
   const btw = FormulaBar.between('fund', 'tessellate'), said1 = d => btw.not.find(x => x.def === d && x.from === 'fund')?.sentence;
@@ -614,6 +614,8 @@ async function checks() {
   const nowhere = id => FormulaBar.between('macallister', 'bdc').not.find(x => x.def === id)?.sentence ?? '';
   check('why is MacAllister on neither list: only an affiliated person of a close affiliate not under the clauses asked', /not an affiliated person of any of the BDC’s close affiliates under \(b\)\(1\) or \(b\)\(2\), only of Cayman GP, which is not under \(b\)\(1\) or \(b\)\(2\) \(§57\(e\)\(2\)\)\.$/.test(nowhere('def_remote'))
     && /^Fiona MacAllister is not a close affiliate of the BDC: not among the BDC’s personnel/.test(nowhere('def_close')), `${nowhere('def_remote')} | ${nowhere('def_close')}`);
+  const byClause = FormulaBar.between('macallister', 'caygp').not.find(x => x.def === 'def_affiliated' && x.from === 'caygp')?.sentence ?? '';
+  check('… a relation asked by a clause, as asked: it holds, but not under (A)', /Fiona MacAllister is not an affiliated person of Cayman GP under \(A\) \(§2\(a\)\(3\)\(B\)\)/.test(byClause), byClause);
   check('… and of two that aren’t objects, nothing', !FormulaBar.between('own_fund_npine', 'bdc').holds.length && !FormulaBar.between('own_fund_npine', 'bdc').not.length);
   // The bar and Find say the same
   Shell.select(['fund', 'tessellate']); await wait(40);

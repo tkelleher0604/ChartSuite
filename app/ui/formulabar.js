@@ -648,7 +648,8 @@ const FormulaBar = (() => {
   function missed(Rv, d, id, n, lets, within, none = false) {
     if (n.k === 'NOT') return [{ parts: within(n.kids[0]) }];
     if (n.k === 'ANY' || (n.k === 'IN' && isObj(Rv.records[ask(Rv, d, id, lets, n.kids[0].text)?.value?.id]))) return nearest(Rv, d, id, n, lets);
-    if (n.k !== 'CMP' && n.k !== 'IN') { const ps = within(n); return gather(Rv, id, new Set(), ps).length ? [{ parts: ps }] : notCalled(Rv, d, id, lets, n) ?? [{ parts: ps }]; }
+    // A relation called, of a pair with no record, is said as it's asked: it may hold, but not by the clause cited.
+    if (n.k !== 'CMP' && n.k !== 'IN') { const ps = within(n), called = none || !gather(Rv, id, new Set(), ps).length ? notCalled(Rv, d, id, lets, n) : null; return called ?? [{ parts: ps }]; }
     // Of a pair with no record, a total is said as what it counted, not by all it looked through.
     const total = none && n.kids.find(k => /^SUM\(/i.test(k.text)), counted = total && noneCounted(Rv, d, id, lets, n, total);
     if (counted) return counted;
