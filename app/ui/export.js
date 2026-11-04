@@ -333,7 +333,7 @@ const PRESET = { rect: 'rect', rounded: 'roundRect', oval: 'ellipse', triangle: 
 const SITES = { rect: [0, 1, 2, 3], rounded: [0, 1, 2, 3], diamond: [0, 1, 2, 3], oval: [0, 2, 4, 6], triangle: [0, 1, 3, 5],
   hexagon: [[4, 5], 3, [2, 1], 0], octagon: [[6, 7], [5, 4], [3, 2], [0, 1]], parallelogram: [0, 5, 4, 2], trapezoid: [0, 1, 2, 3],
   pentagon: [0, 1, 3, 5], chevron: [0, 1, 2, 3], arrow: [0, 1, 2, 3], cylinder: [1, 2, 3, 4],
-  rtriangle: [0, 1, 3, 5], snip: [3, 2, 1, 0], snip2: [3, 2, 1, 0], round1: [3, 2, 1, 0], round2: [3, 2, 1, 0], plaque: [0, 1, 2, 3], heptagon: [6, 4, [3, 2], 1], decagon: [[8, 9], 6, [4, 3], 1],
+  rtriangle: [0, 1, 3, 5], snip: [3, 2, 1, 0], snip2: [3, 2, 1, 0], round1: [0, 1, 2, 3], round2: [3, 2, 1, 0], plaque: [0, 1, 2, 3], heptagon: [6, 4, [3, 2], 1], decagon: [[8, 9], 6, [4, 3], 1],
   dodecagon: [[10, 11], [8, 7], [5, 4], [1, 2]], homeplate: [0, 1, 2, 3], folded: [0, 1, 2, 3], cube: [0, 2, 3, 5] };
 const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot', 'square-dot': 'sysDash', 'dash-dot': 'dashDot', 'long-dash': 'lgDash', 'long-dash-dot': 'lgDashDot', 'long-dash-dot-dot': 'lgDashDotDot' };
 // A line's end as PowerPoint holds it, by its Arrowhead's style and size.

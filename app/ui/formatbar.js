@@ -313,7 +313,9 @@ function apply(label, value) {
   // where a later style gives some of it otherwise, puts the group's style after it, or says which still decides.
   const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value);
   const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say].filter(Boolean);
-  App.change(tx => { write(tx, c, label, value); first.also?.(tx); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : null });
+  // (A text property goes to every field, so to more notes than one: said as the one act it is.)
+  const inView = `${Time.looked(label, value, scope.caption)} in ${App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && !!scope.outputs && !fieldOf(c);
+  App.change(tx => { write(tx, c, label, value); first.also?.(tx); if (oneAct) tx.says(inView); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : null });
   fade();
   // Keys go back to the chart, so the next change can be typed.
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
@@ -760,16 +762,16 @@ const LINE_LOOK = ['Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'];
 const TEXT_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'];
 const LOOK = new Set([...BOX_LOOK, ...LINE_LOOK, ...TEXT_LOOK]);
 const kindOf = m => m.type === 'line' || m.geometry === 'line' ? 'line' : 'box';
-const textValue = (it, l, p = page()) => { const v = it?.look?.[l]; return l === 'Size' && typeof v === 'number' ? Math.round(Scene.toSlide(p, v) * 2) / 2 : v; };
+const textValue = (it, l) => { const v = it?.look?.[l]; return l === 'Size' ? shown(v) : v; };
 // The look of a mark, and with `only` (a text of a style of one entry) that text's alone: its first text's, and by its
 // label each other field's that differs, so a look pasted reads as it did where it was copied (a name in 9, its
 // jurisdiction in 7 and italic).
 function lookOf(m, p = page(), only = null) {
   const first = only ?? m.texts?.[0] ?? m.caption, out = {};
   if (!only) for (const l of kindOf(m) === 'line' ? LINE_LOOK : BOX_LOOK) { const v = m.settings?.[l]?.value ?? m.look?.[l]; if (v !== undefined && v !== null) out[l] = l === 'Weight' ? +Scene.toSlide(p, v).toFixed(3) : v; }
-  for (const l of TEXT_LOOK) { const v = textValue(first, l, p) ?? m.settings?.[l]?.value ?? m.look?.[l]; if (v !== undefined && v !== null) out[l] = v; }
+  for (const l of TEXT_LOOK) { const v = textValue(first, l) ?? m.settings?.[l]?.value ?? m.look?.[l]; if (v !== undefined && v !== null) out[l] = v; }
   if (!only) for (const it of m.texts ?? []) {
-    const e = it !== first && !it.blank && fieldEdge(it), own = e && Object.fromEntries(TEXT_LOOK.map(l => [l, textValue(it, l, p)]).filter(([l, v]) => v !== undefined && v !== null && v !== out[l]));
+    const e = it !== first && !it.blank && fieldEdge(it), own = e && Object.fromEntries(TEXT_LOOK.map(l => [l, textValue(it, l)]).filter(([l, v]) => v !== undefined && v !== null && v !== out[l]));
     if (e && Object.keys(own).length) (out.fields ??= {})[Tree.norm(e)] = own;
   }
   return out;
@@ -904,13 +906,39 @@ function clearLook() {
   const notes = [...LOOK].flatMap(l => N.notes(l)).filter(n => n.view === view && keys.has(Tree.key(n.pattern)));
   const shapes = scope.own ? s.marks.filter(m => m.type === 'shape' && Object.keys(App.shown.peek().item(App.chart.peek(), m.id)[0]?.format ?? {}).some(l => LOOK.has(l))) : [];
   const what = listed([...new Set([...notes.map(n => n.label), ...shapes.flatMap(m => Object.keys(App.shown.peek().item(App.chart.peek(), m.id)[0].format).filter(l => LOOK.has(l)))])]);
-  if (!notes.length && !shapes.length) { Shell.toast(`No formatting to clear on ${scope.own ? scope.label.replace(/^This|^These/, m => m.toLowerCase()) : named(c, scope)}`); return true; }
+  if (!notes.length && !shapes.length) {
+    const none = `No formatting to clear on ${scope.own ? scope.label.replace(/^This|^These/, m => m.toLowerCase()) : named(c, scope)}`;
+    if (!scope.own || !alsoStyle(c, s.marks, none)) Shell.toast(none);
+    return true;
+  }
   const whose = scope.own ? (s.marks.length === 1 && s.marks[0].record ? possessive(N.nameOf(st, s.marks[0].record)) : `${scope.label.replace(/^This|^These/, m => m === 'This' ? 'this' : 'these')}’`) : null;
+  const said = whose ? `Cleared ${whose} ${what}` : `Cleared the ${what} of ${scope.caption}`;
   App.change(tx => {
     notes.forEach(n => tx.remove(n.note));
     for (const m of shapes) { const f = App.shown.peek().item(App.chart.peek(), m.id)[0].format; tx.update(m.id, { format: Object.fromEntries(Object.entries(f).filter(([l]) => !LOOK.has(l))) }); }
-  }, { say: whose ? `Cleared ${whose} ${what}` : `Cleared the ${what} of ${scope.caption}` });
+  }, { say: said });
+  if (scope.own) alsoStyle(c, s.marks, said, { undo: () => Shell.parts.peek().undo.undo() });
   return true;
+}
+// Where a style's look is what's left on the marks a Clear formatting went to, its toast offers to clear that too.
+function alsoStyle(c, marks, said, o = {}) {
+  const sc = c.scene(), left = stylesLeft(sc, marks);
+  if (left.length) Shell.toast(said, { ...o, go: ['Also clear the style’s look', () => clearStyles(sc.view, left)] });
+  return left.length > 0;
+}
+// The notes in a view at no record that decide a look property of these marks, as the notes now stand.
+function stylesLeft(sc, marks) {
+  const now = Scene.looks(App.shown.peek(), App.chart.peek(), sc.view, sc.day, { state: App.state.peek(), computed: App.computed.peek() }), out = new Map();
+  for (const m of marks) if (m.record) for (const [l, v] of Object.entries(now.byId.get(m.id)?.settings ?? {})) if (LOOK.has(l) && v.note?.view === sc.view && !Tree.idsIn(v.note.pattern).size) out.set(v.note.note, v.note);
+  return [...out.values()];
+}
+// Those notes' whole Styles rows, each output of them, so a row isn't left in pieces.
+function clearStyles(view, notes) {
+  const N = App.notes.peek(), rows = Scene.groupsOf(N, view).filter(g => g.outputs.some(p => notes.some(n => Tree.key(n.pattern) === Tree.key(p))));
+  const keys = new Set([...notes.map(n => Tree.key(n.pattern)), ...rows.flatMap(g => g.outputs.map(p => Tree.key(p)))]);
+  const all = [...LOOK].flatMap(l => N.notes(l)).filter(n => n.view === view && keys.has(Tree.key(n.pattern)));
+  const said = `Cleared the ${listed([...new Set(all.map(n => n.label))])} of ${listed(rows.map(g => g.caption))}`;
+  App.change(tx => { all.forEach(n => tx.remove(n.note)); tx.says(said); }, { dated: false, say: said });
 }
 
 // Insert: a box of each of the chart's kinds, a record named as it's typed; then the shapes PowerPoint has.
@@ -1038,7 +1066,7 @@ const houseItems = id => {
   const ro = App.readOnly.peek();
   return [...houses.value.map(s => ({ label: s.name, items: [
       { label: `Apply to ${viewNamed(id)}`, disabled: ro, run: () => applyHouse(id, s) }, { label: 'Apply to every chart view', disabled: ro, run: () => applyHouseAll(s) }, '-',
-      { label: 'Download', run: () => downloadHouse(s) }, { label: 'Delete', danger: true, run: () => forgetHouse(s) }] })),
+      { label: 'Begin a new chart in it', disabled: ro, run: () => App.newChart(s.look) }, '-', { label: 'Download', run: () => downloadHouse(s) }, { label: 'Delete', danger: true, run: () => forgetHouse(s) }] })),
     ...(houses.value.length ? ['-'] : []),
     { label: 'Save this look as a house style…', run: () => saveHouse(id) }, { label: 'Load a house style…', run: loadHouse }];
 };

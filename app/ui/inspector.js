@@ -835,7 +835,7 @@ function Relatives({ id }) {
 // shown; what's recorded at it (a line's percentage) is a text of its own, so a line can hide its name and
 // still draw its 64%.
 const TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
-const labelOf = (label, named) => label === 'Corner' ? 'Rounding' : label !== 'Format' ? label : named ? 'Name' : 'Text';
+const labelOf = (label, named) => label === 'Corner' ? 'Rounding' : label === 'Dash' ? 'Dashes' : label !== 'Format' ? label : named ? 'Name' : 'Text';
 const DASHES = { dotted: 'Round dot', 'square-dot': 'Square dot', dashed: 'Dash', 'dash-dot': 'Dash dot', 'long-dash': 'Long dash', 'long-dash-dot': 'Long dash dot', 'long-dash-dot-dot': 'Long dash dot dot' };
 const shadowSaid = v => { const o = Scene.shadowOf(v); return !o ? 'None' : `${o.blur} pt blur, ${o.distance} pt at ${o.angle}°`; };
 const headSaid = v => Object.entries(v ?? {}).map(([end, h]) => `${upper(end)}: ${h.type}, ${h.size}`).join('; ') || 'Triangle, small';

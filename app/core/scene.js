@@ -293,7 +293,7 @@ function fill(words, t, width, inset = 0) {
 const linesOf = (it, width) => it.text ? breakLines(it.text, it.look, width, true, !!it.hangs && it.look.Align === 'left') : [];
 // A dash as SVG and PDF draw it, for a line of weight w in points: its dashes and gaps, in pixels. PowerPoint's set: Round
 // Dot (dotted), Square Dot, Dash (dashed), Dash Dot, Long Dash, Long Dash Dot, and Long Dash Dot Dot, each in its multiples of the weight.
-const DASHES = { dashed: [4, 3], 'square-dot': [1, 1], 'dash-dot': [4, 3, 1, 3], 'long-dash': [8, 3], 'long-dash-dot': [8, 3, 1, 3], 'long-dash-dot-dot': [8, 3, 1, 3, 1, 3] };
+const DASHES = { dashed: [4, 3], 'square-dot': [3, 1], 'dash-dot': [4, 3, 1, 3], 'long-dash': [8, 3], 'long-dash-dot': [8, 3, 1, 3], 'long-dash-dot-dot': [8, 3, 1, 3, 1, 3] };
 const dash = (d, w) => { const p = w * PT; return DASHES[d] ? DASHES[d].map(k => Math.max(k, p * k)).join(' ') : d === 'dotted' ? `${Math.max(1, p)} ${Math.max(2.5, p * 2)}` : null; };
 // A Shadow as it's drawn, or null for none: PowerPoint's outer shadow, its blur and its distance from the shape in points on
 // the sheet, whatever scale the chart is drawn at, its angle in degrees clockwise from the right, its color and how transparent.

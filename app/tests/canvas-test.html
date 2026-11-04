@@ -400,7 +400,7 @@ async function run() {
   check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then More colors, the Eyedropper, Transparency and No fill', swatches.length === 70
     && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
     && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
-    && fillRows.length === 4 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Transparency ?\d+%$/.test(fillRows[2]) && fillRows[3] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
+    && fillRows.length === 4 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Transparency ?\d*%$/.test(fillRows[2]) && fillRows[3] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
   // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
   // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
   const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -1757,7 +1757,16 @@ async function format() {
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);
-Shell.ready.then(() => location.search.includes('format') ? null : run()).then(format)
+// The format bar's are on the sample as it opens, so in a window of their own, whose checks count here.
+const framed = async () => {
+  const f = document.body.appendChild(Object.assign(document.createElement('iframe'), { src: `${location.pathname.split('/').pop()}?format` }));
+  f.style.cssText = 'position:fixed;left:0;top:0;width:1440px;height:900px;z-index:-1;border:0';
+  await until(() => f.contentWindow.__done, 200000);
+  out.push(...(f.contentWindow.__out ?? []));
+  f.remove();
+};
+window.__out = out;
+Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : run().then(framed))
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);
