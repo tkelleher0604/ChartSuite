@@ -10,8 +10,7 @@
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
 // text is a formula. `reveal`, records the view hides, drawn for a while, and `keep`, a restyle's preview, keep the
 // view as it was last drawn (see the layout). `paper`, a size in PAGES, or one turned ("letter portrait"), draws the
-// view on that paper in place of its own page (see the page), and `refit` on its own page as if it were another, afresh, for
-// Fit to page. `ahead` lays out a state a change previewed would leave,
+// view on that paper in place of its own page (see the page). `ahead` lays out a state a change previewed would leave,
 // so it's drawn at once when the change is made, and isn't kept as how the view was drawn: a redline is that scene,
 // inked by the canvas, as Enter will draw it, `holds` keeping where they stand the boxes making it will keep so (record
 // → place; see the layout) and, by its `page`, the scale and offset making it will keep.
@@ -512,7 +511,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const holding = boxesHeld.length ? JSON.stringify(boxesHeld) : '';
   // (The scale it keeps, whether a change is about to write it or has: so what its change made was laid out ahead for, too.)
   const keeps = JSON.stringify(opts.holds?.page ?? wb.notes(chart).resolve('Scale', { id: view, kind: 'View' })?.value ?? null);
-  const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding, keeps], whence = `${drawnAs}|${opts.paper ?? ''}${opts.refit ? '|refit' : ''}`;
+  const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding, keeps], whence = `${drawnAs}|${opts.paper ?? ''}`;
   if (!preview && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
@@ -926,7 +925,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // (The place of a box not drawn yet is where it will stand: as far down as the room for the lanes over them has moved what stands at its height.)
   const lowered = y => last.lowered.filter(([at]) => at <= y + 4).reduce((a, b) => b[0] > a[0] ? b : a, [-Infinity, 0])[1];
   if (last) for (const m of [positions, hints]) for (const [id, p] of m) m.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y + (last.at.has(id) ? 0 : lowered(p.y)) });
-  const ownSheet = pageOf(N, view), placedBy = r => r.x == null || r.y == null, onPaper = !!opts.refit || (!!opts.paper && (sheet.w !== ownSheet.w || sheet.h !== ownSheet.h));
+  const ownSheet = pageOf(N, view), placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && (sheet.w !== ownSheet.w || sheet.h !== ownSheet.h);
   // What the page keeps as the view is edited: the scale it's drawn at, and how far it moved the chart to hold it (a
   // change writes them, with the places it keeps, as making it will: see the canvas). So the scale falls only to hold
   // what the layout places, and never grows on its own. On another paper, it's that paper's.
@@ -1113,7 +1112,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     return a.faults !== b.faults ? a.faults < b.faults : p !== q ? p > q : a.bent !== b.bent ? a.bent < b.bent : a.around < b.around; };
   yield;
   // (A free shape on another paper stands as it stands on the view's own page: see furnish.)
-  const ownScene = onPaper ? yield* drawing(wb, chart, view, day, { ...opts, paper: null, refit: false }) : null, ownPage = ownScene?.page ?? null;
+  const ownScene = onPaper ? yield* drawing(wb, chart, view, day, { ...opts, paper: null }) : null, ownPage = ownScene?.page ?? null;
   const rough = g => Math.min(1, Layout.fit({ ...ranked(sizes(boxes.map(b => ({ ...b, texts: b.texts.map(it => ({ ...it })) })), 1, g)), room }));
   // (Typed sizes are laid out for where the chart will be drawn, as near as can be said at first: as the page keeps it; or
   // on a paper smaller than its own page, as its own page draws it; so a pass or two, not many.)
@@ -1210,7 +1209,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
-  const laid = !preview && !opts.paper && !opts.refit ? {
+  const laid = !preview && !opts.paper ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])), lowered: boxes.filter(b => b.laid).map(b => [b.laid.y, b.y - page.offset.y - b.laid.y]),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),

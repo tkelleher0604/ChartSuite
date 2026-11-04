@@ -2307,8 +2307,7 @@ const Table = (() => {
   const loadSheetJS = () => sheetjs ??= new Promise((ok, fail) => document.head.append(Object.assign(document.createElement('script'), {
     src: new URL('xlsx/xlsx.full.min.js', VENDOR).href, onload: () => ok(window.XLSX), onerror: () => { sheetjs = null; fail(new Error('Couldn’t load the Excel writer')); } })));
   // (Named as a chart's file is, its as-of day in it where that's not today: "… - Tax - as of Feb 1, 2027.xlsx".)
-  const asOf = () => App.day.peek();
-  const fileName = ext => `${[App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(Shell.view.peek())?.name, asOf() !== Log.today() && `as of ${Tree.formatDate(asOf(), 'short')}`].filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '') || 'Table'}.${ext}`;
+  const fileName = ext => `${[App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(Shell.view.peek())?.name, App.asOfWords().name].filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '') || 'Table'}.${ext}`;
   // A day as Excel counts it, from December 30, 1899.
   const serial = iso => { const [y, m, d] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
   // A percentage as precise as the grid says it, to four places: 28.4% is 0.0%, 100% is 0%.
@@ -2322,7 +2321,7 @@ const Table = (() => {
     const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c);
     const rows = (all ? table.getRows() : table.getRows('active')).map(r => r.getData()).filter(d => d._red !== 'add');
     const value = (d, c) => { const mm = d._m[field(c)]; return mm && 'was' in mm ? mm.was : d[field(c)]; };
-    const ws = { A1: { t: 's', v: `As of ${Tree.formatDate(asOf(), 'short')}` } }, at = (r, j) => X.utils.encode_cell({ r, c: j });
+    const ws = { A1: { t: 's', v: App.asOfWords().line } }, at = (r, j) => X.utils.encode_cell({ r, c: j });
     cols.forEach(([, c], j) => {
       ws[at(1, j)] = { t: 's', v: headed(c) };
       rows.forEach((d, i) => {

@@ -758,10 +758,10 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // What to call a box on a page's warnings: its short name.
   const called = b => App.notes.peek().shortOf(App.state.peek(), b.record);
   // A view placed as a scene `on` a page places it, as a change: its boxes, kept as they were kept, a hand's still a hand's;
-  // the scale there, `fit` where it's Fit to page, as History says it; and its free shapes where they stand there.
-  function placing(tx, on, view, fit = false) {
+  // the scale there; and its free shapes where they stand there.
+  function placing(tx, on, view) {
     const N = App.notes.peek(), half = v => Math.round(v * 2) / 2, s = on.page.scale;
-    tx.note('Scale', viewAt(view), { scale: s, x: 0, y: 0, ...(fit && { fit }) });
+    tx.note('Scale', viewAt(view), { scale: s, x: 0, y: 0 });
     for (const m of on.marks) if (m.type === 'box' && !m.revealed) {
       const t = Tree.treeOf(App.state.peek(), m.record), old = N.position(t, view);
       tx.note('Position', t, { x: half(m.x), y: half(m.y), w: half(m.w), ...(old?.h != null && { h: half(m.h) }), ...((!old || old.kept || !Number.isFinite(old.x)) && { kept: true }) }, { view });
@@ -773,15 +773,22 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       else if (r.x != null) tx.update(r.shape, { x: half(m.x), y: half(m.y), ...(r.w != null && { w: half(m.w) }), ...(r.h != null && { h: half(m.h) }), ...(r.points && { points: m.points.map(([x, y]) => [half(x), half(y)]) }) });
     }
   }
-  // Fit to page: the page sets the chart on it afresh, as it sets one on another paper, everything drawn within its margins,
-  // as large as that allows, what a hand put beyond them too. One change.
+  // Fit to page: what a hand put beyond the margins is brought in, as one change. A box whose middle is off the sheet goes back
+  // to the layout, which places it beside its relatives, among what stands; every other a hand put is kept as the layout's
+  // are, so the page holds it too, the kept scale falling as far as that needs.
   function fitToPage(id = Shell.view.peek()) {
     if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
-    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), M = now.page.margin;
-    const inMargins = now.marks.filter(m => m.type === 'box' && !m.revealed).every(b => b.x >= M - 1 && b.y >= M - 1 && b.x + b.w <= now.page.w - M + 1 && b.y + b.h <= now.page.h - M + 1);
-    const on = Scene.of(App.shown.peek(), App.chart.peek(), id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), refit: true });
-    if (inMargins && on.page.scale <= now.page.scale) return Shell.toast('The chart already fits its page');
-    App.change(tx => placing(tx, on, id, true), { dated: false, keep: false, say: 'Fit the chart to its page' });
+    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margin, N = App.notes.peek(), boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
+    if (boxes.every(b => b.x >= M - 1 && b.y >= M - 1 && b.x + b.w <= p.w - M + 1 && b.y + b.h <= p.h - M + 1)) return Shell.toast('The chart already fits its page');
+    const away = b => { const x = b.x + b.w / 2, y = b.y + b.h / 2; return x < 0 || y < 0 || x > p.w || y > p.h; };
+    App.change(tx => {
+      tx.note('Scale', viewAt(id), { scale: p.scale, x: p.offset.x, y: p.offset.y, fit: true });
+      for (const b of boxes) {
+        const t = Tree.treeOf(App.state.peek(), b.record), old = N.position(t, id);
+        if (!Number.isFinite(old?.x) || old.kept) continue;
+        tx.note('Position', t, away(b) ? undefined : { ...old, kept: true }, { view: id });
+      }
+    }, { dated: false, keep: false, say: 'Fit the chart to its page' });
     Canvas.active.peek()?.zoom('fit');
   }
   // Page setup: the view's paper, which way it's turned, and the chart's footer. A paper or a turn is one change, the
@@ -811,8 +818,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <input type="text" aria-label="Footer" placeholder="Footer" value=${text} spellcheck="false" onInput=${e => { choice.text = e.target.value; }} onChange=${e => setText(e.target.value)} />
         <label><input type="checkbox" checked=${number} onChange=${e => setNumber(e.target.checked)} />Page numbers</label>
       </div>
-      ${says.map(t => html`<p class="ex-says ex-warn">${t}</p>`)}
-      <div class="ex-well"><figure class="ex-page" style=${`--a: ${page.aspect}`}><img src=${page.src} alt="" /></figure></div>
+      ${says.length ? html`<div class="ex-warns">${says.slice(0, 4).map(t => html`<p class="ex-says">${t}</p>`)}</div>` : null}
+      <div class="ex-well" style=${`--said: ${Math.min(4, says.length) * 20}px`}><figure class="ex-page" style=${`--a: ${page.aspect}`}><img src=${page.src} alt="" /></figure></div>
     </div>`;
   }
   async function setup(view = Shell.view.peek()) {
@@ -882,9 +889,11 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
-      ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says ex-warn">${named(x)}</p>`)}
-      ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-warn">${named(x)} <button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button></p>`)}
-      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')}>
+      ${said.length ? html`<div class="ex-warns">
+        ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}
+        ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} <button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button></p>`)}
+      </div>` : null}
+      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')} style=${`--said: ${(Math.min(4, said.filter(x => !x.off).length) + Math.min(4, said.filter(x => x.off).length) * 1.5 + (oneOff ? 1.5 : 0)) * 20}px`}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
           <button type="button" aria-label=${pg.name} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button>
           ${pages.length > 1 && !one ? html`<figcaption>${pg.name}</figcaption>` : null}</figure>`)}
@@ -916,7 +925,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     // A file of one view is named for it; of more, for the chart; each saying its as-of day, where that's not today. By
     // whoever exports it, blank where no name is set.
     const one = choice.scenes.length === 1 ? list.find(v => v.id === choice.scenes[0].view) : null, day = choice.scenes[0]?.day;
-    const dated = day && day !== Log.today() && choice.scenes.every(s => s.day === day) ? `as of ${Tree.formatDate(day, 'short')}` : '';
+    const dated = day && choice.scenes.every(s => s.day === day) ? App.asOfWords(day).name : '';
     return write(choice.format, choice.scenes, one ? fileName(chartName(), one.name, dated) : fileName(chartName(), dated),
       { author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }

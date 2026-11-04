@@ -854,6 +854,9 @@ const App = (() => {
     const v = views.value.find(x => x.id === Shell.view.value);
     return v?.layout !== 'chart' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
   });
+  // The words an exported file says its day in, the one place they're made: its name's, where that day isn't today ("as of
+  // Dec 31, 2026"), and an Excel sheet's first line.
+  const asOfWords = (d = day.peek()) => { const words = `as of ${Tree.formatDate(d, 'short')}`; return { name: d === Log.today() ? '' : words, line: `As of ${Tree.formatDate(d, 'short')}` }; };
   // What a table's rows can be: each kind, each relation (its edges, every other label removed), and dates
   // and documents.
   const strip = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: strip(a.loc) })) } : {};
@@ -979,6 +982,6 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, change, keeping, would, asksDay, endOf, heldFrom, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, change, keeping, asOfWords, would, asksDay, endOf, heldFrom, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
   };
 })();
