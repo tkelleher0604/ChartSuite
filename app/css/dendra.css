@@ -155,7 +155,8 @@ input.bare { border-color: transparent; background: transparent; }
 .menu-find:empty::before { content: attr(data-placeholder); position: absolute; left: 12px; color: var(--ink-3); pointer-events: none; }
 .menu-find .fn { font-variant: all-small-caps; letter-spacing: .04em; }
 .menu-item { height: var(--row); padding: 0 8px; display: flex; align-items: center; gap: 8px; border-radius: var(--r); white-space: nowrap; cursor: default; user-select: none; }
-.menu-item > .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.menu-item > .label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.menu-item > .detail { overflow: hidden; text-overflow: ellipsis; }
 .menu-item > .check { width: 16px; flex: none; color: var(--ink); }
 .menu-item > .glyph { width: 16px; flex: none; display: inline-grid; place-items: center; color: var(--ink-2); }
 .menu-item > .detail, .menu-item > kbd { color: var(--ink-3); font: var(--t12); margin-left: 16px; }
@@ -381,10 +382,10 @@ button.ol-head { cursor: pointer; }
 .ol-head.sub { padding-top: 6px; font-weight: 400; color: var(--ink-3); }
 .ol-row > .ours { justify-self: end; font: var(--t12); }
 .ol-none { padding: 12px 16px; color: var(--ink-3); }
-.ol-tabs > .overdue, .ol-tabs > .error { color: var(--no); }
-.ol-tabs > .soon, .ol-tabs > .blank { color: var(--due); }
-.said-overdue, .said-error { color: var(--no); font-weight: 500; }
-.said-blank { color: var(--due); }
+.ol-tabs > .broken, .ol-tabs > .overdue, .ol-tabs > .error { color: var(--no); }
+.ol-tabs > .soon, .ol-tabs > .blank, .ol-tabs > .overrides { color: var(--due); }
+.said-broken, .said-overdue, .said-error { color: var(--no); font-weight: 500; }
+.said-blank, .said-overrides { color: var(--due); }
 .notours { margin-left: 8px; font: 400 var(--t12); color: var(--ink-3); }
 .sel .notours { margin-left: 0; }
 /* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
@@ -441,8 +442,9 @@ button.ol-head { cursor: pointer; }
 .status { margin-left: auto; padding: 0 16px; flex: none; color: var(--ink-2); }
 .status, .status > .counts { display: flex; align-items: center; gap: 4px; }
 .status .btn { height: 24px; padding: 0 4px; }
-.status .overdue, .status .error { color: var(--no); }
-.status .soon, .status .blank { color: var(--due); }
+.status .overdue, .status .error, .status .broken { color: var(--no); }
+.status .soon, .status .blank, .status .overrides { color: var(--due); }
+.status .broken { font-weight: 600; }
 
 /* The launch cover, set before first paint by the head script, so nothing of the app shows first. */
 html[data-splash]::after { content: ""; position: fixed; inset: 0; z-index: 2147483647; background: #727f95; }
@@ -550,6 +552,12 @@ li.CodeMirror-hint-active { background: var(--hover); color: var(--ink); }
 /* Why, on a change pending and on a History entry: a word away, or typed. */
 .why-in { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 200px; min-width: 160px; color: var(--ink-2); font-weight: 400; }
 .why-in > .cell { flex: 1 1 auto; min-width: 0; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); }
+/* Why asked for and not yet given: what its button waits on. */
+.why-in.needed > span { font-weight: 500; color: var(--due); }
+.why-in.needed > .cell { border-color: var(--due); }
+.when.until { display: inline-flex; align-items: center; }
+.when.until > .word { margin-right: 6px; color: var(--ink-2); font-weight: 400; }
+.when.until .cell.date { width: 96px; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); }
 button.lk.why-add { margin: 0; padding: 0 2px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 .hist-row > .note > .by { color: var(--ink-3); }
 .hist-row > .why-in { display: flex; margin-top: 4px; }

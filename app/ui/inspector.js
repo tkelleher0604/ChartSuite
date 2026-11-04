@@ -115,14 +115,18 @@ const placeOf = e => e.args?.length === 1 ? e.args[0] : e.at ? { at: e.at, edge:
 function slots(at, all) {
   const r = recs(), own = !!r[at]?.kind, slot = (edge, x) => ({ edge, at, ...x, t: { args: [{ edge, loc: tree(at) }] } });
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
-  const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
+  // (What can't be said of a yes-or-no for want of a value stands where its box would, in its own state: dendra.md, Definitions: Can't say.)
+  const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e, at, cant: e.error.code === '#N/A' && App.definitions.value.find(d => d.id === e.def)?.type === 'tag' }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
   // A tag its rule hasn't tested here says so, apart from no (dendra.md, Definitions: Not tested); and one whose rule reads a rule in
   // error says it can't say, for its silence here would read as no.
   const { reach } = App.broken.value, silent = d => d.type === 'tag' && !d.edges && ![...errors, ...blanks].some(x => T.same(x.edge, d.name)) && Formulas.silence(N(), App.schema.value, r, at, d.name);
   const unsure = reach.size ? App.definitions.value.filter(d => reach.has(d.id) && silent(d)).map(d => slot(d.name, { at, unsure: d.id })) : [];
   const untested = App.definitions.value.filter(d => !reach.has(d.id) && silent(d) === 'untested').map(d => slot(d.name, { at, na: true }));
-  const given = [...errors, ...blanks, ...unsure, ...untested], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
+  // What a check that says something here reads of this record, where it has none, is an empty row: what's missing can be seen, and typed.
+  const known = [...errors, ...blanks, ...unsure, ...untested], R = App.computed.value, read = own ? App.definitions.value.filter(d => d.type === 'tag' && !d.edges && (R.rows[d.id] ?? []).some(x => x.at === at) && N().check({ args: [{ edge: d.name, loc: tree(at) }] }))
+    .flatMap(d => Formulas.readsAt(R, d.id)).filter((e, i, l) => l.findIndex(x => T.same(x, e)) === i && !entryNamed(at, e) && !known.some(x => T.same(x.edge, e)) && specsAt(tree(at), e).length && !App.definitions.value.some(d => T.same(d.name, e))).map(e => slot(e, { at, open: true })) : [];
+  const given = [...known, ...read], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
   const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...given, ...asked].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
   // What's blank that others of its kind have stands empty too, so what's missing can be seen and typed; or says it isn't ours.
   const apart = own && !all ? App.blanksApart.value.filter(b => b.id === at && !b.list && ![...given, ...asked].some(x => T.same(x.edge, b.edge))).map(b => slot(b.edge, { open: true, apart: true })) : [];
@@ -245,9 +249,10 @@ const ending = (id, edge) => { const p = deletion(id); return p && typeof p.word
 // Struck wherever a change pending takes it away as of the day shown: deleted, or transferred whole.
 const goes = id => { const p = App.pending.value, red = FormulaBar.pending.value; return p?.chart === App.chart.value && red?.from === 'pending' && !!recs()[id] && !!red.R2 && !(id in red.R2.records); };
 // Adds an entry, and its specification if the schema hasn't got it.
-function addEntry(at, edge, out) {
+function addEntry(at, edge, out, { recurs = false } = {}) {
   const spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: T.specOf(tree(at)) }] };
-  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); tx.add('record', enterAt(tx, { at, edge, ...out })); });
+  // (A date that recurs, a questionnaire's, says its own day: it holds from then, and the next stands beside it. dendra.md, Time.)
+  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); if (recurs) tx.note('Fixed', T.bare(spec), false); tx.add('record', enterAt(tx, { at, edge, ...out, ...(recurs && out.value <= App.day.peek() && { since: out.value }) })); }, recurs ? { dated: false } : undefined);
 }
 // A new yes-or-no is only specified: this record's answer is left to a rule, or to its box, offered here, ticked by a hand that means
 // it. A hand tick from making the field would beat the rule written next. A check is one whose failures count as errors, and it goes
@@ -579,6 +584,7 @@ const firstRelated = at => App.shown.value.rows(App.chart.value).filter(r => r.s
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
   if (slot?.na) return html`<span class="na" data-tip="Not tested: its rule doesn’t apply here">n/a</span>`;
+  if (slot?.cant) return html`<button class="cant" data-tip=${FormulaBar.blankSaid(slot.error)} onClick=${() => emit('why-open', slot.error.id)}>Can’t say</button>`;
   if (slot?.unsure) return html`<button class="errv err" data-tip="Its rule reads a rule that doesn’t work" onClick=${() => openDef(slot.unsure)}>Can’t say</button>`;
   // An error where the value would be: what it needs, in words ("Needs Fiscal Year End"), its code on hover;
   // with no words, its code, in red. Clicked, the bar says why.
@@ -607,11 +613,12 @@ function entryMenu(anchor, id) {
   const r = recs()[id], f = fx(id);
   menu(anchor, [
     { label: 'Rule', keys: 'Alt+Click', run: () => select([general(patternOf(id))]) },
-    // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it.
-    ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: r.tag ? 'Rule out…' : 'Attest…', run: () => App.overriding(id) }] : []),
+    // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it; and what's typed over one goes back the same way.
+    ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: 'Override…', run: () => App.overriding(id) }] : []),
+    ...(!f && over(id) && !App.readOnly.peek() ? [{ label: 'Back to the rule…', run: () => App.backToRule(id) }] : []),
     ...(f || App.readOnly.peek() ? [] : [{ label: 'Rename', run: () => { renaming.value = id; } }, ...(recs()[r.at]?.at ? [{ label: 'Move up a level', run: () => moveUp(id) }] : [])]),
     ...('field' in r || App.readOnly.peek() ? [] : [{ label: 'Add', items: addItems(id, anchor) }]),
-    ...(f || App.readOnly.peek() ? [] : ['-', { label: 'Delete', danger: true, run: () => remove(id) }]),
+    ...(f || overrides(id) || App.readOnly.peek() ? [] : ['-', { label: 'Delete', danger: true, run: () => remove(id) }]),
   ]);
 }
 function addItems(at, anchor) {
@@ -732,7 +739,7 @@ function Label({ it, fx }) {
   // (One with no record yet has a rule's way in too, where it's a yes-or-no just made or one a rule says nothing of here.)
   const objectHere = !!recs()[it.at]?.kind && !App.readOnly.value, says = !it.id && objectHere && App.notOurs(it.at, it.edge);
   const none = e => { if (!it.t) return; e.preventDefault();
-    menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rule', run: () => select([general(slotPattern(it))]) }, ...(objectHere ? [{ label: says ? 'Ours after all…' : 'Not ours…', run: () => App.sayNotOurs(it.at, it.edge, !says) }] : [])]); };
+    menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rule', run: () => select([general(slotPattern(it))]) }, ...(it.cant && !App.readOnly.peek() ? [{ label: 'Override…', run: () => App.overriding(null, { at: it.at, edge: it.edge }) }] : []), ...(objectHere ? [{ label: says ? 'Ours after all…' : 'Not ours…', run: () => App.sayNotOurs(it.at, it.edge, !says) }] : [])]); };
   return html`<span class=${'lbl' + (fx || r ? ' asks' : '')} onClick=${click} onContextMenu=${e => { if (it.id) { e.preventDefault(); entryMenu({ x: e.clientX, y: e.clientY }, it.id); } else none(e); }}>
     ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}${says ? html`<span class="notours">Not ours</span>` : null}</span>${it.made ? html`<button class="lk muted to-rule" onClick=${() => select([general(slotPattern(it))])}>Rule</button>` : null}`;
 }
@@ -850,18 +857,24 @@ function Entry({ it, at, depth }) {
   </div>`;
 }
 // What a value typed over a rule says, under it, so no reader can miss that it isn't what the rule says; and the way back to the rule.
-const ruleSays = id => { const v = App.computed.value.covered?.[id]?.value, r = recs()[id];
-  return v === null || v === undefined ? 'says nothing here' : Formulas.isError(v) ? `gives ${v.code}` : `says ${typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v?.t === 'date' ? short(v.iso) : typeof v === 'number' ? T.format(r.field, v) : String(v)}`; };
-const backToRule = id => App.change(tx => tx.remove(id, null), { dated: false, say: c => Time.describe(c) });
-const TypedOver = ({ id, depth }) => html`<div class="typedover" style=${`--depth:${depth}`}><span>Typed over: the rule ${ruleSays(id)}</span>${App.readOnly.value ? null : html`<button class="lk" onClick=${() => backToRule(id)}>Back to the rule</button>`}</div>`;
+const ruleSays = id => App.ruleSaid(id, App.computed.value);
+// (Who said so, why and until when go with it: a decision kept in the open, dendra.md, Definitions: Typed over.)
+const backToRule = id => App.backToRule(id);
+function TypedOver({ id, depth }) {
+  const o = App.overOf(id);
+  return html`<div class="typedover" style=${`--depth:${depth}`}><span>Typed over: the rule ${ruleSays(id)}${o?.until ? `, until ${short(o.until)}` : ''}</span>${App.readOnly.value ? null : html`<button class="lk" onClick=${() => backToRule(id)}>Back to the rule…</button>`}${o?.why ? html`<span class="tov-why">${o.why} · ${o.who}, ${short(T.isoOf(new Date(o.when)))}</span>` : null}</div>`;
+}
 
 // Options as they're typed where several can be: each after a comma, once.
 const optionsTyped = s => [...new Set(String(s).split(',').map(T.clean).filter(Boolean))];
 // An entry being added: its name, then its value, option or tick. Esc, or leaving it empty, drops it.
 function Draft({ d, depth }) {
   const [edge, setEdge] = useState(d.edge ?? ''), [k, setK] = useState(d), box = useRef();
+  // A new value's first figure says what it is: a date, typed here, is offered as one that recurs, ticked, as a questionnaire's does, the next from its own day and this one standing on its (dendra.md, Time).
+  const [dated, setDated] = useState(false), [recurs, setRecurs] = useState(true), fresh = !specsAt(tree(d.at), T.clean(edge)).length;
+  const typing = e => { if (k.type !== 'field' || e.target.matches?.('[type=checkbox]')) return; setDated(fresh && !!T.clean(e.target.value) && T.parseDate(T.clean(e.target.value)) !== null); };
   const named = () => { const e = T.clean(edge); if (e && !d.edge) setK({ ...d, ...kindAt(tree(d.at), e), type: d.type, datatype: kindAt(tree(d.at), e).datatype }); return e; };
-  const finish = out => { const e = named(); if (!e || !out) return; draft.value = null; addEntry(d.at, e, out); };
+  const finish = out => { const e = named(); if (!e || !out) return; draft.value = null; addEntry(d.at, e, out, { recurs: out.field === 'date' && dated && recurs }); };
   // A yes-or-no or a check named is made, nothing ticked (makeTag).
   const tagged = d.type === 'tag' || d.type === 'check', made = () => { const e = named(); if (!e) return; draft.value = null; makeTag(d.at, e, d.type === 'check'); };
   // Options set up front, as Excel's list takes them, by commas: each made, in the order typed, as one change; the record's
@@ -886,7 +899,8 @@ function Draft({ d, depth }) {
       : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
       : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New options" aria-label="New options" ref=${el => d.edge && el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onKeyDown=${e => { const os = optionsTyped(e.target.value); if (e.key !== 'Enter' || !os.length) return; if (os.length > 1) several(os); else finish({ choice: os[0] }); }} /></span>`
       : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>`;
-  return html`<div class=${'row draft' + (tag ? ' chk' : '')} ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>${tag ? [value, name] : [name, value]}</div>`;
+  return html`<div class=${'row draft' + (tag ? ' chk' : '') + (dated ? ' asks-recurs' : '')} ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key} onInput=${typing}>${tag ? [value, name] : [name, value]}
+    ${dated ? html`<label class="recurs"><input type="checkbox" checked=${recurs} onMouseDown=${e => e.preventDefault()} onChange=${e => setRecurs(e.target.checked)} />Changes over time</label>` : null}</div>`;
 }
 
 // A record's entries; `offer`ed, with every entry it could have and hasn't, each blank, to fill at once. Each
@@ -1017,7 +1031,10 @@ function groundSaid(it) {
   // via AIV-1 Blocker, not as if it held them itself.
   if (!to) { const by = from && r[from].args.find(a => a.at !== other)?.at; return by ? [word(row.label), `via ${termOf(by)}`].filter(Boolean).join(', ') : word(row.label); }
   const via = r[to].args.find(a => a.at !== mine)?.at, near = word(because(to)?.label), far = from && word(because(from)?.label);
-  return `via ${termOf(via)}${near ? `, ${near.includes(':') ? '' : 'its '}${near}` : ''}${far ? `; ${far} there` : ''}`;
+  // (Never via the one it's of: the same two the other way round is no way through.)
+  if (via === other) return word(row.label);
+  // (What names a role is its: its general partner. What says how isn't: through a controlled company.)
+  return `via ${termOf(via)}${near ? `, ${near.includes(':') || /^(?:through|by|via|as|under|more|presumed)\b/i.test(near) ? '' : 'its '}${near}` : ''}${far ? `; ${far} there` : ''}`;
 }
 const fact = (f, first) => { const text = first ? upper(f.text) : f.text; return f.date ? dated(f.date, text) : f.no ? html`<span class="no">${text}</span>` : text; };
 const facts = (list, first) => list.map((f, i) => html`${i ? ' · ' : ''}${fact(f, first && !i)}`);
@@ -1930,7 +1947,7 @@ function Statute({ def, p, law }) {
         <span class="st-label">${g.label}</span>${words(g, 'st-law')}
         <div class="st-forms">${g.rows.length ? g.rows.map(r => html`<${Typeset} key=${r.i} r=${r} def=${def.note} />`)
           : App.readOnly.value ? null : html`<button class="st-write" onClick=${write(g)}>${'='}</button>`}</div>
-        ${ids.length ? html`<button class="st-n" onClick=${() => select(ids)}>${counted(p, ids)}</button>` : html`<span class="st-n" />`}</li>`; })}</ol>
+        ${ids.length && !(groups.length === 1 && ids.every(id => 'tag' in recs()[id])) ? html`<button class="st-n" onClick=${() => select(ids)}>${counted(p, ids)}</button>` : html`<span class="st-n" />`}</li>`; })}</ol>
     ${tail.map(x => words(x, 'st-lead'))}
   </div>`;
 }
@@ -1956,10 +1973,23 @@ function RuleLog({ keys, name }) {
 }
 // What a rule won't stand behind: what's wrong with it, or the rule it reads that's in error.
 function RuleInError({ def }) {
-  const { roots, reach } = App.broken.value, own = roots.find(r => r.def === def), warned = (App.computed.value.flaws?.[def] ?? []).filter(f => f.warn);
-  if (!reach.has(def) && !warned.length) return null;
+  const { roots, reach } = App.broken.value, own = roots.find(r => r.def === def), warned = (App.computed.value.flaws?.[def] ?? []).filter(f => f.warn), none = !reach.has(def) && FormulaBar.nobody(App.computed.value, def);
+  if (!reach.has(def) && !warned.length && !none) return null;
   return html`<div class="rule-err" role="alert">${own ? own.problems.map(t => html`<p>${t}</p>`) : reach.has(def) ? html`<p>It reads ${roots.map(r => r.name).join(' and ')}, whose formula doesn’t work: what it gives can’t be relied on.</p>` : null}
-    ${warned.map(f => html`<p class="warn">${f.message}</p>`)}</div>`;
+    ${none ? html`<p class="warn">${none}</p>` : null}${warned.map(f => html`<p class="warn">${f.message}</p>`)}</div>`;
+}
+// What a yes-or-no with a rule says of what it covers, counted, each a click from who: holds, fails or doesn't, can't say, typed over, and of what it says
+// nothing of, by what its silence means (n/a; no; fine). (dendra.md, Definitions.) So a rule that holds nowhere can't look like one that found nothing.
+function RuleCovers({ def, check }) {
+  const R = App.computed.value, c = Formulas.coverage(R, def), d = App.definitions.value.find(x => x.id === def);
+  if (!c || d?.type !== 'tag') return null;
+  const nm = x => { const r = recs()[x]; return r?.args ? segment(x) : r?.at ? bound(N().whereOf(recs(), r)) : r ? bound(nameOf(x)) : x; }, errOf = x => R.errors.find(e => e.id === x);
+  const say = x => { const e = errOf(x); return e ? (e.args?.length > 1 ? e.args.map(a => shortOf(objectOf(a.at))).join(' → ') : bound(nameOf(objectOf(e.at)))) : nm(x); }, go = x => { const e = errOf(x); return e ? e.args?.length > 1 ? () => emit('why-open', x) : () => { select([objectOf(e.at)]); emit('why-open', x); } : () => select([recs()[x]?.args ? x : objectOf(x) ?? x]); };
+  const quiet = c.quiet?.length && c.silent ? [{ n: c.silent === 'untested' ? 'n/a' : c.silent === 'no' ? (c.quiet.length === 1 ? 'doesn’t' : 'don’t') : 'nothing wrong', ids: c.quiet, plain: true }] : [];
+  const parts = [{ n: c.holds.length === 1 ? 'holds' : 'hold', ids: c.holds }, { n: check ? (c.fails.length === 1 ? 'fails' : 'fail') : (c.fails.length === 1 ? 'doesn’t' : 'don’t'), ids: c.fails, cls: check ? 'bad' : null }, { n: 'can’t say', ids: c.cant, cls: 'unsure' }, { n: 'can’t be worked out', ids: c.broken, cls: 'bad' }, { n: 'typed over', ids: c.typed, cls: 'unsure' }, ...quiet].filter(p => p.ids.length);
+  if (!parts.length) return null;
+  const open = (e, p) => menu(e.currentTarget, p.ids.map(x => ({ label: p.plain ? bound(nameOf(objectOf(x) ?? x)) : say(x), run: p.plain ? () => select([objectOf(x) ?? x]) : go(x) })), { search: p.ids.length > 7 });
+  return html`<p class="rule-covers">${parts.map((p, i) => html`${i ? ' · ' : ''}<button class=${'lk' + (p.cls ? ` ${p.cls}` : '')} aria-haspopup="menu" onClick=${e => open(e, p)}>${p.ids.length} ${p.n}</button>`)}</p>`;
 }
 // Each of a rule's records a tag's rule says no of, or a hand has typed over, by name: who fails, on its page; and the way back to the rule.
 function RuleRecords({ def, check }) {
@@ -1969,7 +1999,7 @@ function RuleRecords({ def, check }) {
   return html`
     ${no.length ? html`<${Section} title=${check ? 'Fails at' : 'Doesn’t hold at'} n=${no.length} shut=${no.length > 8}>${no.map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${recs()[x].args ? x : to(x)}>${nm(x)}</${Go}></div></div>`)}</${Section}>` : null}
     ${typed.length ? html`<${Section} title="Typed over" n=${typed.length}>${typed.map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${recs()[x].args ? x : to(x)}>${nm(x)}</${Go}></div>
-      <div class="v"><span class="muted">${T.outputText(recs()[x])}; the rule ${ruleSays(x)}</span>${App.readOnly.value ? null : html` <button class="lk" onClick=${() => backToRule(x)}>Back to the rule</button>`}</div></div>`)}</${Section}>` : null}`;
+      <div class="v"><span class="muted">${T.outputText(recs()[x])}; the rule ${ruleSays(x)}</span>${App.readOnly.value ? null : html` <button class="lk" onClick=${() => backToRule(x)}>Back to the rule…</button>`}</div></div>`)}</${Section}>` : null}`;
 }
 // What a rule can be limited to, of what its records have: each yes-or-no, and each option of a choice, at what it's at. Its rows
 // go under it, in the bar, n/a elsewhere (dendra.md, Not tested): nothing's made till Done.
@@ -2031,8 +2061,8 @@ function GeneralView({ p, style }) {
         <div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
-      ${type === 'tag' ? checkRow(def || writing ? 'A failure counts as an error' : 'A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
-      ${kind || rel || dated || def ? null : checkRow('Changes over time', !n.fixed(p), on => flag('Fixed', p, on ? undefined : true))}
+      ${type === 'tag' ? checkRow('A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
+      ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
       ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
@@ -2043,7 +2073,7 @@ function GeneralView({ p, style }) {
     ${below.length ? html`<${Section} title="Entries" n=${below.length}>
       ${below.sort((x, y) => (n.order(x) ?? Infinity) - (n.order(y) ?? Infinity) || x.args[0].edge.localeCompare(y.args[0].edge)).map(s => html`<div class="row" key=${T.key(s)}>
         <div class="k"><${Go} to=${general(T.bare(s))}>${s.args[0].edge}</${Go}></div><div class="v muted">${typeName(s)}</div></div>`)}</${Section}>` : null}
-    ${def ? html`<${Section} title="Formula"><${Statute} def=${def} p=${p} law=${law} /></${Section}>` : null}
+    ${def ? html`<${Section} title="Formula"><${Statute} def=${def} p=${p} law=${law} /><${RuleCovers} def=${def.note} check=${n.value('Check', p) === true} /></${Section}>` : null}
     ${def ? html`<${RuleRecords} def=${def.note} check=${n.value('Check', p) === true} />` : null}
     ${v && stylesOf(v, p).length ? html`<${Section} title="Styles"><${Styles} v=${v} only=${p} /></${Section}>` : null}
   </div>`;
@@ -2137,7 +2167,7 @@ const attending = a => {
   // (A rule in error that shows at no record goes to the rule.)
   const toRule = () => { const q = N().notes('Formula').find(x => x.note === a.error.def)?.pattern; if (q) select([general(q)]); };
   const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
-  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error?.rule ? toRule : a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
+  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, by: a.by, go: a.error?.rule ? toRule : a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
 };
 const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(attending));
 
@@ -2174,7 +2204,7 @@ Shell.register('action', { id: 'record.interpose', name: 'Insert an entity betwe
   why: notAsked('Only an ownership takes one between', 'an ownership') });
 // What a formula gives, overridden by saying so, as the reason in the formula bar offers it.
 const computedTag = () => { const id = theOne(); return id && fx(id) && 'tag' in recs()[id] ? id : null; };
-Shell.register('action', { id: 'record.override', get name() { return computedTag() && !recs()[computedTag()].tag ? 'Attest…' : 'Rule out…'; }, names: ['Rule out', 'Attest', 'Override'],
+Shell.register('action', { id: 'record.override', name: 'Override…', names: ['Rule out', 'Attest', 'Override', 'Waive', 'Waiver', 'Exception', 'Type over'],
   enabled: () => !App.readOnly.peek() && !!computedTag(), run: () => App.overriding(computedTag()), why: notNow('Only what a formula gives is overridden', 'what a formula gives') });
 Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['Merger', 'Merged into', 'Merge', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notAsked('Only what can merge merges', 'an entity') });
@@ -2190,9 +2220,11 @@ function rulesList(anchor = { x: 40, y: 44 }) {
   const worked = new Set(defs.filter(x => x.pattern.args?.length > 1).map(x => T.norm(n.name(x.pattern))));
   const relations = App.layouts.peek().relations.filter(l => !worked.has(T.norm(l.name))).map(l => item(l.rows, 'Relation'));
   const part = (head, xs) => xs.length ? [{ head }, ...xs.sort(by)] : [];
-  menu(anchor, [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations)], { search: true });
+  // Every value typed over a rule, on the one list: whose, what the rule says, why and who said so.
+  const R = App.computed.peek(), overs = Object.keys(R.covered).filter(x => !R.covered[x].agrees && recs()[x]).map(x => { const o = App.overOf(x), r = recs()[x]; return { label: `${r.args ? segment(x) : `${r.edge} · ${bound(N().whereOf(recs(), r))}`}`, detail: `${T.outputText(r)}; the rule ${ruleSays(x)}`, tip: [`${T.outputText(r)}; the rule ${ruleSays(x)}`, o?.why].filter(Boolean).join(' · '), names: ['Typed over', 'Override', 'Overrides', 'Waiver', 'Exception', o?.why ?? ''], run: () => { select([r.args ? x : objectOf(x)]); emit('why-open', x); } }; });
+  menu(anchor, [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs)], { search: true });
 }
-Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
+Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations', 'Overrides', 'Typed over', 'Waivers'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
 // A relation no rule gives is reopened from Find too, by its name, as a rule is: its page names it, and its roles.
 Shell.register('find', { items: () => {
   const n = N(), given = new Set(n.notes('Formula').filter(x => x.pattern.args?.length > 1).map(x => T.norm(n.name(x.pattern))));

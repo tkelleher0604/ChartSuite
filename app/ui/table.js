@@ -70,12 +70,15 @@ const Table = (() => {
 
   // A tag's cell where its rule hasn't tested the record (Formulas.notTested): its own value, apart from Yes, No and blank.
   const NA = 'n/a';
+  // Where it applies and what it reads is blank: its own value, apart from all of those (dendra.md, Definitions: Can't say).
+  const CANT = 'Can’t say';
   // How a column's values compare, as its sort, its filter's list and its groups put them: numbers and dates as such,
-  // a choice in its options' order, a tag Yes first, then No, then n/a, text and names as words, figures in them as numbers.
+  // a choice in its options' order, a tag Yes first, then No, then can't say, then n/a, text and names as words, figures in them as numbers.
   function compare(c) {
     const at = v => { const i = c.options?.indexOf(v) ?? -1; return i < 0 ? Infinity : i; };
     return (a, b) => {
       if (a === NA || b === NA) return (a === NA) - (b === NA);
+      if (a === CANT || b === CANT) return (a === CANT) - (b === CANT);
       if (typeof a === 'number' && typeof b === 'number') return a - b;
       if (typeof a === 'boolean' && typeof b === 'boolean') return b - a;
       const i = at(a), j = at(b);
@@ -360,20 +363,22 @@ const Table = (() => {
     if (R === App.computed.value) for (const a of App.needs.value) if (a.kind === 'error' && !a.error && st[a.id]) { const o = Tree.objectOf(st, a.id); fails.set(o, [...new Set([...(fails.get(o) ?? []), st[a.id].edge])]); }
     // A blank said not to be ours reads so.
     const notOurs = new Set(App.blanksApart.value.filter(b => !b.ours).map(b => `${b.id}|${norm(b.edge)}`));
+    const wanting = new Map((R.errors ?? []).filter(e => e.at && e.error.code === '#N/A').map(e => [`${e.at}|${Tree.norm(e.args?.[0]?.edge ?? '')}`, e]));
     const today = App.day.value, data = ids.map(id => {
       const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
       if (endedOn.has(id)) row._ended = endedOn.get(id);
       for (const c of cols) {
         const m = cellOf(id, c), r = m.id && st[m.id], f = field(c), type = typeIn(c, r);
-        // A tag no row has said: what its definition's silence says (Formulas.silence).
-        const quiet = c.type === 'tag' && !r && m.at ? Formulas.silence(N, S, st, m.at, c.path.at(-1)) : null;
-        row[f] = quiet === 'untested' ? NA : m.v ?? null;
+        // A tag no row has said: what it can't say, for want of a value, or what its definition's silence says (Formulas.silence).
+        const cant = c.type === 'tag' && !r && m.at ? wanting.get(`${m.at}|${Tree.norm(c.path.at(-1))}`) : null, quiet = c.type === 'tag' && !r && m.at && !cant ? Formulas.silence(N, S, st, m.at, c.path.at(-1)) : null;
+        if (cant) m.cant = cant;
+        row[f] = cant ? CANT : quiet === 'untested' ? NA : m.v ?? null;
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
         // What's coming stands beside the value it'll replace (dendra.md, Time).
         const next = c.type !== 'tag' && m.id && App.shown.value.item(App.chart.value, m.id).find(x => x.since > today);
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(notOurs.size && m.v == null && c.title && notOurs.has(`${c.up ? st[id]?.at : id}|${norm(c.title)}`) && { notours: true }), ...(next && { next: Tree.comingText(next) }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
+        row._m[f] = { id: m.id, at: m.at, fx, over, ...(m.cant && { cant: m.cant }), due: (fx || cov) && r?.field === 'date' && r.value < today, ...(notOurs.size && m.v == null && c.title && notOurs.has(`${c.up ? st[id]?.at : id}|${norm(c.title)}`) && { notours: true }), ...(next && { next: Tree.comingText(next) }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
       }
       row._ruled = st[id].tag === false;
       row._fails = fails.get(id) ?? null;
@@ -484,7 +489,7 @@ const Table = (() => {
 
   // ---- How cells read, copy and edit ----
   const NUMERIC = new Set(['number', 'percent', 'money']);
-  const text = (type, v) => v === null || v === undefined ? '' : v === NA ? NA : type === 'tag' ? (v ? 'Yes' : 'No')
+  const text = (type, v) => v === null || v === undefined ? '' : v === NA || v === CANT ? v : type === 'tag' ? (v ? 'Yes' : 'No')
     : type === 'date' ? Tree.formatDate(v, 'short') : type === 'list' ? String(v) : Tree.format(type, v);
   // What a cell copies and exports as: a document as its address, so the link survives.
   const plain = (type, v) => type === 'document' ? String(v ?? '') : type === 'date' ? (v ? Tree.formatDate(v) : '') : text(type, v);
@@ -503,12 +508,13 @@ const Table = (() => {
   // What a cell's marks mean, on hover: italic is worked out, the corner is typed over what's worked out, and n/a untested.
   function markTip(c, m, v) {
     if (v === NA) return 'Not tested: its rule doesn’t apply here';
+    if (v === CANT) return FormulaBar.blankSaid(m.cant);
     if (m?.over) { const was = App.computed.peek().covered?.[m.id]?.value; return `Typed over what’s worked out, which is ${typeof was === 'boolean' ? (was ? 'Yes' : 'No') : was?.t === 'date' ? Tree.formatDate(was.iso, 'short') : typeof was === 'number' ? Tree.format(m.type ?? c.type, was) : was ?? 'nothing'}`; }
     return m?.quiet === 'no' ? 'No: worked out by a formula' : m?.quiet === 'fine' ? 'Nothing wrong: worked out by a formula' : m?.fx ? 'Worked out by a formula' : null;
   }
   function formatter(c) {
     // A tag's box, blank, attested or ruled out; or that it isn't tested.
-    const box = (v, m) => v === NA ? `<span class="na">${NA}</span>` : v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : `no ${m?.id ? App.noTone(m.id) : ''}`}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
+    const box = (v, m) => v === NA ? `<span class="na">${NA}</span>` : v === CANT ? `<span class="cant">${CANT}</span>` : v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : `no ${m?.id ? App.noTone(m.id) : ''}`}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
     const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? box(v, m)
       : type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
       : esc(text(type, v));
@@ -917,7 +923,7 @@ const Table = (() => {
     // narrow first column had wrapped, so the grid ran on three times its rows' height, blank.
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
     t.on('cellEditCancelled', () => back());
-    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag') && !cell.getRow().getData()._ended) flip(cell); });
+    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag, .cant') && !cell.getRow().getData()._ended) flip(cell); });
     t.on('rangeChanged', range => { remember(range); soon(); tally(); });
     t.on('rangeAdded', range => { remember(range); if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
     t.on('rangeRemoved', tally);
@@ -1242,7 +1248,7 @@ const Table = (() => {
     if (c.key === '$why') return null;
     if (c.type === 'list') return m.at && !c.fx && !c.choice && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [row, c, raw] } : null;
     const s = clean(raw);
-    if (!s) return back(m.id) ?? (entered ? { gone: m.id } : null);
+    if (!s) return back(m.id) ?? (m.over ? { rule: m.id } : entered ? { gone: m.id } : null);
     const out = value(typeFor(c, r, s), s);
     if (!out) return false;
     if (r && JSON.stringify(valueOf(out)) === JSON.stringify(valueOf(r))) return back(m.id);
@@ -1264,13 +1270,15 @@ const Table = (() => {
     if (lists.length) stage(real, () => ({ keys: [], plan: lists.map(({ list: [row, c, raw] }) => ({ row, key: [], cells: [[c, raw]] })) }), { verb: 'Add' });
     // (What doesn't change over time goes the same way, so it's corrected for all time, whatever the day shown.)
     const waits = w => !!w.back || (w.typed && (App.held(w.typed.id) !== undefined || App.asksFrom(w.typed.id, w.typed.out) || App.fixedAt(w.typed.id, w.typed.slot)));
-    const asked = ws.filter(waits);
-    ws = ws.filter(w => !waits(w));
+    const asked = ws.filter(waits), overs = ws.filter(w => w.rule).map(w => w.rule);
+    ws = ws.filter(w => !waits(w) && !w.rule);
     asked.forEach((w, i) => {
       ran = true;
       if (w.back) App.put(w.back, st[w.back], false);
       else App.put(w.typed.id, w.typed.slot, w.typed.out, { auto: auto && i === asked.length - 1 });
     });
+    // (Cleared, what's typed over a rule goes back to it, which asks why.)
+    if (overs.length) { ran = true; App.backToRule(overs); }
     if (!ws.length) return true;
     const records = Object.fromEntries(ws.filter(w => w.put).map(w => w.put));
     return edit(tx => { fill(tx, records); ws.forEach(w => w.gone ? tx.remove(w.gone) : w.side && side(tx, st, ...w.side)); }, say);
@@ -1306,6 +1314,8 @@ const Table = (() => {
   // to open and writes nothing.
   function flip(cell) {
     const m = atCell(cell), c = columnOf(cell), v = cell.getValue(), r = m.id && App.state.peek()[m.id];
+    // (What it can't say says why, as any answer of a rule's does.)
+    if (v === CANT && !locked()) { const row = cell.getRow().getData().id; if (!Shell.selection.peek().includes(row)) Shell.select([row]); return Shell.emit('why-open', m.cant.id); }
     if (!m.at || locked() || v === NA || m.quiet) return;
     if (m.fx || App.computed.peek().covered?.[m.id]) {
       const row = cell.getRow().getData().id;
@@ -1321,15 +1331,17 @@ const Table = (() => {
   // Clears the cells of the range: the values entered there go, as one change; what's waiting of them on the bar goes from
   // it; a list's relatives end, as Delete… asks.
   function clear() {
-    const ids = new Set(), entered = App.entered.value, lists = [], st = App.state.peek();
+    const ids = new Set(), entered = App.entered.value, lists = [], st = App.state.peek(), overs = [];
     for (const r of table.getRanges()) for (const cell of r.getCells().flat()) {
       const m = cell.getField() && atCell(cell);
       if (columnOf(cell)?.type === 'list') lists.push(writing(cell, ''));
       else if (m?.id && App.held(m.id) !== undefined) App.put(m.id, st[m.id], false);
+      else if (m?.over && m.id) overs.push(m.id);
       else if (m?.id && m.id in entered && columnOf(cell).type !== 'edge' && columnOf(cell).key !== '$out') ids.add(m.id);
     }
     if (lists.some(Boolean)) write(lists);
     if (ids.size) edit(tx => ids.forEach(id => tx.remove(id)), () => `Cleared ${count(ids.size, 'value')}`);
+    if (overs.length) { ran = true; App.backToRule(overs); }
   }
 
   // ---- Pasting from Excel ----
@@ -1506,7 +1518,7 @@ const Table = (() => {
     const colAt = j => chosen[j] && chosen[j] !== 'new' ? m.cols.find(c => c.key === chosen[j]) ?? null : null;
     const reading = (c, raw) => { const s = clean(raw);
       // (n/a in a file brought back is what a rule hasn't tested, which says nothing to type: changeOf.)
-      if (!s || !c || c.type === 'edge' || c.type === 'list' || s === NA || c.key.startsWith('$')) return {};
+      if (!s || !c || c.type === 'edge' || c.type === 'list' || s === NA || s === CANT || c.key.startsWith('$')) return {};
       if (c.type === 'choice') return c.options?.some(o => same(o, s)) ? {} : { tone: 'new', why: `New option of ${called(c)}` };
       const v = value(c.type, s);
       return !v ? { tone: 'bad', why: `“${s}” isn’t ${Tree.PHRASES[c.type] ?? 'a value'}` } : c.type === 'date' ? { as: Tree.formatDate(v.value, 'short') } : {}; };
@@ -1650,7 +1662,7 @@ const Table = (() => {
         if (c.key === '$why') continue;   // a file exported and brought back: what's worked out isn't typed
         if (c.type === 'list') { lists.push([c, raw]); continue; }
         // (A file exported and brought back: n/a is what a rule hasn't tested, and says nothing to type.)
-        if (!clean(raw) || clean(raw) === NA || (!was && c.key === '$out')) continue;
+        if (!clean(raw) || clean(raw) === NA || clean(raw) === CANT || (!was && c.key === '$out')) continue;
         if (c.key === '$entry' || c.key === '$of' || c.type === 'edge') { leave(p, c, raw); continue; }
         const path = c.key === '$value' || c.key === '$out' ? null : c.path;
         let at = c.up ? st[row]?.at : row;
@@ -2618,11 +2630,15 @@ const Table = (() => {
     const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
     const settles = typeof Inspector !== 'undefined' && Inspector.settling?.(row.getData().id);
     // A blank cell of a record's own value or list: what says it isn't ours (dendra.md, Ours to track).
-    const cm = cell && meta(cell), oursAt = c && !c.key.startsWith('$') && c.type !== 'tag' && m0ours(row.getData().id, c), says = oursAt && cell.getValue() === null && App.notOurs(oursAt, c.title);
+    const oursAt = c && !c.key.startsWith('$') && c.type !== 'tag' && m0ours(row.getData().id, c), says = oursAt && cell.getValue() === null && App.notOurs(oursAt, c.title);
+    // A rule's box: typed over, or back to the rule, as its entry's menu in the panel has it.
+    const m = writes && c && atCell(cell), ruled = c?.type === 'tag' && m?.id && 'tag' in (App.state.peek()[m.id] ?? {}) && App.computed.peek().computed?.[m.id];
+    const ruling = !m ? null : m.cant ? { label: 'Override…', run: () => App.overriding(null, { at: m.at, edge: c.path.at(-1) }) } : ruled ? { label: 'Override…', run: () => App.overriding(m.id) } : m.over ? { label: 'Back to the rule…', run: () => App.backToRule(m.id) } : null;
     Shell.menu({ x: e.clientX, y: e.clientY }, [
       ...(writes && oursAt && cell.getValue() === null ? [{ label: says ? 'Ours after all…' : 'Not ours…', run: () => App.sayNotOurs(oursAt, c.title, !says) }, '-'] : []),
       // A deadline's row: what settles it (Paid…, Filed…), as its panel's button does.
       ...(settles ? [settles, '-'] : []),
+      ...(ruling ? [ruling, '-'] : []),
       { label: 'Copy', keys: '$mod+KeyC', run: () => table.copyToClipboard('range') },
       ...(writes ? [{ label: 'Clear contents', keys: 'Delete', run: clear }, { label: 'Fill down', keys: '$mod+KeyD', run: () => fillFrom(true) }] : []),
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
@@ -2856,7 +2872,8 @@ const Table = (() => {
         const v = value(d, c), type = typeOf(c, d), ref = at(i + 2, j), mm = d._m[field(c)], f = c.path?.at(-1) ?? c.title;
         const mark = mm?.id && kinds.get(mm.id)?.has('overdue') ? 'overdue' : mm?.id && kinds.get(mm.id)?.has('soon') ? 'soon' : mm?.id && failing.has(mm.id) ? 'fail' : mm?.over ? 'over' : c.key === '$why' ? 'wrap' : null;
         if (mark) marks.set(ref, mark);
-        if (mm?.over) { const by = App.enteredBy(mm.id); ws[ref] = { c: [{ a: by?.who ?? '', t: `${markTip(c, mm, v)}${by ? `. ${by.who}, ${Tree.isoOf(new Date(by.when))}${by.note ? `: ${by.note}` : ''}` : ''}` }] }; }
+        // (What the rule says, why, who and until when, as its note.)
+        if (mm?.over && mm.id) { const o = App.overOf(mm.id); ws[ref] = { c: Object.assign([{ a: o?.who ?? 'Dendra', t: `Typed over: the rule ${App.ruleSaid(mm.id)}.${o?.why ? ` ${o.why}.` : ''}${o?.until ? ` Until ${Tree.formatDate(o.until, 'short')}.` : ''}${o ? ` ${o.who}, ${Tree.formatDate(Tree.isoOf(new Date(o.when)), 'short')}.` : ''}` }], { hidden: true }) }; }
         if (blank(v)) {
           const ours = mm?.notours, required = requires.some(b => b.id === d.id && same(b.edge, f));
           if (ours) ws[ref] = { t: 's', v: 'Not ours' };

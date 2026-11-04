@@ -853,8 +853,11 @@ const Shell = (() => {
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
   // Each kind as the bar says it, what it means on hover where its name doesn't say, and the words Find reaches it by
   // besides: a deadline is settled by Paid… or Filed… (inspector.js).
-  const KINDS = [['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
-    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []]];
+  // A rule that can't be worked out is apart from who fails what a rule says, each rule counted once however many records it can't say of; and what's typed
+  // over a rule is kept in the open, a decision and not a problem.
+  const KINDS = [['broken', n => n === 1 ? '1 rule broken' : `${n} rules broken`, ['Broken rule', 'Doesn’t work'], 'What it gives can’t be relied on'], ['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
+    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []], ['overrides', n => `${n} typed over`, ['Override', 'Overrides', 'Waiver', 'Waivers', 'Exception'], 'What’s typed over what a rule says']];
+  const counted_ = (k, items) => { const of = items.filter(it => it.kind === k); return k === 'broken' ? new Set(of.map(it => it.error?.def ?? it.id)).size : of.length; };
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   const needs = () => many('attention').flatMap(a => a.items());
   // F8 goes on from wherever it is through them all.
@@ -877,13 +880,13 @@ const Shell = (() => {
     if (!o) closeOpen = layer(shutList);
     opened.value = { tab: kind, within: o?.within ?? 30, q: '', apart: kind === 'blank' };
   }
-  const SAY = { overdue: 'Overdue', error: 'Error', soon: 'Due soon', blank: 'Blank' };
+  const SAY = { broken: 'Rule broken', overdue: 'Overdue', error: 'Error', soon: 'Due soon', blank: 'Blank', overrides: 'Typed over' };
   function openRows({ tab, within, q }) {
     const say = part('needs'), st = App.state.peek(), dated = it => st[it.id]?.value ?? '', atts = many('attention');
     const rowOf = it => {
       const w = say?.(it) ?? { what: '', where: '', figure: '' };
       let why = '';
-      if (it.error?.rule) why = it.error.error.msg ?? ''; else if (it.kind !== 'blank' && !it.error) { try { why = FormulaBar.because(it.id) || App.enteredBy?.(it.id)?.note || ''; } catch {} } else if (it.error) why = it.error.error.msg ?? '';
+      if (it.kind === 'overrides') why = App.overOf?.(it.id)?.why ?? ''; else if (it.error?.rule) why = it.error.error.msg ?? ''; else if (it.kind !== 'blank' && !it.error) { try { why = FormulaBar.because(it.id) || App.enteredBy?.(it.id)?.note || ''; } catch {} } else if (it.error) why = it.error.error.msg ?? '';
       return { it, w, kind: it.kind, on: it.kind === 'blank' ? App.responsible?.(it.id)?.name ?? '' : App.responsible?.(it.id)?.name ?? '', why };
     };
     const soon = within === 30 ? needs().filter(it => it.kind === 'soon') : atts.flatMap(a => a.within?.(within) ?? []);
@@ -900,7 +903,7 @@ const Shell = (() => {
     const lines = openLines(o), text = [OPEN_HEAD, ...lines].map(l => l.map(x => String(x ?? '').replace(/\s+/g, ' ')).join('\t')).join('\n');
     try { await navigator.clipboard.writeText(text); toast(`Copied ${lines.length} ${lines.length === 1 ? 'row' : 'rows'}`); } catch { toast('This browser didn’t allow the copy'); }
   }
-  const OPEN_MARK = { Overdue: 'overdue', Error: 'fail', 'Due soon': 'soon', Blank: 'soon' };
+  const OPEN_MARK = { 'Rule broken': 'fail', Overdue: 'overdue', Error: 'fail', 'Due soon': 'soon', Blank: 'soon', 'Typed over': 'over' };
   async function sheetOpen(o) {
     const lines = openLines(o), name = chartName.peek() ?? 'Chart', asOf = App.asOfWords().line;
     await Table.plainFile({ name: `${name} - What's open`, sheet: 'What’s open', title: `${asOf} · ${name}: what’s open: ${tally.peek().map(c => c.say(c.n)).join(', ') || 'nothing'}`, head: OPEN_HEAD, rows: lines, widths: [16, 34, 34, 16, 22, 70], wrap: [1, 2, 5], marks: lines.map(l => ({ 0: OPEN_MARK[l[0]] ?? 'wrap' })) });
@@ -952,7 +955,7 @@ const Shell = (() => {
     </section>`;
   }
   const countButton = kind => document.querySelector(`.status .counts > .${kind}`);
-  const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
+  const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: counted_(k, items) })).filter(c => c.n); };
   // In Find, each count opens its list, as the bar's does.
   const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => setTimeout(() => listOf(c.k)) }));
   // The bar counts once the window has drawn what changed, as Excel's catches up, for on a big chart counting takes

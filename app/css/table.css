@@ -85,6 +85,7 @@
 .grid .tabulator-row .tabulator-cell.c-date.coming { display: inline-flex; align-items: baseline; }
 .grid .tabulator-row .tabulator-cell.c-date.coming .nx { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator-row .tabulator-cell .na { color: var(--ink-3); font-style: normal; }
+.grid .tabulator-row .tabulator-cell .cant { color: var(--due); font-weight: 500; font-style: normal; white-space: nowrap; }
 /* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does; swiped on past its
    edge, it stays, rather than the window going back a view. */
 .grid .tabulator .tabulator-tableholder { scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
