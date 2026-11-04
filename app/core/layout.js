@@ -1411,8 +1411,8 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   const BEND = 24, ALONG = 4, CROSS = 6, inReach = g => g.x < reach.r && g.x + g.w > reach.x && g.y < reach.d && g.y + g.h > reach.y;
   // The boxes in reach, and their walls, `pad` round each and round what's to be avoided.
   const inside = solids.near.near({ x: reach.x, y: reach.y, w: reach.r - reach.x, h: reach.d - reach.y }).map(k => solids.list[k]).filter(inReach);
-  // (Over the apex of a triangle it isn't going to, a lane's clear: what comes down into one would read as joined by it.)
-  const walls = [...inside, ...avoid.filter(inReach)].map(g => ({ x: g.x - C, y: g.y - (g.shape === 'triangle' && g !== s && g !== t ? Math.max(C, LANE) : C), r: g.x + g.w + C, d: g.y + g.h + C }));
+  // (Over the apex of a triangle it isn't going to, clear enough to break for what comes down into it, which would read as joined by it.)
+  const walls = [...inside, ...avoid.filter(inReach)].map(g => ({ x: g.x - C, y: g.y - (g.shape === 'triangle' && g !== s && g !== t ? Math.max(C, 8) : C), r: g.x + g.w + C, d: g.y + g.h + C }));
   const blocked = (x, y) => x < reach.x - 0.01 || x > reach.r + 0.01 || y < reach.y - 0.01 || y > reach.d + 0.01
     || walls.some(w => x > w.x + 0.01 && x < w.r - 0.01 && y > w.y + 0.01 && y < w.d - 0.01);
   // Each box's four ports: where a line meets its side, a step out from it, and the way out.

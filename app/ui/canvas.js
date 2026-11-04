@@ -2608,7 +2608,7 @@ const bendNote = () => { const m = lineNow(), t = m && Tree.treeOf(App.state.pee
 Shell.register('action', { id: 'chart.route', name: 'Route…', names: ['Bend', 'Bend a line', 'Move a line', 'Jog', 'Reroute', 'Elbow', 'Straight', 'Connector'], enabled: () => !App.readOnly.peek() && !!lineNow(), run: () => FormatBar.open('outline'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line first, then drag a yellow grip on it' });
 Shell.register('action', { id: 'chart.unbend', name: 'Reset the route', names: ['Bend', 'Route', 'Unbend', 'Take away the bend', 'Straighten'], enabled: () => !App.readOnly.peek() && !!bendNote(),
-  run: () => { const m = lineNow(), n = bendNote(); if (n) App.change(tx => tx.remove(n), { dated: false, say: `Reset the route of ${App.notes.peek().nameOf(App.state.peek(), m.record)}` }); },
+  run: () => { const m = lineNow(), n = bendNote(); if (n) App.change(tx => tx.remove(n.note), { dated: false, say: `Reset the route of ${App.notes.peek().nameOf(App.state.peek(), m.record)}: ${App.notes.peek().segmentOf(App.state.peek(), m.record)}` }); },
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line a hand has bent first' });
 
 return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, keyCaption };

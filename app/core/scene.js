@@ -1706,14 +1706,16 @@ function frameBounds(frames, boxes) {
     const w = Math.max(0, ...(f.caption.lines ?? []).map(l => l.w)), h = f.label;
     let from = f.x + 6;
     for (const o of headed) if (Math.abs(o.y - f.y) < h && from < o.to + 8 && o.from < from + w + 8) from = o.to + 12;
-    if (from !== f.x + 6) stack(f.caption, from - f.x, 0, 4);
+    const was = f.headAt;
+    if (from !== f.x + 6) f.headAt = from - f.x; else delete f.headAt;
+    if (f.headAt !== was) caption(f);
     headed.push({ y: f.y, from, to: from + w });
   }
 }
 // A frame's caption in it: at its top left, inside it; a bracket's over its middle; a lone frame's at its top.
 function caption(f) {
   const bracket = f.kind === 'bracket';
-  stack(f.caption, bracket || f.lone ? 0 : 6, bracket ? f.w : 0, bracket || f.lone ? 0 : 4);
+  stack(f.caption, bracket || f.lone ? 0 : f.headAt ?? 6, bracket ? f.w : 0, bracket || f.lone ? 0 : 4);
 }
 
 // What a style's output is called on the chart: its Caption, or its own name.

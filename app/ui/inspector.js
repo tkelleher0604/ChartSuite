@@ -569,9 +569,8 @@ function whoFor(id, l, q) {
     out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
-  // The kinds a new one can be, those the chart draws most first, as Insert offers them.
-  const drawn = charted() ? Canvas.kinds().map(T.norm) : [], rank = k => { const i = drawn.indexOf(T.norm(k)); return i < 0 ? Infinity : i; };
-  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()].sort((a, b) => rank(a.sl.loc.kind) - rank(b.sl.loc.kind)), named = T.clean(q ?? '');
+  // The kinds a new one can be, in one order, as Insert offers them, so the top of the list is where it was.
+  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()].sort((a, b) => a.sl.loc.kind.localeCompare(b.sl.loc.kind)), named = T.clean(q ?? '');
   if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.map(w => ({ label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) })));
   return out;
 }
@@ -981,7 +980,7 @@ const Place = ({ at, put, reset, keys = 'xywh', lock, turn }) => { const page = 
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k} onClick=${e => { if (!e.target.closest('input')) e.currentTarget.querySelector('input')?.focus(); }}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
     <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" reads=${pointsOf} label=${label}
       put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 100) / 100)}><span class="unit">pt</span></${Field}></div></div>`)}
-  ${turn ? html`<div class="row" key="r"><div class="k">Rotation</div><div class="v ctl" data-place="r"><${Field} r=${{ field: 'number', value: turn.at ?? 0 }} datatype="number" label="Rotation" put=${out => out && turn.set(out.value)}><span class="unit">°</span></${Field}></div></div>` : null}
+  ${turn ? html`<div class="row" key="r" onClick=${e => { if (!e.target.closest('input')) e.currentTarget.querySelector('input')?.focus(); }}><div class="k">Rotation</div><div class="v ctl" data-place="r"><${Field} r=${{ field: 'number', value: turn.at ?? 0 }} datatype="number" label="Rotation" put=${out => out && turn.set(out.value)}><span class="unit">°</span></${Field}></div></div>` : null}
   ${lock ? html`<label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${!!lock.on} disabled=${App.readOnly.value} onChange=${e => lock.set(e.target.checked)} />Lock proportions</span></label>` : null}</${Section}>`; };
 // Reset takes away what's entered for this mark alone, and says what, as History says it.
 const resetting = (own, labels) => App.readOnly.value || !own.some(x => labels(x.label)) ? null

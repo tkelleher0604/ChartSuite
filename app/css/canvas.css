@@ -165,7 +165,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .narrow { display: none; }
 @container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } }
 @container (max-width: 1310px) { .fb .font { width: 110px; } }
-@container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
+@container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb .arrange > span { display: none; } }
 @container (max-width: 1010px) { .fb > .sep { margin: 0 2px; } .fb .font { width: 72px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
 @container (max-width: 880px) { .fb [data-fb="painter"], .fb [data-fb="clear"], .fb [data-fb="shape"] { display: none; } .fb .font { width: 56px; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */

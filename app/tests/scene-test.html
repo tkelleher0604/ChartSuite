@@ -679,6 +679,15 @@ function run() {
       const said = Scene.says({ page: { w: 1280, h: 720, scale: 1, short: [] }, marks: [b('Inside', 200, 200), b('Near', 200, 672), b('Off', 1230, 200)] }).join('|');
       check('a box within a quarter inch of the sheet’s edge is said, one off it as off it, one inside it not', /Near is nearer the edge than a printer prints/.test(said) && /Off runs off the page/.test(said) && !/Off is nearer/.test(said) && !/Inside/.test(said), said);
     }
+    // A hand that draws one frame across another: neither heading overprints the other.
+    {
+      const w = fresh(), s0 = scene(w, 'view_40act'), panels = s0.marks.filter(m => m.type === 'frame' && !m.lone), [top, under] = [panels.find(f => f.y > panels[0].y && f.members.length > 1), panels.at(-1)];
+      const low = s0.byId.get(under.members[0]), rec = computed(w).records;
+      edit(w, tx => tx.note('Position', Tree.treeOf(rec, low.record), { x: top.x + top.w + 60, y: top.y + top.label + 14, w: low.w, hand: true }, { view: 'view_40act' }));
+      const s1 = scene(w, 'view_40act'), heads = s1.marks.filter(m => m.type === 'frame' && !m.lone).map(f => { const c = f.caption, xs = c.lines.map(l => f.x + l.x), y = f.y + c.lines[0].y; return { x0: Math.min(...xs), x1: Math.max(...c.lines.map(l => f.x + l.x + l.w)), y }; });
+      const over = heads.filter((a, i) => heads.slice(i + 1).some(b => Math.abs(a.y - b.y) < 8 && a.x0 < b.x1 && b.x0 < a.x1));
+      check('no frame’s heading overprints another’s, whatever a hand has drawn across what', !over.length, j(heads));
+    }
     // A box placed in a frame goes among its frame's boxes, not beside its relatives elsewhere.
     {
       const rect = (id, x, y) => ({ id, w: 100, h: 40, shape: 'rect', x, y }), [a, c, d, e] = [rect('a', 40, 40), rect('c', 200, 40), rect('d', 40, 160), rect('e', 200, 160)], n = { id: 'n', w: 100, h: 40, shape: 'rect' };
