@@ -293,7 +293,7 @@ function drag(e, onDrop, onClick) {
 // Text, and a title, wrap, as many lines as they take; a title's name keeps its suffix (Scene.bind). With `preview`,
 // what keeping it would change (out → a change), the formula bar redlines that while it's typed, as it does a value
 // typed in the bar, so the chart is laid out ahead as Enter leaves it.
-function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', title, label, due, held = null, children }) {
+function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', title, label, due, held = null, reads, children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
   // What's typed, null while nothing is; kept in a ref too, as a blur can come after the record has gone. `held`, what
   // was typed, pending (App.put): shown as typed is, till it's made or discarded, and typed over again.
@@ -301,7 +301,7 @@ function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', ti
   // What text typed keeps: its output, null where it's cleared, undefined where it doesn't read; false where it's as it was.
   const outOf = t => {
     if (t === null || t === T.clean(raw)) return false;
-    const dt = datatype ?? T.classify(t), v = t ? T.parse(dt, t) : null;
+    const dt = datatype ?? T.classify(t), v = t ? (reads ?? (x => T.parse(dt, x)))(t) : null;
     return v === undefined ? undefined : t ? { field: dt, value: v } : null;
   };
   const redline = c => { const k = c ? JSON.stringify(c) : null; if (k !== previewed.current) { previewed.current = k; FormulaBar.preview(c); } };
@@ -566,9 +566,8 @@ function whoFor(id, l, q) {
     out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
-  // The kinds a new one can be, those the chart draws most first, as Insert offers them.
-  const drawn = charted() ? Canvas.kinds().map(T.norm) : [], rank = k => { const i = drawn.indexOf(T.norm(k)); return i < 0 ? Infinity : i; };
-  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()].sort((a, b) => rank(a.sl.loc.kind) - rank(b.sl.loc.kind)), named = T.clean(q ?? '');
+  // The kinds a new one can be, in one order, as Insert offers them, so the top of the list is where it was.
+  const kinds = [...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()].sort((a, b) => a.sl.loc.kind.localeCompare(b.sl.loc.kind)), named = T.clean(q ?? '');
   if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.map(w => ({ label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) })));
   return out;
 }
@@ -792,7 +791,7 @@ function Strip() {
     s?.querySelector('.fold[aria-expanded="false"]')?.click();
     setTimeout(() => s?.scrollIntoView({ block: 'start' }));
   };
-  const chip = (title, label = title) => html`<button class="lk" key=${label} onClick=${() => go(title)}>${label}</button>`, pinned = ['Look', 'Position'].filter(x => names.includes(x));
+  const chip = (title, label = title) => html`<button class="lk" key=${label} onClick=${() => go(title)}>${label}</button>`, pinned = ['Position', 'Look'].filter(x => names.includes(x));
   return html`<nav class=${'strip' + (long ? '' : ' none')} ref=${ref} aria-label="Sections">
     <span class="names" onWheel=${e => { if (e.deltaY) { e.currentTarget.scrollLeft += e.deltaY; e.preventDefault(); } }}>${chip(null, 'Record')}${names.filter(x => !pinned.includes(x)).map(x => chip(x))}</span>
     ${pinned.length ? html`<span class="pinned">${pinned.map(x => chip(x))}</span>` : null}</nav>`;
@@ -976,12 +975,20 @@ function LookSection({ look, reset, named }) {
 // numbers are the ones PowerPoint shows: typed over to move or size it, and read back as typed, to a tenth. `lock`, keeping
 // its proportions as either is typed: { on, set }.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
+// A place typed in any measure a person says it in: points, or pixels (96 to the inch, as 100% draws the page), inches,
+// centimetres or millimetres, read as points. → points, or undefined where it doesn't read, which it says.
+const MEASURES = { pt: 1, point: 1, points: 1, px: 0.75, pixel: 0.75, pixels: 0.75, in: 72, inch: 72, inches: 72, '"': 72, cm: 72 / 2.54, mm: 72 / 25.4 };
+function pointsOf(t) {
+  const m = /^\s*(-?[\d,]*\.?\d+)\s*([a-z"]*)\.?\s*$/i.exec(t), k = m && (m[2] ? MEASURES[m[2].toLowerCase()] : 1);
+  if (k) return Math.round(parseFloat(m[1].replace(/,/g, '')) * k * 100) / 100;
+  Shell.toast(`“${T.clean(t)}” isn’t a measure: type points, or px, in or cm after the number`, { ms: 4000 });
+}
 const Place = ({ at, put, reset, keys = 'xywh', lock, turn }) => { const page = App.scene.value?.page;
   return html`<${Section} title="Position" id="place" act=${reset}>
-  ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
-    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" label=${label}
+  ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k} onClick=${e => { if (!e.target.closest('input')) e.currentTarget.querySelector('input')?.focus(); }}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
+    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" reads=${pointsOf} label=${label}
       put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 100) / 100)}><span class="unit">pt</span></${Field}></div></div>`)}
-  ${turn ? html`<div class="row" key="r"><div class="k">Rotation</div><div class="v ctl" data-place="r"><${Field} r=${{ field: 'number', value: turn.at ?? 0 }} datatype="number" label="Rotation" put=${out => out && turn.set(out.value)}><span class="unit">°</span></${Field}></div></div>` : null}
+  ${turn ? html`<div class="row" key="r" onClick=${e => { if (!e.target.closest('input')) e.currentTarget.querySelector('input')?.focus(); }}><div class="k">Rotation</div><div class="v ctl" data-place="r"><${Field} r=${{ field: 'number', value: turn.at ?? 0 }} datatype="number" label="Rotation" put=${out => out && turn.set(out.value)}><span class="unit">°</span></${Field}></div></div>` : null}
   ${lock ? html`<label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${!!lock.on} disabled=${App.readOnly.value} onChange=${e => lock.set(e.target.checked)} />Lock proportions</span></label>` : null}</${Section}>`; };
 // Reset takes away what's entered for this mark alone, and says what, as History says it.
 const resetting = (own, labels) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
@@ -1005,8 +1012,9 @@ function Look({ id }) {
   const beside = n.notes('Size').length ? ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'].flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
   const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
-  return html`<${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />
-    ${drawn ? html`<${Place} at=${drawn} put=${(k, x) => cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}`;
+  // (Its position before its look, so a row or a section the look gains moves no field under the pointer.)
+  return html`${drawn ? html`<${Place} at=${drawn} put=${(k, x) => cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
+    <${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />`;
 }
 
 // ---- The views of a selection ----
@@ -1302,9 +1310,9 @@ function ShapeView({ id, part }) {
         put=${out => set({ columns: +out.choice })} /></div></div>` : null}
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
-    <${LookSection} look=${look} reset=${reset} />
+    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
     ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} />` : null}
-    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
+    <${LookSection} look=${look} reset=${reset} />
   </div>`;
 }
 // A row of the Key's panel: its grip, dragged among the rest; its box, which shows or hides it where it stands; and its
@@ -1704,7 +1712,14 @@ function addToList(id, list) {
   select([id]);
   if (l) setTimeout(() => { const at = document.querySelector('.insp .addrow .add-entry'); if (at) addTo(at, id, l); }, 120);
 }
-Shell.register('inspector', { addTo: addToList, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
+// What a box's right-click adds to it, where it's clicked (`at`): each list of a relation with a percentage at it, the
+// stakes a structure chart is made of, by the word for one of it (Add owner…, Add holding…), its first side's first.
+function addsOf(id) {
+  const stake = w => Object.values(App.schema.value).some(s => s.args?.length === 1 && s.out?.field === 'percent' && T.narrower(w.s, s.args[0].loc));
+  return listsOf(id).filter(l => l.ways.some(stake)).sort((a, b) => a.ways[0].s.args.indexOf(a.ways[0].sl) - b.ways[0].s.args.indexOf(b.ways[0].sl))
+    .map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, run: at => addTo(at, id, l) }));
+}
+Shell.register('inspector', { addTo: addToList, adds: addsOf, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
 Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending) });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
 // with why not, where they can't be.
