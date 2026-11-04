@@ -1550,8 +1550,7 @@ async function format() {
   const swatchRed = $$('.float .palette > button').find(b => b.getAttribute('aria-label') === 'Yellow');
   swatchRed.dispatchEvent(new PointerEvent('pointerenter')); swatchRed.click(); await tick(400);
   check('a text color given a group of boxes goes to every field they show', fundBox().texts.every(it => it.look.Color === '#ffff00'), fundBox().texts.map(it => it.look.Color).join());
-  // A field chosen alone still applies alone.
-  $('[data-fb="own"]')?.click; cap('Funds').click(); await tick(150);
+  cap('Funds').click(); await tick(150);
   check('… the aim ends as its row is clicked again', !$('.row.out .cap.on'));
   Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
   // The swatch aims too; Esc ends it; a press on the chart ends it.
@@ -1610,8 +1609,7 @@ async function format() {
   down($('.dc-graph')); await tick(120);
   check('where there’s none, it arms; a click on nothing it can read says so, and it stays armed', armed && cv().root.classList.contains('dropping') && /No color to take/.test(txt($('.toasts'))), txt($('.toasts')));
   const body = id => $(`.dc [data-cell-id="${id}"] path`);
-  body('corvane') && down(body('tessellate')); await tick(250);
-  const fromPage = rgb => rgb;
+  down(body('tessellate')); await tick(250);
   check('… a click on a mark takes the color drawn there, whatever dims it, and disarms', !cv().root.classList.contains('dropping') && sc().byId.get('northpine').settings.Fill.value === sc().byId.get('tessellate').settings.Fill.value, sc().byId.get('northpine').settings.Fill.value);
   Shell.parts.peek().undo.undo(); await tick(300);
   await palette('fill');
@@ -1742,7 +1740,6 @@ async function format() {
   $('[data-fb="groups"]')?.click(); await tick(120); $$('.float .menu-item')[2]?.click(); await tick(150); const group0 = places().join();
   Shell.select([]); await tick(150);
   check('the ribbon’s controls keep their places, whatever’s selected', none0 === box0 && box0 === line0 && line0 === group0, `${none0} / ${box0} / ${line0} / ${group0}`);
-  $('[data-fb="fill"]').disabled = false;
   Shell.select(['northpine']); await tick(150);
   $('[data-fb="fill"]').click(); await tick(150);
   const moreAt = $('.float .more').getBoundingClientRect().top;
