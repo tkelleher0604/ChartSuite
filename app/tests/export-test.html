@@ -762,10 +762,23 @@ async function run() {
     await cancel(opening);
     // A file says what it is: an as-of day other than today in its name, one punctuation throughout. One view of the chart, as of a far-off day.
     const Sh = G('Shell'), one = async d => { const boxes = [...d.querySelectorAll('.ex-views input')]; for (const [i, box] of boxes.entries()) if (box.checked !== (i === 0)) { box.click(); await tick(60); } };
-    Sh.at({ asOf: '2036-12-31' }); await tick(300);
+    Sh.at({ asOf: '2037-12-31' }); await tick(300);
     const dated = await exported('pdf', one);
     Sh.at(null); await tick(300);
-    check('an as-of day other than today is in the file’s name', dated.name === `${chart} - ${charts[0].name} - as of Dec 31, 2036.pdf`, dated.name);
+    check('an as-of day other than today is in the file’s name', dated.name === `${chart} - ${charts[0].name} - as of Dec 31, 2037.pdf`, dated.name);
+    // While the past is shown, the moment is: in the file's name, on its page, and on a calendar's; and nothing's written.
+    const past = A.wb.changes().at(-1), logged = () => A.wb.changes().length, logged0 = logged();
+    Sh.at({ stood: past.id, at: past.when }); await tick(400);
+    const words = Log.stoodText(past.when, 'short'), inName = words[0].toLowerCase() + words.slice(1).replace(':', '.');
+    const pastFile = await exported('pdf', one), pastCal = await exported('ics');
+    check('While the past is shown, a file’s name says the moment, without a colon', pastFile.name === `${chart} - ${charts[0].name} - ${inName}.pdf` && /, \d+\.\d\d [AP]M\.pdf$/.test(pastFile.name), pastFile.name);
+    check('… as the page’s date line does, as a calendar’s name does, and nothing is written', A.scene.peek().marks.filter(m => m.role === 'date').every(m => m.texts[0].text.startsWith('As it stood on ')) && pastCal.name === `${chart} - ${inName}.ics` && logged() === logged0, j([pastCal.name, logged() - logged0]));
+    Sh.at(null); await tick(300);
+    // In Viewing, Export works and writes nothing.
+    A.setViewing(true); await tick(200);
+    const viewed = await exported('pdf', one);
+    check('In Viewing, Export writes its file and nothing else', viewed.name === `${chart} - ${charts[0].name}.pdf` && viewed.blob.size > 0 && logged() === logged0, j([viewed.name, logged() - logged0]));
+    A.setViewing(false); await tick(200);
     // A table's file says what it writes: as the table shows it, or every row.
     const S = G('Shell'), entities = A.views.peek().find(v => v.name === 'Entities'), back = S.view.peek();
     S.show(entities.id); await until(() => (S.parts.peek().export ?? []).some(x => x.name === 'Excel'), 3000);
@@ -810,6 +823,15 @@ async function run() {
     await until(() => dlg()?.querySelector('.btn.primary'));
     const fitBtn = () => [...dlg().querySelectorAll('.ex-off button')].find(b => b.textContent === 'Fit to page');
     check('… Export says it runs off the page, with Fit to page beside it', sayOff.includes('Halvard runs off the page') && !!fitBtn() && saying().includes('runs off the page'), saying());
+    await cancel(opening);
+    A.setViewing(true); await tick(200);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    check('… in Viewing it still says so, with nothing offered to change it', saying().includes('runs off the page') && !fitBtn(), saying());
+    await cancel(opening);
+    A.setViewing(false); await tick(200);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
     fitBtn().click(); await tick(400);
     const back2 = A.scene.peek(), h2 = back2.byId.get('halvard');
     check('… which brings it in, beside its relatives, the rest kept, in one change, said by History', h2.y + h2.h <= back2.page.h && h2.x + h2.w <= back2.page.w && !saying().includes('runs off the page') && /^Fit .* to its page$/.test(G('Time').describe(A.wb.changes().at(-1))), j([h2.x, h2.y, back2.page.w, back2.page.h, saying(), G('Time').describe(A.wb.changes().at(-1))]));

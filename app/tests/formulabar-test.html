@@ -379,7 +379,13 @@ async function checks() {
   check('the rows dropped, the boxes they’re about are brought clear of them and into the view', inRoom && shift.y > 0 && shift.x < 0, JSON.stringify(shift));
   typeIn('r2', '> 25%', ' AND '); await wait(20);
   check('… and as a row is edited, they stay clear of it', [...graph.children].every(b => b.getBoundingClientRect().top >= document.querySelector('.fx-panel').getBoundingClientRect().bottom), JSON.stringify(shift));
-  FormulaBar.discard(); graph.remove(); document.querySelector('.fx-open').click(); await wait(20);
+  FormulaBar.discard(); document.querySelector('.fx-open').click(); await wait(20);
+  // … and what already shows, however near them, holds still, as the rest of the chart does.
+  const stood = { ...shift };
+  [...graph.children].forEach(b => { b.style.left = '100px'; b.style.top = `${below - room.top - 1}px`; });
+  await openRows();
+  check('a box already clear of the rows, however near, holds still', shift.x === stood.x && shift.y === stood.y, JSON.stringify(shift));
+  graph.remove(); document.querySelector('.fx-open').click(); await wait(20);
 
   // Nothing selected: the view's name, as Excel's Name Box names the cell
   Shell.select([]); await wait(40);

@@ -120,8 +120,10 @@ function slots(at, all) {
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
-  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
-  const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
+  // A tag its rule hasn't tested here says so, apart from no (dendra.md, Definitions: Not tested).
+  const untested = App.definitions.value.filter(d => d.type === 'tag' && !d.edges && Formulas.silence(N(), App.schema.value, r, at, d.name) === 'untested' && ![...errors, ...blanks].some(x => T.same(x.edge, d.name))).map(d => slot(d.name, { at, na: true }));
+  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks, ...untested].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
+  const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...untested, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));
   // Offered, the first not yet given, blank or not, is typed into at once.
   const first = all && out.find(x => x.open || x.blank);
@@ -495,6 +497,7 @@ const boxed = id => 'tag' in recs()[id] && !disagreeing.value.get(id);
 
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
+  if (slot?.na) return html`<span class="na" data-tip="Not tested: its rule doesn’t apply here">n/a</span>`;
   // An error where the value would be: what it needs, in words ("Needs Fiscal Year End"), its code on hover;
   // with no words, its code, in red. Clicked, the bar says why.
   if (slot?.error) { const { code, msg } = slot.error.error, say = msg?.replace(/\.$/, '');
@@ -604,7 +607,7 @@ function typedBy(anchor, id) {
   Shell.popover(anchor, close => html`<div class="typed">
     <p class="who">${by.who}</p><p class="meta">${whenTyped(by.when)}${by.since ? ` · from ${short(by.since)}` : ''}${by.before ? ` · until ${short(by.before)}` : ''}</p>
     ${by.note ? html`<p class="note">${by.note}</p>` : null}
-    <button class="btn ghost" onClick=${() => { close(); select([id]); if (Time.of) Time.of([id]); else Time.open('all'); }}>History</button></div>`, { placement: 'bottom-start' });
+    <button class="btn ghost" onClick=${() => { close(); select([id]); Time.of([id]); }}>History</button></div>`, { placement: 'bottom-start' });
 }
 function Label({ it, fx }) {
   const r = it.id && recs()[it.id];
@@ -646,7 +649,7 @@ const fields = () => charted() ? Canvas.active.peek()?.fields : null;
 // pointed at and clicked, as it may have been chosen since.
 function OnChart({ it, at }) {
   const c = charted() ? Canvas.active.value : null, host = c && hostIn(at), [pointed, setPointed] = useState(null);
-  if (!host || !c || App.readOnly.value || it.error) return null;
+  if (!host || !c || App.readOnly.value || it.error || it.na) return null;
   App.scene.value; Shell.selection.value;
   const state = () => { const s = Canvas.scope(); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : [...s.marks].every(id => { const x = alikeIn(host, at, id); return !!x && c.fields.shown(id, it.edge, x); }) }; };
   const { s, on } = pointed ?? state();
@@ -702,7 +705,7 @@ function copied(e, it, at) {
 // two-box panel draws one; its entries beneath it. Pointed at, its field on the chart lights, and the other way round.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
-  const tag = r ? boxed(it.id) : !it.error && kindAt(tree(at), it.edge).type === 'tag', day = ending(at, it.edge), end = day !== r?.value ? day : null;
+  const tag = r ? boxed(it.id) : it.na || (!it.error && kindAt(tree(at), it.edge).type === 'tag'), day = ending(at, it.edge), end = day !== r?.value ? day : null;
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
   // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it onto the chart.
   const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); carry(e, it); };
@@ -865,6 +868,8 @@ function notText(it, held) {
     : `${says} ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
 }
 
+// A list a formula gives can be opened as a table, of its relation's rows and why each holds (Table.openList).
+const asTable = () => typeof Table !== 'undefined';
 // A document linked to a record, from its Documents section's +: an object's by a link; a relation's (an ownership, a position)
 // by the relation it's evidenced by, one the chart has, or a new one named as it's typed, as a list's Add asks who.
 const docList = id => recs()[id].args ? listsOf(id, true)[0] ?? null : null;
@@ -902,7 +907,7 @@ function Relatives({ id }) {
         ${d.doc ? html`<a class="btn icon open" href=${d.doc.href} target="_blank" rel="noopener" aria-label=${`Open ${d.doc.name}`} data-tip=${d.doc.name}>${OPEN}</a>` : null}
         ${entriesAt(it.rid).filter(e => fx(e) && recs()[e].field === 'date').map(e => html`<span class="due-at" data-key=${e}><${Filed} id=${e} /></span>`)}</div>
       ${d.role && d.facts.length ? html`<div class="facts">${facts(d.facts)}</div>` : null}
-      ${out ? html`<div class="facts here">Not shown here${App.readOnly.value ? null : html` · <button class="lk" onClick=${() => showHere(out, v)}>Show</button>`}</div>` : null}</div>`; };
+      ${out ? html`<div class="facts here">Not shown here${App.readOnly.value && !App.seeing() ? null : html` · <button class="lk" onClick=${() => showHere(out, v)}>Show</button>`}</div>` : null}</div>`; };
   // A document by its name, its first choice and date beneath, and a way to open it.
   const docRow = it => { const l = recs()[linkOf(it.obj)], s = slots(it.obj).filter(x => x.id).map(x => recs()[x.id]);
     const sub = [s.find(x => 'choice' in x)?.choice, s.find(x => x.field === 'date')].filter(Boolean).map(x => x.value ? short(x.value) : x);
@@ -923,6 +928,7 @@ function Relatives({ id }) {
   // A list a formula gives is folded where it's long; a short answer (a fund's Controllers) shows.
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${counted(items)}
       cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${items.map(item)}
+      ${worked(items) && asTable() ? html`<button class="lk as-table" onClick=${() => Table.openList(name, items[0].rid, id)}>Open ${name} as a table</button>` : null}
       ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t…</button></div>` : null}</${Section}>`)}
     ${docs.length || typing || docList(id) ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
       ${docs.map(docRow)}
@@ -958,40 +964,41 @@ function LookSection({ look, reset, named }) {
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
     ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
 }
-// A place on the page, as entered, in points on the slide (the page is drawn smaller to fit it, by its
-// scale, and moves a chart placed only as far as holds it, by its offset), so the numbers are the ones PowerPoint shows:
-// typed over to move it. `at` is in the chart's own terms, as a place is written: a box's Position, less the offset;
-// or, `onPage`, a free shape's, which stands on the page where it was put.
+// A place on the page, where it's drawn, in points on the slide (the page is drawn smaller to fit it, by its scale), so the
+// numbers are the ones PowerPoint shows: typed over to move or size it, and read back as typed, to a tenth. `lock`, keeping
+// its proportions as either is typed: { on, set }.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
-const Place = ({ at, put, reset, keys = 'xyw', onPage = false }) => { const page = App.scene.value?.page, off = k => onPage ? 0 : page?.offset?.[k] ?? 0;
+const Place = ({ at, put, reset, keys = 'xywh', lock, turn }) => { const page = App.scene.value?.page;
   return html`<${Section} title="Position" id="place" act=${reset}>
-  ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl">
-    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, (at[k] + off(k)) / Scene.PT)) }} datatype="number" label=${label}
-      put=${out => out && put(k, Math.round((Scene.fromSlide(page, out.value) * Scene.PT - off(k)) * 2) / 2)}><span class="unit">pt</span></${Field}></div></div>`)}</${Section}>`; };
+  ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
+    <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" label=${label}
+      put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 100) / 100)}><span class="unit">pt</span></${Field}></div></div>`)}
+  ${turn ? html`<div class="row" key="r"><div class="k">Rotation</div><div class="v ctl" data-place="r"><${Field} r=${{ field: 'number', value: turn.at ?? 0 }} datatype="number" label="Rotation" put=${out => out && turn.set(out.value)}><span class="unit">°</span></${Field}></div></div>` : null}
+  ${lock ? html`<label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${!!lock.on} disabled=${App.readOnly.value} onChange=${e => lock.set(e.target.checked)} />Lock proportions</span></label>` : null}</${Section}>`; };
 // Reset takes away what's entered for this mark alone, and says what, as History says it.
 const resetting = (own, labels) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
   : html`<button class="btn ghost reset" onClick=${() => App.change(tx => own.filter(x => labels(x.label)).forEach(x => tx.remove(x.note)), { say: c => Time.describe(c), dated: false })}>Reset</button>`;
 
 // A record's look, as the view's scene has it: each property a note decides, from this box (or line) alone, a
 // style's output (by its caption, the style's name first where the caption doesn't say it), or the chart's
-// default, in that order; and its place, where one is entered, as it's drawn (one made loosely goes beside its
-// relatives once related, and reads where it is).
+// default, in that order; and a box's place and size, as it's drawn, however it came to be there. Reset takes its place
+// away alone, the box going beside its relatives around what stands (the canvas's Tidy of that box).
 function Look({ id }) {
-  const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), entered = recs()[id].kind ? n.position(t, v) : null, drawn = entered && sc.byId.get(id);
-  const pos = drawn ? { x: drawn.x - sc.page.offset.x, y: drawn.y - sc.page.offset.y, w: drawn.w, ...(entered.h != null && { h: drawn.h }) } : entered;
+  const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), drawn = recs()[id].kind ? sc.byId.get(id) : null, entered = drawn ? n.position(t, v) : null, cv = Shell.parts.peek().canvas?.active?.();
   // This mark's own: a box's at its object, a line's at its relation's own tree, as the format bar notes them.
   const mine = x => x.pattern.id === id || (!!recs()[id].args && T.key(T.bare(x.pattern)) === T.key(T.bare(t)));
   const rank = x => mine(x) ? 0 : x.view ? 1 : 2;
   const from = x => mine(x) ? (recs()[id].args ? 'This line' : 'This box') : !x.view ? 'Default'
     : (s => { const c = Scene.captionOf(n, x.pattern, v); return T.norm(c).startsWith(T.norm(s)) ? c : `${s}: ${c}`; })(Scene.styleName(n, T.bare(x.pattern)));
-  const look = Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
-    .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })).sort((a, b) => a.rank - b.rank);
+  const bent = n.resolve('Bend', t, v)?.note;
+  const look = [...Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
+    .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
   // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
   const beside = n.notes('Size').length ? ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'].flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
-  const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && mine(x));
-  const move = (k, x) => App.change(tx => tx.note('Position', t, { ...pos, [k]: x }, { view: v }), { dated: false });
+  const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
+  const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   return html`<${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />
-    ${pos ? html`<${Place} at=${pos} put=${move} reset=${resetting(own, l => l === 'Position')} />` : null}`;
+    ${drawn ? html`<${Place} at=${drawn} put=${(k, x) => cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}`;
 }
 
 // ---- The views of a selection ----
@@ -1019,13 +1026,13 @@ function Span({ id }) {
 // or showing it in this view; and changing what it records (a relation's Transfer…, Delete…).
 function moreOf(id) {
   const r = recs()[id], v = viewShown(), chart = v?.layout === 'chart', drawn = chart && App.scene.value?.byId.has(id), first = r.kind && slots(id).find(s => s.id && 'choice' in recs()[s.id]);
-  const hide = () => App.change(tx => tx.note('Shown', tree(id), false, { view: v.id }), { say: ch => Time.describe(ch) }), still = App.readOnly.value;
+  const still = App.readOnly.value, stillHere = still && !App.seeing();
   const sections = [
     [...(r.kind ? [{ label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }] : []),
       ...(first ? [{ label: `Select every ${recs()[first.id].choice}`, disabled: !chart, run: () => alike(first.id) }] : []),
-      { label: 'History', run: () => { select([id]); Time.open('all'); } }],
-    chart && (r.kind || r.args) ? [drawn ? { label: 'Hide in this view', disabled: still, run: hide }
-      : hiddenNote(id, v.id) ? { label: 'Show in this view', disabled: still, run: () => showHere([id], v) } : null].filter(Boolean) : [],
+      { label: 'History', run: () => { select([id]); Time.of([id]); } }],
+    chart && (r.kind || r.args) ? [drawn ? { label: 'Hide in this view', disabled: stillHere, run: () => showHere([id], v, false) }
+      : hiddenHere(id, v.id) ? { label: 'Show in this view', disabled: stillHere, run: () => showHere([id], v) } : null].filter(Boolean) : [],
     [...(App.transferable(id) ? [{ label: 'Transfer…', disabled: still, run: () => App.transferring(id) }] : []),
       ...(App.interposable(id) ? [{ label: 'Insert an entity between…', disabled: still, run: () => App.interposing(id) }] : []),
       { label: `${App.deleteVerb([id])}…`, danger: true, disabled: still, run: () => remove(id, { auto: true, inline: true }) }],
@@ -1115,7 +1122,10 @@ function LaterView({ id }) {
 // A box or line the chart shown hides by its own note (Delete, Hide in this view): said, with the way to show it
 // there again, its own Shown in the view, as the narrowest decides. Any other way out of a chart is the view's.
 const hiddenNote = (id, view) => { const n = N().resolve('Shown', tree(id), view); return n?.value === false && n.note.view === view && n.note.pattern.id === id ? n.note : null; };
-const showHere = (ids, v) => App.change(tx => ids.forEach(x => tx.note('Shown', tree(x), true, { view: v.id })), { say: ch => Time.describe(ch) });
+// Whether a record is hidden there, one by one, by its note or for the session; and shown or hidden there: as a change, or, in
+// Viewing, for the session, in no log (App.see).
+const hiddenHere = (id, view) => { const s = App.seenIn(view)?.get(id); return s === undefined ? !!hiddenNote(id, view) : !s; };
+const showHere = (ids, v, on = true) => App.seeing() ? App.see(v.id, ids, on) : App.change(tx => ids.forEach(x => tx.note('Shown', tree(x), on, { view: v.id })), { say: ch => Time.describe(ch) });
 // What a chart hides one by one, each a click from being shown again there, so nothing hidden is lost from sight.
 // What a chart leaves out of a box it draws, though it draws the box's others of the same list: its relatives there, each
 // by the relation entered and not drawn (two of Fund III's four owners), with what Show shows of it, its line and, where
@@ -1134,23 +1144,28 @@ function leftOut(sc, ids) {
 }
 const leftHere = id => { const v = viewShown(), sc = App.scene.value; return v?.layout === 'chart' && sc ? leftOut(sc, [id]).get(id) ?? [] : []; };
 function HiddenList({ v }) {
-  const hid = [...new Set(N().notes('Shown').filter(n => n.view === v.id && n.value === false && n.pattern.id !== undefined).map(n => n.pattern.id))]
-    .filter(x => recs()[x] && (recs()[x].kind || recs()[x].args) && hiddenNote(x, v.id));
+  const hid = [...new Set([...N().notes('Shown').filter(n => n.view === v.id && n.value === false && n.pattern.id !== undefined).map(n => n.pattern.id), ...(App.seenIn(v.id)?.keys() ?? [])])]
+    .filter(x => recs()[x] && (recs()[x].kind || recs()[x].args) && hiddenHere(x, v.id));
   // And what it leaves out of the boxes it draws, by list: "Not shown here: 2 owners of Fund III".
   const sc = App.scene.value, left = sc ? [...leftOut(sc, [...sc.byId.keys()])].flatMap(([id, parts]) => parts.map(p => ({ id, ...p }))) : [];
-  if (!hid.length && !left.length) return null;
-  const said = x => recs()[x].args ? `${nameOf(x)} · ${segment(x)}` : nameOf(x), still = App.readOnly.value;
+  // Each ticked on or off where it stands: one ticked on stays on the list, ticked, till the panel's left, so no row moves under the pointer.
+  const seen = useRef(new Set());
+  for (const x of hid) seen.current.add(x);
+  const rows = [...seen.current].filter(x => recs()[x]);
+  if (!rows.length && !left.length) return null;
+  const said = x => recs()[x].args ? `${nameOf(x)} · ${segment(x)}` : nameOf(x), still = App.readOnly.value && !App.seeing();
   const all = [...hid, ...left.flatMap(g => g.items.flatMap(it => it.show))];
-  return html`<${Section} title="Hidden" n=${hid.length + left.reduce((n, g) => n + g.items.length, 0)} act=${still || hid.length + left.length < 2 ? null : html`<button class="btn" onClick=${() => showHere(all, v)}>Show all</button>`}>
-    ${hid.map(x => html`<div class="rr" key=${x}><span /><span class="nm"><${Go} to=${x}>${said(x)}</${Go}></span>
-      <span class="val">${still ? null : html`<button class="btn" onClick=${() => showHere([x], v)}>Show</button>`}</span></div>`)}
+  const drawn = sc ? sc.marks.filter(m => m.type === 'box' && !m.revealed) : [];
+  const hide = ids => showHere(ids, v, false);
+  return html`<${Section} title="Hidden" n=${hid.length + left.reduce((n, g) => n + g.items.length, 0)} act=${still ? null : html`<span class="hidden-acts">${hid.length + left.length > 1 ? html`<button class="btn" onClick=${() => showHere(all, v)}>Show all</button>` : null}${drawn.length ? html`<button class="btn" onClick=${() => hide(drawn.map(m => m.record))}>Hide all</button>` : null}</span>`}>
+    ${rows.map(x => html`<label class="rr hiddenrow" key=${x}><input type="checkbox" checked=${!hid.includes(x)} disabled=${still} aria-label=${`Show ${said(x)}`} onChange=${e => e.target.checked ? showHere([x], v) : hide([x])} /><span class="nm"><${Go} to=${x}>${said(x)}</${Go}></span><span class="val" /></label>`)}
     ${left.map(g => html`<div class="rr" key=${g.id + g.list}><span /><span class="nm">Not shown here: <${Go} to=${g.id} title=${g.items.map(it => nameOf(it.obj)).join('\n')}>${g.items.length} ${lower(g.items.length === 1 ? relOne(g.list) : g.list)} of ${bound(shortOf(g.id))}</${Go}></span>
       <span class="val">${still ? null : html`<button class="btn" onClick=${() => showHere(g.items.flatMap(it => it.show), v)}>Show</button>`}</span></div>`)}</${Section}>`;
 }
 function HiddenHere({ id }) {
   const v = viewShown(), r = recs()[id];
-  if (!v || v.layout !== 'chart' || !(r.kind || r.args) || App.scene.value?.byId.has(id) || !hiddenNote(id, v.id)) return null;
-  return html`<${Section} title=${`Hidden in ${v.name}`} act=${App.readOnly.value ? null : html`<button class="btn" onClick=${() => showHere([id], v)}>Show</button>`} />`;
+  if (!v || v.layout !== 'chart' || !(r.kind || r.args) || App.scene.value?.byId.has(id) || !hiddenHere(id, v.id)) return null;
+  return html`<${Section} title=${`Hidden in ${v.name}`} act=${App.readOnly.value && !App.seeing() ? null : html`<button class="btn" onClick=${() => showHere([id], v)}>Show</button>`} />`;
 }
 
 // A style's outputs, each as the legend draws it (Scene's swatch), with its caption; each 2 px inside its chip,
@@ -1232,8 +1247,11 @@ function Caption({ g, label, put, moves, v }) {
 // The view: its layout and its rows (its own notes), and its styles in their order. Its name is its tab's,
 // and the formula bar's.
 function ViewPanel() {
-  const v = viewShown();
+  const v = viewShown(), blankAt = useRef({});
   if (!v) return null;
+  // (A chart found with nothing drawn has its Hidden list first, where it's ticked from; and it stays there, so nothing moves under the pointer.)
+  if (blankAt.current.v !== v.id) blankAt.current = { v: v.id, first: v.layout === 'chart' && !!App.scene.value && !App.scene.value.marks.some(m => m.type === 'box') };
+  const hiddenFirst = blankAt.current.first;
   const t = { id: v.id, kind: 'View' }, L = App.layouts.value, all = [...L.kinds, ...L.relations, ...L.datatypes];
   const rowsName = all.find(l => JSON.stringify(l.rows) === JSON.stringify(v.rows))?.name;
   const layout = value => App.change(tx => tx.note('Layout', t, value), { dated: false });
@@ -1244,9 +1262,10 @@ function ViewPanel() {
       ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed label="Rows" r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
         put=${out => layout({ rows: all.find(l => l.name === out.choice).rows })} /></div></div>` : null}
     </div>
+    ${hiddenFirst ? html`<${HiddenList} key=${v.id} v=${v} />` : null}
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
     ${v.layout === 'table' && typeof Table !== 'undefined' ? html`<${Section} title="Columns"><${Table.Columns} view=${v.id} /></${Section}>` : null}
-    ${v.layout === 'chart' ? html`<${HiddenList} v=${v} />` : null}
+    ${v.layout === 'chart' && !hiddenFirst ? html`<${HiddenList} key=${v.id} v=${v} />` : null}
   </div>`;
 }
 
@@ -1277,7 +1296,7 @@ function ShapeView({ id, part }) {
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     <${LookSection} look=${look} reset=${reset} />
     ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} />` : null}
-    ${m && g !== 'line' ? html`<${Place} at=${m} onPage keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => set({ [k]: x })} />` : null}
+    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
   </div>`;
 }
 // A row of the Key's panel: its grip, dragged among the rest; its box, which shows or hides it where it stands; and its
@@ -1609,7 +1628,9 @@ function GeneralView({ p, style }) {
 // Several selected: each by what it is, a relation by its place (Ownership · Fund III → Fund III Blocker), so a
 // trunk's lines or a frame's are told apart.
 function Many({ ids }) {
-  return html`<div class="insp"><${Head} title=${`${ids.length} selected`} /><div class="rows">
+  // (Counted as the format bar counts them: by what's drawn, a group by its members.)
+  const sc = App.scene.value, n = !sc ? ids.length : new Set(ids.flatMap(k => { const m = sc.byId.get(k.split('#')[0]); return m?.geometry === 'group' ? m.members : [m?.merged ?? m?.id ?? k]; })).size;
+  return html`<div class="insp"><${Head} title=${`${n} selected`} /><div class="rows">
     ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${x}>${recs()[x].args ? html`${nameOf(x)} · ${segment(x)}` : bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div></div>`;
 }
 
@@ -1651,7 +1672,7 @@ function chosen(sel) {
 // Going to one selects the record it's at and aims at its row, with the formula bar on it: a deadline's why, as an
 // error's; an error, which is no record, at the row where its value would be, the formula that gave it asked. A blank
 // has no formula: its row takes the keys, to be typed into. A failed check is app.js's.
-const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(a => {
+const attending = a => {
   const go = (id, edge, why) => () => {
     const obj = recs()[id] && objectOf(id);
     if (!obj) return;
@@ -1661,7 +1682,8 @@ const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' 
   };
   const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
   return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
-}));
+};
+const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(attending));
 
 // A list's Add, asked for from elsewhere (a transfer's toast: Add an owner of Holdco…): the record shown, its Add's search open
 // on that list's who.
@@ -1672,11 +1694,11 @@ function addToList(id, list) {
   if (l) setTimeout(() => { const at = document.querySelector('.insp .addrow .add-entry'); if (at) addTo(at, id, l); }, 120);
 }
 Shell.register('inspector', { addTo: addToList, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
-Shell.register('attention', { items: () => attention.value });
+Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending) });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
 // with why not, where they can't be.
 const theOne = () => { const ks = Shell.selection.peek(); return ks.length === 1 && recs()[ks[0]] ? ks[0] : null; };
-const notNow = (can, what) => () => App.readOnly.peek() ? 'Can’t change the past' : !theOne() ? `Select ${what} first` : can;
+const notNow = (can, what) => () => App.readOnly.peek() ? App.whyNot() : !theOne() ? `Select ${what} first` : can;
 Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['Sell', 'Sale', 'Assign', 'Transfer ownership'],
   enabled: () => !App.readOnly.peek() && !!theOne() && !!App.transferable(theOne()), run: () => App.transferring(theOne()),
   why: notNow('Only a relation of two sides transfers', 'an ownership or another relation') });
@@ -1698,8 +1720,8 @@ Shell.register('action', { id: 'record.rename', name: 'Rename', names: ['Change 
 // Hidden in the chart shown, or shown there again, as its ⋯ does it.
 const drawnHere = () => !!App.scene.peek()?.byId.has(theOne());
 Shell.register('action', { id: 'record.hide', get name() { return theOne() && !drawnHere() ? 'Show in this view' : 'Hide in this view'; }, names: ['Hide box', 'Show box', 'Unhide'],
-  enabled: () => !App.readOnly.peek() && !!theOne() && viewShown()?.layout === 'chart' && !!(recs()[theOne()].kind || recs()[theOne()].args),
-  run: () => { const id = theOne(), v = viewShown(); if (drawnHere()) App.change(tx => tx.note('Shown', tree(id), false, { view: v.id }), { say: ch => Time.describe(ch) }); else showHere([id], v); },
+  enabled: () => (!App.readOnly.peek() || App.seeing()) && !!theOne() && viewShown()?.layout === 'chart' && !!(recs()[theOne()].kind || recs()[theOne()].args),
+  run: () => showHere([theOne()], viewShown(), !drawnHere()),
   why: () => viewShown()?.layout !== 'chart' ? 'Show a chart first' : notNow('Only a box or a line is hidden', 'a box or a line')() });
 // Settling a deadline of the record selected, or the deadline selected, as its Paid… or Filed… does, by the words for it:
 // the record's own, and those of its relations (its tax years).
@@ -1727,6 +1749,12 @@ Shell.register('find', { items: () => {
         s?.querySelector('.sect .btn.icon')?.click();
       }, 150);
     } }));
+} });
+// Each list a formula gives the selected record, as a table with why each holds.
+Shell.register('find', { items: () => {
+  const id = theOne();
+  if (!id || !asTable() || !recs()[id].kind) return [];
+  return relatives(id).lists.filter(([, items]) => items.every(it => fx(it.rid))).map(([list, items]) => ({ label: `Open ${list} as a table`, detail: 'Action', names: [`${list} table`, 'As a table', `Why ${list}`], run: () => Table.openList(list, items[0].rid, id) }));
 } });
 // Find reaches every record by its name, and every list of relatives by whose it is (AIV-1 › Signatories). They're the
 // same while the state and the notes stand, so they're found once, not at each key typed; and found ahead, an object

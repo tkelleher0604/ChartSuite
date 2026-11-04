@@ -45,7 +45,8 @@ const FormulaBar = (() => {
   const R = App.computed;
   const defs = computed(() => new Map(App.definitions.value.map(d => [d.id, { ...d, isRelation: (d.edges?.length ?? 0) > 1 }])));
   const defOf = id => id ? defs.peek().get(id) : undefined;
-  const defOfRecord = (Rv, id) => defOf(Rv.computed[id]?.def ?? Rv.covered[id]?.def);
+  // (Of a working-out with definitions of its own, History's replays, its definition as it then was.)
+  const defOfRecord = (Rv, id, k = Rv.computed[id]?.def ?? Rv.covered[id]?.def) => Rv.definitions?.find(d => d.id === k) ?? defOf(k);
   const noteOf = id => N().notes('Formula').find(n => n.note === id && !n.view);
   // A definition's rows as kept, each keyed by its place.
   const kept = def => (defOf(def)?.rows ?? []).map((r, i) => ({ key: 'r' + i, label: r.label, formula: r.formula }));
@@ -1426,16 +1427,17 @@ const FormulaBar = (() => {
     editing.value = { cm, key, subject: ed?.subject ?? subject.peek() };
     if (!ed) Shell.parts.peek().canvas?.point(true);
   }
-  // The rows never cover what they're about: the boxes of the record worked out are scrolled into the view
-  // below them, as a wheel scrolls the chart, as little as will do, its top left first where not all fit.
+  // The rows never cover what they're about: a box of the record worked out that they or the view's edge cut (by more
+  // than its outline) is scrolled into the view below them, as a wheel scrolls the chart, as little as will do, its top
+  // left first where not all fit. What already shows, however near them, holds still, as the rest of the chart does.
   function clear() {
     const m = model.peek(), recs = R.peek().records, panel = document.querySelector('.fx-panel'), chart = document.querySelector('.dc-graph');
     if (!m || !panel || !chart) return;
     const ids = [...(m.args ?? []).map(a => a.id), m.id && Tree.objectOf(recs, m.id)].filter(id => isObj(recs[id]));
     const boxes = ids.map(id => chart.querySelector(`[data-cell-id="${CSS.escape(id)}"]`)?.getBoundingClientRect()).filter(Boolean);
     if (!boxes.length) return;
-    const v = chart.getBoundingClientRect(), p = panel.getBoundingClientRect(), pad = 16;
-    const into = (lo, hi, from, to) => lo < from + pad ? from + pad - lo : hi > to - pad ? Math.max(from + pad - lo, to - pad - hi) : 0;
+    const v = chart.getBoundingClientRect(), p = panel.getBoundingClientRect(), pad = 16, outline = 4;
+    const into = (lo, hi, from, to) => lo < from - outline ? from + pad - lo : hi > to + outline ? Math.max(from + pad - lo, to - pad - hi) : 0;
     const dx = into(Math.min(...boxes.map(b => b.left)), Math.max(...boxes.map(b => b.right)), Math.max(v.left, p.left), Math.min(v.right, p.right));
     const dy = into(Math.min(...boxes.map(b => b.top)), Math.max(...boxes.map(b => b.bottom)), Math.max(v.top, p.bottom), v.bottom);
     if (dx || dy) chart.dispatchEvent(new WheelEvent('wheel', { deltaX: -dx, deltaY: -dy, bubbles: true, cancelable: true }));
@@ -1877,17 +1879,20 @@ const FormulaBar = (() => {
   // it is, whose, and its figure where it has one. A check failed by what failed ("Ownership Adds Up", Fund III,
   // "101.6%, not 100%"); a date by what falls due, whose and its day, as the Dates table says it ("Annual Tax Due",
   // "AIV-1, tax year 2025", "Jun 1, 2026"); a blank by the entry missing and whose; an error by its definition, where,
-  // and its code. → { what, where, figure }
-  function needOf({ kind, id, edge, error }) {
-    const Rv = R.peek(), recs = Rv.records, n = N(), r = recs[id];
+  // and its code. Where it's at a relation, `who`, whose it first is: so what's one problem, one check failing at one
+  // person's relations, lists as one. `Rv` and `n`, a working-out and notes other than those shown (History's replays).
+  // → { what, where, figure, who? }
+  function needOf({ kind, id, edge, error }, Rv = R.peek(), n = N()) {
+    const recs = Rv.records, r = recs[id];
     const whose = x => recs[x] ? Time.whose(recs, x, n) : '';
     if (error) return { what: defOf(error.def)?.name ?? error.error.code, where: error.args ? placeText(argsOf(Rv, error, null), 'short') : whose(error.at), figure: error.error.code };
     if (!r) return { what: edge ?? '', where: '', figure: '' };
     if (kind === 'blank') return { what: edge, where: whose(id), figure: '' };
-    const where = r.args ? n.segmentOf(recs, id) : whose(r.at);
-    if (kind === 'overdue' || kind === 'soon') return { what: n.nameOf(recs, id), where, figure: Tree.formatDate(r.value, 'short') };
+    const where = r.args ? n.segmentOf(recs, id) : whose(r.at), rel = r.args ? r : recs[r.at]?.args ? recs[r.at] : null, t = rel && Tree.treeOf(recs, r.args ? id : r.at), first = t && n.edges(t)[0];
+    const side = first && rel.args.find(a => Tree.same(a.edge, first)), who = side ? n.shortOf(recs, Tree.objectOf(recs, side.at)) : undefined;
+    if (kind === 'overdue' || kind === 'soon') return { what: n.nameOf(recs, id), where, figure: Tree.formatDate(r.value, 'short'), who };
     const failed = notsOf(Rv, id)?.failed.find(f => f.then || f.not);
-    return { what: n.nameOf(recs, id), where, figure: failed?.then ?? (failed?.not ? `not ${failed.not.text}` : '') };
+    return { what: n.nameOf(recs, id), where, figure: failed?.then ?? (failed?.not ? `not ${failed.not.text}` : ''), who };
   }
   Shell.register('needs', needOf);
 

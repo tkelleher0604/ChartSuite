@@ -342,6 +342,7 @@ function preview(label, value) {
   tried = key;
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
+  if (label === 'Tidy for every date') return c.restyle(c.tidiedEvery(), { moves: true });
   c.restyle(trying(c, label, value, firstFor(c, scopeOf(scopesOf(c).scopes), label, value).also), label === 'Size' ? { moves: true } : undefined);
 }
 // The chart with a change written on its rows, uncommitted; `more`, what else the change writes.
@@ -1095,7 +1096,7 @@ function Bar() {
     { label: 'Bring to front', icon: 'front', keys: '$mod+Shift+]', run: () => c.order('front') }, { label: 'Bring forward', icon: 'forward', keys: '$mod+]', run: () => c.order('forward') },
     { label: 'Send backward', icon: 'backward', keys: '$mod+[', run: () => c.order('backward') }, { label: 'Send to back', icon: 'back', keys: '$mod+Shift+[', run: () => c.order('back') },
   ];
-  const grouping = s.group ? { label: 'Ungroup', icon: 'ungroup', keys: '$mod+Shift+G', run: () => c.ungroup() } : { label: 'Group', icon: 'group', keys: '$mod+G', disabled: placeable < 2, run: () => c.group() };
+  const grouping = s.group ? { label: 'Ungroup', icon: 'ungroup', keys: '$mod+Shift+G', disabled: ro, run: () => c.ungroup() } : { label: 'Group', icon: 'group', keys: '$mod+G', disabled: ro || placeable < 2, run: () => c.group() };
   // Tidy lays the view out again, or with boxes selected, those around what stands, as its name says, with nothing to do where nothing in it was placed by hand; pointed
   // at, the pointer moved onto it (not found on it as a menu over it closes), it's drawn as it would be once the
   // pointer has rested there (the canvas's restyle). Made, the change ends the preview.
@@ -1158,7 +1159,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" disabled=${!layered} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: !layered })), '-', grouping, tidy, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none || ro, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: !layered || ro })), '-', grouping, tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', ...[['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers']].map(([label, k]) => ({ label, checked: Canvas.aids.peek()[k], run: Canvas.aidToggle(k) }))])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label}</button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
@@ -1205,7 +1206,7 @@ function mount(el) {
     ['format.paragraph', 'Paragraph…', null, () => open('paragraph'), edit, ['Align text', 'Alignment', 'Line spacing']],
   ].map(([id, name, keys, run, enabled = edit, names]) => Shell.register('action', { id, name, ...(keys && { keys }), ...(names && { names }), run, enabled,
     // Not now, and why: Find says so beside it, rather than leave it out.
-    why: () => App.readOnly.peek() ? 'Can’t change the past' : !onScreen() ? 'Show a chart first' : 'Select a box, line or shape first' }));
+    why: () => App.readOnly.peek() ? App.whyNot() : !onScreen() ? 'Show a chart first' : 'Select a box, line or shape first' }));
   // A house style's, for Find, by every word people look for one by; each for the chart view shown.
   const HOUSE = ['Style', 'Theme', 'Template', 'House style', 'Master', 'Slide master', 'Match'], chartShown = () => chartViews().some(v => v.id === Shell.view.peek());
   const fromTab = items => () => setTimeout(() => Shell.menu(document.getElementById(`tab-${Shell.view.peek()}`) ?? document.body, items(Shell.view.peek()), { placement: 'top-start' }));
@@ -1215,7 +1216,7 @@ function mount(el) {
     ['look.house', 'House styles…', fromTab(houseItems), chartShown],
     ['look.save', 'Save this look as a house style…', () => saveHouse(Shell.view.peek()), chartShown],
     ['look.load', 'Load a house style…', loadHouse, () => true],
-  ].map(([id, name, run, enabled]) => Shell.register('action', { id, name, names: HOUSE, run, enabled, why: () => App.readOnly.peek() ? 'Can’t change the past' : !chartShown() ? 'Show a chart first' : 'This chart has no other chart view' })));
+  ].map(([id, name, run, enabled]) => Shell.register('action', { id, name, names: HOUSE, run, enabled, why: () => App.readOnly.peek() ? App.whyNot() : !chartShown() ? 'Show a chart first' : 'This chart has no other chart view' })));
   // Insert's, for Find, by what each makes: a box of each of the chart's kinds, as the page's right-click says it ("New
   // entity", found by Add or Insert too), then its text box, frame, Key and picture.
   actions.push(Shell.register('find', { items: () => {

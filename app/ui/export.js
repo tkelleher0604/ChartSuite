@@ -74,7 +74,8 @@ const BEFORE = { left: 0, center: 0.5, right: 1 };
 
 // A page's marks as it's read: its title, its date, then the rest as the scene draws them. Nothing overlaps
 // the title or the date, so where they stand in the drawing's order doesn't show.
-const reading = marks => { const first = ['title', 'date'].flatMap(role => marks.filter(m => m.role === role)); return [...first, ...marks.filter(m => !first.includes(m))]; };
+const reading = marks => { const first = ['title', 'date'].flatMap(role => marks.filter(m => m.role === role)), under = marks.filter(m => !first.includes(m) && (m.settings?.Layer?.value ?? m.look?.Layer ?? 0) < 0);
+  return [...under, ...first, ...marks.filter(m => !first.includes(m) && !under.includes(m))]; };
 
 // ---- SVG: the PDF, and the preview ----
 
@@ -270,16 +271,18 @@ function markSvg(m, pdf) {
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
+  // (A free shape turned, about its middle.)
+  const turned = inner => m.rotate ? `<g transform="rotate(${n(m.rotate)} ${n(m.x + m.w / 2)} ${n(m.y + m.h / 2)})">${inner}</g>` : inner;
   if (m.geometry === 'picture') {
     // Cropped, the whole of it placed where what's left falls in its frame, clipped to the frame.
     const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? m.w / (1 - (c.left + c.right) / 100) : m.w, fh = c ? m.h / (1 - (c.top + c.bottom) / 100) : m.h;
     const image = !c ? `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
       : `<clipPath id="crop-${esc(m.id)}"><rect width="${n(m.w)}" height="${n(m.h)}"/></clipPath><g clip-path="url(#crop-${esc(m.id)})"><image href="${esc(m.src ?? '')}" x="${n(-fw * c.left / 100)}" y="${n(-fh * c.top / 100)}" width="${n(fw)}" height="${n(fh)}" preserveAspectRatio="none"/></g>`;
-    return g(m.x, m.y, image + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' })));
+    return turned(g(m.x, m.y, image + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' }))));
   }
   if (m.geometry === 'legend') return g(m.x, m.y, body('rect', m.w, m.h, { ...s, Dash: 'solid' }) + texts(m.texts, pdf)
     + m.rows.map(r => swatch(r.swatch, r.sw) + texts([r.caption], pdf)).join(''));
-  return g(m.x, m.y, body(m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry, m.w, m.h, s) + texts(m.texts, pdf));
+  return turned(g(m.x, m.y, body(m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry, m.w, m.h, s) + texts(m.texts, pdf)));
 }
 // How much smaller a page is drawn on its sheet: its scale, exactly, so it fills the sheet.
 const fit = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
@@ -451,12 +454,12 @@ const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnL
   + q.map(([x, y], i) => `<a:${i ? 'lnTo' : 'moveTo'}><a:pt x="${x}" y="${y}"/></a:${i ? 'lnTo' : 'moveTo'}>`).join('') + '</a:path></a:pathLst></a:custGeom>';
 // A shape as PowerPoint writes one, in r (inches on the slide): of a preset geometry, or a path through points
 // (inches within r); a text box (`box`), or the slide's title placeholder (`title`); holding `body`.
-function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = {}) {
+function sp(id, name, r, geometry, s, k, body, { box = false, title = false, rotate = 0 } = {}) {
   const nv = title ? '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr>' : `<p:cNvSpPr${box ? ' txBox="1"' : ''}/><p:nvPr/>`;
   // A rounded rectangle's corners, PowerPoint's adjustment of it: their radius in thousandths of its shorter side.
   const adj = geometry === 'rounded' ? `<a:gd name="adj" fmla="val ${Math.round(Math.min(50, Math.max(0, s.Corner ?? Scene.CORNER)) * 1000)}"/>` : '';
   const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}">${adj ? `<a:avLst>${adj}</a:avLst>` : '<a:avLst/>'}</a:prstGeom>`;
-  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${shadowXml(s.Shadow)}</p:spPr>${body}</p:sp>`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h), rotate ? ` rot="${Math.round(rotate * 60000)}"` : '')}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${shadowXml(s.Shadow)}</p:spPr>${body}</p:sp>`;
 }
 
 // Lines said as one, as the chart says them: those landing on a frame along one route, the first drawn standing
@@ -495,8 +498,8 @@ function slide(p, scene, { k, ox, oy }, say) {
   const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
   // A stand-in for what `write` writes once it has its number. → that number.
   const put = write => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${parts.push(write) - 1}·` });
-  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title } = {}) =>
-    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset), { box, title }));
+  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate } = {}) =>
+    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset), { box, title, rotate }));
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
   // their first line's top, its margins round them. → its rect.
   const textBox = (items, x0, y0, inset) => {
@@ -570,8 +573,8 @@ function slide(p, scene, { k, ox, oy }, say) {
     if (m.geometry === 'picture') {
       // Cropped, as PowerPoint holds it: the whole picture's size, and the part of it shown, its frame on the slide.
       const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? L(m.w) / (1 - (c.left + c.right) / 100) : L(m.w), fh = c ? L(m.h) / (1 - (c.top + c.bottom) / 100) : L(m.h);
-      if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: fw, h: fh, sizing: c ? { type: 'crop', x: fw * c.left / 100, y: fh * c.top / 100, w: L(m.w), h: L(m.h) } : { type: 'contain', w: L(m.w), h: L(m.h) } });
-      if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture');
+      if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: fw, h: fh, sizing: c ? { type: 'crop', x: fw * c.left / 100, y: fh * c.top / 100, w: L(m.w), h: L(m.h) } : { type: 'contain', w: L(m.w), h: L(m.h) }, ...(m.rotate && { rotate: m.rotate }) });
+      if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture', { rotate: m.rotate });
       return [rect(m)];
     }
     if (m.geometry === 'legend') return group(m.title || 'Legend', () => {
@@ -590,7 +593,7 @@ function slide(p, scene, { k, ox, oy }, say) {
     if (m.geometry === 'group') return [];
     const text = m.geometry === 'text' || m.geometry === 'frame';
     shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.texts[0]?.text ?? 'Shape',
-      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title' });
+      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate });
     return [rect(m)];
   };
   const written = new Set();
@@ -763,7 +766,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // A view's page, as its Page note has it: its paper (null for a size of its own) and which way it's turned.
   const pageNow = id => { const p = App.notes.peek().resolve('Page', viewAt(id))?.value ?? 'slide', named = typeof p === 'object' ? p.size : p; return { paper: PAPERS[named] ? named : null, portrait: !!p?.portrait }; };
   const OWN = 'own';
-  const scene = (id, paper) => Scene.of(App.shown.peek(), App.chart.peek(), id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...(paper && { paper }) });
+  const scene = (id, paper) => Scene.of(App.shown.peek(), App.chart.peek(), id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), seen: App.seenIn(id), ...(paper && { paper }) });
   // The chart views, in tab order, each as its scene is on that paper, or on its own page: the one shown is App's there.
   const views = paper => charts().map(v => {
     const shown = App.scene.peek(), own = paper === OWN || paper === pageNow(v.id).paper;
@@ -787,7 +790,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     tx.note('Scale', viewAt(view), { scale: s, x: 0, y: 0 });
     for (const m of on.marks) if (m.type === 'box' && !m.revealed) {
       const t = Tree.treeOf(App.state.peek(), m.record), old = N.position(t, view);
-      tx.note('Position', t, { x: half(m.x), y: half(m.y), w: half(m.w), ...(old?.h != null && { h: half(m.h) }), ...((!old || old.kept || !Number.isFinite(old.x)) && { kept: true }) }, { view });
+      tx.note('Position', t, { x: half(m.x), y: half(m.y), w: half(m.w), ...(old?.h != null && { h: half(m.h) }), ...((!old || old.kept || !Number.isFinite(old.x)) && { kept: true }), ...(old?.hand && { hand: true }), ...(old?.lock && { lock: true }) }, { view });
     }
     for (const r of App.shown.peek().rows(App.chart.peek())) if ('shape' in r && r.view === view) {
       const m = on.byId.get(r.shape);
@@ -796,21 +799,17 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       else if (r.x != null) tx.update(r.shape, { x: half(m.x), y: half(m.y), ...(r.w != null && { w: half(m.w) }), ...(r.h != null && { h: half(m.h) }), ...(r.points && { points: m.points.map(([x, y]) => [half(x), half(y)]) }) });
     }
   }
-  // Fit to page: what a hand put beyond the margins is brought in, as one change. A box whose middle is off the sheet goes back
-  // to the layout, which places it beside its relatives, among what stands; every other a hand put is kept as the layout's
-  // are, so the page holds it too, the kept scale falling as far as that needs.
+  // Fit to page: what's beyond the margins is brought in, as one change. A box whose middle is off the sheet goes back to the
+  // layout, which places it beside its relatives, among what stands; and the page holds all the rest, the scale it keeps
+  // falling as far as that needs, its note `fit` till the next change keeps it so.
   function fitToPage(id = Shell.view.peek()) {
-    if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
-    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margin, N = App.notes.peek(), boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
+    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margin, boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
     if (boxes.every(b => b.x >= M - 1 && b.y >= M - 1 && b.x + b.w <= p.w - M + 1 && b.y + b.h <= p.h - M + 1)) return Shell.toast('The chart already fits its page');
     const away = b => { const x = b.x + b.w / 2, y = b.y + b.h / 2; return x < 0 || y < 0 || x > p.w || y > p.h; };
     App.change(tx => {
       tx.note('Scale', viewAt(id), { scale: p.scale, x: p.offset.x, y: p.offset.y, fit: true });
-      for (const b of boxes) {
-        const t = Tree.treeOf(App.state.peek(), b.record), old = N.position(t, id);
-        if (!Number.isFinite(old?.x) || old.kept) continue;
-        tx.note('Position', t, away(b) ? undefined : { ...old, kept: true }, { view: id });
-      }
+      for (const b of boxes.filter(away)) tx.note('Position', Tree.treeOf(App.state.peek(), b.record), undefined, { view: id });
     }, { dated: false, keep: false, say: 'Fit the chart to its page' });
     Canvas.active.peek()?.zoom('fit');
   }
@@ -847,7 +846,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   async function setup(view = Shell.view.peek()) {
     if (!charts().some(v => v.id === view)) return Shell.toast('Show a chart first');
-    if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
     const was = pageNow(view), f = footer(), choice = { paper: was.paper, portrait: was.portrait, text: f.text ?? '', number: !!f.number };
     const go = await Shell.dialog({ title: 'Page setup', width: 720, body: () => html`<${Setup} choice=${choice} view=${view} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
@@ -865,7 +864,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   api.setup = setup;
   api.fit = fitToPage;
-  const here = () => charts().some(v => v.id === Shell.view.peek()), free = () => here() && !App.readOnly.peek(), not = () => App.readOnly.peek() ? 'Can’t change the past' : 'Show a chart first';
+  const here = () => charts().some(v => v.id === Shell.view.peek()), free = () => here() && !App.readOnly.peek(), not = () => App.readOnly.peek() ? App.whyNot() : 'Show a chart first';
   Shell.register('action', { id: 'page.setup', name: 'Page setup…', names: ['Paper', 'Page size', 'Legal', 'Letter', 'Tabloid', 'A4', 'A3', 'Slide size', 'Landscape', 'Portrait', 'Orientation', 'Margins', 'Footer', 'Page number', 'Header and footer'], enabled: free, why: not, run: () => setup() });
   Shell.register('action', { id: 'page.fit', name: 'Fit to page', names: ['Fit chart', 'Scale to fit', 'Shrink to fit', 'Off the page'], enabled: free, why: not, run: () => fitToPage() });
   // The calendar's dates, by year, as the date's popover lists the chart's days; what's overdue red, as the
@@ -883,7 +882,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // table shows it, or every row, as it says.
   // The paper is each view's page, as Page setup has it; another chosen here is for this file alone, and says so, and the
   // format never changes it. What's amiss with a page is said over it: a size it can't hold, a box off it, with Fit to
-  // page beside that, and what overlaps.
+  // page beside that unless nothing can be changed (in Viewing, or the past shown, where exporting writes nothing), and
+  // what overlaps.
   function Choice({ choice, here, others }) {
     const [format, setFormat] = useState(choice.format), [ids, setIds] = useState(choice.views), [paper, setPaper] = useState(choice.paper);
     const [all, setAll] = useState(choice.all), [full, setFull] = useState(null), [fits, setFits] = useState(0);
@@ -914,7 +914,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">
         ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}
-        ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} <button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button></p>`)}
+        ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} ${App.readOnly.peek() ? null : html`<button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button>`}</p>`)}
       </div>` : null}
       ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')} style=${`--said: ${(Math.min(4, said.filter(x => !x.off).length) + Math.min(4, said.filter(x => x.off).length) * 1.5 + (oneOff ? 1.5 : 0)) * 20}px`}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
@@ -943,12 +943,12 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     if (!go) return;
     const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;
     Shell.store.set(memo(), JSON.stringify({ format: x ? was.format : choice.format, table: x ? x.name : was.table, views: choice.views, all: choice.all }));
-    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName(), App.day.peek());
+    // A file of one view is named for it; of more, for the chart; each saying its as-of day, where that's not today, or
+    // the moment, while the past is shown (App.asOfWords). By whoever exports it, blank where no name is set.
+    const dated = App.asOfWords().name;
+    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), [chartName(), dated].filter(Boolean).join(' - '), App.day.peek());
     if (x) return x.run({ all: choice.all });
-    // A file of one view is named for it; of more, for the chart; each saying its as-of day, where that's not today. By
-    // whoever exports it, blank where no name is set.
-    const one = choice.scenes.length === 1 ? list.find(v => v.id === choice.scenes[0].view) : null, day = choice.scenes[0]?.day;
-    const dated = day && choice.scenes.every(s => s.day === day) ? App.asOfWords(day).name : '';
+    const one = choice.scenes.length === 1 ? list.find(v => v.id === choice.scenes[0].view) : null;
     return write(choice.format, choice.scenes, one ? fileName(chartName(), one.name, dated) : fileName(chartName(), dated),
       { author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }

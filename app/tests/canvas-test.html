@@ -101,6 +101,9 @@ const closeMenus = async () => { document.body.dispatchEvent(new PointerEvent('p
 
 async function run() {
   await until(() => App.views.peek().length && sc(), 15000);
+  // (canvas-test.html?only=reloaded runs that section alone.)
+  const only = new URLSearchParams(location.search).get('only');
+  if (only) { await size(1440, 900); return eval(only)(); }
   await tick(300);
   const main = charts()[0];
 
@@ -1160,7 +1163,7 @@ async function run() {
     const boxMenu = Object.fromEntries($$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]));
     check('a box’s menu keys Delete to Delete…, named for what it records (Dissolve…), and Hide in this view to nothing, with History beside them', boxMenu[`${App.deleteVerb([plain])}…`] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
     $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'History')?.click(); await tick(250);
-    check('… its History opens History filtered to it', !!$('.hist') && txt($('.hist-focus')).includes('Ninth Street Holdings LLC'), txt($('.hist-focus')));
+    check('… its History opens History filtered to it', !!$('.hist') && txt($('.hist-filter .of')).includes('Ninth Street Holdings LLC'), txt($('.hist-filter .of')));
     Time.close(); await tick(120);
     Shell.parts.peek().undo.undo(); await tick(200);
     // A text box inserted lands in empty room near the middle, never on a box or the Key, and reads its place in the page's points.
@@ -1173,7 +1176,7 @@ async function run() {
     check('a text box inserted lands on no box and not on the Key', !!tb && !solid().some(m => meets(m, tb)), tb && solid().filter(m => meets(m, tb)).map(m => m.id).join());
     await tick(150);
     const left = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Left'), top = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Top');
-    const page = sc().page, want = v => String(Math.round(Scene.toSlide(page, v / Scene.PT)));
+    const page = sc().page, want = v => String(Math.round(Scene.toSlide(page, v / Scene.PT) * 10) / 10);
     check('… its Position reads in the page’s points from the page’s top left, as a box’s does', !!tb && left?.value === want(tb.x) && top?.value === want(tb.y) && +left.value >= 0, `${left?.value},${top?.value} for ${tb && [want(tb.x), want(tb.y)]}`);
     Shell.parts.peek().undo.undo(); await tick(150);
     // The chart menu: the chart's own actions first, where they stay, its charts and the workbooks each a list of their own.
@@ -1248,8 +1251,504 @@ async function run() {
     field.remove(); off(); await tick(80);
   }
 
+  await reloaded();
+  await wherePut();
+  await bendable();
+  await layered();
+  await pickings();
+  await onlyThese();
+  await aidsAndTurns();
+  await inViewing();
+  await insertHolds();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
+}
+
+// ---- Boxes go where they're put (gui3 P-21 to P-24): dragged or typed, a box stands exactly there, over another if that's
+// where it was put; its bottom handle sizes it alone; Reset takes its place alone; a group moves as one; a height is typed as a
+// width is, and locks to it ----
+async function wherePut() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const n0 = App.wb.changes().length, boxes = () => sc().marks.filter(m => m.type === 'box');
+  // (In the chart's own terms, less what the page moves it by as a whole.)
+  const offs = () => sc().page.offset;
+  const at = () => new Map(boxes().map(m => [m.id, [m.x - offs().x, m.y - offs().y, m.w, m.h]]));
+  const routes = () => new Map(sc().marks.filter(m => m.type === 'line').map(m => [m.id, JSON.stringify(m.points.map(([x, y]) => [Math.round(x - offs().x), Math.round(y - offs().y)]))]));
+  const near = (a, b, d = 0.75) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= d);
+  const others = (was, but) => [...was].filter(([id, p]) => !but.includes(id) && !near(p, at().get(id))).map(([id, p]) => [id, p.map(Math.round), at().get(id)?.map(Math.round)]);
+  // (Northpine, in the chart's midst, so the page has no call to move anything for it.)
+  const a = 'northpine', neighbour = sc().byId.get('blocker');
+  const undo = async () => { Shell.parts.peek().undo.undo(); await tick(350); };
+
+  // Dragged right onto its neighbour.
+  let was = at(), m = sc().byId.get(a); Shell.select([a]); await tick(150);
+  await drag(m, (neighbour.x - m.x + 12) * cv().graph.zoom(), (neighbour.y - m.y + 9) * cv().graph.zoom());
+  let now = sc().byId.get(a);
+  check('a box dragged onto another stands exactly there, over it, and nothing else moves', Math.abs(now.x - neighbour.x - 12) <= 6 && Math.abs(now.y - neighbour.y - 9) <= 6 && !others(was, [a]).length, JSON.stringify({ now: [now.x, now.y], neighbour: [neighbour.x, neighbour.y], moved: others(was, [a]) }));
+  check('… said as moved', /^Moved /.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  await undo();
+
+  // Typed Left and Top read back as typed; a Height too, the row's others keeping theirs.
+  Shell.select([a]); await tick(250);
+  const field = k => $(`.insp [data-place="${k}"] input`);
+  const type = async (k, v) => { const f = field(k); f.focus(); f.value = String(v); f.dispatchEvent(new Event('input', { bubbles: true })); f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(350); };
+  was = at();
+  const mark = () => sc().byId.get(a), slide = v => Scene.toSlide(sc().page, v / Scene.PT), px = v => Scene.fromSlide(sc().page, v) * Scene.PT;
+  const L = Math.round(slide(mark().x)) + 8.5, T = Math.round(slide(mark().y)) - 11;
+  await type('x', L); await type('y', T);
+  check('Left and Top typed read back as typed, and the box stands there, moving nothing else', field('x')?.value === String(L) && field('y')?.value === String(T) && !others(was, [a]).length, `${field('x')?.value},${field('y')?.value} for ${L},${T} ${JSON.stringify(others(was, [a]))}`);
+  check('… where the numbers say on the page', Math.abs(mark().x - px(L)) < 0.01 && Math.abs(mark().y - px(T)) < 0.01, JSON.stringify([mark().x, px(L)]));
+  await undo(); await undo();
+  Shell.select([a]); await tick(250);
+  was = at(); let lines = routes(), own = sc().marks.filter(l => l.type === 'line' && (l.from === a || l.to === a)).map(l => l.id), h0 = mark().h;
+  await type('h', Math.round(Scene.toSlide(sc().page, (h0 + 30) / Scene.PT)));
+  const typedH = field('h')?.value, moved0 = others(was, [a]), rerouted = [...lines].filter(([id, r]) => !own.includes(id) && routes().get(id) !== r);
+  check('a Height typed is that box’s alone, read back as typed: nothing else moves, and no line but its own reroutes', typedH === String(Math.round(Scene.toSlide(sc().page, (h0 + 30) / Scene.PT))) && Math.abs(mark().h - h0 - 30) < 2 && !moved0.length && !rerouted.length, JSON.stringify({ typedH, h: mark().h, h0, moved0, rerouted }));
+  await undo();
+
+  // Its bottom handle dragged.
+  Shell.select([a]); await tick(250);
+  was = at(); lines = routes(); h0 = mark().h;
+  const grip = $('.x6-widget-transform-resize[data-position="bottom"]'), gr = grip?.getBoundingClientRect(), mouse = (t, x, y, on = document.body) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+  if (gr) { const [x, y] = [gr.left + gr.width / 2, gr.top + gr.height / 2]; mouse('mousedown', x, y, grip); for (let i = 1; i <= 8; i++) { mouse('mousemove', x, y + i * 3); await tick(16); } mouse('mouseup', x, y + 24); await tick(400); }
+  check('a bottom handle dragged sizes that box alone, an entered height of its own: nothing else moves, and no line but its own reroutes', !!gr && mark().h > h0 + 5 && !others(was, [a]).length && ![...lines].some(([id, r]) => !own.includes(id) && routes().get(id) !== r) && App.notes.peek().position(Tree.treeOf(App.state.peek(), a), sc().view)?.h > 0,
+    JSON.stringify({ h0, h: mark().h, moved: others(was, [a]) }));
+  check('… said as resized', /^Resized /.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  await undo();
+
+  // Reset position: that box alone.
+  Shell.select([a]); await tick(250);
+  await drag(mark(), 0, 30); Shell.select([a]); await tick(250);
+  was = at();
+  const resetBtn = $$('.insp .sect').find(s => /Position/.test(txt(s)))?.querySelector('.reset');
+  resetBtn?.click(); await tick(450);
+  check('Reset position moves that box alone', !!resetBtn && !others(was, [a]).length && /^Reset the position/.test(txt($$('.toast').at(-1))), JSON.stringify({ moved: others(was, [a]), toast: txt($$('.toast').at(-1)) }));
+  await undo(); await undo();
+
+  // A group moves as one: its members keep their distances exactly.
+  const [g1, g2] = ['blocker', 'caygp'].map(id => sc().byId.get(id)), gap = () => { const p = sc().byId.get(g1.id), q = sc().byId.get(g2.id); return [q.x - p.x, q.y - p.y]; };
+  Shell.select([g1.id, g2.id]); await tick(200); cv().group(); await tick(350);
+  const gap0 = gap(); was = at();
+  await drag(sc().byId.get(g1.id), 0, -20);
+  const dropped = at().get(g1.id)[1] - was.get(g1.id)[1];
+  check('a group dragged is rigid: its members keep their distances exactly, and nothing else moves', near(gap(), gap0, 0.51) && Math.abs(dropped + 20 / cv().graph.zoom()) < 8 && !others(was, [g1.id, g2.id]).length, JSON.stringify({ gap: gap(), gap0, dropped, moved: others(was, [g1.id, g2.id]) }));
+  await undo(); await undo();
+
+  // A height in Find, and proportions locked.
+  Shell.select([a]); await tick(250);
+  const find = Shell.parts.peek().action.find(x => x.id === 'chart.size');
+  check('Find reaches a box’s size by Height, Width and Size', !!find?.enabled() && find.names.includes('Height') && find.name === 'Size…', JSON.stringify(find?.names));
+  const box = () => $$('.insp .lockrow input')[0];
+  box()?.click(); await tick(350);
+  const w0 = mark().w, h1 = mark().h;
+  await type('w', Math.round(Scene.toSlide(sc().page, 2 * w0 / Scene.PT)));
+  check('with its proportions locked, a width typed takes its height with it', !!App.notes.peek().position(Tree.treeOf(App.state.peek(), a), sc().view)?.lock && Math.abs(mark().w - 2 * w0) < 2 && Math.abs(mark().h - 2 * h1) < 3, JSON.stringify({ w0, h1, w: mark().w, h: mark().h }));
+  await undo(); await undo();
+  check('… and every step undone, the log’s as it was but for its undoing', [...at()].every(([id, p]) => near(p, was.get(id), 60)), '');
+  Shell.select([]); await tick(150);
+}
+
+// ---- A reload changes nothing (gui3 N-6.2): a page of six boxes tidied on one day, looked at on others and edited, as Nora's
+// step plan was. What's drawn on each day is what a page opened on that log draws, built from nothing in a frame of its own;
+// and an edit on one day moves nothing on another ----
+async function reloaded() {
+  await show(charts()[0]); Shell.at(null); Shell.select([]); await tick(150);
+  const D = ['2037-03-01', '2037-06-01', '2037-09-01'], on = async d => { Shell.at({ asOf: d }); await until(() => App.scene.peek()?.day === d); await tick(120); };
+  const round2 = v => Math.round(v * 100) / 100, xs = (...vs) => vs.map(v => Number.isFinite(v) ? round2(v) : v);
+  // Every mark, as it's drawn: where, how large, its route, its label, its words; `chartOnly`, its boxes and lines.
+  const drawn = (s, chartOnly = false) => JSON.stringify([...s.marks.filter(m => !chartOnly || m.type === 'box' || m.type === 'line').map(m => [m.id, ...xs(m.x, m.y, m.w, m.h), m.points?.flat().map(round2), m.labelAt && xs(m.labelAt.x, m.labelAt.y), (m.texts ?? []).map(it => (it.lines ?? []).map(l => l.text))]), chartOnly ? 0 : s.page.scale]);
+  const frame = document.body.appendChild(Object.assign(document.createElement('iframe'), { style: 'position:fixed;left:-2000px;width:800px;height:600px' }));
+  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
+    window.fresh = (json, c, view, day) => { const wb = Log.open(json), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S), schema: S }); return Scene.of(wb, c, view, day, { state: R.records, computed: R }); };<\/script>`;
+  await until(() => frame.contentWindow?.fresh, 8000);
+  const fresh = d => frame.contentWindow.fresh(JSON.stringify(App.wb.toJSON()), App.chart.peek(), App.scene.peek().view, d);
+  const sameAsFresh = async () => { const off = []; for (const d of D) { await on(d); const a = drawn(App.scene.peek()), b = drawn(fresh(d)); if (a !== b) off.push(d); } return off; };
+
+  const view = App.addView('Steps'); Shell.show(view); await until(() => sc()?.view === view); await tick(200);
+  const keep = new Set(['fund', 'corvane', 'blocker', 'northpine', 'halvard']), st = () => App.state.peek();
+  App.change(tx => { for (const m of App.scene.peek().marks) if (m.type === 'box' && !keep.has(m.record)) tx.note('Shown', Tree.treeOf(st(), m.record), false, { view }); }, { dated: false }); await tick(300);
+  // Holdco between Fund III and the Blocker from the second day, Northpine gone from the third.
+  App.change(tx => {
+    const h = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: h, edge: 'Name', field: 'text', value: 'Calder Ridge Holdco, LLC' });
+    for (const [a, b] of [['fund', h], [h, 'blocker']]) { const o = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 1 }); }
+    tx.remove('own_fund_blkr');
+  }, { dated: D[1] }); await tick(300);
+  App.change(tx => tx.remove('northpine'), { dated: D[2] }); await tick(300);
+
+  await on(D[1]);
+  const n0 = App.wb.changes().length, boxes = s => s.marks.filter(m => m.type === 'box').map(m => [m.id, m.x, m.y, m.w, m.h]);
+  const preview = boxes(Scene.of(cv().tidied(), App.chart.peek(), view, D[1], { state: st(), computed: App.computed.peek(), ahead: true }));
+  cv().tidy(); await tick(500);
+  const madeBoxes = boxes(App.scene.peek());
+  check('Tidy draws what its preview did, to the half point a place is kept to, one change, and enters it: every box it lays out stands where it’s drawn', App.wb.changes().length === n0 + 1 && madeBoxes.length === preview.length
+    && madeBoxes.every((b, i) => b[0] === preview[i][0] && b.slice(1).every((v, k) => Math.abs(v - preview[i][k + 1]) <= 0.5)) && App.scene.peek().marks.every(m => m.type !== 'box' || m.entered),
+    JSON.stringify([App.wb.changes().length - n0, madeBoxes, preview]));
+  check('… and it’s said as Tidy, and greys, with nothing more to tidy', Time.describe(App.wb.changes().at(-1)) === 'Tidied the layout' && !cv().tidyable(), Time.describe(App.wb.changes().at(-1)));
+  const off0 = await sameAsFresh();
+  check('after Tidy, each day draws what a page opened on the same log draws', !off0.length, off0.join());
+
+  const pages = async () => { const p = {}; for (const d of D) { await on(d); p[d] = drawn(App.scene.peek(), true); } return p; };
+  const before = await pages();
+  const title = () => App.scene.peek().marks.find(m => m.role === 'title').id;
+  await on(D[1]);
+  App.change(tx => tx.update(title(), { text: 'Calder Ridge Fund III: Step Plan' }), { dated: false }); await tick(300);
+  const after = await pages(), moved = D.filter(d => after[d] !== before[d]);
+  check('an edit on one day moves nothing on any other (a title typed, as Nora retitled hers)', !moved.length, moved.map(d => `${d}: ${before[d]} → ${after[d]}`).join(' | '));
+  await on(D[0]);
+  App.change(tx => tx.update(title(), { text: 'Step Plan' }), { dated: false }); await tick(300);
+  const again = await pages(), moved2 = D.filter(d => again[d] !== before[d]);
+  check('… nor does one on the first day, and each page stands', !moved2.length, moved2.join());
+  // A record edited on a later day, which leaves earlier days' records and notes as they were, keeps each day's Key where a page opened on it has it.
+  await on(D[2]);
+  App.change(tx => tx.add('record', { at: 'halvard', edge: 'EIN', field: 'text', value: '11-1111111' }), { dated: D[2] }); await tick(300);
+  const off1 = await sameAsFresh();
+  check('after edits on each day, each day still draws what a page opened on the same log draws', !off1.length, off1.join());
+  // Tidy for every date (gui3 N-6.3): one set of places, Holdco between Fund III and the Blocker, its place empty before it comes.
+  const find = Shell.parts.peek().action.find(a => a.id === 'chart.tidyEvery');
+  check('Tidy for every date is in Find', !!find?.enabled() && find.names.includes('Tidy all dates'), JSON.stringify(find?.names));
+  const holdco = App.scene.peek().marks.find(m => m.type === 'box' && m.texts[0]?.text.includes('Holdco'))?.id ?? (await on(D[1]), App.scene.peek().marks.find(m => m.type === 'box' && m.texts[0]?.text.includes('Holdco'))?.id);
+  const n1 = App.wb.changes().length;
+  await on(D[1]);
+  cv().restyle(cv().tidiedEvery()); await tick(800);
+  check('… its preview says so, and changes nothing', txt($('.dc-previewing')) === 'Tidy for every date preview' && App.wb.changes().length === n1, txt($('.dc-previewing')));
+  cv().restyle(null); await tick(120);
+  cv().tidyEvery(); await tick(500);
+  check('… one change, said so', App.wb.changes().length === n1 + 1 && /^Tidied the layout for every date/.test(txt($$('.toast').at(-1))) && Time.describe(App.wb.changes().at(-1)) === 'Tidied the layout for every date', `${App.wb.changes().length - n1} ${Time.describe(App.wb.changes().at(-1))}`);
+  const of = async d => { await on(d); const s = App.scene.peek(); return new Map(s.marks.filter(m => m.type === 'box').map(m => [m.id, [m.x, m.y]])); }, [d0, d1, d2] = [await of(D[0]), await of(D[1]), await of(D[2])];
+  const offBy = (a, b) => [...a].filter(([id, p]) => b.has(id) && (Math.abs(p[0] - b.get(id)[0]) > 0.75 || Math.abs(p[1] - b.get(id)[1]) > 0.75)).map(([id]) => id);
+  check('each day shows its boxes in one set of places', !offBy(d0, d1).length && !offBy(d1, d2).length && d1.has(holdco) && !d0.has(holdco), JSON.stringify([offBy(d0, d1), offBy(d1, d2)]));
+  await on(D[1]);
+  const h = App.scene.peek().byId.get(holdco), b = App.scene.peek().byId.get('blocker'), f = App.scene.peek().byId.get('fund');
+  check('Holdco stands between Fund III and the Blocker', f.y + f.h <= h.y && h.y + h.h <= b.y && Math.abs(h.x + h.w / 2 - (b.x + b.w / 2)) < 2, JSON.stringify([f.y, h.y, b.y, h.x, b.x]));
+  await on(D[0]);
+  const skip = App.scene.peek().marks.find(m => m.type === 'line' && m.from === 'fund' && m.to === 'blocker');
+  check('… and before it comes, the line that skips it runs straight through its empty place', !!skip && (skip.points.length === 2 || new Set(skip.points.slice(-2).map(p => Math.round(p[0]))).size === 1) && skip.points.at(-1)[1] - skip.points.at(-2)[1] > h.h, JSON.stringify(skip?.points));
+  const off2 = await sameAsFresh();
+  check('… and each day draws what a page opened on the log draws', !off2.length, off2.join());
+  // A new chart's first layout (gui3 N-6.7) has no stray rectangle of lines round its top row: no line runs over the boxes it leaves.
+  await on(D[1]);
+  const whole = App.addView('Whole'); Shell.show(whole); await until(() => sc()?.view === whole); await tick(300);
+  const tops = App.scene.peek().marks.filter(m => m.type === 'box'), top = Math.min(...tops.map(m => m.y)), over = App.scene.peek().marks.filter(m => m.type === 'line' && m.points.some(p => p[1] < top - 1)).map(m => m.id);
+  check('a new chart’s first layout runs no line round its top row', !over.length, over.join());
+  frame.remove();
+  Shell.at(null); await show(charts()[0]); Shell.select([]); await tick(150);
+}
+
+// ---- A line can be bent (gui3 P-13): a yellow grip on each leg between its first and last; dragged, the leg moves square to
+// itself, the route's middle legs its Bend, kept by the router, printed as drawn, cleared by Reset ----
+async function bendable() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const line = sc().marks.find(m => m.type === 'line' && m.points.length >= 4 && Math.abs(m.points[1][1] - m.points[2][1]) < 0.5);
+  check('(a line of three legs to bend)', !!line, '');
+  if (!line) return;
+  Shell.select([line.id]); await tick(250);
+  const grips = () => $$('.dc-bend'), n0 = App.wb.changes().length, was = line.points.map(p => [...p]), z = cv().graph.zoom();
+  check('a line selected alone shows a yellow grip on each leg that can move', grips().length === line.points.length - 3 && getComputedStyle(grips()[0]).fill.includes('255'), `${grips().length} on ${line.points.length} points`);
+  const r = grips()[0].getBoundingClientRect(), [x, y] = [r.left + r.width / 2, r.top + r.height / 2], pointer = (t, yy, on) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: yy, button: 0, buttons: t === 'pointerup' ? 0 : 1, pointerId: 1, isPrimary: true, view: window }));
+  pointer('pointerdown', y, grips()[0]);
+  for (let i = 1; i <= 6; i++) { pointer('pointermove', y + i * 2, window); await tick(16); }
+  pointer('pointerup', y + 12, window); await tick(450);
+  const m = () => sc().byId.get(line.id), note = () => App.notes.peek().resolve('Bend', Tree.treeOf(App.state.peek(), line.record), sc().view);
+  check('dragged, the leg moves square to itself, by what it was dragged; one change, said so', Math.abs(m().points[1][1] - was[1][1] - 12 / z) < 1.5 && Math.abs(m().points[1][0] - was[1][0]) < 0.5 && App.wb.changes().length === n0 + 1 && /^Bent /.test(Time.describe(App.wb.changes().at(-1))), JSON.stringify([m().points, was, Time.describe(App.wb.changes().at(-1))]));
+  check('… a Bend note on the line in the view, the route’s middle legs', note()?.note.view === sc().view && note().value.points.length === m().points.length - 2, JSON.stringify(note()?.value));
+  // The router leaves it alone as the rest change: a look elsewhere; the panel's Reset clears it.
+  App.change(tx => tx.note('Fill', { kind: 'Entity' }, '#fbe5d6', { view: sc().view }), { dated: false }); await tick(350);
+  const still = JSON.stringify(m().points);
+  check('the router leaves a bend alone', Math.abs(m().points[1][1] - was[1][1] - 12 / z) < 1.5, still);
+  Shell.parts.peek().undo.undo(); await tick(350);
+  Shell.select([line.id]); await tick(250);
+  const reset = $$('.insp .sect').find(s => /^Look/.test(txt(s)))?.querySelector('.reset');
+  reset?.click(); await tick(400);
+  check('Reset clears it, and the line’s back on its route', !!reset && !note() && JSON.stringify(m().points) === JSON.stringify(was), JSON.stringify([!!reset, m().points, was]));
+  Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+}
+
+// ---- One layer order (gui3 P-20): Send to back takes a shape behind boxes and lines, the order the canvas, the PDF and the deck
+// all draw; it can still be picked by what shows; Bring to front and Send to back always do something visible or say why ----
+async function layered() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const box = sc().byId.get('blocker'), n0 = App.wb.changes().length;
+  const band = cv().insert('rect', { x: box.x - 40, y: box.y - 20, w: box.w + 80, h: box.h + 40 }); await tick(350);
+  const order = () => sc().marks.map(m => m.id), before = (a, b) => order().indexOf(a) < order().indexOf(b);
+  check('a rectangle inserted over a box is over it', before('blocker', band));
+  Shell.select([band]); await tick(150);
+  cv().order('back'); await tick(350);
+  check('Send to back takes it behind the boxes and lines', before(band, 'blocker') && sc().marks.filter(m => m.type === 'line').every(l => before(band, l.id)), order().slice(0, 4).join());
+  const said = txt($$('.toast').at(-1));
+  check('… and says so', /^Sent the shape to back|^Sent .* to back/.test(said), said);
+  const cellZ = id => cv().graph.getCellById(id)?.getZIndex();
+  check('… the canvas draws it so', cellZ(band) < cellZ('blocker'), `${cellZ(band)} ${cellZ('blocker')}`);
+  const svg = Export.svg(sc(), {}), at = s => svg.indexOf(s);
+  check('… and the PDF’s page draws it first', svg.includes('Blocker') && svg.indexOf(sc().byId.get('blocker').texts[0].lines[0].text.split('&')[0]) > 0, '');
+  // Picked by what shows, and dragged.
+  const r = cv().root.getBoundingClientRect(), g = cv().graph.localToGraph(sc().byId.get(band).x + 6, sc().byId.get(band).y + 6), el = document.elementFromPoint(r.left + g.x, r.top + g.y);
+  check('a shape behind boxes is picked by any part of it that shows', el?.closest('[data-cell-id]')?.getAttribute('data-cell-id') === band, el?.closest('[data-cell-id]')?.getAttribute('data-cell-id'));
+  Shell.select([band]); await tick(150);
+  const n1 = App.wb.changes().length;
+  cv().order('back'); await tick(200);
+  check('Send to back of what’s at the back says so, and writes nothing', App.wb.changes().length === n1 && /Already at the back/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  cv().order('front'); await tick(300);
+  check('Bring to front brings it over everything', order().at(-1) === band || before('blocker', band), order().slice(-3).join());
+  for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  check('(undone)', !sc().byId.has(band));
+  Shell.select([]); await tick(150);
+  // The Key dropped on a box (gui3 P-31): Export says so; and no line runs under it where its way round isn't long.
+  const key = sc().marks.find(m => m.geometry === 'legend'), n2 = App.wb.changes().length, target = sc().byId.get('northpine');
+  if (key) {
+    App.change(tx => tx.update(key.id, { x: target.x - 10, y: target.y - 6 }), { dated: false }); await tick(350);
+    check('a Key dropped on a box warns on Export', Scene.says(sc()).some(w => /^The Key overlaps /.test(w) && /Northpine/.test(w)), JSON.stringify(Scene.says(sc())));
+    const k = sc().marks.find(m => m.geometry === 'legend'), under = sc().marks.filter(m => m.type === 'line' && m.points.slice(1).some((p, i) => { const q = m.points[i]; return Math.max(p[0], q[0]) > k.x + 1 && Math.min(p[0], q[0]) < k.x + k.w - 1 && Math.max(p[1], q[1]) > k.y + 1 && Math.min(p[1], q[1]) < k.y + k.h - 1 && m.from !== 'northpine' && m.to !== 'northpine'; }));
+    check('… and a line goes round it where its way isn’t long', under.length <= 3, under.map(m => m.id).join());
+    for (let i = App.wb.changes().length; i > n2; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  }
+  // A percentage clear of an arrowhead (gui3 P-16).
+  const n3 = App.wb.changes().length, own = sc().byId.get('own_blkr_hlvd') ?? sc().marks.find(m => m.type === 'line' && m.labelAt && m.points.length === 2), base = own.labelAt.x - own.points.at(-1)[0];
+  App.change(tx => tx.note('Arrow', Tree.treeOf(App.state.peek(), own.record), 'end', { view: sc().view }), { dated: false }); await tick(350);
+  const tipped = sc().byId.get(own.id), clear = tipped.labelAt.x - tipped.points.at(-1)[0];
+  check('a percentage stands clear of an arrowhead', clear > base + 3 && clear >= 7, `${base} → ${clear}`);
+  for (let i = App.wb.changes().length; i > n3; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  Shell.select([]); await tick(150);
+}
+
+// ---- Picking (gui3 N-1.2, P-14, N-6.5, P-7, P-8): a shared run picks a selected box's line, else the run, then each of its
+// lines in turn; a right-click on a box of several gives the box's menu, one on a name the name's after it; the Key's Delete
+// says what it deletes; Align with nothing to do says so ----
+async function pickings() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const g = cv().graph, R = () => cv().root.getBoundingClientRect();
+  // The lane the GP's or the owner's lines share: a stretch two or more lines run on.
+  const lines = sc().marks.filter(m => m.type === 'line'), legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
+  let run = null;
+  for (const l of lines) for (const [a, b] of legs(l)) {
+    if (run || Math.abs(a[1] - b[1]) > 0.5 || Math.abs(a[0] - b[0]) < 12) continue;
+    const at = [a[0] + (b[0] - a[0]) * 0.37, a[1]], mates = lines.filter(o => o !== l && legs(o).some(([c, d]) => Math.abs(c[1] - d[1]) < 0.5 && Math.abs(c[1] - at[1]) < 0.5 && Math.min(c[0], d[0]) < at[0] - 1 && Math.max(c[0], d[0]) > at[0] + 1));
+    if (mates.length) run = { at, all: [l, ...mates].map(x => x.id).sort() };
+  }
+  check('(a stretch lines share)', !!run, '');
+  if (!run) return;
+  const scr = () => { const q = g.localToGraph(run.at[0], run.at[1]); return [R().left + q.x, R().top + q.y]; };
+  const on = () => { const [x, y] = scr(), el = document.elementFromPoint(x, y); return { el: el?.closest('[data-cell-id]') ?? el, x, y }; };
+  const mouse = (t, o, b = 0) => o.el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: o.x, clientY: o.y, button: b, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+  const click = async () => { const o = on(), target = document.elementFromPoint(o.x, o.y); const p = { ...o, el: target }; mouse('mousedown', p); mouse('mouseup', p); mouse('click', p); await tick(220); };
+  const picked = () => [...Shell.selection.peek()].sort();
+  await click();
+  check('a click on a shared run, nothing selected, picks the run', JSON.stringify(picked()) === JSON.stringify(run.all), JSON.stringify([picked(), run.all]));
+  const seen = [];
+  for (let i = 0; i < run.all.length; i++) { await click(); seen.push(picked().join()); }
+  check('… a second click at the same place goes through its lines one at a time', new Set(seen).size === run.all.length && seen.every(s => run.all.includes(s)), JSON.stringify(seen));
+  await click();
+  check('… and then the run again', JSON.stringify(picked()) === JSON.stringify(run.all), JSON.stringify(picked()));
+  const one = sc().byId.get(run.all[1]), box = one.from;
+  Shell.select([]); await tick(120); Shell.select([box]); await tick(150);
+  await click();
+  check('with a box selected, a click on a shared run picks that box’s line', JSON.stringify(picked()) === JSON.stringify([run.all[1]]) || picked().length === 1 && sc().byId.get(picked()[0]).from === box, JSON.stringify(picked()));
+  // A right-click among several: the box's menu, on a name too.
+  const [a, b] = ['blocker', 'corvane'].map(id => sc().byId.get(id));
+  Shell.select([a.id, b.id]); await tick(200);
+  const rightClickAt = async (m, it) => { const l = it ? it.lines[0] : null, q = g.localToGraph(m.x + (l ? l.x : 6), m.y + (l ? l.y - 3 : 6)), [x, y] = [R().left + q.x, R().top + q.y], el = document.elementFromPoint(x, y); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 2, view: window })); await tick(250); };
+  await rightClickAt(a, a.texts[0]);
+  let items = menuItems();
+  check('a right-click on a name in a selection of several gives the box menu', items.some(s => s.startsWith('Hide in this view')) && items.some(s => s.startsWith('Show only these')) && !items.some(s => s.startsWith('Clear contents')), items.join(' | '));
+  await closeMenus();
+  Shell.select([a.id]); await tick(200);
+  await rightClickAt(sc().byId.get(a.id), sc().byId.get(a.id).texts[0]);
+  items = menuItems();
+  check('one on a name in a box selected alone gives the box’s menu, and the name’s items at its end', items.some(s => s.startsWith('Hide in this view')) && items.findIndex(s => s.startsWith('Clear contents')) > items.findIndex(s => s.startsWith('Hide in this view')), items.join(' | '));
+  await closeMenus(); Shell.select([]); await tick(150);
+  // The Key's Delete.
+  const key = sc().marks.find(m => m.geometry === 'legend');
+  if (key) {
+    Shell.select([key.id]); await tick(200);
+    await rightClickAt(key);
+    check('on the Key, Delete says it’s the Key', menuItems().some(s => s.startsWith('Delete the Key')), menuItems().join(' | '));
+    await closeMenus();
+    const row = key.rows[0];
+    Shell.select([`${key.id}#${row.key}`]); await tick(200);
+    const qq = g.localToGraph(key.x + row.x + 40, key.y + row.y + 4), xy = [R().left + qq.x, R().top + qq.y];
+    document.elementFromPoint(...xy).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: xy[0], clientY: xy[1], button: 2, buttons: 2, view: window })); await tick(250);
+    check('… on a row of it selected, that it’s the row', menuItems().some(s => s.startsWith('Delete the row')), menuItems().join(' | '));
+    await closeMenus(); Shell.select([]); await tick(150);
+  }
+  // Align with nothing to do.
+  Shell.select(['blocker', 'corvane']); await tick(150);
+  const n = App.wb.changes().length;
+  cv().align('top'); await tick(250);
+  const first = App.wb.changes().length - n;
+  cv().align('top'); await tick(250);
+  check('Align with nothing to do says so, and writes nothing', App.wb.changes().length - n === first && /Already aligned/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  for (let i = 0; i < first; i++) { Shell.parts.peek().undo.undo(); await tick(200); }
+  Shell.select([]); await tick(150);
+  // Ctrl+A: one count, a group by its members.
+  Shell.select(['blocker', 'corvane']); await tick(150); cv().group(); await tick(300);
+  Shell.select([]); await tick(120);
+  key2('a', { ctrlKey: true, code: 'KeyA' }); await tick(400);
+  const ribbon = txt($('[data-fb="own"]')), panel = txt($('.insp .ih-title'));
+  check('Ctrl+A’s count is one number in the ribbon and the panel', ribbon.match(/\d+/)?.[0] === panel.match(/\d+/)?.[0], `${ribbon} | ${panel}`);
+  Shell.select([]); await tick(150);
+  Shell.parts.peek().undo.undo(); await tick(250);
+}
+const key2 = (k, o = {}) => key(k, o);
+
+// ---- Show only these (gui3 N-6.1): with boxes selected, the rest of that view hidden in one step, said with Undo; the Hidden
+// list ticks each on and off where it stands, and Hide all; a blank chart is a choice under +, begun with every box hidden ----
+async function onlyThese() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const view = App.addView('Only'); Shell.show(view); await until(() => sc()?.view === view); await tick(250);
+  const boxes = () => sc().marks.filter(m => m.type === 'box').map(m => m.id).sort();
+  const all = boxes(), keep = ['blocker', 'corvane', 'fund'], n0 = App.wb.changes().length;
+  Shell.select(keep); await tick(200);
+  const find = Shell.parts.peek().action.find(a => a.id === 'chart.only');
+  check('Show only these is in Find, by Hide the rest too', !!find?.enabled() && find.names.includes('Hide the rest'), JSON.stringify(find?.names));
+  find.run(); await tick(450);
+  check('Show only these hides the rest of that view, in one change, saying so with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && /^Showing only these 3 boxes in Only/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
+  Shell.select([]); await tick(250);
+  const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
+  const hid = all.find(id => !keep.includes(id)), r0 = row(hid), y0 = r0?.getBoundingClientRect().top;
+  r0?.querySelector('input').click(); await tick(350);
+  check('in the Hidden list a box is ticked on where it stands, its row staying put', boxes().includes(hid) && Math.abs(row(hid)?.getBoundingClientRect().top - y0) < 1 && row(hid)?.querySelector('input').checked, `${boxes().includes(hid)} ${row(hid)?.getBoundingClientRect().top} ${y0}`);
+  const hideAll = $$('.insp .hidden-acts button').find(b => txt(b) === 'Hide all');
+  hideAll?.click(); await tick(450);
+  check('Hide all hides every box the view draws', !!hideAll && !boxes().length, boxes().join());
+  Shell.show(charts().find(v => v.id === 'view_main').id); await tick(250);
+  const add = await new Promise(done => { const r = cv().root; done(Shell.parts.peek().views); });
+  const plus = document.body.appendChild(document.createElement('button'));
+  const shown = add.add(plus); await tick(200);
+  const offered = menuItems();
+  check('+ offers a chart, as ever, and a blank one', offered.includes('Chart') && offered.includes('Blank chart'), offered.join(' | '));
+  $$('.float .menu-item').find(e => txt(e) === 'Blank chart')?.click();
+  const blank = await shown; plus.remove();
+  Shell.show(blank); await until(() => sc()?.view === blank); await tick(300);
+  check('a blank chart begins with no box drawn, and every box on its Hidden list, today still shown', !boxes().length && $$('.insp .hiddenrow').length >= all.length && !Shell.time.peek(), `${boxes().length} ${$$('.insp .hiddenrow').length} ${JSON.stringify(Shell.time.peek())}`);
+  await show(charts().find(v => v.id === 'view_main')); Shell.select([]); await tick(150);
+}
+
+// ---- An entity inserted between two, and a box dragged past the margin, leave the page and every other box as they were; Tidy for
+// every date, and Tidy, enter the scale they set, so a reload draws just that ----
+async function insertHolds() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(200);
+  const line = sc().marks.find(m => m.type === 'line' && m.from === 'fund' && m.to === 'blocker'), n0 = App.wb.changes().length;
+  check('(the line to insert into)', !!line, '');
+  if (!line) return;
+  const before = new Set(sc().marks.filter(m => m.type === 'box').map(m => m.id));
+  const below = new Set(['blocker']);
+  for (let more = true; more;) { more = false; for (const l of sc().marks) if (l.type === 'line' && below.has(l.from) && !below.has(l.to)) { below.add(l.to); more = true; } }
+  const others = s => JSON.stringify(s.marks.filter(m => m.type === 'box' && before.has(m.id) && !below.has(m.id)).map(m => [m.id, m.x, m.y, m.w, m.h]));
+  const held0 = others(sc()), page0 = JSON.stringify([sc().page.w, sc().page.h, sc().page.scale, sc().page.offset]);
+  App.interposing(line.record); await tick(150);
+  const f = $('.float .menu-find'); f.textContent = 'Lantern Midco, LLC'; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(150);
+  $$('.float .menu-item').find(x => /^New Entity: Lantern/.test(txt(x)))?.click(); await tick(450);
+  check('a redline of an insertion moves the page and no other box', others(sc()) === held0 && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale, sc().page.offset]) === page0, `${others(sc())} vs ${held0}`);
+  $('.pendbar .btn.primary')?.click(); await tick(500);
+  const made = App.wb.changes().length === n0 + 1, mid = sc().marks.find(m => m.type === 'box' && !before.has(m.id));
+  check('an entity inserted between two moves neither the page nor any other row', made && !!mid && others(sc()) === held0 && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale, sc().page.offset]) === page0, `${made} ${others(sc())} vs ${held0}`);
+  const fund = sc().byId.get('fund'), low = sc().byId.get('blocker'), crossed = sc().marks.filter(m => m.type === 'line' && m.points.slice(1).some((p, i) => { const q = m.points[i]; return Math.abs(p[1] - q[1]) < 0.5 && p[1] > mid.y - 1 && p[1] < mid.y + mid.h + 1 && Math.max(p[0], q[0]) > mid.x + 1 && Math.min(p[0], q[0]) < mid.x + mid.w - 1; }));
+  check('… standing square over the lower, under the upper, no line running across it', !!mid && Math.abs(mid.x - low.x) < 1 && mid.y > fund.y + fund.h && mid.y + mid.h < low.y && !crossed.length, `${crossed.map(m => m.id)}`);
+  Shell.parts.peek().undo.undo(); await tick(350);
+  // A box past the margin, the scale and the rest as they were.
+  const grouped = new Set(sc().marks.filter(m => m.geometry === 'group').flatMap(g => g.members));
+  const hal = sc().marks.filter(m => m.type === 'box' && !grouped.has(m.id)).sort((a, b) => b.y + b.h - a.y - a.h)[0], rest = () => JSON.stringify(sc().marks.filter(m => m.type === 'box' && m.id !== hal.id).map(m => [m.id, m.x, m.y])), keep0 = rest();
+  await drag(hal, 0, (sc().page.h - hal.y + 10) * cv().graph.zoom());
+  const past = sc().byId.get(hal.id);
+  check('a box dragged past the margin stays, the page and every other box as they were, and Export says so with the rest of what\'s amiss', past.y > sc().page.h && rest() === keep0 && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale, sc().page.offset]) === page0 && Scene.says(sc(), () => 'H').includes('H runs off the page'), `${past.y} ${sc().page.h} ${JSON.stringify(Scene.says(sc()))}`);
+  Shell.parts.peek().undo.undo(); await tick(350);
+  Shell.select([]); await tick(150);
+  for (const [name, run] of [['Tidy', () => cv().tidy()], ['Tidy for every date', () => cv().tidyEvery()]]) {
+    run(); await tick(600);
+    const at = { id: sc().view, kind: 'View' }, held = App.notes.peek().resolve('Scale', at)?.value;
+    check(`${name} enters the scale it set`, held?.scale === sc().page.scale && Math.abs(held?.x - sc().page.offset.x) < 1 && Math.abs(held?.y - sc().page.offset.y) < 1, `${JSON.stringify(held)} ${sc().page.scale} ${JSON.stringify(sc().page.offset)}`);
+    const again = Scene.of(App.wb, App.chart.peek(), sc().view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek() });
+    check(`… so what's drawn from its log alone is what's on screen`, JSON.stringify(again.marks.filter(m => m.type === 'box').map(m => [m.id, m.x, m.y, m.w, m.h])) === JSON.stringify(sc().marks.filter(m => m.type === 'box').map(m => [m.id, m.x, m.y, m.w, m.h])), '');
+    Shell.parts.peek().undo.undo(); await tick(450);
+  }
+  Shell.select([]); await tick(150);
+}
+
+// ---- Viewing, nothing writes: a drag moves nothing, an order, a tidy and a bend are refused in its words; and what a chart
+// shows, for the session, in no log, every box left standing where it stood ----
+async function inViewing() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  App.setViewing(true); await tick(250);
+  const n0 = App.wb.changes().length, why = App.whyNot(), last = () => txt($$('.toast').at(-1)), boxes = () => sc().marks.filter(m => m.type === 'box').map(m => m.id).sort();
+  const m0 = sc().byId.get('northpine'), [x0, y0] = [m0.x, m0.y], all = boxes(), page0 = JSON.stringify([sc().page.w, sc().page.h, sc().page.scale]);
+  await drag(m0, 40, 30);
+  const m1 = sc().byId.get('northpine');
+  check('Viewing, a box dragged stays where it stood', m1.x === x0 && m1.y === y0 && App.wb.changes().length === n0, `${m1.x},${m1.y} vs ${x0},${y0}`);
+  Shell.select(['northpine', 'blocker']); await tick(200);
+  for (const [name, run] of [['order', () => cv().order('back')], ['align', () => cv().align('left')], ['tidy for every date', () => cv().tidyEvery()]]) {
+    run(); await tick(120);
+    check(`Viewing, ${name} is refused in its words, and writes nothing`, last() === why && App.wb.changes().length === n0, last());
+  }
+  for (const id of ['chart.tidyEvery', 'chart.size', 'chart.rotate']) {
+    const a = Shell.parts.peek().action.find(x => x.id === id);
+    check(`Viewing, ${id} is greyed in Find, in those words`, !a.enabled() && a.why() === why, a.why());
+  }
+  const line = sc().marks.find(m => m.type === 'line' && m.points.length >= 4 && Math.abs(m.points[1][1] - m.points[2][1]) < 0.5);
+  Shell.select([line.id]); await tick(250);
+  check('Viewing, a line selected has no grips to bend it by', !$$('.dc-bend').length, `${$$('.dc-bend').length}`);
+  const aids0 = JSON.stringify(Canvas.aids.peek());
+  Shell.parts.peek().action.find(x => x.id === 'chart.grid').run(); await tick(100);
+  check('Viewing, Gridlines still come and go, in no log', !!$('.dc-grid') && App.wb.changes().length === n0, aids0);
+  Shell.parts.peek().action.find(x => x.id === 'chart.grid').run(); await tick(100);
+  const keep = ['blocker', 'fund', 'northpine'], at = () => JSON.stringify(keep.map(id => { const m = sc().byId.get(id); return [m.x, m.y, m.w, m.h]; }));
+  const stood = at();
+  Shell.select(keep); await tick(200);
+  const only = Shell.parts.peek().action.find(x => x.id === 'chart.only');
+  check('Viewing, Show only these can be asked', !!only.enabled(), only.why());
+  only.run(); await tick(400);
+  check('… hides the rest for the session, in no log, saying so without an Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 && /^Showing only these 3 boxes/.test(last()) && !/Undo/.test(last()), `${boxes()} | ${last()}`);
+  check('… what\'s left standing where it stood, the page as it was', at() === stood && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale]) === page0, `${at()} vs ${stood}`);
+  Shell.select([]); await tick(250);
+  const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
+  const off = all.find(id => !keep.includes(id));
+  check('… and the Hidden list has the rest, its ticks live', !!row(off) && !row(off).querySelector('input').disabled && !row(off).querySelector('input').checked, `${!!row(off)}`);
+  row(off)?.querySelector('input').click(); await tick(350);
+  check('a box ticked on comes back, in no log', boxes().includes(off) && App.wb.changes().length === n0 && !!row(off)?.querySelector('input').checked, boxes().join());
+  const hideAll = $$('.insp .hidden-acts button').find(b => txt(b) === 'Hide all');
+  hideAll?.click(); await tick(400);
+  check('Viewing, Hide all hides every box, in no log', !!hideAll && !boxes().length && App.wb.changes().length === n0, boxes().join());
+  $$('.insp .hidden-acts button').find(b => txt(b) === 'Show all')?.click(); await tick(450);
+  check('… and Show all brings every one back', all.every(id => boxes().includes(id)) && App.wb.changes().length === n0, boxes().join());
+  Shell.select(keep); await tick(200); only.run(); await tick(350);
+  App.setViewing(false); await tick(350);
+  check('back in Editing the chart is as it was, nothing having been written', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0, boxes().join());
+  Shell.select([]); await tick(150);
+}
+
+// ---- Gridlines, Snap to grid and Rulers, the session's, in no log; a free shape's Rotation, typed or by its handle, carried to the
+// PDF and the deck (gui3 P-26) ----
+async function aidsAndTurns() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const action = id => Shell.parts.peek().action.find(a => a.id === id), n0 = App.wb.changes().length;
+  check('Gridlines, Snap to grid, Rulers and Rotate are in Find', ['chart.grid', 'chart.snap', 'chart.rulers', 'chart.rotate'].every(id => !!action(id)) && action('chart.grid').names.includes('Grid'), '');
+  action('chart.grid').run(); action('chart.rulers').run(); await tick(150);
+  check('Gridlines draw, under the marks, and Rulers along the view', ($('.dc-grid')?.getAttribute('d') ?? '').length > 20 && !$('.dc-ruler.across').hidden && !$('.dc-ruler.down').hidden && $('.dc-ruler.across').width > 100, $('.dc-grid')?.getAttribute('d')?.length);
+  check('… and they’re the session’s, in no log, and not in what’s printed', App.wb.changes().length === n0 && !Export.svg(sc(), {}).includes('dc-grid'), App.wb.changes().length - n0);
+  action('chart.snap').run(); await tick(150);
+  const step = 24 / sc().page.scale, m0 = sc().byId.get('corvane'); Shell.select(['corvane']); await tick(150);
+  await drag(m0, 37, 23);
+  const m1 = sc().byId.get('corvane'), o = sc().page.placed ? sc().page.offset : { x: 0, y: 0 }, onGrid = v => Math.abs(v / step - Math.round(v / step)) < 0.06;
+  check('… with Snap to grid, a box dragged lands on the grid', onGrid(m1.x) && onGrid(m1.y), JSON.stringify([m1.x, m1.y, step]));
+  Shell.parts.peek().undo.undo(); await tick(300);
+  action('chart.grid').run(); action('chart.rulers').run(); action('chart.snap').run(); await tick(150);
+  check('… and off, they’re gone', ($('.dc-grid')?.getAttribute('d') ?? '') === '' && $('.dc-ruler.across').hidden, '');
+  // Rotation.
+  const box = sc().byId.get('corvane'), id = cv().insert('rect', { x: box.x - 90, y: box.y + box.h + 12, w: 120, h: 40 }); await tick(350);
+  Shell.select([id]); await tick(250);
+  const handle = $('.x6-widget-transform-rotate');
+  check('a free shape selected has a handle to turn it by', !!handle && getComputedStyle(handle).display !== 'none' && handle.getBoundingClientRect().width > 4 && !$('.x6-widget-transform.no-rotate'), `${!!handle} ${handle && getComputedStyle(handle).display} ${handle?.getBoundingClientRect().width} ${!!$('.x6-widget-transform.no-rotate')} ${$('.x6-widget-transform')?.className}`);
+  const f = $('.insp [data-place="r"] input'); f.focus(); f.value = '20'; f.dispatchEvent(new Event('input', { bubbles: true })); f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(350);
+  check('a Rotation typed turns it, said so', sc().byId.get(id).rotate === 20 && Math.abs(cv().graph.getCellById(id).getAngle() - 20) < 0.01 && /Rotated .* to 20/.test(txt($$('.toast').at(-1))), `${sc().byId.get(id).rotate} ${txt($$('.toast').at(-1))}`);
+  check('… and the PDF’s page turns it about its middle', /rotate\(20 /.test(Export.svg(sc(), {})), '');
+  if (handle) {
+    const hr = $('.x6-widget-transform-rotate').getBoundingClientRect(), [x, y] = [hr.left + hr.width / 2, hr.top + hr.height / 2], el = $('.x6-widget-transform-rotate'), mouse = (t, xx, yy, on = document.body) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: xx, clientY: yy, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+    mouse('mousedown', x, y, el);
+    for (let i = 1; i <= 6; i++) { mouse('mousemove', x + i * 6, y + i * 2); await tick(16); }
+    mouse('mouseup', x + 36, y + 12); await tick(350);
+    check('the handle turns it too, one change', sc().byId.get(id).rotate !== 20 && sc().byId.get(id).rotate > 0, sc().byId.get(id).rotate);
+  }
+  for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  Shell.select([]); await tick(150);
 }
 
 // ---- What a change keeps where it's drawn is drawn there again (gui2 L-2.6): two owners of Fund III imported, then
@@ -1314,7 +1813,7 @@ async function drag(m, dx, dy) {
   const mouse = (t, [x, y], on = document) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
   mouse('mousedown', [x, y], el.querySelector('path, rect') ?? el);
   for (let i = 1; i <= 10; i++) { mouse('mousemove', [x + dx * i / 10, y + dy * i / 10]); await tick(16); }
-  mouse('mouseup', [x + dx, y + dy]); await tick(400);
+  mouse('mouseup', [x + dx, y + dy], document.elementFromPoint(x + dx, y + dy) ?? document.body); await tick(400);
 }
 
 async function stillAsMade() {
@@ -1432,7 +1931,7 @@ async function stillAsMade() {
   Shell.parts.peek().undo.undo(); await tick(400);
   Shell.select([]); await tick(150);
   cv().tidy(); await tick(600);
-  check('… and Tidy places the Key afresh', !keyRow().kept, JSON.stringify(keyRow().kept));
+  check('… and Tidy places the Key afresh, where it’s then kept', !!keyRow().kept && Math.abs(keyAt()[0] - keyRow().kept.x) <= 0.5 && Math.abs(keyAt()[1] - keyRow().kept.y) <= 0.5, JSON.stringify([keyRow().kept, keyAt()]));
   Shell.parts.peek().undo.undo(); await tick(400);
   check('… and undone, it stands where it stood', !!keyRow().kept && Math.abs(keyAt()[0] - k1[0]) < 1 && Math.abs(keyAt()[1] - k1[1]) < 1, JSON.stringify([keyRow().kept, keyAt(), k1]));
 }

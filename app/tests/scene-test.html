@@ -94,6 +94,13 @@ function run() {
     },
   };
 
+  // ---- A page's date line ----
+  {
+    const w = fresh(), at = w.changes().at(-1).when, said = m => (m?.texts?.map(t => t.lines?.map(l => l.text ?? l).join(' ')).join(' ') ?? m?.text ?? '').replace(/ /g, ' ');
+    const stood = scene(w.at(at)).marks.find(m => m.role === 'date'), plain = scene(w).marks.find(m => m.role === 'date');
+    check('A page’s date line says the day it’s as of, and as it stood, the moment shown, so its export does too', /^As it stood on \w+ \d+, \d{4}, \d+:\d\d [AP]M$/.test(said(stood)) && /^As of /.test(said(plain)), `${said(stood)} / ${said(plain)}`);
+  }
+
   // ---- The narrowest decides ----
   {
     const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');
@@ -584,12 +591,19 @@ function run() {
       const w3 = fresh();
       held(w3, 0.6);
       check('it never grows on its own', scene(w3).page.scale === 0.6, j(scene(w3).page.scale));
-      // A chart kept as the layout placed it: at the scale kept, it stands; where that doesn't hold it, the scale falls as far as it must.
-      const w4 = fresh(), s5 = scene(w4), rec = computed(w4).records;
-      edit(w4, (tx, N) => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: 1, x: 0, y: 0 });
-        for (const b of s5.marks.filter(m => m.type === 'box')) tx.note('Position', Tree.treeOf(rec, b.record), { x: b.x, y: b.y, w: b.w, kept: true }, { view: MAIN }); });
+      // A chart kept as the layout placed it, at the scale kept, stands.
+      const w4 = fresh(), s5 = scene(w4), rec = computed(w4).records, keptAt = (tx, b, y = b.y) => tx.note('Position', Tree.treeOf(rec, b.record), { x: b.x, y, w: b.w, kept: true }, { view: MAIN });
+      edit(w4, tx => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s5.page.scale, x: 0, y: 0 }); for (const b of s5.marks.filter(m => m.type === 'box')) keptAt(tx, b); });
       const same = scene(w4);
-      check('what the layout places holds the page: a scale that doesn’t hold it falls as far as it must', same.page.scale === s5.page.scale, j([same.page.scale, s5.page.scale]));
+      check('a chart kept where the layout placed it stands, at the scale kept', same.page.scale === s5.page.scale, j([same.page.scale, s5.page.scale]));
+      // A place kept beyond the margins was put there, as a box is moved down to make room for one inserted: it stays, the scale as it was, and the page says so.
+      const w5 = fresh(), rec5 = computed(w5).records;
+      edit(w5, tx => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s5.page.scale, x: 0, y: 0 }); for (const b of s5.marks.filter(m => m.type === 'box')) tx.note('Position', Tree.treeOf(rec5, b.record), { x: b.x, y: b.id === 'halvard' ? s5.page.h + 30 : b.y, w: b.w, kept: true }, { view: MAIN }); });
+      const past = scene(w5);
+      check('a place kept past the foot stays there, the scale as it was, and the page says it runs off', past.page.scale === s5.page.scale && past.byId.get('halvard').y >= s5.page.h && Scene.says(past, b => b.id === 'halvard' ? 'Halvard' : null).includes('Halvard runs off the page'), j([past.page.scale, past.byId.get('halvard').y, s5.page.h]));
+      edit(w5, tx => tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s5.page.scale, x: 0, y: 0, fit: true }));
+      const fitted = scene(w5);
+      check('… and fit to its page, the page holds all of it, the scale falling as far as that needs', fitted.page.scale < s5.page.scale && (fitted.byId.get('halvard').y + fitted.byId.get('halvard').h) * fitted.page.scale <= fitted.page.sheet.h - 47.5, j([fitted.page.scale, fitted.byId.get('halvard').y]));
       // A box's name made longer, past the margins, makes it fall; a typed size prints as typed still.
       edit(w4, tx => tx.set('feeder_name', { ...w4.asOf(C, DAY).feeder_name, value: 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., a Cayman Islands exempted company, and another clause to make it run longer still' }));
       const longer = scene(w4), jr = longer.byId.get('fund').texts.find(x => x.id === 'fund_juris');
@@ -884,7 +898,8 @@ function run() {
         const kin = lines.filter(o => o === r.l || (!o.labelAt && o.label?.text === r.l.label.text && j(o.points[0]) === j(r.l.points[0])));
         const near = ls => Math.min(...ls.flatMap(o => legs(o).map(g => gap(r, g))));
         const own = near(kin), nearest = lines.filter(o => !kin.includes(o)).map(o => [o.id, near([o])]).sort((p, q) => p[1] - q[1])[0];
-        if (own > ON + 0.01 || (nearest && nearest[1] <= ON)) loose.push(`${at}: ${r.l.id} "${r.l.label.text}" ${own.toFixed(1)} px from its line, ${nearest?.[1].toFixed(1)} from ${nearest?.[0]}`);
+        // (Further where it stands clear of an arrowhead's wings.)
+        if (own > ON + (r.l.settings.Arrow.value === 'none' ? 0 : 5) + 0.01 || (nearest && nearest[1] <= ON)) loose.push(`${at}: ${r.l.id} "${r.l.label.text}" ${own.toFixed(1)} px from its line, ${nearest?.[1].toFixed(1)} from ${nearest?.[0]}`);
       });
     };
     for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) for (const paper of [null, 'letter']) {
