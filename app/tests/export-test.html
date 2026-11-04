@@ -777,6 +777,45 @@ async function run() {
       && /^All \d+ entities; \d+ columns, in their order$/.test(says()), `${asShown} | ${says()}`);
     await cancel(opening);
     S.show(back); await tick(200);
+
+    // Page setup: the view's paper and which way it's turned, one change, the canvas drawing that page; the footer the chart's.
+    const setUp = async pick => { const done = X.setup(); await until(() => dlg()?.querySelector('.btn.primary')); await pick(dlg()); await tick(120); dlg().querySelector('.btn.primary').click(); await done; await tick(300); };
+    const changes0 = A.wb.changes().length, wasPage = A.scene.peek().page, boxes0 = j(A.scene.peek().marks.filter(m => m.type === 'box').map(b => [b.id, b.x, b.y]));
+    await setUp(async d => { await pickIn(d.querySelector('select[aria-label="Paper"]'), 'legal'); });
+    const legal = A.scene.peek();
+    check('Page setup puts the view on its paper as one change, and the canvas draws that page', legal.page.size === 'legal' && legal.page.sheet.w === 1344 && legal.page.sheet.h === 816 && A.wb.changes().length === changes0 + 1, j([legal.page.size, legal.page.sheet, A.wb.changes().length - changes0]));
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    check('… Export opens on it, and says nothing of it being a one-off', sel('Page size').value === 'legal' && !saying().includes('for this file only'), `${sel('Page size').value} ${saying()}`);
+    await cancel(opening);
+    S.parts.peek().undo.undo(); await tick(300);
+    check('… and Undo takes it all back', A.scene.peek().page.size === wasPage.size && j(A.scene.peek().marks.filter(m => m.type === 'box').map(b => [b.id, b.x, b.y])) === boxes0, A.scene.peek().page.size);
+    await setUp(async d => { const b = [...d.querySelectorAll('[aria-label="Orientation"] button')].find(x => x.textContent === 'Portrait'); b.click(); await tick(120); });
+    const turned = A.scene.peek();
+    check('Portrait turns the page', turned.page.sheet.w === 720 && turned.page.sheet.h === 1280 && turned.page.portrait === true, j(turned.page.sheet));
+    S.parts.peek().undo.undo(); await tick(300);
+    await setUp(async d => { const t = d.querySelector('input[aria-label="Footer"]'); t.value = 'Privileged'; t.dispatchEvent(new W.Event('input', { bubbles: true })); t.dispatchEvent(new W.Event('change', { bubbles: true })); await tick(60); d.querySelector('.ex-foot input[type="checkbox"]').click(); await tick(60); });
+    const foot = A.scene.peek().marks.find(m => m.role === 'footer'), other = A.views.peek().find(v => v.layout === 'chart' && v.id !== S.view.peek());
+    check('A footer set there is on every chart view, one change, and its number with it', foot?.texts[0].text === 'Privileged' && !!A.scene.peek().marks.find(m => m.role === 'number')
+      && !!Scene.of(A.shown.peek(), A.chart.peek(), other.id, A.day.peek(), { state: A.state.peek(), computed: A.computed.peek() }).marks.find(m => m.role === 'footer'), foot?.texts[0].text);
+    S.parts.peek().undo.undo(); await tick(300);
+    // A box a hand puts off the sheet stays there, the page saying so, and Fit to page brings it in.
+    const CV = G('Canvas').active.peek(), scale0 = A.scene.peek().page.scale, off0 = j(A.scene.peek().page.offset);
+    S.select(['halvard']); await tick(120);
+    CV.nudge(0, 2000); await tick(300);
+    const gone = A.scene.peek(), sayOff = Scene.says(gone, b => b.id === 'halvard' ? 'Halvard' : null);
+    check('a box a hand puts off the sheet stays there: neither the scale nor the chart move, a kept note History doesn’t say', gone.page.scale === scale0 && j(gone.page.offset) === off0 && gone.byId.get('halvard').y > gone.page.h
+      && !!A.notes.peek().notes('Scale').find(n => n.pattern.id === S.view.peek()) && !/scale/i.test(G('Time').describe(A.wb.changes().at(-1))), j([gone.page.scale, gone.page.offset, G('Time').describe(A.wb.changes().at(-1))]));
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    const fitBtn = () => [...dlg().querySelectorAll('.ex-off button')].find(b => b.textContent === 'Fit to page');
+    check('… Export says it runs off the page, with Fit to page beside it', sayOff.includes('Halvard runs off the page') && !!fitBtn() && saying().includes('runs off the page'), saying());
+    fitBtn().click(); await tick(400);
+    const back2 = A.scene.peek(), h2 = back2.byId.get('halvard');
+    check('… which brings it in, beside its relatives, the rest kept, in one change, said by History', h2.y + h2.h <= back2.page.h && h2.x + h2.w <= back2.page.w && !saying().includes('runs off the page') && /^Fit .* to its page$/.test(G('Time').describe(A.wb.changes().at(-1))), j([h2.x, h2.y, back2.page.w, back2.page.h, saying(), G('Time').describe(A.wb.changes().at(-1))]));
+    await cancel(opening);
+    S.parts.peek().undo.undo(); await tick(200); S.parts.peek().undo.undo(); await tick(200);
+    S.select([]); await tick(60);
     f.remove();
   }
 }
