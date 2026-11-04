@@ -882,7 +882,7 @@ const Shell = (() => {
     const rowOf = it => {
       const w = say?.(it) ?? { what: '', where: '', figure: '' };
       let why = '';
-      if (it.error?.rule) why = it.error.error.msg ?? ''; else if (it.kind !== 'blank' && !it.error) { try { why = FormulaBar.because(it.id) ?? ''; } catch {} } else if (it.error) why = it.error.error.msg ?? '';
+      if (it.error?.rule) why = it.error.error.msg ?? ''; else if (it.kind !== 'blank' && !it.error) { try { why = FormulaBar.because(it.id) || App.enteredBy?.(it.id)?.note || ''; } catch {} } else if (it.error) why = it.error.error.msg ?? '';
       return { it, w, kind: it.kind, on: it.kind === 'blank' ? App.responsible?.(it.id)?.name ?? '' : App.responsible?.(it.id)?.name ?? '', why };
     };
     const soon = within === 30 ? needs().filter(it => it.kind === 'soon') : atts.flatMap(a => a.within?.(within) ?? []);
@@ -899,7 +899,7 @@ const Shell = (() => {
     const lines = openLines(o), text = [OPEN_HEAD, ...lines].map(l => l.map(x => String(x ?? '').replace(/\s+/g, ' ')).join('\t')).join('\n');
     try { await navigator.clipboard.writeText(text); toast(`Copied ${lines.length} ${lines.length === 1 ? 'row' : 'rows'}`); } catch { toast('This browser didn’t allow the copy'); }
   }
-  const OPEN_MARK = { Overdue: 'overdue', Error: 'fail', 'Due soon': 'soon', Blank: 'blank' };
+  const OPEN_MARK = { Overdue: 'overdue', Error: 'fail', 'Due soon': 'soon', Blank: 'soon' };
   async function sheetOpen(o) {
     const lines = openLines(o), name = chartName.peek() ?? 'Chart', asOf = App.asOfWords().line;
     await Table.plainFile({ name: `${name} - What's open`, sheet: 'What’s open', title: `${asOf} · ${name}: what’s open: ${tally.peek().map(c => c.say(c.n)).join(', ') || 'nothing'}`, head: OPEN_HEAD, rows: lines, widths: [16, 34, 34, 16, 22, 70], wrap: [1, 2, 5], marks: lines.map(l => ({ 0: OPEN_MARK[l[0]] ?? 'wrap' })) });
