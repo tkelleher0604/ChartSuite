@@ -1015,12 +1015,17 @@ function HiddenList({ v }) {
     .filter(x => recs()[x] && (recs()[x].kind || recs()[x].args) && hiddenNote(x, v.id));
   // And what it leaves out of the boxes it draws, by list: "Not shown here: 2 owners of Fund III".
   const sc = App.scene.value, left = sc ? [...leftOut(sc, [...sc.byId.keys()])].flatMap(([id, parts]) => parts.map(p => ({ id, ...p }))) : [];
-  if (!hid.length && !left.length) return null;
+  // Each ticked on or off where it stands: one ticked on stays on the list, ticked, till the panel's left, so no row moves under the pointer.
+  const seen = useRef(new Set());
+  for (const x of hid) seen.current.add(x);
+  const rows = [...seen.current].filter(x => recs()[x]);
+  if (!rows.length && !left.length) return null;
   const said = x => recs()[x].args ? `${nameOf(x)} · ${segment(x)}` : nameOf(x), still = App.readOnly.value;
   const all = [...hid, ...left.flatMap(g => g.items.flatMap(it => it.show))];
-  return html`<${Section} title="Hidden" n=${hid.length + left.reduce((n, g) => n + g.items.length, 0)} act=${still || hid.length + left.length < 2 ? null : html`<button class="btn" onClick=${() => showHere(all, v)}>Show all</button>`}>
-    ${hid.map(x => html`<div class="rr" key=${x}><span /><span class="nm"><${Go} to=${x}>${said(x)}</${Go}></span>
-      <span class="val">${still ? null : html`<button class="btn" onClick=${() => showHere([x], v)}>Show</button>`}</span></div>`)}
+  const drawn = sc ? sc.marks.filter(m => m.type === 'box' && !m.revealed) : [];
+  const hide = ids => App.change(tx => ids.forEach(x => tx.note('Shown', tree(x), false, { view: v.id })), { dated: false, say: ch => Time.describe(ch) });
+  return html`<${Section} title="Hidden" n=${hid.length + left.reduce((n, g) => n + g.items.length, 0)} act=${still ? null : html`<span class="hidden-acts">${hid.length + left.length > 1 ? html`<button class="btn" onClick=${() => showHere(all, v)}>Show all</button>` : null}${drawn.length ? html`<button class="btn" onClick=${() => hide(drawn.map(m => m.record))}>Hide all</button>` : null}</span>`}>
+    ${rows.map(x => html`<label class="rr hiddenrow" key=${x}><input type="checkbox" checked=${!hid.includes(x)} disabled=${still} aria-label=${`Show ${said(x)}`} onChange=${e => e.target.checked ? showHere([x], v) : hide([x])} /><span class="nm"><${Go} to=${x}>${said(x)}</${Go}></span><span class="val" /></label>`)}
     ${left.map(g => html`<div class="rr" key=${g.id + g.list}><span /><span class="nm">Not shown here: <${Go} to=${g.id} title=${g.items.map(it => nameOf(it.obj)).join('\n')}>${g.items.length} ${lower(g.items.length === 1 ? relOne(g.list) : g.list)} of ${bound(shortOf(g.id))}</${Go}></span>
       <span class="val">${still ? null : html`<button class="btn" onClick=${() => showHere(g.items.flatMap(it => it.show), v)}>Show</button>`}</span></div>`)}</${Section}>`;
 }
@@ -1100,8 +1105,11 @@ function reachedBy(sc, outputs) {
 // The view: its layout and its rows (its own notes), and its styles in their order. Its name is its tab's,
 // and the formula bar's.
 function ViewPanel() {
-  const v = viewShown();
+  const v = viewShown(), blankAt = useRef({});
   if (!v) return null;
+  // (A chart found with nothing drawn has its Hidden list first, where it's ticked from; and it stays there, so nothing moves under the pointer.)
+  if (blankAt.current.v !== v.id) blankAt.current = { v: v.id, first: v.layout === 'chart' && !!App.scene.value && !App.scene.value.marks.some(m => m.type === 'box') };
+  const hiddenFirst = blankAt.current.first;
   const t = { id: v.id, kind: 'View' }, L = App.layouts.value, all = [...L.kinds, ...L.relations, ...L.datatypes];
   const rowsName = all.find(l => JSON.stringify(l.rows) === JSON.stringify(v.rows))?.name;
   const layout = value => App.change(tx => tx.note('Layout', t, value), { dated: false });
@@ -1112,9 +1120,10 @@ function ViewPanel() {
       ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed label="Rows" r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
         put=${out => layout({ rows: all.find(l => l.name === out.choice).rows })} /></div></div>` : null}
     </div>
+    ${hiddenFirst ? html`<${HiddenList} key=${v.id} v=${v} />` : null}
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
     ${v.layout === 'table' && typeof Table !== 'undefined' ? html`<${Section} title="Columns"><${Table.Columns} view=${v.id} /></${Section}>` : null}
-    ${v.layout === 'chart' ? html`<${HiddenList} v=${v} />` : null}
+    ${v.layout === 'chart' && !hiddenFirst ? html`<${HiddenList} key=${v.id} v=${v} />` : null}
   </div>`;
 }
 
@@ -1441,7 +1450,9 @@ function GeneralView({ p, style }) {
 // Several selected: each by what it is, a relation by its place (Ownership · Fund III → Fund III Blocker), so a
 // trunk's lines or a frame's are told apart.
 function Many({ ids }) {
-  return html`<div class="insp"><${Head} title=${`${ids.length} selected`} /><div class="rows">
+  // (Counted as the format bar counts them: by what's drawn, a group by its members.)
+  const sc = App.scene.value, n = !sc ? ids.length : new Set(ids.flatMap(k => { const m = sc.byId.get(k.split('#')[0]); return m?.geometry === 'group' ? m.members : [m?.merged ?? m?.id ?? k]; })).size;
+  return html`<div class="insp"><${Head} title=${`${n} selected`} /><div class="rows">
     ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${x}>${recs()[x].args ? html`${nameOf(x)} · ${segment(x)}` : bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div></div>`;
 }
 

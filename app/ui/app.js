@@ -176,8 +176,10 @@ const App = (() => {
   const nothingDrawn = () => { const s = typeof Scene !== 'undefined' && scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
   const keptToday = new Set();
   const firstDrawn = () => shown.peek().rows(chart.peek()).filter(r => r.kind && r.kind !== 'View').map(r => heldFrom(r.record)).filter(Boolean).sort()[0] ?? null;
+  // (Boxes there are that the view hides, one by one, are no call to go looking for another day.)
+  const nothingThere = () => !Object.values(state.peek()).some(r => Tree.isObject(r) && !Tree.isView(r) && notes.peek().value('Shown', { kind: r.kind }, scene.peek()?.view) !== false);
   Shell.ready.then(() => effect(() => {
-    if (typeof Scene === 'undefined' || !scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn()) return;
+    if (typeof Scene === 'undefined' || !scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn() || !nothingThere()) return;
     const c = chart.peek(), d = firstDrawn();
     keptToday.add(c);
     // (A moment on, as drawing it is; it may be another workbook being opened by then.)
@@ -872,7 +874,7 @@ const App = (() => {
   // A new view after the one it copies, or at the end: a chart, or a table of `rows`. A copy takes the
   // original's notes and shapes, but its name. A new chart takes the styles and Shown of the chart shown, or
   // else of the first, but not where it put things, and its page starts afresh.
-  function addView(name, rows, from) {
+  function addView(name, rows, from, blank = false) {
     const vs = views.peek(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(vs.map(v => Tree.norm(v.name)));
     const like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
     let n = name, i = 2;
@@ -891,6 +893,8 @@ const App = (() => {
         else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name') tx.note(r.label, t, r.value);
       }
       if (!from && rows === undefined) page(tx, id, book.peek().charts().find(c => c.chart === chart.peek())?.name ?? n);
+      // A blank start: every box it would draw hidden by its own note, each to tick on from its Hidden list.
+      if (blank) { const st = state.peek(), N = notes.peek(); for (const x of Object.keys(st)) if (Tree.isObject(st[x]) && !Tree.isView(st[x]) && N.value('Shown', { kind: st[x].kind }, like) !== false) tx.note('Shown', Tree.treeOf(st, x), false, { view: id }); }
     }, { dated: false });
     return id;
   }
@@ -901,7 +905,7 @@ const App = (() => {
     const L = layouts.peek(), on = rows => v && v.layout === 'table' && JSON.stringify(v.rows) === JSON.stringify(rows);
     const as = l => ({ label: l.name, checked: on(l.rows), run: () => pick(l.name, l.rows) });
     const group = (label, ls) => ({ label, checked: v && ls.some(l => on(l.rows)), items: ls.map(as) });
-    return [{ label: 'Chart', checked: v && v.layout === 'chart', run: () => pick('Chart') }, '-', group('Records', L.kinds), group('Relations', L.relations), ...L.datatypes.map(as)];
+    return [{ label: 'Chart', checked: v && v.layout === 'chart', run: () => pick('Chart') }, ...(v ? [] : [{ label: 'Blank chart', run: () => pick('Chart', undefined, true) }]), '-', group('Records', L.kinds), group('Relations', L.relations), ...L.datatypes.map(as)];
   }
   Shell.register('views', {
     list: () => views.value,
@@ -910,7 +914,7 @@ const App = (() => {
     // A new view of what's picked: its id, or null if none is.
     add: anchor => new Promise(done => {
       let chosen = false;
-      Shell.menu(anchor, shows((name, rows) => { chosen = true; done(addView(name, rows)); }),
+      Shell.menu(anchor, shows((name, rows, blank) => { chosen = true; done(addView(name, rows, undefined, blank)); }),
         { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
     }),
     // A view's own menu, on its tab: what it shows, as the inspector's view panel sets it, and copying or

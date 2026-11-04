@@ -308,3 +308,6 @@ button.st-n:hover { text-decoration: underline; text-underline-offset: 3px; }
 .st-write { border: 0; padding: 0; background: none; color: var(--ink-3); line-height: 20px; }
 .st-write:hover { color: var(--ink); }
 .lockrow .k { display: flex; align-items: center; gap: 8px; }
+.hidden-acts { display: inline-flex; gap: 6px; }
+.hiddenrow { cursor: pointer; }
+.hiddenrow > input { margin: 0; align-self: center; }

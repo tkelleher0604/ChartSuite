@@ -562,16 +562,38 @@ function mount(el) {
   // has been entered; and a line clicked (`pressed`), every line drawn along it where it was clicked, as a
   // trunk's lines are drawn, each for all it draws: so what's selected is what's drawn there.
   let pressed = null;
+  // Of the lines drawn along a stretch clicked: with a box selected that one of them leaves or meets, that line; else all of
+  // them, the run, and each click after at that place the next of them alone, and then the run again.
+  let lastRun = null;
+  function ofRun(found, { p, was }) {
+    if (found.length < 2) return found;
+    const along = [...found].sort(), boxes = new Set(was.map(k => scene.byId.get(keyParts(k)[0])).filter(m => m?.type === 'box').map(m => m.id));
+    const mine = along.filter(id => { const l = scene.byId.get(id); return boxes.has(l?.from) || boxes.has(l?.to); });
+    if (mine.length === 1) { lastRun = { p, along, i: along.indexOf(mine[0]) + 1 }; return mine; }
+    const again = lastRun && same(lastRun.along, along) && Math.hypot(lastRun.p[0] - p[0], lastRun.p[1] - p[1]) * graph.zoom() < 6, i = again ? (lastRun.i + 1) % (along.length + 1) : 0;
+    lastRun = { p, along, i };
+    return i ? [along[i - 1]] : along;
+  }
   function reselect() {
     const ids = sel.getSelectedCells().map(c => c.id), along = pressed ? alongside(pressed.id, pressed.p) : [], on = ids.includes(along[0]);
+    // (X6 goes from one line to another by way of none: the press waits for the line it's of.)
+    if (pressed && !on && !pressed.more && !ids.length) return;
+    const run = on && !pressed.more ? ofRun(along, pressed) : along;
     pressed = null;
-    const grow = [...new Set(ids.map(groupOf).filter(Boolean))].flatMap(g => g.members).concat(on ? along : []).filter(id => !ids.includes(id));
-    const drop = on ? [] : along.filter(id => ids.includes(id)), cells = xs => xs.map(id => graph.getCellById(id)).filter(Boolean);
+    const cells = xs => xs.map(id => graph.getCellById(id)).filter(Boolean);
+    const grow = [...new Set(ids.map(groupOf).filter(Boolean))].flatMap(g => g.members).concat(on ? run : []).filter(id => !ids.includes(id));
+    const drop = on ? along.filter(id => !run.includes(id) && ids.includes(id)) : along.filter(id => ids.includes(id));
     if (grow.length || drop.length) { syncing = true; sel.select(cells(grow)); sel.unselect(cells(drop)); syncing = false; }
-    const keys = keysOfSelection(new Set(along));
+    const keys = keysOfSelection(new Set(run));
     if (!same(keys, Shell.selection.peek())) pick(keys);
     grips();
     paintStates();
+    // (One of a run, alone: X6 selects what was under the pointer as its press ends, so that's set right after it.)
+    if (on && run.length < along.length) setTimeout(() => {
+      if (!scene || sel.getSelectedCells().length === run.length && run.every(id => sel.isSelected(graph.getCellById(id)))) return;
+      syncing = true; sel.reset(cells(run)); syncing = false;
+      pick(keysOfSelection(new Set(run))); grips(); paintStates();
+    });
   }
   graph.on('selection:changed', () => { if (!syncing) reselect(); });
   // A click that left X6's selection as it was (the line clicked was selected alone already) is taken up too.
@@ -631,7 +653,7 @@ function mount(el) {
   }
   graph.on('edge:mousedown', ({ e, edge }) => {
     const p = graph.clientToLocal(e.clientX, e.clientY);
-    pressed = !pointed(edge) && edge.getData()?.kind === 'line' ? { id: edge.id, p: [p.x, p.y] } : null;
+    pressed = !pointed(edge) && edge.getData()?.kind === 'line' ? { id: edge.id, p: [p.x, p.y], was: Shell.selection.peek(), more: e.shiftKey || e.ctrlKey || e.metaKey } : null;
   });
 
   // A click on the page clears the selection, and a drag across it is the marquee; a click on a line's
@@ -1451,12 +1473,13 @@ function mount(el) {
     if (cell?.getData()?.kind === 'label') cell = graph.getCellById(cell.getData().mark);
     const at = { x: e.clientX, y: e.clientY }, k = cell?.getData()?.kind, p = graph.clientToLocal(at.x, at.y);
     if (!cell || k === 'page' || k === 'ink') return Shell.menu(at, pageItems(p));
-    // A field of a mark selected already has its own menu, as a click selects it; anywhere else, the mark's.
-    const f = (k === 'box' || k === 'line') && sel.isSelected(cell) ? fieldUnder(at.x, at.y) : null;
-    if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, fieldItems(f)); }
+    // The mark's menu, and with it selected alone, under it a field's it was on, as a click selects one; with several
+    // selected, theirs, wherever on one of them it lands.
+    const multi = sel.isSelected(cell) && sel.getSelectedCells().length > 1, f = (k === 'box' || k === 'line') && sel.isSelected(cell) && !multi ? fieldUnder(at.x, at.y) : null;
+    if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, [...markItems(), '-', { head: fieldName(f.it) }, ...fieldItems(f).filter(x => x !== '-' && x.label !== 'Copy' && x.label !== 'Format')]); }
     pickField(null);
     // A line is taken as a click takes it, with the lines drawn along it there.
-    if (edge && k === 'line' && !sel.isSelected(cell)) { pressed = { id: cell.id, p: [p.x, p.y] }; sel.reset(cell); } else take(cell);
+    if (edge && k === 'line' && !sel.isSelected(cell)) { pressed = { id: cell.id, p: [p.x, p.y], was: [], more: false }; sel.reset(cell); } else take(cell);
     Shell.menu(at, markItems());
   };
   for (const name of ['node:contextmenu', 'edge:contextmenu', 'blank:contextmenu']) graph.on(name, contextOf);
@@ -1477,9 +1500,11 @@ function mount(el) {
       ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []),
       // History, as the title menu's opens it with these selected: of them.
       ...(bound.length ? [{ label: 'History', run: () => Time.open('all') }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
+      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: ro, run: showOnly }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
-      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
+      // (On the Key, what it deletes, the row selected or the Key, in its own label.)
+      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
@@ -1659,7 +1684,8 @@ function mount(el) {
     };
     const end = () => {
       removeEventListener('pointermove', move, true); removeEventListener('pointerup', end, true);
-      if (Math.abs(v - was) < 0.5) return show(true);
+      // (A click on it that moves nothing is a click on the line there.)
+      if (Math.abs(v - was) < 0.5) { pressed = { id: m.id, p: [start.x, start.y], was: Shell.selection.peek(), more: false }; reselect(); return show(true); }
       const o = origin(), ps = at(round(v)).slice(1, -1).map(([x, y]) => [round(x - o.x), round(y - o.y)]);
       const c = App.change(tx => tx.note('Bend', treeOf(m.record), { points: ps }, { view: viewOf() }), { dated: false, say: `Bent ${called(m)}` });
       if (!c) show(true);
@@ -1906,6 +1932,16 @@ function mount(el) {
     const s = parts.join(' and ');
     return s && s[0].toUpperCase() + s.slice(1);
   }
+  // Show only these: every other box the view draws hidden, in one step, and the lines with them, as each is hidden by its
+  // own note; the Hidden list has them.
+  const canShowOnly = () => !!scene && placeable().some(m => m.type === 'box') && !still();
+  function showOnly() {
+    const ms = placeable().filter(m => m.type === 'box'), keep = new Set(ms.map(m => m.id)), view = viewOf();
+    const rest = scene.marks.filter(m => m.type === 'box' && !m.revealed && !keep.has(m.id));
+    if (!ms.length) return;
+    if (!rest.length) return Shell.toast('These are all the boxes there are', { ms: 2500 });
+    App.change(tx => rest.forEach(m => tx.note('Shown', treeOf(m.record), false, { view })), { dated: false, say: `Showing only ${ms.length === 1 ? called(ms[0]) : `these ${ms.length} boxes`} in ${viewName(view)}` });
+  }
   // What's copied is marks of one view, and their names: pasting a box shows it where it was in the chart, a
   // shape is copied.
   let clip = null;
@@ -1989,6 +2025,8 @@ function mount(el) {
     const one = ms.length === 1, b = one ? { x: 0, y: 0, r: scene.page.w, d: scene.page.h }
       : { x: Math.min(...ms.map(m => m.x)), y: Math.min(...ms.map(m => m.y)), r: Math.max(...ms.map(m => m.x + m.w)), d: Math.max(...ms.map(m => m.y + m.h)) };
     const at = m => ({ left: { x: b.x }, center: { x: (b.x + b.r - m.w) / 2 }, right: { x: b.r - m.w }, top: { y: b.y }, middle: { y: (b.y + b.d - m.h) / 2 }, bottom: { y: b.d - m.h } })[how];
+    // (With nothing to do, it says so; a change writes nothing and shows nothing.)
+    if (ms.every(m => { const p = { x: m.x, y: m.y, ...at(m) }; return Math.abs(p.x - m.x) < 0.5 && Math.abs(p.y - m.y) < 0.5; })) return Shell.toast('Already aligned', { ms: 2500 });
     moveTo(new Map(ms.map(m => { const p = { x: m.x, y: m.y, ...at(m) }; return [m.id, { ...p, ...(m.points && { dx: p.x - m.x, dy: p.y - m.y }) }]; })));
   }
   function distribute(axis) {
@@ -2000,6 +2038,7 @@ function mount(el) {
     let at = first[pos];
     const places = new Map();
     for (const m of sorted) { places.set(m.id, { x: m.x, y: m.y, [pos]: at }); at += m[size] + gap; }
+    if (sorted.every(m => Math.abs(places.get(m.id)[pos] - m[pos]) < 0.5)) return Shell.toast('Already evenly spaced', { ms: 2500 });
     moveTo(places);
   }
   function match(dim) {
@@ -2263,7 +2302,7 @@ function mount(el) {
   };
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom, put, lockSize,
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom, put, lockSize, showOnly, canShowOnly,
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
@@ -2287,6 +2326,8 @@ Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destr
 const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
+Shell.register('action', { id: 'chart.only', name: 'Show only these', names: ['Hide the rest', 'Only these', 'Keep only these', 'Hide others'], enabled: () => here() && !!active.peek().canShowOnly(), run: call('showOnly'),
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select some boxes first' });
 // A box's size, typed in its panel; so with a shape's.
 Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 'Width', 'Resize', 'Lock proportions', 'Aspect ratio'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && ['box', 'shape'].includes(active.peek().selected()[0].type),
   run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="h"] input') ?? document.querySelector('.insp [data-place="w"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },

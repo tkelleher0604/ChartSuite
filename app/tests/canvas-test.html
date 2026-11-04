@@ -1245,6 +1245,8 @@ async function run() {
   await wherePut();
   await bendable();
   await layered();
+  await pickings();
+  await onlyThese();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
 }
@@ -1451,6 +1453,118 @@ async function layered() {
   for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
   check('(undone)', !sc().byId.has(band));
   Shell.select([]); await tick(150);
+}
+
+// ---- Picking (gui3 N-1.2, P-14, N-6.5, P-7, P-8): a shared run picks a selected box's line, else the run, then each of its
+// lines in turn; a right-click on a box of several gives the box's menu, one on a name the name's after it; the Key's Delete
+// says what it deletes; Align with nothing to do says so ----
+async function pickings() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const g = cv().graph, R = () => cv().root.getBoundingClientRect();
+  // The lane the GP's or the owner's lines share: a stretch two or more lines run on.
+  const lines = sc().marks.filter(m => m.type === 'line'), legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
+  let run = null;
+  for (const l of lines) for (const [a, b] of legs(l)) {
+    if (run || Math.abs(a[1] - b[1]) > 0.5 || Math.abs(a[0] - b[0]) < 12) continue;
+    const at = [a[0] + (b[0] - a[0]) * 0.37, a[1]], mates = lines.filter(o => o !== l && legs(o).some(([c, d]) => Math.abs(c[1] - d[1]) < 0.5 && Math.abs(c[1] - at[1]) < 0.5 && Math.min(c[0], d[0]) < at[0] - 1 && Math.max(c[0], d[0]) > at[0] + 1));
+    if (mates.length) run = { at, all: [l, ...mates].map(x => x.id).sort() };
+  }
+  check('(a stretch lines share)', !!run, '');
+  if (!run) return;
+  const scr = () => { const q = g.localToGraph(run.at[0], run.at[1]); return [R().left + q.x, R().top + q.y]; };
+  const on = () => { const [x, y] = scr(), el = document.elementFromPoint(x, y); return { el: el?.closest('[data-cell-id]') ?? el, x, y }; };
+  const mouse = (t, o, b = 0) => o.el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: o.x, clientY: o.y, button: b, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+  const click = async () => { const o = on(), target = document.elementFromPoint(o.x, o.y); const p = { ...o, el: target }; mouse('mousedown', p); mouse('mouseup', p); mouse('click', p); await tick(220); };
+  const picked = () => [...Shell.selection.peek()].sort();
+  await click();
+  check('a click on a shared run, nothing selected, picks the run', JSON.stringify(picked()) === JSON.stringify(run.all), JSON.stringify([picked(), run.all]));
+  const seen = [];
+  for (let i = 0; i < run.all.length; i++) { await click(); seen.push(picked().join()); }
+  check('… a second click at the same place goes through its lines one at a time', new Set(seen).size === run.all.length && seen.every(s => run.all.includes(s)), JSON.stringify(seen));
+  await click();
+  check('… and then the run again', JSON.stringify(picked()) === JSON.stringify(run.all), JSON.stringify(picked()));
+  const one = sc().byId.get(run.all[1]), box = one.from;
+  Shell.select([]); await tick(120); Shell.select([box]); await tick(150);
+  await click();
+  check('with a box selected, a click on a shared run picks that box’s line', JSON.stringify(picked()) === JSON.stringify([run.all[1]]) || picked().length === 1 && sc().byId.get(picked()[0]).from === box, JSON.stringify(picked()));
+  // A right-click among several: the box's menu, on a name too.
+  const [a, b] = ['blocker', 'corvane'].map(id => sc().byId.get(id));
+  Shell.select([a.id, b.id]); await tick(200);
+  const rightClickAt = async (m, it) => { const l = it ? it.lines[0] : null, q = g.localToGraph(m.x + (l ? l.x : 6), m.y + (l ? l.y - 3 : 6)), [x, y] = [R().left + q.x, R().top + q.y], el = document.elementFromPoint(x, y); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 2, view: window })); await tick(250); };
+  await rightClickAt(a, a.texts[0]);
+  let items = menuItems();
+  check('a right-click on a name in a selection of several gives the box menu', items.some(s => s.startsWith('Hide in this view')) && items.some(s => s.startsWith('Show only these')) && !items.some(s => s.startsWith('Clear contents')), items.join(' | '));
+  await closeMenus();
+  Shell.select([a.id]); await tick(200);
+  await rightClickAt(sc().byId.get(a.id), sc().byId.get(a.id).texts[0]);
+  items = menuItems();
+  check('one on a name in a box selected alone gives the box’s menu, and the name’s items at its end', items.some(s => s.startsWith('Hide in this view')) && items.findIndex(s => s.startsWith('Clear contents')) > items.findIndex(s => s.startsWith('Hide in this view')), items.join(' | '));
+  await closeMenus(); Shell.select([]); await tick(150);
+  // The Key's Delete.
+  const key = sc().marks.find(m => m.geometry === 'legend');
+  if (key) {
+    Shell.select([key.id]); await tick(200);
+    await rightClickAt(key);
+    check('on the Key, Delete says it’s the Key', menuItems().some(s => s.startsWith('Delete the Key')), menuItems().join(' | '));
+    await closeMenus();
+    const row = key.rows[0];
+    Shell.select([`${key.id}#${row.key}`]); await tick(200);
+    const qq = g.localToGraph(key.x + row.x + 40, key.y + row.y + 4), xy = [R().left + qq.x, R().top + qq.y];
+    document.elementFromPoint(...xy).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: xy[0], clientY: xy[1], button: 2, buttons: 2, view: window })); await tick(250);
+    check('… on a row of it selected, that it’s the row', menuItems().some(s => s.startsWith('Delete the row')), menuItems().join(' | '));
+    await closeMenus(); Shell.select([]); await tick(150);
+  }
+  // Align with nothing to do.
+  Shell.select(['blocker', 'corvane']); await tick(150);
+  const n = App.wb.changes().length;
+  cv().align('top'); await tick(250);
+  const first = App.wb.changes().length - n;
+  cv().align('top'); await tick(250);
+  check('Align with nothing to do says so, and writes nothing', App.wb.changes().length - n === first && /Already aligned/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  for (let i = 0; i < first; i++) { Shell.parts.peek().undo.undo(); await tick(200); }
+  Shell.select([]); await tick(150);
+  // Ctrl+A: one count, a group by its members.
+  Shell.select(['blocker', 'corvane']); await tick(150); cv().group(); await tick(300);
+  Shell.select([]); await tick(120);
+  key2('a', { ctrlKey: true, code: 'KeyA' }); await tick(400);
+  const ribbon = txt($('[data-fb="own"]')), panel = txt($('.insp .ih-title'));
+  check('Ctrl+A’s count is one number in the ribbon and the panel', ribbon.match(/\d+/)?.[0] === panel.match(/\d+/)?.[0], `${ribbon} | ${panel}`);
+  Shell.select([]); await tick(150);
+  Shell.parts.peek().undo.undo(); await tick(250);
+}
+const key2 = (k, o = {}) => key(k, o);
+
+// ---- Show only these (gui3 N-6.1): with boxes selected, the rest of that view hidden in one step, said with Undo; the Hidden
+// list ticks each on and off where it stands, and Hide all; a blank chart is a choice under +, begun with every box hidden ----
+async function onlyThese() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const view = App.addView('Only'); Shell.show(view); await until(() => sc()?.view === view); await tick(250);
+  const boxes = () => sc().marks.filter(m => m.type === 'box').map(m => m.id).sort();
+  const all = boxes(), keep = ['blocker', 'corvane', 'fund'], n0 = App.wb.changes().length;
+  Shell.select(keep); await tick(200);
+  const find = Shell.parts.peek().action.find(a => a.id === 'chart.only');
+  check('Show only these is in Find, by Hide the rest too', !!find?.enabled() && find.names.includes('Hide the rest'), JSON.stringify(find?.names));
+  find.run(); await tick(450);
+  check('Show only these hides the rest of that view, in one change, saying so with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && /^Showing only these 3 boxes in Only/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
+  Shell.select([]); await tick(250);
+  const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
+  const hid = all.find(id => !keep.includes(id)), r0 = row(hid), y0 = r0?.getBoundingClientRect().top;
+  r0?.querySelector('input').click(); await tick(350);
+  check('in the Hidden list a box is ticked on where it stands, its row staying put', boxes().includes(hid) && Math.abs(row(hid)?.getBoundingClientRect().top - y0) < 1 && row(hid)?.querySelector('input').checked, `${boxes().includes(hid)} ${row(hid)?.getBoundingClientRect().top} ${y0}`);
+  const hideAll = $$('.insp .hidden-acts button').find(b => txt(b) === 'Hide all');
+  hideAll?.click(); await tick(450);
+  check('Hide all hides every box the view draws', !!hideAll && !boxes().length, boxes().join());
+  Shell.show(charts().find(v => v.id === 'view_main').id); await tick(250);
+  const add = await new Promise(done => { const r = cv().root; done(Shell.parts.peek().views); });
+  const plus = document.body.appendChild(document.createElement('button'));
+  const shown = add.add(plus); await tick(200);
+  const offered = menuItems();
+  check('+ offers a chart, as ever, and a blank one', offered.includes('Chart') && offered.includes('Blank chart'), offered.join(' | '));
+  $$('.float .menu-item').find(e => txt(e) === 'Blank chart')?.click();
+  const blank = await shown; plus.remove();
+  Shell.show(blank); await until(() => sc()?.view === blank); await tick(300);
+  check('a blank chart begins with no box drawn, and every box on its Hidden list, today still shown', !boxes().length && $$('.insp .hiddenrow').length >= all.length && !Shell.time.peek(), `${boxes().length} ${$$('.insp .hiddenrow').length} ${JSON.stringify(Shell.time.peek())}`);
+  await show(charts().find(v => v.id === 'view_main')); Shell.select([]); await tick(150);
 }
 
 // ---- What a change keeps where it's drawn is drawn there again (gui2 L-2.6): two owners of Fund III imported, then
