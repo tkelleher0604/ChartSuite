@@ -2081,6 +2081,8 @@ async function format() {
   await closeMenus();
   const lookV = FormatBar.lookMenu(st.id), matchV = lookV.find(i => i.label === 'Match look'), houseV = lookV.find(i => i.label === 'House style').items;
   check('Viewing, Match look is grey, saying why; saving a look and loading one, which change no chart, go on', matchV.disabled && matchV.tip === whyV && houseV.find(i => /^Save this look/.test(i.label)) && !houseV.find(i => /^Save this look/.test(i.label)).disabled && !houseV.find(i => /^Load/.test(i.label)).disabled);
+  const tabV = Shell.parts.peek().views.menu(st.id);
+  check('… and so is the rest of a tab’s menu that writes', ['Show', 'Duplicate', 'Delete'].every(l => { const it = tabV.find(i => i.label === l); return it?.disabled && it.tip === whyV; }), JSON.stringify(tabV.map(i => [i.label, i.disabled, i.tip])));
   Shell.select([]); await tick(200);
   const capV = $$('.row.out .cap').find(c => txt(c) === 'Funds');
   capV.click(); await tick(150);
@@ -2313,7 +2315,11 @@ async function format() {
   check('… the canvas cuts what’s cropped', !!$(`.dc [data-cell-id="${picId}"] svg.dc-crop image`));
   const deck2 = await Export.write('pptx', [sc()], 'f3', { author: 'Dana Jordan', R: App.computed.peek(), N: App.notes.peek() }), z2 = await JSZip.loadAsync(deck2), x2 = await z2.file('ppt/slides/slide1.xml').async('string');
   check('… and the deck holds it as a crop', /<a:srcRect l="20000" r="0" t="0" b="0"/.test(x2), x2.match(/<a:srcRect[^>]*>/)?.[0]);
-  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
+  App.change(tx => tx.update(picId, { rotate: 30 }), { dated: false }); await tick(300);
+  const deck3 = await Export.write('pptx', [sc()], 'f3', { author: 'Dana Jordan', R: App.computed.peek(), N: App.notes.peek() }), x3 = await (await JSZip.loadAsync(deck3)).file('ppt/slides/slide1.xml').async('string'), picXml = x3.match(/<p:pic>.*?<\/p:pic>/s)?.[0] ?? '';
+  check('… turned too, the deck holds both', /<a:srcRect l="20000"/.test(picXml) && /rot="1800000"/.test(picXml), picXml.slice(0, 400));
+  check('… and the canvas turns what’s left of it', !!$(`.dc [data-cell-id="${picId}"] svg.dc-crop image`) && /rotate\(30/.test($(`.dc [data-cell-id="${picId}"]`).getAttribute('transform') ?? ''), $(`.dc [data-cell-id="${picId}"]`)?.getAttribute('transform'));
+  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
   Shell.select([]); await tick(150);
 
   // ---- The bar keeps its places ----

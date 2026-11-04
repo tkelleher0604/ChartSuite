@@ -198,9 +198,9 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .menu-item.slider > .label { flex: none; }
 .menu-item.slider > input { flex: 1; min-width: 60px; width: 0; accent-color: var(--accent); }
 /* A number typed, with its unit. */
-.typed { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); flex: none; }
-.typed > input { width: 44px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-align: right; }
-.typed > .unit { min-width: 12px; font: var(--t12); }
+.amount { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); flex: none; }
+.amount > input { width: 44px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-align: right; }
+.amount > .unit { min-width: 12px; font: var(--t12); }
 .menu-item.withfield { display: flex; align-items: center; gap: 8px; padding: 0; }
 .menu-item.withfield > .sub { flex: 1; min-width: 0; }
 /* The shadow: which way it's thrown, then what it is, each typed. */

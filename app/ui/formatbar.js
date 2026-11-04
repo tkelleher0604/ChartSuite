@@ -473,7 +473,7 @@ const Sub = ({ label, items, of, disabled }) => {
 function Typed({ label, v, unit = '', min = 0, max = 1584, step = 1, put, tries, disabled }) {
   const read = el => { const x = parseFloat(el.value); return Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : null; };
   const done = el => { const x = read(el); if (x !== null && x !== v) put(x); else el.value = String(v); };
-  return html`<span class="typed"><input value=${String(v)} aria-label=${label} disabled=${disabled} spellcheck="false" autocomplete="off" inputmode="decimal" onFocus=${e => e.currentTarget.select()}
+  return html`<span class="amount"><input value=${String(v)} aria-label=${label} disabled=${disabled} spellcheck="false" autocomplete="off" inputmode="decimal" onFocus=${e => e.currentTarget.select()}
     onInput=${e => { const x = read(e.currentTarget); if (x !== null) tries?.(x); }} onBlur=${e => { tries?.(null); done(e.currentTarget); }}
     onKeyDown=${e => { const el = e.currentTarget;
       if (e.key === 'Enter') { e.preventDefault(); tries?.(null); done(el); }
